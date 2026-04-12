@@ -1,0 +1,82 @@
+from __future__ import annotations
+
+from typing import Any
+
+import pluggy
+
+hookspec = pluggy.HookspecMarker("sqlseed")
+hookimpl = pluggy.HookimplMarker("sqlseed")
+
+PROJECT_NAME = "sqlseed"
+
+
+class SqlseedHookSpec:
+    @hookspec
+    def sqlseed_register_providers(self, registry: Any) -> None: ...
+
+    @hookspec
+    def sqlseed_register_column_mappers(self, mapper: Any) -> None: ...
+
+    @hookspec(firstresult=True)
+    def sqlseed_ai_suggest_generator(
+        self,
+        column_name: str,
+        column_type: str,
+        table_name: str,
+        all_column_names: list[str],
+    ) -> dict[str, Any] | None: ...
+
+    @hookspec
+    def sqlseed_before_generate(
+        self,
+        table_name: str,
+        count: int,
+        config: Any,
+    ) -> None: ...
+
+    @hookspec
+    def sqlseed_after_generate(
+        self,
+        table_name: str,
+        count: int,
+        elapsed: float,
+    ) -> None: ...
+
+    @hookspec
+    def sqlseed_transform_row(
+        self,
+        table_name: str,
+        row: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        """
+        Transform/modify each generated row.
+        Return modified row, or None to keep unchanged.
+        Note: This hook is in the hot path - performance sensitive.
+        """
+
+    @hookspec
+    def sqlseed_transform_batch(
+        self,
+        table_name: str,
+        batch: list[dict[str, Any]],
+    ) -> list[dict[str, Any]] | None:
+        """
+        Transform/modify a batch of generated data.
+        Multiple plugins can chain: each plugin's output feeds into the next.
+        """
+
+    @hookspec
+    def sqlseed_before_insert(
+        self,
+        table_name: str,
+        batch_number: int,
+        batch_size: int,
+    ) -> None: ...
+
+    @hookspec
+    def sqlseed_after_insert(
+        self,
+        table_name: str,
+        batch_number: int,
+        rows_inserted: int,
+    ) -> None: ...

@@ -1,0 +1,20 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "sqlseed-ai"
+version = "0.1.0"
+requires-python = ">=3.10"
+description = "AI-powered data generation plugin for sqlseed"
+dependencies = [
+    "sqlseed",
+    "openai>=1.0",
+    "pydantic>=2.0",
+]
+
+[project.entry-points."sqlseed"]
+ai = "sqlseed_ai:AISqlseedPlugin"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sqlseed_ai"]
