@@ -15,6 +15,10 @@ from sqlseed.database.sqlite_utils_adapter import SQLiteUtilsAdapter
 from sqlseed.generators.registry import ProviderRegistry
 from sqlseed.generators.stream import DataStream
 from sqlseed.plugins.manager import PluginManager
+from sqlseed.core.column_dag import ColumnDAG
+from sqlseed.core.expression import ExpressionEngine
+from sqlseed.core.constraints import ConstraintSolver
+from sqlseed.core.transform import load_transform
 
 if TYPE_CHECKING:
     from sqlseed.database._protocol import DatabaseAdapter
@@ -84,6 +88,7 @@ class DataOrchestrator:
         batch_size: int = 5000,
         clear_before: bool = False,
         column_configs: list[Any] | None = None,
+        transform: str | None = None,
     ) -> GenerationResult:
         self._ensure_connected()
         start_time = time.monotonic()
@@ -102,6 +107,17 @@ class DataOrchestrator:
             generator_specs = self._mapper.map_columns(column_infos, user_configs)
             generator_specs = self._resolve_foreign_keys(table_name, generator_specs)
 
+            dag = ColumnDAG()
+            col_configs_list = list(user_configs.values()) if user_configs else None
+            dag_nodes = dag.build(generator_specs, col_configs_list)
+
+            expr_engine = ExpressionEngine()
+            constraint_solver = ConstraintSolver()
+            
+            transform_fn = None
+            if transform:
+                transform_fn = load_transform(transform)
+
             provider = self._registry.get(self._provider_name)
 
             self._plugins.hook.sqlseed_before_generate(
@@ -110,7 +126,14 @@ class DataOrchestrator:
                 config=None,
             )
 
-            stream = DataStream(generator_specs, provider, seed=seed)
+            stream = DataStream(
+                dag_nodes=dag_nodes,
+                provider=provider,
+                expr_engine=expr_engine,
+                constraint_solver=constraint_solver,
+                transform_fn=transform_fn,
+                seed=seed,
+            )
 
             progress = create_progress()
             with progress:
@@ -176,6 +199,7 @@ class DataOrchestrator:
         count: int = 5,
         columns: dict[str, Any] | None = None,
         seed: int | None = None,
+        transform: str | None = None,
     ) -> list[dict[str, Any]]:
         self._ensure_connected()
 
@@ -184,11 +208,27 @@ class DataOrchestrator:
         generator_specs = self._mapper.map_columns(column_infos, user_configs)
         generator_specs = self._resolve_foreign_keys(table_name, generator_specs)
 
-        provider = self._registry.get(self._provider_name)
-        if seed is not None:
-            provider.set_seed(seed)
+        dag = ColumnDAG()
+        col_configs_list = list(user_configs.values()) if user_configs else None
+        dag_nodes = dag.build(generator_specs, col_configs_list)
 
-        stream = DataStream(generator_specs, provider, seed=seed)
+        expr_engine = ExpressionEngine()
+        constraint_solver = ConstraintSolver()
+        
+        transform_fn = None
+        if transform:
+            transform_fn = load_transform(transform)
+
+        provider = self._registry.get(self._provider_name)
+
+        stream = DataStream(
+            dag_nodes=dag_nodes,
+            provider=provider,
+            expr_engine=expr_engine,
+            constraint_solver=constraint_solver,
+            transform_fn=transform_fn,
+            seed=seed,
+        )
         result: list[dict[str, Any]] = []
         for batch in stream.generate(count, batch_size=count):
             current_batch = self._apply_batch_transforms(table_name, batch)
@@ -280,13 +320,10 @@ class DataOrchestrator:
         table_name: str,
         batch: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
-        """Apply all registered transform_batch hooks in chain."""
         results = self._plugins.hook.sqlseed_transform_batch(
             table_name=table_name,
             batch=batch,
         )
-        # pluggy returns a list of results from all hooks (non-firstresult mode).
-        # Chain them: use the last non-None result, or fall back to original batch.
         current = batch
         if results:
             for r in results:
@@ -294,7 +331,6 @@ class DataOrchestrator:
                     current = r
         return current
 
-    # Alias for design-doc API compatibility: `db.fill(...)` -> `db.fill_table(...)`
     def fill(
         self,
         table_name: str,
@@ -305,8 +341,8 @@ class DataOrchestrator:
         batch_size: int = 5000,
         clear_before: bool = False,
         column_configs: list[Any] | None = None,
+        transform: str | None = None,
     ) -> GenerationResult:
-        """Alias for fill_table(), matching the design-doc API."""
         return self.fill_table(
             table_name=table_name,
             count=count,
@@ -315,6 +351,7 @@ class DataOrchestrator:
             batch_size=batch_size,
             clear_before=clear_before,
             column_configs=column_configs,
+            transform=transform,
         )
 
     def close(self) -> None:

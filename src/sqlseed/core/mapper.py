@@ -149,6 +149,9 @@ class ColumnMapper:
     TYPE_FALLBACK_RULES: ClassVar[dict[str, tuple[str, dict[str, Any]]]] = {
         "INTEGER": ("integer", {"min_value": 0, "max_value": 999999}),
         "INT8": ("integer", {"min_value": 0, "max_value": 255}),
+        "INT16": ("integer", {"min_value": 0, "max_value": 65535}),
+        "INT32": ("integer", {"min_value": 0, "max_value": 2147483647}),
+        "INT64": ("integer", {"min_value": 0, "max_value": 999999999}),
         "INT": ("integer", {"min_value": 0, "max_value": 999999}),
         "TINYINT": ("integer", {"min_value": 0, "max_value": 255}),
         "SMALLINT": ("integer", {"min_value": 0, "max_value": 32767}),
@@ -164,8 +167,8 @@ class ColumnMapper:
         "DATE": ("date", {}),
         "DATETIME": ("datetime", {}),
         "TIMESTAMP": ("timestamp", {}),
-        "VARCHAR": ("string", {"min_length": 5, "max_length": 50}),
-        "CHAR": ("string", {"min_length": 1, "max_length": 1}),
+        "VARCHAR": ("string", {}),
+        "CHAR": ("string", {}),
     }
 
     def __init__(self) -> None:
@@ -178,26 +181,23 @@ class ColumnMapper:
     def register_pattern_rule(self, pattern: str, generator: str, params: dict[str, Any] | None = None) -> None:
         self._custom_pattern_rules.append((pattern, generator, params or {}))
 
-    def map_column(
-        self,
-        column_info: ColumnInfo,
-        user_config: Any = None,
-    ) -> GeneratorSpec:
+    def map_column(self, column_info: ColumnInfo, user_config: Any = None) -> GeneratorSpec:
         column_name = column_info.name.lower()
         column_type = column_info.type.upper() if column_info.type else "TEXT"
 
-        if column_info.is_primary_key and (column_info.is_autoincrement or "INTEGER" in column_type or "INT" in column_type):
+        if column_info.is_primary_key and (
+            column_info.is_autoincrement
+            or "INTEGER" in column_type
+            or "INT" in column_type
+        ):
             return GeneratorSpec(generator_name="skip")
 
         if user_config and hasattr(user_config, "generator") and user_config.generator:
-            provider_val = (
-                user_config.provider.value if hasattr(user_config, "provider") and user_config.provider else None
-            )
             return GeneratorSpec(
                 generator_name=user_config.generator,
                 params=user_config.params if hasattr(user_config, "params") else {},
-                null_ratio=(user_config.null_ratio if hasattr(user_config, "null_ratio") else 0.0),
-                provider=provider_val,
+                null_ratio=user_config.null_ratio if hasattr(user_config, "null_ratio") else 0.0,
+                provider=user_config.provider.value if hasattr(user_config, "provider") and user_config.provider else None,
             )
 
         if column_name in self._custom_exact_rules:
@@ -220,8 +220,25 @@ class ColumnMapper:
         if column_info.default is not None or column_info.nullable:
             return GeneratorSpec(generator_name="skip")
 
-        for type_prefix, (gen, params) in self.TYPE_FALLBACK_RULES.items():
-            if column_type.startswith(type_prefix):
+        return self._type_faithful_fallback(column_type)
+
+    def _type_faithful_fallback(self, column_type: str) -> GeneratorSpec:
+        import re as _re
+
+        length_match = _re.search(r"\((\d+)\)", column_type)
+        max_length = int(length_match.group(1)) if length_match else None
+
+        base_type = _re.sub(r"\(.*\)", "", column_type).strip()
+
+        for type_prefix, (gen, default_params) in self.TYPE_FALLBACK_RULES.items():
+            if base_type.startswith(type_prefix):
+                params = dict(default_params)
+                if max_length is not None:
+                    if gen == "string":
+                        params["min_length"] = 1
+                        params["max_length"] = max_length
+                    elif gen == "bytes":
+                        params["length"] = max_length
                 return GeneratorSpec(generator_name=gen, params=params)
 
         return GeneratorSpec(generator_name="string", params={"min_length": 5, "max_length": 50})

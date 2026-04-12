@@ -18,13 +18,18 @@ class SqlseedHookSpec:
     def sqlseed_register_column_mappers(self, mapper: Any) -> None: ...
 
     @hookspec(firstresult=True)
-    def sqlseed_ai_suggest_generator(
+    def sqlseed_ai_analyze_table(
         self,
-        column_name: str,
-        column_type: str,
         table_name: str,
-        all_column_names: list[str],
-    ) -> dict[str, Any] | None: ...
+        columns: list[Any],
+        indexes: list[dict[str, Any]],
+        sample_data: list[dict[str, Any]],
+        foreign_keys: list[Any],
+        all_table_names: list[str],
+    ) -> dict[str, Any] | None:
+        """
+        [AI Hook] 分析整张表，返回完整的列配置建议。
+        """
 
     @hookspec
     def sqlseed_before_generate(

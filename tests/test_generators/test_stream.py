@@ -3,16 +3,29 @@ from __future__ import annotations
 from sqlseed.core.mapper import GeneratorSpec
 from sqlseed.generators.base_provider import BaseProvider
 from sqlseed.generators.stream import DataStream
+from sqlseed.core.expression import ExpressionEngine
+from sqlseed.core.constraints import ConstraintSolver
+from sqlseed.core.column_dag import ColumnDAG
 
 
 class TestDataStream:
+    def _create_stream(self, specs, seed=42):
+        dag = ColumnDAG()
+        nodes = dag.build(specs)
+        return DataStream(
+            dag_nodes=nodes,
+            provider=BaseProvider(),
+            expr_engine=ExpressionEngine(),
+            constraint_solver=ConstraintSolver(),
+            seed=seed,
+        )
+
     def test_generate_single_batch(self) -> None:
         specs = {
             "name": GeneratorSpec(generator_name="name"),
             "email": GeneratorSpec(generator_name="email"),
         }
-        provider = BaseProvider()
-        stream = DataStream(specs, provider, seed=42)
+        stream = self._create_stream(specs, seed=42)
         batches = list(stream.generate(10, batch_size=10))
         assert len(batches) == 1
         assert len(batches[0]) == 10
@@ -23,8 +36,7 @@ class TestDataStream:
         specs = {
             "name": GeneratorSpec(generator_name="name"),
         }
-        provider = BaseProvider()
-        stream = DataStream(specs, provider, seed=42)
+        stream = self._create_stream(specs, seed=42)
         batches = list(stream.generate(15, batch_size=5))
         assert len(batches) == 3
         assert len(batches[0]) == 5
@@ -36,8 +48,7 @@ class TestDataStream:
             "id": GeneratorSpec(generator_name="skip"),
             "name": GeneratorSpec(generator_name="name"),
         }
-        provider = BaseProvider()
-        stream = DataStream(specs, provider, seed=42)
+        stream = self._create_stream(specs, seed=42)
         batches = list(stream.generate(5, batch_size=5))
         assert "id" not in batches[0][0]
         assert "name" in batches[0][0]
@@ -46,8 +57,7 @@ class TestDataStream:
         specs = {
             "name": GeneratorSpec(generator_name="name", null_ratio=1.0),
         }
-        provider = BaseProvider()
-        stream = DataStream(specs, provider, seed=42)
+        stream = self._create_stream(specs, seed=42)
         batches = list(stream.generate(10, batch_size=10))
         assert all(row["name"] is None for row in batches[0])
 
@@ -56,12 +66,10 @@ class TestDataStream:
             "name": GeneratorSpec(generator_name="name"),
             "age": GeneratorSpec(generator_name="integer", params={"min_value": 18, "max_value": 65}),
         }
-        provider1 = BaseProvider()
-        stream1 = DataStream(specs, provider1, seed=42)
+        stream1 = self._create_stream(specs, seed=42)
         batches1 = list(stream1.generate(5, batch_size=5))
 
-        provider2 = BaseProvider()
-        stream2 = DataStream(specs, provider2, seed=42)
+        stream2 = self._create_stream(specs, seed=42)
         batches2 = list(stream2.generate(5, batch_size=5))
 
         assert batches1[0] == batches2[0]
@@ -73,8 +81,7 @@ class TestDataStream:
                 params={"choices": [0, 1, 2]},
             ),
         }
-        provider = BaseProvider()
-        stream = DataStream(specs, provider, seed=42)
+        stream = self._create_stream(specs, seed=42)
         batches = list(stream.generate(10, batch_size=10))
         assert all(row["status"] in [0, 1, 2] for row in batches[0])
 
@@ -85,8 +92,7 @@ class TestDataStream:
                 params={"_ref_values": [1, 2, 3, 4, 5]},
             ),
         }
-        provider = BaseProvider()
-        stream = DataStream(specs, provider, seed=42)
+        stream = self._create_stream(specs, seed=42)
         batches = list(stream.generate(10, batch_size=10))
         assert all(row["user_id"] in [1, 2, 3, 4, 5] for row in batches[0])
 
@@ -97,8 +103,7 @@ class TestDataStream:
                 params={"max_ref": 100},
             ),
         }
-        provider = BaseProvider()
-        stream = DataStream(specs, provider, seed=42)
+        stream = self._create_stream(specs, seed=42)
         batches = list(stream.generate(5, batch_size=5))
         assert all(isinstance(row["user_id"], int) for row in batches[0])
 
@@ -106,8 +111,7 @@ class TestDataStream:
         specs = {
             "active": GeneratorSpec(generator_name="boolean"),
         }
-        provider = BaseProvider()
-        stream = DataStream(specs, provider, seed=42)
+        stream = self._create_stream(specs, seed=42)
         batches = list(stream.generate(5, batch_size=5))
         assert all(isinstance(row["active"], bool) for row in batches[0])
 
@@ -118,7 +122,6 @@ class TestDataStream:
                 params={"min_length": 5, "max_length": 10},
             ),
         }
-        provider = BaseProvider()
-        stream = DataStream(specs, provider, seed=42)
+        stream = self._create_stream(specs, seed=42)
         batches = list(stream.generate(5, batch_size=5))
         assert all(5 <= len(row["field"]) <= 10 for row in batches[0])

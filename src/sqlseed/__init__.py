@@ -91,6 +91,7 @@ def fill_from_config(config_path: str) -> list[GenerationResult]:
                 batch_size=table_config.batch_size,
                 clear_before=table_config.clear_before,
                 column_configs=table_config.columns,
+                transform=table_config.transform,
             )
             results.append(result)
     return results

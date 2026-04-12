@@ -13,6 +13,7 @@ class MimesisProvider:
     def __init__(self) -> None:
         self._generic: Any = None
         self._locale: str = "en"
+        self._seed: int | None = None
         self._init_mimesis()
 
     def _init_mimesis(self) -> None:
@@ -50,6 +51,7 @@ class MimesisProvider:
         from mimesis import Generic
         from mimesis.locales import Locale
 
+        self._seed = seed
         locale_enum = Locale(self._locale)
         self._generic = Generic(locale_enum, seed=seed)
 
@@ -191,3 +193,10 @@ class MimesisProvider:
             properties = schema.get("properties", {})
             return {k: self._generate_from_schema(v) for k, v in properties.items()}
         return self.generate_string()
+
+    def generate_pattern(self, *, regex: str) -> str:
+        import random
+        import rstr
+
+        rng = random.Random(self._seed)
+        return rstr.Rstr(rng).xeger(regex)

@@ -62,11 +62,11 @@ class TestColumnMapper:
         assert spec.generator_name == "skip"
 
     def test_type_fallback_integer(self) -> None:
-        spec = self.mapper.map_column(_col("some_number", "INTEGER"))
+        spec = self.mapper.map_column(_col("some_number", "INTEGER", nullable=False))
         assert spec.generator_name == "integer"
 
     def test_type_fallback_text(self) -> None:
-        spec = self.mapper.map_column(_col("some_field", "TEXT"))
+        spec = self.mapper.map_column(_col("some_field", "TEXT", nullable=False))
         assert spec.generator_name == "string"
 
     def test_custom_exact_rule(self) -> None:

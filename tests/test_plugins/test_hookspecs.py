@@ -15,8 +15,8 @@ class TestHookSpecs:
     def test_hookspec_has_register_column_mappers(self) -> None:
         assert hasattr(SqlseedHookSpec, "sqlseed_register_column_mappers")
 
-    def test_hookspec_has_ai_suggest_generator(self) -> None:
-        assert hasattr(SqlseedHookSpec, "sqlseed_ai_suggest_generator")
+    def test_hookspec_has_ai_analyze_table(self) -> None:
+        assert hasattr(SqlseedHookSpec, "sqlseed_ai_analyze_table")
 
     def test_hookspec_has_before_generate(self) -> None:
         assert hasattr(SqlseedHookSpec, "sqlseed_before_generate")
@@ -50,10 +50,10 @@ class TestHookSpecs:
         assert hasattr(pm.hook, "sqlseed_after_generate")
         assert hasattr(pm.hook, "sqlseed_transform_batch")
 
-    def test_ai_suggest_generator_firstresult(self) -> None:
+    def test_ai_analyze_table_firstresult(self) -> None:
         pm = pluggy.PluginManager(PROJECT_NAME)
         pm.add_hookspecs(SqlseedHookSpec)
-        spec = pm.hook.sqlseed_ai_suggest_generator
+        spec = pm.hook.sqlseed_ai_analyze_table
         assert spec.spec is not None
 
     def test_register_and_call_hook(self) -> None:

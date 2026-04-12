@@ -32,6 +32,8 @@ dependencies = [
     "click>=8.0",
     "rich>=13.0",
     "typing_extensions>=4.0",
+    "simpleeval>=1.0",
+    "rstr>=3.2",
 ]
 
 [project.optional-dependencies]
@@ -79,7 +81,7 @@ python_version = "3.10"
 files = ["src"]
 
 [[tool.mypy.overrides]]
-module = ["mimesis.*", "faker.*", "sqlite_utils.*", "yaml"]
+module = ["mimesis.*", "faker.*", "sqlite_utils.*", "yaml", "simpleeval"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

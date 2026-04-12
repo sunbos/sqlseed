@@ -207,6 +207,45 @@ def replay(snapshot_path: str) -> None:
     click.echo(str(result))
 
 
+@cli.command("ai-suggest")
+@click.argument("db_path")
+@click.option("--table", "-t", required=True, help="Target table name")
+@click.option("--output", "-o", required=True, help="Output YAML file path")
+def ai_suggest(db_path: str, table: str, output: str) -> None:
+    """Analyze table schema and suggest generation rules via AI."""
+    import yaml
+    from sqlseed.core.orchestrator import DataOrchestrator
+
+    with DataOrchestrator(db_path) as orch:
+        columns = orch._schema.get_column_info(table)
+        fks = orch._db.get_foreign_keys(table)
+        all_tables = orch._db.get_table_names()
+        
+        sample_data = []
+        try:
+            sample_data = orch._db.get_column_values(table, columns[0].name, limit=5)
+        except Exception:
+            pass
+            
+        import typing
+        indexes: list[dict[str, typing.Any]] = []
+        
+        result = orch._plugins.hook.sqlseed_ai_analyze_table(
+            table_name=table,
+            columns=columns,
+            indexes=indexes,
+            sample_data=sample_data,
+            foreign_keys=fks,
+            all_table_names=all_tables,
+        )
+        
+        if result:
+            with open(output, "w", encoding="utf-8") as f:
+                yaml.dump({"tables": [result]}, f, allow_unicode=True, sort_keys=False)
+            click.echo(f"Suggestions saved to {output}")
+        else:
+            click.echo("No suggestions received from AI plugin.")
+
 def main() -> None:
     cli()
 

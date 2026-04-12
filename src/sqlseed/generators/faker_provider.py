@@ -13,6 +13,7 @@ class FakerProvider:
     def __init__(self) -> None:
         self._faker: Any = None
         self._locale: str = "en_US"
+        self._seed: int | None = None
         self._init_faker()
 
     def _init_faker(self) -> None:
@@ -146,3 +147,10 @@ class FakerProvider:
 
     def generate_json(self, *, schema: dict[str, Any] | None = None) -> str:
         return self._faker.json(data_columns=schema)
+
+    def generate_pattern(self, *, regex: str) -> str:
+        import random
+        import rstr
+        
+        rng = random.Random(self._seed)
+        return rstr.Rstr(rng).xeger(regex)

@@ -422,6 +422,12 @@ class BaseProvider:
             data = self._generate_from_schema(schema)
         return json.dumps(data)
 
+    def generate_pattern(self, *, regex: str) -> str:
+        import rstr
+
+        r = rstr.Rstr(self._rng)
+        return r.xeger(regex)
+
     def _generate_from_schema(self, schema: dict[str, Any]) -> Any:
         schema_type = schema.get("type", "string")
         if schema_type == "string":
