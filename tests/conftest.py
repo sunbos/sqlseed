@@ -52,3 +52,25 @@ def tmp_db_with_data(tmp_db):
     conn.commit()
     conn.close()
     return tmp_db
+
+
+@pytest.fixture
+def bank_cards_db(tmp_path):
+    db_path = str(tmp_path / "bank_cards.db")
+    conn = sqlite3.connect(db_path)
+    conn.execute("""
+        CREATE TABLE bank_cards (
+            cardId INTEGER PRIMARY KEY AUTOINCREMENT,
+            card_number VARCHAR(20) NOT NULL,
+            account_id VARCHAR(32) NOT NULL,
+            last_eight VARCHAR(8),
+            last_six VARCHAR(6),
+            byCardType INTEGER DEFAULT 1,
+            byFirstCardEnable INTEGER DEFAULT 0
+        )
+    """)
+    conn.execute("CREATE UNIQUE INDEX idx_cardno ON bank_cards(card_number)")
+    conn.execute("CREATE UNIQUE INDEX idx_userno ON bank_cards(account_id)")
+    conn.commit()
+    conn.close()
+    return db_path

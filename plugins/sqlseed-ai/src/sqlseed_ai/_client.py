@@ -11,11 +11,18 @@ def get_openai_client(config: Any | None = None) -> Any:
     try:
         from openai import OpenAI
 
-        api_key = None
-        base_url = None
-        if config is not None:
-            api_key = config.api_key
-            base_url = config.base_url
+        from sqlseed_ai.config import AIConfig
+
+        if config is None:
+            config = AIConfig.from_env()
+
+        api_key = config.api_key if hasattr(config, "api_key") else None
+        base_url = config.base_url if hasattr(config, "base_url") else None
+
+        if not api_key:
+            raise ValueError(
+                "AI API key not configured. Set SQLSEED_AI_API_KEY or OPENAI_API_KEY environment variable."
+            )
 
         return OpenAI(api_key=api_key, base_url=base_url)
     except ImportError:

@@ -4,6 +4,7 @@ from typing import Any
 
 from sqlseed._utils.logger import get_logger
 from sqlseed_ai._client import get_openai_client
+from sqlseed_ai.config import AIConfig
 
 logger = get_logger(__name__)
 
@@ -22,8 +23,8 @@ class ColumnSuggester:
     ) -> dict[str, Any] | None:
         try:
             client = get_openai_client(self._config)
-            model = "gpt-4o-mini"
-            if self._config is not None:
+            model = "qwen3-coder-plus"
+            if self._config is not None and hasattr(self._config, "model"):
                 model = self._config.model
 
             prompt = (
@@ -33,7 +34,7 @@ class ColumnSuggester:
                 f"Available generators: string, integer, float, boolean, bytes, "
                 f"name, first_name, last_name, email, phone, address, company, "
                 f"url, ipv4, uuid, date, datetime, timestamp, text, sentence, "
-                f"password, choice, json, foreign_key. "
+                f"password, choice, json, foreign_key, pattern. "
                 f'Respond in JSON format: {{"generator": "...", "params": {{}}}}'
             )
 

@@ -10,6 +10,34 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
+class SharedPool:
+    """Cross-table shared value pool for maintaining referential integrity."""
+
+    def __init__(self) -> None:
+        self._pools: dict[str, list[Any]] = {}
+
+    def register(self, column_name: str, values: list[Any]) -> None:
+        self._pools[column_name] = list(values)
+
+    def get(self, column_name: str) -> list[Any]:
+        return self._pools.get(column_name, [])
+
+    def has(self, column_name: str) -> bool:
+        return column_name in self._pools and len(self._pools[column_name]) > 0
+
+    def merge(self, column_name: str, values: list[Any]) -> None:
+        if column_name not in self._pools:
+            self._pools[column_name] = []
+        existing = set(self._pools[column_name])
+        for v in values:
+            if v not in existing:
+                self._pools[column_name].append(v)
+                existing.add(v)
+
+    def clear(self) -> None:
+        self._pools.clear()
+
+
 class RelationResolver:
     def __init__(self, db_adapter: Any) -> None:
         self._db = db_adapter
@@ -80,3 +108,17 @@ class RelationResolver:
 
     def clear_cache(self) -> None:
         self._fk_cache.clear()
+
+    def load_shared_pool(self, shared_pool: SharedPool, table_name: str) -> None:
+        """Load generated values from shared pool into FK resolution."""
+        for col_name, values in shared_pool._pools.items():
+            fks = self.get_foreign_keys(table_name)
+            for fk in fks:
+                if fk.ref_column == col_name:
+                    logger.debug(
+                        "Loaded shared pool into FK",
+                        table_name=table_name,
+                        column_name=fk.column,
+                        ref_column=col_name,
+                        values_count=len(values),
+                    )

@@ -50,3 +50,9 @@ dmypy.json
 *.sqlite
 *.sqlite3
 snapshots/
+
+# macOS
+.DS_Store
+
+# Trae IDE
+.trae/

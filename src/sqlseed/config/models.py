@@ -74,12 +74,21 @@ class TableConfig(BaseModel):
     transform: str | None = None           # [NEW] Python 变换脚本路径
 
 
+class ColumnAssociation(BaseModel):
+    """跨表列关联声明 — 用于隐式关联（同名列跨表引用）"""
+    column_name: str
+    source_table: str
+    target_tables: list[str] = Field(default_factory=list)
+    strategy: str = "shared_pool"
+
+
 class GeneratorConfig(BaseModel):
     """全局生成配置"""
     db_path: str
     provider: ProviderType = ProviderType.MIMESIS
     locale: str = "en_US"
     tables: list[TableConfig] = Field(default_factory=list)
+    associations: list[ColumnAssociation] = Field(default_factory=list)
     optimize_pragma: bool = True
     log_level: str = "INFO"
     snapshot_dir: str | None = None

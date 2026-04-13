@@ -1,12 +1,12 @@
 # sqlseed
 
-> **Declarative SQLite Test Data Generation Toolkit**
+> **声明式 SQLite 测试数据生成工具包**
 
 用最少的代码，为数据库表智能生成大量高质量测试数据。
 
 [![CI](https://github.com/your-org/sqlseed/actions/workflows/ci.yml/badge.svg)](https://github.com/your-org/sqlseed/actions)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 
 ## ✨ 特性
 
@@ -17,9 +17,11 @@
 - 🔗 **外键支持** — 自动维持引用完整性，拓扑排序处理依赖关系
 - 📊 **批量优化** — SQLite PRAGMA 三级优化策略（LIGHT / MODERATE / AGGRESSIVE）
 - 🌊 **流式处理** — 内存占用恒定，与总数据量无关
-- 🧩 **插件系统** — 基于 pluggy 的可扩展架构，9 个 Hook 点覆盖全生命周期
+- 🧩 **插件系统** — 基于 pluggy 的可扩展架构，10 个 Hook 点覆盖全生命周期
 - 🤖 **AI 就绪** — `sqlseed-ai` 一等公民插件，LLM 驱动的智能数据生成
-- 🖥️ **CLI 命令行** — 完整的命令行工具支持（fill / preview / inspect / init / replay）
+- 🔗 **MCP 集成** — `mcp-server-sqlseed` 通过 Model Context Protocol 与 AI 助手交互
+- 🧮 **表达式引擎** — 安全的派生列计算，支持超时保护和回溯约束求解
+- 🖥️ **CLI 命令行** — 完整的命令行工具支持（fill / preview / inspect / init / replay / ai-suggest）
 - 📸 **快照回放** — 保存生成配置快照，随时精确回放
 
 ## 📦 安装
@@ -39,6 +41,12 @@ pip install sqlseed[all]
 
 # 开发安装
 pip install -e ".[dev,all]"
+
+# AI 插件（可选）
+pip install -e "./plugins/sqlseed-ai"
+
+# MCP 服务器（可选）
+pip install -e "./plugins/mcp-server-sqlseed"
 ```
 
 ## 🚀 快速开始
@@ -125,6 +133,9 @@ sqlseed fill test.db --table users --count 10000 --seed 42
 # 生成前清空表
 sqlseed fill test.db --table users --count 10000 --clear
 
+# 使用 YAML 配置
+sqlseed fill --config generate.yaml
+
 # 预览生成的数据（不写入）
 sqlseed preview test.db --table users --count 5
 
@@ -134,9 +145,6 @@ sqlseed inspect test.db
 # 查看特定表的列映射策略
 sqlseed inspect test.db --table users --show-mapping
 
-# 使用 YAML 配置
-sqlseed fill --config generate.yaml
-
 # 生成配置模板
 sqlseed init generate.yaml --db test.db
 
@@ -145,6 +153,10 @@ sqlseed fill test.db --table users --count 10000 --seed 42 --snapshot
 
 # 回放快照
 sqlseed replay snapshots/2026-04-12_users.yaml
+
+# AI 智能建议（需要安装 sqlseed-ai 插件）
+sqlseed ai-suggest test.db --table users --output users.yaml
+sqlseed ai-suggest test.db --table users --output users.yaml --model gpt-4o
 ```
 
 ## 📝 YAML 配置文件
@@ -213,10 +225,14 @@ src/sqlseed/
 ├── _version.py              # 版本号
 │
 ├── core/                    # ===== 核心编排层 =====
-│   ├── orchestrator.py      # DataOrchestrator 主编排引擎
-│   ├── schema.py            # SchemaInferrer - 从 DB 推断列信息
+│   ├── orchestrator.py      # DataOrchestrator 主编排引擎 (SharedPool + AI hook)
+│   ├── schema.py            # SchemaInferrer - 从 DB 推断列信息、索引、样本数据
 │   ├── mapper.py            # ColumnMapper - 列名→生成策略多级映射
-│   ├── relation.py          # RelationResolver - 外键关系解析与拓扑排序
+│   ├── relation.py          # RelationResolver + SharedPool - 外键解析与跨表共享池
+│   ├── column_dag.py        # [v2.0] ColumnDAG - 列依赖 DAG + 拓扑排序
+│   ├── expression.py        # [v2.0] ExpressionEngine - 安全表达式引擎 (simpleeval + 超时)
+│   ├── constraints.py       # [v2.0] ConstraintSolver - 唯一性约束回溯求解
+│   ├── transform.py         # [v2.0] TransformLoader - 用户脚本动态加载
 │   └── result.py            # GenerationResult 数据类
 │
 ├── generators/              # ===== 数据生成层 =====
@@ -228,13 +244,13 @@ src/sqlseed/
 │   └── stream.py            # 流式数据生成器
 │
 ├── database/                # ===== 数据库层 =====
-│   ├── _protocol.py         # DatabaseAdapter Protocol 定义
+│   ├── _protocol.py         # DatabaseAdapter Protocol (ColumnInfo, ForeignKeyInfo, IndexInfo)
 │   ├── sqlite_utils_adapter.py   # sqlite-utils 适配器
 │   ├── raw_sqlite_adapter.py     # sqlite3 回退适配器
 │   └── optimizer.py         # PragmaOptimizer - PRAGMA 智能优化
 │
 ├── plugins/                 # ===== 插件层 =====
-│   ├── hookspecs.py         # pluggy Hook 规范定义
+│   ├── hookspecs.py         # pluggy Hook 规范定义 (10 hooks)
 │   └── manager.py           # PluginManager 管理器
 │
 ├── config/                  # ===== 配置管理 =====
@@ -243,7 +259,7 @@ src/sqlseed/
 │   └── snapshot.py          # 配置快照保存与回放
 │
 ├── cli/                     # ===== 命令行接口 =====
-│   └── main.py              # click CLI 入口
+│   └── main.py              # click CLI 入口 (fill, preview, inspect, init, replay, ai-suggest)
 │
 └── _utils/                  # ===== 内部工具 =====
     ├── sql_safe.py          # SQL 标识符安全转义
@@ -251,23 +267,56 @@ src/sqlseed/
     ├── metrics.py           # 性能度量收集
     ├── progress.py          # rich 进度条封装
     └── logger.py            # structlog 日志封装
+
+plugins/
+├── sqlseed-ai/              # ===== AI 插件 =====
+│   └── src/sqlseed_ai/
+│       ├── analyzer.py      # SchemaAnalyzer - LLM 集成 + 上下文嗅探
+│       ├── suggest.py       # AI 建议生成
+│       ├── nl_config.py     # 自然语言配置
+│       ├── provider.py      # AI Provider
+│       ├── config.py        # AIConfig 配置模型
+│       └── _client.py       # LLM 客户端封装
+│
+└── mcp-server-sqlseed/      # ===== MCP 服务器 =====
+    └── src/mcp_server_sqlseed/
+        ├── server.py        # FastMCP 工具 (inspect_schema, generate_yaml, execute_fill)
+        ├── config.py        # MCP 配置
+        ├── __init__.py      # 包入口
+        └── __main__.py      # CLI 入口 (python -m mcp_server_sqlseed)
 ```
 
 ## 🧩 插件系统
 
-sqlseed 通过 [pluggy](https://pluggy.readthedocs.io/) 提供完整的插件扩展能力，9 个 Hook 点覆盖数据生成全生命周期：
+sqlseed 通过 [pluggy](https://pluggy.readthedocs.io/) 提供完整的插件扩展能力，10 个 Hook 点覆盖数据生成全生命周期：
 
 | Hook | 说明 |
 |------|------|
 | `sqlseed_register_providers` | 注册自定义 Provider |
 | `sqlseed_register_column_mappers` | 注册自定义列映射规则 |
-| `sqlseed_ai_suggest_generator` | AI 智能列映射推荐 |
+| `sqlseed_ai_analyze_table` | AI 智能表分析（firstresult） |
 | `sqlseed_before_generate` | 数据生成前钩子 |
 | `sqlseed_after_generate` | 数据生成后钩子 |
 | `sqlseed_transform_row` | 行级转换 |
 | `sqlseed_transform_batch` | 批次级转换（支持链式处理） |
 | `sqlseed_before_insert` | 批次插入前钩子 |
 | `sqlseed_after_insert` | 批次插入后钩子 |
+| `sqlseed_shared_pool_loaded` | 跨表共享池加载完成钩子 |
+
+## 🔗 MCP 服务器
+
+`mcp-server-sqlseed` 提供三个 MCP 工具，允许 AI 助手（如 Claude、Cursor）直接与 sqlseed 交互：
+
+| 工具 | 说明 |
+|------|------|
+| `sqlseed_inspect_schema` | 检查数据库 Schema（列、外键、索引、样本数据） |
+| `sqlseed_generate_yaml` | AI 驱动的 YAML 配置生成 |
+| `sqlseed_execute_fill` | 执行数据生成（支持 YAML 配置） |
+
+```bash
+# 启动 MCP 服务器
+python -m mcp_server_sqlseed
+```
 
 ## 🛠️ 开发
 
@@ -288,12 +337,6 @@ ruff check src/ tests/
 # 类型检查
 mypy src/sqlseed/
 ```
-
-## 📊 测试
-
-- **286 个测试** 全部通过
-- **98% 测试覆盖率**
-- 测试策略：单元测试 + 集成测试 + CLI 测试 + 快照测试
 
 ## 📄 License
 

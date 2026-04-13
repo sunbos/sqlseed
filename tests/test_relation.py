@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 
-from sqlseed.core.relation import RelationResolver
+from sqlseed.core.relation import RelationResolver, SharedPool
 from sqlseed.database.raw_sqlite_adapter import RawSQLiteAdapter
 
 
@@ -125,3 +125,42 @@ class TestRelationResolver:
             assert len(resolver._fk_cache) == 0
         finally:
             adapter.close()
+
+
+class TestSharedPool:
+    def test_register_and_get(self):
+        pool = SharedPool()
+        pool.register("account_id", ["U001", "U002"])
+        assert pool.get("account_id") == ["U001", "U002"]
+
+    def test_has(self):
+        pool = SharedPool()
+        assert not pool.has("account_id")
+        pool.register("account_id", ["U001"])
+        assert pool.has("account_id")
+
+    def test_has_empty(self):
+        pool = SharedPool()
+        pool.register("account_id", [])
+        assert not pool.has("account_id")
+
+    def test_get_nonexistent(self):
+        pool = SharedPool()
+        assert pool.get("nonexistent") == []
+
+    def test_merge_deduplicates(self):
+        pool = SharedPool()
+        pool.register("account_id", ["U001", "U002"])
+        pool.merge("account_id", ["U002", "U003"])
+        assert pool.get("account_id") == ["U001", "U002", "U003"]
+
+    def test_merge_new_key(self):
+        pool = SharedPool()
+        pool.merge("account_id", ["U001"])
+        assert pool.get("account_id") == ["U001"]
+
+    def test_clear(self):
+        pool = SharedPool()
+        pool.register("account_id", ["U001"])
+        pool.clear()
+        assert not pool.has("account_id")

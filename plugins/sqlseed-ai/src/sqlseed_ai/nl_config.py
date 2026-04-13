@@ -4,6 +4,7 @@ from typing import Any
 
 from sqlseed._utils.logger import get_logger
 from sqlseed_ai._client import get_openai_client
+from sqlseed_ai.config import AIConfig
 
 logger = get_logger(__name__)
 
@@ -16,8 +17,8 @@ class NLConfigGenerator:
     def generate(self, description: str, db_path: str | None = None) -> dict[str, Any]:
         try:
             client = get_openai_client(self._config)
-            model = "gpt-4o-mini"
-            if self._config is not None:
+            model = "qwen3-coder-plus"
+            if self._config is not None and hasattr(self._config, "model"):
                 model = self._config.model
 
             schema_info = ""

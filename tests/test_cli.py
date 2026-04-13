@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 from click.testing import CliRunner
 
 from sqlseed.cli.main import cli
@@ -169,4 +170,33 @@ class TestCLIMain:
     def test_main_entry(self) -> None:
         runner = CliRunner()
         result = runner.invoke(cli, ["--version"])
+        assert result.exit_code == 0
+
+
+class TestCLIAISuggest:
+    @pytest.mark.skipif(
+        True,
+        reason="Requires sqlseed-ai plugin and API key",
+    )
+    def test_ai_suggest_no_api_key(self, bank_cards_db, tmp_path) -> None:
+        runner = CliRunner()
+        output_path = str(tmp_path / "output.yaml")
+        result = runner.invoke(
+            cli,
+            ["ai-suggest", bank_cards_db, "--table", "bank_cards", "--output", output_path],
+        )
+        assert result.exit_code == 0
+        assert "No suggestions received" in result.output
+
+    @pytest.mark.skipif(
+        True,
+        reason="Requires sqlseed-ai plugin and API key",
+    )
+    def test_ai_suggest_with_model_option(self, bank_cards_db, tmp_path) -> None:
+        runner = CliRunner()
+        output_path = str(tmp_path / "output.yaml")
+        result = runner.invoke(
+            cli,
+            ["ai-suggest", bank_cards_db, "--table", "bank_cards", "--output", output_path, "--model", "gpt-4o"],
+        )
         assert result.exit_code == 0

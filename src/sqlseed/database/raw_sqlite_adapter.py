@@ -7,7 +7,7 @@ from typing_extensions import Self
 
 from sqlseed._utils.logger import get_logger
 from sqlseed._utils.sql_safe import build_insert_sql, quote_identifier
-from sqlseed.database._protocol import ColumnInfo, ForeignKeyInfo
+from sqlseed.database._protocol import ColumnInfo, ForeignKeyInfo, IndexInfo
 from sqlseed.database.optimizer import PragmaOptimizer
 
 if TYPE_CHECKING:
@@ -105,6 +105,29 @@ class RawSQLiteAdapter:
             [limit],
         )
         return [row[0] for row in cursor.fetchall()]
+
+    def get_index_info(self, table_name: str) -> list[IndexInfo]:
+        safe_table = quote_identifier(table_name)
+        cursor = self.conn.execute(f"PRAGMA index_list({safe_table})")
+        result: list[IndexInfo] = []
+        for row in cursor.fetchall():
+            idx_name = row[1]
+            is_unique = bool(row[2])
+            if idx_name.startswith("sqlite_autoindex_"):
+                continue
+            col_cursor = self.conn.execute(f"PRAGMA index_info({quote_identifier(idx_name)})")
+            columns = [cr[2] for cr in col_cursor.fetchall() if cr[2] is not None]
+            result.append(IndexInfo(name=idx_name, table=table_name, columns=columns, unique=is_unique))
+        return result
+
+    def get_sample_rows(self, table_name: str, limit: int = 5) -> list[dict[str, Any]]:
+        safe_table = quote_identifier(table_name)
+        columns = self.get_column_info(table_name)
+        col_names = [quote_identifier(c.name) for c in columns]
+        cols_sql = ", ".join(col_names)
+        cursor = self.conn.execute(f"SELECT {cols_sql} FROM {safe_table} LIMIT ?", [limit])
+        col_name_list = [c.name for c in columns]
+        return [dict(zip(col_name_list, row)) for row in cursor.fetchall()]
 
     def batch_insert(
         self,

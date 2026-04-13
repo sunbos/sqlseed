@@ -1,36 +1,35 @@
-# CLAUDE.md — Claude-specific Instructions for sqlseed
+# CLAUDE.md — sqlseed Claude 专用指令
 
-This file provides instructions specifically for Claude (Anthropic) when working on the sqlseed codebase. It supplements the general instructions in `AGENTS.md`.
+本文件为 Claude（Anthropic）在 sqlseed 代码库中工作提供专用指令，补充 `AGENTS.md` 中的通用指令。
 
-## Project Context
+## 项目背景
 
-sqlseed is a Python 3.10+ library using `src` layout (`src/sqlseed/`). The architecture design document is at `implementation_plan.md` in the project root — always consult it for design decisions and interface contracts.
+sqlseed 是一个 Python 3.10+ 库，使用 `src` 布局（`src/sqlseed/`）。本文件（`AGENTS.md`）包含完整的架构说明和设计决策。
 
-## How to Work on This Project
+## 如何参与本项目
 
-### Before Making Changes
+### 修改前
 
-1. Read `implementation_plan.md` for architecture context
-2. Read `AGENTS.md` for general conventions
-3. Check existing tests in `tests/` to understand testing patterns
-4. Run `pytest` to verify baseline before changes
+1. 阅读 `AGENTS.md` 了解通用规范和架构
+2. 检查 `tests/` 中的现有测试，了解测试模式
+4. 修改前运行 `pytest` 验证基线
 
-### When Adding Features
+### 添加功能时
 
-1. Follow the Protocol-based design pattern. New providers/adapters must satisfy existing Protocols.
-2. All public functions need keyword-only arguments (use `*` separator).
-3. Use Pydantic BaseModel for any new configuration structures.
-4. Register new components via the existing Registry/Plugin patterns.
+1. 遵循基于 Protocol 的设计模式。新的 Provider/Adapter 必须满足现有 Protocol。
+2. 所有公共函数需要仅关键字参数（使用 `*` 分隔符）。
+3. 任何新的配置结构使用 Pydantic BaseModel。
+4. 通过现有的 Registry/Plugin 模式注册新组件。
 
-### When Fixing Bugs
+### 修复 Bug 时
 
-1. Write a failing test first
-2. Fix the bug
-3. Verify all 286+ tests pass with `pytest`
+1. 先编写失败的测试
+2. 修复 Bug
+3. 验证所有测试通过（`pytest`）
 
-## Technical Specifics
+## 技术细节
 
-### Module Dependencies (Layered Architecture)
+### 模块依赖（分层架构）
 
 ```
 cli/ → core/ → generators/
@@ -38,59 +37,66 @@ cli/ → core/ → generators/
                 plugins/
                 config/
 
-_utils/ → (no internal dependencies, used by all layers)
+_utils/ → （无内部依赖，被所有层使用）
 ```
 
-### Testing Patterns
+### 测试模式
 
-- **Fixtures**: Common fixtures in `tests/conftest.py` (temp DB paths, sample tables)
-- **Adapters**: Tested with real SQLite databases (`:memory:` and tmp files)
-- **CLI**: Use `click.testing.CliRunner` — never subprocess
-- **Providers**: Test each generate_* method independently
-- **Plugins**: Test hook registration and invocation via `PluginManager`
+- **Fixtures**：公共 fixtures 在 `tests/conftest.py`（临时数据库路径、示例表）
+- **适配器**：使用真实 SQLite 数据库测试（`:memory:` 和临时文件）
+- **CLI**：使用 `click.testing.CliRunner` — 禁止使用 subprocess
+- **Provider**：独立测试每个 generate_* 方法
+- **插件**：通过 `PluginManager` 测试 Hook 注册和调用
+- **AI 测试**：需要 `sqlseed-ai` 插件的测试使用 `@pytest.mark.skipif`
 
-### Key Implementation Details
+### 关键实现细节
 
-- `DataOrchestrator.fill()` is the primary alias (matches design doc). `fill_table()` is the original implementation.
-- `transform_batch` hooks return `list[result]` (non-firstresult). The orchestrator chains them via `_apply_batch_transforms()`.
-- `DataStream` uses its own `random.Random(seed)` instance for null_ratio/choice operations, separate from the provider's RNG.
-- `PragmaOptimizer.restore()` validates PRAGMA values with regex before applying them (security measure).
-- `_is_autoincrement` detection is centralized in `_utils/schema_helpers.py`.
+- `DataOrchestrator.fill()` 是主要别名（匹配设计文档）。`fill_table()` 是原始实现。
+- `transform_batch` Hook 返回 `list[result]`（非 firstresult）。编排器通过 `_apply_batch_transforms()` 链式处理。
+- `DataStream` 使用自己的 `random.Random(seed)` 实例处理 null_ratio/choice 操作，与 Provider 的 RNG 分离。
+- `PragmaOptimizer.restore()` 在应用 PRAGMA 值前用正则验证（安全措施）。
+- `_is_autoincrement` 检测集中在 `_utils/schema_helpers.py`。
+- `ExpressionEngine` 具有基于线程的超时机制（默认 5 秒），通过 `ExpressionTimeoutError` 报告。
+- `relation.py` 中的 `SharedPool` 维护跨表值池以保持 FK 引用完整性。
+- `DatabaseAdapter` Protocol 包含 `IndexInfo`、`get_index_info()` 和 `get_sample_rows()`。
+- 插件系统有 10 个 Hook，包括 `sqlseed_ai_analyze_table`（firstresult）和 `sqlseed_shared_pool_loaded`。
+- CLI `fill` 命令使用 `--config` 时 `db_path` 为可选。
+- AI 插件默认模型为 `qwen3-coder-plus`，可通过 `AIConfig` 或环境变量配置。
 
-### Style Guide
+### 代码风格
 
 ```python
-# ✅ Good
+# ✅ 好的
 from __future__ import annotations
 from typing import Any
 
 def some_function(*, required_param: str, optional: int = 10) -> list[str]:
     ...
 
-# ❌ Bad
+# ❌ 不好的
 from typing import Union, List, Optional
 
 def some_function(required_param, optional=10):
     ...
 ```
 
-### Imports
+### 导入
 
 ```python
-# ✅ Preferred: TYPE_CHECKING guard for type-only imports
+# ✅ 推荐：TYPE_CHECKING 守卫用于仅类型导入
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from sqlseed.database._protocol import ColumnInfo
 
-# ✅ Preferred: Lazy imports for optional dependencies
+# ✅ 推荐：可选依赖的延迟导入
 def method(self):
-    import sqlite_utils  # imported here, not at module top
+    import sqlite_utils  # 在此处导入，而非模块顶部
 ```
 
-## File Templates
+## 文件模板
 
-### New Provider Template
+### 新 Provider 模板
 
 ```python
 from __future__ import annotations
@@ -110,11 +116,11 @@ class NewProvider:
     def set_seed(self, seed: int) -> None:
         ...
 
-    # Implement all methods from DataProvider Protocol
-    # See: src/sqlseed/generators/_protocol.py
+    # 实现 DataProvider Protocol 的所有方法
+    # 参见：src/sqlseed/generators/_protocol.py
 ```
 
-### New Test Template
+### 新测试模板
 
 ```python
 from __future__ import annotations
@@ -132,29 +138,31 @@ class TestNewFeature:
             ...
 ```
 
-## Common Pitfalls
+## 常见陷阱
 
-1. **Seed handling**: Don't set provider seed in orchestrator — `DataStream.__init__` handles it
-2. **Hook returns**: `pluggy` returns `list[result]` for non-firstresult hooks, not a single value
-3. **sqlite-utils API**: `table.columns_dict` returns `{name: type}`, the type may be a Python type class, not a string
-4. **Mimesis locale**: Uses short codes ("en", "zh") not Faker-style ("en_US", "zh_CN") — see `MimesisProvider.set_locale()` mapping
-5. **Memory**: Never collect all rows before writing — use `DataStream.generate()` which yields batches
+1. **种子处理**：不要在编排器中设置 Provider 种子 — `DataStream.__init__` 负责处理
+2. **Hook 返回值**：`pluggy` 对非 firstresult Hook 返回 `list[result]`，不是单个值
+3. **sqlite-utils API**：`table.columns_dict` 返回 `{name: type}`，type 可能是 Python 类型类，不是字符串
+4. **Mimesis 地区**：使用短代码（"en"、"zh"）而非 Faker 风格（"en_US"、"zh_CN"）— 参见 `MimesisProvider.set_locale()` 映射
+5. **内存**：永远不要在写入前收集所有行 — 使用 `DataStream.generate()` 逐批 yield
+6. **表达式超时**：使用 `ExpressionEngine.evaluate()` 时始终处理 `ExpressionTimeoutError`
+7. **AI 插件测试**：需要可选 `sqlseed-ai` 依赖的测试使用 `@pytest.mark.skipif`
 
-## Useful Commands
+## 常用命令
 
 ```bash
-# Run specific test file
+# 运行特定测试文件
 pytest tests/test_orchestrator.py -v
 
-# Run tests matching a pattern
+# 运行匹配模式的测试
 pytest -k "test_fill" -v
 
-# Run with full output
+# 完整输出运行
 pytest --tb=long --no-header -v
 
-# Check coverage for a specific module
+# 检查特定模块覆盖率
 pytest --cov=sqlseed.core.orchestrator --cov-report=term-missing
 
-# Lint and auto-fix
+# 代码检查并自动修复
 ruff check --fix src/ tests/
 ```

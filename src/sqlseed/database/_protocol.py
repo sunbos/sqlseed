@@ -24,6 +24,14 @@ class ForeignKeyInfo:
     ref_column: str
 
 
+@dataclass(frozen=True)
+class IndexInfo:
+    name: str
+    table: str
+    columns: list[str]
+    unique: bool
+
+
 @runtime_checkable
 class DatabaseAdapter(Protocol):
     def connect(self, db_path: str) -> None: ...
@@ -41,6 +49,10 @@ class DatabaseAdapter(Protocol):
     def get_row_count(self, table_name: str) -> int: ...
 
     def get_column_values(self, table_name: str, column_name: str, limit: int = 1000) -> list[Any]: ...
+
+    def get_index_info(self, table_name: str) -> list[IndexInfo]: ...
+
+    def get_sample_rows(self, table_name: str, limit: int = 5) -> list[dict[str, Any]]: ...
 
     def batch_insert(
         self,

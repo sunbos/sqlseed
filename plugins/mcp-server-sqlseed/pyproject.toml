@@ -1,0 +1,22 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mcp-server-sqlseed"
+version = "0.1.0"
+requires-python = ">=3.10"
+description = "MCP server for sqlseed - AI-powered SQLite test data generation"
+dependencies = [
+    "sqlseed",
+    "mcp>=1.0",
+]
+
+[project.optional-dependencies]
+ai = ["sqlseed-ai"]
+
+[project.scripts]
+mcp-server-sqlseed = "mcp_server_sqlseed:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mcp_server_sqlseed"]

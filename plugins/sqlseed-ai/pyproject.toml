@@ -14,7 +14,7 @@ dependencies = [
 ]
 
 [project.entry-points."sqlseed"]
-ai = "sqlseed_ai:AISqlseedPlugin"
+ai = "sqlseed_ai:plugin"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/sqlseed_ai"]

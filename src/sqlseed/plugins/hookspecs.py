@@ -85,3 +85,14 @@ class SqlseedHookSpec:
         batch_number: int,
         rows_inserted: int,
     ) -> None: ...
+
+    @hookspec
+    def sqlseed_shared_pool_loaded(
+        self,
+        table_name: str,
+        shared_pool: Any,
+    ) -> None:
+        """
+        Called after a table's generated values are loaded into the shared pool.
+        Other plugins can use this to track cross-table associations.
+        """

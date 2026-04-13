@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from sqlseed.database._protocol import ColumnInfo, ForeignKeyInfo
+    from sqlseed.database._protocol import ColumnInfo, ForeignKeyInfo, IndexInfo
 
 
 class SchemaInferrer:
@@ -25,3 +25,9 @@ class SchemaInferrer:
     def get_table_schema(self, table_name: str) -> dict[str, ColumnInfo]:
         columns = self.get_column_info(table_name)
         return {col.name: col for col in columns}
+
+    def get_index_info(self, table_name: str) -> list[IndexInfo]:
+        return list(self._db.get_index_info(table_name))
+
+    def get_sample_data(self, table_name: str, limit: int = 5) -> list[dict[str, Any]]:
+        return self._db.get_sample_rows(table_name, limit=limit)

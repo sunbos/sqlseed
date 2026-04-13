@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from sqlseed.generators.base_provider import BaseProvider
 from sqlseed.generators.registry import ProviderRegistry
 
@@ -48,13 +50,23 @@ class TestProviderRegistry:
 
     def test_ensure_provider_faker(self) -> None:
         registry = ProviderRegistry()
-        provider = registry.ensure_provider("faker")
-        assert provider.name == "faker"
+        try:
+            from sqlseed.generators.faker_provider import FakerProvider
+
+            provider = registry.ensure_provider("faker")
+            assert provider.name == "faker"
+        except ImportError:
+            pytest.skip("Faker is not installed")
 
     def test_ensure_provider_mimesis(self) -> None:
         registry = ProviderRegistry()
-        provider = registry.ensure_provider("mimesis")
-        assert provider.name == "mimesis"
+        try:
+            from sqlseed.generators.mimesis_provider import MimesisProvider
+
+            provider = registry.ensure_provider("mimesis")
+            assert provider.name == "mimesis"
+        except ImportError:
+            pytest.skip("Mimesis is not installed")
 
     def test_ensure_provider_unknown(self) -> None:
         registry = ProviderRegistry()
