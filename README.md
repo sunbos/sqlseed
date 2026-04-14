@@ -137,10 +137,10 @@ pip install sqlseed[all]
 
 ```bash
 # AI 智能分析插件（LLM 驱动）
-pip install -e "./plugins/sqlseed-ai"
+pip install sqlseed-ai
 
 # MCP 服务器（让 AI 助手直接操作 sqlseed）
-pip install -e "./plugins/mcp-server-sqlseed"
+pip install mcp-server-sqlseed
 ```
 
 <details>
@@ -571,7 +571,7 @@ sqlseed replay snapshots/2026-04-15_033000_users.yaml
 
 ```bash
 # 安装 AI 插件
-pip install -e "./plugins/sqlseed-ai"
+pip install sqlseed-ai
 
 # 设置 API Key
 export SQLSEED_AI_API_KEY="your-api-key"
@@ -611,7 +611,7 @@ sqlseed ai-suggest app.db --table bank_cards --output bank_cards.yaml --no-cache
 
 ```bash
 # 安装 MCP 服务器
-pip install -e "./plugins/mcp-server-sqlseed"
+pip install mcp-server-sqlseed
 
 # 启动
 python -m mcp_server_sqlseed
