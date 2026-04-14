@@ -62,3 +62,8 @@ _archived_temp/
 
 # Trae IDE
 .trae/
+
+# Build artifacts
+dist/
+*.whl
+*.tar.gz

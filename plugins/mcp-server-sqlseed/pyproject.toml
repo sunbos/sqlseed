@@ -7,10 +7,27 @@ name = "mcp-server-sqlseed"
 version = "0.1.0"
 requires-python = ">=3.10"
 description = "MCP server for sqlseed - AI-powered SQLite test data generation"
+license = "AGPL-3.0-or-later"
+authors = [
+    {name = "SunBo", email = "1443584939@qq.com"},
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
 dependencies = [
     "sqlseed",
     "mcp>=1.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/sunbos/sqlseed"
+Repository = "https://github.com/sunbos/sqlseed/tree/main/plugins/mcp-server-sqlseed"
 
 [project.optional-dependencies]
 ai = ["sqlseed-ai"]
