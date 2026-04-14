@@ -52,7 +52,7 @@ class AiConfigRefiner:
 
             schema_ctx = orch.get_schema_context(table_name)
 
-            messages = self._analyzer.build_initial_messages(
+            initial_messages = self._analyzer.build_initial_messages(
                 table_name=schema_ctx["table_name"],
                 columns=schema_ctx["columns"],
                 indexes=schema_ctx["indexes"],
@@ -62,7 +62,10 @@ class AiConfigRefiner:
                 distribution_profiles=schema_ctx.get("distribution"),
             )
 
+            messages_history = list(initial_messages)
+
             for attempt in range(max_retries + 1):
+                messages = list(messages_history)
                 try:
                     config_dict = self._analyzer.call_llm(messages)
                 except Exception as e:
@@ -75,10 +78,12 @@ class AiConfigRefiner:
                         raise AISuggestionFailedError(
                             f"Failed after {max_retries} retries. Last error: {error.message}"
                         ) from e
-                    messages.append({
-                        "role": "user",
-                        "content": self._build_refinement_prompt(error, attempt, max_retries),
-                    })
+                    logger.info(
+                        "LLM API call failed, retrying",
+                        attempt=attempt + 1,
+                        max_retries=max_retries,
+                        error=error.message,
+                    )
                     continue
 
                 error = self._validate_config(orch, table_name, config_dict)
@@ -115,11 +120,11 @@ class AiConfigRefiner:
                     column=error.column,
                 )
 
-                messages.append({
+                messages_history.append({
                     "role": "assistant",
                     "content": json.dumps(config_dict, ensure_ascii=False),
                 })
-                messages.append({
+                messages_history.append({
                     "role": "user",
                     "content": self._build_refinement_prompt(error, attempt, max_retries),
                 })

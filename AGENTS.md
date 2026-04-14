@@ -23,13 +23,13 @@ src/sqlseed/
 ├── generators/     → 数据生成（Protocol、注册表、base/faker/mimesis Provider、流式）
 ├── database/       → 数据库访问（Protocol、sqlite-utils + 原生适配器、PRAGMA 优化器）
 │                   → Protocol 包含 IndexInfo + get_sample_rows
-├── plugins/        → 插件系统（pluggy hookspecs + 管理器，10 个 Hook）
+├── plugins/        → 插件系统（pluggy hookspecs + 管理器，11 个 Hook）
 ├── config/         → 配置（Pydantic 模型，含 ColumnConstraints/derive_from/transform）
 ├── cli/            → CLI 接口（click 命令：fill、preview、inspect、init、replay、ai-suggest）
 └── _utils/         → 内部工具（sql_safe、schema_helpers、metrics、progress、logger）
 
 plugins/
-├── sqlseed-ai/     → AI 插件（SchemaAnalyzer、LLM 集成、suggest/nl_config）
+├── sqlseed-ai/     → AI 插件（SchemaAnalyzer、AiConfigRefiner、LLM 集成、suggest/nl_config）
 └── mcp-server-sqlseed/ → MCP 服务器（FastMCP：inspect_schema、generate_yaml、execute_fill）
 ```
 
@@ -49,17 +49,19 @@ plugins/
 
 6. **表达式引擎**（v2.0）：基于 `simpleeval` 的安全表达式求值器，具有基于线程的超时保护。支持字符串切片（`value[-8:]`）、函数调用（`upper(value)`）和数学运算。不允许 `import`/`exec`/文件 I/O。
 
-7. **约束求解器**（v2.0）：通过重试和回溯处理唯一性约束。当派生列的唯一约束失败时，求解器回溯重新生成源列。
+7. **约束求解器**（v2.0）：通过重试和回溯处理唯一性约束。当派生列的唯一约束失败时，求解器回溯重新生成源列。支持复合唯一约束和大数据集概率模式。
 
 8. **Transform 脚本**（v2.0）：用户可以编写包含 `transform_row(row, ctx)` 函数的 Python 脚本。通过 `importlib` 动态加载。这是处理极端业务逻辑的逃生通道。
 
 9. **PRAGMA 优化**：根据行数分三个等级 — LIGHT（<10K）、MODERATE（10K-100K）、AGGRESSIVE（>100K）。
 
-10. **AI 作为一等公民插件**：`sqlseed-ai` 包是独立的可 pip 安装插件，通过 Hook 集成。AI 的角色是**顾问**（分析 Schema → 输出 YAML 建议 → 人工审核）。
+10. **AI 作为一等公民插件**：`sqlseed-ai` 包是独立的可 pip 安装插件，通过 Hook 集成。AI 的角色是**顾问**（分析 Schema → 输出 YAML 建议 → 人工审核）。支持自纠正闭环、Few-shot 示例、缓存和预计算模板池。
 
 11. **MCP 服务器**（v2.0）：`mcp-server-sqlseed` 提供三个 MCP 工具（`sqlseed_inspect_schema`、`sqlseed_generate_yaml`、`sqlseed_execute_fill`），使 AI 助手能够通过 Model Context Protocol 与 sqlseed 交互。
 
 12. **跨表 SharedPool**（v2.0）：`relation.py` 中的 `SharedPool` 维护跨表值池以保持引用完整性。表填充完成后，其生成的值被注册到池中，供后续 FK 解析使用。
+
+13. **自纠正闭环**：`AiConfigRefiner` 自动检测并修复无效配置，支持最多 3 轮重试。错误摘要系统智能分类错误类型，生成针对性修复提示。
 
 ## 代码规范
 
@@ -130,9 +132,18 @@ mypy src/sqlseed/
 | `src/sqlseed/core/schema.py` | Schema 推断（列、索引、样本数据） |
 | `src/sqlseed/generators/_protocol.py` | DataProvider 接口契约 |
 | `src/sqlseed/database/_protocol.py` | DatabaseAdapter 接口契约（ColumnInfo、ForeignKeyInfo、IndexInfo） |
-| `src/sqlseed/plugins/hookspecs.py` | 所有插件 Hook 定义（10 个） |
+| `src/sqlseed/plugins/hookspecs.py` | 所有插件 Hook 定义（11 个） |
 | `plugins/sqlseed-ai/src/sqlseed_ai/analyzer.py` | AI SchemaAnalyzer（LLM 集成） |
+| `plugins/sqlseed-ai/src/sqlseed_ai/refiner.py` | AI 自纠正闭环（AiConfigRefiner） |
+| `plugins/sqlseed-ai/src/sqlseed_ai/errors.py` | 错误摘要与分类 |
+| `plugins/sqlseed-ai/src/sqlseed_ai/examples.py` | Few-shot 示例库 |
+| `plugins/sqlseed-ai/src/sqlseed_ai/suggest.py` | 列级 AI 建议 |
+| `plugins/sqlseed-ai/src/sqlseed_ai/nl_config.py` | 自然语言配置生成 |
+| `plugins/sqlseed-ai/src/sqlseed_ai/provider.py` | AI Provider 空壳实现 |
+| `plugins/sqlseed-ai/src/sqlseed_ai/_client.py` | OpenAI 客户端工厂 |
+| `plugins/sqlseed-ai/src/sqlseed_ai/_json_utils.py` | JSON 解析工具 |
 | `plugins/mcp-server-sqlseed/src/mcp_server_sqlseed/server.py` | MCP 服务器工具 |
+| `plugins/mcp-server-sqlseed/src/mcp_server_sqlseed/config.py` | MCP 服务器配置 |
 
 ## 禁止事项
 

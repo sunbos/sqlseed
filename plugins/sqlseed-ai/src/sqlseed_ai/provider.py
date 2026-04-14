@@ -83,3 +83,6 @@ class AIProvider:
 
     def generate_json(self, **kwargs: Any) -> str:
         return "{}"
+
+    def generate_pattern(self, *, regex: str, **kwargs: Any) -> str:
+        return ""

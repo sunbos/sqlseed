@@ -43,6 +43,25 @@
 - CLI `ai-suggest` 命令，AI 驱动的 YAML 生成
 - 自然语言配置（`nl_config.py`）
 
+#### AI Evolution — 智能增强
+- 结构化输出迁移：YAML → JSON，`response_format` 强制 JSON 输出
+- 自纠正闭环：`AiConfigRefiner` 自动检测并修复无效配置，支持最多 3 轮重试
+- 错误摘要系统：`errors.py` 智能分类错误（未知生成器、Pydantic 验证、表达式超时等）
+- 数据分布增强：`profile_column_distribution()` 分析列数据分布，注入 LLM 上下文
+- Few-shot 示例库：4 个典型场景示例（用户表、银行卡表、订单表、员工表）
+- 文件缓存：带 schema hash 校验的配置缓存，`--no-cache` 标志跳过缓存
+- 预计算模板池：`sqlseed_pre_generate_templates` Hook，AI 为复杂列预生成值
+- MCP 增强：Schema Resource、schema_hash 工具返回值
+
+#### 架构优化
+- 约束求解器回溯机制：`RegisterResult` + `try_register()`，派生列 UNIQUE 约束失败时回溯源列
+- Refiner 解耦：`get_column_names()` + `get_skippable_columns()` 公开接口，不再访问私有属性
+- 语义化异常：`UnknownGeneratorError` 替代脆弱的字符串匹配
+- AI 建议扩展：支持 `integer`、`date`、`datetime`、`choice` 类型列
+- 词边界列匹配：`_is_simple_column()` 使用正则词边界替代子串匹配
+- 复合唯一约束：`check_composite()` + `unregister_composite()`
+- 大数据集优化：`probabilistic=True` 启用 hash-based 去重，降低内存占用
+
 #### MCP 服务器（mcp-server-sqlseed）
 - `sqlseed_inspect_schema` 工具 — 检查数据库 Schema（列、外键、索引、样本数据）
 - `sqlseed_generate_yaml` 工具 — AI 驱动的 YAML 配置生成
