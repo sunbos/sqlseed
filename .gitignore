@@ -51,6 +51,12 @@ dmypy.json
 *.sqlite3
 snapshots/
 
+# AI cache
+.sqlseed_cache/
+
+# Archived temp files
+_archived_temp/
+
 # macOS
 .DS_Store
 

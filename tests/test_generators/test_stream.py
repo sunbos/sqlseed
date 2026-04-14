@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+from sqlseed.core.column_dag import ColumnDAG
+from sqlseed.core.constraints import ConstraintSolver
+from sqlseed.core.expression import ExpressionEngine
 from sqlseed.core.mapper import GeneratorSpec
 from sqlseed.generators.base_provider import BaseProvider
 from sqlseed.generators.stream import DataStream
-from sqlseed.core.expression import ExpressionEngine
-from sqlseed.core.constraints import ConstraintSolver
-from sqlseed.core.column_dag import ColumnDAG
 
 
 class TestDataStream:

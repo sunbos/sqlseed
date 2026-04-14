@@ -17,7 +17,7 @@ class NLConfigGenerator:
     def generate(self, description: str, db_path: str | None = None) -> dict[str, Any]:
         try:
             client = get_openai_client(self._config)
-            model = "qwen3-coder-plus"
+            model = AIConfig.model_fields["model"].default
             if self._config is not None and hasattr(self._config, "model"):
                 model = self._config.model
 
@@ -26,25 +26,18 @@ class NLConfigGenerator:
                 schema_info = self._read_schema(db_path)
 
             prompt = (
-                f"Generate a sqlseed YAML configuration based on this description:\n"
+                f"Generate a sqlseed configuration based on this description:\n"
                 f'"{description}"\n\n'
             )
             if schema_info:
                 prompt += f"Database schema:\n{schema_info}\n\n"
 
             prompt += (
-                "The YAML should follow this structure:\n"
-                "db_path: path to database\n"
-                "provider: mimesis|faker\n"
-                "locale: en_US\n"
-                "tables:\n"
-                "  - name: table_name\n"
-                "    count: number_of_rows\n"
-                "    columns:\n"
-                "      - name: column_name\n"
-                "        generator: generator_name\n"
-                "        params: {}\n\n"
-                "Respond with valid YAML only."
+                "The JSON should follow this structure:\n"
+                '{"db_path": "path", "provider": "mimesis", "locale": "en_US", '
+                '"tables": [{"name": "table_name", "count": 1000, '
+                '"columns": [{"name": "column_name", "generator": "generator_name", "params": {}}]}]}\n\n'
+                "Respond with valid JSON only."
             )
 
             response = client.chat.completions.create(
@@ -52,16 +45,16 @@ class NLConfigGenerator:
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=2048,
                 temperature=0.5,
+                response_format={"type": "json_object"},
             )
 
-            content = response.choices[0].message.content
+            content = response.choices[0].message.content if response.choices else None
             if content is None:
                 return {}
 
-            import yaml
+            from sqlseed_ai._json_utils import parse_json_response
 
-            result = yaml.safe_load(content)
-            return result if isinstance(result, dict) else {}
+            return parse_json_response(content)
 
         except Exception as e:
             logger.warning("NL config generation failed", error=e)

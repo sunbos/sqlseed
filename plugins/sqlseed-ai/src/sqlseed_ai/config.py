@@ -16,5 +16,5 @@ class AIConfig(BaseModel):
     def from_env(cls) -> AIConfig:
         api_key = os.environ.get("SQLSEED_AI_API_KEY") or os.environ.get("OPENAI_API_KEY")
         base_url = os.environ.get("SQLSEED_AI_BASE_URL") or os.environ.get("OPENAI_BASE_URL")
-        model = os.environ.get("SQLSEED_AI_MODEL", "qwen3-coder-plus")
+        model = os.environ.get("SQLSEED_AI_MODEL", cls.model_fields["model"].default)
         return cls(api_key=api_key, base_url=base_url, model=model)

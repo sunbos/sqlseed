@@ -150,7 +150,8 @@ class FakerProvider:
 
     def generate_pattern(self, *, regex: str) -> str:
         import random
+
         import rstr
-        
+
         rng = random.Random(self._seed)
         return rstr.Rstr(rng).xeger(regex)

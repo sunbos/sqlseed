@@ -142,3 +142,45 @@ class TestDataOrchestrator:
             rows = orch.preview_table("users", count=3)
             assert len(rows) == 3
             assert all("_source" in r for r in rows)
+
+    def test_preview_with_column_configs(self, tmp_db) -> None:
+        with DataOrchestrator(tmp_db, provider_name="base") as orch:
+            col_configs = [
+                ColumnConfig(name="name", generator="name"),
+                ColumnConfig(name="email", generator="email"),
+            ]
+            rows = orch.preview_table("users", count=5, column_configs=col_configs)
+            assert len(rows) == 5
+            assert "name" in rows[0]
+
+    def test_get_schema_context(self, tmp_db) -> None:
+        with DataOrchestrator(tmp_db, provider_name="base") as orch:
+            ctx = orch.get_schema_context("users")
+            assert ctx["table_name"] == "users"
+            assert len(ctx["columns"]) > 0
+            assert isinstance(ctx["foreign_keys"], list)
+            assert isinstance(ctx["indexes"], list)
+            assert isinstance(ctx["sample_data"], list)
+            assert "users" in ctx["all_table_names"]
+            assert isinstance(ctx["distribution"], list)
+
+    def test_fill_with_template_pool_plugin(self, tmp_db) -> None:
+        class TemplatePlugin:
+            @hookimpl
+            def sqlseed_pre_generate_templates(
+                self,
+                table_name: str,
+                column_name: str,
+                column_type: str,
+                count: int,
+                sample_data: list[Any],
+            ) -> list[Any] | None:
+                if column_name == "bio":
+                    return ["template_bio_1", "template_bio_2", "template_bio_3"]
+                return None
+
+        with DataOrchestrator(tmp_db, provider_name="base") as orch:
+            orch._ensure_connected()
+            orch._plugins._pm.register(TemplatePlugin())
+            result = orch.fill_table("users", count=5)
+            assert result.count == 5

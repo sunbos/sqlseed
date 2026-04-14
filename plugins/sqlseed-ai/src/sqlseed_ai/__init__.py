@@ -1,10 +1,22 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from sqlseed.plugins.hookspecs import hookimpl
 from sqlseed_ai.analyzer import SchemaAnalyzer
-from sqlseed_ai.config import AIConfig
+
+_SIMPLE_COL_RE = re.compile(
+    r'(^|[_\s])('
+    r'name|email|phone|address|url|uuid|'
+    r'date|time|datetime|timestamp|boolean|'
+    r'int|float|double|real|text|string|'
+    r'char|varchar|blob|byte|id|code|title|'
+    r'description|status|type|category|count|'
+    r'amount|price|value|number|index|order|level'
+    r')($|[_\s])',
+    re.IGNORECASE,
+)
 
 
 class AISqlseedPlugin:
@@ -15,6 +27,11 @@ class AISqlseedPlugin:
         if self._analyzer is None:
             self._analyzer = SchemaAnalyzer()
         return self._analyzer
+
+    def _is_simple_column(self, column_name: str, column_type: str) -> bool:
+        return bool(
+            _SIMPLE_COL_RE.search(column_name) or _SIMPLE_COL_RE.search(column_type)
+        )
 
     @hookimpl
     def sqlseed_ai_analyze_table(
@@ -35,6 +52,29 @@ class AISqlseedPlugin:
             foreign_keys=foreign_keys,
             all_table_names=all_table_names,
         )
+
+    @hookimpl
+    def sqlseed_pre_generate_templates(
+        self,
+        table_name: str,
+        column_name: str,
+        column_type: str,
+        count: int,
+        sample_data: list[Any],
+    ) -> list[Any] | None:
+        if self._is_simple_column(column_name, column_type):
+            return None
+
+        analyzer = self._get_analyzer()
+        try:
+            return analyzer.generate_template_values(
+                column_name=column_name,
+                column_type=column_type,
+                count=min(count, 50),
+                sample_data=sample_data,
+            )
+        except Exception:
+            return None
 
     @hookimpl
     def sqlseed_register_providers(self, registry: Any) -> None:

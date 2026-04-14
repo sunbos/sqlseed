@@ -118,3 +118,48 @@ class TestSchemaInferrer:
             assert isinstance(samples, list)
         finally:
             adapter.close()
+
+    def test_profile_column_distribution_empty_table(self, tmp_db) -> None:
+        adapter = RawSQLiteAdapter()
+        adapter.connect(tmp_db)
+        try:
+            inferrer = SchemaInferrer(adapter)
+            profiles = inferrer.profile_column_distribution("users")
+            assert profiles == []
+        finally:
+            adapter.close()
+
+    def test_profile_column_distribution_with_data(self, tmp_db_with_data) -> None:
+        adapter = RawSQLiteAdapter()
+        adapter.connect(tmp_db_with_data)
+        try:
+            inferrer = SchemaInferrer(adapter)
+            profiles = inferrer.profile_column_distribution("users")
+            assert len(profiles) > 0
+            name_profile = next((p for p in profiles if p["column"] == "name"), None)
+            assert name_profile is not None
+            assert name_profile["distinct_count"] > 0
+            assert name_profile["sample_size"] > 0
+        finally:
+            adapter.close()
+
+    def test_profile_column_distribution_with_nulls(self, tmp_path) -> None:
+        db_path = str(tmp_path / "null_test.db")
+        conn = sqlite3.connect(db_path)
+        conn.execute("CREATE TABLE items (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, value INTEGER)")
+        conn.execute("INSERT INTO items (name, value) VALUES ('a', 1)")
+        conn.execute("INSERT INTO items (name, value) VALUES (NULL, 2)")
+        conn.execute("INSERT INTO items (name, value) VALUES ('b', NULL)")
+        conn.commit()
+        conn.close()
+
+        adapter = RawSQLiteAdapter()
+        adapter.connect(db_path)
+        try:
+            inferrer = SchemaInferrer(adapter)
+            profiles = inferrer.profile_column_distribution("items")
+            name_profile = next((p for p in profiles if p["column"] == "name"), None)
+            assert name_profile is not None
+            assert name_profile["null_ratio"] > 0
+        finally:
+            adapter.close()

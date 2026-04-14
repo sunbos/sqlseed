@@ -26,4 +26,4 @@ def load_transform(script_path: str) -> RowTransformFn:
         raise AttributeError(
             f"Transform script must define a 'transform_row(row, ctx)' function: {script_path}"
         )
-    return cast(RowTransformFn, fn)
+    return cast("RowTransformFn", fn)

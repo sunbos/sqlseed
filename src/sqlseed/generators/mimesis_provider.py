@@ -196,6 +196,7 @@ class MimesisProvider:
 
     def generate_pattern(self, *, regex: str) -> str:
         import random
+
         import rstr
 
         rng = random.Random(self._seed)

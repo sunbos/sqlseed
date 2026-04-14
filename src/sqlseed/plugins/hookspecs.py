@@ -96,3 +96,18 @@ class SqlseedHookSpec:
         Called after a table's generated values are loaded into the shared pool.
         Other plugins can use this to track cross-table associations.
         """
+
+    @hookspec(firstresult=True)
+    def sqlseed_pre_generate_templates(
+        self,
+        table_name: str,
+        column_name: str,
+        column_type: str,
+        count: int,
+        sample_data: list[Any],
+    ) -> list[Any] | None:
+        """
+        [AI Hook] Pre-generate candidate value pool for columns that cannot match
+        a deterministic generator. Called before DataStream creation.
+        Returns a list of template values, or None if the plugin does not handle this column.
+        """

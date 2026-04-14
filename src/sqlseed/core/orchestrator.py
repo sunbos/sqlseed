@@ -1,24 +1,24 @@
 from __future__ import annotations
 
 import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from sqlseed._utils.logger import get_logger
 from sqlseed._utils.metrics import MetricsCollector
 from sqlseed._utils.progress import create_progress
+from sqlseed.core.column_dag import ColumnDAG
+from sqlseed.core.constraints import ConstraintSolver
+from sqlseed.core.expression import ExpressionEngine
 from sqlseed.core.mapper import ColumnMapper, GeneratorSpec
 from sqlseed.core.relation import RelationResolver, SharedPool
 from sqlseed.core.result import GenerationResult
 from sqlseed.core.schema import SchemaInferrer
+from sqlseed.core.transform import load_transform
 from sqlseed.database.raw_sqlite_adapter import RawSQLiteAdapter
 from sqlseed.database.sqlite_utils_adapter import SQLiteUtilsAdapter
 from sqlseed.generators.registry import ProviderRegistry
 from sqlseed.generators.stream import DataStream
 from sqlseed.plugins.manager import PluginManager
-from sqlseed.core.column_dag import ColumnDAG
-from sqlseed.core.expression import ExpressionEngine
-from sqlseed.core.constraints import ConstraintSolver
-from sqlseed.core.transform import load_transform
 
 if TYPE_CHECKING:
     from sqlseed.database._protocol import DatabaseAdapter
@@ -108,6 +108,7 @@ class DataOrchestrator:
             generator_specs = self._mapper.map_columns(column_infos, user_configs)
             generator_specs = self._resolve_foreign_keys(table_name, generator_specs)
             generator_specs = self._apply_ai_suggestions(table_name, column_infos, generator_specs)
+            generator_specs = self._apply_template_pool(table_name, column_infos, generator_specs, count)
 
             dag = ColumnDAG()
             col_configs_list = list(user_configs.values()) if user_configs else None
@@ -115,7 +116,7 @@ class DataOrchestrator:
 
             expr_engine = ExpressionEngine()
             constraint_solver = ConstraintSolver()
-            
+
             transform_fn = None
             if transform:
                 transform_fn = load_transform(transform)
@@ -204,11 +205,12 @@ class DataOrchestrator:
         columns: dict[str, Any] | None = None,
         seed: int | None = None,
         transform: str | None = None,
+        column_configs: list[Any] | None = None,
     ) -> list[dict[str, Any]]:
         self._ensure_connected()
 
         column_infos = self._schema.get_column_info(table_name)
-        user_configs = self._resolve_user_configs(columns, None)
+        user_configs = self._resolve_user_configs(columns, column_configs)
         generator_specs = self._mapper.map_columns(column_infos, user_configs)
         generator_specs = self._resolve_foreign_keys(table_name, generator_specs)
 
@@ -218,7 +220,7 @@ class DataOrchestrator:
 
         expr_engine = ExpressionEngine()
         constraint_solver = ConstraintSolver()
-        
+
         transform_fn = None
         if transform:
             transform_fn = load_transform(transform)
@@ -238,6 +240,55 @@ class DataOrchestrator:
             current_batch = self._apply_batch_transforms(table_name, batch)
             result.extend(current_batch)
         return result
+
+    def get_schema_context(self, table_name: str) -> dict[str, Any]:
+        self._ensure_connected()
+        column_infos = self._schema.get_column_info(table_name)
+        fks = self._db.get_foreign_keys(table_name)
+        all_tables = self._db.get_table_names()
+
+        indexes: list[dict[str, Any]] = []
+        try:
+            idx_infos = self._schema.get_index_info(table_name)
+            indexes = [
+                {"name": idx.name, "columns": idx.columns, "unique": idx.unique}
+                for idx in idx_infos
+            ]
+        except Exception:
+            pass
+
+        sample_data: list[dict[str, Any]] = []
+        try:
+            sample_data = self._schema.get_sample_data(table_name, limit=5)
+        except Exception:
+            pass
+
+        distribution: list[dict[str, Any]] = []
+        try:
+            distribution = self._schema.profile_column_distribution(table_name, limit=1000)
+        except Exception:
+            pass
+
+        return {
+            "table_name": table_name,
+            "columns": column_infos,
+            "foreign_keys": fks,
+            "indexes": indexes,
+            "sample_data": sample_data,
+            "all_table_names": all_tables,
+            "distribution": distribution,
+        }
+
+    def get_column_names(self, table_name: str) -> set[str]:
+        self._ensure_connected()
+        return {c.name for c in self._schema.get_column_info(table_name)}
+
+    def get_skippable_columns(self, table_name: str) -> set[str]:
+        self._ensure_connected()
+        return {
+            c.name for c in self._schema.get_column_info(table_name)
+            if (c.is_primary_key and c.is_autoincrement) or c.default is not None
+        }
 
     def report(self) -> str:
         if not self._connected:
@@ -366,6 +417,10 @@ class DataOrchestrator:
 
         return specs
 
+    AI_APPLICABLE_GENERATORS: ClassVar[frozenset[str]] = frozenset(
+        {"string", "integer", "date", "datetime", "choice"}
+    )
+
     def _apply_ai_suggestions(
         self,
         table_name: str,
@@ -374,8 +429,8 @@ class DataOrchestrator:
     ) -> dict[str, GeneratorSpec]:
         unmatched_cols = [
             col for col in column_infos
-            if specs.get(col.name, None) is not None
-            and specs[col.name].generator_name in ("string",)
+            if specs.get(col.name) is not None
+            and specs[col.name].generator_name in self.AI_APPLICABLE_GENERATORS
             and not col.is_primary_key
             and not col.is_autoincrement
             and col.default is None
@@ -442,6 +497,47 @@ class DataOrchestrator:
                 if r is not None:
                     current = r
         return current
+
+    def _apply_template_pool(
+        self,
+        table_name: str,
+        column_infos: list[Any],
+        specs: dict[str, GeneratorSpec],
+        count: int,
+    ) -> dict[str, GeneratorSpec]:
+        for col_name, spec in list(specs.items()):
+            if spec.generator_name != "string":
+                continue
+            col_info = next((c for c in column_infos if c.name == col_name), None)
+            if col_info is None or col_info.is_primary_key or col_info.is_autoincrement:
+                continue
+            if col_info.default is not None:
+                continue
+
+            sample_data_for_col: list[Any] = []
+            try:
+                sample_data_for_col = self._db.get_column_values(table_name, col_name, limit=10)
+            except Exception:
+                pass
+
+            template_values = self._plugins.hook.sqlseed_pre_generate_templates(
+                table_name=table_name,
+                column_name=col_name,
+                column_type=col_info.type,
+                count=min(count, 50),
+                sample_data=sample_data_for_col,
+            )
+            if template_values:
+                specs[col_name] = GeneratorSpec(
+                    generator_name="foreign_key",
+                    params={
+                        "ref_table": "__template_pool__",
+                        "ref_column": col_name,
+                        "strategy": "random",
+                        "_ref_values": template_values,
+                    },
+                )
+        return specs
 
     def _register_shared_pool(
         self,

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Any
-
 import click
 
 from sqlseed._version import __version__
@@ -233,6 +231,9 @@ def replay(snapshot_path: str) -> None:
 @click.option("--model", "-m", default=None, help="AI model name (default: qwen3-coder-plus)")
 @click.option("--api-key", envvar="SQLSEED_AI_API_KEY", default=None, help="AI API key")
 @click.option("--base-url", envvar="SQLSEED_AI_BASE_URL", default=None, help="AI API base URL")
+@click.option("--max-retries", default=3, type=int, help="Max refinement retries (0=disable)")
+@click.option("--verify/--no-verify", default=True, help="Enable AI config self-correction")
+@click.option("--no-cache", is_flag=True, help="Skip cached AI configs")
 def ai_suggest(
     db_path: str,
     table: str,
@@ -240,61 +241,67 @@ def ai_suggest(
     model: str | None,
     api_key: str | None,
     base_url: str | None,
+    max_retries: int,
+    verify: bool,
+    no_cache: bool,
 ) -> None:
     """Analyze table schema and suggest generation rules via AI."""
     import yaml
-
-    from sqlseed.core.orchestrator import DataOrchestrator
-
+    from sqlseed_ai.analyzer import SchemaAnalyzer
     from sqlseed_ai.config import AIConfig
 
     ai_config = AIConfig(api_key=api_key, base_url=base_url)
     if model:
         ai_config.model = model
 
-    with DataOrchestrator(db_path) as orch:
-        columns = orch._schema.get_column_info(table)
-        fks = orch._db.get_foreign_keys(table)
-        all_tables = orch._db.get_table_names()
+    analyzer = SchemaAnalyzer(config=ai_config)
 
-        indexes: list[dict[str, Any]] = []
+    if verify and max_retries > 0:
+        from sqlseed_ai.refiner import AiConfigRefiner, AISuggestionFailedError
+
+        refiner = AiConfigRefiner(analyzer, db_path)
         try:
-            idx_infos = orch._schema.get_index_info(table)
-            indexes = [
-                {"name": idx.name, "columns": idx.columns, "unique": idx.unique}
-                for idx in idx_infos
-            ]
-        except Exception:
-            pass
+            result = refiner.generate_and_refine(
+                table_name=table,
+                max_retries=max_retries,
+                no_cache=no_cache,
+            )
+        except AISuggestionFailedError as e:
+            click.echo(f"AI suggestion failed: {e}", err=True)
+            return
+    else:
+        from sqlseed.core.orchestrator import DataOrchestrator
 
-        sample_data: list[dict[str, Any]] = []
-        try:
-            sample_data = orch._schema.get_sample_data(table, limit=5)
-        except Exception:
-            pass
+        with DataOrchestrator(db_path) as orch:
+            schema_ctx = orch.get_schema_context(table)
+            messages = analyzer.build_initial_messages(
+                table_name=schema_ctx["table_name"],
+                columns=schema_ctx["columns"],
+                indexes=schema_ctx["indexes"],
+                sample_data=schema_ctx["sample_data"],
+                foreign_keys=schema_ctx["foreign_keys"],
+                all_table_names=schema_ctx["all_table_names"],
+                distribution_profiles=schema_ctx.get("distribution"),
+            )
+            try:
+                result = analyzer.call_llm(messages)
+            except (ValueError, RuntimeError) as e:
+                click.echo(f"AI suggestion failed: {e}", err=True)
+                return
 
-        result = orch._plugins.hook.sqlseed_ai_analyze_table(
-            table_name=table,
-            columns=columns,
-            indexes=indexes,
-            sample_data=sample_data,
-            foreign_keys=fks,
-            all_table_names=all_tables,
-        )
-
-        if result:
-            output_data = {
-                "db_path": db_path,
-                "provider": "mimesis",
-                "locale": "zh_CN",
-                "tables": [result],
-            }
-            with open(output, "w", encoding="utf-8") as f:
-                yaml.dump(output_data, f, allow_unicode=True, sort_keys=False, default_flow_style=False)
-            click.echo(f"AI suggestions saved to {output}")
-        else:
-            click.echo("No suggestions received. Ensure sqlseed-ai plugin is installed and API key is configured.")
-            click.echo("Set SQLSEED_AI_API_KEY environment variable or use --api-key option.")
+    if result:
+        output_data = {
+            "db_path": db_path,
+            "provider": "mimesis",
+            "locale": "zh_CN",
+            "tables": [result],
+        }
+        with open(output, "w", encoding="utf-8") as f:
+            yaml.dump(output_data, f, allow_unicode=True, sort_keys=False, default_flow_style=False)
+        click.echo(f"AI suggestions saved to {output}")
+    else:
+        click.echo("No suggestions received. Ensure sqlseed-ai plugin is installed and API key is configured.")
+        click.echo("Set SQLSEED_AI_API_KEY environment variable or use --api-key option.")
 
 def main() -> None:
     cli()

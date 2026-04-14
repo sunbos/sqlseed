@@ -1,9 +1,5 @@
 from __future__ import annotations
 
-import sqlite3
-
-import pytest
-
 from sqlseed_ai.analyzer import SchemaAnalyzer
 from sqlseed_ai.config import AIConfig
 
@@ -133,23 +129,94 @@ class TestSchemaAnalyzer:
         )
         assert result is None
 
-    def test_parse_yaml_response_plain(self):
+    def test_parse_json_response_plain(self):
         analyzer = SchemaAnalyzer()
-        yaml_str = "name: test\ncount: 100\ncolumns:\n  - name: id\n    generator: integer"
-        result = analyzer._parse_yaml_response(yaml_str)
+        json_str = '{"name": "test", "count": 100, "columns": [{"name": "id", "generator": "integer"}]}'
+        result = analyzer._parse_json_response(json_str)
         assert result["name"] == "test"
         assert result["count"] == 100
 
-    def test_parse_yaml_response_with_fences(self):
+    def test_parse_json_response_with_fences(self):
         analyzer = SchemaAnalyzer()
-        yaml_str = "```yaml\nname: test\ncount: 100\n```"
-        result = analyzer._parse_yaml_response(yaml_str)
+        json_str = '```json\n{"name": "test", "count": 100}\n```'
+        result = analyzer._parse_json_response(json_str)
         assert result["name"] == "test"
 
-    def test_parse_yaml_response_invalid(self):
+    def test_parse_json_response_with_plain_fences(self):
         analyzer = SchemaAnalyzer()
-        result = analyzer._parse_yaml_response("not valid yaml [[[")
+        json_str = '```\n{"name": "test", "count": 100}\n```'
+        result = analyzer._parse_json_response(json_str)
+        assert result["name"] == "test"
+
+    def test_parse_json_response_invalid(self):
+        analyzer = SchemaAnalyzer()
+        result = analyzer._parse_json_response("not valid json [[[")
         assert result == {}
+
+    def test_parse_json_response_non_dict(self):
+        analyzer = SchemaAnalyzer()
+        result = analyzer._parse_json_response("[1, 2, 3]")
+        assert result == {}
+
+    def test_build_initial_messages(self):
+        analyzer = SchemaAnalyzer()
+        columns = [self._make_col("name", "TEXT")]
+        messages = analyzer.build_initial_messages(
+            table_name="users",
+            columns=columns,
+            indexes=[],
+            sample_data=[],
+            foreign_keys=[],
+            all_table_names=["users"],
+        )
+        assert len(messages) == 10
+        assert messages[0]["role"] == "system"
+        assert messages[1]["role"] == "user"
+        assert messages[2]["role"] == "assistant"
+        assert messages[-1]["role"] == "user"
+        assert "users" in messages[-1]["content"]
+
+    def test_build_context_with_distribution(self):
+        analyzer = SchemaAnalyzer()
+        columns = [self._make_col("name", "TEXT")]
+        distribution = [
+            {
+                "column": "name",
+                "distinct_count": 50,
+                "null_ratio": 0.1,
+                "top_values": [{"value": "Alice", "frequency": 0.3}],
+                "value_range": None,
+            }
+        ]
+        context = analyzer._build_context(
+            table_name="users",
+            columns=columns,
+            indexes=[],
+            sample_data=[],
+            foreign_keys=[],
+            all_table_names=["users"],
+            distribution_profiles=distribution,
+        )
+        assert "Column Distribution" in context
+        assert "50 distinct values" in context
+        assert "10.0% null" in context
+        assert "Alice" in context
+
+    def test_generate_template_values(self):
+        from unittest.mock import patch
+
+        analyzer = SchemaAnalyzer(config=AIConfig(api_key="test-key"))
+        with patch.object(analyzer, "call_llm", return_value={"values": ["v1", "v2", "v3"]}):
+            result = analyzer.generate_template_values("card_number", "VARCHAR(20)", 3, [])
+            assert result == ["v1", "v2", "v3"]
+
+    def test_generate_template_values_empty(self):
+        from unittest.mock import patch
+
+        analyzer = SchemaAnalyzer(config=AIConfig(api_key="test-key"))
+        with patch.object(analyzer, "call_llm", return_value={}):
+            result = analyzer.generate_template_values("card_number", "VARCHAR(20)", 3, [])
+            assert result == []
 
 
 class TestCardInfoIntegration:

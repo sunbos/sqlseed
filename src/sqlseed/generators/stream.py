@@ -6,11 +6,21 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from sqlseed.core.mapper import GeneratorSpec
     from sqlseed.core.column_dag import ColumnNode
-    from sqlseed.core.expression import ExpressionEngine
     from sqlseed.core.constraints import ConstraintSolver
+    from sqlseed.core.expression import ExpressionEngine
+    from sqlseed.core.mapper import GeneratorSpec
     from sqlseed.core.transform import RowTransformFn
+
+
+class UnknownGeneratorError(Exception):
+    def __init__(self, generator_name: str, column_name: str | None = None) -> None:
+        self.generator_name = generator_name
+        self.column_name = column_name
+        super().__init__(
+            f"Unknown generator '{generator_name}'"
+            f"{f' for column {column_name}' if column_name else ''}"
+        )
 
 
 class DataStream:
@@ -52,15 +62,19 @@ class DataStream:
         while total_retries < max_total_retries:
             row: dict[str, Any] = {}
             generated_values: dict[str, Any] = {}
-            success = True
+            backtrack_to: int | None = None
 
-            for node in self._nodes:
+            for idx, node in enumerate(self._nodes):
                 if node.is_skip:
                     continue
 
                 col_name = node.name
                 max_retries = node.constraints.max_retries if node.constraints else 100
                 is_unique = node.constraints.unique if node.constraints else False
+                source_columns = node.depends_on if node.is_derived else None
+
+                if backtrack_to is not None and idx < backtrack_to:
+                    continue
 
                 col_success = False
                 for _ in range(max_retries):
@@ -70,28 +84,54 @@ class DataStream:
                     else:
                         val = self._apply_generator(node.generator_spec)
 
-                    if self._constraint_solver.check_and_register(col_name, val, unique=is_unique):
+                    result = self._constraint_solver.try_register(
+                        col_name, val, unique=is_unique, source_columns=source_columns,
+                    )
+                    if result.registered:
                         row[col_name] = val
                         generated_values[col_name] = val
                         col_success = True
                         break
+                    if result.need_backtrack and source_columns:
+                        for bt_col in source_columns:
+                            if bt_col in generated_values:
+                                self._constraint_solver.unregister(bt_col, generated_values[bt_col])
+                                del generated_values[bt_col]
+                                row.pop(bt_col, None)
+                        bt_idx = self._find_node_index(source_columns[0])
+                        if bt_idx is not None:
+                            backtrack_to = bt_idx
+                        col_success = False
+                        break
 
                 if not col_success:
-                    success = False
+                    if backtrack_to is not None:
+                        break
+                    for col, val in generated_values.items():
+                        self._constraint_solver.unregister(col, val)
+                    generated_values.clear()
+                    row.clear()
                     break
 
-            if success:
+            if backtrack_to is not None:
+                total_retries += 1
+                continue
+
+            if generated_values:
                 if self._transform_fn:
                     ctx = {"row_number": total_retries}
                     row = self._transform_fn(row, ctx)
                 return row
 
-            for col_name, val in generated_values.items():
-                self._constraint_solver.unregister(col_name, val)
-
             total_retries += 1
 
         raise RuntimeError("Failed to generate row satisfying all constraints after maximum retries.")
+
+    def _find_node_index(self, col_name: str) -> int | None:
+        for i, node in enumerate(self._nodes):
+            if node.name == col_name:
+                return i
+        return None
 
     def _apply_generator(self, spec: GeneratorSpec) -> Any:
         if spec.null_ratio > 0 and self._rng.random() < spec.null_ratio:

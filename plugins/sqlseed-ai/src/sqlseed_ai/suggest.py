@@ -23,7 +23,7 @@ class ColumnSuggester:
     ) -> dict[str, Any] | None:
         try:
             client = get_openai_client(self._config)
-            model = "qwen3-coder-plus"
+            model = AIConfig.model_fields["model"].default
             if self._config is not None and hasattr(self._config, "model"):
                 model = self._config.model
 
@@ -43,16 +43,17 @@ class ColumnSuggester:
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=256,
                 temperature=0.3,
+                response_format={"type": "json_object"},
             )
 
-            content = response.choices[0].message.content
+            content = response.choices[0].message.content if response.choices else None
             if content is None:
                 return None
 
-            import json
+            from sqlseed_ai._json_utils import parse_json_response
 
-            result = json.loads(content)
-            if isinstance(result, dict) and "generator" in result:
+            result = parse_json_response(content)
+            if "generator" in result:
                 return result
 
         except Exception as e:

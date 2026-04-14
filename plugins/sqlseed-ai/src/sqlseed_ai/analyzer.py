@@ -8,28 +8,8 @@ from sqlseed_ai.config import AIConfig
 
 logger = get_logger(__name__)
 
-SYSTEM_PROMPT = """You are an expert database test data engineer. You analyze SQLite table schemas and recommend data generation configurations for the sqlseed toolkit.
-
-## sqlseed Configuration Syntax
-
-### Source Column (generator-based):
-```yaml
-- name: column_name
-  generator: generator_name
-  params:
-    key: value
-  constraints:
-    unique: true
-```
-
-### Derived Column (expression-based):
-```yaml
-- name: derived_column
-  derive_from: source_column
-  expression: "value[-8:]"
-  constraints:
-    unique: true
-```
+SYSTEM_PROMPT = """You are an expert database test data engineer.
+You analyze SQLite table schemas and recommend data generation configurations for the sqlseed toolkit.
 
 ## Available Generators
 - string (params: min_length, max_length, charset)
@@ -58,21 +38,29 @@ SYSTEM_PROMPT = """You are an expert database test data engineer. You analyze SQ
 6. Use `constraints.unique: true` for columns that must be unique
 7. Detect cross-column dependencies: if last_eight = last 8 chars of card_number, use derive_from
 8. Detect implicit business associations: if account_id appears in multiple tables, note it
-9. Respond with VALID YAML only, no markdown fences, no explanation
 
 ## Output Format
-Return a YAML object with this structure:
-```yaml
-name: table_name
-count: 1000
-columns:
-  - name: column_name
-    generator: generator_name
-    params:
-      key: value
-    constraints:
-      unique: true
-```"""
+You MUST respond with a valid JSON object (NOT YAML, NOT markdown fences).
+The JSON object must have this exact structure:
+{
+  "name": "table_name",
+  "count": 1000,
+  "columns": [
+    {
+      "name": "column_name",
+      "generator": "generator_name",
+      "params": {"key": "value"}
+    },
+    {
+      "name": "derived_column",
+      "derive_from": "source_column",
+      "expression": "value[-8:]",
+      "constraints": {"unique": true}
+    }
+  ]
+}
+
+IMPORTANT: Do NOT include columns that are PRIMARY KEY AUTOINCREMENT or have DEFAULT values."""
 
 
 class SchemaAnalyzer:
@@ -95,7 +83,7 @@ class SchemaAnalyzer:
             logger.warning("AI API key not configured, skipping analysis")
             return None
 
-        context = self._build_context(
+        messages = self.build_initial_messages(
             table_name=table_name,
             columns=columns,
             indexes=indexes,
@@ -105,26 +93,104 @@ class SchemaAnalyzer:
         )
 
         try:
-            client = get_openai_client(self._config)
-            response = client.chat.completions.create(
-                model=self._config.model,
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": context},
-                ],
-                max_tokens=self._config.max_tokens,
-                temperature=self._config.temperature,
-            )
-
-            content = response.choices[0].message.content
-            if content is None:
-                return None
-
-            return self._parse_yaml_response(content)
-
+            return self.call_llm(messages)
         except Exception as e:
             logger.warning("AI analysis failed", table_name=table_name, error=str(e))
             return None
+
+    def build_initial_messages(
+        self,
+        table_name: str,
+        columns: list[Any],
+        indexes: list[dict[str, Any]],
+        sample_data: list[dict[str, Any]],
+        foreign_keys: list[Any],
+        all_table_names: list[str],
+        distribution_profiles: list[dict[str, Any]] | None = None,
+    ) -> list[dict[str, str]]:
+        context = self._build_context(
+            table_name=table_name,
+            columns=columns,
+            indexes=indexes,
+            sample_data=sample_data,
+            foreign_keys=foreign_keys,
+            all_table_names=all_table_names,
+            distribution_profiles=distribution_profiles,
+        )
+        messages: list[dict[str, str]] = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+        ]
+
+        from sqlseed_ai.examples import FEW_SHOT_EXAMPLES
+        for example in FEW_SHOT_EXAMPLES:
+            messages.append({"role": "user", "content": example["input"]})
+            messages.append({"role": "assistant", "content": example["output"]})
+
+        messages.append({"role": "user", "content": context})
+
+        return messages
+
+    def call_llm(self, messages: list[dict[str, str]]) -> dict[str, Any]:
+        if self._config is None:
+            self._config = AIConfig.from_env()
+        if not self._config.api_key:
+            raise ValueError("AI API key not configured")
+
+        client = get_openai_client(self._config)
+        try:
+            response = client.chat.completions.create(
+                model=self._config.model,
+                messages=messages,
+                max_tokens=self._config.max_tokens,
+                temperature=self._config.temperature,
+                response_format={"type": "json_object"},
+            )
+        except Exception as e:
+            raise RuntimeError(
+                f"LLM API call failed (model={self._config.model}): {e}"
+            ) from e
+
+        if not response.choices:
+            raise RuntimeError(
+                f"LLM returned no choices (model={self._config.model}). "
+                "The API key or model may be invalid."
+            )
+        content = response.choices[0].message.content
+        if content is None:
+            return {}
+        return self._parse_json_response(content)
+
+    TEMPLATE_SYSTEM_PROMPT = (
+        "You are a data generation assistant. Generate realistic sample values "
+        "for the given database column. Return a JSON object with a 'values' "
+        "array containing the requested number of unique, realistic values. "
+        "Each value must be valid for the column type. Do NOT include explanations."
+    )
+
+    def generate_template_values(
+        self,
+        column_name: str,
+        column_type: str,
+        count: int,
+        sample_data: list[Any],
+    ) -> list[Any]:
+        prompt = (
+            f"Generate {count} realistic sample values for a database column "
+            f"named '{column_name}' with type '{column_type}'."
+        )
+        if sample_data:
+            prompt += f"\nExisting sample values: {sample_data[:5]}"
+        prompt += (
+            f"\nRespond with a JSON object: {{\"values\": [...]}}."
+            f"\nEach value should be a valid {column_type} value."
+        )
+
+        messages = [
+            {"role": "system", "content": self.TEMPLATE_SYSTEM_PROMPT},
+            {"role": "user", "content": prompt},
+        ]
+        result = self.call_llm(messages)
+        return result.get("values", [])
 
     def _build_context(
         self,
@@ -134,33 +200,16 @@ class SchemaAnalyzer:
         sample_data: list[dict[str, Any]],
         foreign_keys: list[Any],
         all_table_names: list[str],
+        distribution_profiles: list[dict[str, Any]] | None = None,
     ) -> str:
         lines: list[str] = []
         lines.append(f"# Table: {table_name}")
         lines.append("")
 
-        lines.append("## Columns")
-        for col in columns:
-            parts = [f"- {col.name}: {col.type}"]
-            if col.is_primary_key:
-                parts.append("PRIMARY KEY")
-            if col.is_autoincrement:
-                parts.append("AUTOINCREMENT")
-            if col.nullable:
-                parts.append("NULLABLE")
-            if col.default is not None:
-                parts.append(f"DEFAULT={col.default}")
-            if not col.nullable and col.default is None and not col.is_primary_key:
-                parts.append("NOT NULL")
-            lines.append(" ".join(parts))
+        self._append_columns_info(lines, columns)
 
         if indexes:
-            lines.append("")
-            lines.append("## Indexes")
-            for idx in indexes:
-                unique_str = "UNIQUE " if idx.get("unique") else ""
-                cols_str = ", ".join(idx.get("columns", []))
-                lines.append(f"- {unique_str}INDEX ({cols_str})")
+            self._append_indexes_info(lines, indexes)
 
         if foreign_keys:
             lines.append("")
@@ -180,24 +229,76 @@ class SchemaAnalyzer:
                 row_str = ", ".join(f"{k}={v}" for k, v in row.items())
                 lines.append(f"  Row {i + 1}: {row_str}")
 
+        if distribution_profiles:
+            self._append_distribution_info(lines, distribution_profiles)
+
         lines.append("")
-        lines.append("Please analyze this table schema and recommend a complete sqlseed YAML configuration for generating test data.")
+        lines.append(
+            "Please analyze this table schema and recommend "
+            "a complete sqlseed JSON configuration for generating test data."
+        )
 
         return "\n".join(lines)
 
-    def _parse_yaml_response(self, content: str) -> dict[str, Any]:
-        import yaml
+    def _append_columns_info(
+        self,
+        lines: list[str],
+        columns: list[Any],
+    ) -> None:
+        lines.append("## Columns")
+        for col in columns:
+            parts = [f"- {col.name}: {col.type}"]
+            if col.is_primary_key:
+                parts.append("PRIMARY KEY")
+            if col.is_autoincrement:
+                parts.append("AUTOINCREMENT")
+            if col.nullable:
+                parts.append("NULLABLE")
+            if col.default is not None:
+                parts.append(f"DEFAULT={col.default}")
+            if not col.nullable and col.default is None and not col.is_primary_key:
+                parts.append("NOT NULL")
+            lines.append(" ".join(parts))
 
-        cleaned = content.strip()
-        if cleaned.startswith("```yaml"):
-            cleaned = cleaned[7:]
-        if cleaned.startswith("```"):
-            cleaned = cleaned[3:]
-        if cleaned.endswith("```"):
-            cleaned = cleaned[:-3]
-        cleaned = cleaned.strip()
+    def _append_indexes_info(
+        self,
+        lines: list[str],
+        indexes: list[dict[str, Any]],
+    ) -> None:
+        lines.append("")
+        lines.append("## Indexes")
+        for idx in indexes:
+            unique_str = "UNIQUE " if idx.get("unique") else ""
+            cols_str = ", ".join(idx.get("columns", []))
+            lines.append(f"- {unique_str}INDEX ({cols_str})")
 
-        result = yaml.safe_load(cleaned)
-        if not isinstance(result, dict):
-            return {}
-        return result
+    def _append_distribution_info(
+        self,
+        lines: list[str],
+        distribution_profiles: list[dict[str, Any]],
+    ) -> None:
+        lines.append("")
+        lines.append("## Column Distribution (from existing data)")
+        for profile in distribution_profiles:
+            col = profile["column"]
+            distinct = profile.get("distinct_count", "?")
+            null_ratio = profile.get("null_ratio", 0)
+            lines.append(
+                f"- {col}: {distinct} distinct values, {null_ratio:.1%} null"
+            )
+            top_values = profile.get("top_values", [])
+            if top_values:
+                top_str = ", ".join(
+                    f"{tv['value']}({tv['frequency']:.0%})"
+                    for tv in top_values[:3]
+                )
+                lines.append(f"  Top values: {top_str}")
+            vr = profile.get("value_range")
+            if vr:
+                lines.append(f"  Range: [{vr['min']}, {vr['max']}]")
+
+    def _parse_json_response(self, content: str) -> dict[str, Any]:
+        from sqlseed_ai._json_utils import parse_json_response
+
+        return parse_json_response(content)
+

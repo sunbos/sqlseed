@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
@@ -7,75 +9,107 @@ from mcp.server.fastmcp import FastMCP
 mcp = FastMCP("sqlseed")
 
 
+def _serialize_schema_context(ctx: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "table_name": ctx["table_name"],
+        "columns": [
+            {
+                "name": c.name,
+                "type": c.type,
+                "nullable": c.nullable,
+                "default": c.default,
+                "is_primary_key": c.is_primary_key,
+                "is_autoincrement": c.is_autoincrement,
+            }
+            for c in ctx["columns"]
+        ],
+        "foreign_keys": [
+            {"column": fk.column, "ref_table": fk.ref_table, "ref_column": fk.ref_column}
+            for fk in ctx["foreign_keys"]
+        ],
+        "indexes": ctx["indexes"],
+        "sample_data": ctx["sample_data"],
+        "all_table_names": ctx["all_table_names"],
+    }
+
+
+def _compute_schema_hash(schema_ctx: dict[str, Any]) -> str:
+    hash_input = json.dumps(
+        {
+            "columns": [
+                {"name": c.name, "type": c.type, "nullable": c.nullable}
+                for c in schema_ctx["columns"]
+            ],
+            "foreign_keys": [
+                {"column": fk.column, "ref_table": fk.ref_table}
+                for fk in schema_ctx["foreign_keys"]
+            ],
+        },
+        sort_keys=True,
+    )
+    return hashlib.sha256(hash_input.encode()).hexdigest()[:16]
+
+
+@mcp.resource("sqlseed://schema/{db_path}/{table_name}")
+def get_schema_resource(db_path: str, table_name: str) -> str:
+    from sqlseed.core.orchestrator import DataOrchestrator
+
+    with DataOrchestrator(db_path) as orch:
+        ctx = orch.get_schema_context(table_name)
+        serializable_ctx = _serialize_schema_context(ctx)
+        return json.dumps(serializable_ctx, ensure_ascii=False, indent=2)
+
+
 @mcp.tool()
 def sqlseed_inspect_schema(db_path: str, table_name: str | None = None) -> dict[str, Any]:
-    """Inspect database schema. Returns column info, foreign keys, indexes, and sample data for specified table or all tables."""
+    """Inspect database schema. Returns column info, foreign keys, indexes,
+    sample data, and schema_hash for specified table or all tables."""
     from sqlseed.core.orchestrator import DataOrchestrator
 
     with DataOrchestrator(db_path) as orch:
         tables = [table_name] if table_name else orch._db.get_table_names()
         result: dict[str, Any] = {}
         for tbl in tables:
-            columns = orch._schema.get_column_info(tbl)
-            fks = orch._db.get_foreign_keys(tbl)
-            indexes = orch._schema.get_index_info(tbl)
-            sample = orch._schema.get_sample_data(tbl, limit=3)
-            result[tbl] = {
-                "columns": [
-                    {
-                        "name": c.name,
-                        "type": c.type,
-                        "nullable": c.nullable,
-                        "default": c.default,
-                        "is_primary_key": c.is_primary_key,
-                        "is_autoincrement": c.is_autoincrement,
-                    }
-                    for c in columns
-                ],
-                "foreign_keys": [
-                    {"column": fk.column, "ref_table": fk.ref_table, "ref_column": fk.ref_column}
-                    for fk in fks
-                ],
-                "indexes": [
-                    {"name": idx.name, "columns": idx.columns, "unique": idx.unique}
-                    for idx in indexes
-                ],
-                "sample_data": sample,
-            }
+            ctx = orch.get_schema_context(tbl)
+            result[tbl] = _serialize_schema_context(ctx)
+            result[tbl]["schema_hash"] = _compute_schema_hash(ctx)
         return result
 
 
 @mcp.tool()
-def sqlseed_generate_yaml(db_path: str, table_name: str) -> str:
-    """Generate YAML configuration suggestions for a table using AI analysis. Returns YAML string for human review. Requires sqlseed-ai plugin and API key."""
+def sqlseed_generate_yaml(db_path: str, table_name: str, max_retries: int = 3) -> str:
+    """Generate YAML config for a table using AI analysis with self-correction.
+    Returns YAML string for human review. Requires sqlseed-ai plugin and API key."""
     import yaml
+    from sqlseed_ai.analyzer import SchemaAnalyzer
+    from sqlseed_ai.refiner import AiConfigRefiner, AISuggestionFailedError
 
-    from sqlseed.core.orchestrator import DataOrchestrator
+    analyzer = SchemaAnalyzer()
+    refiner = AiConfigRefiner(analyzer, db_path)
 
-    with DataOrchestrator(db_path) as orch:
-        columns = orch._schema.get_column_info(table_name)
-        fks = orch._db.get_foreign_keys(table_name)
-        all_tables = orch._db.get_table_names()
-        indexes = orch._schema.get_index_info(table_name)
-        sample_data = orch._schema.get_sample_data(table_name, limit=5)
-
-        result = orch._plugins.hook.sqlseed_ai_analyze_table(
+    try:
+        result = refiner.generate_and_refine(
             table_name=table_name,
-            columns=columns,
-            indexes=[{"name": i.name, "columns": i.columns, "unique": i.unique} for i in indexes],
-            sample_data=sample_data,
-            foreign_keys=fks,
-            all_table_names=all_tables,
+            max_retries=max_retries,
         )
+    except AISuggestionFailedError as e:
+        return f"# AI suggestion failed: {e}"
+    except Exception as e:
+        return f"# Error: {e}"
 
-        if result:
-            output = {"db_path": db_path, "provider": "mimesis", "locale": "zh_CN", "tables": [result]}
-            return yaml.dump(output, allow_unicode=True, sort_keys=False, default_flow_style=False)
-        return "# No AI suggestions available. Ensure sqlseed-ai plugin is installed and API key is configured."
+    if result:
+        output = {"db_path": db_path, "provider": "mimesis", "locale": "zh_CN", "tables": [result]}
+        return yaml.dump(output, allow_unicode=True, sort_keys=False, default_flow_style=False)
+    return "# No AI suggestions available. Ensure sqlseed-ai plugin is installed and API key is configured."
 
 
 @mcp.tool()
-def sqlseed_execute_fill(db_path: str, table_name: str, count: int = 1000, yaml_config: str | None = None) -> dict[str, Any]:
+def sqlseed_execute_fill(
+    db_path: str,
+    table_name: str,
+    count: int = 1000,
+    yaml_config: str | None = None,
+) -> dict[str, Any]:
     """Execute data generation for a table. Optionally provide YAML config string for column rules."""
     from sqlseed.core.orchestrator import DataOrchestrator
 
@@ -86,6 +120,7 @@ def sqlseed_execute_fill(db_path: str, table_name: str, count: int = 1000, yaml_
 
         if yaml_config:
             import yaml as _yaml
+
             from sqlseed.config.models import GeneratorConfig
 
             data = _yaml.safe_load(yaml_config)
