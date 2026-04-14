@@ -1,10 +1,10 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [project]
 name = "sqlseed-ai"
-version = "0.1.0"
+dynamic = ["version"]
 requires-python = ">=3.10"
 description = "AI-powered data generation plugin for sqlseed"
 license = "AGPL-3.0-or-later"
@@ -32,6 +32,13 @@ Repository = "https://github.com/sunbos/sqlseed/tree/main/plugins/sqlseed-ai"
 
 [project.entry-points."sqlseed"]
 ai = "sqlseed_ai:plugin"
+
+[tool.hatch.version]
+source = "vcs"
+fallback-version = "0.0.0"
+
+[tool.hatch.version.raw-options]
+root = "../.."
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/sqlseed_ai"]

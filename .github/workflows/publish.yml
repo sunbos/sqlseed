@@ -5,17 +5,17 @@ on:
     types: [published]
 
 jobs:
-  release-build:
+  build:
     permissions:
       contents: read
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.x"
 
@@ -23,30 +23,28 @@ jobs:
         run: pip install build
 
       - name: Build sqlseed
-        run: python -m build
+        run: python -m build --outdir dist/
 
       - name: Build sqlseed-ai
-        run: |
-          cd plugins/sqlseed-ai
-          python -m build
-          mv dist/*.whl dist/*.tar.gz ../../dist/
+        run: python -m build --outdir ../../dist/
+        working-directory: plugins/sqlseed-ai
 
       - name: Build mcp-server-sqlseed
-        run: |
-          cd plugins/mcp-server-sqlseed
-          python -m build
-          mv dist/*.whl dist/*.tar.gz ../../dist/
+        run: python -m build --outdir ../../dist/
+        working-directory: plugins/mcp-server-sqlseed
+
+      - name: List distributions
+        run: ls -la dist/
 
       - name: Upload distributions
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-dists
           path: dist/
 
-  pypi-publish:
+  publish:
     runs-on: ubuntu-latest
-    needs:
-      - release-build
+    needs: [build]
     permissions:
       id-token: write
 
@@ -56,12 +54,13 @@ jobs:
 
     steps:
       - name: Retrieve release distributions
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: release-dists
           path: dist/
 
-      - name: Publish release distributions to PyPI
-        uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist/
+          skip-existing: true

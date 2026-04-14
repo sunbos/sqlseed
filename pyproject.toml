@@ -71,7 +71,7 @@ mimesis = "sqlseed.generators.mimesis_provider:MimesisProvider"
 
 [tool.hatch.version]
 source = "vcs"
-fallback-version = "0.1.0"
+fallback-version = "0.0.0"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/sqlseed"]
