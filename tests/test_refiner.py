@@ -4,18 +4,30 @@ import json
 from unittest.mock import patch
 
 import pytest
+
+pytest.importorskip("sqlseed_ai", reason="sqlseed-ai plugin not installed")
+
 from sqlseed_ai.analyzer import SchemaAnalyzer
 from sqlseed_ai.config import AIConfig
 from sqlseed_ai.errors import ErrorSummary, summarize_error
 from sqlseed_ai.refiner import AiConfigRefiner, AISuggestionFailedError
 
 
-def _make_col(name: str, col_type: str = "TEXT", nullable: bool = False,
-              default=None, is_pk: bool = False, is_auto: bool = False):
-    return type("Col", (), {
-        "name": name, "type": col_type, "nullable": nullable,
-        "default": default, "is_primary_key": is_pk, "is_autoincrement": is_auto,
-    })()
+def _make_col(
+    name: str, col_type: str = "TEXT", nullable: bool = False, default=None, is_pk: bool = False, is_auto: bool = False
+):
+    return type(
+        "Col",
+        (),
+        {
+            "name": name,
+            "type": col_type,
+            "nullable": nullable,
+            "default": default,
+            "is_primary_key": is_pk,
+            "is_autoincrement": is_auto,
+        },
+    )()
 
 
 class TestErrorSummary:
@@ -88,12 +100,11 @@ class TestSummarizeError:
 class TestAiConfigRefiner:
     def _make_refiner(self, tmp_path, llm_side_effect=None):
         analyzer = SchemaAnalyzer(config=AIConfig(api_key="test-key"))
-        refiner = AiConfigRefiner(
+        return AiConfigRefiner(
             analyzer,
             str(tmp_path / "test.db"),
             cache_dir=str(tmp_path / "cache"),
         )
-        return refiner
 
     def test_cache_on_success(self, tmp_path):
         refiner = self._make_refiner(tmp_path)
@@ -151,16 +162,20 @@ class TestAiConfigRefiner:
 
         refiner = self._make_refiner(tmp_path)
 
-        with patch.object(refiner._analyzer, "call_llm", return_value=invalid_config):
-            with pytest.raises(AISuggestionFailedError, match="Failed after"):
-                refiner.generate_and_refine("users", max_retries=2)
+        with (
+            patch.object(refiner._analyzer, "call_llm", return_value=invalid_config),
+            pytest.raises(AISuggestionFailedError, match="Failed after"),
+        ):
+            refiner.generate_and_refine("users", max_retries=2)
 
     def test_refine_non_retryable_exits(self, tmp_path):
         refiner = self._make_refiner(tmp_path)
 
-        with patch.object(refiner._analyzer, "call_llm", side_effect=FileNotFoundError("db missing")):
-            with pytest.raises(AISuggestionFailedError, match="Non-retryable"):
-                refiner.generate_and_refine("users", max_retries=3)
+        with (
+            patch.object(refiner._analyzer, "call_llm", side_effect=FileNotFoundError("db missing")),
+            pytest.raises(AISuggestionFailedError, match="Non-retryable"),
+        ):
+            refiner.generate_and_refine("users", max_retries=3)
 
     def test_messages_accumulate(self, tmp_path):
         import sqlite3
@@ -185,10 +200,17 @@ class TestAiConfigRefiner:
 
         refiner = self._make_refiner(tmp_path)
 
-        with patch.object(refiner._analyzer, "build_initial_messages", return_value=[
-            {"role": "system", "content": "system"},
-            {"role": "user", "content": "context"},
-        ]), patch.object(refiner._analyzer, "call_llm", side_effect=mock_call_llm):
+        with (
+            patch.object(
+                refiner._analyzer,
+                "build_initial_messages",
+                return_value=[
+                    {"role": "system", "content": "system"},
+                    {"role": "user", "content": "context"},
+                ],
+            ),
+            patch.object(refiner._analyzer, "call_llm", side_effect=mock_call_llm),
+        ):
             result = refiner.generate_and_refine("users", max_retries=3)
 
         assert result["name"] == "users"

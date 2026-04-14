@@ -17,10 +17,7 @@ class UnknownGeneratorError(Exception):
     def __init__(self, generator_name: str, column_name: str | None = None) -> None:
         self.generator_name = generator_name
         self.column_name = column_name
-        super().__init__(
-            f"Unknown generator '{generator_name}'"
-            f"{f' for column {column_name}' if column_name else ''}"
-        )
+        super().__init__(f"Unknown generator '{generator_name}'{f' for column {column_name}' if column_name else ''}")
 
 
 class DataStream:
@@ -85,7 +82,10 @@ class DataStream:
                         val = self._apply_generator(node.generator_spec)
 
                     result = self._constraint_solver.try_register(
-                        col_name, val, unique=is_unique, source_columns=source_columns,
+                        col_name,
+                        val,
+                        unique=is_unique,
+                        source_columns=source_columns,
                     )
                     if result.registered:
                         row[col_name] = val

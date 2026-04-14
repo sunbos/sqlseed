@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
     from sqlseed.database._protocol import ColumnInfo, ForeignKeyInfo, IndexInfo
@@ -30,7 +30,8 @@ class SchemaInferrer:
         return list(self._db.get_index_info(table_name))
 
     def get_sample_data(self, table_name: str, limit: int = 5) -> list[dict[str, Any]]:
-        return self._db.get_sample_rows(table_name, limit=limit)
+        result = self._db.get_sample_rows(table_name, limit=limit)
+        return cast("list[dict[str, Any]]", result)
 
     def profile_column_distribution(
         self,
@@ -79,8 +80,7 @@ class SchemaInferrer:
                 counter = Counter(non_null_values)
                 top5 = counter.most_common(5)
                 profile["top_values"] = [
-                    {"value": str(v)[:50], "frequency": round(c / len(non_null_values), 3)}
-                    for v, c in top5
+                    {"value": str(v)[:50], "frequency": round(c / len(non_null_values), 3)} for v, c in top5
                 ]
             else:
                 profile["top_values"] = []

@@ -9,6 +9,7 @@ from sqlseed.core.mapper import GeneratorSpec
 @dataclass
 class ColumnConstraints:
     """列级约束"""
+
     unique: bool = False
     min_value: int | float | None = None
     max_value: int | float | None = None
@@ -19,12 +20,13 @@ class ColumnConstraints:
 @dataclass
 class ColumnNode:
     """DAG 中的一个节点，代表一个列"""
+
     name: str
     generator_spec: GeneratorSpec
-    depends_on: list[str] = field(default_factory=list)   # 依赖的源列名
-    expression: str | None = None                          # 派生表达式
-    constraints: ColumnConstraints | None = None           # 约束条件
-    is_derived: bool = False                               # 是否为派生列
+    depends_on: list[str] = field(default_factory=list)  # 依赖的源列名
+    expression: str | None = None  # 派生表达式
+    constraints: ColumnConstraints | None = None  # 约束条件
+    is_derived: bool = False  # 是否为派生列
 
     @property
     def is_skip(self) -> bool:
@@ -53,6 +55,7 @@ class ColumnDAG:
             expression = None
             depends_on = []
             is_derived = False
+            final_spec = spec
 
             if cc:
                 if hasattr(cc, "constraints") and cc.constraints:
@@ -64,12 +67,11 @@ class ColumnDAG:
                     depends_on = [cc.derive_from]
                     expression = cc.expression
                     is_derived = True
-                    # 派生列的 spec 设为特殊值
-                    spec = GeneratorSpec(generator_name="__derive__")
+                    final_spec = GeneratorSpec(generator_name="__derive__")
 
             nodes[col_name] = ColumnNode(
                 name=col_name,
-                generator_spec=spec,
+                generator_spec=final_spec,
                 depends_on=depends_on,
                 expression=expression,
                 constraints=constraints,

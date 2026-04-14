@@ -17,6 +17,7 @@ class ProviderType(str, Enum):
 
 class ColumnConstraintsConfig(BaseModel):
     """列约束配置"""
+
     unique: bool = False
     min_value: int | float | None = None
     max_value: int | float | None = None
@@ -32,6 +33,7 @@ class ColumnConfig(BaseModel):
     派生列模式：指定 derive_from + expression
     两者不能同时使用。
     """
+
     name: str
 
     # === 源列模式 ===
@@ -41,8 +43,8 @@ class ColumnConfig(BaseModel):
     null_ratio: float = Field(default=0.0, ge=0.0, le=1.0)
 
     # === 派生列模式 ===
-    derive_from: str | None = None       # 源列名
-    expression: str | None = None         # 派生表达式
+    derive_from: str | None = None  # 源列名
+    expression: str | None = None  # 派生表达式
 
     # === 约束 ===
     constraints: ColumnConstraintsConfig | None = None
@@ -65,17 +67,19 @@ class ColumnConfig(BaseModel):
 
 class TableConfig(BaseModel):
     """单表生成配置"""
+
     name: str
     count: int = Field(default=1000, gt=0)
     batch_size: int = Field(default=5000, gt=0)
     columns: list[ColumnConfig] = Field(default_factory=list)
-    clear_before: bool = False             # 默认不清空，保护原始数据
+    clear_before: bool = False  # 默认不清空，保护原始数据
     seed: int | None = None
-    transform: str | None = None           # [NEW] Python 变换脚本路径
+    transform: str | None = None  # [NEW] Python 变换脚本路径
 
 
 class ColumnAssociation(BaseModel):
     """跨表列关联声明 — 用于隐式关联（同名列跨表引用）"""
+
     column_name: str
     source_table: str
     target_tables: list[str] = Field(default_factory=list)
@@ -84,6 +88,7 @@ class ColumnAssociation(BaseModel):
 
 class GeneratorConfig(BaseModel):
     """全局生成配置"""
+
     db_path: str
     provider: ProviderType = ProviderType.MIMESIS
     locale: str = "en_US"

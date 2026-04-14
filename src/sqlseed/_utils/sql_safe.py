@@ -27,7 +27,7 @@ def validate_table_name(name: str) -> str:
     Performs basic legality checks in addition to escaping.
     Warns about table names containing special characters.
     """
-    if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', name):
+    if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", name):
         logger.warning("Table name '%s' contains special characters and will be quoted", name)
     return quote_identifier(name)
 
@@ -43,4 +43,3 @@ def build_insert_sql(table_name: str, column_names: list[str]) -> str:
     safe_columns = ", ".join(quote_identifier(col) for col in column_names)
     placeholders = ", ".join(["?"] * len(column_names))
     return f"INSERT INTO {safe_table} ({safe_columns}) VALUES ({placeholders})"
-

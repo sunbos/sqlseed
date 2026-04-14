@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import pytest
+
+pytest.importorskip("sqlseed_ai", reason="sqlseed-ai plugin not installed")
+
 from sqlseed_ai.analyzer import SchemaAnalyzer
 from sqlseed_ai.config import AIConfig
 
@@ -44,12 +48,27 @@ class TestAIConfig:
 
 
 class TestSchemaAnalyzer:
-    def _make_col(self, name: str, col_type: str = "TEXT", nullable: bool = False,
-                  default=None, is_pk: bool = False, is_auto: bool = False):
-        return type("Col", (), {
-            "name": name, "type": col_type, "nullable": nullable,
-            "default": default, "is_primary_key": is_pk, "is_autoincrement": is_auto,
-        })()
+    def _make_col(
+        self,
+        name: str,
+        col_type: str = "TEXT",
+        nullable: bool = False,
+        default=None,
+        is_pk: bool = False,
+        is_auto: bool = False,
+    ):
+        return type(
+            "Col",
+            (),
+            {
+                "name": name,
+                "type": col_type,
+                "nullable": nullable,
+                "default": default,
+                "is_primary_key": is_pk,
+                "is_autoincrement": is_auto,
+            },
+        )()
 
     def test_build_context_basic(self):
         analyzer = SchemaAnalyzer()

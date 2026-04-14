@@ -23,7 +23,5 @@ def load_transform(script_path: str) -> RowTransformFn:
 
     fn = getattr(module, "transform_row", None)
     if fn is None:
-        raise AttributeError(
-            f"Transform script must define a 'transform_row(row, ctx)' function: {script_path}"
-        )
+        raise AttributeError(f"Transform script must define a 'transform_row(row, ctx)' function: {script_path}")
     return cast("RowTransformFn", fn)

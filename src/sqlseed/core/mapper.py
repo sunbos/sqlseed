@@ -186,18 +186,19 @@ class ColumnMapper:
         column_type = column_info.type.upper() if column_info.type else "TEXT"
 
         if column_info.is_primary_key and (
-            column_info.is_autoincrement
-            or "INTEGER" in column_type
-            or "INT" in column_type
+            column_info.is_autoincrement or "INTEGER" in column_type or "INT" in column_type
         ):
             return GeneratorSpec(generator_name="skip")
 
         if user_config and hasattr(user_config, "generator") and user_config.generator:
+            provider_val = (
+                user_config.provider.value if hasattr(user_config, "provider") and user_config.provider else None
+            )
             return GeneratorSpec(
                 generator_name=user_config.generator,
                 params=user_config.params if hasattr(user_config, "params") else {},
                 null_ratio=user_config.null_ratio if hasattr(user_config, "null_ratio") else 0.0,
-                provider=user_config.provider.value if hasattr(user_config, "provider") and user_config.provider else None,
+                provider=provider_val,
             )
 
         if column_name in self._custom_exact_rules:

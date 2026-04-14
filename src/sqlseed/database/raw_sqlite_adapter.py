@@ -127,7 +127,7 @@ class RawSQLiteAdapter:
         cols_sql = ", ".join(col_names)
         cursor = self.conn.execute(f"SELECT {cols_sql} FROM {safe_table} LIMIT ?", [limit])
         col_name_list = [c.name for c in columns]
-        return [dict(zip(col_name_list, row)) for row in cursor.fetchall()]
+        return [dict(zip(col_name_list, row, strict=False)) for row in cursor.fetchall()]
 
     def batch_insert(
         self,

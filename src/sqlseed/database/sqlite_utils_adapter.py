@@ -124,7 +124,7 @@ class SQLiteUtilsAdapter:
         sql = f"SELECT {cols_sql} FROM {safe_table} LIMIT ?"
         rows = self._db.execute(sql, [limit]).fetchall()
         col_name_list = [c.name for c in columns]
-        return [dict(zip(col_name_list, row)) for row in rows]
+        return [dict(zip(col_name_list, row, strict=False)) for row in rows]
 
     def batch_insert(
         self,

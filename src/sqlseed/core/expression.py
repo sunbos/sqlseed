@@ -63,9 +63,7 @@ class ExpressionEngine:
         thread.join(timeout=self._timeout)
 
         if thread.is_alive():
-            raise ExpressionTimeoutError(
-                f"Expression evaluation timed out after {self._timeout}s: {expression[:100]}"
-            )
+            raise ExpressionTimeoutError(f"Expression evaluation timed out after {self._timeout}s: {expression[:100]}")
 
         if error is not None:
             raise error

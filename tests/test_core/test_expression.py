@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 
 import pytest
+import simpleeval
 
 from sqlseed.core.expression import ExpressionEngine, ExpressionTimeoutError
 
@@ -50,7 +51,7 @@ class TestExpressionEngine:
 
     def test_undefined_variable_raises(self):
         engine = ExpressionEngine()
-        with pytest.raises(Exception):
+        with pytest.raises(simpleeval.NameNotDefined):
             engine.evaluate("undefined_var + 1", {})
 
     def test_timeout_on_slow_expression(self):

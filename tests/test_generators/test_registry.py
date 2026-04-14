@@ -51,8 +51,10 @@ class TestProviderRegistry:
     def test_ensure_provider_faker(self) -> None:
         registry = ProviderRegistry()
         try:
-            from sqlseed.generators.faker_provider import FakerProvider
+            import importlib.util
 
+            if not importlib.util.find_spec("faker"):
+                pytest.skip("Faker is not installed")
             provider = registry.ensure_provider("faker")
             assert provider.name == "faker"
         except ImportError:
@@ -61,8 +63,10 @@ class TestProviderRegistry:
     def test_ensure_provider_mimesis(self) -> None:
         registry = ProviderRegistry()
         try:
-            from sqlseed.generators.mimesis_provider import MimesisProvider
+            import importlib.util
 
+            if not importlib.util.find_spec("mimesis"):
+                pytest.skip("Mimesis is not installed")
             provider = registry.ensure_provider("mimesis")
             assert provider.name == "mimesis"
         except ImportError:

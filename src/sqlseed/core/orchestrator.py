@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import time
 from typing import TYPE_CHECKING, Any, ClassVar
 
@@ -248,26 +249,17 @@ class DataOrchestrator:
         all_tables = self._db.get_table_names()
 
         indexes: list[dict[str, Any]] = []
-        try:
+        with contextlib.suppress(Exception):
             idx_infos = self._schema.get_index_info(table_name)
-            indexes = [
-                {"name": idx.name, "columns": idx.columns, "unique": idx.unique}
-                for idx in idx_infos
-            ]
-        except Exception:
-            pass
+            indexes = [{"name": idx.name, "columns": idx.columns, "unique": idx.unique} for idx in idx_infos]
 
         sample_data: list[dict[str, Any]] = []
-        try:
+        with contextlib.suppress(Exception):
             sample_data = self._schema.get_sample_data(table_name, limit=5)
-        except Exception:
-            pass
 
         distribution: list[dict[str, Any]] = []
-        try:
+        with contextlib.suppress(Exception):
             distribution = self._schema.profile_column_distribution(table_name, limit=1000)
-        except Exception:
-            pass
 
         return {
             "table_name": table_name,
@@ -286,7 +278,8 @@ class DataOrchestrator:
     def get_skippable_columns(self, table_name: str) -> set[str]:
         self._ensure_connected()
         return {
-            c.name for c in self._schema.get_column_info(table_name)
+            c.name
+            for c in self._schema.get_column_info(table_name)
             if (c.is_primary_key and c.is_autoincrement) or c.default is not None
         }
 
@@ -368,9 +361,7 @@ class DataOrchestrator:
                     )
                     spec.params["_ref_values"] = ref_values
 
-        specs = self._resolve_implicit_associations(table_name, specs)
-
-        return specs
+        return self._resolve_implicit_associations(table_name, specs)
 
     def _resolve_implicit_associations(
         self,
@@ -417,9 +408,7 @@ class DataOrchestrator:
 
         return specs
 
-    AI_APPLICABLE_GENERATORS: ClassVar[frozenset[str]] = frozenset(
-        {"string", "integer", "date", "datetime", "choice"}
-    )
+    AI_APPLICABLE_GENERATORS: ClassVar[frozenset[str]] = frozenset({"string", "integer", "date", "datetime", "choice"})
 
     def _apply_ai_suggestions(
         self,
@@ -428,7 +417,8 @@ class DataOrchestrator:
         specs: dict[str, GeneratorSpec],
     ) -> dict[str, GeneratorSpec]:
         unmatched_cols = [
-            col for col in column_infos
+            col
+            for col in column_infos
             if specs.get(col.name) is not None
             and specs[col.name].generator_name in self.AI_APPLICABLE_GENERATORS
             and not col.is_primary_key
@@ -515,10 +505,8 @@ class DataOrchestrator:
                 continue
 
             sample_data_for_col: list[Any] = []
-            try:
+            with contextlib.suppress(Exception):
                 sample_data_for_col = self._db.get_column_values(table_name, col_name, limit=10)
-            except Exception:
-                pass
 
             template_values = self._plugins.hook.sqlseed_pre_generate_templates(
                 table_name=table_name,
@@ -547,12 +535,10 @@ class DataOrchestrator:
         for col_name, spec in generator_specs.items():
             if spec.generator_name == "skip":
                 continue
-            try:
+            with contextlib.suppress(Exception):
                 values = self._db.get_column_values(table_name, col_name, limit=10000)
                 if values:
                     self._shared_pool.merge(col_name, values)
-            except Exception:
-                pass
 
     def fill(
         self,

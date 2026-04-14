@@ -37,7 +37,11 @@ def fill(
     transform_path: str | None,
     snapshot: bool,
 ) -> None:
-    """Fill a table with generated test data. Use --config for config-driven generation, or provide db_path + --table for direct generation."""
+    """Fill a table with generated test data.
+
+    Use --config for config-driven generation, or provide db_path + --table
+    for direct generation.
+    """
     if config_path:
         from sqlseed import fill_from_config
 
@@ -302,6 +306,7 @@ def ai_suggest(
     else:
         click.echo("No suggestions received. Ensure sqlseed-ai plugin is installed and API key is configured.")
         click.echo("Set SQLSEED_AI_API_KEY environment variable or use --api-key option.")
+
 
 def main() -> None:
     cli()
