@@ -37,4 +37,7 @@ jobs:
         run: pytest --cov=sqlseed --cov-report=xml
 
       - name: Upload coverage
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v5.5.4
+        with:
+          files: coverage.xml
+          fail_ci_if_error: false

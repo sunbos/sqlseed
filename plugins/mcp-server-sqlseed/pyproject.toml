@@ -7,6 +7,7 @@ name = "mcp-server-sqlseed"
 dynamic = ["version"]
 requires-python = ">=3.10"
 description = "MCP server for sqlseed - AI-powered SQLite test data generation"
+readme = "README.md"
 license = "AGPL-3.0-or-later"
 authors = [
     {name = "SunBo", email = "1443584939@qq.com"},
@@ -21,7 +22,7 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
-    "sqlseed",
+    "sqlseed>=0.1.0",
     "mcp>=1.0",
 ]
 
