@@ -117,7 +117,7 @@ class DataStream:
                 total_retries += 1
                 continue
 
-            if generated_values:
+            if generated_values or not any(not n.is_skip for n in self._nodes):
                 if self._transform_fn:
                     ctx = {"row_number": total_retries}
                     row = self._transform_fn(row, ctx)

@@ -134,16 +134,30 @@ class SQLiteUtilsAdapter:
     ) -> int:
         inserted = 0
         batch: list[dict[str, Any]] = []
-        for row in data:
+        for item in data:
+            row = item
+            if not row:
+                row = {}
             batch.append(row)
             if len(batch) >= batch_size:
-                self._db[table_name].insert_all(batch)
-                inserted += len(batch)
+                inserted += self._insert_batch(table_name, batch)
                 batch = []
         if batch:
-            self._db[table_name].insert_all(batch)
-            inserted += len(batch)
+            inserted += self._insert_batch(table_name, batch)
         return inserted
+
+    def _insert_batch(self, table_name: str, batch: list[dict[str, Any]]) -> int:
+        if not batch:
+            return 0
+        if batch[0]:
+            self._db[table_name].insert_all(batch)
+            return len(batch)
+        safe_table = quote_identifier(table_name)
+        conn = self._db.conn
+        for _ in batch:
+            conn.execute(f"INSERT INTO {safe_table} DEFAULT VALUES")
+        conn.commit()
+        return len(batch)
 
     def clear_table(self, table_name: str) -> None:
         safe_table = quote_identifier(table_name)

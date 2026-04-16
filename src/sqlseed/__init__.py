@@ -42,6 +42,7 @@ def fill(
     batch_size: int = 5000,
     clear_before: bool = False,
     optimize_pragma: bool = True,
+    enrich: bool = False,
 ) -> GenerationResult:
     with DataOrchestrator(
         db_path=db_path,
@@ -56,6 +57,7 @@ def fill(
             seed=seed,
             batch_size=batch_size,
             clear_before=clear_before,
+            enrich=enrich,
         )
 
 
@@ -92,6 +94,7 @@ def fill_from_config(config_path: str) -> list[GenerationResult]:
                 clear_before=table_config.clear_before,
                 column_configs=table_config.columns,
                 transform=table_config.transform,
+                enrich=table_config.enrich,
             )
             results.append(result)
     return results
@@ -106,6 +109,7 @@ def preview(
     provider: str = "mimesis",
     locale: str = "en_US",
     seed: int | None = None,
+    enrich: bool = False,
 ) -> list[dict[str, Any]]:
     with DataOrchestrator(
         db_path=db_path,
@@ -118,4 +122,5 @@ def preview(
             count=count,
             columns=columns,
             seed=seed,
+            enrich=enrich,
         )

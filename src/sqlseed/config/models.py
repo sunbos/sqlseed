@@ -72,9 +72,10 @@ class TableConfig(BaseModel):
     count: int = Field(default=1000, gt=0)
     batch_size: int = Field(default=5000, gt=0)
     columns: list[ColumnConfig] = Field(default_factory=list)
-    clear_before: bool = False  # 默认不清空，保护原始数据
+    clear_before: bool = False
     seed: int | None = None
-    transform: str | None = None  # [NEW] Python 变换脚本路径
+    transform: str | None = None
+    enrich: bool = False
 
 
 class ColumnAssociation(BaseModel):

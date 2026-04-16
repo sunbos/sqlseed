@@ -40,9 +40,12 @@ class ColumnDAG:
         self,
         specs: dict[str, GeneratorSpec],
         column_configs: list[Any] | None = None,
+        unique_columns: set[str] | None = None,
+        composite_unique_indexes: list[list[str]] | None = None,
     ) -> list[ColumnNode]:
         nodes: dict[str, ColumnNode] = {}
         config_map: dict[str, Any] = {}
+        unique_columns = unique_columns or set()
 
         if column_configs:
             for cc in column_configs:
@@ -68,6 +71,15 @@ class ColumnDAG:
                     expression = cc.expression
                     is_derived = True
                     final_spec = GeneratorSpec(generator_name="__derive__")
+
+            if col_name in unique_columns:
+                if constraints is None:
+                    constraints = ColumnConstraints(unique=True)
+                elif not constraints.unique:
+                    constraints = ColumnConstraints(
+                        unique=True,
+                        max_retries=constraints.max_retries,
+                    )
 
             nodes[col_name] = ColumnNode(
                 name=col_name,

@@ -24,6 +24,7 @@ def cli() -> None:
 @click.option("--config", "-c", "config_path", default=None, help="YAML/JSON config file path")
 @click.option("--transform", "transform_path", default=None, help="Python transform script path")
 @click.option("--snapshot", is_flag=True, help="Save generation snapshot for replay")
+@click.option("--enrich", is_flag=True, help="Enrich data using existing table distribution")
 def fill(
     db_path: str | None,
     table: str | None,
@@ -36,6 +37,7 @@ def fill(
     config_path: str | None,
     transform_path: str | None,
     snapshot: bool,
+    enrich: bool,
 ) -> None:
     """Fill a table with generated test data.
 
@@ -73,6 +75,7 @@ def fill(
         seed=seed,
         batch_size=batch_size,
         clear_before=clear,
+        enrich=enrich,
     )
     click.echo(str(result))
 

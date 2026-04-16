@@ -109,6 +109,7 @@ def sqlseed_execute_fill(
     table_name: str,
     count: int = 1000,
     yaml_config: str | None = None,
+    enrich: bool = False,
 ) -> dict[str, Any]:
     """Execute data generation for a table. Optionally provide YAML config string for column rules."""
     from sqlseed.core.orchestrator import DataOrchestrator
@@ -138,6 +139,7 @@ def sqlseed_execute_fill(
             column_configs=column_configs,
             clear_before=clear_before,
             seed=seed,
+            enrich=enrich,
         )
 
         return {

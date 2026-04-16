@@ -181,7 +181,14 @@ class ColumnMapper:
     def register_pattern_rule(self, pattern: str, generator: str, params: dict[str, Any] | None = None) -> None:
         self._custom_pattern_rules.append((pattern, generator, params or {}))
 
-    def map_column(self, column_info: ColumnInfo, user_config: Any = None) -> GeneratorSpec:
+    def map_column(
+        self,
+        column_info: ColumnInfo,
+        user_config: Any = None,
+        *,
+        enrich: bool = False,
+        force_type_infer: bool = False,
+    ) -> GeneratorSpec:
         column_name = column_info.name.lower()
         column_type = column_info.type.upper() if column_info.type else "TEXT"
 
@@ -219,6 +226,13 @@ class ColumnMapper:
                 return GeneratorSpec(generator_name=gen, params=params)
 
         if column_info.default is not None or column_info.nullable:
+            if force_type_infer:
+                return self._type_faithful_fallback(column_type)
+            if enrich:
+                return GeneratorSpec(
+                    generator_name="__enrich__",
+                    params={"_default": column_info.default, "_nullable": column_info.nullable},
+                )
             return GeneratorSpec(generator_name="skip")
 
         return self._type_faithful_fallback(column_type)
@@ -248,10 +262,12 @@ class ColumnMapper:
         self,
         columns: list[ColumnInfo],
         user_configs: dict[str, Any] | None = None,
+        *,
+        enrich: bool = False,
     ) -> dict[str, GeneratorSpec]:
         user_configs = user_configs or {}
         result: dict[str, GeneratorSpec] = {}
         for col in columns:
             col_config = user_configs.get(col.name)
-            result[col.name] = self.map_column(col, col_config)
+            result[col.name] = self.map_column(col, col_config, enrich=enrich)
         return result
