@@ -216,6 +216,15 @@ class TestCLIMain:
         result = runner.invoke(cli, ["--version"])
         assert result.exit_code == 0
 
+    def test_version_matches_package_metadata(self) -> None:
+        from importlib.metadata import version
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["--version"])
+        assert result.exit_code == 0
+        expected = version("sqlseed")
+        assert expected in result.output, f"Expected '{expected}' in version output, got: {result.output}"
+
 
 class TestCLIAISuggest:
     @pytest.mark.skipif(

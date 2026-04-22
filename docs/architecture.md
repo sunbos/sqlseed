@@ -195,7 +195,7 @@ flowchart TD
     L2{"Level 2<br/>自定义精确匹配？"} -->|匹配| R2["使用插件注册的精确规则"]
     L2 -->|未匹配| L3
 
-    L3{"Level 3<br/>内置精确匹配？<br/>(67 条规则)"} -->|匹配| R3["email→email<br/>phone→phone<br/>age→integer<br/>..."]
+    L3{"Level 3<br/>内置精确匹配？<br/>(68 条规则)"} -->|匹配| R3["email→email<br/>phone→phone<br/>age→integer<br/>..."]
     L3 -->|未匹配| L4
 
     L4{"Level 4<br/>自定义模式匹配？"} -->|匹配| R4["使用插件注册的正则规则"]
@@ -239,19 +239,10 @@ classDiagram
         +name: str
         +set_locale(locale: str)
         +set_seed(seed: int)
-        +generate_string(*, min_length, max_length, charset) str
-        +generate_integer(*, min_value, max_value) int
-        +generate_float(*, min_value, max_value, precision) float
-        +generate_boolean() bool
-        +generate_bytes(*, length) bytes
-        +generate_name() str
-        +generate_email() str
-        +generate_phone() str
-        +generate_date(*, start_year, end_year) str
-        +generate_datetime(*, start_year, end_year) str
-        +generate_choice(choices) Any
-        +generate_pattern(*, regex) str
-        ...24 个方法
+        +generate(type_name: str, **params) Any
+        +set_locale(locale: str) None
+        +set_seed(seed: int) None
+        ... 通过 _GENERATOR_MAP 分派到 24 种内部方法
     }
 
     class BaseProvider {
