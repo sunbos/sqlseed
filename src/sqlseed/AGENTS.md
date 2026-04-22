@@ -8,11 +8,11 @@
 ## 目录导航
 
 - `core/`：主编排链路、列映射、表达式、约束、Transform、Enrichment、Relation、Schema。进入该目录前再读 `core/AGENTS.md`。
-- `generators/`：`DataProvider` Protocol、Provider Registry、Base/Faker/Mimesis Provider、`DataStream`。
-- `database/`：`DatabaseAdapter` Protocol、`sqlite-utils`/原生 sqlite3 适配器、PRAGMA 优化。
-- `config/`：Pydantic 配置模型、YAML/JSON 加载、快照回放。
+- `generators/`：`DataProvider` Protocol、Provider Registry、Base/Faker/Mimesis Provider、`DataStream`。进入该目录前再读 `generators/AGENTS.md`。
+- `database/`：`DatabaseAdapter` Protocol、`sqlite-utils`/原生 sqlite3 适配器、PRAGMA 优化。进入该目录前再读 `database/AGENTS.md`。
+- `config/`：Pydantic 配置模型、YAML/JSON 加载、快照回放。进入该目录前再读 `config/AGENTS.md`。
 - `cli/`：Click 命令层，负责参数解析与输出展示。
-- `plugins/`：hook 规范与 `PluginManager`，不是插件实现目录。
+- `plugins/`：hook 规范与 `PluginManager`，不是插件实现目录。进入该目录前再读 `plugins/AGENTS.md`。
 - `_utils/`：SQL 安全、日志、进度、指标等内部工具。
 
 ## 本目录规则
@@ -27,7 +27,7 @@
 
 ## 评审热点
 
-- `generators/stream.py` 负责本地 RNG、null_ratio、外键/template pool 取值，以及未知生成器回退到字符串生成器的行为。
+- `generators/stream.py` 负责本地 RNG、null_ratio、外键/template pool 取值，以及 `choice` / `foreign_key` 的本地特判；其他未知生成器会继续抛 `UnknownGeneratorError`。
 - `database/` 代码必须同时兼容 `sqlite-utils` 路径和原生 sqlite3 回退路径。
 - `plugins/hookspecs.py` 是外部插件契约；签名变化会破坏第三方插件。
 - `config/models.py` 与 `config/loader.py` 决定 YAML/JSON 兼容性，改动时要关注回放和快照。

@@ -17,7 +17,7 @@
 - `DataProvider` Protocol，含 `BaseProvider`、`FakerProvider`、`MimesisProvider`
 - `DataStream` 流式数据生成器，内存高效的批量处理
 - `RelationResolver` 外键依赖拓扑排序
-- 基于 `pluggy` 的插件系统，10 个 Hook 点
+- 基于 `pluggy` 的插件系统，11 个 Hook 点
 - CLI 命令：`fill`、`preview`、`inspect`、`init`、`replay`、`ai-suggest`
 - Python API：`sqlseed.fill()`、`sqlseed.connect()`、`sqlseed.fill_from_config()`、`sqlseed.preview()`
 - YAML/JSON 配置文件支持
@@ -81,5 +81,6 @@
 - `ProviderRegistry.register_from_entry_points()` 修正 provider 类与普通插件入口点的区分逻辑，非 provider 入口点（如 `sqlseed_ai:plugin`）不再产生误报 warning
 
 ### 变更
+- README / 开发文档与当前实现对齐：MCP tool 名称、Provider 协议示例、`sqlseed_shared_pool_loaded` 触发时机与 `UnknownGeneratorError` 行为说明已同步
 - 移除 `suggest.py`（`ColumnSuggester`）和 `nl_config.py`（`NLConfigGenerator`），其功能由 `SchemaAnalyzer` + `AiConfigRefiner` 完全替代。如有外部代码直接 `from sqlseed_ai.suggest import ColumnSuggester` 或 `from sqlseed_ai.nl_config import NLConfigGenerator`，将产生 `ImportError`
 - `plugins/sqlseed-ai/README.md` 功能描述与当前实际入口对齐，移除未对外提供的 "Column-level Suggestions" / "Natural Language Config" 描述

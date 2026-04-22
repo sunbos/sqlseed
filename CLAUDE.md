@@ -93,6 +93,31 @@ ColumnConfig (列级，支持两种互斥模式)
 
 **模式互斥验证**：`derive_from` 和 `generator` 不可同时使用（Pydantic `model_validator`）。
 
+### 核心编排架构
+
+编排器使用两个 dataclass 组织内部状态：
+
+```python
+@dataclass
+class CoreCtx:
+    db: DatabaseAdapter | None
+    schema: SchemaInferrer | None
+    mapper: ColumnMapper
+    relation: RelationResolver | None
+    shared_pool: SharedPool
+
+@dataclass
+class ExtCtx:
+    registry: ProviderRegistry
+    plugins: PluginManager
+    plugin_mediator: PluginMediator | None
+    enrichment: EnrichmentEngine | None
+    unique_adjuster: UniqueAdjuster | None
+    metrics: MetricsCollector
+```
+
+`DataOrchestrator.__init__` 在构造时即创建 `CoreCtx` 和 `ExtCtx`，包括 DB 适配器和 `SchemaInferrer`。延迟连接在 `_ensure_connected()` 中完成。
+
 ### 核心编排流程
 
 `DataOrchestrator.fill_table()` 是主入口，执行链路：
@@ -101,37 +126,48 @@ ColumnConfig (列级，支持两种互斥模式)
 1.  _ensure_connected()         → 连接数据库、加载插件、注册 Provider、创建 PluginMediator
 2.  optimize_for_bulk_write()   → 三级 PRAGMA 优化（如果 optimize_pragma=True）
 3.  clear_table()               → 如果 clear_before=True，清空表
-4.  get_column_info()           → 推断 Schema
-5.  _resolve_user_configs()     → 合并用户 ColumnConfig 配置
-6.  map_columns()               → 8 级策略链映射
-7.  detect_unique_columns()     → 检测唯一列
-8.  EnrichmentEngine.apply()    → [enrich=True] 数据分布推断
-9.  UniqueAdjuster.adjust()     → 唯一列参数调整
-10. resolve_foreign_keys()      → FK 解析 + SharedPool 隐式关联
-11. apply_ai_suggestions()      → AI Hook 分析（通过 PluginMediator）
-12. apply_template_pool()       → AI 预计算模板池（通过 PluginMediator）
-13. ColumnDAG.build()           → 拓扑排序列依赖
-14. 创建 ExpressionEngine、ConstraintSolver、加载 Transform
-15. sqlseed_before_generate Hook
-16. DataStream.generate()       → 逐批 yield 数据
-17. 每批：before_insert → apply_batch_transforms → batch_insert → after_insert
-18. sqlseed_after_generate Hook
-19. register_shared_pool()      → 注册值到 SharedPool
-20. restore_settings()          → [finally] 恢复 PRAGMA 设置
+4.  _resolve_specs()            → 合并 Schema 推断 + 用户配置 + 映射 + 唯一性 + FK 解析
+    4a. get_column_info()       → 推断 Schema
+    4b. _resolve_user_configs() → 合并用户 ColumnConfig 配置
+    4c. map_columns()           → 8 级策略链映射
+    4d. detect_unique_columns() → 检测唯一列
+    4e. EnrichmentEngine.apply() → [enrich=True] 数据分布推断
+    4f. UniqueAdjuster.adjust() → 唯一列参数调整
+    4g. resolve_foreign_keys()  → FK 解析 + SharedPool 隐式关联
+5.  apply_ai_suggestions()      → AI Hook 分析（通过 PluginMediator）
+6.  apply_template_pool()       → AI 预计算模板池（通过 PluginMediator）
+7.  _build_stream()             → 创建 ColumnDAG、ExpressionEngine、ConstraintSolver、加载 Transform
+8.  sqlseed_before_generate Hook
+9.  DataStream.generate()       → 逐批 yield 数据
+10. 每批：before_insert → apply_batch_transforms → batch_insert → after_insert
+11. sqlseed_after_generate Hook
+12. register_shared_pool()      → 注册值到 SharedPool
+13. restore_settings()          → [finally] 恢复 PRAGMA 设置
 ```
 
-**注意**：`preview_table()` 不调用 AI 建议和模板池（步骤 11-12），也不调用 before_generate/after_generate Hook。
+**注意**：`preview_table()` 不调用 AI 建议和模板池（步骤 5-6），不调用 before_generate/after_generate Hook，但**会**调用 `apply_batch_transforms()`。
 
-### DataProvider Protocol 方法完整列表
+### DataProvider Protocol
 
-`generate_string`、`generate_integer`、`generate_float`、`generate_boolean`、
-`generate_bytes`、`generate_name`、`generate_first_name`、`generate_last_name`、
-`generate_email`、`generate_phone`、`generate_address`、`generate_company`、
-`generate_url`、`generate_ipv4`、`generate_uuid`、`generate_date`、
-`generate_datetime`、`generate_timestamp`、`generate_text`、`generate_sentence`、
-`generate_password`、`generate_choice`、`generate_json`、`generate_pattern`
+`DataProvider` Protocol 定义了统一的生成接口：
 
-另有：`name`（property）、`set_locale()`、`set_seed()`。
+```python
+@runtime_checkable
+class DataProvider(Protocol):
+    @property
+    def name(self) -> str: ...
+    def set_locale(self, locale: str) -> None: ...
+    def set_seed(self, seed: int) -> None: ...
+    def generate(self, type_name: str, **params: Any) -> Any: ...
+```
+
+`generate()` 方法通过 `GeneratorDispatchMixin._GENERATOR_MAP` 分派到 24 个内部方法：
+
+`string`、`integer`、`float`、`boolean`、`bytes`、`name`、`first_name`、`last_name`、
+`email`、`phone`、`address`、`company`、`url`、`ipv4`、`uuid`、`date`、
+`datetime`、`timestamp`、`text`、`sentence`、`password`、`choice`、`json`、`pattern`
+
+未知 `type_name` 会抛出 `UnknownGeneratorError`（定义在 `generators/_protocol.py`）。
 
 ### DatabaseAdapter Protocol 方法完整列表
 
@@ -155,10 +191,8 @@ ColumnConfig (列级，支持两种互斥模式)
 | `sqlseed_transform_batch(table_name, batch)` | ✗ | `apply_batch_transforms()` |
 | `sqlseed_before_insert(table_name, batch_number, batch_size)` | ✗ | 每批写入前 |
 | `sqlseed_after_insert(table_name, batch_number, rows_inserted)` | ✗ | 每批写入后 |
-| `sqlseed_shared_pool_loaded(table_name, shared_pool)` | ✗ | 表值池注册后 |
+| `sqlseed_shared_pool_loaded(table_name, shared_pool)` | ✗ | `register_shared_pool()` 后 |
 | `sqlseed_pre_generate_templates(...)` | ✓ | `apply_template_pool()` |
-
-**注意**：`sqlseed_shared_pool_loaded` Hook 在 hookspecs 中定义但在 orchestrator.py 中**从未被调用**。这是已知的遗漏。
 
 ### ColumnMapper 8 级策略链
 
@@ -166,20 +200,18 @@ ColumnConfig (列级，支持两种互斥模式)
 |--------|------|----------|------|
 | 1 | 用户配置 | — | `ColumnConfig.generator` + params |
 | 2 | 自定义精确匹配 | 动态 | `register_exact_rule()` 注册 |
-| 3 | 内置精确匹配 | 68 规则 | `EXACT_MATCH_RULES` + `EXACT_MATCH_PARAMS`（28 预设） |
+| 3 | 内置精确匹配 | 67 规则 | `EXACT_MATCH_RULES` + `EXACT_MATCH_PARAMS`（28 预设） |
 | 4 | 自定义模式匹配 | 动态 | `register_pattern_rule()` 注册 |
 | 5 | 内置模式匹配 | 25 正则 | `PATTERN_MATCH_RULES` |
 | 6 | 跳过级 | — | `default is not None or nullable` → `skip`/`__enrich__` |
 | 7 | 类型忠实回退 | 22 类型 | `TYPE_FALLBACK_RULES`，解析 `VARCHAR(32)` 等括号参数 |
 | 8 | 默认 | — | `string`（min_length=5, max_length=50） |
 
-**精确匹配规则计数**：`EXACT_MATCH_RULES` 实际包含 68 条（含 `zip_code` 和 `postal_code`），`EXACT_MATCH_PARAMS` 包含 28 条参数预设。
-
 ### 测试结构
 
 ```
 tests/
-├── conftest.py               → 公共 fixtures（tmp_db, tmp_db_with_data, bank_cards_db）
+├── conftest.py               → 公共 fixtures（tmp_db, tmp_db_with_data, bank_cards_db, card_info_db 辅助）
 ├── test_public_api.py        → fill/connect/preview/fill_from_config
 ├── test_orchestrator.py      → DataOrchestrator 集成测试
 ├── test_mapper.py            → ColumnMapper 映射逻辑
@@ -222,10 +254,10 @@ tests/
 
 ### 测试模式
 
-- **Fixtures**：公共 fixtures 在 `tests/conftest.py`（`tmp_db` 创建含 users/orders 两表的数据库，`bank_cards_db` 用于 DAG/约束场景）
+- **Fixtures**：公共 fixtures 在 `tests/conftest.py`（`tmp_db` 创建含 users/orders 两表的数据库，`bank_cards_db` 用于 DAG/约束场景，`create_card_info_db()` 辅助函数用于多索引测试）
 - **适配器**：使用真实 SQLite 数据库测试（临时文件路径 via `tmp_path`）
 - **CLI**：使用 `click.testing.CliRunner` — 禁止使用 subprocess
-- **Provider**：独立测试每个 `generate_*` 方法
+- **Provider**：通过统一 `generate(type_name, **params)` 接口测试各类型
 - **插件**：通过 `PluginManager` 测试 Hook 注册和调用
 - **AI 测试**：需要 `sqlseed-ai` 插件的测试使用 `pytest.importorskip("sqlseed_ai")`
 - **基准测试**：使用 `pytest-benchmark`，位于 `tests/benchmarks/`
@@ -233,36 +265,34 @@ tests/
 ### 关键实现细节
 
 - `DataOrchestrator.fill()` 是 `fill_table()` 的别名。`fill_table()` 是完整实现。
+- `DataOrchestrator` 在 `__init__` 中使用 `CoreCtx` 和 `ExtCtx` dataclass 组织状态。`CoreCtx` 持有 DB 适配器、Schema 推断器、列映射器、关系解析器和共享池。`ExtCtx` 持有 Provider 注册表、插件管理器、中介器、增强引擎和指标收集器。
+- `DataOrchestrator._create_adapter()` 检测 `sqlite-utils` 是否可用（通过 `database/_compat.py` 的 `HAS_SQLITE_UTILS`），不可用则回退到 `RawSQLiteAdapter`。
 - `transform_batch` Hook 返回 `list[result]`（非 firstresult）。编排器通过 `PluginMediator.apply_batch_transforms()` 链式处理——遍历结果列表，最后一个非 None 的结果胜出。
 - `DataStream` 使用自己的 `random.Random(seed)` 实例处理 `null_ratio`/`choice` 操作，与 Provider 的 RNG 分离。
-- `PragmaOptimizer.restore()` 在应用 PRAGMA 值前用正则 `^[a-zA-Z0-9_-]+$` 验证（防 SQL 注入）。
+- `PragmaOptimizer.restore()` 在应用 PRAGMA 值前用正则 `^[a-zA-Z0-9_-]+$` 验证（防 SQL 注入），同时支持 `int`/`float` 类型值的直接写入。
 - `_is_autoincrement` 检测集中在 `_utils/schema_helpers.py`，通过解析 `sqlite_master` 的 CREATE TABLE SQL 实现。
-- `ExpressionEngine` 具有基于线程的超时机制（默认 5 秒），通过 `ExpressionTimeoutError`（继承自 `TimeoutError`）报告。**注意**：线程超时后无法被强制终止，超时线程仍在后台运行。
+- `ExpressionEngine.evaluate()` 对每次调用创建独立的 `simpleeval.SimpleEval()` 实例，避免竞态条件。超时机制使用独立线程（默认 5 秒），通过 `ExpressionTimeoutError`（继承自 `TimeoutError`）报告。**注意**：线程超时后无法被强制终止，超时线程仍在后台运行。
 - `ExpressionEngine.SAFE_FUNCTIONS` 白名单包括 21 个函数：`len`、`int`、`str`、`float`、`hex`、`oct`、`bin`、`abs`、`min`、`max`、`upper`、`lower`、`strip`、`lstrip`、`rstrip`、`zfill`、`replace`、`substr`、`lpad`、`rpad`、`concat`。
-- `ExpressionEngine.evaluate()` 修改 `self._evaluator.names`，**非线程安全**。并发调用会产生竞态条件。
-- `relation.py` 中的 `SharedPool` 维护跨表值池以保持 FK 引用完整性。`merge()` 方法去重追加值。
+- `relation.py` 中的 `SharedPool` 维护跨表值池以保持 FK 引用完整性。`merge()` 方法使用 `set()` 进行去重追加，对不可哈希值（如 `dict`/`list`）通过 `try/except TypeError` 回退到线性扫描。
 - `DatabaseAdapter` Protocol 包含 `IndexInfo`、`get_index_info()` 和 `get_sample_rows()`。两个实现：`SQLiteUtilsAdapter`（默认）和 `RawSQLiteAdapter`（回退）。
 - 插件系统有 11 个 Hook。`sqlseed_ai_analyze_table` 和 `sqlseed_pre_generate_templates` 是 `firstresult`。
 - CLI `fill` 命令使用 `--config` 时 `db_path` 为可选（`required=False`）。
-- AI 插件默认模型为 `qwen3-coder-plus`，可通过 `AIConfig`、环境变量 `SQLSEED_AI_MODEL` / `SQLSEED_AI_API_KEY` / `SQLSEED_AI_BASE_URL` 或 CLI `--model`/`--api-key`/`--base-url` 配置。
+- AI 插件默认模型为 `gpt-4o`，可通过 `AIConfig`、环境变量 `SQLSEED_AI_MODEL` / `SQLSEED_AI_API_KEY` / `SQLSEED_AI_BASE_URL`（也支持 `OPENAI_API_KEY` / `OPENAI_BASE_URL`）或 CLI `--model`/`--api-key`/`--base-url` 配置。
 - `AI_APPLICABLE_GENERATORS` 为 `frozenset({"string", "integer", "date", "datetime", "choice"})`，只有这些类型的列会触发 AI 分析。
 - `ProviderRegistry.ensure_provider()` 按需惰性导入 Faker/Mimesis，失败时回退到 `base`。
 - `DataStream._generate_row()` 支持全行级重试（最多 1000 次），约束回溯时通过 `_find_node_index()` 定位源列在 DAG 中的位置。
-- `UnknownGeneratorError` 在 `generators/stream.py` 中定义，但 `_apply_generator()` 对未知生成器**静默回退**到 `generate_string()`，并不抛出此异常。
-- `SnapshotManager` 默认保存到 `./snapshots/`，文件名格式 `{timestamp}_{table_name}.yaml`。
+- `UnknownGeneratorError` 在 `generators/_protocol.py` 中定义；`DataStream._apply_generator()` 只对 `choice` 和 `foreign_key` 做本地兜底，其余未知生成器会继续抛出该异常。
+- `SnapshotManager` 默认保存到 `./snapshots/`，文件名格式 `{timestamp}_{table_name}.yaml`，时间戳格式为 `%Y-%m-%d_%H%M%S`。
 - `SchemaInferrer.profile_column_distribution()` 提取列分布画像（null_ratio、distinct_count、top_values、value_range），注入 AI 上下文。
 - MCP 服务器 `_compute_schema_hash()` 使用 SHA256 前 16 字符作为 schema 指纹。
-- `_resolve_implicit_associations()` 检查 SharedPool 中是否存在同名列值，实现无 FK 约束的隐式跨表关联。
-- `generate_pattern(*, regex)` 使用 `rstr` 库（核心依赖）从正则表达式生成匹配字符串。
-- `ConstraintSolver._is_seen()` 在检查时**隐式注册**值（副作用），导致 `check_and_register` 和 `try_register` 都会隐式注册。
-- `ConstraintSolver.check_and_register()` 对 `value=None` **不做跳过**检查，与 `try_register()` 行为不一致。
-- `ColumnDAG.build()` 的 `composite_unique_indexes` 参数已声明但**从未使用**。
-- `ColumnConstraints` 中的 `min_value`/`max_value`/`regex` 字段已定义但在 `build()` 中**从未赋值**。
-- `RelationResolver.load_shared_pool()` 是空操作（仅遍历和记录日志，不修改任何状态）。
-- `DataOrchestrator.__init__` 中 `self._relation` 被赋值**两次**（第一次无 SharedPool 的赋值被立即覆盖，是无效代码）。
-- `SharedPool.merge()` 内部使用 `set()` 去重，对不可哈希值（如 `dict`/`list`）会抛 `TypeError`。
-- `BaseProvider.generate_address()` 中 `numbers = list(range(1, 9999))` 每次调用创建 9998 个元素的列表，性能浪费。
-- `BaseProvider.generate_name()` 使用 60+60 名字列表，但 `generate_first_name()`/`generate_last_name()` 仅使用 30/30 列表（两组列表不一致）。
+- `resolve_implicit_associations()` 检查 SharedPool 中是否存在同名列值，实现无 FK 约束的隐式跨表关联。仅对 `foreign_key_or_integer` 类型的 spec 进行隐式关联。
+- `generate_pattern(*, regex)` 使用 `rstr` 库（核心依赖）从正则表达式生成匹配字符串，在 `BaseProvider._gen_pattern()` 中创建局部 `rstr.Rstr(self._rng)` 实例。
+- `ConstraintSolver._is_seen()` 仅检查值是否存在，**不会隐式注册**。`check_and_register()` 先调用 `_is_seen()`，再显式调 `_register()`。两者是独立操作。
+- `ConstraintSolver.check_and_register()` 对 `value=None` 直接返回 `True`（跳过注册），与 `try_register()` 行为一致。
+- `ConstraintSolver` 支持 `probabilistic=True` 模式，使用 SHA256 hash-based 去重降低内存占用（适用于 >100K 行），以及 `check_and_register_composite()` 复合唯一约束。
+- `register_shared_pool()` 在 `fill_table()` 完成后调用，遍历所有非 `skip` 的列，从数据库查询值（`limit=10000`）并合并到 `SharedPool`。
+- `BaseProvider.FIRST_NAMES` 和 `LAST_NAMES` 各含 60 个条目，`generate_name()`、`generate_first_name()`、`generate_last_name()` 均使用同一组列表。
+- `GeneratorDispatchMixin._GENERATOR_MAP` 包含 24 个生成器类型到内部方法的映射。
 
 ### 代码风格
 
@@ -307,6 +337,9 @@ def method(self):
 **开发依赖**：
 `pytest>=8.0`、`pytest-cov>=5.0`、`pytest-asyncio>=0.24`、`pytest-benchmark>=4.0`、`ruff>=0.5`、`mypy>=1.10`、`pre-commit>=3.0`
 
+**文档依赖**：
+`mkdocs-material>=9.0`、`mkdocstrings[python]>=0.25`
+
 ## 文件模板
 
 ### 新 Provider 模板
@@ -315,7 +348,10 @@ def method(self):
 from __future__ import annotations
 from typing import Any
 
-class NewProvider:
+from sqlseed.generators._dispatch import GeneratorDispatchMixin
+
+
+class NewProvider(GeneratorDispatchMixin):
     def __init__(self) -> None:
         self._locale: str = "en_US"
 
@@ -329,8 +365,9 @@ class NewProvider:
     def set_seed(self, seed: int) -> None:
         ...
 
-    # 实现 DataProvider Protocol 的所有 generate_* 方法
-    # 参见：src/sqlseed/generators/_protocol.py
+    # 实现 _gen_* 方法（对应 _GENERATOR_MAP 中的 24 种类型）
+    # generate() 方法由 GeneratorDispatchMixin 提供
+    # 参见：src/sqlseed/generators/base_provider.py
 ```
 
 ### 新测试模板
@@ -386,10 +423,11 @@ class MyPlugin:
 12. **entry-points 注册**：Provider 通过 `pyproject.toml` 的 `[project.entry-points."sqlseed"]` 自动发现，`register_from_entry_points()` 在 `_ensure_connected()` 中调用。非 provider 入口点（如 `sqlseed_ai:plugin`）会被静默跳过，不产生 warning
 13. **`apply_batch_transforms` 链式语义**：遍历所有 Hook 返回的结果列表，最后一个非 `None` 的结果覆盖 —— 不是累积合并
 14. **选择生成器的 `_rng`**：`DataStream._apply_generator()` 中 `choice` 和 `foreign_key` 用流自身的 `self._rng`，而非 Provider 的 RNG
-15. **`generate_pattern` 依赖**：`rstr` 是核心依赖，`BaseProvider.generate_pattern()` 内部按需导入
-16. **`_is_seen` 副作用**：`ConstraintSolver._is_seen()` 在检查唯一性时会隐式注册值到已见集合，这使得 `check_and_register` 是**检查+注册**的原子操作，但也意味着「只检查不注册」不可能
-17. **未调用的 Hook**：`sqlseed_shared_pool_loaded` 在 hookspecs 中定义了但 orchestrator.py 中从未调用
-18. **Transform ctx 语义陷阱**：`DataStream` 传给 `transform_fn` 的 `ctx = {"row_number": total_retries}` 实际是重试次数，**不是**行号
+15. **`generate_pattern` 依赖**：`rstr` 是核心依赖，`BaseProvider._gen_pattern()` 内部创建局部 `rstr.Rstr(self._rng)` 实例
+16. **SharedPool Hook**：`sqlseed_shared_pool_loaded` 会在 `register_shared_pool()` 后触发，修改 payload 或调用时机时要同步检查插件测试
+17. **Transform ctx 语义**：`DataStream` 传给 `transform_fn` 的 `ctx` 同时包含 `row_number` 和 `retry_count`，不要把两者混为一谈
+18. **Provider 接口变更**：Provider 不再暴露独立的 `generate_string()`、`generate_integer()` 等方法，统一使用 `generate(type_name, **params)` → 内部分派到 `_gen_*` 方法
+19. **sqlite-utils 可选性**：`database/_compat.py` 控制 `HAS_SQLITE_UTILS` 标志，编排器根据此标志选择适配器。不要在核心路径中直接 `import sqlite_utils`
 
 ## 常用命令
 

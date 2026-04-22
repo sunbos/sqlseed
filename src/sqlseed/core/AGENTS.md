@@ -9,8 +9,8 @@
 - `DataOrchestrator.fill_table()` 的顺序是有语义的：连接与插件注册、PRAGMA 优化、可选清表、规格解析、AI 建议、模板池、构建 `DataStream`、生成前后 hook、批量插入前后 hook、SharedPool 注册，以及 `finally` 中恢复 PRAGMA。
 - `preview_table()` 复用规格解析，但不写数据库，也不会走 AI 建议或模板池路径。改这里时不要无意把 preview 变成 fill 的副本。
 - `fill_table()` 出错时返回带 `errors` 的 `GenerationResult`，而不是把绝大多数异常向上抛出。
-- `PluginMediator` 走尽力而为策略：AI 建议和模板池异常会被吞掉并记 debug；批量 transform 会链式应用最后一个非 `None` 结果。
-- `DataStream` 同时维护自己的 RNG，并在有 seed 时单独给 Provider 设 seed。未知生成器当前回退到 `generate_string()`。
+- `PluginMediator` 走尽力而为策略：AI 建议和模板池异常会被吞掉并记 debug；批量 transform 会链式应用最后一个非 `None` 结果；SharedPool 注册后会触发 `sqlseed_shared_pool_loaded` hook。
+- `DataStream` 同时维护自己的 RNG，并在有 seed 时单独给 Provider 设 seed。它只对 `choice` / `foreign_key` 做本地特判，其他未知生成器会继续抛 `UnknownGeneratorError`。
 - Transform 脚本是显式逃生通道，会执行用户 Python 代码；相关加载和上下文约定要保持清晰，不要把它伪装成受限沙箱。
 - `RelationResolver`/`SharedPool` 的职责是保持 FK 与跨表值池行为稳定，尤其是填充后的值注册。
 

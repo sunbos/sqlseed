@@ -16,7 +16,11 @@
 ## 子级 AGENTS
 
 - `src/sqlseed/AGENTS.md`
+- `src/sqlseed/config/AGENTS.md`
 - `src/sqlseed/core/AGENTS.md`
+- `src/sqlseed/database/AGENTS.md`
+- `src/sqlseed/generators/AGENTS.md`
+- `src/sqlseed/plugins/AGENTS.md`
 - `plugins/sqlseed-ai/AGENTS.md`
 - `plugins/mcp-server-sqlseed/AGENTS.md`
 - `tests/AGENTS.md`

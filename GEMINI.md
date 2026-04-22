@@ -16,9 +16,11 @@
 - 快照回放机制，支持精确复现数据生成
 
 ## 项目架构
+- **根目录代码质量与分析报告**：包含多次重构后的重复代码统计 (`CodeDuplication统计报告...`)、代码流问题摘要 (`codeflow-issues...`)、常见问题分析 (`Most-Common-Issues...`)、SonarQube 报告以及针对不同大模型的思考测试（如 `GPT-5.4_THINK.md`）。
+- **`.github/`**：包含 CI/CD 与发布的 GitHub Actions 工作流（`ci.yml`、`publish.yml`）及 PR/Issue 模板指令。
 - **`src/sqlseed/core/`**：核心编排引擎，处理主流程编排（`orchestrator.py`）、生成结果统计（`result.py`）、Schema 推断（`schema.py`）、策略映射（`mapper.py`）、关系解析（`relation.py`）、列依赖 DAG（`column_dag.py`）、表达式求值（`expression.py`）、约束求解（`constraints.py`）、Transform 加载（`transform.py`）、列数据增强（`enrichment.py`，如枚举推断）、唯一性策略调整（`unique_adjuster.py`）以及插件/AI建议中介层（`plugin_mediator.py`）。
-- **`src/sqlseed/generators/`**：数据 Provider 注册表及 Mimesis、Faker 和流式生成适配器（`stream.py`）。包含协议定义（`_protocol.py`）、基础实现（`base_provider.py`）、注册机制（`registry.py`）。
-- **`src/sqlseed/database/`**：SQLite 交互适配器（`sqlite_utils_adapter.py` 和 `raw_sqlite_adapter.py`），含 PRAGMA 优化（`optimizer.py`）。Protocol（`_protocol.py`）包含 `ColumnInfo`、`ForeignKeyInfo`、`IndexInfo` 等元数据定义，以及数据查询方法。
+- **`src/sqlseed/generators/`**：数据 Provider 注册表及各生成器实现（`mimesis_provider.py`、`faker_provider.py`）和流式生成适配器（`stream.py`）。包含协议定义（`_protocol.py`）、基础实现（`base_provider.py`）、注册机制（`registry.py`）以及内部辅助模块（`_dispatch.py`、`_json_helpers.py`、`_string_helpers.py`）。
+- **`src/sqlseed/database/`**：SQLite 交互适配器基类（`_base_adapter.py`）与具体实现（`sqlite_utils_adapter.py` 和 `raw_sqlite_adapter.py`），含 PRAGMA 优化（`optimizer.py`）。Protocol（`_protocol.py`）包含 `ColumnInfo`、`ForeignKeyInfo`、`IndexInfo` 等元数据定义和数据查询方法，以及内部辅助模块（`_compat.py`、`_helpers.py`）。
 - **`src/sqlseed/plugins/`**：基于 `pluggy` 的插件管理和 Hook 规范定义（`hookspecs.py` 和 `manager.py`）。
 - **`src/sqlseed/config/`**：使用 `pydantic` 模型、YAML/JSON 加载器（`loader.py`、`models.py`）以及支持 CLI `replay` 命令的运行快照（`snapshot.py`）的配置管理。
 - **`src/sqlseed/cli/`**：基于 `click` 的命令行接口（`main.py` 提供 fill, preview, inspect, init, replay, ai-suggest）。
@@ -81,7 +83,7 @@ with sqlseed.connect("test.db", provider="mimesis") as db:
 ```
 
 ## 开发规范
-- **测试（`pytest`）**：项目维护了高达 94% 的测试覆盖率。`tests/` 下包含针对各个模块的子目录测试（`test_config`、`test_core`、`test_database`、`test_generators`、`test_plugins`、`test_utils`）以及性能基准测试（`benchmarks/`）。重点覆盖了约束回溯 (`ConstraintSolver`)、多线程安全的派生列求值引擎以及数据去重的递归降级逻辑。
+- **测试（`pytest`）**：项目维护了高达 94% 的测试覆盖率。`tests/` 目录不仅包含顶层的公共 API 与集成测试（如 `test_public_api.py`、`test_cli.py`、`test_orchestrator.py`、`test_ai_plugin.py` 等），还包含针对各个模块的子目录测试（`test_config`、`test_core`、`test_database`、`test_generators`、`test_plugins`、`test_utils`）以及性能基准测试（`benchmarks/`）。重点覆盖了约束回溯 (`ConstraintSolver`)、多线程安全的派生列求值引擎以及数据去重的递归降级逻辑。
   - 运行测试：`pytest`
   - 运行带详细堆栈测试：`pytest --tb=long -v`
   - AI 插件测试使用 `pytest.importorskip("sqlseed_ai")` 处理可选依赖。
