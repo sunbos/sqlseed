@@ -59,7 +59,7 @@ class TestColumnMapper:
         assert spec.generator_name == "skip"
 
     def test_column_with_default_nullable_still_skipped(self) -> None:
-        spec = self.mapper.map_column(_col("status", "INTEGER", nullable=True, default="0"))
+        spec = self.mapper.map_column(_col("visibility", "INTEGER", nullable=True, default="0"))
         assert spec.generator_name == "skip"
 
     def test_pattern_match_user_id(self) -> None:

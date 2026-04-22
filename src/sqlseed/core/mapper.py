@@ -231,6 +231,20 @@ class ColumnMapper:
             return GeneratorSpec(generator_name="skip")
         return None
 
+    def _map_from_default(
+        self, column_info: ColumnInfo, column_type: str, enrich: bool, force_type_infer: bool
+    ) -> GeneratorSpec | None:
+        if column_info.default is not None:
+            if force_type_infer:
+                return self._type_faithful_fallback(column_type)
+            if enrich:
+                return GeneratorSpec(
+                    generator_name="__enrich__",
+                    params={"_default": column_info.default, "_nullable": column_info.nullable},
+                )
+            return GeneratorSpec(generator_name="skip")
+        return None
+
     def map_column(
         self,
         column_info: ColumnInfo,
@@ -251,17 +265,21 @@ class ColumnMapper:
         if user_spec:
             return user_spec
 
-        fallback_spec = self._map_from_default_or_nullable(column_info, column_type, enrich, force_type_infer)
-        if fallback_spec:
-            return fallback_spec
-
         exact_match = self._match_exact(column_name)
         if exact_match:
             return exact_match
 
+        default_spec = self._map_from_default(column_info, column_type, enrich, force_type_infer)
+        if default_spec:
+            return default_spec
+
         pattern_match = self._match_pattern(column_name)
         if pattern_match:
             return pattern_match
+
+        fallback_spec = self._map_from_default_or_nullable(column_info, column_type, enrich, force_type_infer)
+        if fallback_spec:
+            return fallback_spec
 
         return self._type_faithful_fallback(column_type)
 
