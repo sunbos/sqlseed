@@ -46,10 +46,10 @@ pip install -e "./plugins/mcp-server-sqlseed"
 
 **CLI 使用示例：**
 ```bash
-# 零配置生成
+# 生成数据（--count 在非 --config 模式下必填）
 sqlseed fill test.db --table users --count 10000
 
-# YAML 配置驱动生成
+# YAML 配置驱动生成（count 来自配置文件）
 sqlseed fill --config generate.yaml
 
 # 数据预览（不写入数据库）
@@ -67,6 +67,9 @@ sqlseed replay snapshots/2026-04-12_users.yaml
 
 # AI 驱动的 YAML 建议
 sqlseed ai-suggest test.db --table users --output users.yaml
+
+# 开启 debug 日志
+SQLSEED_LOG_LEVEL=DEBUG sqlseed fill test.db --table users --count 10
 ```
 
 **Python API 使用示例：**

@@ -278,6 +278,8 @@ tests/
 - `DatabaseAdapter` Protocol 包含 `IndexInfo`、`get_index_info()` 和 `get_sample_rows()`。两个实现：`SQLiteUtilsAdapter`（默认）和 `RawSQLiteAdapter`（回退）。
 - 插件系统有 11 个 Hook。`sqlseed_ai_analyze_table` 和 `sqlseed_pre_generate_templates` 是 `firstresult`。
 - CLI `fill` 命令使用 `--config` 时 `db_path` 为可选（`required=False`）。
+- CLI `fill` 命令在非 `--config` 模式下 `--count` 为必填参数；使用 `--config` 时 count 来自配置文件。
+- CLI 默认日志级别为 `WARNING`，通过环境变量 `SQLSEED_LOG_LEVEL` 控制（如 `SQLSEED_LOG_LEVEL=DEBUG`）。
 - AI 插件默认模型为 `gpt-4o`，可通过 `AIConfig`、环境变量 `SQLSEED_AI_MODEL` / `SQLSEED_AI_API_KEY` / `SQLSEED_AI_BASE_URL`（也支持 `OPENAI_API_KEY` / `OPENAI_BASE_URL`）或 CLI `--model`/`--api-key`/`--base-url` 配置。
 - `AI_APPLICABLE_GENERATORS` 为 `frozenset({"string", "integer", "date", "datetime", "choice"})`，只有这些类型的列会触发 AI 分析。
 - `ProviderRegistry.ensure_provider()` 按需惰性导入 Faker/Mimesis，失败时回退到 `base`。

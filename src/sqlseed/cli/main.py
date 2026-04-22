@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import Any
 
 import click
@@ -10,11 +11,14 @@ from rich.table import Table as RichTable
 from sqlseed import fill as api_fill
 from sqlseed import fill_from_config
 from sqlseed import preview as api_preview
+from sqlseed._utils.logger import configure_logging, get_logger
 from sqlseed._version import __version__
 from sqlseed.config.loader import generate_template, save_config
 from sqlseed.config.models import GeneratorConfig, ProviderType, TableConfig
 from sqlseed.config.snapshot import SnapshotManager
 from sqlseed.core.orchestrator import DataOrchestrator
+
+logger = get_logger(__name__)
 
 try:
     from sqlseed_ai.analyzer import SchemaAnalyzer
@@ -30,6 +34,8 @@ except ImportError:
 @click.version_option(version=__version__, prog_name="sqlseed")
 def cli() -> None:
     """sqlseed - Declarative SQLite test data generation toolkit."""
+    log_level = os.environ.get("SQLSEED_LOG_LEVEL", "WARNING").upper()
+    configure_logging(log_level)
 
 
 def _fill_from_config_cmd(config_path: str) -> None:
@@ -67,14 +73,34 @@ def _save_snapshot_cmd(
     click.echo(f"Snapshot saved: {snapshot_path}")
 
 
+_FILL_DEFAULT_COUNT = 1000
+
+
 @cli.command()
 @click.argument("db_path", required=False)
 @click.option("--table", "-t", default=None, help="Target table name")
-@click.option("--count", "-n", default=1000, type=int, help="Number of rows to generate")
-@click.option("--provider", "-p", default="mimesis", help="Data provider (mimesis|faker|base)")
-@click.option("--locale", "-l", default="en_US", help="Locale for data generation")
+@click.option(
+    "--count",
+    "-n",
+    default=None,
+    type=int,
+    help="Number of rows to generate (required when not using --config)",
+)
+@click.option(
+    "--provider",
+    "-p",
+    default="mimesis",
+    help="Data provider: mimesis|faker|base (default: mimesis)",
+)
+@click.option("--locale", "-l", default="en_US", help="Locale for data generation (default: en_US)")
 @click.option("--seed", "-s", default=None, type=int, help="Random seed for reproducibility")
-@click.option("--batch-size", "-b", default=5000, type=int, help="Batch size for insertion")
+@click.option(
+    "--batch-size",
+    "-b",
+    default=5000,
+    type=int,
+    help="Batch size for insertion (default: 5000)",
+)
 @click.option("--clear", is_flag=True, help="Clear table before generating")
 @click.option("--config", "-c", "config_path", default=None, help="YAML/JSON config file path")
 @click.option("--transform", "transform_path", default=None, help="Python transform script path")
@@ -84,14 +110,31 @@ def fill(**kwargs: Any) -> None:
     """Fill a table with generated test data.
 
     Use --config for config-driven generation, or provide db_path + --table
-    for direct generation.
+    + --count for direct generation.
     """
+    count = kwargs.get("count")
+    config_path = kwargs.get("config_path")
+
+    if count is not None and count <= 0:
+        logger.debug("Invalid count value", count=count)
+        raise click.UsageError(f"--count must be greater than 0, got {count}")
+
+    if not config_path and count is None:
+        raise click.UsageError(
+            "--count is required when not using --config. Use -n <number> to specify the number of rows to generate."
+        )
+
+    if config_path and count is None:
+        count = _FILL_DEFAULT_COUNT
+
+    kwargs["count"] = count
     _execute_fill(kwargs)
 
 
 def _execute_fill(opts: dict[str, Any]) -> None:
     config_path = opts.get("config_path")
     if config_path:
+        logger.debug("Using config-driven generation", config_path=config_path)
         _fill_from_config_cmd(config_path)
         return
 
@@ -102,25 +145,32 @@ def _execute_fill(opts: dict[str, Any]) -> None:
     if not table:
         raise click.UsageError("--table is required when not using --config")
 
-    result = api_fill(
-        db_path,
-        table=table,
-        count=opts.get("count", 1000),
-        provider=opts.get("provider", "mimesis"),
-        locale=opts.get("locale", "en_US"),
-        seed=opts.get("seed"),
-        batch_size=opts.get("batch_size", 5000),
-        clear_before=opts.get("clear", False),
-        enrich=opts.get("enrich", False),
-        transform=opts.get("transform_path"),
-    )
+    count = opts.get("count", _FILL_DEFAULT_COUNT)
+    logger.debug("Starting fill", db_path=db_path, table=table, count=count)
+
+    try:
+        result = api_fill(
+            db_path,
+            table=table,
+            count=count,
+            provider=opts.get("provider", "mimesis"),
+            locale=opts.get("locale", "en_US"),
+            seed=opts.get("seed"),
+            batch_size=opts.get("batch_size", 5000),
+            clear_before=opts.get("clear", False),
+            enrich=opts.get("enrich", False),
+            transform=opts.get("transform_path"),
+        )
+    except ValueError as exc:
+        logger.debug("Fill failed with ValueError", error=str(exc))
+        raise click.UsageError(str(exc)) from exc
     click.echo(str(result))
 
     if opts.get("snapshot"):
         _save_snapshot_cmd(
             db_path,
             table,
-            opts.get("count", 1000),
+            count,
             opts.get("provider", "mimesis"),
             opts.get("locale", "en_US"),
             opts.get("seed"),
@@ -132,9 +182,14 @@ def _execute_fill(opts: dict[str, Any]) -> None:
 @cli.command()
 @click.argument("db_path")
 @click.option("--table", "-t", required=True, help="Target table name")
-@click.option("--count", "-n", default=5, type=int, help="Number of rows to preview")
-@click.option("--provider", "-p", default="mimesis", help="Data provider")
-@click.option("--locale", "-l", default="en_US", help="Locale")
+@click.option("--count", "-n", default=5, type=int, help="Number of rows to preview (default: 5)")
+@click.option(
+    "--provider",
+    "-p",
+    default="mimesis",
+    help="Data provider: mimesis|faker|base (default: mimesis)",
+)
+@click.option("--locale", "-l", default="en_US", help="Locale (default: en_US)")
 @click.option("--seed", "-s", default=None, type=int, help="Random seed")
 def preview(
     db_path: str,
@@ -228,7 +283,7 @@ def inspect(db_path: str, table: str | None, show_mapping: bool) -> None:
 
 @cli.command()
 @click.argument("config_path")
-@click.option("--db", default="test.db", help="Database path for template")
+@click.option("--db", default="test.db", help="Database path for template (default: test.db)")
 def init(config_path: str, db: str) -> None:
     """Generate a YAML configuration template."""
     config = generate_template(db)
@@ -274,11 +329,16 @@ def _handle_ai_direct(analyzer: Any, db_path: str, table: str) -> Any:
 @click.argument("db_path")
 @click.option("--table", "-t", required=True, help="Target table name")
 @click.option("--output", "-o", required=True, help="Output YAML file path")
-@click.option("--model", "-m", default=None, help="AI model name (default: qwen3-coder-plus)")
-@click.option("--api-key", envvar="SQLSEED_AI_API_KEY", default=None, help="AI API key")
-@click.option("--base-url", envvar="SQLSEED_AI_BASE_URL", default=None, help="AI API base URL")
-@click.option("--max-retries", default=3, type=int, help="Max refinement retries (0=disable)")
-@click.option("--verify/--no-verify", default=True, help="Enable AI config self-correction")
+@click.option("--model", "-m", default=None, help="AI model name (default: gpt-4o)")
+@click.option("--api-key", envvar="SQLSEED_AI_API_KEY", default=None, help="AI API key (env: SQLSEED_AI_API_KEY)")
+@click.option(
+    "--base-url",
+    envvar="SQLSEED_AI_BASE_URL",
+    default=None,
+    help="AI API base URL (env: SQLSEED_AI_BASE_URL)",
+)
+@click.option("--max-retries", default=3, type=int, help="Max refinement retries, 0=disable (default: 3)")
+@click.option("--verify/--no-verify", default=True, help="Enable AI config self-correction (default: verify)")
 @click.option("--no-cache", is_flag=True, help="Skip cached AI configs")
 def ai_suggest(
     db_path: str,

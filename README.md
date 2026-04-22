@@ -705,7 +705,7 @@ class MyPlugin:
 # 📋 数据生成
 # ═══════════════════════════════════════
 
-# 零配置填充
+# 填充数据（--count 在非 --config 模式下必填）
 sqlseed fill app.db --table users --count 10000
 
 # 完整参数
@@ -717,11 +717,14 @@ sqlseed fill app.db -t users -n 100000 \
     --clear \
     --snapshot
 
-# YAML 配置驱动
+# YAML 配置驱动（count 来自配置文件）
 sqlseed fill --config generate.yaml
 
 # Transform 脚本
 sqlseed fill app.db -t users -n 10000 --transform transform.py
+
+# 开启 debug 日志
+SQLSEED_LOG_LEVEL=DEBUG sqlseed fill app.db -t users -n 10
 
 # ═══════════════════════════════════════
 # 🔍 查看与预览

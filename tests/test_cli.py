@@ -79,7 +79,46 @@ class TestCLIFill:
             ["fill", tmp_db, "--table", "users", "--count", "0", "--provider", "base"],
         )
         assert result.exit_code != 0
-        assert "count" in result.output.lower() or "row" in result.output.lower()
+        assert "count" in result.output.lower()
+        assert "must be greater than 0" in result.output
+
+    def test_fill_count_negative_shows_error(self, tmp_db) -> None:
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["fill", tmp_db, "--table", "users", "--count", "-1", "--provider", "base"],
+        )
+        assert result.exit_code != 0
+        assert "count" in result.output.lower()
+        assert "must be greater than 0" in result.output
+
+    def test_fill_missing_count_shows_error(self, tmp_db) -> None:
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["fill", tmp_db, "--table", "users", "--provider", "base"],
+        )
+        assert result.exit_code != 0
+        assert "--count is required" in result.output
+
+    def test_fill_with_config_no_count_ok(self, tmp_db, tmp_path) -> None:
+        config_path = tmp_path / "gen.yaml"
+        config_data = {
+            "db_path": tmp_db,
+            "provider": "base",
+            "tables": [{"name": "users", "count": 5}],
+        }
+        config_path.write_text(yaml.dump(config_data))
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "fill",
+                "--config",
+                str(config_path),
+            ],
+        )
+        assert result.exit_code == 0
 
     def test_fill_with_config(self, tmp_db, tmp_path) -> None:
         config_path = tmp_path / "gen.yaml"
