@@ -71,6 +71,15 @@ class TestCLIFill:
         )
         assert result.exit_code == 0
 
+    def test_fill_count_zero_shows_error(self, tmp_db) -> None:
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["fill", tmp_db, "--table", "users", "--count", "0", "--provider", "base"],
+        )
+        assert result.exit_code != 0
+        assert "count" in result.output.lower() or "row" in result.output.lower()
+
     def test_fill_with_config(self, tmp_db, tmp_path) -> None:
         config_path = tmp_path / "gen.yaml"
         config_data = {

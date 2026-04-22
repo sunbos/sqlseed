@@ -104,6 +104,16 @@ class TestSQLiteUtilsAdapter:
         _adapter.clear_table("users")
         assert _adapter.get_row_count("users") == 0
 
+    def test_clear_table_resets_autoincrement(self, _adapter: SQLiteUtilsAdapter) -> None:
+        data = [{"name": "Alice", "email": "a@t.com", "age": 30, "active": 1}]
+        _adapter.batch_insert("users", iter(data))
+        first_id = _adapter.get_column_values("users", "id")[0]
+        assert first_id == 1
+        _adapter.clear_table("users")
+        _adapter.batch_insert("users", iter(data))
+        second_id = _adapter.get_column_values("users", "id")[0]
+        assert second_id == 1, f"Expected id to reset to 1 after clear, got {second_id}"
+
     def test_get_column_values(self, _adapter: SQLiteUtilsAdapter, _sample_users_data: list[dict[str, Any]]) -> None:
         _adapter.batch_insert("users", iter(_sample_users_data))
         names = _adapter.get_column_values("users", "name")

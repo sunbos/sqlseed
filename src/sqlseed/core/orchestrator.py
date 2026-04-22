@@ -229,6 +229,8 @@ class DataOrchestrator:
     ) -> GenerationResult:
         self._ensure_connected()
         validate_table_name(table_name)
+        if count <= 0:
+            raise ValueError(f"count must be greater than 0, got {count}")
         start_time = time.monotonic()
         total_inserted = 0
         batch_count = 0

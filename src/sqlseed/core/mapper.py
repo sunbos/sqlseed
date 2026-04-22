@@ -251,6 +251,10 @@ class ColumnMapper:
         if user_spec:
             return user_spec
 
+        fallback_spec = self._map_from_default_or_nullable(column_info, column_type, enrich, force_type_infer)
+        if fallback_spec:
+            return fallback_spec
+
         exact_match = self._match_exact(column_name)
         if exact_match:
             return exact_match
@@ -258,10 +262,6 @@ class ColumnMapper:
         pattern_match = self._match_pattern(column_name)
         if pattern_match:
             return pattern_match
-
-        fallback_spec = self._map_from_default_or_nullable(column_info, column_type, enrich, force_type_infer)
-        if fallback_spec:
-            return fallback_spec
 
         return self._type_faithful_fallback(column_type)
 

@@ -134,6 +134,7 @@ class SQLiteUtilsAdapter(BaseSQLiteAdapter):
         validate_table_name(table_name)
         safe_table = quote_identifier(table_name)
         self._db.execute(f"DELETE FROM {safe_table}")
+        self._db.execute(f"DELETE FROM sqlite_sequence WHERE name = {safe_table}")
         logger.debug("Cleared table", table_name=table_name)
 
     def _execute_pragma(self, sql: str) -> None:

@@ -127,6 +127,7 @@ class RawSQLiteAdapter(BaseSQLiteAdapter):
         validate_table_name(table_name)
         safe_table = quote_identifier(table_name)
         self.conn.execute(f"DELETE FROM {safe_table}")
+        self.conn.execute(f"DELETE FROM sqlite_sequence WHERE name = {safe_table}")
         self.conn.commit()
         logger.debug("Cleared table", table_name=table_name)
 

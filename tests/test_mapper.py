@@ -8,7 +8,7 @@ from sqlseed.database._protocol import ColumnInfo
 def _col(
     name: str,
     col_type: str = "TEXT",
-    nullable: bool = True,
+    nullable: bool = False,
     default=None,
     is_primary_key: bool = False,
     is_autoincrement: bool = False,
@@ -53,6 +53,14 @@ class TestColumnMapper:
     def test_pattern_match_is_active(self) -> None:
         spec = self.mapper.map_column(_col("is_active", "INTEGER"))
         assert spec.generator_name == "boolean"
+
+    def test_column_with_default_is_skipped(self) -> None:
+        spec = self.mapper.map_column(_col("is_active", "INTEGER", nullable=False, default="1"))
+        assert spec.generator_name == "skip"
+
+    def test_column_with_default_nullable_still_skipped(self) -> None:
+        spec = self.mapper.map_column(_col("status", "INTEGER", nullable=True, default="0"))
+        assert spec.generator_name == "skip"
 
     def test_pattern_match_user_id(self) -> None:
         spec = self.mapper.map_column(_col("user_id", "INTEGER"))
