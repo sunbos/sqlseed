@@ -17,7 +17,7 @@ graph TB
 
     subgraph Core["🧠 核心编排层 (core/)"]
         Orch["DataOrchestrator<br/>主编排引擎"]
-        Mapper["ColumnMapper<br/>8 级策略链"]
+        Mapper["ColumnMapper<br/>9 级策略链"]
         Schema["SchemaInferrer<br/>Schema 推断"]
         Relation["RelationResolver<br/>外键解析"]
         Pool["SharedPool<br/>跨表值池"]
@@ -183,7 +183,7 @@ sequenceDiagram
 
 ---
 
-## 3. ColumnMapper 8 级策略链
+## 3. ColumnMapper 9 级策略链
 
 ```mermaid
 flowchart TD
@@ -198,19 +198,22 @@ flowchart TD
     L3{"Level 3<br/>内置精确匹配？<br/>(68 条规则)"} -->|匹配| R3["email→email<br/>phone→phone<br/>age→integer<br/>..."]
     L3 -->|未匹配| L4
 
-    L4{"Level 4<br/>自定义模式匹配？"} -->|匹配| R4["使用插件注册的正则规则"]
-    L4 -->|未匹配| L5
+    L4{"Level 4<br/>有默认值？"} -->|是| R4["skip (跳过生成)<br/>或 __enrich__"]
+    L4 -->|否| L5
 
-    L5{"Level 5<br/>内置模式匹配？<br/>(25 条正则)"} -->|匹配| R5["*_at→datetime<br/>*_id→foreign_key<br/>is_*→boolean<br/>..."]
+    L5{"Level 5<br/>自定义模式匹配？"} -->|匹配| R5["使用插件注册的正则规则"]
     L5 -->|未匹配| L6
 
-    L6{"Level 6<br/>有默认值<br/>或可 NULL？"} -->|是| R6["skip (跳过生成)"]
-    L6 -->|否| L7
+    L6{"Level 6<br/>内置模式匹配？<br/>(25 条正则)"} -->|匹配| R6["*_at→datetime<br/>*_id→foreign_key<br/>is_*→boolean<br/>..."]
+    L6 -->|未匹配| L7
 
-    L7{"Level 7<br/>类型忠实回退<br/>(22 种 SQL 类型)"} -->|匹配| R7["VARCHAR(32)→max 32 字符<br/>INT8→0~255<br/>BLOB(1024)→1024 字节"]
-    L7 -->|未匹配| L8
+    L7{"Level 7<br/>可 NULL？"} -->|是| R7["skip (跳过生成)<br/>或 __enrich__"]
+    L7 -->|否| L8
 
-    L8["Level 8<br/>默认"] --> R8["string<br/>(min=5, max=50)"]
+    L8{"Level 8<br/>类型忠实回退<br/>(22 种 SQL 类型)"} -->|匹配| R8["VARCHAR(32)→max 32 字符<br/>INT8→0~255<br/>BLOB(1024)→1024 字节"]
+    L8 -->|未匹配| L9
+
+    L9["Level 9<br/>默认"] --> R9["string<br/>(min=5, max=50)"]
 
     R1 --> Done(["返回 GeneratorSpec"])
     R2 --> Done
@@ -220,12 +223,15 @@ flowchart TD
     R6 --> Done
     R7 --> Done
     R8 --> Done
+    R9 --> Done
 
     style L1 fill:#4CAF50,color:#fff
     style L3 fill:#2196F3,color:#fff
-    style L5 fill:#2196F3,color:#fff
+    style L4 fill:#FF9800,color:#fff
+    style L6 fill:#2196F3,color:#fff
     style L7 fill:#FF9800,color:#fff
-    style L8 fill:#9E9E9E,color:#fff
+    style L8 fill:#FF9800,color:#fff
+    style L9 fill:#9E9E9E,color:#fff
 ```
 
 ---

@@ -129,7 +129,7 @@ class ExtCtx:
 4.  _resolve_specs()            → 合并 Schema 推断 + 用户配置 + 映射 + 唯一性 + FK 解析
     4a. get_column_info()       → 推断 Schema
     4b. _resolve_user_configs() → 合并用户 ColumnConfig 配置
-    4c. map_columns()           → 8 级策略链映射
+    4c. map_columns()           → 9 级策略链映射
     4d. detect_unique_columns() → 检测唯一列
     4e. EnrichmentEngine.apply() → [enrich=True] 数据分布推断
     4f. UniqueAdjuster.adjust() → 唯一列参数调整
@@ -194,18 +194,19 @@ class DataProvider(Protocol):
 | `sqlseed_shared_pool_loaded(table_name, shared_pool)` | ✗ | `register_shared_pool()` 后 |
 | `sqlseed_pre_generate_templates(...)` | ✓ | `apply_template_pool()` |
 
-### ColumnMapper 8 级策略链
+### ColumnMapper 9 级策略链
 
 | 优先级 | 级别 | 规则数量 | 说明 |
 |--------|------|----------|------|
 | 1 | 用户配置 | — | `ColumnConfig.generator` + params |
 | 2 | 自定义精确匹配 | 动态 | `register_exact_rule()` 注册 |
-| 3 | 内置精确匹配 | 67 规则 | `EXACT_MATCH_RULES` + `EXACT_MATCH_PARAMS`（28 预设） |
-| 4 | 自定义模式匹配 | 动态 | `register_pattern_rule()` 注册 |
-| 5 | 内置模式匹配 | 25 正则 | `PATTERN_MATCH_RULES` |
-| 6 | 跳过级 | — | `default is not None or nullable` → `skip`/`__enrich__` |
-| 7 | 类型忠实回退 | 22 类型 | `TYPE_FALLBACK_RULES`，解析 `VARCHAR(32)` 等括号参数 |
-| 8 | 默认 | — | `string`（min_length=5, max_length=50） |
+| 3 | 内置精确匹配 | 68 规则 | `EXACT_MATCH_RULES` + `EXACT_MATCH_PARAMS`（28 预设） |
+| 4 | DEFAULT 检查 | — | `default is not None` → `skip`/`__enrich__` |
+| 5 | 自定义模式匹配 | 动态 | `register_pattern_rule()` 注册 |
+| 6 | 内置模式匹配 | 25 正则 | `PATTERN_MATCH_RULES` |
+| 7 | NULLABLE 回退 | — | `nullable` → `skip`/`__enrich__` |
+| 8 | 类型忠实回退 | 22 类型 | `TYPE_FALLBACK_RULES`，解析 `VARCHAR(32)` 等括号参数 |
+| 9 | 默认 | — | `string`（min_length=5, max_length=50） |
 
 ### 测试结构
 

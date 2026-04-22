@@ -36,7 +36,7 @@ print(result)
 | 零配置智能生成    |    ✅    |    ❌   |       ❌      |
 | 外键自动维护     |    ✅    |   手动   |      手动      |
 | 10 万行 + 数据 |   ✅ 流式  | ⚠️ OOM |       ❌      |
-| 列语义推断      | ✅ 8 级策略 |    ❌   |       ❌      |
+| 列语义推断      | ✅ 9 级策略 |    ❌   |       ❌      |
 | 可重复生成      |  ✅ seed |  ⚠️ 手动 |       ✅      |
 | AI 智能调优    |  ✅ LLM  |    ❌   |       ❌      |
 | 配置热重用      |  ✅ YAML |    ❌   |       ❌      |
@@ -49,7 +49,7 @@ print(result)
 
 **🚀 零配置智能生成**
 
-自动推断数据库 Schema，通过 8 级策略链为每列选择最佳生成器。列名是 `email`？生成邮箱。列名是 `*_at`？生成时间戳。完全不需要配置。
+自动推断数据库 Schema，通过 9 级策略链为每列选择最佳生成器。列名是 `email`？生成邮箱。列名是 `*_at`？生成时间戳。完全不需要配置。
 
 </td>
 <td width="50%">
@@ -757,9 +757,9 @@ sqlseed ai-suggest app.db -t users -o users.yaml --model gpt-4o --verify
 
 ***
 
-## 🧠 8 级智能列映射
+## 🧠 9 级智能列映射
 
-sqlseed 的核心亮点之一是 `ColumnMapper` 的 8 级策略链。每一列都会按以下优先级尝试匹配：
+sqlseed 的核心亮点之一是 `ColumnMapper` 的 9 级策略链。每一列都会按以下优先级尝试匹配：
 
 ```
 Level 1 │ 用户配置          columns={"email": "email"} 最高优先级
@@ -768,23 +768,26 @@ Level 2 │ 自定义精确匹配    通过插件 Hook 注册的规则
         ▼
 Level 3 │ 内置精确匹配      68 条规则：email→email, phone→phone, age→integer...
         ▼
-Level 4 │ 自定义模式匹配    通过插件 Hook 注册的正则规则
+Level 4 │ DEFAULT 检查      有默认值 → skip（精确匹配优先于 DEFAULT）
         ▼
-Level 5 │ 内置模式匹配      25 条正则：*_at→datetime, *_id→foreign_key, is_*→boolean...
+Level 5 │ 自定义模式匹配    通过插件 Hook 注册的正则规则
         ▼
-Level 6 │ 跳过              有默认值或可 NULL → skip
+Level 6 │ 内置模式匹配      25 条正则：*_at→datetime, *_id→foreign_key, is_*→boolean...
         ▼
-Level 7 │ 类型忠实回退      VARCHAR(32)→最长32字符, INT8→0~255, BLOB(1024)→1024字节
+Level 7 │ NULLABLE 回退     可 NULL → skip
         ▼
-Level 8 │ 默认              string (min=5, max=50)
+Level 8 │ 类型忠实回退      VARCHAR(32)→最长32字符, INT8→0~255, BLOB(1024)→1024字节
+        ▼
+Level 9 │ 默认              string (min=5, max=50)
 ```
 
 这意味着：
 
-- 列名 `user_email` → Level 5 模式匹配 `*_email` → `email` 生成器 ✅
-- 列名 `is_verified` → Level 5 模式匹配 `is_*` → `boolean` 生成器 ✅
-- 列类型 `VARCHAR(20)` → Level 7 类型回退 → 最长 20 字符的字符串 ✅
-- 列有 `DEFAULT 1` → Level 6 → 跳过生成 ✅
+- 列名 `user_email` → Level 6 模式匹配 `*_email` → `email` 生成器 ✅
+- 列名 `is_verified` → Level 6 模式匹配 `is_*` → `boolean` 生成器 ✅
+- 列类型 `VARCHAR(20)` → Level 8 类型回退 → 最长 20 字符的字符串 ✅
+- 列有 `DEFAULT 1` → Level 4 → 跳过生成 ✅
+- 列名 `gender` 有 `DEFAULT 'male'` → Level 3 精确匹配 → `choice` 生成器（精确匹配优先于 DEFAULT）✅
 
 ***
 
@@ -815,7 +818,7 @@ src/sqlseed/
 ├── __init__.py              # 公共 API (fill, connect, fill_from_config, preview)
 ├── core/                    # ===== 核心编排层 =====
 │   ├── orchestrator.py      # DataOrchestrator 主引擎
-│   ├── mapper.py            # ColumnMapper 8 级策略链
+│   ├── mapper.py            # ColumnMapper 9 级策略链
 │   ├── schema.py            # SchemaInferrer — 推断列、索引、数据分布
 │   ├── relation.py          # RelationResolver + SharedPool — FK 与跨表共享
 │   ├── column_dag.py        # ColumnDAG — 列依赖图 + 拓扑排序

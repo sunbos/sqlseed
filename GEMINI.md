@@ -5,7 +5,7 @@
 
 核心特性包括：
 - 支持高性能数据生成引擎 Mimesis（推荐）和 Faker
-- 通过 8 级策略链实现智能列映射（包含 enum 推断、唯一性自适应等）
+- 通过 9 级策略链实现智能列映射（包含 enum 推断、唯一性自适应等）
 - 自动外键解析和拓扑排序依赖管理
 - SQLite PRAGMA 批量处理优化（通过 `PragmaOptimizer` 支持 LIGHT / MODERATE / AGGRESSIVE 策略，智能动态优化）
 - 基于 `pluggy` 的健壮插件架构，11 个生命周期 Hook
