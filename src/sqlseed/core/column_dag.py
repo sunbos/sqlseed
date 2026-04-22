@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -41,7 +42,6 @@ class ColumnDAG:
         specs: dict[str, GeneratorSpec],
         column_configs: list[Any] | None = None,
         unique_columns: set[str] | None = None,
-        composite_unique_indexes: list[list[str]] | None = None,
     ) -> list[ColumnNode]:
         nodes: dict[str, ColumnNode] = {}
         config_map: dict[str, Any] = {}
@@ -53,48 +53,58 @@ class ColumnDAG:
                     config_map[cc.name] = cc
 
         for col_name, spec in specs.items():
-            cc = config_map.get(col_name)
-            constraints = None
-            expression = None
-            depends_on = []
-            is_derived = False
-            final_spec = spec
-
-            if cc:
-                if hasattr(cc, "constraints") and cc.constraints:
-                    constraints = ColumnConstraints(
-                        unique=cc.constraints.unique,
-                        max_retries=cc.constraints.max_retries,
-                    )
-                if hasattr(cc, "derive_from") and cc.derive_from:
-                    depends_on = [cc.derive_from]
-                    expression = cc.expression
-                    is_derived = True
-                    final_spec = GeneratorSpec(generator_name="__derive__")
-
-            if col_name in unique_columns:
-                if constraints is None:
-                    constraints = ColumnConstraints(unique=True)
-                elif not constraints.unique:
-                    constraints = ColumnConstraints(
-                        unique=True,
-                        max_retries=constraints.max_retries,
-                    )
-
-            nodes[col_name] = ColumnNode(
-                name=col_name,
-                generator_spec=final_spec,
-                depends_on=depends_on,
-                expression=expression,
-                constraints=constraints,
-                is_derived=is_derived,
+            nodes[col_name] = self._build_node_from_spec(
+                col_name, spec, config_map.get(col_name), col_name in unique_columns
             )
 
         return self._topological_sort(nodes)
 
+    def _build_node_from_spec(self, col_name: str, spec: GeneratorSpec, cc: Any | None, is_unique: bool) -> ColumnNode:
+        constraints = None
+        expression = None
+        depends_on = []
+        is_derived = False
+        final_spec = spec
+
+        if cc:
+            if hasattr(cc, "constraints") and cc.constraints:
+                constraints = ColumnConstraints(
+                    unique=cc.constraints.unique,
+                    min_value=cc.constraints.min_value,
+                    max_value=cc.constraints.max_value,
+                    regex=cc.constraints.regex,
+                    max_retries=cc.constraints.max_retries,
+                )
+            if hasattr(cc, "derive_from") and cc.derive_from:
+                depends_on = [cc.derive_from]
+                expression = cc.expression
+                is_derived = True
+                final_spec = GeneratorSpec(generator_name="__derive__")
+
+        if is_unique:
+            if constraints is None:
+                constraints = ColumnConstraints(unique=True)
+            elif not constraints.unique:
+                constraints = ColumnConstraints(
+                    unique=True,
+                    min_value=constraints.min_value,
+                    max_value=constraints.max_value,
+                    regex=constraints.regex,
+                    max_retries=constraints.max_retries,
+                )
+
+        return ColumnNode(
+            name=col_name,
+            generator_spec=final_spec,
+            depends_on=depends_on,
+            expression=expression,
+            constraints=constraints,
+            is_derived=is_derived,
+        )
+
     def _topological_sort(self, nodes: dict[str, ColumnNode]) -> list[ColumnNode]:
         """Kahn 算法拓扑排序"""
-        in_degree: dict[str, int] = {name: 0 for name in nodes}
+        in_degree: dict[str, int] = dict.fromkeys(nodes, 0)
         adjacency: dict[str, list[str]] = {name: [] for name in nodes}
 
         for name, node in nodes.items():
@@ -103,11 +113,11 @@ class ColumnDAG:
                     adjacency[dep].append(name)
                     in_degree[name] += 1
 
-        queue = [name for name, deg in in_degree.items() if deg == 0]
+        queue = deque([name for name, deg in in_degree.items() if deg == 0])
         result: list[ColumnNode] = []
 
         while queue:
-            current = queue.pop(0)
+            current = queue.popleft()
             result.append(nodes[current])
             for neighbor in adjacency.get(current, []):
                 in_degree[neighbor] -= 1

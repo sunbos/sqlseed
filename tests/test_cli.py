@@ -1,14 +1,20 @@
 from __future__ import annotations
 
+import sqlite3
+
 import pytest
+import yaml
 from click.testing import CliRunner
 
 from sqlseed.cli.main import cli
+from sqlseed.config.models import GeneratorConfig, ProviderType, TableConfig
+from sqlseed.config.snapshot import SnapshotManager
 
 _AI_PLUGIN_AVAILABLE: bool = False
 try:
-    import sqlseed_ai  # noqa: F401
+    import importlib
 
+    importlib.import_module("sqlseed_ai")
     _AI_PLUGIN_AVAILABLE = True
 except ImportError:
     pass
@@ -66,8 +72,6 @@ class TestCLIFill:
         assert result.exit_code == 0
 
     def test_fill_with_config(self, tmp_db, tmp_path) -> None:
-        import yaml
-
         config_path = tmp_path / "gen.yaml"
         config_data = {
             "db_path": tmp_db,
@@ -90,6 +94,41 @@ class TestCLIFill:
             ],
         )
         assert result.exit_code == 0
+
+    def test_fill_with_transform(self, tmp_path) -> None:
+        db_path = str(tmp_path / "test.db")
+        conn = sqlite3.connect(db_path)
+        conn.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
+        conn.close()
+
+        transform_path = str(tmp_path / "transform.py")
+        with open(transform_path, "w", encoding="utf-8") as f:
+            f.write("def transform_row(row, ctx):\n    row['name'] = row.get('name', '').upper()\n    return row\n")
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "fill",
+                db_path,
+                "--table",
+                "users",
+                "--count",
+                "5",
+                "--provider",
+                "base",
+                "--transform",
+                transform_path,
+            ],
+        )
+        assert result.exit_code == 0
+
+        conn = sqlite3.connect(db_path)
+        rows = conn.execute("SELECT name FROM users").fetchall()
+        conn.close()
+        for (name,) in rows:
+            if name:
+                assert name == name.upper()
 
     def test_fill_with_snapshot(self, tmp_db, tmp_path, monkeypatch) -> None:
         monkeypatch.chdir(tmp_path)
@@ -158,9 +197,6 @@ class TestCLIInit:
 
 class TestCLIReplay:
     def test_replay(self, tmp_db, tmp_path) -> None:
-        from sqlseed.config.models import GeneratorConfig, ProviderType, TableConfig
-        from sqlseed.config.snapshot import SnapshotManager
-
         manager = SnapshotManager(str(tmp_path / "snapshots"))
         config = GeneratorConfig(
             db_path=tmp_db,

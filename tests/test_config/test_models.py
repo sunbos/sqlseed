@@ -11,7 +11,7 @@ class TestConfigModels:
         assert config.name == "test"
         assert config.generator is None
         assert config.params == {}
-        assert config.null_ratio == 0.0
+        assert config.null_ratio == pytest.approx(0.0)
 
     def test_column_config_with_params(self) -> None:
         config = ColumnConfig(
@@ -24,7 +24,7 @@ class TestConfigModels:
 
     def test_column_config_null_ratio_validation(self) -> None:
         config = ColumnConfig(name="test", null_ratio=0.5)
-        assert config.null_ratio == 0.5
+        assert config.null_ratio == pytest.approx(0.5)
 
     def test_column_config_null_ratio_too_high(self) -> None:
         with pytest.raises(ValueError):

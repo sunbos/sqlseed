@@ -2,87 +2,62 @@ from __future__ import annotations
 
 from typing import Any
 
+from sqlseed.generators._dispatch import GeneratorDispatchMixin
 
-class AIProvider:
+_NO_PARAM_DEFAULTS: dict[str, Any] = {
+    "string": "",
+    "integer": 0,
+    "float": 0.0,
+    "boolean": False,
+    "bytes": b"",
+    "name": "",
+    "first_name": "",
+    "last_name": "",
+    "email": "",
+    "phone": "",
+    "address": "",
+    "company": "",
+    "url": "",
+    "ipv4": "",
+    "uuid": "",
+    "date": "",
+    "datetime": "",
+    "timestamp": 0,
+    "text": "",
+    "sentence": "",
+    "password": "",
+    "json": "{}",
+    "pattern": "",
+}
+
+
+class AIProvider(GeneratorDispatchMixin):
+    _RETURN_DEFAULTS: dict[str, Any] = _NO_PARAM_DEFAULTS
 
     @property
     def name(self) -> str:
         return "ai"
 
-    def set_locale(self, locale: str) -> None:
+    def set_locale(self, _locale: str) -> None:
+        # AI provider does not use locale-specific generation
         pass
 
-    def set_seed(self, seed: int) -> None:
+    def set_seed(self, _seed: int) -> None:
+        # AI provider does not rely on local random seeds
         pass
 
-    def generate_string(self, **kwargs: Any) -> str:
-        return ""
-
-    def generate_integer(self, **kwargs: Any) -> int:
-        return 0
-
-    def generate_float(self, **kwargs: Any) -> float:
-        return 0.0
-
-    def generate_boolean(self) -> bool:
-        return False
-
-    def generate_bytes(self, **kwargs: Any) -> bytes:
-        return b""
-
-    def generate_name(self) -> str:
-        return ""
-
-    def generate_first_name(self) -> str:
-        return ""
-
-    def generate_last_name(self) -> str:
-        return ""
-
-    def generate_email(self) -> str:
-        return ""
-
-    def generate_phone(self) -> str:
-        return ""
-
-    def generate_address(self) -> str:
-        return ""
-
-    def generate_company(self) -> str:
-        return ""
-
-    def generate_url(self) -> str:
-        return ""
-
-    def generate_ipv4(self) -> str:
-        return ""
-
-    def generate_uuid(self) -> str:
-        return ""
-
-    def generate_date(self, **kwargs: Any) -> str:
-        return ""
-
-    def generate_datetime(self, **kwargs: Any) -> str:
-        return ""
-
-    def generate_timestamp(self) -> int:
-        return 0
-
-    def generate_text(self, **kwargs: Any) -> str:
-        return ""
-
-    def generate_sentence(self) -> str:
-        return ""
-
-    def generate_password(self, **kwargs: Any) -> str:
-        return ""
-
-    def generate_choice(self, choices: list[Any]) -> Any:
+    def _gen_choice(self, choices: list[Any]) -> Any:
         return choices[0] if choices else None
 
-    def generate_json(self, **kwargs: Any) -> str:
-        return "{}"
+    def __getattr__(self, name: str) -> Any:
+        if name.startswith("_gen_"):
+            type_key = name[5:]
+            if type_key in self._RETURN_DEFAULTS:
+                default = self._RETURN_DEFAULTS[type_key]
 
-    def generate_pattern(self, *, regex: str, **kwargs: Any) -> str:
-        return ""
+                def _stub(**_kwargs: Any) -> Any:
+                    return default
+
+                _stub.__name__ = name
+                return _stub
+        raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")

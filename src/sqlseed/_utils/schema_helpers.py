@@ -6,10 +6,12 @@ Extracted from adapter implementations to avoid code duplication (DRY principle)
 
 from __future__ import annotations
 
-import logging
+import re
 from typing import Any
 
-logger = logging.getLogger(__name__)
+from sqlseed._utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 def detect_autoincrement(
@@ -44,8 +46,12 @@ def detect_autoincrement(
             col_upper = column_name.upper()
             for part in sql_upper.split(","):
                 stripped = part.strip()
-                if col_upper in stripped and "INTEGER" in stripped and "PRIMARY" in stripped:
+                if (
+                    re.search(rf"\b{re.escape(col_upper)}\b", stripped)
+                    and "INTEGER" in stripped
+                    and "PRIMARY" in stripped
+                ):
                     return True
-    except Exception:
+    except (ValueError, OSError):
         logger.debug("Failed to detect autoincrement", extra={"table": table_name, "column": column_name})
     return False

@@ -1,22 +1,28 @@
 from __future__ import annotations
 
 import contextlib
-import math
-import re
+import sqlite3
 import time
-from typing import TYPE_CHECKING, Any, ClassVar
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
 
 from sqlseed._utils.logger import get_logger
 from sqlseed._utils.metrics import MetricsCollector
 from sqlseed._utils.progress import create_progress
+from sqlseed._utils.sql_safe import validate_table_name
+from sqlseed.config.models import ColumnConfig
 from sqlseed.core.column_dag import ColumnDAG
 from sqlseed.core.constraints import ConstraintSolver
+from sqlseed.core.enrichment import EnrichmentEngine
 from sqlseed.core.expression import ExpressionEngine
-from sqlseed.core.mapper import ColumnMapper, GeneratorSpec
+from sqlseed.core.mapper import ColumnMapper
+from sqlseed.core.plugin_mediator import PluginMediator
 from sqlseed.core.relation import RelationResolver, SharedPool
 from sqlseed.core.result import GenerationResult
 from sqlseed.core.schema import SchemaInferrer
 from sqlseed.core.transform import load_transform
+from sqlseed.core.unique_adjuster import UniqueAdjuster
+from sqlseed.database._compat import HAS_SQLITE_UTILS
 from sqlseed.database.raw_sqlite_adapter import RawSQLiteAdapter
 from sqlseed.database.sqlite_utils_adapter import SQLiteUtilsAdapter
 from sqlseed.generators.registry import ProviderRegistry
@@ -27,6 +33,25 @@ if TYPE_CHECKING:
     from sqlseed.database._protocol import DatabaseAdapter
 
 logger = get_logger(__name__)
+
+
+@dataclass
+class CoreCtx:
+    db: DatabaseAdapter | None = None
+    schema: SchemaInferrer | None = None
+    mapper: ColumnMapper = field(default_factory=ColumnMapper)
+    relation: RelationResolver | None = None
+    shared_pool: SharedPool = field(default_factory=SharedPool)
+
+
+@dataclass
+class ExtCtx:
+    registry: ProviderRegistry = field(default_factory=ProviderRegistry)
+    plugins: PluginManager = field(default_factory=PluginManager)
+    plugin_mediator: PluginMediator | None = None
+    enrichment: EnrichmentEngine | None = None
+    unique_adjuster: UniqueAdjuster | None = None
+    metrics: MetricsCollector = field(default_factory=MetricsCollector)
 
 
 class DataOrchestrator:
@@ -43,21 +68,78 @@ class DataOrchestrator:
         self._locale = locale
         self._optimize_pragma = optimize_pragma
 
-        self._db: DatabaseAdapter = self._create_adapter()
-        self._schema = SchemaInferrer(self._db)
-        self._mapper = ColumnMapper()
-        self._relation = RelationResolver(self._db)
-        self._registry = ProviderRegistry()
-        self._metrics = MetricsCollector()
-        self._plugins = PluginManager()
-        self._shared_pool = SharedPool()
-
+        db_adapter = self._create_adapter()
+        self._core = CoreCtx(
+            db=db_adapter, schema=SchemaInferrer(db_adapter), relation=RelationResolver(db_adapter, SharedPool())
+        )
+        self._ext = ExtCtx(unique_adjuster=UniqueAdjuster(self._core.mapper))
         self._connected = False
 
+    @property
+    def _db(self) -> DatabaseAdapter:
+        assert self._core.db is not None
+        return self._core.db
+
+    @property
+    def _schema(self) -> SchemaInferrer:
+        assert self._core.schema is not None
+        return self._core.schema
+
+    @property
+    def _mapper(self) -> ColumnMapper:
+        return self._core.mapper
+
+    @property
+    def _relation(self) -> RelationResolver:
+        return self._core.relation  # type: ignore
+
+    @property
+    def _shared_pool(self) -> SharedPool:
+        return self._core.shared_pool
+
+    @property
+    def _registry(self) -> ProviderRegistry:
+        return self._ext.registry
+
+    @property
+    def _plugins(self) -> PluginManager:
+        return self._ext.plugins
+
+    @property
+    def _plugin_mediator(self) -> PluginMediator | None:
+        return self._ext.plugin_mediator
+
+    @_plugin_mediator.setter
+    def _plugin_mediator(self, v: PluginMediator | None) -> None:
+        self._ext.plugin_mediator = v
+
+    @property
+    def _enrichment(self) -> EnrichmentEngine | None:
+        return self._ext.enrichment
+
+    @_enrichment.setter
+    def _enrichment(self, v: EnrichmentEngine | None) -> None:
+        self._ext.enrichment = v
+
+    @property
+    def _unique_adjuster(self) -> UniqueAdjuster:
+        return self._ext.unique_adjuster  # type: ignore
+
+    @property
+    def _metrics(self) -> MetricsCollector:
+        return self._ext.metrics
+
+    @classmethod
+    def from_config(cls, config: Any) -> DataOrchestrator:
+        return cls(
+            db_path=config.db_path,
+            provider_name=config.provider.value,
+            locale=config.locale,
+            optimize_pragma=config.optimize_pragma,
+        )
+
     def _create_adapter(self) -> DatabaseAdapter:
-        try:
-            import sqlite_utils  # noqa: F401
-        except ImportError:
+        if not HAS_SQLITE_UTILS:
             logger.debug("sqlite-utils not available, falling back to raw sqlite3")
             return RawSQLiteAdapter()
         return SQLiteUtilsAdapter()
@@ -66,6 +148,7 @@ class DataOrchestrator:
         if not self._connected:
             self._db.connect(self._db_path)
             self._connected = True
+            self._enrichment = EnrichmentEngine(self._db, self._mapper, self._schema)
             self._plugins.load_plugins()
             self._plugins.hook.sqlseed_register_providers(registry=self._registry)
             self._plugins.hook.sqlseed_register_column_mappers(mapper=self._mapper)
@@ -81,6 +164,55 @@ class DataOrchestrator:
                 self._provider_name = "base"
             provider = self._registry.get(self._provider_name)
             provider.set_locale(self._locale)
+            self._plugin_mediator = PluginMediator(self._plugins, self._db, self._schema)
+
+    def _resolve_specs(
+        self,
+        table_name: str,
+        count: int,
+        columns: dict[str, Any] | None,
+        column_configs: list[Any] | None,
+        enrich: bool,
+    ) -> tuple[dict[str, Any], dict[str, Any], set[str]]:
+        column_infos = self._schema.get_column_info(table_name)
+        user_configs = self._resolve_user_configs(columns, column_configs)
+        generator_specs = self._mapper.map_columns(column_infos, user_configs, enrich=enrich)
+        unique_columns = self._schema.detect_unique_columns(table_name)
+        if self._enrichment is not None:
+            generator_specs = self._enrichment.apply(table_name, generator_specs, column_infos, unique_columns)
+        generator_specs = self._unique_adjuster.adjust(generator_specs, unique_columns, count, column_infos)
+        generator_specs = self._relation.resolve_foreign_keys(table_name, generator_specs)
+        return generator_specs, user_configs, unique_columns
+
+    def _build_stream(
+        self,
+        generator_specs: dict[str, Any],
+        user_configs: dict[str, Any],
+        unique_columns: set[str],
+        transform: str | None,
+        seed: int | None,
+    ) -> DataStream:
+        dag = ColumnDAG()
+        col_configs_list = list(user_configs.values()) if user_configs else None
+        dag_nodes = dag.build(generator_specs, col_configs_list, unique_columns=unique_columns)
+
+        expr_engine = ExpressionEngine()
+        constraint_solver = ConstraintSolver()
+
+        transform_fn = None
+        if transform:
+            transform_fn = load_transform(transform)
+
+        provider = self._registry.get(self._provider_name)
+
+        return DataStream(
+            dag_nodes=dag_nodes,
+            provider=provider,
+            expr_engine=expr_engine,
+            constraint_solver=constraint_solver,
+            transform_fn=transform_fn,
+            seed=seed,
+        )
 
     def fill_table(
         self,
@@ -96,6 +228,7 @@ class DataOrchestrator:
         enrich: bool = False,
     ) -> GenerationResult:
         self._ensure_connected()
+        validate_table_name(table_name)
         start_time = time.monotonic()
         total_inserted = 0
         batch_count = 0
@@ -107,42 +240,22 @@ class DataOrchestrator:
             if clear_before:
                 self._db.clear_table(table_name)
 
-            column_infos = self._schema.get_column_info(table_name)
-            user_configs = self._resolve_user_configs(columns, column_configs)
-            generator_specs = self._mapper.map_columns(column_infos, user_configs, enrich=enrich)
-            unique_columns = self._detect_unique_columns(table_name)
-            generator_specs = self._apply_enrich(table_name, generator_specs, column_infos, unique_columns)
-            generator_specs = self._adjust_specs_for_unique(generator_specs, unique_columns, count, column_infos)
-            generator_specs = self._resolve_foreign_keys(table_name, generator_specs)
-            generator_specs = self._apply_ai_suggestions(table_name, column_infos, generator_specs)
-            generator_specs = self._apply_template_pool(table_name, column_infos, generator_specs, count)
+            generator_specs, user_configs, unique_columns = self._resolve_specs(
+                table_name, count, columns, column_configs, enrich
+            )
+            if self._plugin_mediator is not None:
+                column_infos = self._schema.get_column_info(table_name)
+                generator_specs = self._plugin_mediator.apply_ai_suggestions(table_name, column_infos, generator_specs)
+                generator_specs = self._plugin_mediator.apply_template_pool(
+                    table_name, column_infos, generator_specs, count
+                )
 
-            dag = ColumnDAG()
-            col_configs_list = list(user_configs.values()) if user_configs else None
-            dag_nodes = dag.build(generator_specs, col_configs_list, unique_columns=unique_columns)
-
-            expr_engine = ExpressionEngine()
-            constraint_solver = ConstraintSolver()
-
-            transform_fn = None
-            if transform:
-                transform_fn = load_transform(transform)
-
-            provider = self._registry.get(self._provider_name)
+            stream = self._build_stream(generator_specs, user_configs, unique_columns, transform, seed)
 
             self._plugins.hook.sqlseed_before_generate(
                 table_name=table_name,
                 count=count,
                 config=None,
-            )
-
-            stream = DataStream(
-                dag_nodes=dag_nodes,
-                provider=provider,
-                expr_engine=expr_engine,
-                constraint_solver=constraint_solver,
-                transform_fn=transform_fn,
-                seed=seed,
             )
 
             progress = create_progress()
@@ -157,7 +270,10 @@ class DataOrchestrator:
                         batch_size=len(batch),
                     )
 
-                    current_batch = self._apply_batch_transforms(table_name, batch)
+                    if self._plugin_mediator is not None:
+                        current_batch = self._plugin_mediator.apply_batch_transforms(table_name, batch)
+                    else:
+                        current_batch = batch
 
                     inserted = self._db.batch_insert(table_name, iter(current_batch), batch_size)
                     total_inserted += inserted
@@ -172,7 +288,7 @@ class DataOrchestrator:
 
                     progress.update(task_id, advance=len(batch))
 
-        except Exception as e:
+        except (ValueError, RuntimeError, OSError, sqlite3.OperationalError) as e:
             logger.error("Failed to fill table", table_name=table_name, error=e)
             return GenerationResult(
                 table_name=table_name,
@@ -195,7 +311,8 @@ class DataOrchestrator:
             elapsed=elapsed,
         )
 
-        self._register_shared_pool(table_name, generator_specs)
+        self._relation.register_shared_pool(table_name, generator_specs)
+        self._plugins.hook.sqlseed_shared_pool_loaded(table_name=table_name, shared_pool=self._shared_pool)
 
         return GenerationResult(
             table_name=table_name,
@@ -216,59 +333,40 @@ class DataOrchestrator:
         enrich: bool = False,
     ) -> list[dict[str, Any]]:
         self._ensure_connected()
+        validate_table_name(table_name)
 
-        column_infos = self._schema.get_column_info(table_name)
-        user_configs = self._resolve_user_configs(columns, column_configs)
-        generator_specs = self._mapper.map_columns(column_infos, user_configs, enrich=enrich)
-        unique_columns = self._detect_unique_columns(table_name)
-        generator_specs = self._apply_enrich(table_name, generator_specs, column_infos, unique_columns)
-        generator_specs = self._adjust_specs_for_unique(generator_specs, unique_columns, count, column_infos)
-        generator_specs = self._resolve_foreign_keys(table_name, generator_specs)
-
-        dag = ColumnDAG()
-        col_configs_list = list(user_configs.values()) if user_configs else None
-        dag_nodes = dag.build(generator_specs, col_configs_list, unique_columns=unique_columns)
-
-        expr_engine = ExpressionEngine()
-        constraint_solver = ConstraintSolver()
-
-        transform_fn = None
-        if transform:
-            transform_fn = load_transform(transform)
-
-        provider = self._registry.get(self._provider_name)
-
-        stream = DataStream(
-            dag_nodes=dag_nodes,
-            provider=provider,
-            expr_engine=expr_engine,
-            constraint_solver=constraint_solver,
-            transform_fn=transform_fn,
-            seed=seed,
+        generator_specs, user_configs, unique_columns = self._resolve_specs(
+            table_name, count, columns, column_configs, enrich
         )
+        stream = self._build_stream(generator_specs, user_configs, unique_columns, transform, seed)
+
         result: list[dict[str, Any]] = []
         for batch in stream.generate(count, batch_size=count):
-            current_batch = self._apply_batch_transforms(table_name, batch)
+            if self._plugin_mediator is not None:
+                current_batch = self._plugin_mediator.apply_batch_transforms(table_name, batch)
+            else:
+                current_batch = batch
             result.extend(current_batch)
         return result
 
     def get_schema_context(self, table_name: str) -> dict[str, Any]:
         self._ensure_connected()
+        validate_table_name(table_name)
         column_infos = self._schema.get_column_info(table_name)
         fks = self._db.get_foreign_keys(table_name)
         all_tables = self._db.get_table_names()
 
         indexes: list[dict[str, Any]] = []
-        with contextlib.suppress(Exception):
+        with contextlib.suppress(ValueError, OSError, RuntimeError, sqlite3.OperationalError):
             idx_infos = self._schema.get_index_info(table_name)
             indexes = [{"name": idx.name, "columns": idx.columns, "unique": idx.unique} for idx in idx_infos]
 
         sample_data: list[dict[str, Any]] = []
-        with contextlib.suppress(Exception):
+        with contextlib.suppress(ValueError, OSError, RuntimeError, sqlite3.OperationalError):
             sample_data = self._schema.get_sample_data(table_name, limit=5)
 
         distribution: list[dict[str, Any]] = []
-        with contextlib.suppress(Exception):
+        with contextlib.suppress(ValueError, OSError, RuntimeError, sqlite3.OperationalError):
             distribution = self._schema.profile_column_distribution(table_name, limit=1000)
 
         return {
@@ -293,6 +391,29 @@ class DataOrchestrator:
             if (c.is_primary_key and c.is_autoincrement) or c.default is not None
         }
 
+    def get_topological_table_order(self, table_names: list[str]) -> list[str]:
+        self._ensure_connected()
+        return self._relation.topological_sort(table_names)
+
+    def get_table_names(self) -> list[str]:
+        self._ensure_connected()
+        return self._db.get_table_names()
+
+    def get_column_info(self, table_name: str) -> list[Any]:
+        self._ensure_connected()
+        return self._schema.get_column_info(table_name)
+
+    def get_foreign_keys(self, table_name: str) -> list[Any]:
+        self._ensure_connected()
+        return self._db.get_foreign_keys(table_name)
+
+    def get_row_count(self, table_name: str) -> int:
+        self._ensure_connected()
+        return self._db.get_row_count(table_name)
+
+    def map_column(self, column_info: Any) -> Any:
+        return self._mapper.map_column(column_info)
+
     def report(self) -> str:
         if not self._connected:
             return "Not connected to any database."
@@ -304,274 +425,11 @@ class DataOrchestrator:
             lines.append(f"  {table}: {count} rows")
         return "\n".join(lines)
 
-    _ENUM_NAME_PATTERNS: ClassVar[list[str]] = [
-        r"^[bB]y[A-Za-z]",
-        r".*_type$",
-        r".*_status$",
-        r"^is_.*",
-        r"^has_.*",
-        r"^can_.*",
-        r".*_level$",
-        r".*_category$",
-        r".*_class$",
-        r".*_flag$",
-        r".*_kind$",
-        r".*_grade$",
-        r".*_rank$",
-        r".*_tier$",
-        r".*_mode$",
-        r".*_stage$",
-        r".*_phase$",
-        r".*_state$",
-        r".*_group$",
-    ]
-
-    _SMALL_INT_TYPES: ClassVar[tuple[str, ...]] = ("INT8", "INT16", "TINYINT", "SMALLINT")
-
-    def _is_enumeration_column(
-        self,
-        col_name: str,
-        col_info: Any,
-        distinct_count: int,
-        total_rows: int,
-        is_unique: bool,
-    ) -> bool:
-        if is_unique:
-            return False
-
-        if total_rows == 0 or distinct_count == 0:
-            return False
-
-        cardinality_ratio = distinct_count / total_rows
-
-        name_matches_enum = any(re.match(p, col_name) for p in self._ENUM_NAME_PATTERNS)
-
-        col_type_upper = col_info.type.upper() if col_info and hasattr(col_info, "type") else ""
-        is_small_int = any(t in col_type_upper for t in self._SMALL_INT_TYPES)
-
-        return (
-            (name_matches_enum and cardinality_ratio < 0.1)
-            or (is_small_int and cardinality_ratio < 0.1)
-            or (distinct_count <= 10 and cardinality_ratio < 0.05)
-            or (
-                distinct_count <= 30
-                and cardinality_ratio < 0.01
-                and "CHAR" not in col_type_upper
-                and "TEXT" not in col_type_upper
-            )
-        )
-
-    def _apply_enrich(
-        self,
-        table_name: str,
-        specs: dict[str, GeneratorSpec],
-        column_infos: list[Any],
-        unique_columns: set[str] | None = None,
-    ) -> dict[str, GeneratorSpec]:
-        has_enrich = any(s.generator_name == "__enrich__" for s in specs.values())
-        if not has_enrich:
-            return specs
-
-        unique_columns = unique_columns or set()
-        row_count = self._db.get_row_count(table_name)
-        if row_count == 0:
-            for col_name, spec in specs.items():
-                if spec.generator_name == "__enrich__":
-                    specs[col_name] = GeneratorSpec(generator_name="skip")
-            return specs
-
-        for col_name, spec in list(specs.items()):
-            if spec.generator_name != "__enrich__":
-                continue
-            is_unique = col_name in unique_columns
-            specs[col_name] = self._build_enriched_spec(table_name, col_name, spec, column_infos, is_unique)
-
-        return specs
-
-    def _build_enriched_spec(
-        self,
-        table_name: str,
-        col_name: str,
-        spec: GeneratorSpec,
-        column_infos: list[Any],
-        is_unique: bool = False,
-    ) -> GeneratorSpec:
-        col_info = next((c for c in column_infos if c.name == col_name), None)
-
-        try:
-            values = self._db.get_column_values(table_name, col_name, limit=10000)
-        except Exception:
-            return GeneratorSpec(generator_name="skip")
-
-        if not values:
-            return GeneratorSpec(generator_name="skip")
-
-        null_count = sum(1 for v in values if v is None)
-        non_null_values = [v for v in values if v is not None]
-        null_ratio = round(null_count / len(values), 3) if values else 0.0
-
-        if not non_null_values:
-            return GeneratorSpec(generator_name="skip")
-
-        if col_info and not col_info.nullable:
-            null_ratio = 0.0
-
-        if is_unique:
-            null_ratio = 0.0
-
-        distinct_values = list(set(non_null_values))
-        distinct_count = len(distinct_values)
-        row_count = self._db.get_row_count(table_name)
-
-        if self._is_enumeration_column(col_name, col_info, distinct_count, row_count, is_unique):
-            choices = distinct_values
-            if col_info and "INT" in col_info.type.upper():
-                choices = [int(v) if isinstance(v, (int, float, str)) else v for v in choices]
-            return GeneratorSpec(
-                generator_name="choice",
-                params={"choices": choices},
-                null_ratio=null_ratio,
-            )
-
-        if col_info:
-            fallback_spec = self._mapper.map_column(col_info, force_type_infer=True)
-            if fallback_spec.generator_name != "skip":
-                return GeneratorSpec(
-                    generator_name=fallback_spec.generator_name,
-                    params=fallback_spec.params,
-                    null_ratio=null_ratio,
-                    provider=fallback_spec.provider,
-                )
-
-        return GeneratorSpec(generator_name="skip")
-
-    def _detect_unique_columns(self, table_name: str) -> set[str]:
-        unique_cols: set[str] = set()
-        try:
-            indexes = self._schema.get_index_info(table_name)
-            for idx in indexes:
-                if idx.unique and len(idx.columns) == 1:
-                    unique_cols.add(idx.columns[0])
-        except Exception:
-            logger.debug("Failed to detect unique constraints from indexes", table_name=table_name)
-
-        try:
-            pks = self._db.get_primary_keys(table_name)
-            column_infos = self._schema.get_column_info(table_name)
-            autoincrement_pks = {c.name for c in column_infos if c.is_primary_key and c.is_autoincrement}
-            for pk in pks:
-                if pk not in autoincrement_pks:
-                    unique_cols.add(pk)
-        except Exception:
-            logger.debug("Failed to detect PK unique constraints", table_name=table_name)
-
-        return unique_cols
-
-    def _adjust_specs_for_unique(
-        self,
-        specs: dict[str, GeneratorSpec],
-        unique_columns: set[str],
-        count: int,
-        column_infos: list[Any] | None = None,
-    ) -> dict[str, GeneratorSpec]:
-        for col_name in unique_columns:
-            if col_name not in specs:
-                continue
-            spec = specs[col_name]
-            if spec.generator_name == "skip":
-                continue
-
-            if spec.generator_name == "string":
-                params = dict(spec.params)
-                charset_size = 62
-                if params.get("charset") == "digits":
-                    charset_size = 10
-                elif params.get("charset") == "alpha":
-                    charset_size = 52
-
-                max_length = params.get("max_length", 50)
-                min_needed = max(1, math.ceil(math.log(max(count * count * 50, 1)) / math.log(charset_size)))
-                current_min = params.get("min_length", 1)
-                params["min_length"] = max(current_min, min_needed)
-
-                if params["min_length"] > max_length:
-                    if params.get("charset") is None:
-                        params["charset"] = "alphanumeric"
-                        charset_size = 62
-                        min_needed = max(1, math.ceil(math.log(max(count * count * 50, 1)) / math.log(charset_size)))
-                        params["min_length"] = max(current_min, min_needed)
-                    if params["min_length"] > max_length:
-                        logger.warning(
-                            "Cannot guarantee uniqueness for VARCHAR(%d) with count=%d",
-                            max_length,
-                            count,
-                            column=col_name,
-                        )
-                        params["max_length"] = max(params["min_length"], max_length)
-                elif params["max_length"] < params["min_length"]:
-                    params["max_length"] = params["min_length"]
-
-                specs[col_name] = GeneratorSpec(
-                    generator_name=spec.generator_name,
-                    params=params,
-                    null_ratio=spec.null_ratio,
-                    provider=spec.provider,
-                )
-
-            elif spec.generator_name == "integer":
-                params = dict(spec.params)
-                min_val = params.get("min_value", 0)
-                max_val = params.get("max_value", 999999)
-                if max_val - min_val < count * 10:
-                    col_info = next((c for c in (column_infos or []) if c.name == col_name), None)
-                    if col_info:
-                        col_type_upper = col_info.type.upper()
-                        if "INT8" in col_type_upper and count > 255:
-                            logger.warning(
-                                "INT8 column with UNIQUE constraint cannot guarantee uniqueness for count > 255",
-                                column=col_name,
-                                count=count,
-                            )
-                        elif "INT16" in col_type_upper and count > 65535:
-                            logger.warning(
-                                "INT16 column with UNIQUE constraint cannot guarantee uniqueness for count > 65535",
-                                column=col_name,
-                                count=count,
-                            )
-                    params["max_value"] = min_val + count * 10
-                specs[col_name] = GeneratorSpec(
-                    generator_name=spec.generator_name,
-                    params=params,
-                    null_ratio=spec.null_ratio,
-                    provider=spec.provider,
-                )
-
-            elif spec.generator_name == "choice":
-                choices = spec.params.get("choices", [])
-                if len(choices) < count:
-                    col_info = None
-                    if column_infos:
-                        col_info = next((c for c in column_infos if c.name == col_name), None)
-                    if col_info:
-                        fallback = self._mapper.map_column(col_info, force_type_infer=True)
-                        if fallback.generator_name not in ("skip", "choice"):
-                            specs[col_name] = GeneratorSpec(
-                                generator_name=fallback.generator_name,
-                                params=fallback.params,
-                                null_ratio=spec.null_ratio,
-                                provider=fallback.provider,
-                            )
-                            specs = self._adjust_specs_for_unique(specs, {col_name}, count, column_infos)
-
-        return specs
-
     def _resolve_user_configs(
         self,
         columns: dict[str, Any] | None,
         column_configs: list[Any] | None,
     ) -> dict[str, Any]:
-        from sqlseed.config.models import ColumnConfig
-
         configs: dict[str, Any] = {}
 
         if column_configs:
@@ -594,247 +452,7 @@ class DataOrchestrator:
 
         return configs
 
-    def _resolve_foreign_keys(
-        self,
-        table_name: str,
-        specs: dict[str, GeneratorSpec],
-    ) -> dict[str, GeneratorSpec]:
-        for col_name, spec in specs.items():
-            if spec.generator_name == "foreign_key_or_integer":
-                fk_info = self._relation.get_fk_info(table_name, col_name)
-                if fk_info:
-                    ref_values = self._relation.resolve_foreign_key_values(table_name, col_name)
-                    new_spec = GeneratorSpec(
-                        generator_name="foreign_key",
-                        params={
-                            "ref_table": fk_info.ref_table,
-                            "ref_column": fk_info.ref_column,
-                            "strategy": "random",
-                            "_ref_values": ref_values,
-                        },
-                        null_ratio=spec.null_ratio,
-                        provider=spec.provider,
-                    )
-                    specs[col_name] = new_spec
-                else:
-                    specs[col_name] = GeneratorSpec(
-                        generator_name="integer",
-                        params={"min_value": 1, "max_value": 999999},
-                        null_ratio=spec.null_ratio,
-                        provider=spec.provider,
-                    )
-
-            elif spec.generator_name == "foreign_key":
-                if "ref_table" in spec.params:
-                    ref_values = self._db.get_column_values(
-                        spec.params["ref_table"],
-                        spec.params["ref_column"],
-                    )
-                    spec.params["_ref_values"] = ref_values
-
-        return self._resolve_implicit_associations(table_name, specs)
-
-    def _resolve_implicit_associations(
-        self,
-        table_name: str,
-        specs: dict[str, GeneratorSpec],
-    ) -> dict[str, GeneratorSpec]:
-        """Resolve implicit cross-table associations via SharedPool.
-
-        When a column name exists in the SharedPool (generated by a previously
-        filled table), automatically use those values as a foreign_key strategy.
-        This handles cases like account_id appearing in multiple tables without
-        an explicit FK constraint.
-        """
-        if not self._shared_pool._pools:
-            return specs
-
-        for col_name, spec in list(specs.items()):
-            if spec.generator_name != "foreign_key_or_integer":
-                continue
-            if not self._shared_pool.has(col_name):
-                continue
-
-            pool_values = self._shared_pool.get(col_name)
-            if not pool_values:
-                continue
-
-            specs[col_name] = GeneratorSpec(
-                generator_name="foreign_key",
-                params={
-                    "ref_table": "__shared_pool__",
-                    "ref_column": col_name,
-                    "strategy": "random",
-                    "_ref_values": pool_values,
-                },
-                null_ratio=spec.null_ratio,
-                provider=spec.provider,
-            )
-            logger.debug(
-                "Resolved implicit association via SharedPool",
-                table_name=table_name,
-                column_name=col_name,
-                pool_size=len(pool_values),
-            )
-
-        return specs
-
-    AI_APPLICABLE_GENERATORS: ClassVar[frozenset[str]] = frozenset({"string", "integer", "date", "datetime", "choice"})
-
-    def _apply_ai_suggestions(
-        self,
-        table_name: str,
-        column_infos: list[Any],
-        specs: dict[str, GeneratorSpec],
-    ) -> dict[str, GeneratorSpec]:
-        unmatched_cols = [
-            col
-            for col in column_infos
-            if specs.get(col.name) is not None
-            and specs[col.name].generator_name in self.AI_APPLICABLE_GENERATORS
-            and not col.is_primary_key
-            and not col.is_autoincrement
-            and col.default is None
-        ]
-        if not unmatched_cols:
-            return specs
-
-        try:
-            fks = self._db.get_foreign_keys(table_name)
-            all_tables = self._db.get_table_names()
-            indexes = self._schema.get_index_info(table_name)
-            sample_data = self._schema.get_sample_data(table_name, limit=5)
-
-            ai_result = self._plugins.hook.sqlseed_ai_analyze_table(
-                table_name=table_name,
-                columns=column_infos,
-                indexes=[{"name": i.name, "columns": i.columns, "unique": i.unique} for i in indexes],
-                sample_data=sample_data,
-                foreign_keys=fks,
-                all_table_names=all_tables,
-            )
-
-            if ai_result and isinstance(ai_result, dict):
-                ai_columns = ai_result.get("columns", [])
-                if isinstance(ai_columns, list):
-                    for col_cfg in ai_columns:
-                        col_name = col_cfg.get("name") if isinstance(col_cfg, dict) else None
-                        if col_name and col_name in specs:
-                            gen = col_cfg.get("generator")
-                            if gen and gen != "skip":
-                                derive_from = col_cfg.get("derive_from")
-                                expression = col_cfg.get("expression")
-
-                                if derive_from and expression:
-                                    specs[col_name] = GeneratorSpec(
-                                        generator_name="__derive__",
-                                        params={"derive_from": derive_from, "expression": expression},
-                                    )
-                                else:
-                                    params = col_cfg.get("params", {})
-                                    if isinstance(params, dict):
-                                        specs[col_name] = GeneratorSpec(
-                                            generator_name=gen,
-                                            params=params,
-                                        )
-
-        except Exception as e:
-            logger.debug("AI suggestions not available", table_name=table_name, error=str(e))
-
-        return specs
-
-    def _apply_batch_transforms(
-        self,
-        table_name: str,
-        batch: list[dict[str, Any]],
-    ) -> list[dict[str, Any]]:
-        results = self._plugins.hook.sqlseed_transform_batch(
-            table_name=table_name,
-            batch=batch,
-        )
-        current = batch
-        if results:
-            for r in results:
-                if r is not None:
-                    current = r
-        return current
-
-    def _apply_template_pool(
-        self,
-        table_name: str,
-        column_infos: list[Any],
-        specs: dict[str, GeneratorSpec],
-        count: int,
-    ) -> dict[str, GeneratorSpec]:
-        for col_name, spec in list(specs.items()):
-            if spec.generator_name != "string":
-                continue
-            col_info = next((c for c in column_infos if c.name == col_name), None)
-            if col_info is None or col_info.is_primary_key or col_info.is_autoincrement:
-                continue
-            if col_info.default is not None:
-                continue
-
-            sample_data_for_col: list[Any] = []
-            with contextlib.suppress(Exception):
-                sample_data_for_col = self._db.get_column_values(table_name, col_name, limit=10)
-
-            template_values = self._plugins.hook.sqlseed_pre_generate_templates(
-                table_name=table_name,
-                column_name=col_name,
-                column_type=col_info.type,
-                count=min(count, 50),
-                sample_data=sample_data_for_col,
-            )
-            if template_values:
-                specs[col_name] = GeneratorSpec(
-                    generator_name="foreign_key",
-                    params={
-                        "ref_table": "__template_pool__",
-                        "ref_column": col_name,
-                        "strategy": "random",
-                        "_ref_values": template_values,
-                    },
-                )
-        return specs
-
-    def _register_shared_pool(
-        self,
-        table_name: str,
-        generator_specs: dict[str, GeneratorSpec],
-    ) -> None:
-        for col_name, spec in generator_specs.items():
-            if spec.generator_name == "skip":
-                continue
-            with contextlib.suppress(Exception):
-                values = self._db.get_column_values(table_name, col_name, limit=10000)
-                if values:
-                    self._shared_pool.merge(col_name, values)
-
-    def fill(
-        self,
-        table_name: str,
-        *,
-        count: int = 1000,
-        columns: dict[str, Any] | None = None,
-        seed: int | None = None,
-        batch_size: int = 5000,
-        clear_before: bool = False,
-        column_configs: list[Any] | None = None,
-        transform: str | None = None,
-        enrich: bool = False,
-    ) -> GenerationResult:
-        return self.fill_table(
-            table_name=table_name,
-            count=count,
-            columns=columns,
-            seed=seed,
-            batch_size=batch_size,
-            clear_before=clear_before,
-            column_configs=column_configs,
-            transform=transform,
-            enrich=enrich,
-        )
+    fill = fill_table
 
     def close(self) -> None:
         if self._connected:
@@ -846,6 +464,4 @@ class DataOrchestrator:
         return self
 
     def __exit__(self, exc_type: type | None, exc_val: Exception | None, exc_tb: Any) -> None:
-        if self._connected:
-            self._db.close()
-            self._connected = False
+        self.close()

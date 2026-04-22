@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from sqlseed.plugins.hookspecs import PROJECT_NAME, SqlseedHookSpec, hookimpl, hookspec
 from sqlseed.plugins.manager import PluginManager
 

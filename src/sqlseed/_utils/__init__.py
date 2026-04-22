@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from sqlseed._utils.metrics import MetricsCollector
 from sqlseed._utils.progress import create_progress
 from sqlseed._utils.sql_safe import build_insert_sql, quote_identifier, validate_table_name

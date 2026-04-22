@@ -43,20 +43,19 @@ class ExpressionEngine:
 
     def __init__(self, timeout_seconds: int = 5) -> None:
         self._timeout = timeout_seconds
-        self._evaluator = simpleeval.SimpleEval()
-        self._evaluator.functions = dict(self.SAFE_FUNCTIONS)
 
     def evaluate(self, expression: str, context: dict[str, Any]) -> Any:
-        self._evaluator.names = context
-        result: Any = None
-        error: Exception | None = None
+        evaluator = simpleeval.SimpleEval()
+        evaluator.functions = dict(self.SAFE_FUNCTIONS)
+        evaluator.names = context
+        result_container: list[Any] = [None]
+        error_container: list[Exception | None] = [None]
 
         def _eval() -> None:
-            nonlocal result, error
             try:
-                result = self._evaluator.eval(expression)
-            except Exception as e:
-                error = e
+                result_container[0] = evaluator.eval(expression)
+            except (ValueError, SyntaxError, TypeError, simpleeval.InvalidExpression) as e:
+                error_container[0] = e
 
         thread = threading.Thread(target=_eval)
         thread.start()
@@ -65,7 +64,8 @@ class ExpressionEngine:
         if thread.is_alive():
             raise ExpressionTimeoutError(f"Expression evaluation timed out after {self._timeout}s: {expression[:100]}")
 
+        error = error_container[0]
         if error is not None:
             raise error
 
-        return result
+        return result_container[0]

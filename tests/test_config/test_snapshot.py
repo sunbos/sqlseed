@@ -5,21 +5,24 @@ from sqlseed.config.snapshot import SnapshotManager
 
 
 class TestSnapshotManager:
-    def test_save_snapshot(self, tmp_path) -> None:
-        manager = SnapshotManager(str(tmp_path / "snapshots"))
-        config = GeneratorConfig(
-            db_path="test.db",
+    def _make_manager(self, tmp_path) -> SnapshotManager:
+        return SnapshotManager(str(tmp_path / "snapshots"))
+
+    def _make_users_config(self, db_path: str = "test.db") -> GeneratorConfig:
+        return GeneratorConfig(
+            db_path=db_path,
             tables=[TableConfig(name="users", count=100)],
         )
+
+    def test_save_snapshot(self, tmp_path) -> None:
+        manager = self._make_manager(tmp_path)
+        config = self._make_users_config()
         path = manager.save(config, "users", 100, seed=42)
         assert path.endswith(".yaml")
 
     def test_load_snapshot(self, tmp_path) -> None:
-        manager = SnapshotManager(str(tmp_path / "snapshots"))
-        config = GeneratorConfig(
-            db_path="test.db",
-            tables=[TableConfig(name="users", count=100)],
-        )
+        manager = self._make_manager(tmp_path)
+        config = self._make_users_config()
         path = manager.save(config, "users", 100, seed=42)
         data = manager.load(path)
         assert data["table_name"] == "users"
@@ -27,7 +30,7 @@ class TestSnapshotManager:
         assert data["seed"] == 42
 
     def test_list_snapshots(self, tmp_path) -> None:
-        manager = SnapshotManager(str(tmp_path / "snapshots"))
+        manager = self._make_manager(tmp_path)
         config = GeneratorConfig(db_path="test.db")
         manager.save(config, "users", 100)
         manager.save(config, "orders", 500)
@@ -40,7 +43,7 @@ class TestSnapshotManager:
         assert snapshots == []
 
     def test_load_nonexistent(self, tmp_path) -> None:
-        manager = SnapshotManager(str(tmp_path / "snapshots"))
+        manager = self._make_manager(tmp_path)
         try:
             manager.load("/nonexistent/snapshot.yaml")
             raise AssertionError("Should have raised FileNotFoundError")
@@ -48,7 +51,7 @@ class TestSnapshotManager:
             pass
 
     def test_replay(self, tmp_db, tmp_path) -> None:
-        manager = SnapshotManager(str(tmp_path / "snapshots"))
+        manager = self._make_manager(tmp_path)
         config = GeneratorConfig(
             db_path=tmp_db,
             provider=ProviderType("base"),

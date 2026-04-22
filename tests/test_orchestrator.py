@@ -3,12 +3,16 @@ from __future__ import annotations
 import sqlite3
 from typing import Any
 
+import pytest
+
 from sqlseed.config.models import ColumnConfig
+from sqlseed.core.mapper import GeneratorSpec
 from sqlseed.core.orchestrator import DataOrchestrator
 from sqlseed.plugins.hookspecs import hookimpl
+from tests.conftest import apply_enrichment, create_card_info_db
 
 
-class TestDataOrchestrator:
+class TestOrchestratorBasic:
     def test_fill_basic(self, tmp_db) -> None:
         with DataOrchestrator(tmp_db, provider_name="base") as orch:
             result = orch.fill_table("users", count=100)
@@ -59,8 +63,8 @@ class TestDataOrchestrator:
             result = orch.fill_table("orders", count=50)
             assert result.count == 50
 
-    def test_report_not_connected(self) -> None:
-        orch = DataOrchestrator("/tmp/nonexistent.db", provider_name="base")
+    def test_report_not_connected(self, tmp_path) -> None:
+        orch = DataOrchestrator(str(tmp_path / "nonexistent.db"), provider_name="base")
         report = orch.report()
         assert "Not connected" in report
 
@@ -110,6 +114,29 @@ class TestDataOrchestrator:
             result = orch.fill_table("users", count=10)
             assert result.count == 10
 
+    def test_preview_with_column_configs(self, tmp_db) -> None:
+        with DataOrchestrator(tmp_db, provider_name="base") as orch:
+            col_configs = [
+                ColumnConfig(name="name", generator="name"),
+                ColumnConfig(name="email", generator="email"),
+            ]
+            rows = orch.preview_table("users", count=5, column_configs=col_configs)
+            assert len(rows) == 5
+            assert "name" in rows[0]
+
+    def test_get_schema_context(self, tmp_db) -> None:
+        with DataOrchestrator(tmp_db, provider_name="base") as orch:
+            ctx = orch.get_schema_context("users")
+            assert ctx["table_name"] == "users"
+            assert len(ctx["columns"]) > 0
+            assert isinstance(ctx["foreign_keys"], list)
+            assert isinstance(ctx["indexes"], list)
+            assert isinstance(ctx["sample_data"], list)
+            assert "users" in ctx["all_table_names"]
+            assert isinstance(ctx["distribution"], list)
+
+
+class TestOrchestratorPlugins:
     def test_fill_with_transform_batch_plugin(self, tmp_db) -> None:
         transform_log: list[str] = []
 
@@ -133,6 +160,7 @@ class TestDataOrchestrator:
         class TagPlugin:
             @hookimpl
             def sqlseed_transform_batch(self, table_name: str, batch: list[dict[str, Any]]) -> list[dict[str, Any]]:
+                _ = table_name
                 for row in batch:
                     row["_source"] = "plugin"
                 return batch
@@ -143,27 +171,6 @@ class TestDataOrchestrator:
             rows = orch.preview_table("users", count=3)
             assert len(rows) == 3
             assert all("_source" in r for r in rows)
-
-    def test_preview_with_column_configs(self, tmp_db) -> None:
-        with DataOrchestrator(tmp_db, provider_name="base") as orch:
-            col_configs = [
-                ColumnConfig(name="name", generator="name"),
-                ColumnConfig(name="email", generator="email"),
-            ]
-            rows = orch.preview_table("users", count=5, column_configs=col_configs)
-            assert len(rows) == 5
-            assert "name" in rows[0]
-
-    def test_get_schema_context(self, tmp_db) -> None:
-        with DataOrchestrator(tmp_db, provider_name="base") as orch:
-            ctx = orch.get_schema_context("users")
-            assert ctx["table_name"] == "users"
-            assert len(ctx["columns"]) > 0
-            assert isinstance(ctx["foreign_keys"], list)
-            assert isinstance(ctx["indexes"], list)
-            assert isinstance(ctx["sample_data"], list)
-            assert "users" in ctx["all_table_names"]
-            assert isinstance(ctx["distribution"], list)
 
     def test_fill_with_template_pool_plugin(self, tmp_db) -> None:
         class TemplatePlugin:
@@ -176,6 +183,7 @@ class TestDataOrchestrator:
                 count: int,
                 sample_data: list[Any],
             ) -> list[Any] | None:
+                _ = (table_name, column_type, count, sample_data)
                 if column_name == "bio":
                     return ["template_bio_1", "template_bio_2", "template_bio_3"]
                 return None
@@ -186,10 +194,12 @@ class TestDataOrchestrator:
             result = orch.fill_table("users", count=5)
             assert result.count == 5
 
+
+class TestOrchestratorUnique:
     def test_detect_unique_columns(self, bank_cards_db) -> None:
         with DataOrchestrator(bank_cards_db, provider_name="base") as orch:
             orch._ensure_connected()
-            unique_cols = orch._detect_unique_columns("bank_cards")
+            unique_cols = orch._schema.detect_unique_columns("bank_cards")
             assert "card_number" in unique_cols
             assert "account_id" in unique_cols
 
@@ -217,15 +227,13 @@ class TestDataOrchestrator:
     def test_adjust_specs_for_unique_string(self, bank_cards_db) -> None:
         with DataOrchestrator(bank_cards_db, provider_name="base") as orch:
             orch._ensure_connected()
-            from sqlseed.core.mapper import GeneratorSpec
-
             specs = {
                 "card_number": GeneratorSpec(
                     generator_name="string",
                     params={"min_length": 1, "max_length": 20},
                 ),
             }
-            adjusted = orch._adjust_specs_for_unique(specs, {"card_number"}, 10000)
+            adjusted = orch._unique_adjuster.adjust(specs, {"card_number"}, 10000)
             assert adjusted["card_number"].params["min_length"] > 1
             assert adjusted["card_number"].params["min_length"] <= 20
 
@@ -239,37 +247,18 @@ class TestDataOrchestrator:
 
         with DataOrchestrator(db_path, provider_name="base") as orch:
             orch._ensure_connected()
-            from sqlseed.core.mapper import GeneratorSpec
-
             specs = {
                 "code": GeneratorSpec(
                     generator_name="integer",
                     params={"min_value": 0, "max_value": 255},
                 ),
             }
-            adjusted = orch._adjust_specs_for_unique(specs, {"code"}, 10000)
+            adjusted = orch._unique_adjuster.adjust(specs, {"code"}, 10000)
             assert adjusted["code"].params["max_value"] >= 100000
 
     def test_fill_card_info_schema(self, tmp_path) -> None:
         db_path = str(tmp_path / "card_info.db")
-        conn = sqlite3.connect(db_path)
-        conn.execute("""
-            CREATE TABLE card_info(
-                cardId INTEGER PRIMARY KEY,
-                sCardNo VARCHAR(32) NOT NULL,
-                byCardType INT8 DEFAULT 1,
-                byFirstCardEnable INT8 DEFAULT 0,
-                sUserNo VARCHAR(32) NOT NULL,
-                CutCard4byte VARCHAR(20) DEFAULT NULL,
-                CutCard3byte VARCHAR(20) DEFAULT NULL
-            )
-        """)
-        conn.execute("CREATE UNIQUE INDEX cardindex_card_info_1 ON card_info(sCardNo)")
-        conn.execute("CREATE INDEX cardindex_card_info_2 ON card_info(sUserNo)")
-        conn.execute("CREATE UNIQUE INDEX cardindex_card_info_3 ON card_info(CutCard4byte)")
-        conn.execute("CREATE UNIQUE INDEX cardindex_card_info_4 ON card_info(CutCard3byte)")
-        conn.commit()
-        conn.close()
+        create_card_info_db(db_path)
 
         with DataOrchestrator(db_path, provider_name="base") as orch:
             result = orch.fill_table("card_info", count=1000)
@@ -282,6 +271,28 @@ class TestDataOrchestrator:
         card_nos = [r[0] for r in rows]
         assert len(card_nos) == len(set(card_nos))
 
+    def test_adjust_specs_for_unique_varchar_min_exceeds_max(self, tmp_path) -> None:
+        db_path = str(tmp_path / "varchar_unique.db")
+        conn = sqlite3.connect(db_path)
+        conn.execute("CREATE TABLE items (id INTEGER PRIMARY KEY AUTOINCREMENT, code VARCHAR(5) NOT NULL)")
+        conn.execute("CREATE UNIQUE INDEX idx_code ON items(code)")
+        conn.commit()
+        conn.close()
+
+        with DataOrchestrator(db_path, provider_name="base") as orch:
+            orch._ensure_connected()
+            specs = {
+                "code": GeneratorSpec(
+                    generator_name="string",
+                    params={"min_length": 1, "max_length": 5},
+                ),
+            }
+            adjusted = orch._unique_adjuster.adjust(specs, {"code"}, 10000, orch._schema.get_column_info("items"))
+            assert adjusted["code"].params["min_length"] >= 1
+            assert adjusted["code"].params["charset"] == "alphanumeric"
+
+
+class TestOrchestratorEnrichment:
     def test_enrich_empty_table_uses_defaults(self, tmp_path) -> None:
         db_path = str(tmp_path / "enrich_empty.db")
         conn = sqlite3.connect(db_path)
@@ -323,7 +334,7 @@ class TestDataOrchestrator:
         db_path = str(tmp_path / "enrich_null.db")
         conn = sqlite3.connect(db_path)
         conn.execute("CREATE TABLE items (id INTEGER PRIMARY KEY AUTOINCREMENT, sremark VARCHAR(20) DEFAULT NULL)")
-        for v in ["hello", None, "world", None, None]:
+        for v in ("hello", None, "world", None, None):
             conn.execute("INSERT INTO items (sremark) VALUES (?)", [v])
         conn.commit()
         conn.close()
@@ -351,7 +362,7 @@ class TestDataOrchestrator:
             )
             """
         )
-        for n in ["a", "b", "c", "d", "e"]:
+        for n in ("a", "b", "c", "d", "e"):
             conn.execute("INSERT INTO items (name, sremark) VALUES (?, NULL)", [n])
         conn.commit()
         conn.close()
@@ -385,32 +396,7 @@ class TestDataOrchestrator:
 
     def test_fill_card_info_with_enrich(self, tmp_path) -> None:
         db_path = str(tmp_path / "card_enrich.db")
-        conn = sqlite3.connect(db_path)
-        conn.execute("""
-            CREATE TABLE card_info(
-                cardId INTEGER PRIMARY KEY,
-                sCardNo VARCHAR(32) NOT NULL,
-                byCardType INT8 DEFAULT 1,
-                byFirstCardEnable INT8 DEFAULT 0,
-                sUserNo VARCHAR(32) NOT NULL,
-                CutCard4byte VARCHAR(20) DEFAULT NULL,
-                CutCard3byte VARCHAR(20) DEFAULT NULL
-            )
-        """)
-        conn.execute("CREATE UNIQUE INDEX cardindex_card_info_1 ON card_info(sCardNo)")
-        conn.execute("CREATE INDEX cardindex_card_info_2 ON card_info(sUserNo)")
-        conn.execute("CREATE UNIQUE INDEX cardindex_card_info_3 ON card_info(CutCard4byte)")
-        conn.execute("CREATE UNIQUE INDEX cardindex_card_info_4 ON card_info(CutCard3byte)")
-
-        for i in range(50):
-            conn.execute(
-                "INSERT INTO card_info "
-                "(cardId, sCardNo, byCardType, byFirstCardEnable, sUserNo, CutCard4byte, CutCard3byte) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                [i + 1, f"EXIST{i:04d}", (i % 2) + 1, i % 2, f"U{i:04d}", f"C4_{i:04d}", f"C3_{i:04d}"],
-            )
-        conn.commit()
-        conn.close()
+        create_card_info_db(db_path, with_data=True, data_count=50)
 
         with DataOrchestrator(db_path, provider_name="base") as orch:
             result = orch.fill_table("card_info", count=100, enrich=True, clear_before=False)
@@ -428,19 +414,14 @@ class TestDataOrchestrator:
         conn = sqlite3.connect(db_path)
         conn.execute("CREATE TABLE items (id INTEGER PRIMARY KEY AUTOINCREMENT, code VARCHAR(20) DEFAULT NULL)")
         conn.execute("CREATE UNIQUE INDEX idx_code ON items(code)")
-        for v in ["A", "B"]:
+        for v in ("A", "B"):
             conn.execute("INSERT INTO items (code) VALUES (?)", [v])
         conn.commit()
         conn.close()
 
-        with DataOrchestrator(db_path, provider_name="base") as orch:
-            orch._ensure_connected()
-            column_infos = orch._schema.get_column_info("items")
-            unique_cols = orch._detect_unique_columns("items")
-            specs = orch._mapper.map_columns(column_infos, enrich=True)
-            specs = orch._apply_enrich("items", specs, column_infos, unique_cols)
-            assert specs["code"].generator_name == "string"
-            assert specs["code"].null_ratio == 0.0
+        _, specs = apply_enrichment(db_path, "items")
+        assert specs["code"].generator_name == "string"
+        assert specs["code"].null_ratio == pytest.approx(0.0)
 
     def test_enrich_not_null_column_null_ratio_is_zero(self, tmp_path) -> None:
         db_path = str(tmp_path / "enrich_notnull.db")
@@ -451,50 +432,18 @@ class TestDataOrchestrator:
         conn.commit()
         conn.close()
 
-        with DataOrchestrator(db_path, provider_name="base") as orch:
-            orch._ensure_connected()
-            column_infos = orch._schema.get_column_info("items")
-            unique_cols = orch._detect_unique_columns("items")
-            specs = orch._mapper.map_columns(column_infos, enrich=True)
-            specs = orch._apply_enrich("items", specs, column_infos, unique_cols)
-            assert specs["bystatus"].null_ratio == 0.0
+        _, specs = apply_enrichment(db_path, "items")
+        assert specs["bystatus"].null_ratio == pytest.approx(0.0)
 
     def test_enrich_unique_nullable_column_no_null(self, tmp_path) -> None:
         db_path = str(tmp_path / "enrich_uniq_null.db")
         conn = sqlite3.connect(db_path)
         conn.execute("CREATE TABLE items (id INTEGER PRIMARY KEY AUTOINCREMENT, sremark VARCHAR(20) DEFAULT NULL)")
         conn.execute("CREATE UNIQUE INDEX idx_sremark ON items(sremark)")
-        for v in ["hello", None, "world"]:
+        for v in ("hello", None, "world"):
             conn.execute("INSERT INTO items (sremark) VALUES (?)", [v])
         conn.commit()
         conn.close()
 
-        with DataOrchestrator(db_path, provider_name="base") as orch:
-            orch._ensure_connected()
-            column_infos = orch._schema.get_column_info("items")
-            unique_cols = orch._detect_unique_columns("items")
-            specs = orch._mapper.map_columns(column_infos, enrich=True)
-            specs = orch._apply_enrich("items", specs, column_infos, unique_cols)
-            assert specs["sremark"].null_ratio == 0.0
-
-    def test_adjust_specs_for_unique_varchar_min_exceeds_max(self, tmp_path) -> None:
-        db_path = str(tmp_path / "varchar_unique.db")
-        conn = sqlite3.connect(db_path)
-        conn.execute("CREATE TABLE items (id INTEGER PRIMARY KEY AUTOINCREMENT, code VARCHAR(5) NOT NULL)")
-        conn.execute("CREATE UNIQUE INDEX idx_code ON items(code)")
-        conn.commit()
-        conn.close()
-
-        with DataOrchestrator(db_path, provider_name="base") as orch:
-            orch._ensure_connected()
-            from sqlseed.core.mapper import GeneratorSpec
-
-            specs = {
-                "code": GeneratorSpec(
-                    generator_name="string",
-                    params={"min_length": 1, "max_length": 5},
-                ),
-            }
-            adjusted = orch._adjust_specs_for_unique(specs, {"code"}, 10000, orch._schema.get_column_info("items"))
-            assert adjusted["code"].params["min_length"] >= 1
-            assert adjusted["code"].params["charset"] == "alphanumeric"
+        _, specs = apply_enrichment(db_path, "items")
+        assert specs["sremark"].null_ratio == pytest.approx(0.0)

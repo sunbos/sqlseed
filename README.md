@@ -4,17 +4,17 @@
 
 ### 声明式 SQLite 测试数据生成工具包
 
-**一行代码，十万行数据。零配置智能生成，AI 驱动精准调优。**
+**一行代码，数万行数据。零配置智能生成，AI 驱动精准调优。**
 
 [![CI](https://github.com/sunbos/sqlseed/actions/workflows/ci.yml/badge.svg)](https://github.com/sunbos/sqlseed/actions)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-3776ab.svg?logo=python&logoColor=white)](https://www.python.org/downloads/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-3776ab.svg?logo=python\&logoColor=white)](https://www.python.org/downloads/)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 [![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 [![Type: mypy](https://img.shields.io/badge/type%20checker-mypy-blue.svg)](https://mypy-lang.org/)
 
 </div>
 
----
+***
 
 ```python
 import sqlseed
@@ -25,21 +25,21 @@ print(result)
 # → GenerationResult(table=users, count=100000, elapsed=2.34s, speed=42735 rows/s)
 ```
 
----
+***
 
 ## 💡 为什么选择 sqlseed？
 
 在开发和测试流程中，我们经常需要为 SQLite 数据库填充大量真实感的测试数据。传统方式要么手写冗长的数据生成脚本，要么使用难以维护的 SQL fixtures。sqlseed 用一种全新的声明式方式解决了这个问题：
 
-| 特性 | sqlseed | 手写脚本 | SQL Fixtures |
-|:---|:---:|:---:|:---:|
-| 零配置智能生成 | ✅ | ❌ | ❌ |
-| 外键自动维护 | ✅ | 手动 | 手动 |
-| 10 万行 + 数据 | ✅ 流式 | ⚠️ OOM | ❌ |
-| 列语义推断 | ✅ 8 级策略 | ❌ | ❌ |
-| 可重复生成 | ✅ seed | ⚠️ 手动 | ✅ |
-| AI 智能调优 | ✅ LLM | ❌ | ❌ |
-| 配置热重用 | ✅ YAML | ❌ | ❌ |
+| 特性         | sqlseed |  手写脚本  | SQL Fixtures |
+| :--------- | :-----: | :----: | :----------: |
+| 零配置智能生成    |    ✅    |    ❌   |       ❌      |
+| 外键自动维护     |    ✅    |   手动   |      手动      |
+| 10 万行 + 数据 |   ✅ 流式  | ⚠️ OOM |       ❌      |
+| 列语义推断      | ✅ 8 级策略 |    ❌   |       ❌      |
+| 可重复生成      |  ✅ seed |  ⚠️ 手动 |       ✅      |
+| AI 智能调优    |  ✅ LLM  |    ❌   |       ❌      |
+| 配置热重用      |  ✅ YAML |    ❌   |       ❌      |
 
 ## ✨ 核心特性
 
@@ -110,7 +110,7 @@ print(result)
 </tr>
 </table>
 
----
+***
 
 ## 📦 安装
 
@@ -165,7 +165,7 @@ mypy src/sqlseed/
 
 </details>
 
----
+***
 
 ## 🚀 快速开始
 
@@ -197,18 +197,19 @@ print(result)
 ```
 
 sqlseed 会自动：
+
 - ✅ 跳过 `id`（自增主键）
 - ✅ 跳过 `is_active`（有默认值）
 - ✅ `name` → 生成真实姓名
 - ✅ `email` → 生成邮箱地址
-- ✅ `age` → 生成 18~100 的整数
+- ✅ `age` → 生成 18\~100 的整数
 - ✅ `phone` → 生成电话号码
 - ✅ `created_at` → 生成日期时间（匹配 `*_at` 模式）
 - ✅ `balance` → 生成浮点数
 
 **完全零配置，智能推断一切。**
 
----
+***
 
 ## 📖 使用教程
 
@@ -246,36 +247,36 @@ print(result)
 
 #### 支持的生成器类型
 
-| 生成器 | 说明 | 参数示例 |
-|:---|:---|:---|
-| `string` | 随机字符串 | `min_length`, `max_length`, `charset` |
-| `integer` | 整数 | `min_value`, `max_value` |
-| `float` | 浮点数 | `min_value`, `max_value`, `precision` |
-| `boolean` | 布尔值 | — |
-| `name` | 人名 | — |
-| `first_name` | 名 | — |
-| `last_name` | 姓 | — |
-| `email` | 邮箱 | — |
-| `phone` | 电话 | — |
-| `address` | 地址 | — |
-| `company` | 公司名 | — |
-| `url` | URL | — |
-| `ipv4` | IPv4 地址 | — |
-| `uuid` | UUID | — |
-| `date` | 日期 | `start_year`, `end_year` |
-| `datetime` | 日期时间 | `start_year`, `end_year` |
-| `timestamp` | Unix 时间戳 | — |
-| `text` | 长文本 | `min_length`, `max_length` |
-| `sentence` | 句子 | — |
-| `password` | 密码 | `length` |
-| `choice` | 从列表选择 | `choices` |
-| `json` | JSON 字符串 | `schema` |
-| `pattern` | 正则匹配 | `regex` |
-| `bytes` | 二进制数据 | `length` |
-| `foreign_key` | 外键引用 | `ref_table`, `ref_column`, `strategy` |
-| `skip` | 跳过（使用默认值/NULL）| — |
+| 生成器           | 说明             | 参数示例                                  |
+| :------------ | :------------- | :------------------------------------ |
+| `string`      | 随机字符串          | `min_length`, `max_length`, `charset` |
+| `integer`     | 整数             | `min_value`, `max_value`              |
+| `float`       | 浮点数            | `min_value`, `max_value`, `precision` |
+| `boolean`     | 布尔值            | —                                     |
+| `name`        | 人名             | —                                     |
+| `first_name`  | 名              | —                                     |
+| `last_name`   | 姓              | —                                     |
+| `email`       | 邮箱             | —                                     |
+| `phone`       | 电话             | —                                     |
+| `address`     | 地址             | —                                     |
+| `company`     | 公司名            | —                                     |
+| `url`         | URL            | —                                     |
+| `ipv4`        | IPv4 地址        | —                                     |
+| `uuid`        | UUID           | —                                     |
+| `date`        | 日期             | `start_year`, `end_year`              |
+| `datetime`    | 日期时间           | `start_year`, `end_year`              |
+| `timestamp`   | Unix 时间戳       | —                                     |
+| `text`        | 长文本            | `min_length`, `max_length`            |
+| `sentence`    | 句子             | —                                     |
+| `password`    | 密码             | `length`                              |
+| `choice`      | 从列表选择          | `choices`                             |
+| `json`        | JSON 字符串       | `schema`                              |
+| `pattern`     | 正则匹配           | `regex`                               |
+| `bytes`       | 二进制数据          | `length`                              |
+| `foreign_key` | 外键引用           | `ref_table`, `ref_column`, `strategy` |
+| `skip`        | 跳过（使用默认值/NULL） | —                                     |
 
----
+***
 
 ### 教程 2：多表关联 — 自动维持外键完整性
 
@@ -306,7 +307,7 @@ with sqlseed.connect("app.db", provider="mimesis", locale="zh_CN") as db:
 
 > **💡 提示**：如果两张表之间有同名列（如 `account_id`），即使没有声明外键约束，sqlseed 也会通过 **SharedPool 隐式关联机制**自动维持跨表一致性。
 
----
+***
 
 ### 教程 3：YAML 配置文件驱动批量生成
 
@@ -386,7 +387,7 @@ for r in results:
     print(r)
 ```
 
----
+***
 
 ### 教程 4：派生列与表达式引擎
 
@@ -424,6 +425,7 @@ tables:
 ```
 
 **运作原理**：
+
 1. sqlseed 构建列依赖 DAG：`card_number → last_eight, last_six`
 2. 拓扑排序确定生成顺序
 3. 先生成 `card_number`，再通过表达式 `value[-8:]` 计算 `last_eight`
@@ -431,26 +433,26 @@ tables:
 
 #### 表达式引擎支持的函数
 
-| 函数 | 用法 | 说明 |
-|:---|:---|:---|
-| `upper(s)` | `upper(value)` | 转大写 |
-| `lower(s)` | `lower(value)` | 转小写 |
-| `len(s)` | `len(value)` | 获取长度 |
-| `substr(s, start, end)` | `substr(value, 0, 8)` | 子串 |
-| `concat(*args)` | `concat("PRE_", value)` | 拼接 |
-| `zfill(s, width)` | `zfill(value, 10)` | 零填充 |
-| `lpad(s, width, char)` | `lpad(value, 8, "0")` | 左填充 |
-| `rpad(s, width, char)` | `rpad(value, 8, "0")` | 右填充 |
-| `replace(s, old, new)` | `replace(value, "-", "")` | 替换 |
-| `strip(s)` | `strip(value)` | 去空白 |
-| `int(s)` | `int(value)` | 转整数 |
-| `str(s)` | `str(value)` | 转字符串 |
-| 切片 | `value[-8:]` | Python 切片语法 |
-| 数学 | `value * 2 + 1` | 基本数学运算 |
+| 函数                      | 用法                        | 说明          |
+| :---------------------- | :------------------------ | :---------- |
+| `upper(s)`              | `upper(value)`            | 转大写         |
+| `lower(s)`              | `lower(value)`            | 转小写         |
+| `len(s)`                | `len(value)`              | 获取长度        |
+| `substr(s, start, end)` | `substr(value, 0, 8)`     | 子串          |
+| `concat(*args)`         | `concat("PRE_", value)`   | 拼接          |
+| `zfill(s, width)`       | `zfill(value, 10)`        | 零填充         |
+| `lpad(s, width, char)`  | `lpad(value, 8, "0")`     | 左填充         |
+| `rpad(s, width, char)`  | `rpad(value, 8, "0")`     | 右填充         |
+| `replace(s, old, new)`  | `replace(value, "-", "")` | 替换          |
+| `strip(s)`              | `strip(value)`            | 去空白         |
+| `int(s)`                | `int(value)`              | 转整数         |
+| `str(s)`                | `str(value)`              | 转字符串        |
+| 切片                      | `value[-8:]`              | Python 切片语法 |
+| 数学                      | `value * 2 + 1`           | 基本数学运算      |
 
 > ⚠️ **安全保护**：表达式引擎基于 `simpleeval`，具有 5 秒超时保护，不允许 `import`、`exec` 或文件 I/O 操作。
 
----
+***
 
 ### 教程 5：Transform 脚本 — 极端业务逻辑
 
@@ -495,7 +497,7 @@ tables:
     transform: "./transform_users.py"
 ```
 
----
+***
 
 ### 教程 6：预览与调试
 
@@ -542,7 +544,7 @@ sqlseed inspect app.db --table users --show-mapping
 # └────────────┴─────────┴──────────┴──────────────┴──────────────┘
 ```
 
----
+***
 
 ### 教程 7：快照与回放
 
@@ -559,11 +561,12 @@ sqlseed replay snapshots/2026-04-15_033000_users.yaml
 ```
 
 适用场景：
+
 - 🧪 CI/CD 中需要可重复的测试数据
 - 📋 团队间共享一致的测试环境
 - 🔄 开发时快速重建数据库状态
 
----
+***
 
 ### 教程 8：AI 智能配置（sqlseed-ai 插件）
 
@@ -603,7 +606,7 @@ sqlseed ai-suggest app.db --table bank_cards --output bank_cards.yaml --no-cache
 
 > **💡 环境变量**：支持 `SQLSEED_AI_API_KEY`、`SQLSEED_AI_BASE_URL`、`SQLSEED_AI_MODEL`。默认模型为 `qwen3-coder-plus`。
 
----
+***
 
 ### 教程 9：MCP 服务器集成
 
@@ -619,12 +622,12 @@ python -m mcp_server_sqlseed
 
 **MCP 提供的能力**：
 
-| 类型 | 名称 | 说明 |
-|:---|:---|:---|
-| 📖 Resource | `sqlseed://schema/{db_path}/{table_name}` | 获取表 Schema 的 JSON 表示 |
-| 🔍 Tool | `sqlseed_inspect_schema` | 检查 Schema（列、外键、索引、样本数据、schema_hash） |
-| 🤖 Tool | `sqlseed_generate_yaml` | AI 驱动的 YAML 配置生成（含自纠正） |
-| ⚡ Tool | `sqlseed_execute_fill` | 执行数据生成（支持 YAML 配置字符串） |
+| 类型          | 名称                                        | 说明                                   |
+| :---------- | :---------------------------------------- | :----------------------------------- |
+| 📖 Resource | `sqlseed://schema/{db_path}/{table_name}` | 获取表 Schema 的 JSON 表示                 |
+| 🔍 Tool     | `sqlseed_inspect_schema`                  | 检查 Schema（列、外键、索引、样本数据、schema\_hash） |
+| 🤖 Tool     | `sqlseed_generate_yaml`                   | AI 驱动的 YAML 配置生成（含自纠正）               |
+| ⚡ Tool      | `sqlseed_execute_fill`                    | 执行数据生成（支持 YAML 配置字符串）                |
 
 这意味着你可以在 AI 助手中说：
 
@@ -632,7 +635,7 @@ python -m mcp_server_sqlseed
 
 AI 助手会依次调用 `inspect_schema` → `generate_yaml` → `execute_fill`，无需你手动编写任何代码。
 
----
+***
 
 ### 教程 10：自定义 Provider 插件
 
@@ -666,7 +669,7 @@ class MyCustomProvider:
     # 完整 Protocol 参见：src/sqlseed/generators/_protocol.py
 ```
 
-**注册方式 1：通过 `pyproject.toml` entry-point（推荐）**
+**注册方式 1：通过** **`pyproject.toml`** **entry-point（推荐）**
 
 ```toml
 [project.entry-points."sqlseed"]
@@ -685,7 +688,7 @@ class MyPlugin:
         registry.register(MyCustomProvider())
 ```
 
----
+***
 
 ## 🖥️ CLI 命令速查
 
@@ -744,7 +747,7 @@ sqlseed ai-suggest app.db -t users -o users.yaml
 sqlseed ai-suggest app.db -t users -o users.yaml --model gpt-4o --verify
 ```
 
----
+***
 
 ## 🧠 8 级智能列映射
 
@@ -775,27 +778,27 @@ Level 8 │ 默认              string (min=5, max=50)
 - 列类型 `VARCHAR(20)` → Level 7 类型回退 → 最长 20 字符的字符串 ✅
 - 列有 `DEFAULT 1` → Level 6 → 跳过生成 ✅
 
----
+***
 
 ## 🧩 插件系统
 
 sqlseed 通过 [pluggy](https://pluggy.readthedocs.io/) 提供 11 个 Hook 点，覆盖数据生成全生命周期：
 
-| Hook | firstresult | 触发时机 |
-|:---|:---:|:---|
-| `sqlseed_register_providers` | | 注册自定义数据 Provider |
-| `sqlseed_register_column_mappers` | | 注册自定义列映射规则 |
-| `sqlseed_ai_analyze_table` | ✓ | AI 分析表 Schema（返回列配置建议） |
-| `sqlseed_pre_generate_templates` | ✓ | AI 预计算候选值池 |
-| `sqlseed_before_generate` | | 数据生成循环前 |
-| `sqlseed_after_generate` | | 数据生成完成后 |
-| `sqlseed_transform_row` | | 逐行变换（热路径，注意性能） |
-| `sqlseed_transform_batch` | | 逐批变换（支持链式处理） |
-| `sqlseed_before_insert` | | 每批写入 DB 前 |
-| `sqlseed_after_insert` | | 每批写入 DB 后 |
-| `sqlseed_shared_pool_loaded` | | 跨表共享池加载完成 |
+| Hook                              | firstresult | 触发时机                   |
+| :-------------------------------- | :---------: | :--------------------- |
+| `sqlseed_register_providers`      |    <br />   | 注册自定义数据 Provider       |
+| `sqlseed_register_column_mappers` |    <br />   | 注册自定义列映射规则             |
+| `sqlseed_ai_analyze_table`        |      ✓      | AI 分析表 Schema（返回列配置建议） |
+| `sqlseed_pre_generate_templates`  |      ✓      | AI 预计算候选值池             |
+| `sqlseed_before_generate`         |    <br />   | 数据生成循环前                |
+| `sqlseed_after_generate`          |    <br />   | 数据生成完成后                |
+| `sqlseed_transform_row`           |    <br />   | 逐行变换（热路径，注意性能）         |
+| `sqlseed_transform_batch`         |    <br />   | 逐批变换（支持链式处理）           |
+| `sqlseed_before_insert`           |    <br />   | 每批写入 DB 前              |
+| `sqlseed_after_insert`            |    <br />   | 每批写入 DB 后              |
+| `sqlseed_shared_pool_loaded`      |    <br />   | 跨表共享池加载完成              |
 
----
+***
 
 ## 🏗️ 项目架构
 
@@ -847,7 +850,7 @@ plugins/
     └── src/mcp_server_sqlseed/   # FastMCP 工具 (inspect/generate_yaml/execute_fill)
 ```
 
----
+***
 
 ## 🛠️ 开发
 
@@ -867,13 +870,13 @@ mypy src/sqlseed/
 
 测试覆盖了所有核心模块，路径结构与 `src/` 一一对应：`test_core/`、`test_database/`、`test_generators/`、`test_plugins/`、`test_config/`、`test_utils/`。
 
----
+***
 
 ## 📄 License
 
 [AGPL-3.0-or-later](LICENSE)
 
----
+***
 
 <div align="center">
 

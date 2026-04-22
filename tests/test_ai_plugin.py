@@ -1,20 +1,33 @@
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import pytest
 
-pytest.importorskip("sqlseed_ai", reason="sqlseed-ai plugin not installed")
+from sqlseed.core.orchestrator import DataOrchestrator
+from tests.conftest import make_col
 
-from sqlseed_ai.analyzer import SchemaAnalyzer
-from sqlseed_ai.config import AIConfig
+try:
+    from sqlseed_ai.analyzer import SchemaAnalyzer
+    from sqlseed_ai.config import AIConfig
+
+    HAS_SQLSEED_AI = True
+except ImportError:
+    HAS_SQLSEED_AI = False
+    SchemaAnalyzer = None  # type: ignore
+    AIConfig = None  # type: ignore
+
+if not HAS_SQLSEED_AI:
+    pytest.skip("sqlseed-ai plugin not installed", allow_module_level=True)
 
 
 class TestAIConfig:
     def test_default_values(self):
         config = AIConfig()
         assert config.api_key is None
-        assert config.model == "qwen3-coder-plus"
+        assert config.model == "gpt-4o"
         assert config.base_url is None
-        assert config.temperature == 0.3
+        assert config.temperature == pytest.approx(0.3)
         assert config.max_tokens == 4096
 
     def test_from_env_missing(self, monkeypatch):
@@ -26,7 +39,7 @@ class TestAIConfig:
         config = AIConfig.from_env()
         assert config.api_key is None
         assert config.base_url is None
-        assert config.model == "qwen3-coder-plus"
+        assert config.model == "gpt-4o"
 
     def test_from_env_set(self, monkeypatch):
         monkeypatch.setenv("SQLSEED_AI_API_KEY", "sk-test123")
@@ -48,42 +61,22 @@ class TestAIConfig:
 
 
 class TestSchemaAnalyzer:
-    def _make_col(
-        self,
-        name: str,
-        col_type: str = "TEXT",
-        nullable: bool = False,
-        default=None,
-        is_pk: bool = False,
-        is_auto: bool = False,
-    ):
-        return type(
-            "Col",
-            (),
-            {
-                "name": name,
-                "type": col_type,
-                "nullable": nullable,
-                "default": default,
-                "is_primary_key": is_pk,
-                "is_autoincrement": is_auto,
-            },
-        )()
-
     def test_build_context_basic(self):
         analyzer = SchemaAnalyzer()
         columns = [
-            self._make_col("card_number", "VARCHAR(20)"),
-            self._make_col("account_id", "VARCHAR(32)"),
-            self._make_col("cardId", "INTEGER", is_pk=True, is_auto=True),
+            make_col("card_number", "VARCHAR(20)"),
+            make_col("account_id", "VARCHAR(32)"),
+            make_col("cardId", "INTEGER", is_pk=True, is_auto=True),
         ]
         context = analyzer._build_context(
-            table_name="bank_cards",
-            columns=columns,
-            indexes=[],
-            sample_data=[],
-            foreign_keys=[],
-            all_table_names=["bank_cards", "user_info"],
+            {
+                "table_name": "bank_cards",
+                "columns": columns,
+                "indexes": [],
+                "sample_data": [],
+                "foreign_keys": [],
+                "all_table_names": ["bank_cards", "user_info"],
+            }
         )
         assert "bank_cards" in context
         assert "card_number" in context
@@ -93,52 +86,58 @@ class TestSchemaAnalyzer:
 
     def test_build_context_with_indexes(self):
         analyzer = SchemaAnalyzer()
-        columns = [self._make_col("card_number", "VARCHAR(20)")]
+        columns = [make_col("card_number", "VARCHAR(20)")]
         indexes = [{"name": "idx_card", "columns": ["card_number"], "unique": True}]
         context = analyzer._build_context(
-            table_name="bank_cards",
-            columns=columns,
-            indexes=indexes,
-            sample_data=[],
-            foreign_keys=[],
-            all_table_names=["bank_cards"],
+            {
+                "table_name": "bank_cards",
+                "columns": columns,
+                "indexes": indexes,
+                "sample_data": [],
+                "foreign_keys": [],
+                "all_table_names": ["bank_cards"],
+            }
         )
         assert "UNIQUE" in context
         assert "INDEX" in context
 
     def test_build_context_with_foreign_keys(self):
         analyzer = SchemaAnalyzer()
-        columns = [self._make_col("user_id", "INTEGER")]
+        columns = [make_col("user_id", "INTEGER")]
         fks = [type("FK", (), {"column": "user_id", "ref_table": "users", "ref_column": "id"})()]
         context = analyzer._build_context(
-            table_name="orders",
-            columns=columns,
-            indexes=[],
-            sample_data=[],
-            foreign_keys=fks,
-            all_table_names=["users", "orders"],
+            {
+                "table_name": "orders",
+                "columns": columns,
+                "indexes": [],
+                "sample_data": [],
+                "foreign_keys": fks,
+                "all_table_names": ["users", "orders"],
+            }
         )
         assert "Foreign Keys" in context
         assert "user_id" in context
 
     def test_build_context_with_sample_data(self):
         analyzer = SchemaAnalyzer()
-        columns = [self._make_col("name", "TEXT")]
+        columns = [make_col("name", "TEXT")]
         sample_data = [{"name": "Alice"}, {"name": "Bob"}]
         context = analyzer._build_context(
-            table_name="users",
-            columns=columns,
-            indexes=[],
-            sample_data=sample_data,
-            foreign_keys=[],
-            all_table_names=["users"],
+            {
+                "table_name": "users",
+                "columns": columns,
+                "indexes": [],
+                "sample_data": sample_data,
+                "foreign_keys": [],
+                "all_table_names": ["users"],
+            }
         )
         assert "Sample Data" in context
         assert "Alice" in context
 
     def test_analyze_table_returns_none_without_api_key(self):
         analyzer = SchemaAnalyzer(config=AIConfig(api_key=None))
-        result = analyzer.analyze_table(
+        result = analyzer.analyze_table_from_ctx(
             table_name="test",
             columns=[],
             indexes=[],
@@ -179,14 +178,16 @@ class TestSchemaAnalyzer:
 
     def test_build_initial_messages(self):
         analyzer = SchemaAnalyzer()
-        columns = [self._make_col("name", "TEXT")]
+        columns = [make_col("name", "TEXT")]
         messages = analyzer.build_initial_messages(
-            table_name="users",
-            columns=columns,
-            indexes=[],
-            sample_data=[],
-            foreign_keys=[],
-            all_table_names=["users"],
+            {
+                "table_name": "users",
+                "columns": columns,
+                "indexes": [],
+                "sample_data": [],
+                "foreign_keys": [],
+                "all_table_names": ["users"],
+            }
         )
         assert len(messages) == 10
         assert messages[0]["role"] == "system"
@@ -197,7 +198,7 @@ class TestSchemaAnalyzer:
 
     def test_build_context_with_distribution(self):
         analyzer = SchemaAnalyzer()
-        columns = [self._make_col("name", "TEXT")]
+        columns = [make_col("name", "TEXT")]
         distribution = [
             {
                 "column": "name",
@@ -208,13 +209,15 @@ class TestSchemaAnalyzer:
             }
         ]
         context = analyzer._build_context(
-            table_name="users",
-            columns=columns,
-            indexes=[],
-            sample_data=[],
-            foreign_keys=[],
-            all_table_names=["users"],
-            distribution_profiles=distribution,
+            {
+                "table_name": "users",
+                "columns": columns,
+                "indexes": [],
+                "sample_data": [],
+                "foreign_keys": [],
+                "all_table_names": ["users"],
+                "distribution": distribution,
+            }
         )
         assert "Column Distribution" in context
         assert "50 distinct values" in context
@@ -222,16 +225,12 @@ class TestSchemaAnalyzer:
         assert "Alice" in context
 
     def test_generate_template_values(self):
-        from unittest.mock import patch
-
         analyzer = SchemaAnalyzer(config=AIConfig(api_key="test-key"))
         with patch.object(analyzer, "call_llm", return_value={"values": ["v1", "v2", "v3"]}):
             result = analyzer.generate_template_values("card_number", "VARCHAR(20)", 3, [])
             assert result == ["v1", "v2", "v3"]
 
     def test_generate_template_values_empty(self):
-        from unittest.mock import patch
-
         analyzer = SchemaAnalyzer(config=AIConfig(api_key="test-key"))
         with patch.object(analyzer, "call_llm", return_value={}):
             result = analyzer.generate_template_values("card_number", "VARCHAR(20)", 3, [])
@@ -240,8 +239,6 @@ class TestSchemaAnalyzer:
 
 class TestCardInfoIntegration:
     def test_full_context_sniffer_flow(self, bank_cards_db):
-        from sqlseed.core.orchestrator import DataOrchestrator
-
         with DataOrchestrator(bank_cards_db) as orch:
             columns = orch._schema.get_column_info("bank_cards")
             assert len(columns) == 7
@@ -266,12 +263,14 @@ class TestCardInfoIntegration:
             all_tables = orch._db.get_table_names()
 
             context = analyzer._build_context(
-                table_name="bank_cards",
-                columns=columns,
-                indexes=[{"name": i.name, "columns": i.columns, "unique": i.unique} for i in indexes],
-                sample_data=sample_data,
-                foreign_keys=fks,
-                all_table_names=all_tables,
+                {
+                    "table_name": "bank_cards",
+                    "columns": columns,
+                    "indexes": [{"name": i.name, "columns": i.columns, "unique": i.unique} for i in indexes],
+                    "sample_data": sample_data,
+                    "foreign_keys": fks,
+                    "all_table_names": all_tables,
+                }
             )
 
             assert "bank_cards" in context

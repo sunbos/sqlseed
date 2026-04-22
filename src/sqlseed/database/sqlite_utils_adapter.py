@@ -2,27 +2,31 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from typing_extensions import Self
-
 from sqlseed._utils.logger import get_logger
-from sqlseed._utils.sql_safe import quote_identifier
-from sqlseed.database._protocol import ColumnInfo, ForeignKeyInfo, IndexInfo
+from sqlseed._utils.sql_safe import quote_identifier, validate_table_name
+from sqlseed.database._base_adapter import BaseSQLiteAdapter
+from sqlseed.database._compat import HAS_SQLITE_UTILS, sqlite_utils
+from sqlseed.database._helpers import batch_insert_rows
+from sqlseed.database._protocol import ColumnInfo, ForeignKeyInfo
 from sqlseed.database.optimizer import PragmaOptimizer
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
 
 logger = get_logger(__name__)
 
 
-class SQLiteUtilsAdapter:
+class SQLiteUtilsAdapter(BaseSQLiteAdapter):
     def __init__(self) -> None:
+        super().__init__()
         self._db: Any = None
-        self._optimizer: PragmaOptimizer | None = None
-        self._db_path: str = ""
+
+    def _get_execute_fn(self) -> Callable[..., Any]:
+        return self._db.execute  # type: ignore[no-any-return]
 
     def connect(self, db_path: str) -> None:
-        import sqlite_utils
+        if not HAS_SQLITE_UTILS:
+            raise RuntimeError("sqlite-utils is not available")
 
         self._db_path = db_path
         self._db = sqlite_utils.Database(db_path)
@@ -42,18 +46,20 @@ class SQLiteUtilsAdapter:
         return list(self._db.table_names())
 
     def get_column_info(self, table_name: str) -> list[ColumnInfo]:
+        validate_table_name(table_name)
         table = self._db[table_name]
         pks = self.get_primary_keys(table_name)
-        fks = {fk.column for fk in self.get_foreign_keys(table_name)}
 
         result: list[ColumnInfo] = []
         for col in table.columns:
             col_name = col.name
             is_pk = col_name in pks
             is_autoincrement = is_pk and self._is_autoincrement(table_name, col_name)
-            nullable = not is_pk and col_name not in fks and not col.notnull
+            nullable = not is_pk and not col.notnull
 
             default = col.default_value
+            if default == "NULL":
+                default = None
 
             result.append(
                 ColumnInfo(
@@ -68,15 +74,17 @@ class SQLiteUtilsAdapter:
         return result
 
     def get_primary_keys(self, table_name: str) -> list[str]:
+        validate_table_name(table_name)
         try:
             table = self._db[table_name]
             pks = table.pks
             return pks if pks else []
-        except Exception:
+        except (ValueError, KeyError, AttributeError):
             logger.debug("Failed to get primary keys", table=table_name)
             return []
 
     def get_foreign_keys(self, table_name: str) -> list[ForeignKeyInfo]:
+        validate_table_name(table_name)
         try:
             table = self._db[table_name]
             fks = table.foreign_keys
@@ -88,43 +96,13 @@ class SQLiteUtilsAdapter:
                 )
                 for fk in fks
             ]
-        except Exception:
+        except (ValueError, KeyError, AttributeError):
             logger.debug("Failed to get foreign keys", table=table_name)
             return []
 
     def get_row_count(self, table_name: str) -> int:
+        validate_table_name(table_name)
         return int(self._db[table_name].count)
-
-    def get_column_values(self, table_name: str, column_name: str, limit: int = 1000) -> list[Any]:
-        safe_table = quote_identifier(table_name)
-        safe_column = quote_identifier(column_name)
-        sql = f"SELECT {safe_column} FROM {safe_table} LIMIT ?"
-        rows = self._db.execute(sql, [limit]).fetchall()
-        return [row[0] for row in rows]
-
-    def get_index_info(self, table_name: str) -> list[IndexInfo]:
-        safe_table = quote_identifier(table_name)
-        rows = self._db.execute(f"PRAGMA index_list({safe_table})").fetchall()
-        result: list[IndexInfo] = []
-        for row in rows:
-            idx_name = row[1]
-            is_unique = bool(row[2])
-            if idx_name.startswith("sqlite_autoindex_"):
-                continue
-            col_rows = self._db.execute(f"PRAGMA index_info({quote_identifier(idx_name)})").fetchall()
-            columns = [cr[2] for cr in col_rows if cr[2] is not None]
-            result.append(IndexInfo(name=idx_name, table=table_name, columns=columns, unique=is_unique))
-        return result
-
-    def get_sample_rows(self, table_name: str, limit: int = 5) -> list[dict[str, Any]]:
-        safe_table = quote_identifier(table_name)
-        columns = self.get_column_info(table_name)
-        col_names = [quote_identifier(c.name) for c in columns]
-        cols_sql = ", ".join(col_names)
-        sql = f"SELECT {cols_sql} FROM {safe_table} LIMIT ?"
-        rows = self._db.execute(sql, [limit]).fetchall()
-        col_name_list = [c.name for c in columns]
-        return [dict(zip(col_name_list, row, strict=False)) for row in rows]
 
     def batch_insert(
         self,
@@ -132,19 +110,12 @@ class SQLiteUtilsAdapter:
         data: Iterator[dict[str, Any]],
         batch_size: int = 5000,
     ) -> int:
-        inserted = 0
-        batch: list[dict[str, Any]] = []
-        for item in data:
-            row = item
-            if not row:
-                row = {}
-            batch.append(row)
-            if len(batch) >= batch_size:
-                inserted += self._insert_batch(table_name, batch)
-                batch = []
-        if batch:
-            inserted += self._insert_batch(table_name, batch)
-        return inserted
+        validate_table_name(table_name)
+        return batch_insert_rows(
+            (item or {} for item in data),
+            batch_size,
+            lambda b: self._insert_batch(table_name, b),
+        )
 
     def _insert_batch(self, table_name: str, batch: list[dict[str, Any]]) -> int:
         if not batch:
@@ -160,23 +131,10 @@ class SQLiteUtilsAdapter:
         return len(batch)
 
     def clear_table(self, table_name: str) -> None:
+        validate_table_name(table_name)
         safe_table = quote_identifier(table_name)
         self._db.execute(f"DELETE FROM {safe_table}")
         logger.debug("Cleared table", table_name=table_name)
-
-    def optimize_for_bulk_write(self, expected_rows: int | None = None) -> None:
-        if self._optimizer is not None:
-            self._optimizer.preserve()
-            self._optimizer.optimize(expected_rows)
-
-    def restore_settings(self) -> None:
-        if self._optimizer is not None:
-            self._optimizer.restore()
-
-    def _is_autoincrement(self, table_name: str, column_name: str) -> bool:
-        from sqlseed._utils.schema_helpers import detect_autoincrement
-
-        return detect_autoincrement(self._db.execute, table_name, column_name)
 
     def _execute_pragma(self, sql: str) -> None:
         self._db.execute(sql)
@@ -184,14 +142,3 @@ class SQLiteUtilsAdapter:
     def _fetch_pragma(self, name: str) -> Any:
         result = self._db.execute(f"PRAGMA {name}").fetchone()
         return result[0] if result else None
-
-    def __enter__(self) -> Self:
-        return self
-
-    def __exit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_val: BaseException | None,
-        exc_tb: Any,
-    ) -> None:
-        self.close()

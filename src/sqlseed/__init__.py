@@ -43,6 +43,7 @@ def fill(
     clear_before: bool = False,
     optimize_pragma: bool = True,
     enrich: bool = False,
+    transform: str | None = None,
 ) -> GenerationResult:
     with DataOrchestrator(
         db_path=db_path,
@@ -58,6 +59,7 @@ def fill(
             batch_size=batch_size,
             clear_before=clear_before,
             enrich=enrich,
+            transform=transform,
         )
 
 
@@ -79,13 +81,12 @@ def connect(
 def fill_from_config(config_path: str) -> list[GenerationResult]:
     config = load_config(config_path)
     results: list[GenerationResult] = []
-    with DataOrchestrator(
-        db_path=config.db_path,
-        provider_name=config.provider.value,
-        locale=config.locale,
-        optimize_pragma=config.optimize_pragma,
-    ) as orch:
-        for table_config in config.tables:
+    with DataOrchestrator.from_config(config) as orch:
+        table_names = [tc.name for tc in config.tables]
+        sorted_names = orch.get_topological_table_order(table_names)
+        name_to_config = {tc.name: tc for tc in config.tables}
+        for name in sorted_names:
+            table_config = name_to_config[name]
             result = orch.fill_table(
                 table_name=table_config.name,
                 count=table_config.count,
@@ -110,6 +111,7 @@ def preview(
     locale: str = "en_US",
     seed: int | None = None,
     enrich: bool = False,
+    transform: str | None = None,
 ) -> list[dict[str, Any]]:
     with DataOrchestrator(
         db_path=db_path,
@@ -123,4 +125,5 @@ def preview(
             columns=columns,
             seed=seed,
             enrich=enrich,
+            transform=transform,
         )

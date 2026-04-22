@@ -6,7 +6,7 @@ from sqlseed.plugins.manager import PluginManager
 class TestPluginManager:
     def test_create_plugin_manager(self) -> None:
         pm = PluginManager()
-        assert pm is not None
+        assert isinstance(pm, PluginManager)
 
     def test_register_plugin(self) -> None:
         pm = PluginManager()
@@ -14,7 +14,7 @@ class TestPluginManager:
         class MyPlugin:
             @staticmethod
             def sqlseed_before_generate(table_name, count, config):
-                pass
+                pass  # Dummy hook method for testing  # Dummy hook method for testing
 
         plugin = MyPlugin()
         pm.register(plugin, name="my_plugin")
@@ -39,7 +39,7 @@ class TestPluginManager:
         class MyPlugin:
             @staticmethod
             def sqlseed_before_generate(table_name, count, config):
-                pass
+                pass  # Dummy hook method for testing
 
         plugin = MyPlugin()
         pm.register(plugin, name="my_plugin")

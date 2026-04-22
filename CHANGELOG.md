@@ -41,7 +41,7 @@
 - `AIConfig` 可配置模型、API Key 和 Base URL
 - 默认模型：`qwen3-coder-plus`，支持环境变量覆盖
 - CLI `ai-suggest` 命令，AI 驱动的 YAML 生成
-- 自然语言配置（`nl_config.py`）
+- 自然语言配置（`nl_config.py`，已移除，功能由 `SchemaAnalyzer` + `AiConfigRefiner` 替代）
 
 #### AI Evolution — 智能增强
 - 结构化输出迁移：YAML → JSON，`response_format` 强制 JSON 输出
@@ -78,3 +78,8 @@
 - 表达式引擎增加超时保护（默认 5 秒），防止无限循环
 - 解决 `random.seed()` 类型异常（`rstr` 集成于流式生成器）
 - `fill_from_config` 中 transform 属性正确传递到内部编排器
+- `ProviderRegistry.register_from_entry_points()` 修正 provider 类与普通插件入口点的区分逻辑，非 provider 入口点（如 `sqlseed_ai:plugin`）不再产生误报 warning
+
+### 变更
+- 移除 `suggest.py`（`ColumnSuggester`）和 `nl_config.py`（`NLConfigGenerator`），其功能由 `SchemaAnalyzer` + `AiConfigRefiner` 完全替代。如有外部代码直接 `from sqlseed_ai.suggest import ColumnSuggester` 或 `from sqlseed_ai.nl_config import NLConfigGenerator`，将产生 `ImportError`
+- `plugins/sqlseed-ai/README.md` 功能描述与当前实际入口对齐，移除未对外提供的 "Column-level Suggestions" / "Natural Language Config" 描述

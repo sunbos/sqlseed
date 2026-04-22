@@ -6,8 +6,12 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from sqlseed._utils.logger import get_logger
+from pydantic import ValidationError as PydanticValidationError
 from sqlseed_ai.errors import ErrorSummary, summarize_error
+
+from sqlseed._utils.logger import get_logger
+from sqlseed.config.models import TableConfig
+from sqlseed.core.orchestrator import DataOrchestrator
 
 if TYPE_CHECKING:
     from sqlseed_ai.analyzer import SchemaAnalyzer
@@ -20,7 +24,6 @@ class AISuggestionFailedError(Exception):
 
 
 class AiConfigRefiner:
-
     def __init__(
         self,
         analyzer: SchemaAnalyzer,
@@ -32,6 +35,48 @@ class AiConfigRefiner:
         self._db_path = db_path
         self._cache_dir = Path(cache_dir) if cache_dir else Path(".sqlseed_cache/ai_configs")
 
+    def _attempt_generation_and_validation(
+        self, messages: list[dict[str, Any]], orch: Any, table_name: str
+    ) -> tuple[dict[str, Any] | None, ErrorSummary | None]:
+        try:
+            config_dict = self._analyzer.call_llm(messages)
+        except (ValueError, RuntimeError, OSError) as e:
+            return None, summarize_error(e)
+
+        return config_dict, self._validate_config(orch, table_name, config_dict)
+
+    def _handle_generation_failure(self, error: ErrorSummary, attempt: int, max_retries: int) -> None:
+        if not error.retryable:
+            raise AISuggestionFailedError(f"Non-retryable error: {error.message}")
+        if attempt == max_retries:
+            raise AISuggestionFailedError(f"Failed after {max_retries} retries. Last error: {error.message}")
+        logger.info(
+            "LLM API call failed, retrying",
+            attempt=attempt + 1,
+            max_retries=max_retries,
+            error=error.message,
+        )
+
+    def _handle_validation_failure(self, error: ErrorSummary, attempt: int, max_retries: int, table_name: str) -> None:
+        if not error.retryable:
+            raise AISuggestionFailedError(f"Non-retryable error: {error.message}")
+
+        if attempt == max_retries:
+            logger.warning(
+                "AI config refinement exhausted all retries",
+                table_name=table_name,
+                last_error=error.error_type,
+            )
+            raise AISuggestionFailedError(f"Failed after {max_retries} retries. Last error: {error.message}")
+
+        logger.info(
+            "AI config refinement attempt",
+            attempt=attempt + 1,
+            max_retries=max_retries,
+            error_type=error.error_type,
+            column=error.column,
+        )
+
     def generate_and_refine(
         self,
         table_name: str,
@@ -39,8 +84,6 @@ class AiConfigRefiner:
         max_retries: int = 3,
         no_cache: bool = False,
     ) -> dict[str, Any]:
-        from sqlseed.core.orchestrator import DataOrchestrator
-
         with DataOrchestrator(self._db_path) as orch:
             schema_hash = self._compute_schema_hash(orch, table_name)
 
@@ -52,89 +95,37 @@ class AiConfigRefiner:
 
             schema_ctx = orch.get_schema_context(table_name)
 
-            initial_messages = self._analyzer.build_initial_messages(
-                table_name=schema_ctx["table_name"],
-                columns=schema_ctx["columns"],
-                indexes=schema_ctx["indexes"],
-                sample_data=schema_ctx["sample_data"],
-                foreign_keys=schema_ctx["foreign_keys"],
-                all_table_names=schema_ctx["all_table_names"],
-                distribution_profiles=schema_ctx.get("distribution"),
-            )
+            initial_messages = self._analyzer.build_initial_messages(schema_ctx)
 
             messages_history = list(initial_messages)
 
             for attempt in range(max_retries + 1):
                 messages = list(messages_history)
-                try:
-                    config_dict = self._analyzer.call_llm(messages)
-                except Exception as e:
-                    error = summarize_error(e)
-                    if not error.retryable:
-                        raise AISuggestionFailedError(
-                            f"Non-retryable error: {error.message}"
-                        ) from e
-                    if attempt == max_retries:
-                        raise AISuggestionFailedError(
-                            f"Failed after {max_retries} retries. Last error: {error.message}"
-                        ) from e
-                    logger.info(
-                        "LLM API call failed, retrying",
-                        attempt=attempt + 1,
-                        max_retries=max_retries,
-                        error=error.message,
-                    )
+                config_dict, error = self._attempt_generation_and_validation(messages, orch, table_name)
+
+                if config_dict is None:
+                    assert error is not None
+                    self._handle_generation_failure(error, attempt, max_retries)
                     continue
 
-                error = self._validate_config(orch, table_name, config_dict)
-
                 if error is None:
-                    logger.info(
-                        "AI config validated successfully",
-                        table_name=table_name,
-                        attempts=attempt + 1,
-                    )
+                    logger.info("AI config validated successfully", table_name=table_name, attempts=attempt + 1)
                     self._cache_successful_config(table_name, config_dict, schema_hash)
                     return config_dict
 
-                if not error.retryable:
-                    raise AISuggestionFailedError(
-                        f"Non-retryable error: {error.message}"
-                    )
+                self._handle_validation_failure(error, attempt, max_retries, table_name)
 
-                if attempt == max_retries:
-                    logger.warning(
-                        "AI config refinement exhausted all retries",
-                        table_name=table_name,
-                        last_error=error.error_type,
-                    )
-                    raise AISuggestionFailedError(
-                        f"Failed after {max_retries} retries. Last error: {error.message}"
-                    )
-
-                logger.info(
-                    "AI config refinement attempt",
-                    attempt=attempt + 1,
-                    max_retries=max_retries,
-                    error_type=error.error_type,
-                    column=error.column,
+                messages_history.append({"role": "assistant", "content": json.dumps(config_dict, ensure_ascii=False)})
+                messages_history.append(
+                    {"role": "user", "content": self._build_refinement_prompt(error, attempt, max_retries)}
                 )
-
-                messages_history.append({
-                    "role": "assistant",
-                    "content": json.dumps(config_dict, ensure_ascii=False),
-                })
-                messages_history.append({
-                    "role": "user",
-                    "content": self._build_refinement_prompt(error, attempt, max_retries),
-                })
 
         raise AISuggestionFailedError("Unexpected state")
 
     def _compute_schema_hash(self, orch: Any, table_name: str) -> str:
         column_names = orch.get_column_names(table_name)
         raw = "|".join(sorted(column_names))
-        return hashlib.md5(raw.encode()).hexdigest()[:12]
+        return hashlib.sha256(raw.encode()).hexdigest()[:12]
 
     def _validate_config(
         self,
@@ -142,11 +133,9 @@ class AiConfigRefiner:
         table_name: str,
         config_dict: dict[str, Any],
     ) -> ErrorSummary | None:
-        from sqlseed.config.models import TableConfig
-
         try:
             table_config = TableConfig(**config_dict)
-        except Exception as e:
+        except PydanticValidationError as e:
             return summarize_error(e)
 
         actual_columns = orch.get_column_names(table_name)
@@ -186,7 +175,7 @@ class AiConfigRefiner:
                 count=5,
                 column_configs=table_config.columns,
             )
-        except Exception as e:
+        except (ValueError, RuntimeError, OSError) as e:
             return summarize_error(e)
 
         return None
@@ -206,19 +195,14 @@ class AiConfigRefiner:
             "## Instructions",
             "- Only fix the column(s) mentioned in the error.",
             "- Do NOT modify other column configurations that were working correctly.",
-            "- Return the COMPLETE configuration JSON "
-            "with only the problematic parts corrected.",
-            "- If you are unsure how to fix the error, "
-            "use 'string' generator as a safe fallback.",
+            "- Return the COMPLETE configuration JSON with only the problematic parts corrected.",
+            "- If you are unsure how to fix the error, use 'string' generator as a safe fallback.",
             "",
             f"This is refinement attempt {attempt + 1} of {max_retries}.",
         ]
 
         if attempt >= max_retries - 1:
-            parts.append(
-                "WARNING: This is the LAST attempt. "
-                "Use the simplest possible generators to ensure validity."
-            )
+            parts.append("WARNING: This is the LAST attempt. Use the simplest possible generators to ensure validity.")
 
         return "\n".join(parts)
 
@@ -248,7 +232,7 @@ class AiConfigRefiner:
                 path=str(cache_file),
                 schema_hash=schema_hash,
             )
-        except Exception as e:
+        except OSError as e:
             logger.debug("Failed to cache AI config", error=str(e))
 
     def get_cached_config(
@@ -271,7 +255,7 @@ class AiConfigRefiner:
                         )
                         return None
                     return entry.get("config")
-                return entry
-            except Exception:
+                return entry if isinstance(entry, dict) else None
+            except (OSError, ValueError):
                 pass
         return None

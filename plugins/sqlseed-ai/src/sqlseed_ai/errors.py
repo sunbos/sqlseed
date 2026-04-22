@@ -1,8 +1,16 @@
 from __future__ import annotations
 
+import json as _json
 import re
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+from pydantic import ValidationError
+
+from sqlseed.generators.stream import UnknownGeneratorError
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 @dataclass
@@ -20,24 +28,36 @@ class ErrorSummary:
 
 
 def summarize_error(exc: Exception) -> ErrorSummary:
-    import json as _json
+    handlers: list[Callable[[Exception], ErrorSummary | None]] = [
+        _try_pydantic_error,
+        _try_json_error,
+        _try_attribute_generator_error,
+        _try_unknown_generator_error,
+        _try_expression_error,
+        _try_file_error,
+    ]
+    for handler in handlers:
+        result = handler(exc)
+        if result is not None:
+            return result
+    return _default_error(exc)
 
-    try:
-        from pydantic import ValidationError
 
-        if isinstance(exc, ValidationError):
-            first = exc.errors()[0]
-            loc = " → ".join(str(part) for part in first["loc"])
-            col_name = _extract_column_from_pydantic_loc(first["loc"])
-            return ErrorSummary(
-                error_type="pydantic_validation",
-                message=f"Field '{loc}': {first['msg']} (type={first['type']})",
-                column=col_name,
-                retryable=True,
-            )
-    except ImportError:
-        pass
+def _try_pydantic_error(exc: Exception) -> ErrorSummary | None:
+    if isinstance(exc, ValidationError):
+        first = exc.errors()[0]
+        loc = " → ".join(str(part) for part in first["loc"])
+        col_name = _extract_column_from_pydantic_loc(first["loc"])
+        return ErrorSummary(
+            error_type="pydantic_validation",
+            message=f"Field '{loc}': {first['msg']} (type={first['type']})",
+            column=col_name,
+            retryable=True,
+        )
+    return None
 
+
+def _try_json_error(exc: Exception) -> ErrorSummary | None:
     if isinstance(exc, _json.JSONDecodeError):
         return ErrorSummary(
             error_type="json_syntax",
@@ -45,7 +65,10 @@ def summarize_error(exc: Exception) -> ErrorSummary:
             column=None,
             retryable=True,
         )
+    return None
 
+
+def _try_attribute_generator_error(exc: Exception) -> ErrorSummary | None:
     if isinstance(exc, AttributeError) and "generate_" in str(exc):
         gen_name = _extract_generator_name(str(exc))
         return ErrorSummary(
@@ -57,22 +80,24 @@ def summarize_error(exc: Exception) -> ErrorSummary:
             column=None,
             retryable=True,
         )
+    return None
 
-    try:
-        from sqlseed.generators.stream import UnknownGeneratorError
-        if isinstance(exc, UnknownGeneratorError):
-            return ErrorSummary(
-                error_type="unknown_generator",
-                message=(
-                    f"Generator '{exc.generator_name}' does not exist. "
-                    "Use one of the available generators listed in the system prompt."
-                ),
-                column=exc.column_name,
-                retryable=True,
-            )
-    except ImportError:
-        pass
 
+def _try_unknown_generator_error(exc: Exception) -> ErrorSummary | None:
+    if isinstance(exc, UnknownGeneratorError):
+        return ErrorSummary(
+            error_type="unknown_generator",
+            message=(
+                f"Generator '{exc.generator_name}' does not exist. "
+                "Use one of the available generators listed in the system prompt."
+            ),
+            column=exc.column_name,
+            retryable=True,
+        )
+    return None
+
+
+def _try_expression_error(exc: Exception) -> ErrorSummary | None:
     exc_type_name = type(exc).__name__
     exc_module = str(getattr(type(exc), "__module__", ""))
     if "ExpressionTimeout" in exc_type_name or "simpleeval" in exc_module:
@@ -82,7 +107,10 @@ def summarize_error(exc: Exception) -> ErrorSummary:
             column=_extract_column_from_message(str(exc)),
             retryable=True,
         )
+    return None
 
+
+def _try_file_error(exc: Exception) -> ErrorSummary | None:
     if isinstance(exc, (FileNotFoundError, PermissionError)):
         return ErrorSummary(
             error_type="fatal",
@@ -90,7 +118,11 @@ def summarize_error(exc: Exception) -> ErrorSummary:
             column=None,
             retryable=False,
         )
+    return None
 
+
+def _default_error(exc: Exception) -> ErrorSummary:
+    exc_type_name = type(exc).__name__
     return ErrorSummary(
         error_type="runtime_error",
         message=f"{exc_type_name}: {str(exc)[:200]}",

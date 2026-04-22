@@ -1,8 +1,24 @@
 from __future__ import annotations
 
+import importlib.metadata
+
 from sqlseed._utils.logger import get_logger
 from sqlseed.generators._protocol import DataProvider
 from sqlseed.generators.base_provider import BaseProvider
+
+try:
+    from sqlseed.generators.faker_provider import FakerProvider
+
+    HAS_FAKER = True
+except ImportError:
+    HAS_FAKER = False
+
+try:
+    from sqlseed.generators.mimesis_provider import MimesisProvider
+
+    HAS_MIMESIS = True
+except ImportError:
+    HAS_MIMESIS = False
 
 logger = get_logger(__name__)
 
@@ -24,20 +40,27 @@ class ProviderRegistry:
 
     def register_from_entry_points(self) -> None:
         try:
-            from importlib.metadata import entry_points
-
-            eps = entry_points()
+            eps = importlib.metadata.entry_points()
             sqlseed_eps = eps.select(group="sqlseed") if hasattr(eps, "select") else eps.get("sqlseed", [])  # type: ignore[arg-type]
             for ep in sqlseed_eps:
                 try:
-                    provider_cls = ep.load()
-                    provider = provider_cls()
+                    loaded = ep.load()
+                    if isinstance(loaded, type):
+                        provider = loaded()
+                    elif isinstance(loaded, DataProvider):
+                        provider = loaded
+                    else:
+                        logger.debug("Skipping non-provider entry point", name=ep.name, entry_point=ep.value)
+                        continue
+
                     if isinstance(provider, DataProvider):
                         self.register(provider)
                         logger.info("Auto-discovered provider", name=ep.name)
-                except Exception as e:
+                    else:
+                        logger.debug("Skipping non-provider entry point", name=ep.name, entry_point=ep.value)
+                except (ImportError, AttributeError, ValueError, TypeError, OSError, RuntimeError) as e:
                     logger.warning("Failed to load provider", name=ep.name, error=e)
-        except Exception as e:
+        except (ImportError, AttributeError, ValueError, TypeError, OSError, RuntimeError) as e:
             logger.debug("Entry point discovery failed", error=e)
 
     def get(self, name: str | None = None) -> DataProvider:
@@ -64,23 +87,18 @@ class ProviderRegistry:
         if name in self._providers:
             return self._providers[name]
 
+        if name == "faker" and HAS_FAKER:
+            provider: DataProvider = FakerProvider()
+            self.register(provider)
+            return provider
         if name == "faker":
-            try:
-                from sqlseed.generators.faker_provider import FakerProvider
+            raise ImportError("Faker is not installed. Install it with: pip install sqlseed[faker]")
 
-                provider: DataProvider = FakerProvider()
-                self.register(provider)
-                return provider
-            except ImportError:
-                raise ImportError("Faker is not installed. Install it with: pip install sqlseed[faker]") from None
-        elif name == "mimesis":
-            try:
-                from sqlseed.generators.mimesis_provider import MimesisProvider
-
-                provider = MimesisProvider()
-                self.register(provider)
-                return provider
-            except ImportError:
-                raise ImportError("Mimesis is not installed. Install it with: pip install sqlseed[mimesis]") from None
+        if name == "mimesis" and HAS_MIMESIS:
+            provider = MimesisProvider()
+            self.register(provider)
+            return provider
+        if name == "mimesis":
+            raise ImportError("Mimesis is not installed. Install it with: pip install sqlseed[mimesis]")
 
         raise ValueError(f"Unknown provider: {name}")

@@ -1,33 +1,31 @@
 from __future__ import annotations
 
 import json
+import sqlite3
+from typing import Any
 from unittest.mock import patch
 
 import pytest
+from pydantic import BaseModel, ValidationError
 
-pytest.importorskip("sqlseed_ai", reason="sqlseed-ai plugin not installed")
+try:
+    from sqlseed_ai.analyzer import SchemaAnalyzer
+    from sqlseed_ai.config import AIConfig
+    from sqlseed_ai.errors import ErrorSummary, summarize_error
+    from sqlseed_ai.refiner import AiConfigRefiner, AISuggestionFailedError
 
-from sqlseed_ai.analyzer import SchemaAnalyzer
-from sqlseed_ai.config import AIConfig
-from sqlseed_ai.errors import ErrorSummary, summarize_error
-from sqlseed_ai.refiner import AiConfigRefiner, AISuggestionFailedError
+    HAS_SQLSEED_AI = True
+except ImportError:
+    HAS_SQLSEED_AI = False
+    SchemaAnalyzer = None  # type: ignore
+    AIConfig = None  # type: ignore
+    ErrorSummary = None  # type: ignore
+    summarize_error = None  # type: ignore
+    AiConfigRefiner = None  # type: ignore
+    AISuggestionFailedError = Exception  # type: ignore
 
-
-def _make_col(
-    name: str, col_type: str = "TEXT", nullable: bool = False, default=None, is_pk: bool = False, is_auto: bool = False
-):
-    return type(
-        "Col",
-        (),
-        {
-            "name": name,
-            "type": col_type,
-            "nullable": nullable,
-            "default": default,
-            "is_primary_key": is_pk,
-            "is_autoincrement": is_auto,
-        },
-    )()
+if not HAS_SQLSEED_AI:
+    pytest.skip("sqlseed-ai plugin not installed", allow_module_level=True)
 
 
 class TestErrorSummary:
@@ -81,7 +79,6 @@ class TestSummarizeError:
         assert summary.retryable is True
 
     def test_pydantic_validation_error(self):
-        from pydantic import BaseModel
 
         class Inner(BaseModel):
             value: int
@@ -91,14 +88,14 @@ class TestSummarizeError:
 
         try:
             Outer(items=[{"value": "not_int"}])
-        except Exception as e:
+        except ValidationError as e:
             summary = summarize_error(e)
             assert summary.error_type == "pydantic_validation"
             assert summary.retryable is True
 
 
 class TestAiConfigRefiner:
-    def _make_refiner(self, tmp_path, llm_side_effect=None):
+    def _make_refiner(self, tmp_path, _llm_side_effect=None):
         analyzer = SchemaAnalyzer(config=AIConfig(api_key="test-key"))
         return AiConfigRefiner(
             analyzer,
@@ -128,7 +125,6 @@ class TestAiConfigRefiner:
         assert refiner.get_cached_config("nonexistent") is None
 
     def test_refine_first_attempt_success(self, tmp_path):
-        import sqlite3
 
         db_path = str(tmp_path / "test.db")
         conn = sqlite3.connect(db_path)
@@ -150,8 +146,6 @@ class TestAiConfigRefiner:
         assert result["name"] == "users"
 
     def test_refine_exhausts_retries(self, tmp_path):
-        import sqlite3
-
         db_path = str(tmp_path / "test.db")
         conn = sqlite3.connect(db_path)
         conn.execute("CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL)")
@@ -178,8 +172,6 @@ class TestAiConfigRefiner:
             refiner.generate_and_refine("users", max_retries=3)
 
     def test_messages_accumulate(self, tmp_path):
-        import sqlite3
-
         db_path = str(tmp_path / "test.db")
         conn = sqlite3.connect(db_path)
         conn.execute("CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL)")
@@ -188,12 +180,13 @@ class TestAiConfigRefiner:
 
         invalid_config = {"invalid": True}
         call_count = 0
-        captured_messages = None
+        captured_messages: list[Any] = []
 
         def mock_call_llm(messages):
             nonlocal call_count, captured_messages
             call_count += 1
-            captured_messages = messages
+            captured_messages.clear()
+            captured_messages.extend(messages)
             if call_count >= 2:
                 return {"name": "users", "count": 10, "columns": [{"name": "name", "generator": "string"}]}
             return invalid_config

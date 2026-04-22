@@ -2,11 +2,9 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
-from typing import Any, Protocol, cast
+from typing import Any, Callable  # noqa: UP035
 
-
-class RowTransformFn(Protocol):
-    def __call__(self, row: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]: ...
+RowTransformFn = Callable[[dict[str, Any], dict[str, Any]], dict[str, Any]]
 
 
 def load_transform(script_path: str) -> RowTransformFn:
@@ -21,7 +19,9 @@ def load_transform(script_path: str) -> RowTransformFn:
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
 
-    fn = getattr(module, "transform_row", None)
-    if fn is None:
+    fn_any = getattr(module, "transform_row", None)
+    if fn_any is None:
         raise AttributeError(f"Transform script must define a 'transform_row(row, ctx)' function: {script_path}")
-    return cast("RowTransformFn", fn)
+    if not callable(fn_any):
+        raise TypeError(f"Transform script's 'transform_row' must be a callable function: {script_path}")
+    return fn_any  # type: ignore[no-any-return]

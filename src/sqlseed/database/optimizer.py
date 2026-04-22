@@ -18,10 +18,11 @@ class PragmaProfile:
     auto_vacuum: Any = None
     page_size: Any = None
     mmap_size: Any = None
-    wal_autocheckpoint: Any = None
 
 
 class PragmaOptimizer:
+    TEMP_STORE_MEMORY: str = "PRAGMA temp_store = MEMORY"
+
     def __init__(self, execute_fn: Any, fetch_pragma_fn: Any) -> None:
         self._execute = execute_fn
         self._fetch_pragma = fetch_pragma_fn
@@ -52,14 +53,14 @@ class PragmaOptimizer:
 
     def _apply_light(self) -> None:
         self._execute("PRAGMA synchronous = NORMAL")
-        self._execute("PRAGMA temp_store = MEMORY")
+        self._execute(self.TEMP_STORE_MEMORY)
         self._execute("PRAGMA cache_size = -8000")
         logger.debug("Applied LIGHT PRAGMA optimization")
 
     def _apply_moderate(self) -> None:
         self._execute("PRAGMA synchronous = OFF")
         self._execute("PRAGMA journal_mode = MEMORY")
-        self._execute("PRAGMA temp_store = MEMORY")
+        self._execute(self.TEMP_STORE_MEMORY)
         self._execute("PRAGMA cache_size = -16000")
         self._execute("PRAGMA mmap_size = 268435456")
         logger.debug("Applied MODERATE PRAGMA optimization")
@@ -67,7 +68,7 @@ class PragmaOptimizer:
     def _apply_aggressive(self) -> None:
         self._execute("PRAGMA synchronous = OFF")
         self._execute("PRAGMA journal_mode = OFF")
-        self._execute("PRAGMA temp_store = MEMORY")
+        self._execute(self.TEMP_STORE_MEMORY)
         self._execute("PRAGMA cache_size = -32000")
         self._execute("PRAGMA mmap_size = 536870912")
         self._execute("PRAGMA page_size = 4096")
@@ -77,7 +78,7 @@ class PragmaOptimizer:
         if self._original is None:
             return
 
-        for attr in [
+        for attr in (
             "synchronous",
             "journal_mode",
             "cache_size",
@@ -85,7 +86,7 @@ class PragmaOptimizer:
             "auto_vacuum",
             "page_size",
             "mmap_size",
-        ]:
+        ):
             value = getattr(self._original, attr)
             if value is not None and (
                 isinstance(value, (int, float)) or (isinstance(value, str) and re.match(r"^[a-zA-Z0-9_-]+$", value))

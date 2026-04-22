@@ -56,9 +56,13 @@ class TestExpressionEngine:
 
     def test_timeout_on_slow_expression(self):
         engine = ExpressionEngine(timeout_seconds=1)
-        engine._evaluator.functions["slow_fn"] = lambda: time.sleep(5)
-        with pytest.raises(ExpressionTimeoutError):
-            engine.evaluate("slow_fn()", {})
+        original_functions = dict(ExpressionEngine.SAFE_FUNCTIONS)
+        ExpressionEngine.SAFE_FUNCTIONS["slow_fn"] = lambda: time.sleep(5)
+        try:
+            with pytest.raises(ExpressionTimeoutError):
+                engine.evaluate("slow_fn()", {})
+        finally:
+            ExpressionEngine.SAFE_FUNCTIONS = original_functions
 
     def test_no_timeout_on_fast_expression(self):
         engine = ExpressionEngine(timeout_seconds=5)
@@ -67,9 +71,13 @@ class TestExpressionEngine:
 
     def test_timeout_error_message_contains_expression(self):
         engine = ExpressionEngine(timeout_seconds=1)
-        engine._evaluator.functions["slow_fn"] = lambda: time.sleep(5)
-        with pytest.raises(ExpressionTimeoutError, match="timed out"):
-            engine.evaluate("slow_fn()", {})
+        original_functions = dict(ExpressionEngine.SAFE_FUNCTIONS)
+        ExpressionEngine.SAFE_FUNCTIONS["slow_fn"] = lambda: time.sleep(5)
+        try:
+            with pytest.raises(ExpressionTimeoutError, match="timed out"):
+                engine.evaluate("slow_fn()", {})
+        finally:
+            ExpressionEngine.SAFE_FUNCTIONS = original_functions
 
     def test_default_timeout_is_5_seconds(self):
         engine = ExpressionEngine()

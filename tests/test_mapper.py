@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from sqlseed.config.models import ColumnConfig
 from sqlseed.core.mapper import ColumnMapper
 from sqlseed.database._protocol import ColumnInfo
 
@@ -80,8 +81,6 @@ class TestColumnMapper:
         assert spec.generator_name == "uuid"
 
     def test_user_config_overrides(self) -> None:
-        from sqlseed.config.models import ColumnConfig
-
         user_config = ColumnConfig(name="email", generator="name")
         spec = self.mapper.map_column(_col("email"), user_config)
         assert spec.generator_name == "name"

@@ -7,62 +7,37 @@ from sqlseed.database.raw_sqlite_adapter import RawSQLiteAdapter
 
 
 class TestSchemaInferrer:
-    def test_get_column_info(self, tmp_db) -> None:
-        adapter = RawSQLiteAdapter()
-        adapter.connect(tmp_db)
-        try:
-            inferrer = SchemaInferrer(adapter)
-            columns = inferrer.get_column_info("users")
-            assert len(columns) > 0
-            col_names = [c.name for c in columns]
-            assert "id" in col_names
-            assert "name" in col_names
-            assert "email" in col_names
-        finally:
-            adapter.close()
+    def test_get_column_info(self, raw_adapter) -> None:
+        inferrer = SchemaInferrer(raw_adapter)
+        columns = inferrer.get_column_info("users")
+        assert len(columns) > 0
+        col_names = [c.name for c in columns]
+        assert "id" in col_names
+        assert "name" in col_names
+        assert "email" in col_names
 
-    def test_get_table_names(self, tmp_db) -> None:
-        adapter = RawSQLiteAdapter()
-        adapter.connect(tmp_db)
-        try:
-            inferrer = SchemaInferrer(adapter)
-            tables = inferrer.get_table_names()
-            assert "users" in tables
-            assert "orders" in tables
-        finally:
-            adapter.close()
+    def test_get_table_names(self, raw_adapter) -> None:
+        inferrer = SchemaInferrer(raw_adapter)
+        tables = inferrer.get_table_names()
+        assert "users" in tables
+        assert "orders" in tables
 
-    def test_get_primary_keys(self, tmp_db) -> None:
-        adapter = RawSQLiteAdapter()
-        adapter.connect(tmp_db)
-        try:
-            inferrer = SchemaInferrer(adapter)
-            pks = inferrer.get_primary_keys("users")
-            assert "id" in pks
-        finally:
-            adapter.close()
+    def test_get_primary_keys(self, raw_adapter) -> None:
+        inferrer = SchemaInferrer(raw_adapter)
+        pks = inferrer.get_primary_keys("users")
+        assert "id" in pks
 
-    def test_get_foreign_keys(self, tmp_db) -> None:
-        adapter = RawSQLiteAdapter()
-        adapter.connect(tmp_db)
-        try:
-            inferrer = SchemaInferrer(adapter)
-            fks = inferrer.get_foreign_keys("orders")
-            assert len(fks) > 0
-            assert fks[0].ref_table == "users"
-        finally:
-            adapter.close()
+    def test_get_foreign_keys(self, raw_adapter) -> None:
+        inferrer = SchemaInferrer(raw_adapter)
+        fks = inferrer.get_foreign_keys("orders")
+        assert len(fks) > 0
+        assert fks[0].ref_table == "users"
 
-    def test_get_table_schema(self, tmp_db) -> None:
-        adapter = RawSQLiteAdapter()
-        adapter.connect(tmp_db)
-        try:
-            inferrer = SchemaInferrer(adapter)
-            schema = inferrer.get_table_schema("users")
-            assert "id" in schema
-            assert "name" in schema
-        finally:
-            adapter.close()
+    def test_get_table_schema(self, raw_adapter) -> None:
+        inferrer = SchemaInferrer(raw_adapter)
+        schema = inferrer.get_table_schema("users")
+        assert "id" in schema
+        assert "name" in schema
 
     def test_get_index_info(self, tmp_path) -> None:
         db_path = str(tmp_path / "idx_test.db")
@@ -109,39 +84,24 @@ class TestSchemaInferrer:
         finally:
             adapter.close()
 
-    def test_get_sample_data_empty_table(self, tmp_db) -> None:
-        adapter = RawSQLiteAdapter()
-        adapter.connect(tmp_db)
-        try:
-            inferrer = SchemaInferrer(adapter)
-            samples = inferrer.get_sample_data("users", limit=5)
-            assert isinstance(samples, list)
-        finally:
-            adapter.close()
+    def test_get_sample_data_empty_table(self, raw_adapter) -> None:
+        inferrer = SchemaInferrer(raw_adapter)
+        samples = inferrer.get_sample_data("users", limit=5)
+        assert isinstance(samples, list)
 
-    def test_profile_column_distribution_empty_table(self, tmp_db) -> None:
-        adapter = RawSQLiteAdapter()
-        adapter.connect(tmp_db)
-        try:
-            inferrer = SchemaInferrer(adapter)
-            profiles = inferrer.profile_column_distribution("users")
-            assert profiles == []
-        finally:
-            adapter.close()
+    def test_profile_column_distribution_empty_table(self, raw_adapter) -> None:
+        inferrer = SchemaInferrer(raw_adapter)
+        profiles = inferrer.profile_column_distribution("users")
+        assert not profiles
 
-    def test_profile_column_distribution_with_data(self, tmp_db_with_data) -> None:
-        adapter = RawSQLiteAdapter()
-        adapter.connect(tmp_db_with_data)
-        try:
-            inferrer = SchemaInferrer(adapter)
-            profiles = inferrer.profile_column_distribution("users")
-            assert len(profiles) > 0
-            name_profile = next((p for p in profiles if p["column"] == "name"), None)
-            assert name_profile is not None
-            assert name_profile["distinct_count"] > 0
-            assert name_profile["sample_size"] > 0
-        finally:
-            adapter.close()
+    def test_profile_column_distribution_with_data(self, raw_adapter_with_data) -> None:
+        inferrer = SchemaInferrer(raw_adapter_with_data)
+        profiles = inferrer.profile_column_distribution("users")
+        assert len(profiles) > 0
+        name_profile = next((p for p in profiles if p["column"] == "name"), None)
+        assert name_profile is not None
+        assert name_profile["distinct_count"] > 0
+        assert name_profile["sample_size"] > 0
 
     def test_profile_column_distribution_with_nulls(self, tmp_path) -> None:
         db_path = str(tmp_path / "null_test.db")

@@ -18,7 +18,7 @@ def load_config(path: str) -> GeneratorConfig:
 
     suffix = config_path.suffix.lower()
     with open(config_path, encoding="utf-8") as f:
-        if suffix in (".yaml", ".yml"):
+        if suffix in {".yaml", ".yml"}:
             raw = yaml.safe_load(f)
         elif suffix == ".json":
             raw = json.load(f)
@@ -39,7 +39,7 @@ def save_config(config: GeneratorConfig, path: str) -> None:
     data = config.model_dump(mode="json")
 
     with open(config_path, "w", encoding="utf-8") as f:
-        if suffix in (".yaml", ".yml"):
+        if suffix in {".yaml", ".yml"}:
             yaml.dump(data, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
         elif suffix == ".json":
             json.dump(data, f, indent=2, ensure_ascii=False)

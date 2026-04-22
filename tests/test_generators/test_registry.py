@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -51,8 +52,6 @@ class TestProviderRegistry:
     def test_ensure_provider_faker(self) -> None:
         registry = ProviderRegistry()
         try:
-            import importlib.util
-
             if not importlib.util.find_spec("faker"):
                 pytest.skip("Faker is not installed")
             provider = registry.ensure_provider("faker")
@@ -63,8 +62,6 @@ class TestProviderRegistry:
     def test_ensure_provider_mimesis(self) -> None:
         registry = ProviderRegistry()
         try:
-            import importlib.util
-
             if not importlib.util.find_spec("mimesis"):
                 pytest.skip("Mimesis is not installed")
             provider = registry.ensure_provider("mimesis")
@@ -88,7 +85,13 @@ class TestProviderRegistry:
         registry = ProviderRegistry()
         mock_ep = MagicMock()
         mock_ep.name = "test_provider"
-        mock_ep.load.return_value = BaseProvider
+
+        class TestProvider(BaseProvider):
+            @property
+            def name(self) -> str:
+                return "test_provider"
+
+        mock_ep.load.return_value = TestProvider
 
         with patch("importlib.metadata.entry_points") as mock_eps:
             mock_result = MagicMock()
@@ -96,10 +99,30 @@ class TestProviderRegistry:
             mock_eps.return_value = mock_result
             registry.register_from_entry_points()
 
+        assert "test_provider" in registry.available_providers
+
+    def test_register_from_entry_points_skips_non_provider_entrypoint(self) -> None:
+        registry = ProviderRegistry()
+        mock_ep = MagicMock()
+        mock_ep.name = "ai_plugin"
+        mock_ep.load.return_value = object()
+
+        with (
+            patch("importlib.metadata.entry_points") as mock_eps,
+            patch("sqlseed.generators.registry.logger.warning") as mock_warning,
+        ):
+            mock_result = MagicMock()
+            mock_result.select.return_value = [mock_ep]
+            mock_eps.return_value = mock_result
+
+            registry.register_from_entry_points()
+
+        mock_warning.assert_not_called()
+
     def test_register_from_entry_points_failure(self) -> None:
         registry = ProviderRegistry()
         with patch("importlib.metadata.entry_points") as mock_eps:
-            mock_eps.side_effect = Exception("no entry points")
+            mock_eps.side_effect = RuntimeError("no entry points")
             registry.register_from_entry_points()
 
     def test_set_default_nonexistent(self) -> None:

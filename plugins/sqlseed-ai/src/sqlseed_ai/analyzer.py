@@ -2,9 +2,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlseed._utils.logger import get_logger
+from openai import APIError
 from sqlseed_ai._client import get_openai_client
+from sqlseed_ai._json_utils import parse_json_response
 from sqlseed_ai.config import AIConfig
+from sqlseed_ai.examples import FEW_SHOT_EXAMPLES
+
+from sqlseed._utils.logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -67,14 +71,9 @@ class SchemaAnalyzer:
     def __init__(self, config: AIConfig | None = None) -> None:
         self._config = config
 
-    def analyze_table(
+    def analyze_table_from_ctx(
         self,
-        table_name: str,
-        columns: list[Any],
-        indexes: list[dict[str, Any]],
-        sample_data: list[dict[str, Any]],
-        foreign_keys: list[Any],
-        all_table_names: list[str],
+        **kwargs: Any,
     ) -> dict[str, Any] | None:
         if self._config is None:
             self._config = AIConfig.from_env()
@@ -83,45 +82,23 @@ class SchemaAnalyzer:
             logger.warning("AI API key not configured, skipping analysis")
             return None
 
-        messages = self.build_initial_messages(
-            table_name=table_name,
-            columns=columns,
-            indexes=indexes,
-            sample_data=sample_data,
-            foreign_keys=foreign_keys,
-            all_table_names=all_table_names,
-        )
+        messages = self.build_initial_messages(kwargs)
 
         try:
             return self.call_llm(messages)
-        except Exception as e:
-            logger.warning("AI analysis failed", table_name=table_name, error=str(e))
+        except (ValueError, RuntimeError) as e:
+            logger.warning("AI analysis failed", table_name=kwargs.get("table_name", ""), error=str(e))
             return None
 
     def build_initial_messages(
         self,
-        table_name: str,
-        columns: list[Any],
-        indexes: list[dict[str, Any]],
-        sample_data: list[dict[str, Any]],
-        foreign_keys: list[Any],
-        all_table_names: list[str],
-        distribution_profiles: list[dict[str, Any]] | None = None,
+        schema_ctx: dict[str, Any],
     ) -> list[dict[str, str]]:
-        context = self._build_context(
-            table_name=table_name,
-            columns=columns,
-            indexes=indexes,
-            sample_data=sample_data,
-            foreign_keys=foreign_keys,
-            all_table_names=all_table_names,
-            distribution_profiles=distribution_profiles,
-        )
+        context = self._build_context(schema_ctx)
         messages: list[dict[str, str]] = [
             {"role": "system", "content": SYSTEM_PROMPT},
         ]
 
-        from sqlseed_ai.examples import FEW_SHOT_EXAMPLES
         for example in FEW_SHOT_EXAMPLES:
             messages.append({"role": "user", "content": example["input"]})
             messages.append({"role": "assistant", "content": example["output"]})
@@ -137,6 +114,8 @@ class SchemaAnalyzer:
             raise ValueError("AI API key not configured")
 
         client = get_openai_client(self._config)
+        _openai_exceptions = (APIError, ValueError, RuntimeError, OSError)
+
         try:
             response = client.chat.completions.create(
                 model=self._config.model,
@@ -145,15 +124,12 @@ class SchemaAnalyzer:
                 temperature=self._config.temperature,
                 response_format={"type": "json_object"},
             )
-        except Exception as e:
-            raise RuntimeError(
-                f"LLM API call failed (model={self._config.model}): {e}"
-            ) from e
+        except _openai_exceptions as e:
+            raise RuntimeError(f"LLM API call failed (model={self._config.model}): {e}") from e
 
         if not response.choices:
             raise RuntimeError(
-                f"LLM returned no choices (model={self._config.model}). "
-                "The API key or model may be invalid."
+                f"LLM returned no choices (model={self._config.model}). The API key or model may be invalid."
             )
         content = response.choices[0].message.content
         if content is None:
@@ -173,16 +149,19 @@ class SchemaAnalyzer:
         column_type: str,
         count: int,
         sample_data: list[Any],
+        table_name: str = "",
     ) -> list[Any]:
         prompt = (
             f"Generate {count} realistic sample values for a database column "
-            f"named '{column_name}' with type '{column_type}'."
+            f"named '{column_name}' with type '{column_type}'"
         )
+        if table_name:
+            prompt += f" in table '{table_name}'"
+        prompt += "."
         if sample_data:
             prompt += f"\nExisting sample values: {sample_data[:5]}"
         prompt += (
-            f"\nRespond with a JSON object: {{\"values\": [...]}}."
-            f"\nEach value should be a valid {column_type} value."
+            f'\nRespond with a JSON object: {{"values": [...]}}.\nEach value should be a valid {column_type} value.'
         )
 
         messages = [
@@ -190,18 +169,21 @@ class SchemaAnalyzer:
             {"role": "user", "content": prompt},
         ]
         result = self.call_llm(messages)
-        return result.get("values", [])
+        values = result.get("values", [])
+        return values if isinstance(values, list) else []
 
     def _build_context(
         self,
-        table_name: str,
-        columns: list[Any],
-        indexes: list[dict[str, Any]],
-        sample_data: list[dict[str, Any]],
-        foreign_keys: list[Any],
-        all_table_names: list[str],
-        distribution_profiles: list[dict[str, Any]] | None = None,
+        schema_ctx: dict[str, Any],
     ) -> str:
+        table_name = schema_ctx.get("table_name", "unknown")
+        columns = schema_ctx.get("columns", [])
+        indexes = schema_ctx.get("indexes", [])
+        foreign_keys = schema_ctx.get("foreign_keys", [])
+        all_table_names = schema_ctx.get("all_table_names", [])
+        sample_data = schema_ctx.get("sample_data", [])
+        distribution_profiles = schema_ctx.get("distribution")
+
         lines: list[str] = []
         lines.append(f"# Table: {table_name}")
         lines.append("")
@@ -283,22 +265,14 @@ class SchemaAnalyzer:
             col = profile["column"]
             distinct = profile.get("distinct_count", "?")
             null_ratio = profile.get("null_ratio", 0)
-            lines.append(
-                f"- {col}: {distinct} distinct values, {null_ratio:.1%} null"
-            )
+            lines.append(f"- {col}: {distinct} distinct values, {null_ratio:.1%} null")
             top_values = profile.get("top_values", [])
             if top_values:
-                top_str = ", ".join(
-                    f"{tv['value']}({tv['frequency']:.0%})"
-                    for tv in top_values[:3]
-                )
+                top_str = ", ".join(f"{tv['value']}({tv['frequency']:.0%})" for tv in top_values[:3])
                 lines.append(f"  Top values: {top_str}")
             vr = profile.get("value_range")
             if vr:
                 lines.append(f"  Range: [{vr['min']}, {vr['max']}]")
 
     def _parse_json_response(self, content: str) -> dict[str, Any]:
-        from sqlseed_ai._json_utils import parse_json_response
-
         return parse_json_response(content)
-

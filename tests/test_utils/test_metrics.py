@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from sqlseed._utils.metrics import MetricsCollector
 
 
@@ -28,7 +30,7 @@ class TestMetricsCollector:
     def test_summary_empty(self) -> None:
         mc = MetricsCollector()
         result = mc.summary()
-        assert result == {}
+        assert not result
 
     def test_summary_with_data(self) -> None:
         mc = MetricsCollector()
@@ -38,10 +40,10 @@ class TestMetricsCollector:
         result = mc.summary()
         assert "latency" in result
         assert result["latency"]["count"] == 3
-        assert result["latency"]["total"] == 9.0
-        assert result["latency"]["avg"] == 3.0
-        assert result["latency"]["min"] == 1.0
-        assert result["latency"]["max"] == 5.0
+        assert result["latency"]["total"] == pytest.approx(9.0)
+        assert result["latency"]["avg"] == pytest.approx(3.0)
+        assert result["latency"]["min"] == pytest.approx(1.0)
+        assert result["latency"]["max"] == pytest.approx(5.0)
 
     def test_clear(self) -> None:
         mc = MetricsCollector()

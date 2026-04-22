@@ -8,6 +8,7 @@ import yaml
 
 from sqlseed._utils.logger import get_logger
 from sqlseed.config.models import GeneratorConfig
+from sqlseed.core.orchestrator import DataOrchestrator
 
 logger = get_logger(__name__)
 
@@ -54,8 +55,6 @@ class SnapshotManager:
         return data
 
     def replay(self, snapshot_path: str) -> Any:
-        from sqlseed.core.orchestrator import DataOrchestrator
-
         data = self.load(snapshot_path)
         config_data = data["config"]
         config = GeneratorConfig(**config_data)
@@ -70,12 +69,7 @@ class SnapshotManager:
                 table_config = tc
                 break
 
-        with DataOrchestrator(
-            db_path=config.db_path,
-            provider_name=config.provider.value,
-            locale=config.locale,
-            optimize_pragma=config.optimize_pragma,
-        ) as orch:
+        with DataOrchestrator.from_config(config) as orch:
             return orch.fill_table(
                 table_name=table_name,
                 count=count,

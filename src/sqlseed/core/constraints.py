@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -23,35 +24,38 @@ class ConstraintSolver:
         self,
         *,
         probabilistic: bool = False,
-        expected_count: int = 10000,
     ) -> None:
         self._probabilistic = probabilistic
-        self._expected_count = expected_count
         self._seen: dict[str, set[Any]] = {}
         self._composite_seen: dict[str, set[tuple[Any, ...]]] = {}
         if probabilistic:
             self._hash_seen: dict[str, set[int]] = {}
 
+    def _deterministic_hash(self, value: Any) -> int:
+        data = f"{value!r}".encode()
+        return int(hashlib.sha256(data).hexdigest()[:16], 16)
+
     def _is_seen(self, column_name: str, value: Any) -> bool:
         if self._probabilistic:
-            h = hash(value)
+            h = self._deterministic_hash(value)
+            return column_name in self._hash_seen and h in self._hash_seen[column_name]
+        return column_name in self._seen and value in self._seen[column_name]
+
+    def _register(self, column_name: str, value: Any) -> None:
+        if self._probabilistic:
+            h = self._deterministic_hash(value)
             if column_name not in self._hash_seen:
                 self._hash_seen[column_name] = set()
-            if h in self._hash_seen[column_name]:
-                return True
             self._hash_seen[column_name].add(h)
-            return False
-        if column_name not in self._seen:
-            self._seen[column_name] = set()
-        if value in self._seen[column_name]:
-            return True
-        self._seen[column_name].add(value)
-        return False
+        else:
+            if column_name not in self._seen:
+                self._seen[column_name] = set()
+            self._seen[column_name].add(value)
 
     def _unregister_value(self, column_name: str, value: Any) -> None:
         if self._probabilistic:
             if column_name in self._hash_seen:
-                self._hash_seen[column_name].discard(hash(value))
+                self._hash_seen[column_name].discard(self._deterministic_hash(value))
         elif column_name in self._seen:
             self._seen[column_name].discard(value)
 
@@ -61,8 +65,13 @@ class ConstraintSolver:
         value: Any,
         unique: bool = False,
     ) -> bool:
-        if unique:
-            return not self._is_seen(column_name, value)
+        if not unique:
+            return True
+        if value is None:
+            return True
+        if self._is_seen(column_name, value):
+            return False
+        self._register(column_name, value)
         return True
 
     def try_register(
@@ -75,24 +84,39 @@ class ConstraintSolver:
         if not unique:
             return RegisterResult(registered=True)
 
+        if value is None:
+            return RegisterResult(registered=True)
+
         if self._is_seen(column_name, value):
             return RegisterResult(
                 registered=False,
                 need_backtrack=True,
                 backtrack_targets=source_columns if source_columns else [column_name],
             )
+        self._register(column_name, value)
         return RegisterResult(registered=True)
 
-    def check_composite(
+    def _is_composite_seen(self, key_name: str, values: tuple[Any, ...]) -> bool:
+        if any(v is None for v in values):
+            return False
+        return key_name in self._composite_seen and values in self._composite_seen[key_name]
+
+    def _register_composite(self, key_name: str, values: tuple[Any, ...]) -> None:
+        if key_name not in self._composite_seen:
+            self._composite_seen[key_name] = set()
+        self._composite_seen[key_name].add(values)
+
+    def check_and_register_composite(
         self,
         key_name: str,
         values: tuple[Any, ...],
     ) -> bool:
-        if key_name not in self._composite_seen:
-            self._composite_seen[key_name] = set()
-        if values in self._composite_seen[key_name]:
+        if any(v is None for v in values):
+            return True
+
+        if self._is_composite_seen(key_name, values):
             return False
-        self._composite_seen[key_name].add(values)
+        self._register_composite(key_name, values)
         return True
 
     def unregister_composite(
@@ -111,6 +135,8 @@ class ConstraintSolver:
 
     def reset_column(self, column_name: str) -> None:
         self._seen.pop(column_name, None)
+        if self._probabilistic:
+            self._hash_seen.pop(column_name, None)
 
     def unregister(self, column_name: str, value: Any) -> None:
         self._unregister_value(column_name, value)

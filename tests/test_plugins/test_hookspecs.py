@@ -38,8 +38,8 @@ class TestHookSpecs:
 
     def test_hookimpl_marker(self) -> None:
         @hookimpl
-        def sqlseed_before_generate(self, table_name: str, count: int, config: object) -> None:
-            pass
+        def sqlseed_before_generate(_self, table_name: str, count: int, config: object) -> None:
+            _ = (table_name, count, config)
 
         assert hasattr(sqlseed_before_generate, "sqlseed_impl")
 
@@ -65,6 +65,7 @@ class TestHookSpecs:
         class TestPlugin:
             @hookimpl
             def sqlseed_before_generate(self, table_name: str, count: int, config: object) -> None:
+                _ = config
                 call_log.append(f"before:{table_name}:{count}")
 
         pm.register(TestPlugin())

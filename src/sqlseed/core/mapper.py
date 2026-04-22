@@ -81,8 +81,8 @@ class ColumnMapper:
         "longitude": "float",
         "lat": "float",
         "lng": "float",
-        "city": "sentence",
-        "country": "sentence",
+        "city": "string",
+        "country": "string",
         "zip_code": "string",
         "postal_code": "string",
     }
@@ -181,6 +181,56 @@ class ColumnMapper:
     def register_pattern_rule(self, pattern: str, generator: str, params: dict[str, Any] | None = None) -> None:
         self._custom_pattern_rules.append((pattern, generator, params or {}))
 
+    def _match_exact(self, column_name: str) -> GeneratorSpec | None:
+        if column_name in self._custom_exact_rules:
+            gen, params = self._custom_exact_rules[column_name]
+            return GeneratorSpec(generator_name=gen, params=params)
+
+        if column_name in self.EXACT_MATCH_RULES:
+            gen = self.EXACT_MATCH_RULES[column_name]
+            params = self.EXACT_MATCH_PARAMS.get(column_name, {})
+            return GeneratorSpec(generator_name=gen, params=params)
+
+        return None
+
+    def _match_pattern(self, column_name: str) -> GeneratorSpec | None:
+        for pattern, gen, params in self._custom_pattern_rules:
+            if re.match(pattern, column_name):
+                return GeneratorSpec(generator_name=gen, params=params)
+
+        for pattern, gen, params in self.PATTERN_MATCH_RULES:
+            if re.match(pattern, column_name):
+                return GeneratorSpec(generator_name=gen, params=params)
+
+        return None
+
+    def _map_from_user_config(self, user_config: Any) -> GeneratorSpec | None:
+        if user_config and hasattr(user_config, "generator") and user_config.generator:
+            provider_val = (
+                user_config.provider.value if hasattr(user_config, "provider") and user_config.provider else None
+            )
+            return GeneratorSpec(
+                generator_name=user_config.generator,
+                params=user_config.params if hasattr(user_config, "params") else {},
+                null_ratio=user_config.null_ratio if hasattr(user_config, "null_ratio") else 0.0,
+                provider=provider_val,
+            )
+        return None
+
+    def _map_from_default_or_nullable(
+        self, column_info: ColumnInfo, column_type: str, enrich: bool, force_type_infer: bool
+    ) -> GeneratorSpec | None:
+        if column_info.default is not None or column_info.nullable:
+            if force_type_infer:
+                return self._type_faithful_fallback(column_type)
+            if enrich:
+                return GeneratorSpec(
+                    generator_name="__enrich__",
+                    params={"_default": column_info.default, "_nullable": column_info.nullable},
+                )
+            return GeneratorSpec(generator_name="skip")
+        return None
+
     def map_column(
         self,
         column_info: ColumnInfo,
@@ -197,53 +247,29 @@ class ColumnMapper:
         ):
             return GeneratorSpec(generator_name="skip")
 
-        if user_config and hasattr(user_config, "generator") and user_config.generator:
-            provider_val = (
-                user_config.provider.value if hasattr(user_config, "provider") and user_config.provider else None
-            )
-            return GeneratorSpec(
-                generator_name=user_config.generator,
-                params=user_config.params if hasattr(user_config, "params") else {},
-                null_ratio=user_config.null_ratio if hasattr(user_config, "null_ratio") else 0.0,
-                provider=provider_val,
-            )
+        user_spec = self._map_from_user_config(user_config)
+        if user_spec:
+            return user_spec
 
-        if column_name in self._custom_exact_rules:
-            gen, params = self._custom_exact_rules[column_name]
-            return GeneratorSpec(generator_name=gen, params=params)
+        exact_match = self._match_exact(column_name)
+        if exact_match:
+            return exact_match
 
-        if column_name in self.EXACT_MATCH_RULES:
-            gen = self.EXACT_MATCH_RULES[column_name]
-            params = self.EXACT_MATCH_PARAMS.get(column_name, {})
-            return GeneratorSpec(generator_name=gen, params=params)
+        pattern_match = self._match_pattern(column_name)
+        if pattern_match:
+            return pattern_match
 
-        for pattern, gen, params in self._custom_pattern_rules:
-            if re.match(pattern, column_name):
-                return GeneratorSpec(generator_name=gen, params=params)
-
-        for pattern, gen, params in self.PATTERN_MATCH_RULES:
-            if re.match(pattern, column_name):
-                return GeneratorSpec(generator_name=gen, params=params)
-
-        if column_info.default is not None or column_info.nullable:
-            if force_type_infer:
-                return self._type_faithful_fallback(column_type)
-            if enrich:
-                return GeneratorSpec(
-                    generator_name="__enrich__",
-                    params={"_default": column_info.default, "_nullable": column_info.nullable},
-                )
-            return GeneratorSpec(generator_name="skip")
+        fallback_spec = self._map_from_default_or_nullable(column_info, column_type, enrich, force_type_infer)
+        if fallback_spec:
+            return fallback_spec
 
         return self._type_faithful_fallback(column_type)
 
     def _type_faithful_fallback(self, column_type: str) -> GeneratorSpec:
-        import re as _re
-
-        length_match = _re.search(r"\((\d+)\)", column_type)
+        length_match = re.search(r"\((\d+)\)", column_type)
         max_length = int(length_match.group(1)) if length_match else None
 
-        base_type = _re.sub(r"\(.*\)", "", column_type).strip()
+        base_type = re.sub(r"\(.*\)", "", column_type).strip()
 
         for type_prefix, (gen, default_params) in self.TYPE_FALLBACK_RULES.items():
             if base_type.startswith(type_prefix):
