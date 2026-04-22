@@ -101,7 +101,14 @@ class TestCLIFill:
         assert result.exit_code != 0
         assert "--count is required" in result.output
 
-    def test_fill_with_config_no_count_ok(self, tmp_db, tmp_path) -> None:
+    @pytest.mark.parametrize(
+        "extra_args",
+        [
+            [],
+            [pytest.param("{db}", "--table", "users", "--provider", "base", id="with_db_table")],
+        ],
+    )
+    def test_fill_with_config(self, tmp_db, tmp_path, extra_args) -> None:
         config_path = tmp_path / "gen.yaml"
         config_data = {
             "db_path": tmp_db,
@@ -110,38 +117,10 @@ class TestCLIFill:
         }
         config_path.write_text(yaml.dump(config_data))
         runner = CliRunner()
-        result = runner.invoke(
-            cli,
-            [
-                "fill",
-                "--config",
-                str(config_path),
-            ],
-        )
-        assert result.exit_code == 0
-
-    def test_fill_with_config(self, tmp_db, tmp_path) -> None:
-        config_path = tmp_path / "gen.yaml"
-        config_data = {
-            "db_path": tmp_db,
-            "provider": "base",
-            "tables": [{"name": "users", "count": 5}],
-        }
-        config_path.write_text(yaml.dump(config_data))
-        runner = CliRunner()
-        result = runner.invoke(
-            cli,
-            [
-                "fill",
-                tmp_db,
-                "--table",
-                "users",
-                "--config",
-                str(config_path),
-                "--provider",
-                "base",
-            ],
-        )
+        args = ["fill", "--config", str(config_path)]
+        for arg in extra_args:
+            args.append(arg.format(db=tmp_db) if "{db}" in arg else arg)
+        result = runner.invoke(cli, args)
         assert result.exit_code == 0
 
     def test_fill_with_transform(self, tmp_path) -> None:
