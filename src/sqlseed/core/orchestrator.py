@@ -62,6 +62,7 @@ class DataOrchestrator:
         provider_name: str = "mimesis",
         locale: str = "en_US",
         optimize_pragma: bool = True,
+        associations: list[Any] | None = None,
     ) -> None:
         self._db_path = db_path
         self._provider_name = provider_name
@@ -69,11 +70,18 @@ class DataOrchestrator:
         self._optimize_pragma = optimize_pragma
 
         db_adapter = self._create_adapter()
+        shared_pool = SharedPool()
         self._core = CoreCtx(
-            db=db_adapter, schema=SchemaInferrer(db_adapter), relation=RelationResolver(db_adapter, SharedPool())
+            db=db_adapter,
+            schema=SchemaInferrer(db_adapter),
+            relation=RelationResolver(db_adapter, shared_pool),
+            shared_pool=shared_pool,
         )
         self._ext = ExtCtx(unique_adjuster=UniqueAdjuster(self._core.mapper))
         self._connected = False
+
+        if associations:
+            self._relation.set_associations(associations)
 
     @property
     def _db(self) -> DatabaseAdapter:
@@ -136,6 +144,7 @@ class DataOrchestrator:
             provider_name=config.provider.value,
             locale=config.locale,
             optimize_pragma=config.optimize_pragma,
+            associations=config.associations if config.associations else None,
         )
 
     def _create_adapter(self) -> DatabaseAdapter:
