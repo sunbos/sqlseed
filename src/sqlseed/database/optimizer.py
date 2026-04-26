@@ -94,7 +94,7 @@ class PragmaOptimizer:
             ):
                 try:
                     self._execute(f"PRAGMA {attr} = {value}")
-                except (sqlite3.OperationalError, sqlite3.DatabaseError, ValueError):
+                except (sqlite3.DatabaseError, ValueError):
                     logger.debug("Failed to restore PRAGMA", attr=attr, value=value)
 
         logger.debug("Restored original PRAGMA config")
