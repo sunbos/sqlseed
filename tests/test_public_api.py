@@ -7,6 +7,7 @@ import yaml
 import sqlseed
 from sqlseed.core.orchestrator import DataOrchestrator
 from sqlseed.core.result import GenerationResult
+from tests._helpers import assert_fk_integrity
 
 
 class TestPublicAPI:
@@ -114,15 +115,11 @@ class TestPublicAPI:
         results = sqlseed.fill_from_config(config_path)
         assert len(results) == 2
 
-        conn = sqlite3.connect(db_path)
-        emp_rows = conn.execute("SELECT dept_id FROM employees").fetchall()
-        dept_rows = conn.execute("SELECT id FROM departments").fetchall()
-        conn.close()
-
-        dept_ids = {r[0] for r in dept_rows}
-        for (dept_id,) in emp_rows:
-            if dept_id is not None:
-                assert dept_id in dept_ids
+        assert_fk_integrity(
+            db_path,
+            "SELECT dept_id FROM employees",
+            "SELECT id FROM departments",
+        )
 
     def test_preview_with_seed(self, tmp_db) -> None:
         rows1 = sqlseed.preview(tmp_db, table="users", count=5, provider="base", seed=42)

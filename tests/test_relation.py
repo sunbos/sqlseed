@@ -9,6 +9,7 @@ from sqlseed.core.mapper import GeneratorSpec
 from sqlseed.core.relation import RelationResolver, SharedPool
 from sqlseed.database._protocol import ForeignKeyInfo
 from sqlseed.database.raw_sqlite_adapter import RawSQLiteAdapter
+from tests._helpers import assert_fk_integrity
 
 
 class _FakeDB:
@@ -246,10 +247,14 @@ class TestNonIdFKDetection:
             ),
             SharedPool(),
         )
-        specs = {"dept_id": GeneratorSpec(generator_name="foreign_key_or_integer")}
+        specs = {"dept_id": GeneratorSpec(
+            generator_name="foreign_key",
+            params={"ref_table": "departments", "ref_column": "id"},
+        )}
         result = resolver.resolve_foreign_keys("employees", specs)
         assert result["dept_id"].generator_name == "foreign_key"
         assert result["dept_id"].params["ref_table"] == "departments"
+        assert result["dept_id"].params["ref_column"] == "id"
 
     def test_no_fk_constraint_not_upgraded(self):
         resolver = RelationResolver(_FakeDB(), SharedPool())
@@ -345,7 +350,8 @@ class TestAutoIncrementPKSharedPool:
 
 
 class TestColumnAssociationConfig:
-    def test_apply_associations_basic(self):
+    @staticmethod
+    def _make_assoc_resolver_and_specs():
         pool = SharedPool()
         resolver = RelationResolver(_FakeDB(column_values=["US", "EU", "APAC"]), pool)
         resolver.set_associations([_FakeAssoc()])
@@ -355,20 +361,16 @@ class TestColumnAssociationConfig:
                 params={"min_length": 2, "max_length": 10},
             )
         }
+        return resolver, specs
+
+    def test_apply_associations_basic(self):
+        resolver, specs = self._make_assoc_resolver_and_specs()
         result = resolver.apply_associations("orders", specs)
         assert result["region"].generator_name == "foreign_key"
         assert result["region"].params["ref_table"] == "__shared_pool__"
 
     def test_apply_associations_source_table_not_affected(self):
-        pool = SharedPool()
-        resolver = RelationResolver(_FakeDB(column_values=["US", "EU", "APAC"]), pool)
-        resolver.set_associations([_FakeAssoc()])
-        specs = {
-            "region": GeneratorSpec(
-                generator_name="string",
-                params={"min_length": 2, "max_length": 10},
-            )
-        }
+        resolver, specs = self._make_assoc_resolver_and_specs()
         result = resolver.apply_associations("regions", specs)
         assert result["region"].generator_name == "string"
 
@@ -455,9 +457,8 @@ class TestColumnAssociationConfig:
         results = sqlseed.fill_from_config(config_path)
         assert len(results) == 2
 
-        conn = sqlite3.connect(db_path)
-        region_codes = {r[0] for r in conn.execute("SELECT code FROM regions").fetchall()}
-        order_regions = {r[0] for r in conn.execute("SELECT region FROM orders WHERE region IS NOT NULL").fetchall()}
-        conn.close()
-
-        assert order_regions.issubset(region_codes)
+        assert_fk_integrity(
+            db_path,
+            "SELECT region FROM orders WHERE region IS NOT NULL",
+            "SELECT code FROM regions",
+        )

@@ -223,6 +223,73 @@ class DataOrchestrator:
             seed=seed,
         )
 
+    def _prepare_specs(
+        self,
+        table_name: str,
+        count: int,
+        columns: dict[str, Any] | None,
+        column_configs: list[Any] | None,
+        enrich: bool,
+        clear_before: bool,
+    ) -> tuple[dict[str, Any], dict[str, Any], set[str]]:
+        if enrich and clear_before:
+            specs, user_configs, unique_columns = self._resolve_specs(
+                table_name, count, columns, column_configs, enrich
+            )
+        if clear_before:
+            self._db.clear_table(table_name)
+        if not (enrich and clear_before):
+            specs, user_configs, unique_columns = self._resolve_specs(
+                table_name, count, columns, column_configs, enrich
+            )
+        if self._plugin_mediator is not None:
+            column_infos = self._schema.get_column_info(table_name)
+            specs = self._plugin_mediator.apply_ai_suggestions(table_name, column_infos, specs)
+            specs = self._plugin_mediator.apply_template_pool(
+                table_name, column_infos, specs, count
+            )
+        return specs, user_configs, unique_columns
+
+    def _generate_and_insert_batches(
+        self,
+        table_name: str,
+        stream: DataStream,
+        count: int,
+        batch_size: int,
+    ) -> tuple[int, int]:
+        total_inserted = 0
+        batch_count = 0
+        progress = create_progress()
+        with progress:
+            task_id = progress.add_task(f"Generating {table_name}", total=count)
+            for batch in stream.generate(count, batch_size):
+                batch_count += 1
+
+                self._plugins.hook.sqlseed_before_insert(
+                    table_name=table_name,
+                    batch_number=batch_count,
+                    batch_size=len(batch),
+                )
+
+                if self._plugin_mediator is not None:
+                    current_batch = self._plugin_mediator.apply_batch_transforms(table_name, batch)
+                else:
+                    current_batch = batch
+
+                inserted = self._db.batch_insert(table_name, iter(current_batch), batch_size)
+                total_inserted += inserted
+
+                self._metrics.record(f"{table_name}.batch_insert", float(inserted))
+
+                self._plugins.hook.sqlseed_after_insert(
+                    table_name=table_name,
+                    batch_number=batch_count,
+                    rows_inserted=inserted,
+                )
+
+                progress.update(task_id, advance=len(batch))
+        return total_inserted, batch_count
+
     def fill_table(
         self,
         table_name: str,
@@ -248,24 +315,9 @@ class DataOrchestrator:
             if self._optimize_pragma:
                 self._db.optimize_for_bulk_write(count)
 
-            if enrich and clear_before:
-                generator_specs, user_configs, unique_columns = self._resolve_specs(
-                    table_name, count, columns, column_configs, enrich
-                )
-
-            if clear_before:
-                self._db.clear_table(table_name)
-
-            if not (enrich and clear_before):
-                generator_specs, user_configs, unique_columns = self._resolve_specs(
-                    table_name, count, columns, column_configs, enrich
-                )
-            if self._plugin_mediator is not None:
-                column_infos = self._schema.get_column_info(table_name)
-                generator_specs = self._plugin_mediator.apply_ai_suggestions(table_name, column_infos, generator_specs)
-                generator_specs = self._plugin_mediator.apply_template_pool(
-                    table_name, column_infos, generator_specs, count
-                )
+            generator_specs, user_configs, unique_columns = self._prepare_specs(
+                table_name, count, columns, column_configs, enrich, clear_before
+            )
 
             stream = self._build_stream(generator_specs, user_configs, unique_columns, transform, seed)
 
@@ -275,35 +327,9 @@ class DataOrchestrator:
                 config=None,
             )
 
-            progress = create_progress()
-            with progress:
-                task_id = progress.add_task(f"Generating {table_name}", total=count)
-                for batch in stream.generate(count, batch_size):
-                    batch_count += 1
-
-                    self._plugins.hook.sqlseed_before_insert(
-                        table_name=table_name,
-                        batch_number=batch_count,
-                        batch_size=len(batch),
-                    )
-
-                    if self._plugin_mediator is not None:
-                        current_batch = self._plugin_mediator.apply_batch_transforms(table_name, batch)
-                    else:
-                        current_batch = batch
-
-                    inserted = self._db.batch_insert(table_name, iter(current_batch), batch_size)
-                    total_inserted += inserted
-
-                    self._metrics.record(f"{table_name}.batch_insert", float(inserted))
-
-                    self._plugins.hook.sqlseed_after_insert(
-                        table_name=table_name,
-                        batch_number=batch_count,
-                        rows_inserted=inserted,
-                    )
-
-                    progress.update(task_id, advance=len(batch))
+            total_inserted, batch_count = self._generate_and_insert_batches(
+                table_name, stream, count, batch_size
+            )
 
         except (ValueError, RuntimeError, OSError, sqlite3.OperationalError) as e:
             logger.error("Failed to fill table", table_name=table_name, error=e)
