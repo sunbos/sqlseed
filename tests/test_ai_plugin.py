@@ -151,7 +151,7 @@ class TestModelSelector:
 
     def test_select_best_free_model_api_failure(self):
         clear_cache()
-        with patch("sqlseed_ai._model_selector.urllib.request.urlopen", side_effect=Exception("Network error")):
+        with patch("sqlseed_ai._model_selector.urllib.request.urlopen", side_effect=OSError("Network error")):
             result = select_best_free_model()
 
         assert result == PREFERRED_FREE_MODELS[0]
@@ -256,7 +256,7 @@ class TestCallLLMFallback:
 
         call_count = 0
 
-        def mock_call_llm_once(self, messages):
+        def mock_call_llm_once(_self, _messages):
             nonlocal call_count
             call_count += 1
             if call_count == 1:

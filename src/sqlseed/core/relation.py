@@ -13,6 +13,20 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
+def _make_fk_pool_spec(col_name: str, pool_values: list[Any], spec: GeneratorSpec) -> GeneratorSpec:
+    return GeneratorSpec(
+        generator_name="foreign_key",
+        params={
+            "ref_table": "__shared_pool__",
+            "ref_column": col_name,
+            "strategy": "random",
+            "_ref_values": pool_values,
+        },
+        null_ratio=spec.null_ratio,
+        provider=spec.provider,
+    )
+
+
 class SharedPool:
     """Cross-table shared value pool for maintaining referential integrity."""
 
@@ -195,7 +209,7 @@ class RelationResolver:
             if col_name not in specs:
                 continue
             spec = specs[col_name]
-            if spec.generator_name in ("foreign_key", "foreign_key_or_integer"):
+            if spec.generator_name in {"foreign_key", "foreign_key_or_integer"}:
                 continue
             fk_info = self.get_fk_info(table_name, col_name)
             if fk_info is None:
@@ -244,7 +258,7 @@ class RelationResolver:
                 continue
 
             spec = specs[col_name]
-            if spec.generator_name in ("foreign_key",):
+            if spec.generator_name in {"foreign_key"}:
                 continue
 
             if not self._shared_pool.has(col_name):
@@ -262,17 +276,7 @@ class RelationResolver:
             if not pool_values:
                 continue
 
-            specs[col_name] = GeneratorSpec(
-                generator_name="foreign_key",
-                params={
-                    "ref_table": "__shared_pool__",
-                    "ref_column": col_name,
-                    "strategy": "random",
-                    "_ref_values": pool_values,
-                },
-                null_ratio=spec.null_ratio,
-                provider=spec.provider,
-            )
+            specs[col_name] = _make_fk_pool_spec(col_name, pool_values, spec)
             logger.debug(
                 "Applied explicit association from config",
                 table_name=table_name,
@@ -301,17 +305,7 @@ class RelationResolver:
             if not pool_values:
                 continue
 
-            specs[col_name] = GeneratorSpec(
-                generator_name="foreign_key",
-                params={
-                    "ref_table": "__shared_pool__",
-                    "ref_column": col_name,
-                    "strategy": "random",
-                    "_ref_values": pool_values,
-                },
-                null_ratio=spec.null_ratio,
-                provider=spec.provider,
-            )
+            specs[col_name] = _make_fk_pool_spec(col_name, pool_values, spec)
             logger.debug(
                 "Resolved implicit association via SharedPool",
                 table_name=table_name,

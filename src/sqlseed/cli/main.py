@@ -355,13 +355,7 @@ def ai_suggest(
     if not HAS_AI_PLUGIN:
         raise click.UsageError("sqlseed-ai plugin is required for this command. Run `pip install sqlseed-ai`.")
 
-    ai_config = AIConfig.from_env()
-    if api_key:
-        ai_config.api_key = api_key
-    if base_url:
-        ai_config.base_url = base_url
-    if model:
-        ai_config.model = model
+    ai_config = AIConfig.from_env().apply_overrides(api_key=api_key, base_url=base_url, model=model)
 
     resolved_model = ai_config.resolve_model()
     click.echo(f"Using AI model: {resolved_model} (via OpenRouter)")

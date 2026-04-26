@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import sqlite3
 from dataclasses import dataclass
 from typing import Any
 
@@ -93,7 +94,7 @@ class PragmaOptimizer:
             ):
                 try:
                     self._execute(f"PRAGMA {attr} = {value}")
-                except Exception:
+                except (sqlite3.OperationalError, sqlite3.DatabaseError, ValueError):
                     logger.debug("Failed to restore PRAGMA", attr=attr, value=value)
 
         logger.debug("Restored original PRAGMA config")

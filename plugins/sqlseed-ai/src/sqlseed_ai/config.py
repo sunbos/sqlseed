@@ -37,3 +37,14 @@ class AIConfig(BaseModel):
         self.model = select_best_free_model()
         logger.info("Auto-selected AI model", model=self.model)
         return self.model
+
+    def apply_overrides(
+        self, *, api_key: str | None = None, base_url: str | None = None, model: str | None = None
+    ) -> AIConfig:
+        if api_key:
+            self.api_key = api_key
+        if base_url:
+            self.base_url = base_url
+        if model:
+            self.model = model
+        return self

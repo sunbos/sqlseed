@@ -39,7 +39,7 @@ def _fetch_available_free_models() -> set[str]:
         req = urllib.request.Request(_OPENROUTER_MODELS_URL)
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode())
-    except Exception as e:
+    except (OSError, ValueError, json.JSONDecodeError, KeyError) as e:
         logger.warning("Failed to fetch OpenRouter models, using fallback", error=str(e))
         return set()
 

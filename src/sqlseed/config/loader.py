@@ -92,7 +92,7 @@ def generate_template(db_path: str, table_name: str | None = None) -> GeneratorC
                         )
                     )
                 conn.close()
-        except Exception:
+        except (OSError, ValueError, ImportError):
             logger.warning("Could not read tables from database", db_path=db_path)
 
     return GeneratorConfig(

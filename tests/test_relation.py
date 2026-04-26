@@ -11,6 +11,38 @@ from sqlseed.database._protocol import ForeignKeyInfo
 from sqlseed.database.raw_sqlite_adapter import RawSQLiteAdapter
 
 
+class _FakeDB:
+    def __init__(self, *, fks=None, column_values=None, primary_keys=None):
+        self._fks = fks or []
+        self._column_values = column_values or []
+        self._primary_keys = primary_keys or []
+
+    def get_foreign_keys(self, _table_name):
+        return self._fks
+
+    def get_column_values(self, _table_name, _column_name, limit=10000):
+        return self._column_values[:limit]
+
+    def get_primary_keys(self, _table_name):
+        return self._primary_keys
+
+
+class _FakeAssoc:
+    def __init__(
+        self,
+        column_name="region",
+        source_table="regions",
+        source_column=None,
+        target_tables=None,
+        strategy="shared_pool",
+    ):
+        self.column_name = column_name
+        self.source_table = source_table
+        self.source_column = source_column
+        self.target_tables = target_tables or ["orders"]
+        self.strategy = strategy
+
+
 class TestRelationResolver:
     def test_get_foreign_keys(self, raw_adapter) -> None:
         resolver = RelationResolver(raw_adapter)
@@ -133,71 +165,42 @@ class TestSharedPool:
 
 class TestRelationResolverFKMethods:
     def test_resolve_foreign_keys_with_fk(self):
-        class FakeDB:
-            def get_foreign_keys(self, _table_name):
-                return [ForeignKeyInfo(column="dept_id", ref_table="departments", ref_column="id")]
-
-            def get_column_values(self, _table_name, _column_name, limit=1000):
-                _ = (self, _table_name, _column_name, limit)
-                return [1, 2, 3]
-
-        resolver = RelationResolver(FakeDB(), SharedPool())
+        resolver = RelationResolver(
+            _FakeDB(
+                fks=[ForeignKeyInfo(column="dept_id", ref_table="departments", ref_column="id")],
+                column_values=[1, 2, 3],
+            ),
+            SharedPool(),
+        )
         specs = {"dept_id": GeneratorSpec(generator_name="foreign_key_or_integer")}
         result = resolver.resolve_foreign_keys("employees", specs)
         assert result["dept_id"].generator_name == "foreign_key"
         assert result["dept_id"].params["ref_table"] == "departments"
 
     def test_resolve_foreign_keys_without_fk(self):
-        class FakeDB:
-            def get_foreign_keys(self, _table_name):
-                _ = (self, _table_name)
-                return []
-
-            def get_column_values(self, _table_name, _column_name, limit=1000):
-                _ = (self, _table_name, _column_name, limit)
-                return []
-
-        resolver = RelationResolver(FakeDB(), SharedPool())
+        resolver = RelationResolver(_FakeDB(), SharedPool())
         specs = {"dept_id": GeneratorSpec(generator_name="foreign_key_or_integer")}
         result = resolver.resolve_foreign_keys("employees", specs)
         assert result["dept_id"].generator_name == "integer"
 
     def test_resolve_implicit_associations(self):
-        class FakeDB:
-            def get_foreign_keys(self, _table_name):
-                return []
-
         pool = SharedPool()
         pool.register("account_id", [10, 20, 30])
-        resolver = RelationResolver(FakeDB(), pool)
+        resolver = RelationResolver(_FakeDB(), pool)
         specs = {"account_id": GeneratorSpec(generator_name="foreign_key_or_integer")}
         result = resolver.resolve_implicit_associations("orders", specs)
         assert result["account_id"].generator_name == "foreign_key"
         assert result["account_id"].params["ref_table"] == "__shared_pool__"
 
     def test_resolve_implicit_associations_empty_pool(self):
-        class FakeDB:
-            def get_foreign_keys(self, _table_name):
-                return []
-
-        resolver = RelationResolver(FakeDB(), SharedPool())
+        resolver = RelationResolver(_FakeDB(), SharedPool())
         specs = {"account_id": GeneratorSpec(generator_name="foreign_key_or_integer")}
         result = resolver.resolve_implicit_associations("orders", specs)
         assert result["account_id"].generator_name == "foreign_key_or_integer"
 
     def test_register_shared_pool(self):
-        class FakeDB:
-            def get_foreign_keys(self, _table_name):
-                return []
-
-            def get_column_values(self, _table_name, _column_name, limit=10000):
-                return ["alice", "bob"][:limit]
-
-            def get_primary_keys(self, _table_name):
-                return ["id"]
-
         pool = SharedPool()
-        resolver = RelationResolver(FakeDB(), pool)
+        resolver = RelationResolver(_FakeDB(column_values=["alice", "bob"], primary_keys=["id"]), pool)
         specs = {
             "name": GeneratorSpec(generator_name="string"),
             "id": GeneratorSpec(generator_name="skip"),
@@ -209,14 +212,13 @@ class TestRelationResolverFKMethods:
 
 class TestNonIdFKDetection:
     def test_fk_constraint_on_non_id_column_upgraded(self):
-        class FakeDB:
-            def get_foreign_keys(self, _table_name):
-                return [ForeignKeyInfo(column="category", ref_table="categories", ref_column="id")]
-
-            def get_column_values(self, _table_name, _column_name, limit=1000):
-                return [1, 2, 3]
-
-        resolver = RelationResolver(FakeDB(), SharedPool())
+        resolver = RelationResolver(
+            _FakeDB(
+                fks=[ForeignKeyInfo(column="category", ref_table="categories", ref_column="id")],
+                column_values=[1, 2, 3],
+            ),
+            SharedPool(),
+        )
         specs = {"category": GeneratorSpec(generator_name="integer", params={"min_value": 1, "max_value": 999999})}
         result = resolver.resolve_foreign_keys("products", specs)
         assert result["category"].generator_name == "foreign_key"
@@ -224,42 +226,33 @@ class TestNonIdFKDetection:
         assert result["category"].params["ref_column"] == "id"
 
     def test_fk_constraint_on_string_column_upgraded(self):
-        class FakeDB:
-            def get_foreign_keys(self, _table_name):
-                return [ForeignKeyInfo(column="department", ref_table="departments", ref_column="code")]
-
-            def get_column_values(self, _table_name, _column_name, limit=1000):
-                return ["ENG", "SALES", "HR"]
-
-        resolver = RelationResolver(FakeDB(), SharedPool())
+        resolver = RelationResolver(
+            _FakeDB(
+                fks=[ForeignKeyInfo(column="department", ref_table="departments", ref_column="code")],
+                column_values=["ENG", "SALES", "HR"],
+            ),
+            SharedPool(),
+        )
         specs = {"department": GeneratorSpec(generator_name="string", params={"min_length": 3, "max_length": 10})}
         result = resolver.resolve_foreign_keys("employees", specs)
         assert result["department"].generator_name == "foreign_key"
         assert result["department"].params["ref_table"] == "departments"
 
     def test_already_foreign_key_not_overridden(self):
-        class FakeDB:
-            def get_foreign_keys(self, _table_name):
-                return [ForeignKeyInfo(column="dept_id", ref_table="departments", ref_column="id")]
-
-            def get_column_values(self, _table_name, _column_name, limit=1000):
-                return [1, 2, 3]
-
-        resolver = RelationResolver(FakeDB(), SharedPool())
+        resolver = RelationResolver(
+            _FakeDB(
+                fks=[ForeignKeyInfo(column="dept_id", ref_table="departments", ref_column="id")],
+                column_values=[1, 2, 3],
+            ),
+            SharedPool(),
+        )
         specs = {"dept_id": GeneratorSpec(generator_name="foreign_key_or_integer")}
         result = resolver.resolve_foreign_keys("employees", specs)
         assert result["dept_id"].generator_name == "foreign_key"
         assert result["dept_id"].params["ref_table"] == "departments"
 
     def test_no_fk_constraint_not_upgraded(self):
-        class FakeDB:
-            def get_foreign_keys(self, _table_name):
-                return []
-
-            def get_column_values(self, _table_name, _column_name, limit=1000):
-                return []
-
-        resolver = RelationResolver(FakeDB(), SharedPool())
+        resolver = RelationResolver(_FakeDB(), SharedPool())
         specs = {"category": GeneratorSpec(generator_name="integer", params={"min_value": 1, "max_value": 999999})}
         result = resolver.resolve_foreign_keys("products", specs)
         assert result["category"].generator_name == "integer"
@@ -289,18 +282,8 @@ class TestNonIdFKDetection:
 
 class TestAutoIncrementPKSharedPool:
     def test_pk_values_registered_to_shared_pool(self):
-        class FakeDB:
-            def get_foreign_keys(self, _table_name):
-                return []
-
-            def get_column_values(self, _table_name, _column_name, limit=10000):
-                return [1, 2, 3, 4, 5][:limit]
-
-            def get_primary_keys(self, _table_name):
-                return ["id"]
-
         pool = SharedPool()
-        resolver = RelationResolver(FakeDB(), pool)
+        resolver = RelationResolver(_FakeDB(column_values=[1, 2, 3, 4, 5], primary_keys=["id"]), pool)
         specs = {
             "id": GeneratorSpec(generator_name="skip"),
             "name": GeneratorSpec(generator_name="string"),
@@ -310,18 +293,8 @@ class TestAutoIncrementPKSharedPool:
         assert pool.get("id") == [1, 2, 3, 4, 5]
 
     def test_non_pk_skip_column_not_registered(self):
-        class FakeDB:
-            def get_foreign_keys(self, _table_name):
-                return []
-
-            def get_column_values(self, _table_name, _column_name, limit=10000):
-                return ["val1", "val2"][:limit]
-
-            def get_primary_keys(self, _table_name):
-                return ["id"]
-
         pool = SharedPool()
-        resolver = RelationResolver(FakeDB(), pool)
+        resolver = RelationResolver(_FakeDB(column_values=["val1", "val2"], primary_keys=["id"]), pool)
         specs = {
             "id": GeneratorSpec(generator_name="skip"),
             "status": GeneratorSpec(generator_name="skip"),
@@ -373,24 +346,9 @@ class TestAutoIncrementPKSharedPool:
 
 class TestColumnAssociationConfig:
     def test_apply_associations_basic(self):
-        class FakeAssoc:
-            def __init__(self) -> None:
-                self.column_name = "region"
-                self.source_table = "regions"
-                self.source_column = None
-                self.target_tables = ["orders"]
-                self.strategy = "shared_pool"
-
-        class FakeDB:
-            def get_foreign_keys(self, _table_name):
-                return []
-
-            def get_column_values(self, _table_name, _column_name, limit=10000):
-                return ["US", "EU", "APAC"]
-
         pool = SharedPool()
-        resolver = RelationResolver(FakeDB(), pool)
-        resolver.set_associations([FakeAssoc()])
+        resolver = RelationResolver(_FakeDB(column_values=["US", "EU", "APAC"]), pool)
+        resolver.set_associations([_FakeAssoc()])
         specs = {
             "region": GeneratorSpec(
                 generator_name="string",
@@ -402,24 +360,9 @@ class TestColumnAssociationConfig:
         assert result["region"].params["ref_table"] == "__shared_pool__"
 
     def test_apply_associations_source_table_not_affected(self):
-        class FakeAssoc:
-            def __init__(self) -> None:
-                self.column_name = "region"
-                self.source_table = "regions"
-                self.source_column = None
-                self.target_tables = ["orders"]
-                self.strategy = "shared_pool"
-
-        class FakeDB:
-            def get_foreign_keys(self, _table_name):
-                return []
-
-            def get_column_values(self, _table_name, _column_name, limit=10000):
-                return ["US", "EU", "APAC"]
-
         pool = SharedPool()
-        resolver = RelationResolver(FakeDB(), pool)
-        resolver.set_associations([FakeAssoc()])
+        resolver = RelationResolver(_FakeDB(column_values=["US", "EU", "APAC"]), pool)
+        resolver.set_associations([_FakeAssoc()])
         specs = {
             "region": GeneratorSpec(
                 generator_name="string",
@@ -430,24 +373,11 @@ class TestColumnAssociationConfig:
         assert result["region"].generator_name == "string"
 
     def test_apply_associations_already_foreign_key_skipped(self):
-        class FakeAssoc:
-            def __init__(self) -> None:
-                self.column_name = "dept_id"
-                self.source_table = "departments"
-                self.source_column = None
-                self.target_tables = ["employees"]
-                self.strategy = "shared_pool"
-
-        class FakeDB:
-            def get_foreign_keys(self, _table_name):
-                return []
-
-            def get_column_values(self, _table_name, _column_name, limit=10000):
-                return [1, 2, 3]
-
         pool = SharedPool()
-        resolver = RelationResolver(FakeDB(), pool)
-        resolver.set_associations([FakeAssoc()])
+        resolver = RelationResolver(_FakeDB(column_values=[1, 2, 3]), pool)
+        resolver.set_associations(
+            [_FakeAssoc(column_name="dept_id", source_table="departments", target_tables=["employees"])]
+        )
         specs = {
             "dept_id": GeneratorSpec(
                 generator_name="foreign_key",
@@ -462,20 +392,8 @@ class TestColumnAssociationConfig:
         assert result["dept_id"].params["ref_table"] == "departments"
 
     def test_associations_in_topological_sort(self):
-        class FakeAssoc:
-            def __init__(self) -> None:
-                self.column_name = "region"
-                self.source_table = "regions"
-                self.source_column = None
-                self.target_tables = ["orders"]
-                self.strategy = "shared_pool"
-
-        class FakeDB:
-            def get_foreign_keys(self, _table_name):
-                return []
-
-        resolver = RelationResolver(FakeDB(), SharedPool())
-        resolver.set_associations([FakeAssoc()])
+        resolver = RelationResolver(_FakeDB(), SharedPool())
+        resolver.set_associations([_FakeAssoc()])
         order = resolver.topological_sort(["orders", "regions"])
         assert order.index("regions") < order.index("orders")
 

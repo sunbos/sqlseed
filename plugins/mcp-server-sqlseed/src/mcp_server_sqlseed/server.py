@@ -120,13 +120,7 @@ def sqlseed_generate_yaml(
     with DataOrchestrator(db_path) as orch:
         _validate_table_name(table_name, orch.get_table_names())
 
-    ai_config = AIConfig.from_env()
-    if api_key:
-        ai_config.api_key = api_key
-    if base_url:
-        ai_config.base_url = base_url
-    if model:
-        ai_config.model = model
+    ai_config = AIConfig.from_env().apply_overrides(api_key=api_key, base_url=base_url, model=model)
 
     ai_config.resolve_model()
 
