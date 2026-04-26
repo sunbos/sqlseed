@@ -7,7 +7,7 @@ import yaml
 import sqlseed
 from sqlseed.core.orchestrator import DataOrchestrator
 from sqlseed.core.result import GenerationResult
-from tests._helpers import assert_fk_integrity
+from tests._helpers import fill_from_config_and_verify_fk
 
 
 class TestPublicAPI:
@@ -108,18 +108,14 @@ class TestPublicAPI:
                 },
             ],
         }
-        config_path = str(tmp_path / "config.yaml")
-        with open(config_path, "w", encoding="utf-8") as f:
-            yaml.dump(config_data, f)
-
-        results = sqlseed.fill_from_config(config_path)
-        assert len(results) == 2
-
-        assert_fk_integrity(
+        results = fill_from_config_and_verify_fk(
             db_path,
+            config_data,
+            str(tmp_path),
             "SELECT dept_id FROM employees",
             "SELECT id FROM departments",
         )
+        assert len(results) == 2
 
     def test_preview_with_seed(self, tmp_db) -> None:
         rows1 = sqlseed.preview(tmp_db, table="users", count=5, provider="base", seed=42)

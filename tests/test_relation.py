@@ -2,14 +2,12 @@ from __future__ import annotations
 
 import sqlite3
 
-import yaml
-
 import sqlseed
 from sqlseed.core.mapper import GeneratorSpec
 from sqlseed.core.relation import RelationResolver, SharedPool
 from sqlseed.database._protocol import ForeignKeyInfo
 from sqlseed.database.raw_sqlite_adapter import RawSQLiteAdapter
-from tests._helpers import assert_fk_integrity
+from tests._helpers import fill_from_config_and_verify_fk
 
 
 class _FakeDB:
@@ -42,6 +40,16 @@ class _FakeAssoc:
         self.source_column = source_column
         self.target_tables = target_tables or ["orders"]
         self.strategy = strategy
+
+
+def _make_resolver_with_dept_fk():
+    return RelationResolver(
+        _FakeDB(
+            fks=[ForeignKeyInfo(column="dept_id", ref_table="departments", ref_column="id")],
+            column_values=[1, 2, 3],
+        ),
+        SharedPool(),
+    )
 
 
 class TestRelationResolver:
@@ -166,13 +174,7 @@ class TestSharedPool:
 
 class TestRelationResolverFKMethods:
     def test_resolve_foreign_keys_with_fk(self):
-        resolver = RelationResolver(
-            _FakeDB(
-                fks=[ForeignKeyInfo(column="dept_id", ref_table="departments", ref_column="id")],
-                column_values=[1, 2, 3],
-            ),
-            SharedPool(),
-        )
+        resolver = _make_resolver_with_dept_fk()
         specs = {"dept_id": GeneratorSpec(generator_name="foreign_key_or_integer")}
         result = resolver.resolve_foreign_keys("employees", specs)
         assert result["dept_id"].generator_name == "foreign_key"
@@ -240,17 +242,13 @@ class TestNonIdFKDetection:
         assert result["department"].params["ref_table"] == "departments"
 
     def test_already_foreign_key_not_overridden(self):
-        resolver = RelationResolver(
-            _FakeDB(
-                fks=[ForeignKeyInfo(column="dept_id", ref_table="departments", ref_column="id")],
-                column_values=[1, 2, 3],
-            ),
-            SharedPool(),
-        )
-        specs = {"dept_id": GeneratorSpec(
-            generator_name="foreign_key",
-            params={"ref_table": "departments", "ref_column": "id"},
-        )}
+        resolver = _make_resolver_with_dept_fk()
+        specs = {
+            "dept_id": GeneratorSpec(
+                generator_name="foreign_key",
+                params={"ref_table": "departments", "ref_column": "id"},
+            )
+        }
         result = resolver.resolve_foreign_keys("employees", specs)
         assert result["dept_id"].generator_name == "foreign_key"
         assert result["dept_id"].params["ref_table"] == "departments"
@@ -450,15 +448,11 @@ class TestColumnAssociationConfig:
                 },
             ],
         }
-        config_path = str(tmp_path / "config.yaml")
-        with open(config_path, "w", encoding="utf-8") as f:
-            yaml.dump(config_data, f)
-
-        results = sqlseed.fill_from_config(config_path)
-        assert len(results) == 2
-
-        assert_fk_integrity(
+        results = fill_from_config_and_verify_fk(
             db_path,
+            config_data,
+            str(tmp_path),
             "SELECT region FROM orders WHERE region IS NOT NULL",
             "SELECT code FROM regions",
         )
+        assert len(results) == 2

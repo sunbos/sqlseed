@@ -245,9 +245,7 @@ class DataOrchestrator:
         if self._plugin_mediator is not None:
             column_infos = self._schema.get_column_info(table_name)
             specs = self._plugin_mediator.apply_ai_suggestions(table_name, column_infos, specs)
-            specs = self._plugin_mediator.apply_template_pool(
-                table_name, column_infos, specs, count
-            )
+            specs = self._plugin_mediator.apply_template_pool(table_name, column_infos, specs, count)
         return specs, user_configs, unique_columns
 
     def _generate_and_insert_batches(
@@ -327,9 +325,7 @@ class DataOrchestrator:
                 config=None,
             )
 
-            total_inserted, batch_count = self._generate_and_insert_batches(
-                table_name, stream, count, batch_size
-            )
+            total_inserted, batch_count = self._generate_and_insert_batches(table_name, stream, count, batch_size)
 
         except (ValueError, RuntimeError, OSError, sqlite3.OperationalError) as e:
             logger.error("Failed to fill table", table_name=table_name, error=e)

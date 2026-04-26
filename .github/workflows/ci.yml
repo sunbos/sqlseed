@@ -25,10 +25,10 @@ jobs:
           pip install -e ".[all,dev]"
 
       - name: Lint
-        run: ruff check src/ tests/
+        run: ruff check src/ tests/ plugins/
 
       - name: Format check
-        run: ruff format --check src/ tests/
+        run: ruff format --check src/ tests/ plugins/
 
       - name: Type check
         run: mypy

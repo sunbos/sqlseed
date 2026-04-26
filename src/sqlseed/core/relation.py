@@ -228,11 +228,11 @@ class RelationResolver:
             if spec.generator_name == "foreign_key_or_integer":
                 specs[col_name] = self._resolve_fk_or_integer_spec(table_name, col_name, spec)
             elif spec.generator_name == "foreign_key" and "ref_table" in spec.params:
-                    ref_values = self._db.get_column_values(
-                        spec.params["ref_table"],
-                        spec.params["ref_column"],
-                    )
-                    spec.params["_ref_values"] = ref_values
+                ref_values = self._db.get_column_values(
+                    spec.params["ref_table"],
+                    spec.params["ref_column"],
+                )
+                spec.params["_ref_values"] = ref_values
 
         self._upgrade_fk_constrained_columns(table_name, specs, fk_columns)
 
