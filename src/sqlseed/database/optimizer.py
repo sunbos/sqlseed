@@ -91,7 +91,10 @@ class PragmaOptimizer:
             if value is not None and (
                 isinstance(value, (int, float)) or (isinstance(value, str) and re.match(r"^[a-zA-Z0-9_-]+$", value))
             ):
-                self._execute(f"PRAGMA {attr} = {value}")
+                try:
+                    self._execute(f"PRAGMA {attr} = {value}")
+                except Exception:
+                    logger.debug("Failed to restore PRAGMA", attr=attr, value=value)
 
         logger.debug("Restored original PRAGMA config")
         self._original = None

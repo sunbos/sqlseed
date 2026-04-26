@@ -13,6 +13,7 @@ from sqlseed.core.orchestrator import DataOrchestrator
 
 try:
     from sqlseed_ai.analyzer import SchemaAnalyzer
+    from sqlseed_ai.config import AIConfig
     from sqlseed_ai.refiner import AiConfigRefiner, AISuggestionFailedError
 
     _AI_AVAILABLE = True
@@ -29,6 +30,8 @@ def _validate_db_path(db_path: str) -> str:
     valid_exts = (".db", ".sqlite", ".sqlite3")
     if not str(resolved).endswith(valid_exts):
         raise ValueError(f"Invalid database path: {db_path}. Must be a .db, .sqlite, or .sqlite3 file.")
+    if not resolved.exists():
+        raise ValueError(f"Database file not found: {db_path}")
     return str(resolved)
 
 
@@ -100,7 +103,14 @@ def sqlseed_inspect_schema(db_path: str, table_name: str | None = None) -> dict[
 
 
 @mcp.tool()
-def sqlseed_generate_yaml(db_path: str, table_name: str, max_retries: int = 3) -> str:
+def sqlseed_generate_yaml(
+    db_path: str,
+    table_name: str,
+    max_retries: int = 3,
+    api_key: str | None = None,
+    base_url: str | None = None,
+    model: str | None = None,
+) -> str:
     """Generate YAML config for a table using AI analysis with self-correction.
     Returns YAML string for human review. Requires sqlseed-ai plugin and API key."""
     if not _AI_AVAILABLE:
@@ -110,7 +120,17 @@ def sqlseed_generate_yaml(db_path: str, table_name: str, max_retries: int = 3) -
     with DataOrchestrator(db_path) as orch:
         _validate_table_name(table_name, orch.get_table_names())
 
-    analyzer = SchemaAnalyzer()
+    ai_config = AIConfig.from_env()
+    if api_key:
+        ai_config.api_key = api_key
+    if base_url:
+        ai_config.base_url = base_url
+    if model:
+        ai_config.model = model
+
+    ai_config.resolve_model()
+
+    analyzer = SchemaAnalyzer(config=ai_config)
     refiner = AiConfigRefiner(analyzer, db_path)
 
     try:

@@ -96,7 +96,7 @@ class TestSummarizeError:
 
 class TestAiConfigRefiner:
     def _make_refiner(self, tmp_path, _llm_side_effect=None):
-        analyzer = SchemaAnalyzer(config=AIConfig(api_key="test-key"))
+        analyzer = SchemaAnalyzer(config=AIConfig(api_key="test-key", model="test-model"))
         return AiConfigRefiner(
             analyzer,
             str(tmp_path / "test.db"),

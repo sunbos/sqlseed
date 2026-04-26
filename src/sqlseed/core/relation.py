@@ -156,6 +156,25 @@ class RelationResolver:
                         provider=spec.provider,
                     )
                     specs[col_name] = new_spec
+                elif self._shared_pool.has(col_name):
+                    pool_values = self._shared_pool.get(col_name)
+                    specs[col_name] = GeneratorSpec(
+                        generator_name="foreign_key",
+                        params={
+                            "ref_table": "__shared_pool__",
+                            "ref_column": col_name,
+                            "strategy": "random",
+                            "_ref_values": pool_values,
+                        },
+                        null_ratio=spec.null_ratio,
+                        provider=spec.provider,
+                    )
+                    logger.debug(
+                        "Resolved implicit association via SharedPool",
+                        table_name=table_name,
+                        column_name=col_name,
+                        pool_size=len(pool_values),
+                    )
                 else:
                     specs[col_name] = GeneratorSpec(
                         generator_name="integer",
@@ -215,6 +234,7 @@ class RelationResolver:
         for assoc in self._associations:
             col_name = assoc.column_name
             source_table = assoc.source_table
+            source_col = assoc.source_column or assoc.column_name
             target_tables = assoc.target_tables
 
             if table_name not in target_tables:
@@ -228,10 +248,15 @@ class RelationResolver:
                 continue
 
             if not self._shared_pool.has(col_name):
-                with contextlib.suppress(ValueError, OSError, RuntimeError, sqlite3.OperationalError):
-                    values = self._db.get_column_values(source_table, col_name, limit=10000)
-                    if values:
-                        self._shared_pool.merge(col_name, values)
+                if self._shared_pool.has(source_col):
+                    pool_values = self._shared_pool.get(source_col)
+                    if pool_values:
+                        self._shared_pool.merge(col_name, pool_values)
+                else:
+                    with contextlib.suppress(ValueError, OSError, RuntimeError, sqlite3.OperationalError):
+                        values = self._db.get_column_values(source_table, source_col, limit=10000)
+                        if values:
+                            self._shared_pool.merge(col_name, values)
 
             pool_values = self._shared_pool.get(col_name)
             if not pool_values:

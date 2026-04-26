@@ -248,12 +248,18 @@ class DataOrchestrator:
             if self._optimize_pragma:
                 self._db.optimize_for_bulk_write(count)
 
+            if enrich and clear_before:
+                generator_specs, user_configs, unique_columns = self._resolve_specs(
+                    table_name, count, columns, column_configs, enrich
+                )
+
             if clear_before:
                 self._db.clear_table(table_name)
 
-            generator_specs, user_configs, unique_columns = self._resolve_specs(
-                table_name, count, columns, column_configs, enrich
-            )
+            if not (enrich and clear_before):
+                generator_specs, user_configs, unique_columns = self._resolve_specs(
+                    table_name, count, columns, column_configs, enrich
+                )
             if self._plugin_mediator is not None:
                 column_infos = self._schema.get_column_info(table_name)
                 generator_specs = self._plugin_mediator.apply_ai_suggestions(table_name, column_infos, generator_specs)

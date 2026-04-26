@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 from typing import TYPE_CHECKING, Any
 
 from sqlseed._utils.logger import get_logger
@@ -134,7 +135,8 @@ class SQLiteUtilsAdapter(BaseSQLiteAdapter):
         validate_table_name(table_name)
         safe_table = quote_identifier(table_name)
         self._db.execute(f"DELETE FROM {safe_table}")
-        self._db.execute(f"DELETE FROM sqlite_sequence WHERE name = {safe_table}")
+        with contextlib.suppress(Exception):
+            self._db.execute(f"DELETE FROM sqlite_sequence WHERE name = {safe_table}")
         logger.debug("Cleared table", table_name=table_name)
 
     def _execute_pragma(self, sql: str) -> None:
@@ -143,3 +145,8 @@ class SQLiteUtilsAdapter(BaseSQLiteAdapter):
     def _fetch_pragma(self, name: str) -> Any:
         result = self._db.execute(f"PRAGMA {name}").fetchone()
         return result[0] if result else None
+
+    def restore_settings(self) -> None:
+        self._db.conn.commit()
+        super().restore_settings()
+        self._db.conn.commit()

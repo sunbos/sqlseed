@@ -377,6 +377,7 @@ class TestColumnAssociationConfig:
             def __init__(self) -> None:
                 self.column_name = "region"
                 self.source_table = "regions"
+                self.source_column = None
                 self.target_tables = ["orders"]
                 self.strategy = "shared_pool"
 
@@ -405,6 +406,7 @@ class TestColumnAssociationConfig:
             def __init__(self) -> None:
                 self.column_name = "region"
                 self.source_table = "regions"
+                self.source_column = None
                 self.target_tables = ["orders"]
                 self.strategy = "shared_pool"
 
@@ -432,6 +434,7 @@ class TestColumnAssociationConfig:
             def __init__(self) -> None:
                 self.column_name = "dept_id"
                 self.source_table = "departments"
+                self.source_column = None
                 self.target_tables = ["employees"]
                 self.strategy = "shared_pool"
 
@@ -463,6 +466,7 @@ class TestColumnAssociationConfig:
             def __init__(self) -> None:
                 self.column_name = "region"
                 self.source_table = "regions"
+                self.source_column = None
                 self.target_tables = ["orders"]
                 self.strategy = "shared_pool"
 

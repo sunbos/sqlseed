@@ -241,6 +241,8 @@ result = sqlseed.fill(
     locale="zh_CN",          # 中文地区
     seed=42,                 # 固定种子，确保结果可重复
     clear_before=True,       # 生成前清空表
+    enrich=True,             # 从现有数据推断分布（如枚举列、值范围）
+    transform="./transform_users.py",  # 每行生成后执行自定义变换
 )
 print(result)
 ```
@@ -306,6 +308,33 @@ with sqlseed.connect("app.db", provider="mimesis", locale="zh_CN") as db:
 ```
 
 > **💡 提示**：如果两张表之间有同名列（如 `account_id`），即使没有声明外键约束，sqlseed 也会通过 **SharedPool 隐式关联机制**自动维持跨表一致性。
+
+#### 显式跨表关联（ColumnAssociation）
+
+当目标列名与源列名不同（如 `department_id` → `id`），或没有 FK 约束但需要关联时，可以通过 `associations` 配置显式声明：
+
+```yaml
+db_path: "app.db"
+provider: mimesis
+
+tables:
+  - name: departments
+    count: 5
+    clear_before: true
+  - name: employees
+    count: 20
+    clear_before: true
+
+associations:
+  - column_name: department_id     # 目标表中的列名
+    source_table: departments      # 提供值的源表
+    source_column: id              # 源表中的列名（默认等于 column_name）
+    target_tables:                 # 使用此关联的目标表列表
+      - employees
+    strategy: shared_pool          # 关联策略
+```
+
+这样即使 `employees` 表没有 `FOREIGN KEY (department_id) REFERENCES departments(id)` 约束，`department_id` 的值也会来自 `departments.id`。
 
 ***
 
@@ -507,6 +536,8 @@ tables:
 
 ```python
 rows = sqlseed.preview("app.db", table="users", count=5, seed=42)
+# 也可以使用 enrich 和 transform 参数
+rows = sqlseed.preview("app.db", table="users", count=5, seed=42, enrich=True)
 for row in rows:
     print(row)
 # → {'name': '张伟', 'email': 'zhangwei@example.com', 'age': 32, ...}
@@ -586,8 +617,8 @@ sqlseed ai-suggest app.db --table bank_cards --output bank_cards.yaml
 # 带自纠正的 AI 建议（默认 3 轮修正）
 sqlseed ai-suggest app.db --table bank_cards --output bank_cards.yaml --verify
 
-# 指定模型
-sqlseed ai-suggest app.db --table bank_cards --output bank_cards.yaml --model gpt-4o
+# 指定模型（默认自动选择最受欢迎的免费模型）
+sqlseed ai-suggest app.db --table bank_cards --output bank_cards.yaml --model nvidia/nemotron-3-super-120b-a12b:free
 
 # 跳过缓存
 sqlseed ai-suggest app.db --table bank_cards --output bank_cards.yaml --no-cache
@@ -604,7 +635,7 @@ sqlseed ai-suggest app.db --table bank_cards --output bank_cards.yaml --no-cache
 6. 最多 3 轮自纠正，输出经过验证的 YAML 配置
 ```
 
-> **💡 环境变量**：支持 `SQLSEED_AI_API_KEY`、`SQLSEED_AI_BASE_URL`、`SQLSEED_AI_MODEL`。默认模型为 `qwen3-coder-plus`。
+> **💡 环境变量**：支持 `SQLSEED_AI_API_KEY`、`SQLSEED_AI_BASE_URL`、`SQLSEED_AI_MODEL`。也支持 `OPENAI_API_KEY` / `OPENAI_BASE_URL` 作为回退。默认自动选择 OpenRouter 最受欢迎的免费模型（base_url `https://openrouter.ai/api/v1`），只需设置 API Key 即可零成本使用。如需指定模型，可通过 `--model` 参数或 `SQLSEED_AI_MODEL` 环境变量设置。
 
 ***
 
@@ -626,8 +657,8 @@ python -m mcp_server_sqlseed
 | :---------- | :---------------------------------------- | :----------------------------------- |
 | 📖 Resource | `sqlseed://schema/{db_path}/{table_name}` | 获取表 Schema 的 JSON 表示                 |
 | 🔍 Tool     | `sqlseed_inspect_schema`                  | 检查 Schema（列、外键、索引、样本数据、schema\_hash） |
-| 🤖 Tool     | `sqlseed_generate_yaml`                   | AI 驱动的 YAML 配置生成（含自纠正）               |
-| ⚡ Tool      | `sqlseed_execute_fill`                    | 执行数据生成（支持 YAML 配置字符串）                |
+| 🤖 Tool     | `sqlseed_generate_yaml`                   | AI 驱动的 YAML 配置生成（含自纠正）。支持 `api_key`/`base_url`/`model` 参数覆盖环境变量 |
+| ⚡ Tool      | `sqlseed_execute_fill`                    | 执行数据生成（支持 YAML 配置字符串，含 `enrich` 选项）  |
 
 这意味着你可以在 AI 助手中说：
 
@@ -715,6 +746,7 @@ sqlseed fill app.db -t users -n 100000 \
     --seed 42 \
     --batch-size 10000 \
     --clear \
+    --enrich \
     --snapshot
 
 # YAML 配置驱动（count 来自配置文件）
@@ -755,7 +787,17 @@ sqlseed replay snapshots/2026-04-15_users.yaml
 
 # AI 建议（需安装 sqlseed-ai）
 sqlseed ai-suggest app.db -t users -o users.yaml
-sqlseed ai-suggest app.db -t users -o users.yaml --model gpt-4o --verify
+sqlseed ai-suggest app.db -t users -o users.yaml --verify
+
+# 指定 API 配置
+sqlseed ai-suggest app.db -t users -o users.yaml --api-key sk-xxx --base-url https://api.openai.com/v1
+
+# 控制自纠正
+sqlseed ai-suggest app.db -t users -o users.yaml --max-retries 0   # 禁用自纠正
+sqlseed ai-suggest app.db -t users -o users.yaml --no-verify       # 跳过验证
+
+# 跳过缓存
+sqlseed ai-suggest app.db -t users -o users.yaml --no-cache
 ```
 
 ***
@@ -765,32 +807,32 @@ sqlseed ai-suggest app.db -t users -o users.yaml --model gpt-4o --verify
 sqlseed 的核心亮点之一是 `ColumnMapper` 的 9 级策略链。每一列都会按以下优先级尝试匹配：
 
 ```
-Level 1 │ 用户配置          columns={"email": "email"} 最高优先级
+Level 1 │ 自增主键          PK + AUTOINCREMENT / INTEGER → skip
         ▼
-Level 2 │ 自定义精确匹配    通过插件 Hook 注册的规则
+Level 2 │ 用户配置          columns={"email": "email"} 最高优先级
         ▼
-Level 3 │ 内置精确匹配      68 条规则：email→email, phone→phone, age→integer...
+Level 3 │ 自定义精确匹配    通过插件 Hook 注册的规则
         ▼
-Level 4 │ DEFAULT 检查      有默认值 → skip（精确匹配优先于 DEFAULT）
+Level 4 │ 内置精确匹配      67 条规则：email→email, phone→phone, age→integer...
         ▼
-Level 5 │ 自定义模式匹配    通过插件 Hook 注册的正则规则
+Level 5 │ DEFAULT 检查      有默认值 → skip / __enrich__（enrich=True 时生成数据）
         ▼
-Level 6 │ 内置模式匹配      25 条正则：*_at→datetime, *_id→foreign_key, is_*→boolean...
+Level 6 │ 自定义模式匹配    通过插件 Hook 注册的正则规则
         ▼
-Level 7 │ NULLABLE 回退     可 NULL → skip
+Level 7 │ 内置模式匹配      25 条正则：*_at→datetime, *_id→foreign_key, is_*→boolean...
         ▼
-Level 8 │ 类型忠实回退      VARCHAR(32)→最长32字符, INT8→0~255, BLOB(1024)→1024字节
+Level 8 │ NULLABLE 回退     可 NULL → skip / __enrich__
         ▼
-Level 9 │ 默认              string (min=5, max=50)
+Level 9 │ 类型忠实回退      VARCHAR(32)→最长32字符, INT8→0~255, BLOB(1024)→1024字节
 ```
 
 这意味着：
 
-- 列名 `user_email` → Level 6 模式匹配 `*_email` → `email` 生成器 ✅
-- 列名 `is_verified` → Level 6 模式匹配 `is_*` → `boolean` 生成器 ✅
-- 列类型 `VARCHAR(20)` → Level 8 类型回退 → 最长 20 字符的字符串 ✅
-- 列有 `DEFAULT 1` → Level 4 → 跳过生成 ✅
-- 列名 `gender` 有 `DEFAULT 'male'` → Level 3 精确匹配 → `choice` 生成器（精确匹配优先于 DEFAULT）✅
+- 列名 `user_email` → Level 7 模式匹配 `*_email` → `email` 生成器 ✅
+- 列名 `is_verified` → Level 7 模式匹配 `is_*` → `boolean` 生成器 ✅
+- 列类型 `VARCHAR(20)` → Level 9 类型回退 → 最长 20 字符的字符串 ✅
+- 列有 `DEFAULT 1` → Level 5 → 跳过生成 ✅
+- 列名 `gender` 有 `DEFAULT 'male'` → Level 4 精确匹配 → `choice` 生成器（精确匹配优先于 DEFAULT）✅
 
 ***
 

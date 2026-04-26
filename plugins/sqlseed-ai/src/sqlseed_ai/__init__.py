@@ -26,7 +26,11 @@ class AISqlseedPlugin:
 
     def _get_analyzer(self) -> SchemaAnalyzer:
         if self._analyzer is None:
-            self._analyzer = SchemaAnalyzer()
+            from sqlseed_ai.config import AIConfig  # noqa: PLC0415
+
+            config = AIConfig.from_env()
+            config.resolve_model()
+            self._analyzer = SchemaAnalyzer(config=config)
         return self._analyzer
 
     def _is_simple_column(self, column_name: str, column_type: str) -> bool:

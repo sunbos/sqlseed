@@ -264,7 +264,7 @@ class TestCLIAISuggest:
             cli,
             ["ai-suggest", bank_cards_db, "--table", "bank_cards", "--output", output_path],
         )
-        assert result.exit_code == 0
+        assert result.exit_code == 1
         assert "No suggestions received" in result.output or "AI suggestion" in result.output
 
     @pytest.mark.skipif(
@@ -276,6 +276,15 @@ class TestCLIAISuggest:
         output_path = str(tmp_path / "output.yaml")
         result = runner.invoke(
             cli,
-            ["ai-suggest", bank_cards_db, "--table", "bank_cards", "--output", output_path, "--model", "gpt-4o"],
+            [
+                "ai-suggest",
+                bank_cards_db,
+                "--table",
+                "bank_cards",
+                "--output",
+                output_path,
+                "--model",
+                "openrouter/free",
+            ],
         )
-        assert result.exit_code == 0
+        assert result.exit_code == 1

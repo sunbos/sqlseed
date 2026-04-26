@@ -4,13 +4,25 @@
 
 - 本目录拥有配置模型、YAML/JSON 加载保存、模板生成，以及 snapshot/replay 的序列化边界。
 
+## 文件清单
+
+| 文件 | 职责 |
+|------|------|
+| `models.py` | Pydantic 模型：`ProviderType`、`ColumnConstraintsConfig`、`ColumnConfig`、`TableConfig`、`ColumnAssociation`、`GeneratorConfig` |
+| `loader.py` | `load_config()`、`save_config()`、`generate_template()` |
+| `snapshot.py` | `SnapshotManager`（save/load/replay/list_snapshots） |
+
 ## 本目录规则
 
 - `models.py` 里的字段名、默认值、validator 和枚举值都属于外部契约；改动前先看 `tests/test_config/`、`tests/test_public_api.py` 和 README 示例。
-- `ColumnConfig` 的两种模式要继续由模型层兜底校验：`generator` / `params` 路径与 `derive_from` / `expression` 路径互斥，不要把这类校验下沉到 CLI 或 orchestrator。
+- `ColumnConfig` 的两种模式要继续由模型层兜底校验：`generator` / `params` 路径与 `derive_from` / `expression` 路径互斥，`derive_from` 必须配对 `expression`，不要把这类校验下沉到 CLI 或 orchestrator。
+- `ProviderType` 枚举包含 5 个值：`base`、`faker`、`mimesis`、`custom`、`ai`。新增枚举值会影响 YAML 配置兼容性。
+- `ColumnAssociation` 用于声明跨表隐式关联（`column_name`、`source_table`、`source_column`、`target_tables`、`strategy="shared_pool"`），由编排器在 FK 解析阶段处理。`source_column` 允许指定源表中用于关联的列名（默认等于 `column_name`），典型场景：目标列 `department_id` 关联源列 `id`。
 - `load_config()` / `save_config()` 只接受 `.yaml`、`.yml`、`.json`；保持 UTF-8、`allow_unicode=True` 和当前字段顺序友好输出。
-- `generate_template()` 与 `SnapshotManager` 是 CLI `sqlseed init` / `sqlseed replay` 的配置边界。输出 shape、默认值或文件命名变化要同步更新 CLI 测试和文档。
+- `generate_template()` 与 `SnapshotManager` 是 CLI `sqlseed init` / `sqlseed replay` 的配置边界。输出 shape、默认值或文件命名变化要同步更新 CLI 测试和文档。`generate_template(db_path, table_name=None)` 在 `table_name=None` 时会自动从数据库读取所有表名（支持 `sqlite-utils` 和原生 `sqlite3` 两种路径），生成包含所有表的配置模板。
 - 快照内容来自 `config.model_dump(mode="json")`；不要往配置模型里塞不可序列化对象、数据库句柄或运行时回调。
+- `SnapshotManager` 默认保存到 `./snapshots/`，文件名格式 `{timestamp}_{table_name}.yaml`，时间戳格式 `%Y-%m-%d_%H%M%S`。快照数据结构包含 `timestamp`、`table_name`、`count`、`seed`、`config` 五个顶层键。
+- `SnapshotManager.replay()` 直接导入并使用 `DataOrchestrator.from_config()`，是配置层到核心层的桥梁。
 - 本目录负责 schema 与 serialization，不负责数据库 I/O，也不要反向依赖可选插件实现包。
 
 ## 评审热点

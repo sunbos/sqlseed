@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from openai import APIError
+from openai import APIConnectionError, APIError, APITimeoutError
 from sqlseed_ai._client import get_openai_client
 from sqlseed_ai._json_utils import parse_json_response
 from sqlseed_ai.config import AIConfig
@@ -66,10 +66,14 @@ The JSON object must have this exact structure:
 
 IMPORTANT: Do NOT include columns that are PRIMARY KEY AUTOINCREMENT or have DEFAULT values."""
 
+_MAX_FALLBACK_ATTEMPTS = 3
+
 
 class SchemaAnalyzer:
     def __init__(self, config: AIConfig | None = None) -> None:
         self._config = config
+        if self._config is not None:
+            self._config.resolve_model()
 
     def analyze_table_from_ctx(
         self,
@@ -77,6 +81,8 @@ class SchemaAnalyzer:
     ) -> dict[str, Any] | None:
         if self._config is None:
             self._config = AIConfig.from_env()
+
+        self._config.resolve_model()
 
         if not self._config.api_key:
             logger.warning("AI API key not configured, skipping analysis")
@@ -110,20 +116,62 @@ class SchemaAnalyzer:
     def call_llm(self, messages: list[dict[str, str]]) -> dict[str, Any]:
         if self._config is None:
             self._config = AIConfig.from_env()
+        self._config.resolve_model()
         if not self._config.api_key:
             raise ValueError("AI API key not configured")
 
+        for attempt in range(_MAX_FALLBACK_ATTEMPTS):
+            try:
+                return self._call_llm_once(messages)
+            except (APITimeoutError, APIConnectionError) as e:
+                current_model = self._config.model
+                logger.warning(
+                    "LLM API call timed out or connection failed",
+                    model=current_model,
+                    error=str(e)[:200],
+                    attempt=attempt + 1,
+                )
+
+                from sqlseed_ai._model_selector import select_next_free_model  # noqa: PLC0415
+
+                next_model = select_next_free_model(current_model or "")
+                if next_model is None:
+                    raise RuntimeError(
+                        f"LLM API call failed after trying {attempt + 1} model(s). "
+                        f"Last error (model={current_model}): {e}"
+                    ) from e
+
+                logger.warning(
+                    "Falling back to next model",
+                    from_model=current_model,
+                    to_model=next_model,
+                )
+                self._config.model = next_model
+
+        raise RuntimeError(f"LLM API call failed after {_MAX_FALLBACK_ATTEMPTS} fallback attempts")
+
+    def _call_llm_once(self, messages: list[dict[str, str]]) -> dict[str, Any]:
         client = get_openai_client(self._config)
         _openai_exceptions = (APIError, ValueError, RuntimeError, OSError)
 
         try:
-            response = client.chat.completions.create(
-                model=self._config.model,
-                messages=messages,
-                max_tokens=self._config.max_tokens,
-                temperature=self._config.temperature,
-                response_format={"type": "json_object"},
-            )
+            kwargs: dict[str, Any] = {
+                "model": self._config.model,
+                "messages": messages,
+                "max_tokens": self._config.max_tokens,
+                "temperature": self._config.temperature,
+            }
+            try:
+                kwargs["response_format"] = {"type": "json_object"}
+                response = client.chat.completions.create(**kwargs)
+            except (APIError, ValueError, RuntimeError) as fmt_err:
+                err_msg = str(fmt_err).lower()
+                if "json" in err_msg or "response_format" in err_msg or "400" in err_msg:
+                    logger.debug("JSON mode not supported, falling back to text mode", model=self._config.model)
+                    del kwargs["response_format"]
+                    response = client.chat.completions.create(**kwargs)
+                else:
+                    raise
         except _openai_exceptions as e:
             raise RuntimeError(f"LLM API call failed (model={self._config.model}): {e}") from e
 

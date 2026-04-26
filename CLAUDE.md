@@ -89,6 +89,12 @@ ColumnConfig (列级，支持两种互斥模式)
     ├── min_value / max_value
     ├── regex: str | None
     └── max_retries: int = 100
+ColumnAssociation (跨表关联)
+├── column_name: str
+├── source_table: str
+├── source_column: str | None = None  (源表列名，默认等于 column_name)
+├── target_tables: list[str]
+└── strategy: str = "shared_pool"
 ```
 
 **模式互斥验证**：`derive_from` 和 `generator` 不可同时使用（Pydantic `model_validator`）。
@@ -134,6 +140,7 @@ class ExtCtx:
     4e. EnrichmentEngine.apply() → [enrich=True] 数据分布推断
     4f. UniqueAdjuster.adjust() → 唯一列参数调整
     4g. resolve_foreign_keys()  → FK 解析 + SharedPool 隐式关联
+    4h. apply_associations()    → [有 associations 配置时] 显式跨表关联（使用 source_column 查源表列）
 5.  apply_ai_suggestions()      → AI Hook 分析（通过 PluginMediator）
 6.  apply_template_pool()       → AI 预计算模板池（通过 PluginMediator）
 7.  _build_stream()             → 创建 ColumnDAG、ExpressionEngine、ConstraintSolver、加载 Transform
@@ -141,8 +148,9 @@ class ExtCtx:
 9.  DataStream.generate()       → 逐批 yield 数据
 10. 每批：before_insert → apply_batch_transforms → batch_insert → after_insert
 11. sqlseed_after_generate Hook
-12. register_shared_pool()      → 注册值到 SharedPool
-13. restore_settings()          → [finally] 恢复 PRAGMA 设置
+12. register_shared_pool()      → 注册值到 SharedPool（非 skip 列 + 自增主键列）
+13. sqlseed_shared_pool_loaded Hook
+14. restore_settings()          → [finally] 恢复 PRAGMA 设置
 ```
 
 **注意**：`preview_table()` 不调用 AI 建议和模板池（步骤 5-6），不调用 before_generate/after_generate Hook，但**会**调用 `apply_batch_transforms()`。
@@ -198,15 +206,15 @@ class DataProvider(Protocol):
 
 | 优先级 | 级别 | 规则数量 | 说明 |
 |--------|------|----------|------|
-| 1 | 用户配置 | — | `ColumnConfig.generator` + params |
-| 2 | 自定义精确匹配 | 动态 | `register_exact_rule()` 注册 |
-| 3 | 内置精确匹配 | 68 规则 | `EXACT_MATCH_RULES` + `EXACT_MATCH_PARAMS`（28 预设） |
-| 4 | DEFAULT 检查 | — | `default is not None` → `skip`/`__enrich__` |
-| 5 | 自定义模式匹配 | 动态 | `register_pattern_rule()` 注册 |
-| 6 | 内置模式匹配 | 25 正则 | `PATTERN_MATCH_RULES` |
-| 7 | NULLABLE 回退 | — | `nullable` → `skip`/`__enrich__` |
-| 8 | 类型忠实回退 | 22 类型 | `TYPE_FALLBACK_RULES`，解析 `VARCHAR(32)` 等括号参数 |
-| 9 | 默认 | — | `string`（min_length=5, max_length=50） |
+| 1 | 自增主键 | — | PK + 自增/INTEGER → `skip` |
+| 2 | 用户配置 | — | `ColumnConfig.generator` + params |
+| 3 | 自定义精确匹配 | 动态 | `register_exact_rule()` 注册 |
+| 4 | 内置精确匹配 | 68 规则 | `EXACT_MATCH_RULES` + `EXACT_MATCH_PARAMS`（28 预设） |
+| 5 | DEFAULT 检查 | — | `default is not None` → `skip`/`__enrich__` |
+| 6 | 自定义模式匹配 | 动态 | `register_pattern_rule()` 注册 |
+| 7 | 内置模式匹配 | 25 正则 | `PATTERN_MATCH_RULES` |
+| 8 | NULLABLE 回退 | — | `nullable` → `skip`/`__enrich__` |
+| 9 | 类型忠实回退 | 22 类型 | `TYPE_FALLBACK_RULES`，解析 `VARCHAR(32)` 等括号参数 |
 
 ### 测试结构
 
@@ -267,6 +275,7 @@ tests/
 
 - `DataOrchestrator.fill()` 是 `fill_table()` 的别名。`fill_table()` 是完整实现。
 - `DataOrchestrator` 在 `__init__` 中使用 `CoreCtx` 和 `ExtCtx` dataclass 组织状态。`CoreCtx` 持有 DB 适配器、Schema 推断器、列映射器、关系解析器和共享池。`ExtCtx` 持有 Provider 注册表、插件管理器、中介器、增强引擎和指标收集器。
+- `DataOrchestrator.__init__` 接受 `associations: list[Any] | None = None` 参数，构造时传递给 `RelationResolver.set_associations()`。`from_config()` 会自动从 `GeneratorConfig.associations` 传入。
 - `DataOrchestrator._create_adapter()` 检测 `sqlite-utils` 是否可用（通过 `database/_compat.py` 的 `HAS_SQLITE_UTILS`），不可用则回退到 `RawSQLiteAdapter`。
 - `transform_batch` Hook 返回 `list[result]`（非 firstresult）。编排器通过 `PluginMediator.apply_batch_transforms()` 链式处理——遍历结果列表，最后一个非 None 的结果胜出。
 - `DataStream` 使用自己的 `random.Random(seed)` 实例处理 `null_ratio`/`choice` 操作，与 Provider 的 RNG 分离。
@@ -280,7 +289,7 @@ tests/
 - CLI `fill` 命令使用 `--config` 时 `db_path` 为可选（`required=False`）。
 - CLI `fill` 命令在非 `--config` 模式下 `--count` 为必填参数；使用 `--config` 时 count 来自配置文件。
 - CLI 默认日志级别为 `WARNING`，通过环境变量 `SQLSEED_LOG_LEVEL` 控制（如 `SQLSEED_LOG_LEVEL=DEBUG`）。
-- AI 插件默认模型为 `gpt-4o`，可通过 `AIConfig`、环境变量 `SQLSEED_AI_MODEL` / `SQLSEED_AI_API_KEY` / `SQLSEED_AI_BASE_URL`（也支持 `OPENAI_API_KEY` / `OPENAI_BASE_URL`）或 CLI `--model`/`--api-key`/`--base-url` 配置。
+- AI 插件默认模型为 `None`（自动选择），通过 `_model_selector.select_best_free_model()` 动态获取 OpenRouter 最受欢迎的免费模型。默认 base_url 为 `https://openrouter.ai/api/v1`。可通过 `AIConfig`、环境变量 `SQLSEED_AI_MODEL` / `SQLSEED_AI_API_KEY` / `SQLSEED_AI_BASE_URL` / `SQLSEED_AI_TIMEOUT`（也支持 `OPENAI_API_KEY` / `OPENAI_BASE_URL`）或 CLI `--model`/`--api-key`/`--base-url` 配置。用户显式指定 `--model` 或 `SQLSEED_AI_MODEL` 时跳过自动选择。`AIConfig.resolve_model()` 在首次需要模型时调用，结果缓存 1 小时。`call_llm()` 实现超时回退：OpenAI 客户端 timeout 默认 60 秒，`APITimeoutError`/`APIConnectionError` 时自动回退到优先级列表中的下一个模型（最多 3 个），其他错误不回退。
 - `AI_APPLICABLE_GENERATORS` 为 `frozenset({"string", "integer", "date", "datetime", "choice"})`，只有这些类型的列会触发 AI 分析。
 - `ProviderRegistry.ensure_provider()` 按需惰性导入 Faker/Mimesis，失败时回退到 `base`。
 - `DataStream._generate_row()` 支持全行级重试（最多 1000 次），约束回溯时通过 `_find_node_index()` 定位源列在 DAG 中的位置。
@@ -293,7 +302,7 @@ tests/
 - `ConstraintSolver._is_seen()` 仅检查值是否存在，**不会隐式注册**。`check_and_register()` 先调用 `_is_seen()`，再显式调 `_register()`。两者是独立操作。
 - `ConstraintSolver.check_and_register()` 对 `value=None` 直接返回 `True`（跳过注册），与 `try_register()` 行为一致。
 - `ConstraintSolver` 支持 `probabilistic=True` 模式，使用 SHA256 hash-based 去重降低内存占用（适用于 >100K 行），以及 `check_and_register_composite()` 复合唯一约束。
-- `register_shared_pool()` 在 `fill_table()` 完成后调用，遍历所有非 `skip` 的列，从数据库查询值（`limit=10000`）并合并到 `SharedPool`。
+- `register_shared_pool()` 在 `fill_table()` 完成后调用，遍历所有非 `skip` 的列以及自增主键列（`skip` + PK），从数据库查询值（`limit=10000`）并合并到 `SharedPool`。自增主键的值也会被注册，以便其他表的 FK 引用可以找到这些值。
 - `BaseProvider.FIRST_NAMES` 和 `LAST_NAMES` 各含 60 个条目，`generate_name()`、`generate_first_name()`、`generate_last_name()` 均使用同一组列表。
 - `GeneratorDispatchMixin._GENERATOR_MAP` 包含 24 个生成器类型到内部方法的映射。
 

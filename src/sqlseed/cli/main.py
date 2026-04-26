@@ -329,7 +329,7 @@ def _handle_ai_direct(analyzer: Any, db_path: str, table: str) -> Any:
 @click.argument("db_path")
 @click.option("--table", "-t", required=True, help="Target table name")
 @click.option("--output", "-o", required=True, help="Output YAML file path")
-@click.option("--model", "-m", default=None, help="AI model name (default: gpt-4o)")
+@click.option("--model", "-m", default=None, help="AI model name (default: auto-select best free model via OpenRouter)")
 @click.option("--api-key", envvar="SQLSEED_AI_API_KEY", default=None, help="AI API key (env: SQLSEED_AI_API_KEY)")
 @click.option(
     "--base-url",
@@ -355,9 +355,16 @@ def ai_suggest(
     if not HAS_AI_PLUGIN:
         raise click.UsageError("sqlseed-ai plugin is required for this command. Run `pip install sqlseed-ai`.")
 
-    ai_config = AIConfig(api_key=api_key, base_url=base_url)
+    ai_config = AIConfig.from_env()
+    if api_key:
+        ai_config.api_key = api_key
+    if base_url:
+        ai_config.base_url = base_url
     if model:
         ai_config.model = model
+
+    resolved_model = ai_config.resolve_model()
+    click.echo(f"Using AI model: {resolved_model} (via OpenRouter)")
 
     analyzer = SchemaAnalyzer(config=ai_config)
 
@@ -365,6 +372,9 @@ def ai_suggest(
         result = _handle_ai_verification(analyzer, db_path, table, max_retries, no_cache)
     else:
         result = _handle_ai_direct(analyzer, db_path, table)
+
+    if ai_config.model != resolved_model:
+        click.echo(f"Model fallback: {resolved_model} → {ai_config.model}")
 
     if result:
         output_data = {
@@ -377,10 +387,12 @@ def ai_suggest(
             yaml.dump(output_data, f, allow_unicode=True, sort_keys=False, default_flow_style=False)
         click.echo(f"AI suggestions saved to {output}")
     else:
-        if verify and max_retries > 0:
-            return
-        click.echo("No suggestions received. Ensure sqlseed-ai plugin is installed and API key is configured.")
-        click.echo("Set SQLSEED_AI_API_KEY environment variable or use --api-key option.")
+        click.echo(
+            "No suggestions received. Ensure sqlseed-ai plugin is installed and API key is configured.",
+            err=True,
+        )
+        click.echo("Set SQLSEED_AI_API_KEY environment variable or use --api-key option.", err=True)
+        raise SystemExit(1)
 
 
 def main() -> None:
