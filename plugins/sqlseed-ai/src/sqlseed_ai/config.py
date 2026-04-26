@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 
 from pydantic import BaseModel, Field
-from sqlseed_ai._model_selector import select_best_free_model
+from sqlseed_ai._model_selector import PREFERRED_FREE_MODELS, select_best_free_model
 
 from sqlseed._utils.logger import get_logger
 
@@ -31,6 +31,12 @@ class AIConfig(BaseModel):
 
     def resolve_model(self) -> str:
         if self.model is not None:
+            return self.model
+
+        if not self.api_key:
+            fallback = PREFERRED_FREE_MODELS[0]
+            self.model = fallback
+            logger.info("No API key configured, using fallback model", model=fallback)
             return self.model
 
         self.model = select_best_free_model()

@@ -265,7 +265,7 @@ class TestCLIAISuggest:
             ["ai-suggest", bank_cards_db, "--table", "bank_cards", "--output", output_path],
         )
         assert result.exit_code == 1
-        assert "No suggestions received" in result.output or "AI suggestion" in result.output
+        assert "API key not configured" in result.output
 
     @pytest.mark.skipif(
         not _AI_PLUGIN_AVAILABLE,

@@ -7,7 +7,7 @@ from sqlseed.core.plugin_mediator import PluginMediator
 class TestPluginMediator:
     def test_ai_applicable_generators(self):
         assert "string" in PluginMediator.AI_APPLICABLE_GENERATORS
-        assert "integer" in PluginMediator.AI_APPLICABLE_GENERATORS
+        assert "integer" not in PluginMediator.AI_APPLICABLE_GENERATORS
         assert "email" not in PluginMediator.AI_APPLICABLE_GENERATORS
 
     def test_apply_ai_suggestions_no_unmatched(self, mediator_ctx):

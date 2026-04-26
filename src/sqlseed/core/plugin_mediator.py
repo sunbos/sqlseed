@@ -16,7 +16,7 @@ logger = get_logger(__name__)
 
 
 class PluginMediator:
-    AI_APPLICABLE_GENERATORS: ClassVar[frozenset[str]] = frozenset({"string", "integer", "date", "datetime", "choice"})
+    AI_APPLICABLE_GENERATORS: ClassVar[frozenset[str]] = frozenset({"string"})
 
     def __init__(
         self,
@@ -61,18 +61,30 @@ class PluginMediator:
                 specs[col_name] = GeneratorSpec(
                     generator_name=gen,
                     params=params,
+                    native_faker_method=col_cfg.get("faker_method"),
+                    native_mimesis_method=col_cfg.get("mimesis_method"),
+                    native_params=col_cfg.get("native_params"),
                 )
 
-    def _process_ai_result(self, ai_result: Any, specs: dict[str, GeneratorSpec]) -> None:
+    def _process_ai_result(
+        self,
+        ai_result: Any,
+        specs: dict[str, GeneratorSpec],
+        configured: set[str] | None = None,
+    ) -> None:
         if not ai_result or not isinstance(ai_result, dict):
             return
 
+        skip = configured or set()
         ai_columns = ai_result.get("columns", [])
         if not isinstance(ai_columns, list):
             return
 
         for col_cfg in ai_columns:
             if isinstance(col_cfg, dict):
+                col_name = col_cfg.get("name")
+                if col_name and col_name in skip:
+                    continue
                 self._process_single_ai_column(col_cfg, specs)
 
     def apply_ai_suggestions(
@@ -80,6 +92,7 @@ class PluginMediator:
         table_name: str,
         column_infos: list[Any],
         specs: dict[str, GeneratorSpec],
+        user_configured_columns: set[str] | None = None,
     ) -> dict[str, GeneratorSpec]:
         if not self._has_unmatched_cols(column_infos, specs):
             return specs
@@ -99,7 +112,8 @@ class PluginMediator:
                 all_table_names=all_tables,
             )
 
-            self._process_ai_result(ai_result, specs)
+            configured = user_configured_columns or set()
+            self._process_ai_result(ai_result, specs, configured)
 
         except (ValueError, RuntimeError, ImportError) as e:
             logger.debug("AI suggestions not available", table_name=table_name, error=str(e))
@@ -112,9 +126,28 @@ class PluginMediator:
         column_infos: list[Any],
         specs: dict[str, GeneratorSpec],
         count: int,
+        user_configured_columns: set[str] | None = None,
     ) -> dict[str, GeneratorSpec]:
+        configured = user_configured_columns or set()
+        needs_template = False
         for col_name, spec in list(specs.items()):
             if spec.generator_name != "string":
+                continue
+            if col_name in configured:
+                continue
+            col_info = next((c for c in column_infos if c.name == col_name), None)
+            if col_info is None or col_info.is_primary_key or col_info.is_autoincrement:
+                continue
+            if col_info.default is not None:
+                continue
+            needs_template = True
+            break
+        if not needs_template:
+            return specs
+        for col_name, spec in list(specs.items()):
+            if spec.generator_name != "string":
+                continue
+            if col_name in configured:
                 continue
             col_info = next((c for c in column_infos if c.name == col_name), None)
             if col_info is None or col_info.is_primary_key or col_info.is_autoincrement:

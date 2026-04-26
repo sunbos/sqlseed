@@ -121,12 +121,21 @@ class TestAIConfig:
 
     def test_resolve_model_auto_select(self):
         clear_cache()
-        config = AIConfig()
+        config = AIConfig(api_key="test-key")
         assert config.model is None
         with patch("sqlseed_ai.config.select_best_free_model", return_value="test/model:free"):
             result = config.resolve_model()
         assert result == "test/model:free"
         assert config.model == "test/model:free"
+        clear_cache()
+
+    def test_resolve_model_no_api_key_uses_fallback(self):
+        clear_cache()
+        config = AIConfig()
+        assert config.api_key is None
+        result = config.resolve_model()
+        assert result == PREFERRED_FREE_MODELS[0]
+        assert config.model == PREFERRED_FREE_MODELS[0]
         clear_cache()
 
     def test_resolve_model_user_override(self):

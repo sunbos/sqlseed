@@ -127,3 +127,24 @@ class FakerProvider(BaseProvider):
 
     def _gen_json(self, *, schema: dict[str, Any] | None = None) -> str:
         return self._faker.json(data_columns=schema)
+
+    def _gen_username(self) -> str:
+        return self._faker.user_name()
+
+    def _gen_city(self) -> str:
+        return self._faker.city()
+
+    def _gen_country(self) -> str:
+        return self._faker.country()
+
+    def _gen_state(self) -> str:
+        return self._faker.state()
+
+    def _gen_zip_code(self) -> str:
+        return self._faker.zipcode()
+
+    def _gen_job_title(self) -> str:
+        return self._faker.job()
+
+    def _gen_country_code(self) -> str:
+        return self._faker.country_code()

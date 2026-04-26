@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from sqlseed._utils.logger import get_logger
 from sqlseed._version import __version__
 
 __all__ = [
@@ -29,6 +30,8 @@ from sqlseed.config.models import (
 from sqlseed.core.orchestrator import DataOrchestrator
 from sqlseed.core.result import GenerationResult
 
+logger = get_logger(__name__)
+
 
 def fill(
     db_path: str,
@@ -44,6 +47,7 @@ def fill(
     optimize_pragma: bool = True,
     enrich: bool = False,
     transform: str | None = None,
+    skip_ai: bool = False,
 ) -> GenerationResult:
     with DataOrchestrator(
         db_path=db_path,
@@ -60,6 +64,7 @@ def fill(
             clear_before=clear_before,
             enrich=enrich,
             transform=transform,
+            skip_ai=skip_ai,
         )
 
 
@@ -78,15 +83,22 @@ def connect(
     )
 
 
-def fill_from_config(config_path: str) -> list[GenerationResult]:
+def fill_from_config(config_path: str, *, skip_ai: bool = False) -> list[GenerationResult]:
     config = load_config(config_path)
     results: list[GenerationResult] = []
     with DataOrchestrator.from_config(config) as orch:
         table_names = [tc.name for tc in config.tables]
         sorted_names = orch.get_topological_table_order(table_names)
         name_to_config = {tc.name: tc for tc in config.tables}
-        for name in sorted_names:
+        total_tables = len(sorted_names)
+        for idx, name in enumerate(sorted_names, 1):
             table_config = name_to_config[name]
+            logger.info(
+                "Filling table",
+                table=table_config.name,
+                count=table_config.count,
+                progress=f"[{idx}/{total_tables}]",
+            )
             result = orch.fill_table(
                 table_name=table_config.name,
                 count=table_config.count,
@@ -96,6 +108,7 @@ def fill_from_config(config_path: str) -> list[GenerationResult]:
                 column_configs=table_config.columns,
                 transform=table_config.transform,
                 enrich=table_config.enrich,
+                skip_ai=skip_ai,
             )
             results.append(result)
     return results

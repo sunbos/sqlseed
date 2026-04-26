@@ -142,3 +142,24 @@ class MimesisProvider(BaseProvider):
 
     def _get_array_count(self) -> int:
         return self._generic.numeric.integer_number(start=1, end=5)
+
+    def _gen_username(self) -> str:
+        return self._generic.person.username()
+
+    def _gen_city(self) -> str:
+        return self._generic.address.city()
+
+    def _gen_country(self) -> str:
+        return self._generic.address.country()
+
+    def _gen_state(self) -> str:
+        return self._generic.address.state()
+
+    def _gen_zip_code(self) -> str:
+        return self._generic.address.postal_code()
+
+    def _gen_job_title(self) -> str:
+        return self._generic.person.occupation()
+
+    def _gen_country_code(self) -> str:
+        return self._generic.address.country_code()

@@ -23,7 +23,10 @@ You analyze SQLite table schemas and recommend data generation configurations fo
 - boolean
 - bytes (params: length)
 - name, first_name, last_name
+- username — realistic usernames like "jsmith42"
 - email, phone, address, company
+- city, country, state, zip_code, country_code — real geographic data
+- job_title — real job titles like "Software Engineer"
 - url, ipv4, uuid
 - date (params: start_year, end_year)
 - datetime (params: start_year, end_year)
@@ -34,15 +37,31 @@ You analyze SQLite table schemas and recommend data generation configurations fo
 - json (params: schema)
 - pattern (params: regex) — generates strings matching a regex pattern
 
+## Native Method Selection
+For columns that would default to "string" type, you can also recommend
+native Faker/Mimesis methods:
+- faker_method: A Faker method name
+  (e.g., "license_plate", "color_name", "iban", "credit_card_number")
+- mimesis_method: A Mimesis method path
+  (e.g., "transport.vehicle_registration_code", "text.color",
+  "hardware.cpu", "payment.credit_card_number")
+- native_params: Parameters for the native method if needed
+
+Only recommend methods you are confident exist. When uncertain, omit these
+fields and the system will fall back to the generator type.
+
 ## Key Rules
 1. INTEGER PRIMARY KEY AUTOINCREMENT columns → do NOT include (auto-skip)
 2. Columns with DEFAULT values → do NOT include (auto-skip)
 3. Nullable columns → do NOT include unless they have semantic meaning
-4. Use `pattern` generator with regex for card numbers, codes, IDs with specific formats
-5. Use `derive_from` + `expression` when one column is computed from another
-6. Use `constraints.unique: true` for columns that must be unique
-7. Detect cross-column dependencies: if last_eight = last 8 chars of card_number, use derive_from
-8. Detect implicit business associations: if account_id appears in multiple tables, note it
+4. Prefer specific generators over generic "string":
+   use username, city, country, state, zip_code, job_title,
+   country_code when column names match
+5. Use `pattern` generator with regex for card numbers, codes, IDs with specific formats
+6. Use `derive_from` + `expression` when one column is computed from another
+7. Use `constraints.unique: true` for columns that must be unique
+8. Detect cross-column dependencies: if last_eight = last 8 chars of card_number, use derive_from
+9. Detect implicit business associations: if account_id appears in multiple tables, note it
 
 ## Output Format
 You MUST respond with a valid JSON object (NOT YAML, NOT markdown fences).
@@ -55,6 +74,13 @@ The JSON object must have this exact structure:
       "name": "column_name",
       "generator": "generator_name",
       "params": {"key": "value"}
+    },
+    {
+      "name": "license_plate",
+      "generator": "string",
+      "params": {"min_length": 5, "max_length": 10},
+      "faker_method": "license_plate",
+      "mimesis_method": "transport.vehicle_registration_code"
     },
     {
       "name": "derived_column",
@@ -86,7 +112,7 @@ class SchemaAnalyzer:
         self._config.resolve_model()
 
         if not self._config.api_key:
-            logger.warning("AI API key not configured, skipping analysis")
+            logger.warning("AI API key not configured. Set SQLSEED_AI_API_KEY or OPENAI_API_KEY environment variable.")
             return None
 
         messages = self.build_initial_messages(kwargs)

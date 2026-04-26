@@ -1,0 +1,212 @@
+"""
+sqlseed AI 数据生成示例
+
+演示两种 AI 生成模式：
+  1. 默认自动选择免费模型（OpenRouter）
+  2. 指定特定模型
+
+前置条件：
+  pip install -e ".[all,dev]"
+  pip install -e "./plugins/sqlseed-ai"
+
+  设置 API Key（OpenRouter 免费）：
+  export SQLSEED_AI_API_KEY="your-openrouter-api-key"
+
+  或使用其他 OpenAI 兼容 API：
+  export SQLSEED_AI_API_KEY="your-api-key"
+  export SQLSEED_AI_BASE_URL="https://api.openai.com/v1"
+"""
+
+from __future__ import annotations
+
+import sqlite3
+import tempfile
+from pathlib import Path
+
+import sqlseed
+from sqlseed.config.loader import save_config
+from sqlseed.config.models import (
+    ColumnConfig,
+    GeneratorConfig,
+    ProviderType,
+    TableConfig,
+)
+
+
+def _create_sample_db(db_path: str) -> None:
+    """创建一个示例数据库，包含 users 表"""
+    conn = sqlite3.connect(db_path)
+    conn.execute("""
+        CREATE TABLE users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            email TEXT NOT NULL,
+            age INTEGER,
+            bio TEXT,
+            city TEXT,
+            created_at TEXT
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+
+def example_1_default_model() -> None:
+    """方式一：使用默认自动选择的免费模型
+
+    AI 插件会自动从 OpenRouter 选择当前最受欢迎的免费模型。
+    无需指定 model，只需设置 API Key。
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = str(Path(tmp) / "example1.db")
+        _create_sample_db(db_path)
+
+        # 使用 YAML 配置 + provider: ai
+        config = GeneratorConfig(
+            db_path=db_path,
+            provider=ProviderType("ai"),
+            locale="zh_CN",
+            tables=[
+                TableConfig(
+                    name="users",
+                    count=10,
+                    columns=[
+                        ColumnConfig(name="username", generator="name"),
+                        ColumnConfig(name="email", generator="email"),
+                        ColumnConfig(name="age", generator="integer", params={"min_value": 18, "max_value": 65}),
+                        ColumnConfig(name="bio", generator="sentence"),
+                        ColumnConfig(name="city", generator="choice", params={"choices": ["北京", "上海", "深圳", "杭州", "成都"]}),
+                        ColumnConfig(name="created_at", generator="datetime"),
+                    ],
+                ),
+            ],
+        )
+
+        config_path = str(Path(tmp) / "config.yaml")
+        save_config(config, config_path)
+
+        print("=" * 60)
+        print("方式一：默认自动选择免费模型（OpenRouter）")
+        print("=" * 60)
+
+        results = sqlseed.fill_from_config(config_path)
+        for r in results:
+            print(f"  表: {r.table_name}, 插入: {r.count} 行, 耗时: {r.elapsed:.2f}s")
+
+        _print_table(db_path, "users")
+
+
+def example_2_specified_model() -> None:
+    """方式二：指定特定模型
+
+    通过环境变量或 AIConfig 指定模型名称。
+    支持任何 OpenAI 兼容 API（OpenRouter、OpenAI、DeepSeek 等）。
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = str(Path(tmp) / "example2.db")
+        _create_sample_db(db_path)
+
+        # 方式 2a：通过环境变量指定模型
+        # export SQLSEED_AI_MODEL="deepseek/deepseek-r1-0528:free"
+        # export SQLSEED_AI_API_KEY="your-key"
+        # export SQLSEED_AI_BASE_URL="https://openrouter.ai/api/v1"
+
+        # 方式 2b：通过 YAML 配置文件（推荐）
+        # 在 YAML 中设置 provider: ai，然后通过环境变量控制模型
+        config = GeneratorConfig(
+            db_path=db_path,
+            provider=ProviderType("ai"),
+            locale="zh_CN",
+            tables=[
+                TableConfig(
+                    name="users",
+                    count=10,
+                    columns=[
+                        ColumnConfig(name="username", generator="name"),
+                        ColumnConfig(name="email", generator="email"),
+                        ColumnConfig(name="age", generator="integer", params={"min_value": 18, "max_value": 65}),
+                        ColumnConfig(name="bio", generator="sentence"),
+                        ColumnConfig(name="city", generator="choice", params={"choices": ["北京", "上海", "深圳", "杭州", "成都"]}),
+                        ColumnConfig(name="created_at", generator="datetime"),
+                    ],
+                ),
+            ],
+        )
+
+        config_path = str(Path(tmp) / "config.yaml")
+        save_config(config, config_path)
+
+        print("=" * 60)
+        print("方式二：指定特定模型")
+        print("  设置环境变量后运行：")
+        print("  SQLSEED_AI_MODEL='deepseek/deepseek-r1-0528:free' \\")
+        print("  SQLSEED_AI_API_KEY='your-key' \\")
+        print("  python examples/ai_generation_demo.py")
+        print("=" * 60)
+
+        results = sqlseed.fill_from_config(config_path)
+        for r in results:
+            print(f"  表: {r.table_name}, 插入: {r.count} 行, 耗时: {r.elapsed:.2f}s")
+
+        _print_table(db_path, "users")
+
+
+def example_3_cli_usage() -> None:
+    """方式三：使用 CLI 命令
+
+    CLI 提供了 ai-suggest 命令，可以自动分析表结构并生成配置。
+    """
+    print("=" * 60)
+    print("方式三：CLI 命令行使用")
+    print("=" * 60)
+    print()
+    print("# 1. 自动选择免费模型（默认行为）")
+    print("sqlseed ai-suggest test.db --table users --output config.yaml")
+    print("sqlseed fill --config config.yaml")
+    print()
+    print("# 2. 指定特定模型")
+    print("sqlseed ai-suggest test.db --table users --output config.yaml \\")
+    print("  --model 'deepseek/deepseek-r1-0528:free' \\")
+    print("  --api-key 'your-openrouter-key'")
+    print("sqlseed fill --config config.yaml")
+    print()
+    print("# 3. 使用 OpenAI 官方 API")
+    print("sqlseed ai-suggest test.db --table users --output config.yaml \\")
+    print("  --model 'gpt-4o-mini' \\")
+    print("  --api-key 'sk-xxx' \\")
+    print("  --base-url 'https://api.openai.com/v1'")
+    print("sqlseed fill --config config.yaml")
+    print()
+    print("# 4. 使用 DeepSeek API")
+    print("sqlseed ai-suggest test.db --table users --output config.yaml \\")
+    print("  --model 'deepseek-chat' \\")
+    print("  --api-key 'sk-xxx' \\")
+    print("  --base-url 'https://api.deepseek.com/v1'")
+    print("sqlseed fill --config config.yaml")
+
+
+def _print_table(db_path: str, table_name: str, limit: int = 5) -> None:
+    conn = sqlite3.connect(db_path)
+    cursor = conn.execute(f"SELECT * FROM {table_name} LIMIT {limit}")
+    columns = [desc[0] for desc in cursor.description]
+    rows = cursor.fetchall()
+    conn.close()
+
+    print(f"\n  {table_name} 表前 {limit} 行：")
+    col_widths = [max(len(str(c)), *(len(str(r[i])) for r in rows)) for i, c in enumerate(columns)]
+    header = " | ".join(str(c).ljust(w) for c, w in zip(columns, col_widths))
+    print(f"  {header}")
+    print(f"  {'-' * len(header)}")
+    for row in rows:
+        print(f"  {' | '.join(str(v).ljust(w) for v, w in zip(row, col_widths))}")
+    print()
+
+
+if __name__ == "__main__":
+    print("\nsqlseed AI 数据生成示例\n")
+
+    example_1_default_model()
+    print()
+    example_2_specified_model()
+    print()
+    example_3_cli_usage()

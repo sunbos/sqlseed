@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import threading
 from typing import Any, ClassVar
 
@@ -15,8 +16,6 @@ class ExpressionTimeoutError(TimeoutError):
 
 
 class ExpressionEngine:
-    """安全表达式求值器"""
-
     SAFE_FUNCTIONS: ClassVar[dict[str, Any]] = {
         "len": len,
         "int": int,
@@ -41,10 +40,34 @@ class ExpressionEngine:
         "concat": lambda *args: "".join(str(a) for a in args),
     }
 
+    _SIMPLE_EXPR_RE: ClassVar[re.Pattern[str]] = re.compile(
+        r"^[a-zA-Z_][a-zA-Z0-9_]*\s*(\.\s*[a-zA-Z_][a-zA-Z0-9_]*\s*\([^)]*\)\s*)+$"
+    )
+
     def __init__(self, timeout_seconds: int = 5) -> None:
         self._timeout = timeout_seconds
 
+    def _is_simple_expression(self, expression: str) -> bool:
+        stripped = expression.strip()
+        if not stripped:
+            return True
+        if stripped in ("value", "row") or stripped.startswith("value[") or stripped.startswith("row["):
+            return True
+        return bool(self._SIMPLE_EXPR_RE.match(stripped))
+
+    def _eval_direct(self, expression: str, context: dict[str, Any]) -> Any:
+        evaluator = simpleeval.SimpleEval()
+        evaluator.functions = dict(self.SAFE_FUNCTIONS)
+        evaluator.names = context
+        return evaluator.eval(expression)
+
     def evaluate(self, expression: str, context: dict[str, Any]) -> Any:
+        if self._is_simple_expression(expression):
+            try:
+                return self._eval_direct(expression, context)
+            except (ValueError, SyntaxError, TypeError, simpleeval.InvalidExpression) as e:
+                raise e
+
         evaluator = simpleeval.SimpleEval()
         evaluator.functions = dict(self.SAFE_FUNCTIONS)
         evaluator.names = context

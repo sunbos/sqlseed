@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError as PydanticValidationError
+from sqlseed_ai._json_utils import _sanitize_names
 from sqlseed_ai.errors import ErrorSummary, summarize_error
 
 from sqlseed._utils.logger import get_logger
@@ -77,6 +78,8 @@ class AiConfigRefiner:
             column=error.column,
         )
 
+    _NON_RETRYABLE_ERRORS = frozenset({"empty_config", "invalid_json"})
+
     def generate_and_refine(
         self,
         table_name: str,
@@ -99,12 +102,24 @@ class AiConfigRefiner:
 
             messages_history = list(initial_messages)
 
+            last_error_type: str | None = None
+            same_error_count = 0
+
             for attempt in range(max_retries + 1):
                 messages = list(messages_history)
                 config_dict, error = self._attempt_generation_and_validation(messages, orch, table_name)
 
                 if config_dict is None:
                     assert error is not None
+                    if error.error_type in self._NON_RETRYABLE_ERRORS and error.error_type == last_error_type:
+                        same_error_count += 1
+                        if same_error_count >= 2:
+                            raise AISuggestionFailedError(
+                                f"Same error '{error.error_type}' repeated {same_error_count + 1} times. "
+                                f"The AI model may not support this task. "
+                                f"Try a different model with --model. Last error: {error.message}"
+                            )
+                    last_error_type = error.error_type
                     self._handle_generation_failure(error, attempt, max_retries)
                     continue
 
@@ -112,6 +127,16 @@ class AiConfigRefiner:
                     logger.info("AI config validated successfully", table_name=table_name, attempts=attempt + 1)
                     self._cache_successful_config(table_name, config_dict, schema_hash)
                     return config_dict
+
+                if error.error_type in self._NON_RETRYABLE_ERRORS and error.error_type == last_error_type:
+                    same_error_count += 1
+                    if same_error_count >= 2:
+                        raise AISuggestionFailedError(
+                            f"Same error '{error.error_type}' repeated {same_error_count + 1} times. "
+                            f"The AI model may not support this task. "
+                            f"Try a different model with --model. Last error: {error.message}"
+                        )
+                last_error_type = error.error_type
 
                 self._handle_validation_failure(error, attempt, max_retries, table_name)
 
@@ -254,7 +279,10 @@ class AiConfigRefiner:
                             current_hash=schema_hash,
                         )
                         return None
-                    return entry.get("config")
+                    config = entry.get("config")
+                    if isinstance(config, dict):
+                        _sanitize_names(config)
+                    return config
                 return entry if isinstance(entry, dict) else None
             except (OSError, ValueError):
                 pass

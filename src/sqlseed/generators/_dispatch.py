@@ -31,6 +31,13 @@ class GeneratorDispatchMixin:
         "choice": "_gen_choice",
         "json": "_gen_json",
         "pattern": "_gen_pattern",
+        "username": "_gen_username",
+        "city": "_gen_city",
+        "country": "_gen_country",
+        "state": "_gen_state",
+        "zip_code": "_gen_zip_code",
+        "job_title": "_gen_job_title",
+        "country_code": "_gen_country_code",
     }
 
     def generate(self, type_name: str, **params: Any) -> Any:

@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import os
+import re
+import signal
 from typing import Any
 
 import click
 import yaml
 from rich.console import Console
+from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 from rich.table import Table as RichTable
 
 from sqlseed import fill as api_fill
@@ -13,7 +16,7 @@ from sqlseed import fill_from_config
 from sqlseed import preview as api_preview
 from sqlseed._utils.logger import configure_logging, get_logger
 from sqlseed._version import __version__
-from sqlseed.config.loader import generate_template, save_config
+from sqlseed.config.loader import generate_template, load_config, save_config
 from sqlseed.config.models import GeneratorConfig, ProviderType, TableConfig
 from sqlseed.config.snapshot import SnapshotManager
 from sqlseed.core.orchestrator import DataOrchestrator
@@ -38,8 +41,12 @@ def cli() -> None:
     configure_logging(log_level)
 
 
-def _fill_from_config_cmd(config_path: str) -> None:
-    results = fill_from_config(config_path)
+def _fill_from_config_cmd(config_path: str, skip_ai: bool = False) -> None:
+    config = load_config(config_path)
+    table_count = len(config.tables)
+    click.echo(f"Loading config: {config_path} ({table_count} table(s))")
+
+    results = fill_from_config(config_path, skip_ai=skip_ai)
     for result in results:
         click.echo(str(result))
 
@@ -106,6 +113,7 @@ _FILL_DEFAULT_COUNT = 1000
 @click.option("--transform", "transform_path", default=None, help="Python transform script path")
 @click.option("--snapshot", is_flag=True, help="Save generation snapshot for replay")
 @click.option("--enrich", is_flag=True, help="Enrich data using existing table distribution")
+@click.option("--no-ai", is_flag=True, help="Skip AI suggestions and template generation")
 def fill(**kwargs: Any) -> None:
     """Fill a table with generated test data.
 
@@ -133,9 +141,10 @@ def fill(**kwargs: Any) -> None:
 
 def _execute_fill(opts: dict[str, Any]) -> None:
     config_path = opts.get("config_path")
+    skip_ai = opts.get("no_ai", False)
     if config_path:
         logger.debug("Using config-driven generation", config_path=config_path)
-        _fill_from_config_cmd(config_path)
+        _fill_from_config_cmd(config_path, skip_ai=skip_ai)
         return
 
     db_path = opts.get("db_path")
@@ -160,6 +169,7 @@ def _execute_fill(opts: dict[str, Any]) -> None:
             clear_before=opts.get("clear", False),
             enrich=opts.get("enrich", False),
             transform=opts.get("transform_path"),
+            skip_ai=skip_ai,
         )
     except ValueError as exc:
         logger.debug("Fill failed with ValueError", error=str(exc))
@@ -300,6 +310,17 @@ def replay(snapshot_path: str) -> None:
     click.echo(str(result))
 
 
+def _sanitize_table_config(config_dict: dict[str, Any]) -> None:
+    name = config_dict.get("name")
+    if isinstance(name, str):
+        config_dict["name"] = re.sub(r"^[:.]+", "", name)
+    for col in config_dict.get("columns", []):
+        if isinstance(col, dict):
+            col_name = col.get("name")
+            if isinstance(col_name, str):
+                col["name"] = re.sub(r"^[:.]+", "", col_name)
+
+
 def _handle_ai_verification(analyzer: Any, db_path: str, table: str, max_retries: int, no_cache: bool) -> Any:
 
     refiner = AiConfigRefiner(analyzer, db_path)
@@ -340,6 +361,7 @@ def _handle_ai_direct(analyzer: Any, db_path: str, table: str) -> Any:
 @click.option("--max-retries", default=3, type=int, help="Max refinement retries, 0=disable (default: 3)")
 @click.option("--verify/--no-verify", default=True, help="Enable AI config self-correction (default: verify)")
 @click.option("--no-cache", is_flag=True, help="Skip cached AI configs")
+@click.option("--timeout", default=120, type=float, help="API call timeout in seconds (default: 120)")
 def ai_suggest(
     db_path: str,
     table: str,
@@ -350,27 +372,67 @@ def ai_suggest(
     max_retries: int,
     verify: bool,
     no_cache: bool,
+    timeout: float,
 ) -> None:
     """Analyze table schema and suggest generation rules via AI."""
     if not HAS_AI_PLUGIN:
         raise click.UsageError("sqlseed-ai plugin is required for this command. Run `pip install sqlseed-ai`.")
 
     ai_config = AIConfig.from_env().apply_overrides(api_key=api_key, base_url=base_url, model=model)
+    ai_config.timeout = timeout
+
+    if not ai_config.api_key:
+        click.echo(
+            "Error: AI API key not configured. Set SQLSEED_AI_API_KEY or OPENAI_API_KEY, or use --api-key.",
+            err=True,
+        )
+        raise SystemExit(1)
 
     resolved_model = ai_config.resolve_model()
     click.echo(f"Using AI model: {resolved_model} (via OpenRouter)")
 
     analyzer = SchemaAnalyzer(config=ai_config)
 
-    if verify and max_retries > 0:
-        result = _handle_ai_verification(analyzer, db_path, table, max_retries, no_cache)
-    else:
-        result = _handle_ai_direct(analyzer, db_path, table)
+    total_timeout = timeout * 2
+
+    def _timeout_handler(signum: int, frame: Any) -> None:
+        click.echo(
+            f"\nError: AI suggestion timed out after {total_timeout:.0f}s. "
+            "Try a different model with --model, or increase timeout with --timeout.",
+            err=True,
+        )
+        raise SystemExit(1)
+
+    old_handler: Any = None
+    if hasattr(signal, "SIGALRM"):
+        old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
+        signal.alarm(int(total_timeout))
+
+    try:
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            TimeElapsedColumn(),
+            console=Console(),
+            transient=False,
+        ) as progress:
+            task = progress.add_task("Analyzing schema & generating AI suggestions...", total=None)
+            if verify and max_retries > 0:
+                result = _handle_ai_verification(analyzer, db_path, table, max_retries, no_cache)
+            else:
+                result = _handle_ai_direct(analyzer, db_path, table)
+            progress.update(task, completed=1, total=1)
+    finally:
+        if hasattr(signal, "SIGALRM"):
+            signal.alarm(0)
+            if old_handler is not None:
+                signal.signal(signal.SIGALRM, old_handler)
 
     if ai_config.model != resolved_model:
         click.echo(f"Model fallback: {resolved_model} → {ai_config.model}")
 
     if result:
+        _sanitize_table_config(result)
         output_data = {
             "db_path": db_path,
             "provider": "mimesis",
@@ -382,10 +444,14 @@ def ai_suggest(
         click.echo(f"AI suggestions saved to {output}")
     else:
         click.echo(
-            "No suggestions received. Ensure sqlseed-ai plugin is installed and API key is configured.",
+            "No suggestions received. The AI model may not support this task.\n"
+            "Suggestions:\n"
+            "  - Try a different model: --model 'deepseek/deepseek-r1-0528:free'\n"
+            "  - Use DeepSeek API: --base-url 'https://api.deepseek.com/v1' --model 'deepseek-chat'\n"
+            "  - Use OpenAI API: --base-url 'https://api.openai.com/v1' --model 'gpt-4o-mini'\n"
+            "  - Increase timeout: --timeout 180",
             err=True,
         )
-        click.echo("Set SQLSEED_AI_API_KEY environment variable or use --api-key option.", err=True)
         raise SystemExit(1)
 
 

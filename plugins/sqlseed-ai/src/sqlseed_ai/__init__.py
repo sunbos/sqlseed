@@ -15,7 +15,8 @@ _SIMPLE_COL_RE = re.compile(
     r"int|float|double|real|text|string|"
     r"char|varchar|blob|byte|id|code|title|"
     r"description|status|type|category|count|"
-    r"amount|price|value|number|index|order|level"
+    r"amount|price|value|number|index|order|level|"
+    r"username|city|country|state|zip|postal|job|occupation"
     r")($|[_\s])",
     re.IGNORECASE,
 )
