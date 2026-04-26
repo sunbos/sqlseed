@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 
 from pydantic import BaseModel, Field
+from sqlseed_ai._model_selector import select_best_free_model
 
 from sqlseed._utils.logger import get_logger
 
@@ -31,8 +32,6 @@ class AIConfig(BaseModel):
     def resolve_model(self) -> str:
         if self.model is not None:
             return self.model
-
-        from sqlseed_ai._model_selector import select_best_free_model  # noqa: PLC0415
 
         self.model = select_best_free_model()
         logger.info("Auto-selected AI model", model=self.model)

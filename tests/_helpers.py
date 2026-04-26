@@ -5,6 +5,8 @@ from typing import Any
 
 import yaml
 
+import sqlseed
+
 
 def assert_fk_integrity(db_path: str, fk_query: str, ref_query: str) -> None:
     conn = sqlite3.connect(db_path)
@@ -21,8 +23,6 @@ def fill_from_config_and_verify_fk(
     fk_query: str,
     ref_query: str,
 ) -> list[Any]:
-    import sqlseed  # noqa: PLC0415
-
     config_path = str(config_dir) + "/config.yaml"
     with open(config_path, "w", encoding="utf-8") as f:
         yaml.dump(config_data, f)

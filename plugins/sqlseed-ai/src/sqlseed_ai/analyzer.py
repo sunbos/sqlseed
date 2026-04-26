@@ -5,6 +5,7 @@ from typing import Any
 from openai import APIConnectionError, APIError, APITimeoutError
 from sqlseed_ai._client import get_openai_client
 from sqlseed_ai._json_utils import parse_json_response
+from sqlseed_ai._model_selector import select_next_free_model
 from sqlseed_ai.config import AIConfig
 from sqlseed_ai.examples import FEW_SHOT_EXAMPLES
 
@@ -131,8 +132,6 @@ class SchemaAnalyzer:
                     error=str(e)[:200],
                     attempt=attempt + 1,
                 )
-
-                from sqlseed_ai._model_selector import select_next_free_model  # noqa: PLC0415
 
                 next_model = select_next_free_model(current_model or "")
                 if next_model is None:

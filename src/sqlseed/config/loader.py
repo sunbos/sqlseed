@@ -7,6 +7,7 @@ import yaml
 
 from sqlseed._utils.logger import get_logger
 from sqlseed.config.models import GeneratorConfig, TableConfig
+from sqlseed.database._compat import read_table_names
 
 logger = get_logger(__name__)
 
@@ -61,37 +62,14 @@ def generate_template(db_path: str, table_name: str | None = None) -> GeneratorC
         )
     else:
         try:
-            from sqlseed.database._compat import HAS_SQLITE_UTILS  # noqa: PLC0415
-
-            if HAS_SQLITE_UTILS:
-                import sqlite_utils  # noqa: PLC0415
-
-                db = sqlite_utils.Database(db_path)
-                for tbl_name in db.table_names():
-                    if tbl_name.startswith("sqlite_"):
-                        continue
-                    tables.append(
-                        TableConfig(
-                            name=tbl_name,
-                            count=1000,
-                            columns=[],
-                        )
+            for tbl_name in read_table_names(db_path):
+                tables.append(
+                    TableConfig(
+                        name=tbl_name,
+                        count=1000,
+                        columns=[],
                     )
-                db.close()
-            else:
-                import sqlite3  # noqa: PLC0415
-
-                conn = sqlite3.connect(db_path)
-                cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
-                for (tbl_name,) in cursor.fetchall():
-                    tables.append(
-                        TableConfig(
-                            name=tbl_name,
-                            count=1000,
-                            columns=[],
-                        )
-                    )
-                conn.close()
+                )
         except (OSError, ValueError, ImportError):
             logger.warning("Could not read tables from database", db_path=db_path)
 

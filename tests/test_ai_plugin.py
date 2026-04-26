@@ -123,7 +123,7 @@ class TestAIConfig:
         clear_cache()
         config = AIConfig()
         assert config.model is None
-        with patch("sqlseed_ai._model_selector.select_best_free_model", return_value="test/model:free"):
+        with patch("sqlseed_ai.config.select_best_free_model", return_value="test/model:free"):
             result = config.resolve_model()
         assert result == "test/model:free"
         assert config.model == "test/model:free"
@@ -131,7 +131,7 @@ class TestAIConfig:
 
     def test_resolve_model_user_override(self):
         config = AIConfig(model="gpt-4o")
-        with patch("sqlseed_ai._model_selector.select_best_free_model") as mock_select:
+        with patch("sqlseed_ai.config.select_best_free_model") as mock_select:
             result = config.resolve_model()
         mock_select.assert_not_called()
         assert result == "gpt-4o"
@@ -265,7 +265,7 @@ class TestCallLLMFallback:
 
         with (
             patch.object(SchemaAnalyzer, "_call_llm_once", mock_call_llm_once),
-            patch("sqlseed_ai._model_selector.select_next_free_model", return_value=PREFERRED_FREE_MODELS[1]),
+            patch("sqlseed_ai.analyzer.select_next_free_model", return_value=PREFERRED_FREE_MODELS[1]),
         ):
             result = analyzer.call_llm([{"role": "user", "content": "test"}])
 
@@ -281,7 +281,7 @@ class TestCallLLMFallback:
 
         with (
             patch.object(SchemaAnalyzer, "_call_llm_once", mock_call_llm_once),
-            patch("sqlseed_ai._model_selector.select_next_free_model", return_value=None),
+            patch("sqlseed_ai.analyzer.select_next_free_model", return_value=None),
             pytest.raises(RuntimeError, match="LLM API call failed"),
         ):
             analyzer.call_llm([{"role": "user", "content": "test"}])

@@ -4,6 +4,7 @@ import re
 from typing import Any
 
 from sqlseed_ai.analyzer import SchemaAnalyzer
+from sqlseed_ai.config import AIConfig
 
 from sqlseed.plugins.hookspecs import hookimpl
 
@@ -26,8 +27,6 @@ class AISqlseedPlugin:
 
     def _get_analyzer(self) -> SchemaAnalyzer:
         if self._analyzer is None:
-            from sqlseed_ai.config import AIConfig  # noqa: PLC0415
-
             config = AIConfig.from_env()
             config.resolve_model()
             self._analyzer = SchemaAnalyzer(config=config)
