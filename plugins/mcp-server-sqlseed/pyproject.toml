@@ -22,8 +22,8 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
-    "sqlseed>=0.1.0",
-    "mcp>=1.0",
+    "sqlseed>=0.1.0,<2",
+    "mcp>=1.0,<2",
 ]
 
 [project.urls]

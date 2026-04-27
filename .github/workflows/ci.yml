@@ -6,23 +6,37 @@ on:
   pull_request:
     branches: [main]
 
-jobs:
-  test:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        python-version: ["3.10", "3.11", "3.12", "3.13"]
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PIP_NO_WARN_SCRIPT_LOCATION: "0"
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  # ── Fast gate: lint + type check (~45s) ──────────────────────
+  lint:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+        with:
+          fetch-depth: 0
+
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: |
+            pyproject.toml
+            plugins/*/pyproject.toml
 
       - name: Install dependencies
         run: |
           pip install -e ".[all,dev]"
+          pip install -e "./plugins/sqlseed-ai"
+          pip install -e "./plugins/mcp-server-sqlseed"
 
       - name: Lint
         run: ruff check src/ tests/ plugins/
@@ -33,11 +47,75 @@ jobs:
       - name: Type check
         run: mypy
 
-      - name: Test
-        run: pytest --cov=sqlseed --cov-report=xml
+  # ── Core tests: Linux × {3.10, 3.12, 3.13} ─────────────────
+  test:
+    needs: lint
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12", "3.13"]
 
-      - name: Upload coverage
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+          cache-dependency-path: |
+            pyproject.toml
+            plugins/*/pyproject.toml
+
+      - name: Install dependencies
+        run: |
+          pip install -e ".[all,dev]"
+          pip install -e "./plugins/sqlseed-ai"
+          pip install -e "./plugins/mcp-server-sqlseed"
+
+      - name: Test with coverage
+        run: >-
+          pytest
+          --cov=sqlseed --cov=sqlseed_ai --cov=mcp_server_sqlseed
+          --cov-report=xml --cov-report=term-missing
+          --tb=short -q
+
+      - name: Upload coverage (3.12 only)
+        if: matrix.python-version == '3.12'
         uses: codecov/codecov-action@75cd11691c0faa626561e295848008c8a7dddffe  # v5.5.4
         with:
           files: coverage.xml
           fail_ci_if_error: false
+
+  # ── Platform compat: macOS + Windows on 3.12 ────────────────
+  test-compat:
+    needs: lint
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: |
+            pyproject.toml
+            plugins/*/pyproject.toml
+
+      - name: Install dependencies
+        run: |
+          pip install -e ".[all,dev]"
+          pip install -e "./plugins/sqlseed-ai"
+          pip install -e "./plugins/mcp-server-sqlseed"
+
+      - name: Test
+        run: pytest --tb=short -q

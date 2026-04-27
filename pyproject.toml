@@ -34,7 +34,7 @@ dependencies = [
     "pyyaml>=6.0",
     "click>=8.0",
     "rich>=13.0",
-    "typing_extensions>=4.0",
+    "typing_extensions>=4.4",
     "simpleeval>=1.0",
     "rstr>=3.2",
 ]
@@ -81,7 +81,7 @@ packages = ["src/sqlseed"]
 exclude = [
     "docs/",
     "tests/",
-    "./plugins/",
+    "plugins/",
     "snapshots/",
     ".github/",
     ".trae/",
@@ -103,17 +103,17 @@ known-third-party = ["sqlseed_ai"]
 [tool.ruff.lint]
 select = ["E", "W", "F", "I", "N", "UP", "B", "A", "SIM", "TCH", "RET", "PLW", "PLC", "PLR", "RUF"]
 ignore = [
-    "S608", "DTZ001", "DTZ005", "BLE001", "PLR1730", "PLR2004", "PLR0913", "PLR0911",
+    "PLR1730", "PLR2004", "PLR0913", "PLR0911",
     "RUF002", "RUF003", "PLR0912", "PLR0915",
 ]
 
 [tool.mypy]
 strict = true
 python_version = "3.10"
-files = ["src"]
+files = ["src", "plugins"]
 
 [[tool.mypy.overrides]]
-module = ["mimesis.*", "faker.*", "sqlite_utils.*", "yaml", "simpleeval", "sqlseed_ai.*"]
+module = ["mimesis.*", "faker.*", "sqlite_utils.*", "yaml", "simpleeval", "sqlseed_ai.*", "mcp.*", "mcp_server_sqlseed.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
@@ -123,6 +123,13 @@ module = [
 ]
 disable_error_code = ["no-any-return"]
 
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+disallow_untyped_calls = false
+check_untyped_defs = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--cov=sqlseed --cov-report=term-missing"
+addopts = "-ra --strict-markers"
