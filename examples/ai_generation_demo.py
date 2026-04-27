@@ -32,7 +32,6 @@ from sqlseed.config.models import (
     TableConfig,
 )
 
-
 _CMD_FILL = "sqlseed fill --config config.yaml"
 _CMD_AI_SUGGEST = "sqlseed ai-suggest test.db --table users --output config.yaml"
 
@@ -68,7 +67,9 @@ def _build_user_config(db_path: str) -> GeneratorConfig:
                     ColumnConfig(name="email", generator="email"),
                     ColumnConfig(name="age", generator="integer", params={"min_value": 18, "max_value": 65}),
                     ColumnConfig(name="bio", generator="sentence"),
-                    ColumnConfig(name="city", generator="choice", params={"choices": ["北京", "上海", "深圳", "杭州", "成都"]}),
+                    ColumnConfig(
+                        name="city", generator="choice", params={"choices": ["北京", "上海", "深圳", "杭州", "成都"]}
+                    ),
                     ColumnConfig(name="created_at", generator="datetime"),
                 ],
             ),
@@ -158,11 +159,11 @@ def _print_table(db_path: str, table_name: str, limit: int = 5) -> None:
 
     print(f"\n  {table_name} 表前 {limit} 行：")
     col_widths = [max(len(str(c)), *(len(str(r[i])) for r in rows)) for i, c in enumerate(columns)]
-    header = " | ".join(str(c).ljust(w) for c, w in zip(columns, col_widths))
+    header = " | ".join(str(c).ljust(w) for c, w in zip(columns, col_widths, strict=False))
     print(f"  {header}")
     print(f"  {'-' * len(header)}")
     for row in rows:
-        print(f"  {' | '.join(str(v).ljust(w) for v, w in zip(row, col_widths))}")
+        print(f"  {' | '.join(str(v).ljust(w) for v, w in zip(row, col_widths, strict=False))}")
     print()
 
 

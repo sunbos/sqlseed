@@ -344,7 +344,6 @@ def _sanitize_table_config(config_dict: dict[str, Any]) -> None:
 
 
 def _handle_ai_verification(analyzer: Any, db_path: str, table: str, max_retries: int, no_cache: bool) -> Any:
-
     refiner = AiConfigRefiner(analyzer, db_path)
     try:
         return refiner.generate_and_refine(

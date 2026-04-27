@@ -111,7 +111,7 @@ def _try_expression_error(exc: Exception) -> ErrorSummary | None:
 
 
 def _try_file_error(exc: Exception) -> ErrorSummary | None:
-    if isinstance(exc, (FileNotFoundError, PermissionError)):
+    if isinstance(exc, FileNotFoundError | PermissionError):
         return ErrorSummary(
             error_type="fatal",
             message=str(exc)[:200],

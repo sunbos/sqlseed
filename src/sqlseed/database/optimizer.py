@@ -90,7 +90,7 @@ class PragmaOptimizer:
         ):
             value = getattr(self._original, attr)
             if value is not None and (
-                isinstance(value, (int, float)) or (isinstance(value, str) and re.match(r"^[a-zA-Z0-9_-]+$", value))
+                isinstance(value, int | float) or (isinstance(value, str) and re.match(r"^[a-zA-Z0-9_-]+$", value))
             ):
                 try:
                     self._execute(f"PRAGMA {attr} = {value}")

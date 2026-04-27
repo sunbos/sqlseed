@@ -79,7 +79,6 @@ class TestSummarizeError:
         assert summary.retryable is True
 
     def test_pydantic_validation_error(self) -> None:
-
         class Inner(BaseModel):
             value: int
 

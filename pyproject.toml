@@ -106,6 +106,7 @@ ignore = [
     "PLR1730", "PLR2004", "PLR0913", "PLR0911",
     "RUF002", "RUF003", "PLR0912", "PLR0915",
 ]
+allowed-confusables = ["：", "（", "）"]
 
 [tool.mypy]
 strict = true
