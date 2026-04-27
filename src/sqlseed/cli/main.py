@@ -41,12 +41,34 @@ def cli() -> None:
     configure_logging(log_level)
 
 
-def _fill_from_config_cmd(config_path: str, skip_ai: bool = False) -> None:
+def _fill_from_config_cmd(
+    config_path: str,
+    skip_ai: bool = False,
+    clear_before: bool = False,
+    count: int | None = None,
+    provider: str | None = None,
+    seed: int | None = None,
+    batch_size: int | None = None,
+    locale: str | None = None,
+) -> None:
     config = load_config(config_path)
     table_count = len(config.tables)
     click.echo(f"Loading config: {config_path} ({table_count} table(s))")
 
-    results = fill_from_config(config_path, skip_ai=skip_ai)
+    any_clear = clear_before or any(tc.clear_before for tc in config.tables)
+    if not any_clear:
+        click.echo("Note: Data will be appended. Use --clear to reset tables before generation.")
+
+    results = fill_from_config(
+        config_path,
+        skip_ai=skip_ai,
+        clear_before=clear_before,
+        count=count,
+        provider=provider,
+        seed=seed,
+        batch_size=batch_size,
+        locale=locale,
+    )
     for result in results:
         click.echo(str(result))
 
@@ -118,7 +140,8 @@ def fill(**kwargs: Any) -> None:
     """Fill a table with generated test data.
 
     Use --config for config-driven generation, or provide db_path + --table
-    + --count for direct generation.
+    + --count for direct generation. When using --config, CLI options
+    override the corresponding YAML values.
     """
     count = kwargs.get("count")
     config_path = kwargs.get("config_path")
@@ -132,7 +155,7 @@ def fill(**kwargs: Any) -> None:
             "--count is required when not using --config. Use -n <number> to specify the number of rows to generate."
         )
 
-    if config_path and count is None:
+    if not config_path and count is None:
         count = _FILL_DEFAULT_COUNT
 
     kwargs["count"] = count
@@ -142,9 +165,19 @@ def fill(**kwargs: Any) -> None:
 def _execute_fill(opts: dict[str, Any]) -> None:
     config_path = opts.get("config_path")
     skip_ai = opts.get("no_ai", False)
+    clear_before = opts.get("clear", False)
     if config_path:
         logger.debug("Using config-driven generation", config_path=config_path)
-        _fill_from_config_cmd(config_path, skip_ai=skip_ai)
+        _fill_from_config_cmd(
+            config_path,
+            skip_ai=skip_ai,
+            clear_before=clear_before,
+            count=opts.get("count"),
+            provider=opts.get("provider"),
+            seed=opts.get("seed"),
+            batch_size=opts.get("batch_size"),
+            locale=opts.get("locale"),
+        )
         return
 
     db_path = opts.get("db_path")
@@ -439,9 +472,20 @@ def ai_suggest(
             "locale": "en_US",
             "tables": [result],
         }
+        yaml_str = yaml.dump(output_data, allow_unicode=True, sort_keys=False, default_flow_style=False)
+        lines = yaml_str.split("\n")
+        result_lines: list[str] = []
+        for line in lines:
+            result_lines.append(line)
+            if line.strip().startswith("count:"):
+                indent = len(line) - len(line.lstrip())
+                result_lines.append(
+                    " " * indent + "# clear_before: true  # Uncomment to clear existing data before generation"
+                )
         with open(output, "w", encoding="utf-8") as f:
-            yaml.dump(output_data, f, allow_unicode=True, sort_keys=False, default_flow_style=False)
+            f.write("\n".join(result_lines))
         click.echo(f"AI suggestions saved to {output}")
+        click.echo("Tip: Add 'clear_before: true' to reset data before generation, or use --clear flag.")
     else:
         click.echo(
             "No suggestions received. The AI model may not support this task.\n"

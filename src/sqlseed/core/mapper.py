@@ -98,7 +98,7 @@ class ColumnMapper:
     }
 
     EXACT_MATCH_PARAMS: ClassVar[dict[str, dict[str, Any]]] = {
-        "age": {"min_value": 18, "max_value": 100},
+        "age": {"min_value": 18, "max_value": 65},
         "count": {"min_value": 0, "max_value": 10000},
         "quantity": {"min_value": 1, "max_value": 100},
         "amount": {"min_value": 0.01, "max_value": 99999.99, "precision": 2},

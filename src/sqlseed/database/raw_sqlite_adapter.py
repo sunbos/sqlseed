@@ -129,7 +129,7 @@ class RawSQLiteAdapter(BaseSQLiteAdapter):
         safe_table = quote_identifier(table_name)
         self.conn.execute(f"DELETE FROM {safe_table}")
         with contextlib.suppress(Exception):
-            self.conn.execute(f"DELETE FROM sqlite_sequence WHERE name = {safe_table}")
+            self.conn.execute("DELETE FROM sqlite_sequence WHERE name = ?", [table_name])
         self.conn.commit()
         logger.debug("Cleared table", table_name=table_name)
 
