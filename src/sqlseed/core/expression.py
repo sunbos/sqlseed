@@ -40,9 +40,7 @@ class ExpressionEngine:
         "concat": lambda *args: "".join(str(a) for a in args),
     }
 
-    _SIMPLE_EXPR_RE: ClassVar[re.Pattern[str]] = re.compile(
-        r"^[a-zA-Z_][a-zA-Z0-9_]*\s*(\.\s*[a-zA-Z_][a-zA-Z0-9_]*\s*\([^)]*\)\s*)+$"
-    )
+    _SIMPLE_EXPR_RE: ClassVar[re.Pattern[str]] = re.compile(r"^[a-zA-Z_]\w*\s*(\.\s*[a-zA-Z_]\w*\s*\([^)]*\)\s*)+$")
 
     def __init__(self, timeout_seconds: int = 5) -> None:
         self._timeout = timeout_seconds

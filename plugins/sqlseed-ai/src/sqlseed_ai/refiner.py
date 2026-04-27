@@ -80,6 +80,22 @@ class AiConfigRefiner:
 
     _NON_RETRYABLE_ERRORS = frozenset({"empty_config", "invalid_json"})
 
+    def _check_repeated_error(
+        self,
+        error: ErrorSummary,
+        last_error_type: str | None,
+        same_error_count: int,
+    ) -> tuple[str, int]:
+        if error.error_type in self._NON_RETRYABLE_ERRORS and error.error_type == last_error_type:
+            same_error_count += 1
+            if same_error_count >= 2:
+                raise AISuggestionFailedError(
+                    f"Same error '{error.error_type}' repeated {same_error_count + 1} times. "
+                    f"The AI model may not support this task. "
+                    f"Try a different model with --model. Last error: {error.message}"
+                )
+        return error.error_type, same_error_count
+
     def generate_and_refine(
         self,
         table_name: str,
@@ -111,15 +127,9 @@ class AiConfigRefiner:
 
                 if config_dict is None:
                     assert error is not None
-                    if error.error_type in self._NON_RETRYABLE_ERRORS and error.error_type == last_error_type:
-                        same_error_count += 1
-                        if same_error_count >= 2:
-                            raise AISuggestionFailedError(
-                                f"Same error '{error.error_type}' repeated {same_error_count + 1} times. "
-                                f"The AI model may not support this task. "
-                                f"Try a different model with --model. Last error: {error.message}"
-                            )
-                    last_error_type = error.error_type
+                    last_error_type, same_error_count = self._check_repeated_error(
+                        error, last_error_type, same_error_count
+                    )
                     self._handle_generation_failure(error, attempt, max_retries)
                     continue
 
@@ -128,15 +138,7 @@ class AiConfigRefiner:
                     self._cache_successful_config(table_name, config_dict, schema_hash)
                     return config_dict
 
-                if error.error_type in self._NON_RETRYABLE_ERRORS and error.error_type == last_error_type:
-                    same_error_count += 1
-                    if same_error_count >= 2:
-                        raise AISuggestionFailedError(
-                            f"Same error '{error.error_type}' repeated {same_error_count + 1} times. "
-                            f"The AI model may not support this task. "
-                            f"Try a different model with --model. Last error: {error.message}"
-                        )
-                last_error_type = error.error_type
+                last_error_type, same_error_count = self._check_repeated_error(error, last_error_type, same_error_count)
 
                 self._handle_validation_failure(error, attempt, max_retries, table_name)
 
@@ -284,6 +286,6 @@ class AiConfigRefiner:
                         _sanitize_names(config)
                     return config
                 return entry if isinstance(entry, dict) else None
-            except (OSError, ValueError):
-                pass
+            except (OSError, ValueError) as e:
+                logger.debug("Failed to read AI config cache", error=str(e))
         return None

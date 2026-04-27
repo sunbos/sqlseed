@@ -89,6 +89,20 @@ class PluginMediator:
                     continue
                 self._process_single_ai_column(col_cfg, specs)
 
+    def _build_ai_context(self, table_name: str) -> dict[str, Any] | None:
+        try:
+            fks = self._db.get_foreign_keys(table_name)
+            indexes = self._schema.get_index_info(table_name)
+            return {
+                "foreign_keys": fks,
+                "all_table_names": self._db.get_table_names(),
+                "indexes": [{"name": i.name, "columns": i.columns, "unique": i.unique} for i in indexes],
+                "sample_data": self._schema.get_sample_data(table_name, limit=5),
+            }
+        except (ValueError, RuntimeError, ImportError) as e:
+            logger.debug("AI context not available", table_name=table_name, error=str(e))
+            return None
+
     def apply_ai_suggestions(
         self,
         table_name: str,
@@ -99,26 +113,21 @@ class PluginMediator:
         if not self._has_unmatched_cols(column_infos, specs):
             return specs
 
-        try:
-            fks = self._db.get_foreign_keys(table_name)
-            all_tables = self._db.get_table_names()
-            indexes = self._schema.get_index_info(table_name)
-            sample_data = self._schema.get_sample_data(table_name, limit=5)
+        ctx = self._build_ai_context(table_name)
+        if ctx is None:
+            return specs
 
-            ai_result = self._plugins.hook.sqlseed_ai_analyze_table(
-                table_name=table_name,
-                columns=column_infos,
-                indexes=[{"name": i.name, "columns": i.columns, "unique": i.unique} for i in indexes],
-                sample_data=sample_data,
-                foreign_keys=fks,
-                all_table_names=all_tables,
-            )
+        ai_result = self._plugins.hook.sqlseed_ai_analyze_table(
+            table_name=table_name,
+            columns=column_infos,
+            indexes=ctx["indexes"],
+            sample_data=ctx["sample_data"],
+            foreign_keys=ctx["foreign_keys"],
+            all_table_names=ctx["all_table_names"],
+        )
 
-            configured = user_configured_columns or set()
-            self._process_ai_result(ai_result, specs, configured)
-
-        except (ValueError, RuntimeError, ImportError) as e:
-            logger.debug("AI suggestions not available", table_name=table_name, error=str(e))
+        configured = user_configured_columns or set()
+        self._process_ai_result(ai_result, specs, configured)
 
         return specs
 
@@ -128,7 +137,7 @@ class PluginMediator:
         column_infos: list[Any],
         configured: set[str],
     ) -> Iterator[tuple[str, GeneratorSpec, Any]]:
-        for col_name, spec in list(specs.items()):
+        for col_name, spec in specs.items():
             if spec.generator_name != "string":
                 continue
             if col_name in configured:
@@ -152,7 +161,7 @@ class PluginMediator:
         needs_template = any(True for _ in self._iter_template_eligible_specs(specs, column_infos, configured))
         if not needs_template:
             return specs
-        for col_name, _spec, col_info in self._iter_template_eligible_specs(specs, column_infos, configured):
+        for col_name, _spec, col_info in list(self._iter_template_eligible_specs(specs, column_infos, configured)):
             sample_data_for_col: list[Any] = []
             with contextlib.suppress(ValueError, OSError, RuntimeError, sqlite3.OperationalError):
                 sample_data_for_col = self._db.get_column_values(table_name, col_name, limit=10)

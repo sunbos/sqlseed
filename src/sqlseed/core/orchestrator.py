@@ -165,7 +165,7 @@ class DataOrchestrator:
             self._plugins.hook.sqlseed_register_column_mappers(mapper=self._mapper)
             self._registry.register_from_entry_points()
             try:
-                provider = self._registry.ensure_provider(self._provider_name)
+                self._registry.ensure_provider(self._provider_name)
                 self._registry.set_default(self._provider_name)
             except (ImportError, ValueError):
                 logger.warning(
@@ -291,12 +291,11 @@ class DataOrchestrator:
             desired_batches = max(10, count // effective_batch_size)
             effective_batch_size = max(count // desired_batches, 1)
         own_progress = progress is None
-        if own_progress:
-            progress = create_progress()
-        assert progress is not None
-        try:
+        with contextlib.ExitStack() as stack:
             if own_progress:
-                progress.__enter__()
+                progress = create_progress()
+                stack.enter_context(progress)
+            assert progress is not None
             if task_id is None:
                 task_id = progress.add_task(f"Generating {table_name}", total=count)
             for batch in stream.generate(count, effective_batch_size):
@@ -325,9 +324,6 @@ class DataOrchestrator:
                 )
 
                 progress.update(task_id, advance=len(batch))
-        finally:
-            if own_progress:
-                progress.__exit__(None, None, None)
         return total_inserted, batch_count
 
     def fill_table(
@@ -353,46 +349,46 @@ class DataOrchestrator:
         batch_count = 0
 
         progress = create_progress()
-        try:
-            progress.__enter__()
-            prep_task = progress.add_task(f"Preparing {table_name}...", total=None)
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(progress)
+            try:
+                prep_task = progress.add_task(f"Preparing {table_name}...", total=None)
 
-            if self._optimize_pragma:
-                self._db.optimize_for_bulk_write(count)
+                if self._optimize_pragma:
+                    self._db.optimize_for_bulk_write(count)
 
-            progress.update(prep_task, description=f"Resolving schema for {table_name}...")
-            generator_specs, user_configs, unique_columns = self._prepare_specs(
-                table_name, count, columns, column_configs, enrich, clear_before, skip_ai
-            )
+                progress.update(prep_task, description=f"Resolving schema for {table_name}...")
+                generator_specs, user_configs, unique_columns = self._prepare_specs(
+                    table_name, count, columns, column_configs, enrich, clear_before, skip_ai
+                )
 
-            progress.update(prep_task, description=f"Building data stream for {table_name}...")
-            stream = self._build_stream(generator_specs, user_configs, unique_columns, transform, seed)
+                progress.update(prep_task, description=f"Building data stream for {table_name}...")
+                stream = self._build_stream(generator_specs, user_configs, unique_columns, transform, seed)
 
-            progress.remove_task(prep_task)
-            gen_task = progress.add_task(f"Generating {table_name}", total=count)
+                progress.remove_task(prep_task)
+                gen_task = progress.add_task(f"Generating {table_name}", total=count)
 
-            self._plugins.hook.sqlseed_before_generate(
-                table_name=table_name,
-                count=count,
-                config=None,
-            )
+                self._plugins.hook.sqlseed_before_generate(
+                    table_name=table_name,
+                    count=count,
+                    config=None,
+                )
 
-            total_inserted, batch_count = self._generate_and_insert_batches(
-                table_name, stream, count, batch_size, progress, gen_task
-            )
+                total_inserted, batch_count = self._generate_and_insert_batches(
+                    table_name, stream, count, batch_size, progress, gen_task
+                )
 
-        except (ValueError, RuntimeError, OSError, sqlite3.OperationalError) as e:
-            logger.error("Failed to fill table", table_name=table_name, error=e)
-            return GenerationResult(
-                table_name=table_name,
-                count=total_inserted,
-                elapsed=time.monotonic() - start_time,
-                errors=[str(e)],
-            )
-        finally:
-            progress.__exit__(None, None, None)
-            if self._optimize_pragma:
-                self._db.restore_settings()
+            except (ValueError, RuntimeError, OSError, sqlite3.OperationalError) as e:
+                logger.error("Failed to fill table", table_name=table_name, error=e)
+                return GenerationResult(
+                    table_name=table_name,
+                    count=total_inserted,
+                    elapsed=time.monotonic() - start_time,
+                    errors=[str(e)],
+                )
+            finally:
+                if self._optimize_pragma:
+                    self._db.restore_settings()
 
         elapsed = time.monotonic() - start_time
 

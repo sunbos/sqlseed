@@ -33,6 +33,10 @@ from sqlseed.config.models import (
 )
 
 
+_CMD_FILL = "sqlseed fill --config config.yaml"
+_CMD_AI_SUGGEST = "sqlseed ai-suggest test.db --table users --output config.yaml"
+
+
 def _create_sample_db(db_path: str) -> None:
     conn = sqlite3.connect(db_path)
     conn.execute("""
@@ -121,28 +125,28 @@ def example_3_cli_usage() -> None:
     print("=" * 60)
     print()
     print("# 1. 自动选择免费模型（默认行为）")
-    print("sqlseed ai-suggest test.db --table users --output config.yaml")
-    print("sqlseed fill --config config.yaml")
+    print(_CMD_AI_SUGGEST)
+    print(_CMD_FILL)
     print()
     print("# 2. 指定特定模型")
-    print("sqlseed ai-suggest test.db --table users --output config.yaml \\")
+    print(_CMD_AI_SUGGEST + " \\")
     print("  --model 'deepseek/deepseek-r1-0528:free' \\")
     print("  --api-key 'your-openrouter-key'")
-    print("sqlseed fill --config config.yaml")
+    print(_CMD_FILL)
     print()
     print("# 3. 使用 OpenAI 官方 API")
-    print("sqlseed ai-suggest test.db --table users --output config.yaml \\")
+    print(_CMD_AI_SUGGEST + " \\")
     print("  --model 'gpt-4o-mini' \\")
     print("  --api-key 'sk-xxx' \\")
     print("  --base-url 'https://api.openai.com/v1'")
-    print("sqlseed fill --config config.yaml")
+    print(_CMD_FILL)
     print()
     print("# 4. 使用 DeepSeek API")
-    print("sqlseed ai-suggest test.db --table users --output config.yaml \\")
+    print(_CMD_AI_SUGGEST + " \\")
     print("  --model 'deepseek-chat' \\")
     print("  --api-key 'sk-xxx' \\")
     print("  --base-url 'https://api.deepseek.com/v1'")
-    print("sqlseed fill --config config.yaml")
+    print(_CMD_FILL)
 
 
 def _print_table(db_path: str, table_name: str, limit: int = 5) -> None:

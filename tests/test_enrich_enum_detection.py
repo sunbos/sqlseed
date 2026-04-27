@@ -20,122 +20,55 @@ class TestEnumDetection:
 
         return FakeColumnInfo(name, col_type, nullable)
 
-    def test_enum_detection_by_name_pattern_by_prefix(self) -> None:
+    def _assert_enum(
+        self, col_name: str, col_type: str, distinct: int, total: int, is_unique: bool, expected: bool
+    ) -> None:
         with DataOrchestrator(":memory:", provider_name="base") as orch:
             orch._ensure_connected()
-            col_info = self._make_col_info("byCardType", "INT8")
+            col_info = self._make_col_info(col_name, col_type)
             assert (
                 orch._enrichment is not None
-                and orch._enrichment.is_enumeration_column("byCardType", col_info, 3, 100, False) is True
+                and orch._enrichment.is_enumeration_column(col_name, col_info, distinct, total, is_unique) is expected
             )
+
+    def test_enum_detection_by_name_pattern_by_prefix(self) -> None:
+        self._assert_enum("byCardType", "INT8", 3, 100, False, True)
 
     def test_enum_detection_by_name_pattern_status(self) -> None:
-        with DataOrchestrator(":memory:", provider_name="base") as orch:
-            orch._ensure_connected()
-            col_info = self._make_col_info("order_status", "INTEGER")
-            assert (
-                orch._enrichment is not None
-                and orch._enrichment.is_enumeration_column("order_status", col_info, 5, 500, False) is True
-            )
+        self._assert_enum("order_status", "INTEGER", 5, 500, False, True)
 
     def test_enum_detection_by_name_pattern_type(self) -> None:
-        with DataOrchestrator(":memory:", provider_name="base") as orch:
-            orch._ensure_connected()
-            col_info = self._make_col_info("user_type", "INTEGER")
-            assert (
-                orch._enrichment is not None
-                and orch._enrichment.is_enumeration_column("user_type", col_info, 3, 200, False) is True
-            )
+        self._assert_enum("user_type", "INTEGER", 3, 200, False, True)
 
     def test_enum_detection_by_small_int_type(self) -> None:
-        with DataOrchestrator(":memory:", provider_name="base") as orch:
-            orch._ensure_connected()
-            col_info = self._make_col_info("priority", "INT8")
-            assert (
-                orch._enrichment is not None
-                and orch._enrichment.is_enumeration_column("priority", col_info, 3, 200, False) is True
-            )
+        self._assert_enum("priority", "INT8", 3, 200, False, True)
 
     def test_enum_detection_by_cardinality_ratio(self) -> None:
-        with DataOrchestrator(":memory:", provider_name="base") as orch:
-            orch._ensure_connected()
-            col_info = self._make_col_info("gender", "VARCHAR(10)")
-            assert (
-                orch._enrichment is not None
-                and orch._enrichment.is_enumeration_column("gender", col_info, 2, 1000, False) is True
-            )
+        self._assert_enum("gender", "VARCHAR(10)", 2, 1000, False, True)
 
     def test_enum_rejection_unique_column(self) -> None:
-        with DataOrchestrator(":memory:", provider_name="base") as orch:
-            orch._ensure_connected()
-            col_info = self._make_col_info("sCardNo", "VARCHAR(32)")
-            assert (
-                orch._enrichment is not None
-                and orch._enrichment.is_enumeration_column("sCardNo", col_info, 3, 100, True) is False
-            )
+        self._assert_enum("sCardNo", "VARCHAR(32)", 3, 100, True, False)
 
     def test_enum_rejection_high_cardinality(self) -> None:
-        with DataOrchestrator(":memory:", provider_name="base") as orch:
-            orch._ensure_connected()
-            col_info = self._make_col_info("sUserNo", "VARCHAR(32)")
-            assert (
-                orch._enrichment is not None
-                and orch._enrichment.is_enumeration_column("sUserNo", col_info, 80, 100, False) is False
-            )
+        self._assert_enum("sUserNo", "VARCHAR(32)", 80, 100, False, False)
 
     def test_enum_rejection_varchar_medium_cardinality(self) -> None:
-        with DataOrchestrator(":memory:", provider_name="base") as orch:
-            orch._ensure_connected()
-            col_info = self._make_col_info("department", "VARCHAR(50)")
-            assert (
-                orch._enrichment is not None
-                and orch._enrichment.is_enumeration_column("department", col_info, 18, 1000, False) is False
-            )
+        self._assert_enum("department", "VARCHAR(50)", 18, 1000, False, False)
 
     def test_enum_rejection_empty_data(self) -> None:
-        with DataOrchestrator(":memory:", provider_name="base") as orch:
-            orch._ensure_connected()
-            col_info = self._make_col_info("status", "INT8")
-            assert (
-                orch._enrichment is not None
-                and orch._enrichment.is_enumeration_column("status", col_info, 0, 0, False) is False
-            )
+        self._assert_enum("status", "INT8", 0, 0, False, False)
 
     def test_enum_detection_is_active(self) -> None:
-        with DataOrchestrator(":memory:", provider_name="base") as orch:
-            orch._ensure_connected()
-            col_info = self._make_col_info("is_active", "INTEGER")
-            assert (
-                orch._enrichment is not None
-                and orch._enrichment.is_enumeration_column("is_active", col_info, 2, 500, False) is True
-            )
+        self._assert_enum("is_active", "INTEGER", 2, 500, False, True)
 
     def test_enum_detection_has_permission(self) -> None:
-        with DataOrchestrator(":memory:", provider_name="base") as orch:
-            orch._ensure_connected()
-            col_info = self._make_col_info("has_permission", "INTEGER")
-            assert (
-                orch._enrichment is not None
-                and orch._enrichment.is_enumeration_column("has_permission", col_info, 2, 500, False) is True
-            )
+        self._assert_enum("has_permission", "INTEGER", 2, 500, False, True)
 
     def test_enum_detection_int16_type(self) -> None:
-        with DataOrchestrator(":memory:", provider_name="base") as orch:
-            orch._ensure_connected()
-            col_info = self._make_col_info("level", "INT16")
-            assert (
-                orch._enrichment is not None
-                and orch._enrichment.is_enumeration_column("level", col_info, 5, 200, False) is True
-            )
+        self._assert_enum("level", "INT16", 5, 200, False, True)
 
     def test_enum_rejection_high_ratio_even_with_name(self) -> None:
-        with DataOrchestrator(":memory:", provider_name="base") as orch:
-            orch._ensure_connected()
-            col_info = self._make_col_info("user_type", "INTEGER")
-            assert (
-                orch._enrichment is not None
-                and orch._enrichment.is_enumeration_column("user_type", col_info, 50, 100, False) is False
-            )
+        self._assert_enum("user_type", "INTEGER", 50, 100, False, False)
 
 
 class TestEnumDetectionIntegration:
