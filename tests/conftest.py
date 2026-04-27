@@ -166,6 +166,7 @@ def apply_enrichment(db_path: str, table_name: str, provider_name: str = "base")
         column_infos = orch._schema.get_column_info(table_name)
         unique_cols = orch._schema.detect_unique_columns(table_name)
         specs = orch._mapper.map_columns(column_infos, enrich=True)
+        assert orch._enrichment is not None
         specs = orch._enrichment.apply(table_name, specs, column_infos, unique_cols)
         return orch, specs
 

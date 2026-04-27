@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from typing import Any
 
 import yaml
 
@@ -48,7 +49,7 @@ class TestPublicAPI:
         assert isinstance(result, GenerationResult)
         assert result.count == 7
 
-    def test_fill_from_config(self, tmp_db, tmp_path) -> None:
+    def test_fill_from_config(self, tmp_db, tmp_path: Any) -> None:
         config_path = tmp_path / "gen.yaml"
         config_data = {
             "db_path": tmp_db,
@@ -74,7 +75,7 @@ class TestPublicAPI:
         assert len(rows) == 3
         assert "name" in rows[0]
 
-    def test_fill_from_config_respects_fk_order(self, tmp_path) -> None:
+    def test_fill_from_config_respects_fk_order(self, tmp_path: Any) -> None:
         db_path = str(tmp_path / "fk_test.db")
         conn = sqlite3.connect(db_path)
         conn.execute("CREATE TABLE departments (id INTEGER PRIMARY KEY, name TEXT)")

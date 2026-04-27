@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from typing import Any
 
 from sqlseed.core.schema import SchemaInferrer
 from sqlseed.database.raw_sqlite_adapter import RawSQLiteAdapter
@@ -39,7 +40,7 @@ class TestSchemaInferrer:
         assert "id" in schema
         assert "name" in schema
 
-    def test_get_index_info(self, tmp_path) -> None:
+    def test_get_index_info(self, tmp_path: Any) -> None:
         db_path = str(tmp_path / "idx_test.db")
         conn = sqlite3.connect(db_path)
         conn.execute("CREATE TABLE items (id INTEGER PRIMARY KEY, code TEXT NOT NULL, name TEXT)")
@@ -63,7 +64,7 @@ class TestSchemaInferrer:
         finally:
             adapter.close()
 
-    def test_get_sample_data(self, tmp_path) -> None:
+    def test_get_sample_data(self, tmp_path: Any) -> None:
         db_path = str(tmp_path / "sample_test.db")
         conn = sqlite3.connect(db_path)
         conn.execute("CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT)")
@@ -103,7 +104,7 @@ class TestSchemaInferrer:
         assert name_profile["distinct_count"] > 0
         assert name_profile["sample_size"] > 0
 
-    def test_profile_column_distribution_with_nulls(self, tmp_path) -> None:
+    def test_profile_column_distribution_with_nulls(self, tmp_path: Any) -> None:
         db_path = str(tmp_path / "null_test.db")
         conn = sqlite3.connect(db_path)
         conn.execute("CREATE TABLE items (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, value INTEGER)")

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from sqlseed.core.enrichment import EnrichmentEngine
@@ -26,7 +28,7 @@ class MediatorContext:
 
 
 @pytest.fixture
-def enrich_ctx(tmp_path):
+def enrich_ctx(tmp_path: Any):
     db_path = str(tmp_path / "test.db")
     create_simple_db(db_path)
 
@@ -41,7 +43,7 @@ def enrich_ctx(tmp_path):
 
 
 @pytest.fixture
-def mediator_ctx(tmp_path):
+def mediator_ctx(tmp_path: Any):
     db_path = str(tmp_path / "test.db")
     create_simple_db(db_path)
 

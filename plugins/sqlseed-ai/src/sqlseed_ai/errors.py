@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
 
-from sqlseed.generators.stream import UnknownGeneratorError
+from sqlseed.generators import UnknownGeneratorError
 
 if TYPE_CHECKING:
     from collections.abc import Callable

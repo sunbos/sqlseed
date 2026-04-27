@@ -34,7 +34,6 @@ from sqlseed.config.models import (
 
 
 def _create_sample_db(db_path: str) -> None:
-    """创建一个示例数据库，包含 users 表"""
     conn = sqlite3.connect(db_path)
     conn.execute("""
         CREATE TABLE users (
@@ -51,90 +50,55 @@ def _create_sample_db(db_path: str) -> None:
     conn.close()
 
 
-def example_1_default_model() -> None:
-    """方式一：使用默认自动选择的免费模型
+def _build_user_config(db_path: str) -> GeneratorConfig:
+    return GeneratorConfig(
+        db_path=db_path,
+        provider=ProviderType("ai"),
+        locale="zh_CN",
+        tables=[
+            TableConfig(
+                name="users",
+                count=10,
+                columns=[
+                    ColumnConfig(name="username", generator="name"),
+                    ColumnConfig(name="email", generator="email"),
+                    ColumnConfig(name="age", generator="integer", params={"min_value": 18, "max_value": 65}),
+                    ColumnConfig(name="bio", generator="sentence"),
+                    ColumnConfig(name="city", generator="choice", params={"choices": ["北京", "上海", "深圳", "杭州", "成都"]}),
+                    ColumnConfig(name="created_at", generator="datetime"),
+                ],
+            ),
+        ],
+    )
 
-    AI 插件会自动从 OpenRouter 选择当前最受欢迎的免费模型。
-    无需指定 model，只需设置 API Key。
-    """
+
+def _run_example(db_path: str, label: str) -> None:
+    config = _build_user_config(db_path)
+    config_path = str(Path(db_path).parent / "config.yaml")
+    save_config(config, config_path)
+
+    print("=" * 60)
+    print(label)
+    print("=" * 60)
+
+    results = sqlseed.fill_from_config(config_path)
+    for r in results:
+        print(f"  表: {r.table_name}, 插入: {r.count} 行, 耗时: {r.elapsed:.2f}s")
+
+    _print_table(db_path, "users")
+
+
+def example_1_default_model() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         db_path = str(Path(tmp) / "example1.db")
         _create_sample_db(db_path)
-
-        # 使用 YAML 配置 + provider: ai
-        config = GeneratorConfig(
-            db_path=db_path,
-            provider=ProviderType("ai"),
-            locale="zh_CN",
-            tables=[
-                TableConfig(
-                    name="users",
-                    count=10,
-                    columns=[
-                        ColumnConfig(name="username", generator="name"),
-                        ColumnConfig(name="email", generator="email"),
-                        ColumnConfig(name="age", generator="integer", params={"min_value": 18, "max_value": 65}),
-                        ColumnConfig(name="bio", generator="sentence"),
-                        ColumnConfig(name="city", generator="choice", params={"choices": ["北京", "上海", "深圳", "杭州", "成都"]}),
-                        ColumnConfig(name="created_at", generator="datetime"),
-                    ],
-                ),
-            ],
-        )
-
-        config_path = str(Path(tmp) / "config.yaml")
-        save_config(config, config_path)
-
-        print("=" * 60)
-        print("方式一：默认自动选择免费模型（OpenRouter）")
-        print("=" * 60)
-
-        results = sqlseed.fill_from_config(config_path)
-        for r in results:
-            print(f"  表: {r.table_name}, 插入: {r.count} 行, 耗时: {r.elapsed:.2f}s")
-
-        _print_table(db_path, "users")
+        _run_example(db_path, "方式一：默认自动选择免费模型（OpenRouter）")
 
 
 def example_2_specified_model() -> None:
-    """方式二：指定特定模型
-
-    通过环境变量或 AIConfig 指定模型名称。
-    支持任何 OpenAI 兼容 API（OpenRouter、OpenAI、DeepSeek 等）。
-    """
     with tempfile.TemporaryDirectory() as tmp:
         db_path = str(Path(tmp) / "example2.db")
         _create_sample_db(db_path)
-
-        # 方式 2a：通过环境变量指定模型
-        # export SQLSEED_AI_MODEL="deepseek/deepseek-r1-0528:free"
-        # export SQLSEED_AI_API_KEY="your-key"
-        # export SQLSEED_AI_BASE_URL="https://openrouter.ai/api/v1"
-
-        # 方式 2b：通过 YAML 配置文件（推荐）
-        # 在 YAML 中设置 provider: ai，然后通过环境变量控制模型
-        config = GeneratorConfig(
-            db_path=db_path,
-            provider=ProviderType("ai"),
-            locale="zh_CN",
-            tables=[
-                TableConfig(
-                    name="users",
-                    count=10,
-                    columns=[
-                        ColumnConfig(name="username", generator="name"),
-                        ColumnConfig(name="email", generator="email"),
-                        ColumnConfig(name="age", generator="integer", params={"min_value": 18, "max_value": 65}),
-                        ColumnConfig(name="bio", generator="sentence"),
-                        ColumnConfig(name="city", generator="choice", params={"choices": ["北京", "上海", "深圳", "杭州", "成都"]}),
-                        ColumnConfig(name="created_at", generator="datetime"),
-                    ],
-                ),
-            ],
-        )
-
-        config_path = str(Path(tmp) / "config.yaml")
-        save_config(config, config_path)
 
         print("=" * 60)
         print("方式二：指定特定模型")
@@ -144,11 +108,7 @@ def example_2_specified_model() -> None:
         print("  python examples/ai_generation_demo.py")
         print("=" * 60)
 
-        results = sqlseed.fill_from_config(config_path)
-        for r in results:
-            print(f"  表: {r.table_name}, 插入: {r.count} 行, 耗时: {r.elapsed:.2f}s")
-
-        _print_table(db_path, "users")
+        _run_example(db_path, "方式二：指定特定模型")
 
 
 def example_3_cli_usage() -> None:

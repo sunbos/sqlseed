@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import contextmanager
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
@@ -39,18 +39,18 @@ class TestEnrichmentEngine:
         with TestEnrichmentEngine._engine_from_db(db_path) as engine:
             yield engine
 
-    def test_apply_no_enrich_specs(self, enrich_ctx):
+    def test_apply_no_enrich_specs(self, enrich_ctx) -> None:
         specs = {"name": GeneratorSpec(generator_name="string")}
         result = enrich_ctx.engine.apply("t", specs, enrich_ctx.schema.get_column_info("t"))
         assert result["name"].generator_name == "string"
 
-    def test_apply_empty_table_skips_enrich(self, tmp_path):
+    def test_apply_empty_table_skips_enrich(self, tmp_path: Any) -> None:
         with self._engine_from_ddl(tmp_path, "CREATE TABLE t (id INTEGER PRIMARY KEY, status TEXT)") as engine:
             specs = {"status": GeneratorSpec(generator_name="__enrich__")}
             result = engine.apply("t", specs, [])
             assert result["status"].generator_name == "skip"
 
-    def test_apply_enumeration_column(self, tmp_path):
+    def test_apply_enumeration_column(self, tmp_path: Any) -> None:
         db_path = str(tmp_path / "test.db")
         conn = sqlite3.connect(db_path)
         conn.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, user_status TEXT)")
@@ -67,7 +67,7 @@ class TestEnrichmentEngine:
             assert result["user_status"].generator_name == "choice"
             assert "choices" in result["user_status"].params
 
-    def test_apply_enrich_falls_back_to_mapper(self, tmp_path):
+    def test_apply_enrich_falls_back_to_mapper(self, tmp_path: Any) -> None:
         db_path = str(tmp_path / "test.db")
         conn = sqlite3.connect(db_path)
         conn.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, email TEXT)")
@@ -83,16 +83,16 @@ class TestEnrichmentEngine:
             result = engine.apply("t", specs, [])
             assert result["email"].generator_name != "__enrich__"
 
-    def test_is_enumeration_column_by_name(self, enrich_ctx):
+    def test_is_enumeration_column_by_name(self, enrich_ctx) -> None:
         assert enrich_ctx.engine.is_enumeration_column("user_status", None, 3, 100, False) is True
         assert enrich_ctx.engine.is_enumeration_column("email", None, 50, 100, False) is False
         assert enrich_ctx.engine.is_enumeration_column("id", None, 100, 100, True) is False
 
-    def test_is_enumeration_column_zero_rows(self, tmp_path):
+    def test_is_enumeration_column_zero_rows(self, tmp_path: Any) -> None:
         with self._engine_from_ddl(tmp_path, "CREATE TABLE t (id INTEGER PRIMARY KEY)") as engine:
             assert engine.is_enumeration_column("status", None, 0, 0, False) is False
 
-    def test_apply_with_unique_column(self, tmp_path):
+    def test_apply_with_unique_column(self, tmp_path: Any) -> None:
         db_path = str(tmp_path / "test.db")
         conn = sqlite3.connect(db_path)
         conn.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, code TEXT UNIQUE)")

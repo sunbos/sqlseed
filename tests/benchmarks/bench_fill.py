@@ -21,15 +21,15 @@ def create_bench_db(tmp_path: Path) -> str:
 
 
 @pytest.mark.benchmark(group="fill")
-def test_bench_fill_1k_rows(benchmark, bench_db):
+def test_bench_fill_1k_rows(benchmark, bench_db) -> None:
     benchmark(fill, bench_db, table="users", count=1000, provider="base", clear_before=True)
 
 
 @pytest.mark.benchmark(group="fill")
-def test_bench_fill_10k_rows(benchmark, bench_db):
+def test_bench_fill_10k_rows(benchmark, bench_db) -> None:
     benchmark(fill, bench_db, table="users", count=10000, provider="base", clear_before=True)
 
 
 @pytest.mark.benchmark(group="fill")
-def test_bench_preview_5_rows(benchmark, bench_db):
+def test_bench_preview_5_rows(benchmark, bench_db) -> None:
     benchmark(preview, bench_db, table="users", count=5, provider="base")

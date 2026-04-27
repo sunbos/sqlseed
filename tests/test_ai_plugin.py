@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import time
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -29,8 +30,8 @@ except ImportError:
     select_best_free_model = None  # type: ignore
     select_next_free_model = None  # type: ignore
     clear_cache = None  # type: ignore
-    PREFERRED_FREE_MODELS = []  # type: ignore
-    _CACHE = {}  # type: ignore
+    PREFERRED_FREE_MODELS = []
+    _CACHE = {}
     APITimeoutError = None  # type: ignore
 
 if not HAS_SQLSEED_AI:
@@ -69,15 +70,15 @@ def _make_mock_response(
         "Response",
         (),
         {
-            "read": lambda self: body,
+            "read": lambda _self: body,
             "__enter__": lambda self: self,
-            "__exit__": lambda self, *args: None,
+            "__exit__": lambda _self, *_args: None,
         },
     )
 
 
 class TestAIConfig:
-    def test_default_values(self):
+    def test_default_values(self) -> None:
         config = AIConfig()
         assert config.api_key is None
         assert config.model is None
@@ -86,7 +87,7 @@ class TestAIConfig:
         assert config.max_tokens == 4096
         assert config.timeout == pytest.approx(60.0)
 
-    def test_from_env_missing(self, monkeypatch):
+    def test_from_env_missing(self, monkeypatch: Any) -> None:
         monkeypatch.delenv("SQLSEED_AI_API_KEY", raising=False)
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
         monkeypatch.delenv("SQLSEED_AI_BASE_URL", raising=False)
@@ -99,7 +100,7 @@ class TestAIConfig:
         assert config.model is None
         assert config.timeout == pytest.approx(60.0)
 
-    def test_from_env_set(self, monkeypatch):
+    def test_from_env_set(self, monkeypatch: Any) -> None:
         monkeypatch.setenv("SQLSEED_AI_API_KEY", "sk-test123")
         monkeypatch.setenv("SQLSEED_AI_BASE_URL", "https://api.test.com/v1")
         monkeypatch.setenv("SQLSEED_AI_MODEL", "gpt-4o")
@@ -110,7 +111,7 @@ class TestAIConfig:
         assert config.model == "gpt-4o"
         assert config.timeout == pytest.approx(120.0)
 
-    def test_from_env_fallback_openai(self, monkeypatch):
+    def test_from_env_fallback_openai(self, monkeypatch: Any) -> None:
         monkeypatch.delenv("SQLSEED_AI_API_KEY", raising=False)
         monkeypatch.setenv("OPENAI_API_KEY", "sk-openai-key")
         monkeypatch.delenv("SQLSEED_AI_BASE_URL", raising=False)
@@ -119,7 +120,7 @@ class TestAIConfig:
         assert config.api_key == "sk-openai-key"
         assert config.base_url == "https://api.openai.com/v1"
 
-    def test_resolve_model_auto_select(self):
+    def test_resolve_model_auto_select(self) -> None:
         clear_cache()
         config = AIConfig(api_key="test-key")
         assert config.model is None
@@ -129,7 +130,7 @@ class TestAIConfig:
         assert config.model == "test/model:free"
         clear_cache()
 
-    def test_resolve_model_no_api_key_uses_fallback(self):
+    def test_resolve_model_no_api_key_uses_fallback(self) -> None:
         clear_cache()
         config = AIConfig()
         assert config.api_key is None
@@ -138,7 +139,7 @@ class TestAIConfig:
         assert config.model == PREFERRED_FREE_MODELS[0]
         clear_cache()
 
-    def test_resolve_model_user_override(self):
+    def test_resolve_model_user_override(self) -> None:
         config = AIConfig(model="gpt-4o")
         with patch("sqlseed_ai.config.select_best_free_model") as mock_select:
             result = config.resolve_model()
@@ -148,7 +149,7 @@ class TestAIConfig:
 
 
 class TestModelSelector:
-    def test_select_best_free_model_with_mock_api(self):
+    def test_select_best_free_model_with_mock_api(self) -> None:
         clear_cache()
         mock_response = _make_mock_response("nvidia/nemotron-3-super-120b-a12b:free")
 
@@ -158,7 +159,7 @@ class TestModelSelector:
         assert result == "nvidia/nemotron-3-super-120b-a12b:free"
         clear_cache()
 
-    def test_select_best_free_model_api_failure(self):
+    def test_select_best_free_model_api_failure(self) -> None:
         clear_cache()
         with patch("sqlseed_ai._model_selector.urllib.request.urlopen", side_effect=OSError("Network error")):
             result = select_best_free_model()
@@ -166,7 +167,7 @@ class TestModelSelector:
         assert result == PREFERRED_FREE_MODELS[0]
         clear_cache()
 
-    def test_select_best_free_model_no_match(self):
+    def test_select_best_free_model_no_match(self) -> None:
         clear_cache()
         mock_response = _make_mock_response("other/free-model:free")
 
@@ -176,7 +177,7 @@ class TestModelSelector:
         assert result == PREFERRED_FREE_MODELS[0]
         clear_cache()
 
-    def test_select_best_free_model_caching(self):
+    def test_select_best_free_model_caching(self) -> None:
         clear_cache()
         _CACHE["model"] = "cached/model:free"
         _CACHE["expires_at"] = time.time() + 3600
@@ -185,7 +186,7 @@ class TestModelSelector:
         assert result == "cached/model:free"
         clear_cache()
 
-    def test_select_best_free_model_cache_expired(self):
+    def test_select_best_free_model_cache_expired(self) -> None:
         clear_cache()
         _CACHE["model"] = "expired/model:free"
         _CACHE["expires_at"] = time.time() - 1
@@ -198,7 +199,7 @@ class TestModelSelector:
         assert result == "tencent/hy3-preview:free"
         clear_cache()
 
-    def test_filter_non_text_model(self):
+    def test_filter_non_text_model(self) -> None:
         clear_cache()
         mock_response = _make_mock_response(
             "nvidia/nemotron-3-super-120b-a12b:free",
@@ -212,7 +213,7 @@ class TestModelSelector:
         assert result == PREFERRED_FREE_MODELS[0]
         clear_cache()
 
-    def test_filter_no_response_format(self):
+    def test_filter_no_response_format(self) -> None:
         clear_cache()
         mock_response = _make_mock_response(
             "nvidia/nemotron-3-super-120b-a12b:free",
@@ -225,7 +226,7 @@ class TestModelSelector:
         assert result == PREFERRED_FREE_MODELS[0]
         clear_cache()
 
-    def test_filter_paid_model(self):
+    def test_filter_paid_model(self) -> None:
         clear_cache()
         mock_response = _make_mock_response(
             "some/paid-model",
@@ -239,19 +240,19 @@ class TestModelSelector:
         assert result == PREFERRED_FREE_MODELS[0]
         clear_cache()
 
-    def test_select_next_free_model(self):
+    def test_select_next_free_model(self) -> None:
         clear_cache()
         result = select_next_free_model(PREFERRED_FREE_MODELS[0])
         assert result == PREFERRED_FREE_MODELS[1]
         clear_cache()
 
-    def test_select_next_free_model_last(self):
+    def test_select_next_free_model_last(self) -> None:
         clear_cache()
         result = select_next_free_model(PREFERRED_FREE_MODELS[-1])
         assert result is None
         clear_cache()
 
-    def test_select_next_free_model_unknown(self):
+    def test_select_next_free_model_unknown(self) -> None:
         clear_cache()
         result = select_next_free_model("unknown/model:free")
         assert result is None
@@ -259,7 +260,7 @@ class TestModelSelector:
 
 
 class TestCallLLMFallback:
-    def test_call_llm_fallback_on_timeout(self):
+    def test_call_llm_fallback_on_timeout(self) -> None:
         config = AIConfig(api_key="test-key", model=PREFERRED_FREE_MODELS[0])
         analyzer = SchemaAnalyzer(config=config)
 
@@ -279,13 +280,14 @@ class TestCallLLMFallback:
             result = analyzer.call_llm([{"role": "user", "content": "test"}])
 
         assert result == {"name": "test", "count": 100, "columns": []}
+        assert analyzer._config is not None
         assert analyzer._config.model == PREFERRED_FREE_MODELS[1]
 
-    def test_call_llm_no_more_fallback(self):
+    def test_call_llm_no_more_fallback(self) -> None:
         config = AIConfig(api_key="test-key", model=PREFERRED_FREE_MODELS[-1])
         analyzer = SchemaAnalyzer(config=config)
 
-        def mock_call_llm_once(self, messages):
+        def mock_call_llm_once(_self, _messages):
             raise APITimeoutError(request=type("Request", (), {"body": None})())
 
         with (
@@ -295,11 +297,11 @@ class TestCallLLMFallback:
         ):
             analyzer.call_llm([{"role": "user", "content": "test"}])
 
-    def test_call_llm_non_timeout_error_no_fallback(self):
+    def test_call_llm_non_timeout_error_no_fallback(self) -> None:
         config = AIConfig(api_key="test-key", model="test-model")
         analyzer = SchemaAnalyzer(config=config)
 
-        def mock_call_llm_once(self, messages):
+        def mock_call_llm_once(_self, _messages):
             raise RuntimeError("Some other error")
 
         with (
@@ -310,7 +312,7 @@ class TestCallLLMFallback:
 
 
 class TestSchemaAnalyzer:
-    def test_build_context_basic(self):
+    def test_build_context_basic(self) -> None:
         analyzer = SchemaAnalyzer(config=AIConfig(model="test-model"))
         columns = [
             make_col("card_number", "VARCHAR(20)"),
@@ -333,7 +335,7 @@ class TestSchemaAnalyzer:
         assert "PRIMARY KEY" in context
         assert "AUTOINCREMENT" in context
 
-    def test_build_context_with_indexes(self):
+    def test_build_context_with_indexes(self) -> None:
         analyzer = SchemaAnalyzer(config=AIConfig(model="test-model"))
         columns = [make_col("card_number", "VARCHAR(20)")]
         indexes = [{"name": "idx_card", "columns": ["card_number"], "unique": True}]
@@ -350,7 +352,7 @@ class TestSchemaAnalyzer:
         assert "UNIQUE" in context
         assert "INDEX" in context
 
-    def test_build_context_with_foreign_keys(self):
+    def test_build_context_with_foreign_keys(self) -> None:
         analyzer = SchemaAnalyzer(config=AIConfig(model="test-model"))
         columns = [make_col("user_id", "INTEGER")]
         fks = [type("FK", (), {"column": "user_id", "ref_table": "users", "ref_column": "id"})()]
@@ -367,7 +369,7 @@ class TestSchemaAnalyzer:
         assert "Foreign Keys" in context
         assert "user_id" in context
 
-    def test_build_context_with_sample_data(self):
+    def test_build_context_with_sample_data(self) -> None:
         analyzer = SchemaAnalyzer(config=AIConfig(model="test-model"))
         columns = [make_col("name", "TEXT")]
         sample_data = [{"name": "Alice"}, {"name": "Bob"}]
@@ -384,7 +386,7 @@ class TestSchemaAnalyzer:
         assert "Sample Data" in context
         assert "Alice" in context
 
-    def test_analyze_table_returns_none_without_api_key(self):
+    def test_analyze_table_returns_none_without_api_key(self) -> None:
         analyzer = SchemaAnalyzer(config=AIConfig(api_key=None, model="test-model"))
         result = analyzer.analyze_table_from_ctx(
             table_name="test",
@@ -396,36 +398,36 @@ class TestSchemaAnalyzer:
         )
         assert result is None
 
-    def test_parse_json_response_plain(self):
+    def test_parse_json_response_plain(self) -> None:
         analyzer = SchemaAnalyzer(config=AIConfig(model="test-model"))
         json_str = '{"name": "test", "count": 100, "columns": [{"name": "id", "generator": "integer"}]}'
         result = analyzer._parse_json_response(json_str)
         assert result["name"] == "test"
         assert result["count"] == 100
 
-    def test_parse_json_response_with_fences(self):
+    def test_parse_json_response_with_fences(self) -> None:
         analyzer = SchemaAnalyzer(config=AIConfig(model="test-model"))
         json_str = '```json\n{"name": "test", "count": 100}\n```'
         result = analyzer._parse_json_response(json_str)
         assert result["name"] == "test"
 
-    def test_parse_json_response_with_plain_fences(self):
+    def test_parse_json_response_with_plain_fences(self) -> None:
         analyzer = SchemaAnalyzer(config=AIConfig(model="test-model"))
         json_str = '```\n{"name": "test", "count": 100}\n```'
         result = analyzer._parse_json_response(json_str)
         assert result["name"] == "test"
 
-    def test_parse_json_response_invalid(self):
+    def test_parse_json_response_invalid(self) -> None:
         analyzer = SchemaAnalyzer(config=AIConfig(model="test-model"))
         result = analyzer._parse_json_response("not valid json [[[")
         assert result == {}
 
-    def test_parse_json_response_non_dict(self):
+    def test_parse_json_response_non_dict(self) -> None:
         analyzer = SchemaAnalyzer(config=AIConfig(model="test-model"))
         result = analyzer._parse_json_response("[1, 2, 3]")
         assert result == {}
 
-    def test_build_initial_messages(self):
+    def test_build_initial_messages(self) -> None:
         analyzer = SchemaAnalyzer(config=AIConfig(model="test-model"))
         columns = [make_col("name", "TEXT")]
         messages = analyzer.build_initial_messages(
@@ -445,7 +447,7 @@ class TestSchemaAnalyzer:
         assert messages[-1]["role"] == "user"
         assert "users" in messages[-1]["content"]
 
-    def test_build_context_with_distribution(self):
+    def test_build_context_with_distribution(self) -> None:
         analyzer = SchemaAnalyzer(config=AIConfig(model="test-model"))
         columns = [make_col("name", "TEXT")]
         distribution = [
@@ -473,13 +475,13 @@ class TestSchemaAnalyzer:
         assert "10.0% null" in context
         assert "Alice" in context
 
-    def test_generate_template_values(self):
+    def test_generate_template_values(self) -> None:
         analyzer = SchemaAnalyzer(config=AIConfig(api_key="test-key", model="test-model"))
         with patch.object(analyzer, "call_llm", return_value={"values": ["v1", "v2", "v3"]}):
             result = analyzer.generate_template_values("card_number", "VARCHAR(20)", 3, [])
             assert result == ["v1", "v2", "v3"]
 
-    def test_generate_template_values_empty(self):
+    def test_generate_template_values_empty(self) -> None:
         analyzer = SchemaAnalyzer(config=AIConfig(api_key="test-key", model="test-model"))
         with patch.object(analyzer, "call_llm", return_value={}):
             result = analyzer.generate_template_values("card_number", "VARCHAR(20)", 3, [])
@@ -487,7 +489,7 @@ class TestSchemaAnalyzer:
 
 
 class TestCardInfoIntegration:
-    def test_full_context_sniffer_flow(self, bank_cards_db):
+    def test_full_context_sniffer_flow(self, bank_cards_db) -> None:
         with DataOrchestrator(bank_cards_db) as orch:
             columns = orch._schema.get_column_info("bank_cards")
             assert len(columns) == 7

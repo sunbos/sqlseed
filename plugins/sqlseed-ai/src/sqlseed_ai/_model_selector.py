@@ -71,7 +71,7 @@ def _update_cache(model: str) -> None:
 
 def select_best_free_model() -> str:
     if _CACHE["model"] is not None and time.time() < _CACHE["expires_at"]:
-        return _CACHE["model"]
+        return str(_CACHE["model"])
 
     available = _fetch_available_free_models()
 

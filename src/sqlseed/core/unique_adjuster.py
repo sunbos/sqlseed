@@ -131,7 +131,7 @@ class UniqueAdjuster:
                 col_info = next((c for c in column_infos if c.name == col_name), None)
             if col_info:
                 fallback = self._mapper.map_column(col_info, force_type_infer=True)
-                if fallback.generator_name not in ("skip", "choice"):
+                if fallback.generator_name not in {"skip", "choice"}:
                     specs[col_name] = GeneratorSpec(
                         generator_name=fallback.generator_name,
                         params=fallback.params,

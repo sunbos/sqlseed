@@ -248,8 +248,7 @@ class DataOrchestrator:
             )
         logger.debug("resolve_specs", table_name=table_name, elapsed=f"{time.monotonic() - t_resolve:.3f}s")
         builtin_count = sum(
-            1 for s in specs.values()
-            if s.generator_name not in ("string", "skip", "__enrich__", "__derive__")
+            1 for s in specs.values() if s.generator_name not in {"string", "skip", "__enrich__", "__derive__"}
         )
         string_count = sum(1 for s in specs.values() if s.generator_name == "string")
         logger.info(
@@ -263,7 +262,9 @@ class DataOrchestrator:
             user_configured = {uc.name for uc in user_configs if hasattr(uc, "name")}
             t_ai = time.monotonic()
             specs = self._plugin_mediator.apply_ai_suggestions(
-                table_name, column_infos, specs,
+                table_name,
+                column_infos,
+                specs,
                 user_configured_columns=user_configured,
             )
             logger.debug("ai_suggestions", table_name=table_name, elapsed=f"{time.monotonic() - t_ai:.3f}s")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from typing import Any
 
 import sqlseed
 from sqlseed.core.mapper import GeneratorSpec
@@ -42,7 +43,7 @@ class _FakeAssoc:
         self.strategy = strategy
 
 
-def _make_resolver_with_dept_fk():
+def _make_resolver_with_dept_fk() -> Any:
     return RelationResolver(
         _FakeDB(
             fks=[ForeignKeyInfo(column="dept_id", ref_table="departments", ref_column="id")],
@@ -71,7 +72,7 @@ class TestRelationResolver:
         order = resolver.topological_sort(["orders", "users"])
         assert order.index("users") < order.index("orders")
 
-    def test_topological_sort_circular(self, tmp_path) -> None:
+    def test_topological_sort_circular(self, tmp_path: Any) -> None:
         db_path = str(tmp_path / "circular.db")
         conn = sqlite3.connect(db_path)
         conn.execute("PRAGMA foreign_keys = ON")
@@ -134,38 +135,38 @@ class TestRelationResolver:
 
 
 class TestSharedPool:
-    def test_register_and_get(self):
+    def test_register_and_get(self) -> None:
         pool = SharedPool()
         pool.register("account_id", ["U001", "U002"])
         assert pool.get("account_id") == ["U001", "U002"]
 
-    def test_has(self):
+    def test_has(self) -> None:
         pool = SharedPool()
         assert not pool.has("account_id")
         pool.register("account_id", ["U001"])
         assert pool.has("account_id")
 
-    def test_has_empty(self):
+    def test_has_empty(self) -> None:
         pool = SharedPool()
         pool.register("account_id", [])
         assert not pool.has("account_id")
 
-    def test_get_nonexistent(self):
+    def test_get_nonexistent(self) -> None:
         pool = SharedPool()
         assert pool.get("nonexistent") == []
 
-    def test_merge_deduplicates(self):
+    def test_merge_deduplicates(self) -> None:
         pool = SharedPool()
         pool.register("account_id", ["U001", "U002"])
         pool.merge("account_id", ["U002", "U003"])
         assert pool.get("account_id") == ["U001", "U002", "U003"]
 
-    def test_merge_new_key(self):
+    def test_merge_new_key(self) -> None:
         pool = SharedPool()
         pool.merge("account_id", ["U001"])
         assert pool.get("account_id") == ["U001"]
 
-    def test_clear(self):
+    def test_clear(self) -> None:
         pool = SharedPool()
         pool.register("account_id", ["U001"])
         pool.clear()
@@ -173,20 +174,20 @@ class TestSharedPool:
 
 
 class TestRelationResolverFKMethods:
-    def test_resolve_foreign_keys_with_fk(self):
+    def test_resolve_foreign_keys_with_fk(self) -> None:
         resolver = _make_resolver_with_dept_fk()
         specs = {"dept_id": GeneratorSpec(generator_name="foreign_key_or_integer")}
         result = resolver.resolve_foreign_keys("employees", specs)
         assert result["dept_id"].generator_name == "foreign_key"
         assert result["dept_id"].params["ref_table"] == "departments"
 
-    def test_resolve_foreign_keys_without_fk(self):
+    def test_resolve_foreign_keys_without_fk(self) -> None:
         resolver = RelationResolver(_FakeDB(), SharedPool())
         specs = {"dept_id": GeneratorSpec(generator_name="foreign_key_or_integer")}
         result = resolver.resolve_foreign_keys("employees", specs)
         assert result["dept_id"].generator_name == "integer"
 
-    def test_resolve_implicit_associations(self):
+    def test_resolve_implicit_associations(self) -> None:
         pool = SharedPool()
         pool.register("account_id", [10, 20, 30])
         resolver = RelationResolver(_FakeDB(), pool)
@@ -195,13 +196,13 @@ class TestRelationResolverFKMethods:
         assert result["account_id"].generator_name == "foreign_key"
         assert result["account_id"].params["ref_table"] == "__shared_pool__"
 
-    def test_resolve_implicit_associations_empty_pool(self):
+    def test_resolve_implicit_associations_empty_pool(self) -> None:
         resolver = RelationResolver(_FakeDB(), SharedPool())
         specs = {"account_id": GeneratorSpec(generator_name="foreign_key_or_integer")}
         result = resolver.resolve_implicit_associations("orders", specs)
         assert result["account_id"].generator_name == "foreign_key_or_integer"
 
-    def test_register_shared_pool(self):
+    def test_register_shared_pool(self) -> None:
         pool = SharedPool()
         resolver = RelationResolver(_FakeDB(column_values=["alice", "bob"], primary_keys=["id"]), pool)
         specs = {
@@ -214,7 +215,7 @@ class TestRelationResolverFKMethods:
 
 
 class TestNonIdFKDetection:
-    def test_fk_constraint_on_non_id_column_upgraded(self):
+    def test_fk_constraint_on_non_id_column_upgraded(self) -> None:
         resolver = RelationResolver(
             _FakeDB(
                 fks=[ForeignKeyInfo(column="category", ref_table="categories", ref_column="id")],
@@ -228,7 +229,7 @@ class TestNonIdFKDetection:
         assert result["category"].params["ref_table"] == "categories"
         assert result["category"].params["ref_column"] == "id"
 
-    def test_fk_constraint_on_string_column_upgraded(self):
+    def test_fk_constraint_on_string_column_upgraded(self) -> None:
         resolver = RelationResolver(
             _FakeDB(
                 fks=[ForeignKeyInfo(column="department", ref_table="departments", ref_column="code")],
@@ -241,7 +242,7 @@ class TestNonIdFKDetection:
         assert result["department"].generator_name == "foreign_key"
         assert result["department"].params["ref_table"] == "departments"
 
-    def test_already_foreign_key_not_overridden(self):
+    def test_already_foreign_key_not_overridden(self) -> None:
         resolver = _make_resolver_with_dept_fk()
         specs = {
             "dept_id": GeneratorSpec(
@@ -254,13 +255,13 @@ class TestNonIdFKDetection:
         assert result["dept_id"].params["ref_table"] == "departments"
         assert result["dept_id"].params["ref_column"] == "id"
 
-    def test_no_fk_constraint_not_upgraded(self):
+    def test_no_fk_constraint_not_upgraded(self) -> None:
         resolver = RelationResolver(_FakeDB(), SharedPool())
         specs = {"category": GeneratorSpec(generator_name="integer", params={"min_value": 1, "max_value": 999999})}
         result = resolver.resolve_foreign_keys("products", specs)
         assert result["category"].generator_name == "integer"
 
-    def test_non_id_fk_integration(self, tmp_path):
+    def test_non_id_fk_integration(self, tmp_path: Any) -> None:
         db_path = str(tmp_path / "non_id_fk.db")
         conn = sqlite3.connect(db_path)
         conn.execute("CREATE TABLE categories (id INTEGER PRIMARY KEY, name TEXT)")
@@ -284,7 +285,7 @@ class TestNonIdFKDetection:
 
 
 class TestAutoIncrementPKSharedPool:
-    def test_pk_values_registered_to_shared_pool(self):
+    def test_pk_values_registered_to_shared_pool(self) -> None:
         pool = SharedPool()
         resolver = RelationResolver(_FakeDB(column_values=[1, 2, 3, 4, 5], primary_keys=["id"]), pool)
         specs = {
@@ -295,7 +296,7 @@ class TestAutoIncrementPKSharedPool:
         assert pool.has("id")
         assert pool.get("id") == [1, 2, 3, 4, 5]
 
-    def test_non_pk_skip_column_not_registered(self):
+    def test_non_pk_skip_column_not_registered(self) -> None:
         pool = SharedPool()
         resolver = RelationResolver(_FakeDB(column_values=["val1", "val2"], primary_keys=["id"]), pool)
         specs = {
@@ -306,7 +307,7 @@ class TestAutoIncrementPKSharedPool:
         assert pool.has("id")
         assert not pool.has("status")
 
-    def test_autoincrement_pk_implicit_association(self, tmp_path):
+    def test_autoincrement_pk_implicit_association(self, tmp_path: Any) -> None:
         db_path = str(tmp_path / "pk_pool.db")
         conn = sqlite3.connect(db_path)
         conn.execute("CREATE TABLE authors (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT)")
@@ -332,7 +333,7 @@ class TestAutoIncrementPKSharedPool:
 
         assert book_author_ids.issubset(author_ids)
 
-    def test_same_name_pk_implicit_association_via_shared_pool(self, tmp_path):
+    def test_same_name_pk_implicit_association_via_shared_pool(self, tmp_path: Any) -> None:
         db_path = str(tmp_path / "same_name_pk.db")
         conn = sqlite3.connect(db_path)
         conn.execute("CREATE TABLE departments (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT)")
@@ -361,18 +362,18 @@ class TestColumnAssociationConfig:
         }
         return resolver, specs
 
-    def test_apply_associations_basic(self):
+    def test_apply_associations_basic(self) -> None:
         resolver, specs = self._make_assoc_resolver_and_specs()
         result = resolver.apply_associations("orders", specs)
         assert result["region"].generator_name == "foreign_key"
         assert result["region"].params["ref_table"] == "__shared_pool__"
 
-    def test_apply_associations_source_table_not_affected(self):
+    def test_apply_associations_source_table_not_affected(self) -> None:
         resolver, specs = self._make_assoc_resolver_and_specs()
         result = resolver.apply_associations("regions", specs)
         assert result["region"].generator_name == "string"
 
-    def test_apply_associations_already_foreign_key_skipped(self):
+    def test_apply_associations_already_foreign_key_skipped(self) -> None:
         pool = SharedPool()
         resolver = RelationResolver(_FakeDB(column_values=[1, 2, 3]), pool)
         resolver.set_associations(
@@ -391,13 +392,13 @@ class TestColumnAssociationConfig:
         assert result["dept_id"].generator_name == "foreign_key"
         assert result["dept_id"].params["ref_table"] == "departments"
 
-    def test_associations_in_topological_sort(self):
+    def test_associations_in_topological_sort(self) -> None:
         resolver = RelationResolver(_FakeDB(), SharedPool())
         resolver.set_associations([_FakeAssoc()])
         order = resolver.topological_sort(["orders", "regions"])
         assert order.index("regions") < order.index("orders")
 
-    def test_fill_from_config_with_associations(self, tmp_path):
+    def test_fill_from_config_with_associations(self, tmp_path: Any) -> None:
         db_path = str(tmp_path / "assoc_test.db")
         conn = sqlite3.connect(db_path)
         conn.execute("CREATE TABLE regions (id INTEGER PRIMARY KEY, code TEXT NOT NULL, name TEXT)")

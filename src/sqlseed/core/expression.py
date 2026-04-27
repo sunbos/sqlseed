@@ -51,7 +51,7 @@ class ExpressionEngine:
         stripped = expression.strip()
         if not stripped:
             return True
-        if stripped in ("value", "row") or stripped.startswith("value[") or stripped.startswith("row["):
+        if stripped in {"value", "row"} or stripped.startswith("value[") or stripped.startswith("row["):
             return True
         return bool(self._SIMPLE_EXPR_RE.match(stripped))
 

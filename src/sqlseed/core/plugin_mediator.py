@@ -8,6 +8,8 @@ from sqlseed._utils.logger import get_logger
 from sqlseed.core.mapper import GeneratorSpec
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from sqlseed.core.schema import SchemaInferrer
     from sqlseed.database._protocol import DatabaseAdapter
     from sqlseed.plugins.manager import PluginManager
@@ -120,6 +122,24 @@ class PluginMediator:
 
         return specs
 
+    def _iter_template_eligible_specs(
+        self,
+        specs: dict[str, GeneratorSpec],
+        column_infos: list[Any],
+        configured: set[str],
+    ) -> Iterator[tuple[str, GeneratorSpec, Any]]:
+        for col_name, spec in list(specs.items()):
+            if spec.generator_name != "string":
+                continue
+            if col_name in configured:
+                continue
+            col_info = next((c for c in column_infos if c.name == col_name), None)
+            if col_info is None or col_info.is_primary_key or col_info.is_autoincrement:
+                continue
+            if col_info.default is not None:
+                continue
+            yield col_name, spec, col_info
+
     def apply_template_pool(
         self,
         table_name: str,
@@ -129,32 +149,10 @@ class PluginMediator:
         user_configured_columns: set[str] | None = None,
     ) -> dict[str, GeneratorSpec]:
         configured = user_configured_columns or set()
-        needs_template = False
-        for col_name, spec in list(specs.items()):
-            if spec.generator_name != "string":
-                continue
-            if col_name in configured:
-                continue
-            col_info = next((c for c in column_infos if c.name == col_name), None)
-            if col_info is None or col_info.is_primary_key or col_info.is_autoincrement:
-                continue
-            if col_info.default is not None:
-                continue
-            needs_template = True
-            break
+        needs_template = any(True for _ in self._iter_template_eligible_specs(specs, column_infos, configured))
         if not needs_template:
             return specs
-        for col_name, spec in list(specs.items()):
-            if spec.generator_name != "string":
-                continue
-            if col_name in configured:
-                continue
-            col_info = next((c for c in column_infos if c.name == col_name), None)
-            if col_info is None or col_info.is_primary_key or col_info.is_autoincrement:
-                continue
-            if col_info.default is not None:
-                continue
-
+        for col_name, _spec, col_info in self._iter_template_eligible_specs(specs, column_infos, configured):
             sample_data_for_col: list[Any] = []
             with contextlib.suppress(ValueError, OSError, RuntimeError, sqlite3.OperationalError):
                 sample_data_for_col = self._db.get_column_values(table_name, col_name, limit=10)

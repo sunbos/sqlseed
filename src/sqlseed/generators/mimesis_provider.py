@@ -143,29 +143,6 @@ class MimesisProvider(BaseProvider):
     def _get_array_count(self) -> int:
         return self._generic.numeric.integer_number(start=1, end=5)
 
-    def _gen_username(self) -> str:
-        first = self._generic.person.first_name()
-        last = self._generic.person.last_name()
-        fmt = self._rng.choice([
-            "first_last", "first.dot", "firstlast", "firstN",
-            "first_lastN", "First Last", "first last", "firstlastN",
-        ])
-        if fmt == "first_last":
-            return f"{first.lower()}_{last.lower()}"
-        if fmt == "first.dot":
-            return f"{first.lower()}.{last.lower()}"
-        if fmt == "firstlast":
-            return f"{first.lower()}{last.lower()}"
-        if fmt == "firstN":
-            return f"{first.lower()}{self._rng.randint(1, 999)}"
-        if fmt == "first_lastN":
-            return f"{first.lower()}_{last.lower()}{self._rng.randint(1, 99)}"
-        if fmt == "First Last":
-            return f"{first} {last}"
-        if fmt == "first last":
-            return f"{first.lower()} {last.lower()}"
-        return f"{first.lower()}{last.lower()}{self._rng.randint(1, 999)}"
-
     def _gen_city(self) -> str:
         return self._generic.address.city()
 

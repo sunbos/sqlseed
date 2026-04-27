@@ -1,17 +1,20 @@
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from sqlseed.core.column_dag import ColumnConstraints, ColumnDAG, ColumnNode
 from sqlseed.core.constraints import ConstraintSolver
 from sqlseed.core.expression import ExpressionEngine
 from sqlseed.core.mapper import GeneratorSpec
+from sqlseed.generators import UnknownGeneratorError
 from sqlseed.generators.base_provider import BaseProvider
-from sqlseed.generators.stream import DataStream, UnknownGeneratorError
+from sqlseed.generators.stream import DataStream
 
 
 class TestDataStream:
-    def _create_stream(self, specs, seed=42):
+    def _create_stream(self, specs: Any, seed: int = 42) -> Any:
         dag = ColumnDAG()
         nodes = dag.build(specs)
         return DataStream(

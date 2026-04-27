@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 from importlib.metadata import version as pkg_version
+from typing import Any
 
 import pytest
 import yaml
@@ -108,7 +109,7 @@ class TestCLIFill:
             [pytest.param("{db}", "--table", "users", "--provider", "base", id="with_db_table")],
         ],
     )
-    def test_fill_with_config(self, tmp_db, tmp_path, extra_args) -> None:
+    def test_fill_with_config(self, tmp_db, tmp_path: Any, extra_args) -> None:
         config_path = tmp_path / "gen.yaml"
         config_data = {
             "db_path": tmp_db,
@@ -123,7 +124,7 @@ class TestCLIFill:
         result = runner.invoke(cli, args)
         assert result.exit_code == 0
 
-    def test_fill_with_transform(self, tmp_path) -> None:
+    def test_fill_with_transform(self, tmp_path: Any) -> None:
         db_path = str(tmp_path / "test.db")
         conn = sqlite3.connect(db_path)
         conn.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
@@ -158,7 +159,7 @@ class TestCLIFill:
             if name:
                 assert name == name.upper()
 
-    def test_fill_with_snapshot(self, tmp_db, tmp_path, monkeypatch) -> None:
+    def test_fill_with_snapshot(self, tmp_db, tmp_path: Any, monkeypatch: Any) -> None:
         monkeypatch.chdir(tmp_path)
         runner = CliRunner()
         result = runner.invoke(
@@ -216,7 +217,7 @@ class TestCLIInspect:
 
 
 class TestCLIInit:
-    def test_init(self, tmp_path) -> None:
+    def test_init(self, tmp_path: Any) -> None:
         runner = CliRunner()
         config_path = str(tmp_path / "gen.yaml")
         result = runner.invoke(cli, ["init", config_path, "--db", "test.db"])
@@ -224,7 +225,7 @@ class TestCLIInit:
 
 
 class TestCLIReplay:
-    def test_replay(self, tmp_db, tmp_path) -> None:
+    def test_replay(self, tmp_db, tmp_path: Any) -> None:
         manager = SnapshotManager(str(tmp_path / "snapshots"))
         config = GeneratorConfig(
             db_path=tmp_db,
@@ -257,7 +258,7 @@ class TestCLIAISuggest:
         not _AI_PLUGIN_AVAILABLE,
         reason="Requires sqlseed-ai plugin",
     )
-    def test_ai_suggest_no_api_key(self, bank_cards_db, tmp_path) -> None:
+    def test_ai_suggest_no_api_key(self, bank_cards_db, tmp_path: Any) -> None:
         runner = CliRunner()
         output_path = str(tmp_path / "output.yaml")
         result = runner.invoke(
@@ -271,7 +272,7 @@ class TestCLIAISuggest:
         not _AI_PLUGIN_AVAILABLE,
         reason="Requires sqlseed-ai plugin",
     )
-    def test_ai_suggest_with_model_option(self, bank_cards_db, tmp_path) -> None:
+    def test_ai_suggest_with_model_option(self, bank_cards_db, tmp_path: Any) -> None:
         runner = CliRunner()
         output_path = str(tmp_path / "output.yaml")
         result = runner.invoke(

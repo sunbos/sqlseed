@@ -177,6 +177,7 @@ class SchemaAnalyzer:
         raise RuntimeError(f"LLM API call failed after {_MAX_FALLBACK_ATTEMPTS} fallback attempts")
 
     def _call_llm_once(self, messages: list[dict[str, str]]) -> dict[str, Any]:
+        assert self._config is not None, "AIConfig must be initialized before calling LLM"
         client = get_openai_client(self._config)
         _openai_exceptions = (APIError, ValueError, RuntimeError, OSError)
 

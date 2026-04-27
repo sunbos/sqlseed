@@ -182,29 +182,43 @@ class DataStream:
     def _try_native_method(self, spec: GeneratorSpec) -> Any:
         native_params = spec.native_params or {}
         if spec.native_faker_method and self._provider.name == "faker":
-            faker_obj = getattr(self._provider, "_faker", None)
-            if faker_obj is not None:
-                method = getattr(faker_obj, spec.native_faker_method, None)
-                if method is not None and callable(method):
-                    try:
-                        return method(**native_params)
-                    except (TypeError, ValueError, AttributeError):
-                        pass
+            result = self._try_faker_native(spec.native_faker_method, native_params)
+            if result is not _NATIVE_MISS:
+                return result
         if spec.native_mimesis_method and self._provider.name == "mimesis":
-            generic_obj = getattr(self._provider, "_generic", None)
-            if generic_obj is not None:
-                parts = spec.native_mimesis_method.split(".")
-                obj = generic_obj
-                for part in parts:
-                    obj = getattr(obj, part, None)
-                    if obj is None:
-                        break
-                if obj is not None and callable(obj):
-                    try:
-                        return obj(**native_params)
-                    except (TypeError, ValueError, AttributeError):
-                        pass
+            result = self._try_mimesis_native(spec.native_mimesis_method, native_params)
+            if result is not _NATIVE_MISS:
+                return result
         return _NATIVE_MISS
+
+    def _try_faker_native(self, method_name: str, native_params: dict[str, Any]) -> Any:
+        faker_obj = getattr(self._provider, "_faker", None)
+        if faker_obj is None:
+            return _NATIVE_MISS
+        method = getattr(faker_obj, method_name, None)
+        if method is None or not callable(method):
+            return _NATIVE_MISS
+        try:
+            return method(**native_params)
+        except (TypeError, ValueError, AttributeError):
+            return _NATIVE_MISS
+
+    def _try_mimesis_native(self, method_path: str, native_params: dict[str, Any]) -> Any:
+        generic_obj = getattr(self._provider, "_generic", None)
+        if generic_obj is None:
+            return _NATIVE_MISS
+        parts = method_path.split(".")
+        obj = generic_obj
+        for part in parts:
+            obj = getattr(obj, part, None)
+            if obj is None:
+                return _NATIVE_MISS
+        if obj is None or not callable(obj):
+            return _NATIVE_MISS
+        try:
+            return obj(**native_params)
+        except (TypeError, ValueError, AttributeError):
+            return _NATIVE_MISS
 
     def _handle_foreign_key(self, spec: GeneratorSpec) -> Any:
         ref_values = spec.params.get("_ref_values", [])
