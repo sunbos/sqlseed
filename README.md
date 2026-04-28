@@ -228,12 +228,12 @@ result = sqlseed.fill(
         # 简写：直接指定生成器名
         "email": "email",
         "phone": "phone",
-        
+
         # 完整配置：指定参数
         "age": {"type": "integer", "min_value": 18, "max_value": 65},
         "balance": {"type": "float", "min_value": 0.0, "max_value": 100000.0, "precision": 2},
         "name": "name",
-        
+
         # 从候选列表中随机选择
         "status": {"type": "choice", "choices": ["active", "inactive", "banned"]},
     },
@@ -290,7 +290,7 @@ import sqlseed
 with sqlseed.connect("app.db", provider="mimesis", locale="zh_CN") as db:
     # 步骤 1：先填充父表
     db.fill("users", count=10_000, seed=42)
-    
+
     # 步骤 2：填充子表 — sqlseed 自动检测外键约束，
     #         从 users.id 中随机选取值填入 orders.user_id
     db.fill("orders", count=50_000, columns={
@@ -298,7 +298,7 @@ with sqlseed.connect("app.db", provider="mimesis", locale="zh_CN") as db:
         "quantity": {"type": "integer", "min_value": 1, "max_value": 20},
         "status": {"type": "choice", "choices": ["pending", "paid", "shipped", "delivered"]},
     })
-    
+
     # 步骤 3：查看生成报告
     print(db.report())
     # → Database: app.db
@@ -493,7 +493,7 @@ tables:
 # transform_users.py
 def transform_row(row, ctx):
     """每一行生成后都会经过此函数处理。"""
-    
+
     # 根据年龄计算 VIP 等级
     age = row.get("age", 0)
     if age >= 60:
@@ -502,12 +502,12 @@ def transform_row(row, ctx):
         row["vip_level"] = 2
     else:
         row["vip_level"] = 1
-    
+
     # 标准化手机号格式
     phone = row.get("phone", "")
     if phone and not phone.startswith("+86"):
         row["phone"] = f"+86{phone}"
-    
+
     return row
 ```
 
