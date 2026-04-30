@@ -189,31 +189,34 @@ sequenceDiagram
 flowchart TD
     Start(["map_column(column_info, user_config)"]) --> L1
 
-    L1{"Level 1<br/>用户配置？"} -->|有| R1["使用用户指定的 generator + params"]
-    L1 -->|无| L2
+    L1{"Level 1<br/>自增主键？<br/>PK + AUTOINCREMENT"} -->|是| R1["skip"]
+    L1 -->|否| L2
 
-    L2{"Level 2<br/>自定义精确匹配？"} -->|匹配| R2["使用插件注册的精确规则"]
-    L2 -->|未匹配| L3
+    L2{"Level 2<br/>用户配置？"} -->|有| R2["使用用户指定的 generator + params"]
+    L2 -->|无| L3
 
-    L3{"Level 3<br/>内置精确匹配？<br/>(68 条规则)"} -->|匹配| R3["email→email<br/>phone→phone<br/>age→integer<br/>..."]
+    L3{"Level 3<br/>自定义精确匹配？"} -->|匹配| R3["使用插件注册的精确规则"]
     L3 -->|未匹配| L4
 
-    L4{"Level 4<br/>有默认值？"} -->|是| R4["skip (跳过生成)<br/>或 __enrich__"]
-    L4 -->|否| L5
+    L4{"Level 4<br/>内置精确匹配？<br/>(74 条规则)"} -->|匹配| R4["email→email<br/>phone→phone<br/>age→integer<br/>city→city<br/>..."]
+    L4 -->|未匹配| L5
 
-    L5{"Level 5<br/>自定义模式匹配？"} -->|匹配| R5["使用插件注册的正则规则"]
-    L5 -->|未匹配| L6
+    L5{"Level 5<br/>有默认值？"} -->|是| R5["skip (跳过生成)<br/>或 __enrich__"]
+    L5 -->|否| L6
 
-    L6{"Level 6<br/>内置模式匹配？<br/>(25 条正则)"} -->|匹配| R6["*_at→datetime<br/>*_id→foreign_key<br/>is_*→boolean<br/>..."]
+    L6{"Level 6<br/>自定义模式匹配？"} -->|匹配| R6["使用插件注册的正则规则"]
     L6 -->|未匹配| L7
 
-    L7{"Level 7<br/>可 NULL？"} -->|是| R7["skip (跳过生成)<br/>或 __enrich__"]
-    L7 -->|否| L8
+    L7{"Level 7<br/>内置模式匹配？<br/>(25 条正则)"} -->|匹配| R7["*_at→datetime<br/>*_id→foreign_key<br/>is_*→boolean<br/>..."]
+    L7 -->|未匹配| L8
 
-    L8{"Level 8<br/>类型忠实回退<br/>(22 种 SQL 类型)"} -->|匹配| R8["VARCHAR(32)→max 32 字符<br/>INT8→0~255<br/>BLOB(1024)→1024 字节"]
-    L8 -->|未匹配| L9
+    L8{"Level 8<br/>可 NULL？"} -->|是| R8["skip (跳过生成)<br/>或 __enrich__"]
+    L8 -->|否| L9
 
-    L9["Level 9<br/>默认"] --> R9["string<br/>(min=5, max=50)"]
+    L9{"Level 9<br/>类型忠实回退<br/>(22 种 SQL 类型)"} -->|匹配| R9["VARCHAR(32)→max 32 字符<br/>INT8→0~255<br/>BLOB(1024)→1024 字节"]
+    L9 -->|未匹配| L10
+
+    L10["默认"] --> R10["string<br/>(min=5, max=50)"]
 
     R1 --> Done(["返回 GeneratorSpec"])
     R2 --> Done
@@ -224,14 +227,16 @@ flowchart TD
     R7 --> Done
     R8 --> Done
     R9 --> Done
+    R10 --> Done
 
-    style L1 fill:#4CAF50,color:#fff
-    style L3 fill:#2196F3,color:#fff
-    style L4 fill:#FF9800,color:#fff
-    style L6 fill:#2196F3,color:#fff
-    style L7 fill:#FF9800,color:#fff
+    style L1 fill:#9C27B0,color:#fff
+    style L2 fill:#4CAF50,color:#fff
+    style L4 fill:#2196F3,color:#fff
+    style L5 fill:#FF9800,color:#fff
+    style L7 fill:#2196F3,color:#fff
     style L8 fill:#FF9800,color:#fff
-    style L9 fill:#9E9E9E,color:#fff
+    style L9 fill:#FF9800,color:#fff
+    style L10 fill:#9E9E9E,color:#fff
 ```
 
 ---
@@ -248,7 +253,7 @@ classDiagram
         +generate(type_name: str, **params) Any
         +set_locale(locale: str) None
         +set_seed(seed: int) None
-        ... 通过 _GENERATOR_MAP 分派到 24 种内部方法
+        ... 通过 _GENERATOR_MAP 分派到 31 种内部方法
     }
 
     class BaseProvider {
@@ -553,6 +558,7 @@ classDiagram
         +clear_before: bool = False
         +seed: int | None
         +transform: str | None
+        +enrich: bool = False
     }
 
     class ColumnConfig {
@@ -581,6 +587,7 @@ classDiagram
     class ColumnAssociation {
         +column_name: str
         +source_table: str
+        +source_column: str | None = None
         +target_tables: list~str~
         +strategy: str = "shared_pool"
     }
