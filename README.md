@@ -136,11 +136,20 @@ pip install sqlseed[all]
 ### 可选插件
 
 ```bash
-# AI 智能分析插件（LLM 驱动）
+# AI 智能分析插件（依赖 openai SDK）
 pip install sqlseed-ai
 
-# MCP 服务器（让 AI 助手直接操作 sqlseed）
+# MCP 服务器（依赖 mcp SDK，让 AI 助手直接操作 sqlseed）
 pip install mcp-server-sqlseed
+
+# MCP 服务器 + AI 支持（一步到位）
+pip install mcp-server-sqlseed[ai]
+```
+
+### 文档构建（开发者）
+
+```bash
+pip install sqlseed[docs]   # mkdocs-material + mkdocstrings
 ```
 
 <details>
@@ -663,8 +672,23 @@ sqlseed ai-suggest app.db --table bank_cards --output bank_cards.yaml --no-cache
 # 安装 MCP 服务器
 pip install mcp-server-sqlseed
 
-# 启动
+# 一步安装 MCP 服务器 + AI 支持
+pip install mcp-server-sqlseed[ai]
+
+# 手动启动（通常由 MCP 客户端自动管理）
 python -m mcp_server_sqlseed
+```
+
+**配置 MCP 客户端**（以 Claude Desktop 为例）：
+
+```json
+{
+  "mcpServers": {
+    "sqlseed": {
+      "command": "mcp-server-sqlseed"
+    }
+  }
+}
 ```
 
 **MCP 提供的能力**：
@@ -941,6 +965,18 @@ mypy src/sqlseed/
 ```
 
 测试覆盖了所有核心模块，路径结构与 `src/` 一一对应：`test_core/`、`test_database/`、`test_generators/`、`test_plugins/`、`test_config/`、`test_utils/`。
+
+### 依赖关系
+
+| 包 | 核心依赖 | 说明 |
+|:--|:--------|:-----|
+| `sqlseed` | sqlite-utils, pydantic, pluggy, structlog, pyyaml, click, rich, typing_extensions, simpleeval, **rstr** | rstr 用于 `pattern` 生成器的正则匹配 |
+| `sqlseed[faker]` | + faker>=30.0 | Faker 数据引擎 |
+| `sqlseed[mimesis]` | + mimesis>=18.0 | Mimesis 数据引擎（推荐） |
+| `sqlseed[docs]` | + mkdocs-material, mkdocstrings | 文档构建 |
+| `sqlseed-ai` | sqlseed, **openai>=1.0** | AI 插件，通过 entry-point 自动注册 |
+| `mcp-server-sqlseed` | sqlseed, **mcp>=1.0** | MCP 服务器，独立 CLI 工具 |
+| `mcp-server-sqlseed[ai]` | + sqlseed-ai | MCP 服务器含 AI 支持 |
 
 ***
 
