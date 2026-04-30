@@ -1,52 +1,41 @@
-<!-- Parent: ../../AGENTS.md -->
-<!-- Generated: 2026-04-29 | Updated: 2026-04-29 -->
+# MCP-SERVER-SQLSEED PLUGIN
 
-# mcp-server-sqlseed
+## OVERVIEW
 
-## Purpose
+MCP (Model Context Protocol) server for sqlseed. Exposes schema inspection, AI-powered YAML generation, and data filling as MCP tools.
 
-基于 FastMCP 的 sqlseed MCP 服务器插件。为 AI 助手提供 SQLite 测试数据生成能力。
+## STRUCTURE
 
-## Key Files
-
-| File | Description |
-|------|-------------|
-| `pyproject.toml` | 插件元数据，入口命令 `mcp-server-sqlseed` |
-
-## Subdirectories
-
-| Directory | Purpose |
-|-----------|---------|
-| `src/mcp_server_sqlseed/` | 服务器源码（见 `src/mcp_server_sqlseed/AGENTS.md`） |
-
-## For AI Agents
-
-### Working In This Directory
-
-- 保持服务器层足够薄，业务逻辑委托给 `sqlseed.core.orchestrator` 与 `sqlseed_ai`
-- MCP 工具名称、资源 URI 和返回 payload 视为客户端契约
-
-### Testing Requirements
-
-```bash
-pip install -e "./plugins/mcp-server-sqlseed"
-pytest
+```
+mcp-server-sqlseed/
+├── pyproject.toml                    # Separate package: sqlseed>=0.1.0, mcp>=1.0
+└── src/mcp_server_sqlseed/
+    ├── __init__.py                   # main() entry point
+    ├── __main__.py                   # python -m support
+    ├── config.py                     # MCPServerConfig (Pydantic)
+    └── server.py                     # FastMCP server, 3 tools (190 lines)
 ```
 
-### Common Patterns
+## WHERE TO LOOK
 
-- 构建系统：hatchling + hatch-vcs（root 指向项目根目录）
-- AI 功能为可选依赖，通过 `sqlseed-ai` extras 安装
+| Task | Location | Notes |
+|------|----------|-------|
+| Add MCP tool | `server.py` | Decorate with `@mcp.tool()` |
+| Add MCP resource | `server.py` | Decorate with `@mcp.resource()` |
+| Modify config | `config.py` | MCPServerConfig Pydantic model |
+| Entry point | `__init__.py` | `main()` runs `mcp.run()` |
 
-## Dependencies
+## CONVENTIONS
 
-### Internal
+- **MCP framework**: FastMCP from `mcp.server.fastmcp`
+- **Entry point**: `mcp-server-sqlseed` console script → `main()`
+- **AI optional**: `_AI_AVAILABLE` flag guards sqlseed-ai imports
+- **Validation**: `_validate_db_path()`, `_validate_table_name()` before operations
+- **Size limit**: `_MAX_YAML_CONFIG_SIZE = 256KB` for YAML input
 
-- `sqlseed>=0.1.0,<2`
+## ANTI-PATTERNS
 
-### External
-
-- `mcp>=1.0,<2`
-- 可选：`sqlseed-ai`（AI 生成 YAML 功能）
-
-<!-- MANUAL: Any manually added notes below this line are preserved on regeneration -->
+- **NEVER** import sqlseed_ai at module top → use try/except with `_AI_AVAILABLE` flag
+- **NEVER** skip path/table validation before DB operations
+- **ALWAYS** return dict from `@mcp.tool()` functions (JSON-serializable)
+- **ALWAYS** handle `(ValueError, RuntimeError, OSError)` in tool functions

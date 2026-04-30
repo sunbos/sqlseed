@@ -1,51 +1,47 @@
-<!-- Parent: ../../AGENTS.md -->
-<!-- Generated: 2026-04-29 | Updated: 2026-04-29 -->
+# SQLSEED-AI PLUGIN
 
-# sqlseed-ai
+## OVERVIEW
 
-## Purpose
+LLM-powered schema analysis and template generation. Separate package with own pyproject.toml.
 
-基于 OpenAI 兼容 API 的智能数据生成插件。通过 LLM 分析数据库模式并推荐数据生成配置。
+## STRUCTURE
 
-## Key Files
-
-| File | Description |
-|------|-------------|
-| `pyproject.toml` | 插件元数据，入口点 `ai = "sqlseed_ai:plugin"` |
-
-## Subdirectories
-
-| Directory | Purpose |
-|-----------|---------|
-| `src/sqlseed_ai/` | 插件源码（见 `src/sqlseed_ai/AGENTS.md`） |
-
-## For AI Agents
-
-### Working In This Directory
-
-- 保持可选插件边界，主包 `sqlseed` 不能因 `openai` 未安装而整体失效
-- OpenAI API 调用需处理 `APITimeoutError`/`APIConnectionError`/`APIError`
-
-### Testing Requirements
-
-```bash
-pip install -e "./plugins/sqlseed-ai"
-pytest tests/test_ai_plugin.py tests/test_refiner.py
+```
+sqlseed-ai/
+├── pyproject.toml        # Separate package: sqlseed>=0.1.0, openai>=1.0
+└── src/sqlseed_ai/
+    ├── __init__.py       # AISqlseedPlugin, plugin instance, hookimpl registration
+    ├── provider.py       # AIProvider — stub generator (returns defaults)
+    ├── analyzer.py       # SchemaAnalyzer — LLM schema analysis
+    ├── refiner.py        # Refiner — post-generation refinement
+    ├── config.py         # AIConfig — env-based OpenAI config
+    ├── errors.py         # Custom exceptions
+    ├── _client.py        # OpenAI client wrapper
+    ├── _model_selector.py # Model selection logic
+    ├── _json_utils.py    # JSON parsing utilities
+    └── examples.py       # Usage examples
 ```
 
-### Common Patterns
+## WHERE TO LOOK
 
-- 构建系统：hatchling + hatch-vcs（root 指向项目根目录）
-- 入口点：`[project.entry-points."sqlseed"]` 中的 `ai = "sqlseed_ai:plugin"`
+| Task | Location | Notes |
+|------|----------|-------|
+| Add hook | `__init__.py` | Decorate with `@hookimpl` |
+| Modify LLM calls | `_client.py` | OpenAI client wrapper |
+| Change model selection | `_model_selector.py` | Model picker logic |
+| Add config option | `config.py` | AIConfig.from_env() |
 
-## Dependencies
+## CONVENTIONS
 
-### Internal
+- **Entry point**: Register via `pyproject.toml` `[project.entry-points."sqlseed"]`
+- **Plugin instance**: `plugin = AISqlseedPlugin()` at module level
+- **Hookimpl**: Use `@hookimpl` from `sqlseed.plugins.hookspecs`
+- **Error handling**: Catch `(ValueError, RuntimeError, OSError)` in hooks
+- **Simple column skip**: `_SIMPLE_COL_RE` regex skips basic types
 
-- `sqlseed>=0.1.0,<2`
+## ANTI-PATTERNS
 
-### External
-
-- `openai>=1.0`
-
-<!-- MANUAL: Any manually added notes below this line are preserved on regeneration -->
+- **NEVER** import openai at module top → use lazy init in `_get_analyzer()`
+- **NEVER** raise from hook methods → return None on failure
+- **ALWAYS** use `AIConfig.from_env()` for configuration
+- **ALWAYS** cap template generation at 50 values (`min(count, 50)`)

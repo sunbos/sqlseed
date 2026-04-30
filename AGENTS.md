@@ -1,7 +1,7 @@
 # PROJECT KNOWLEDGE BASE
 
 **Generated:** 2026-05-01
-**Commit:** cb63210
+**Commit:** 12334a5
 **Branch:** main
 
 ## OVERVIEW
@@ -26,7 +26,7 @@ sqlseed/
 ├── tests/                # pytest suite, conftest fixtures
 ├── plugins/
 │   ├── sqlseed-ai/       # LLM-powered schema analysis
-│   └── mcp-server-sqlseed/  # MCP server for AI assistants
+│   └── mcp-server-sqlseed/  # MCP server: schema inspect, AI YAML gen, fill
 ├── docs/                 # mkdocs-material site
 └── examples/             # Usage examples
 ```
@@ -43,6 +43,7 @@ sqlseed/
 | Change batch insert | `src/sqlseed/database/` | Two adapters: raw, sqlite-utils |
 | Add test fixture | `tests/conftest.py` | tmp_db, tmp_db_with_data, bank_cards_db |
 | Configure AI plugin | `plugins/sqlseed-ai/` | Separate pyproject.toml |
+| Add MCP tool | `plugins/mcp-server-sqlseed/` | FastMCP decorators |
 
 ## CONVENTIONS
 
