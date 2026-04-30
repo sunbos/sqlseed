@@ -1,85 +1,98 @@
-<!-- Generated: 2026-04-29 | Updated: 2026-04-29 -->
+# PROJECT KNOWLEDGE BASE
 
-# sqlseed
+**Generated:** 2026-05-01
+**Commit:** cb63210
+**Branch:** main
 
-## Purpose
+## OVERVIEW
 
-声明式 SQLite 测试数据生成工具包。通过 YAML/JSON 配置或 Python API，自动推断数据库模式并生成高质量测试数据。
+Declarative SQLite test data generation toolkit. YAML/JSON config or Python API. Auto-infers schema, 7-level column mapping, 31 generators, plugin system (pluggy).
 
-## Key Files
+**Stack**: Python 3.10+, hatchling build, ruff lint, mypy strict, pytest.
 
-| File | Description |
-|------|-------------|
-| `pyproject.toml` | 项目元数据、依赖、构建配置（hatchling + hatch-vcs） |
-| `AGENTS.md` | 本文件 — 项目级 AI 指令 |
+## STRUCTURE
 
-## Subdirectories
-
-| Directory | Purpose |
-|-----------|---------|
-| `src/sqlseed/` | 主包源码（见 `src/sqlseed/AGENTS.md`） |
-| `plugins/sqlseed-ai/` | AI 数据生成插件（见 `plugins/sqlseed-ai/AGENTS.md`） |
-| `plugins/mcp-server-sqlseed/` | MCP 服务器插件（见 `plugins/mcp-server-sqlseed/AGENTS.md`） |
-| `tests/` | 测试套件（见 `tests/AGENTS.md`） |
-| `.github/workflows/` | CI/CD 工作流（ci.yml, publish.yml） |
-| `examples/` | 示例脚本 |
-
-## Public API
-
-`src/sqlseed/__init__.py` 导出以下公共接口：
-
-| API | 签名 | 用途 |
-|-----|------|------|
-| `fill` | `(db_path, *, table, count=1000, columns=None, provider="mimesis", locale="en_US", seed=None, batch_size=5000, clear_before=False, optimize_pragma=True, enrich=False, transform=None, skip_ai=False) -> GenerationResult` | 单表零配置填充 |
-| `connect` | `(db_path, *, provider="mimesis", locale="en_US", optimize_pragma=True) -> DataOrchestrator` | 返回 DataOrchestrator 上下文管理器 |
-| `preview` | `(db_path, *, table, count=5, columns=None, provider="mimesis", locale="en_US", seed=None, enrich=False, transform=None) -> list[dict[str, Any]]` | 预览生成数据，不写入 |
-| `fill_from_config` | `(config_path, *, skip_ai=False, clear_before=False, count=None, provider=None, seed=None, batch_size=None, locale=None) -> list[GenerationResult]` | 从 YAML/JSON 配置批量填充 |
-| `load_config` | `(path) -> GeneratorConfig` | 加载配置文件为 GeneratorConfig |
-
-导出的类型：`ColumnConfig`, `TableConfig`, `GeneratorConfig`, `ProviderType`, `DataOrchestrator`, `GenerationResult`, `__version__`。
-
-## For AI Agents
-
-### Working In This Directory
-
-- 目标 Python 3.10+，保留 `from __future__ import annotations`，所有函数和类必须有完整类型注解
-- 代码格式化使用 ruff（行宽 120），类型检查使用 mypy strict 模式
-- 注释使用中文
-- 可选依赖（faker, mimesis, sqlite-utils, sqlseed-ai, mcp）导入时必须 try/except，设置 `HAS_XXX` 标志，不能让核心包因可选依赖缺失而无法导入
-- 日志统一使用 structlog，通过 `get_logger(__name__)` 获取
-- SQL 标识符拼接必须使用 `_utils.sql_safe` 模块的函数（`quote_identifier`, `validate_table_name`, `build_insert_sql`），禁止 f-string 拼接
-- 公共函数默认使用仅关键字参数；已知例外是 `generate_choice(choices)` 的 `choices` 是位置参数，不要修改
-- 公开 API、CLI 参数、配置模型和 hook 签名属于外部契约，改动前先查对应测试
-- 插件包是独立分发单元，不要把插件实现细节反向塞回主包
-
-### Testing Requirements
-
-```bash
-pytest tests/                        # 运行全部测试
-pytest --cov=sqlseed                 # 带覆盖率
-ruff check .                         # 代码检查
-ruff format .                        # 代码格式化
-mypy src plugins                     # 类型检查
+```
+sqlseed/
+├── src/sqlseed/          # Main package
+│   ├── __init__.py       # Public API: fill, connect, fill_from_config, preview
+│   ├── core/             # Orchestrator, mapper, schema, constraints, DAG
+│   ├── generators/       # Data providers: base, faker, mimesis
+│   ├── database/         # SQLite adapters: raw, sqlite-utils
+│   ├── plugins/          # Plugin system: hookspecs, manager
+│   ├── config/           # Pydantic models, YAML loader, snapshots
+│   ├── cli/              # Click commands: fill, preview, inspect, ai-suggest
+│   └── _utils/           # Internal: sql_safe, metrics, progress, logger
+├── tests/                # pytest suite, conftest fixtures
+├── plugins/
+│   ├── sqlseed-ai/       # LLM-powered schema analysis
+│   └── mcp-server-sqlseed/  # MCP server for AI assistants
+├── docs/                 # mkdocs-material site
+└── examples/             # Usage examples
 ```
 
-### Common Patterns
+## WHERE TO LOOK
 
-- 安装开发环境：`pip install -e ".[dev,all]"`
-- 安装 AI 插件：`pip install -e "./plugins/sqlseed-ai"`
-- 安装 MCP 插件：`pip install -e "./plugins/mcp-server-sqlseed"`
-- 构建系统：hatchling + hatch-vcs，版本号由 git tag 自动生成，不要手动修改 `_version.py`
-- AGENTS.md 已在 `pyproject.toml` 的 sdist exclude 列表中，不会打包到发行版
+| Task | Location | Notes |
+|------|----------|-------|
+| Add new generator | `src/sqlseed/generators/` | Implement in base_provider.py or create new provider |
+| Modify column mapping | `src/sqlseed/core/mapper.py` | 7-level strategy chain |
+| Add CLI command | `src/sqlseed/cli/main.py` | Click decorators |
+| Add plugin hook | `src/sqlseed/plugins/hookspecs.py` | pluggy hookspec |
+| Modify schema inference | `src/sqlseed/core/schema.py` | SchemaInferrer class |
+| Change batch insert | `src/sqlseed/database/` | Two adapters: raw, sqlite-utils |
+| Add test fixture | `tests/conftest.py` | tmp_db, tmp_db_with_data, bank_cards_db |
+| Configure AI plugin | `plugins/sqlseed-ai/` | Separate pyproject.toml |
 
-## Dependencies
+## CONVENTIONS
 
-### Internal
+- **Type hints**: `from __future__ import annotations` at top of every file
+- **Logging**: structlog via `sqlseed._utils.logger.get_logger(__name__)`
+- **SQL safety**: Always use `quote_identifier()` from `_utils/sql_safe.py`
+- **Test naming**: `test_<module>.py` mirrors `src/sqlseed/<module>/`
+- **Provider pattern**: Implement `DataProvider` protocol (no base class required)
+- **Entry points**: Register providers via `pyproject.toml` `[project.entry-points."sqlseed"]`
 
-- `src/sqlseed/` 是核心包，`plugins/` 下的插件依赖核心包
+## ANTI-PATTERNS (THIS PROJECT)
 
-### External
+- **NEVER** use raw string formatting for SQL identifiers → use `quote_identifier()`
+- **NEVER** import third-party libs without try/except in provider files (optional deps)
+- **NEVER** suppress type errors with `as any` or `@ts-ignore`
+- **ALWAYS** use `from __future__ import annotations` (enforced by ruff)
+- **ALWAYS** handle `HAS_SQLITE_UTILS` flag in database layer
 
-- 核心依赖：`sqlite-utils>=3.36`, `pydantic>=2.0`, `pluggy>=1.3`, `structlog>=24.0`, `pyyaml>=6.0`, `click>=8.0`, `rich>=13.0`, `typing_extensions>=4.4`, `simpleeval>=1.0`, `rstr>=3.2`
-- 可选依赖：`faker>=30.0`, `mimesis>=18.0`
-- 开发依赖：`pytest>=8.0`, `pytest-cov>=5.0`, `pytest-benchmark>=4.0`, `ruff>=0.5`, `mypy>=1.10`
+## UNIQUE STYLES
 
-<!-- MANUAL: Any manually added notes below this line are preserved on regeneration -->
+- **Provider fallback chain**: mimesis → faker → base (auto-degrades)
+- **Context manager pattern**: `DataOrchestrator` is a context manager
+- **Plugin mediation**: `PluginMediator` bridges plugins and core (not direct calls)
+- **DAG-based column ordering**: `ColumnDAG` handles derive_from dependencies
+
+## COMMANDS
+
+```bash
+# Install
+pip install -e ".[dev,all]"
+
+# Test
+pytest                              # All tests
+pytest tests/test_core/             # Core only
+pytest --cov=sqlseed                # With coverage
+
+# Lint
+ruff check .                        # Lint
+ruff format .                       # Format
+mypy src plugins                    # Type check
+
+# CLI
+sqlseed fill app.db -t users -n 10000
+sqlseed preview app.db -t users -n 5
+sqlseed inspect app.db --show-mapping
+```
+
+## NOTES
+
+- **Optional deps**: faker, mimesis are optional. Base provider always available.
+- **Plugin isolation**: sqlseed-ai has separate pyproject.toml, installs separately.
+- **mypy strict**: Full strict mode on src/ and plugins/. Tests relaxed.
+- **ruff config**: Line length 120, isort known-first-party=["sqlseed"].
