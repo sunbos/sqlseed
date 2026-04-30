@@ -275,6 +275,13 @@ print(result)
 | `json`        | JSON 字符串       | `schema`                              |
 | `pattern`     | 正则匹配           | `regex`                               |
 | `bytes`       | 二进制数据          | `length`                              |
+| `username`    | 用户名            | —                                     |
+| `city`        | 城市             | —                                     |
+| `country`     | 国家             | —                                     |
+| `state`       | 省/州            | —                                     |
+| `zip_code`    | 邮政编码           | —                                     |
+| `job_title`   | 职位名称           | —                                     |
+| `country_code` | 国家代码           | —                                     |
 | `foreign_key` | 外键引用           | `ref_table`, `ref_column`, `strategy` |
 | `skip`        | 跳过（使用默认值/NULL） | —                                     |
 
@@ -460,22 +467,31 @@ tables:
 3. 先生成 `card_number`，再通过表达式 `value[-8:]` 计算 `last_eight`
 4. 如果 `last_eight` 的唯一性约束失败，回溯重新生成 `card_number`
 
-#### 表达式引擎支持的函数
+#### 表达式引擎支持的函数（21 个）
 
 | 函数                      | 用法                        | 说明          |
 | :---------------------- | :------------------------ | :---------- |
-| `upper(s)`              | `upper(value)`            | 转大写         |
-| `lower(s)`              | `lower(value)`            | 转小写         |
 | `len(s)`                | `len(value)`              | 获取长度        |
-| `substr(s, start, end)` | `substr(value, 0, 8)`     | 子串          |
-| `concat(*args)`         | `concat("PRE_", value)`   | 拼接          |
-| `zfill(s, width)`       | `zfill(value, 10)`        | 零填充         |
-| `lpad(s, width, char)`  | `lpad(value, 8, "0")`     | 左填充         |
-| `rpad(s, width, char)`  | `rpad(value, 8, "0")`     | 右填充         |
-| `replace(s, old, new)`  | `replace(value, "-", "")` | 替换          |
-| `strip(s)`              | `strip(value)`            | 去空白         |
 | `int(s)`                | `int(value)`              | 转整数         |
 | `str(s)`                | `str(value)`              | 转字符串        |
+| `float(s)`              | `float(value)`            | 转浮点数        |
+| `hex(n)`                | `hex(value)`              | 转十六进制       |
+| `oct(n)`                | `oct(value)`              | 转八进制        |
+| `bin(n)`                | `bin(value)`              | 转二进制        |
+| `abs(n)`                | `abs(value)`              | 绝对值         |
+| `min(*args)`            | `min(a, b)`               | 最小值         |
+| `max(*args)`            | `max(a, b)`               | 最大值         |
+| `upper(s)`              | `upper(value)`            | 转大写         |
+| `lower(s)`              | `lower(value)`            | 转小写         |
+| `strip(s)`              | `strip(value)`            | 去两端空白       |
+| `lstrip(s)`             | `lstrip(value)`           | 去左端空白       |
+| `rstrip(s)`             | `rstrip(value)`           | 去右端空白       |
+| `zfill(s, width)`       | `zfill(value, 10)`        | 零填充         |
+| `replace(s, old, new)`  | `replace(value, "-", "")` | 替换          |
+| `substr(s, start, end)` | `substr(value, 0, 8)`     | 子串          |
+| `lpad(s, width, char)`  | `lpad(value, 8, "0")`     | 左填充         |
+| `rpad(s, width, char)`  | `rpad(value, 8, "0")`     | 右填充         |
+| `concat(*args)`         | `concat("PRE_", value)`   | 拼接          |
 | 切片                      | `value[-8:]`              | Python 切片语法 |
 | 数学                      | `value * 2 + 1`           | 基本数学运算      |
 
@@ -813,7 +829,7 @@ Level 2 │ 用户配置          columns={"email": "email"} 最高优先级
         ▼
 Level 3 │ 自定义精确匹配    通过插件 Hook 注册的规则
         ▼
-Level 4 │ 内置精确匹配      67 条规则：email→email, phone→phone, age→integer...
+Level 4 │ 内置精确匹配      74 条规则：email→email, phone→phone, age→integer...
         ▼
 Level 5 │ DEFAULT 检查      有默认值 → skip / __enrich__（enrich=True 时生成数据）
         ▼
