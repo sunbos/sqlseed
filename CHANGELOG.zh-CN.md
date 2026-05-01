@@ -7,6 +7,17 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)，
 本项目遵循[语义化版本](https://semver.org/spec/v2.0.0.html)。
 
+## [v0.1.14]
+
+### 修复
+- CI: 修复 `test_doc_sync.py` 中的 ruff SIM114/SIM102 lint 错误
+- CI: 移除 `test_doc_sync.py` 中所有正则表达式，解决 SonarCloud S5852 安全热点
+- CI: 降低 `_extract_number_before_keyword` 辅助函数的认知复杂度
+
+### 新增
+- CLAUDE.md 中添加文档同步规则映射表
+- 文档同步验证测试 (`tests/test_doc_sync.py`)
+
 ## [v0.1.13]
 
 ### 新增
