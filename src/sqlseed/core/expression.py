@@ -61,7 +61,10 @@ class ExpressionEngine:
 
     def evaluate(self, expression: str, context: dict[str, Any]) -> Any:
         if self._is_simple_expression(expression):
-            return self._eval_direct(expression, context)
+            try:
+                return self._eval_direct(expression, context)
+            except (ValueError, SyntaxError, TypeError, simpleeval.InvalidExpression):
+                raise
 
         evaluator = simpleeval.SimpleEval()
         evaluator.functions = dict(self.SAFE_FUNCTIONS)

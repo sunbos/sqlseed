@@ -161,6 +161,9 @@ class PluginMediator:
         needs_template = any(True for _ in self._iter_template_eligible_specs(specs, column_infos, configured))
         if not needs_template:
             return specs
+        # list() is required: loop body mutates `specs` via __setitem__,
+        # and the generator yields from specs.items(). Without snapshotting
+        # first, iterating would raise RuntimeError.
         eligible = list(self._iter_template_eligible_specs(specs, column_infos, configured))
         for col_name, _, col_info in eligible:
             sample_data_for_col: list[Any] = []
