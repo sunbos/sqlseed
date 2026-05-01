@@ -128,6 +128,22 @@ def method(self):
     import sqlite_utils  # not at module top
 ```
 
+## Doc Sync Rules
+
+When modifying these source files, update the corresponding docs in the same commit:
+
+| Source File | Docs to Update | What to Check |
+|:------------|:---------------|:--------------|
+| `src/sqlseed/generators/_dispatch.py` | README.md, README.zh-CN.md | Generator type table (count + names) |
+| `src/sqlseed/core/mapper.py` | README.md, CLAUDE.md | Exact match rule count, pattern match count |
+| `src/sqlseed/core/expression.py` | README.md, README.zh-CN.md | SAFE_FUNCTIONS table (count + names) |
+| `src/sqlseed/plugins/hookspecs.py` | README.md, CLAUDE.md, docs/architecture.md | Hook table (count + names) |
+| `src/sqlseed/config/models.py` | docs/architecture.md, docs/architecture.zh-CN.md | Class diagrams (field names + types) |
+| `src/sqlseed/cli/main.py` | README.md, README.zh-CN.md | CLI command reference |
+| `src/sqlseed/__init__.py` | README.md, README.zh-CN.md | Public API table |
+
+Run `pytest tests/test_doc_sync.py` to verify doc sync after changes.
+
 ## Testing
 
 - Fixtures in `tests/conftest.py`: `tmp_db` (users + orders tables), `tmp_db_with_data`, `bank_cards_db`, `create_card_info_db()`
