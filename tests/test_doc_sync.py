@@ -71,7 +71,7 @@ def _get_exact_match_rules() -> dict[str, str]:
 def _get_safe_functions() -> set[str]:
     """Extract function names from ExpressionEngine.SAFE_FUNCTIONS."""
     code = _read(ROOT / "src" / "sqlseed" / "core" / "expression.py")
-    section = re.search(r"SAFE_FUNCTIONS[^=]*=\s*\{(.*?\})", code, re.DOTALL)
+    section = re.search(r"SAFE_FUNCTIONS[^=]*=\s*\{([^}]*)", code, re.DOTALL)
     if not section:
         return set()
     # Only match string keys (exclude numeric like "0")
@@ -141,7 +141,7 @@ class TestExactMatchRules:
     def test_count_in_docs(self):
         code = _read(ROOT / "src" / "sqlseed" / "core" / "mapper.py")
         # Count entries in EXACT_MATCH_RULES dict
-        rule_section = re.search(r"EXACT_MATCH_RULES[^=]*=\s*\{(.*?\})", code, re.DOTALL)
+        rule_section = re.search(r"EXACT_MATCH_RULES[^=]*=\s*\{([^}]*)", code, re.DOTALL)
         if not rule_section:
             pytest.skip("Cannot parse EXACT_MATCH_RULES")
         rule_count = len(re.findall(r'"\w+":', rule_section.group(1)))
