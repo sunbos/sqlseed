@@ -51,6 +51,17 @@ def _docs_mention_number(number: int, context: str = "") -> list[str]:
     return hits
 
 
+def _read_number_before(text: str, position: int) -> str | None:
+    """Walk backwards from position to extract a preceding number."""
+    end = position
+    while end > 0 and text[end - 1].isspace():
+        end -= 1
+    start = end
+    while start > 0 and text[start - 1].isdigit():
+        start -= 1
+    return text[start:end] if start < end else None
+
+
 def _extract_number_before_keyword(text: str, keywords: list[str]) -> list[str]:
     """Extract numbers that appear immediately before any of the given keywords.
 
@@ -66,16 +77,9 @@ def _extract_number_before_keyword(text: str, keywords: list[str]) -> list[str]:
             idx = text_lower.find(kw_lower, pos)
             if idx == -1:
                 break
-            # Walk backwards to find digits
-            end = idx
-            start = end
-            while start > 0 and text[start - 1].isspace():
-                start -= 1
-            digit_end = start
-            while start > 0 and text[start - 1].isdigit():
-                start -= 1
-            if start < digit_end:
-                results.append(text[start:digit_end])
+            num = _read_number_before(text, idx)
+            if num is not None:
+                results.append(num)
             pos = idx + len(kw)
     return results
 
