@@ -64,7 +64,7 @@ _utils/ → (no internal deps, used by all layers)
 - **`core/column_dag.py`** — Topological sort for `derive_from` column dependencies.
 - **`core/expression.py`** — `ExpressionEngine` using `simpleeval`. Timeout via thread (5s default). `ExpressionTimeoutError` on timeout. 21 whitelisted functions in `SAFE_FUNCTIONS`.
 - **`core/constraints.py`** — `ConstraintSolver` for UNIQUE enforcement with backtracking. Supports probabilistic mode (SHA256 hash-based) for >100K rows.
-- **`generators/`** — `DataProvider` protocol: `name`, `set_locale`, `set_seed`, `generate(type_name, **params)`. 24 generator types dispatched via `GeneratorDispatchMixin._GENERATOR_MAP`. Three providers: `BaseProvider` (always available), `FakerProvider`, `MimesisProvider`.
+- **`generators/`** — `DataProvider` protocol: `name`, `set_locale`, `set_seed`, `generate(type_name, **params)`. 31 generator types dispatched via `GeneratorDispatchMixin._GENERATOR_MAP`. Three providers: `BaseProvider` (always available), `FakerProvider`, `MimesisProvider`.
 - **`database/`** — `DatabaseAdapter` protocol with two implementations: `SQLiteUtilsAdapter` (default, requires `sqlite-utils`) and `RawSQLiteAdapter` (fallback). `_compat.py` controls `HAS_SQLITE_UTILS` flag.
 - **`plugins/`** — 11 pluggy hooks. `PluginManager` + `PluginMediator` bridge plugins and core.
 - **`config/`** — Pydantic models (`GeneratorConfig`, `TableConfig`, `ColumnConfig`, `ColumnAssociation`), YAML/JSON loader, `SnapshotManager`.
