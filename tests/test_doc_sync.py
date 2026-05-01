@@ -140,7 +140,7 @@ class TestExactMatchRules:
     def test_count_in_docs(self):
         code = _read(ROOT / "src" / "sqlseed" / "core" / "mapper.py")
         # Count entries in EXACT_MATCH_RULES dict
-        rule_section = re.search(r"EXACT_MATCH_RULES.*?=.*?\{(.*?)\}", code, re.DOTALL)
+        rule_section = re.search(r"EXACT_MATCH_RULES[^=]*=\s*\{(.*?\})", code, re.DOTALL)
         if not rule_section:
             pytest.skip("Cannot parse EXACT_MATCH_RULES")
         rule_count = len(re.findall(r'"\w+":', rule_section.group(1)))
