@@ -71,7 +71,7 @@ def _get_exact_match_rules() -> dict[str, str]:
 def _get_safe_functions() -> set[str]:
     """Extract function names from ExpressionEngine.SAFE_FUNCTIONS."""
     code = _read(ROOT / "src" / "sqlseed" / "core" / "expression.py")
-    section = re.search(r"SAFE_FUNCTIONS.*?=.*?\{(.*?)\}", code, re.DOTALL)
+    section = re.search(r"SAFE_FUNCTIONS[^=]*=\s*\{(.*?\})", code, re.DOTALL)
     if not section:
         return set()
     # Only match string keys (exclude numeric like "0")
@@ -87,12 +87,13 @@ def _get_hook_names() -> set[str]:
 def _get_config_fields(cls_name: str) -> set[str]:
     """Extract field names from a Pydantic model class."""
     code = _read(ROOT / "src" / "sqlseed" / "config" / "models.py")
-    # Find the class body
-    pattern = rf"class {cls_name}\b.*?(?=\nclass |\Z)"
-    match = re.search(pattern, code, re.DOTALL)
-    if not match:
+    # Find the class body using string operations to avoid regex backtracking
+    marker = f"class {cls_name}"
+    start = code.find(marker)
+    if start == -1:
         return set()
-    body = match.group(0)
+    next_class = code.find("\nclass ", start + len(marker))
+    body = code[start:] if next_class == -1 else code[start:next_class]
     return set(re.findall(r"^\s+(\w+):\s*", body, re.MULTILINE))
 
 
