@@ -1,25 +1,52 @@
-# AGENTS.md — src/sqlseed/config
+<!-- Parent: ../AGENTS.md -->
+<!-- Generated: 2026-04-29 | Updated: 2026-04-29 -->
 
-## 作用域
+# config
 
-- 本目录拥有配置模型、YAML/JSON 加载保存、模板生成，以及 snapshot/replay 的序列化边界。
+## Purpose
 
-## 本目录规则
+YAML/JSON 配置文件的加载、校验和模型定义。基于 Pydantic 构建类型安全的配置模型。
 
-- `models.py` 里的字段名、默认值、validator 和枚举值都属于外部契约；改动前先看 `tests/test_config/`、`tests/test_public_api.py` 和 README 示例。
-- `ColumnConfig` 的两种模式要继续由模型层兜底校验：`generator` / `params` 路径与 `derive_from` / `expression` 路径互斥，不要把这类校验下沉到 CLI 或 orchestrator。
-- `load_config()` / `save_config()` 只接受 `.yaml`、`.yml`、`.json`；保持 UTF-8、`allow_unicode=True` 和当前字段顺序友好输出。
-- `generate_template()` 与 `SnapshotManager` 是 CLI `sqlseed init` / `sqlseed replay` 的配置边界。输出 shape、默认值或文件命名变化要同步更新 CLI 测试和文档。
-- 快照内容来自 `config.model_dump(mode="json")`；不要往配置模型里塞不可序列化对象、数据库句柄或运行时回调。
-- 本目录负责 schema 与 serialization，不负责数据库 I/O，也不要反向依赖可选插件实现包。
+## Key Files
 
-## 评审热点
+| File | Description |
+|------|-------------|
+| `models.py` | Pydantic 配置模型：`GeneratorConfig`, `TableConfig`, `ColumnConfig`, `ColumnConstraintsConfig`, `ProviderType` |
+| `loader.py` | 配置文件加载器，支持 YAML 和 JSON 格式，含模板生成功能 |
+| `snapshot.py` | `SnapshotManager` 配置快照的保存与恢复 |
 
-- `models.py` 的字段兼容性会直接影响 YAML/JSON 配置、Python API 和 AI/MCP 侧生成的配置。
-- `loader.py` 的扩展名分支和错误消息是用户入口，改动时留意 `tests/test_config/test_loader.py`。
-- `snapshot.py` 会把配置重新喂回 `DataOrchestrator.from_config()`；如果回放漏传字段，容易只在集成测试里暴露。
+## For AI Agents
 
-## 验证
+### Working In This Directory
 
-- 配置层：`pytest tests/test_config`
-- 关联入口：`pytest tests/test_public_api.py tests/test_cli.py`
+- 源列模式（`generator` + `params`）和派生列模式（`derive_from` + `expression`）互斥，通过 `model_validator` 校验，不要破坏此约束
+- `ProviderType` 枚举包含 BASE/FAKER/MIMESIS/CUSTOM/AI 五种类型
+- Pydantic 模型修改需考虑向后兼容，已有配置文件不应因模型变更而无法加载
+- `field_validator`/`model_validator` 是核心校验逻辑，修改需确保所有约束条件仍然满足
+- 新增配置项应提供合理默认值，避免破坏现有用户配置
+- `ColumnAssociation` 是独立的跨表关联模型（非 ColumnConfig 内部枚举），字段：`column_name`, `source_table`, `source_column`(默认 None 回退到 column_name), `target_tables`, `strategy="shared_pool"`
+
+### Testing Requirements
+
+```bash
+pytest tests/test_config/
+```
+
+### Common Patterns
+
+- 模型层次：`GeneratorConfig` → `TableConfig` → `ColumnConfig` → `ColumnConstraintsConfig`
+- `SnapshotManager` 按时间戳命名快照文件
+- 配置模板通过 `loader.py` 的 `generate_template()` 生成
+
+## Dependencies
+
+### Internal
+
+- `_utils`（logger）
+
+### External
+
+- `pydantic>=2.0` — 模型定义与校验
+- `pyyaml>=6.0` — YAML 加载
+
+<!-- MANUAL: Any manually added notes below this line are preserved on regeneration -->

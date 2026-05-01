@@ -1,98 +1,97 @@
-# sqlseed - 项目上下文
+# sqlseed - Project Context
 
-## 项目概述
-`sqlseed` 是一个声明式 SQLite 测试数据生成工具包，使用 Python（>=3.10）编写。它旨在以最少的配置智能生成大量高质量测试数据。该工具可以自动推断数据库 Schema 并选择合适的数据生成策略，同时通过 Python API 或声明式 YAML/JSON 配置提供精细控制。
+## Project Overview
+`sqlseed` is a declarative SQLite test data generation toolkit written in Python (>=3.10). It intelligently generates large volumes of high-quality test data with minimal configuration. The tool automatically infers database schemas and selects appropriate data generation strategies, while offering fine-grained control via Python API or declarative YAML/JSON configuration.
 
-核心特性包括：
-- 支持高性能数据生成引擎 Mimesis（推荐）和 Faker
-- 通过 9 级策略链实现智能列映射（包含 enum 推断、唯一性自适应等）
-- 自动外键解析和拓扑排序依赖管理
-- SQLite PRAGMA 批量处理优化（通过 `PragmaOptimizer` 支持 LIGHT / MODERATE / AGGRESSIVE 策略，智能动态优化）
-- 基于 `pluggy` 的健壮插件架构，11 个生命周期 Hook
-- 官方 AI 驱动插件（`sqlseed-ai`），支持 LLM 数据生成
-- MCP 服务器（`mcp-server-sqlseed`），通过 Model Context Protocol 与 AI 助手集成（默认区域为 `en_US`）
-- 跨表 SharedPool 维持引用完整性
-- 安全表达式引擎，支持超时保护的派生列计算和回溯约束求解
-- 快照回放机制，支持精确复现数据生成
+Core features include:
+- High-performance data generation engines: Mimesis (recommended) and Faker
+- 9-level strategy chain for intelligent column mapping (including enum inference, unique adaptivity, etc.)
+- Automatic foreign key resolution and topological sort dependency management
+- SQLite PRAGMA bulk write optimization (`PragmaOptimizer` with LIGHT / MODERATE / AGGRESSIVE strategies)
+- Robust plugin architecture based on `pluggy` with 11 lifecycle hooks
+- Official AI-powered plugin (`sqlseed-ai`) for LLM-driven data generation
+- MCP server (`mcp-server-sqlseed`) for AI assistant integration via Model Context Protocol (default locale: `en_US`)
+- Cross-table SharedPool for referential integrity
+- Secure expression engine with timeout-protected derived column computation and backtracking constraint solving
+- Snapshot replay mechanism for reproducible data generation
 
-## 项目架构
-- **根目录代码质量与分析报告**：包含多次重构后的重复代码统计 (`CodeDuplication统计报告...`)、代码流问题摘要 (`codeflow-issues...`)、常见问题分析 (`Most-Common-Issues...`)、SonarQube 报告以及针对不同大模型的思考测试（如 `GPT-5.4_THINK.md`）。
-- **`.github/`**：包含 CI/CD 与发布的 GitHub Actions 工作流（`ci.yml`、`publish.yml`）及 PR/Issue 模板指令。
-- **`src/sqlseed/core/`**：核心编排引擎，处理主流程编排（`orchestrator.py`）、生成结果统计（`result.py`）、Schema 推断（`schema.py`）、策略映射（`mapper.py`）、关系解析（`relation.py`）、列依赖 DAG（`column_dag.py`）、表达式求值（`expression.py`）、约束求解（`constraints.py`）、Transform 加载（`transform.py`）、列数据增强（`enrichment.py`，如枚举推断）、唯一性策略调整（`unique_adjuster.py`）以及插件/AI建议中介层（`plugin_mediator.py`）。
-- **`src/sqlseed/generators/`**：数据 Provider 注册表及各生成器实现（`mimesis_provider.py`、`faker_provider.py`）和流式生成适配器（`stream.py`）。包含协议定义（`_protocol.py`）、基础实现（`base_provider.py`）、注册机制（`registry.py`）以及内部辅助模块（`_dispatch.py`、`_json_helpers.py`、`_string_helpers.py`）。
-- **`src/sqlseed/database/`**：SQLite 交互适配器基类（`_base_adapter.py`）与具体实现（`sqlite_utils_adapter.py` 和 `raw_sqlite_adapter.py`），含 PRAGMA 优化（`optimizer.py`）。Protocol（`_protocol.py`）包含 `ColumnInfo`、`ForeignKeyInfo`、`IndexInfo` 等元数据定义和数据查询方法，以及内部辅助模块（`_compat.py`、`_helpers.py`）。
-- **`src/sqlseed/plugins/`**：基于 `pluggy` 的插件管理和 Hook 规范定义（`hookspecs.py` 和 `manager.py`）。
-- **`src/sqlseed/config/`**：使用 `pydantic` 模型、YAML/JSON 加载器（`loader.py`、`models.py`）以及支持 CLI `replay` 命令的运行快照（`snapshot.py`）的配置管理。
-- **`src/sqlseed/cli/`**：基于 `click` 的命令行接口（`main.py` 提供 fill, preview, inspect, init, replay, ai-suggest）。
-- **`src/sqlseed/_utils/`**：内部工具包，包含 SQL 安全处理（`sql_safe.py`）、共享 Schema 辅助函数（`schema_helpers.py`）、性能度量收集（`metrics.py`）、进度条封装（`progress.py`，基于 `rich`）和日志封装（`logger.py`，基于 `structlog`）。
-- **`plugins/sqlseed-ai/`**：独立包，提供 OpenAI 兼容的 LLM 驱动生成能力，含 `analyzer.py`（LLM 表级分析）、`refiner.py`（自纠正闭环）、`errors.py`（错误摘要）、`examples.py`（Few-shot 示例）、`provider.py`（AI Provider 兼容性空壳）、`config.py`（AIConfig 配置模型）、`_client.py`（API 客户端）和 `_json_utils.py`（JSON 解析）。
-- **`plugins/mcp-server-sqlseed/`**：MCP 服务器，基于 FastMCP 提供一个 Resource（`sqlseed://schema/{db_path}/{table_name}`）和三个核心 Tool（`sqlseed_inspect_schema`、`sqlseed_generate_yaml`、`sqlseed_execute_fill`），用于实现与 AI 助手的无缝集成（由 `server.py` 和 `config.py` 驱动）。
-- **`docs/`**：项目文档，包括架构（`architecture.md`）、评估（`evaluation.md`），以及特定工具集成的设计与规划文档（位于 `superpowers/plans/` 和 `superpowers/specs/` 中）。
+## Project Architecture
+- **Root directory**: Contains CI/CD and publishing GitHub Actions workflows (`.github/`) along with PR/Issue template instructions.
+- **`src/sqlseed/core/`**: Core orchestrator engine handling main flow orchestration (`orchestrator.py`), generation result statistics (`result.py`), schema inference (`schema.py`), strategy mapping (`mapper.py`), relation resolution (`relation.py`), column dependency DAG (`column_dag.py`), expression evaluation (`expression.py`), constraint solving (`constraints.py`), transform loading (`transform.py`), column data enrichment (`enrichment.py`), unique strategy adjustment (`unique_adjuster.py`), and plugin/AI suggestion mediation (`plugin_mediator.py`).
+- **`src/sqlseed/generators/`**: Data provider registry and generator implementations (`mimesis_provider.py`, `faker_provider.py`) with streaming generation adapter (`stream.py`). Includes protocol definitions (`_protocol.py`), base implementation (`base_provider.py`), registration mechanism (`registry.py`), and internal helpers (`_dispatch.py`, `_json_helpers.py`, `_string_helpers.py`).
+- **`src/sqlseed/database/`**: SQLite interaction adapter base class (`_base_adapter.py`) with concrete implementations (`sqlite_utils_adapter.py` and `raw_sqlite_adapter.py`), including PRAGMA optimization (`optimizer.py`). Protocol (`_protocol.py`) defines `ColumnInfo`, `ForeignKeyInfo`, `IndexInfo` metadata and data query methods, plus internal helpers (`_compat.py`, `_helpers.py`).
+- **`src/sqlseed/plugins/`**: Plugin management and hook specification definitions based on `pluggy` (`hookspecs.py` and `manager.py`).
+- **`src/sqlseed/config/`**: Configuration management using `pydantic` models, YAML/JSON loader (`loader.py`, `models.py`), and runtime snapshots supporting CLI `replay` command (`snapshot.py`).
+- **`src/sqlseed/cli/`**: `click`-based command-line interface (`main.py` providing fill, preview, inspect, init, replay, ai-suggest).
+- **`src/sqlseed/_utils/`**: Internal utilities including SQL safety (`sql_safe.py`), shared schema helpers (`schema_helpers.py`), performance metrics collection (`metrics.py`), progress bar wrapper (`progress.py`, based on `rich`), and logging wrapper (`logger.py`, based on `structlog`).
+- **`plugins/sqlseed-ai/`**: Standalone package providing OpenAI-compatible LLM-driven generation. Contains `analyzer.py` (LLM table-level analysis), `refiner.py` (self-correction loop), `errors.py` (error summary), `examples.py` (few-shot examples), `provider.py` (AI provider compatibility stub), `config.py` (AIConfig model), `_client.py` (API client), `_json_utils.py` (JSON parsing), and `_model_selector.py` (auto model selection from OpenRouter).
+- **`plugins/mcp-server-sqlseed/`**: MCP server based on FastMCP providing one Resource (`sqlseed://schema/{db_path}/{table_name}`) and three core Tools (`sqlseed_inspect_schema`, `sqlseed_generate_yaml`, `sqlseed_execute_fill`) for seamless AI assistant integration (driven by `server.py` and `config.py`).
+- **`docs/`**: Project documentation including architecture diagrams (`architecture.md`).
 
-## 构建与运行
-项目使用 `hatch` 作为构建后端和包管理器。
+## Build & Run
+The project uses `hatch` as the build backend and package manager.
 
-**安装：**
+**Installation:**
 ```bash
-# 安装核心及所有可选依赖（Mimesis、Faker）
+# Install core and all optional dependencies (Mimesis, Faker)
 pip install -e ".[dev,all]"
 
-# 安装 AI 插件（可选）
+# Install AI plugin (optional)
 pip install -e "./plugins/sqlseed-ai"
 
-# 安装 MCP 服务器（可选）
+# Install MCP server (optional)
 pip install -e "./plugins/mcp-server-sqlseed"
 ```
 
-**CLI 使用示例：**
+**CLI Usage Examples:**
 ```bash
-# 生成数据（--count 在非 --config 模式下必填）
+# Generate data (--count required when not using --config)
 sqlseed fill test.db --table users --count 10000
 
-# YAML 配置驱动生成（count 来自配置文件）
+# YAML config-driven generation (count from config file)
 sqlseed fill --config generate.yaml
 
-# 数据预览（不写入数据库）
+# Preview data (no write)
 sqlseed preview test.db --table users --count 5
 
-# 查看数据库表及特定表的列映射策略
+# Inspect database tables and column mapping strategies
 sqlseed inspect test.db --table users --show-mapping
 
-# 生成配置模板
+# Generate config template
 sqlseed init generate.yaml --db test.db
 
-# 保存并回放快照
+# Save and replay snapshots
 sqlseed fill test.db --table users --count 10000 --snapshot
 sqlseed replay snapshots/2026-04-12_users.yaml
 
-# AI 驱动的 YAML 建议
+# AI-driven YAML suggestions
 sqlseed ai-suggest test.db --table users --output users.yaml
 
-# 开启 debug 日志
+# Enable debug logging
 SQLSEED_LOG_LEVEL=DEBUG sqlseed fill test.db --table users --count 10
 ```
 
-**Python API 使用示例：**
+**Python API Usage Examples:**
 ```python
 import sqlseed
 
-# 简单填充
+# Simple fill
 result = sqlseed.fill("test.db", table="users", count=1000)
-print(f"耗时: {result.elapsed:.2f}s, 插入: {result.count} 行")
+print(f"Elapsed: {result.elapsed:.2f}s, Inserted: {result.count} rows")
 
-# 使用 Orchestrator (上下文管理器)
+# Using Orchestrator (context manager)
 with sqlseed.connect("test.db", provider="mimesis") as db:
     db.fill("users", count=5000)
 ```
 
-## 开发规范
-- **测试（`pytest`）**：项目维护了高达 94% 的测试覆盖率。`tests/` 目录不仅包含顶层的公共 API 与集成测试（如 `test_public_api.py`、`test_cli.py`、`test_orchestrator.py`、`test_ai_plugin.py` 等），还包含针对各个模块的子目录测试（`test_config`、`test_core`、`test_database`、`test_generators`、`test_plugins`、`test_utils`）以及性能基准测试（`benchmarks/`）。重点覆盖了约束回溯 (`ConstraintSolver`)、多线程安全的派生列求值引擎以及数据去重的递归降级逻辑。
-  - 运行测试：`pytest`
-  - 运行带详细堆栈测试：`pytest --tb=long -v`
-  - AI 插件测试使用 `pytest.importorskip("sqlseed_ai")` 处理可选依赖。
-- **代码检查与格式化（`ruff`）**：执行严格的代码检查规则（配置见 `pyproject.toml` 中的 `[tool.ruff]`）。
-  - 运行检查：`ruff check src/ tests/ plugins/`
-- **类型检查（`mypy`）**：严格静态类型是核心要求。
-  - 运行类型检查：`mypy src/sqlseed/ plugins/`
-- **设计哲学**：代码库推崇 Protocol 驱动设计（`typing.Protocol`）、显式配置（`pydantic`）和通过 Hook 系统实现高扩展性。不安全操作封装在 `_utils` 模块中（如 `sql_safe.py`）。
-- **表达式安全**：`ExpressionEngine` 使用 `simpleeval` 并配合隔离副本及多线程超时保护，实现并发安全，防止用户提供的派生列配置出现无限循环或变量污染。
+## Development Guidelines
+- **Testing (`pytest`)**: The project maintains ~94% test coverage. The `tests/` directory includes top-level public API and integration tests (`test_public_api.py`, `test_cli.py`, `test_orchestrator.py`, `test_ai_plugin.py`, etc.), module-specific subdirectory tests (`test_config`, `test_core`, `test_database`, `test_generators`, `test_plugins`, `test_utils`), and performance benchmarks (`benchmarks/`). Key coverage includes constraint backtracking (`ConstraintSolver`), thread-safe derived column evaluation engine, and recursive fallback deduplication logic.
+  - Run tests: `pytest`
+  - Run with verbose traceback: `pytest --tb=long -v`
+  - AI plugin tests use `pytest.importorskip("sqlseed_ai")` for optional dependency handling.
+- **Linting & Formatting (`ruff`)**: Strict code checking rules applied (config in `pyproject.toml` `[tool.ruff]`).
+  - Run lint: `ruff check src/ tests/ plugins/`
+- **Type Checking (`mypy`)**: Strict static typing is a core requirement.
+  - Run type check: `mypy src/sqlseed/ plugins/`
+- **Design Philosophy**: The codebase embraces Protocol-driven design (`typing.Protocol`), explicit configuration (`pydantic`), and high extensibility through the hook system. Unsafe operations are encapsulated in `_utils` modules (e.g., `sql_safe.py`).
+- **Expression Safety**: `ExpressionEngine` uses `simpleeval` with isolated copies and multi-threaded timeout protection for concurrency safety, preventing infinite loops or variable pollution in user-provided derived column configs.

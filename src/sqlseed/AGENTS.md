@@ -1,39 +1,48 @@
-# AGENTS.md — src/sqlseed
+# SRC/SQLSEED PACKAGE
 
-## 作用域
+## OVERVIEW
 
-- 本目录拥有可导入的 `sqlseed` 主包。
-- 修改这里的代码时，默认目标是保持 `import sqlseed` 轻量且稳定，即使可选依赖未安装也不应整体失效。
+Main package. Public API in `__init__.py`. Core orchestration in `core/`. Data generation in `generators/`.
 
-## 目录导航
+## STRUCTURE
 
-- `core/`：主编排链路、列映射、表达式、约束、Transform、Enrichment、Relation、Schema。进入该目录前再读 `core/AGENTS.md`。
-- `generators/`：`DataProvider` Protocol、Provider Registry、Base/Faker/Mimesis Provider、`DataStream`。进入该目录前再读 `generators/AGENTS.md`。
-- `database/`：`DatabaseAdapter` Protocol、`sqlite-utils`/原生 sqlite3 适配器、PRAGMA 优化。进入该目录前再读 `database/AGENTS.md`。
-- `config/`：Pydantic 配置模型、YAML/JSON 加载、快照回放。进入该目录前再读 `config/AGENTS.md`。
-- `cli/`：Click 命令层，负责参数解析与输出展示。
-- `plugins/`：hook 规范与 `PluginManager`，不是插件实现目录。进入该目录前再读 `plugins/AGENTS.md`。
-- `_utils/`：SQL 安全、日志、进度、指标等内部工具。
+```
+src/sqlseed/
+├── __init__.py       # Public API: fill, connect, fill_from_config, preview
+├── core/             # Orchestrator, mapper, schema, constraints, DAG (13 files)
+├── generators/       # Data providers: base, faker, mimesis (10 files)
+├── database/         # SQLite adapters: raw, sqlite-utils (8 files)
+├── plugins/          # Plugin system: hookspecs, manager (3 files)
+├── config/           # Pydantic models, YAML loader, snapshots (4 files)
+├── cli/              # Click commands: fill, preview, inspect, ai-suggest (2 files)
+└── _utils/           # Internal: sql_safe, metrics, progress, logger (6 files)
+```
 
-## 本目录规则
+## WHERE TO LOOK
 
-- 保持可选依赖边界。`faker`、`mimesis`、`sqlseed_ai`、`mcp` 相关导入应维持懒加载或局部导入。
-- 公共 API 的签名、默认值和导出项要与 CLI、配置模型和测试保持一致。
-- `generate_choice(choices)` 是唯一一个保留位置参数的 Provider 方法；不要在 Protocol、Provider 或调用点上把它“统一修正”掉。
-- CLI 应继续做薄封装。参数校验、生成逻辑和数据库交互应尽量留在库层，而不是 click 回调里。
-- 涉及 SQL 的代码走 `quote_identifier()` 和参数化查询；适配器层尤其不要引入新的字符串拼接 SQL。
-- 谨慎处理运行时依赖方向。`core` 负责编排；下层模块不要为了方便开始依赖编排器本身。
-- 修改默认值、回退逻辑、配置 schema 或 entry point 时，同时检查 README 与相应测试。
+| Task | Location | Notes |
+|------|----------|-------|
+| Public API | `__init__.py` | fill, connect, fill_from_config, preview |
+| Orchestrator | `core/orchestrator.py` | DataOrchestrator main engine (557 lines) |
+| Column mapping | `core/mapper.py` | 7-level strategy chain |
+| Schema inference | `core/schema.py` | SchemaInferrer class |
+| Data stream | `generators/stream.py` | DataStream + constraint backtracking |
+| Base provider | `generators/base_provider.py` | 31 generators, no deps (677 lines) |
+| DB adapters | `database/` | RawSQLiteAdapter, SQLiteUtilsAdapter |
+| Plugin hooks | `plugins/hookspecs.py` | 11 pluggy hook definitions |
+| Config models | `config/models.py` | Pydantic: GeneratorConfig, TableConfig, ColumnConfig |
 
-## 评审热点
+## CONVENTIONS
 
-- `generators/stream.py` 负责本地 RNG、null_ratio、外键/template pool 取值，以及 `choice` / `foreign_key` 的本地特判；其他未知生成器会继续抛 `UnknownGeneratorError`。
-- `database/` 代码必须同时兼容 `sqlite-utils` 路径和原生 sqlite3 回退路径。
-- `plugins/hookspecs.py` 是外部插件契约；签名变化会破坏第三方插件。
-- `config/models.py` 与 `config/loader.py` 决定 YAML/JSON 兼容性，改动时要关注回放和快照。
+- **Imports**: Always `from __future__ import annotations` first
+- **Logging**: `logger = get_logger(__name__)` at module top
+- **SQL safety**: `quote_identifier()` for all identifiers
+- **Optional deps**: try/except with `HAS_*` flags (e.g., `HAS_SQLITE_UTILS`)
+- **Provider protocol**: Implement `DataProvider` protocol, no base class required
 
-## 验证
+## ANTI-PATTERNS
 
-- 公共 API 与 CLI：`pytest tests/test_public_api.py tests/test_cli.py`
-- 核心子目录：`pytest tests/test_core tests/test_generators tests/test_database tests/test_plugins tests/test_config`
-- 全仓检查：`mypy`, `ruff check src/ tests/`, `pytest`
+- **NEVER** import third-party libs without try/except
+- **NEVER** use raw SQL string formatting for identifiers
+- **ALWAYS** handle `HAS_SQLITE_UTILS` in database layer
+- **ALWAYS** use `from __future__ import annotations`

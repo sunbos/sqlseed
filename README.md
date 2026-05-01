@@ -2,9 +2,11 @@
 
 # 🌱 sqlseed
 
-### 声明式 SQLite 测试数据生成工具包
+**[English](README.md)** | [中文](README.zh-CN.md)
 
-**一行代码，数万行数据。零配置智能生成，AI 驱动精准调优。**
+### Declarative SQLite Test Data Generation Toolkit
+
+**One line of code, tens of thousands of rows. Zero-config smart generation, AI-powered precision tuning.**
 
 [![CI](https://github.com/sunbos/sqlseed/actions/workflows/ci.yml/badge.svg)](https://github.com/sunbos/sqlseed/actions)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-3776ab.svg?logo=python\&logoColor=white)](https://www.python.org/downloads/)
@@ -19,7 +21,7 @@
 ```python
 import sqlseed
 
-# 就这一行。自动推断 Schema，自动选择策略，自动优化写入。
+# Just one line. Auto-infers schema, auto-selects strategy, auto-optimizes writes.
 result = sqlseed.fill("test.db", table="users", count=100_000)
 print(result)
 # → GenerationResult(table=users, count=100000, elapsed=2.34s, speed=42735 rows/s)
@@ -27,84 +29,84 @@ print(result)
 
 ***
 
-## 💡 为什么选择 sqlseed？
+## 💡 Why sqlseed?
 
-在开发和测试流程中，我们经常需要为 SQLite 数据库填充大量真实感的测试数据。传统方式要么手写冗长的数据生成脚本，要么使用难以维护的 SQL fixtures。sqlseed 用一种全新的声明式方式解决了这个问题：
+In development and testing workflows, we often need to populate SQLite databases with large volumes of realistic test data. Traditional approaches either require writing verbose data generation scripts or maintaining hard-to-scale SQL fixtures. sqlseed solves this with a declarative approach:
 
-| 特性         | sqlseed |  手写脚本  | SQL Fixtures |
-| :--------- | :-----: | :----: | :----------: |
-| 零配置智能生成    |    ✅    |    ❌   |       ❌      |
-| 外键自动维护     |    ✅    |   手动   |      手动      |
-| 10 万行 + 数据 |   ✅ 流式  | ⚠️ OOM |       ❌      |
-| 列语义推断      | ✅ 9 级策略 |    ❌   |       ❌      |
-| 可重复生成      |  ✅ seed |  ⚠️ 手动 |       ✅      |
-| AI 智能调优    |  ✅ LLM  |    ❌   |       ❌      |
-| 配置热重用      |  ✅ YAML |    ❌   |       ❌      |
+| Feature | sqlseed | Hand-written Scripts | SQL Fixtures |
+| :------ | :-----: | :-----------------: | :----------: |
+| Zero-config smart generation |    ✅    |         ❌         |      ❌      |
+| Automatic FK maintenance |    ✅    |       Manual       |    Manual    |
+| 100K+ rows | ✅ Streaming |    ⚠️ OOM    |      ❌      |
+| Column semantic inference | ✅ 9-level strategy |    ❌    |      ❌      |
+| Reproducible generation |  ✅ seed  |     ⚠️ Manual      |      ✅      |
+| AI-powered tuning |  ✅ LLM  |         ❌         |      ❌      |
+| Config reuse |  ✅ YAML  |         ❌         |      ❌      |
 
-## ✨ 核心特性
+## ✨ Core Features
 
 <table>
 <tr>
 <td width="50%">
 
-**🚀 零配置智能生成**
+**🚀 Zero-Config Smart Generation**
 
-自动推断数据库 Schema，通过 9 级策略链为每列选择最佳生成器。列名是 `email`？生成邮箱。列名是 `*_at`？生成时间戳。完全不需要配置。
+Auto-infers database schema and selects the best generator for each column via a 9-level strategy chain. Column named `email`? Generates email addresses. Column named `*_at`? Generates timestamps. No configuration needed.
 
 </td>
 <td width="50%">
 
-**🎯 声明式精确控制**
+**🎯 Declarative Fine-Grained Control**
 
-通过 Python API 或 YAML/JSON 配置精确控制每一列的数据生成策略、约束条件和空值比率。
-
-</td>
-</tr>
-<tr>
-<td>
-
-**🔗 外键自动排序**
-
-拓扑排序自动检测表依赖关系，SharedPool 跨表共享值池，零配置维持引用完整性。
-
-</td>
-<td>
-
-**🌊 流式内存安全**
-
-`DataStream` 通过 `Iterator[list[dict]]` 逐批 yield，100 万行数据内存占用与 1000 行相同。
+Precisely control each column's data generation strategy, constraints, and null ratio via Python API or YAML/JSON configuration.
 
 </td>
 </tr>
 <tr>
 <td>
 
-**🧮 表达式引擎 & 约束求解**
+**🔗 Automatic FK Ordering**
 
-支持派生列计算（`last_eight = card_number[-8:]`），唯一性约束回溯求解，超时保护防止死循环。
+Topological sort auto-detects table dependencies. SharedPool cross-table value sharing maintains referential integrity with zero configuration.
 
 </td>
 <td>
 
-**🤖 AI 一等公民**
+**🌊 Streaming Memory Safety**
 
-`sqlseed-ai` 插件通过 LLM 分析 Schema 语义，自动生成 YAML 配置建议，支持自纠正闭环。
+`DataStream` yields batches via `Iterator[list[dict]]`. 1 million rows use the same memory as 1,000 rows.
 
 </td>
 </tr>
 <tr>
 <td>
 
-**🧩 11 个 Hook 全生命周期**
+**🧮 Expression Engine & Constraint Solving**
 
-基于 pluggy 的插件架构，从 Provider 注册到批次插入，覆盖数据生成的每个环节。
+Supports derived column computation (`last_eight = card_number[-8:]`), unique constraint backtracking, and timeout protection against infinite loops.
 
 </td>
 <td>
 
-**📊 三级 PRAGMA 优化**
+**🤖 AI First-Class Citizen**
 
-根据数据量智能切换 LIGHT / MODERATE / AGGRESSIVE 三种写入策略，最大化吞吐量。
+`sqlseed-ai` plugin uses LLM to analyze schema semantics, auto-generates YAML config suggestions with self-correction loop.
+
+</td>
+</tr>
+<tr>
+<td>
+
+**🧩 11 Lifecycle Hooks**
+
+pluggy-based plugin architecture covering every stage from provider registration to batch insertion.
+
+</td>
+<td>
+
+**📊 3-Tier PRAGMA Optimization**
+
+Intelligently switches between LIGHT / MODERATE / AGGRESSIVE write strategies based on data volume for maximum throughput.
 
 </td>
 </tr>
@@ -112,52 +114,61 @@ print(result)
 
 ***
 
-## 📦 安装
+## 📦 Installation
 
-### 基础安装
+### Basic
 
 ```bash
 pip install sqlseed
 ```
 
-### 选择数据引擎
+### Choose Data Engine
 
 ```bash
-# 推荐：Mimesis（高性能，本地化支持好）
+# Recommended: Mimesis (high performance, great locale support)
 pip install sqlseed[mimesis]
 
-# 可选：Faker（生态丰富）
+# Optional: Faker (rich ecosystem)
 pip install sqlseed[faker]
 
-# 全部安装
+# Install all
 pip install sqlseed[all]
 ```
 
-### 可选插件
+### Optional Plugins
 
 ```bash
-# AI 智能分析插件（LLM 驱动）
+# AI analysis plugin (requires openai SDK)
 pip install sqlseed-ai
 
-# MCP 服务器（让 AI 助手直接操作 sqlseed）
+# MCP server (requires mcp SDK, lets AI assistants operate sqlseed)
 pip install mcp-server-sqlseed
+
+# MCP server + AI support (all-in-one)
+pip install mcp-server-sqlseed[ai]
+```
+
+### Docs Build (Developers)
+
+```bash
+pip install sqlseed[docs]   # mkdocs-material + mkdocstrings
 ```
 
 <details>
-<summary><b>📋 开发环境完整安装</b></summary>
+<summary><b>📋 Full Dev Environment Setup</b></summary>
 
 ```bash
 git clone https://github.com/sunbos/sqlseed.git
 cd sqlseed
 
-# 安装核心 + 所有 Provider + 开发依赖
+# Install core + all providers + dev dependencies
 pip install -e ".[dev,all]"
 
-# 可选插件
+# Optional plugins
 pip install -e "./plugins/sqlseed-ai"
 pip install -e "./plugins/mcp-server-sqlseed"
 
-# 验证安装
+# Verify installation
 pytest
 ruff check src/ tests/
 mypy src/sqlseed/
@@ -167,11 +178,11 @@ mypy src/sqlseed/
 
 ***
 
-## 🚀 快速开始
+## 🚀 Quick Start
 
-### 30 秒上手
+### Get Started in 30 Seconds
 
-假设你有一个 SQLite 数据库 `app.db`，其中有一张 `users` 表：
+Suppose you have a SQLite database `app.db` with a `users` table:
 
 ```sql
 CREATE TABLE users (
@@ -186,7 +197,7 @@ CREATE TABLE users (
 );
 ```
 
-只需一行代码即可填充 1 万行高质量测试数据：
+One line of code fills 10,000 rows of high-quality test data:
 
 ```python
 import sqlseed
@@ -196,26 +207,26 @@ print(result)
 # → GenerationResult(table=users, count=10000, elapsed=0.52s, speed=19230 rows/s)
 ```
 
-sqlseed 会自动：
+sqlseed automatically:
 
-- ✅ 跳过 `id`（自增主键）
-- ✅ 跳过 `is_active`（有默认值）
-- ✅ `name` → 生成真实姓名
-- ✅ `email` → 生成邮箱地址
-- ✅ `age` → 生成 18\~100 的整数
-- ✅ `phone` → 生成电话号码
-- ✅ `created_at` → 生成日期时间（匹配 `*_at` 模式）
-- ✅ `balance` → 生成浮点数
+- ✅ Skips `id` (autoincrement PK)
+- ✅ Skips `is_active` (has default value)
+- ✅ `name` → generates real names
+- ✅ `email` → generates email addresses
+- ✅ `age` → generates integers 18–100
+- ✅ `phone` → generates phone numbers
+- ✅ `created_at` → generates datetime (matches `*_at` pattern)
+- ✅ `balance` → generates floats
 
-**完全零配置，智能推断一切。**
+**Fully zero-config. Smart inference for everything.**
 
 ***
 
-## 📖 使用教程
+## 📖 Tutorials
 
-### 教程 1：Python API — 精确控制每一列
+### Tutorial 1: Python API — Fine-Grained Control
 
-当你需要对数据有更精细的控制时，可以通过 `columns` 参数声明每列的生成策略：
+For precise control over each column, declare generation strategies via the `columns` parameter:
 
 ```python
 import sqlseed
@@ -225,79 +236,88 @@ result = sqlseed.fill(
     table="users",
     count=50_000,
     columns={
-        # 简写：直接指定生成器名
+        # Shorthand: specify generator name directly
         "email": "email",
         "phone": "phone",
-        
-        # 完整配置：指定参数
+
+        # Full config: specify parameters
         "age": {"type": "integer", "min_value": 18, "max_value": 65},
         "balance": {"type": "float", "min_value": 0.0, "max_value": 100000.0, "precision": 2},
         "name": "name",
-        
-        # 从候选列表中随机选择
+
+        # Random selection from candidate list
         "status": {"type": "choice", "choices": ["active", "inactive", "banned"]},
     },
-    provider="mimesis",      # 使用 Mimesis 引擎
-    locale="zh_CN",          # 中文地区
-    seed=42,                 # 固定种子，确保结果可重复
-    clear_before=True,       # 生成前清空表
+    provider="mimesis",      # Use Mimesis engine
+    locale="en_US",          # English locale
+    seed=42,                 # Fixed seed for reproducibility
+    clear_before=True,       # Clear table before generation
+    enrich=True,             # Infer distribution from existing data
+    transform="./transform_users.py",  # Custom transform per row
 )
 print(result)
 ```
 
-#### 支持的生成器类型
+#### Supported Generator Types
 
-| 生成器           | 说明             | 参数示例                                  |
-| :------------ | :------------- | :------------------------------------ |
-| `string`      | 随机字符串          | `min_length`, `max_length`, `charset` |
-| `integer`     | 整数             | `min_value`, `max_value`              |
-| `float`       | 浮点数            | `min_value`, `max_value`, `precision` |
-| `boolean`     | 布尔值            | —                                     |
-| `name`        | 人名             | —                                     |
-| `first_name`  | 名              | —                                     |
-| `last_name`   | 姓              | —                                     |
-| `email`       | 邮箱             | —                                     |
-| `phone`       | 电话             | —                                     |
-| `address`     | 地址             | —                                     |
-| `company`     | 公司名            | —                                     |
-| `url`         | URL            | —                                     |
-| `ipv4`        | IPv4 地址        | —                                     |
-| `uuid`        | UUID           | —                                     |
-| `date`        | 日期             | `start_year`, `end_year`              |
-| `datetime`    | 日期时间           | `start_year`, `end_year`              |
-| `timestamp`   | Unix 时间戳       | —                                     |
-| `text`        | 长文本            | `min_length`, `max_length`            |
-| `sentence`    | 句子             | —                                     |
-| `password`    | 密码             | `length`                              |
-| `choice`      | 从列表选择          | `choices`                             |
-| `json`        | JSON 字符串       | `schema`                              |
-| `pattern`     | 正则匹配           | `regex`                               |
-| `bytes`       | 二进制数据          | `length`                              |
-| `foreign_key` | 外键引用           | `ref_table`, `ref_column`, `strategy` |
-| `skip`        | 跳过（使用默认值/NULL） | —                                     |
+| Generator | Description | Example Parameters |
+| :-------- | :---------- | :----------------- |
+| `string` | Random string | `min_length`, `max_length`, `charset` |
+| `integer` | Integer | `min_value`, `max_value` |
+| `float` | Float | `min_value`, `max_value`, `precision` |
+| `boolean` | Boolean | — |
+| `name` | Full name | — |
+| `first_name` | First name | — |
+| `last_name` | Last name | — |
+| `email` | Email address | — |
+| `phone` | Phone number | — |
+| `address` | Address | — |
+| `company` | Company name | — |
+| `url` | URL | — |
+| `ipv4` | IPv4 address | — |
+| `uuid` | UUID | — |
+| `date` | Date | `start_year`, `end_year` |
+| `datetime` | Datetime | `start_year`, `end_year` |
+| `timestamp` | Unix timestamp | — |
+| `text` | Long text | `min_length`, `max_length` |
+| `sentence` | Sentence | — |
+| `password` | Password | `length` |
+| `choice` | Pick from list | `choices` |
+| `json` | JSON string | `schema` |
+| `pattern` | Regex match | `regex` |
+| `bytes` | Binary data | `length` |
+| `username` | Username | — |
+| `city` | City | — |
+| `country` | Country | — |
+| `state` | State/Province | — |
+| `zip_code` | Zip/Postal code | — |
+| `job_title` | Job title | — |
+| `country_code` | Country code | — |
+| `foreign_key` | FK reference | `ref_table`, `ref_column`, `strategy` |
+| `skip` | Skip (use default/NULL) | — |
 
 ***
 
-### 教程 2：多表关联 — 自动维持外键完整性
+### Tutorial 2: Multi-Table Associations — Automatic FK Integrity
 
-使用上下文管理器模式可以处理跨表数据依赖：
+Use the context manager pattern to handle cross-table data dependencies:
 
 ```python
 import sqlseed
 
-with sqlseed.connect("app.db", provider="mimesis", locale="zh_CN") as db:
-    # 步骤 1：先填充父表
+with sqlseed.connect("app.db", provider="mimesis", locale="en_US") as db:
+    # Step 1: Fill parent table first
     db.fill("users", count=10_000, seed=42)
-    
-    # 步骤 2：填充子表 — sqlseed 自动检测外键约束，
-    #         从 users.id 中随机选取值填入 orders.user_id
+
+    # Step 2: Fill child table — sqlseed auto-detects FK constraints
+    #         and picks random values from users.id for orders.user_id
     db.fill("orders", count=50_000, columns={
         "amount": {"type": "float", "min_value": 9.99, "max_value": 999.99, "precision": 2},
         "quantity": {"type": "integer", "min_value": 1, "max_value": 20},
         "status": {"type": "choice", "choices": ["pending", "paid", "shipped", "delivered"]},
     })
-    
-    # 步骤 3：查看生成报告
+
+    # Step 3: View generation report
     print(db.report())
     # → Database: app.db
     # → ==================================================
@@ -305,27 +325,54 @@ with sqlseed.connect("app.db", provider="mimesis", locale="zh_CN") as db:
     # →   orders: 50000 rows
 ```
 
-> **💡 提示**：如果两张表之间有同名列（如 `account_id`），即使没有声明外键约束，sqlseed 也会通过 **SharedPool 隐式关联机制**自动维持跨表一致性。
+> **💡 Tip**: If two tables share a column name (e.g., `account_id`), even without a declared FK constraint, sqlseed automatically maintains cross-table consistency via the **SharedPool implicit association mechanism**.
+
+#### Explicit Cross-Table Associations (ColumnAssociation)
+
+When the target column name differs from the source (e.g., `department_id` → `id`), or there's no FK constraint but you need an association, declare it explicitly via `associations`:
+
+```yaml
+db_path: "app.db"
+provider: mimesis
+
+tables:
+  - name: departments
+    count: 5
+    clear_before: true
+  - name: employees
+    count: 20
+    clear_before: true
+
+associations:
+  - column_name: department_id     # Column name in the target table
+    source_table: departments      # Source table providing values
+    source_column: id              # Column name in source table (defaults to column_name)
+    target_tables:                 # Target tables using this association
+      - employees
+    strategy: shared_pool          # Association strategy
+```
+
+This way, even without `FOREIGN KEY (department_id) REFERENCES departments(id)`, `department_id` values will come from `departments.id`.
 
 ***
 
-### 教程 3：YAML 配置文件驱动批量生成
+### Tutorial 3: YAML Config-Driven Batch Generation
 
-对于复杂的多表场景，推荐使用 YAML 配置文件：
+For complex multi-table scenarios, use YAML configuration:
 
-**1. 生成配置模板**
+**1. Generate config template**
 
 ```bash
 sqlseed init generate.yaml --db app.db
 ```
 
-**2. 编辑配置文件**
+**2. Edit config file**
 
 ```yaml
 # generate.yaml
 db_path: "app.db"
 provider: mimesis
-locale: zh_CN
+locale: en_US
 optimize_pragma: true
 
 tables:
@@ -349,11 +396,11 @@ tables:
         generator: choice
         params:
           choices: [0, 1, 2]
-        null_ratio: 0.05       # 5% 概率为 NULL
+        null_ratio: 0.05       # 5% chance of NULL
 
   - name: orders
     count: 500000
-    batch_size: 10000          # 每批 1 万行，优化内存
+    batch_size: 10000          # 10K rows per batch, optimizes memory
     columns:
       - name: user_id
         generator: foreign_key
@@ -373,13 +420,13 @@ tables:
           start_year: 2024
 ```
 
-**3. 执行生成**
+**3. Execute generation**
 
 ```bash
 sqlseed fill --config generate.yaml
 ```
 
-或在 Python 中：
+Or in Python:
 
 ```python
 results = sqlseed.fill_from_config("generate.yaml")
@@ -389,12 +436,12 @@ for r in results:
 
 ***
 
-### 教程 4：派生列与表达式引擎
+### Tutorial 4: Derived Columns & Expression Engine
 
-sqlseed v2.0 引入了列依赖 DAG 和表达式引擎，支持从已有列计算派生列：
+sqlseed v2.0 introduces column dependency DAG and expression engine for computing derived columns:
 
 ```yaml
-# 银行卡信息表场景
+# Bank card info table scenario
 tables:
   - name: bank_cards
     count: 10000
@@ -402,19 +449,19 @@ tables:
       - name: card_number
         generator: pattern
         params:
-          regex: "62[0-9]{17}"     # 19 位银联卡号
+          regex: "62[0-9]{17}"     # 19-digit UnionPay card number
         constraints:
           unique: true
 
       - name: last_eight
-        derive_from: card_number       # 依赖 card_number
-        expression: "value[-8:]"   # 取后 8 位
+        derive_from: card_number       # Depends on card_number
+        expression: "value[-8:]"   # Last 8 digits
         constraints:
           unique: true
 
       - name: last_six
         derive_from: card_number
-        expression: "value[-6:]"   # 取后 6 位
+        expression: "value[-6:]"   # Last 6 digits
 
       - name: account_id
         generator: pattern
@@ -424,48 +471,57 @@ tables:
           unique: true
 ```
 
-**运作原理**：
+**How it works**:
 
-1. sqlseed 构建列依赖 DAG：`card_number → last_eight, last_six`
-2. 拓扑排序确定生成顺序
-3. 先生成 `card_number`，再通过表达式 `value[-8:]` 计算 `last_eight`
-4. 如果 `last_eight` 的唯一性约束失败，回溯重新生成 `card_number`
+1. sqlseed builds a column dependency DAG: `card_number → last_eight, last_six`
+2. Topological sort determines generation order
+3. Generates `card_number` first, then computes `last_eight` via `value[-8:]`
+4. If `last_eight` unique constraint fails, backtracks to regenerate `card_number`
 
-#### 表达式引擎支持的函数
+#### Expression Engine Functions (21 total)
 
-| 函数                      | 用法                        | 说明          |
-| :---------------------- | :------------------------ | :---------- |
-| `upper(s)`              | `upper(value)`            | 转大写         |
-| `lower(s)`              | `lower(value)`            | 转小写         |
-| `len(s)`                | `len(value)`              | 获取长度        |
-| `substr(s, start, end)` | `substr(value, 0, 8)`     | 子串          |
-| `concat(*args)`         | `concat("PRE_", value)`   | 拼接          |
-| `zfill(s, width)`       | `zfill(value, 10)`        | 零填充         |
-| `lpad(s, width, char)`  | `lpad(value, 8, "0")`     | 左填充         |
-| `rpad(s, width, char)`  | `rpad(value, 8, "0")`     | 右填充         |
-| `replace(s, old, new)`  | `replace(value, "-", "")` | 替换          |
-| `strip(s)`              | `strip(value)`            | 去空白         |
-| `int(s)`                | `int(value)`              | 转整数         |
-| `str(s)`                | `str(value)`              | 转字符串        |
-| 切片                      | `value[-8:]`              | Python 切片语法 |
-| 数学                      | `value * 2 + 1`           | 基本数学运算      |
+| Function | Usage | Description |
+| :------- | :---- | :---------- |
+| `len(s)` | `len(value)` | Length |
+| `int(s)` | `int(value)` | To integer |
+| `str(s)` | `str(value)` | To string |
+| `float(s)` | `float(value)` | To float |
+| `hex(n)` | `hex(value)` | To hexadecimal |
+| `oct(n)` | `oct(value)` | To octal |
+| `bin(n)` | `bin(value)` | To binary |
+| `abs(n)` | `abs(value)` | Absolute value |
+| `min(*args)` | `min(a, b)` | Minimum |
+| `max(*args)` | `max(a, b)` | Maximum |
+| `upper(s)` | `upper(value)` | Uppercase |
+| `lower(s)` | `lower(value)` | Lowercase |
+| `strip(s)` | `strip(value)` | Trim both ends |
+| `lstrip(s)` | `lstrip(value)` | Trim left |
+| `rstrip(s)` | `rstrip(value)` | Trim right |
+| `zfill(s, width)` | `zfill(value, 10)` | Zero-fill |
+| `replace(s, old, new)` | `replace(value, "-", "")` | Replace |
+| `substr(s, start, end)` | `substr(value, 0, 8)` | Substring |
+| `lpad(s, width, char)` | `lpad(value, 8, "0")` | Left-pad |
+| `rpad(s, width, char)` | `rpad(value, 8, "0")` | Right-pad |
+| `concat(*args)` | `concat("PRE_", value)` | Concatenate |
+| Slicing | `value[-8:]` | Python slice syntax |
+| Math | `value * 2 + 1` | Basic arithmetic |
 
-> ⚠️ **安全保护**：表达式引擎基于 `simpleeval`，具有 5 秒超时保护，不允许 `import`、`exec` 或文件 I/O 操作。
+> ⚠️ **Safety**: The expression engine is based on `simpleeval` with 5-second timeout protection. `import`, `exec`, and file I/O are not allowed.
 
 ***
 
-### 教程 5：Transform 脚本 — 极端业务逻辑
+### Tutorial 5: Transform Scripts — Complex Business Logic
 
-对于无法用声明式配置表达的复杂业务逻辑，可以编写 Python 变换脚本：
+For complex business logic that can't be expressed declaratively, write Python transform scripts:
 
-**1. 编写 transform 脚本**
+**1. Write transform script**
 
 ```python
 # transform_users.py
 def transform_row(row, ctx):
-    """每一行生成后都会经过此函数处理。"""
-    
-    # 根据年龄计算 VIP 等级
+    """Called for every generated row."""
+
+    # Calculate VIP level based on age
     age = row.get("age", 0)
     if age >= 60:
         row["vip_level"] = 3
@@ -473,22 +529,22 @@ def transform_row(row, ctx):
         row["vip_level"] = 2
     else:
         row["vip_level"] = 1
-    
-    # 标准化手机号格式
+
+    # Normalize phone format
     phone = row.get("phone", "")
-    if phone and not phone.startswith("+86"):
-        row["phone"] = f"+86{phone}"
-    
+    if phone and not phone.startswith("+1"):
+        row["phone"] = f"+1{phone}"
+
     return row
 ```
 
-**2. 在 CLI 中使用**
+**2. Use in CLI**
 
 ```bash
 sqlseed fill app.db --table users --count 10000 --transform transform_users.py
 ```
 
-**3. 在 YAML 中使用**
+**3. Use in YAML**
 
 ```yaml
 tables:
@@ -499,40 +555,42 @@ tables:
 
 ***
 
-### 教程 6：预览与调试
+### Tutorial 6: Preview & Debug
 
-在大量生成数据前，先预览看看效果：
+Preview data before generating at scale:
 
-**Python API：**
+**Python API:**
 
 ```python
 rows = sqlseed.preview("app.db", table="users", count=5, seed=42)
+# Also supports enrich and transform parameters
+rows = sqlseed.preview("app.db", table="users", count=5, seed=42, enrich=True)
 for row in rows:
     print(row)
-# → {'name': '张伟', 'email': 'zhangwei@example.com', 'age': 32, ...}
-# → {'name': '李娜', 'email': 'lina@test.org', 'age': 28, ...}
+# → {'name': 'John Smith', 'email': 'jsmith@example.com', 'age': 32, ...}
+# → {'name': 'Jane Doe', 'email': 'jdoe@test.org', 'age': 28, ...}
 # → ...
 ```
 
-**CLI（Rich 表格输出）：**
+**CLI (Rich table output):**
 
 ```bash
 sqlseed preview app.db --table users --count 5
 
-# ┏━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━┳━━━━━┳━━━━━━━━━━━━━━━━━━━━━┓
-# ┃ name    ┃ email               ┃ age ┃ created_at          ┃
-# ┡━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━╇━━━━━╇━━━━━━━━━━━━━━━━━━━━━┩
-# │ 张伟     │ zhangwei@example.com│ 32  │ 2024-03-15 08:23:11 │
-# │ ...     │ ...                 │ ... │ ...                 │
-# └─────────┴─────────────────────┴─────┴─────────────────────┘
+# ┏━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━┳━━━━━┳━━━━━━━━━━━━━━━━━━━━━┓
+# ┃ name       ┃ email                ┃ age ┃ created_at          ┃
+# ┡━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━╇━━━━━╇━━━━━━━━━━━━━━━━━━━━━┩
+# │ John Smith │ jsmith@example.com   │ 32  │ 2024-03-15 08:23:11 │
+# │ ...        │ ...                  │ ... │ ...                 │
+# └────────────┴──────────────────────┴─────┴─────────────────────┘
 ```
 
-**查看列映射策略：**
+**View column mapping strategy:**
 
 ```bash
 sqlseed inspect app.db --table users --show-mapping
 
-# 查看 sqlseed 为每一列选择了什么生成策略
+# See what generation strategy sqlseed chose for each column
 # ┏━━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━┓
 # ┃ Column     ┃ Type    ┃ Nullable ┃ Generator    ┃ Params       ┃
 # ┡━━━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━┩
@@ -546,100 +604,115 @@ sqlseed inspect app.db --table users --show-mapping
 
 ***
 
-### 教程 7：快照与回放
+### Tutorial 7: Snapshots & Replay
 
-保存一次成功的生成配置，以后随时精确回放：
+Save a successful generation config for exact replay later:
 
 ```bash
-# 生成并保存快照
+# Generate and save snapshot
 sqlseed fill app.db --table users --count 10000 --seed 42 --snapshot
 # → Snapshot saved: snapshots/2026-04-15_033000_users.yaml
 
-# 任意时刻回放
+# Replay anytime
 sqlseed replay snapshots/2026-04-15_033000_users.yaml
 # → GenerationResult(table=users, count=10000, elapsed=0.52s, speed=19230 rows/s)
 ```
 
-适用场景：
+Use cases:
 
-- 🧪 CI/CD 中需要可重复的测试数据
-- 📋 团队间共享一致的测试环境
-- 🔄 开发时快速重建数据库状态
+- 🧪 Reproducible test data in CI/CD
+- 📋 Consistent test environments across teams
+- 🔄 Quick database state reconstruction during development
 
 ***
 
-### 教程 8：AI 智能配置（sqlseed-ai 插件）
+### Tutorial 8: AI-Powered Configuration (sqlseed-ai Plugin)
 
-让 LLM 分析你的数据库 Schema，自动生成最佳配置建议：
+Let LLM analyze your database schema and auto-generate optimal config suggestions:
 
 ```bash
-# 安装 AI 插件
+# Install AI plugin
 pip install sqlseed-ai
 
-# 设置 API Key
+# Set API key
 export SQLSEED_AI_API_KEY="your-api-key"
 export SQLSEED_AI_BASE_URL="https://your-llm-api-endpoint"
 
-# AI 分析并生成配置
+# AI analysis and config generation
 sqlseed ai-suggest app.db --table bank_cards --output bank_cards.yaml
 
-# 带自纠正的 AI 建议（默认 3 轮修正）
+# AI suggestions with self-correction (3 rounds by default)
 sqlseed ai-suggest app.db --table bank_cards --output bank_cards.yaml --verify
 
-# 指定模型
-sqlseed ai-suggest app.db --table bank_cards --output bank_cards.yaml --model gpt-4o
+# Specify model (defaults to most popular free model)
+sqlseed ai-suggest app.db --table bank_cards --output bank_cards.yaml --model nvidia/nemotron-3-super-120b-a12b:free
 
-# 跳过缓存
+# Skip cache
 sqlseed ai-suggest app.db --table bank_cards --output bank_cards.yaml --no-cache
 ```
 
-**AI 工作流程**：
+**AI Workflow**:
 
 ```
-1. 提取 Schema 上下文（列信息、索引、样本数据、外键、数据分布）
-2. 构建带 Few-shot 示例的 LLM Prompt
-3. LLM 返回 JSON 格式的列配置建议
-4. AiConfigRefiner 自动验证配置的正确性
-5. 若发现错误（未知生成器、类型不匹配等），自动向 LLM 发送修正请求
-6. 最多 3 轮自纠正，输出经过验证的 YAML 配置
+1. Extract schema context (columns, indexes, sample data, FK, distribution)
+2. Build LLM prompt with few-shot examples
+3. LLM returns JSON column config suggestions
+4. AiConfigRefiner auto-validates config correctness
+5. If errors found (unknown generator, type mismatch, etc.), sends correction request to LLM
+6. Up to 3 self-correction rounds, outputs validated YAML config
 ```
 
-> **💡 环境变量**：支持 `SQLSEED_AI_API_KEY`、`SQLSEED_AI_BASE_URL`、`SQLSEED_AI_MODEL`。默认模型为 `qwen3-coder-plus`。
+> **💡 Environment Variables**: Supports `SQLSEED_AI_API_KEY`, `SQLSEED_AI_BASE_URL`, `SQLSEED_AI_MODEL`. Also supports `OPENAI_API_KEY` / `OPENAI_BASE_URL` as fallback. Defaults to auto-selecting the most popular free model from OpenRouter (base_url `https://openrouter.ai/api/v1`). Set `--model` or `SQLSEED_AI_MODEL` to specify a model.
 
 ***
 
-### 教程 9：MCP 服务器集成
+### Tutorial 9: MCP Server Integration
 
-通过 [Model Context Protocol](https://modelcontextprotocol.io/) 让 AI 助手（Claude、Cursor 等）直接操作 sqlseed：
+Let AI assistants (Claude, Cursor, etc.) operate sqlseed directly via [Model Context Protocol](https://modelcontextprotocol.io/):
 
 ```bash
-# 安装 MCP 服务器
+# Install MCP server
 pip install mcp-server-sqlseed
 
-# 启动
+# All-in-one: MCP server + AI support
+pip install mcp-server-sqlseed[ai]
+
+# Manual start (usually managed by MCP client)
 python -m mcp_server_sqlseed
 ```
 
-**MCP 提供的能力**：
+**Configure MCP client** (Claude Desktop example):
 
-| 类型          | 名称                                        | 说明                                   |
-| :---------- | :---------------------------------------- | :----------------------------------- |
-| 📖 Resource | `sqlseed://schema/{db_path}/{table_name}` | 获取表 Schema 的 JSON 表示                 |
-| 🔍 Tool     | `sqlseed_inspect_schema`                  | 检查 Schema（列、外键、索引、样本数据、schema\_hash） |
-| 🤖 Tool     | `sqlseed_generate_yaml`                   | AI 驱动的 YAML 配置生成（含自纠正）               |
-| ⚡ Tool      | `sqlseed_execute_fill`                    | 执行数据生成（支持 YAML 配置字符串）                |
+```json
+{
+  "mcpServers": {
+    "sqlseed": {
+      "command": "mcp-server-sqlseed"
+    }
+  }
+}
+```
 
-这意味着你可以在 AI 助手中说：
+**MCP Capabilities**:
 
-> "分析 `app.db` 中 `bank_cards` 表的结构，生成 YAML 配置，然后填充 5000 行数据。"
+| Type | Name | Description |
+| :--- | :--- | :---------- |
+| 📖 Resource | `sqlseed://schema/{db_path}/{table_name}` | Get table schema as JSON |
+| 🔍 Tool | `sqlseed_inspect_schema` | Inspect schema (columns, FK, indexes, samples, schema_hash) |
+| 🤖 Tool | `sqlseed_generate_yaml` | AI-driven YAML config generation with self-correction. Supports `api_key`/`base_url`/`model` overrides |
+| ⚡ Tool | `sqlseed_execute_fill` | Execute data generation (supports YAML config string, includes `enrich` option) |
 
-AI 助手会依次调用 `sqlseed_inspect_schema` → `sqlseed_generate_yaml` → `sqlseed_execute_fill`，无需你手动编写任何代码。
+This means you can tell your AI assistant:
+
+> "Analyze the structure of the `bank_cards` table in `app.db`, generate a YAML config, then fill 5000 rows."
+
+The AI assistant will call `sqlseed_inspect_schema` → `sqlseed_generate_yaml` → `sqlseed_execute_fill` in sequence, without you writing any code.
 
 ***
 
-### 教程 10：自定义 Provider 插件
+### Tutorial 10: Custom Provider Plugin
 
-你可以创建自己的数据生成 Provider：
+You can create your own data generation provider:
 
 ```python
 # my_provider.py
@@ -649,7 +722,7 @@ from typing import Any
 from sqlseed.generators import UnknownGeneratorError
 
 class MyCustomProvider:
-    """实现 DataProvider Protocol 即可。不需要继承任何基类。"""
+    """Just implement the DataProvider Protocol. No base class required."""
 
     def __init__(self) -> None:
         self._locale: str = "en_US"
@@ -671,20 +744,20 @@ class MyCustomProvider:
             return "user@example.com"
         raise UnknownGeneratorError(type_name)
 
-    # ... 按需处理你要支持的 generator 名称
-    # 完整 Protocol 参见：src/sqlseed/generators/_protocol.py
+    # ... handle generator names you want to support
+    # Full Protocol: src/sqlseed/generators/_protocol.py
 ```
 
-如果你想复用内置的 generator name 分发逻辑，而不是手写 `generate()` 的路由，也可以直接继承 `BaseProvider` 后覆盖局部行为。
+To reuse the built-in generator name dispatch logic instead of hand-writing `generate()` routing, inherit `BaseProvider` and override selectively.
 
-**注册方式 1：通过** **`pyproject.toml`** **entry-point（推荐）**
+**Registration method 1: via `pyproject.toml` entry-point (recommended)**
 
 ```toml
 [project.entry-points."sqlseed"]
 my_custom = "my_provider:MyCustomProvider"
 ```
 
-**注册方式 2：通过插件 Hook**
+**Registration method 2: via plugin hook**
 
 ```python
 from sqlseed.plugins.hookspecs import hookimpl
@@ -698,191 +771,214 @@ class MyPlugin:
 
 ***
 
-## 🖥️ CLI 命令速查
+## 🖥️ CLI Quick Reference
 
 ```bash
 # ═══════════════════════════════════════
-# 📋 数据生成
+# 📋 Data Generation
 # ═══════════════════════════════════════
 
-# 填充数据（--count 在非 --config 模式下必填）
+# Fill data (--count required when not using --config)
 sqlseed fill app.db --table users --count 10000
 
-# 完整参数
+# Full parameters
 sqlseed fill app.db -t users -n 100000 \
     --provider mimesis \
-    --locale zh_CN \
+    --locale en_US \
     --seed 42 \
     --batch-size 10000 \
     --clear \
+    --enrich \
     --snapshot
 
-# YAML 配置驱动（count 来自配置文件）
+# YAML config-driven (count from config file)
 sqlseed fill --config generate.yaml
 
-# Transform 脚本
+# Transform script
 sqlseed fill app.db -t users -n 10000 --transform transform.py
 
-# 开启 debug 日志
+# Enable debug logging
 SQLSEED_LOG_LEVEL=DEBUG sqlseed fill app.db -t users -n 10
 
 # ═══════════════════════════════════════
-# 🔍 查看与预览
+# 🔍 Inspect & Preview
 # ═══════════════════════════════════════
 
-# 预览数据（不写入）
+# Preview data (no write)
 sqlseed preview app.db --table users --count 5
 
-# 查看所有表
+# List all tables
 sqlseed inspect app.db
 
-# 查看列映射策略
+# View column mapping strategy
 sqlseed inspect app.db --table users --show-mapping
 
 # ═══════════════════════════════════════
-# 📸 快照与回放
+# 📸 Snapshots & Replay
 # ═══════════════════════════════════════
 
-# 生成配置模板
+# Generate config template
 sqlseed init generate.yaml --db app.db
 
-# 回放快照
+# Replay snapshot
 sqlseed replay snapshots/2026-04-15_users.yaml
 
 # ═══════════════════════════════════════
-# 🤖 AI 功能
+# 🤖 AI Features
 # ═══════════════════════════════════════
 
-# AI 建议（需安装 sqlseed-ai）
+# AI suggestions (requires sqlseed-ai)
 sqlseed ai-suggest app.db -t users -o users.yaml
-sqlseed ai-suggest app.db -t users -o users.yaml --model gpt-4o --verify
+sqlseed ai-suggest app.db -t users -o users.yaml --verify
+
+# Specify API config
+sqlseed ai-suggest app.db -t users -o users.yaml --api-key sk-xxx --base-url https://api.openai.com/v1
+
+# Control self-correction
+sqlseed ai-suggest app.db -t users -o users.yaml --max-retries 0   # Disable
+sqlseed ai-suggest app.db -t users -o users.yaml --no-verify       # Skip verification
+
+# Skip cache
+sqlseed ai-suggest app.db -t users -o users.yaml --no-cache
 ```
 
 ***
 
-## 🧠 9 级智能列映射
+## 🧠 9-Level Smart Column Mapping
 
-sqlseed 的核心亮点之一是 `ColumnMapper` 的 9 级策略链。每一列都会按以下优先级尝试匹配：
+One of sqlseed's core highlights is the `ColumnMapper`'s 9-level strategy chain. Each column is matched by priority:
 
 ```
-Level 1 │ 用户配置          columns={"email": "email"} 最高优先级
+Level 1 │ Autoincrement PK    PK + AUTOINCREMENT / INTEGER → skip
         ▼
-Level 2 │ 自定义精确匹配    通过插件 Hook 注册的规则
+Level 2 │ User config         columns={"email": "email"} highest priority
         ▼
-Level 3 │ 内置精确匹配      68 条规则：email→email, phone→phone, age→integer...
+Level 3 │ Custom exact match  Rules registered via plugin hooks
         ▼
-Level 4 │ DEFAULT 检查      有默认值 → skip（精确匹配优先于 DEFAULT）
+Level 4 │ Built-in exact      74 rules: email→email, phone→phone, age→integer...
         ▼
-Level 5 │ 自定义模式匹配    通过插件 Hook 注册的正则规则
+Level 5 │ DEFAULT check       Has default → skip / __enrich__ (when enrich=True)
         ▼
-Level 6 │ 内置模式匹配      25 条正则：*_at→datetime, *_id→foreign_key, is_*→boolean...
+Level 6 │ Custom pattern      Regex rules registered via plugin hooks
         ▼
-Level 7 │ NULLABLE 回退     可 NULL → skip
+Level 7 │ Built-in pattern    25 regexes: *_at→datetime, *_id→foreign_key, is_*→boolean...
         ▼
-Level 8 │ 类型忠实回退      VARCHAR(32)→最长32字符, INT8→0~255, BLOB(1024)→1024字节
+Level 8 │ NULLABLE fallback   Nullable → skip / __enrich__
         ▼
-Level 9 │ 默认              string (min=5, max=50)
+Level 9 │ Type-faithful       VARCHAR(32)→max 32 chars, INT8→0~255, BLOB(1024)→1024 bytes
 ```
 
-这意味着：
+What this means:
 
-- 列名 `user_email` → Level 6 模式匹配 `*_email` → `email` 生成器 ✅
-- 列名 `is_verified` → Level 6 模式匹配 `is_*` → `boolean` 生成器 ✅
-- 列类型 `VARCHAR(20)` → Level 8 类型回退 → 最长 20 字符的字符串 ✅
-- 列有 `DEFAULT 1` → Level 4 → 跳过生成 ✅
-- 列名 `gender` 有 `DEFAULT 'male'` → Level 3 精确匹配 → `choice` 生成器（精确匹配优先于 DEFAULT）✅
+- Column `user_email` → Level 7 pattern `*_email` → `email` generator ✅
+- Column `is_verified` → Level 7 pattern `is_*` → `boolean` generator ✅
+- Column type `VARCHAR(20)` → Level 9 type fallback → max 20-char string ✅
+- Column with `DEFAULT 1` → Level 5 → skip generation ✅
+- Column `gender` with `DEFAULT 'male'` → Level 4 exact match → `choice` generator (exact match takes priority over DEFAULT) ✅
 
 ***
 
-## 🧩 插件系统
+## 🧩 Plugin System
 
-sqlseed 通过 [pluggy](https://pluggy.readthedocs.io/) 提供 11 个 Hook 点，覆盖数据生成全生命周期：
+sqlseed provides 11 hook points via [pluggy](https://pluggy.readthedocs.io/), covering the full data generation lifecycle:
 
-| Hook                              | firstresult | 触发时机                   |
-| :-------------------------------- | :---------: | :--------------------- |
-| `sqlseed_register_providers`      |    <br />   | 注册自定义数据 Provider       |
-| `sqlseed_register_column_mappers` |    <br />   | 注册自定义列映射规则             |
-| `sqlseed_ai_analyze_table`        |      ✓      | AI 分析表 Schema（返回列配置建议） |
-| `sqlseed_pre_generate_templates`  |      ✓      | AI 预计算候选值池             |
-| `sqlseed_before_generate`         |    <br />   | 数据生成循环前                |
-| `sqlseed_after_generate`          |    <br />   | 数据生成完成后                |
-| `sqlseed_transform_row`           |    <br />   | 逐行变换（热路径，注意性能）         |
-| `sqlseed_transform_batch`         |    <br />   | 逐批变换（支持链式处理）           |
-| `sqlseed_before_insert`           |    <br />   | 每批写入 DB 前              |
-| `sqlseed_after_insert`            |    <br />   | 每批写入 DB 后              |
-| `sqlseed_shared_pool_loaded`      |    <br />   | SharedPool 注册后（值池已可读）     |
+| Hook | firstresult | Trigger |
+| :--- | :---------: | :------ |
+| `sqlseed_register_providers` |    <br />   | Register custom data providers |
+| `sqlseed_register_column_mappers` |    <br />   | Register custom column mapping rules |
+| `sqlseed_ai_analyze_table` |      ✓      | AI analyzes table schema (returns column config) |
+| `sqlseed_pre_generate_templates` |      ✓      | AI pre-computes candidate value pools |
+| `sqlseed_before_generate` |    <br />   | Before data generation loop |
+| `sqlseed_after_generate` |    <br />   | After data generation completes |
+| `sqlseed_transform_row` |    <br />   | Per-row transform (hot path, mind performance) |
+| `sqlseed_transform_batch` |    <br />   | Per-batch transform (supports chaining) |
+| `sqlseed_before_insert` |    <br />   | Before each batch write to DB |
+| `sqlseed_after_insert` |    <br />   | After each batch write to DB |
+| `sqlseed_shared_pool_loaded` |    <br />   | After SharedPool registration (pool readable) |
 
 ***
 
-## 🏗️ 项目架构
+## 🏗️ Project Architecture
 
 ```
 src/sqlseed/
-├── __init__.py              # 公共 API (fill, connect, fill_from_config, preview)
-├── core/                    # ===== 核心编排层 =====
-│   ├── orchestrator.py      # DataOrchestrator 主引擎
-│   ├── mapper.py            # ColumnMapper 9 级策略链
-│   ├── schema.py            # SchemaInferrer — 推断列、索引、数据分布
-│   ├── relation.py          # RelationResolver + SharedPool — FK 与跨表共享
-│   ├── column_dag.py        # ColumnDAG — 列依赖图 + 拓扑排序
-│   ├── expression.py        # ExpressionEngine — 安全表达式 (simpleeval + 超时)
-│   ├── constraints.py       # ConstraintSolver — 唯一性回溯求解
-│   ├── transform.py         # TransformLoader — 用户脚本动态加载
-│   └── result.py            # GenerationResult 数据类
-├── generators/              # ===== 数据生成层 =====
+├── __init__.py              # Public API (fill, connect, fill_from_config, preview)
+├── core/                    # ===== Core Orchestration =====
+│   ├── orchestrator.py      # DataOrchestrator main engine
+│   ├── mapper.py            # ColumnMapper 9-level strategy chain
+│   ├── schema.py            # SchemaInferrer — columns, indexes, distribution
+│   ├── relation.py          # RelationResolver + SharedPool — FK & cross-table sharing
+│   ├── column_dag.py        # ColumnDAG — column dependency graph + topological sort
+│   ├── expression.py        # ExpressionEngine — safe expressions (simpleeval + timeout)
+│   ├── constraints.py       # ConstraintSolver — unique backtracking
+│   ├── transform.py         # TransformLoader — dynamic user script loading
+│   └── result.py            # GenerationResult dataclass
+├── generators/              # ===== Generator Layer =====
 │   ├── _protocol.py         # DataProvider Protocol + UnknownGeneratorError
-│   ├── registry.py          # ProviderRegistry (entry-point 自动发现)
-│   ├── base_provider.py     # 内置基础生成器（零依赖）
-│   ├── faker_provider.py    # Faker 适配器
-│   ├── mimesis_provider.py  # Mimesis 适配器
-│   └── stream.py            # DataStream 流式生成 + 约束回溯 + choice/foreign_key 特判
-├── database/                # ===== 数据库层 =====
+│   ├── registry.py          # ProviderRegistry (entry-point auto-discovery)
+│   ├── base_provider.py     # Built-in base generators (zero dependencies)
+│   ├── faker_provider.py    # Faker adapter
+│   ├── mimesis_provider.py  # Mimesis adapter
+│   └── stream.py            # DataStream streaming + constraint backtracking
+├── database/                # ===== Database Layer =====
 │   ├── _protocol.py         # DatabaseAdapter Protocol (ColumnInfo, ForeignKeyInfo, IndexInfo)
-│   ├── sqlite_utils_adapter.py   # 默认适配器
-│   ├── raw_sqlite_adapter.py     # sqlite3 回退适配器
-│   └── optimizer.py         # PragmaOptimizer 三级优化
-├── plugins/                 # ===== 插件层 =====
-│   ├── hookspecs.py         # 11 个 pluggy Hook 定义
+│   ├── sqlite_utils_adapter.py   # Default adapter
+│   ├── raw_sqlite_adapter.py     # sqlite3 fallback adapter
+│   └── optimizer.py         # PragmaOptimizer 3-tier optimization
+├── plugins/                 # ===== Plugin Layer =====
+│   ├── hookspecs.py         # 11 pluggy hook definitions
 │   └── manager.py           # PluginManager
-├── config/                  # ===== 配置管理 =====
-│   ├── models.py            # Pydantic 模型 (GeneratorConfig/TableConfig/ColumnConfig)
-│   ├── loader.py            # YAML/JSON 加载与保存
-│   └── snapshot.py          # 快照保存与回放
+├── config/                  # ===== Config Management =====
+│   ├── models.py            # Pydantic models (GeneratorConfig/TableConfig/ColumnConfig)
+│   ├── loader.py            # YAML/JSON load & save
+│   └── snapshot.py          # Snapshot save & replay
 ├── cli/                     # ===== CLI =====
-│   └── main.py              # click 命令 (fill/preview/inspect/init/replay/ai-suggest)
-└── _utils/                  # ===== 内部工具 =====
-    ├── sql_safe.py          # quote_identifier — SQL 注入防护
-    ├── schema_helpers.py    # AUTOINCREMENT 检测
-    ├── metrics.py           # MetricsCollector 性能度量
-    ├── progress.py          # Rich 进度条
-    └── logger.py            # structlog 日志
+│   └── main.py              # click commands (fill/preview/inspect/init/replay/ai-suggest)
+└── _utils/                  # ===== Internal Utilities =====
+    ├── sql_safe.py          # quote_identifier — SQL injection protection
+    ├── schema_helpers.py    # AUTOINCREMENT detection
+    ├── metrics.py           # MetricsCollector performance metrics
+    ├── progress.py          # Rich progress bar
+    └── logger.py            # structlog logging
 
 plugins/
-├── sqlseed-ai/              # AI 插件 — LLM 驱动的智能配置
-│   └── src/sqlseed_ai/      # SchemaAnalyzer, AiConfigRefiner, Few-shot 示例...
-└── mcp-server-sqlseed/      # MCP 服务器 — AI 助手交互
-    └── src/mcp_server_sqlseed/   # FastMCP 工具 (sqlseed_inspect_schema/sqlseed_generate_yaml/sqlseed_execute_fill)
+├── sqlseed-ai/              # AI plugin — LLM-driven smart configuration
+│   └── src/sqlseed_ai/      # SchemaAnalyzer, AiConfigRefiner, few-shot examples...
+└── mcp-server-sqlseed/      # MCP server — AI assistant integration
+    └── src/mcp_server_sqlseed/   # FastMCP tools (sqlseed_inspect_schema/sqlseed_generate_yaml/sqlseed_execute_fill)
 ```
 
 ***
 
-## 🛠️ 开发
+## 🛠️ Development
 
 ```bash
-# 运行测试（含覆盖率）
+# Run tests (with coverage)
 pytest
 
-# 代码检查
+# Lint
 ruff check src/ tests/
 
-# 自动修复
+# Auto-fix
 ruff check --fix src/ tests/
 
-# 类型检查
+# Type check
 mypy src/sqlseed/
 ```
 
-测试覆盖了所有核心模块，路径结构与 `src/` 一一对应：`test_core/`、`test_database/`、`test_generators/`、`test_plugins/`、`test_config/`、`test_utils/`。
+Tests cover all core modules, with path structure mirroring `src/`: `test_core/`, `test_database/`, `test_generators/`, `test_plugins/`, `test_config/`, `test_utils/`.
+
+### Dependencies
+
+| Package | Core Dependencies | Description |
+| :------ | :---------------- | :---------- |
+| `sqlseed` | sqlite-utils, pydantic, pluggy, structlog, pyyaml, click, rich, typing_extensions, simpleeval, **rstr** | rstr used for `pattern` generator regex matching |
+| `sqlseed[faker]` | + faker>=30.0 | Faker data engine |
+| `sqlseed[mimesis]` | + mimesis>=18.0 | Mimesis data engine (recommended) |
+| `sqlseed[docs]` | + mkdocs-material, mkdocstrings | Documentation build |
+| `sqlseed-ai` | sqlseed, **openai>=1.0** | AI plugin, auto-registered via entry-point |
+| `mcp-server-sqlseed` | sqlseed, **mcp>=1.0** | MCP server, standalone CLI tool |
+| `mcp-server-sqlseed[ai]` | + sqlseed-ai | MCP server with AI support |
 
 ***
 

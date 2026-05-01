@@ -1,72 +1,74 @@
-# sqlseed 架构图
+# sqlseed Architecture
 
-> 本文档使用 Mermaid 图表可视化 sqlseed 的整体架构和各模块内部结构。
+**[English](architecture.md)** | [中文](architecture.zh-CN.md)
+
+> This document uses Mermaid diagrams to visualize sqlseed's overall architecture and internal module structures.
 
 ---
 
-## 1. 整体系统架构
+## 1. System Architecture
 
 ```mermaid
 graph TB
-    subgraph User["👤 用户入口"]
-        CLI["CLI<br/>click 命令行"]
+    subgraph User["👤 User Entry Points"]
+        CLI["CLI<br/>click commands"]
         API["Python API<br/>fill / connect / preview"]
-        YAML["YAML/JSON<br/>配置文件"]
-        MCP["MCP 服务器<br/>AI 助手交互"]
+        YAML["YAML/JSON<br/>config files"]
+        MCP["MCP Server<br/>AI assistant integration"]
     end
 
-    subgraph Core["🧠 核心编排层 (core/)"]
-        Orch["DataOrchestrator<br/>主编排引擎"]
-        Mapper["ColumnMapper<br/>9 级策略链"]
-        Schema["SchemaInferrer<br/>Schema 推断"]
-        Relation["RelationResolver<br/>外键解析"]
-        Pool["SharedPool<br/>跨表值池"]
-        DAG["ColumnDAG<br/>列依赖图"]
-        Expr["ExpressionEngine<br/>表达式求值"]
-        Constraint["ConstraintSolver<br/>约束回溯"]
-        Transform["TransformLoader<br/>脚本加载"]
-        Result["GenerationResult<br/>结果统计"]
+    subgraph Core["🧠 Core Orchestration (core/)"]
+        Orch["DataOrchestrator<br/>main orchestrator"]
+        Mapper["ColumnMapper<br/>9-level strategy chain"]
+        Schema["SchemaInferrer<br/>schema inference"]
+        Relation["RelationResolver<br/>FK resolution"]
+        Pool["SharedPool<br/>cross-table value pool"]
+        DAG["ColumnDAG<br/>column dependency graph"]
+        Expr["ExpressionEngine<br/>expression evaluation"]
+        Constraint["ConstraintSolver<br/>constraint backtracking"]
+        Transform["TransformLoader<br/>script loading"]
+        Result["GenerationResult<br/>result statistics"]
     end
 
-    subgraph Gen["⚡ 数据生成层 (generators/)"]
+    subgraph Gen["⚡ Generator Layer (generators/)"]
         Protocol["DataProvider<br/>Protocol"]
-        Registry["ProviderRegistry<br/>注册表"]
-        Base["BaseProvider<br/>内置"]
+        Registry["ProviderRegistry<br/>registry"]
+        Base["BaseProvider<br/>built-in"]
         Faker["FakerProvider<br/>Faker"]
         Mimesis["MimesisProvider<br/>Mimesis"]
-        Stream["DataStream<br/>流式生成"]
+        Stream["DataStream<br/>streaming generation"]
     end
 
-    subgraph DB["💾 数据库层 (database/)"]
+    subgraph DB["💾 Database Layer (database/)"]
         DBProto["DatabaseAdapter<br/>Protocol"]
-        SU["SQLiteUtilsAdapter<br/>默认"]
-        Raw["RawSQLiteAdapter<br/>回退"]
-        Pragma["PragmaOptimizer<br/>三级优化"]
+        SU["SQLiteUtilsAdapter<br/>default"]
+        Raw["RawSQLiteAdapter<br/>fallback"]
+        Pragma["PragmaOptimizer<br/>3-tier optimization"]
     end
 
-    subgraph Plugin["🧩 插件层 (plugins/)"]
-        HookSpec["SqlseedHookSpec<br/>11 个 Hook"]
+    subgraph Plugin["🧩 Plugin Layer (plugins/)"]
+        HookSpec["SqlseedHookSpec<br/>11 hooks"]
         PM["PluginManager<br/>pluggy"]
     end
 
-    subgraph Config["⚙️ 配置层 (config/)"]
-        Models["Pydantic 模型<br/>GeneratorConfig"]
+    subgraph Config["⚙️ Config Layer (config/)"]
+        Models["Pydantic Models<br/>GeneratorConfig"]
         Loader["Loader<br/>YAML/JSON"]
-        Snapshot["SnapshotManager<br/>快照回放"]
+        Snapshot["SnapshotManager<br/>snapshot replay"]
     end
 
-    subgraph AI["🤖 AI 插件 (sqlseed-ai)"]
-        Analyzer["SchemaAnalyzer<br/>LLM 分析"]
-        Refiner["AiConfigRefiner<br/>自纠正闭环"]
-        Examples["Few-shot<br/>示例库"]
-        Errors["ErrorSummary<br/>错误分类"]
+    subgraph AI["🤖 AI Plugin (sqlseed-ai)"]
+        Analyzer["SchemaAnalyzer<br/>LLM analysis"]
+        Refiner["AiConfigRefiner<br/>self-correction loop"]
+        Examples["Few-shot<br/>example library"]
+        Errors["ErrorSummary<br/>error classification"]
     end
 
-    subgraph Utils["🔧 工具层 (_utils/)"]
-        SQL["sql_safe<br/>SQL 注入防护"]
+    subgraph Utils["🔧 Utilities (_utils/)"]
+        SQL["sql_safe<br/>SQL injection protection"]
         Helpers["schema_helpers<br/>AUTOINCREMENT"]
-        Metrics["MetricsCollector<br/>性能度量"]
-        Progress["Progress<br/>Rich 进度条"]
+        Metrics["MetricsCollector<br/>performance metrics"]
+        Progress["Progress<br/>Rich progress bar"]
         Logger["Logger<br/>structlog"]
     end
 
@@ -127,11 +129,11 @@ graph TB
 
 ---
 
-## 2. 核心编排流程（fill_table 执行链路）
+## 2. Core Orchestration Flow (fill_table Execution)
 
 ```mermaid
 sequenceDiagram
-    participant U as 用户
+    participant U as User
     participant O as DataOrchestrator
     participant S as SchemaInferrer
     participant M as ColumnMapper
@@ -167,10 +169,10 @@ sequenceDiagram
     D->>D: topological_sort()
     D-->>O: list[ColumnNode]
 
-    loop 逐批生成
+    loop Batch Generation
         O->>ST: generate(count, batch_size)
         ST->>ST: _generate_row() × batch_size
-        Note over ST: 表达式求值 + 约束检查 + 回溯
+        Note over ST: Expression eval + constraint check + backtrack
         ST-->>O: list[dict] (batch)
 
         O->>O: _apply_batch_transforms(batch)
@@ -183,39 +185,42 @@ sequenceDiagram
 
 ---
 
-## 3. ColumnMapper 9 级策略链
+## 3. ColumnMapper 9-Level Strategy Chain
 
 ```mermaid
 flowchart TD
     Start(["map_column(column_info, user_config)"]) --> L1
 
-    L1{"Level 1<br/>用户配置？"} -->|有| R1["使用用户指定的 generator + params"]
-    L1 -->|无| L2
+    L1{"Level 1<br/>Autoincrement PK?<br/>PK + AUTOINCREMENT"} -->|Yes| R1["skip"]
+    L1 -->|No| L2
 
-    L2{"Level 2<br/>自定义精确匹配？"} -->|匹配| R2["使用插件注册的精确规则"]
-    L2 -->|未匹配| L3
+    L2{"Level 2<br/>User config?"} -->|Yes| R2["Use user-specified generator + params"]
+    L2 -->|No| L3
 
-    L3{"Level 3<br/>内置精确匹配？<br/>(68 条规则)"} -->|匹配| R3["email→email<br/>phone→phone<br/>age→integer<br/>..."]
-    L3 -->|未匹配| L4
+    L3{"Level 3<br/>Custom exact match?"} -->|Match| R3["Use plugin-registered exact rules"]
+    L3 -->|No match| L4
 
-    L4{"Level 4<br/>有默认值？"} -->|是| R4["skip (跳过生成)<br/>或 __enrich__"]
-    L4 -->|否| L5
+    L4{"Level 4<br/>Built-in exact match?<br/>(74 rules)"} -->|Match| R4["email→email<br/>phone→phone<br/>age→integer<br/>city→city<br/>..."]
+    L4 -->|No match| L5
 
-    L5{"Level 5<br/>自定义模式匹配？"} -->|匹配| R5["使用插件注册的正则规则"]
-    L5 -->|未匹配| L6
+    L5{"Level 5<br/>Has DEFAULT?"} -->|Yes| R5["skip (skip generation)<br/>or __enrich__"]
+    L5 -->|No| L6
 
-    L6{"Level 6<br/>内置模式匹配？<br/>(25 条正则)"} -->|匹配| R6["*_at→datetime<br/>*_id→foreign_key<br/>is_*→boolean<br/>..."]
-    L6 -->|未匹配| L7
+    L6{"Level 6<br/>Custom pattern match?"} -->|Match| R6["Use plugin-registered regex rules"]
+    L6 -->|No match| L7
 
-    L7{"Level 7<br/>可 NULL？"} -->|是| R7["skip (跳过生成)<br/>或 __enrich__"]
-    L7 -->|否| L8
+    L7{"Level 7<br/>Built-in pattern match?<br/>(25 regexes)"} -->|Match| R7["*_at→datetime<br/>*_id→foreign_key<br/>is_*→boolean<br/>..."]
+    L7 -->|No match| L8
 
-    L8{"Level 8<br/>类型忠实回退<br/>(22 种 SQL 类型)"} -->|匹配| R8["VARCHAR(32)→max 32 字符<br/>INT8→0~255<br/>BLOB(1024)→1024 字节"]
-    L8 -->|未匹配| L9
+    L8{"Level 8<br/>Nullable?"} -->|Yes| R8["skip (skip generation)<br/>or __enrich__"]
+    L8 -->|No| L9
 
-    L9["Level 9<br/>默认"] --> R9["string<br/>(min=5, max=50)"]
+    L9{"Level 9<br/>Type-faithful fallback<br/>(22 SQL types)"} -->|Match| R9["VARCHAR(32)→max 32 chars<br/>INT8→0~255<br/>BLOB(1024)→1024 bytes"]
+    L9 -->|No match| L10
 
-    R1 --> Done(["返回 GeneratorSpec"])
+    L10["Default"] --> R10["string<br/>(min=5, max=50)"]
+
+    R1 --> Done(["Return GeneratorSpec"])
     R2 --> Done
     R3 --> Done
     R4 --> Done
@@ -224,19 +229,21 @@ flowchart TD
     R7 --> Done
     R8 --> Done
     R9 --> Done
+    R10 --> Done
 
-    style L1 fill:#4CAF50,color:#fff
-    style L3 fill:#2196F3,color:#fff
-    style L4 fill:#FF9800,color:#fff
-    style L6 fill:#2196F3,color:#fff
-    style L7 fill:#FF9800,color:#fff
+    style L1 fill:#9C27B0,color:#fff
+    style L2 fill:#4CAF50,color:#fff
+    style L4 fill:#2196F3,color:#fff
+    style L5 fill:#FF9800,color:#fff
+    style L7 fill:#2196F3,color:#fff
     style L8 fill:#FF9800,color:#fff
-    style L9 fill:#9E9E9E,color:#fff
+    style L9 fill:#FF9800,color:#fff
+    style L10 fill:#9E9E9E,color:#fff
 ```
 
 ---
 
-## 4. 数据生成层架构
+## 4. Generator Layer Architecture
 
 ```mermaid
 classDiagram
@@ -246,28 +253,26 @@ classDiagram
         +set_locale(locale: str)
         +set_seed(seed: int)
         +generate(type_name: str, **params) Any
-        +set_locale(locale: str) None
-        +set_seed(seed: int) None
-        ... 通过 _GENERATOR_MAP 分派到 24 种内部方法
+        ... dispatches via _GENERATOR_MAP to 31 internal methods
     }
 
     class BaseProvider {
         -_rng: Random
         -_locale: str
         +name = "base"
-        零外部依赖
+        zero external dependencies
     }
 
     class FakerProvider {
         -_faker: Faker
         +name = "faker"
-        延迟导入 faker
+        lazy imports faker
     }
 
     class MimesisProvider {
         -_generic: Generic
         +name = "mimesis"
-        地区映射 en_US→en
+        locale mapping en_US→en
     }
 
     class ProviderRegistry {
@@ -301,7 +306,7 @@ classDiagram
 
 ---
 
-## 5. 数据库层架构
+## 5. Database Layer Architecture
 
 ```mermaid
 classDiagram
@@ -351,13 +356,13 @@ classDiagram
     class SQLiteUtilsAdapter {
         -_db: Database
         -_optimizer: PragmaOptimizer
-        使用 sqlite-utils
+        uses sqlite-utils
     }
 
     class RawSQLiteAdapter {
         -_conn: Connection
         -_optimizer: PragmaOptimizer
-        使用 sqlite3 (回退)
+        uses sqlite3 (fallback)
     }
 
     class PragmaOptimizer {
@@ -381,11 +386,11 @@ classDiagram
 
 ---
 
-## 6. 列依赖 DAG 与约束回溯
+## 6. Column Dependency DAG & Constraint Backtracking
 
 ```mermaid
 flowchart LR
-    subgraph DAG["ColumnDAG 拓扑排序"]
+    subgraph DAG["ColumnDAG Topological Sort"]
         card_number["card_number<br/>pattern: 62[0-9]{17}<br/>unique: true"]
         CutCard4["last_eight<br/>derive_from: card_number<br/>expression: value[-8:]<br/>unique: true"]
         CutCard3["last_six<br/>derive_from: card_number<br/>expression: value[-6:]"]
@@ -395,74 +400,74 @@ flowchart LR
     card_number --> CutCard4
     card_number --> CutCard3
 
-    subgraph Backtrack["约束求解 (回溯)"]
+    subgraph Backtrack["Constraint Solving (Backtracking)"]
         direction TB
-        Gen1["生成 card_number = 6200001234567890123"]
-        Derive1["计算 last_eight = 67890123"]
-        Check1{"last_eight<br/>唯一？"}
-        Success["✅ 注册成功"]
-        Fail["❌ 已存在"]
-        BT["🔄 回溯：撤销 card_number<br/>重新生成"]
+        Gen1["Generate card_number = 6200001234567890123"]
+        Derive1["Compute last_eight = 67890123"]
+        Check1{"last_eight<br/>unique?"}
+        Success["✅ Registered"]
+        Fail["❌ Already exists"]
+        BT["🔄 Backtrack: undo card_number<br/>regenerate"]
 
         Gen1 --> Derive1 --> Check1
-        Check1 -->|是| Success
-        Check1 -->|否| Fail --> BT --> Gen1
+        Check1 -->|Yes| Success
+        Check1 -->|No| Fail --> BT --> Gen1
     end
 ```
 
 ---
 
-## 7. AI 插件架构
+## 7. AI Plugin Architecture
 
 ```mermaid
 flowchart TB
-    subgraph CLI_Trigger["触发入口"]
+    subgraph CLI_Trigger["Entry Points"]
         CLICmd["sqlseed ai-suggest"]
         HookCall["sqlseed_ai_analyze_table Hook"]
         MCPTool["MCP: sqlseed_generate_yaml"]
     end
 
     subgraph Analyzer["SchemaAnalyzer"]
-        Context["构建上下文<br/>列 + 索引 + FK + 样本 + 分布"]
-        FewShot["注入 Few-shot 示例<br/>(4 个典型场景)"]
-        SysPrompt["System Prompt<br/>生成器列表 + 输出格式"]
-        LLM["调用 LLM<br/>OpenAI 兼容 API<br/>response_format: json_object"]
+        Context["Build context<br/>columns + indexes + FK + samples + distribution"]
+        FewShot["Inject few-shot examples<br/>(4 typical scenarios)"]
+        SysPrompt["System Prompt<br/>generator list + output format"]
+        LLM["Call LLM<br/>OpenAI-compatible API<br/>response_format: json_object"]
     end
 
-    subgraph Refiner["AiConfigRefiner 自纠正闭环"]
+    subgraph Refiner["AiConfigRefiner Self-Correction Loop"]
         direction TB
-        Init["初始生成"]
-        Validate["验证配置"]
-        VCheck{"通过？"}
-        Cache["缓存结果<br/>(schema hash 校验)"]
-        ErrorSum["ErrorSummary<br/>错误分类"]
-        FixPrompt["构建修正 Prompt"]
-        Retry["重试 LLM"]
-        MaxCheck{"超过<br/>max_retries?"}
+        Init["Initial generation"]
+        Validate["Validate config"]
+        VCheck{"Pass?"}
+        Cache["Cache result<br/>(schema hash validation)"]
+        ErrorSum["ErrorSummary<br/>error classification"]
+        FixPrompt["Build correction prompt"]
+        Retry["Retry LLM"]
+        MaxCheck{"Exceeded<br/>max_retries?"}
         FailErr["AISuggestionFailedError"]
 
         Init --> Validate --> VCheck
         VCheck -->|✅| Cache
         VCheck -->|❌| ErrorSum --> FixPrompt --> Retry
         Retry --> Validate
-        MaxCheck -->|是| FailErr
+        MaxCheck -->|Yes| FailErr
     end
 
-    subgraph Validation["验证步骤"]
-        V1["1. Pydantic TableConfig 解析"]
-        V2["2. 列名存在性检查"]
-        V3["3. 空配置检查"]
-        V4["4. preview_table(count=5) 试运行"]
+    subgraph Validation["Validation Steps"]
+        V1["1. Pydantic TableConfig parsing"]
+        V2["2. Column name existence check"]
+        V3["3. Empty config check"]
+        V4["4. preview_table(count=5) dry run"]
     end
 
-    subgraph ErrorTypes["错误类型"]
+    subgraph ErrorTypes["Error Types"]
         E1["pydantic_validation"]
         E2["json_syntax"]
         E3["unknown_generator"]
         E4["expression_error"]
         E5["column_mismatch"]
         E6["empty_config"]
-        E7["fatal (不可重试)"]
+        E7["fatal (non-retryable)"]
     end
 
     CLICmd --> Analyzer
@@ -481,11 +486,11 @@ flowchart TB
 
 ---
 
-## 8. 插件 Hook 生命周期
+## 8. Plugin Hook Lifecycle
 
 ```mermaid
 flowchart TB
-    Start(["DataOrchestrator 启动"]) --> Connect
+    Start(["DataOrchestrator starts"]) --> Connect
 
     Connect["_ensure_connected()"]
     Connect --> H1["🔌 sqlseed_register_providers"]
@@ -494,21 +499,21 @@ flowchart TB
     H1 --> Fill["fill_table()"]
     H2 --> Fill
 
-    Fill --> Mapping["列映射"]
+    Fill --> Mapping["Column mapping"]
     Mapping --> H3["🤖 sqlseed_ai_analyze_table<br/>(firstresult)"]
 
-    H3 --> Template["模板池"]
+    H3 --> Template["Template pool"]
     Template --> H4["🤖 sqlseed_pre_generate_templates<br/>(firstresult)"]
 
     H4 --> H5["📢 sqlseed_before_generate"]
 
     H5 --> BatchLoop
 
-    subgraph BatchLoop["批次循环"]
+    subgraph BatchLoop["Batch Loop"]
         direction TB
-        GenBatch["DataStream 生成一批"]
-        H6["🔄 sqlseed_transform_row<br/>(每行，热路径)"]
-        H7["🔄 sqlseed_transform_batch<br/>(链式处理)"]
+        GenBatch["DataStream generates a batch"]
+        H6["🔄 sqlseed_transform_row<br/>(per-row, hot path)"]
+        H7["🔄 sqlseed_transform_batch<br/>(chained processing)"]
         H8["📢 sqlseed_before_insert"]
         Insert["batch_insert()"]
         H9["📢 sqlseed_after_insert"]
@@ -521,7 +526,7 @@ flowchart TB
     H10 --> RegisterPool["_register_shared_pool()"]
     RegisterPool --> H11["📢 sqlseed_shared_pool_loaded"]
 
-    H11 --> Done(["返回 GenerationResult"])
+    H11 --> Done(["Return GenerationResult"])
 
     style H3 fill:#FF9800,color:#fff
     style H4 fill:#FF9800,color:#fff
@@ -530,7 +535,7 @@ flowchart TB
 
 ---
 
-## 9. 配置模型层次结构
+## 9. Config Model Hierarchy
 
 ```mermaid
 classDiagram
@@ -553,21 +558,22 @@ classDiagram
         +clear_before: bool = False
         +seed: int | None
         +transform: str | None
+        +enrich: bool = False
     }
 
     class ColumnConfig {
         +name: str
-        --- 源列模式 ---
+        --- Source mode ---
         +generator: str | None
         +provider: ProviderType | None
         +params: dict
         +null_ratio: float = 0.0
-        --- 派生列模式 ---
+        --- Derived mode ---
         +derive_from: str | None
         +expression: str | None
-        --- 约束 ---
+        --- Constraints ---
         +constraints: ColumnConstraintsConfig | None
-        +validate_column_mode() ⚠️ 互斥
+        +validate_column_mode() ⚠️ mutually exclusive
     }
 
     class ColumnConstraintsConfig {
@@ -581,6 +587,7 @@ classDiagram
     class ColumnAssociation {
         +column_name: str
         +source_table: str
+        +source_column: str | None = None
         +target_tables: list~str~
         +strategy: str = "shared_pool"
     }
@@ -604,22 +611,22 @@ classDiagram
 
 ---
 
-## 10. MCP 服务器架构
+## 10. MCP Server Architecture
 
 ```mermaid
 flowchart LR
-    subgraph Client["AI 助手 (Claude/Cursor/...)"]
-        Request["MCP 请求"]
+    subgraph Client["AI Assistant (Claude/Cursor/...)"]
+        Request["MCP Request"]
     end
 
     subgraph MCPServer["mcp-server-sqlseed (FastMCP)"]
         Resource["📖 Resource<br/>sqlseed://schema/{db}/{table}"]
-        Tool1["🔍 sqlseed_inspect_schema<br/>返回: 列 + FK + 索引 + 样本 + hash"]
-        Tool2["🤖 sqlseed_generate_yaml<br/>AI 分析 → 自纠正 → YAML"]
-        Tool3["⚡ sqlseed_execute_fill<br/>执行数据生成"]
+        Tool1["🔍 sqlseed_inspect_schema<br/>Returns: columns + FK + indexes + samples + hash"]
+        Tool2["🤖 sqlseed_generate_yaml<br/>AI analysis → self-correction → YAML"]
+        Tool3["⚡ sqlseed_execute_fill<br/>Execute data generation"]
     end
 
-    subgraph SQLSeed["sqlseed 核心"]
+    subgraph SQLSeed["sqlseed Core"]
         Orchestrator["DataOrchestrator"]
         SchemaCtx["get_schema_context()"]
     end
