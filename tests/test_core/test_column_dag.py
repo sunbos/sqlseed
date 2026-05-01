@@ -8,19 +8,19 @@ from sqlseed.core.mapper import GeneratorSpec
 
 
 class TestColumnNode:
-    def test_is_skip_true(self):
+    def test_is_skip_true(self) -> None:
         spec = GeneratorSpec(generator_name="skip")
         node = ColumnNode(name="id", generator_spec=spec)
         assert node.is_skip is True
 
-    def test_is_skip_false(self):
+    def test_is_skip_false(self) -> None:
         spec = GeneratorSpec(generator_name="string")
         node = ColumnNode(name="name", generator_spec=spec)
         assert node.is_skip is False
 
 
 class TestColumnDAG:
-    def test_build_simple_columns(self):
+    def test_build_simple_columns(self) -> None:
         specs = {
             "id": GeneratorSpec(generator_name="skip"),
             "name": GeneratorSpec(generator_name="string"),
@@ -31,7 +31,7 @@ class TestColumnDAG:
         names = [n.name for n in nodes]
         assert set(names) == {"id", "name", "email"}
 
-    def test_build_with_derived_column(self):
+    def test_build_with_derived_column(self) -> None:
         specs = {
             "card_number": GeneratorSpec(generator_name="string"),
             "last_eight": GeneratorSpec(generator_name="__derive__"),
@@ -49,7 +49,7 @@ class TestColumnDAG:
         assert last_eight_node.depends_on == ["card_number"]
         assert last_eight_node.expression == "value[-8:]"
 
-    def test_build_with_unique_constraint(self):
+    def test_build_with_unique_constraint(self) -> None:
         specs = {
             "email": GeneratorSpec(generator_name="email"),
             "name": GeneratorSpec(generator_name="string"),
@@ -60,7 +60,7 @@ class TestColumnDAG:
         assert email_node.constraints is not None
         assert email_node.constraints.unique is True
 
-    def test_build_with_column_config_constraints(self):
+    def test_build_with_column_config_constraints(self) -> None:
         specs = {
             "age": GeneratorSpec(generator_name="integer"),
         }
@@ -78,7 +78,7 @@ class TestColumnDAG:
         assert age_node.constraints.unique is True
         assert age_node.constraints.max_retries == 50
 
-    def test_topological_sort_order(self):
+    def test_topological_sort_order(self) -> None:
         specs = {
             "a": GeneratorSpec(generator_name="string"),
             "b": GeneratorSpec(generator_name="__derive__"),
@@ -95,7 +95,7 @@ class TestColumnDAG:
         assert names.index("a") < names.index("b")
         assert names.index("b") < names.index("c")
 
-    def test_circular_dependency_raises(self):
+    def test_circular_dependency_raises(self) -> None:
         specs = {
             "a": GeneratorSpec(generator_name="__derive__"),
             "b": GeneratorSpec(generator_name="__derive__"),

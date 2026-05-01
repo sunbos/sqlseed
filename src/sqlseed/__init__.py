@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from sqlseed._utils.logger import get_logger
 from sqlseed._version import __version__
 
 __all__ = [
@@ -29,6 +30,8 @@ from sqlseed.config.models import (
 from sqlseed.core.orchestrator import DataOrchestrator
 from sqlseed.core.result import GenerationResult
 
+logger = get_logger(__name__)
+
 
 def fill(
     db_path: str,
@@ -44,6 +47,7 @@ def fill(
     optimize_pragma: bool = True,
     enrich: bool = False,
     transform: str | None = None,
+    skip_ai: bool = False,
 ) -> GenerationResult:
     with DataOrchestrator(
         db_path=db_path,
@@ -60,6 +64,7 @@ def fill(
             clear_before=clear_before,
             enrich=enrich,
             transform=transform,
+            skip_ai=skip_ai,
         )
 
 
@@ -78,24 +83,49 @@ def connect(
     )
 
 
-def fill_from_config(config_path: str) -> list[GenerationResult]:
+def fill_from_config(
+    config_path: str,
+    *,
+    skip_ai: bool = False,
+    clear_before: bool = False,
+    count: int | None = None,
+    provider: str | None = None,
+    seed: int | None = None,
+    batch_size: int | None = None,
+    locale: str | None = None,
+) -> list[GenerationResult]:
     config = load_config(config_path)
+    if provider is not None:
+        config.provider = ProviderType(provider)
+    if locale is not None:
+        config.locale = locale
     results: list[GenerationResult] = []
     with DataOrchestrator.from_config(config) as orch:
         table_names = [tc.name for tc in config.tables]
         sorted_names = orch.get_topological_table_order(table_names)
         name_to_config = {tc.name: tc for tc in config.tables}
-        for name in sorted_names:
+        total_tables = len(sorted_names)
+        for idx, name in enumerate(sorted_names, 1):
             table_config = name_to_config[name]
+            effective_count = count if count is not None else table_config.count
+            effective_seed = seed if seed is not None else table_config.seed
+            effective_batch_size = batch_size if batch_size is not None else table_config.batch_size
+            logger.info(
+                "Filling table",
+                table=table_config.name,
+                count=effective_count,
+                progress=f"[{idx}/{total_tables}]",
+            )
             result = orch.fill_table(
                 table_name=table_config.name,
-                count=table_config.count,
-                seed=table_config.seed,
-                batch_size=table_config.batch_size,
-                clear_before=table_config.clear_before,
+                count=effective_count,
+                seed=effective_seed,
+                batch_size=effective_batch_size,
+                clear_before=clear_before or table_config.clear_before,
                 column_configs=table_config.columns,
                 transform=table_config.transform,
                 enrich=table_config.enrich,
+                skip_ai=skip_ai,
             )
             results.append(result)
     return results

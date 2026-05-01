@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from typing import Any
+
 from sqlseed.config.models import GeneratorConfig, ProviderType, TableConfig
 from sqlseed.config.snapshot import SnapshotManager
 
 
 class TestSnapshotManager:
-    def _make_manager(self, tmp_path) -> SnapshotManager:
+    def _make_manager(self, tmp_path: Any) -> SnapshotManager:
         return SnapshotManager(str(tmp_path / "snapshots"))
 
     def _make_users_config(self, db_path: str = "test.db") -> GeneratorConfig:
@@ -14,13 +16,13 @@ class TestSnapshotManager:
             tables=[TableConfig(name="users", count=100)],
         )
 
-    def test_save_snapshot(self, tmp_path) -> None:
+    def test_save_snapshot(self, tmp_path: Any) -> None:
         manager = self._make_manager(tmp_path)
         config = self._make_users_config()
         path = manager.save(config, "users", 100, seed=42)
         assert path.endswith(".yaml")
 
-    def test_load_snapshot(self, tmp_path) -> None:
+    def test_load_snapshot(self, tmp_path: Any) -> None:
         manager = self._make_manager(tmp_path)
         config = self._make_users_config()
         path = manager.save(config, "users", 100, seed=42)
@@ -29,7 +31,7 @@ class TestSnapshotManager:
         assert data["count"] == 100
         assert data["seed"] == 42
 
-    def test_list_snapshots(self, tmp_path) -> None:
+    def test_list_snapshots(self, tmp_path: Any) -> None:
         manager = self._make_manager(tmp_path)
         config = GeneratorConfig(db_path="test.db")
         manager.save(config, "users", 100)
@@ -37,12 +39,12 @@ class TestSnapshotManager:
         snapshots = manager.list_snapshots()
         assert len(snapshots) == 2
 
-    def test_list_snapshots_empty_dir(self, tmp_path) -> None:
+    def test_list_snapshots_empty_dir(self, tmp_path: Any) -> None:
         manager = SnapshotManager(str(tmp_path / "nonexistent"))
         snapshots = manager.list_snapshots()
         assert snapshots == []
 
-    def test_load_nonexistent(self, tmp_path) -> None:
+    def test_load_nonexistent(self, tmp_path: Any) -> None:
         manager = self._make_manager(tmp_path)
         try:
             manager.load("/nonexistent/snapshot.yaml")
@@ -50,7 +52,7 @@ class TestSnapshotManager:
         except FileNotFoundError:
             pass
 
-    def test_replay(self, tmp_db, tmp_path) -> None:
+    def test_replay(self, tmp_db, tmp_path: Any) -> None:
         manager = self._make_manager(tmp_path)
         config = GeneratorConfig(
             db_path=tmp_db,

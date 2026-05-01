@@ -22,6 +22,7 @@ wheels/
 
 # Virtual Environment
 .venv/
+venv/
 env/
 ENV/
 
@@ -34,6 +35,7 @@ ENV/
 
 # Testing
 .pytest_cache/
+.benchmarks/
 .coverage
 coverage.xml
 htmlcov/
@@ -62,9 +64,11 @@ snapshots/
 .trae/
 
 # Build artifacts
-dist/
 *.whl
 *.tar.gz
 
 # Local git worktrees
 .worktrees/
+
+# IDE - SonarLint
+.sonarlint/

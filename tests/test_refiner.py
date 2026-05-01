@@ -29,7 +29,7 @@ if not HAS_SQLSEED_AI:
 
 
 class TestErrorSummary:
-    def test_to_prompt_str_with_column(self):
+    def test_to_prompt_str_with_column(self) -> None:
         err = ErrorSummary(
             error_type="pydantic_validation",
             message="Field 'columns[0]': invalid",
@@ -41,7 +41,7 @@ class TestErrorSummary:
         assert "columns[0]" in s
         assert "Affected Column" in s
 
-    def test_to_prompt_str_without_column(self):
+    def test_to_prompt_str_without_column(self) -> None:
         err = ErrorSummary(
             error_type="json_syntax",
             message="parse error",
@@ -53,33 +53,32 @@ class TestErrorSummary:
 
 
 class TestSummarizeError:
-    def test_json_decode_error(self):
+    def test_json_decode_error(self) -> None:
         err = json.JSONDecodeError("msg", "", 0)
         summary = summarize_error(err)
         assert summary.error_type == "json_syntax"
         assert summary.retryable is True
 
-    def test_attribute_error_with_generate(self):
+    def test_attribute_error_with_generate(self) -> None:
         err = AttributeError("'Provider' object has no attribute 'generate_credit_card'")
         summary = summarize_error(err)
         assert summary.error_type == "unknown_generator"
         assert "credit_card" in summary.message
         assert summary.retryable is True
 
-    def test_file_not_found_error(self):
+    def test_file_not_found_error(self) -> None:
         err = FileNotFoundError("db not found")
         summary = summarize_error(err)
         assert summary.error_type == "fatal"
         assert summary.retryable is False
 
-    def test_generic_error(self):
+    def test_generic_error(self) -> None:
         err = RuntimeError("something went wrong")
         summary = summarize_error(err)
         assert summary.error_type == "runtime_error"
         assert summary.retryable is True
 
-    def test_pydantic_validation_error(self):
-
+    def test_pydantic_validation_error(self) -> None:
         class Inner(BaseModel):
             value: int
 
@@ -87,7 +86,7 @@ class TestSummarizeError:
             items: list[Inner]
 
         try:
-            Outer(items=[{"value": "not_int"}])
+            Outer(items=[{"value": "not_int"}])  # type: ignore
         except ValidationError as e:
             summary = summarize_error(e)
             assert summary.error_type == "pydantic_validation"
@@ -95,89 +94,77 @@ class TestSummarizeError:
 
 
 class TestAiConfigRefiner:
-    def _make_refiner(self, tmp_path, _llm_side_effect=None):
-        analyzer = SchemaAnalyzer(config=AIConfig(api_key="test-key"))
+    def _make_refiner(self, tmp_path: Any, _llm_side_effect=None):
+        analyzer = SchemaAnalyzer(config=AIConfig(api_key="test-key", model="test-model"))
         return AiConfigRefiner(
             analyzer,
             str(tmp_path / "test.db"),
             cache_dir=str(tmp_path / "cache"),
         )
 
-    def test_cache_on_success(self, tmp_path):
+    def _cache_config(self, tmp_path: Any, config: dict[str, Any], schema_hash: str = "abc123") -> AiConfigRefiner:
         refiner = self._make_refiner(tmp_path)
-        config = {"name": "users", "count": 10, "columns": []}
-        refiner._cache_successful_config("users", config, "abc123")
+        refiner._cache_successful_config("users", config, schema_hash)
+        return refiner
 
-        cached = refiner.get_cached_config("users", "abc123")
-        assert cached is not None
-        assert cached["name"] == "users"
-
-    def test_cache_schema_hash_mismatch(self, tmp_path):
-        refiner = self._make_refiner(tmp_path)
-        config = {"name": "users", "count": 10, "columns": []}
-        refiner._cache_successful_config("users", config, "abc123")
-
-        cached = refiner.get_cached_config("users", "different_hash")
-        assert cached is None
-
-    def test_cache_miss(self, tmp_path):
-        refiner = self._make_refiner(tmp_path)
-        assert refiner.get_cached_config("nonexistent") is None
-
-    def test_refine_first_attempt_success(self, tmp_path):
-
+    def _create_users_db(self, tmp_path: Any) -> str:
         db_path = str(tmp_path / "test.db")
         conn = sqlite3.connect(db_path)
         conn.execute("CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL)")
         conn.commit()
         conn.close()
+        return db_path
 
+    def _make_error_summary(self, error_type: str = "runtime_error", message: str = "test error") -> ErrorSummary:
+        return ErrorSummary(error_type=error_type, message=message, column=None, retryable=True)
+
+    def test_cache_on_success(self, tmp_path: Any) -> None:
+        refiner = self._cache_config(tmp_path, {"name": "users", "count": 10, "columns": []})
+        cached = refiner.get_cached_config("users", "abc123")
+        assert cached is not None
+        assert cached["name"] == "users"
+
+    def test_cache_schema_hash_mismatch(self, tmp_path: Any) -> None:
+        refiner = self._cache_config(tmp_path, {"name": "users", "count": 10, "columns": []})
+        cached = refiner.get_cached_config("users", "different_hash")
+        assert cached is None
+
+    def test_cache_miss(self, tmp_path: Any) -> None:
+        refiner = self._make_refiner(tmp_path)
+        assert refiner.get_cached_config("nonexistent") is None
+
+    def test_refine_first_attempt_success(self, tmp_path: Any) -> None:
+        self._create_users_db(tmp_path)
         valid_config = {
             "name": "users",
             "count": 10,
             "columns": [{"name": "name", "generator": "string"}],
         }
-
         refiner = self._make_refiner(tmp_path)
-
         with patch.object(refiner._analyzer, "call_llm", return_value=valid_config):
             result = refiner.generate_and_refine("users", max_retries=3)
-
         assert result["name"] == "users"
 
-    def test_refine_exhausts_retries(self, tmp_path):
-        db_path = str(tmp_path / "test.db")
-        conn = sqlite3.connect(db_path)
-        conn.execute("CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL)")
-        conn.commit()
-        conn.close()
-
+    def test_refine_exhausts_retries(self, tmp_path: Any) -> None:
+        self._create_users_db(tmp_path)
         invalid_config = {"invalid": True}
-
         refiner = self._make_refiner(tmp_path)
-
         with (
             patch.object(refiner._analyzer, "call_llm", return_value=invalid_config),
             pytest.raises(AISuggestionFailedError, match="Failed after"),
         ):
             refiner.generate_and_refine("users", max_retries=2)
 
-    def test_refine_non_retryable_exits(self, tmp_path):
+    def test_refine_non_retryable_exits(self, tmp_path: Any) -> None:
         refiner = self._make_refiner(tmp_path)
-
         with (
             patch.object(refiner._analyzer, "call_llm", side_effect=FileNotFoundError("db missing")),
             pytest.raises(AISuggestionFailedError, match="Non-retryable"),
         ):
             refiner.generate_and_refine("users", max_retries=3)
 
-    def test_messages_accumulate(self, tmp_path):
-        db_path = str(tmp_path / "test.db")
-        conn = sqlite3.connect(db_path)
-        conn.execute("CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL)")
-        conn.commit()
-        conn.close()
-
+    def test_messages_accumulate(self, tmp_path: Any) -> None:
+        self._create_users_db(tmp_path)
         invalid_config = {"invalid": True}
         call_count = 0
         captured_messages: list[Any] = []
@@ -192,7 +179,6 @@ class TestAiConfigRefiner:
             return invalid_config
 
         refiner = self._make_refiner(tmp_path)
-
         with (
             patch.object(
                 refiner._analyzer,
@@ -210,24 +196,14 @@ class TestAiConfigRefiner:
         assert call_count == 2
         assert len(captured_messages) == 4
 
-    def test_build_refinement_prompt_last_attempt(self, tmp_path):
+    def test_build_refinement_prompt_last_attempt(self, tmp_path: Any) -> None:
         refiner = self._make_refiner(tmp_path)
-        error = ErrorSummary(
-            error_type="runtime_error",
-            message="test error",
-            column=None,
-            retryable=True,
-        )
+        error = self._make_error_summary()
         prompt = refiner._build_refinement_prompt(error, attempt=2, max_retries=3)
         assert "LAST attempt" in prompt
 
-    def test_build_refinement_prompt_not_last(self, tmp_path):
+    def test_build_refinement_prompt_not_last(self, tmp_path: Any) -> None:
         refiner = self._make_refiner(tmp_path)
-        error = ErrorSummary(
-            error_type="runtime_error",
-            message="test error",
-            column=None,
-            retryable=True,
-        )
+        error = self._make_error_summary()
         prompt = refiner._build_refinement_prompt(error, attempt=0, max_retries=3)
         assert "LAST attempt" not in prompt

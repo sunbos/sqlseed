@@ -119,7 +119,7 @@ class SchemaInferrer:
             else:
                 profile["top_values"] = []
 
-            numeric_values = [v for v in non_null_values if isinstance(v, (int, float))]
+            numeric_values = [v for v in non_null_values if isinstance(v, int | float)]
             if numeric_values:
                 profile["value_range"] = {"min": min(numeric_values), "max": max(numeric_values)}
             else:

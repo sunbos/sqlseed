@@ -30,6 +30,8 @@ from sqlseed.generators.stream import DataStream
 from sqlseed.plugins.manager import PluginManager
 
 if TYPE_CHECKING:
+    from rich.progress import Progress
+
     from sqlseed.database._protocol import DatabaseAdapter
 
 logger = get_logger(__name__)
@@ -62,6 +64,7 @@ class DataOrchestrator:
         provider_name: str = "mimesis",
         locale: str = "en_US",
         optimize_pragma: bool = True,
+        associations: list[Any] | None = None,
     ) -> None:
         self._db_path = db_path
         self._provider_name = provider_name
@@ -69,11 +72,18 @@ class DataOrchestrator:
         self._optimize_pragma = optimize_pragma
 
         db_adapter = self._create_adapter()
+        shared_pool = SharedPool()
         self._core = CoreCtx(
-            db=db_adapter, schema=SchemaInferrer(db_adapter), relation=RelationResolver(db_adapter, SharedPool())
+            db=db_adapter,
+            schema=SchemaInferrer(db_adapter),
+            relation=RelationResolver(db_adapter, shared_pool),
+            shared_pool=shared_pool,
         )
         self._ext = ExtCtx(unique_adjuster=UniqueAdjuster(self._core.mapper))
         self._connected = False
+
+        if associations:
+            self._relation.set_associations(associations)
 
     @property
     def _db(self) -> DatabaseAdapter:
@@ -136,6 +146,7 @@ class DataOrchestrator:
             provider_name=config.provider.value,
             locale=config.locale,
             optimize_pragma=config.optimize_pragma,
+            associations=config.associations if config.associations else None,
         )
 
     def _create_adapter(self) -> DatabaseAdapter:
@@ -154,7 +165,7 @@ class DataOrchestrator:
             self._plugins.hook.sqlseed_register_column_mappers(mapper=self._mapper)
             self._registry.register_from_entry_points()
             try:
-                provider = self._registry.ensure_provider(self._provider_name)
+                self._registry.ensure_provider(self._provider_name)
                 self._registry.set_default(self._provider_name)
             except (ImportError, ValueError):
                 logger.warning(
@@ -214,6 +225,107 @@ class DataOrchestrator:
             seed=seed,
         )
 
+    def _prepare_specs(
+        self,
+        table_name: str,
+        count: int,
+        columns: dict[str, Any] | None,
+        column_configs: list[Any] | None,
+        enrich: bool,
+        clear_before: bool,
+        skip_ai: bool = False,
+    ) -> tuple[dict[str, Any], dict[str, Any], set[str]]:
+        t_resolve = time.monotonic()
+        if enrich and clear_before:
+            specs, user_configs, unique_columns = self._resolve_specs(
+                table_name, count, columns, column_configs, enrich
+            )
+        if clear_before:
+            self._db.clear_table(table_name)
+        if not (enrich and clear_before):
+            specs, user_configs, unique_columns = self._resolve_specs(
+                table_name, count, columns, column_configs, enrich
+            )
+        logger.debug("resolve_specs", table_name=table_name, elapsed=f"{time.monotonic() - t_resolve:.3f}s")
+        builtin_count = sum(
+            1 for s in specs.values() if s.generator_name not in {"string", "skip", "__enrich__", "__derive__"}
+        )
+        string_count = sum(1 for s in specs.values() if s.generator_name == "string")
+        logger.info(
+            "Column mapping resolved",
+            table_name=table_name,
+            builtin_matched=builtin_count,
+            string_fallback=string_count,
+        )
+        if self._plugin_mediator is not None and not skip_ai:
+            column_infos = self._schema.get_column_info(table_name)
+            user_configured = {uc.name for uc in user_configs if hasattr(uc, "name")}
+            t_ai = time.monotonic()
+            specs = self._plugin_mediator.apply_ai_suggestions(
+                table_name,
+                column_infos,
+                specs,
+                user_configured_columns=user_configured,
+            )
+            logger.debug("ai_suggestions", table_name=table_name, elapsed=f"{time.monotonic() - t_ai:.3f}s")
+            t_tpl = time.monotonic()
+            specs = self._plugin_mediator.apply_template_pool(
+                table_name, column_infos, specs, count, user_configured_columns=user_configured
+            )
+            logger.debug("template_pool", table_name=table_name, elapsed=f"{time.monotonic() - t_tpl:.3f}s")
+        return specs, user_configs, unique_columns
+
+    def _generate_and_insert_batches(
+        self,
+        table_name: str,
+        stream: DataStream,
+        count: int,
+        batch_size: int,
+        progress: Progress | None = None,
+        task_id: Any | None = None,
+    ) -> tuple[int, int]:
+        total_inserted = 0
+        batch_count = 0
+        effective_batch_size = min(batch_size, count)
+        if effective_batch_size > 0:
+            desired_batches = max(10, count // effective_batch_size)
+            effective_batch_size = max(count // desired_batches, 1)
+        own_progress = progress is None
+        with contextlib.ExitStack() as stack:
+            if own_progress:
+                progress = create_progress()
+                stack.enter_context(progress)
+            assert progress is not None
+            if task_id is None:
+                task_id = progress.add_task(f"Generating {table_name}", total=count)
+            for batch in stream.generate(count, effective_batch_size):
+                batch_count += 1
+
+                self._plugins.hook.sqlseed_before_insert(
+                    table_name=table_name,
+                    batch_number=batch_count,
+                    batch_size=len(batch),
+                )
+
+                if self._plugin_mediator is not None:
+                    current_batch = self._plugin_mediator.apply_batch_transforms(table_name, batch)
+                else:
+                    current_batch = batch
+
+                inserted = self._db.batch_insert(table_name, iter(current_batch), batch_size)
+                total_inserted += inserted
+
+                self._metrics.record(f"{table_name}.batch_insert", float(inserted))
+
+                self._plugins.hook.sqlseed_after_insert(
+                    table_name=table_name,
+                    batch_number=batch_count,
+                    rows_inserted=inserted,
+                )
+
+                progress.update(task_id, advance=len(batch))
+        return total_inserted, batch_count
+
     def fill_table(
         self,
         table_name: str,
@@ -226,6 +338,7 @@ class DataOrchestrator:
         column_configs: list[Any] | None = None,
         transform: str | None = None,
         enrich: bool = False,
+        skip_ai: bool = False,
     ) -> GenerationResult:
         self._ensure_connected()
         validate_table_name(table_name)
@@ -235,72 +348,47 @@ class DataOrchestrator:
         total_inserted = 0
         batch_count = 0
 
-        try:
-            if self._optimize_pragma:
-                self._db.optimize_for_bulk_write(count)
+        progress = create_progress()
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(progress)
+            try:
+                prep_task = progress.add_task(f"Preparing {table_name}...", total=None)
 
-            if clear_before:
-                self._db.clear_table(table_name)
+                if self._optimize_pragma:
+                    self._db.optimize_for_bulk_write(count)
 
-            generator_specs, user_configs, unique_columns = self._resolve_specs(
-                table_name, count, columns, column_configs, enrich
-            )
-            if self._plugin_mediator is not None:
-                column_infos = self._schema.get_column_info(table_name)
-                generator_specs = self._plugin_mediator.apply_ai_suggestions(table_name, column_infos, generator_specs)
-                generator_specs = self._plugin_mediator.apply_template_pool(
-                    table_name, column_infos, generator_specs, count
+                progress.update(prep_task, description=f"Resolving schema for {table_name}...")
+                generator_specs, user_configs, unique_columns = self._prepare_specs(
+                    table_name, count, columns, column_configs, enrich, clear_before, skip_ai
                 )
 
-            stream = self._build_stream(generator_specs, user_configs, unique_columns, transform, seed)
+                progress.update(prep_task, description=f"Building data stream for {table_name}...")
+                stream = self._build_stream(generator_specs, user_configs, unique_columns, transform, seed)
 
-            self._plugins.hook.sqlseed_before_generate(
-                table_name=table_name,
-                count=count,
-                config=None,
-            )
+                progress.remove_task(prep_task)
+                gen_task = progress.add_task(f"Generating {table_name}", total=count)
 
-            progress = create_progress()
-            with progress:
-                task_id = progress.add_task(f"Generating {table_name}", total=count)
-                for batch in stream.generate(count, batch_size):
-                    batch_count += 1
+                self._plugins.hook.sqlseed_before_generate(
+                    table_name=table_name,
+                    count=count,
+                    config=None,
+                )
 
-                    self._plugins.hook.sqlseed_before_insert(
-                        table_name=table_name,
-                        batch_number=batch_count,
-                        batch_size=len(batch),
-                    )
+                total_inserted, batch_count = self._generate_and_insert_batches(
+                    table_name, stream, count, batch_size, progress, gen_task
+                )
 
-                    if self._plugin_mediator is not None:
-                        current_batch = self._plugin_mediator.apply_batch_transforms(table_name, batch)
-                    else:
-                        current_batch = batch
-
-                    inserted = self._db.batch_insert(table_name, iter(current_batch), batch_size)
-                    total_inserted += inserted
-
-                    self._metrics.record(f"{table_name}.batch_insert", float(inserted))
-
-                    self._plugins.hook.sqlseed_after_insert(
-                        table_name=table_name,
-                        batch_number=batch_count,
-                        rows_inserted=inserted,
-                    )
-
-                    progress.update(task_id, advance=len(batch))
-
-        except (ValueError, RuntimeError, OSError, sqlite3.OperationalError) as e:
-            logger.error("Failed to fill table", table_name=table_name, error=e)
-            return GenerationResult(
-                table_name=table_name,
-                count=total_inserted,
-                elapsed=time.monotonic() - start_time,
-                errors=[str(e)],
-            )
-        finally:
-            if self._optimize_pragma:
-                self._db.restore_settings()
+            except (ValueError, RuntimeError, OSError, sqlite3.OperationalError) as e:
+                logger.error("Failed to fill table", table_name=table_name, error=e)
+                return GenerationResult(
+                    table_name=table_name,
+                    count=total_inserted,
+                    elapsed=time.monotonic() - start_time,
+                    errors=[str(e)],
+                )
+            finally:
+                if self._optimize_pragma:
+                    self._db.restore_settings()
 
         elapsed = time.monotonic() - start_time
 

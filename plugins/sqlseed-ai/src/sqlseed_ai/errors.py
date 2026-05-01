@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
 
-from sqlseed.generators.stream import UnknownGeneratorError
+from sqlseed.generators import UnknownGeneratorError
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -111,7 +111,7 @@ def _try_expression_error(exc: Exception) -> ErrorSummary | None:
 
 
 def _try_file_error(exc: Exception) -> ErrorSummary | None:
-    if isinstance(exc, (FileNotFoundError, PermissionError)):
+    if isinstance(exc, FileNotFoundError | PermissionError):
         return ErrorSummary(
             error_type="fatal",
             message=str(exc)[:200],

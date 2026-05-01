@@ -4,6 +4,7 @@ import re
 from typing import Any
 
 from sqlseed_ai.analyzer import SchemaAnalyzer
+from sqlseed_ai.config import AIConfig
 
 from sqlseed.plugins.hookspecs import hookimpl
 
@@ -14,7 +15,8 @@ _SIMPLE_COL_RE = re.compile(
     r"int|float|double|real|text|string|"
     r"char|varchar|blob|byte|id|code|title|"
     r"description|status|type|category|count|"
-    r"amount|price|value|number|index|order|level"
+    r"amount|price|value|number|index|order|level|"
+    r"username|city|country|state|zip|postal|job|occupation"
     r")($|[_\s])",
     re.IGNORECASE,
 )
@@ -26,7 +28,9 @@ class AISqlseedPlugin:
 
     def _get_analyzer(self) -> SchemaAnalyzer:
         if self._analyzer is None:
-            self._analyzer = SchemaAnalyzer()
+            config = AIConfig.from_env()
+            config.resolve_model()
+            self._analyzer = SchemaAnalyzer(config=config)
         return self._analyzer
 
     def _is_simple_column(self, column_name: str, column_type: str) -> bool:

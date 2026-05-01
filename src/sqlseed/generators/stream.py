@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING, Any
 from sqlseed._utils.logger import get_logger
 from sqlseed.generators._protocol import UnknownGeneratorError
 
+_NATIVE_MISS = object()
+
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
@@ -160,6 +162,10 @@ class DataStream:
         if spec.null_ratio > 0 and self._rng.random() < spec.null_ratio:
             return None
 
+        native_result = self._try_native_method(spec)
+        if native_result is not _NATIVE_MISS:
+            return native_result
+
         try:
             if spec.params:
                 return self._provider.generate(spec.generator_name, **spec.params)
@@ -172,6 +178,47 @@ class DataStream:
                 return self._handle_foreign_key(spec)
 
             raise
+
+    def _try_native_method(self, spec: GeneratorSpec) -> Any:
+        native_params = spec.native_params or {}
+        if spec.native_faker_method and self._provider.name == "faker":
+            result = self._try_faker_native(spec.native_faker_method, native_params)
+            if result is not _NATIVE_MISS:
+                return result
+        if spec.native_mimesis_method and self._provider.name == "mimesis":
+            result = self._try_mimesis_native(spec.native_mimesis_method, native_params)
+            if result is not _NATIVE_MISS:
+                return result
+        return _NATIVE_MISS
+
+    def _try_faker_native(self, method_name: str, native_params: dict[str, Any]) -> Any:
+        faker_obj = getattr(self._provider, "_faker", None)
+        if faker_obj is None:
+            return _NATIVE_MISS
+        method = getattr(faker_obj, method_name, None)
+        if method is None or not callable(method):
+            return _NATIVE_MISS
+        try:
+            return method(**native_params)
+        except (TypeError, ValueError, AttributeError):
+            return _NATIVE_MISS
+
+    def _try_mimesis_native(self, method_path: str, native_params: dict[str, Any]) -> Any:
+        generic_obj = getattr(self._provider, "_generic", None)
+        if generic_obj is None:
+            return _NATIVE_MISS
+        parts = method_path.split(".")
+        obj = generic_obj
+        for part in parts:
+            obj = getattr(obj, part, None)
+            if obj is None:
+                return _NATIVE_MISS
+        if obj is None or not callable(obj):
+            return _NATIVE_MISS
+        try:
+            return obj(**native_params)
+        except (TypeError, ValueError, AttributeError):
+            return _NATIVE_MISS
 
     def _handle_foreign_key(self, spec: GeneratorSpec) -> Any:
         ref_values = spec.params.get("_ref_values", [])

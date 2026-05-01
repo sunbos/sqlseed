@@ -83,6 +83,7 @@ class ColumnAssociation(BaseModel):
 
     column_name: str
     source_table: str
+    source_column: str | None = None
     target_tables: list[str] = Field(default_factory=list)
     strategy: str = "shared_pool"
 

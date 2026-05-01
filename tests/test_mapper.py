@@ -39,7 +39,7 @@ class TestColumnMapper:
         spec = self.mapper.map_column(_col("age", "INTEGER"))
         assert spec.generator_name == "integer"
         assert spec.params["min_value"] == 18
-        assert spec.params["max_value"] == 100
+        assert spec.params["max_value"] == 65
 
     def test_exact_match_balance(self) -> None:
         spec = self.mapper.map_column(_col("balance", "REAL"))

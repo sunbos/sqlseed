@@ -7,6 +7,7 @@ import yaml
 
 from sqlseed._utils.logger import get_logger
 from sqlseed.config.models import GeneratorConfig, TableConfig
+from sqlseed.database._compat import read_table_names
 
 logger = get_logger(__name__)
 
@@ -59,6 +60,18 @@ def generate_template(db_path: str, table_name: str | None = None) -> GeneratorC
                 columns=[],
             )
         )
+    else:
+        try:
+            for tbl_name in read_table_names(db_path):
+                tables.append(
+                    TableConfig(
+                        name=tbl_name,
+                        count=1000,
+                        columns=[],
+                    )
+                )
+        except (OSError, ValueError, ImportError):
+            logger.warning("Could not read tables from database", db_path=db_path)
 
     return GeneratorConfig(
         db_path=db_path,

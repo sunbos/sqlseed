@@ -13,6 +13,20 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
+def _make_fk_pool_spec(col_name: str, pool_values: list[Any], spec: GeneratorSpec) -> GeneratorSpec:
+    return GeneratorSpec(
+        generator_name="foreign_key",
+        params={
+            "ref_table": "__shared_pool__",
+            "ref_column": col_name,
+            "strategy": "random",
+            "_ref_values": pool_values,
+        },
+        null_ratio=spec.null_ratio,
+        provider=spec.provider,
+    )
+
+
 class SharedPool:
     """Cross-table shared value pool for maintaining referential integrity."""
 
@@ -56,6 +70,10 @@ class RelationResolver:
         self._db = db_adapter
         self._fk_cache: dict[str, list[ForeignKeyInfo]] = {}
         self._shared_pool = shared_pool if shared_pool is not None else SharedPool()
+        self._associations: list[Any] = []
+
+    def set_associations(self, associations: list[Any]) -> None:
+        self._associations = associations
 
     def get_foreign_keys(self, table_name: str) -> list[ForeignKeyInfo]:
         if table_name not in self._fk_cache:
@@ -64,7 +82,11 @@ class RelationResolver:
 
     def get_dependencies(self, table_name: str) -> set[str]:
         fks = self.get_foreign_keys(table_name)
-        return {fk.ref_table for fk in fks if fk.ref_table != table_name}
+        deps = {fk.ref_table for fk in fks if fk.ref_table != table_name}
+        for assoc in self._associations:
+            if table_name in assoc.target_tables and assoc.source_table != table_name:
+                deps.add(assoc.source_table)
+        return deps
 
     def topological_sort(self, table_names: list[str]) -> list[str]:
         graph: dict[str, set[str]] = {}
@@ -123,45 +145,155 @@ class RelationResolver:
     def clear_cache(self) -> None:
         self._fk_cache.clear()
 
+    def _resolve_fk_or_integer_spec(
+        self,
+        table_name: str,
+        col_name: str,
+        spec: GeneratorSpec,
+    ) -> GeneratorSpec:
+        fk_info = self.get_fk_info(table_name, col_name)
+        if fk_info:
+            ref_values = self.resolve_foreign_key_values(table_name, col_name)
+            return GeneratorSpec(
+                generator_name="foreign_key",
+                params={
+                    "ref_table": fk_info.ref_table,
+                    "ref_column": fk_info.ref_column,
+                    "strategy": "random",
+                    "_ref_values": ref_values,
+                },
+                null_ratio=spec.null_ratio,
+                provider=spec.provider,
+            )
+        if self._shared_pool.has(col_name):
+            pool_values = self._shared_pool.get(col_name)
+            logger.debug(
+                "Resolved implicit association via SharedPool",
+                table_name=table_name,
+                column_name=col_name,
+                pool_size=len(pool_values),
+            )
+            return _make_fk_pool_spec(col_name, pool_values, spec)
+        return GeneratorSpec(
+            generator_name="integer",
+            params={"min_value": 1, "max_value": 999999},
+            null_ratio=spec.null_ratio,
+            provider=spec.provider,
+        )
+
+    def _upgrade_fk_constrained_columns(
+        self,
+        table_name: str,
+        specs: dict[str, GeneratorSpec],
+        fk_columns: set[str],
+    ) -> None:
+        for col_name in fk_columns:
+            if col_name not in specs:
+                continue
+            spec = specs[col_name]
+            if spec.generator_name in {"foreign_key", "foreign_key_or_integer"}:
+                continue
+            fk_info = self.get_fk_info(table_name, col_name)
+            if fk_info is None:
+                continue
+            ref_values = self.resolve_foreign_key_values(table_name, col_name)
+            specs[col_name] = GeneratorSpec(
+                generator_name="foreign_key",
+                params={
+                    "ref_table": fk_info.ref_table,
+                    "ref_column": fk_info.ref_column,
+                    "strategy": "random",
+                    "_ref_values": ref_values,
+                },
+                null_ratio=spec.null_ratio,
+                provider=spec.provider,
+            )
+            logger.debug(
+                "Upgraded column to foreign_key via FK constraint",
+                table_name=table_name,
+                column_name=col_name,
+                ref_table=fk_info.ref_table,
+                ref_column=fk_info.ref_column,
+            )
+
     def resolve_foreign_keys(
         self,
         table_name: str,
         specs: dict[str, GeneratorSpec],
     ) -> dict[str, GeneratorSpec]:
+        fks = self.get_foreign_keys(table_name)
+        fk_columns = {fk.column for fk in fks}
+
         for col_name, spec in specs.items():
             if spec.generator_name == "foreign_key_or_integer":
-                fk_info = self.get_fk_info(table_name, col_name)
-                if fk_info:
-                    ref_values = self.resolve_foreign_key_values(table_name, col_name)
-                    new_spec = GeneratorSpec(
-                        generator_name="foreign_key",
-                        params={
-                            "ref_table": fk_info.ref_table,
-                            "ref_column": fk_info.ref_column,
-                            "strategy": "random",
-                            "_ref_values": ref_values,
-                        },
-                        null_ratio=spec.null_ratio,
-                        provider=spec.provider,
-                    )
-                    specs[col_name] = new_spec
-                else:
-                    specs[col_name] = GeneratorSpec(
-                        generator_name="integer",
-                        params={"min_value": 1, "max_value": 999999},
-                        null_ratio=spec.null_ratio,
-                        provider=spec.provider,
-                    )
+                specs[col_name] = self._resolve_fk_or_integer_spec(table_name, col_name, spec)
+            elif spec.generator_name == "foreign_key" and "ref_table" in spec.params:
+                ref_values = self._db.get_column_values(
+                    spec.params["ref_table"],
+                    spec.params["ref_column"],
+                )
+                spec.params["_ref_values"] = ref_values
 
-            elif spec.generator_name == "foreign_key":
-                if "ref_table" in spec.params:
-                    ref_values = self._db.get_column_values(
-                        spec.params["ref_table"],
-                        spec.params["ref_column"],
-                    )
-                    spec.params["_ref_values"] = ref_values
+        self._upgrade_fk_constrained_columns(table_name, specs, fk_columns)
 
+        specs = self.apply_associations(table_name, specs)
         return self.resolve_implicit_associations(table_name, specs)
+
+    def _apply_single_association(
+        self,
+        table_name: str,
+        assoc: Any,
+        specs: dict[str, GeneratorSpec],
+    ) -> None:
+        col_name = assoc.column_name
+        source_table = assoc.source_table
+        source_col = assoc.source_column or assoc.column_name
+        target_tables = assoc.target_tables
+
+        if table_name not in target_tables:
+            return
+        if col_name not in specs:
+            return
+        spec = specs[col_name]
+        if spec.generator_name == "foreign_key":
+            return
+
+        if not self._shared_pool.has(col_name):
+            if self._shared_pool.has(source_col):
+                pool_values = self._shared_pool.get(source_col)
+                if pool_values:
+                    self._shared_pool.merge(col_name, pool_values)
+            else:
+                with contextlib.suppress(ValueError, OSError, RuntimeError, sqlite3.OperationalError):
+                    values = self._db.get_column_values(source_table, source_col, limit=10000)
+                    if values:
+                        self._shared_pool.merge(col_name, values)
+
+        pool_values = self._shared_pool.get(col_name)
+        if not pool_values:
+            return
+
+        specs[col_name] = _make_fk_pool_spec(col_name, pool_values, spec)
+        logger.debug(
+            "Applied explicit association from config",
+            table_name=table_name,
+            column_name=col_name,
+            source_table=source_table,
+            pool_size=len(pool_values),
+        )
+
+    def apply_associations(
+        self,
+        table_name: str,
+        specs: dict[str, GeneratorSpec],
+    ) -> dict[str, GeneratorSpec]:
+        if not self._associations:
+            return specs
+
+        for assoc in self._associations:
+            self._apply_single_association(table_name, assoc, specs)
+
+        return specs
 
     def resolve_implicit_associations(
         self,
@@ -181,17 +313,7 @@ class RelationResolver:
             if not pool_values:
                 continue
 
-            specs[col_name] = GeneratorSpec(
-                generator_name="foreign_key",
-                params={
-                    "ref_table": "__shared_pool__",
-                    "ref_column": col_name,
-                    "strategy": "random",
-                    "_ref_values": pool_values,
-                },
-                null_ratio=spec.null_ratio,
-                provider=spec.provider,
-            )
+            specs[col_name] = _make_fk_pool_spec(col_name, pool_values, spec)
             logger.debug(
                 "Resolved implicit association via SharedPool",
                 table_name=table_name,
@@ -206,10 +328,21 @@ class RelationResolver:
         table_name: str,
         generator_specs: dict[str, GeneratorSpec],
     ) -> None:
+        pk_columns: set[str] = set()
+        with contextlib.suppress(ValueError, OSError, RuntimeError, sqlite3.OperationalError):
+            pk_columns = set(self._db.get_primary_keys(table_name))
+
         for col_name, spec in generator_specs.items():
-            if spec.generator_name == "skip":
+            if spec.generator_name == "skip" and col_name not in pk_columns:
                 continue
             with contextlib.suppress(ValueError, OSError, RuntimeError, sqlite3.OperationalError):
                 values = self._db.get_column_values(table_name, col_name, limit=10000)
                 if values:
                     self._shared_pool.merge(col_name, values)
+                    if spec.generator_name == "skip" and col_name in pk_columns:
+                        logger.debug(
+                            "Registered auto-increment PK values to SharedPool",
+                            table_name=table_name,
+                            column_name=col_name,
+                            value_count=len(values),
+                        )

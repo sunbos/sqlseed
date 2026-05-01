@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import sqlite3
+from typing import Any
 
 import yaml
 
 import sqlseed
 from sqlseed.core.orchestrator import DataOrchestrator
 from sqlseed.core.result import GenerationResult
+from tests._helpers import fill_from_config_and_verify_fk
 
 
 class TestPublicAPI:
@@ -47,7 +49,7 @@ class TestPublicAPI:
         assert isinstance(result, GenerationResult)
         assert result.count == 7
 
-    def test_fill_from_config(self, tmp_db, tmp_path) -> None:
+    def test_fill_from_config(self, tmp_db, tmp_path: Any) -> None:
         config_path = tmp_path / "gen.yaml"
         config_data = {
             "db_path": tmp_db,
@@ -73,7 +75,7 @@ class TestPublicAPI:
         assert len(rows) == 3
         assert "name" in rows[0]
 
-    def test_fill_from_config_respects_fk_order(self, tmp_path) -> None:
+    def test_fill_from_config_respects_fk_order(self, tmp_path: Any) -> None:
         db_path = str(tmp_path / "fk_test.db")
         conn = sqlite3.connect(db_path)
         conn.execute("CREATE TABLE departments (id INTEGER PRIMARY KEY, name TEXT)")
@@ -107,22 +109,14 @@ class TestPublicAPI:
                 },
             ],
         }
-        config_path = str(tmp_path / "config.yaml")
-        with open(config_path, "w", encoding="utf-8") as f:
-            yaml.dump(config_data, f)
-
-        results = sqlseed.fill_from_config(config_path)
+        results = fill_from_config_and_verify_fk(
+            db_path,
+            config_data,
+            str(tmp_path),
+            "SELECT dept_id FROM employees",
+            "SELECT id FROM departments",
+        )
         assert len(results) == 2
-
-        conn = sqlite3.connect(db_path)
-        emp_rows = conn.execute("SELECT dept_id FROM employees").fetchall()
-        dept_rows = conn.execute("SELECT id FROM departments").fetchall()
-        conn.close()
-
-        dept_ids = {r[0] for r in dept_rows}
-        for (dept_id,) in emp_rows:
-            if dept_id is not None:
-                assert dept_id in dept_ids
 
     def test_preview_with_seed(self, tmp_db) -> None:
         rows1 = sqlseed.preview(tmp_db, table="users", count=5, provider="base", seed=42)

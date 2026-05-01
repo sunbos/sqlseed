@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import os
+import re
+import signal
 from typing import Any
 
 import click
 import yaml
 from rich.console import Console
+from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 from rich.table import Table as RichTable
 
 from sqlseed import fill as api_fill
@@ -13,7 +16,7 @@ from sqlseed import fill_from_config
 from sqlseed import preview as api_preview
 from sqlseed._utils.logger import configure_logging, get_logger
 from sqlseed._version import __version__
-from sqlseed.config.loader import generate_template, save_config
+from sqlseed.config.loader import generate_template, load_config, save_config
 from sqlseed.config.models import GeneratorConfig, ProviderType, TableConfig
 from sqlseed.config.snapshot import SnapshotManager
 from sqlseed.core.orchestrator import DataOrchestrator
@@ -38,8 +41,16 @@ def cli() -> None:
     configure_logging(log_level)
 
 
-def _fill_from_config_cmd(config_path: str) -> None:
-    results = fill_from_config(config_path)
+def _fill_from_config_cmd(config_path: str, *, clear_before: bool = False, **kwargs: Any) -> None:
+    config = load_config(config_path)
+    table_count = len(config.tables)
+    click.echo(f"Loading config: {config_path} ({table_count} table(s))")
+
+    any_clear = clear_before or any(tc.clear_before for tc in config.tables)
+    if not any_clear:
+        click.echo("Note: Data will be appended. Use --clear to reset tables before generation.")
+
+    results = fill_from_config(config_path, clear_before=clear_before, **kwargs)
     for result in results:
         click.echo(str(result))
 
@@ -106,11 +117,13 @@ _FILL_DEFAULT_COUNT = 1000
 @click.option("--transform", "transform_path", default=None, help="Python transform script path")
 @click.option("--snapshot", is_flag=True, help="Save generation snapshot for replay")
 @click.option("--enrich", is_flag=True, help="Enrich data using existing table distribution")
+@click.option("--no-ai", is_flag=True, help="Skip AI suggestions and template generation")
 def fill(**kwargs: Any) -> None:
     """Fill a table with generated test data.
 
     Use --config for config-driven generation, or provide db_path + --table
-    + --count for direct generation.
+    + --count for direct generation. When using --config, CLI options
+    override the corresponding YAML values.
     """
     count = kwargs.get("count")
     config_path = kwargs.get("config_path")
@@ -124,7 +137,7 @@ def fill(**kwargs: Any) -> None:
             "--count is required when not using --config. Use -n <number> to specify the number of rows to generate."
         )
 
-    if config_path and count is None:
+    if not config_path and count is None:
         count = _FILL_DEFAULT_COUNT
 
     kwargs["count"] = count
@@ -135,7 +148,16 @@ def _execute_fill(opts: dict[str, Any]) -> None:
     config_path = opts.get("config_path")
     if config_path:
         logger.debug("Using config-driven generation", config_path=config_path)
-        _fill_from_config_cmd(config_path)
+        _fill_from_config_cmd(
+            config_path,
+            clear_before=opts.get("clear", False),
+            skip_ai=opts.get("no_ai", False),
+            count=opts.get("count"),
+            provider=opts.get("provider"),
+            seed=opts.get("seed"),
+            batch_size=opts.get("batch_size"),
+            locale=opts.get("locale"),
+        )
         return
 
     db_path = opts.get("db_path")
@@ -146,6 +168,15 @@ def _execute_fill(opts: dict[str, Any]) -> None:
         raise click.UsageError("--table is required when not using --config")
 
     count = opts.get("count", _FILL_DEFAULT_COUNT)
+    provider = opts.get("provider", "mimesis")
+    locale = opts.get("locale", "en_US")
+    seed = opts.get("seed")
+    batch_size = opts.get("batch_size", 5000)
+    clear_before = opts.get("clear", False)
+    enrich = opts.get("enrich", False)
+    transform = opts.get("transform_path")
+    skip_ai = opts.get("no_ai", False)
+
     logger.debug("Starting fill", db_path=db_path, table=table, count=count)
 
     try:
@@ -153,13 +184,14 @@ def _execute_fill(opts: dict[str, Any]) -> None:
             db_path,
             table=table,
             count=count,
-            provider=opts.get("provider", "mimesis"),
-            locale=opts.get("locale", "en_US"),
-            seed=opts.get("seed"),
-            batch_size=opts.get("batch_size", 5000),
-            clear_before=opts.get("clear", False),
-            enrich=opts.get("enrich", False),
-            transform=opts.get("transform_path"),
+            provider=provider,
+            locale=locale,
+            seed=seed,
+            batch_size=batch_size,
+            clear_before=clear_before,
+            enrich=enrich,
+            transform=transform,
+            skip_ai=skip_ai,
         )
     except ValueError as exc:
         logger.debug("Fill failed with ValueError", error=str(exc))
@@ -171,11 +203,11 @@ def _execute_fill(opts: dict[str, Any]) -> None:
             db_path,
             table,
             count,
-            opts.get("provider", "mimesis"),
-            opts.get("locale", "en_US"),
-            opts.get("seed"),
-            opts.get("batch_size", 5000),
-            opts.get("clear", False),
+            provider,
+            locale,
+            seed,
+            batch_size,
+            clear_before,
         )
 
 
@@ -300,8 +332,18 @@ def replay(snapshot_path: str) -> None:
     click.echo(str(result))
 
 
-def _handle_ai_verification(analyzer: Any, db_path: str, table: str, max_retries: int, no_cache: bool) -> Any:
+def _sanitize_table_config(config_dict: dict[str, Any]) -> None:
+    name = config_dict.get("name")
+    if isinstance(name, str):
+        config_dict["name"] = re.sub(r"^[:.]+", "", name)
+    for col in config_dict.get("columns", []):
+        if isinstance(col, dict):
+            col_name = col.get("name")
+            if isinstance(col_name, str):
+                col["name"] = re.sub(r"^[:.]+", "", col_name)
 
+
+def _handle_ai_verification(analyzer: Any, db_path: str, table: str, max_retries: int, no_cache: bool) -> Any:
     refiner = AiConfigRefiner(analyzer, db_path)
     try:
         return refiner.generate_and_refine(
@@ -325,11 +367,72 @@ def _handle_ai_direct(analyzer: Any, db_path: str, table: str) -> Any:
             return None
 
 
+def _run_ai_analysis(
+    analyzer: Any,
+    db_path: str,
+    table: str,
+    verify: bool,
+    max_retries: int,
+    no_cache: bool,
+) -> Any:
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        TimeElapsedColumn(),
+        console=Console(),
+        transient=False,
+    ) as progress:
+        task = progress.add_task("Analyzing schema & generating AI suggestions...", total=None)
+        if verify and max_retries > 0:
+            result = _handle_ai_verification(analyzer, db_path, table, max_retries, no_cache)
+        else:
+            result = _handle_ai_direct(analyzer, db_path, table)
+        progress.update(task, completed=1, total=1)
+    return result
+
+
+def _write_ai_output(output: str, db_path: str, result: Any) -> None:
+    _sanitize_table_config(result)
+    output_data = {
+        "db_path": db_path,
+        "provider": "mimesis",
+        "locale": "en_US",
+        "tables": [result],
+    }
+    yaml_str = yaml.dump(output_data, allow_unicode=True, sort_keys=False, default_flow_style=False)
+    lines = yaml_str.split("\n")
+    result_lines: list[str] = []
+    for line in lines:
+        result_lines.append(line)
+        if line.strip().startswith("count:"):
+            indent = len(line) - len(line.lstrip())
+            result_lines.append(
+                " " * indent + "# clear_before: true  # Uncomment to clear existing data before generation"
+            )
+    with open(output, "w", encoding="utf-8") as f:
+        f.write("\n".join(result_lines))
+    click.echo(f"AI suggestions saved to {output}")
+    click.echo("Tip: Add 'clear_before: true' to reset data before generation, or use --clear flag.")
+
+
+def _report_ai_failure() -> None:
+    click.echo(
+        "No suggestions received. The AI model may not support this task.\n"
+        "Suggestions:\n"
+        "  - Try a different model: --model 'deepseek/deepseek-r1-0528:free'\n"
+        "  - Use DeepSeek API: --base-url 'https://api.deepseek.com/v1' --model 'deepseek-chat'\n"
+        "  - Use OpenAI API: --base-url 'https://api.openai.com/v1' --model 'gpt-4o-mini'\n"
+        "  - Increase timeout: --timeout 180",
+        err=True,
+    )
+    raise SystemExit(1)
+
+
 @cli.command("ai-suggest")
 @click.argument("db_path")
 @click.option("--table", "-t", required=True, help="Target table name")
 @click.option("--output", "-o", required=True, help="Output YAML file path")
-@click.option("--model", "-m", default=None, help="AI model name (default: gpt-4o)")
+@click.option("--model", "-m", default=None, help="AI model name (default: auto-select best free model via OpenRouter)")
 @click.option("--api-key", envvar="SQLSEED_AI_API_KEY", default=None, help="AI API key (env: SQLSEED_AI_API_KEY)")
 @click.option(
     "--base-url",
@@ -340,6 +443,7 @@ def _handle_ai_direct(analyzer: Any, db_path: str, table: str) -> Any:
 @click.option("--max-retries", default=3, type=int, help="Max refinement retries, 0=disable (default: 3)")
 @click.option("--verify/--no-verify", default=True, help="Enable AI config self-correction (default: verify)")
 @click.option("--no-cache", is_flag=True, help="Skip cached AI configs")
+@click.option("--timeout", default=120, type=float, help="API call timeout in seconds (default: 120)")
 def ai_suggest(
     db_path: str,
     table: str,
@@ -350,37 +454,57 @@ def ai_suggest(
     max_retries: int,
     verify: bool,
     no_cache: bool,
+    timeout: float,
 ) -> None:
     """Analyze table schema and suggest generation rules via AI."""
     if not HAS_AI_PLUGIN:
         raise click.UsageError("sqlseed-ai plugin is required for this command. Run `pip install sqlseed-ai`.")
 
-    ai_config = AIConfig(api_key=api_key, base_url=base_url)
-    if model:
-        ai_config.model = model
+    ai_config = AIConfig.from_env().apply_overrides(api_key=api_key, base_url=base_url, model=model)
+    ai_config.timeout = timeout
+
+    if not ai_config.api_key:
+        click.echo(
+            "Error: AI API key not configured. Set SQLSEED_AI_API_KEY or OPENAI_API_KEY, or use --api-key.",
+            err=True,
+        )
+        raise SystemExit(1)
+
+    resolved_model = ai_config.resolve_model()
+    click.echo(f"Using AI model: {resolved_model} (via OpenRouter)")
 
     analyzer = SchemaAnalyzer(config=ai_config)
+    total_timeout = timeout * 2
 
-    if verify and max_retries > 0:
-        result = _handle_ai_verification(analyzer, db_path, table, max_retries, no_cache)
-    else:
-        result = _handle_ai_direct(analyzer, db_path, table)
+    old_handler: Any = None
+    if hasattr(signal, "SIGALRM"):
+        old_handler = signal.signal(signal.SIGALRM, lambda _s, _f: _sigalrm_handler(total_timeout))
+        signal.alarm(int(total_timeout))
+
+    try:
+        result = _run_ai_analysis(analyzer, db_path, table, verify, max_retries, no_cache)
+    finally:
+        if hasattr(signal, "SIGALRM"):
+            signal.alarm(0)
+            if old_handler is not None:
+                signal.signal(signal.SIGALRM, old_handler)
+
+    if ai_config.model != resolved_model:
+        click.echo(f"Model fallback: {resolved_model} → {ai_config.model}")
 
     if result:
-        output_data = {
-            "db_path": db_path,
-            "provider": "mimesis",
-            "locale": "en_US",
-            "tables": [result],
-        }
-        with open(output, "w", encoding="utf-8") as f:
-            yaml.dump(output_data, f, allow_unicode=True, sort_keys=False, default_flow_style=False)
-        click.echo(f"AI suggestions saved to {output}")
+        _write_ai_output(output, db_path, result)
     else:
-        if verify and max_retries > 0:
-            return
-        click.echo("No suggestions received. Ensure sqlseed-ai plugin is installed and API key is configured.")
-        click.echo("Set SQLSEED_AI_API_KEY environment variable or use --api-key option.")
+        _report_ai_failure()
+
+
+def _sigalrm_handler(total_timeout: float) -> None:
+    click.echo(
+        f"\nError: AI suggestion timed out after {total_timeout:.0f}s. "
+        "Try a different model with --model, or increase timeout with --timeout.",
+        err=True,
+    )
+    raise SystemExit(1)
 
 
 def main() -> None:
