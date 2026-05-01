@@ -113,11 +113,9 @@ class TestGeneratorTypes:
 
         for doc_path in check_files:
             text = _read(doc_path)
-            matches = re.findall(
-                r"(\d+)\s*(?:generators?|个生成器|generator types?|种生成器)",
-                text,
-                re.IGNORECASE,
-            )
+            matches = re.findall(r"(\d+)\s*个生成器", text)
+            matches += re.findall(r"(\d+)\s*种生成器", text)
+            matches += re.findall(r"(\d+)\s*generator", text, re.IGNORECASE)
             for m in matches:
                 assert int(m) == count, (
                     f"{doc_path}: claims {m} generators, but _GENERATOR_MAP has {count}. "
@@ -148,7 +146,8 @@ class TestExactMatchRules:
 
         for doc_path in _find_doc_files():
             text = _read(doc_path)
-            matches = re.findall(r"(\d+)\s*(?:条规则|rules?)", text, re.IGNORECASE)
+            matches = re.findall(r"(\d+)\s*条规则", text)
+            matches += re.findall(r"(\d+)\s*rule", text, re.IGNORECASE)
             for m in matches:
                 assert int(m) == rule_count, f"{doc_path}: claims {m} rules, but EXACT_MATCH_RULES has {rule_count}"
 
@@ -163,11 +162,9 @@ class TestExpressionFunctions:
         for doc_path in _find_doc_files():
             text = _read(doc_path)
             # Match "21 functions" or "21 个函数" (not "11 total" which refers to hooks)
-            matches = re.findall(
-                r"(\d+)\s*(?:个\s*)?(?:函数|functions?)",
-                text,
-                re.IGNORECASE,
-            )
+            matches = re.findall(r"(\d+)\s*个\s*函数", text)
+            matches += re.findall(r"(\d+)\s*函数", text)
+            matches += re.findall(r"(\d+)\s*function", text, re.IGNORECASE)
             for m in matches:
                 # Only assert if file also mentions expression engine context
                 if "expression" in text.lower() or "表达式" in text.lower() or "SAFE_FUNCTIONS" in text:
@@ -186,11 +183,9 @@ class TestPluginHooks:
         for doc_path in _find_doc_files():
             text = _read(doc_path)
             # Match "11 hooks" or "11 个 Hook" or "11 hook points"
-            matches = re.findall(
-                r"(\d+)\s*(?:个\s*)?(?:hook|Hook)\s*(?:点|point|s?\b)",
-                text,
-                re.IGNORECASE,
-            )
+            matches = re.findall(r"(\d+)\s*个\s*hook\s*点", text, re.IGNORECASE)
+            matches += re.findall(r"(\d+)\s*hook\s*point", text, re.IGNORECASE)
+            matches += re.findall(r"(\d+)\s*hook", text, re.IGNORECASE)
             for m in matches:
                 assert int(m) == count, f"{doc_path}: claims {m} hooks, but hookspecs.py has {count}"
 
