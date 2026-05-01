@@ -9,7 +9,6 @@ updating — not that the code is wrong.
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 import pytest
@@ -52,49 +51,173 @@ def _docs_mention_number(number: int, context: str = "") -> list[str]:
     return hits
 
 
-# ── Source Code Fact Extractors ──────────────────────────────────────
+def _extract_number_before_keyword(text: str, keywords: list[str]) -> list[str]:
+    """Extract numbers that appear immediately before any of the given keywords.
+
+    Uses pure string operations to avoid regex security hotspots.
+    Case-insensitive for ASCII keywords.
+    """
+    results = []
+    text_lower = text.lower()
+    for kw in keywords:
+        kw_lower = kw.lower()
+        pos = 0
+        while True:
+            idx = text_lower.find(kw_lower, pos)
+            if idx == -1:
+                break
+            # Walk backwards to find digits
+            end = idx
+            start = end
+            while start > 0 and text[start - 1].isspace():
+                start -= 1
+            digit_end = start
+            while start > 0 and text[start - 1].isdigit():
+                start -= 1
+            if start < digit_end:
+                results.append(text[start:digit_end])
+            pos = idx + len(kw)
+    return results
+
+
+def _extract_quoted_key(line: str) -> str | None:
+    """Extract the first quoted key from a line like '  "name": ...'."""
+    first_q = line.find('"')
+    if first_q == -1:
+        return None
+    second_q = line.find('"', first_q + 1)
+    if second_q == -1:
+        return None
+    return line[first_q + 1 : second_q]
+
+
+# ── Source Code Fact Extractors (pure string operations) ─────────────
 
 
 def _get_generator_types() -> set[str]:
     """Extract generator type names from _GENERATOR_MAP."""
     code = _read(ROOT / "src" / "sqlseed" / "generators" / "_dispatch.py")
-    return set(re.findall(r'"(\w+)":\s*"_gen_', code))
+    names: set[str] = set()
+    marker = '"_gen_'
+    for line in code.splitlines():
+        idx = line.find(marker)
+        if idx == -1:
+            continue
+        key = _extract_quoted_key(line[:idx])
+        if key:
+            names.add(key)
+    return names
 
 
 def _get_exact_match_rules() -> dict[str, str]:
     """Extract exact match rules from mapper."""
     code = _read(ROOT / "src" / "sqlseed" / "core" / "mapper.py")
-    # Match the EXACT_MATCH_RULES dict entries
-    return dict(re.findall(r'"(\w+)":\s*"(\w+)"', code))
+    rules: dict[str, str] = {}
+    in_dict = False
+    for line in code.splitlines():
+        stripped = line.strip()
+        if "EXACT_MATCH_RULES" in line:
+            in_dict = True
+            continue
+        if in_dict:
+            if stripped.startswith("}"):
+                break
+            # Parse "key": "value" pairs
+            parts = stripped.split('": "')
+            if len(parts) == 2:
+                key = parts[0].lstrip('" ')
+                value = parts[1].rstrip('",')
+                rules[key] = value
+    return rules
 
 
 def _get_safe_functions() -> set[str]:
     """Extract function names from ExpressionEngine.SAFE_FUNCTIONS."""
     code = _read(ROOT / "src" / "sqlseed" / "core" / "expression.py")
-    section = re.search(r"SAFE_FUNCTIONS[^=]*=\s*\{([^}]*)", code, re.DOTALL)
-    if not section:
+    # Find the SAFE_FUNCTIONS dict body
+    marker = "SAFE_FUNCTIONS"
+    start = code.find(marker)
+    if start == -1:
         return set()
-    # Only match string keys (exclude numeric like "0")
-    return {m for m in re.findall(r'"([a-z_]\w*)":', section.group(1)) if not m.isdigit()}
+    brace_start = code.find("{", start)
+    if brace_start == -1:
+        return set()
+    brace_end = code.find("}", brace_start)
+    body = code[brace_start + 1 : brace_end] if brace_end != -1 else code[brace_start + 1 :]
+
+    funcs: set[str] = set()
+    for line in body.splitlines():
+        key = _extract_quoted_key(line)
+        # Only string keys starting with a lowercase letter (skip numeric like "0")
+        if key and key[0].islower() and not key.isdigit():
+            funcs.add(key)
+    return funcs
 
 
 def _get_hook_names() -> set[str]:
     """Extract hook function names from hookspecs."""
     code = _read(ROOT / "src" / "sqlseed" / "plugins" / "hookspecs.py")
-    return set(re.findall(r"def (sqlseed_\w+)", code))
+    hooks: set[str] = set()
+    marker = "def sqlseed_"
+    for line in code.splitlines():
+        idx = line.find(marker)
+        if idx == -1:
+            continue
+        rest = line[idx + len(marker) :]
+        name = "sqlseed_"
+        for ch in rest:
+            if ch.isalnum() or ch == "_":
+                name += ch
+            else:
+                break
+        hooks.add(name)
+    return hooks
 
 
 def _get_config_fields(cls_name: str) -> set[str]:
     """Extract field names from a Pydantic model class."""
     code = _read(ROOT / "src" / "sqlseed" / "config" / "models.py")
-    # Find the class body using string operations to avoid regex backtracking
+    # Find the class body using string operations
     marker = f"class {cls_name}"
     start = code.find(marker)
     if start == -1:
         return set()
     next_class = code.find("\nclass ", start + len(marker))
     body = code[start:] if next_class == -1 else code[start:next_class]
-    return set(re.findall(r"^\s+(\w+):\s*", body, re.MULTILINE))
+
+    fields: set[str] = set()
+    for line in body.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or stripped.startswith("class "):
+            continue
+        # Check for "field_name:" pattern (field definition)
+        colon_idx = stripped.find(":")
+        if colon_idx > 0:
+            field_name = stripped[:colon_idx].strip()
+            if field_name.isidentifier() and not field_name.startswith("_"):
+                fields.add(field_name)
+    return fields
+
+
+def _extract_public_api_funcs() -> list[str]:
+    """Extract public API function names from __init__.py."""
+    code = _read(ROOT / "src" / "sqlseed" / "__init__.py")
+    funcs: list[str] = []
+    marker = "def "
+    for line in code.splitlines():
+        # Only top-level defs (no leading whitespace)
+        if not line.startswith(marker):
+            continue
+        rest = line[len(marker) :]
+        name = ""
+        for ch in rest:
+            if ch.isalnum() or ch == "_":
+                name += ch
+            else:
+                break
+        if name and not name.startswith("_"):
+            funcs.append(name)
+    return funcs
 
 
 # ── Tests ────────────────────────────────────────────────────────────
@@ -113,9 +236,7 @@ class TestGeneratorTypes:
 
         for doc_path in check_files:
             text = _read(doc_path)
-            matches = re.findall(r"(\d+)\s*个生成器", text)
-            matches += re.findall(r"(\d+)\s*种生成器", text)
-            matches += re.findall(r"(\d+)\s*generator", text, re.IGNORECASE)
+            matches = _extract_number_before_keyword(text, ["个生成器", "种生成器", "generator"])
             for m in matches:
                 assert int(m) == count, (
                     f"{doc_path}: claims {m} generators, but _GENERATOR_MAP has {count}. "
@@ -137,17 +258,12 @@ class TestExactMatchRules:
     """Verify exact match rule count matches documentation."""
 
     def test_count_in_docs(self):
-        code = _read(ROOT / "src" / "sqlseed" / "core" / "mapper.py")
-        # Count entries in EXACT_MATCH_RULES dict
-        rule_section = re.search(r"EXACT_MATCH_RULES[^=]*=\s*\{([^}]*)", code, re.DOTALL)
-        if not rule_section:
-            pytest.skip("Cannot parse EXACT_MATCH_RULES")
-        rule_count = len(re.findall(r'"\w+":', rule_section.group(1)))
+        rules = _get_exact_match_rules()
+        rule_count = len(rules)
 
         for doc_path in _find_doc_files():
             text = _read(doc_path)
-            matches = re.findall(r"(\d+)\s*条规则", text)
-            matches += re.findall(r"(\d+)\s*rule", text, re.IGNORECASE)
+            matches = _extract_number_before_keyword(text, ["条规则", "rule"])
             for m in matches:
                 assert int(m) == rule_count, f"{doc_path}: claims {m} rules, but EXACT_MATCH_RULES has {rule_count}"
 
@@ -161,16 +277,12 @@ class TestExpressionFunctions:
 
         for doc_path in _find_doc_files():
             text = _read(doc_path)
-            # Match "21 functions" or "21 个函数" (not "11 total" which refers to hooks)
-            matches = re.findall(r"(\d+)\s*个\s*函数", text)
-            matches += re.findall(r"(\d+)\s*函数", text)
-            matches += re.findall(r"(\d+)\s*function", text, re.IGNORECASE)
+            # Only check files that mention expression engine context
+            if "expression" not in text.lower() and "表达式" not in text.lower() and "SAFE_FUNCTIONS" not in text:
+                continue
+            matches = _extract_number_before_keyword(text, ["个函数", "函数", "function"])
             for m in matches:
-                # Only assert if file also mentions expression engine context
-                if "expression" in text.lower() or "表达式" in text.lower() or "SAFE_FUNCTIONS" in text:
-                    assert int(m) == count, (
-                        f"{doc_path}: claims {m} expression functions, but SAFE_FUNCTIONS has {count}"
-                    )
+                assert int(m) == count, f"{doc_path}: claims {m} expression functions, but SAFE_FUNCTIONS has {count}"
 
 
 class TestPluginHooks:
@@ -182,10 +294,7 @@ class TestPluginHooks:
 
         for doc_path in _find_doc_files():
             text = _read(doc_path)
-            # Match "11 hooks" or "11 个 Hook" or "11 hook points"
-            matches = re.findall(r"(\d+)\s*个\s*hook\s*点", text, re.IGNORECASE)
-            matches += re.findall(r"(\d+)\s*hook\s*point", text, re.IGNORECASE)
-            matches += re.findall(r"(\d+)\s*hook", text, re.IGNORECASE)
+            matches = _extract_number_before_keyword(text, ["个 hook 点", "个hook点", "hook point", "hook"])
             for m in matches:
                 assert int(m) == count, f"{doc_path}: claims {m} hooks, but hookspecs.py has {count}"
 
@@ -246,8 +355,7 @@ class TestCodeExamples:
 
     def test_public_api_in_readme(self):
         """README should document all public API functions."""
-        init_code = _read(ROOT / "src" / "sqlseed" / "__init__.py")
-        public_funcs = re.findall(r"^def (\w+)\(", init_code, re.MULTILINE)
+        public_funcs = _extract_public_api_funcs()
 
         readme = _read(ROOT / "README.md")
         for func in public_funcs:
