@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import sqlite3
 from dataclasses import dataclass
 from typing import Any
 
@@ -89,9 +90,12 @@ class PragmaOptimizer:
         ):
             value = getattr(self._original, attr)
             if value is not None and (
-                isinstance(value, (int, float)) or (isinstance(value, str) and re.match(r"^[a-zA-Z0-9_-]+$", value))
+                isinstance(value, int | float) or (isinstance(value, str) and re.match(r"^[a-zA-Z0-9_-]+$", value))
             ):
-                self._execute(f"PRAGMA {attr} = {value}")
+                try:
+                    self._execute(f"PRAGMA {attr} = {value}")
+                except (sqlite3.DatabaseError, ValueError):
+                    logger.debug("Failed to restore PRAGMA", attr=attr, value=value)
 
         logger.debug("Restored original PRAGMA config")
         self._original = None

@@ -14,6 +14,9 @@ class GeneratorSpec:
     params: dict[str, Any] = field(default_factory=dict)
     null_ratio: float = 0.0
     provider: str | None = None
+    native_faker_method: str | None = None
+    native_mimesis_method: str | None = None
+    native_params: dict[str, Any] | None = None
 
 
 class ColumnMapper:
@@ -24,9 +27,9 @@ class ColumnMapper:
         "mobile": "phone",
         "address": "address",
         "name": "name",
-        "username": "name",
-        "user_name": "name",
-        "nickname": "name",
+        "username": "username",
+        "user_name": "username",
+        "nickname": "username",
         "first_name": "first_name",
         "last_name": "last_name",
         "full_name": "name",
@@ -46,7 +49,7 @@ class ColumnMapper:
         "passwd": "password",
         "secret": "password",
         "status": "choice",
-        "state": "choice",
+        "state": "state",
         "gender": "choice",
         "sex": "choice",
         "type": "choice",
@@ -81,14 +84,21 @@ class ColumnMapper:
         "longitude": "float",
         "lat": "float",
         "lng": "float",
-        "city": "string",
-        "country": "string",
-        "zip_code": "string",
-        "postal_code": "string",
+        "city": "city",
+        "country": "country",
+        "zip_code": "zip_code",
+        "postal_code": "zip_code",
+        "postcode": "zip_code",
+        "province": "state",
+        "region": "state",
+        "job_title": "job_title",
+        "occupation": "job_title",
+        "position": "job_title",
+        "country_code": "country_code",
     }
 
     EXACT_MATCH_PARAMS: ClassVar[dict[str, dict[str, Any]]] = {
-        "age": {"min_value": 18, "max_value": 100},
+        "age": {"min_value": 18, "max_value": 65},
         "count": {"min_value": 0, "max_value": 10000},
         "quantity": {"min_value": 1, "max_value": 100},
         "amount": {"min_value": 0.01, "max_value": 99999.99, "precision": 2},
@@ -105,7 +115,6 @@ class ColumnMapper:
         "lat": {"min_value": -90.0, "max_value": 90.0, "precision": 6},
         "lng": {"min_value": -180.0, "max_value": 180.0, "precision": 6},
         "status": {"choices": [0, 1]},
-        "state": {"choices": [0, 1, 2]},
         "gender": {"choices": ["male", "female", "other"]},
         "sex": {"choices": ["male", "female"]},
         "type": {"choices": [1, 2, 3]},
