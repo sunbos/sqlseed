@@ -7,6 +7,36 @@ All notable changes to this project will be documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.1.16]
+
+### Added
+
+- `_utils/paths.py` — `get_cache_dir(subdir)` platform-specific cache directory utility (macOS `~/Library/Caches/sqlseed/`, Linux `~/.cache/sqlseed/`, Windows `%LOCALAPPDATA%/sqlseed/`), respects `SQLSEED_CACHE_DIR` env var
+- `_utils/progress.py` refactored to Strategy Pattern with multi-backend architecture: `RichProgressBackend` (terminal), `TqdmNotebookBackend` (Jupyter), `NullProgressBackend` (disabled), with automatic environment detection
+- `generators/_protocol.py` adds `GenerationError` (retriable runtime error) and `ConfigurationError` (non-retriable config error) exception classes
+- `ColumnConfig` adds `normalize_dict_input` model_validator: supports `type` as `generator` alias, auto-routes unknown keys to `params`, flattens nested `params`
+- `DataStream` now logs UNIQUE constraint exhaustion warnings with column and generator details
+- `DataStream` RuntimeError message includes non-skip column names for faster debugging
+- Jupyter notebook tutorial series (`examples/notebooks/`): quickstart, column mapping, generators, DB association, expression/DAGs, AI configuration, MCP server, testing patterns, utilities, CLI reference
+
+### Changed
+
+- `SnapshotManager` default directory changed from `./snapshots` to platform cache dir (`get_cache_dir("snapshots")`)
+- `AiConfigRefiner` default cache directory changed from `.sqlseed_cache/ai_configs/` to platform cache dir (`get_cache_dir("ai_configs")`)
+- `cli/main.py` `inspect --show-mapping` now uses `orch._resolve_specs()` for accurate column mapping display (previously used `orch.map_column(col)` which skipped FK resolution)
+- `cli/main.py` `fill` now outputs warnings for `result.errors` to stderr
+- `orchestrator._resolve_user_configs` supports `derive_from`/`expression` in dict-style column configs
+- Demo database (`examples/build_demo_db.py`) rewritten as idempotent schema initializer (`ensure_db()`), no longer embeds seed data
+- **⚠️ Breaking**: `register_shared_pool` now only registers PK and FK columns to SharedPool (previously registered all non-PK-skip columns). Implicit cross-table association for same-name non-PK/FK columns now requires explicit `ColumnAssociation` config
+- UNIQUE columns are no longer overridden by SharedPool implicit association or template pool, preventing duplicate values that caused `IntegrityError`
+
+### Fixed
+
+- `orchestrator.fill_table` now catches `sqlite3.IntegrityError` alongside `OperationalError`, preventing unhandled crashes on UNIQUE/FK violations
+- `UniqueAdjuster` uses `params.get("max_length", max_length)` to prevent `KeyError` when `max_length` is absent from params
+- `DataStream._attempt_node_generation` catches generator exceptions gracefully instead of propagating to caller
+- Backtrack/no-values log level reduced from `warning` to `debug` to reduce noise
+
 ## [v0.1.15]
 
 ### Fixed
@@ -42,7 +72,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### AI Plugin (sqlseed-ai)
 - Auto model selection: `_model_selector` picks the best free model from OpenRouter by priority
 - Structured output: `response_format: json_object` forces LLM to return JSON
-- Few-shot example library: 4 typical scenarios (users, bank cards, orders, employees)
+- Few-shot example library: 4 typical scenarios (users, projects, orders, employees)
 - `AiConfigRefiner` self-correction loop: auto-detects and fixes invalid configs, up to 3 retries
 - File caching: `.sqlseed_cache/ai_configs/` with schema hash validation, `--no-cache` to skip
 - Pre-computed template pool: `sqlseed_pre_generate_templates` hook pre-generates candidate values for complex columns

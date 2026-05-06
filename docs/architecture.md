@@ -68,7 +68,8 @@ graph TB
         SQL["sql_safe<br/>SQL injection protection"]
         Helpers["schema_helpers<br/>AUTOINCREMENT"]
         Metrics["MetricsCollector<br/>performance metrics"]
-        Progress["Progress<br/>Rich progress bar"]
+        Progress["Progress<br/>multi-backend: Rich/tqdm/Null"]
+        Paths["Paths<br/>platform cache dirs"]
         Logger["Logger<br/>structlog"]
     end
 
@@ -209,7 +210,7 @@ flowchart TD
     L6{"Level 6<br/>Custom pattern match?"} -->|Match| R6["Use plugin-registered regex rules"]
     L6 -->|No match| L7
 
-    L7{"Level 7<br/>Built-in pattern match?<br/>(25 regexes)"} -->|Match| R7["*_at→datetime<br/>*_id→foreign_key<br/>is_*→boolean<br/>..."]
+    L7{"Level 7<br/>Built-in pattern match?<br/>(26 regexes)"} -->|Match| R7["*_at→datetime<br/>*_id / *_no→foreign_key_or_integer<br/>is_*→boolean<br/>..."]
     L7 -->|No match| L8
 
     L8{"Level 8<br/>Nullable?"} -->|Yes| R8["skip (skip generation)<br/>or __enrich__"]
@@ -391,23 +392,23 @@ classDiagram
 ```mermaid
 flowchart LR
     subgraph DAG["ColumnDAG Topological Sort"]
-        card_number["card_number<br/>pattern: 62[0-9]{17}<br/>unique: true"]
-        CutCard4["last_eight<br/>derive_from: card_number<br/>expression: value[-8:]<br/>unique: true"]
-        CutCard3["last_six<br/>derive_from: card_number<br/>expression: value[-6:]"]
-        account_id["account_id<br/>pattern: U[0-9]{10}<br/>unique: true"]
+        project_no["project_no<br/>pattern: PRJ-\\d{6}<br/>unique: true"]
+        short_code_node["short_code<br/>derive_from: project_no<br/>expression: value[-6:]<br/>unique: true"]
+        region_code["region_code<br/>derive_from: project_no<br/>expression: value[-4:]"]
+        member_no["member_no<br/>pattern: M-\\d{4}<br/>unique: true"]
     end
 
-    card_number --> CutCard4
-    card_number --> CutCard3
+    project_no --> short_code_node
+    project_no --> region_code
 
     subgraph Backtrack["Constraint Solving (Backtracking)"]
         direction TB
-        Gen1["Generate card_number = 6200001234567890123"]
-        Derive1["Compute last_eight = 67890123"]
-        Check1{"last_eight<br/>unique?"}
+        Gen1["Generate project_no = PRJ-004231"]
+        Derive1["Compute short_code = 004231"]
+        Check1{"short_code<br/>unique?"}
         Success["✅ Registered"]
         Fail["❌ Already exists"]
-        BT["🔄 Backtrack: undo card_number<br/>regenerate"]
+        BT["🔄 Backtrack: undo project_no<br/>regenerate"]
 
         Gen1 --> Derive1 --> Check1
         Check1 -->|Yes| Success

@@ -7,6 +7,36 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)，
 本项目遵循[语义化版本](https://semver.org/spec/v2.0.0.html)。
 
+## [v0.1.16]
+
+### 新增
+
+- `_utils/paths.py` — `get_cache_dir(subdir)` 平台标准缓存目录工具（macOS `~/Library/Caches/sqlseed/`，Linux `~/.cache/sqlseed/`，Windows `%LOCALAPPDATA%/sqlseed/`），支持 `SQLSEED_CACHE_DIR` 环境变量覆盖
+- `_utils/progress.py` 重构为 Strategy Pattern 多后端架构：`RichProgressBackend`（终端）、`TqdmNotebookBackend`（Jupyter）、`NullProgressBackend`（禁用），含自动环境检测
+- `generators/_protocol.py` 新增 `GenerationError`（可重试运行时错误）和 `ConfigurationError`（不可重试配置错误）异常类
+- `ColumnConfig` 新增 `normalize_dict_input` model_validator：支持 `type` 作为 `generator` 别名、未知键自动归入 `params`、嵌套 `params` 展平
+- `DataStream` 新增 UNIQUE 约束耗尽警告日志，包含列名和生成器详情
+- `DataStream` RuntimeError 消息现在包含非 skip 列名，便于快速定位问题
+- Jupyter Notebook 教程系列（`examples/notebooks/`）：快速上手、列映射、生成器、数据库关联、表达式/DAG、AI 配置、MCP 服务器、测试模式、工具类、CLI 参考
+
+### 变更
+
+- `SnapshotManager` 默认目录从 `./snapshots` 改为平台缓存目录（`get_cache_dir("snapshots")`）
+- `AiConfigRefiner` 默认缓存目录从 `.sqlseed_cache/ai_configs/` 改为平台缓存目录（`get_cache_dir("ai_configs")`）
+- `cli/main.py` `inspect --show-mapping` 现在使用 `orch._resolve_specs()` 显示准确的列映射（此前使用 `orch.map_column(col)` 会跳过 FK 解析）
+- `cli/main.py` `fill` 命令现在会将 `result.errors` 的警告输出到 stderr
+- `orchestrator._resolve_user_configs` 支持 dict 风格的 `derive_from`/`expression` 列配置
+- 示例数据库（`examples/build_demo_db.py`）重写为幂等 schema 初始化（`ensure_db()`），不再内置种子数据
+- **⚠️ Breaking**: `register_shared_pool` 现在只注册 PK 和 FK 列到 SharedPool（此前会注册所有非 PK-skip 列）。同名非 PK/FK 列的隐式跨表关联需通过 `ColumnAssociation` 显式声明
+- UNIQUE 列不再被 SharedPool 隐式关联或 template pool 覆盖，避免生成重复值导致 `IntegrityError`
+
+### 修复
+
+- `orchestrator.fill_table` 现在捕获 `sqlite3.IntegrityError`，避免 UNIQUE/FK 冲突导致未处理崩溃
+- `UniqueAdjuster` 使用 `params.get("max_length", max_length)` 防止 `max_length` 缺失时的 `KeyError`
+- `DataStream._attempt_node_generation` 优雅捕获生成器异常，不再向上传播
+- 回溯/无值日志级别从 `warning` 降为 `debug`，减少日志噪音
+
 ## [v0.1.15]
 
 ### 修复
