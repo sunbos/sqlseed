@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import sys
 from typing import Any
 
@@ -24,6 +25,10 @@ def configure_logging(level: str = "INFO") -> None:
         logger_factory=structlog.PrintLoggerFactory(file=sys.stderr),
         cache_logger_on_first_use=True,
     )
+
+
+_env_log_level = os.environ.get("SQLSEED_LOG_LEVEL", "WARNING").upper()
+configure_logging(_env_log_level)
 
 
 def get_logger(name: str | None = None) -> Any:

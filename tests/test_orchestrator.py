@@ -9,7 +9,7 @@ from sqlseed.config.models import ColumnConfig
 from sqlseed.core.mapper import GeneratorSpec
 from sqlseed.core.orchestrator import DataOrchestrator
 from sqlseed.plugins.hookspecs import hookimpl
-from tests.conftest import apply_enrichment, create_card_info_db
+from tests.conftest import apply_enrichment, create_project_info_db
 
 
 class TestOrchestratorBasic:
@@ -196,46 +196,46 @@ class TestOrchestratorPlugins:
 
 
 class TestOrchestratorUnique:
-    def test_detect_unique_columns(self, bank_cards_db) -> None:
-        with DataOrchestrator(bank_cards_db, provider_name="base") as orch:
+    def test_detect_unique_columns(self, unique_test_db) -> None:
+        with DataOrchestrator(unique_test_db, provider_name="base") as orch:
             orch._ensure_connected()
-            unique_cols = orch._schema.detect_unique_columns("bank_cards")
-            assert "card_number" in unique_cols
-            assert "account_id" in unique_cols
+            unique_cols = orch._schema.detect_unique_columns("projects")
+            assert "project_no" in unique_cols
+            assert "member_no" in unique_cols
 
-    def test_fill_unique_index_no_error(self, bank_cards_db) -> None:
-        with DataOrchestrator(bank_cards_db, provider_name="base") as orch:
-            result = orch.fill_table("bank_cards", count=100)
+    def test_fill_unique_index_no_error(self, unique_test_db) -> None:
+        with DataOrchestrator(unique_test_db, provider_name="base") as orch:
+            result = orch.fill_table("projects", count=100)
             assert result.count == 100
             assert not result.errors
 
-    def test_fill_unique_index_large_count(self, bank_cards_db) -> None:
-        with DataOrchestrator(bank_cards_db, provider_name="base") as orch:
-            result = orch.fill_table("bank_cards", count=1000)
+    def test_fill_unique_index_large_count(self, unique_test_db) -> None:
+        with DataOrchestrator(unique_test_db, provider_name="base") as orch:
+            result = orch.fill_table("projects", count=1000)
             assert result.count == 1000
             assert not result.errors
 
-    def test_unique_values_actually_unique(self, bank_cards_db) -> None:
-        with DataOrchestrator(bank_cards_db, provider_name="base") as orch:
-            orch.fill_table("bank_cards", count=200)
-            conn = sqlite3.connect(bank_cards_db)
-            rows = conn.execute("SELECT card_number FROM bank_cards").fetchall()
+    def test_unique_values_actually_unique(self, unique_test_db) -> None:
+        with DataOrchestrator(unique_test_db, provider_name="base") as orch:
+            orch.fill_table("projects", count=200)
+            conn = sqlite3.connect(unique_test_db)
+            rows = conn.execute("SELECT project_no FROM projects").fetchall()
             conn.close()
             values = [r[0] for r in rows]
             assert len(values) == len(set(values))
 
-    def test_adjust_specs_for_unique_string(self, bank_cards_db) -> None:
-        with DataOrchestrator(bank_cards_db, provider_name="base") as orch:
+    def test_adjust_specs_for_unique_string(self, unique_test_db) -> None:
+        with DataOrchestrator(unique_test_db, provider_name="base") as orch:
             orch._ensure_connected()
             specs = {
-                "card_number": GeneratorSpec(
+                "project_no": GeneratorSpec(
                     generator_name="string",
                     params={"min_length": 1, "max_length": 20},
                 ),
             }
-            adjusted = orch._unique_adjuster.adjust(specs, {"card_number"}, 10000)
-            assert adjusted["card_number"].params["min_length"] > 1
-            assert adjusted["card_number"].params["min_length"] <= 20
+            adjusted = orch._unique_adjuster.adjust(specs, {"project_no"}, 10000)
+            assert adjusted["project_no"].params["min_length"] > 1
+            assert adjusted["project_no"].params["min_length"] <= 20
 
     def test_adjust_specs_for_unique_integer(self, tmp_path: Any) -> None:
         db_path = str(tmp_path / "test.db")
@@ -256,20 +256,20 @@ class TestOrchestratorUnique:
             adjusted = orch._unique_adjuster.adjust(specs, {"code"}, 10000)
             assert adjusted["code"].params["max_value"] >= 100000
 
-    def test_fill_card_info_schema(self, tmp_path: Any) -> None:
-        db_path = str(tmp_path / "card_info.db")
-        create_card_info_db(db_path)
+    def test_fill_project_info_schema(self, tmp_path: Any) -> None:
+        db_path = str(tmp_path / "project_info.db")
+        create_project_info_db(db_path)
 
         with DataOrchestrator(db_path, provider_name="base") as orch:
-            result = orch.fill_table("card_info", count=1000)
+            result = orch.fill_table("project_info", count=1000)
             assert result.count == 1000
             assert not result.errors
 
         conn = sqlite3.connect(db_path)
-        rows = conn.execute("SELECT sCardNo FROM card_info").fetchall()
+        rows = conn.execute("SELECT project_no FROM project_info").fetchall()
         conn.close()
-        card_nos = [r[0] for r in rows]
-        assert len(card_nos) == len(set(card_nos))
+        project_nos = [r[0] for r in rows]
+        assert len(project_nos) == len(set(project_nos))
 
     def test_adjust_specs_for_unique_varchar_min_exceeds_max(self, tmp_path: Any) -> None:
         db_path = str(tmp_path / "varchar_unique.db")
@@ -377,7 +377,7 @@ class TestOrchestratorEnrichment:
             assert all(r[0] is None for r in new_rows)
 
     def test_enrich_high_cardinality_uses_type_fallback(self, tmp_path: Any) -> None:
-        db_path = str(tmp_path / "enrich_hcard.db")
+        db_path = str(tmp_path / "enrich_high_cardinality.db")
         conn = sqlite3.connect(db_path)
         conn.execute("CREATE TABLE items (id INTEGER PRIMARY KEY AUTOINCREMENT, score REAL DEFAULT 0.0)")
         for i in range(50):
@@ -394,19 +394,19 @@ class TestOrchestratorEnrichment:
             new_scores = [r[0] for r in rows[50:]]
             assert all(isinstance(s, float) for s in new_scores)
 
-    def test_fill_card_info_with_enrich(self, tmp_path: Any) -> None:
-        db_path = str(tmp_path / "card_enrich.db")
-        create_card_info_db(db_path, with_data=True, data_count=50)
+    def test_fill_project_info_with_enrich(self, tmp_path: Any) -> None:
+        db_path = str(tmp_path / "project_enrich.db")
+        create_project_info_db(db_path, with_data=True, data_count=50)
 
         with DataOrchestrator(db_path, provider_name="base") as orch:
-            result = orch.fill_table("card_info", count=100, enrich=True, clear_before=False)
+            result = orch.fill_table("project_info", count=100, enrich=True, clear_before=False)
             assert result.count == 100
             assert not result.errors
 
         conn = sqlite3.connect(db_path)
-        rows = conn.execute("SELECT byCardType FROM card_info").fetchall()
-        card_types = {r[0] for r in rows}
-        assert card_types.issubset({1, 2})
+        rows = conn.execute("SELECT byProjectType FROM project_info").fetchall()
+        project_types = {r[0] for r in rows}
+        assert project_types.issubset({1, 2})
         conn.close()
 
     def test_enrich_unique_column_uses_type_infer_not_choice(self, tmp_path: Any) -> None:

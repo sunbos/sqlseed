@@ -32,6 +32,11 @@ class ColumnConfig(BaseModel):
     源列模式：指定 generator + params
     派生列模式：指定 derive_from + expression
     两者不能同时使用。
+
+    支持从 dict 快捷构造：
+      - "type" 作为 "generator" 的别名
+      - 未知键自动归入 params
+      - 嵌套 "params" 字典会被展平
     """
 
     name: str
@@ -48,6 +53,41 @@ class ColumnConfig(BaseModel):
 
     # === 约束 ===
     constraints: ColumnConstraintsConfig | None = None
+
+    model_config = {"extra": "ignore"}
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_dict_input(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        result = dict(data)
+
+        if "type" in result and "generator" not in result:
+            result["generator"] = result.pop("type")
+        elif "type" in result and "generator" in result:
+            result.pop("type")
+
+        derive_from = result.get("derive_from")
+        if derive_from:
+            return result
+
+        known_fields = set(cls.model_fields)
+        nested_params = result.pop("params", None)
+
+        extra_keys = {k: v for k, v in result.items() if k not in known_fields}
+        for k in extra_keys:
+            result.pop(k)
+
+        merged_params: dict[str, Any] = {}
+        if isinstance(nested_params, dict):
+            merged_params.update(nested_params)
+        merged_params.update(extra_keys)
+
+        if merged_params:
+            result["params"] = merged_params
+
+        return result
 
     @field_validator("null_ratio")
     @classmethod

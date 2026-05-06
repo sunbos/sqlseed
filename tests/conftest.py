@@ -92,23 +92,23 @@ def create_tmp_db_with_data(tmp_db: str) -> str:
     return tmp_db
 
 
-@pytest.fixture(name="bank_cards_db")
-def create_bank_cards_db(tmp_path: Path) -> str:
-    db_path = str(tmp_path / "bank_cards.db")
+@pytest.fixture(name="unique_test_db")
+def create_unique_test_db(tmp_path: Path) -> str:
+    db_path = str(tmp_path / "unique_test.db")
     conn = sqlite3.connect(db_path)
     conn.execute("""
-        CREATE TABLE bank_cards (
-            cardId INTEGER PRIMARY KEY AUTOINCREMENT,
-            card_number VARCHAR(20) NOT NULL,
-            account_id VARCHAR(32) NOT NULL,
-            last_eight VARCHAR(8),
-            last_six VARCHAR(6),
-            byCardType INTEGER DEFAULT 1,
-            byFirstCardEnable INTEGER DEFAULT 0
+        CREATE TABLE projects (
+            projectId INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_no VARCHAR(20) NOT NULL,
+            member_no VARCHAR(32) NOT NULL,
+            short_code VARCHAR(8),
+            region_code VARCHAR(6),
+            byProjectType INTEGER DEFAULT 1,
+            byFirstProjectEnable INTEGER DEFAULT 0
         )
     """)
-    conn.execute("CREATE UNIQUE INDEX idx_cardno ON bank_cards(card_number)")
-    conn.execute("CREATE UNIQUE INDEX idx_userno ON bank_cards(account_id)")
+    conn.execute("CREATE UNIQUE INDEX idx_projectno ON projects(project_no)")
+    conn.execute("CREATE UNIQUE INDEX idx_memberno ON projects(member_no)")
     conn.commit()
     conn.close()
     return db_path
@@ -130,23 +130,23 @@ def create_raw_adapter_with_data(tmp_db_with_data: str) -> Generator[RawSQLiteAd
     adapter.close()
 
 
-CARD_INFO_DDL = """
-    CREATE TABLE card_info(
-        cardId INTEGER PRIMARY KEY,
-        sCardNo VARCHAR(32) NOT NULL,
-        byCardType INT8 DEFAULT 1,
-        byFirstCardEnable INT8 DEFAULT 0,
-        sUserNo VARCHAR(32) NOT NULL,
-        CutCard4byte VARCHAR(20) DEFAULT NULL,
-        CutCard3byte VARCHAR(20) DEFAULT NULL
+PROJECT_INFO_DDL = """
+    CREATE TABLE project_info(
+        projectId INTEGER PRIMARY KEY,
+        project_no VARCHAR(32) NOT NULL,
+        byProjectType INT8 DEFAULT 1,
+        byFirstProjectEnable INT8 DEFAULT 0,
+        member_no VARCHAR(32) NOT NULL,
+        short_code VARCHAR(20) DEFAULT NULL,
+        region_code VARCHAR(20) DEFAULT NULL
     )
 """
 
-CARD_INFO_INDEXES = [
-    "CREATE UNIQUE INDEX cardindex_card_info_1 ON card_info(sCardNo)",
-    "CREATE INDEX cardindex_card_info_2 ON card_info(sUserNo)",
-    "CREATE UNIQUE INDEX cardindex_card_info_3 ON card_info(CutCard4byte)",
-    "CREATE UNIQUE INDEX cardindex_card_info_4 ON card_info(CutCard3byte)",
+PROJECT_INFO_INDEXES = [
+    "CREATE UNIQUE INDEX projectindex_project_info_1 ON project_info(project_no)",
+    "CREATE INDEX projectindex_project_info_2 ON project_info(member_no)",
+    "CREATE UNIQUE INDEX projectindex_project_info_3 ON project_info(short_code)",
+    "CREATE UNIQUE INDEX projectindex_project_info_4 ON project_info(region_code)",
 ]
 
 
@@ -171,23 +171,23 @@ def apply_enrichment(db_path: str, table_name: str, provider_name: str = "base")
         return orch, specs
 
 
-def create_card_info_db(
+def create_project_info_db(
     db_path: str,
     with_data: bool = False,
     data_count: int = 50,
-    card_type_mod: int = 2,
+    project_type_mod: int = 2,
 ) -> None:
     conn = sqlite3.connect(db_path)
-    conn.execute(CARD_INFO_DDL)
-    for idx_sql in CARD_INFO_INDEXES:
+    conn.execute(PROJECT_INFO_DDL)
+    for idx_sql in PROJECT_INFO_INDEXES:
         conn.execute(idx_sql)
     if with_data:
         for i in range(data_count):
             conn.execute(
-                "INSERT INTO card_info "
-                "(cardId, sCardNo, byCardType, byFirstCardEnable, sUserNo, CutCard4byte, CutCard3byte) "
+                "INSERT INTO project_info "
+                "(projectId, project_no, byProjectType, byFirstProjectEnable, member_no, short_code, region_code) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                [i + 1, f"CARD{i:04d}", (i % card_type_mod) + 1, i % 2, f"U{i:04d}", f"C4_{i:04d}", f"C3_{i:04d}"],
+                [i + 1, f"PRJ{i:04d}", (i % project_type_mod) + 1, i % 2, f"M{i:04d}", f"SC_{i:04d}", f"RC_{i:04d}"],
             )
     conn.commit()
     conn.close()

@@ -182,7 +182,7 @@ class TestDataStream:
             constraint_solver=ConstraintSolver(),
             seed=42,
         )
-        with pytest.raises(RuntimeError, match="maximum retries"):
+        with pytest.raises(RuntimeError, match="Failed to generate row satisfying all constraints after"):
             next(stream.generate(3))
 
     def test_unknown_generator_error_defined(self) -> None:

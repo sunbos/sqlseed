@@ -350,9 +350,10 @@ class BaseProvider(GeneratorDispatchMixin):
     def _get_array_count(self) -> int:
         return self._rng.randint(1, 5)
 
-    def _gen_pattern(self, *, regex: str) -> str:
+    def _gen_pattern(self, *, pattern: str | None = None, regex: str | None = None) -> str:
+        effective = pattern or regex or ""
         r = rstr.Rstr(self._rng)
-        return r.xeger(regex)
+        return r.xeger(effective)
 
     CITIES: ClassVar[list[str]] = [
         "New York",

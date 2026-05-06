@@ -18,7 +18,7 @@ class TestGenerationResult:
         text = str(result)
         assert "users" in text
         assert "100" in text
-        assert "100 rows/s" in text
+        assert "100.00 rows/s" in text
 
     def test_zero_elapsed(self) -> None:
         result = GenerationResult(table_name="users", count=100, elapsed=0.0)

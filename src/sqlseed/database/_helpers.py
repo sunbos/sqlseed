@@ -19,8 +19,6 @@ def fetch_index_info(
     for row in rows:
         idx_name = row[1]
         is_unique = bool(row[2])
-        if idx_name.startswith("sqlite_autoindex_"):
-            continue
         col_rows = execute_fn(f"PRAGMA index_info({quote_identifier(idx_name)})").fetchall()
         columns = [cr[2] for cr in col_rows if cr[2] is not None]
         result.append(IndexInfo(name=idx_name, table=table_name, columns=columns, unique=is_unique))
