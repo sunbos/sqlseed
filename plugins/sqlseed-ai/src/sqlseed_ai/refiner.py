@@ -11,6 +11,7 @@ from sqlseed_ai._json_utils import _sanitize_names
 from sqlseed_ai.errors import ErrorSummary, summarize_error
 
 from sqlseed._utils.logger import get_logger
+from sqlseed._utils.paths import get_cache_dir
 from sqlseed.config.models import TableConfig
 from sqlseed.core.orchestrator import DataOrchestrator
 
@@ -34,7 +35,7 @@ class AiConfigRefiner:
     ) -> None:
         self._analyzer = analyzer
         self._db_path = db_path
-        self._cache_dir = Path(cache_dir) if cache_dir else Path(".sqlseed_cache/ai_configs")
+        self._cache_dir = Path(cache_dir) if cache_dir else get_cache_dir("ai_configs")
 
     def _attempt_generation_and_validation(
         self, messages: list[dict[str, Any]], orch: Any, table_name: str

@@ -60,10 +60,10 @@ class TestSummarizeError:
         assert summary.retryable is True
 
     def test_attribute_error_with_generate(self) -> None:
-        err = AttributeError("'Provider' object has no attribute 'generate_credit_card'")
+        err = AttributeError("'Provider' object has no attribute 'generate_project_identifier'")
         summary = summarize_error(err)
         assert summary.error_type == "unknown_generator"
-        assert "credit_card" in summary.message
+        assert "project_identifier" in summary.message
         assert summary.retryable is True
 
     def test_file_not_found_error(self) -> None:

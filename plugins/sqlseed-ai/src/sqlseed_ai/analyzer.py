@@ -58,11 +58,11 @@ fields and the system will fall back to the generator type.
    use username, city, country, state, zip_code, job_title,
    country_code when column names match
 5. For "age" columns, use min_value: 18, max_value: 65 (working age range)
-6. Use `pattern` generator with regex for card numbers, codes, IDs with specific formats
+6. Use `pattern` generator with regex for codes, IDs, serial numbers with specific formats
 7. Use `derive_from` + `expression` when one column is computed from another
 8. Use `constraints.unique: true` for columns that must be unique
-9. Detect cross-column dependencies: if last_eight = last 8 chars of card_number, use derive_from
-10. Detect implicit business associations: if account_id appears in multiple tables, note it
+9. Detect cross-column dependencies: if short_code = last 6 chars of project_no, use derive_from
+10. Detect implicit business associations: if member_no appears in multiple tables, note it
 
 ## Output Format
 You MUST respond with a valid JSON object (NOT YAML, NOT markdown fences).

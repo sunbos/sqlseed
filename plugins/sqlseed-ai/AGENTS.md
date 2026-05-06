@@ -13,7 +13,7 @@ sqlseed-ai/
     ├── __init__.py       # AISqlseedPlugin, plugin instance, hookimpl registration
     ├── provider.py       # AIProvider — stub generator (returns defaults)
     ├── analyzer.py       # SchemaAnalyzer — LLM schema analysis
-    ├── refiner.py        # Refiner — post-generation refinement
+    ├── refiner.py        # AiConfigRefiner — post-generation refinement and self-correction loop
     ├── config.py         # AIConfig — env-based OpenAI config
     ├── errors.py         # Custom exceptions
     ├── _client.py        # OpenAI client wrapper
