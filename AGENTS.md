@@ -6,7 +6,7 @@
 
 ## OVERVIEW
 
-Declarative SQLite test data generation toolkit. YAML/JSON config or Python API. Auto-infers schema, 7-level column mapping, 31 generators, plugin system (pluggy).
+Declarative SQLite test data generation toolkit. YAML/JSON config or Python API. Auto-infers schema, 9-level column mapping, 31 generators, plugin system (pluggy).
 
 **Stack**: Python 3.10+, hatchling build, ruff lint, mypy strict, pytest.
 
@@ -36,12 +36,12 @@ sqlseed/
 | Task | Location | Notes |
 |------|----------|-------|
 | Add new generator | `src/sqlseed/generators/` | Implement in base_provider.py or create new provider |
-| Modify column mapping | `src/sqlseed/core/mapper.py` | 7-level strategy chain |
+| Modify column mapping | `src/sqlseed/core/mapper.py` | 9-level strategy chain |
 | Add CLI command | `src/sqlseed/cli/main.py` | Click decorators |
 | Add plugin hook | `src/sqlseed/plugins/hookspecs.py` | pluggy hookspec |
 | Modify schema inference | `src/sqlseed/core/schema.py` | SchemaInferrer class |
 | Change batch insert | `src/sqlseed/database/` | Two adapters: raw, sqlite-utils |
-| Add test fixture | `tests/conftest.py` | tmp_db, tmp_db_with_data, bank_cards_db |
+| Add test fixture | `tests/conftest.py` | tmp_db, tmp_db_with_data, unique_test_db |
 | Configure AI plugin | `plugins/sqlseed-ai/` | Separate pyproject.toml |
 | Add MCP tool | `plugins/mcp-server-sqlseed/` | FastMCP decorators |
 

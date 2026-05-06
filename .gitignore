@@ -19,6 +19,8 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+*.whl
+*.tar.gz
 
 # Virtual Environment
 .venv/
@@ -29,46 +31,40 @@ ENV/
 # IDE
 .vscode/
 .idea/
+.trae/
+.claude/
+.sonarlint/
 *.swp
 *.swo
 *~
 
-# Testing
+# Testing & Quality
 .pytest_cache/
 .benchmarks/
 .coverage
 coverage.xml
 htmlcov/
-
-# Type checking
 .mypy_cache/
 .dmypy.json
 dmypy.json
-
-# Linting
 .ruff_cache/
 
-# Project specific
+# sqlseed
 *.db
 *.sqlite
 *.sqlite3
-snapshots/
-
-# AI cache
 .sqlseed_cache/
+snapshots/
+.env
+examples/notebooks/_*.yaml
+examples/notebooks/_*.json
+examples/notebooks/batch_config.yaml
+*.nbconvert.ipynb
+.ipynb_checkpoints/
 
-# macOS
+# OS
 .DS_Store
 
-# Trae IDE
-.trae/
-
-# Build artifacts
-*.whl
-*.tar.gz
-
-# Local git worktrees
+# Other
 .worktrees/
-
-# IDE - SonarLint
-.sonarlint/
+.sisyphus/

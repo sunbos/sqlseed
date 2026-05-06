@@ -26,6 +26,7 @@ Core features include:
 - **`src/sqlseed/_utils/`**: Internal utilities including SQL safety (`sql_safe.py`), shared schema helpers (`schema_helpers.py`), performance metrics collection (`metrics.py`), progress bar wrapper (`progress.py`, based on `rich`), and logging wrapper (`logger.py`, based on `structlog`).
 - **`plugins/sqlseed-ai/`**: Standalone package providing OpenAI-compatible LLM-driven generation. Contains `analyzer.py` (LLM table-level analysis), `refiner.py` (self-correction loop), `errors.py` (error summary), `examples.py` (few-shot examples), `provider.py` (AI provider compatibility stub), `config.py` (AIConfig model), `_client.py` (API client), `_json_utils.py` (JSON parsing), and `_model_selector.py` (auto model selection from OpenRouter).
 - **`plugins/mcp-server-sqlseed/`**: MCP server based on FastMCP providing one Resource (`sqlseed://schema/{db_path}/{table_name}`) and three core Tools (`sqlseed_inspect_schema`, `sqlseed_generate_yaml`, `sqlseed_execute_fill`) for seamless AI assistant integration (driven by `server.py` and `config.py`).
+- **`examples/`**: Contains tutorial Jupyter notebooks (`notebooks/`) covering quickstart, column mapping, generators, DB association, expression/DAGs, AI configuration, MCP server, and testing patterns. Also includes demo DB builder script (`build_demo_db.py`).
 - **`docs/`**: Project documentation including architecture diagrams (`architecture.md`).
 
 ## Build & Run
@@ -62,7 +63,7 @@ sqlseed init generate.yaml --db test.db
 
 # Save and replay snapshots
 sqlseed fill test.db --table users --count 10000 --snapshot
-sqlseed replay snapshots/2026-04-12_users.yaml
+sqlseed replay <cache_dir>/snapshots/YYYY-MM-DD_users.yaml
 
 # AI-driven YAML suggestions
 sqlseed ai-suggest test.db --table users --output users.yaml
