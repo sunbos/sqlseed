@@ -38,6 +38,12 @@ mypy src/sqlseed/
 # CLI usage
 sqlseed fill app.db -t users -n 10000
 sqlseed preview app.db -t users -n 5
+sqlseed inspect app.db --table users --show-mapping  # View column mapping strategies
+sqlseed init generate.yaml --db app.db               # Generate config template
+sqlseed fill app.db -t users -n 10000 --snapshot      # Save snapshot for replay
+sqlseed replay <cache_dir>/snapshots/YYYY-MM-DD_users.yaml  # Replay from snapshot
+SQLSEED_LOG_LEVEL=DEBUG sqlseed fill app.db -t users -n 10  # Debug logging
+SQLSEED_CACHE_DIR=./my_cache sqlseed fill app.db -t users -n 100 --snapshot  # Custom cache dir
 ```
 
 ## Architecture
@@ -58,7 +64,7 @@ _utils/ → (no internal deps, used by all layers)
 ### Key Modules
 
 - **`core/orchestrator.py`** — `DataOrchestrator` is the central coordinator. Uses `CoreCtx` (db, schema, mapper, relation, shared_pool) and `ExtCtx` (registry, plugins, mediator, enrichment, metrics) dataclasses. `fill_table()` is the main entry point; `fill()` is its alias.
-- **`core/mapper.py`** — `ColumnMapper` with 9-level strategy chain (autoincrement PK → user config → exact match → default check → pattern match → nullable → type fallback). 68 exact rules, 25 regex patterns.
+- **`core/mapper.py`** — `ColumnMapper` with 9-level strategy chain (autoincrement PK → user config → exact match → default check → pattern match → nullable → type fallback). 74 exact rules, 26 regex patterns.
 - **`core/schema.py`** — `SchemaInferrer` reads SQLite schema + `CREATE TABLE` SQL for autoincrement detection.
 - **`core/relation.py`** — `RelationResolver` + `SharedPool` for cross-table FK integrity. Implicit associations via name matching, explicit via `ColumnAssociation` config.
 - **`core/column_dag.py`** — Topological sort for `derive_from` column dependencies.
@@ -68,7 +74,7 @@ _utils/ → (no internal deps, used by all layers)
 - **`database/`** — `DatabaseAdapter` protocol with two implementations: `SQLiteUtilsAdapter` (default, requires `sqlite-utils`) and `RawSQLiteAdapter` (fallback). `_compat.py` controls `HAS_SQLITE_UTILS` flag.
 - **`plugins/`** — 11 pluggy hooks. `PluginManager` + `PluginMediator` bridge plugins and core.
 - **`config/`** — Pydantic models (`GeneratorConfig`, `TableConfig`, `ColumnConfig`, `ColumnAssociation`), YAML/JSON loader, `SnapshotManager`.
-- **`cli/main.py`** — Click commands: `fill`, `preview`, `inspect`, `ai-suggest`, `config-generate`. CLI log level via `SQLSEED_LOG_LEVEL` env var (default `WARNING`).
+- **`cli/main.py`** — Click commands: `fill`, `preview`, `inspect`, `ai-suggest`, `config-generate`. CLI log level via `SQLSEED_LOG_LEVEL` env var (default `WARNING`). Cache dir via `SQLSEED_CACHE_DIR` env var.
 
 ### Public API (`src/sqlseed/__init__.py`)
 
@@ -114,6 +120,8 @@ ColumnConfig supports two mutually exclusive modes (enforced by Pydantic `model_
 - New providers/adapters: must satisfy existing `Protocol` definitions
 - Optional deps (faker, mimesis, sqlite-utils): always lazy import with try/except
 - Register new providers via `pyproject.toml` `[project.entry-points."sqlseed"]`
+- **Ruff config**: Line length 120, isort `known-first-party=["sqlseed"]`
+- **Mypy scope**: Strict on `src/` and `plugins/`, relaxed on `tests/`
 
 ### Import Style
 
@@ -146,7 +154,7 @@ Run `pytest tests/test_doc_sync.py` to verify doc sync after changes.
 
 ## Testing
 
-- Fixtures in `tests/conftest.py`: `tmp_db` (users + orders tables), `tmp_db_with_data`, `bank_cards_db`, `create_card_info_db()`
+- Fixtures in `tests/conftest.py`: `tmp_db` (users + orders tables), `tmp_db_with_data`, `unique_test_db`, `create_project_info_db()` (project_info table with unique indexes), `raw_adapter`, `raw_adapter_with_data`
 - Use real SQLite via `tmp_path` fixture, never mock the database layer
 - CLI tests: use `click.testing.CliRunner`, never subprocess
 - AI plugin tests: `pytest.importorskip("sqlseed_ai")`
@@ -163,7 +171,11 @@ Run `pytest tests/test_doc_sync.py` to verify doc sync after changes.
 7. **Batch transforms chain**: Last non-`None` result wins — it's not accumulative
 8. **PRAGMA restore**: Must be in `finally` block or DB stays in unsafe state
 9. **sqlite-utils optional**: `database/_compat.py` controls `HAS_SQLITE_UTILS`; never `import sqlite_utils` in core paths
-10. **Provider fallback**: `_ensure_connected()` silently falls back to `"base"` on provider load failure
+10. **Provider fallback**: `_ensure_connected()` silently falls back to `"base"` on provider load failure. Provider chain: mimesis → faker → base (auto-degrades).
+
+## Sibling Agent Files
+
+`AGENTS.md` and `GEMINI.md` exist at the repo root — same project context for other AI coding tools.
 
 ## Plugins (separate packages)
 
