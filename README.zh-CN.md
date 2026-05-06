@@ -81,7 +81,7 @@ print(result)
 
 **🧮 表达式引擎 & 约束求解**
 
-支持派生列计算（`last_eight = card_number[-8:]`），唯一性约束回溯求解，超时保护防止死循环。
+支持派生列计算（`short_code = project_no[-8:]`），唯一性约束回溯求解，超时保护防止死循环。
 
 </td>
 <td>
@@ -177,6 +177,22 @@ mypy src/sqlseed/
 ***
 
 ## 🚀 快速开始
+
+### 使用示例数据库体验
+
+想立即体验 sqlseed？构建示例数据库：
+
+```bash
+python examples/build_demo_db.py
+```
+
+然后探索：
+
+```bash
+sqlseed preview examples/sqlseed_demo.db --table members --count 5
+sqlseed inspect examples/sqlseed_demo.db --show-mapping
+sqlseed fill examples/sqlseed_demo.db --table members --count 100
+```
 
 ### 30 秒上手
 
@@ -309,7 +325,7 @@ with sqlseed.connect("app.db", provider="mimesis", locale="zh_CN") as db:
     print(db.report())
 ```
 
-> **💡 提示**：如果两张表之间有同名列（如 `account_id`），即使没有声明外键约束，sqlseed 也会通过 **SharedPool 隐式关联机制**自动维持跨表一致性。
+> **💡 提示**：如果两张表之间有同名列（如 `member_no`），即使没有声明外键约束，sqlseed 也会通过 **SharedPool 隐式关联机制**自动维持跨表一致性。
 
 #### 显式跨表关联（ColumnAssociation）
 
@@ -404,40 +420,40 @@ tables:
 
 ```yaml
 tables:
-  - name: bank_cards
+  - name: projects
     count: 10000
     columns:
-      - name: card_number
+      - name: project_no
         generator: pattern
         params:
-          regex: "62[0-9]{17}"     # 19 位银联卡号
+          regex: "PRJ-\\d{6}"       # 项目编号模式
         constraints:
           unique: true
 
-      - name: last_eight
-        derive_from: card_number       # 依赖 card_number
-        expression: "value[-8:]"   # 取后 8 位
+      - name: short_code
+        derive_from: project_no       # 依赖 project_no
+        expression: "value[-6:]"   # 取后 6 位
         constraints:
           unique: true
 
-      - name: last_six
-        derive_from: card_number
-        expression: "value[-6:]"
+      - name: region_code
+        derive_from: project_no
+        expression: "value[-4:]"   # 取后 4 位
 
-      - name: account_id
+      - name: member_no
         generator: pattern
         params:
-          regex: "U[0-9]{10}"
+          regex: "M-\\d{4}"         # 成员编号模式
         constraints:
           unique: true
 ```
 
 **运作原理**：
 
-1. sqlseed 构建列依赖 DAG：`card_number → last_eight, last_six`
+1. sqlseed 构建列依赖 DAG：`project_no → short_code, region_code`
 2. 拓扑排序确定生成顺序
-3. 先生成 `card_number`，再通过表达式 `value[-8:]` 计算 `last_eight`
-4. 如果 `last_eight` 的唯一性约束失败，回溯重新生成 `card_number`
+3. 先生成 `project_no`，再通过表达式 `value[-6:]` 计算 `short_code`
+4. 如果 `short_code` 的唯一性约束失败，回溯重新生成 `project_no`
 
 #### 表达式引擎支持的函数（21 个）
 
@@ -517,10 +533,10 @@ sqlseed inspect app.db --table users --show-mapping
 ```bash
 # 生成并保存快照
 sqlseed fill app.db --table users --count 10000 --seed 42 --snapshot
-# → Snapshot saved: snapshots/2026-04-15_033000_users.yaml
+# → Snapshot saved: <cache_dir>/snapshots/YYYY-MM-DD_HHMMSS_users.yaml
 
 # 任意时刻回放
-sqlseed replay snapshots/2026-04-15_033000_users.yaml
+sqlseed replay <cache_dir>/snapshots/YYYY-MM-DD_HHMMSS_users.yaml
 ```
 
 ***
@@ -532,13 +548,13 @@ pip install sqlseed-ai
 export SQLSEED_AI_API_KEY="your-api-key"
 
 # AI 分析并生成配置
-sqlseed ai-suggest app.db --table bank_cards --output bank_cards.yaml
+sqlseed ai-suggest app.db --table projects --output projects.yaml
 
 # 带自纠正的 AI 建议（默认 3 轮修正）
-sqlseed ai-suggest app.db --table bank_cards --output bank_cards.yaml --verify
+sqlseed ai-suggest app.db --table projects --output projects.yaml --verify
 
 # 指定模型
-sqlseed ai-suggest app.db --table bank_cards -o bank_cards.yaml --model deepseek/deepseek-chat
+sqlseed ai-suggest app.db --table projects -o projects.yaml --model deepseek/deepseek-chat
 ```
 
 **AI 工作流程**：
@@ -655,7 +671,7 @@ sqlseed inspect app.db --table users --show-mapping
 
 # ═══ 快照与回放 ═══
 sqlseed init generate.yaml --db app.db
-sqlseed replay snapshots/2026-04-15_users.yaml
+sqlseed replay <cache_dir>/snapshots/YYYY-MM-DD_users.yaml
 
 # ═══ AI 功能 ═══
 sqlseed ai-suggest app.db -t users -o users.yaml
@@ -682,7 +698,7 @@ Level 5 │ DEFAULT 检查      有默认值 → skip / __enrich__（enrich=True
         ▼
 Level 6 │ 自定义模式匹配    通过插件 Hook 注册的正则规则
         ▼
-Level 7 │ 内置模式匹配      25 条正则：*_at→datetime, *_id→foreign_key, is_*→boolean...
+Level 7 │ 内置模式匹配      26 条正则：*_at→datetime, *_id→foreign_key, is_*→boolean...
         ▼
 Level 8 │ NULLABLE 回退     可 NULL → skip / __enrich__
         ▼
@@ -759,6 +775,7 @@ src/sqlseed/
     ├── sql_safe.py          # quote_identifier — SQL 注入防护
     ├── schema_helpers.py    # AUTOINCREMENT 检测
     ├── metrics.py           # MetricsCollector 性能度量
+    ├── paths.py             # get_cache_dir — 平台缓存目录
     ├── progress.py          # Rich 进度条
     └── logger.py            # structlog 日志
 

@@ -83,7 +83,7 @@ Topological sort auto-detects table dependencies. SharedPool cross-table value s
 
 **🧮 Expression Engine & Constraint Solving**
 
-Supports derived column computation (`last_eight = card_number[-8:]`), unique constraint backtracking, and timeout protection against infinite loops.
+Supports derived column computation (`short_code = project_no[-8:]`), unique constraint backtracking, and timeout protection against infinite loops.
 
 </td>
 <td>
@@ -179,6 +179,22 @@ mypy src/sqlseed/
 ***
 
 ## 🚀 Quick Start
+
+### Try with Demo Database
+
+Want to try sqlseed right away? Build the demo database:
+
+```bash
+python examples/build_demo_db.py
+```
+
+Then explore:
+
+```bash
+sqlseed preview examples/sqlseed_demo.db --table members --count 5
+sqlseed inspect examples/sqlseed_demo.db --show-mapping
+sqlseed fill examples/sqlseed_demo.db --table members --count 100
+```
 
 ### Get Started in 30 Seconds
 
@@ -325,7 +341,7 @@ with sqlseed.connect("app.db", provider="mimesis", locale="en_US") as db:
     # →   orders: 50000 rows
 ```
 
-> **💡 Tip**: If two tables share a column name (e.g., `account_id`), even without a declared FK constraint, sqlseed automatically maintains cross-table consistency via the **SharedPool implicit association mechanism**.
+> **💡 Tip**: If two tables share a column name (e.g., `member_no`), even without a declared FK constraint, sqlseed automatically maintains cross-table consistency via the **SharedPool implicit association mechanism**.
 
 #### Explicit Cross-Table Associations (ColumnAssociation)
 
@@ -441,42 +457,42 @@ for r in results:
 sqlseed v2.0 introduces column dependency DAG and expression engine for computing derived columns:
 
 ```yaml
-# Bank card info table scenario
+# Project info table scenario
 tables:
-  - name: bank_cards
+  - name: projects
     count: 10000
     columns:
-      - name: card_number
+      - name: project_no
         generator: pattern
         params:
-          regex: "62[0-9]{17}"     # 19-digit UnionPay card number
+          regex: "PRJ-\\d{6}"       # Project number pattern
         constraints:
           unique: true
 
-      - name: last_eight
-        derive_from: card_number       # Depends on card_number
-        expression: "value[-8:]"   # Last 8 digits
+      - name: short_code
+        derive_from: project_no       # Depends on project_no
+        expression: "value[-6:]"   # Last 6 chars
         constraints:
           unique: true
 
-      - name: last_six
-        derive_from: card_number
-        expression: "value[-6:]"   # Last 6 digits
+      - name: region_code
+        derive_from: project_no
+        expression: "value[-4:]"   # Last 4 chars
 
-      - name: account_id
+      - name: member_no
         generator: pattern
         params:
-          regex: "U[0-9]{10}"
+          regex: "M-\\d{4}"         # Member number pattern
         constraints:
           unique: true
 ```
 
 **How it works**:
 
-1. sqlseed builds a column dependency DAG: `card_number → last_eight, last_six`
+1. sqlseed builds a column dependency DAG: `project_no → short_code, region_code`
 2. Topological sort determines generation order
-3. Generates `card_number` first, then computes `last_eight` via `value[-8:]`
-4. If `last_eight` unique constraint fails, backtracks to regenerate `card_number`
+3. Generates `project_no` first, then computes `short_code` via `value[-6:]`
+4. If `short_code` unique constraint fails, backtracks to regenerate `project_no`
 
 #### Expression Engine Functions (21 total)
 
@@ -611,10 +627,10 @@ Save a successful generation config for exact replay later:
 ```bash
 # Generate and save snapshot
 sqlseed fill app.db --table users --count 10000 --seed 42 --snapshot
-# → Snapshot saved: snapshots/2026-04-15_033000_users.yaml
+# → Snapshot saved: <cache_dir>/snapshots/YYYY-MM-DD_HHMMSS_users.yaml
 
 # Replay anytime
-sqlseed replay snapshots/2026-04-15_033000_users.yaml
+sqlseed replay <cache_dir>/snapshots/YYYY-MM-DD_HHMMSS_users.yaml
 # → GenerationResult(table=users, count=10000, elapsed=0.52s, speed=19230 rows/s)
 ```
 
@@ -639,16 +655,16 @@ export SQLSEED_AI_API_KEY="your-api-key"
 export SQLSEED_AI_BASE_URL="https://your-llm-api-endpoint"
 
 # AI analysis and config generation
-sqlseed ai-suggest app.db --table bank_cards --output bank_cards.yaml
+sqlseed ai-suggest app.db --table projects --output projects.yaml
 
 # AI suggestions with self-correction (3 rounds by default)
-sqlseed ai-suggest app.db --table bank_cards --output bank_cards.yaml --verify
+sqlseed ai-suggest app.db --table projects --output projects.yaml --verify
 
 # Specify model (defaults to most popular free model)
-sqlseed ai-suggest app.db --table bank_cards --output bank_cards.yaml --model nvidia/nemotron-3-super-120b-a12b:free
+sqlseed ai-suggest app.db --table projects --output projects.yaml --model nvidia/nemotron-3-super-120b-a12b:free
 
 # Skip cache
-sqlseed ai-suggest app.db --table bank_cards --output bank_cards.yaml --no-cache
+sqlseed ai-suggest app.db --table projects --output projects.yaml --no-cache
 ```
 
 **AI Workflow**:
@@ -704,7 +720,7 @@ python -m mcp_server_sqlseed
 
 This means you can tell your AI assistant:
 
-> "Analyze the structure of the `bank_cards` table in `app.db`, generate a YAML config, then fill 5000 rows."
+> "Analyze the structure of the `projects` table in `app.db`, generate a YAML config, then fill 5000 rows."
 
 The AI assistant will call `sqlseed_inspect_schema` → `sqlseed_generate_yaml` → `sqlseed_execute_fill` in sequence, without you writing any code.
 
@@ -821,7 +837,7 @@ sqlseed inspect app.db --table users --show-mapping
 sqlseed init generate.yaml --db app.db
 
 # Replay snapshot
-sqlseed replay snapshots/2026-04-15_users.yaml
+sqlseed replay <cache_dir>/snapshots/YYYY-MM-DD_users.yaml
 
 # ═══════════════════════════════════════
 # 🤖 AI Features
@@ -861,7 +877,7 @@ Level 5 │ DEFAULT check       Has default → skip / __enrich__ (when enrich=T
         ▼
 Level 6 │ Custom pattern      Regex rules registered via plugin hooks
         ▼
-Level 7 │ Built-in pattern    25 regexes: *_at→datetime, *_id→foreign_key, is_*→boolean...
+Level 7 │ Built-in pattern    26 regexes: *_at→datetime, *_id→foreign_key, is_*→boolean...
         ▼
 Level 8 │ NULLABLE fallback   Nullable → skip / __enrich__
         ▼
@@ -938,6 +954,7 @@ src/sqlseed/
     ├── sql_safe.py          # quote_identifier — SQL injection protection
     ├── schema_helpers.py    # AUTOINCREMENT detection
     ├── metrics.py           # MetricsCollector performance metrics
+    ├── paths.py             # get_cache_dir — platform cache directory
     ├── progress.py          # Rich progress bar
     └── logger.py            # structlog logging
 

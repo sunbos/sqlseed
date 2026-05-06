@@ -68,7 +68,8 @@ graph TB
         SQL["sql_safe<br/>SQL 注入防护"]
         Helpers["schema_helpers<br/>AUTOINCREMENT"]
         Metrics["MetricsCollector<br/>性能度量"]
-        Progress["Progress<br/>Rich 进度条"]
+        Progress["Progress<br/>多后端：Rich/tqdm/Null"]
+        Paths["Paths<br/>平台缓存路径"]
         Logger["Logger<br/>structlog"]
     end
 
@@ -209,7 +210,7 @@ flowchart TD
     L6{"Level 6<br/>自定义模式匹配？"} -->|匹配| R6["使用插件注册的正则规则"]
     L6 -->|未匹配| L7
 
-    L7{"Level 7<br/>内置模式匹配？<br/>(25 条正则)"} -->|匹配| R7["*_at→datetime<br/>*_id→foreign_key<br/>is_*→boolean<br/>..."]
+    L7{"Level 7<br/>内置模式匹配？<br/>(26 条正则)"} -->|匹配| R7["*_at→datetime<br/>*_id / *_no→foreign_key_or_integer<br/>is_*→boolean<br/>..."]
     L7 -->|未匹配| L8
 
     L8{"Level 8<br/>可 NULL？"} -->|是| R8["skip (跳过生成)<br/>或 __enrich__"]
@@ -391,23 +392,23 @@ classDiagram
 ```mermaid
 flowchart LR
     subgraph DAG["ColumnDAG 拓扑排序"]
-        card_number["card_number<br/>pattern: 62[0-9]{17}<br/>unique: true"]
-        CutCard4["last_eight<br/>derive_from: card_number<br/>expression: value[-8:]<br/>unique: true"]
-        CutCard3["last_six<br/>derive_from: card_number<br/>expression: value[-6:]"]
-        account_id["account_id<br/>pattern: U[0-9]{10}<br/>unique: true"]
+        project_no["project_no<br/>pattern: PRJ-\\d{6}<br/>unique: true"]
+        short_code_node["short_code<br/>derive_from: project_no<br/>expression: value[-6:]<br/>unique: true"]
+        region_code["region_code<br/>derive_from: project_no<br/>expression: value[-4:]"]
+        member_no["member_no<br/>pattern: M-\\d{4}<br/>unique: true"]
     end
 
-    card_number --> CutCard4
-    card_number --> CutCard3
+    project_no --> short_code_node
+    project_no --> region_code
 
     subgraph Backtrack["约束求解 (回溯)"]
         direction TB
-        Gen1["生成 card_number = 6200001234567890123"]
-        Derive1["计算 last_eight = 67890123"]
-        Check1{"last_eight<br/>唯一？"}
+        Gen1["生成 project_no = PRJ-004231"]
+        Derive1["计算 short_code = 004231"]
+        Check1{"short_code<br/>唯一？"}
         Success["✅ 注册成功"]
         Fail["❌ 已存在"]
-        BT["🔄 回溯：撤销 card_number<br/>重新生成"]
+        BT["🔄 回溯：撤销 project_no<br/>重新生成"]
 
         Gen1 --> Derive1 --> Check1
         Check1 -->|是| Success
