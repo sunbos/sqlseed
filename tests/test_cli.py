@@ -254,16 +254,23 @@ class TestCLIMain:
 
 
 class TestCLIAISuggest:
+    @pytest.fixture
+    def ai_suggest_setup(self, unique_test_db: Any, tmp_path: Any, monkeypatch: Any) -> tuple[CliRunner, str, str]:
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.delenv("SQLSEED_AI_API_KEY", raising=False)
+        runner = CliRunner()
+        output_path = str(tmp_path / "output.yaml")
+        return runner, unique_test_db, output_path
+
     @pytest.mark.skipif(
         not _AI_PLUGIN_AVAILABLE,
         reason="Requires sqlseed-ai plugin",
     )
-    def test_ai_suggest_no_api_key(self, bank_cards_db, tmp_path: Any) -> None:
-        runner = CliRunner()
-        output_path = str(tmp_path / "output.yaml")
+    def test_ai_suggest_no_api_key(self, ai_suggest_setup: Any) -> None:
+        runner, db_path, output_path = ai_suggest_setup
         result = runner.invoke(
             cli,
-            ["ai-suggest", bank_cards_db, "--table", "bank_cards", "--output", output_path],
+            ["ai-suggest", db_path, "--table", "projects", "--output", output_path],
         )
         assert result.exit_code == 1
         assert "API key not configured" in result.output
@@ -272,16 +279,15 @@ class TestCLIAISuggest:
         not _AI_PLUGIN_AVAILABLE,
         reason="Requires sqlseed-ai plugin",
     )
-    def test_ai_suggest_with_model_option(self, bank_cards_db, tmp_path: Any) -> None:
-        runner = CliRunner()
-        output_path = str(tmp_path / "output.yaml")
+    def test_ai_suggest_with_model_option(self, ai_suggest_setup: Any) -> None:
+        runner, db_path, output_path = ai_suggest_setup
         result = runner.invoke(
             cli,
             [
                 "ai-suggest",
-                bank_cards_db,
+                db_path,
                 "--table",
-                "bank_cards",
+                "projects",
                 "--output",
                 output_path,
                 "--model",

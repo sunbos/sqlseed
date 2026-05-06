@@ -47,11 +47,11 @@ sqlseed ai-suggest app.db --table users -o users.yaml --no-cache
 
 ### 自动模型选择
 
-查询 OpenRouter API 找到最佳可用免费模型，按优先级列表回退：
-
-```
-nvidia/nemotron-3-super-120b-a12b:free → tencent/hy3-preview:free → ...
-```
+动态查询 OpenRouter API 寻找最佳可用免费模型：
+1. 抓取当前所有在线的免费模型（`prompt=0` 且 `completion=0`）。
+2. 过滤掉包含 `expiration_date` 的限时活动模型，确保选取长期免费模型。
+3. 自动选择最新发布（`created` 最近）的模型。
+4. 若网络异常获取失败，则强制兜底使用官方永久免费节点 `openrouter/free`。
 
 结果缓存 1 小时。通过 `--model` 或 `SQLSEED_AI_MODEL` 跳过自动选择。
 
@@ -61,7 +61,7 @@ nvidia/nemotron-3-super-120b-a12b:free → tencent/hy3-preview:free → ...
 
 ### 文件缓存
 
-AI 配置缓存在 `.sqlseed_cache/ai_configs/`，带 schema hash 校验。Schema 变更自动失效。使用 `--no-cache` 跳过。
+AI 配置缓存在平台标准缓存目录（macOS: `~/Library/Caches/sqlseed/ai_configs/`，Linux: `~/.cache/sqlseed/ai_configs/`，Windows: `%LOCALAPPDATA%/sqlseed/ai_configs/`），带 schema hash 校验。Schema 变更自动失效。使用 `--no-cache` 跳过。可通过 `SQLSEED_CACHE_DIR` 环境变量覆盖。
 
 ## 配置
 

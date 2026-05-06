@@ -14,7 +14,6 @@ try:
     from openai import APITimeoutError
     from sqlseed_ai._model_selector import (
         _CACHE,
-        PREFERRED_FREE_MODELS,
         clear_cache,
         select_best_free_model,
         select_next_free_model,
@@ -30,7 +29,6 @@ except ImportError:
     select_best_free_model = None  # type: ignore
     select_next_free_model = None  # type: ignore
     clear_cache = None  # type: ignore
-    PREFERRED_FREE_MODELS = []
     _CACHE = {}
     APITimeoutError = None  # type: ignore
 
@@ -135,8 +133,8 @@ class TestAIConfig:
         config = AIConfig()
         assert config.api_key is None
         result = config.resolve_model()
-        assert result == PREFERRED_FREE_MODELS[0]
-        assert config.model == PREFERRED_FREE_MODELS[0]
+        assert result == "openrouter/free"
+        assert config.model == "openrouter/free"
         clear_cache()
 
     def test_resolve_model_user_override(self) -> None:
@@ -164,7 +162,7 @@ class TestModelSelector:
         with patch("sqlseed_ai._model_selector.urllib.request.urlopen", side_effect=OSError("Network error")):
             result = select_best_free_model()
 
-        assert result == PREFERRED_FREE_MODELS[0]
+        assert result == "openrouter/free"
         clear_cache()
 
     def test_select_best_free_model_no_match(self) -> None:
@@ -174,7 +172,7 @@ class TestModelSelector:
         with patch("sqlseed_ai._model_selector.urllib.request.urlopen", return_value=mock_response()):
             result = select_best_free_model()
 
-        assert result == PREFERRED_FREE_MODELS[0]
+        assert result == "other/free-model:free"
         clear_cache()
 
     def test_select_best_free_model_caching(self) -> None:
@@ -210,7 +208,7 @@ class TestModelSelector:
         with patch("sqlseed_ai._model_selector.urllib.request.urlopen", return_value=mock_response()):
             result = select_best_free_model()
 
-        assert result == PREFERRED_FREE_MODELS[0]
+        assert result == "openrouter/free"
         clear_cache()
 
     def test_filter_no_response_format(self) -> None:
@@ -223,7 +221,7 @@ class TestModelSelector:
         with patch("sqlseed_ai._model_selector.urllib.request.urlopen", return_value=mock_response()):
             result = select_best_free_model()
 
-        assert result == PREFERRED_FREE_MODELS[0]
+        assert result == "openrouter/free"
         clear_cache()
 
     def test_filter_paid_model(self) -> None:
@@ -237,23 +235,26 @@ class TestModelSelector:
         with patch("sqlseed_ai._model_selector.urllib.request.urlopen", return_value=mock_response()):
             result = select_best_free_model()
 
-        assert result == PREFERRED_FREE_MODELS[0]
+        assert result == "openrouter/free"
         clear_cache()
 
     def test_select_next_free_model(self) -> None:
         clear_cache()
-        result = select_next_free_model(PREFERRED_FREE_MODELS[0])
-        assert result == PREFERRED_FREE_MODELS[1]
+        _CACHE["available_models"] = ["model_a", "model_b", "model_c"]
+        result = select_next_free_model("model_a")
+        assert result == "model_b"
         clear_cache()
 
     def test_select_next_free_model_last(self) -> None:
         clear_cache()
-        result = select_next_free_model(PREFERRED_FREE_MODELS[-1])
+        _CACHE["available_models"] = ["model_a", "model_b", "model_c"]
+        result = select_next_free_model("model_c")
         assert result is None
         clear_cache()
 
     def test_select_next_free_model_unknown(self) -> None:
         clear_cache()
+        _CACHE["available_models"] = ["model_a", "model_b", "model_c"]
         result = select_next_free_model("unknown/model:free")
         assert result is None
         clear_cache()
@@ -261,7 +262,7 @@ class TestModelSelector:
 
 class TestCallLLMFallback:
     def test_call_llm_fallback_on_timeout(self) -> None:
-        config = AIConfig(api_key="test-key", model=PREFERRED_FREE_MODELS[0])
+        config = AIConfig(api_key="test-key", model="model_a")
         analyzer = SchemaAnalyzer(config=config)
 
         call_count = 0
@@ -275,16 +276,16 @@ class TestCallLLMFallback:
 
         with (
             patch.object(SchemaAnalyzer, "_call_llm_once", mock_call_llm_once),
-            patch("sqlseed_ai.analyzer.select_next_free_model", return_value=PREFERRED_FREE_MODELS[1]),
+            patch("sqlseed_ai.analyzer.select_next_free_model", return_value="model_b"),
         ):
             result = analyzer.call_llm([{"role": "user", "content": "test"}])
 
         assert result == {"name": "test", "count": 100, "columns": []}
         assert analyzer._config is not None
-        assert analyzer._config.model == PREFERRED_FREE_MODELS[1]
+        assert analyzer._config.model == "model_b"
 
     def test_call_llm_no_more_fallback(self) -> None:
-        config = AIConfig(api_key="test-key", model=PREFERRED_FREE_MODELS[-1])
+        config = AIConfig(api_key="test-key", model="model_c")
         analyzer = SchemaAnalyzer(config=config)
 
         def mock_call_llm_once(_self, _messages):
@@ -315,38 +316,38 @@ class TestSchemaAnalyzer:
     def test_build_context_basic(self) -> None:
         analyzer = SchemaAnalyzer(config=AIConfig(model="test-model"))
         columns = [
-            make_col("card_number", "VARCHAR(20)"),
-            make_col("account_id", "VARCHAR(32)"),
-            make_col("cardId", "INTEGER", is_pk=True, is_auto=True),
+            make_col("project_no", "VARCHAR(20)"),
+            make_col("member_no", "VARCHAR(32)"),
+            make_col("projectId", "INTEGER", is_pk=True, is_auto=True),
         ]
         context = analyzer._build_context(
             {
-                "table_name": "bank_cards",
+                "table_name": "projects",
                 "columns": columns,
                 "indexes": [],
                 "sample_data": [],
                 "foreign_keys": [],
-                "all_table_names": ["bank_cards", "user_info"],
+                "all_table_names": ["projects", "user_info"],
             }
         )
-        assert "bank_cards" in context
-        assert "card_number" in context
-        assert "account_id" in context
+        assert "projects" in context
+        assert "project_no" in context
+        assert "member_no" in context
         assert "PRIMARY KEY" in context
         assert "AUTOINCREMENT" in context
 
     def test_build_context_with_indexes(self) -> None:
         analyzer = SchemaAnalyzer(config=AIConfig(model="test-model"))
-        columns = [make_col("card_number", "VARCHAR(20)")]
-        indexes = [{"name": "idx_card", "columns": ["card_number"], "unique": True}]
+        columns = [make_col("project_no", "VARCHAR(20)")]
+        indexes = [{"name": "idx_project", "columns": ["project_no"], "unique": True}]
         context = analyzer._build_context(
             {
-                "table_name": "bank_cards",
+                "table_name": "projects",
                 "columns": columns,
                 "indexes": indexes,
                 "sample_data": [],
                 "foreign_keys": [],
-                "all_table_names": ["bank_cards"],
+                "all_table_names": ["projects"],
             }
         )
         assert "UNIQUE" in context
@@ -478,44 +479,44 @@ class TestSchemaAnalyzer:
     def test_generate_template_values(self) -> None:
         analyzer = SchemaAnalyzer(config=AIConfig(api_key="test-key", model="test-model"))
         with patch.object(analyzer, "call_llm", return_value={"values": ["v1", "v2", "v3"]}):
-            result = analyzer.generate_template_values("card_number", "VARCHAR(20)", 3, [])
+            result = analyzer.generate_template_values("project_no", "VARCHAR(20)", 3, [])
             assert result == ["v1", "v2", "v3"]
 
     def test_generate_template_values_empty(self) -> None:
         analyzer = SchemaAnalyzer(config=AIConfig(api_key="test-key", model="test-model"))
         with patch.object(analyzer, "call_llm", return_value={}):
-            result = analyzer.generate_template_values("card_number", "VARCHAR(20)", 3, [])
+            result = analyzer.generate_template_values("project_no", "VARCHAR(20)", 3, [])
             assert result == []
 
 
-class TestCardInfoIntegration:
-    def test_full_context_sniffer_flow(self, bank_cards_db) -> None:
-        with DataOrchestrator(bank_cards_db) as orch:
-            columns = orch._schema.get_column_info("bank_cards")
+class TestProjectInfoIntegration:
+    def test_full_context_sniffer_flow(self, unique_test_db) -> None:
+        with DataOrchestrator(unique_test_db) as orch:
+            columns = orch._schema.get_column_info("projects")
             assert len(columns) == 7
 
             col_names = [c.name for c in columns]
-            assert "card_number" in col_names
-            assert "account_id" in col_names
-            assert "last_eight" in col_names
-            assert "last_six" in col_names
+            assert "project_no" in col_names
+            assert "member_no" in col_names
+            assert "short_code" in col_names
+            assert "region_code" in col_names
 
-            indexes = orch._schema.get_index_info("bank_cards")
+            indexes = orch._schema.get_index_info("projects")
             assert len(indexes) == 2
             idx_map = {i.name: i for i in indexes}
-            assert idx_map["idx_cardno"].unique is True
-            assert idx_map["idx_userno"].unique is True
+            assert idx_map["idx_projectno"].unique is True
+            assert idx_map["idx_memberno"].unique is True
 
-            sample_data = orch._schema.get_sample_data("bank_cards", limit=5)
+            sample_data = orch._schema.get_sample_data("projects", limit=5)
             assert isinstance(sample_data, list)
 
             analyzer = SchemaAnalyzer(config=AIConfig(api_key=None, model="test-model"))
-            fks = orch._db.get_foreign_keys("bank_cards")
+            fks = orch._db.get_foreign_keys("projects")
             all_tables = orch._db.get_table_names()
 
             context = analyzer._build_context(
                 {
-                    "table_name": "bank_cards",
+                    "table_name": "projects",
                     "columns": columns,
                     "indexes": [{"name": i.name, "columns": i.columns, "unique": i.unique} for i in indexes],
                     "sample_data": sample_data,
@@ -524,8 +525,8 @@ class TestCardInfoIntegration:
                 }
             )
 
-            assert "bank_cards" in context
-            assert "card_number" in context
+            assert "projects" in context
+            assert "project_no" in context
             assert "UNIQUE" in context
-            assert "last_eight" in context
+            assert "short_code" in context
             assert "NOT NULL" in context

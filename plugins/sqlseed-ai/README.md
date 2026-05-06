@@ -47,11 +47,11 @@ sqlseed ai-suggest app.db --table users -o users.yaml --no-cache
 
 ### Auto Model Selection
 
-Queries OpenRouter API to find the best available free model. Falls back through a priority list:
-
-```
-nvidia/nemotron-3-super-120b-a12b:free → tencent/hy3-preview:free → ...
-```
+Queries OpenRouter API to find the best available free model dynamically:
+1. Fetches all free models currently online (`prompt=0` and `completion=0`).
+2. Filters out promotional models that have an `expiration_date`.
+3. Selects the newest created model.
+4. If network fails, falls back to the permanent `openrouter/free` endpoint.
 
 Result cached for 1 hour. Skip auto-selection by specifying `--model` or `SQLSEED_AI_MODEL`.
 
@@ -61,7 +61,7 @@ When sqlseed fills a table with `skip_ai=False`, the plugin pre-generates candid
 
 ### File Caching
 
-AI configs cached in `.sqlseed_cache/ai_configs/` with schema hash validation. Schema changes auto-invalidate cache. Use `--no-cache` to skip.
+AI configs cached in platform-specific cache directory (`~/Library/Caches/sqlseed/ai_configs/` on macOS, `~/.cache/sqlseed/ai_configs/` on Linux, `%LOCALAPPDATA%/sqlseed/ai_configs/` on Windows) with schema hash validation. Schema changes auto-invalidate cache. Use `--no-cache` to skip. Override with `SQLSEED_CACHE_DIR` environment variable.
 
 ## Configuration
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import time
+import urllib.error
 import urllib.request
 from typing import Any
 
@@ -9,24 +10,10 @@ from sqlseed._utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-PREFERRED_FREE_MODELS: list[str] = [
-    "nvidia/nemotron-3-super-120b-a12b:free",
-    "tencent/hy3-preview:free",
-    "inclusionai/ling-2.6-1t:free",
-    "inclusionai/ling-2.6-flash:free",
-    "z-ai/glm-4.5-air:free",
-    "minimax/minimax-m2.5:free",
-    "openai/gpt-oss-120b:free",
-    "nvidia/nemotron-3-nano-30b-a3b:free",
-    "google/gemma-4-31b-it:free",
-    "nvidia/nemotron-nano-9b-v2:free",
-    "openai/gpt-oss-20b:free",
-    "google/gemma-4-26b-a4b-it:free",
-]
-
 _CACHE: dict[str, Any] = {
     "model": None,
     "expires_at": 0.0,
+    "available_models": [],
 }
 
 _CACHE_TTL = 3600
@@ -34,19 +21,22 @@ _CACHE_TTL = 3600
 _OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
 
 
-def _fetch_available_free_models() -> set[str]:
+def _fetch_available_free_models() -> list[str]:
     try:
         req = urllib.request.Request(_OPENROUTER_MODELS_URL)
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode())
-    except (OSError, json.JSONDecodeError, KeyError) as e:
+    except (OSError, json.JSONDecodeError) as e:
         logger.warning("Failed to fetch OpenRouter models, using fallback", error=str(e))
-        return set()
+        return []
 
-    available: set[str] = set()
+    models_info = []
     for model in data.get("data", []):
         pricing = model.get("pricing", {})
         if pricing.get("prompt") != "0" or pricing.get("completion") != "0":
+            continue
+
+        if model.get("expiration_date") is not None:
             continue
 
         arch = model.get("architecture", {})
@@ -59,9 +49,10 @@ def _fetch_available_free_models() -> set[str]:
         if "response_format" not in supported:
             continue
 
-        available.add(model["id"])
+        models_info.append({"id": model["id"], "created": model.get("created", 0)})
 
-    return available
+    models_info.sort(key=lambda x: x["created"], reverse=True)
+    return [m["id"] for m in models_info]
 
 
 def _update_cache(model: str) -> None:
@@ -74,40 +65,41 @@ def select_best_free_model() -> str:
         return str(_CACHE["model"])
 
     available = _fetch_available_free_models()
+    _CACHE["available_models"] = available
 
     if available:
-        for preferred in PREFERRED_FREE_MODELS:
-            if preferred in available:
-                _update_cache(preferred)
-                logger.info(
-                    "Auto-selected free model from OpenRouter",
-                    model=preferred,
-                    available_count=len(available),
-                )
-                return preferred
-
-        logger.warning(
-            "No preferred free model found in available models, using fallback",
+        best = available[0]
+        _update_cache(best)
+        logger.info(
+            "Auto-selected newest free model from OpenRouter",
+            model=best,
             available_count=len(available),
         )
+        return best
 
-    fallback = PREFERRED_FREE_MODELS[0]
+    fallback = "openrouter/free"
+    logger.warning("No free models without expiration could be fetched, using hardcoded fallback", model=fallback)
     _update_cache(fallback)
     logger.info("Using fallback free model", model=fallback)
     return fallback
 
 
 def select_next_free_model(failed_model: str) -> str | None:
+    available: list[str] = _CACHE.get("available_models", [])
+    if not available:
+        available = _fetch_available_free_models()
+        _CACHE["available_models"] = available
+
     idx = -1
-    for i, m in enumerate(PREFERRED_FREE_MODELS):
+    for i, m in enumerate(available):
         if m == failed_model:
             idx = i
             break
 
-    if idx == -1 or idx + 1 >= len(PREFERRED_FREE_MODELS):
+    if idx == -1 or idx + 1 >= len(available):
         return None
 
-    next_model = PREFERRED_FREE_MODELS[idx + 1]
+    next_model = available[idx + 1]
     _update_cache(next_model)
     logger.info("Falling back to next free model", from_model=failed_model, to_model=next_model)
     return next_model
@@ -116,3 +108,4 @@ def select_next_free_model(failed_model: str) -> str | None:
 def clear_cache() -> None:
     _CACHE["model"] = None
     _CACHE["expires_at"] = 0.0
+    _CACHE["available_models"] = []

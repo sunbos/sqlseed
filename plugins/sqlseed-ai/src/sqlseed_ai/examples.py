@@ -29,37 +29,37 @@ users, orders""",
         ),
     },
     {
-        "input": """# Table: bank_cards
+        "input": """# Table: projects
 ## Columns
-- cardId: INTEGER PRIMARY KEY AUTOINCREMENT
-- card_number: VARCHAR(20) NOT NULL
-- account_id: VARCHAR(32) NOT NULL
-- last_eight: VARCHAR(8)
+- projectId: INTEGER PRIMARY KEY AUTOINCREMENT
+- project_no: VARCHAR(20) NOT NULL
+- member_no: VARCHAR(32) NOT NULL
+- short_code: VARCHAR(8)
 - nStatus: INTEGER DEFAULT 0
 - dCreateTime: DATETIME
 ## Indexes
-- UNIQUE INDEX (card_number)
-- UNIQUE INDEX (account_id)
+- UNIQUE INDEX (project_no)
+- UNIQUE INDEX (member_no)
 ## All Tables in Database
-bank_cards, user_info""",
+projects, user_info""",
         "output": json.dumps(
             {
-                "name": "bank_cards",
+                "name": "projects",
                 "count": 1000,
                 "columns": [
                     {
-                        "name": "card_number",
+                        "name": "project_no",
                         "generator": "pattern",
                         "params": {"regex": "[0-9]{16}"},
                         "constraints": {"unique": True},
                     },
                     {
-                        "name": "account_id",
+                        "name": "member_no",
                         "generator": "pattern",
                         "params": {"regex": "U[0-9]{10}"},
                         "constraints": {"unique": True},
                     },
-                    {"name": "last_eight", "derive_from": "card_number", "expression": "value[-8:]"},
+                    {"name": "short_code", "derive_from": "project_no", "expression": "value[-6:]"},
                     {
                         "name": "dCreateTime",
                         "generator": "datetime",
