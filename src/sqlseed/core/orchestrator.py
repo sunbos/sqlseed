@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 from sqlseed._utils.logger import get_logger
 from sqlseed._utils.metrics import MetricsCollector
-from sqlseed._utils.progress import create_progress
+from sqlseed._utils.progress import ProgressBackend, create_progress
 from sqlseed._utils.sql_safe import validate_table_name
 from sqlseed.config.models import ColumnConfig
 from sqlseed.core.column_dag import ColumnDAG
@@ -30,8 +30,6 @@ from sqlseed.generators.stream import DataStream
 from sqlseed.plugins.manager import PluginManager
 
 if TYPE_CHECKING:
-    from rich.progress import Progress
-
     from sqlseed.database._protocol import DatabaseAdapter
 
 logger = get_logger(__name__)
@@ -192,7 +190,11 @@ class DataOrchestrator:
         if self._enrichment is not None:
             generator_specs = self._enrichment.apply(table_name, generator_specs, column_infos, unique_columns)
         generator_specs = self._unique_adjuster.adjust(generator_specs, unique_columns, count, column_infos)
-        generator_specs = self._relation.resolve_foreign_keys(table_name, generator_specs)
+        generator_specs = self._relation.resolve_foreign_keys(
+            table_name,
+            generator_specs,
+            unique_columns=unique_columns,
+        )
         return generator_specs, user_configs, unique_columns
 
     def _build_stream(
@@ -270,7 +272,12 @@ class DataOrchestrator:
             logger.debug("ai_suggestions", table_name=table_name, elapsed=f"{time.monotonic() - t_ai:.3f}s")
             t_tpl = time.monotonic()
             specs = self._plugin_mediator.apply_template_pool(
-                table_name, column_infos, specs, count, user_configured_columns=user_configured
+                table_name,
+                column_infos,
+                specs,
+                count,
+                user_configured_columns=user_configured,
+                unique_columns=unique_columns,
             )
             logger.debug("template_pool", table_name=table_name, elapsed=f"{time.monotonic() - t_tpl:.3f}s")
         return specs, user_configs, unique_columns
@@ -281,7 +288,7 @@ class DataOrchestrator:
         stream: DataStream,
         count: int,
         batch_size: int,
-        progress: Progress | None = None,
+        progress: ProgressBackend | None = None,
         task_id: Any | None = None,
     ) -> tuple[int, int]:
         total_inserted = 0
@@ -378,8 +385,13 @@ class DataOrchestrator:
                     table_name, stream, count, batch_size, progress, gen_task
                 )
 
-            except (ValueError, RuntimeError, OSError, sqlite3.OperationalError) as e:
-                logger.error("Failed to fill table", table_name=table_name, error=e)
+            except (ValueError, RuntimeError, OSError, sqlite3.OperationalError, sqlite3.IntegrityError) as e:
+                if isinstance(e, sqlite3.IntegrityError) and enrich:
+                    # enrich mode: UNIQUE conflicts are expected when merging
+                    # into tables that already contain data
+                    logger.warning("Integrity constraint during enrich", table_name=table_name, error=e)
+                else:
+                    logger.error("Failed to fill table", table_name=table_name, error=e)
                 return GenerationResult(
                     table_name=table_name,
                     count=total_inserted,
@@ -532,13 +544,7 @@ class DataOrchestrator:
                 if isinstance(col_spec, str):
                     configs[col_name] = ColumnConfig(name=col_name, generator=col_spec)
                 elif isinstance(col_spec, dict):
-                    spec_copy = dict(col_spec)
-                    gen_type = spec_copy.pop("type", "string")
-                    configs[col_name] = ColumnConfig(
-                        name=col_name,
-                        generator=gen_type,
-                        params=spec_copy,
-                    )
+                    configs[col_name] = ColumnConfig(name=col_name, **col_spec)
 
         return configs
 

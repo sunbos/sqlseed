@@ -47,15 +47,18 @@ class UniqueAdjuster:
         _column_infos: list[ColumnInfo] | None,
     ) -> GeneratorSpec:
         params = dict(spec.params)
+        params.setdefault("max_length", 50)
+        params.setdefault("min_length", 1)
+        max_length = params["max_length"]
+
         charset_size = 62
         if params.get("charset") == "digits":
             charset_size = 10
         elif params.get("charset") == "alpha":
             charset_size = 52
 
-        max_length = params.get("max_length", 50)
         min_needed = max(1, math.ceil(math.log(max(count * count * 50, 1)) / math.log(charset_size)))
-        current_min = params.get("min_length", 1)
+        current_min = params["min_length"]
         params["min_length"] = max(current_min, min_needed)
 
         if params["min_length"] > max_length:

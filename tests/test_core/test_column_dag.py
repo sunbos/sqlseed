@@ -33,21 +33,21 @@ class TestColumnDAG:
 
     def test_build_with_derived_column(self) -> None:
         specs = {
-            "card_number": GeneratorSpec(generator_name="string"),
-            "last_eight": GeneratorSpec(generator_name="__derive__"),
+            "project_no": GeneratorSpec(generator_name="string"),
+            "short_code": GeneratorSpec(generator_name="__derive__"),
         }
         configs = [
-            ColumnConfig(name="card_number", generator="string"),
-            ColumnConfig(name="last_eight", derive_from="card_number", expression="value[-8:]"),
+            ColumnConfig(name="project_no", generator="string"),
+            ColumnConfig(name="short_code", derive_from="project_no", expression="value[-8:]"),
         ]
         dag = ColumnDAG()
         nodes = dag.build(specs, configs)
         names = [n.name for n in nodes]
-        assert names.index("card_number") < names.index("last_eight")
-        last_eight_node = next(n for n in nodes if n.name == "last_eight")
-        assert last_eight_node.is_derived is True
-        assert last_eight_node.depends_on == ["card_number"]
-        assert last_eight_node.expression == "value[-8:]"
+        assert names.index("project_no") < names.index("short_code")
+        short_code_node = next(n for n in nodes if n.name == "short_code")
+        assert short_code_node.is_derived is True
+        assert short_code_node.depends_on == ["project_no"]
+        assert short_code_node.expression == "value[-8:]"
 
     def test_build_with_unique_constraint(self) -> None:
         specs = {

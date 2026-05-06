@@ -4,7 +4,7 @@ import random
 from typing import TYPE_CHECKING, Any
 
 from sqlseed._utils.logger import get_logger
-from sqlseed.generators._protocol import UnknownGeneratorError
+from sqlseed.generators._protocol import ConfigurationError, GenerationError, UnknownGeneratorError
 
 _NATIVE_MISS = object()
 
@@ -55,9 +55,19 @@ class DataStream:
     def _generate_node_value(self, node: ColumnNode, row: dict[str, Any]) -> Any:
         if node.is_derived and node.expression:
             ctx = {"row": row, "value": row.get(node.depends_on[0]) if node.depends_on else None}
-            return self._expr_engine.evaluate(node.expression, ctx)
+            try:
+                return self._expr_engine.evaluate(node.expression, ctx)
+            except (ValueError, SyntaxError) as exc:
+                raise GenerationError(f"Expression evaluation failed: {exc}") from exc
+            except (TypeError, AttributeError) as exc:
+                raise ConfigurationError(f"Expression misconfigured: {exc}") from exc
 
-        return self._apply_generator(node.generator_spec)
+        try:
+            return self._apply_generator(node.generator_spec)
+        except (TypeError, AttributeError) as exc:
+            raise ConfigurationError(f"Generator '{node.generator_spec.generator_name}' misconfigured: {exc}") from exc
+        except (ValueError, OverflowError) as exc:
+            raise GenerationError(f"Generator '{node.generator_spec.generator_name}' value error: {exc}") from exc
 
     def _rollback_source_columns(
         self, source_columns: list[str], row: dict[str, Any], generated_values: dict[str, Any]
@@ -77,7 +87,17 @@ class DataStream:
         source_columns = node.depends_on if node.is_derived else None
 
         for _ in range(max_retries):
-            val = self._generate_node_value(node, row)
+            try:
+                val = self._generate_node_value(node, row)
+            except GenerationError as exc:
+                logger.debug(
+                    "Retriable generation error",
+                    column=col_name,
+                    generator=node.generator_spec.generator_name,
+                    error=str(exc),
+                )
+                return False, None
+
             result = self._constraint_solver.try_register(
                 col_name,
                 val,
@@ -95,6 +115,13 @@ class DataStream:
                 bt_idx = self._find_node_index(source_columns[0])
                 return False, bt_idx
 
+        if is_unique:
+            logger.warning(
+                "Node exhausted retries on UNIQUE constraint",
+                column=col_name,
+                generator=node.generator_spec.generator_name,
+                max_retries=max_retries,
+            )
         return False, None
 
     def _handle_col_failure(
@@ -139,18 +166,42 @@ class DataStream:
             row: dict[str, Any] = {}
             generated_values: dict[str, Any] = {}
 
-            _, backtrack_to = self._attempt_row_generation(row, generated_values)
+            success, backtrack_to = self._attempt_row_generation(row, generated_values)
 
             if backtrack_to is not None:
                 total_retries += 1
+                if total_retries <= 3:
+                    logger.debug(
+                        "Row generation backtrack",
+                        row_idx=row_idx,
+                        retry=total_retries,
+                        backtrack_to=backtrack_to,
+                    )
                 continue
 
             if generated_values or not any(not n.is_skip for n in self._nodes):
                 return self._finalize_row(row, row_idx, total_retries)
 
+            if total_retries <= 3:
+                logger.debug(
+                    "Row generation produced no values",
+                    row_idx=row_idx,
+                    retry=total_retries,
+                    success=success,
+                )
             total_retries += 1
 
-        raise RuntimeError("Failed to generate row satisfying all constraints after maximum retries.")
+        non_skip_nodes = [n.name for n in self._nodes if not n.is_skip]
+        unique_nodes = [
+            f"{n.name}(generator={n.generator_spec.generator_name!r})"
+            for n in self._nodes
+            if not n.is_skip and n.constraints and n.constraints.unique
+        ]
+        detail = f" Unique-constraint columns: {unique_nodes}" if unique_nodes else ""
+        raise RuntimeError(
+            f"Failed to generate row satisfying all constraints after {max_total_retries} retries. "
+            f"Non-skip columns: {non_skip_nodes}.{detail}"
+        )
 
     def _find_node_index(self, col_name: str) -> int | None:
         for i, node in enumerate(self._nodes):

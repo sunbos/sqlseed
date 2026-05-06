@@ -7,6 +7,7 @@ from typing import Any
 import yaml
 
 from sqlseed._utils.logger import get_logger
+from sqlseed._utils.paths import get_cache_dir
 from sqlseed.config.models import GeneratorConfig
 from sqlseed.core.orchestrator import DataOrchestrator
 
@@ -15,7 +16,7 @@ logger = get_logger(__name__)
 
 class SnapshotManager:
     def __init__(self, snapshot_dir: str | None = None) -> None:
-        self._snapshot_dir = Path(snapshot_dir) if snapshot_dir else Path("./snapshots")
+        self._snapshot_dir = Path(snapshot_dir) if snapshot_dir else get_cache_dir("snapshots")
 
     def save(
         self,

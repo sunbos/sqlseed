@@ -5,7 +5,7 @@
 
 ## Purpose
 
-跨模块共享的底层工具函数。包括日志、指标、进度条和 SQL 安全。
+跨模块共享的底层工具函数。包括日志、指标、进度条、缓存路径和 SQL 安全。
 
 ## Key Files
 
@@ -13,6 +13,7 @@
 |------|-------------|
 | `logger.py` | structlog 配置，`configure_logging()` 和 `get_logger()` 函数 |
 | `metrics.py` | `MetricsCollector` 性能指标收集与汇总统计 |
+| `paths.py` | `get_cache_dir(subdir)` 平台标准缓存目录（macOS/Linux/Windows），供 SnapshotManager 和 AiConfigRefiner 共用 |
 | `progress.py` | `create_progress()` rich 进度条工厂 |
 | `sql_safe.py` | SQL 注入防护：`validate_table_name()`, `quote_identifier()`, `build_insert_sql()` |
 | `schema_helpers.py` | 数据库模式检测共享逻辑（如 `detect_autoincrement`） |

@@ -4,6 +4,15 @@ from typing import Any
 
 from sqlseed._utils.logger import get_logger
 from sqlseed._version import __version__
+from sqlseed.config.loader import load_config
+from sqlseed.config.models import (
+    ColumnConfig,
+    GeneratorConfig,
+    ProviderType,
+    TableConfig,
+)
+from sqlseed.core.orchestrator import DataOrchestrator
+from sqlseed.core.result import GenerationResult
 
 __all__ = [
     "ColumnConfig",
@@ -19,16 +28,6 @@ __all__ = [
     "load_config",
     "preview",
 ]
-
-from sqlseed.config.loader import load_config
-from sqlseed.config.models import (
-    ColumnConfig,
-    GeneratorConfig,
-    ProviderType,
-    TableConfig,
-)
-from sqlseed.core.orchestrator import DataOrchestrator
-from sqlseed.core.result import GenerationResult
 
 logger = get_logger(__name__)
 
@@ -47,7 +46,7 @@ def fill(
     optimize_pragma: bool = True,
     enrich: bool = False,
     transform: str | None = None,
-    skip_ai: bool = False,
+    skip_ai: bool = True,
 ) -> GenerationResult:
     with DataOrchestrator(
         db_path=db_path,
@@ -86,7 +85,7 @@ def connect(
 def fill_from_config(
     config_path: str,
     *,
-    skip_ai: bool = False,
+    skip_ai: bool = True,
     clear_before: bool = False,
     count: int | None = None,
     provider: str | None = None,

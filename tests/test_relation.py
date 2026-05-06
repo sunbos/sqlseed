@@ -26,6 +26,9 @@ class _FakeDB:
     def get_primary_keys(self, _table_name):
         return self._primary_keys
 
+    def get_column_info(self, _table_name):
+        return []
+
 
 class _FakeAssoc:
     def __init__(
@@ -204,14 +207,23 @@ class TestRelationResolverFKMethods:
 
     def test_register_shared_pool(self) -> None:
         pool = SharedPool()
-        resolver = RelationResolver(_FakeDB(column_values=["alice", "bob"], primary_keys=["id"]), pool)
+        resolver = RelationResolver(
+            _FakeDB(
+                column_values=["alice", "bob"],
+                primary_keys=["id"],
+                fks=[ForeignKeyInfo(column="org_code", ref_table="organizations", ref_column="org_code")],
+            ),
+            pool,
+        )
         specs = {
             "name": GeneratorSpec(generator_name="string"),
             "id": GeneratorSpec(generator_name="skip"),
+            "org_code": GeneratorSpec(generator_name="foreign_key"),
         }
         resolver.register_shared_pool("users", specs)
-        assert pool.has("name")
+        assert not pool.has("name")
         assert pool.has("id")
+        assert pool.has("org_code")
 
 
 class TestNonIdFKDetection:

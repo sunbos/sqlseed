@@ -197,6 +197,9 @@ def _execute_fill(opts: dict[str, Any]) -> None:
         logger.debug("Fill failed with ValueError", error=str(exc))
         raise click.UsageError(str(exc)) from exc
     click.echo(str(result))
+    if result.errors:
+        for err in result.errors:
+            click.echo(f"  Warning: {err}", err=True)
 
     if opts.get("snapshot"):
         _save_snapshot_cmd(
@@ -257,6 +260,18 @@ def preview(
     console.print(rich_table)
 
 
+def _print_foreign_keys(fks: list[Any], tbl: str, console: Any) -> None:
+    if not fks:
+        return
+    fk_table = RichTable(title=f"Foreign Keys: {tbl}")
+    fk_table.add_column("Column")
+    fk_table.add_column("Ref Table")
+    fk_table.add_column("Ref Column")
+    for fk in fks:
+        fk_table.add_row(fk.column, fk.ref_table, fk.ref_column)
+    console.print(fk_table)
+
+
 def _inspect_table(orch: Any, tbl: str, show_mapping: bool, console: Any) -> None:
     count = orch.get_row_count(tbl)
     columns = orch.get_column_info(tbl)
@@ -269,9 +284,11 @@ def _inspect_table(orch: Any, tbl: str, show_mapping: bool, console: Any) -> Non
     rich_table.add_column("PK")
     rich_table.add_column("Auto")
 
+    generator_specs = None
     if show_mapping:
         rich_table.add_column("Generator")
         rich_table.add_column("Params")
+        generator_specs, _, _ = orch._resolve_specs(tbl, count=1, columns=None, column_configs=None, enrich=False)
 
     for col in columns:
         row_data = [
@@ -281,21 +298,16 @@ def _inspect_table(orch: Any, tbl: str, show_mapping: bool, console: Any) -> Non
             "\u2713" if col.is_primary_key else "",
             "\u2713" if col.is_autoincrement else "",
         ]
-        if show_mapping:
-            spec = orch.map_column(col)
-            row_data.extend([spec.generator_name, str(spec.params)])
+        if show_mapping and generator_specs:
+            spec = generator_specs.get(col.name)
+            if spec:
+                row_data.extend([spec.generator_name, str(spec.params)])
+            else:
+                row_data.extend(["skip", "{}"])
         rich_table.add_row(*row_data)
 
     console.print(rich_table)
-
-    if fks:
-        fk_table = RichTable(title=f"Foreign Keys: {tbl}")
-        fk_table.add_column("Column")
-        fk_table.add_column("Ref Table")
-        fk_table.add_column("Ref Column")
-        for fk in fks:
-            fk_table.add_row(fk.column, fk.ref_table, fk.ref_column)
-        console.print(fk_table)
+    _print_foreign_keys(fks, tbl, console)
 
 
 @cli.command()

@@ -48,7 +48,8 @@ Issues = "https://github.com/sunbos/sqlseed/issues"
 [project.optional-dependencies]
 faker = ["faker>=30.0"]
 mimesis = ["mimesis>=18.0"]
-all = ["faker>=30.0", "mimesis>=18.0"]
+notebook = ["tqdm>=4.66"]
+all = ["faker>=30.0", "mimesis>=18.0", "tqdm>=4.66"]
 dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
@@ -57,6 +58,7 @@ dev = [
     "ruff>=0.5",
     "mypy>=1.10",
     "pre-commit>=3.0",
+    "tqdm>=4.66",
 ]
 docs = [
     "mkdocs-material>=9.0",
@@ -82,7 +84,6 @@ exclude = [
     "docs/",
     "tests/",
     "plugins/",
-    "snapshots/",
     ".github/",
     ".trae/",
     ".gemini/",
@@ -108,13 +109,14 @@ ignore = [
 ]
 allowed-confusables = ["：", "（", "）"]
 
+
 [tool.mypy]
 strict = true
 python_version = "3.10"
 files = ["src", "plugins"]
 
 [[tool.mypy.overrides]]
-module = ["mimesis.*", "faker.*", "sqlite_utils.*", "yaml", "simpleeval", "sqlseed_ai.*", "mcp.*", "mcp_server_sqlseed.*"]
+module = ["mimesis.*", "faker.*", "sqlite_utils.*", "yaml", "simpleeval", "sqlseed_ai.*", "mcp.*", "mcp_server_sqlseed.*", "tqdm", "tqdm.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

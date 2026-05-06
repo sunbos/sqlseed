@@ -9,7 +9,7 @@ Central orchestration: schema inference, column mapping, constraint solving, dat
 ```
 core/
 ├── orchestrator.py      # DataOrchestrator main engine (557 lines)
-├── mapper.py            # ColumnMapper 7-level strategy chain
+├── mapper.py            # ColumnMapper 9-level strategy chain
 ├── schema.py            # SchemaInferrer — column info, indexes, distribution
 ├── relation.py          # RelationResolver + SharedPool — FK resolution
 ├── column_dag.py        # ColumnDAG — derive_from dependency graph
@@ -27,7 +27,7 @@ core/
 | Task | Location | Notes |
 |------|----------|-------|
 | Add fill logic | `orchestrator.py` | DataOrchestrator.fill_table() |
-| Modify mapping | `mapper.py` | ColumnMapper.map_columns() — 7-level chain |
+| Modify mapping | `mapper.py` | ColumnMapper.map_columns() — 9-level chain |
 | Add schema info | `schema.py` | SchemaInferrer.get_column_info() |
 | Handle FK | `relation.py` | RelationResolver.resolve_foreign_keys() |
 | Add derive_from | `column_dag.py` | ColumnDAG.build() — topological sort |

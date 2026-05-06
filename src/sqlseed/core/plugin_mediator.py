@@ -136,11 +136,15 @@ class PluginMediator:
         specs: dict[str, GeneratorSpec],
         column_infos: list[Any],
         configured: set[str],
+        unique_columns: set[str] | None = None,
     ) -> Iterator[tuple[str, GeneratorSpec, Any]]:
+        unique_cols = unique_columns or set()
         for col_name, spec in specs.items():
             if spec.generator_name != "string":
                 continue
             if col_name in configured:
+                continue
+            if col_name in unique_cols:
                 continue
             col_info = next((c for c in column_infos if c.name == col_name), None)
             if col_info is None or col_info.is_primary_key or col_info.is_autoincrement:
@@ -156,15 +160,18 @@ class PluginMediator:
         specs: dict[str, GeneratorSpec],
         count: int,
         user_configured_columns: set[str] | None = None,
+        unique_columns: set[str] | None = None,
     ) -> dict[str, GeneratorSpec]:
         configured = user_configured_columns or set()
-        needs_template = any(True for _ in self._iter_template_eligible_specs(specs, column_infos, configured))
+        needs_template = any(
+            True for _ in self._iter_template_eligible_specs(specs, column_infos, configured, unique_columns)
+        )
         if not needs_template:
             return specs
         # list() is required: loop body mutates `specs` via __setitem__,
         # and the generator yields from specs.items(). Without snapshotting
         # first, iterating would raise RuntimeError.
-        eligible = list(self._iter_template_eligible_specs(specs, column_infos, configured))
+        eligible = list(self._iter_template_eligible_specs(specs, column_infos, configured, unique_columns))
         for col_name, _, col_info in eligible:
             sample_data_for_col: list[Any] = []
             with contextlib.suppress(ValueError, OSError, RuntimeError, sqlite3.OperationalError):

@@ -19,5 +19,5 @@ class GenerationResult:
     def __str__(self) -> str:
         return (
             f"GenerationResult(table={self.table_name}, count={self.count}, "
-            f"elapsed={self.elapsed:.2f}s, speed={self.rows_per_second:.0f} rows/s)"
+            f"elapsed={self.elapsed:.2f}s, speed={self.rows_per_second:.2f} rows/s)"
         )

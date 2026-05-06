@@ -150,6 +150,8 @@ class RelationResolver:
         table_name: str,
         col_name: str,
         spec: GeneratorSpec,
+        column_types: dict[str, str] | None = None,
+        unique_columns: set[str] | None = None,
     ) -> GeneratorSpec:
         fk_info = self.get_fk_info(table_name, col_name)
         if fk_info:
@@ -165,7 +167,8 @@ class RelationResolver:
                 null_ratio=spec.null_ratio,
                 provider=spec.provider,
             )
-        if self._shared_pool.has(col_name):
+        is_unique = unique_columns is not None and col_name in unique_columns
+        if self._shared_pool.has(col_name) and not is_unique:
             pool_values = self._shared_pool.get(col_name)
             logger.debug(
                 "Resolved implicit association via SharedPool",
@@ -174,6 +177,21 @@ class RelationResolver:
                 pool_size=len(pool_values),
             )
             return _make_fk_pool_spec(col_name, pool_values, spec)
+
+        col_type = (column_types or {}).get(col_name, "")
+        if not col_type:
+            logger.debug(
+                "Column type not found, falling back to integer",
+                table_name=table_name,
+                column_name=col_name,
+            )
+        if any(t in col_type for t in ("VARCHAR", "TEXT", "CHAR", "CLOB")):
+            return GeneratorSpec(
+                generator_name="string",
+                params={"min_length": 4, "max_length": 20},
+                null_ratio=spec.null_ratio,
+                provider=spec.provider,
+            )
         return GeneratorSpec(
             generator_name="integer",
             params={"min_value": 1, "max_value": 999999},
@@ -220,13 +238,23 @@ class RelationResolver:
         self,
         table_name: str,
         specs: dict[str, GeneratorSpec],
+        unique_columns: set[str] | None = None,
     ) -> dict[str, GeneratorSpec]:
         fks = self.get_foreign_keys(table_name)
         fk_columns = {fk.column for fk in fks}
 
+        column_types: dict[str, str] | None = None
         for col_name, spec in specs.items():
             if spec.generator_name == "foreign_key_or_integer":
-                specs[col_name] = self._resolve_fk_or_integer_spec(table_name, col_name, spec)
+                if column_types is None:
+                    column_types = {c.name: c.type.upper() for c in self._db.get_column_info(table_name)}
+                specs[col_name] = self._resolve_fk_or_integer_spec(
+                    table_name,
+                    col_name,
+                    spec,
+                    column_types=column_types,
+                    unique_columns=unique_columns,
+                )
             elif spec.generator_name == "foreign_key" and "ref_table" in spec.params:
                 ref_values = self._db.get_column_values(
                     spec.params["ref_table"],
@@ -237,7 +265,7 @@ class RelationResolver:
         self._upgrade_fk_constrained_columns(table_name, specs, fk_columns)
 
         specs = self.apply_associations(table_name, specs)
-        return self.resolve_implicit_associations(table_name, specs)
+        return self.resolve_implicit_associations(table_name, specs, unique_columns=unique_columns)
 
     def _apply_single_association(
         self,
@@ -299,6 +327,7 @@ class RelationResolver:
         self,
         table_name: str,
         specs: dict[str, GeneratorSpec],
+        unique_columns: set[str] | None = None,
     ) -> dict[str, GeneratorSpec]:
         if not self._shared_pool:
             return specs
@@ -307,6 +336,15 @@ class RelationResolver:
             if spec.generator_name != "foreign_key_or_integer":
                 continue
             if not self._shared_pool.has(col_name):
+                continue
+
+            is_unique = unique_columns is not None and col_name in unique_columns
+            if is_unique:
+                logger.debug(
+                    "Skipping implicit association for UNIQUE non-FK column",
+                    table_name=table_name,
+                    column_name=col_name,
+                )
                 continue
 
             pool_values = self._shared_pool.get(col_name)
@@ -332,8 +370,12 @@ class RelationResolver:
         with contextlib.suppress(ValueError, OSError, RuntimeError, sqlite3.OperationalError):
             pk_columns = set(self._db.get_primary_keys(table_name))
 
+        fk_columns: set[str] = set()
+        with contextlib.suppress(ValueError, OSError, RuntimeError, sqlite3.OperationalError):
+            fk_columns = {fk.column for fk in self.get_foreign_keys(table_name)}
+
         for col_name, spec in generator_specs.items():
-            if spec.generator_name == "skip" and col_name not in pk_columns:
+            if col_name not in pk_columns and col_name not in fk_columns:
                 continue
             with contextlib.suppress(ValueError, OSError, RuntimeError, sqlite3.OperationalError):
                 values = self._db.get_column_values(table_name, col_name, limit=10000)

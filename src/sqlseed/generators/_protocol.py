@@ -10,6 +10,14 @@ class UnknownGeneratorError(Exception):
         super().__init__(f"Unknown generator '{generator_name}'{f' for column {column_name}' if column_name else ''}")
 
 
+class GenerationError(Exception):
+    pass
+
+
+class ConfigurationError(Exception):
+    pass
+
+
 @runtime_checkable
 class DataProvider(Protocol):
     @property

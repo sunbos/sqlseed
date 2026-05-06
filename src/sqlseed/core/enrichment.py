@@ -85,6 +85,12 @@ class EnrichmentEngine:
         unique_columns = unique_columns or set()
         row_count = self._db.get_row_count(table_name)
         if row_count == 0:
+            skipped_count = sum(1 for s in specs.values() if s.generator_name == "__enrich__")
+            logger.warning(
+                "Enrich mode skipped: table is empty, falling back to skip",
+                table_name=table_name,
+                skipped_columns=skipped_count,
+            )
             for col_name, spec in specs.items():
                 if spec.generator_name == "__enrich__":
                     specs[col_name] = GeneratorSpec(generator_name="skip")

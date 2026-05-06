@@ -8,7 +8,7 @@ pytest suite. Tests mirror `src/sqlseed/` structure. conftest.py provides fixtur
 
 ```
 tests/
-├── conftest.py              # Fixtures: tmp_db, tmp_db_with_data, bank_cards_db
+├── conftest.py              # Fixtures: tmp_db, tmp_db_with_data, unique_test_db
 ├── _helpers.py              # Test utilities
 ├── test_public_api.py       # Public API tests (fill, connect, preview)
 ├── test_orchestrator.py     # DataOrchestrator tests
@@ -34,7 +34,7 @@ tests/
 
 | Task | Location | Notes |
 |------|----------|-------|
-| Add fixture | `conftest.py` | tmp_db, tmp_db_with_data, bank_cards_db |
+| Add fixture | `conftest.py` | tmp_db, tmp_db_with_data, unique_test_db |
 | Test new generator | `test_generators/` | Mirror generators/ structure |
 | Test core logic | `test_core/` | Mirror core/ structure |
 | Test CLI | `test_cli.py` | Click CliRunner |
@@ -44,8 +44,8 @@ tests/
 ## CONVENTIONS
 
 - **Naming**: `test_<module>.py` mirrors `src/sqlseed/<module>/`
-- **Fixtures**: Use `tmp_db`, `tmp_db_with_data`, `bank_cards_db` from conftest
-- **DB creation**: Use `create_simple_db()`, `create_card_info_db()` helpers
+- **Fixtures**: Use `tmp_db`, `tmp_db_with_data`, `unique_test_db` from conftest
+- **DB creation**: Use `create_simple_db()`, `create_project_info_db()` helpers
 - **Orchestrator tests**: Use `DataOrchestrator` as context manager
 - **Type hints**: Relaxed in tests (mypy overrides in pyproject.toml)
 
