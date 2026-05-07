@@ -13,6 +13,7 @@ from sqlseed._utils.progress import (
     ProgressBackend,
     RichProgressBackend,
     TqdmNotebookBackend,
+    _can_render_unicode,
     _check_tqdm,
     _detect_environment,
     create_progress,
@@ -108,13 +109,15 @@ class TestNullProgressBackend:
 class TestRichProgressBackend:
     """RichProgressBackend wraps Rich Progress for terminal use."""
 
-    def test_context_manager_lifecycle(self) -> None:
-        backend = RichProgressBackend()
+    @pytest.mark.parametrize("ascii_only", [False, True], ids=["unicode", "ascii"])
+    def test_context_manager_lifecycle(self, ascii_only: bool) -> None:
+        backend = RichProgressBackend(ascii_only=ascii_only)
         with backend as b:
             assert isinstance(b, RichProgressBackend)
 
-    def test_full_lifecycle(self) -> None:
-        with RichProgressBackend() as b:
+    @pytest.mark.parametrize("ascii_only", [False, True], ids=["unicode", "ascii"])
+    def test_full_lifecycle(self, ascii_only: bool) -> None:
+        with RichProgressBackend(ascii_only=ascii_only) as b:
             prep = b.add_task("Preparing...", total=None)
             b.update(prep, description="Resolving schema...")
             b.remove_task(prep)
@@ -123,8 +126,13 @@ class TestRichProgressBackend:
             for _ in range(10):
                 b.update(gen, advance=10)
 
-    def test_is_progress_backend(self) -> None:
-        assert isinstance(RichProgressBackend(), ProgressBackend)
+    @pytest.mark.parametrize("ascii_only", [False, True], ids=["unicode", "ascii"])
+    def test_is_progress_backend(self, ascii_only: bool) -> None:
+        assert isinstance(RichProgressBackend(ascii_only=ascii_only), ProgressBackend)
+
+    def test_default_is_unicode_mode(self) -> None:
+        backend = RichProgressBackend()
+        assert isinstance(backend, RichProgressBackend)
 
 
 # ---------------------------------------------------------------------------
@@ -282,3 +290,98 @@ class TestCheckTqdm:
         pytest.importorskip("tqdm")
         result = _check_tqdm()
         assert result is True
+
+
+# ---------------------------------------------------------------------------
+# _can_render_unicode
+# ---------------------------------------------------------------------------
+
+
+class TestCanRenderUnicode:
+    """_can_render_unicode probes whether stdout can encode Rich's Unicode chars."""
+
+    @pytest.fixture(autouse=True)
+    def _reset_unicode_cache(self) -> Generator[None, None, None]:
+        progress_mod._can_render_unicode.cache_clear()
+        yield
+        progress_mod._can_render_unicode.cache_clear()
+
+    def test_returns_bool(self) -> None:
+        result = _can_render_unicode()
+        assert isinstance(result, bool)
+
+    def test_true_with_utf8(self) -> None:
+        mock_stdout = type("FakeStdout", (), {"encoding": "utf-8"})()
+        with patch("sqlseed._utils.progress.sys.stdout", mock_stdout):
+            progress_mod._can_render_unicode.cache_clear()
+            assert _can_render_unicode() is True
+
+    def test_false_with_gbk(self) -> None:
+        mock_stdout = type("FakeStdout", (), {"encoding": "gbk"})()
+        with patch("sqlseed._utils.progress.sys.stdout", mock_stdout):
+            progress_mod._can_render_unicode.cache_clear()
+            assert _can_render_unicode() is False
+
+    def test_false_with_big5(self) -> None:
+        mock_stdout = type("FakeStdout", (), {"encoding": "big5"})()
+        with patch("sqlseed._utils.progress.sys.stdout", mock_stdout):
+            progress_mod._can_render_unicode.cache_clear()
+            assert _can_render_unicode() is False
+
+    def test_false_with_cp936(self) -> None:
+        mock_stdout = type("FakeStdout", (), {"encoding": "cp936"})()
+        with patch("sqlseed._utils.progress.sys.stdout", mock_stdout):
+            progress_mod._can_render_unicode.cache_clear()
+            assert _can_render_unicode() is False
+
+    def test_true_when_encoding_is_none(self) -> None:
+        mock_stdout = type("FakeStdout", (), {"encoding": None})()
+        with patch("sqlseed._utils.progress.sys.stdout", mock_stdout):
+            progress_mod._can_render_unicode.cache_clear()
+            assert _can_render_unicode() is True
+
+    def test_false_with_unknown_encoding(self) -> None:
+        mock_stdout = type("FakeStdout", (), {"encoding": "nonexistent_codec_xyz"})()
+        with patch("sqlseed._utils.progress.sys.stdout", mock_stdout):
+            progress_mod._can_render_unicode.cache_clear()
+            assert _can_render_unicode() is False
+
+    def test_caches_result(self) -> None:
+        first = _can_render_unicode()
+        second = _can_render_unicode()
+        assert first == second
+
+
+# ---------------------------------------------------------------------------
+# create_progress with Unicode fallback
+# ---------------------------------------------------------------------------
+
+
+class TestCreateProgressUnicodeFallback:
+    """create_progress falls back to ASCII-safe layout when encoding is limited."""
+
+    def test_terminal_gbk_returns_ascii_rich(self) -> None:
+        with (
+            patch("sqlseed._utils.progress._detect_environment", return_value="terminal"),
+            patch("sqlseed._utils.progress._can_render_unicode", return_value=False),
+        ):
+            result = create_progress()
+            assert isinstance(result, RichProgressBackend)
+
+    def test_terminal_utf8_returns_unicode_rich(self) -> None:
+        with (
+            patch("sqlseed._utils.progress._detect_environment", return_value="terminal"),
+            patch("sqlseed._utils.progress._can_render_unicode", return_value=True),
+        ):
+            result = create_progress()
+            assert isinstance(result, RichProgressBackend)
+
+    def test_gbk_logs_debug_message(self) -> None:
+        with (
+            patch("sqlseed._utils.progress._detect_environment", return_value="terminal"),
+            patch("sqlseed._utils.progress._can_render_unicode", return_value=False),
+            patch("sqlseed._utils.progress.logger") as mock_logger,
+        ):
+            create_progress()
+            mock_logger.debug.assert_called_once()
+            assert "ASCII" in mock_logger.debug.call_args[0][0]

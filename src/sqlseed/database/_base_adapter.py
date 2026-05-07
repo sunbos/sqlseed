@@ -31,6 +31,18 @@ class BaseSQLiteAdapter:
     def _get_execute_fn(self) -> Callable[..., Any]:
         raise NotImplementedError
 
+    def _execute(self, sql: str, params: tuple[Any, ...] = ()) -> Any:
+        """Execute a SQL statement with parameters.
+
+        Args:
+            sql: The SQL statement to execute.
+            params: Tuple of parameters for parameterized queries.
+
+        Returns:
+            The cursor object.
+        """
+        return self._get_execute_fn()(sql, params)
+
     def get_column_info(self, table_name: str) -> list[ColumnInfo]:
         raise NotImplementedError
 

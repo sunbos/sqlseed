@@ -387,8 +387,6 @@ class DataOrchestrator:
 
             except (ValueError, RuntimeError, OSError, sqlite3.OperationalError, sqlite3.IntegrityError) as e:
                 if isinstance(e, sqlite3.IntegrityError) and enrich:
-                    # enrich mode: UNIQUE conflicts are expected when merging
-                    # into tables that already contain data
                     logger.warning("Integrity constraint during enrich", table_name=table_name, error=e)
                 else:
                     logger.error("Failed to fill table", table_name=table_name, error=e)
@@ -549,6 +547,68 @@ class DataOrchestrator:
         return configs
 
     fill = fill_table
+
+    def execute(self, sql: str, params: tuple[Any, ...] | None = None) -> Any:
+        """Execute a SQL statement.
+
+        Args:
+            sql: The SQL statement to execute.
+            params: Optional tuple of parameters for parameterized queries.
+
+        Returns:
+            A cursor object with the result.
+        """
+        self._ensure_connected()
+        if params is None:
+            params = ()
+        return self._db._execute(sql, params)
+
+    def query(self, sql: str, params: tuple[Any, ...] | None = None) -> list[dict[str, Any]]:
+        """Execute a SELECT query and return results as a list of dictionaries.
+
+        Args:
+            sql: The SQL SELECT query to execute.
+            params: Optional tuple of parameters for parameterized queries.
+
+        Returns:
+            A list of dictionaries, where each dictionary represents a row.
+        """
+        self._ensure_connected()
+        cursor = self.execute(sql, params)
+        columns = [desc[0] for desc in cursor.description]
+        return [dict(zip(columns, row, strict=True)) for row in cursor.fetchall()]
+
+    def fetch_one(self, sql: str, params: tuple[Any, ...] | None = None) -> dict[str, Any] | None:
+        """Execute a SELECT query and return a single row as a dictionary.
+
+        Args:
+            sql: The SQL SELECT query to execute.
+            params: Optional tuple of parameters for parameterized queries.
+
+        Returns:
+            A dictionary representing the first row, or None if no rows found.
+        """
+        self._ensure_connected()
+        cursor = self.execute(sql, params)
+        row = cursor.fetchone()
+        if row is None:
+            return None
+        columns = [desc[0] for desc in cursor.description]
+        return dict(zip(columns, row, strict=True))
+
+    def fetch_all(self, sql: str, params: tuple[Any, ...] | None = None) -> list[Any]:
+        """Execute a SELECT query and return results as a list of lists.
+
+        Args:
+            sql: The SQL SELECT query to execute.
+            params: Optional tuple of parameters for parameterized queries.
+
+        Returns:
+            A list of rows, where each row is a list of values.
+        """
+        self._ensure_connected()
+        cursor = self.execute(sql, params)
+        return cursor.fetchall()  # type: ignore[no-any-return]
 
     def close(self) -> None:
         if self._connected:

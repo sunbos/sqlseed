@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from abc import ABC, abstractmethod
 from functools import lru_cache
 from importlib.util import find_spec
@@ -62,6 +63,24 @@ def _detect_environment() -> RuntimeEnv:
         return "jupyter"
 
     return "terminal"
+
+
+@lru_cache(maxsize=1)
+def _can_render_unicode() -> bool:
+    """Check whether stdout can encode characters used by Rich progress bars.
+
+    Rich's default ``SpinnerColumn`` uses Braille patterns (e.g. ``⠋`` U+280B)
+    and ``BarColumn`` uses block elements (``█`` U+2588, ``░`` U+2591).  On
+    Windows consoles with GBK / GB2312 / Big5 encodings these characters cause
+    ``UnicodeEncodeError``.  This helper probes the actual encoding so that
+    ``create_progress()`` can fall back to an ASCII-safe layout.
+    """
+    try:
+        encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+        "\u280b\u2588\u2591".encode(encoding)
+        return True
+    except (UnicodeEncodeError, LookupError, TypeError):
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -130,18 +149,37 @@ class RichProgressBackend(ProgressBackend):
     """Rich Progress backend for terminal environments.
 
     Renders spinner, progress bar, percentage, speed, and ETA.
+
+    When *ascii_only* is ``True`` the layout avoids Unicode characters
+    (Braille spinners, block-element bars) that cannot be encoded by
+    limited console encodings such as GBK or Big5.  The spinner falls back
+    to the ``"line"`` style (``|/-\\``) and the graphical bar is omitted.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, ascii_only: bool = False) -> None:
+        if ascii_only:
+            columns: list[Any] = [
+                SpinnerColumn("line"),
+                TextColumn("[progress.description]{task.description}"),
+                TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+                TextColumn("{task.completed}/{task.total}"),
+                TransferSpeedColumn(),
+                TimeRemainingColumn(),
+            ]
+        else:
+            columns = [
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+                TextColumn("{task.completed}/{task.total}"),
+                TransferSpeedColumn(),
+                TimeRemainingColumn(),
+            ]
         self._progress = Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-            TextColumn("{task.completed}/{task.total}"),
-            TransferSpeedColumn(),
-            TimeRemainingColumn(),
+            *columns,
             transient=False,
+            refresh_per_second=1,
         )
 
     def __enter__(self) -> RichProgressBackend:
@@ -258,11 +296,17 @@ def create_progress(*, disable: bool = False) -> ProgressBackend:
         disable=True  → NullProgressBackend     (zero-cost no-op)
         Jupyter+tqdm  → TqdmNotebookBackend     (native notebook widget)
         Jupyter-tqdm  → NullProgressBackend      (graceful degradation)
-        Terminal      → RichProgressBackend      (rich spinner + bar)
+        Terminal+UTF8 → RichProgressBackend      (rich spinner + bar)
+        Terminal+GBK  → RichProgressBackend(ascii_only=True)  (ASCII spinner, no bar)
 
     The Jupyter-without-tqdm path logs a one-time warning instead of raising
     ImportError, because progress display is a UX nicety, not a correctness
     requirement.
+
+    When the console encoding cannot represent the Unicode characters used by
+    Rich's default spinner (Braille patterns) and bar (block elements), the
+    factory automatically switches to an ASCII-safe layout so that Windows
+    consoles with GBK / Big5 encodings do not crash with ``UnicodeEncodeError``.
     """
     if disable:
         return NullProgressBackend()
@@ -277,4 +321,7 @@ def create_progress(*, disable: bool = False) -> ProgressBackend:
         )
         return NullProgressBackend()
 
-    return RichProgressBackend()
+    ascii_only = not _can_render_unicode()
+    if ascii_only:
+        logger.debug("Console encoding does not support Unicode progress characters — using ASCII-safe layout")
+    return RichProgressBackend(ascii_only=ascii_only)
