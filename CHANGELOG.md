@@ -7,6 +7,27 @@ All notable changes to this project will be documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.1.17]
+
+### Added
+
+- `RichProgressBackend` now accepts `ascii_only` parameter: when `True`, uses `"line"` spinner (`|/-\`) and omits `BarColumn`, avoiding `UnicodeEncodeError` on GBK/Big5/CP936 console encodings
+- `_can_render_unicode()` cached helper probes whether stdout can encode Rich's Braille/block-element characters (U+280B, U+2588, U+2591)
+- `create_progress()` auto-falls back to `ascii_only=True` when `_can_render_unicode()` returns `False`, with a debug log message
+- `DataOrchestrator` adds SQL operation methods: `execute(sql, params)`, `query(sql, params)`, `fetch_one(sql, params)`, `fetch_all(sql, params)` for direct database interaction
+- `BaseSQLiteAdapter._execute(sql, params)` method for parameterized SQL execution
+- `DatabaseAdapter` protocol updated with `_execute` method signature
+
+### Changed
+
+- `RichProgressBackend` refresh rate set to 1 Hz (was default 10 Hz) to reduce terminal flicker
+- Test suite: `TestRichProgressBackend` and `TestRichProgressBackendAsciiOnly` merged via `pytest.mark.parametrize` to eliminate code duplication
+
+### Fixed
+
+- Windows compatibility: GBK/GB2312/Big5/CP936 encoded terminals no longer crash with `UnicodeEncodeError` when displaying Rich progress bars
+- `.gitignore`: removed `*汇总.md` pattern (no longer needed)
+
 ## [v0.1.16]
 
 ### Added

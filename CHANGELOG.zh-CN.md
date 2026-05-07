@@ -7,6 +7,27 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)，
 本项目遵循[语义化版本](https://semver.org/spec/v2.0.0.html)。
 
+## [v0.1.17]
+
+### 新增
+
+- `RichProgressBackend` 新增 `ascii_only` 参数：启用时使用 `"line"` 旋转符（`|/-\`）并省略 `BarColumn`，避免 GBK/Big5/CP936 编码终端的 `UnicodeEncodeError`
+- `_can_render_unicode()` 缓存辅助函数，检测 stdout 是否能编码 Rich 的盲文/方块字符（U+280B, U+2588, U+2591）
+- `create_progress()` 在 `_can_render_unicode()` 返回 `False` 时自动回退到 `ascii_only=True`，并输出 debug 日志
+- `DataOrchestrator` 新增 SQL 操作方法：`execute(sql, params)`、`query(sql, params)`、`fetch_one(sql, params)`、`fetch_all(sql, params)` 用于直接数据库交互
+- `BaseSQLiteAdapter._execute(sql, params)` 参数化 SQL 执行方法
+- `DatabaseAdapter` 协议新增 `_execute` 方法签名
+
+### 变更
+
+- `RichProgressBackend` 刷新频率设为 1 Hz（原默认 10 Hz），减少终端闪烁
+- 测试套件：`TestRichProgressBackend` 和 `TestRichProgressBackendAsciiOnly` 通过 `pytest.mark.parametrize` 合并，消除代码重复
+
+### 修复
+
+- Windows 兼容性：GBK/GB2312/Big5/CP936 编码终端不再因 Rich 进度条的 Unicode 字符而崩溃
+- `.gitignore`：移除 `*汇总.md` 规则（不再需要）
+
 ## [v0.1.16]
 
 ### 新增
