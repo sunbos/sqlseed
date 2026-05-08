@@ -130,7 +130,7 @@ class ColumnMapper:
     PATTERN_MATCH_RULES: ClassVar[list[tuple[str, str, dict[str, Any]]]] = [
         (r"^id$", "autoincrement", {}),
         (r".*_id$", "foreign_key_or_integer", {}),
-        (r"(?i).*_no$|.*_nbr$|.*[A-Z]no$|.*[A-Z]nbr$", "foreign_key_or_integer", {}),
+        (r".*_no$|.*_nbr$", "foreign_key_or_integer", {}),
         (r".*_ids$", "json", {}),
         (r".*_at$", "datetime", {}),
         (r".*_date$", "date", {}),
