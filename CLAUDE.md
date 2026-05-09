@@ -173,6 +173,28 @@ Run `pytest tests/test_doc_sync.py` to verify doc sync after changes.
 9. **sqlite-utils optional**: `database/_compat.py` controls `HAS_SQLITE_UTILS`; never `import sqlite_utils` in core paths
 10. **Provider fallback**: `_ensure_connected()` silently falls back to `"base"` on provider load failure. Provider chain: mimesis → faker → base (auto-degrades).
 
+## Release Checklist
+
+When preparing a new version release:
+
+1. **uv.lock files** — There are 3 lock files, all must be in sync with their `pyproject.toml`:
+   - `./uv.lock` (root)
+   - `./plugins/sqlseed-ai/uv.lock`
+   - `./plugins/mcp-server-sqlseed/uv.lock`
+
+   Run `uv lock` in each directory after any `pyproject.toml` dependency change.
+
+2. **Changelog** — Update both `CHANGELOG.md` and `CHANGELOG.zh-CN.md` with the new version number.
+
+3. **Tag & Release** — After pushing all commits:
+   ```bash
+   git tag v<version>
+   git push origin v<version>
+   gh release create v<version> --title "v<version>" --generate-notes
+   ```
+
+4. **CI publish** — `publish.yml` triggers on release. If PyPI publish fails on sigstore attestation (`ChunkedEncodingError`), set `attestations: false` in the workflow.
+
 ## Sibling Agent Files
 
 `AGENTS.md` and `GEMINI.md` exist at the repo root — same project context for other AI coding tools.
