@@ -478,7 +478,7 @@ ai = [
 requires-dist = [
     { name = "mcp", specifier = ">=1.0,<2" },
     { name = "sqlseed", specifier = ">=0.1.0,<2" },
-    { name = "sqlseed-ai", marker = "extra == 'ai'" },
+    { name = "sqlseed-ai", marker = "extra == 'ai'", specifier = ">=0.1.0,<2" },
 ]
 provides-extras = ["ai"]
 
