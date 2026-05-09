@@ -7,6 +7,24 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)，
 本项目遵循[语义化版本](https://semver.org/spec/v2.0.0.html)。
 
+## [v0.1.18]
+
+### 新增
+
+- 列映射器 `_to_snake_case()` 规范化：camelCase/PascalCase/Hungarian 列名（`sOrderNo`、`sItemNo`、`userName`、`isActive`）在直接匹配失败后自动通过 snake_case 回退解析
+- 敏感标识符模式规则：`user_no`、`card_no`、`card_number`、`identity_no`（及 Hungarian 变体 `sUserNo`、`sCardNo`）映射为脱敏字符串，防止真实值通过 FK 解析或 SharedPool 泄露
+- `tests/test_mapper_camelcase.py` — 23 个测试用例，覆盖 camelCase 映射、敏感字段脱敏和 `_to_snake_case()` 辅助函数
+
+### 变更
+
+- `pyproject.toml`：`sqlite-utils` 从必需依赖移至可选依赖（与 `HAS_SQLITE_UTILS` 回退逻辑一致）
+- `pyproject.toml`：可选依赖组 `notebook` 重命名为 `tqdm`
+- `pyproject.toml`：恢复 `plugins/` 到 sdist 排除列表；插件 `pyproject.toml` 新增 sdist 排除配置
+
+### 修复
+
+- `test_fill_with_snapshot` 通过 `monkeypatch.setenv` 将 `SQLSEED_CACHE_DIR` 设置为 `tmp_path`，修复默认缓存目录无写入权限时的 `PermissionError`
+
 ## [v0.1.17]
 
 ### 新增

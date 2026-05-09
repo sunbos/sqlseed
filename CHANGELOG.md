@@ -7,6 +7,24 @@ All notable changes to this project will be documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.1.18]
+
+### Added
+
+- Column mapper `_to_snake_case()` normalization: camelCase/PascalCase/Hungarian column names (`sOrderNo`, `sItemNo`, `userName`, `isActive`) now auto-resolve via snake-case fallback after direct matching
+- Sensitive identifier pattern rule: `user_no`, `card_no`, `card_number`, `identity_no` (and Hungarian variants `sUserNo`, `sCardNo`) map to masked string output instead of `foreign_key_or_integer`, preventing real values from leaking through FK resolution
+- `tests/test_mapper_camelcase.py` — 23 test cases covering camelCase mapping, sensitive field desensitization, and `_to_snake_case()` helper
+
+### Changed
+
+- `pyproject.toml`: moved `sqlite-utils` from required to optional dependency (matches `HAS_SQLITE_UTILS` fallback logic)
+- `pyproject.toml`: renamed `notebook` optional dep group to `tqdm` for clarity
+- `pyproject.toml`: restored `plugins/` to sdist exclude; added sdist exclude configs to plugin `pyproject.toml` files
+
+### Fixed
+
+- `test_fill_with_snapshot` now sets `SQLSEED_CACHE_DIR` to `tmp_path` via `monkeypatch.setenv`, fixing `PermissionError` when default cache directory is not writable
+
 ## [v0.1.17]
 
 ### Added

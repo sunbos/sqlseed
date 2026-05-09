@@ -161,6 +161,7 @@ class TestCLIFill:
 
     def test_fill_with_snapshot(self, tmp_db, tmp_path: Any, monkeypatch: Any) -> None:
         monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("SQLSEED_CACHE_DIR", str(tmp_path / "cache"))
         runner = CliRunner()
         result = runner.invoke(
             cli,
