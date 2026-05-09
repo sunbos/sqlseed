@@ -1346,7 +1346,6 @@ dependencies = [
     { name = "rich" },
     { name = "rstr" },
     { name = "simpleeval" },
-    { name = "sqlite-utils" },
     { name = "structlog" },
     { name = "typing-extensions" },
 ]
@@ -1355,6 +1354,7 @@ dependencies = [
 all = [
     { name = "faker" },
     { name = "mimesis" },
+    { name = "sqlite-utils" },
     { name = "tqdm" },
 ]
 dev = [
@@ -1365,6 +1365,7 @@ dev = [
     { name = "pytest-benchmark" },
     { name = "pytest-cov" },
     { name = "ruff" },
+    { name = "sqlite-utils" },
     { name = "tqdm" },
 ]
 docs = [
@@ -1377,7 +1378,10 @@ faker = [
 mimesis = [
     { name = "mimesis" },
 ]
-notebook = [
+sqlite-utils = [
+    { name = "sqlite-utils" },
+]
+tqdm = [
     { name = "tqdm" },
 ]
 
@@ -1403,14 +1407,16 @@ requires-dist = [
     { name = "rstr", specifier = ">=3.2" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.5" },
     { name = "simpleeval", specifier = ">=1.0" },
-    { name = "sqlite-utils", specifier = ">=3.36" },
+    { name = "sqlite-utils", marker = "extra == 'all'", specifier = ">=3.36" },
+    { name = "sqlite-utils", marker = "extra == 'dev'", specifier = ">=3.36" },
+    { name = "sqlite-utils", marker = "extra == 'sqlite-utils'", specifier = ">=3.36" },
     { name = "structlog", specifier = ">=24.0" },
     { name = "tqdm", marker = "extra == 'all'", specifier = ">=4.66" },
     { name = "tqdm", marker = "extra == 'dev'", specifier = ">=4.66" },
-    { name = "tqdm", marker = "extra == 'notebook'", specifier = ">=4.66" },
+    { name = "tqdm", marker = "extra == 'tqdm'", specifier = ">=4.66" },
     { name = "typing-extensions", specifier = ">=4.4" },
 ]
-provides-extras = ["all", "dev", "docs", "faker", "mimesis", "notebook"]
+provides-extras = ["all", "dev", "docs", "faker", "mimesis", "sqlite-utils", "tqdm"]
 
 [[package]]
 name = "structlog"
