@@ -42,3 +42,9 @@ root = "../.."
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/sqlseed_ai"]
+
+[tool.hatch.build.targets.sdist]
+exclude = [
+    "AGENTS.md",
+    "uv.lock",
+]

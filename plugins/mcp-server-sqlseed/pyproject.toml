@@ -31,7 +31,7 @@ Homepage = "https://github.com/sunbos/sqlseed"
 Repository = "https://github.com/sunbos/sqlseed/tree/main/plugins/mcp-server-sqlseed"
 
 [project.optional-dependencies]
-ai = ["sqlseed-ai"]
+ai = ["sqlseed-ai>=0.1.0,<2"]
 
 [project.scripts]
 mcp-server-sqlseed = "mcp_server_sqlseed:main"
@@ -45,3 +45,9 @@ root = "../.."
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/mcp_server_sqlseed"]
+
+[tool.hatch.build.targets.sdist]
+exclude = [
+    "AGENTS.md",
+    "uv.lock",
+]

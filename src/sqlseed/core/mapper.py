@@ -130,7 +130,12 @@ class ColumnMapper:
     PATTERN_MATCH_RULES: ClassVar[list[tuple[str, str, dict[str, Any]]]] = [
         (r"^id$", "autoincrement", {}),
         (r".*_id$", "foreign_key_or_integer", {}),
-        (r"(?i).*_no$|.*_nbr$|.*[A-Z]no$|.*[A-Z]nbr$", "foreign_key_or_integer", {}),
+        (
+            r".*(?:user|card|identity)(?:_no|_number|_nbr)$",
+            "string",
+            {"min_length": 8, "max_length": 20, "charset": "alphanumeric"},
+        ),
+        (r".*_no$|.*_nbr$", "foreign_key_or_integer", {}),
         (r".*_ids$", "json", {}),
         (r".*_at$", "datetime", {}),
         (r".*_date$", "date", {}),
@@ -255,6 +260,12 @@ class ColumnMapper:
             return GeneratorSpec(generator_name="skip")
         return None
 
+    _CAMELCASE_RE: ClassVar[re.Pattern[str]] = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
+
+    @classmethod
+    def _to_snake_case(cls, name: str) -> str:
+        return cls._CAMELCASE_RE.sub("_", name).lower()
+
     def map_column(
         self,
         column_info: ColumnInfo,
@@ -286,6 +297,15 @@ class ColumnMapper:
         pattern_match = self._match_pattern(column_name)
         if pattern_match:
             return pattern_match
+
+        snake_name = self._to_snake_case(column_info.name)
+        if snake_name != column_name:
+            snake_exact = self._match_exact(snake_name)
+            if snake_exact:
+                return snake_exact
+            snake_pattern = self._match_pattern(snake_name)
+            if snake_pattern:
+                return snake_pattern
 
         fallback_spec = self._map_from_default_or_nullable(column_info, column_type, enrich, force_type_infer)
         if fallback_spec:
