@@ -193,7 +193,7 @@ When preparing a new version release:
    gh release create v<version> --title "v<version>" --generate-notes
    ```
 
-4. **CI publish** — `publish.yml` triggers on release. If PyPI publish fails on sigstore attestation (`ChunkedEncodingError`), set `attestations: false` in the workflow.
+4. **CI publish** — `publish.yml` triggers on release or `workflow_dispatch`. If PyPI publish fails on sigstore attestation (`ChunkedEncodingError`), this is a known upstream issue ([#364](https://github.com/pypa/gh-action-pypi-publish/issues/364)) — re-run the workflow via GitHub Actions UI.
 
 ## Sibling Agent Files
 
