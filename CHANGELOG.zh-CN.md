@@ -7,6 +7,16 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)，
 本项目遵循[语义化版本](https://semver.org/spec/v2.0.0.html)。
 
+## [v0.1.20]
+
+### 变更
+
+- 将 `test_mapper.py` 和 `test_mapper_camelcase.py` 中重复的 `_col()` 测试辅助函数提取到 `conftest.make_column_info()`，消除 23 行代码重复（CodeFlow R0801、CodeDuplication；SonarCloud Code Smell）
+
+### 修复
+
+- 合并 `test_mapper_camelcase.py` 中重复的测试函数 `test_non_sensitive_order_no_still_integer` 和 `test_snake_case_still_works`，使用 `pytest.mark.parametrize` 参数化（SonarCloud Major）
+
 ## [v0.1.19]
 
 ### 新增
