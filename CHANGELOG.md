@@ -7,6 +7,16 @@ All notable changes to this project will be documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.1.20]
+
+### Changed
+
+- Extracted shared `_col()` test helper from `test_mapper.py` and `test_mapper_camelcase.py` into `conftest.make_column_info()`, eliminating 23-line code duplication (CodeFlow R0801, CodeDuplication; SonarCloud Code Smell)
+
+### Fixed
+
+- Merged duplicate test functions `test_non_sensitive_order_no_still_integer` and `test_snake_case_still_works` in `test_mapper_camelcase.py` via `pytest.mark.parametrize` (SonarCloud Major)
+
 ## [v0.1.19]
 
 ### Added
