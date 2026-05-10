@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from sqlseed.core.orchestrator import DataOrchestrator
+from sqlseed.database._protocol import ColumnInfo
 from sqlseed.database.raw_sqlite_adapter import RawSQLiteAdapter
 
 if TYPE_CHECKING:
@@ -41,6 +42,24 @@ def make_col(
             "is_autoincrement": is_auto,
         },
     )()
+
+
+def make_column_info(
+    name: str,
+    col_type: str = "TEXT",
+    nullable: bool = False,
+    default=None,
+    is_primary_key: bool = False,
+    is_autoincrement: bool = False,
+) -> ColumnInfo:
+    return ColumnInfo(
+        name=name,
+        type=col_type,
+        nullable=nullable,
+        default=default,
+        is_primary_key=is_primary_key,
+        is_autoincrement=is_autoincrement,
+    )
 
 
 @pytest.fixture(name="tmp_db")
