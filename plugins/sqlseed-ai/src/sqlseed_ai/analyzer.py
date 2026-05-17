@@ -65,7 +65,7 @@ fields and the system will fall back to the generator type.
 10. Detect implicit business associations: if member_no appears in multiple tables, note it
 
 ## Output Format
-You MUST respond with a valid JSON object (NOT YAML, NOT markdown fences).
+You MUST respond with ONLY a valid JSON object (NOT YAML, NOT markdown fences, no explanations before or after).
 The JSON object must have this exact structure:
 {
   "name": "table_name",
@@ -92,7 +92,8 @@ The JSON object must have this exact structure:
   ]
 }
 
-IMPORTANT: Do NOT include columns that are PRIMARY KEY AUTOINCREMENT or have DEFAULT values."""
+IMPORTANT: Do NOT include columns that are PRIMARY KEY AUTOINCREMENT or have DEFAULT values.
+IMPORTANT: Output ONLY the JSON object, nothing else."""
 
 _MAX_FALLBACK_ATTEMPTS = 3
 
