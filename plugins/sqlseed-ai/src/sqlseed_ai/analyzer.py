@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from openai import APIConnectionError, APIError, APITimeoutError
 from sqlseed_ai._client import get_openai_client
 from sqlseed_ai._json_utils import parse_json_response
-from sqlseed_ai._model_selector import select_next_free_model
-from sqlseed_ai.config import AIConfig
+from sqlseed_ai._model_selector import select_next_gemma_model
+from sqlseed_ai.config import AIConfig, AIBackend
 from sqlseed_ai.examples import FEW_SHOT_EXAMPLES
 
 from sqlseed._utils.logger import get_logger
@@ -97,6 +98,117 @@ IMPORTANT: Output ONLY the JSON object, nothing else."""
 
 _MAX_FALLBACK_ATTEMPTS = 3
 
+# ── Gemma 4 Native Function Calling Tool Definitions ─────────────────
+# These tools leverage Gemma 4's native function calling capability,
+# allowing the model to invoke sqlseed operations directly.
+
+GEMMA_TOOLS: list[dict[str, Any]] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "analyze_schema",
+            "description": (
+                "Analyze a database table schema and recommend data generation configuration. "
+                "Use this tool to examine table structure, column types, constraints, and foreign keys, "
+                "then produce a complete sqlseed JSON configuration for generating realistic test data."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "table_name": {
+                        "type": "string",
+                        "description": "Name of the table to analyze",
+                    },
+                    "columns": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {"type": "string", "description": "Column name"},
+                                "type": {"type": "string", "description": "Column SQL type"},
+                                "is_primary_key": {"type": "boolean", "description": "Whether column is primary key"},
+                                "is_autoincrement": {
+                                    "type": "boolean",
+                                    "description": "Whether column auto-increments",
+                                },
+                                "nullable": {"type": "boolean", "description": "Whether column is nullable"},
+                                "default": {"type": "string", "description": "Default value if any"},
+                            },
+                            "required": ["name", "type"],
+                        },
+                        "description": "List of column definitions in the table",
+                    },
+                    "foreign_keys": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "column": {"type": "string"},
+                                "ref_table": {"type": "string"},
+                                "ref_column": {"type": "string"},
+                            },
+                        },
+                        "description": "Foreign key relationships",
+                    },
+                    "indexes": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "columns": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                },
+                                "unique": {"type": "boolean"},
+                            },
+                        },
+                        "description": "Table indexes",
+                    },
+                },
+                "required": ["table_name", "columns"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "generate_column_values",
+            "description": (
+                "Generate realistic sample values for a specific database column. "
+                "Use this tool when you need to produce template values for columns "
+                "that require custom or domain-specific data."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "column_name": {
+                        "type": "string",
+                        "description": "Name of the column",
+                    },
+                    "column_type": {
+                        "type": "string",
+                        "description": "SQL type of the column",
+                    },
+                    "count": {
+                        "type": "integer",
+                        "description": "Number of values to generate",
+                    },
+                    "table_name": {
+                        "type": "string",
+                        "description": "Table name for context",
+                    },
+                    "sample_data": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Existing sample values for reference",
+                    },
+                },
+                "required": ["column_name", "column_type", "count"],
+            },
+        },
+    },
+]
+
 
 class SchemaAnalyzer:
     def __init__(self, config: AIConfig | None = None) -> None:
@@ -113,8 +225,12 @@ class SchemaAnalyzer:
 
         self._config.resolve_model()
 
-        if not self._config.api_key:
-            logger.warning("AI API key not configured. Set SQLSEED_AI_API_KEY or OPENAI_API_KEY environment variable.")
+        if not self._config.resolve_api_key():
+            logger.warning(
+                "AI API key not configured. "
+                "Set GOOGLE_API_KEY, SQLSEED_AI_API_KEY, or OPENAI_API_KEY environment variable. "
+                "For Ollama, set SQLSEED_AI_BACKEND=ollama."
+            )
             return None
 
         messages = self.build_initial_messages(kwargs)
@@ -134,7 +250,12 @@ class SchemaAnalyzer:
             {"role": "system", "content": SYSTEM_PROMPT},
         ]
 
-        for example in FEW_SHOT_EXAMPLES:
+        # Use fewer examples for local models (4B) to reduce inference time
+        max_examples = len(FEW_SHOT_EXAMPLES)
+        if self._config and self._config.backend in (AIBackend.LM_STUDIO, AIBackend.OLLAMA):
+            max_examples = 1  # Only 1 example for local inference speed
+
+        for example in FEW_SHOT_EXAMPLES[:max_examples]:
             messages.append({"role": "user", "content": example["input"]})
             messages.append({"role": "assistant", "content": example["output"]})
 
@@ -146,7 +267,7 @@ class SchemaAnalyzer:
         if self._config is None:
             self._config = AIConfig.from_env()
         self._config.resolve_model()
-        if not self._config.api_key:
+        if not self._config.resolve_api_key():
             raise ValueError("AI API key not configured")
 
         for attempt in range(_MAX_FALLBACK_ATTEMPTS):
@@ -161,7 +282,7 @@ class SchemaAnalyzer:
                     attempt=attempt + 1,
                 )
 
-                next_model = select_next_free_model(current_model or "")
+                next_model = select_next_gemma_model(current_model or "")
                 if next_model is None:
                     raise RuntimeError(
                         f"LLM API call failed after trying {attempt + 1} model(s). "
@@ -169,7 +290,7 @@ class SchemaAnalyzer:
                     ) from e
 
                 logger.warning(
-                    "Falling back to next model",
+                    "Falling back to next Gemma 4 model",
                     from_model=current_model,
                     to_model=next_model,
                 )
@@ -189,6 +310,16 @@ class SchemaAnalyzer:
                 "max_tokens": self._config.max_tokens,
                 "temperature": self._config.temperature,
             }
+
+            # Try Gemma 4 native function calling first
+            # Only for cloud backends (Google AI Studio) that support tools parameter.
+            # Local backends (LM Studio, Ollama) may not support it and would waste time.
+            if self._config.backend == AIBackend.GOOGLE_AI_STUDIO:
+                result = self._try_tool_calling(client, kwargs)
+                if result is not None:
+                    return result
+
+            # Fallback: try JSON mode
             try:
                 kwargs["response_format"] = {"type": "json_object"}
                 response = client.chat.completions.create(**kwargs)
@@ -211,6 +342,63 @@ class SchemaAnalyzer:
         if content is None:
             return {}
         return self._parse_json_response(content)
+
+    def _try_tool_calling(
+        self, client: Any, kwargs: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """Attempt Gemma 4 native function calling.
+
+        If the model supports tool use, it will invoke the `analyze_schema`
+        function with structured parameters. We then extract the result
+        from the tool call response.
+
+        Returns None if tool calling is not available or fails, so we can
+        fall back to JSON mode.
+        """
+        try:
+            tool_kwargs = {**kwargs, "tools": GEMMA_TOOLS, "tool_choice": "auto"}
+            # Remove response_format if present (incompatible with tools)
+            tool_kwargs.pop("response_format", None)
+
+            response = client.chat.completions.create(**tool_kwargs)
+
+            if not response.choices:
+                return None
+
+            choice = response.choices[0]
+
+            # Check if the model made a tool call
+            if choice.message.tool_calls:
+                for tool_call in choice.message.tool_calls:
+                    if tool_call.function.name == "analyze_schema":
+                        args_str = tool_call.function.arguments
+                        if args_str:
+                            try:
+                                result = json.loads(args_str)
+                                logger.info(
+                                    "Gemma 4 native function calling succeeded",
+                                    tool="analyze_schema",
+                                    model=self._config.model if self._config else "unknown",
+                                )
+                                return result
+                            except json.JSONDecodeError:
+                                logger.debug("Failed to parse tool call arguments", args=args_str[:200])
+
+            # If no tool call was made but we have text content, parse it
+            if choice.message.content:
+                return self._parse_json_response(choice.message.content)
+
+            return None
+
+        except (APIError, ValueError, RuntimeError) as e:
+            err_msg = str(e).lower()
+            if "tool" in err_msg or "function" in err_msg or "400" in err_msg:
+                logger.debug(
+                    "Gemma 4 tool calling not supported by this endpoint, falling back to JSON mode",
+                    model=self._config.model if self._config else "unknown",
+                )
+                return None
+            raise
 
     TEMPLATE_SYSTEM_PROMPT = (
         "You are a data generation assistant. Generate realistic sample values "

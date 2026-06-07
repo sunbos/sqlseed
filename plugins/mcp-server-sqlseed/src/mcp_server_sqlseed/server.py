@@ -8,12 +8,12 @@ from typing import Any
 import yaml
 from mcp.server.fastmcp import FastMCP
 
-from sqlseed.config.models import GeneratorConfig
+from sqlseed.config.models import ColumnConfig, GeneratorConfig
 from sqlseed.core.orchestrator import DataOrchestrator
 
 try:
     from sqlseed_ai.analyzer import SchemaAnalyzer
-    from sqlseed_ai.config import AIConfig
+    from sqlseed_ai.config import AIBackend, AIConfig, GemmaModel
     from sqlseed_ai.refiner import AiConfigRefiner, AISuggestionFailedError
 
     _AI_AVAILABLE = True
@@ -188,3 +188,155 @@ def sqlseed_execute_fill(
             "elapsed": result.elapsed,
             "errors": result.errors,
         }
+
+
+@mcp.tool()
+def sqlseed_gemma4_analyze(
+    db_path: str,
+    table_name: str,
+    model: str | None = None,
+    backend: str | None = None,
+) -> dict[str, Any]:
+    """Analyze a database table schema using Gemma 4 with native function calling.
+
+    This tool leverages Gemma 4's built-in tool use capability to analyze
+    table structure and recommend data generation configurations. It demonstrates
+    Gemma 4's Native Function Calling feature for the AI Agent track.
+
+    Supported backends: google_ai_studio (default), ollama, openai_compat.
+    Supported models: gemma-4-26b-it (default), gemma-4-31b-it, gemma-4-4b-it, gemma-4-2b-it.
+    """
+    if not _AI_AVAILABLE:
+        return {"error": "sqlseed-ai plugin not installed. Install with: pip install sqlseed-ai"}
+
+    db_path = _validate_db_path(db_path)
+    with DataOrchestrator(db_path) as orch:
+        _validate_table_name(table_name, orch.get_table_names())
+        schema_ctx = orch.get_schema_context(table_name)
+
+    # Build AIConfig with Gemma 4 defaults
+    ai_config = AIConfig.from_env()
+    if model:
+        ai_config.model = model
+    if backend:
+        try:
+            ai_config.backend = AIBackend(backend)
+        except ValueError:
+            return {"error": f"Invalid backend: {backend}. Use: google_ai_studio, ollama, openai_compat"}
+    ai_config.resolve_model()
+
+    analyzer = SchemaAnalyzer(config=ai_config)
+    result = analyzer.analyze_table_from_ctx(**_serialize_schema_context(schema_ctx))
+
+    if result is None:
+        return {"error": "Gemma 4 analysis returned no result. Check API key and model availability."}
+
+    return {
+        "model": ai_config.model,
+        "backend": ai_config.backend.value,
+        "table_name": table_name,
+        "config": result,
+    }
+
+
+@mcp.tool()
+def sqlseed_gemma4_agent_fill(
+    db_path: str,
+    table_name: str,
+    count: int = 1000,
+    model: str | None = None,
+    backend: str | None = None,
+    max_retries: int = 3,
+) -> dict[str, Any]:
+    """End-to-end AI Agent: Gemma 4 analyzes schema → generates config → fills data.
+
+    This is a complete Agent workflow that demonstrates Gemma 4's Native Function
+    Calling capability for the AI Agent track:
+    1. Inspect schema (Tool Calling: analyze_schema)
+    2. Generate data configuration (self-correction loop)
+    3. Execute data fill
+
+    The agent uses Gemma 4's tool use to understand schema semantics and
+    produce appropriate data generation rules automatically.
+    """
+    if not _AI_AVAILABLE:
+        return {"error": "sqlseed-ai plugin not installed. Install with: pip install sqlseed-ai"}
+
+    db_path = _validate_db_path(db_path)
+
+    # Step 1: AI analysis with self-correction
+    ai_config = AIConfig.from_env()
+    if model:
+        ai_config.model = model
+    if backend:
+        try:
+            ai_config.backend = AIBackend(backend)
+        except ValueError:
+            return {"error": f"Invalid backend: {backend}. Use: google_ai_studio, ollama, openai_compat"}
+    ai_config.resolve_model()
+
+    analyzer = SchemaAnalyzer(config=ai_config)
+    refiner = AiConfigRefiner(analyzer, db_path)
+
+    try:
+        ai_result = refiner.generate_and_refine(
+            table_name=table_name,
+            max_retries=max_retries,
+        )
+    except AISuggestionFailedError as e:
+        return {"error": f"AI suggestion failed: {e}", "model": ai_config.model}
+    except (ValueError, RuntimeError, OSError) as e:
+        return {"error": f"Error: {e}", "model": ai_config.model}
+
+    if not ai_result:
+        return {"error": "No AI suggestions available", "model": ai_config.model}
+
+    # Step 2: Execute fill with AI-generated config
+    with DataOrchestrator(db_path) as orch:
+        _validate_table_name(table_name, orch.get_table_names())
+
+        column_configs = [ColumnConfig(**c) for c in ai_result.get("columns", [])]
+        result = orch.fill_table(
+            table_name=table_name,
+            count=count,
+            column_configs=column_configs,
+        )
+
+        return {
+            "model": ai_config.model,
+            "backend": ai_config.backend.value,
+            "table_name": result.table_name,
+            "count": result.count,
+            "elapsed": result.elapsed,
+            "errors": result.errors,
+            "ai_config": ai_result,
+        }
+
+
+@mcp.tool()
+def sqlseed_list_gemma_models() -> dict[str, Any]:
+    """List available Gemma 4 model variants with descriptions.
+
+    Returns information about all supported Gemma 4 models,
+    including recommended use cases for each variant.
+    """
+    models = []
+    for member in GemmaModel:
+        models.append({
+            "id": member.value,
+            "display_name": member.display_name,
+        })
+
+    backends = [
+        {"id": "google_ai_studio", "description": "Google AI Studio API (free tier available, recommended)"},
+        {"id": "lm_studio", "description": "LM Studio local deployment (http://127.0.0.1:1234, GUI-based)"},
+        {"id": "ollama", "description": "Ollama local deployment (offline, CLI-based)"},
+        {"id": "openai_compat", "description": "Any OpenAI-compatible API endpoint"},
+    ]
+
+    return {
+        "models": models,
+        "backends": backends,
+        "default_model": "gemma-4-26b-it",
+        "default_backend": "google_ai_studio",
+    }

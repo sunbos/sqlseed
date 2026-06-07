@@ -1,111 +1,98 @@
 from __future__ import annotations
 
-import json
-import time
-import urllib.error
-import urllib.request
-from typing import Any
+from sqlseed_ai.config import AIBackend, GemmaModel
 
 from sqlseed._utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-_CACHE: dict[str, Any] = {
-    "model": None,
-    "expires_at": 0.0,
-    "available_models": [],
+# ── Gemma 4 model selection priority ────────────────────────────────
+# Ordered by capability: 26B MoE (best balance) > 31B Dense > 4B > 2B
+_GEMMA_MODEL_PRIORITY: list[GemmaModel] = [
+    GemmaModel.GEMMA_4_26B,
+    GemmaModel.GEMMA_4_31B,
+    GemmaModel.GEMMA_4_4B,
+    GemmaModel.GEMMA_4_2B,
+]
+
+# Map backend to preferred model size
+_BACKEND_DEFAULT_MODEL: dict[AIBackend, GemmaModel] = {
+    AIBackend.GOOGLE_AI_STUDIO: GemmaModel.GEMMA_4_26B,
+    AIBackend.LM_STUDIO: GemmaModel.GEMMA_4_4B,  # local inference, prefer smaller
+    AIBackend.OLLAMA: GemmaModel.GEMMA_4_4B,  # smaller for local inference
+    AIBackend.OPENAI_COMPAT: GemmaModel.GEMMA_4_26B,
 }
 
-_CACHE_TTL = 3600
 
-_OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
+def select_gemma_model(
+    backend: AIBackend = AIBackend.GOOGLE_AI_STUDIO,
+    prefer_small: bool = False,
+) -> str:
+    """Select the best Gemma 4 model for the given backend.
 
+    Args:
+        backend: The LLM backend provider.
+        prefer_small: If True, prefer smaller models (useful for Edge/local).
 
-def _fetch_available_free_models() -> list[str]:
-    try:
-        req = urllib.request.Request(_OPENROUTER_MODELS_URL)
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read().decode())
-    except (OSError, json.JSONDecodeError) as e:
-        logger.warning("Failed to fetch OpenRouter models, using fallback", error=str(e))
-        return []
+    Returns:
+        The model identifier string.
+    """
+    if prefer_small or backend in (AIBackend.OLLAMA, AIBackend.LM_STUDIO):
+        # For local inference (Ollama/LM Studio), prefer smaller models
+        model = GemmaModel.GEMMA_4_4B
+        logger.info("Selected compact Gemma 4 model for local inference", model=model.value)
+        return model.value
 
-    models_info = []
-    for model in data.get("data", []):
-        pricing = model.get("pricing", {})
-        if pricing.get("prompt") != "0" or pricing.get("completion") != "0":
-            continue
-
-        if model.get("expiration_date") is not None:
-            continue
-
-        arch = model.get("architecture", {})
-        if "text" not in arch.get("input_modalities", []):
-            continue
-        if "text" not in arch.get("output_modalities", []):
-            continue
-
-        supported = model.get("supported_parameters", [])
-        if "response_format" not in supported:
-            continue
-
-        models_info.append({"id": model["id"], "created": model.get("created", 0)})
-
-    models_info.sort(key=lambda x: x["created"], reverse=True)
-    return [m["id"] for m in models_info]
+    model = _BACKEND_DEFAULT_MODEL.get(backend, GemmaModel.GEMMA_4_26B)
+    logger.info("Selected Gemma 4 model", model=model.value, backend=backend.value)
+    return model.value
 
 
-def _update_cache(model: str) -> None:
-    _CACHE["model"] = model
-    _CACHE["expires_at"] = time.time() + _CACHE_TTL
+def select_next_gemma_model(failed_model: str) -> str | None:
+    """Select the next smaller Gemma 4 model as fallback.
 
+    Args:
+        failed_model: The model that failed.
+
+    Returns:
+        The next model in the priority list, or None if all exhausted.
+    """
+    for i, m in enumerate(_GEMMA_MODEL_PRIORITY):
+        if m.value == failed_model and i + 1 < len(_GEMMA_MODEL_PRIORITY):
+            next_model = _GEMMA_MODEL_PRIORITY[i + 1]
+            logger.info(
+                "Falling back to smaller Gemma 4 model",
+                from_model=failed_model,
+                to_model=next_model.value,
+            )
+            return next_model.value
+
+    logger.warning("No more Gemma 4 models available for fallback", failed_model=failed_model)
+    return None
+
+
+def get_available_gemma_models() -> list[dict[str, str]]:
+    """Return list of available Gemma 4 models with display info."""
+    return [
+        {"id": m.value, "display_name": m.display_name}
+        for m in _GEMMA_MODEL_PRIORITY
+    ]
+
+
+# ── Legacy compatibility ─────────────────────────────────────────────
+# These functions maintain backward compatibility with code that
+# referenced the old OpenRouter-based model selector.
 
 def select_best_free_model() -> str:
-    if _CACHE["model"] is not None and time.time() < _CACHE["expires_at"]:
-        return str(_CACHE["model"])
-
-    available = _fetch_available_free_models()
-    _CACHE["available_models"] = available
-
-    if available:
-        best = available[0]
-        _update_cache(best)
-        logger.info(
-            "Auto-selected newest free model from OpenRouter",
-            model=best,
-            available_count=len(available),
-        )
-        return best
-
-    fallback = "openrouter/free"
-    logger.warning("No free models without expiration could be fetched, using hardcoded fallback", model=fallback)
-    _update_cache(fallback)
-    logger.info("Using fallback free model", model=fallback)
-    return fallback
+    """Legacy compat: returns the default Gemma 4 model."""
+    return select_gemma_model()
 
 
 def select_next_free_model(failed_model: str) -> str | None:
-    available: list[str] = _CACHE.get("available_models", [])
-    if not available:
-        available = _fetch_available_free_models()
-        _CACHE["available_models"] = available
-
-    idx = -1
-    for i, m in enumerate(available):
-        if m == failed_model:
-            idx = i
-            break
-
-    if idx == -1 or idx + 1 >= len(available):
-        return None
-
-    next_model = available[idx + 1]
-    _update_cache(next_model)
-    logger.info("Falling back to next free model", from_model=failed_model, to_model=next_model)
-    return next_model
+    """Legacy compat: returns the next Gemma 4 model as fallback."""
+    return select_next_gemma_model(failed_model)
 
 
 def clear_cache() -> None:
-    _CACHE["model"] = None
-    _CACHE["expires_at"] = 0.0
-    _CACHE["available_models"] = []
+    """Legacy compat: no-op, Gemma models don't need cache."""
+    pass
