@@ -62,6 +62,9 @@ examples/notebooks/batch_config.yaml
 *.nbconvert.ipynb
 .ipynb_checkpoints/
 
+# AI-generated config outputs
+*_config.yaml
+
 # OS
 .DS_Store
 
