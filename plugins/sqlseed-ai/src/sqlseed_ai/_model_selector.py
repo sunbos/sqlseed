@@ -73,15 +73,13 @@ def select_next_gemma_model(failed_model: str) -> str | None:
 
 def get_available_gemma_models() -> list[dict[str, str]]:
     """Return list of available Gemma 4 models with display info."""
-    return [
-        {"id": m.value, "display_name": m.display_name}
-        for m in _GEMMA_MODEL_PRIORITY
-    ]
+    return [{"id": m.value, "display_name": m.display_name} for m in _GEMMA_MODEL_PRIORITY]
 
 
 # ── Legacy compatibility ─────────────────────────────────────────────
 # These functions maintain backward compatibility with code that
 # referenced the old OpenRouter-based model selector.
+
 
 def select_best_free_model() -> str:
     """Legacy compat: returns the default Gemma 4 model."""
@@ -95,4 +93,3 @@ def select_next_free_model(failed_model: str) -> str | None:
 
 def clear_cache() -> None:
     """Legacy compat: no-op, Gemma models don't need cache."""
-    pass

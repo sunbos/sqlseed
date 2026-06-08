@@ -10,6 +10,7 @@ from sqlseed._utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+
 # ── Gemma 4 model registry ──────────────────────────────────────────
 class GemmaModel(str, Enum):
     """Supported Gemma 4 model variants."""
@@ -47,6 +48,32 @@ OLLAMA_BASE_URL = "http://localhost:11434/v1"
 
 DEFAULT_GEMMA_MODEL = GemmaModel.GEMMA_4_26B
 
+_BACKEND_MAP: dict[str, AIBackend] = {
+    "lm_studio": AIBackend.LM_STUDIO,
+    "ollama": AIBackend.OLLAMA,
+    "openai_compat": AIBackend.OPENAI_COMPAT,
+    "google_ai_studio": AIBackend.GOOGLE_AI_STUDIO,
+}
+
+_URL_PATTERNS: list[tuple[str, AIBackend]] = [
+    ("generativelanguage.googleapis.com", AIBackend.GOOGLE_AI_STUDIO),
+    ("127.0.0.1:1234", AIBackend.LM_STUDIO),
+    ("localhost:1234", AIBackend.LM_STUDIO),
+    ("localhost:11434", AIBackend.OLLAMA),
+    ("127.0.0.1:11434", AIBackend.OLLAMA),
+]
+
+
+def _resolve_backend(backend_str: str, base_url: str | None) -> AIBackend:
+    """Resolve AI backend from explicit string or base_url inference."""
+    if backend_str in _BACKEND_MAP:
+        return _BACKEND_MAP[backend_str]
+    if base_url:
+        for pattern, backend in _URL_PATTERNS:
+            if pattern in base_url:
+                return backend
+    return AIBackend.GOOGLE_AI_STUDIO
+
 
 class AIConfig(BaseModel):
     api_key: str | None = None
@@ -60,36 +87,16 @@ class AIConfig(BaseModel):
     @classmethod
     def from_env(cls) -> AIConfig:
         api_key = (
-            os.environ.get("SQLSEED_AI_API_KEY")
-            or os.environ.get("GOOGLE_API_KEY")
-            or os.environ.get("OPENAI_API_KEY")
+            os.environ.get("SQLSEED_AI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or os.environ.get("OPENAI_API_KEY")
         )
-        base_url = (
-            os.environ.get("SQLSEED_AI_BASE_URL")
-            or os.environ.get("OPENAI_BASE_URL")
-            or None
-        )
+        base_url = os.environ.get("SQLSEED_AI_BASE_URL") or os.environ.get("OPENAI_BASE_URL") or None
         model = os.environ.get("SQLSEED_AI_MODEL") or None
         backend_str = os.environ.get("SQLSEED_AI_BACKEND", "").lower()
         timeout_str = os.environ.get("SQLSEED_AI_TIMEOUT")
         timeout = float(timeout_str) if timeout_str else 60.0
 
         # Resolve backend
-        backend = AIBackend.GOOGLE_AI_STUDIO  # default
-        if backend_str == "lm_studio":
-            backend = AIBackend.LM_STUDIO
-        elif backend_str == "ollama":
-            backend = AIBackend.OLLAMA
-        elif backend_str == "openai_compat":
-            backend = AIBackend.OPENAI_COMPAT
-        elif backend_str == "google_ai_studio" or (
-            base_url and "generativelanguage.googleapis.com" in base_url
-        ):
-            backend = AIBackend.GOOGLE_AI_STUDIO
-        elif base_url and ("127.0.0.1:1234" in base_url or "localhost:1234" in base_url):
-            backend = AIBackend.LM_STUDIO
-        elif base_url and ("localhost:11434" in base_url or "127.0.0.1:11434" in base_url):
-            backend = AIBackend.OLLAMA
+        backend = _resolve_backend(backend_str, base_url)
 
         return cls(api_key=api_key, base_url=base_url, model=model, backend=backend, timeout=timeout)
 
@@ -130,13 +137,15 @@ class AIConfig(BaseModel):
 
         # Try environment variables
         return (
-            os.environ.get("SQLSEED_AI_API_KEY")
-            or os.environ.get("GOOGLE_API_KEY")
-            or os.environ.get("OPENAI_API_KEY")
+            os.environ.get("SQLSEED_AI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or os.environ.get("OPENAI_API_KEY")
         )
 
     def apply_overrides(
-        self, *, api_key: str | None = None, base_url: str | None = None, model: str | None = None,
+        self,
+        *,
+        api_key: str | None = None,
+        base_url: str | None = None,
+        model: str | None = None,
         backend: AIBackend | None = None,
     ) -> AIConfig:
         if api_key:

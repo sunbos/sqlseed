@@ -119,7 +119,7 @@
 - `ColumnMapper` 精确匹配规则从 68 扩展到 74 条
 
 #### AI 插件（sqlseed-ai）
-- 自动模型选择：`_model_selector` 从 OpenRouter 免费模型列表中按优先级自动选择
+- 自动模型选择：`_model_selector` 按 Gemma 4 优先级自动选择（26B MoE → 31B Dense → 4B → 2B），支持多后端（Google AI Studio、LM Studio、Ollama）
 - 结构化输出：`response_format: json_object` 强制 LLM 返回 JSON
 - Few-shot 示例库：4 个典型场景（用户表、银行卡表、订单表、员工表）
 - `AiConfigRefiner` 自纠正闭环：自动检测并修复无效配置，最多 3 轮重试

@@ -475,15 +475,19 @@ def ai_suggest(
     ai_config = AIConfig.from_env().apply_overrides(api_key=api_key, base_url=base_url, model=model)
     ai_config.timeout = timeout
 
-    if not ai_config.api_key:
+    if not ai_config.resolve_api_key():
         click.echo(
-            "Error: AI API key not configured. Set SQLSEED_AI_API_KEY or OPENAI_API_KEY, or use --api-key.",
+            "Error: AI API key not configured. "
+            "Set SQLSEED_AI_API_KEY or OPENAI_API_KEY. "
+            "For Google AI Studio, set GOOGLE_API_KEY. "
+            "For LM Studio/Ollama, set SQLSEED_AI_BACKEND=lm_studio or ollama.",
             err=True,
         )
         raise SystemExit(1)
 
     resolved_model = ai_config.resolve_model()
-    click.echo(f"Using AI model: {resolved_model} (via OpenRouter)")
+    backend_name = ai_config.backend.value.replace("_", " ").title()
+    click.echo(f"Using AI model: {resolved_model} (via {backend_name})")
 
     analyzer = SchemaAnalyzer(config=ai_config)
     total_timeout = timeout * 2
@@ -491,13 +495,15 @@ def ai_suggest(
     old_handler: Any = None
     if hasattr(signal, "SIGALRM"):
         old_handler = signal.signal(signal.SIGALRM, lambda _s, _f: _sigalrm_handler(total_timeout))
-        signal.alarm(int(total_timeout))
+        _alarm_fn = vars(signal)["alarm"]
+        _alarm_fn(int(total_timeout))
 
     try:
         result = _run_ai_analysis(analyzer, db_path, table, verify, max_retries, no_cache)
     finally:
         if hasattr(signal, "SIGALRM"):
-            signal.alarm(0)
+            _alarm_fn = vars(signal)["alarm"]
+            _alarm_fn(0)
             if old_handler is not None:
                 signal.signal(signal.SIGALRM, old_handler)
 

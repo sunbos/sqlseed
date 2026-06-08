@@ -62,6 +62,9 @@ graph TB
         Refiner["AiConfigRefiner<br/>自纠正闭环"]
         Examples["Few-shot<br/>示例库"]
         Errors["ErrorSummary<br/>错误分类"]
+        GemmaModel["GemmaModel<br/>Gemma 4 模型适配器"]
+        AIBackend["AIBackend<br/>多后端路由"]
+        GemmaTools["GEMMA_TOOLS<br/>原生函数调用"]
     end
 
     subgraph Utils["🔧 工具层 (_utils/)"]
@@ -115,6 +118,9 @@ graph TB
     Analyzer --> Refiner
     Refiner --> Errors
     Analyzer --> Examples
+    AIBackend --> GemmaModel
+    AIBackend --> Analyzer
+    GemmaModel --> GemmaTools
 
     Orch --> Config
 
@@ -426,13 +432,15 @@ flowchart TB
         CLICmd["sqlseed ai-suggest"]
         HookCall["sqlseed_ai_analyze_table Hook"]
         MCPTool["MCP: sqlseed_generate_yaml"]
+        MCPGemma4Analyze["MCP: sqlseed_gemma4_analyze"]
+        MCPGemma4AgentFill["MCP: sqlseed_gemma4_agent_fill"]
     end
 
     subgraph Analyzer["SchemaAnalyzer"]
         Context["构建上下文<br/>列 + 索引 + FK + 样本 + 分布"]
         FewShot["注入 Few-shot 示例<br/>(4 个典型场景)"]
         SysPrompt["System Prompt<br/>生成器列表 + 输出格式"]
-        LLM["调用 LLM<br/>OpenAI 兼容 API<br/>response_format: json_object"]
+        LLM["调用 LLM<br/>AIBackend 多后端路由<br/>OpenAI API / Gemma 4 GEMMA_TOOLS<br/>response_format: json_object"]
     end
 
     subgraph Refiner["AiConfigRefiner 自纠正闭环"]
@@ -474,6 +482,8 @@ flowchart TB
     CLICmd --> Analyzer
     HookCall --> Analyzer
     MCPTool --> Analyzer
+    MCPGemma4Analyze --> Analyzer
+    MCPGemma4AgentFill --> Analyzer
 
     Context --> FewShot --> SysPrompt --> LLM
     LLM --> Refiner
@@ -625,6 +635,9 @@ flowchart LR
         Tool1["🔍 sqlseed_inspect_schema<br/>返回: 列 + FK + 索引 + 样本 + hash"]
         Tool2["🤖 sqlseed_generate_yaml<br/>AI 分析 → 自纠正 → YAML"]
         Tool3["⚡ sqlseed_execute_fill<br/>执行数据生成"]
+        Tool4["💎 sqlseed_gemma4_analyze<br/>Gemma 4 原生函数调用分析"]
+        Tool5["💎 sqlseed_gemma4_agent_fill<br/>Gemma 4 Agent 驱动数据填充"]
+        Tool6["💎 sqlseed_gemma4_suggest<br/>Gemma 4 列映射建议"]
     end
 
     subgraph SQLSeed["sqlseed 核心"]
@@ -641,11 +654,77 @@ flowchart LR
     Request --> Tool1
     Request --> Tool2
     Request --> Tool3
+    Request --> Tool4
+    Request --> Tool5
+    Request --> Tool6
 
     Resource --> SchemaCtx
     Tool1 --> SchemaCtx
     Tool2 --> SA --> ACR
     Tool3 --> Orchestrator
+    Tool4 --> SA
+    Tool5 --> Orchestrator
+    Tool6 --> SA
 
     SchemaCtx --> Orchestrator
+```
+
+---
+
+## 11. Gemma 4 集成架构
+
+```mermaid
+flowchart TB
+    subgraph MCPEntry["MCP 工具入口"]
+        G4Analyze["💎 sqlseed_gemma4_analyze<br/>通过 Gemma 4 进行 Schema 分析"]
+        G4AgentFill["💎 sqlseed_gemma4_agent_fill<br/>Agent 驱动数据填充"]
+        G4Suggest["💎 sqlseed_gemma4_suggest<br/>列映射建议"]
+    end
+
+    subgraph Backend["AIBackend 多后端路由"]
+        Router["AIBackend<br/>后端选择"]
+        OpenAIBe["OpenAI 后端<br/>chat.completions API"]
+        GemmaBe["Gemma 4 后端<br/>GEMMA_TOOLS 原生函数调用"]
+    end
+
+    subgraph GemmaFC["GEMMA_TOOLS 原生函数调用"]
+        ToolReg["工具注册<br/>auto_register(sqlseed 工具)"]
+        FCRequest["函数调用请求<br/>模型生成 tool_call"]
+        FCExec["工具执行<br/>sqlseed 核心执行"]
+        FCResult["结果注入<br/>tool_result → 对话"]
+        FCIterate["迭代优化<br/>多轮工具调用"]
+    end
+
+    subgraph Core["sqlseed 核心集成"]
+        SchemaCtx["get_schema_context()"]
+        Orchestrator["DataOrchestrator"]
+        Mapper["ColumnMapper"]
+    end
+
+    G4Analyze --> Router
+    G4AgentFill --> Router
+    G4Suggest --> Router
+
+    Router --> OpenAIBe
+    Router --> GemmaBe
+
+    GemmaBe --> ToolReg
+    ToolReg --> FCRequest
+    FCRequest --> FCExec
+    FCExec --> FCResult
+    FCResult --> FCIterate
+    FCIterate --> FCRequest
+
+    FCExec --> SchemaCtx
+    FCExec --> Orchestrator
+    FCExec --> Mapper
+
+    SchemaCtx --> Orchestrator
+
+    style GemmaBe fill:#4285F4,color:#fff
+    style ToolReg fill:#34A853,color:#fff
+    style FCRequest fill:#34A853,color:#fff
+    style FCExec fill:#FBBC05,color:#000
+    style FCResult fill:#34A853,color:#fff
+    style FCIterate fill:#EA4335,color:#fff
 ```

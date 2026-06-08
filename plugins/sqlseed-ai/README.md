@@ -4,7 +4,7 @@
 
 AI-powered data generation plugin for [sqlseed](https://github.com/sunbos/sqlseed).
 
-LLM-driven schema analysis, self-correcting config generation, and template pool assistance. Uses OpenAI-compatible API (default: OpenRouter free models).
+LLM-driven schema analysis, self-correcting config generation, and template pool assistance. Supports multiple backends: Google AI Studio (Gemma 4 Native Function Calling), LM Studio, Ollama, and any OpenAI-compatible API (OpenRouter, OpenAI, DeepSeek, etc.).
 
 ## Installation
 
@@ -15,7 +15,7 @@ pip install sqlseed-ai
 ## Quick Start
 
 ```bash
-# Set API key (OpenRouter, OpenAI, DeepSeek, etc.)
+# Set API key (or use GOOGLE_API_KEY for Google AI Studio)
 export SQLSEED_AI_API_KEY="your-api-key"
 
 # Generate AI-suggested YAML config
@@ -24,8 +24,11 @@ sqlseed ai-suggest app.db --table users --output users.yaml
 # With self-correction (3 rounds by default)
 sqlseed ai-suggest app.db --table users --output users.yaml --verify
 
-# Specify model
-sqlseed ai-suggest app.db --table users -o users.yaml --model deepseek/deepseek-chat
+# Specify model (defaults to Gemma 4 26B via Google AI Studio)
+sqlseed ai-suggest app.db --table users -o users.yaml --model gemma-4-26b-it
+
+# Use local LM Studio
+sqlseed ai-suggest app.db --table users -o users.yaml --backend lm_studio --model google/gemma-4-e4b
 
 # Skip cache
 sqlseed ai-suggest app.db --table users -o users.yaml --no-cache
@@ -47,13 +50,37 @@ sqlseed ai-suggest app.db --table users -o users.yaml --no-cache
 
 ### Auto Model Selection
 
-Queries OpenRouter API to find the best available free model dynamically:
-1. Fetches all free models currently online (`prompt=0` and `completion=0`).
-2. Filters out promotional models that have an `expiration_date`.
-3. Selects the newest created model.
-4. If network fails, falls back to the permanent `openrouter/free` endpoint.
+When using the `google_ai_studio` backend (default), the `GemmaModel` enum provides pre-configured Gemma 4 variants. The model is selected based on the backend:
 
-Result cached for 1 hour. Skip auto-selection by specifying `--model` or `SQLSEED_AI_MODEL`.
+1. **Google AI Studio**: Defaults to `gemma-4-26b-it` (recommended balance of quality and speed).
+2. **LM Studio / Ollama**: User must specify a loaded model via `--model` or `SQLSEED_AI_MODEL`.
+3. **OpenAI-compatible** (OpenRouter, DeepSeek, etc.): User must specify both `--model` and `--base-url`.
+
+For **OpenRouter free models**, set:
+```bash
+export SQLSEED_AI_BACKEND=openai_compat
+export SQLSEED_AI_BASE_URL=https://openrouter.ai/api/v1
+export SQLSEED_AI_MODEL=<free-model-name>
+```
+
+Skip auto-selection by specifying `--model` or `SQLSEED_AI_MODEL`.
+
+When using the `google_ai_studio` backend, the `GemmaModel` enum provides pre-configured Gemma 4 variants:
+
+| Enum Value | Model ID | Description |
+|:-----------|:---------|:------------|
+| `GemmaModel.GEMMA_4_2B` | `gemma-4-2b` | Lightweight, fast inference |
+| `GemmaModel.GEMMA_4_4B` | `gemma-4-4b` | Balanced speed and quality |
+| `GemmaModel.GEMMA_4_26B` | `gemma-4-26b` | High quality, recommended |
+| `GemmaModel.GEMMA_4_31B` | `gemma-4-31b` | Best quality, largest model |
+
+The `AIBackend` enum selects the API backend:
+
+| Enum Value | Backend | Default Base URL |
+|:-----------|:--------|:-----------------|
+| `AIBackend.GOOGLE_AI_STUDIO` | Google AI Studio | `https://generativelanguage.googleapis.com/v1beta/openai/` |
+| `AIBackend.LM_STUDIO` | LM Studio | `http://localhost:1234/v1` |
+| `AIBackend.OLLAMA` | Ollama | `http://localhost:11434/v1` |
 
 ### Template Pool
 
@@ -70,9 +97,11 @@ AI configs cached in platform-specific cache directory (`~/Library/Caches/sqlsee
 | Variable | Fallback | Default | Description |
 |:---------|:---------|:--------|:------------|
 | `SQLSEED_AI_API_KEY` | `OPENAI_API_KEY` | — | API key (required) |
-| `SQLSEED_AI_BASE_URL` | `OPENAI_BASE_URL` | `https://openrouter.ai/api/v1` | API endpoint |
-| `SQLSEED_AI_MODEL` | — | auto-select | Model name |
+| `SQLSEED_AI_BASE_URL` | `OPENAI_BASE_URL` | (auto by backend) | API endpoint |
+| `SQLSEED_AI_MODEL` | — | `gemma-4-26b-it` | Model name |
 | `SQLSEED_AI_TIMEOUT` | — | `60` | API timeout (seconds) |
+| `SQLSEED_AI_BACKEND` | — | `google_ai_studio` | AI backend: `google_ai_studio`, `lm_studio`, `ollama`, `openai_compat` |
+| `GOOGLE_API_KEY` | — | — | Google AI Studio API key (required when backend is `google_ai_studio`) |
 
 ### CLI Options
 
@@ -102,7 +131,25 @@ This plugin registers via `[project.entry-points."sqlseed"]` and implements:
 - Python >= 3.10
 - `sqlseed >= 0.1.0`
 - `openai >= 1.0`
-- An OpenAI-compatible API key
+- `google-generativeai >= 0.8`
+- An OpenAI-compatible API key or Google AI Studio API key
+
+## Gemma 4 Integration
+
+When using the `google_ai_studio` backend, sqlseed-ai leverages **Gemma 4 Native Function Calling** for structured schema analysis:
+
+### GEMMA_TOOLS
+
+The plugin defines a `GEMMA_TOOLS` function declaration that tells Gemma 4 how to respond with structured column configs. Instead of parsing free-form text, the model is instructed to call a `generate_column_config` function with typed parameters (column name, generator, parameters, etc.), ensuring output conforms to the expected schema.
+
+### Native Function Calling Mechanism
+
+1. **Tool Definition**: `GEMMA_TOOLS` declares a `generate_column_config` function with a strict JSON Schema describing each parameter (column_name, generator_name, parameters, nullable, etc.).
+2. **Request**: The schema context and analysis prompt are sent to the Gemma 4 model with `tools=[GEMMA_TOOLS]` and `tool_config` set to force a function call.
+3. **Response Parsing**: The model returns a `FunctionCall` object instead of plain text. The plugin extracts the structured args directly — no regex or fragile parsing needed.
+4. **Validation**: The extracted args are passed through the same `AiConfigRefiner` pipeline for self-correction.
+
+This approach significantly improves reliability over text-based LLM output parsing, as the model is constrained to produce well-formed, schema-compliant responses.
 
 ## License
 

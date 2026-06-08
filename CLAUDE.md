@@ -201,7 +201,7 @@ When preparing a new version release:
 
 ## Plugins (separate packages)
 
-- `plugins/sqlseed-ai/` — LLM-powered schema analysis via OpenRouter. Has its own `pyproject.toml`. Install: `pip install -e "./plugins/sqlseed-ai"`
+- `plugins/sqlseed-ai/` — LLM-powered schema analysis via Gemma 4 (Google AI Studio, LM Studio, Ollama). Has its own `pyproject.toml`. Install: `pip install -e "./plugins/sqlseed-ai"`
 - `plugins/mcp-server-sqlseed/` — MCP server for schema inspect, AI YAML gen, fill. Install: `pip install -e "./plugins/mcp-server-sqlseed"`
 
 ## Dependencies

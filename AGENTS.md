@@ -6,7 +6,7 @@
 
 ## OVERVIEW
 
-Declarative SQLite test data generation toolkit. YAML/JSON config or Python API. Auto-infers schema, 9-level column mapping, 31 generators, plugin system (pluggy).
+Declarative SQLite test data generation toolkit. YAML/JSON config or Python API. Auto-infers schema, 9-level column mapping, 31 generators, plugin system (pluggy). Gemma 4 Native Function Calling for AI-powered schema analysis.
 
 **Stack**: Python 3.10+, hatchling build, ruff lint, mypy strict, pytest.
 
@@ -42,8 +42,8 @@ sqlseed/
 | Modify schema inference | `src/sqlseed/core/schema.py` | SchemaInferrer class |
 | Change batch insert | `src/sqlseed/database/` | Two adapters: raw, sqlite-utils |
 | Add test fixture | `tests/conftest.py` | tmp_db, tmp_db_with_data, unique_test_db |
-| Configure AI plugin | `plugins/sqlseed-ai/` | Separate pyproject.toml |
-| Add MCP tool | `plugins/mcp-server-sqlseed/` | FastMCP decorators |
+| Configure AI plugin | `plugins/sqlseed-ai/` | Separate pyproject.toml, Gemma 4 multi-backend (Google AI Studio, LM Studio, Ollama) |
+| Add MCP tool | `plugins/mcp-server-sqlseed/` | FastMCP decorators, 3 Gemma 4 tools: gemma4_analyze, gemma4_agent_fill, list_gemma_models |
 
 ## CONVENTIONS
 
@@ -65,6 +65,8 @@ sqlseed/
 ## UNIQUE STYLES
 
 - **Provider fallback chain**: mimesis → faker → base (auto-degrades)
+- **AI backend fallback chain**: Google AI Studio → LM Studio → Ollama (multi-backend)
+- **Gemma 4 Native Function Calling**: `GEMMA_TOOLS` (analyze_schema, generate_column_values) with auto-fallback to JSON mode
 - **Context manager pattern**: `DataOrchestrator` is a context manager
 - **Plugin mediation**: `PluginMediator` bridges plugins and core (not direct calls)
 - **DAG-based column ordering**: `ColumnDAG` handles derive_from dependencies

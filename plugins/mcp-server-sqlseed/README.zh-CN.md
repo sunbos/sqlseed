@@ -63,6 +63,10 @@ AI 助手会依次调用：
 
 当安装了 `sqlseed-ai` 并配置了 API Key（`SQLSEED_AI_API_KEY` 或 `OPENAI_API_KEY`）时，`sqlseed_generate_yaml` 工具使用 LLM 驱动的分析和自纠正。未安装 AI 插件时，该工具返回回退消息。
 
+### Gemma 4 集成
+
+`sqlseed_gemma4_analyze` 和 `sqlseed_gemma4_agent_fill` 工具通过 `GEMMA_TOOLS` 接口利用 **Gemma 4 Native Function Calling**。当安装了 `google-generativeai` 并配置了 Google API Key（`GOOGLE_API_KEY`）时，这些工具使用 Gemma 4 的内置函数调用直接分析 Schema 并编排端到端填充工作流。使用 `sqlseed_list_gemma_models` 可查看可用的模型变体和后端。
+
 ## 依赖
 
 - Python >= 3.10
@@ -71,6 +75,7 @@ AI 助手会依次调用：
 
 可选：
 - `sqlseed-ai`（用于 `sqlseed_generate_yaml` 工具）
+- `google-generativeai`（用于 Gemma 4 工具：`sqlseed_gemma4_analyze`、`sqlseed_gemma4_agent_fill`）
 
 ## 许可证
 

@@ -71,6 +71,7 @@ When `sqlseed-ai` is installed and an API key is configured (`SQLSEED_AI_API_KEY
 
 Optional:
 - `sqlseed-ai` (for `sqlseed_generate_yaml` tool)
+- `google-generativeai` (for Gemma 4 tools: `sqlseed_gemma4_analyze`, `sqlseed_gemma4_agent_fill`)
 
 ## License
 

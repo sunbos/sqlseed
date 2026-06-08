@@ -4,7 +4,7 @@
 
 [sqlseed](https://github.com/sunbos/sqlseed) 的 AI 驱动数据生成插件。
 
-LLM 驱动的 Schema 分析、自纠正配置生成和模板池辅助。使用 OpenAI 兼容 API（默认：OpenRouter 免费模型）。
+LLM 驱动的 Schema 分析、自纠正配置生成和模板池辅助。支持多种后端：Google AI Studio（Gemma 4 原生函数调用）、LM Studio、Ollama，以及任何 OpenAI 兼容 API（OpenRouter、OpenAI、DeepSeek 等）。
 
 ## 安装
 
@@ -15,7 +15,7 @@ pip install sqlseed-ai
 ## 快速开始
 
 ```bash
-# 设置 API Key（OpenRouter、OpenAI、DeepSeek 等）
+# 设置 API Key（或使用 GOOGLE_API_KEY 用于 Google AI Studio）
 export SQLSEED_AI_API_KEY="your-api-key"
 
 # AI 分析并生成配置
@@ -24,8 +24,11 @@ sqlseed ai-suggest app.db --table users --output users.yaml
 # 带自纠正（默认 3 轮）
 sqlseed ai-suggest app.db --table users --output users.yaml --verify
 
-# 指定模型
-sqlseed ai-suggest app.db --table users -o users.yaml --model deepseek/deepseek-chat
+# 指定模型（默认使用 Gemma 4 26B via Google AI Studio）
+sqlseed ai-suggest app.db --table users -o users.yaml --model gemma-4-26b-it
+
+# 使用本地 LM Studio
+sqlseed ai-suggest app.db --table users -o users.yaml --backend lm_studio --model google/gemma-4-e4b
 
 # 跳过缓存
 sqlseed ai-suggest app.db --table users -o users.yaml --no-cache
@@ -47,13 +50,37 @@ sqlseed ai-suggest app.db --table users -o users.yaml --no-cache
 
 ### 自动模型选择
 
-动态查询 OpenRouter API 寻找最佳可用免费模型：
-1. 抓取当前所有在线的免费模型（`prompt=0` 且 `completion=0`）。
-2. 过滤掉包含 `expiration_date` 的限时活动模型，确保选取长期免费模型。
-3. 自动选择最新发布（`created` 最近）的模型。
-4. 若网络异常获取失败，则强制兜底使用官方永久免费节点 `openrouter/free`。
+使用 `google_ai_studio` 后端（默认）时，`GemmaModel` 枚举提供预配置的 Gemma 4 变体。模型根据后端自动选择：
 
-结果缓存 1 小时。通过 `--model` 或 `SQLSEED_AI_MODEL` 跳过自动选择。
+1. **Google AI Studio**：默认使用 `gemma-4-26b-it`（推荐的质量与速度平衡）。
+2. **LM Studio / Ollama**：用户需通过 `--model` 或 `SQLSEED_AI_MODEL` 指定已加载的模型。
+3. **OpenAI-compatible**（OpenRouter、DeepSeek 等）：用户需同时指定 `--model` 和 `--base-url`。
+
+**OpenRouter 免费模型**设置：
+```bash
+export SQLSEED_AI_BACKEND=openai_compat
+export SQLSEED_AI_BASE_URL=https://openrouter.ai/api/v1
+export SQLSEED_AI_MODEL=<免费模型名>
+```
+
+通过 `--model` 或 `SQLSEED_AI_MODEL` 跳过自动选择。
+
+使用 `google_ai_studio` 后端时，`GemmaModel` 枚举提供预配置的 Gemma 4 变体：
+
+| 枚举值 | 模型 ID | 说明 |
+|:-------|:--------|:-----|
+| `GemmaModel.GEMMA_4_2B` | `gemma-4-2b` | 轻量级，推理速度快 |
+| `GemmaModel.GEMMA_4_4B` | `gemma-4-4b` | 速度与质量均衡 |
+| `GemmaModel.GEMMA_4_26B` | `gemma-4-26b` | 高质量，推荐使用 |
+| `GemmaModel.GEMMA_4_31B` | `gemma-4-31b` | 最佳质量，最大模型 |
+
+`AIBackend` 枚举用于选择 API 后端：
+
+| 枚举值 | 后端 | 默认 Base URL |
+|:-------|:-----|:--------------|
+| `AIBackend.GOOGLE_AI_STUDIO` | Google AI Studio | `https://generativelanguage.googleapis.com/v1beta/openai/` |
+| `AIBackend.LM_STUDIO` | LM Studio | `http://localhost:1234/v1` |
+| `AIBackend.OLLAMA` | Ollama | `http://localhost:11434/v1` |
 
 ### 模板池
 
@@ -70,9 +97,11 @@ AI 配置缓存在平台标准缓存目录（macOS: `~/Library/Caches/sqlseed/ai
 | 变量 | 回退 | 默认值 | 说明 |
 |:-----|:-----|:-------|:-----|
 | `SQLSEED_AI_API_KEY` | `OPENAI_API_KEY` | — | API Key（必填） |
-| `SQLSEED_AI_BASE_URL` | `OPENAI_BASE_URL` | `https://openrouter.ai/api/v1` | API 端点 |
-| `SQLSEED_AI_MODEL` | — | 自动选择 | 模型名称 |
+| `SQLSEED_AI_BASE_URL` | `OPENAI_BASE_URL` | （按后端自动设置） | API 端点 |
+| `SQLSEED_AI_MODEL` | — | `gemma-4-26b-it` | 模型名称 |
 | `SQLSEED_AI_TIMEOUT` | — | `60` | API 超时（秒） |
+| `SQLSEED_AI_BACKEND` | — | `google_ai_studio` | AI 后端：`google_ai_studio`、`lm_studio`、`ollama`、`openai_compat` |
+| `GOOGLE_API_KEY` | — | — | Google AI Studio API Key（后端为 `google_ai_studio` 时必填） |
 
 ### CLI 参数
 
@@ -102,7 +131,25 @@ AI 配置缓存在平台标准缓存目录（macOS: `~/Library/Caches/sqlseed/ai
 - Python >= 3.10
 - `sqlseed >= 0.1.0`
 - `openai >= 1.0`
-- OpenAI 兼容 API Key
+- `google-generativeai >= 0.8`
+- OpenAI 兼容 API Key 或 Google AI Studio API Key
+
+## Gemma 4 集成
+
+使用 `google_ai_studio` 后端时，sqlseed-ai 利用 **Gemma 4 原生函数调用（Native Function Calling）** 进行结构化 Schema 分析：
+
+### GEMMA_TOOLS
+
+插件定义了 `GEMMA_TOOLS` 函数声明，指示 Gemma 4 以结构化列配置响应。模型被要求调用 `generate_column_config` 函数并传入类型化参数（列名、生成器、参数等），而非输出自由文本，从而确保输出符合预期的 Schema。
+
+### 原生函数调用机制
+
+1. **工具定义**：`GEMMA_TOOLS` 声明 `generate_column_config` 函数，使用严格的 JSON Schema 描述每个参数（column_name、generator_name、parameters、nullable 等）。
+2. **请求发送**：将 Schema 上下文和分析 Prompt 发送给 Gemma 4 模型，附带 `tools=[GEMMA_TOOLS]` 和 `tool_config` 设置为强制函数调用。
+3. **响应解析**：模型返回 `FunctionCall` 对象而非纯文本。插件直接提取结构化参数，无需正则匹配或脆弱的文本解析。
+4. **验证**：提取的参数通过相同的 `AiConfigRefiner` 管道进行自纠正验证。
+
+此方法显著提高了输出可靠性，因为模型被约束为生成格式良好、符合 Schema 的响应，避免了基于文本的 LLM 输出解析的不确定性。
 
 ## 许可证
 

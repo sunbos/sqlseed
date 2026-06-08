@@ -25,6 +25,33 @@ mcp = FastMCP("sqlseed")
 _MAX_YAML_CONFIG_SIZE = 256 * 1024
 
 
+def _build_ai_config(
+    db_path: str,
+    model: str | None,
+    backend: str | None,
+) -> tuple[AIConfig, dict[str, Any] | None]:
+    """Build an AIConfig with Gemma 4 defaults, validating db_path and backend.
+
+    Returns (config, None) on success, or (config, error_dict) on failure.
+    """
+    if not _AI_AVAILABLE:
+        return AIConfig(), {"error": "sqlseed-ai plugin not installed. Install with: pip install sqlseed-ai"}
+
+    db_path = _validate_db_path(db_path)
+
+    ai_config = AIConfig.from_env()
+    if model:
+        ai_config.model = model
+    if backend:
+        try:
+            ai_config.backend = AIBackend(backend)
+        except ValueError:
+            return ai_config, {"error": f"Invalid backend: {backend}. Use: google_ai_studio, ollama, openai_compat"}
+    ai_config.resolve_model()
+
+    return ai_config, None
+
+
 def _validate_db_path(db_path: str) -> str:
     resolved = Path(db_path).resolve()
     valid_exts = (".db", ".sqlite", ".sqlite3")
@@ -206,24 +233,13 @@ def sqlseed_gemma4_analyze(
     Supported backends: google_ai_studio (default), ollama, openai_compat.
     Supported models: gemma-4-26b-it (default), gemma-4-31b-it, gemma-4-4b-it, gemma-4-2b-it.
     """
-    if not _AI_AVAILABLE:
-        return {"error": "sqlseed-ai plugin not installed. Install with: pip install sqlseed-ai"}
+    ai_config, err = _build_ai_config(db_path, model, backend)
+    if err is not None:
+        return err
 
-    db_path = _validate_db_path(db_path)
     with DataOrchestrator(db_path) as orch:
         _validate_table_name(table_name, orch.get_table_names())
         schema_ctx = orch.get_schema_context(table_name)
-
-    # Build AIConfig with Gemma 4 defaults
-    ai_config = AIConfig.from_env()
-    if model:
-        ai_config.model = model
-    if backend:
-        try:
-            ai_config.backend = AIBackend(backend)
-        except ValueError:
-            return {"error": f"Invalid backend: {backend}. Use: google_ai_studio, ollama, openai_compat"}
-    ai_config.resolve_model()
 
     analyzer = SchemaAnalyzer(config=ai_config)
     result = analyzer.analyze_table_from_ctx(**_serialize_schema_context(schema_ctx))
@@ -259,22 +275,11 @@ def sqlseed_gemma4_agent_fill(
     The agent uses Gemma 4's tool use to understand schema semantics and
     produce appropriate data generation rules automatically.
     """
-    if not _AI_AVAILABLE:
-        return {"error": "sqlseed-ai plugin not installed. Install with: pip install sqlseed-ai"}
-
-    db_path = _validate_db_path(db_path)
+    ai_config, err = _build_ai_config(db_path, model, backend)
+    if err is not None:
+        return err
 
     # Step 1: AI analysis with self-correction
-    ai_config = AIConfig.from_env()
-    if model:
-        ai_config.model = model
-    if backend:
-        try:
-            ai_config.backend = AIBackend(backend)
-        except ValueError:
-            return {"error": f"Invalid backend: {backend}. Use: google_ai_studio, ollama, openai_compat"}
-    ai_config.resolve_model()
-
     analyzer = SchemaAnalyzer(config=ai_config)
     refiner = AiConfigRefiner(analyzer, db_path)
 
@@ -322,10 +327,12 @@ def sqlseed_list_gemma_models() -> dict[str, Any]:
     """
     models = []
     for member in GemmaModel:
-        models.append({
-            "id": member.value,
-            "display_name": member.display_name,
-        })
+        models.append(
+            {
+                "id": member.value,
+                "display_name": member.display_name,
+            }
+        )
 
     backends = [
         {"id": "google_ai_studio", "description": "Google AI Studio API (free tier available, recommended)"},

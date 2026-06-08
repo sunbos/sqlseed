@@ -7,7 +7,7 @@ from openai import APIConnectionError, APIError, APITimeoutError
 from sqlseed_ai._client import get_openai_client
 from sqlseed_ai._json_utils import parse_json_response
 from sqlseed_ai._model_selector import select_next_gemma_model
-from sqlseed_ai.config import AIConfig, AIBackend
+from sqlseed_ai.config import AIBackend, AIConfig
 from sqlseed_ai.examples import FEW_SHOT_EXAMPLES
 
 from sqlseed._utils.logger import get_logger
@@ -343,9 +343,27 @@ class SchemaAnalyzer:
             return {}
         return self._parse_json_response(content)
 
-    def _try_tool_calling(
-        self, client: Any, kwargs: dict[str, Any]
-    ) -> dict[str, Any] | None:
+    def _extract_tool_call_result(self, choice: Any) -> dict[str, Any] | None:
+        """Extract the analyze_schema result from a tool call choice."""
+        if not choice.message.tool_calls:
+            return None
+        for tool_call in choice.message.tool_calls:
+            if tool_call.function.name == "analyze_schema":
+                args_str = tool_call.function.arguments
+                if args_str:
+                    try:
+                        result: dict[str, Any] | None = json.loads(args_str)
+                        logger.info(
+                            "Gemma 4 native function calling succeeded",
+                            tool="analyze_schema",
+                            model=self._config.model if self._config else "unknown",
+                        )
+                        return result
+                    except json.JSONDecodeError:
+                        logger.debug("Failed to parse tool call arguments", args=args_str[:200])
+        return None
+
+    def _try_tool_calling(self, client: Any, kwargs: dict[str, Any]) -> dict[str, Any] | None:
         """Attempt Gemma 4 native function calling.
 
         If the model supports tool use, it will invoke the `analyze_schema`
@@ -367,22 +385,9 @@ class SchemaAnalyzer:
 
             choice = response.choices[0]
 
-            # Check if the model made a tool call
-            if choice.message.tool_calls:
-                for tool_call in choice.message.tool_calls:
-                    if tool_call.function.name == "analyze_schema":
-                        args_str = tool_call.function.arguments
-                        if args_str:
-                            try:
-                                result = json.loads(args_str)
-                                logger.info(
-                                    "Gemma 4 native function calling succeeded",
-                                    tool="analyze_schema",
-                                    model=self._config.model if self._config else "unknown",
-                                )
-                                return result
-                            except json.JSONDecodeError:
-                                logger.debug("Failed to parse tool call arguments", args=args_str[:200])
+            result = self._extract_tool_call_result(choice)
+            if result is not None:
+                return result
 
             # If no tool call was made but we have text content, parse it
             if choice.message.content:

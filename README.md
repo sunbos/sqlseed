@@ -180,6 +180,12 @@ mypy src/sqlseed/
 
 ## 🚀 Quick Start
 
+### Interactive Quickstart
+
+```bash
+python scripts/quickstart.py
+```
+
 ### Try with Demo Database
 
 Want to try sqlseed right away? Build the demo database:
@@ -652,7 +658,6 @@ pip install sqlseed-ai
 
 # Set API key
 export SQLSEED_AI_API_KEY="your-api-key"
-export SQLSEED_AI_BASE_URL="https://your-llm-api-endpoint"
 
 # AI analysis and config generation
 sqlseed ai-suggest app.db --table projects --output projects.yaml
@@ -660,9 +665,27 @@ sqlseed ai-suggest app.db --table projects --output projects.yaml
 # AI suggestions with self-correction (3 rounds by default)
 sqlseed ai-suggest app.db --table projects --output projects.yaml --verify
 
-# Specify model (defaults to most popular free model)
-sqlseed ai-suggest app.db --table projects --output projects.yaml --model nvidia/nemotron-3-super-120b-a12b:free
+# Specify model (defaults to Gemma 4 26B via Google AI Studio)
+sqlseed ai-suggest app.db --table projects --output projects.yaml --model gemma-4-26b-it
 
+# Use local LM Studio / Ollama
+sqlseed ai-suggest app.db --table projects --output projects.yaml --backend lm_studio --model google/gemma-4-e4b
+```
+
+**Gemma 4 Native Function Calling (GEMMA_TOOLS)**:
+
+sqlseed-ai supports Gemma 4 model family (2B/4B/26B/31B) with Native Function Calling via GEMMA_TOOLS protocol. Supported backends:
+
+| Backend | Description | Configuration |
+| :------ | :---------- | :------------ |
+| **Google AI Studio** | Official API, recommended for Gemma 4 26B/31B | `--backend google_ai_studio` or `SQLSEED_AI_BACKEND=google_ai_studio` |
+| **LM Studio** | Local inference, suitable for Gemma 4 2B/4B | `--backend lm_studio` or `SQLSEED_AI_BACKEND=lm_studio` |
+| **Ollama** | Local inference, suitable for Gemma 4 2B/4B/26B | `--backend ollama` or `SQLSEED_AI_BACKEND=ollama` |
+| **OpenAI-compatible** | Generic OpenAI-compatible endpoint (e.g., OpenRouter, DeepSeek) | `--backend openai_compat` or `SQLSEED_AI_BACKEND=openai_compat` |
+
+> **💡 OpenRouter (Free)**: For users without a paid API key, OpenRouter provides free models. Set `SQLSEED_AI_BACKEND=openai_compat`, `SQLSEED_AI_BASE_URL=https://openrouter.ai/api/v1`, and `SQLSEED_AI_MODEL=<free-model-name>`.
+
+```bash
 # Skip cache
 sqlseed ai-suggest app.db --table projects --output projects.yaml --no-cache
 ```
@@ -678,7 +701,7 @@ sqlseed ai-suggest app.db --table projects --output projects.yaml --no-cache
 6. Up to 3 self-correction rounds, outputs validated YAML config
 ```
 
-> **💡 Environment Variables**: Supports `SQLSEED_AI_API_KEY`, `SQLSEED_AI_BASE_URL`, `SQLSEED_AI_MODEL`. Also supports `OPENAI_API_KEY` / `OPENAI_BASE_URL` as fallback. Defaults to auto-selecting the most popular free model from OpenRouter (base_url `https://openrouter.ai/api/v1`). Set `--model` or `SQLSEED_AI_MODEL` to specify a model.
+> **💡 Environment Variables**: Supports `SQLSEED_AI_API_KEY`, `SQLSEED_AI_BASE_URL`, `SQLSEED_AI_MODEL`, `SQLSEED_AI_BACKEND`. Also supports `OPENAI_API_KEY` / `OPENAI_BASE_URL` as fallback. Defaults to Gemma 4 26B via Google AI Studio. Supported backends: `google_ai_studio`, `lm_studio`, `ollama`, `openai_compat`.
 
 ***
 
@@ -717,6 +740,9 @@ python -m mcp_server_sqlseed
 | 🔍 Tool | `sqlseed_inspect_schema` | Inspect schema (columns, FK, indexes, samples, schema_hash) |
 | 🤖 Tool | `sqlseed_generate_yaml` | AI-driven YAML config generation with self-correction. Supports `api_key`/`base_url`/`model` overrides |
 | ⚡ Tool | `sqlseed_execute_fill` | Execute data generation (supports YAML config string, includes `enrich` option) |
+| 🧠 Tool | `sqlseed_gemma4_analyze` | Analyze schema using Gemma 4 with Native Function Calling |
+| 🧠 Tool | `sqlseed_gemma4_agent_fill` | End-to-end Agent workflow (analyze -> config -> fill) |
+| 🧠 Tool | `sqlseed_list_gemma_models` | List available Gemma 4 models and backend status |
 
 This means you can tell your AI assistant:
 
@@ -993,7 +1019,7 @@ Tests cover all core modules, with path structure mirroring `src/`: `test_core/`
 | `sqlseed[faker]` | + faker>=30.0 | Faker data engine |
 | `sqlseed[mimesis]` | + mimesis>=18.0 | Mimesis data engine (recommended) |
 | `sqlseed[docs]` | + mkdocs-material, mkdocstrings | Documentation build |
-| `sqlseed-ai` | sqlseed, **openai>=1.0** | AI plugin, auto-registered via entry-point |
+| `sqlseed-ai` | sqlseed, **openai>=1.0**, **google-generativeai>=0.8** | AI plugin (Gemma 4 Native Function Calling), auto-registered via entry-point |
 | `mcp-server-sqlseed` | sqlseed, **mcp>=1.0** | MCP server, standalone CLI tool |
 | `mcp-server-sqlseed[ai]` | + sqlseed-ai | MCP server with AI support |
 

@@ -178,6 +178,14 @@ mypy src/sqlseed/
 
 ## 🚀 快速开始
 
+### 一键体验脚本
+
+```bash
+python scripts/quickstart.py
+```
+
+该脚本会自动创建示例数据库、填充数据并展示结果，适合首次体验。
+
 ### 使用示例数据库体验
 
 想立即体验 sqlseed？构建示例数据库：
@@ -553,22 +561,27 @@ sqlseed ai-suggest app.db --table projects --output projects.yaml
 # 带自纠正的 AI 建议（默认 3 轮修正）
 sqlseed ai-suggest app.db --table projects --output projects.yaml --verify
 
-# 指定模型
-sqlseed ai-suggest app.db --table projects -o projects.yaml --model deepseek/deepseek-chat
+# 指定模型（支持多后端：Google AI Studio、LM Studio、Ollama、OpenAI-compatible）
+sqlseed ai-suggest app.db --table projects -o projects.yaml --model gemma-4-26b-it --backend google_ai_studio
+sqlseed ai-suggest app.db --table projects -o projects.yaml --model gemma-4-31b-it --backend google_ai_studio
+sqlseed ai-suggest app.db --table projects -o projects.yaml --model google/gemma-4-e4b --backend lm_studio
+sqlseed ai-suggest app.db --table projects -o projects.yaml --model gemma-4-4b-it --backend ollama
 ```
 
-**AI 工作流程**：
+**Gemma 4 原生函数调用（GEMMA_TOOLS）**：
 
-```
-1. 提取 Schema 上下文（列信息、索引、样本数据、外键、数据分布）
-2. 构建带 Few-shot 示例的 LLM Prompt
-3. LLM 返回 JSON 格式的列配置建议
-4. AiConfigRefiner 自动验证配置的正确性
-5. 若发现错误，自动向 LLM 发送修正请求
-6. 最多 3 轮自纠正，输出经过验证的 YAML 配置
-```
+sqlseed-ai 支持 Gemma 4 系列模型（2B/4B/26B/31B）通过 GEMMA_TOOLS 协议实现原生函数调用，无需 JSON Mode 模拟。支持的后端：
 
-> **💡 环境变量**：支持 `SQLSEED_AI_API_KEY`、`SQLSEED_AI_BASE_URL`、`SQLSEED_AI_MODEL`。也支持 `OPENAI_API_KEY` / `OPENAI_BASE_URL` 作为回退。
+| 后端 | 说明 | 配置方式 |
+| :--- | :--- | :--- |
+| **Google AI Studio** | 官方 API，推荐 Gemma 4 26B/31B | `--backend google_ai_studio` 或 `SQLSEED_AI_BACKEND=google_ai_studio` |
+| **LM Studio** | 本地推理，适合 Gemma 4 2B/4B | `--backend lm_studio` 或 `SQLSEED_AI_BACKEND=lm_studio` |
+| **Ollama** | 本地推理，适合 Gemma 4 2B/4B/26B | `--backend ollama` 或 `SQLSEED_AI_BACKEND=ollama` |
+| **OpenAI-compatible** | 通用 OpenAI 兼容端点（如 OpenRouter、DeepSeek） | `--backend openai_compat` 或 `SQLSEED_AI_BACKEND=openai_compat` |
+
+> **💡 OpenRouter（免费方案）**：没有付费 API Key 的用户，可以使用 OpenRouter 的免费模型。设置 `SQLSEED_AI_BACKEND=openai_compat`、`SQLSEED_AI_BASE_URL=https://openrouter.ai/api/v1`、`SQLSEED_AI_MODEL=<免费模型名>`。
+
+> **💡 环境变量**：支持 `SQLSEED_AI_API_KEY`、`SQLSEED_AI_BASE_URL`、`SQLSEED_AI_MODEL`、`SQLSEED_AI_BACKEND`。也支持 `OPENAI_API_KEY` / `OPENAI_BASE_URL` 作为回退。
 
 ***
 
@@ -598,6 +611,9 @@ pip install mcp-server-sqlseed[ai]
 | 🔍 Tool | `sqlseed_inspect_schema` | 检查 Schema（列、外键、索引、样本数据、schema_hash） |
 | 🤖 Tool | `sqlseed_generate_yaml` | AI 驱动的 YAML 配置生成（含自纠正） |
 | ⚡ Tool | `sqlseed_execute_fill` | 执行数据生成（支持 YAML 配置字符串，含 `enrich` 选项） |
+| 🤖 Tool | `sqlseed_gemma4_analyze` | Gemma 4 原生函数调用分析 Schema（GEMMA_TOOLS 协议） |
+| 🤖 Tool | `sqlseed_gemma4_agent_fill` | Gemma 4 Agent 模式端到端数据生成（分析→配置→填充） |
+| 📋 Tool | `sqlseed_list_gemma_models` | 列出可用的 Gemma 4 模型及后端支持情况 |
 
 ***
 
@@ -679,6 +695,12 @@ sqlseed ai-suggest app.db -t users -o users.yaml --verify
 sqlseed ai-suggest app.db -t users -o users.yaml --api-key sk-xxx --base-url https://api.openai.com/v1
 sqlseed ai-suggest app.db -t users -o users.yaml --max-retries 0
 sqlseed ai-suggest app.db -t users -o users.yaml --no-cache
+
+# ═══ AI 后端选择 ═══
+sqlseed ai-suggest app.db -t users -o users.yaml --backend google_ai_studio --model gemma-4-26b-it
+sqlseed ai-suggest app.db -t users -o users.yaml --backend ollama --model gemma-4-4b-it
+sqlseed ai-suggest app.db -t users -o users.yaml --backend lm_studio --model google/gemma-4-e4b
+sqlseed ai-suggest app.db -t users -o users.yaml --backend openai_compat --model your-model --base-url https://your-api-endpoint
 ```
 
 ***
@@ -805,7 +827,7 @@ mypy src/sqlseed/                   # 类型检查
 | `sqlseed[faker]` | + faker>=30.0 | Faker 数据引擎 |
 | `sqlseed[mimesis]` | + mimesis>=18.0 | Mimesis 数据引擎（推荐） |
 | `sqlseed[docs]` | + mkdocs-material, mkdocstrings | 文档构建 |
-| `sqlseed-ai` | sqlseed, **openai>=1.0** | AI 插件，通过 entry-point 自动注册 |
+| `sqlseed-ai` | sqlseed, **openai>=1.0**, **google-generativeai>=0.8** | AI 插件，通过 entry-point 自动注册，支持 Gemma 4 GEMMA_TOOLS |
 | `mcp-server-sqlseed` | sqlseed, **mcp>=1.0** | MCP 服务器，独立 CLI 工具 |
 | `mcp-server-sqlseed[ai]` | + sqlseed-ai | MCP 服务器含 AI 支持 |
 

@@ -62,6 +62,9 @@ graph TB
         Refiner["AiConfigRefiner<br/>self-correction loop"]
         Examples["Few-shot<br/>example library"]
         Errors["ErrorSummary<br/>error classification"]
+        GemmaModel["GemmaModel<br/>Gemma 4 model adapter"]
+        AIBackend["AIBackend<br/>multi-backend router"]
+        GemmaTools["GEMMA_TOOLS<br/>Native Function Calling"]
     end
 
     subgraph Utils["🔧 Utilities (_utils/)"]
@@ -115,6 +118,9 @@ graph TB
     Analyzer --> Refiner
     Refiner --> Errors
     Analyzer --> Examples
+    AIBackend --> GemmaModel
+    AIBackend --> Analyzer
+    GemmaModel --> GemmaTools
 
     Orch --> Config
 
@@ -426,13 +432,15 @@ flowchart TB
         CLICmd["sqlseed ai-suggest"]
         HookCall["sqlseed_ai_analyze_table Hook"]
         MCPTool["MCP: sqlseed_generate_yaml"]
+        MCPGemma4Analyze["MCP: sqlseed_gemma4_analyze"]
+        MCPGemma4AgentFill["MCP: sqlseed_gemma4_agent_fill"]
     end
 
     subgraph Analyzer["SchemaAnalyzer"]
         Context["Build context<br/>columns + indexes + FK + samples + distribution"]
         FewShot["Inject few-shot examples<br/>(4 typical scenarios)"]
         SysPrompt["System Prompt<br/>generator list + output format"]
-        LLM["Call LLM<br/>OpenAI-compatible API<br/>response_format: json_object"]
+        LLM["Call LLM<br/>AIBackend multi-backend<br/>OpenAI API / Gemma 4 GEMMA_TOOLS<br/>response_format: json_object"]
     end
 
     subgraph Refiner["AiConfigRefiner Self-Correction Loop"]
@@ -474,6 +482,8 @@ flowchart TB
     CLICmd --> Analyzer
     HookCall --> Analyzer
     MCPTool --> Analyzer
+    MCPGemma4Analyze --> Analyzer
+    MCPGemma4AgentFill --> Analyzer
 
     Context --> FewShot --> SysPrompt --> LLM
     LLM --> Refiner
@@ -625,6 +635,9 @@ flowchart LR
         Tool1["🔍 sqlseed_inspect_schema<br/>Returns: columns + FK + indexes + samples + hash"]
         Tool2["🤖 sqlseed_generate_yaml<br/>AI analysis → self-correction → YAML"]
         Tool3["⚡ sqlseed_execute_fill<br/>Execute data generation"]
+        Tool4["💎 sqlseed_gemma4_analyze<br/>Gemma 4 native function calling analysis"]
+        Tool5["💎 sqlseed_gemma4_agent_fill<br/>Gemma 4 agent-driven data fill"]
+        Tool6["💎 sqlseed_gemma4_suggest<br/>Gemma 4 column mapping suggestions"]
     end
 
     subgraph SQLSeed["sqlseed Core"]
@@ -641,11 +654,77 @@ flowchart LR
     Request --> Tool1
     Request --> Tool2
     Request --> Tool3
+    Request --> Tool4
+    Request --> Tool5
+    Request --> Tool6
 
     Resource --> SchemaCtx
     Tool1 --> SchemaCtx
     Tool2 --> SA --> ACR
     Tool3 --> Orchestrator
+    Tool4 --> SA
+    Tool5 --> Orchestrator
+    Tool6 --> SA
 
     SchemaCtx --> Orchestrator
+```
+
+---
+
+## 11. Gemma 4 Integration Architecture
+
+```mermaid
+flowchart TB
+    subgraph MCPEntry["MCP Tool Entry Points"]
+        G4Analyze["💎 sqlseed_gemma4_analyze<br/>Schema analysis via Gemma 4"]
+        G4AgentFill["💎 sqlseed_gemma4_agent_fill<br/>Agent-driven data fill"]
+        G4Suggest["💎 sqlseed_gemma4_suggest<br/>Column mapping suggestions"]
+    end
+
+    subgraph Backend["AIBackend Multi-Backend Router"]
+        Router["AIBackend<br/>backend selection"]
+        OpenAIBe["OpenAI Backend<br/>chat.completions API"]
+        GemmaBe["Gemma 4 Backend<br/>GEMMA_TOOLS Native FC"]
+    end
+
+    subgraph GemmaFC["GEMMA_TOOLS Native Function Calling"]
+        ToolReg["Tool Registration<br/>auto_register(sqlseed tools)"]
+        FCRequest["Function Call Request<br/>model generates tool_call"]
+        FCExec["Tool Execution<br/>sqlseed core executes"]
+        FCResult["Result Injection<br/>tool_result → conversation"]
+        FCIterate["Iterative Refinement<br/>multi-turn tool use"]
+    end
+
+    subgraph Core["sqlseed Core Integration"]
+        SchemaCtx["get_schema_context()"]
+        Orchestrator["DataOrchestrator"]
+        Mapper["ColumnMapper"]
+    end
+
+    G4Analyze --> Router
+    G4AgentFill --> Router
+    G4Suggest --> Router
+
+    Router --> OpenAIBe
+    Router --> GemmaBe
+
+    GemmaBe --> ToolReg
+    ToolReg --> FCRequest
+    FCRequest --> FCExec
+    FCExec --> FCResult
+    FCResult --> FCIterate
+    FCIterate --> FCRequest
+
+    FCExec --> SchemaCtx
+    FCExec --> Orchestrator
+    FCExec --> Mapper
+
+    SchemaCtx --> Orchestrator
+
+    style GemmaBe fill:#4285F4,color:#fff
+    style ToolReg fill:#34A853,color:#fff
+    style FCRequest fill:#34A853,color:#fff
+    style FCExec fill:#FBBC05,color:#000
+    style FCResult fill:#34A853,color:#fff
+    style FCIterate fill:#EA4335,color:#fff
 ```

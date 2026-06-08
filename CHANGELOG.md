@@ -119,7 +119,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ColumnMapper` exact match rules expanded from 68 to 74
 
 #### AI Plugin (sqlseed-ai)
-- Auto model selection: `_model_selector` picks the best free model from OpenRouter by priority
+- Auto model selection: `_model_selector` picks the best Gemma 4 model by priority (26B MoE → 31B Dense → 4B → 2B), with multi-backend support (Google AI Studio, LM Studio, Ollama)
 - Structured output: `response_format: json_object` forces LLM to return JSON
 - Few-shot example library: 4 typical scenarios (users, projects, orders, employees)
 - `AiConfigRefiner` self-correction loop: auto-detects and fixes invalid configs, up to 3 retries
