@@ -84,7 +84,8 @@ packages = ["src/sqlseed"]
 exclude = [
     "docs/",
     "tests/",
-    "plugins/",
+    "plugins/sqlseed-ai/",
+    "plugins/mcp-server-sqlseed/",
     ".github/",
     ".trae/",
     ".gemini/",
