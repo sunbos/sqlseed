@@ -16,9 +16,23 @@ from sqlseed.config.models import TableConfig
 from sqlseed.core.orchestrator import DataOrchestrator
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from sqlseed_ai.analyzer import SchemaAnalyzer
 
 logger = get_logger(__name__)
+
+
+class _RetryState:
+    """Mutable state for the refinement retry loop."""
+
+    __slots__ = ("last_error_type", "messages_history", "min_prompt_level", "same_error_count")
+
+    def __init__(self) -> None:
+        self.last_error_type: str | None = None
+        self.same_error_count = 0
+        self.messages_history: list[dict[str, str]] = []
+        self.min_prompt_level: int = 0
 
 
 class AISuggestionFailedError(Exception):
@@ -36,16 +50,6 @@ class AiConfigRefiner:
         self._analyzer = analyzer
         self._db_path = db_path
         self._cache_dir = Path(cache_dir) if cache_dir else get_cache_dir("ai_configs")
-
-    def _attempt_generation_and_validation(
-        self, messages: list[dict[str, Any]], orch: Any, table_name: str
-    ) -> tuple[dict[str, Any] | None, ErrorSummary | None]:
-        try:
-            config_dict = self._analyzer.call_llm(messages)
-        except (ValueError, RuntimeError, OSError) as e:
-            return None, summarize_error(e)
-
-        return config_dict, self._validate_config(orch, table_name, config_dict)
 
     def _handle_generation_failure(self, error: ErrorSummary, attempt: int, max_retries: int) -> None:
         if not error.retryable:
@@ -79,7 +83,7 @@ class AiConfigRefiner:
             column=error.column,
         )
 
-    _NON_RETRYABLE_ERRORS = frozenset({"empty_config", "invalid_json"})
+    _NON_RETRYABLE_ERRORS = frozenset({"empty_config", "json_syntax"})
 
     def _check_repeated_error(
         self,
@@ -87,8 +91,11 @@ class AiConfigRefiner:
         last_error_type: str | None,
         same_error_count: int,
     ) -> tuple[str, int]:
-        if error.error_type in self._NON_RETRYABLE_ERRORS and error.error_type == last_error_type:
-            same_error_count += 1
+        if error.error_type in self._NON_RETRYABLE_ERRORS:
+            if error.error_type == last_error_type:
+                same_error_count += 1
+            else:
+                same_error_count = 1  # Reset count when error type changes
             if same_error_count >= 2:
                 raise AISuggestionFailedError(
                     f"Same error '{error.error_type}' repeated {same_error_count + 1} times. "
@@ -97,58 +104,226 @@ class AiConfigRefiner:
                 )
         return error.error_type, same_error_count
 
+    def _get_prompt_levels(self, use_compact: bool) -> list[tuple[bool, bool]]:
+        """Return prompt levels: (compact, ultra_compact) tuples."""
+        if use_compact:
+            return [(True, True)]
+        return [(False, False), (True, False), (True, True)]
+
+    def _resolve_use_compact(self, use_compact: bool | None) -> bool:
+        """Auto-detect compact mode based on model size if not explicitly set."""
+        if use_compact is not None:
+            return use_compact
+        return self._analyzer._config.should_use_ultra_compact() if self._analyzer._config else False
+
+    def _try_prompt_levels(
+        self,
+        schema_ctx: Any,
+        state: _RetryState,
+        use_compact: bool,
+        call_fn: Callable[[list[dict[str, str]]], dict[str, Any] | None],
+    ) -> tuple[dict[str, Any] | None, ErrorSummary | None]:
+        """Try LLM call across prompt levels with context overflow fallback.
+
+        Args:
+            schema_ctx: Schema context from the orchestrator.
+            state: Mutable retry state (messages_history, min_prompt_level updated in-place).
+            use_compact: Whether to force ultra-compact mode.
+            call_fn: Function to call LLM (non-streaming or streaming variant).
+
+        Returns:
+            (config_dict or None, error or None)
+        """
+        prompt_levels = self._get_prompt_levels(use_compact)
+        for level_idx, (compact, ultra) in enumerate(prompt_levels):
+            if level_idx < state.min_prompt_level:
+                continue
+            initial_messages = self._analyzer.build_initial_messages(schema_ctx, compact=compact, ultra_compact=ultra)
+            messages = initial_messages + state.messages_history
+            try:
+                config_dict = call_fn(messages)
+                if not config_dict:
+                    return None, ErrorSummary(
+                        error_type="empty_config",
+                        message="LLM returned empty result",
+                        column=None,
+                        retryable=True,
+                    )
+                return config_dict, None
+            except (ValueError, RuntimeError, OSError) as e:
+                err_lower = str(e).lower()
+                if "context" in err_lower and "exceed" in err_lower and not ultra:
+                    logger.info(
+                        "Context overflow, retrying with shorter prompt",
+                        compact=compact,
+                        ultra_compact=ultra,
+                    )
+                    state.min_prompt_level = level_idx + 1
+                    continue
+                return None, summarize_error(e)
+        return None, None
+
+    def _handle_validation_result(
+        self,
+        orch: Any,
+        table_name: str,
+        schema_hash: str,
+        config_dict: dict[str, Any],
+        attempt: int,
+        max_retries: int,
+        state: _RetryState,
+        on_progress: Callable[[str, dict[str, Any]], None] | None = None,
+    ) -> dict[str, Any] | None:
+        """Handle validation result: return config on success, or update retry state.
+
+        Returns:
+            config_dict if valid, None if validation failed (state updated for next retry).
+        """
+        val_error = self._validate_config(orch, table_name, config_dict)
+
+        if val_error is None:
+            logger.info("AI config validated successfully", table_name=table_name, attempts=attempt + 1)
+            self._cache_successful_config(table_name, config_dict, schema_hash)
+            if on_progress:
+                on_progress("done", {"tokens": 0, "model": "validated"})
+            return config_dict
+
+        state.last_error_type, state.same_error_count = self._check_repeated_error(
+            val_error, state.last_error_type, state.same_error_count
+        )
+        self._handle_validation_failure(val_error, attempt, max_retries, table_name)
+
+        state.messages_history.append({"role": "assistant", "content": json.dumps(config_dict, ensure_ascii=False)})
+        state.messages_history.append(
+            {"role": "user", "content": self._build_refinement_prompt(val_error, attempt, max_retries)}
+        )
+        return None
+
+    def _refinement_loop(
+        self,
+        orch: Any,
+        table_name: str,
+        schema_ctx: Any,
+        schema_hash: str,
+        max_retries: int,
+        no_cache: bool,
+        use_compact: bool | None,
+        call_fn: Callable[[list[dict[str, str]]], dict[str, Any] | None],
+        on_progress: Callable[[str, dict[str, Any]], None] | None = None,
+    ) -> dict[str, Any]:
+        """Shared refinement loop for both streaming and non-streaming paths.
+
+        Args:
+            orch: DataOrchestrator instance for schema access and validation.
+            table_name: Name of the table to generate config for.
+            schema_ctx: Schema context from the orchestrator.
+            schema_hash: Hash of the table schema for cache invalidation.
+            max_retries: Maximum number of refinement retries.
+            no_cache: If True, skip cache lookup.
+            use_compact: If set, force/override compact mode; None for auto-detect.
+            call_fn: Function that takes messages and returns config dict or raises.
+            on_progress: Optional progress callback (streaming only).
+        """
+        if not no_cache:
+            cached = self.get_cached_config(table_name, schema_hash)
+            if cached is not None:
+                logger.info("Using cached AI config", table_name=table_name)
+                if on_progress:
+                    on_progress("done", {"tokens": 0, "model": "cached"})
+                return cached
+
+        resolved_compact = self._resolve_use_compact(use_compact)
+        state = _RetryState()
+
+        for attempt in range(max_retries + 1):
+            if on_progress:
+                on_progress("refining", {"attempt": attempt, "max_retries": max_retries})
+
+            config_dict, error = self._try_prompt_levels(schema_ctx, state, resolved_compact, call_fn)
+
+            if config_dict is None:
+                if error is not None:
+                    state.last_error_type, state.same_error_count = self._check_repeated_error(
+                        error, state.last_error_type, state.same_error_count
+                    )
+                    self._handle_generation_failure(error, attempt, max_retries)
+                continue
+
+            # config_dict is not None — validate it
+            if on_progress:
+                on_progress("validating", {"attempt": attempt})
+
+            result = self._handle_validation_result(
+                orch,
+                table_name,
+                schema_hash,
+                config_dict,
+                attempt,
+                max_retries,
+                state,
+                on_progress,
+            )
+            if result is not None:
+                return result
+
+        raise AISuggestionFailedError("Unexpected state")
+
     def generate_and_refine(
         self,
         table_name: str,
         *,
         max_retries: int = 3,
         no_cache: bool = False,
+        use_compact: bool | None = None,
     ) -> dict[str, Any]:
         with DataOrchestrator(self._db_path) as orch:
             schema_hash = self._compute_schema_hash(orch, table_name)
-
-            if not no_cache:
-                cached = self.get_cached_config(table_name, schema_hash)
-                if cached is not None:
-                    logger.info("Using cached AI config", table_name=table_name)
-                    return cached
-
             schema_ctx = orch.get_schema_context(table_name)
 
-            initial_messages = self._analyzer.build_initial_messages(schema_ctx)
+            def _call_non_streaming(messages: list[dict[str, str]]) -> dict[str, Any] | None:
+                return self._analyzer.call_llm(messages)
 
-            messages_history = list(initial_messages)
+            return self._refinement_loop(
+                orch,
+                table_name,
+                schema_ctx,
+                schema_hash,
+                max_retries=max_retries,
+                no_cache=no_cache,
+                use_compact=use_compact,
+                call_fn=_call_non_streaming,
+            )
 
-            last_error_type: str | None = None
-            same_error_count = 0
+    def generate_and_refine_streaming(
+        self,
+        table_name: str,
+        *,
+        max_retries: int = 3,
+        no_cache: bool = False,
+        on_progress: Callable[[str, dict[str, Any]], None] | None = None,
+        use_compact: bool | None = None,
+    ) -> dict[str, Any]:
+        """Streaming version of generate_and_refine with progress callbacks and
+        context-size-aware prompt downgrading (normal → compact → ultra-compact).
+        """
+        with DataOrchestrator(self._db_path) as orch:
+            schema_hash = self._compute_schema_hash(orch, table_name)
+            schema_ctx = orch.get_schema_context(table_name)
 
-            for attempt in range(max_retries + 1):
-                messages = list(messages_history)
-                config_dict, error = self._attempt_generation_and_validation(messages, orch, table_name)
+            def _call_streaming(messages: list[dict[str, str]]) -> dict[str, Any] | None:
+                return self._analyzer.call_llm_streaming(messages, on_progress=on_progress)
 
-                if config_dict is None:
-                    assert error is not None
-                    last_error_type, same_error_count = self._check_repeated_error(
-                        error, last_error_type, same_error_count
-                    )
-                    self._handle_generation_failure(error, attempt, max_retries)
-                    continue
-
-                if error is None:
-                    logger.info("AI config validated successfully", table_name=table_name, attempts=attempt + 1)
-                    self._cache_successful_config(table_name, config_dict, schema_hash)
-                    return config_dict
-
-                last_error_type, same_error_count = self._check_repeated_error(error, last_error_type, same_error_count)
-
-                self._handle_validation_failure(error, attempt, max_retries, table_name)
-
-                messages_history.append({"role": "assistant", "content": json.dumps(config_dict, ensure_ascii=False)})
-                messages_history.append(
-                    {"role": "user", "content": self._build_refinement_prompt(error, attempt, max_retries)}
-                )
-
-        raise AISuggestionFailedError("Unexpected state")
+            return self._refinement_loop(
+                orch,
+                table_name,
+                schema_ctx,
+                schema_hash,
+                max_retries=max_retries,
+                no_cache=no_cache,
+                use_compact=use_compact,
+                call_fn=_call_streaming,
+                on_progress=on_progress,
+            )
 
     def _compute_schema_hash(self, orch: Any, table_name: str) -> str:
         column_names = orch.get_column_names(table_name)
