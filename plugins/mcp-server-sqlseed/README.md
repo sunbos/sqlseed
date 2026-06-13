@@ -70,8 +70,7 @@ When `sqlseed-ai` is installed and an API key is configured (`SQLSEED_AI_API_KEY
 - `mcp >= 1.0`
 
 Optional:
-- `sqlseed-ai` (for `sqlseed_generate_yaml` tool)
-- `google-generativeai` (for Gemma 4 tools: `sqlseed_gemma4_analyze`, `sqlseed_gemma4_agent_fill`)
+- `sqlseed-ai` (for `sqlseed_generate_yaml`, `sqlseed_gemma4_analyze`, `sqlseed_gemma4_agent_fill`, `sqlseed_list_gemma_models` tools)
 
 ## License
 

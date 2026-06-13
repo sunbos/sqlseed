@@ -25,7 +25,7 @@ sqlseed ai-suggest app.db --table users --output users.yaml
 sqlseed ai-suggest app.db --table users --output users.yaml --verify
 
 # Specify model (defaults to Gemma 4 26B via Google AI Studio)
-sqlseed ai-suggest app.db --table users -o users.yaml --model gemma-4-26b-it
+sqlseed ai-suggest app.db --table users -o users.yaml --model gemma-4-26b-a4b-it
 
 # Use local LM Studio
 sqlseed ai-suggest app.db --table users -o users.yaml --backend lm_studio --model google/gemma-4-e4b
@@ -52,7 +52,7 @@ sqlseed ai-suggest app.db --table users -o users.yaml --no-cache
 
 When using the `google_ai_studio` backend (default), the `GemmaModel` enum provides pre-configured Gemma 4 variants. The model is selected based on the backend:
 
-1. **Google AI Studio**: Defaults to `gemma-4-26b-it` (recommended balance of quality and speed).
+1. **Google AI Studio**: Defaults to `gemma-4-26b-a4b-it` (recommended balance of quality and speed).
 2. **LM Studio / Ollama**: User must specify a loaded model via `--model` or `SQLSEED_AI_MODEL`.
 3. **OpenAI-compatible** (OpenRouter, DeepSeek, etc.): User must specify both `--model` and `--base-url`.
 
@@ -69,10 +69,11 @@ When using the `google_ai_studio` backend, the `GemmaModel` enum provides pre-co
 
 | Enum Value | Model ID | Description |
 |:-----------|:---------|:------------|
-| `GemmaModel.GEMMA_4_2B` | `gemma-4-2b` | Lightweight, fast inference |
-| `GemmaModel.GEMMA_4_4B` | `gemma-4-4b` | Balanced speed and quality |
-| `GemmaModel.GEMMA_4_26B` | `gemma-4-26b` | High quality, recommended |
-| `GemmaModel.GEMMA_4_31B` | `gemma-4-31b` | Best quality, largest model |
+| `GemmaModel.GEMMA_4_E2B` | `gemma-4-e2b-it` | 2B Effective, Edge — Ultra-light edge deployment |
+| `GemmaModel.GEMMA_4_E4B` | `gemma-4-e4b-it` | 4B Effective, Edge — Lightweight local inference |
+| `GemmaModel.GEMMA_4_12B` | `gemma-4-12b-it` | 12B Unified, Laptop — Balanced quality and speed |
+| `GemmaModel.GEMMA_4_26B_A4B` | `gemma-4-26b-a4b-it` | 26B A4B MoE — High quality, recommended |
+| `GemmaModel.GEMMA_4_31B` | `gemma-4-31b-it` | 31B Dense — Best quality, largest model |
 
 The `AIBackend` enum selects the API backend:
 
@@ -81,6 +82,7 @@ The `AIBackend` enum selects the API backend:
 | `AIBackend.GOOGLE_AI_STUDIO` | Google AI Studio | `https://generativelanguage.googleapis.com/v1beta/openai/` |
 | `AIBackend.LM_STUDIO` | LM Studio | `http://localhost:1234/v1` |
 | `AIBackend.OLLAMA` | Ollama | `http://localhost:11434/v1` |
+| `AIBackend.OPENAI_COMPAT` | OpenAI-compatible | (must set `SQLSEED_AI_BASE_URL`) |
 
 ### Template Pool
 
@@ -98,7 +100,7 @@ AI configs cached in platform-specific cache directory (`~/Library/Caches/sqlsee
 |:---------|:---------|:--------|:------------|
 | `SQLSEED_AI_API_KEY` | `OPENAI_API_KEY` | — | API key (required) |
 | `SQLSEED_AI_BASE_URL` | `OPENAI_BASE_URL` | (auto by backend) | API endpoint |
-| `SQLSEED_AI_MODEL` | — | `gemma-4-26b-it` | Model name |
+| `SQLSEED_AI_MODEL` | — | `gemma-4-26b-a4b-it` | Model name |
 | `SQLSEED_AI_TIMEOUT` | — | `60` | API timeout (seconds) |
 | `SQLSEED_AI_BACKEND` | — | `google_ai_studio` | AI backend: `google_ai_studio`, `lm_studio`, `ollama`, `openai_compat` |
 | `GOOGLE_API_KEY` | — | — | Google AI Studio API key (required when backend is `google_ai_studio`) |
@@ -131,7 +133,6 @@ This plugin registers via `[project.entry-points."sqlseed"]` and implements:
 - Python >= 3.10
 - `sqlseed >= 0.1.0`
 - `openai >= 1.0`
-- `google-generativeai >= 0.8`
 - An OpenAI-compatible API key or Google AI Studio API key
 
 ## Gemma 4 Integration

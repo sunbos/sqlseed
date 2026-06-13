@@ -23,11 +23,11 @@ src/sqlseed/
 | Task | Location | Notes |
 |------|----------|-------|
 | Public API | `__init__.py` | fill, connect, fill_from_config, preview |
-| Orchestrator | `core/orchestrator.py` | DataOrchestrator main engine (557 lines) |
-| Column mapping | `core/mapper.py` | 7-level strategy chain |
+| Orchestrator | `core/orchestrator.py` | DataOrchestrator main engine |
+| Column mapping | `core/mapper.py` | 9-level strategy chain |
 | Schema inference | `core/schema.py` | SchemaInferrer class |
 | Data stream | `generators/stream.py` | DataStream + constraint backtracking |
-| Base provider | `generators/base_provider.py` | 31 generators, no deps (677 lines) |
+| Base provider | `generators/base_provider.py` | 31 generators, no deps |
 | DB adapters | `database/` | RawSQLiteAdapter, SQLiteUtilsAdapter |
 | Plugin hooks | `plugins/hookspecs.py` | 11 pluggy hook definitions |
 | Config models | `config/models.py` | Pydantic: GeneratorConfig, TableConfig, ColumnConfig |

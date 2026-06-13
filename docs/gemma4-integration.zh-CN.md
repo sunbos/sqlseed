@@ -6,9 +6,10 @@ GemmaSQLSeed 深度集成了 Gemma 4 模型家族，利用**原生函数调用�
 
 | 模型 | 变体 | 推荐后端 | 使用场景 |
 |------|------|---------|---------|
-| `gemma-4-2b-it` | 2B Edge | Ollama / LM Studio | 超轻量端侧部署 |
-| `gemma-4-4b-it` | 4B Edge | LM Studio | 本地 Schema 分析 |
-| `gemma-4-26b-it` | 26B MoE | Google AI Studio | 复杂分析 + 自纠正 |
+| `gemma-4-e2b-it` | E2B (2B Effective, Edge) | Ollama / LM Studio | 超轻量端侧部署 |
+| `gemma-4-e4b-it` | E4B (4B Effective, Edge) | LM Studio | 本地 Schema 分析 |
+| `gemma-4-12b-it` | 12B Unified | LM Studio / Ollama | 速度与质量均衡 |
+| `gemma-4-26b-a4b-it` | 26B A4B MoE | Google AI Studio | 复杂分析 + 自纠正 |
 | `gemma-4-31b-it` | 31B Dense | Google AI Studio | 最强推理能力 |
 
 ## 后端配置
@@ -17,7 +18,7 @@ GemmaSQLSeed 深度集成了 Gemma 4 模型家族，利用**原生函数调用�
 
 ```bash
 export GOOGLE_API_KEY=your-key
-# 模型默认使用 gemma-4-26b-it
+# 模型默认使用 gemma-4-26b-a4b-it
 ```
 
 ### LM Studio（本地 GUI）
@@ -32,7 +33,7 @@ export SQLSEED_AI_MODEL=google/gemma-4-e4b
 
 ```bash
 export SQLSEED_AI_BACKEND=ollama
-export SQLSEED_AI_MODEL=gemma-4-4b-it
+export SQLSEED_AI_MODEL=gemma-4-e4b-it
 # 确保 Ollama 已运行：ollama pull gemma4:4b
 ```
 
@@ -124,7 +125,7 @@ result = analyzer.analyze(db_path="app.db", table_name="users")
 
 | 后端 | 模型 | Schema 分析耗时 | 备注 |
 |------|------|---------------|------|
-| LM Studio | 4B Edge | ~5 分钟 | 本地推理，完整 system prompt |
-| LM Studio | 4B Edge（精简） | ~20 秒 | 精简 prompt，更少示例 |
-| Google AI Studio | 26B MoE | ~10-30 秒 | 云端推理，推荐使用 |
+| LM Studio | E4B (4B Effective, Edge) | ~5 分钟 | 本地推理，完整 system prompt |
+| LM Studio | E4B (4B Effective, Edge)（精简） | ~20 秒 | 精简 prompt，更少示例 |
+| Google AI Studio | 26B A4B MoE | ~10-30 秒 | 云端推理，推荐使用 |
 | Ollama | 4B | ~3-5 分钟 | 本地 CLI，与 LM Studio 类似 |

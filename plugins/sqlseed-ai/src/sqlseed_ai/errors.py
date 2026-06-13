@@ -123,11 +123,19 @@ def _try_file_error(exc: Exception) -> ErrorSummary | None:
 
 def _default_error(exc: Exception) -> ErrorSummary:
     exc_type_name = type(exc).__name__
+    msg = str(exc)
+    # Infrastructure errors (no model available, backend unreachable) should not be retried
+    is_infrastructure = (
+        "No other model available" in msg
+        or "No more models available" in msg
+        or "Only one model available" in msg
+        or "API key not configured" in msg
+    )
     return ErrorSummary(
         error_type="runtime_error",
-        message=f"{exc_type_name}: {str(exc)[:200]}",
-        column=_extract_column_from_message(str(exc)),
-        retryable=True,
+        message=f"{exc_type_name}: {msg[:200]}",
+        column=_extract_column_from_message(msg),
+        retryable=not is_infrastructure,
     )
 
 

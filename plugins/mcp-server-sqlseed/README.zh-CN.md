@@ -74,8 +74,7 @@ AI 助手会依次调用：
 - `mcp >= 1.0`
 
 可选：
-- `sqlseed-ai`（用于 `sqlseed_generate_yaml` 工具）
-- `google-generativeai`（用于 Gemma 4 工具：`sqlseed_gemma4_analyze`、`sqlseed_gemma4_agent_fill`）
+- `sqlseed-ai`（用于 `sqlseed_generate_yaml`、`sqlseed_gemma4_analyze`、`sqlseed_gemma4_agent_fill`、`sqlseed_list_gemma_models` 工具）
 
 ## 许可证
 

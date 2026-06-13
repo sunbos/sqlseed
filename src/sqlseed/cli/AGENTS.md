@@ -31,7 +31,7 @@ pytest tests/test_cli.py
 
 ### Common Patterns
 
-- 命令结构：`cli` (group) → `fill` / `fill-config` / `preview` / `init` / `snapshot` 子命令
+- 命令结构：`cli` (group) → `fill` / `preview` / `init` / `replay` / `ai-suggest` 子命令
 - 输出使用 rich 库美化（进度条、表格、高亮）
 - AI 功能降级模式：`try: from sqlseed_ai import ... except ImportError: HAS_AI_PLUGIN = False`
 

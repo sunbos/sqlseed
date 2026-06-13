@@ -12,7 +12,6 @@ class ProviderType(str, Enum):
     FAKER = "faker"
     MIMESIS = "mimesis"
     CUSTOM = "custom"
-    AI = "ai"
 
 
 class ColumnConstraintsConfig(BaseModel):
@@ -53,6 +52,11 @@ class ColumnConfig(BaseModel):
 
     # === 约束 ===
     constraints: ColumnConstraintsConfig | None = None
+
+    # === Native method overrides (from AI suggestions) ===
+    faker_method: str | None = None
+    mimesis_method: str | None = None
+    native_params: dict[str, Any] = Field(default_factory=dict)
 
     model_config = {"extra": "ignore"}
 

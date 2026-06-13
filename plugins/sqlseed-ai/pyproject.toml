@@ -24,7 +24,6 @@ classifiers = [
 dependencies = [
     "sqlseed>=0.0.1",
     "openai>=1.0",
-    "google-generativeai>=0.8",
 ]
 
 [project.urls]

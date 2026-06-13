@@ -20,7 +20,7 @@ YAML/JSON 配置文件的加载、校验和模型定义。基于 Pydantic 构建
 ### Working In This Directory
 
 - 源列模式（`generator` + `params`）和派生列模式（`derive_from` + `expression`）互斥，通过 `model_validator` 校验，不要破坏此约束
-- `ProviderType` 枚举包含 BASE/FAKER/MIMESIS/CUSTOM/AI 五种类型
+- `ProviderType` 枚举包含 BASE/FAKER/MIMESIS/CUSTOM 四种类型
 - Pydantic 模型修改需考虑向后兼容，已有配置文件不应因模型变更而无法加载
 - `field_validator`/`model_validator` 是核心校验逻辑，修改需确保所有约束条件仍然满足
 - 新增配置项应提供合理默认值，避免破坏现有用户配置

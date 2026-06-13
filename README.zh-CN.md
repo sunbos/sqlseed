@@ -562,10 +562,10 @@ sqlseed ai-suggest app.db --table projects --output projects.yaml
 sqlseed ai-suggest app.db --table projects --output projects.yaml --verify
 
 # 指定模型（支持多后端：Google AI Studio、LM Studio、Ollama、OpenAI-compatible）
-sqlseed ai-suggest app.db --table projects -o projects.yaml --model gemma-4-26b-it --backend google_ai_studio
+sqlseed ai-suggest app.db --table projects -o projects.yaml --model gemma-4-26b-a4b-it --backend google_ai_studio
 sqlseed ai-suggest app.db --table projects -o projects.yaml --model gemma-4-31b-it --backend google_ai_studio
 sqlseed ai-suggest app.db --table projects -o projects.yaml --model google/gemma-4-e4b --backend lm_studio
-sqlseed ai-suggest app.db --table projects -o projects.yaml --model gemma-4-4b-it --backend ollama
+sqlseed ai-suggest app.db --table projects -o projects.yaml --model gemma-4-e4b-it --backend ollama
 ```
 
 **Gemma 4 原生函数调用（GEMMA_TOOLS）**：
@@ -697,8 +697,8 @@ sqlseed ai-suggest app.db -t users -o users.yaml --max-retries 0
 sqlseed ai-suggest app.db -t users -o users.yaml --no-cache
 
 # ═══ AI 后端选择 ═══
-sqlseed ai-suggest app.db -t users -o users.yaml --backend google_ai_studio --model gemma-4-26b-it
-sqlseed ai-suggest app.db -t users -o users.yaml --backend ollama --model gemma-4-4b-it
+sqlseed ai-suggest app.db -t users -o users.yaml --backend google_ai_studio --model gemma-4-26b-a4b-it
+sqlseed ai-suggest app.db -t users -o users.yaml --backend ollama --model gemma-4-e4b-it
 sqlseed ai-suggest app.db -t users -o users.yaml --backend lm_studio --model google/gemma-4-e4b
 sqlseed ai-suggest app.db -t users -o users.yaml --backend openai_compat --model your-model --base-url https://your-api-endpoint
 ```
@@ -827,7 +827,7 @@ mypy src/sqlseed/                   # 类型检查
 | `sqlseed[faker]` | + faker>=30.0 | Faker 数据引擎 |
 | `sqlseed[mimesis]` | + mimesis>=18.0 | Mimesis 数据引擎（推荐） |
 | `sqlseed[docs]` | + mkdocs-material, mkdocstrings | 文档构建 |
-| `sqlseed-ai` | sqlseed, **openai>=1.0**, **google-generativeai>=0.8** | AI 插件，通过 entry-point 自动注册，支持 Gemma 4 GEMMA_TOOLS |
+| `sqlseed-ai` | sqlseed, **openai>=1.0** | AI 插件，通过 entry-point 自动注册，支持 Gemma 4 GEMMA_TOOLS |
 | `mcp-server-sqlseed` | sqlseed, **mcp>=1.0** | MCP 服务器，独立 CLI 工具 |
 | `mcp-server-sqlseed[ai]` | + sqlseed-ai | MCP 服务器含 AI 支持 |
 

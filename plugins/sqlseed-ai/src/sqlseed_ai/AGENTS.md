@@ -13,10 +13,9 @@ AI 数据生成插件的实现。通过 OpenAI 兼容 API 分析数据库模式�
 |------|-------------|
 | `analyzer.py` | `SchemaAnalyzer` 模式分析器，调用 LLM 分析表结构并推荐生成器配置 |
 | `refiner.py` | `AiConfigRefiner` 配置优化器，基于 AI 建议优化现有配置，支持自纠正 |
-| `provider.py` | AI 数据提供者，实现 `GeneratorDispatchMixin`，为简单列提供默认值 |
 | `config.py` | `AIConfig` AI 配置（API key, model, base_url 等），支持环境变量 |
 | `_client.py` | OpenAI 客户端工厂，支持自定义 base_url |
-| `_model_selector.py` | `select_next_free_model()` 免费模型自动选择与降级 |
+| `_model_selector.py` | `select_next_gemma_model()` Gemma 模型自动选择与降级 |
 | `_json_utils.py` | JSON 响应容错解析，`_sanitize_names()` 名称清洗 |
 | `errors.py` | 错误类型定义，`ErrorSummary`/`summarize_error()` 错误汇总 |
 | `examples.py` | Few-shot 示例，用于 AI 提示词 |
@@ -26,16 +25,17 @@ AI 数据生成插件的实现。通过 OpenAI 兼容 API 分析数据库模式�
 
 | 环境变量 | 字段 | 回退 |
 |----------|------|------|
-| `SQLSEED_AI_API_KEY` | `api_key` | `OPENAI_API_KEY` |
-| `SQLSEED_AI_BASE_URL` | `base_url` | `OPENAI_BASE_URL` |
-| `SQLSEED_AI_MODEL` | `model` | 无 |
+| `SQLSEED_AI_API_KEY` | `api_key` | `GOOGLE_API_KEY` → `OPENAI_API_KEY` |
+| `SQLSEED_AI_BASE_URL` | `base_url` | `OPENAI_BASE_URL`（按后端自动设置） |
+| `SQLSEED_AI_MODEL` | `model` | 无（自动检测本地模型） |
 | `SQLSEED_AI_TIMEOUT` | `timeout` | 默认 60.0 |
+| `SQLSEED_AI_BACKEND` | `backend` | 自动检测（`google_ai_studio`, `lm_studio`, `ollama`, `openai_compat`） |
 
 ## LLM 调用与回退机制
 
 1. `call_llm()` 尝试使用 `response_format={"type": "json_object"}`（JSON mode）
 2. 若 API 不支持 JSON mode（错误含 "json"/"response_format"/"400"），回退到普通模式
-3. 遇到 `APITimeoutError`/`APIConnectionError` 时，调用 `select_next_free_model()` 切换到下一个免费模型
+3. 遇到 `APITimeoutError`/`APIConnectionError` 时，调用 `select_next_gemma_model()` 切换到下一个 Gemma 模型
 4. 最多尝试 `_MAX_FALLBACK_ATTEMPTS = 3` 次模型降级
 5. 所有模型均失败则抛出最后一个异常
 
@@ -66,13 +66,15 @@ AI 数据生成插件的实现。通过 OpenAI 兼容 API 分析数据库模式�
 
 ### Working In This Directory
 
-- `AISqlseedPlugin` 实现 `hookimpl`：`sqlseed_ai_analyze_table`（分析整张表）和 `sqlseed_pre_generate_templates`（为非简单列生成模板值）
+- `AISqlseedPlugin` 实现 `hookimpl`：`sqlseed_ai_analyze_table`（分析整张表）和 `sqlseed_pre_generate_templates`（为非简单列生成模板值）。不实现 `sqlseed_register_providers` 或 `sqlseed_register_column_mappers`
 - 简单列（name, email, phone 等）通过 `_SIMPLE_COL_RE` 正则跳过 AI 调用，不要为简单列浪费 LLM token
-- `_model_selector.py` 维护免费模型列表，自动选择可用模型，支持降级，模型列表可能需要定期更新
-- JSON 解析必须使用 `_json_utils.py` 的容错逻辑，不要直接 `json.loads`，LLM 返回的 JSON 格式可能不规范
+- `_model_selector.py` 维护 Gemma 4 模型列表，`select_gemma_model()` 自动选择，`select_next_gemma_model()` 降级
+- JSON 解析必须使用 `_json_utils.py` 的容错逻辑（3 策略：直接解析 → 围栏清理 → raw_decode），不要直接 `json.loads`
 - 所有 AI 调用需处理 `APIConnectionError`/`APITimeoutError`/`APIError`
 - `refiner.py` 的自纠正流程：生成 → 验证 → 修正，最多重试若干次
-- `config.py` 的 `AIConfig` 支持环境变量（`SQLSEED_AI_API_KEY`, `SQLSEED_AI_MODEL`, `SQLSEED_AI_BASE_URL`）
+- `config.py` 的 `AIConfig` 支持多后端自动检测，关键方法：`resolve_model()`, `resolve_base_url()`, `resolve_api_key()`, `resolve_max_tokens()`, `should_use_streaming()`, `should_use_ultra_compact()`
+- 流式调用：`call_llm_streaming()` + `generate_and_refine_streaming()`，E2B/E4B 模型自动禁用流式
+- Prompt 降级：normal → compact → ultra-compact，小模型（E2B/E4B）自动启用 ultra-compact
 
 ### Testing Requirements
 

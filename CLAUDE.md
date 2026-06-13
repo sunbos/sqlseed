@@ -64,7 +64,7 @@ _utils/ → (no internal deps, used by all layers)
 ### Key Modules
 
 - **`core/orchestrator.py`** — `DataOrchestrator` is the central coordinator. Uses `CoreCtx` (db, schema, mapper, relation, shared_pool) and `ExtCtx` (registry, plugins, mediator, enrichment, metrics) dataclasses. `fill_table()` is the main entry point; `fill()` is its alias.
-- **`core/mapper.py`** — `ColumnMapper` with 9-level strategy chain (autoincrement PK → user config → exact match → default check → pattern match → nullable → type fallback). 74 exact rules, 26 regex patterns.
+- **`core/mapper.py`** — `ColumnMapper` with 9-level strategy chain (autoincrement PK → user config → exact match → default check → pattern match → nullable → type fallback). 74 exact rules, 27 regex patterns.
 - **`core/schema.py`** — `SchemaInferrer` reads SQLite schema + `CREATE TABLE` SQL for autoincrement detection.
 - **`core/relation.py`** — `RelationResolver` + `SharedPool` for cross-table FK integrity. Implicit associations via name matching, explicit via `ColumnAssociation` config.
 - **`core/column_dag.py`** — Topological sort for `derive_from` column dependencies.
@@ -74,7 +74,8 @@ _utils/ → (no internal deps, used by all layers)
 - **`database/`** — `DatabaseAdapter` protocol with two implementations: `SQLiteUtilsAdapter` (default, requires `sqlite-utils`) and `RawSQLiteAdapter` (fallback). `_compat.py` controls `HAS_SQLITE_UTILS` flag.
 - **`plugins/`** — 11 pluggy hooks. `PluginManager` + `PluginMediator` bridge plugins and core.
 - **`config/`** — Pydantic models (`GeneratorConfig`, `TableConfig`, `ColumnConfig`, `ColumnAssociation`), YAML/JSON loader, `SnapshotManager`.
-- **`cli/main.py`** — Click commands: `fill`, `preview`, `inspect`, `ai-suggest`, `config-generate`. CLI log level via `SQLSEED_LOG_LEVEL` env var (default `WARNING`). Cache dir via `SQLSEED_CACHE_DIR` env var.
+- **`cli/main.py`** — Click commands: `fill`, `preview`, `inspect`, `init`, `replay`, `ai-suggest`. CLI log level via `SQLSEED_LOG_LEVEL` env var (default `WARNING`). Cache dir via `SQLSEED_CACHE_DIR` env var.
+- **`_utils/paths.py`** — Platform-aware cache directory resolution (`get_cache_dir()`). Supports macOS/Linux/Windows, overridable via `SQLSEED_CACHE_DIR` env var.
 
 ### Public API (`src/sqlseed/__init__.py`)
 
@@ -154,7 +155,7 @@ Run `pytest tests/test_doc_sync.py` to verify doc sync after changes.
 
 ## Testing
 
-- Fixtures in `tests/conftest.py`: `tmp_db` (users + orders tables), `tmp_db_with_data`, `unique_test_db`, `create_project_info_db()` (project_info table with unique indexes), `raw_adapter`, `raw_adapter_with_data`
+- Fixtures in `tests/conftest.py`: `tmp_db` (users + orders tables), `tmp_db_with_data`, `unique_test_db`, `create_project_info_db()` (project_info table with unique indexes), `raw_adapter`, `raw_adapter_with_data`. Helper: `make_column_info()` factory for `ColumnInfo` objects.
 - Use real SQLite via `tmp_path` fixture, never mock the database layer
 - CLI tests: use `click.testing.CliRunner`, never subprocess
 - AI plugin tests: `pytest.importorskip("sqlseed_ai")`
@@ -206,6 +207,6 @@ When preparing a new version release:
 
 ## Dependencies
 
-**Core**: sqlite-utils, pydantic, pluggy, structlog, pyyaml, click, rich, typing_extensions, simpleeval, rstr
-**Optional**: faker (`sqlseed[faker]`), mimesis (`sqlseed[mimesis]`)
+**Core**: pydantic, pluggy, structlog, pyyaml, click, rich, typing_extensions, simpleeval, rstr
+**Optional**: sqlite-utils (`sqlseed[sqlite-utils]`), faker (`sqlseed[faker]`), mimesis (`sqlseed[mimesis]`), tqdm (`sqlseed[tqdm]`)
 **Dev**: pytest, pytest-cov, pytest-asyncio, pytest-benchmark, ruff, mypy, pre-commit

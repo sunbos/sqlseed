@@ -6,9 +6,10 @@ GemmaSQLSeed deeply integrates with the Gemma 4 model family, leveraging **Nativ
 
 | Model | Variant | Recommended Backend | Use Case |
 |-------|---------|-------------------|----------|
-| `gemma-4-2b-it` | 2B Edge | Ollama / LM Studio | Ultra-light edge deployment |
-| `gemma-4-4b-it` | 4B Edge | LM Studio | Local schema analysis |
-| `gemma-4-26b-it` | 26B MoE | Google AI Studio | Complex analysis + self-correction |
+| `gemma-4-e2b-it` | E2B (2B Effective, Edge) | Ollama / LM Studio | Ultra-light edge deployment |
+| `gemma-4-e4b-it` | E4B (4B Effective, Edge) | LM Studio | Local schema analysis |
+| `gemma-4-12b-it` | 12B Unified | LM Studio / Ollama | Balanced quality and speed |
+| `gemma-4-26b-a4b-it` | 26B A4B MoE | Google AI Studio | Complex analysis + self-correction |
 | `gemma-4-31b-it` | 31B Dense | Google AI Studio | Maximum reasoning capability |
 
 ## Backend Configuration
@@ -17,7 +18,7 @@ GemmaSQLSeed deeply integrates with the Gemma 4 model family, leveraging **Nativ
 
 ```bash
 export GOOGLE_API_KEY=your-key
-# Model defaults to gemma-4-26b-it
+# Model defaults to gemma-4-26b-a4b-it
 ```
 
 ### LM Studio (Local GUI)
@@ -32,7 +33,7 @@ export SQLSEED_AI_MODEL=google/gemma-4-e4b
 
 ```bash
 export SQLSEED_AI_BACKEND=ollama
-export SQLSEED_AI_MODEL=gemma-4-4b-it
+export SQLSEED_AI_MODEL=gemma-4-e4b-it
 # Ensure Ollama is running: ollama pull gemma4:4b
 ```
 
@@ -124,7 +125,7 @@ result = analyzer.analyze(db_path="app.db", table_name="users")
 
 | Backend | Model | Schema Analysis Time | Notes |
 |---------|-------|---------------------|-------|
-| LM Studio | 4B Edge | ~5 min | Local inference, full system prompt |
-| LM Studio | 4B Edge (compact) | ~20s | Reduced prompt, fewer examples |
-| Google AI Studio | 26B MoE | ~10-30s | Cloud inference, recommended |
+| LM Studio | E4B (4B Effective, Edge) | ~5 min | Local inference, full system prompt |
+| LM Studio | E4B (4B Effective, Edge) (compact) | ~20s | Reduced prompt, fewer examples |
+| Google AI Studio | 26B A4B MoE | ~10-30s | Cloud inference, recommended |
 | Ollama | 4B | ~3-5 min | Local CLI, similar to LM Studio |

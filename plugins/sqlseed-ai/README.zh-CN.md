@@ -25,7 +25,7 @@ sqlseed ai-suggest app.db --table users --output users.yaml
 sqlseed ai-suggest app.db --table users --output users.yaml --verify
 
 # 指定模型（默认使用 Gemma 4 26B via Google AI Studio）
-sqlseed ai-suggest app.db --table users -o users.yaml --model gemma-4-26b-it
+sqlseed ai-suggest app.db --table users -o users.yaml --model gemma-4-26b-a4b-it
 
 # 使用本地 LM Studio
 sqlseed ai-suggest app.db --table users -o users.yaml --backend lm_studio --model google/gemma-4-e4b
@@ -52,7 +52,7 @@ sqlseed ai-suggest app.db --table users -o users.yaml --no-cache
 
 使用 `google_ai_studio` 后端（默认）时，`GemmaModel` 枚举提供预配置的 Gemma 4 变体。模型根据后端自动选择：
 
-1. **Google AI Studio**：默认使用 `gemma-4-26b-it`（推荐的质量与速度平衡）。
+1. **Google AI Studio**：默认使用 `gemma-4-26b-a4b-it`（推荐的质量与速度平衡）。
 2. **LM Studio / Ollama**：用户需通过 `--model` 或 `SQLSEED_AI_MODEL` 指定已加载的模型。
 3. **OpenAI-compatible**（OpenRouter、DeepSeek 等）：用户需同时指定 `--model` 和 `--base-url`。
 
@@ -69,10 +69,11 @@ export SQLSEED_AI_MODEL=<免费模型名>
 
 | 枚举值 | 模型 ID | 说明 |
 |:-------|:--------|:-----|
-| `GemmaModel.GEMMA_4_2B` | `gemma-4-2b` | 轻量级，推理速度快 |
-| `GemmaModel.GEMMA_4_4B` | `gemma-4-4b` | 速度与质量均衡 |
-| `GemmaModel.GEMMA_4_26B` | `gemma-4-26b` | 高质量，推荐使用 |
-| `GemmaModel.GEMMA_4_31B` | `gemma-4-31b` | 最佳质量，最大模型 |
+| `GemmaModel.GEMMA_4_E2B` | `gemma-4-e2b-it` | 2B Effective, Edge — 超轻量边缘部署 |
+| `GemmaModel.GEMMA_4_E4B` | `gemma-4-e4b-it` | 4B Effective, Edge — 轻量本地推理 |
+| `GemmaModel.GEMMA_4_12B` | `gemma-4-12b-it` | 12B Unified, Laptop — 速度与质量均衡 |
+| `GemmaModel.GEMMA_4_26B_A4B` | `gemma-4-26b-a4b-it` | 26B A4B MoE — 高质量，推荐使用 |
+| `GemmaModel.GEMMA_4_31B` | `gemma-4-31b-it` | 31B Dense — 最佳质量，最大模型 |
 
 `AIBackend` 枚举用于选择 API 后端：
 
@@ -81,6 +82,7 @@ export SQLSEED_AI_MODEL=<免费模型名>
 | `AIBackend.GOOGLE_AI_STUDIO` | Google AI Studio | `https://generativelanguage.googleapis.com/v1beta/openai/` |
 | `AIBackend.LM_STUDIO` | LM Studio | `http://localhost:1234/v1` |
 | `AIBackend.OLLAMA` | Ollama | `http://localhost:11434/v1` |
+| `AIBackend.OPENAI_COMPAT` | OpenAI 兼容端点 | （需设置 `SQLSEED_AI_BASE_URL`） |
 
 ### 模板池
 
@@ -98,7 +100,7 @@ AI 配置缓存在平台标准缓存目录（macOS: `~/Library/Caches/sqlseed/ai
 |:-----|:-----|:-------|:-----|
 | `SQLSEED_AI_API_KEY` | `OPENAI_API_KEY` | — | API Key（必填） |
 | `SQLSEED_AI_BASE_URL` | `OPENAI_BASE_URL` | （按后端自动设置） | API 端点 |
-| `SQLSEED_AI_MODEL` | — | `gemma-4-26b-it` | 模型名称 |
+| `SQLSEED_AI_MODEL` | — | `gemma-4-26b-a4b-it` | 模型名称 |
 | `SQLSEED_AI_TIMEOUT` | — | `60` | API 超时（秒） |
 | `SQLSEED_AI_BACKEND` | — | `google_ai_studio` | AI 后端：`google_ai_studio`、`lm_studio`、`ollama`、`openai_compat` |
 | `GOOGLE_API_KEY` | — | — | Google AI Studio API Key（后端为 `google_ai_studio` 时必填） |
@@ -131,7 +133,6 @@ AI 配置缓存在平台标准缓存目录（macOS: `~/Library/Caches/sqlseed/ai
 - Python >= 3.10
 - `sqlseed >= 0.1.0`
 - `openai >= 1.0`
-- `google-generativeai >= 0.8`
 - OpenAI 兼容 API Key 或 Google AI Studio API Key
 
 ## Gemma 4 集成

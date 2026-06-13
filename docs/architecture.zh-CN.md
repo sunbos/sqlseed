@@ -609,7 +609,6 @@ classDiagram
         FAKER
         MIMESIS
         CUSTOM
-        AI
     }
 
     GeneratorConfig o-- TableConfig

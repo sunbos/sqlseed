@@ -666,7 +666,7 @@ sqlseed ai-suggest app.db --table projects --output projects.yaml
 sqlseed ai-suggest app.db --table projects --output projects.yaml --verify
 
 # Specify model (defaults to Gemma 4 26B via Google AI Studio)
-sqlseed ai-suggest app.db --table projects --output projects.yaml --model gemma-4-26b-it
+sqlseed ai-suggest app.db --table projects --output projects.yaml --model gemma-4-26b-a4b-it
 
 # Use local LM Studio / Ollama
 sqlseed ai-suggest app.db --table projects --output projects.yaml --backend lm_studio --model google/gemma-4-e4b
@@ -1019,7 +1019,7 @@ Tests cover all core modules, with path structure mirroring `src/`: `test_core/`
 | `sqlseed[faker]` | + faker>=30.0 | Faker data engine |
 | `sqlseed[mimesis]` | + mimesis>=18.0 | Mimesis data engine (recommended) |
 | `sqlseed[docs]` | + mkdocs-material, mkdocstrings | Documentation build |
-| `sqlseed-ai` | sqlseed, **openai>=1.0**, **google-generativeai>=0.8** | AI plugin (Gemma 4 Native Function Calling), auto-registered via entry-point |
+| `sqlseed-ai` | sqlseed, **openai>=1.0** | AI plugin (Gemma 4 Native Function Calling), auto-registered via entry-point |
 | `mcp-server-sqlseed` | sqlseed, **mcp>=1.0** | MCP server, standalone CLI tool |
 | `mcp-server-sqlseed[ai]` | + sqlseed-ai | MCP server with AI support |
 

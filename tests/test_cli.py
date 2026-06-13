@@ -259,6 +259,8 @@ class TestCLIAISuggest:
     def ai_suggest_setup(self, unique_test_db: Any, tmp_path: Any, monkeypatch: Any) -> tuple[CliRunner, str, str]:
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
         monkeypatch.delenv("SQLSEED_AI_API_KEY", raising=False)
+        monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+        monkeypatch.delenv("SQLSEED_AI_BACKEND", raising=False)
         runner = CliRunner()
         output_path = str(tmp_path / "output.yaml")
         return runner, unique_test_db, output_path

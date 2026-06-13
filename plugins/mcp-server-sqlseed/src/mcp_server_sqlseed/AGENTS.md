@@ -31,6 +31,9 @@ FastMCP 服务器实现。为 AI 助手提供 sqlseed 的数据生成工具。
 | `sqlseed_inspect_schema` | `db_path: str`, `table_name: str | None = None` | `dict[str, Any]` | 检查数据库 schema（含 schema_hash） |
 | `sqlseed_generate_yaml` | `db_path: str`, `table_name: str`, `max_retries: int = 3`, `api_key: str | None = None`, `base_url: str | None = None`, `model: str | None = None` | `str` (YAML 或错误文本) | AI 生成 YAML 配置 |
 | `sqlseed_execute_fill` | `db_path: str`, `table_name: str`, `count: int = 1000`, `yaml_config: str | None = None`, `enrich: bool = False` | `dict[str, Any]` | 执行数据填充 |
+| `sqlseed_gemma4_analyze` | `db_path: str`, `table_name: str`, `model: str | None = None`, `backend: str | None = None` | `dict[str, Any]` | Gemma 4 分析表结构并推荐配置 |
+| `sqlseed_gemma4_agent_fill` | `db_path: str`, `table_name: str`, `count: int = 1000`, `model: str | None = None`, `backend: str | None = None`, `max_retries: int = 3` | `dict[str, Any]` | Gemma 4 端到端：分析→生成→填充 |
+| `sqlseed_list_gemma_models` | (无参数) | `dict[str, Any]` | 列出 Gemma 4 模型变体和后端 |
 
 - `_validate_db_path()` 验证扩展名必须为 `.db`、`.sqlite` 或 `.sqlite3`
 - `_MAX_YAML_CONFIG_SIZE = 256 * 1024`（256KB）限制 YAML 配置大小

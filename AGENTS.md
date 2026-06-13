@@ -66,7 +66,7 @@ sqlseed/
 
 - **Provider fallback chain**: mimesis → faker → base (auto-degrades)
 - **AI backend fallback chain**: Google AI Studio → LM Studio → Ollama (multi-backend)
-- **Gemma 4 Native Function Calling**: `GEMMA_TOOLS` (analyze_schema, generate_column_values) with auto-fallback to JSON mode
+- **Gemma 4 Native Function Calling**: `GEMMA_TOOLS` (analyze_schema) with auto-fallback to JSON mode
 - **Context manager pattern**: `DataOrchestrator` is a context manager
 - **Plugin mediation**: `PluginMediator` bridges plugins and core (not direct calls)
 - **DAG-based column ordering**: `ColumnDAG` handles derive_from dependencies

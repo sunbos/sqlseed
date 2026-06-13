@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-import time
 from typing import Any
 from unittest.mock import patch
 
@@ -12,12 +10,6 @@ from tests.conftest import make_col
 
 try:
     from openai import APITimeoutError
-    from sqlseed_ai._model_selector import (
-        _CACHE,
-        clear_cache,
-        select_best_free_model,
-        select_next_free_model,
-    )
     from sqlseed_ai.analyzer import SchemaAnalyzer
     from sqlseed_ai.config import AIConfig
 
@@ -26,53 +18,10 @@ except ImportError:
     HAS_SQLSEED_AI = False
     SchemaAnalyzer = None  # type: ignore
     AIConfig = None  # type: ignore
-    select_best_free_model = None  # type: ignore
-    select_next_free_model = None  # type: ignore
-    clear_cache = None  # type: ignore
-    _CACHE = {}
     APITimeoutError = None  # type: ignore
 
 if not HAS_SQLSEED_AI:
     pytest.skip("sqlseed-ai plugin not installed", allow_module_level=True)
-
-
-def _make_mock_response(
-    model_id: str,
-    prompt_price: str = "0",
-    completion_price: str = "0",
-    input_mod: list[str] | None = None,
-    output_mod: list[str] | None = None,
-    supported_params: list[str] | None = None,
-) -> type:
-    if input_mod is None:
-        input_mod = ["text"]
-    if output_mod is None:
-        output_mod = ["text"]
-    if supported_params is None:
-        supported_params = ["response_format"]
-
-    body = json.dumps(
-        {
-            "data": [
-                {
-                    "id": model_id,
-                    "pricing": {"prompt": prompt_price, "completion": completion_price},
-                    "architecture": {"input_modalities": input_mod, "output_modalities": output_mod},
-                    "supported_parameters": supported_params,
-                }
-            ]
-        }
-    ).encode()
-
-    return type(
-        "Response",
-        (),
-        {
-            "read": lambda _self: body,
-            "__enter__": lambda self: self,
-            "__exit__": lambda _self, *_args: None,
-        },
-    )
 
 
 class TestAIConfig:
@@ -80,23 +29,25 @@ class TestAIConfig:
         config = AIConfig()
         assert config.api_key is None
         assert config.model is None
-        assert config.base_url == "https://openrouter.ai/api/v1"
+        assert config.base_url is None
         assert config.temperature == pytest.approx(0.3)
-        assert config.max_tokens == 4096
-        assert config.timeout == pytest.approx(60.0)
+        assert config.max_tokens == 0  # 0 means auto-resolve
+        assert config.timeout == pytest.approx(0.0)  # 0 means auto-resolve
 
     def test_from_env_missing(self, monkeypatch: Any) -> None:
         monkeypatch.delenv("SQLSEED_AI_API_KEY", raising=False)
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
         monkeypatch.delenv("SQLSEED_AI_BASE_URL", raising=False)
         monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
         monkeypatch.delenv("SQLSEED_AI_MODEL", raising=False)
+        monkeypatch.delenv("SQLSEED_AI_BACKEND", raising=False)
         monkeypatch.delenv("SQLSEED_AI_TIMEOUT", raising=False)
         config = AIConfig.from_env()
         assert config.api_key is None
-        assert config.base_url == "https://openrouter.ai/api/v1"
+        assert config.base_url is None
         assert config.model is None
-        assert config.timeout == pytest.approx(60.0)
+        assert config.timeout == pytest.approx(0.0)  # 0 means auto-resolve
 
     def test_from_env_set(self, monkeypatch: Any) -> None:
         monkeypatch.setenv("SQLSEED_AI_API_KEY", "sk-test123")
@@ -118,146 +69,30 @@ class TestAIConfig:
         assert config.api_key == "sk-openai-key"
         assert config.base_url == "https://api.openai.com/v1"
 
-    def test_resolve_model_auto_select(self) -> None:
-        clear_cache()
-        config = AIConfig(api_key="test-key")
-        assert config.model is None
-        with patch("sqlseed_ai.config.select_best_free_model", return_value="test/model:free"):
-            result = config.resolve_model()
-        assert result == "test/model:free"
-        assert config.model == "test/model:free"
-        clear_cache()
-
-    def test_resolve_model_no_api_key_uses_fallback(self) -> None:
-        clear_cache()
-        config = AIConfig()
-        assert config.api_key is None
-        result = config.resolve_model()
-        assert result == "openrouter/free"
-        assert config.model == "openrouter/free"
-        clear_cache()
-
     def test_resolve_model_user_override(self) -> None:
         config = AIConfig(model="gpt-4o")
-        with patch("sqlseed_ai.config.select_best_free_model") as mock_select:
-            result = config.resolve_model()
-        mock_select.assert_not_called()
+        result = config.resolve_model()
         assert result == "gpt-4o"
         assert config.model == "gpt-4o"
 
+    def test_resolve_model_auto_detect_local(self, monkeypatch: Any) -> None:
+        monkeypatch.setenv("SQLSEED_AI_BACKEND", "lm_studio")
+        config = AIConfig.from_env()
+        # Mock _detect_local_model to return None (no local server running)
+        monkeypatch.setattr(config, "_detect_local_model", lambda: None)
+        result = config.resolve_model()
+        # LM Studio uses "google/gemma-4-e4b" format (not "gemma-4-e4b-it")
+        assert result == "google/gemma-4-e4b"
 
-class TestModelSelector:
-    def test_select_best_free_model_with_mock_api(self) -> None:
-        clear_cache()
-        mock_response = _make_mock_response("nvidia/nemotron-3-super-120b-a12b:free")
+    def test_resolve_max_tokens_auto(self) -> None:
+        config = AIConfig(backend="lm_studio", model="google/gemma-4-e4b")
+        config.resolve_model()
+        # E4B with reasoning_effort=none: 768 covers up to ~30-column tables
+        assert config.resolve_max_tokens() == 768
 
-        with patch("sqlseed_ai._model_selector.urllib.request.urlopen", return_value=mock_response()):
-            result = select_best_free_model()
-
-        assert result == "nvidia/nemotron-3-super-120b-a12b:free"
-        clear_cache()
-
-    def test_select_best_free_model_api_failure(self) -> None:
-        clear_cache()
-        with patch("sqlseed_ai._model_selector.urllib.request.urlopen", side_effect=OSError("Network error")):
-            result = select_best_free_model()
-
-        assert result == "openrouter/free"
-        clear_cache()
-
-    def test_select_best_free_model_no_match(self) -> None:
-        clear_cache()
-        mock_response = _make_mock_response("other/free-model:free")
-
-        with patch("sqlseed_ai._model_selector.urllib.request.urlopen", return_value=mock_response()):
-            result = select_best_free_model()
-
-        assert result == "other/free-model:free"
-        clear_cache()
-
-    def test_select_best_free_model_caching(self) -> None:
-        clear_cache()
-        _CACHE["model"] = "cached/model:free"
-        _CACHE["expires_at"] = time.time() + 3600
-
-        result = select_best_free_model()
-        assert result == "cached/model:free"
-        clear_cache()
-
-    def test_select_best_free_model_cache_expired(self) -> None:
-        clear_cache()
-        _CACHE["model"] = "expired/model:free"
-        _CACHE["expires_at"] = time.time() - 1
-
-        mock_response = _make_mock_response("tencent/hy3-preview:free")
-
-        with patch("sqlseed_ai._model_selector.urllib.request.urlopen", return_value=mock_response()):
-            result = select_best_free_model()
-
-        assert result == "tencent/hy3-preview:free"
-        clear_cache()
-
-    def test_filter_non_text_model(self) -> None:
-        clear_cache()
-        mock_response = _make_mock_response(
-            "nvidia/nemotron-3-super-120b-a12b:free",
-            input_mod=["image", "text"],
-            output_mod=["image"],
-        )
-
-        with patch("sqlseed_ai._model_selector.urllib.request.urlopen", return_value=mock_response()):
-            result = select_best_free_model()
-
-        assert result == "openrouter/free"
-        clear_cache()
-
-    def test_filter_no_response_format(self) -> None:
-        clear_cache()
-        mock_response = _make_mock_response(
-            "nvidia/nemotron-3-super-120b-a12b:free",
-            supported_params=["temperature"],
-        )
-
-        with patch("sqlseed_ai._model_selector.urllib.request.urlopen", return_value=mock_response()):
-            result = select_best_free_model()
-
-        assert result == "openrouter/free"
-        clear_cache()
-
-    def test_filter_paid_model(self) -> None:
-        clear_cache()
-        mock_response = _make_mock_response(
-            "some/paid-model",
-            prompt_price="0.001",
-            completion_price="0.002",
-        )
-
-        with patch("sqlseed_ai._model_selector.urllib.request.urlopen", return_value=mock_response()):
-            result = select_best_free_model()
-
-        assert result == "openrouter/free"
-        clear_cache()
-
-    def test_select_next_free_model(self) -> None:
-        clear_cache()
-        _CACHE["available_models"] = ["model_a", "model_b", "model_c"]
-        result = select_next_free_model("model_a")
-        assert result == "model_b"
-        clear_cache()
-
-    def test_select_next_free_model_last(self) -> None:
-        clear_cache()
-        _CACHE["available_models"] = ["model_a", "model_b", "model_c"]
-        result = select_next_free_model("model_c")
-        assert result is None
-        clear_cache()
-
-    def test_select_next_free_model_unknown(self) -> None:
-        clear_cache()
-        _CACHE["available_models"] = ["model_a", "model_b", "model_c"]
-        result = select_next_free_model("unknown/model:free")
-        assert result is None
-        clear_cache()
+    def test_resolve_max_tokens_explicit(self) -> None:
+        config = AIConfig(max_tokens=2048)
+        assert config.resolve_max_tokens() == 2048
 
 
 class TestCallLLMFallback:
@@ -267,7 +102,7 @@ class TestCallLLMFallback:
 
         call_count = 0
 
-        def mock_call_llm_once(_self, _messages):
+        def mock_call_llm_once(_self, _messages, **_kwargs):
             nonlocal call_count
             call_count += 1
             if call_count == 1:
@@ -276,24 +111,25 @@ class TestCallLLMFallback:
 
         with (
             patch.object(SchemaAnalyzer, "_call_llm_once", mock_call_llm_once),
-            patch("sqlseed_ai.analyzer.select_next_free_model", return_value="model_b"),
+            patch("sqlseed_ai.analyzer.select_next_gemma_model", return_value="gemma-4-e4b-it"),
         ):
             result = analyzer.call_llm([{"role": "user", "content": "test"}])
 
         assert result == {"name": "test", "count": 100, "columns": []}
         assert analyzer._config is not None
-        assert analyzer._config.model == "model_b"
+        # Model fallback uses local variable, does NOT modify config.model
+        assert analyzer._config.model == "model_a"
 
     def test_call_llm_no_more_fallback(self) -> None:
         config = AIConfig(api_key="test-key", model="model_c")
         analyzer = SchemaAnalyzer(config=config)
 
-        def mock_call_llm_once(_self, _messages):
+        def mock_call_llm_once(_self, _messages, **_kwargs):
             raise APITimeoutError(request=type("Request", (), {"body": None})())
 
         with (
             patch.object(SchemaAnalyzer, "_call_llm_once", mock_call_llm_once),
-            patch("sqlseed_ai.analyzer.select_next_free_model", return_value=None),
+            patch("sqlseed_ai.analyzer.select_next_gemma_model", return_value=None),
             pytest.raises(RuntimeError, match="LLM API call failed"),
         ):
             analyzer.call_llm([{"role": "user", "content": "test"}])
@@ -302,7 +138,7 @@ class TestCallLLMFallback:
         config = AIConfig(api_key="test-key", model="test-model")
         analyzer = SchemaAnalyzer(config=config)
 
-        def mock_call_llm_once(_self, _messages):
+        def mock_call_llm_once(_self, _messages, **_kwargs):
             raise RuntimeError("Some other error")
 
         with (

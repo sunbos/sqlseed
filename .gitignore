@@ -33,6 +33,7 @@ ENV/
 .idea/
 .trae/
 .claude/
+.gemini/
 .sonarlint/
 *.swp
 *.swo

@@ -65,13 +65,5 @@ class AISqlseedPlugin:
         except (ValueError, RuntimeError, OSError):
             return None
 
-    @hookimpl
-    def sqlseed_register_providers(self, registry: Any) -> None:
-        _ = registry
-
-    @hookimpl
-    def sqlseed_register_column_mappers(self, mapper: Any) -> None:
-        _ = mapper
-
 
 plugin = AISqlseedPlugin()
