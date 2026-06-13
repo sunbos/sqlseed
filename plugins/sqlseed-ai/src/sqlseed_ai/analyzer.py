@@ -1,18 +1,23 @@
 from __future__ import annotations
 
 import json
+import re
+from collections.abc import Callable
 from typing import Any
 
 from openai import APIConnectionError, APIError, APITimeoutError
 from sqlseed_ai._client import get_openai_client
 from sqlseed_ai._json_utils import parse_json_response
-from sqlseed_ai._model_selector import select_next_gemma_model
+from sqlseed_ai._model_selector import _normalize_model_id, select_next_gemma_model
 from sqlseed_ai.config import AIBackend, AIConfig
 from sqlseed_ai.examples import FEW_SHOT_EXAMPLES
 
 from sqlseed._utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+# Type alias for progress callback
+ProgressCallback = Callable[[str, dict[str, Any]], None]
 
 SYSTEM_PROMPT = """You are an expert database test data engineer.
 You analyze SQLite table schemas and recommend data generation configurations for the sqlseed toolkit.
@@ -94,7 +99,20 @@ The JSON object must have this exact structure:
 }
 
 IMPORTANT: Do NOT include columns that are PRIMARY KEY AUTOINCREMENT or have DEFAULT values.
-IMPORTANT: Output ONLY the JSON object, nothing else."""
+IMPORTANT: Output ONLY the JSON object, nothing else.
+IMPORTANT: Do NOT wrap output in markdown code blocks (no ```json```). Output raw JSON only."""
+
+_COMPACT_SYSTEM_PROMPT = """Output a JSON config for test data generation.
+
+Generators: string, integer, float, boolean, name, first_name, last_name, username, email,
+phone, address, company, city, country, state, zip_code, job_title, url, ipv4, uuid,
+date, datetime, timestamp, text, sentence, password, choice, json, pattern.
+Skip PK AUTOINCREMENT and DEFAULT cols.
+Format: {"name":"T","count":1000,"columns":[{"name":"c","generator":"type","params":{},
+  "faker_method":"method_name","mimesis_method":"path.to.method","native_params":{}}]}
+Optional: faker_method (Faker method), mimesis_method (Mimesis path), native_params.
+
+Output ONLY raw JSON. No markdown, no ```json```, no explanation, no whitespace."""
 
 _MAX_FALLBACK_ATTEMPTS = 3
 
@@ -102,7 +120,7 @@ _MAX_FALLBACK_ATTEMPTS = 3
 # These tools leverage Gemma 4's native function calling capability,
 # allowing the model to invoke sqlseed operations directly.
 
-GEMMA_TOOLS: list[dict[str, Any]] = [
+GEMMA_TOOLS: tuple[dict[str, Any], ...] = (
     {
         "type": "function",
         "function": {
@@ -169,45 +187,7 @@ GEMMA_TOOLS: list[dict[str, Any]] = [
             },
         },
     },
-    {
-        "type": "function",
-        "function": {
-            "name": "generate_column_values",
-            "description": (
-                "Generate realistic sample values for a specific database column. "
-                "Use this tool when you need to produce template values for columns "
-                "that require custom or domain-specific data."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "column_name": {
-                        "type": "string",
-                        "description": "Name of the column",
-                    },
-                    "column_type": {
-                        "type": "string",
-                        "description": "SQL type of the column",
-                    },
-                    "count": {
-                        "type": "integer",
-                        "description": "Number of values to generate",
-                    },
-                    "table_name": {
-                        "type": "string",
-                        "description": "Table name for context",
-                    },
-                    "sample_data": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Existing sample values for reference",
-                    },
-                },
-                "required": ["column_name", "column_type", "count"],
-            },
-        },
-    },
-]
+)
 
 
 class SchemaAnalyzer:
@@ -244,16 +224,27 @@ class SchemaAnalyzer:
     def build_initial_messages(
         self,
         schema_ctx: dict[str, Any],
+        *,
+        compact: bool = False,
+        ultra_compact: bool = False,
     ) -> list[dict[str, str]]:
         context = self._build_context(schema_ctx)
+
+        # In ultra-compact mode, use a shorter system prompt
+        system_prompt = _COMPACT_SYSTEM_PROMPT if ultra_compact else SYSTEM_PROMPT
+
         messages: list[dict[str, str]] = [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt},
         ]
 
         # Use fewer examples for local models (4B) to reduce inference time
         max_examples = len(FEW_SHOT_EXAMPLES)
         if self._config and self._config.backend in (AIBackend.LM_STUDIO, AIBackend.OLLAMA):
             max_examples = 1  # Only 1 example for local inference speed
+        if compact:
+            max_examples = 0  # No examples when context is tight
+        if ultra_compact:
+            max_examples = 0
 
         for example in FEW_SHOT_EXAMPLES[:max_examples]:
             messages.append({"role": "user", "content": example["input"]})
@@ -263,18 +254,73 @@ class SchemaAnalyzer:
 
         return messages
 
-    def call_llm(self, messages: list[dict[str, str]]) -> dict[str, Any]:
+    def _find_local_fallback_model(
+        self,
+        current_model: str | None,
+        next_model: str,
+    ) -> str | None:
+        """Check if a fallback model is available on the local backend.
+
+        Uses _detect_all_local_models to match against all loaded models,
+        not just the first one. Returns the actual local model ID if found,
+        or None if no suitable fallback exists.
+        """
+        config = self._config
+        assert config is not None, "AIConfig must be initialized before checking local fallback"
+        all_local = config._detect_all_local_models()
+        if not all_local:
+            return None
+
+        # Build a normalized→actual mapping of all local models
+        local_map: dict[str, str] = {}
+        for m in all_local:
+            local_map[_normalize_model_id(m)] = m
+
+        # Check if the next fallback model is available locally
+        next_norm = _normalize_model_id(next_model)
+        if next_norm in local_map:
+            return local_map[next_norm]
+
+        # Check if the only local model is the one that just failed
+        current_norm = _normalize_model_id(current_model or "")
+        available_others = [v for k, v in local_map.items() if k != current_norm]
+        if not available_others:
+            # Only one model and it's the one that failed
+            return None
+
+        # Walk the fallback chain and find the first available local model
+        candidate: str | None = next_model
+        while candidate is not None:
+            cand_norm = _normalize_model_id(candidate)
+            if cand_norm in local_map:
+                return local_map[cand_norm]
+            candidate = select_next_gemma_model(candidate)
+
+        return None
+
+    def _ensure_config(self) -> None:
+        """Initialize and validate AIConfig if not already done."""
         if self._config is None:
             self._config = AIConfig.from_env()
         self._config.resolve_model()
         if not self._config.resolve_api_key():
             raise ValueError("AI API key not configured")
 
+    def _call_with_fallback(
+        self,
+        call_fn: Callable[[str], dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Execute an LLM call with model fallback on timeout/connection errors.
+
+        Args:
+            call_fn: A callable that takes a model name and returns the LLM result.
+        """
+        assert self._config is not None  # ensured by _ensure_config()
+        current_model: str = self._config.model or ""
         for attempt in range(_MAX_FALLBACK_ATTEMPTS):
             try:
-                return self._call_llm_once(messages)
+                return call_fn(current_model)
             except (APITimeoutError, APIConnectionError) as e:
-                current_model = self._config.model
                 logger.warning(
                     "LLM API call timed out or connection failed",
                     model=current_model,
@@ -282,65 +328,297 @@ class SchemaAnalyzer:
                     attempt=attempt + 1,
                 )
 
-                next_model = select_next_gemma_model(current_model or "")
+                next_model = select_next_gemma_model(current_model or "", backend=self._config.backend)
                 if next_model is None:
                     raise RuntimeError(
                         f"LLM API call failed after trying {attempt + 1} model(s). "
                         f"Last error (model={current_model}): {e}"
                     ) from e
 
+                # For local backends, verify the fallback model is actually available.
+                if self._config.backend in (AIBackend.LM_STUDIO, AIBackend.OLLAMA):
+                    actual_model = self._find_local_fallback_model(current_model, next_model)
+                    if actual_model is None:
+                        raise RuntimeError(
+                            f"No other model available on local backend besides {current_model}. "
+                            f"Consider using a smaller model or increasing --timeout. "
+                            f"Last error: {e}"
+                        ) from e
+                    next_model = actual_model
+
                 logger.warning(
                     "Falling back to next Gemma 4 model",
                     from_model=current_model,
                     to_model=next_model,
                 )
-                self._config.model = next_model
+                current_model = next_model
 
         raise RuntimeError(f"LLM API call failed after {_MAX_FALLBACK_ATTEMPTS} fallback attempts")
 
-    def _call_llm_once(self, messages: list[dict[str, str]]) -> dict[str, Any]:
+    def call_llm(self, messages: list[dict[str, str]]) -> dict[str, Any]:
+        self._ensure_config()
+        return self._call_with_fallback(lambda model: self._call_llm_once(messages, model=model))
+
+    def call_llm_streaming(
+        self,
+        messages: list[dict[str, str]],
+        on_progress: ProgressCallback | None = None,
+    ) -> dict[str, Any]:
+        """Call LLM with streaming output and progress callbacks.
+
+        Args:
+            messages: Chat messages to send.
+            on_progress: Callback for progress updates.
+                Receives (phase, info) where phase is one of:
+                - "connecting": API connection started
+                - "streaming": token being generated, info={"token": str, "count": int}
+                - "parsing": parsing the response JSON
+                - "done": analysis complete, info={"tokens": int, "model": str}
+        """
+        self._ensure_config()
+        return self._call_with_fallback(lambda model: self._call_llm_streaming_once(messages, on_progress, model=model))
+
+    @staticmethod
+    def _is_reasoning_model_id(model_id: str | None) -> bool:
+        """Check if a model ID refers to a reasoning model (E2B/E4B).
+
+        This is a standalone check that doesn't depend on config state,
+        so it works correctly even during model fallback when the actual
+        model differs from config.model.
+        """
+        return bool(re.search(r"\be[24]b\b", (model_id or "").lower()))
+
+    def _resolve_max_tokens_for_model(self, model_id: str | None) -> int:
+        """Resolve max_tokens based on the ACTUAL model being used.
+
+        Unlike config.resolve_max_tokens() which uses self.model (config state),
+        this method uses the provided model_id, so it works correctly during
+        model fallback when the actual model differs from config.model.
+        """
+        if self._config is None:
+            return 2048
+        if self._config.max_tokens > 0:
+            return self._config.max_tokens  # User explicitly set a value
+        if self._config.backend in (AIBackend.LM_STUDIO, AIBackend.OLLAMA):
+            model_str = (model_id or "").lower()
+            if "e2b" in model_str or "e4b" in model_str:
+                return 768
+            if "12b" in model_str:
+                return 1024
+            return 2048
+        return 4096
+
+    def _build_llm_kwargs(self, *, stream: bool = False, model: str | None = None) -> dict[str, Any]:
+        """Build common kwargs for LLM API calls."""
+        assert self._config is not None
+        actual_model = model or self._config.model
+        kwargs: dict[str, Any] = {
+            "model": actual_model,
+            "messages": [],  # Caller must set
+            "max_tokens": self._resolve_max_tokens_for_model(actual_model),
+            "temperature": self._config.temperature,
+        }
+        if stream:
+            kwargs["stream"] = True
+        if self._is_reasoning_model_id(actual_model):
+            kwargs["reasoning_effort"] = "none"
+        return kwargs
+
+    def _create_with_reasoning_fallback(
+        self,
+        client: Any,
+        kwargs: dict[str, Any],
+    ) -> Any:
+        """Call client.chat.completions.create with reasoning_effort fallback.
+
+        Some backends (older LM Studio) don't support reasoning_effort.
+        If they return a 400 error, retry without it.
+        """
+        try:
+            return client.chat.completions.create(**kwargs)
+        except APIError as param_err:
+            if "reasoning_effort" in kwargs and "400" in str(param_err):
+                logger.debug("reasoning_effort not supported, retrying without it", model=kwargs.get("model"))
+                del kwargs["reasoning_effort"]
+                return client.chat.completions.create(**kwargs)
+            raise
+
+    def _collect_stream_chunks(
+        self,
+        stream: Any,
+        on_progress: ProgressCallback | None,
+    ) -> tuple[str, int]:
+        """Collect content from a streaming response.
+
+        Args:
+            stream: Iterable of streaming chunks from the API.
+            on_progress: Optional progress callback.
+
+        Returns:
+            (collected_content, token_count)
+        """
+        collected_content: list[str] = []
+        token_count = 0
+        reasoning_count = 0
+
+        for chunk in stream:
+            if not chunk.choices:
+                continue
+            delta = chunk.choices[0].delta
+            # Gemma 4 reasoning models emit reasoning_content separately.
+            # We skip reasoning tokens but count them for progress display.
+            if hasattr(delta, "reasoning_content") and delta.reasoning_content:
+                reasoning_count += 1
+                if on_progress and reasoning_count % 10 == 0:
+                    on_progress("streaming", {"token": "...", "count": reasoning_count, "reasoning": True})
+                continue
+            if delta.content:
+                token = delta.content
+                collected_content.append(token)
+                token_count += 1
+                if on_progress:
+                    on_progress("streaming", {"token": token, "count": token_count})
+
+        return "".join(collected_content), token_count
+
+    def _call_llm_streaming_once(
+        self,
+        messages: list[dict[str, str]],
+        on_progress: ProgressCallback | None,
+        *,
+        model: str | None = None,
+    ) -> dict[str, Any]:
         assert self._config is not None, "AIConfig must be initialized before calling LLM"
         client = get_openai_client(self._config)
-        _openai_exceptions = (APIError, ValueError, RuntimeError, OSError)
+
+        if on_progress:
+            on_progress("connecting", {"model": model or self._config.model})
 
         try:
-            kwargs: dict[str, Any] = {
-                "model": self._config.model,
-                "messages": messages,
-                "max_tokens": self._config.max_tokens,
-                "temperature": self._config.temperature,
-            }
+            kwargs = self._build_llm_kwargs(stream=True, model=model)
+            kwargs["messages"] = messages
 
-            # Try Gemma 4 native function calling first
-            # Only for cloud backends (Google AI Studio) that support tools parameter.
-            # Local backends (LM Studio, Ollama) may not support it and would waste time.
-            if self._config.backend == AIBackend.GOOGLE_AI_STUDIO:
-                result = self._try_tool_calling(client, kwargs)
-                if result is not None:
-                    return result
+            stream = self._create_with_reasoning_fallback(client, kwargs)
 
-            # Fallback: try JSON mode
-            try:
-                kwargs["response_format"] = {"type": "json_object"}
-                response = client.chat.completions.create(**kwargs)
-            except (APIError, ValueError, RuntimeError) as fmt_err:
-                err_msg = str(fmt_err).lower()
-                if "json" in err_msg or "response_format" in err_msg or "400" in err_msg:
-                    logger.debug("JSON mode not supported, falling back to text mode", model=self._config.model)
-                    del kwargs["response_format"]
-                    response = client.chat.completions.create(**kwargs)
-                else:
-                    raise
-        except _openai_exceptions as e:
-            raise RuntimeError(f"LLM API call failed (model={self._config.model}): {e}") from e
+            content, token_count = self._collect_stream_chunks(stream, on_progress)
+
+            if on_progress:
+                on_progress("parsing", {"tokens": token_count})
+
+            if not content:
+                return {}
+
+            actual_model = model or (self._config.model if self._config else "unknown")
+            logger.debug(
+                "LLM streaming raw response",
+                content_length=len(content),
+                content_preview=content[:200],
+                model=actual_model,
+            )
+
+            result = self._parse_json_response(content)
+
+            if on_progress:
+                on_progress("done", {"tokens": token_count, "model": actual_model})
+
+            return result
+
+        except (APITimeoutError, APIConnectionError, APIError, ValueError, RuntimeError, OSError) as e:
+            if isinstance(e, (APITimeoutError, APIConnectionError)):
+                raise
+            err_msg = str(e).lower()
+            # Auto-retry with compact context if context size exceeded
+            if "context" in err_msg and "exceed" in err_msg:
+                logger.info("Context size exceeded, retrying with compact messages", model=model or self._config.model)
+                raise  # Will be caught by caller which can rebuild with compact=True
+            raise RuntimeError(f"LLM API call failed (model={model or self._config.model}): {e}") from e
+
+    def _send_llm_request(
+        self,
+        client: Any,
+        kwargs: dict[str, Any],
+    ) -> Any:
+        """Send LLM request with backend-specific strategy (tool calling, JSON mode, text).
+
+        Args:
+            client: OpenAI client instance.
+            kwargs: Request kwargs (will be modified for JSON mode).
+
+        Returns:
+            API response object.
+        """
+        assert self._config is not None  # ensured by _ensure_config()
+        # Try Gemma 4 native function calling first (cloud backends only)
+        if self._config.backend == AIBackend.GOOGLE_AI_STUDIO:
+            result = self._try_tool_calling(client, kwargs)
+            if result is not None:
+                return result
+
+        # Try JSON mode for cloud backends; skip for local backends
+        if self._config.backend in (AIBackend.GOOGLE_AI_STUDIO, AIBackend.OPENAI_COMPAT):
+            return self._send_with_json_mode(client, kwargs)
+
+        # Local backends (LM Studio, Ollama): use text mode directly
+        return self._create_with_reasoning_fallback(client, kwargs)
+
+    def _send_with_json_mode(
+        self,
+        client: Any,
+        kwargs: dict[str, Any],
+    ) -> Any:
+        """Send LLM request with JSON mode, falling back to text mode on error."""
+        kwargs["response_format"] = {"type": "json_object"}
+        try:
+            return client.chat.completions.create(**kwargs)
+        except (APIError, ValueError, RuntimeError) as fmt_err:
+            err_msg = str(fmt_err).lower()
+            if "json" in err_msg or "response_format" in err_msg or "400" in err_msg:
+                logger.debug(
+                    "JSON mode not supported, falling back to text mode",
+                    model=kwargs.get("model", self._config.model if self._config else "unknown"),
+                )
+                del kwargs["response_format"]
+                return client.chat.completions.create(**kwargs)
+            raise
+
+    def _call_llm_once(self, messages: list[dict[str, str]], *, model: str | None = None) -> dict[str, Any]:
+        assert self._config is not None, "AIConfig must be initialized before calling LLM"
+        client = get_openai_client(self._config)
+
+        try:
+            kwargs = self._build_llm_kwargs(model=model)
+            kwargs["messages"] = messages
+            response = self._send_llm_request(client, kwargs)
+        except (APITimeoutError, APIConnectionError, APIError, ValueError, RuntimeError, OSError) as e:
+            if isinstance(e, (APITimeoutError, APIConnectionError)):
+                raise
+            raise RuntimeError(f"LLM API call failed (model={model or self._config.model}): {e}") from e
 
         if not response.choices:
             raise RuntimeError(
-                f"LLM returned no choices (model={self._config.model}). The API key or model may be invalid."
+                f"LLM returned no choices (model={model or self._config.model}). The API key or model may be invalid."
             )
-        content = response.choices[0].message.content
+        message = response.choices[0].message
+        content = message.content
+
+        actual_model = model or self._config.model
+        if hasattr(message, "reasoning_content") and message.reasoning_content:
+            logger.debug(
+                "Model used chain-of-thought reasoning",
+                reasoning_chars=len(message.reasoning_content),
+                model=actual_model,
+            )
+
         if content is None:
             return {}
+
+        logger.debug(
+            "LLM raw response",
+            content_length=len(content),
+            content_preview=content[:200],
+            model=actual_model,
+        )
+
         return self._parse_json_response(content)
 
     def _extract_tool_call_result(self, choice: Any) -> dict[str, Any] | None:
@@ -400,7 +678,7 @@ class SchemaAnalyzer:
             if "tool" in err_msg or "function" in err_msg or "400" in err_msg:
                 logger.debug(
                     "Gemma 4 tool calling not supported by this endpoint, falling back to JSON mode",
-                    model=self._config.model if self._config else "unknown",
+                    model=kwargs.get("model", self._config.model if self._config else "unknown"),
                 )
                 return None
             raise

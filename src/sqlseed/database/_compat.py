@@ -5,8 +5,6 @@ from typing import Any
 
 from sqlseed._utils.logger import get_logger
 
-logger = get_logger(__name__)
-
 try:
     import sqlite_utils as _sqlite_utils
 
@@ -15,6 +13,8 @@ try:
 except ImportError:
     HAS_SQLITE_UTILS = False
     sqlite_utils = None
+
+logger = get_logger(__name__)
 
 __all__ = ["HAS_SQLITE_UTILS", "sqlite_utils"]
 

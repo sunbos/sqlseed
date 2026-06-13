@@ -6,8 +6,6 @@ from typing import TYPE_CHECKING, Any
 from sqlseed._utils.logger import get_logger
 from sqlseed.generators._protocol import ConfigurationError, GenerationError, UnknownGeneratorError
 
-_NATIVE_MISS = object()
-
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
@@ -17,6 +15,7 @@ if TYPE_CHECKING:
     from sqlseed.core.mapper import GeneratorSpec
     from sqlseed.core.transform import RowTransformFn
 
+_NATIVE_MISS = object()
 logger = get_logger(__name__)
 
 

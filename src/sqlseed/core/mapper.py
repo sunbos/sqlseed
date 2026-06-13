@@ -127,7 +127,7 @@ class ColumnMapper:
         "comment": {"min_length": 10, "max_length": 200},
     }
 
-    PATTERN_MATCH_RULES: ClassVar[list[tuple[str, str, dict[str, Any]]]] = [
+    PATTERN_MATCH_RULES: ClassVar[tuple[tuple[str, str, dict[str, Any]], ...]] = (
         (r"^id$", "autoincrement", {}),
         (r".*_id$", "foreign_key_or_integer", {}),
         (
@@ -159,7 +159,7 @@ class ColumnMapper:
         (r".*_address$", "address", {}),
         (r".*_description$|.*_desc$|.*_text$|.*_content$|.*_body$", "text", {"min_length": 50, "max_length": 300}),
         (r".*_title$|.*_subject$|.*_headline$", "sentence", {}),
-    ]
+    )
 
     TYPE_FALLBACK_RULES: ClassVar[dict[str, tuple[str, dict[str, Any]]]] = {
         "INTEGER": ("integer", {"min_value": 0, "max_value": 999999}),
@@ -229,6 +229,9 @@ class ColumnMapper:
                 params=user_config.params if hasattr(user_config, "params") else {},
                 null_ratio=user_config.null_ratio if hasattr(user_config, "null_ratio") else 0.0,
                 provider=provider_val,
+                native_faker_method=getattr(user_config, "faker_method", None),
+                native_mimesis_method=getattr(user_config, "mimesis_method", None),
+                native_params=getattr(user_config, "native_params", None) or None,
             )
         return None
 
