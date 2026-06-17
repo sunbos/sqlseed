@@ -7,9 +7,21 @@ import sys
 from pathlib import Path
 
 
+def _validate_db_path(path: Path) -> Path:
+    """Validate database path to prevent path traversal attacks.
+
+    Rejects relative paths that escape to parent directories via ../.
+    """
+    if not path.is_absolute():
+        rel_input = str(path).replace("\\", "/")
+        if rel_input.startswith("../") or "/../" in rel_input:
+            raise ValueError(f"Path traversal not allowed: {path}")
+    return path.resolve()
+
+
 def main() -> None:
     db_path_str = sys.argv[1] if len(sys.argv) > 1 else "quickstart_demo.db"
-    db_path = Path(db_path_str)
+    db_path = _validate_db_path(Path(db_path_str))
     if db_path.exists():
         db_path.unlink()
 

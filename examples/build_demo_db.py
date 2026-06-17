@@ -136,10 +136,18 @@ CREATE INDEX IF NOT EXISTS idx_projects_org ON projects(org_code);
 """
 
 # 演示数据库中预期的表
-_EXPECTED_TABLES = frozenset({
-    "organizations", "members", "projects", "tasks",
-    "reviews", "tags", "task_tags", "attachments",
-})
+_EXPECTED_TABLES = frozenset(
+    {
+        "organizations",
+        "members",
+        "projects",
+        "tasks",
+        "reviews",
+        "tags",
+        "task_tags",
+        "attachments",
+    }
+)
 
 # ---------------------------------------------------------------------------
 # 公开 API
@@ -147,6 +155,22 @@ _EXPECTED_TABLES = frozenset({
 
 _SCRIPT_DIR = Path(__file__).resolve().parent
 _DEFAULT_DB_PATH = _SCRIPT_DIR / "sqlseed_demo.db"
+
+
+def _validate_db_path(path: Path) -> Path:
+    """Validate database path to prevent path traversal and unsafe locations.
+
+    Ensures the resolved path stays within the script's parent directory tree
+    or is an absolute path explicitly provided by the caller (not relative ../).
+    """
+    resolved = path.resolve()
+    # Reject paths that escape to parent directories via relative ../ traversal
+    # when the input was a relative path
+    if not path.is_absolute():
+        rel_input = str(path).replace("\\", "/")
+        if rel_input.startswith("../") or "/../" in rel_input:
+            raise ValueError(f"Path traversal not allowed: {path}")
+    return resolved
 
 
 def ensure_db(db_path: str | Path | None = None) -> Path:
@@ -165,24 +189,19 @@ def ensure_db(db_path: str | Path | None = None) -> Path:
     Returns:
         数据库文件的绝对路径。
     """
-    path = Path(db_path) if db_path else _DEFAULT_DB_PATH
+    path = _validate_db_path(Path(db_path) if db_path else _DEFAULT_DB_PATH)
 
     if path.exists():
         conn = sqlite3.connect(str(path))
-        existing = {
-            r[0]
-            for r in conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'"
-            ).fetchall()
-        }
+        existing = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
         if _EXPECTED_TABLES.issubset(existing):
             conn.close()
-            return path.resolve()
+            return path
         # Schema 不完整 — 修复
         conn.executescript(SCHEMA_SQL)
         conn.commit()
         conn.close()
-        return path.resolve()
+        return path
 
     # 数据库不存在 — 仅创建 schema
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -190,7 +209,7 @@ def ensure_db(db_path: str | Path | None = None) -> Path:
     conn.executescript(SCHEMA_SQL)
     conn.commit()
     conn.close()
-    return path.resolve()
+    return path
 
 
 def build(db_path: str | Path | None = None) -> Path:
@@ -204,7 +223,7 @@ def build(db_path: str | Path | None = None) -> Path:
     Returns:
         创建的数据库文件路径。
     """
-    path = Path(db_path) if db_path else _DEFAULT_DB_PATH
+    path = _validate_db_path(Path(db_path) if db_path else _DEFAULT_DB_PATH)
     if path.exists():
         path.unlink()
 
@@ -213,7 +232,7 @@ def build(db_path: str | Path | None = None) -> Path:
     conn.executescript(SCHEMA_SQL)
     conn.commit()
     conn.close()
-    return path.resolve()
+    return path
 
 
 if __name__ == "__main__":

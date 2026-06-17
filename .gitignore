@@ -78,7 +78,6 @@ examples/notebooks/batch_config.yaml
 
 # Node.js (for ctxlint)
 node_modules/
-package-lock.json
 
 # mkdocs build output (deployed via GitHub Actions, not committed)
 site/
