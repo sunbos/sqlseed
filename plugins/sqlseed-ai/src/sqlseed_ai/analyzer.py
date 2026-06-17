@@ -196,6 +196,11 @@ class SchemaAnalyzer:
         if self._config is not None:
             self._config.resolve_model()
 
+    @property
+    def config(self) -> AIConfig | None:
+        """Read-only access to the AI configuration."""
+        return self._config
+
     def analyze_table_from_ctx(
         self,
         **kwargs: Any,
@@ -266,7 +271,8 @@ class SchemaAnalyzer:
         or None if no suitable fallback exists.
         """
         config = self._config
-        assert config is not None, "AIConfig must be initialized before checking local fallback"
+        if config is None:
+            raise RuntimeError("AIConfig must be initialized before checking local fallback")
         all_local = config._detect_all_local_models()
         if not all_local:
             return None
@@ -315,7 +321,8 @@ class SchemaAnalyzer:
         Args:
             call_fn: A callable that takes a model name and returns the LLM result.
         """
-        assert self._config is not None  # ensured by _ensure_config()
+        if self._config is None:
+            raise RuntimeError("AIConfig must be initialized before this operation")
         current_model: str = self._config.model or ""
         for attempt in range(_MAX_FALLBACK_ATTEMPTS):
             try:
@@ -410,7 +417,8 @@ class SchemaAnalyzer:
 
     def _build_llm_kwargs(self, *, stream: bool = False, model: str | None = None) -> dict[str, Any]:
         """Build common kwargs for LLM API calls."""
-        assert self._config is not None
+        if self._config is None:
+            raise RuntimeError("AIConfig must be initialized before this operation")
         actual_model = model or self._config.model
         kwargs: dict[str, Any] = {
             "model": actual_model,
@@ -488,7 +496,8 @@ class SchemaAnalyzer:
         *,
         model: str | None = None,
     ) -> dict[str, Any]:
-        assert self._config is not None, "AIConfig must be initialized before calling LLM"
+        if self._config is None:
+            raise RuntimeError("AIConfig must be initialized before calling LLM")
         client = get_openai_client(self._config)
 
         if on_progress:
@@ -547,7 +556,8 @@ class SchemaAnalyzer:
         Returns:
             API response object.
         """
-        assert self._config is not None  # ensured by _ensure_config()
+        if self._config is None:
+            raise RuntimeError("AIConfig must be initialized before this operation")
         # Try Gemma 4 native function calling first (cloud backends only)
         if self._config.backend == AIBackend.GOOGLE_AI_STUDIO:
             result = self._try_tool_calling(client, kwargs)
@@ -582,7 +592,8 @@ class SchemaAnalyzer:
             raise
 
     def _call_llm_once(self, messages: list[dict[str, str]], *, model: str | None = None) -> dict[str, Any]:
-        assert self._config is not None, "AIConfig must be initialized before calling LLM"
+        if self._config is None:
+            raise RuntimeError("AIConfig must be initialized before calling LLM")
         client = get_openai_client(self._config)
 
         try:

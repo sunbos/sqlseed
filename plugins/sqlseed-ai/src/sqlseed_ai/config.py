@@ -213,7 +213,7 @@ class AIConfig(BaseModel):
             req = urllib.request.Request(url)
             with urllib.request.urlopen(req, timeout=5) as resp:
                 data = json.loads(resp.read().decode())
-                models = [m.get("id") for m in data.get("data", []) if m.get("id")]
+                models = [str(m.get("id")) for m in data.get("data", []) if m.get("id")]
                 self._all_models_cache = (time.monotonic(), models)
                 return models
         except (OSError, ValueError, KeyError):
@@ -254,6 +254,23 @@ class AIConfig(BaseModel):
         # Try environment variables
         return (
             os.environ.get("SQLSEED_AI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or os.environ.get("OPENAI_API_KEY")
+        )
+
+    @property
+    def has_real_api_key(self) -> bool:
+        """Check whether a real (non-placeholder) API key is available.
+
+        Local backends (LM Studio, Ollama) use placeholder keys that are
+        not valid for cloud APIs. This property returns True only when a
+        genuine user-provided API key exists.
+        """
+        if self.backend in (AIBackend.LM_STUDIO, AIBackend.OLLAMA):
+            return False
+        return bool(
+            self.api_key
+            or os.environ.get("SQLSEED_AI_API_KEY")
+            or os.environ.get("GOOGLE_API_KEY")
+            or os.environ.get("OPENAI_API_KEY")
         )
 
     def resolve_max_tokens(self) -> int:

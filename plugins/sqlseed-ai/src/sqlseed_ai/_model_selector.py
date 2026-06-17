@@ -120,8 +120,3 @@ def select_next_gemma_model(failed_model: str, backend: AIBackend | None = None)
 
     logger.warning("No more Gemma 4 models available for fallback", failed_model=failed_model)
     return None
-
-
-def get_available_gemma_models() -> list[dict[str, str]]:
-    """Return list of available Gemma 4 models with display info."""
-    return [{"id": m.value, "display_name": m.display_name} for m in _GEMMA_MODEL_PRIORITY]

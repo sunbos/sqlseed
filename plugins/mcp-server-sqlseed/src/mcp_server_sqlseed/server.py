@@ -2,16 +2,19 @@ from __future__ import annotations
 
 import hashlib
 import json
+import urllib.request
 from pathlib import Path
 from typing import Any
 
 import yaml
 from mcp.server.fastmcp import FastMCP
 
+from mcp_server_sqlseed.config import MCPServerConfig
 from sqlseed.config.models import ColumnConfig, GeneratorConfig
 from sqlseed.core.orchestrator import DataOrchestrator
 
 try:
+    from sqlseed_ai._hardware import MODEL_REQUIREMENTS, detect_hardware, evaluate_model_status
     from sqlseed_ai.analyzer import SchemaAnalyzer
     from sqlseed_ai.config import AIBackend, AIConfig, GemmaModel
     from sqlseed_ai.refiner import AiConfigRefiner, AISuggestionFailedError
@@ -20,7 +23,8 @@ try:
 except ImportError:
     _AI_AVAILABLE = False
 
-mcp = FastMCP("sqlseed")
+_server_config = MCPServerConfig()
+mcp = FastMCP("sqlseed", host=_server_config.host, port=_server_config.port)
 
 _MAX_YAML_CONFIG_SIZE = 256 * 1024
 
@@ -238,7 +242,8 @@ def sqlseed_gemma4_analyze(
     ai_config, err = _build_ai_config(db_path, model, backend)
     if err is not None:
         return err
-    assert ai_config is not None  # guaranteed by err check above
+    if ai_config is None:
+        raise ValueError("AI configuration is required but was not provided.")
 
     with DataOrchestrator(db_path) as orch:
         _validate_table_name(table_name, orch.get_table_names())
@@ -281,7 +286,8 @@ def sqlseed_gemma4_agent_fill(
     ai_config, err = _build_ai_config(db_path, model, backend)
     if err is not None:
         return err
-    assert ai_config is not None  # guaranteed by err check above
+    if ai_config is None:
+        raise ValueError("AI configuration is required but was not provided.")
 
     # Step 1: AI analysis with self-correction
     analyzer = SchemaAnalyzer(config=ai_config)
@@ -324,42 +330,143 @@ def sqlseed_gemma4_agent_fill(
 
 @mcp.tool()
 def sqlseed_list_gemma_models() -> dict[str, Any]:
-    """List available Gemma 4 model variants with descriptions.
+    """List Gemma 4 models with hardware compatibility and backend availability.
 
-    Returns information about all supported Gemma 4 models,
-    including recommended use cases for each variant.
+    Dynamically detects the current hardware environment (RAM, GPU/VRAM)
+    and checks which LLM backends are reachable. Returns models annotated
+    with compatibility status and backends annotated with availability.
     """
+    backend_descriptions: dict[str, str] = {
+        "google_ai_studio": "Google AI Studio API (free tier available, recommended)",
+        "lm_studio": "LM Studio local deployment (http://127.0.0.1:1234, GUI-based)",
+        "ollama": "Ollama local deployment (offline, CLI-based)",
+        "openai_compat": "Any OpenAI-compatible API endpoint",
+    }
+
     if not _AI_AVAILABLE:
         return {
             "models": [],
             "backends": [
-                {"id": "google_ai_studio", "description": "Google AI Studio API (free tier available, recommended)"},
-                {"id": "lm_studio", "description": "LM Studio local deployment (http://127.0.0.1:1234, GUI-based)"},
-                {"id": "ollama", "description": "Ollama local deployment (offline, CLI-based)"},
-                {"id": "openai_compat", "description": "Any OpenAI-compatible API endpoint"},
+                {"id": bid, "description": desc, "available": False}
+                for bid, desc in backend_descriptions.items()
             ],
+            "hardware": {},
             "error": "sqlseed-ai plugin not installed. Install with: pip install sqlseed-ai",
         }
 
+    # ── 1. Detect hardware ──
+    hw = detect_hardware()
+
+    # ── 2. Check backend availability ──
+    ai_config = AIConfig.from_env()
+    backends_result = []
+
+    # Google AI Studio: check API key
+    has_api_key = ai_config.has_real_api_key
+    backends_result.append({
+        "id": "google_ai_studio",
+        "description": backend_descriptions["google_ai_studio"],
+        "available": has_api_key,
+        "reason": "API key configured" if has_api_key else "No API key (set GOOGLE_API_KEY or SQLSEED_AI_API_KEY)",
+    })
+
+    # LM Studio / Ollama: check service reachability + loaded models
+    local_urls: dict[str, str] = {
+        "lm_studio": "http://127.0.0.1:1234/v1/models",
+        "ollama": "http://localhost:11434/v1/models",
+    }
+    for backend_id, url in local_urls.items():
+        reachable = False
+        loaded: list[str] = []
+        try:
+            req = urllib.request.Request(url)
+            with urllib.request.urlopen(req, timeout=3) as resp:
+                data = json.loads(resp.read().decode())
+                loaded = [m.get("id", "unknown") for m in data.get("data", []) if m.get("id")]
+                reachable = True
+        except (OSError, ValueError):
+            pass
+
+        if reachable and loaded:
+            reason = f"{len(loaded)} model(s) loaded"
+        elif reachable:
+            reason = "Service running, no models loaded"
+        else:
+            reason = "Service not running"
+
+        backends_result.append({
+            "id": backend_id,
+            "description": backend_descriptions[backend_id],
+            "available": reachable and bool(loaded),
+            "reachable": reachable,
+            "loaded_models": loaded,
+            "reason": reason,
+        })
+
+    # OpenAI-compatible: informational only
+    backends_result.append({
+        "id": "openai_compat",
+        "description": backend_descriptions["openai_compat"],
+        "available": False,
+        "reason": "Requires explicit base_url configuration",
+    })
+
+    # ── 3. Build model list with compatibility status ──
+    status_icons: dict[str, str] = {
+        "recommended": "recommended",
+        "capable": "capable (meets minimum specs)",
+        "capable_slow": "capable but likely slow (VRAM < minimum, will use RAM offloading)",
+        "cpu_only": "CPU-only inference (no GPU detected)",
+        "insufficient": "insufficient hardware",
+        "cloud_only": "cloud API only",
+    }
+
     models = []
     for member in GemmaModel:
-        models.append(
-            {
-                "id": member.value,
-                "display_name": member.display_name,
-            }
-        )
+        status = evaluate_model_status(member.value, hw)
+        model_req = MODEL_REQUIREMENTS.get(member.value, {})
+        models.append({
+            "id": member.value,
+            "display_name": member.display_name,
+            "status": status,
+            "status_description": status_icons.get(status, status),
+            "local_only": member.is_local_only,
+            "requirements": {
+                "min_ram_gb": model_req.get("min_ram_gb", 0),
+                "min_vram_gb": model_req.get("min_vram_gb", 0),
+                "recommended_vram_gb": model_req.get("recommended_vram_gb", 0),
+            },
+        })
 
-    backends = [
-        {"id": "google_ai_studio", "description": "Google AI Studio API (free tier available, recommended)"},
-        {"id": "lm_studio", "description": "LM Studio local deployment (http://127.0.0.1:1234, GUI-based)"},
-        {"id": "ollama", "description": "Ollama local deployment (offline, CLI-based)"},
-        {"id": "openai_compat", "description": "Any OpenAI-compatible API endpoint"},
-    ]
+    # ── 4. Determine best default ──
+    # Pick the largest capable model (iterate from largest to smallest)
+    default_model = GemmaModel.GEMMA_4_26B_A4B.value
+    for m in reversed(models):
+        if m["status"] in ("recommended", "capable") and not m["local_only"]:
+            default_model = str(m["id"])
+            break
+
+    # Pick the first available backend (prefer local over cloud)
+    default_backend = "google_ai_studio"
+    backend_priority = ["lm_studio", "ollama", "google_ai_studio", "openai_compat"]
+    for b_id in backend_priority:
+        for b in backends_result:
+            if b["id"] == b_id and b.get("available"):
+                default_backend = b_id
+                break
+        else:
+            continue
+        break
 
     return {
         "models": models,
-        "backends": backends,
-        "default_model": "gemma-4-26b-a4b-it",
-        "default_backend": "google_ai_studio",
+        "backends": backends_result,
+        "default_model": default_model,
+        "default_backend": default_backend,
+        "hardware": {
+            "platform": hw["platform"],
+            "ram": hw["ram"],
+            "gpus": hw["gpus"],
+            "max_vram_gb": hw["max_vram_gb"],
+        },
     }

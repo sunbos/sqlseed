@@ -114,7 +114,7 @@ class AiConfigRefiner:
         """Auto-detect compact mode based on model size if not explicitly set."""
         if use_compact is not None:
             return use_compact
-        return self._analyzer._config.should_use_ultra_compact() if self._analyzer._config else False
+        return self._analyzer.config.should_use_ultra_compact() if self._analyzer.config else False
 
     def _try_prompt_levels(
         self,
@@ -328,7 +328,7 @@ class AiConfigRefiner:
     def _compute_schema_hash(self, orch: Any, table_name: str) -> str:
         column_names = orch.get_column_names(table_name)
         raw = "|".join(sorted(column_names))
-        return hashlib.sha256(raw.encode()).hexdigest()[:12]
+        return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
     def _validate_config(
         self,
