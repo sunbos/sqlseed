@@ -674,7 +674,7 @@ sqlseed ai-suggest app.db --table projects --output projects.yaml --backend lm_s
 
 **Gemma 4 Native Function Calling (GEMMA_TOOLS)**:
 
-sqlseed-ai supports Gemma 4 model family (2B/4B/26B/31B) with Native Function Calling via GEMMA_TOOLS protocol. Supported backends:
+sqlseed-ai supports Gemma 4 model family (2B/4B/12B/26B/31B) with Native Function Calling via GEMMA_TOOLS protocol. Supported backends:
 
 | Backend | Description | Configuration |
 | :------ | :---------- | :------------ |
@@ -897,13 +897,13 @@ Level 2 │ User config         columns={"email": "email"} highest priority
         ▼
 Level 3 │ Custom exact match  Rules registered via plugin hooks
         ▼
-Level 4 │ Built-in exact      74 rules: email→email, phone→phone, age→integer...
+Level 4 │ Built-in exact      <!-- BEGIN:AUTO-GENERATED:exact-match-rule-count -->74<!-- END:AUTO-GENERATED:exact-match-rule-count --> rules: email→email, phone→phone, age→integer...
         ▼
 Level 5 │ DEFAULT check       Has default → skip / __enrich__ (when enrich=True)
         ▼
 Level 6 │ Custom pattern      Regex rules registered via plugin hooks
         ▼
-Level 7 │ Built-in pattern    26 regexes: *_at→datetime, *_id→foreign_key, is_*→boolean...
+Level 7 │ Built-in pattern    <!-- BEGIN:AUTO-GENERATED:pattern-match-rule-count -->27<!-- END:AUTO-GENERATED:pattern-match-rule-count --> regexes: *_at→datetime, *_id→foreign_key, is_*→boolean...
         ▼
 Level 8 │ NULLABLE fallback   Nullable → skip / __enrich__
         ▼
@@ -973,7 +973,7 @@ src/sqlseed/
 ├── config/                  # ===== Config Management =====
 │   ├── models.py            # Pydantic models (GeneratorConfig/TableConfig/ColumnConfig)
 │   ├── loader.py            # YAML/JSON load & save
-│   └── snapshot.py          # Snapshot save & replay
+│   └── snapshot.py          # Snapshot save & load
 ├── cli/                     # ===== CLI =====
 │   └── main.py              # click commands (fill/preview/inspect/init/replay/ai-suggest)
 └── _utils/                  # ===== Internal Utilities =====

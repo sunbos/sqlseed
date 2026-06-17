@@ -54,7 +54,7 @@ graph TB
     subgraph Config["⚙️ Config Layer (config/)"]
         Models["Pydantic Models<br/>GeneratorConfig"]
         Loader["Loader<br/>YAML/JSON"]
-        Snapshot["SnapshotManager<br/>snapshot replay"]
+        Snapshot["SnapshotManager<br/>snapshot save/load"]
     end
 
     subgraph AI["🤖 AI Plugin (sqlseed-ai)"]
@@ -207,7 +207,7 @@ flowchart TD
     L3{"Level 3<br/>Custom exact match?"} -->|Match| R3["Use plugin-registered exact rules"]
     L3 -->|No match| L4
 
-    L4{"Level 4<br/>Built-in exact match?<br/>(74 rules)"} -->|Match| R4["email→email<br/>phone→phone<br/>age→integer<br/>city→city<br/>..."]
+    L4{"Level 4<br/>Built-in exact match?<br/>(<!-- BEGIN:AUTO-GENERATED:exact-match-rule-count -->74<!-- END:AUTO-GENERATED:exact-match-rule-count --> rules)"} -->|Match| R4["email→email<br/>phone→phone<br/>age→integer<br/>city→city<br/>..."]
     L4 -->|No match| L5
 
     L5{"Level 5<br/>Has DEFAULT?"} -->|Yes| R5["skip (skip generation)<br/>or __enrich__"]
@@ -216,7 +216,7 @@ flowchart TD
     L6{"Level 6<br/>Custom pattern match?"} -->|Match| R6["Use plugin-registered regex rules"]
     L6 -->|No match| L7
 
-    L7{"Level 7<br/>Built-in pattern match?<br/>(26 regexes)"} -->|Match| R7["*_at→datetime<br/>*_id / *_no→foreign_key_or_integer<br/>is_*→boolean<br/>..."]
+    L7{"Level 7<br/>Built-in pattern match?<br/>(<!-- BEGIN:AUTO-GENERATED:pattern-match-rule-count -->27<!-- END:AUTO-GENERATED:pattern-match-rule-count --> regexes)"} -->|Match| R7["*_at→datetime<br/>*_id / *_no→foreign_key_or_integer<br/>is_*→boolean<br/>..."]
     L7 -->|No match| L8
 
     L8{"Level 8<br/>Nullable?"} -->|Yes| R8["skip (skip generation)<br/>or __enrich__"]
@@ -333,6 +333,7 @@ classDiagram
         +clear_table(table)
         +optimize_for_bulk_write(expected_rows)
         +restore_settings()
+        +execute(sql, params) Any
     }
 
     class ColumnInfo {
@@ -356,7 +357,7 @@ classDiagram
         <<frozen dataclass>>
         +name: str
         +table: str
-        +columns: list~str~
+        +columns: tuple~str~
         +unique: bool
     }
 
@@ -557,7 +558,7 @@ classDiagram
         +tables: list~TableConfig~
         +associations: list~ColumnAssociation~
         +optimize_pragma: bool = True
-        +log_level: str = "INFO"
+        +log_level: Literal["DEBUG","INFO","WARNING","ERROR","CRITICAL"] = "INFO"
         +snapshot_dir: str | None
     }
 
@@ -592,7 +593,7 @@ classDiagram
         +min_value: number | None
         +max_value: number | None
         +regex: str | None
-        +max_retries: int = 100
+        +max_retries: int = 100 (ge=0)
     }
 
     class ColumnAssociation {
@@ -600,7 +601,7 @@ classDiagram
         +source_table: str
         +source_column: str | None = None
         +target_tables: list~str~
-        +strategy: str = "shared_pool"
+        +strategy: Literal["shared_pool", "random"] = "shared_pool"
     }
 
     class ProviderType {
@@ -636,7 +637,7 @@ flowchart LR
         Tool3["⚡ sqlseed_execute_fill<br/>Execute data generation"]
         Tool4["💎 sqlseed_gemma4_analyze<br/>Gemma 4 native function calling analysis"]
         Tool5["💎 sqlseed_gemma4_agent_fill<br/>Gemma 4 agent-driven data fill"]
-        Tool6["💎 sqlseed_gemma4_suggest<br/>Gemma 4 column mapping suggestions"]
+        Tool6["💎 sqlseed_list_gemma_models<br/>List available Gemma 4 models"]
     end
 
     subgraph SQLSeed["sqlseed Core"]
@@ -677,7 +678,7 @@ flowchart TB
     subgraph MCPEntry["MCP Tool Entry Points"]
         G4Analyze["💎 sqlseed_gemma4_analyze<br/>Schema analysis via Gemma 4"]
         G4AgentFill["💎 sqlseed_gemma4_agent_fill<br/>Agent-driven data fill"]
-        G4Suggest["💎 sqlseed_gemma4_suggest<br/>Column mapping suggestions"]
+        G4List["💎 sqlseed_list_gemma_models<br/>List available Gemma 4 models"]
     end
 
     subgraph Backend["AIBackend Multi-Backend Router"]
@@ -702,7 +703,7 @@ flowchart TB
 
     G4Analyze --> Router
     G4AgentFill --> Router
-    G4Suggest --> Router
+    G4List --> Router
 
     Router --> OpenAIBe
     Router --> GemmaBe

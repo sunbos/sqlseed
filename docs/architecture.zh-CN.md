@@ -54,7 +54,7 @@ graph TB
     subgraph Config["⚙️ 配置层 (config/)"]
         Models["Pydantic 模型<br/>GeneratorConfig"]
         Loader["Loader<br/>YAML/JSON"]
-        Snapshot["SnapshotManager<br/>快照回放"]
+        Snapshot["SnapshotManager<br/>快照保存/加载"]
     end
 
     subgraph AI["🤖 AI 插件 (sqlseed-ai)"]
@@ -207,7 +207,7 @@ flowchart TD
     L3{"Level 3<br/>自定义精确匹配？"} -->|匹配| R3["使用插件注册的精确规则"]
     L3 -->|未匹配| L4
 
-    L4{"Level 4<br/>内置精确匹配？<br/>(74 条规则)"} -->|匹配| R4["email→email<br/>phone→phone<br/>age→integer<br/>city→city<br/>..."]
+    L4{"Level 4<br/>内置精确匹配？<br/>(<!-- BEGIN:AUTO-GENERATED:exact-match-rule-count -->74<!-- END:AUTO-GENERATED:exact-match-rule-count --> 条规则)"} -->|匹配| R4["email→email<br/>phone→phone<br/>age→integer<br/>city→city<br/>..."]
     L4 -->|未匹配| L5
 
     L5{"Level 5<br/>有默认值？"} -->|是| R5["skip (跳过生成)<br/>或 __enrich__"]
@@ -216,7 +216,7 @@ flowchart TD
     L6{"Level 6<br/>自定义模式匹配？"} -->|匹配| R6["使用插件注册的正则规则"]
     L6 -->|未匹配| L7
 
-    L7{"Level 7<br/>内置模式匹配？<br/>(26 条正则)"} -->|匹配| R7["*_at→datetime<br/>*_id / *_no→foreign_key_or_integer<br/>is_*→boolean<br/>..."]
+    L7{"Level 7<br/>内置模式匹配？<br/>(<!-- BEGIN:AUTO-GENERATED:pattern-match-rule-count -->27<!-- END:AUTO-GENERATED:pattern-match-rule-count --> 条正则)"} -->|匹配| R7["*_at→datetime<br/>*_id / *_no→foreign_key_or_integer<br/>is_*→boolean<br/>..."]
     L7 -->|未匹配| L8
 
     L8{"Level 8<br/>可 NULL？"} -->|是| R8["skip (跳过生成)<br/>或 __enrich__"]
@@ -333,6 +333,7 @@ classDiagram
         +clear_table(table)
         +optimize_for_bulk_write(expected_rows)
         +restore_settings()
+        +execute(sql, params) Any
     }
 
     class ColumnInfo {
@@ -356,7 +357,7 @@ classDiagram
         <<frozen dataclass>>
         +name: str
         +table: str
-        +columns: list~str~
+        +columns: tuple~str~
         +unique: bool
     }
 
@@ -557,7 +558,7 @@ classDiagram
         +tables: list~TableConfig~
         +associations: list~ColumnAssociation~
         +optimize_pragma: bool = True
-        +log_level: str = "INFO"
+        +log_level: Literal["DEBUG","INFO","WARNING","ERROR","CRITICAL"] = "INFO"
         +snapshot_dir: str | None
     }
 
@@ -592,7 +593,7 @@ classDiagram
         +min_value: number | None
         +max_value: number | None
         +regex: str | None
-        +max_retries: int = 100
+        +max_retries: int = 100 (ge=0)
     }
 
     class ColumnAssociation {
@@ -600,7 +601,7 @@ classDiagram
         +source_table: str
         +source_column: str | None = None
         +target_tables: list~str~
-        +strategy: str = "shared_pool"
+        +strategy: Literal["shared_pool", "random"] = "shared_pool"
     }
 
     class ProviderType {
@@ -636,7 +637,7 @@ flowchart LR
         Tool3["⚡ sqlseed_execute_fill<br/>执行数据生成"]
         Tool4["💎 sqlseed_gemma4_analyze<br/>Gemma 4 原生函数调用分析"]
         Tool5["💎 sqlseed_gemma4_agent_fill<br/>Gemma 4 Agent 驱动数据填充"]
-        Tool6["💎 sqlseed_gemma4_suggest<br/>Gemma 4 列映射建议"]
+        Tool6["💎 sqlseed_list_gemma_models<br/>列出可用 Gemma 4 模型"]
     end
 
     subgraph SQLSeed["sqlseed 核心"]
@@ -677,7 +678,7 @@ flowchart TB
     subgraph MCPEntry["MCP 工具入口"]
         G4Analyze["💎 sqlseed_gemma4_analyze<br/>通过 Gemma 4 进行 Schema 分析"]
         G4AgentFill["💎 sqlseed_gemma4_agent_fill<br/>Agent 驱动数据填充"]
-        G4Suggest["💎 sqlseed_gemma4_suggest<br/>列映射建议"]
+        G4List["💎 sqlseed_list_gemma_models<br/>列出可用 Gemma 4 模型"]
     end
 
     subgraph Backend["AIBackend 多后端路由"]
@@ -702,7 +703,7 @@ flowchart TB
 
     G4Analyze --> Router
     G4AgentFill --> Router
-    G4Suggest --> Router
+    G4List --> Router
 
     Router --> OpenAIBe
     Router --> GemmaBe

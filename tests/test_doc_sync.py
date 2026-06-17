@@ -9,6 +9,7 @@ updating — not that the code is wrong.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -21,6 +22,39 @@ ROOT = Path(__file__).resolve().parent.parent
 
 def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
+
+
+# Marker pattern must match scripts/sync_docs.py MARKER_RE exactly
+_MARKER_RE = re.compile(
+    r"<!-- BEGIN:AUTO-GENERATED:(\S+) -->(.*?)<!-- END:AUTO-GENERATED:\1 -->",
+    re.DOTALL,
+)
+
+
+def _extract_marker_value(text: str, marker_name: str) -> str | None:
+    """Extract the value inside an AUTO-GENERATED marker region.
+
+    Returns None if the marker is not present. This lets tests verify
+    marker content directly, avoiding the silent-failure mode where a
+    number sits inside the marker and is separated from the surrounding
+    keyword by the END tag.
+    """
+    for match in _MARKER_RE.finditer(text):
+        if match.group(1) == marker_name:
+            return match.group(2)
+    return None
+
+
+def _find_marker_claims(marker_name: str) -> list[tuple[Path, str]]:
+    """Find all (doc_path, marker_value) pairs for a given marker name."""
+    claims: list[tuple[Path, str]] = []
+    for doc_path in _find_doc_files():
+        text = _read(doc_path)
+        value = _extract_marker_value(text, marker_name)
+        if value is not None:
+            claims.append((doc_path, value))
+    return claims
+
 
 
 def _find_doc_files() -> list[Path]:
@@ -37,6 +71,28 @@ def _find_doc_files() -> list[Path]:
         ROOT / "plugins" / "sqlseed-ai" / "README.zh-CN.md",
         ROOT / "plugins" / "mcp-server-sqlseed" / "README.md",
         ROOT / "plugins" / "mcp-server-sqlseed" / "README.zh-CN.md",
+        # AGENTS.md files contain code-derived facts (counts, file lists, etc.)
+        ROOT / "AGENTS.md",
+        ROOT / "src" / "sqlseed" / "AGENTS.md",
+        ROOT / "src" / "sqlseed" / "core" / "AGENTS.md",
+        ROOT / "src" / "sqlseed" / "generators" / "AGENTS.md",
+        ROOT / "src" / "sqlseed" / "config" / "AGENTS.md",
+        ROOT / "src" / "sqlseed" / "cli" / "AGENTS.md",
+        ROOT / "src" / "sqlseed" / "database" / "AGENTS.md",
+        ROOT / "src" / "sqlseed" / "plugins" / "AGENTS.md",
+        ROOT / "src" / "sqlseed" / "_utils" / "AGENTS.md",
+        ROOT / "plugins" / "sqlseed-ai" / "AGENTS.md",
+        ROOT / "plugins" / "sqlseed-ai" / "src" / "sqlseed_ai" / "AGENTS.md",
+        ROOT / "plugins" / "mcp-server-sqlseed" / "AGENTS.md",
+        ROOT / "plugins" / "mcp-server-sqlseed" / "src" / "mcp_server_sqlseed" / "AGENTS.md",
+        ROOT / "tests" / "AGENTS.md",
+        ROOT / "tests" / "test_core" / "AGENTS.md",
+        ROOT / "tests" / "test_generators" / "AGENTS.md",
+        ROOT / "tests" / "test_database" / "AGENTS.md",
+        ROOT / "tests" / "test_config" / "AGENTS.md",
+        ROOT / "tests" / "test_plugins" / "AGENTS.md",
+        ROOT / "tests" / "test_utils" / "AGENTS.md",
+        ROOT / "tests" / "benchmarks" / "AGENTS.md",
     ]
     return [p for p in candidates if p.exists()]
 
@@ -158,6 +214,98 @@ def _get_safe_functions() -> set[str]:
     return funcs
 
 
+def _get_pattern_match_rules() -> list[tuple[str, ...]]:
+    """Extract pattern match rules from mapper.
+
+    PATTERN_MATCH_RULES is a tuple of (pattern, generator, params) tuples.
+    Some tuples span multiple lines (the '(' may be on its own line).
+    We count rules by detecting the regex pattern (r"...") which every
+    rule has exactly one of.
+    """
+    code = _read(ROOT / "src" / "sqlseed" / "core" / "mapper.py")
+    rules: list[tuple[str, ...]] = []
+    in_tuple = False
+    for line in code.splitlines():
+        stripped = line.strip()
+        if "PATTERN_MATCH_RULES" in line and "=" in line:
+            in_tuple = True
+            continue
+        if not in_tuple:
+            continue
+        # End of the tuple (line is just ')')
+        if stripped == ")":
+            break
+        # Each rule has exactly one regex pattern starting with r"
+        # It may appear as (r"..." or r"..." (multi-line tuple continuation)
+        idx = stripped.find('r"')
+        if idx != -1:
+            second_q = stripped.find('"', idx + 2)
+            if second_q != -1:
+                rules.append((stripped[idx + 2 : second_q],))
+    return rules
+
+
+def _get_enum_name_patterns() -> list[str]:
+    """Extract enum name patterns from enrichment.
+
+    ENUM_NAME_PATTERNS is a ClassVar[list[str]] with one regex per line.
+    """
+    code = _read(ROOT / "src" / "sqlseed" / "core" / "enrichment.py")
+    patterns: list[str] = []
+    in_list = False
+    for line in code.splitlines():
+        stripped = line.strip()
+        if "ENUM_NAME_PATTERNS" in line and "=" in line:
+            in_list = True
+            continue
+        if not in_list:
+            continue
+        if stripped == "]":
+            break
+        # Extract the quoted regex string
+        first_q = stripped.find('"')
+        if first_q != -1:
+            second_q = stripped.find('"', first_q + 1)
+            if second_q != -1:
+                patterns.append(stripped[first_q + 1 : second_q])
+    return patterns
+
+
+def _get_mcp_tool_names() -> list[str]:
+    """Extract MCP tool function names from server.py.
+
+    Looks for @mcp.tool() decorated functions.
+    """
+    code = _read(
+        ROOT
+        / "plugins"
+        / "mcp-server-sqlseed"
+        / "src"
+        / "mcp_server_sqlseed"
+        / "server.py"
+    )
+    tools: list[str] = []
+    lines = code.splitlines()
+    for i, line in enumerate(lines):
+        if "@mcp.tool()" in line:
+            # Next non-empty line should be the def
+            for j in range(i + 1, min(i + 5, len(lines))):
+                def_line = lines[j].strip()
+                if def_line.startswith("def ") or def_line.startswith("async def "):
+                    prefix = "async def " if def_line.startswith("async def ") else "def "
+                    rest = def_line[len(prefix) :]
+                    name = ""
+                    for ch in rest:
+                        if ch.isalnum() or ch == "_":
+                            name += ch
+                        else:
+                            break
+                    if name:
+                        tools.append(name)
+                    break
+    return tools
+
+
 def _get_hook_names() -> set[str]:
     """Extract hook function names from hookspecs."""
     code = _read(ROOT / "src" / "sqlseed" / "plugins" / "hookspecs.py")
@@ -265,6 +413,22 @@ class TestExactMatchRules:
         rules = _get_exact_match_rules()
         rule_count = len(rules)
 
+        # Primary protection: verify AUTO-GENERATED marker values.
+        # This catches the silent-failure mode where the number sits
+        # inside the marker and is separated from the keyword by the
+        # END tag, which breaks the keyword-based search below.
+        marker_claims = _find_marker_claims("exact-match-rule-count")
+        assert marker_claims, (
+            "No <!-- BEGIN:AUTO-GENERATED:exact-match-rule-count --> markers found. "
+            "Add markers to docs claiming the exact-match rule count."
+        )
+        for doc_path, value in marker_claims:
+            assert int(value) == rule_count, (
+                f"{doc_path}: marker claims {value} exact-match rules, "
+                f"but EXACT_MATCH_RULES has {rule_count}"
+            )
+
+        # Secondary protection: keyword-based search for unmarked claims.
         for doc_path in _find_doc_files():
             text = _read(doc_path)
             matches = _extract_number_before_keyword(text, ["条规则", "rule"])
@@ -364,3 +528,80 @@ class TestCodeExamples:
         readme = _read(ROOT / "README.md")
         for func in public_funcs:
             assert func in readme, f"Public API function '{func}' not mentioned in README.md"
+
+
+class TestPatternMatchRules:
+    """Verify pattern match rule count matches documentation."""
+
+    def test_count_in_docs(self):
+        rules = _get_pattern_match_rules()
+        rule_count = len(rules)
+
+        # Primary protection: verify AUTO-GENERATED marker values.
+        marker_claims = _find_marker_claims("pattern-match-rule-count")
+        assert marker_claims, (
+            "No <!-- BEGIN:AUTO-GENERATED:pattern-match-rule-count --> markers found. "
+            "Add markers to docs claiming the pattern-match rule count."
+        )
+        for doc_path, value in marker_claims:
+            assert int(value) == rule_count, (
+                f"{doc_path}: marker claims {value} pattern-match rules, "
+                f"but PATTERN_MATCH_RULES has {rule_count}"
+            )
+
+        # Secondary protection: keyword-based search for unmarked claims.
+        # Match both Chinese and English claims about pattern/regex counts
+        # Avoid bare "pattern" which matches unrelated content
+        for doc_path in _find_doc_files():
+            text = _read(doc_path)
+            matches = _extract_number_before_keyword(text, ["条正则", "regex", "pattern rule", "pattern match"])
+            for m in matches:
+                assert int(m) == rule_count, (
+                    f"{doc_path}: claims {m} pattern rules, but PATTERN_MATCH_RULES has {rule_count}"
+                )
+
+
+class TestEnumNamePatterns:
+    """Verify enum name pattern count matches documentation."""
+
+    def test_count_in_docs(self):
+        patterns = _get_enum_name_patterns()
+        count = len(patterns)
+
+        for doc_path in _find_doc_files():
+            text = _read(doc_path)
+            matches = _extract_number_before_keyword(text, ["个枚举", "enum pattern", "enum name"])
+            for m in matches:
+                assert int(m) == count, (
+                    f"{doc_path}: claims {m} enum patterns, but ENUM_NAME_PATTERNS has {count}"
+                )
+
+
+class TestMcpToolNames:
+    """Verify MCP tool names match documentation."""
+
+    def test_tools_documented(self):
+        tools = _get_mcp_tool_names()
+        readme = _read(ROOT / "plugins" / "mcp-server-sqlseed" / "README.md")
+        for tool in tools:
+            assert tool in readme, (
+                f"MCP tool '{tool}' not mentioned in mcp-server-sqlseed README.md"
+            )
+
+
+class TestAutoGeneratedMarkers:
+    """Verify AUTO-GENERATED marker regions are well-formed.
+
+    Every BEGIN:AUTO-GENERATED marker must have a matching END marker.
+    This test will start passing once markers are added in Layer 1.
+    """
+
+    def test_markers_balanced(self):
+        """Every BEGIN:AUTO-GENERATED must have a matching END."""
+        for doc_path in _find_doc_files():
+            text = _read(doc_path)
+            begins = text.count("<!-- BEGIN:AUTO-GENERATED")
+            ends = text.count("<!-- END:AUTO-GENERATED")
+            assert begins == ends, (
+                f"{doc_path}: {begins} BEGIN markers but {ends} END markers"
+            )

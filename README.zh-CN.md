@@ -570,7 +570,7 @@ sqlseed ai-suggest app.db --table projects -o projects.yaml --model gemma-4-e4b-
 
 **Gemma 4 原生函数调用（GEMMA_TOOLS）**：
 
-sqlseed-ai 支持 Gemma 4 系列模型（2B/4B/26B/31B）通过 GEMMA_TOOLS 协议实现原生函数调用，无需 JSON Mode 模拟。支持的后端：
+sqlseed-ai 支持 Gemma 4 系列模型（2B/4B/12B/26B/31B）通过 GEMMA_TOOLS 协议实现原生函数调用，无需 JSON Mode 模拟。支持的后端：
 
 | 后端 | 说明 | 配置方式 |
 | :--- | :--- | :--- |
@@ -714,13 +714,13 @@ Level 2 │ 用户配置          columns={"email": "email"} 最高优先级
         ▼
 Level 3 │ 自定义精确匹配    通过插件 Hook 注册的规则
         ▼
-Level 4 │ 内置精确匹配      74 条规则：email→email, phone→phone, age→integer...
+Level 4 │ 内置精确匹配      <!-- BEGIN:AUTO-GENERATED:exact-match-rule-count -->74<!-- END:AUTO-GENERATED:exact-match-rule-count --> 条规则：email→email, phone→phone, age→integer...
         ▼
 Level 5 │ DEFAULT 检查      有默认值 → skip / __enrich__（enrich=True 时生成数据）
         ▼
 Level 6 │ 自定义模式匹配    通过插件 Hook 注册的正则规则
         ▼
-Level 7 │ 内置模式匹配      26 条正则：*_at→datetime, *_id→foreign_key, is_*→boolean...
+Level 7 │ 内置模式匹配      <!-- BEGIN:AUTO-GENERATED:pattern-match-rule-count -->27<!-- END:AUTO-GENERATED:pattern-match-rule-count --> 条正则：*_at→datetime, *_id→foreign_key, is_*→boolean...
         ▼
 Level 8 │ NULLABLE 回退     可 NULL → skip / __enrich__
         ▼
@@ -790,7 +790,7 @@ src/sqlseed/
 ├── config/                  # ===== 配置管理 =====
 │   ├── models.py            # Pydantic 模型 (GeneratorConfig/TableConfig/ColumnConfig)
 │   ├── loader.py            # YAML/JSON 加载与保存
-│   └── snapshot.py          # 快照保存与回放
+│   └── snapshot.py          # 快照保存与加载
 ├── cli/                     # ===== CLI =====
 │   └── main.py              # click 命令 (fill/preview/inspect/init/replay/ai-suggest)
 └── _utils/                  # ===== 内部工具 =====
