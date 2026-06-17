@@ -16,13 +16,13 @@ Declarative SQLite test data generation toolkit. YAML/JSON config or Python API.
 sqlseed/
 ├── src/sqlseed/          # Main package
 │   ├── __init__.py       # Public API: fill, connect, fill_from_config, preview
-│   ├── core/             # Orchestrator, mapper, schema, constraints, DAG
+│   ├── core/             # Orchestrator, mapper, schema, constraints, DAG, enrichment, transform
 │   ├── generators/       # Data providers: base, faker, mimesis
-│   ├── database/         # SQLite adapters: raw, sqlite-utils
-│   ├── plugins/          # Plugin system: hookspecs, manager
+│   ├── database/         # SQLite adapters: raw, sqlite-utils + optimizer, helpers
+│   ├── plugins/          # Plugin system: hookspecs, manager, mediator
 │   ├── config/           # Pydantic models, YAML loader, snapshots
-│   ├── cli/              # Click commands: fill, preview, inspect, ai-suggest
-│   └── _utils/           # Internal: sql_safe, metrics, progress, logger
+│   ├── cli/              # Click commands: main.py (fill, preview, inspect, init, replay) + ai_commands.py (ai-suggest)
+│   └── _utils/           # Internal: sql_safe, metrics, progress, logger, schema_helpers
 ├── tests/                # pytest suite, conftest fixtures
 ├── plugins/
 │   ├── sqlseed-ai/       # LLM-powered schema analysis
@@ -37,12 +37,12 @@ sqlseed/
 |------|----------|-------|
 | Add new generator | `src/sqlseed/generators/` | Implement in base_provider.py or create new provider |
 | Modify column mapping | `src/sqlseed/core/mapper.py` | 9-level strategy chain |
-| Add CLI command | `src/sqlseed/cli/main.py` | Click decorators |
+| Add CLI command | `src/sqlseed/cli/main.py` or `ai_commands.py` | Core commands in main.py; AI commands in ai_commands.py |
 | Add plugin hook | `src/sqlseed/plugins/hookspecs.py` | pluggy hookspec |
 | Modify schema inference | `src/sqlseed/core/schema.py` | SchemaInferrer class |
 | Change batch insert | `src/sqlseed/database/` | Two adapters: raw, sqlite-utils |
 | Add test fixture | `tests/conftest.py` | tmp_db, tmp_db_with_data, unique_test_db |
-| Configure AI plugin | `plugins/sqlseed-ai/` | Separate pyproject.toml, Gemma 4 multi-backend (Google AI Studio, LM Studio, Ollama) |
+| Configure AI plugin | `plugins/sqlseed-ai/` | Separate pyproject.toml, Gemma 4 multi-backend (Google AI Studio, LM Studio, Ollama, OpenAI-compatible) |
 | Add MCP tool | `plugins/mcp-server-sqlseed/` | FastMCP decorators, 3 Gemma 4 tools: gemma4_analyze, gemma4_agent_fill, list_gemma_models |
 
 ## CONVENTIONS
@@ -59,6 +59,7 @@ sqlseed/
 - **NEVER** use raw string formatting for SQL identifiers → use `quote_identifier()`
 - **NEVER** import third-party libs without try/except in provider files (optional deps)
 - **NEVER** suppress type errors with `as any` or `@ts-ignore`
+- **NEVER** use `assert` for runtime validation → use `RuntimeError`/`ValueError` (asserts can be optimized away with `-O`)
 - **ALWAYS** use `from __future__ import annotations` (enforced by ruff)
 - **ALWAYS** handle `HAS_SQLITE_UTILS` flag in database layer
 
@@ -70,6 +71,7 @@ sqlseed/
 - **Context manager pattern**: `DataOrchestrator` is a context manager
 - **Plugin mediation**: `PluginMediator` bridges plugins and core (not direct calls)
 - **DAG-based column ordering**: `ColumnDAG` handles derive_from dependencies
+- **SnapshotManager**: save/load/list_snapshots only; CLI `replay` uses load() + DataOrchestrator.from_config()
 
 ## COMMANDS
 

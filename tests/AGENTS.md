@@ -20,7 +20,7 @@ tests/
 ├── test_enrich_enum_detection.py  # Enrichment tests
 ├── test_cli.py              # CLI tests
 ├── test_cli_yaml_priority.py    # CLI YAML priority tests
-├── test_ai_plugin.py        # AI plugin integration tests (531 lines)
+├── test_ai_plugin.py        # AI plugin integration tests
 ├── test_core/               # Core module tests
 ├── test_generators/         # Generator tests
 ├── test_database/           # Database adapter tests

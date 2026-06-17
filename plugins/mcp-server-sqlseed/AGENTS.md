@@ -13,7 +13,7 @@ mcp-server-sqlseed/
     ├── __init__.py                   # main() entry point
     ├── __main__.py                   # python -m support
     ├── config.py                     # MCPServerConfig (Pydantic)
-    └── server.py                     # FastMCP server, 6 tools (349 lines)
+    └── server.py                     # FastMCP server, 1 resource + 6 tools
 ```
 
 ## WHERE TO LOOK

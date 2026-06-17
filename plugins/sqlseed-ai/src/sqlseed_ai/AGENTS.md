@@ -15,6 +15,7 @@ AI 数据生成插件的实现。通过 OpenAI 兼容 API 分析数据库模式�
 | `refiner.py` | `AiConfigRefiner` 配置优化器，基于 AI 建议优化现有配置，支持自纠正 |
 | `config.py` | `AIConfig` AI 配置（API key, model, base_url 等），支持环境变量 |
 | `_client.py` | OpenAI 客户端工厂，支持自定义 base_url |
+| `_hardware.py` | 跨平台硬件检测（RAM、GPU/VRAM），用于模型选择推荐 |
 | `_model_selector.py` | `select_next_gemma_model()` Gemma 模型自动选择与降级 |
 | `_json_utils.py` | JSON 响应容错解析，`_sanitize_names()` 名称清洗 |
 | `errors.py` | 错误类型定义，`ErrorSummary`/`summarize_error()` 错误汇总 |
@@ -46,7 +47,7 @@ AI 数据生成插件的实现。通过 OpenAI 兼容 API 分析数据库模式�
 3. 若校验失败，将错误信息反馈给 LLM 请求修正
 4. 最多重试 `max_retries=3` 次
 5. 包含重复错误检测：若连续两次错误相同则提前终止
-6. 使用 `_compute_schema_hash()` 缓存结果（SHA256 前 12 字符），避免重复分析同一 schema
+6. 使用 `_compute_schema_hash()` 缓存结果（SHA256 前 16 字符），避免重复分析同一 schema
 
 ## 错误分类系统（7 个处理器）
 
@@ -97,5 +98,6 @@ pytest tests/test_ai_plugin.py tests/test_refiner.py
 ### External
 
 - `openai>=1.0` — LLM API 客户端
+- `httpx>=0.24.0` — HTTP 客户端（超时配置）
 
 <!-- MANUAL: Any manually added notes below this line are preserved on regeneration -->

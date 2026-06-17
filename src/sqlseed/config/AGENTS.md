@@ -13,7 +13,7 @@ YAML/JSON 配置文件的加载、校验和模型定义。基于 Pydantic 构建
 |------|-------------|
 | `models.py` | Pydantic 配置模型：`GeneratorConfig`, `TableConfig`, `ColumnConfig`, `ColumnConstraintsConfig`, `ProviderType` |
 | `loader.py` | 配置文件加载器，支持 YAML 和 JSON 格式，含模板生成功能 |
-| `snapshot.py` | `SnapshotManager` 配置快照的保存与恢复 |
+| `snapshot.py` | `SnapshotManager` 配置快照的保存与加载（save/load/list_snapshots；replay 已移除） |
 
 ## For AI Agents
 

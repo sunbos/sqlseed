@@ -17,6 +17,7 @@
 | `test_mimesis_provider.py` | MimesisProvider 测试（importorskip） |
 | `test_registry.py` | ProviderRegistry 注册和发现测试 |
 | `test_stream.py` | DataStream 批量生成测试 |
+| `test_dispatch_sync.py` | verify_dispatch_sync() 映射一致性测试 |
 
 ## For AI Agents
 

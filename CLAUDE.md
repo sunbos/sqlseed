@@ -63,19 +63,26 @@ _utils/ → (no internal deps, used by all layers)
 
 ### Key Modules
 
-- **`core/orchestrator.py`** — `DataOrchestrator` is the central coordinator. Uses `CoreCtx` (db, schema, mapper, relation, shared_pool) and `ExtCtx` (registry, plugins, mediator, enrichment, metrics) dataclasses. `fill_table()` is the main entry point; `fill()` is its alias.
-- **`core/mapper.py`** — `ColumnMapper` with 9-level strategy chain (autoincrement PK → user config → exact match → default check → pattern match → nullable → type fallback). 74 exact rules, 27 regex patterns.
+- **`core/orchestrator.py`** — `DataOrchestrator` is the central coordinator. Uses `CoreCtx` (db, schema, mapper, relation, shared_pool) and `ExtCtx` (registry, plugins, mediator, enrichment, metrics) dataclasses. `fill_table()` is the main entry point; `fill()` is its alias. Public methods: `get_column_mapping(table_name)` for diagnostic display, `execute(sql, params)` for direct SQL.
+- **`core/mapper.py`** — `ColumnMapper` with 9-level strategy chain (L1: autoincrement PK → L2: user config → L3: custom exact match → L4: built-in exact match → L5: default value → L6: custom pattern match → L7: built-in pattern match → L8: nullable → L9: type fallback). 74 exact rules, 27 regex patterns.
 - **`core/schema.py`** — `SchemaInferrer` reads SQLite schema + `CREATE TABLE` SQL for autoincrement detection.
 - **`core/relation.py`** — `RelationResolver` + `SharedPool` for cross-table FK integrity. Implicit associations via name matching, explicit via `ColumnAssociation` config.
 - **`core/column_dag.py`** — Topological sort for `derive_from` column dependencies.
 - **`core/expression.py`** — `ExpressionEngine` using `simpleeval`. Timeout via thread (5s default). `ExpressionTimeoutError` on timeout. 21 whitelisted functions in `SAFE_FUNCTIONS`.
 - **`core/constraints.py`** — `ConstraintSolver` for UNIQUE enforcement with backtracking. Supports probabilistic mode (SHA256 hash-based) for >100K rows.
+- **`core/enrichment.py`** — AI enrichment integration, applies AI-suggested column mappings.
+- **`core/unique_adjuster.py`** — Post-generation UNIQUE constraint adjustment.
+- **`core/plugin_mediator.py`** — Bridges plugins and core (not direct calls).
+- **`core/transform.py`** — Row/batch transform pipeline.
+- **`core/result.py`** — `FillResult` dataclass for generation results.
 - **`generators/`** — `DataProvider` protocol: `name`, `set_locale`, `set_seed`, `generate(type_name, **params)`. 31 generator types dispatched via `GeneratorDispatchMixin._GENERATOR_MAP`. Three providers: `BaseProvider` (always available), `FakerProvider`, `MimesisProvider`.
-- **`database/`** — `DatabaseAdapter` protocol with two implementations: `SQLiteUtilsAdapter` (default, requires `sqlite-utils`) and `RawSQLiteAdapter` (fallback). `_compat.py` controls `HAS_SQLITE_UTILS` flag.
+- **`database/`** — `DatabaseAdapter` protocol with two implementations: `SQLiteUtilsAdapter` (default, requires `sqlite-utils`) and `RawSQLiteAdapter` (fallback). `_compat.py` controls `HAS_SQLITE_UTILS` flag. Additional: `_base_adapter.py` (shared base), `_helpers.py` (batch insert helpers), `optimizer.py` (PRAGMA optimization).
 - **`plugins/`** — 11 pluggy hooks. `PluginManager` + `PluginMediator` bridge plugins and core.
-- **`config/`** — Pydantic models (`GeneratorConfig`, `TableConfig`, `ColumnConfig`, `ColumnAssociation`), YAML/JSON loader, `SnapshotManager`.
-- **`cli/main.py`** — Click commands: `fill`, `preview`, `inspect`, `init`, `replay`, `ai-suggest`. CLI log level via `SQLSEED_LOG_LEVEL` env var (default `WARNING`). Cache dir via `SQLSEED_CACHE_DIR` env var.
+- **`config/`** — Pydantic models (`GeneratorConfig`, `TableConfig`, `ColumnConfig`, `ColumnConstraintsConfig`, `ColumnAssociation`), YAML/JSON loader, `SnapshotManager` (save/load/list_snapshots; replay removed — CLI `replay` command uses `SnapshotManager.load()` + `DataOrchestrator.from_config()`).
+- **`cli/main.py`** — Click commands: `fill`, `preview`, `inspect`, `init`, `replay`. CLI log level via `SQLSEED_LOG_LEVEL` env var (default `WARNING`). Cache dir via `SQLSEED_CACHE_DIR` env var.
+- **`cli/ai_commands.py`** — AI-related CLI commands: `ai-suggest`. Imported by main.py at startup.
 - **`_utils/paths.py`** — Platform-aware cache directory resolution (`get_cache_dir()`). Supports macOS/Linux/Windows, overridable via `SQLSEED_CACHE_DIR` env var.
+- **`_utils/schema_helpers.py`** — SQLite schema parsing helpers (column extraction, index info).
 
 ### Public API (`src/sqlseed/__init__.py`)
 
@@ -90,6 +97,8 @@ _utils/ → (no internal deps, used by all layers)
 ### Config Model Hierarchy
 
 `GeneratorConfig` → `list[TableConfig]` → `list[ColumnConfig]` + `list[ColumnAssociation]`
+
+`ColumnConfig` contains optional `constraints: ColumnConstraintsConfig` (unique, min_value, max_value, regex, max_retries with ge=0).
 
 ColumnConfig supports two mutually exclusive modes (enforced by Pydantic `model_validator`):
 - **Source mode**: `generator` + `params` + `null_ratio` + `provider`
@@ -115,6 +124,7 @@ ColumnConfig supports two mutually exclusive modes (enforced by Pydantic `model_
 
 - Every `.py` file starts with `from __future__ import annotations`
 - All public functions use keyword-only arguments (except `generate_choice(choices)`)
+- Never use `assert` for runtime validation — use `RuntimeError`/`ValueError` instead (asserts can be optimized away with `-O`)
 - SQL identifiers: always use `quote_identifier()` from `_utils/sql_safe.py`
 - Logging: `structlog` via `sqlseed._utils.logger.get_logger(__name__)`
 - New config models: Pydantic `BaseModel`
@@ -149,6 +159,7 @@ When modifying these source files, update the corresponding docs in the same com
 | `src/sqlseed/plugins/hookspecs.py` | README.md, CLAUDE.md, docs/architecture.md | Hook table (count + names) |
 | `src/sqlseed/config/models.py` | docs/architecture.md, docs/architecture.zh-CN.md | Class diagrams (field names + types) |
 | `src/sqlseed/cli/main.py` | README.md, README.zh-CN.md | CLI command reference |
+| `src/sqlseed/cli/ai_commands.py` | README.md, README.zh-CN.md | AI CLI command reference |
 | `src/sqlseed/__init__.py` | README.md, README.zh-CN.md | Public API table |
 
 Run `pytest tests/test_doc_sync.py` to verify doc sync after changes.

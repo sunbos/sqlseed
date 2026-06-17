@@ -8,7 +8,7 @@ LLM-powered schema analysis and template generation. Separate package with own p
 
 ```
 sqlseed-ai/
-├── pyproject.toml        # Separate package: sqlseed>=0.1.0, openai>=1.0
+├── pyproject.toml        # Separate package: sqlseed>=0.1.0, openai>=1.0, httpx>=0.24.0
 └── src/sqlseed_ai/
     ├── __init__.py       # AISqlseedPlugin, plugin instance, hookimpl registration
     ├── analyzer.py       # SchemaAnalyzer — LLM schema analysis, streaming, tool calling
@@ -16,6 +16,7 @@ sqlseed-ai/
     ├── config.py         # AIConfig — env-based config, GemmaModel enum, AIBackend enum
     ├── errors.py         # Error classification (7 processors)
     ├── _client.py        # OpenAI client wrapper, httpx timeout config
+    ├── _hardware.py      # Cross-platform hardware detection (RAM, GPU/VRAM) for model selection
     ├── _model_selector.py # Gemma 4 model selection and fallback chain
     ├── _json_utils.py    # JSON parsing utilities (3-strategy fallback)
     └── examples.py       # Few-shot examples for prompts

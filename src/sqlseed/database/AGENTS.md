@@ -12,7 +12,7 @@ database/
 ├── _base_adapter.py      # BaseSQLiteAdapter — shared logic (context manager, pragmas)
 ├── _helpers.py           # fetch_index_info, fetch_sample_rows, pragma helpers
 ├── _compat.py            # sqlite-utils compatibility shims
-├── raw_sqlite_adapter.py # RawSQLiteAdapter — direct sqlite3 (8 files)
+├── raw_sqlite_adapter.py # RawSQLiteAdapter — direct sqlite3
 ├── sqlite_utils_adapter.py # SQLiteUtilsAdapter — sqlite-utils wrapper
 └── optimizer.py          # PragmaOptimizer, PragmaProfile — bulk write tuning
 ```

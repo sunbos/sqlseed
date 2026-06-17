@@ -11,7 +11,8 @@
 
 | File | Description |
 |------|-------------|
-| `main.py` | CLI 入口，定义 `cli` group 和所有子命令 |
+| `main.py` | CLI 入口，定义 `cli` group 和核心子命令（fill, preview, inspect, init, replay） |
+| `ai_commands.py` | AI 相关子命令（ai-suggest），由 main.py 在启动时导入 |
 
 ## For AI Agents
 
@@ -31,7 +32,7 @@ pytest tests/test_cli.py
 
 ### Common Patterns
 
-- 命令结构：`cli` (group) → `fill` / `preview` / `init` / `replay` / `ai-suggest` 子命令
+- 命令结构：`cli` (group) → `fill` / `preview` / `init` / `replay` 子命令（main.py）+ `ai-suggest` 子命令（ai_commands.py）
 - 输出使用 rich 库美化（进度条、表格、高亮）
 - AI 功能降级模式：`try: from sqlseed_ai import ... except ImportError: HAS_AI_PLUGIN = False`
 

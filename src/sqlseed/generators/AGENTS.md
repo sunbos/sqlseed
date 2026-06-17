@@ -9,11 +9,11 @@
 ```
 generators/
 ├── _protocol.py         # DataProvider protocol + UnknownGeneratorError
-├── _dispatch.py         # GeneratorDispatchMixin — 31 generator dispatch
+├── _dispatch.py         # GeneratorDispatchMixin — 31 generator dispatch + verify_dispatch_sync()
 ├── _json_helpers.py     # JSON schema-based generation
 ├── _string_helpers.py   # Random string utilities
 ├── registry.py          # ProviderRegistry — entry-point discovery
-├── base_provider.py     # BaseProvider — 31 generators, zero deps (677 lines)
+├── base_provider.py     # BaseProvider — 31 generators, lazy deps
 ├── faker_provider.py    # FakerProvider — faker adapter
 ├── mimesis_provider.py  # MimesisProvider — mimesis adapter
 └── stream.py            # DataStream — batch generation + constraint backtracking
@@ -26,7 +26,7 @@ generators/
 | Add generator | `base_provider.py` | Add `_gen_<name>()` method |
 | Add provider | New file | Implement DataProvider protocol |
 | Register provider | `registry.py` | Entry-point or plugin hook |
-| Modify dispatch | `_dispatch.py` | GeneratorDispatchMixin.generate() |
+| Modify dispatch | `_dispatch.py` | GeneratorDispatchMixin.generate(), verify_dispatch_sync() |
 | Add JSON type | `_json_helpers.py` | generate_json_from_schema() |
 | Batch generation | `stream.py` | DataStream.generate() — yields batches |
 
@@ -40,7 +40,7 @@ generators/
 
 ## ANTI-PATTERNS
 
-- **NEVER** import faker/mimesis at module top → use try/except
+- **NEVER** import faker/mimesis/rstr at module top → use try/except (lazy import)
 - **NEVER** raise in generate() without UnknownGeneratorError
 - **ALWAYS** implement all 31 generators or handle gracefully
 - **ALWAYS** use `self._rng` for random (seed support)

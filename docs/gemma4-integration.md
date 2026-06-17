@@ -118,7 +118,7 @@ from sqlseed_ai.config import AIConfig
 
 config = AIConfig.from_env()  # Reads SQLSEED_AI_BACKEND, SQLSEED_AI_MODEL
 analyzer = SchemaAnalyzer(config=config)
-result = analyzer.analyze(db_path="app.db", table_name="users")
+result = analyzer.analyze_table_from_ctx(db_path="app.db", table_name="users")
 ```
 
 ## Performance Reference

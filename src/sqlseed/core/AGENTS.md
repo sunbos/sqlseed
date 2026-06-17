@@ -8,7 +8,7 @@ Central orchestration: schema inference, column mapping, constraint solving, dat
 
 ```
 core/
-├── orchestrator.py      # DataOrchestrator main engine (557 lines)
+├── orchestrator.py      # DataOrchestrator main engine
 ├── mapper.py            # ColumnMapper 9-level strategy chain
 ├── schema.py            # SchemaInferrer — column info, indexes, distribution
 ├── relation.py          # RelationResolver + SharedPool — FK resolution
@@ -46,7 +46,7 @@ core/
 
 ## ANTI-PATTERNS
 
-- **NEVER** call DB directly from orchestrator → use `self._db` property
+- **NEVER** call DB directly from orchestrator for data operations → use `self._db` property (except `execute()` for direct SQL)
 - **NEVER** skip `validate_table_name()` before table operations
 - **ALWAYS** call `_ensure_connected()` before any DB operation
 - **ALWAYS** use `contextlib.suppress()` for non-critical errors
