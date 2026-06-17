@@ -51,7 +51,11 @@ def _get_ram_windows() -> tuple[float, float] | None:
 
         stat = MEMORYSTATUSEX()
         stat.dwLength = ctypes.sizeof(stat)
-        ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat))
+        # ctypes.windll only exists on Windows; use getattr for cross-platform safety
+        windll = getattr(ctypes, "windll", None)
+        if windll is None:
+            return None
+        windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat))
         return (
             round(stat.ullTotalPhys / (1024**3), 1),
             round(stat.ullAvailPhys / (1024**3), 1),
