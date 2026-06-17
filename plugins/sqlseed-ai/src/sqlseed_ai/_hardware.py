@@ -5,6 +5,7 @@ Used by `sqlseed_list_gemma_models` to provide hardware-aware model recommendati
 
 Supported platforms: Windows, Linux, macOS (Intel + Apple Silicon).
 """
+
 from __future__ import annotations
 
 import ctypes
@@ -30,9 +31,11 @@ _HW_CACHE_TTL = 300.0  # 5 minutes
 
 # ── System RAM ───────────────────────────────────────────────────────
 
+
 def _get_ram_windows() -> tuple[float, float] | None:
     """Get RAM via Win32 API (ctypes). Returns (total_gb, available_gb)."""
     try:
+
         class MEMORYSTATUSEX(ctypes.Structure):
             _fields_ = [
                 ("dwLength", ctypes.c_ulong),
@@ -78,7 +81,10 @@ def _get_ram_macos() -> tuple[float, float] | None:
     try:
         result = subprocess.run(
             ["sysctl", "-n", "hw.memsize"],
-            capture_output=True, text=True, timeout=5, check=False,
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
         )
         if result.returncode != 0 or not result.stdout:
             return None
@@ -87,7 +93,11 @@ def _get_ram_macos() -> tuple[float, float] | None:
 
         avail_gb = 0.0
         result = subprocess.run(
-            ["vm_stat"], capture_output=True, text=True, timeout=5, check=False,
+            ["vm_stat"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
         )
         if result.returncode == 0 and result.stdout:
             # Default page size: Apple Silicon = 16384, Intel Mac = 4096
@@ -124,6 +134,7 @@ def _detect_system_ram() -> dict[str, Any]:
 
 # ── GPU / VRAM ───────────────────────────────────────────────────────
 
+
 def _detect_gpu_nvidia() -> list[dict[str, Any]]:
     """Detect NVIDIA GPUs via nvidia-smi (works on all platforms)."""
     try:
@@ -133,7 +144,10 @@ def _detect_gpu_nvidia() -> list[dict[str, Any]]:
                 "--query-gpu=name,memory.total,memory.free,driver_version",
                 "--format=csv,noheader,nounits",
             ],
-            capture_output=True, text=True, timeout=5, check=False,
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
         )
         if result.returncode != 0 or not result.stdout:
             return []
@@ -144,14 +158,16 @@ def _detect_gpu_nvidia() -> list[dict[str, Any]]:
             if len(parts) >= 4:
                 vram_total = int(parts[1])
                 vram_free = int(parts[2])
-                gpus.append({
-                    "name": parts[0],
-                    "vram_total_mb": vram_total,
-                    "vram_free_mb": vram_free,
-                    "vram_total_gb": round(vram_total / 1024, 1),
-                    "driver_version": parts[3],
-                    "vendor": "nvidia",
-                })
+                gpus.append(
+                    {
+                        "name": parts[0],
+                        "vram_total_mb": vram_total,
+                        "vram_free_mb": vram_free,
+                        "vram_total_gb": round(vram_total / 1024, 1),
+                        "driver_version": parts[3],
+                        "vendor": "nvidia",
+                    }
+                )
         return gpus
     except (FileNotFoundError, subprocess.TimeoutExpired, ValueError):
         return []
@@ -162,7 +178,10 @@ def _detect_gpu_macos() -> list[dict[str, Any]]:
     try:
         result = subprocess.run(
             ["system_profiler", "SPDisplaysDataType", "-json"],
-            capture_output=True, text=True, timeout=10, check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
         )
         if result.returncode != 0 or not result.stdout:
             return []
@@ -181,13 +200,15 @@ def _detect_gpu_macos() -> list[dict[str, Any]]:
                     unit = parts[1].upper()
                     vram_mb = val * 1024 if "GB" in unit else val
 
-            gpus.append({
-                "name": name,
-                "vram_total_mb": vram_mb,
-                "vram_free_mb": 0,  # Apple Silicon uses unified memory; discrete VRAM is always 0
-                "vram_total_gb": round(vram_mb / 1024, 1),
-                "vendor": "apple",
-            })
+            gpus.append(
+                {
+                    "name": name,
+                    "vram_total_mb": vram_mb,
+                    "vram_free_mb": 0,  # Apple Silicon uses unified memory; discrete VRAM is always 0
+                    "vram_total_gb": round(vram_mb / 1024, 1),
+                    "vendor": "apple",
+                }
+            )
         return gpus
     except (FileNotFoundError, json.JSONDecodeError, subprocess.TimeoutExpired, ValueError):
         return []
@@ -206,6 +227,7 @@ def _detect_gpus() -> list[dict[str, Any]]:
 
 
 # ── Public API ───────────────────────────────────────────────────────
+
 
 def detect_hardware() -> dict[str, Any]:
     """Detect hardware environment. Results are cached for 5 minutes.

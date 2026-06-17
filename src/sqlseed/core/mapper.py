@@ -303,7 +303,11 @@ class ColumnMapper:
                 return snake_pattern
 
         fallback_spec = self._map_from_default(
-            column_info, column_type, enrich, force_type_infer, include_nullable=True,
+            column_info,
+            column_type,
+            enrich,
+            force_type_infer,
+            include_nullable=True,
         )
         if fallback_spec:
             return fallback_spec

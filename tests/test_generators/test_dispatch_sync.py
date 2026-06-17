@@ -1,4 +1,5 @@
 """Verify GENERATOR_MAP stays in sync with BaseProvider methods."""
+
 from __future__ import annotations
 
 import warnings

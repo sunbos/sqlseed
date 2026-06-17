@@ -11,6 +11,7 @@ try:
         detect_hardware,
         evaluate_model_status,
     )
+
     HAS_HARDWARE = True
 except ImportError:
     HAS_HARDWARE = False
@@ -25,17 +26,21 @@ class TestHardwareDetection:
         mock_system.return_value = "Windows"
 
         # Mock GlobalMemoryStatusEx using ctypes
-        with patch("sqlseed_ai._hardware._get_ram_windows") as mock_ram, \
-             patch("sqlseed_ai._hardware._detect_gpus") as mock_gpus:
+        with (
+            patch("sqlseed_ai._hardware._get_ram_windows") as mock_ram,
+            patch("sqlseed_ai._hardware._detect_gpus") as mock_gpus,
+        ):
             mock_ram.return_value = (16.0, 8.0)
-            mock_gpus.return_value = [{
-                "name": "NVIDIA GeForce RTX 3080",
-                "vram_total_mb": 10240,
-                "vram_free_mb": 5120,
-                "vram_total_gb": 10.0,
-                "driver_version": "511.65",
-                "vendor": "nvidia",
-            }]
+            mock_gpus.return_value = [
+                {
+                    "name": "NVIDIA GeForce RTX 3080",
+                    "vram_total_mb": 10240,
+                    "vram_free_mb": 5120,
+                    "vram_total_gb": 10.0,
+                    "driver_version": "511.65",
+                    "vendor": "nvidia",
+                }
+            ]
 
             # Reset cache before calling
             hw_mod._HardwareCache.data = None
@@ -52,8 +57,10 @@ class TestHardwareDetection:
     def test_detect_hardware_linux(self, mock_system: MagicMock) -> None:
         mock_system.return_value = "Linux"
 
-        with patch("sqlseed_ai._hardware._get_ram_linux") as mock_ram, \
-             patch("sqlseed_ai._hardware._detect_gpus") as mock_gpus:
+        with (
+            patch("sqlseed_ai._hardware._get_ram_linux") as mock_ram,
+            patch("sqlseed_ai._hardware._detect_gpus") as mock_gpus,
+        ):
             mock_ram.return_value = (32.0, 16.0)
             mock_gpus.return_value = []
 
@@ -71,16 +78,20 @@ class TestHardwareDetection:
     def test_detect_hardware_macos(self, mock_system: MagicMock) -> None:
         mock_system.return_value = "Darwin"
 
-        with patch("sqlseed_ai._hardware._get_ram_macos") as mock_ram, \
-             patch("sqlseed_ai._hardware._detect_gpus") as mock_gpus:
+        with (
+            patch("sqlseed_ai._hardware._get_ram_macos") as mock_ram,
+            patch("sqlseed_ai._hardware._detect_gpus") as mock_gpus,
+        ):
             mock_ram.return_value = (8.0, 4.0)
-            mock_gpus.return_value = [{
-                "name": "Apple M1",
-                "vram_total_mb": 8192,
-                "vram_free_mb": 0,
-                "vram_total_gb": 8.0,
-                "vendor": "apple",
-            }]
+            mock_gpus.return_value = [
+                {
+                    "name": "Apple M1",
+                    "vram_total_mb": 8192,
+                    "vram_free_mb": 0,
+                    "vram_total_gb": 8.0,
+                    "vendor": "apple",
+                }
+            ]
 
             # Reset cache
             hw_mod._HardwareCache.data = None
@@ -134,8 +145,10 @@ class TestHardwareDetection:
         """Cached result is returned within TTL without re-detecting."""
         hw_mod._HardwareCache.data = None
 
-        with patch("sqlseed_ai._hardware._detect_system_ram") as mock_ram, \
-             patch("sqlseed_ai._hardware._detect_gpus") as mock_gpus:
+        with (
+            patch("sqlseed_ai._hardware._detect_system_ram") as mock_ram,
+            patch("sqlseed_ai._hardware._detect_gpus") as mock_gpus,
+        ):
             mock_ram.return_value = {"total_gb": 16.0, "available_gb": 8.0}
             mock_gpus.return_value = []
 
@@ -153,8 +166,10 @@ class TestHardwareDetection:
         expired_time = time.monotonic() - 600  # 10 minutes ago
         hw_mod._HardwareCache.data = (expired_time, {"old": "data"})
 
-        with patch("sqlseed_ai._hardware._detect_system_ram") as mock_ram, \
-             patch("sqlseed_ai._hardware._detect_gpus") as mock_gpus:
+        with (
+            patch("sqlseed_ai._hardware._detect_system_ram") as mock_ram,
+            patch("sqlseed_ai._hardware._detect_gpus") as mock_gpus,
+        ):
             mock_ram.return_value = {"total_gb": 32.0, "available_gb": 16.0}
             mock_gpus.return_value = []
 

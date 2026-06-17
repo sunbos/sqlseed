@@ -57,7 +57,6 @@ def verify_dispatch_sync() -> None:
             import warnings  # noqa: PLC0415
 
             warnings.warn(
-                f"GENERATOR_MAP['{gen_name}'] references '{method_name}' "
-                f"which does not exist on BaseProvider",
+                f"GENERATOR_MAP['{gen_name}'] references '{method_name}' which does not exist on BaseProvider",
                 stacklevel=1,
             )

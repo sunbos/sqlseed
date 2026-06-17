@@ -347,8 +347,7 @@ def sqlseed_list_gemma_models() -> dict[str, Any]:
         return {
             "models": [],
             "backends": [
-                {"id": bid, "description": desc, "available": False}
-                for bid, desc in backend_descriptions.items()
+                {"id": bid, "description": desc, "available": False} for bid, desc in backend_descriptions.items()
             ],
             "hardware": {},
             "error": "sqlseed-ai plugin not installed. Install with: pip install sqlseed-ai",
@@ -363,12 +362,14 @@ def sqlseed_list_gemma_models() -> dict[str, Any]:
 
     # Google AI Studio: check API key
     has_api_key = ai_config.has_real_api_key
-    backends_result.append({
-        "id": "google_ai_studio",
-        "description": backend_descriptions["google_ai_studio"],
-        "available": has_api_key,
-        "reason": "API key configured" if has_api_key else "No API key (set GOOGLE_API_KEY or SQLSEED_AI_API_KEY)",
-    })
+    backends_result.append(
+        {
+            "id": "google_ai_studio",
+            "description": backend_descriptions["google_ai_studio"],
+            "available": has_api_key,
+            "reason": "API key configured" if has_api_key else "No API key (set GOOGLE_API_KEY or SQLSEED_AI_API_KEY)",
+        }
+    )
 
     # LM Studio / Ollama: check service reachability + loaded models
     local_urls: dict[str, str] = {
@@ -394,22 +395,26 @@ def sqlseed_list_gemma_models() -> dict[str, Any]:
         else:
             reason = "Service not running"
 
-        backends_result.append({
-            "id": backend_id,
-            "description": backend_descriptions[backend_id],
-            "available": reachable and bool(loaded),
-            "reachable": reachable,
-            "loaded_models": loaded,
-            "reason": reason,
-        })
+        backends_result.append(
+            {
+                "id": backend_id,
+                "description": backend_descriptions[backend_id],
+                "available": reachable and bool(loaded),
+                "reachable": reachable,
+                "loaded_models": loaded,
+                "reason": reason,
+            }
+        )
 
     # OpenAI-compatible: informational only
-    backends_result.append({
-        "id": "openai_compat",
-        "description": backend_descriptions["openai_compat"],
-        "available": False,
-        "reason": "Requires explicit base_url configuration",
-    })
+    backends_result.append(
+        {
+            "id": "openai_compat",
+            "description": backend_descriptions["openai_compat"],
+            "available": False,
+            "reason": "Requires explicit base_url configuration",
+        }
+    )
 
     # ── 3. Build model list with compatibility status ──
     status_icons: dict[str, str] = {
@@ -425,18 +430,20 @@ def sqlseed_list_gemma_models() -> dict[str, Any]:
     for member in GemmaModel:
         status = evaluate_model_status(member.value, hw)
         model_req = MODEL_REQUIREMENTS.get(member.value, {})
-        models.append({
-            "id": member.value,
-            "display_name": member.display_name,
-            "status": status,
-            "status_description": status_icons.get(status, status),
-            "local_only": member.is_local_only,
-            "requirements": {
-                "min_ram_gb": model_req.get("min_ram_gb", 0),
-                "min_vram_gb": model_req.get("min_vram_gb", 0),
-                "recommended_vram_gb": model_req.get("recommended_vram_gb", 0),
-            },
-        })
+        models.append(
+            {
+                "id": member.value,
+                "display_name": member.display_name,
+                "status": status,
+                "status_description": status_icons.get(status, status),
+                "local_only": member.is_local_only,
+                "requirements": {
+                    "min_ram_gb": model_req.get("min_ram_gb", 0),
+                    "min_vram_gb": model_req.get("min_vram_gb", 0),
+                    "recommended_vram_gb": model_req.get("recommended_vram_gb", 0),
+                },
+            }
+        )
 
     # ── 4. Determine best default ──
     # Pick the largest capable model (iterate from largest to smallest)

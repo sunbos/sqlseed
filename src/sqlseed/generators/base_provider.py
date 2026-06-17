@@ -354,8 +354,7 @@ class BaseProvider(GeneratorDispatchMixin):
             import rstr as _rstr  # noqa: PLC0415
         except ImportError as err:
             raise ImportError(
-                "The 'rstr' package is required for pattern generation. "
-                "Install it with: pip install rstr"
+                "The 'rstr' package is required for pattern generation. Install it with: pip install rstr"
             ) from err
         r = _rstr.Rstr(self._rng)
         return r.xeger(effective)

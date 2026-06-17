@@ -565,7 +565,11 @@ class DataOrchestrator:
         """
         self._ensure_connected()
         specs, _, _ = self._resolve_specs(
-            table_name, count=1, columns=None, column_configs=None, enrich=False,
+            table_name,
+            count=1,
+            columns=None,
+            column_configs=None,
+            enrich=False,
         )
         return specs
 
