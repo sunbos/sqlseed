@@ -20,7 +20,7 @@ def fetch_index_info(
         idx_name = row[1]
         is_unique = bool(row[2])
         col_rows = execute_fn(f"PRAGMA index_info({quote_identifier(idx_name)})").fetchall()
-        columns = [cr[2] for cr in col_rows if cr[2] is not None]
+        columns = tuple(cr[2] for cr in col_rows if cr[2] is not None)
         result.append(IndexInfo(name=idx_name, table=table_name, columns=columns, unique=is_unique))
     return result
 
@@ -36,7 +36,7 @@ def fetch_sample_rows(
     cols_sql = ", ".join(col_names)
     rows = execute_fn(f"SELECT {cols_sql} FROM {safe_table} LIMIT ?", [limit]).fetchall()
     col_name_list = [c.name for c in columns]
-    return [dict(zip(col_name_list, row, strict=False)) for row in rows]
+    return [dict(zip(col_name_list, row, strict=True)) for row in rows]
 
 
 def batch_insert_rows(

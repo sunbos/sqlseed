@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlseed.config.models import GeneratorConfig, ProviderType, TableConfig
+from sqlseed.config.models import GeneratorConfig, TableConfig
 from sqlseed.config.snapshot import SnapshotManager
 
 
@@ -52,13 +52,8 @@ class TestSnapshotManager:
         except FileNotFoundError:
             pass
 
-    def test_replay(self, tmp_db, tmp_path: Any) -> None:
+    def test_replay_removed(self, tmp_path: Any) -> None:
+        """SnapshotManager.replay() was removed (H5: config→core reverse dependency).
+        Replay logic now lives in the CLI layer. Verify the method no longer exists."""
         manager = self._make_manager(tmp_path)
-        config = GeneratorConfig(
-            db_path=tmp_db,
-            provider=ProviderType("base"),
-            tables=[TableConfig(name="users", count=5)],
-        )
-        path = manager.save(config, "users", 5, seed=42)
-        result = manager.replay(path)
-        assert result.count == 5
+        assert not hasattr(manager, "replay"), "replay() should have been removed from SnapshotManager"

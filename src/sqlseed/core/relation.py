@@ -143,6 +143,12 @@ class RelationResolver:
         return None
 
     def clear_cache(self) -> None:
+        """Clear the FK resolution cache.
+
+        The cache is bound to the DataOrchestrator lifecycle and does not
+        auto-invalidate on schema changes. Call this method if the database
+        schema is modified at runtime.
+        """
         self._fk_cache.clear()
 
     def _resolve_fk_or_integer_spec(

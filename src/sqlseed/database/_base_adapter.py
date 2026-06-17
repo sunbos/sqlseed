@@ -31,7 +31,7 @@ class BaseSQLiteAdapter:
     def _get_execute_fn(self) -> Callable[..., Any]:
         raise NotImplementedError
 
-    def _execute(self, sql: str, params: tuple[Any, ...] = ()) -> Any:
+    def execute(self, sql: str, params: tuple[Any, ...] = ()) -> Any:
         """Execute a SQL statement with parameters.
 
         Args:

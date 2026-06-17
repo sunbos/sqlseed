@@ -147,6 +147,5 @@ class SQLiteUtilsAdapter(BaseSQLiteAdapter):
         return result[0] if result else None
 
     def restore_settings(self) -> None:
-        self._db.conn.commit()
         super().restore_settings()
         self._db.conn.commit()

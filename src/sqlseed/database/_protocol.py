@@ -28,7 +28,7 @@ class ForeignKeyInfo:
 class IndexInfo:
     name: str
     table: str
-    columns: list[str]
+    columns: tuple[str, ...]
     unique: bool
 
 
@@ -67,7 +67,7 @@ class DatabaseAdapter(Protocol):
 
     def restore_settings(self) -> None: ...
 
-    def _execute(self, sql: str, params: tuple[Any, ...] = ()) -> Any: ...
+    def execute(self, sql: str, params: tuple[Any, ...] = ()) -> Any: ...
 
     def __enter__(self) -> DatabaseAdapter: ...
 

@@ -6,8 +6,6 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Any, ClassVar
 
-import rstr
-
 from sqlseed.generators._dispatch import GeneratorDispatchMixin
 from sqlseed.generators._json_helpers import generate_json_from_schema
 from sqlseed.generators._string_helpers import generate_random_string
@@ -352,7 +350,14 @@ class BaseProvider(GeneratorDispatchMixin):
 
     def _gen_pattern(self, *, pattern: str | None = None, regex: str | None = None) -> str:
         effective = pattern or regex or ""
-        r = rstr.Rstr(self._rng)
+        try:
+            import rstr as _rstr  # noqa: PLC0415
+        except ImportError as err:
+            raise ImportError(
+                "The 'rstr' package is required for pattern generation. "
+                "Install it with: pip install rstr"
+            ) from err
+        r = _rstr.Rstr(self._rng)
         return r.xeger(effective)
 
     CITIES: ClassVar[list[str]] = [

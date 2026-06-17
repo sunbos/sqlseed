@@ -24,7 +24,8 @@ class RawSQLiteAdapter(BaseSQLiteAdapter):
 
     @property
     def conn(self) -> sqlite3.Connection:
-        assert self._conn is not None, "Database not connected. Call connect() first."
+        if self._conn is None:
+            raise RuntimeError("Database not connected. Call connect() first.")
         return self._conn
 
     def _get_execute_fn(self) -> Callable[..., Any]:

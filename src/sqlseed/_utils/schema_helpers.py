@@ -7,6 +7,7 @@ Extracted from adapter implementations to avoid code duplication (DRY principle)
 from __future__ import annotations
 
 import re
+import sqlite3
 from typing import Any
 
 from sqlseed._utils.logger import get_logger
@@ -52,6 +53,6 @@ def detect_autoincrement(
                     and "PRIMARY" in stripped
                 ):
                     return True
-    except (ValueError, OSError):
+    except (ValueError, OSError, sqlite3.Error):
         logger.debug("Failed to detect autoincrement", extra={"table": table_name, "column": column_name})
     return False

@@ -85,12 +85,14 @@ class DataOrchestrator:
 
     @property
     def _db(self) -> DatabaseAdapter:
-        assert self._core.db is not None
+        if self._core.db is None:
+            raise RuntimeError("Database adapter not initialized. Call _ensure_connected() first.")
         return self._core.db
 
     @property
     def _schema(self) -> SchemaInferrer:
-        assert self._core.schema is not None
+        if self._core.schema is None:
+            raise RuntimeError("SchemaInferrer not initialized. Call _ensure_connected() first.")
         return self._core.schema
 
     @property
@@ -99,7 +101,10 @@ class DataOrchestrator:
 
     @property
     def _relation(self) -> RelationResolver:
-        return self._core.relation  # type: ignore
+        rel = self._core.relation
+        if rel is None:
+            raise RuntimeError("RelationResolver not initialized. Call _ensure_connected() first.")
+        return rel
 
     @property
     def _shared_pool(self) -> SharedPool:
@@ -131,7 +136,10 @@ class DataOrchestrator:
 
     @property
     def _unique_adjuster(self) -> UniqueAdjuster:
-        return self._ext.unique_adjuster  # type: ignore
+        adj = self._ext.unique_adjuster
+        if adj is None:
+            raise RuntimeError("UniqueAdjuster not initialized. Call _ensure_connected() first.")
+        return adj
 
     @property
     def _metrics(self) -> MetricsCollector:
@@ -302,7 +310,8 @@ class DataOrchestrator:
             if own_progress:
                 progress = create_progress()
                 stack.enter_context(progress)
-            assert progress is not None
+            if progress is None:
+                raise RuntimeError("Progress tracker not initialized. This is an internal error.")
             if task_id is None:
                 task_id = progress.add_task(f"Generating {table_name}", total=count)
             for batch in stream.generate(count, effective_batch_size):
@@ -548,6 +557,18 @@ class DataOrchestrator:
 
     fill = fill_table
 
+    def get_column_mapping(self, table_name: str) -> dict[str, Any]:
+        """Get column-to-generator mapping for diagnostic display.
+
+        This is the public API for the ``inspect --show-mapping`` CLI command.
+        Returns the generator specs dict keyed by column name.
+        """
+        self._ensure_connected()
+        specs, _, _ = self._resolve_specs(
+            table_name, count=1, columns=None, column_configs=None, enrich=False,
+        )
+        return specs
+
     def execute(self, sql: str, params: tuple[Any, ...] | None = None) -> Any:
         """Execute a SQL statement.
 
@@ -561,7 +582,7 @@ class DataOrchestrator:
         self._ensure_connected()
         if params is None:
             params = ()
-        return self._db._execute(sql, params)
+        return self._db.execute(sql, params)
 
     def query(self, sql: str, params: tuple[Any, ...] | None = None) -> list[dict[str, Any]]:
         """Execute a SELECT query and return results as a list of dictionaries.

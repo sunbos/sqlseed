@@ -2,14 +2,15 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
 
 from sqlseed._utils.logger import get_logger
 from sqlseed._utils.paths import get_cache_dir
-from sqlseed.config.models import GeneratorConfig
-from sqlseed.core.orchestrator import DataOrchestrator
+
+if TYPE_CHECKING:
+    from sqlseed.config.models import GeneratorConfig
 
 logger = get_logger(__name__)
 
@@ -54,31 +55,6 @@ class SnapshotManager:
             data: dict[str, Any] = yaml.safe_load(f)
 
         return data
-
-    def replay(self, snapshot_path: str) -> Any:
-        data = self.load(snapshot_path)
-        config_data = data["config"]
-        config = GeneratorConfig(**config_data)
-
-        table_name = data["table_name"]
-        count = data["count"]
-        seed = data.get("seed")
-
-        table_config = None
-        for tc in config.tables:
-            if tc.name == table_name:
-                table_config = tc
-                break
-
-        with DataOrchestrator.from_config(config) as orch:
-            return orch.fill_table(
-                table_name=table_name,
-                count=count,
-                seed=seed,
-                batch_size=table_config.batch_size if table_config else 5000,
-                clear_before=table_config.clear_before if table_config else False,
-                column_configs=table_config.columns if table_config else None,
-            )
 
     def list_snapshots(self) -> list[str]:
         if not self._snapshot_dir.exists():

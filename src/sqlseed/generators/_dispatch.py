@@ -46,3 +46,18 @@ class GeneratorDispatchMixin:
             raise UnknownGeneratorError(type_name)
         method = getattr(self, method_name)
         return method(**params) if params else method()
+
+
+def verify_dispatch_sync() -> None:
+    """Verify that GENERATOR_MAP entries match actual methods on BaseProvider."""
+    from sqlseed.generators.base_provider import BaseProvider  # noqa: PLC0415
+
+    for gen_name, method_name in GeneratorDispatchMixin._GENERATOR_MAP.items():
+        if not hasattr(BaseProvider, method_name):
+            import warnings  # noqa: PLC0415
+
+            warnings.warn(
+                f"GENERATOR_MAP['{gen_name}'] references '{method_name}' "
+                f"which does not exist on BaseProvider",
+                stacklevel=1,
+            )

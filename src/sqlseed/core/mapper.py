@@ -235,24 +235,16 @@ class ColumnMapper:
             )
         return None
 
-    def _map_from_default_or_nullable(
-        self, column_info: ColumnInfo, column_type: str, enrich: bool, force_type_infer: bool
-    ) -> GeneratorSpec | None:
-        if column_info.default is not None or column_info.nullable:
-            if force_type_infer:
-                return self._type_faithful_fallback(column_type)
-            if enrich:
-                return GeneratorSpec(
-                    generator_name="__enrich__",
-                    params={"_default": column_info.default, "_nullable": column_info.nullable},
-                )
-            return GeneratorSpec(generator_name="skip")
-        return None
-
     def _map_from_default(
-        self, column_info: ColumnInfo, column_type: str, enrich: bool, force_type_infer: bool
+        self,
+        column_info: ColumnInfo,
+        column_type: str,
+        enrich: bool,
+        force_type_infer: bool,
+        *,
+        include_nullable: bool = False,
     ) -> GeneratorSpec | None:
-        if column_info.default is not None:
+        if column_info.default is not None or (include_nullable and column_info.nullable):
             if force_type_infer:
                 return self._type_faithful_fallback(column_type)
             if enrich:
@@ -310,7 +302,9 @@ class ColumnMapper:
             if snake_pattern:
                 return snake_pattern
 
-        fallback_spec = self._map_from_default_or_nullable(column_info, column_type, enrich, force_type_infer)
+        fallback_spec = self._map_from_default(
+            column_info, column_type, enrich, force_type_infer, include_nullable=True,
+        )
         if fallback_spec:
             return fallback_spec
 

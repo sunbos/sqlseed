@@ -12,12 +12,10 @@ PROJECT_NAME = "sqlseed"
 
 class SqlseedHookSpec:
     @hookspec
-    def sqlseed_register_providers(self, registry: Any) -> None:
-        raise NotImplementedError
+    def sqlseed_register_providers(self, registry: Any) -> None: ...
 
     @hookspec
-    def sqlseed_register_column_mappers(self, mapper: Any) -> None:
-        raise NotImplementedError
+    def sqlseed_register_column_mappers(self, mapper: Any) -> None: ...
 
     @hookspec(firstresult=True)
     def sqlseed_ai_analyze_table(
@@ -39,8 +37,7 @@ class SqlseedHookSpec:
         table_name: str,
         count: int,
         config: Any,
-    ) -> None:
-        raise NotImplementedError
+    ) -> None: ...
 
     @hookspec
     def sqlseed_after_generate(
@@ -48,8 +45,7 @@ class SqlseedHookSpec:
         table_name: str,
         count: int,
         elapsed: float,
-    ) -> None:
-        raise NotImplementedError
+    ) -> None: ...
 
     @hookspec
     def sqlseed_transform_row(
@@ -80,8 +76,7 @@ class SqlseedHookSpec:
         table_name: str,
         batch_number: int,
         batch_size: int,
-    ) -> None:
-        raise NotImplementedError
+    ) -> None: ...
 
     @hookspec
     def sqlseed_after_insert(
@@ -89,8 +84,7 @@ class SqlseedHookSpec:
         table_name: str,
         batch_number: int,
         rows_inserted: int,
-    ) -> None:
-        raise NotImplementedError
+    ) -> None: ...
 
     @hookspec
     def sqlseed_shared_pool_loaded(

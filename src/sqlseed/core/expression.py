@@ -60,6 +60,20 @@ class ExpressionEngine:
         return evaluator.eval(expression)
 
     def evaluate(self, expression: str, context: dict[str, Any]) -> Any:
+        """Evaluate an expression in the given context.
+
+        For simple expressions (method chains like ``value.strip()``),
+        evaluation runs directly in the calling thread.
+
+        For complex expressions, a separate thread is used with a timeout.
+        Note: Python threads cannot be forcibly terminated — if the thread
+        exceeds *timeout_seconds*, it is abandoned (left as a daemon) and
+        an :class:`ExpressionTimeoutError` is raised.  The thread may
+        continue executing in the background until the process exits.
+        This trade-off is acceptable because expression evaluation is
+        purely computational (no side effects) and the simpleeval sandbox
+        prevents resource exhaustion.
+        """
         if self._is_simple_expression(expression):
             return self._eval_direct(expression, context)
 

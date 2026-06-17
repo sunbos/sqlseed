@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, model_validator
 from typing_extensions import Self
 
 
@@ -21,7 +21,7 @@ class ColumnConstraintsConfig(BaseModel):
     min_value: int | float | None = None
     max_value: int | float | None = None
     regex: str | None = None
-    max_retries: int = Field(default=100, gt=0)
+    max_retries: int = Field(default=100, ge=0)
 
 
 class ColumnConfig(BaseModel):
@@ -93,13 +93,6 @@ class ColumnConfig(BaseModel):
 
         return result
 
-    @field_validator("null_ratio")
-    @classmethod
-    def validate_null_ratio(cls, v: float) -> float:
-        if not 0.0 <= v <= 1.0:
-            raise ValueError("null_ratio must be between 0.0 and 1.0")
-        return v
-
     @model_validator(mode="after")
     def validate_column_mode(self) -> Self:
         if self.derive_from and self.generator:
@@ -129,7 +122,7 @@ class ColumnAssociation(BaseModel):
     source_table: str
     source_column: str | None = None
     target_tables: list[str] = Field(default_factory=list)
-    strategy: str = "shared_pool"
+    strategy: Literal["shared_pool", "random"] = "shared_pool"
 
 
 class GeneratorConfig(BaseModel):
@@ -141,5 +134,5 @@ class GeneratorConfig(BaseModel):
     tables: list[TableConfig] = Field(default_factory=list)
     associations: list[ColumnAssociation] = Field(default_factory=list)
     optimize_pragma: bool = True
-    log_level: str = "INFO"
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     snapshot_dir: str | None = None

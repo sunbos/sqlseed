@@ -147,7 +147,17 @@ class EnrichmentEngine:
         if self.is_enumeration_column(col_name, col_info, distinct_count, row_count, is_unique):
             choices = distinct_values
             if col_info and "INT" in col_info.type.upper():
-                choices = [int(v) if isinstance(v, int | float | str) else v for v in choices]
+                def _safe_int(v: Any) -> Any:
+                    if isinstance(v, (int, float)):
+                        return int(v)
+                    if isinstance(v, str):
+                        try:
+                            return int(v)
+                        except ValueError:
+                            return v
+                    return v
+
+                choices = [_safe_int(v) for v in choices]
             return GeneratorSpec(
                 generator_name="choice",
                 params={"choices": choices},

@@ -16,9 +16,10 @@ from sqlseed.core.orchestrator import DataOrchestrator
 try:
     from sqlseed_ai.analyzer import SchemaAnalyzer
     from sqlseed_ai.config import AIBackend, AIConfig
-    from sqlseed_ai.refiner import AiConfigRefiner
+    from sqlseed_ai.refiner import AiConfigRefiner as _AiConfigRefiner
 
     HAS_AI_PLUGIN = True
+    AiConfigRefiner: Any = _AiConfigRefiner
 except ImportError:
     HAS_AI_PLUGIN = False
     AiConfigRefiner = None
