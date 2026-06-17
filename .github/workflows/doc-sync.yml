@@ -1,0 +1,42 @@
+name: doc-sync
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  doc-sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Python dependencies
+        run: |
+          pip install -e ".[dev]"
+
+      - name: Install ctxlint
+        run: npm install
+
+      - name: Run doc_sync tests
+        run: python -m pytest tests/test_doc_sync.py -v
+
+      - name: Check AUTO-GENERATED markers
+        run: python scripts/sync_docs.py --check
+
+      - name: Run ctxlint
+        run: npx ctxlint .
+        continue-on-error: true  # Warnings only, don't block PRs

@@ -1,0 +1,17 @@
+repos:
+  - repo: local
+    hooks:
+      - id: sync-docs
+        name: Sync documentation facts
+        entry: python scripts/sync_docs.py --check
+        language: system
+        files: \.(py|md)$
+        pass_filenames: false
+        stages: [pre-commit]
+      - id: ctxlint
+        name: Lint context files (AGENTS.md, CLAUDE.md)
+        entry: npx @yawlabs/ctxlint .
+        language: system
+        files: ^(AGENTS\.md|CLAUDE\.md|GEMINI\.md|.*AGENTS\.md)$
+        pass_filenames: false
+        stages: [pre-commit]

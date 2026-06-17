@@ -1,0 +1,9 @@
+{
+  "name": "sqlseed-doc-sync",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Doc-sync tooling for sqlseed (ctxlint for context file validation)",
+  "devDependencies": {
+    "@yawlabs/ctxlint": "^0.9.19"
+  }
+}
