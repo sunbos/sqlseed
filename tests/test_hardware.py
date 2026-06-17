@@ -47,11 +47,11 @@ class TestHardwareDetection:
 
             result = detect_hardware()
             assert result["platform"]["system"] == "Windows"
-            assert result["ram"]["total_gb"] == 16.0
-            assert result["ram"]["available_gb"] == 8.0
+            assert result["ram"]["total_gb"] == pytest.approx(16.0)
+            assert result["ram"]["available_gb"] == pytest.approx(8.0)
             assert len(result["gpus"]) == 1
             assert result["gpus"][0]["name"] == "NVIDIA GeForce RTX 3080"
-            assert result["max_vram_gb"] == 10.0
+            assert result["max_vram_gb"] == pytest.approx(10.0)
 
     @patch("platform.system")
     def test_detect_hardware_linux(self, mock_system: MagicMock) -> None:
@@ -69,8 +69,8 @@ class TestHardwareDetection:
 
             result = detect_hardware()
             assert result["platform"]["system"] == "Linux"
-            assert result["ram"]["total_gb"] == 32.0
-            assert result["ram"]["available_gb"] == 16.0
+            assert result["ram"]["total_gb"] == pytest.approx(32.0)
+            assert result["ram"]["available_gb"] == pytest.approx(16.0)
             assert len(result["gpus"]) == 0
             assert result["max_vram_gb"] == 0
 
@@ -98,9 +98,9 @@ class TestHardwareDetection:
 
             result = detect_hardware()
             assert result["platform"]["system"] == "Darwin"
-            assert result["ram"]["total_gb"] == 8.0
+            assert result["ram"]["total_gb"] == pytest.approx(8.0)
             assert len(result["gpus"]) == 1
-            assert result["max_vram_gb"] == 8.0
+            assert result["max_vram_gb"] == pytest.approx(8.0)
 
     def test_evaluate_model_status(self) -> None:
         # 1. GPU VRAM meets recommended specs
@@ -175,7 +175,7 @@ class TestHardwareDetection:
 
             result = detect_hardware()
             assert mock_ram.call_count == 1
-            assert result["ram"]["total_gb"] == 32.0
+            assert result["ram"]["total_gb"] == pytest.approx(32.0)
 
     @patch("platform.system")
     def test_unknown_platform_returns_zeros(self, mock_system: MagicMock) -> None:
