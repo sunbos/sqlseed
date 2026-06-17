@@ -1,0 +1,61 @@
+site_name: sqlseed
+site_description: Declarative SQLite test data generation toolkit
+site_url: https://github.com/sunbos/sqlseed
+repo_url: https://github.com/sunbos/sqlseed
+repo_name: sunbos/sqlseed
+edit_uri: edit/main/docs/
+
+docs_dir: docs
+
+theme:
+  name: material
+  language: en
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+  palette:
+    - scheme: default
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+nav:
+  - Home: index.md
+  - Documentation:
+      - Architecture (EN): architecture.md
+      - Architecture (中文): architecture.zh-CN.md
+      - Gemma 4 Integration (EN): gemma4-integration.md
+      - Gemma 4 Integration (中文): gemma4-integration.zh-CN.md
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - toc:
+      permalink: true

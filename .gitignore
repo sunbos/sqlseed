@@ -69,6 +69,16 @@ examples/notebooks/batch_config.yaml
 # OS
 .DS_Store
 
+# AI agent work directories
+.agents/
+
 # Other
 .worktrees/
 .sisyphus/
+
+# Node.js (for ctxlint)
+node_modules/
+package-lock.json
+
+# mkdocs build output (deployed via GitHub Actions, not committed)
+site/
