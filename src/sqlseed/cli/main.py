@@ -369,6 +369,7 @@ def main() -> None:
 # (ai_commands imports `cli` from this module at module level).
 # NOTE: Do NOT use contextlib.suppress here — it silently swallows
 # the circular ImportError that occurs when main.py is loaded first.
+# pylint: disable=unused-import
 try:  # noqa: SIM105
     import sqlseed.cli.ai_commands  # noqa: F401
 except ImportError:

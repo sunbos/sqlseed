@@ -20,6 +20,8 @@ ROOT = Path(__file__).resolve().parent.parent
 # Import shared fact extractors from scripts/ to avoid code duplication.
 # This ensures tests validate the same logic that sync_docs.py uses.
 sys.path.insert(0, str(ROOT / "scripts"))
+# Import after sys.path manipulation — cannot be at module top.
+# pylint: disable=wrong-import-position
 from _fact_extractors import (  # noqa: E402
     get_enum_name_patterns,
     get_exact_match_rules,

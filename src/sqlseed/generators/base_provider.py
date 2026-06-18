@@ -351,6 +351,8 @@ class BaseProvider(GeneratorDispatchMixin):
     def _gen_pattern(self, *, pattern: str | None = None, regex: str | None = None) -> str:
         effective = pattern or regex or ""
         try:
+            # Optional dependency — import inside function to defer ImportError.
+            # pylint: disable=import-outside-toplevel
             import rstr as _rstr  # noqa: PLC0415
         except ImportError as err:
             raise ImportError(

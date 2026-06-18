@@ -17,7 +17,9 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _fact_extractors import collect_all_facts  # requires sys.path setup above
+# Import after sys.path manipulation — cannot be at module top.
+# pylint: disable=wrong-import-position
+from _fact_extractors import collect_all_facts
 
 ROOT = Path(__file__).resolve().parent.parent
 

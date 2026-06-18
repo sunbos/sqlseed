@@ -50,6 +50,8 @@ class GeneratorDispatchMixin:
 
 def verify_dispatch_sync() -> None:
     """Verify that GENERATOR_MAP entries match actual methods on BaseProvider."""
+    # Imports inside function to avoid circular dependency at module load time.
+    # pylint: disable=import-outside-toplevel
     from sqlseed.generators.base_provider import BaseProvider  # noqa: PLC0415
 
     for gen_name, method_name in GeneratorDispatchMixin._GENERATOR_MAP.items():

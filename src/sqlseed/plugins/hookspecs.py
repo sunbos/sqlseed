@@ -4,6 +4,10 @@ from typing import Any
 
 import pluggy
 
+# pluggy hookspec methods use placeholder parameters that are intentionally
+# unused — they define the hook signature for plugin implementers.
+# pylint: disable=unused-argument
+
 hookspec = pluggy.HookspecMarker("sqlseed")
 hookimpl = pluggy.HookimplMarker("sqlseed")
 

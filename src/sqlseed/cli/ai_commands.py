@@ -257,6 +257,8 @@ def _handle_ai_verification_streaming(
 
 
 def _write_ai_output(output: str, db_path: str, result: Any) -> None:
+    # Import inside function to avoid circular dependency.
+    # pylint: disable=import-outside-toplevel
     from sqlseed.cli.main import _sanitize_table_config  # noqa: PLC0415
 
     _sanitize_table_config(result)
