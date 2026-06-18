@@ -328,6 +328,130 @@ def sqlseed_gemma4_agent_fill(
         }
 
 
+_BACKEND_DESCRIPTIONS: dict[str, str] = {
+    "google_ai_studio": "Google AI Studio API (free tier available, recommended)",
+    "lm_studio": "LM Studio local deployment (http://127.0.0.1:1234, GUI-based)",
+    "ollama": "Ollama local deployment (offline, CLI-based)",
+    "openai_compat": "Any OpenAI-compatible API endpoint",
+}
+
+_LOCAL_BACKEND_URLS: dict[str, str] = {
+    "lm_studio": "http://127.0.0.1:1234/v1/models",
+    "ollama": "http://localhost:11434/v1/models",
+}
+
+_STATUS_ICONS: dict[str, str] = {
+    "recommended": "recommended",
+    "capable": "capable (meets minimum specs)",
+    "capable_slow": "capable but likely slow (VRAM < minimum, will use RAM offloading)",
+    "cpu_only": "CPU-only inference (no GPU detected)",
+    "insufficient": "insufficient hardware",
+    "cloud_only": "cloud API only",
+}
+
+
+def _check_local_backend(backend_id: str, url: str) -> dict[str, Any]:
+    """Check reachability and loaded models for a local LLM backend."""
+    reachable = False
+    loaded: list[str] = []
+    try:
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            data = json.loads(resp.read().decode())
+            loaded = [m.get("id", "unknown") for m in data.get("data", []) if m.get("id")]
+            reachable = True
+    except (OSError, ValueError):
+        pass
+
+    if reachable and loaded:
+        reason = f"{len(loaded)} model(s) loaded"
+    elif reachable:
+        reason = "Service running, no models loaded"
+    else:
+        reason = "Service not running"
+
+    return {
+        "id": backend_id,
+        "description": _BACKEND_DESCRIPTIONS[backend_id],
+        "available": reachable and bool(loaded),
+        "reachable": reachable,
+        "loaded_models": loaded,
+        "reason": reason,
+    }
+
+
+def _build_backends(ai_config: Any) -> list[dict[str, Any]]:
+    """Build the list of backend availability info."""
+    backends: list[dict[str, Any]] = []
+
+    # Google AI Studio: check API key
+    has_api_key = ai_config.has_real_api_key
+    backends.append(
+        {
+            "id": "google_ai_studio",
+            "description": _BACKEND_DESCRIPTIONS["google_ai_studio"],
+            "available": has_api_key,
+            "reason": "API key configured" if has_api_key else "No API key (set GOOGLE_API_KEY or SQLSEED_AI_API_KEY)",
+        }
+    )
+
+    # LM Studio / Ollama: check service reachability + loaded models
+    for backend_id, url in _LOCAL_BACKEND_URLS.items():
+        backends.append(_check_local_backend(backend_id, url))
+
+    # OpenAI-compatible: informational only
+    backends.append(
+        {
+            "id": "openai_compat",
+            "description": _BACKEND_DESCRIPTIONS["openai_compat"],
+            "available": False,
+            "reason": "Requires explicit base_url configuration",
+        }
+    )
+    return backends
+
+
+def _build_models(hw: dict[str, Any]) -> list[dict[str, Any]]:
+    """Build the list of Gemma models with hardware compatibility status."""
+    models = []
+    for member in GemmaModel:
+        status = evaluate_model_status(member.value, hw)
+        req = MODEL_REQUIREMENTS.get(member.value)
+        models.append(
+            {
+                "id": member.value,
+                "display_name": member.display_name,
+                "status": status,
+                "status_description": _STATUS_ICONS.get(status, status),
+                "local_only": member.is_local_only,
+                "requirements": {
+                    "min_ram_gb": req.min_ram_gb if req else 0,
+                    "min_vram_gb": req.min_vram_gb if req else 0,
+                    "recommended_vram_gb": req.recommended_vram_gb if req else 0,
+                },
+            }
+        )
+    return models
+
+
+def _pick_default_model(models: list[dict[str, Any]]) -> str:
+    """Pick the largest capable model (iterate from largest to smallest)."""
+    for m in reversed(models):
+        if m["status"] in {"recommended", "capable"} and not m["local_only"]:
+            return str(m["id"])
+    return GemmaModel.GEMMA_4_26B_A4B.value
+
+
+def _pick_default_backend(backends: list[dict[str, Any]]) -> str:
+    """Pick the first available backend, preferring local over cloud."""
+    priority = ["lm_studio", "ollama", "google_ai_studio", "openai_compat"]
+    for b_id in priority:
+        for b in backends:
+            if b["id"] == b_id and b.get("available"):
+                return b_id
+    return "google_ai_studio"
+
+
 @mcp.tool()
 def sqlseed_list_gemma_models() -> dict[str, Any]:
     """List Gemma 4 models with hardware compatibility and backend availability.
@@ -336,18 +460,11 @@ def sqlseed_list_gemma_models() -> dict[str, Any]:
     and checks which LLM backends are reachable. Returns models annotated
     with compatibility status and backends annotated with availability.
     """
-    backend_descriptions: dict[str, str] = {
-        "google_ai_studio": "Google AI Studio API (free tier available, recommended)",
-        "lm_studio": "LM Studio local deployment (http://127.0.0.1:1234, GUI-based)",
-        "ollama": "Ollama local deployment (offline, CLI-based)",
-        "openai_compat": "Any OpenAI-compatible API endpoint",
-    }
-
     if not _AI_AVAILABLE:
         return {
             "models": [],
             "backends": [
-                {"id": bid, "description": desc, "available": False} for bid, desc in backend_descriptions.items()
+                {"id": bid, "description": desc, "available": False} for bid, desc in _BACKEND_DESCRIPTIONS.items()
             ],
             "hardware": {},
             "error": "sqlseed-ai plugin not installed. Install with: pip install sqlseed-ai",
@@ -358,112 +475,14 @@ def sqlseed_list_gemma_models() -> dict[str, Any]:
 
     # ── 2. Check backend availability ──
     ai_config = AIConfig.from_env()
-    backends_result = []
-
-    # Google AI Studio: check API key
-    has_api_key = ai_config.has_real_api_key
-    backends_result.append(
-        {
-            "id": "google_ai_studio",
-            "description": backend_descriptions["google_ai_studio"],
-            "available": has_api_key,
-            "reason": "API key configured" if has_api_key else "No API key (set GOOGLE_API_KEY or SQLSEED_AI_API_KEY)",
-        }
-    )
-
-    # LM Studio / Ollama: check service reachability + loaded models
-    local_urls: dict[str, str] = {
-        "lm_studio": "http://127.0.0.1:1234/v1/models",
-        "ollama": "http://localhost:11434/v1/models",
-    }
-    for backend_id, url in local_urls.items():
-        reachable = False
-        loaded: list[str] = []
-        try:
-            req = urllib.request.Request(url)
-            with urllib.request.urlopen(req, timeout=3) as resp:
-                data = json.loads(resp.read().decode())
-                loaded = [m.get("id", "unknown") for m in data.get("data", []) if m.get("id")]
-                reachable = True
-        except (OSError, ValueError):
-            pass
-
-        if reachable and loaded:
-            reason = f"{len(loaded)} model(s) loaded"
-        elif reachable:
-            reason = "Service running, no models loaded"
-        else:
-            reason = "Service not running"
-
-        backends_result.append(
-            {
-                "id": backend_id,
-                "description": backend_descriptions[backend_id],
-                "available": reachable and bool(loaded),
-                "reachable": reachable,
-                "loaded_models": loaded,
-                "reason": reason,
-            }
-        )
-
-    # OpenAI-compatible: informational only
-    backends_result.append(
-        {
-            "id": "openai_compat",
-            "description": backend_descriptions["openai_compat"],
-            "available": False,
-            "reason": "Requires explicit base_url configuration",
-        }
-    )
+    backends_result = _build_backends(ai_config)
 
     # ── 3. Build model list with compatibility status ──
-    status_icons: dict[str, str] = {
-        "recommended": "recommended",
-        "capable": "capable (meets minimum specs)",
-        "capable_slow": "capable but likely slow (VRAM < minimum, will use RAM offloading)",
-        "cpu_only": "CPU-only inference (no GPU detected)",
-        "insufficient": "insufficient hardware",
-        "cloud_only": "cloud API only",
-    }
+    models = _build_models(hw)
 
-    models = []
-    for member in GemmaModel:
-        status = evaluate_model_status(member.value, hw)
-        model_req = MODEL_REQUIREMENTS.get(member.value, {})
-        models.append(
-            {
-                "id": member.value,
-                "display_name": member.display_name,
-                "status": status,
-                "status_description": status_icons.get(status, status),
-                "local_only": member.is_local_only,
-                "requirements": {
-                    "min_ram_gb": model_req.get("min_ram_gb", 0),
-                    "min_vram_gb": model_req.get("min_vram_gb", 0),
-                    "recommended_vram_gb": model_req.get("recommended_vram_gb", 0),
-                },
-            }
-        )
-
-    # ── 4. Determine best default ──
-    # Pick the largest capable model (iterate from largest to smallest)
-    default_model = GemmaModel.GEMMA_4_26B_A4B.value
-    for m in reversed(models):
-        if m["status"] in ("recommended", "capable") and not m["local_only"]:
-            default_model = str(m["id"])
-            break
-
-    # Pick the first available backend (prefer local over cloud)
-    default_backend = "google_ai_studio"
-    backend_priority = ["lm_studio", "ollama", "google_ai_studio", "openai_compat"]
-    for b_id in backend_priority:
-        for b in backends_result:
-            if b["id"] == b_id and b.get("available"):
-                default_backend = b_id
-                break
-        else:
-            continue
-        break
+    # ── 4. Determine best defaults ──
+    default_model = _pick_default_model(models)
+    default_backend = _pick_default_backend(backends_result)
 
     return {
         "models": models,

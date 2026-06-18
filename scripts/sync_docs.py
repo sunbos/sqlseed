@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _fact_extractors import collect_all_facts
+from _fact_extractors import collect_all_facts  # requires sys.path setup above
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -44,8 +44,16 @@ FACT_FORMATTERS: dict[str, object] = {
 def find_markdown_files() -> list[Path]:
     """Find all markdown files in the project (excluding build/cache dirs)."""
     exclude_dirs = {
-        ".git", "node_modules", "__pycache__", ".venv", "venv", "site", "superpowers",
-        ".pytest_cache", ".ruff_cache", ".mypy_cache",
+        ".git",
+        "node_modules",
+        "__pycache__",
+        ".venv",
+        "venv",
+        "site",
+        "superpowers",
+        ".pytest_cache",
+        ".ruff_cache",
+        ".mypy_cache",
     }
     files: list[Path] = []
     for p in ROOT.rglob("*.md"):

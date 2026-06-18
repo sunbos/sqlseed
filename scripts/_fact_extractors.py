@@ -150,34 +150,36 @@ def get_hook_names() -> set[str]:
     return hooks
 
 
+def _extract_func_name(def_line: str) -> str | None:
+    """Extract function name from a 'def ...' or 'async def ...' line."""
+    prefix = "async def " if def_line.startswith("async def ") else "def "
+    if not def_line.startswith(prefix):
+        return None
+    rest = def_line[len(prefix) :]
+    name = ""
+    for ch in rest:
+        if ch.isalnum() or ch == "_":
+            name += ch
+        else:
+            break
+    return name if name else None
+
+
 def get_mcp_tool_names() -> list[str]:
     """Extract MCP tool function names from server.py."""
-    code = _read(
-        ROOT
-        / "plugins"
-        / "mcp-server-sqlseed"
-        / "src"
-        / "mcp_server_sqlseed"
-        / "server.py"
-    )
+    code = _read(ROOT / "plugins" / "mcp-server-sqlseed" / "src" / "mcp_server_sqlseed" / "server.py")
     tools: list[str] = []
     lines = code.splitlines()
     for i, line in enumerate(lines):
-        if "@mcp.tool()" in line:
-            for j in range(i + 1, min(i + 5, len(lines))):
-                def_line = lines[j].strip()
-                if def_line.startswith("def ") or def_line.startswith("async def "):
-                    prefix = "async def " if def_line.startswith("async def ") else "def "
-                    rest = def_line[len(prefix) :]
-                    name = ""
-                    for ch in rest:
-                        if ch.isalnum() or ch == "_":
-                            name += ch
-                        else:
-                            break
-                    if name:
-                        tools.append(name)
-                    break
+        if "@mcp.tool()" not in line:
+            continue
+        for j in range(i + 1, min(i + 5, len(lines))):
+            def_line = lines[j].strip()
+            if def_line.startswith("def ") or def_line.startswith("async def "):
+                name = _extract_func_name(def_line)
+                if name:
+                    tools.append(name)
+                break
     return tools
 
 

@@ -117,6 +117,33 @@ class EnrichmentEngine:
 
         return null_ratio, non_null_values
 
+    def _build_enum_spec(
+        self,
+        col_info: Any,
+        distinct_values: list[Any],
+        null_ratio: float,
+    ) -> GeneratorSpec:
+        """Build a choice generator spec for an enumeration column."""
+        choices = distinct_values
+        if col_info and "INT" in col_info.type.upper():
+
+            def _safe_int(v: Any) -> Any:
+                if isinstance(v, (int, float)):
+                    return int(v)
+                if isinstance(v, str):
+                    try:
+                        return int(v)
+                    except ValueError:
+                        return v
+                return v
+
+            choices = [_safe_int(v) for v in choices]
+        return GeneratorSpec(
+            generator_name="choice",
+            params={"choices": choices},
+            null_ratio=null_ratio,
+        )
+
     def _build_enriched_spec(
         self,
         table_name: str,
@@ -145,25 +172,7 @@ class EnrichmentEngine:
         row_count = self._db.get_row_count(table_name)
 
         if self.is_enumeration_column(col_name, col_info, distinct_count, row_count, is_unique):
-            choices = distinct_values
-            if col_info and "INT" in col_info.type.upper():
-
-                def _safe_int(v: Any) -> Any:
-                    if isinstance(v, (int, float)):
-                        return int(v)
-                    if isinstance(v, str):
-                        try:
-                            return int(v)
-                        except ValueError:
-                            return v
-                    return v
-
-                choices = [_safe_int(v) for v in choices]
-            return GeneratorSpec(
-                generator_name="choice",
-                params={"choices": choices},
-                null_ratio=null_ratio,
-            )
+            return self._build_enum_spec(col_info, distinct_values, null_ratio)
 
         if col_info:
             fallback_spec = self._mapper.map_column(col_info, force_type_infer=True)

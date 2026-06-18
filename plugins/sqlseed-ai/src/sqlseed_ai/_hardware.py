@@ -13,7 +13,7 @@ import json
 import platform
 import subprocess
 import time
-from typing import Any
+from typing import Any, NamedTuple
 
 from sqlseed._utils.logger import get_logger
 
@@ -67,11 +67,11 @@ def _get_ram_windows() -> tuple[float, float] | None:
 def _get_ram_linux() -> tuple[float, float] | None:
     """Get RAM from /proc/meminfo. Returns (total_gb, available_gb)."""
     try:
-        with open("/proc/meminfo") as f:
+        with open("/proc/meminfo", encoding="utf-8") as f:
             info: dict[str, int] = {}
             for line in f:
                 parts = line.split()
-                if parts[0] in ("MemTotal:", "MemAvailable:"):
+                if parts[0] in {"MemTotal:", "MemAvailable:"}:
                     info[parts[0].rstrip(":")] = int(parts[1])  # in kB
             total = info.get("MemTotal", 0) / (1024**2)
             avail = info.get("MemAvailable", 0) / (1024**2)
@@ -214,7 +214,7 @@ def _detect_gpu_macos() -> list[dict[str, Any]]:
                 }
             )
         return gpus
-    except (FileNotFoundError, json.JSONDecodeError, subprocess.TimeoutExpired, ValueError):
+    except (FileNotFoundError, ValueError, subprocess.TimeoutExpired):
         return []
 
 
@@ -275,32 +275,22 @@ def detect_hardware() -> dict[str, Any]:
 # ── Model requirements ───────────────────────────────────────────────
 
 # Approximate requirements for Gemma 4 (Q4_K_M quantized for local inference)
-MODEL_REQUIREMENTS: dict[str, dict[str, Any]] = {
-    "gemma-4-e2b-it": {
-        "min_ram_gb": 4,
-        "min_vram_gb": 2,
-        "recommended_vram_gb": 4,
-    },
-    "gemma-4-e4b-it": {
-        "min_ram_gb": 6,
-        "min_vram_gb": 3,
-        "recommended_vram_gb": 6,
-    },
-    "gemma-4-12b-it": {
-        "min_ram_gb": 12,
-        "min_vram_gb": 8,
-        "recommended_vram_gb": 10,
-    },
-    "gemma-4-26b-a4b-it": {
-        "min_ram_gb": 16,
-        "min_vram_gb": 14,
-        "recommended_vram_gb": 16,
-    },
-    "gemma-4-31b-it": {
-        "min_ram_gb": 24,
-        "min_vram_gb": 18,
-        "recommended_vram_gb": 24,
-    },
+
+
+class ModelRequirement(NamedTuple):
+    """Hardware requirements for a local model variant."""
+
+    min_ram_gb: int
+    min_vram_gb: int
+    recommended_vram_gb: int
+
+
+MODEL_REQUIREMENTS: dict[str, ModelRequirement] = {
+    "gemma-4-e2b-it": ModelRequirement(min_ram_gb=4, min_vram_gb=2, recommended_vram_gb=4),
+    "gemma-4-e4b-it": ModelRequirement(min_ram_gb=6, min_vram_gb=3, recommended_vram_gb=6),
+    "gemma-4-12b-it": ModelRequirement(min_ram_gb=12, min_vram_gb=8, recommended_vram_gb=10),
+    "gemma-4-26b-a4b-it": ModelRequirement(min_ram_gb=16, min_vram_gb=14, recommended_vram_gb=16),
+    "gemma-4-31b-it": ModelRequirement(min_ram_gb=24, min_vram_gb=18, recommended_vram_gb=24),
 }
 
 
@@ -325,12 +315,12 @@ def evaluate_model_status(
     max_vram = hw.get("max_vram_gb", 0)
     total_ram = hw.get("ram", {}).get("total_gb", 0)
 
-    if max_vram >= req["recommended_vram_gb"]:
+    if max_vram >= req.recommended_vram_gb:
         return "recommended"
-    if max_vram >= req["min_vram_gb"]:
+    if max_vram >= req.min_vram_gb:
         return "capable"
-    if total_ram >= req["min_ram_gb"] and max_vram == 0:
+    if total_ram >= req.min_ram_gb and max_vram == 0:
         return "cpu_only"
-    if total_ram >= req["min_ram_gb"]:
+    if total_ram >= req.min_ram_gb:
         return "capable_slow"
     return "insufficient"

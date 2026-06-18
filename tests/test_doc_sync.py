@@ -10,12 +10,25 @@ updating — not that the code is wrong.
 from __future__ import annotations
 
 import re
+import sys
 from pathlib import Path
 
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 
+# Import shared fact extractors from scripts/ to avoid code duplication.
+# This ensures tests validate the same logic that sync_docs.py uses.
+sys.path.insert(0, str(ROOT / "scripts"))
+from _fact_extractors import (  # noqa: E402
+    get_enum_name_patterns,
+    get_exact_match_rules,
+    get_generator_types,
+    get_hook_names,
+    get_mcp_tool_names,
+    get_pattern_match_rules,
+    get_safe_functions,
+)
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
@@ -139,183 +152,7 @@ def _extract_number_before_keyword(text: str, keywords: list[str]) -> list[str]:
     return results
 
 
-def _extract_quoted_key(line: str) -> str | None:
-    """Extract the first quoted key from a line like '  "name": ...'."""
-    first_q = line.find('"')
-    if first_q == -1:
-        return None
-    second_q = line.find('"', first_q + 1)
-    if second_q == -1:
-        return None
-    return line[first_q + 1 : second_q]
-
-
-# ── Source Code Fact Extractors (pure string operations) ─────────────
-
-
-def _get_generator_types() -> set[str]:
-    """Extract generator type names from _GENERATOR_MAP."""
-    code = _read(ROOT / "src" / "sqlseed" / "generators" / "_dispatch.py")
-    names: set[str] = set()
-    marker = '"_gen_'
-    for line in code.splitlines():
-        idx = line.find(marker)
-        if idx == -1:
-            continue
-        key = _extract_quoted_key(line[:idx])
-        if key:
-            names.add(key)
-    return names
-
-
-def _get_exact_match_rules() -> dict[str, str]:
-    """Extract exact match rules from mapper."""
-    code = _read(ROOT / "src" / "sqlseed" / "core" / "mapper.py")
-    rules: dict[str, str] = {}
-    in_dict = False
-    for line in code.splitlines():
-        stripped = line.strip()
-        if "EXACT_MATCH_RULES" in line:
-            in_dict = True
-            continue
-        if in_dict:
-            if stripped.startswith("}"):
-                break
-            # Parse "key": "value" pairs
-            parts = stripped.split('": "')
-            if len(parts) == 2:
-                key = parts[0].lstrip('" ')
-                value = parts[1].rstrip('",')
-                rules[key] = value
-    return rules
-
-
-def _get_safe_functions() -> set[str]:
-    """Extract function names from ExpressionEngine.SAFE_FUNCTIONS."""
-    code = _read(ROOT / "src" / "sqlseed" / "core" / "expression.py")
-    # Find the SAFE_FUNCTIONS dict body
-    marker = "SAFE_FUNCTIONS"
-    start = code.find(marker)
-    if start == -1:
-        return set()
-    brace_start = code.find("{", start)
-    if brace_start == -1:
-        return set()
-    brace_end = code.find("}", brace_start)
-    body = code[brace_start + 1 : brace_end] if brace_end != -1 else code[brace_start + 1 :]
-
-    funcs: set[str] = set()
-    for line in body.splitlines():
-        key = _extract_quoted_key(line)
-        # Only string keys starting with a lowercase letter (skip numeric like "0")
-        if key and key[0].islower() and not key.isdigit():
-            funcs.add(key)
-    return funcs
-
-
-def _get_pattern_match_rules() -> list[tuple[str, ...]]:
-    """Extract pattern match rules from mapper.
-
-    PATTERN_MATCH_RULES is a tuple of (pattern, generator, params) tuples.
-    Some tuples span multiple lines (the '(' may be on its own line).
-    We count rules by detecting the regex pattern (r"...") which every
-    rule has exactly one of.
-    """
-    code = _read(ROOT / "src" / "sqlseed" / "core" / "mapper.py")
-    rules: list[tuple[str, ...]] = []
-    in_tuple = False
-    for line in code.splitlines():
-        stripped = line.strip()
-        if "PATTERN_MATCH_RULES" in line and "=" in line:
-            in_tuple = True
-            continue
-        if not in_tuple:
-            continue
-        # End of the tuple (line is just ')')
-        if stripped == ")":
-            break
-        # Each rule has exactly one regex pattern starting with r"
-        # It may appear as (r"..." or r"..." (multi-line tuple continuation)
-        idx = stripped.find('r"')
-        if idx != -1:
-            second_q = stripped.find('"', idx + 2)
-            if second_q != -1:
-                rules.append((stripped[idx + 2 : second_q],))
-    return rules
-
-
-def _get_enum_name_patterns() -> list[str]:
-    """Extract enum name patterns from enrichment.
-
-    ENUM_NAME_PATTERNS is a ClassVar[list[str]] with one regex per line.
-    """
-    code = _read(ROOT / "src" / "sqlseed" / "core" / "enrichment.py")
-    patterns: list[str] = []
-    in_list = False
-    for line in code.splitlines():
-        stripped = line.strip()
-        if "ENUM_NAME_PATTERNS" in line and "=" in line:
-            in_list = True
-            continue
-        if not in_list:
-            continue
-        if stripped == "]":
-            break
-        # Extract the quoted regex string
-        first_q = stripped.find('"')
-        if first_q != -1:
-            second_q = stripped.find('"', first_q + 1)
-            if second_q != -1:
-                patterns.append(stripped[first_q + 1 : second_q])
-    return patterns
-
-
-def _get_mcp_tool_names() -> list[str]:
-    """Extract MCP tool function names from server.py.
-
-    Looks for @mcp.tool() decorated functions.
-    """
-    code = _read(ROOT / "plugins" / "mcp-server-sqlseed" / "src" / "mcp_server_sqlseed" / "server.py")
-    tools: list[str] = []
-    lines = code.splitlines()
-    for i, line in enumerate(lines):
-        if "@mcp.tool()" in line:
-            # Next non-empty line should be the def
-            for j in range(i + 1, min(i + 5, len(lines))):
-                def_line = lines[j].strip()
-                if def_line.startswith("def ") or def_line.startswith("async def "):
-                    prefix = "async def " if def_line.startswith("async def ") else "def "
-                    rest = def_line[len(prefix) :]
-                    name = ""
-                    for ch in rest:
-                        if ch.isalnum() or ch == "_":
-                            name += ch
-                        else:
-                            break
-                    if name:
-                        tools.append(name)
-                    break
-    return tools
-
-
-def _get_hook_names() -> set[str]:
-    """Extract hook function names from hookspecs."""
-    code = _read(ROOT / "src" / "sqlseed" / "plugins" / "hookspecs.py")
-    hooks: set[str] = set()
-    marker = "def sqlseed_"
-    for line in code.splitlines():
-        idx = line.find(marker)
-        if idx == -1:
-            continue
-        rest = line[idx + len(marker) :]
-        name = "sqlseed_"
-        for ch in rest:
-            if ch.isalnum() or ch == "_":
-                name += ch
-            else:
-                break
-        hooks.add(name)
-    return hooks
+# ── Test-specific extractors (not shared with sync_docs.py) ──────────
 
 
 def _get_config_fields(cls_name: str) -> set[str]:
@@ -371,7 +208,7 @@ class TestGeneratorTypes:
     """Verify generator type count matches documentation."""
 
     def test_count_in_readme(self):
-        generators = _get_generator_types()
+        generators = get_generator_types()
         count = len(generators)
 
         # Only check files that claim to list total generator count
@@ -389,7 +226,7 @@ class TestGeneratorTypes:
 
     def test_new_types_documented(self):
         """Every generator in _GENERATOR_MAP should appear in README."""
-        generators = _get_generator_types()
+        generators = get_generator_types()
         readme = _read(ROOT / "README.md")
 
         for gen in sorted(generators):
@@ -402,7 +239,7 @@ class TestExactMatchRules:
     """Verify exact match rule count matches documentation."""
 
     def test_count_in_docs(self):
-        rules = _get_exact_match_rules()
+        rules = get_exact_match_rules()
         rule_count = len(rules)
 
         # Primary protection: verify AUTO-GENERATED marker values.
@@ -431,7 +268,7 @@ class TestExpressionFunctions:
     """Verify SAFE_FUNCTIONS count matches documentation."""
 
     def test_count_in_docs(self):
-        functions = _get_safe_functions()
+        functions = get_safe_functions()
         count = len(functions)
 
         for doc_path in _find_doc_files():
@@ -448,7 +285,7 @@ class TestPluginHooks:
     """Verify hook count matches documentation."""
 
     def test_count_in_docs(self):
-        hooks = _get_hook_names()
+        hooks = get_hook_names()
         count = len(hooks)
 
         for doc_path in _find_doc_files():
@@ -525,7 +362,7 @@ class TestPatternMatchRules:
     """Verify pattern match rule count matches documentation."""
 
     def test_count_in_docs(self):
-        rules = _get_pattern_match_rules()
+        rules = get_pattern_match_rules()
         rule_count = len(rules)
 
         # Primary protection: verify AUTO-GENERATED marker values.
@@ -555,7 +392,7 @@ class TestEnumNamePatterns:
     """Verify enum name pattern count matches documentation."""
 
     def test_count_in_docs(self):
-        patterns = _get_enum_name_patterns()
+        patterns = get_enum_name_patterns()
         count = len(patterns)
 
         for doc_path in _find_doc_files():
@@ -569,7 +406,7 @@ class TestMcpToolNames:
     """Verify MCP tool names match documentation."""
 
     def test_tools_documented(self):
-        tools = _get_mcp_tool_names()
+        tools = get_mcp_tool_names()
         readme = _read(ROOT / "plugins" / "mcp-server-sqlseed" / "README.md")
         for tool in tools:
             assert tool in readme, f"MCP tool '{tool}' not mentioned in mcp-server-sqlseed README.md"
