@@ -34,6 +34,17 @@ class IndexInfo:
 
 @runtime_checkable
 class DatabaseAdapter(Protocol):
+    """数据库适配器协议。
+
+    阶段 1 新增 dialect 和 bulk_optimizer 可选属性。
+    现有 RawSQLiteAdapter/SQLiteUtilsAdapter 暂未实现这两个属性，
+    上层代码通过 ``hasattr(adapter, "dialect")`` 判断是否支持。
+    阶段 2 引入 SQLAlchemyAdapter 后将完整实现这两个属性。
+
+    注：Protocol 的属性会参与 mypy 类型检查，因此不在此处声明，
+    改为在 SQLAlchemyAdapter 中显式实现，并通过 hasattr() 运行时判断。
+    """
+
     def connect(self, db_path: str) -> None: ...
 
     def close(self) -> None: ...
