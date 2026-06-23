@@ -1,31 +1,33 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-04-29 | Updated: 2026-04-29 -->
 
 # _utils
 
+**Generated:** 2026-06-21
+
 ## Purpose
 
-跨模块共享的底层工具函数。包括日志、指标、进度条、缓存路径和 SQL 安全。
+Cross-module shared low-level utility functions. Includes logging, metrics, progress bars, cache paths, and SQL safety.
 
 ## Key Files
 
 | File | Description |
 |------|-------------|
-| `logger.py` | structlog 配置，`configure_logging()` 和 `get_logger()` 函数 |
-| `metrics.py` | `MetricsCollector` 性能指标收集与汇总统计 |
-| `paths.py` | `get_cache_dir(subdir)` 平台标准缓存目录（macOS/Linux/Windows），供 SnapshotManager 和 AiConfigRefiner 共用 |
-| `progress.py` | `create_progress()` rich 进度条工厂 |
-| `sql_safe.py` | SQL 注入防护：`validate_table_name()`, `quote_identifier()`, `build_insert_sql()` |
-| `schema_helpers.py` | 数据库模式检测共享逻辑（如 `detect_autoincrement`） |
+| `logger.py` | structlog configuration, `configure_logging()` and `get_logger()` functions; auto-configures on module import, outputs to stderr |
+| `metrics.py` | `MetricsCollector` performance metrics collection and aggregate statistics (count/total/min/max/avg), single-pass traversal |
+| `paths.py` | `get_cache_dir(subdir)` platform-standard cache directory (macOS/Linux/Windows), `SQLSEED_CACHE_DIR` environment variable takes highest priority, shared by SnapshotManager and AiConfigRefiner |
+| `progress.py` | `create_progress()` three-backend progress bar factory: Null (disabled) / Rich (terminal, with ASCII fallback) / tqdm (Jupyter), auto-selected by runtime environment |
+| `sql_safe.py` | SQL injection protection three layers: `validate_table_name()` / `quote_identifier()` / `build_insert_sql()`; double-quote escaping, rejects `; \n \r '` but allows `-` |
+| `schema_helpers.py` | SQLite schema detection (depends on `sqlite_master` catalog table), `detect_autoincrement` uses bracket-aware splitter to avoid splitting comma-containing definitions like `DECIMAL(10,2)` |
 
 ## For AI Agents
 
 ### Working In This Directory
 
-- `sql_safe.py` 是安全关键模块，修改需极度谨慎，任何变更必须通过安全审查
-- 日志统一使用 structlog，所有模块通过 `get_logger(__name__)` 获取，不要使用标准库 `logging`
-- 新增工具函数应考虑是否真的被多个模块共享，单模块使用的函数应放在对应模块内
-- `MetricsCollector` 使用 dataclass 存储指标条目，支持按名称过滤和汇总统计
+- `sql_safe.py` is a security-critical module; modifications require extreme caution, any changes must pass security review
+- Logging uniformly uses structlog; all modules obtain loggers via `get_logger(__name__)`, do not use the standard library `logging`
+- When adding new utility functions, consider whether they are truly shared by multiple modules; functions used by a single module should be placed in the corresponding module
+- `MetricsCollector` uses dataclass to store metric entries, supports filtering by name and aggregate statistics
+- `schema_helpers.py` only supports SQLite, depends on the `sqlite_master` catalog table, does not support other databases
 
 ### Testing Requirements
 
@@ -35,18 +37,20 @@ pytest tests/test_utils/
 
 ### Common Patterns
 
-- `get_logger(__name__)` 获取模块级 logger
-- `sql_safe` 模块提供三层防护：验证（validate）、引用（quote）、构建（build）
+- `get_logger(__name__)` obtains a module-level logger
+- `sql_safe` module provides three layers of protection: validate, quote, build
+- `create_progress()` auto-selects backend by environment: Jupyter→tqdm, terminal→Rich (ASCII fallback for GBK encoding), disabled→Null
 
 ## Dependencies
 
 ### Internal
 
-- 无（底层模块，不依赖其他内部模块）
+- None (low-level module, does not depend on other internal modules)
 
 ### External
 
-- `structlog>=24.0` — 结构化日志
-- `rich>=13.0` — 进度条
+- `structlog>=24.0` — structured logging
+- `rich>=13.0` — progress bar (terminal backend)
+- `tqdm` — progress bar (Jupyter backend, optional, installed via `sqlseed[notebook]`)
 
 <!-- MANUAL: Any manually added notes below this line are preserved on regeneration -->

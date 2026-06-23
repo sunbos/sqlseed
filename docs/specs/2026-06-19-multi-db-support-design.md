@@ -1,114 +1,114 @@
-# 多数据库支持设计文档
+# Multi-Database Support Design Document
 
-**日期**: 2026-06-19
-**状态**: 设计阶段
-**分支**: `feat/multi-db-support`（待创建）
-**目标**: 将 sqlseed 从 SQLite-only 扩展为支持 PostgreSQL（第一阶段）及更多数据库
-
----
-
-## 1. 背景与动机
-
-### 1.1 当前状态
-
-sqlseed 当前仅支持 SQLite，数据库适配层有两个实现：
-
-- `RawSQLiteAdapter` — 基于 Python 标准库 `sqlite3`
-- `SQLiteUtilsAdapter` — 基于 `sqlite-utils` 第三方库
-
-代码中深度耦合 SQLite 专属语法（`PRAGMA`、`sqlite_master`、`sqlite_sequence`、`PRAGMA table_info` 等），无法直接扩展到其他数据库。
-
-### 1.2 改造目标
-
-- 第一阶段支持 PostgreSQL，验证抽象设计是否充分
-- 保持现有 SQLite 用户体验零回归
-- 为未来支持 MySQL、DuckDB 等数据库预留扩展点
-
-### 1.3 核心约束
-
-- **主分支零改动**：所有开发在 `feat/multi-db-support` 分支进行，全部测试通过后才能合并
-- **向后兼容**：现有 API、CLI、配置文件格式不变
-- **渐进式重构**：分四个阶段，每阶段独立可验证
+**Date**: 2026-06-19
+**Status**: Design Phase
+**Branch**: `feat/multi-db-support` (to be created)
+**Goal**: Extend sqlseed from SQLite-only to support PostgreSQL (Phase 1) and more databases
 
 ---
 
-## 2. 关键决策
+## 1. Background and Motivation
 
-| 决策点 | 结论 | 理由 |
-|--------|------|------|
-| 第一阶段数据库 | PostgreSQL | 最接近标准 SQL，与 SQLite 差异最大，能充分验证抽象 |
-| 适配器策略 | SQLAlchemy 统一适配器 | 屏蔽数据库差异，减少重复代码 |
-| AI 插件 | 与数据库解耦，context 传入 dialect | AI 消费的是 `ColumnInfo` 等抽象数据结构，无需感知底层 |
-| MCP 定位 | 专注生成 + 搭配通用 MCP | 与 `mcp-server-sql` 等通用 MCP 互补 |
-| SQLAlchemy 依赖 | 核心依赖 | 简化代码路径，SQLite 方言用内置 `sqlite3` 零额外依赖 |
-| 数据库驱动 | 可选插件 | `sqlseed[postgres]`、`sqlseed[mysql]` 按需安装 |
-| sqlite-utils | 退役 | sqlseed 仅用其 10% 功能，SQLAlchemy 完全覆盖 |
-| 实现路径 | 渐进式重构（方案 A） | 风险最低，每阶段独立可验证 |
+### 1.1 Current State
+
+sqlseed currently supports only SQLite. The database adapter layer has two implementations:
+
+- `RawSQLiteAdapter` — based on Python standard library `sqlite3`
+- `SQLiteUtilsAdapter` — based on the `sqlite-utils` third-party library
+
+The code is deeply coupled with SQLite-specific syntax (`PRAGMA`, `sqlite_master`, `sqlite_sequence`, `PRAGMA table_info`, etc.) and cannot be directly extended to other databases.
+
+### 1.2 Refactoring Goals
+
+- Phase 1 supports PostgreSQL to validate whether the abstraction design is sufficient
+- Maintain zero regression for existing SQLite user experience
+- Reserve extension points for future support of MySQL, DuckDB, and other databases
+
+### 1.3 Core Constraints
+
+- **Zero changes to main branch**: All development occurs on the `feat/multi-db-support` branch; merging is only allowed after all tests pass
+- **Backward compatibility**: Existing API, CLI, and configuration file formats remain unchanged
+- **Progressive refactoring**: Four phases, each independently verifiable
 
 ---
 
-## 3. 依赖模型
+## 2. Key Decisions
 
-### 3.1 安装方式
+| Decision Point | Conclusion | Rationale |
+|----------------|------------|----------|
+| Phase 1 Database | PostgreSQL | Closest to standard SQL, most different from SQLite, fully validates the abstraction |
+| Adapter Strategy | SQLAlchemy unified adapter | Shields database differences, reduces duplicate code |
+| AI Plugin | Decoupled from database, dialect passed via context | AI consumes abstract data structures like `ColumnInfo`, no need to be aware of the underlying layer |
+| MCP Positioning | Focus on generation + pair with general MCP | Complementary to general MCPs like `mcp-server-sql` |
+| SQLAlchemy Dependency | Core dependency | Simplifies code path; SQLite dialect uses built-in `sqlite3` with zero extra dependencies |
+| Database Driver | Optional plugin | `sqlseed[postgres]`, `sqlseed[mysql]` installed on demand |
+| sqlite-utils | Retired | sqlseed uses only 10% of its functionality; SQLAlchemy fully covers it |
+| Implementation Path | Progressive refactoring (Option A) | Lowest risk, each phase independently verifiable |
+
+---
+
+## 3. Dependency Model
+
+### 3.1 Installation Methods
 
 ```bash
-# SQLite 开箱即用（SQLAlchemy 的 SQLite 方言用内置 sqlite3）
+# SQLite out of the box (SQLAlchemy's SQLite dialect uses built-in sqlite3)
 pip install sqlseed
 
-# PostgreSQL 支持
+# PostgreSQL support
 pip install sqlseed[postgres]
 
-# MySQL 支持（未来）
+# MySQL support (future)
 pip install sqlseed[mysql]
 
-# 所有数据库 + 生成器
+# All databases + generators
 pip install sqlseed[all]
 ```
 
-### 3.2 驱动缺失处理
+### 3.2 Driver Missing Handling
 
-当用户连接未安装驱动的数据库时，SQLAlchemy 抛出 `NoSuchModuleError`，sqlseed 捕获后给出友好提示：
+When a user connects to a database without the driver installed, SQLAlchemy raises `NoSuchModuleError`. sqlseed catches it and provides a friendly message:
 
 ```
 RuntimeError: PostgreSQL driver not installed.
 Install with: pip install sqlseed[postgres]
 ```
 
-### 3.3 依赖变化
+### 3.3 Dependency Changes
 
-| 依赖 | 阶段 1 | 阶段 2 | 阶段 3 | 阶段 4 |
-|------|--------|--------|--------|--------|
-| `sqlalchemy>=2.0` | - | 核心 | 核心 | 核心 |
-| `psycopg[binary]>=3.0` | - | - | 可选[postgres] | 可选[postgres] |
-| `sqlite-utils` | 可选 | 可选 | 可选 | **移除** |
-| `faker` | 可选 | 可选 | 可选 | 可选 |
-| `mimesis` | 可选 | 可选 | 可选 | 可选 |
+| Dependency | Phase 1 | Phase 2 | Phase 3 | Phase 4 |
+|------------|---------|---------|---------|---------|
+| `sqlalchemy>=2.0` | - | core | core | core |
+| `psycopg[binary]>=3.0` | - | - | optional[postgres] | optional[postgres] |
+| `sqlite-utils` | optional | optional | optional | **removed** |
+| `faker` | optional | optional | optional | optional |
+| `mimesis` | optional | optional | optional | optional |
 
 ---
 
-## 4. 数据库层架构
+## 4. Database Layer Architecture
 
-### 4.1 目录结构
+### 4.1 Directory Structure
 
 ```
 src/sqlseed/database/
-├── _protocol.py            # DatabaseAdapter 协议（演进）
-├── _dialect.py             # 新增：Dialect 协议 + 各方言实现
-├── _type_normalizer.py     # 新增：TypeNormalizer 类型归一化
-├── _bulk_optimizer.py      # 新增：BulkWriteOptimizer 协议 + 各方言实现
-├── sqlalchemy_adapter.py   # 新增：SQLAlchemyAdapter
-├── raw_sqlite_adapter.py   # 阶段 1-3 保留；阶段 4 可选保留作为无 SQLAlchemy 回退
-├── sqlite_utils_adapter.py # 阶段 1-3 保留；阶段 4 删除
-├── optimizer.py            # 保留，SQLiteBulkOptimizer 内部委托给它
-├── _base_adapter.py        # 阶段 1-3 保留；阶段 4 评估是否重构
-├── _helpers.py             # 保留
-├── _compat.py              # 阶段 1-3 保留；阶段 4 删除（随 sqlite_utils_adapter 退役）
-└── __init__.py             # 导出更新
+├── _protocol.py            # DatabaseAdapter protocol (evolving)
+├── _dialect.py             # New: Dialect protocol + dialect implementations
+├── _type_normalizer.py     # New: TypeNormalizer type normalization
+├── _bulk_optimizer.py      # New: BulkWriteOptimizer protocol + dialect implementations
+├── sqlalchemy_adapter.py   # New: SQLAlchemyAdapter
+├── raw_sqlite_adapter.py   # Kept in Phase 1-3; in Phase 4 optionally kept as no-SQLAlchemy fallback
+├── sqlite_utils_adapter.py # Kept in Phase 1-3; deleted in Phase 4
+├── optimizer.py            # Kept; SQLiteBulkOptimizer internally delegates to it
+├── _base_adapter.py        # Kept in Phase 1-3; evaluate refactoring in Phase 4
+├── _helpers.py             # Kept
+├── _compat.py              # Kept in Phase 1-3; deleted in Phase 4 (along with sqlite_utils_adapter retirement)
+└── __init__.py             # Updated exports
 ```
 
-### 4.2 Dialect 协议
+### 4.2 Dialect Protocol
 
-封装各数据库的专属行为，让上层代码无需感知底层方言。
+Encapsulates database-specific behavior so upper-layer code does not need to be aware of the underlying dialect.
 
 ```python
 # _dialect.py
@@ -119,26 +119,26 @@ from collections.abc import Callable
 
 @runtime_checkable
 class Dialect(Protocol):
-    """数据库方言抽象，封装各数据库的专属行为"""
+    """Database dialect abstraction, encapsulating database-specific behavior"""
 
     name: str  # "sqlite", "postgresql", "mysql"
 
     def normalize_type(self, raw_type: str) -> str:
-        """将数据库原始类型名归一化为 sqlseed 内部类型
+        """Normalize the database raw type name to sqlseed internal type
         SQLite: "TEXT" → "TEXT", "INTEGER" → "INTEGER"
         PG: "character varying(255)" → "VARCHAR(255)"
         """
         ...
 
     def detect_autoincrement(self, column_info: dict) -> bool:
-        """检测列是否自增
-        SQLite: 解析 CREATE TABLE 找 AUTOINCREMENT
-        PG: 检测 SERIAL / IDENTITY / nextval()
+        """Detect whether a column is auto-incrementing
+        SQLite: parse CREATE TABLE to find AUTOINCREMENT
+        PG: detect SERIAL / IDENTITY / nextval()
         """
         ...
 
     def reset_autoincrement(self, execute_fn: Callable[..., object], table_name: str) -> None:
-        """重置自增计数器
+        """Reset the auto-increment counter
         SQLite: DELETE FROM sqlite_sequence
         PG: TRUNCATE ... RESTART IDENTITY / ALTER SEQUENCE
         MySQL: ALTER TABLE ... AUTO_INCREMENT = 1
@@ -146,38 +146,38 @@ class Dialect(Protocol):
         ...
 
     def quote_identifier(self, name: str) -> str:
-        """引用标识符
+        """Quote an identifier
         SQLite/PG: "name"
         MySQL: `name`
         """
         ...
 
     def create_batch_inserter(self, engine: object, table_name: str) -> BatchInserter:
-        """创建批量写入器
+        """Create a batch writer
         SQLite: SQLAlchemy bulk_insert_mappings
-        PG: psycopg3 COPY 协议（比 INSERT 快 5-10x）
+        PG: psycopg3 COPY protocol (5-10x faster than INSERT)
         """
         ...
 
 
 class BatchInserter(Protocol):
-    """批量写入器接口"""
+    """Batch writer interface"""
     def insert(self, rows: list[dict]) -> int: ...
 ```
 
-### 4.3 SQLiteDialect 实现
+### 4.3 SQLiteDialect Implementation
 
 ```python
 class SQLiteDialect:
     name = "sqlite"
 
     def normalize_type(self, raw_type: str) -> str:
-        # SQLite 类型已经是规范化的大写形式
+        # SQLite types are already in normalized uppercase form
         return raw_type.upper() if raw_type else "TEXT"
 
     def detect_autoincrement(self, column_info: dict) -> bool:
-        # 委托给现有的 schema_helpers.detect_autoincrement
-        # 解析 CREATE TABLE SQL 找 AUTOINCREMENT 关键字
+        # Delegate to existing schema_helpers.detect_autoincrement
+        # Parse CREATE TABLE SQL to find AUTOINCREMENT keyword
         ...
 
     def reset_autoincrement(self, execute_fn, table_name: str) -> None:
@@ -191,7 +191,7 @@ class SQLiteDialect:
         return SQLAlchemyBatchInserter(engine, table_name)
 ```
 
-### 4.4 PostgresDialect 实现
+### 4.4 PostgresDialect Implementation
 
 ```python
 class PostgresDialect:
@@ -219,16 +219,16 @@ class PostgresDialect:
     }
 
     def normalize_type(self, raw_type: str) -> str:
-        # 提取基础类型和修饰符
+        # Extract base type and modifiers
         # "character varying(255)" → "VARCHAR(255)"
         # "numeric(10,2)" → "NUMERIC(10,2)"
         ...
 
     def detect_autoincrement(self, column_info: dict) -> bool:
-        # 三重检测：
-        # 1. SQLAlchemy 的 identity 属性 (GENERATED ... AS IDENTITY)
-        # 2. default 值含 nextval (SERIAL 模式)
-        # 3. autoincrement 标志 (SQLAlchemy 对整数 PK 的推断)
+        # Triple detection:
+        # 1. SQLAlchemy's identity attribute (GENERATED ... AS IDENTITY)
+        # 2. default value contains nextval (SERIAL pattern)
+        # 3. autoincrement flag (SQLAlchemy's inference for integer PKs)
         if column_info.get("identity") is not None:
             return True
         default = column_info.get("default")
@@ -239,8 +239,8 @@ class PostgresDialect:
         return False
 
     def reset_autoincrement(self, execute_fn, table_name: str) -> None:
-        # PG 重置序列：ALTER SEQUENCE <seq> RESTART WITH 1
-        # 需要先查出表对应的序列名
+        # PG reset sequence: ALTER SEQUENCE <seq> RESTART WITH 1
+        # Need to first look up the sequence name corresponding to the table
         ...
 
     def quote_identifier(self, name: str) -> str:
@@ -253,7 +253,7 @@ class PostgresDialect:
 
 ### 4.5 TypeNormalizer
 
-保护 `mapper.py` 中 74 条 exact match 规则不失效。
+Protects the 74 exact match rules in `mapper.py` from becoming invalid.
 
 ```python
 # _type_normalizer.py
@@ -264,14 +264,14 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class NormalizedType:
-    """归一化后的类型信息"""
+    """Normalized type information"""
     base: str           # "VARCHAR"
-    params: tuple       # (255,) 或 (10, 2)
-    raw: str            # 原始 "character varying(255)"
+    params: tuple       # (255,) or (10, 2)
+    raw: str            # original "character varying(255)"
 
     @property
     def display(self) -> str:
-        """显示形式："VARCHAR(255)" 或 "INTEGER" """
+        """Display form: "VARCHAR(255)" or "INTEGER" """
         if self.params:
             return f"{self.base}({','.join(str(p) for p in self.params)})"
         return self.base
@@ -281,10 +281,10 @@ _TYPE_PARAMS_RE = re.compile(r"^([^(]+)\s*(?:\(([^)]+)\))?")
 
 
 class TypeNormalizer:
-    """将不同数据库的类型名归一化，让 mapper.py 的规则继续工作"""
+    """Normalizes type names from different databases so mapper.py rules continue to work"""
 
     def normalize(self, raw_type: str, dialect_name: str) -> NormalizedType:
-        # 1. 提取基础类型名和参数
+        # 1. Extract base type name and parameters
         match = _TYPE_PARAMS_RE.match(raw_type.strip())
         if not match:
             return NormalizedType(base=raw_type.upper(), params=(), raw=raw_type)
@@ -292,10 +292,10 @@ class TypeNormalizer:
         base_raw = match.group(1).strip().lower()
         params_str = match.group(2)
 
-        # 2. 方言映射
+        # 2. Dialect mapping
         base = self._map_base_type(base_raw, dialect_name)
 
-        # 3. 解析参数
+        # 3. Parse parameters
         params = ()
         if params_str:
             params = tuple(int(p.strip()) for p in params_str.split(","))
@@ -350,7 +350,7 @@ _MYSQL_TYPE_MAP = {
 }
 ```
 
-### 4.6 BulkWriteOptimizer 协议
+### 4.6 BulkWriteOptimizer Protocol
 
 ```python
 # _bulk_optimizer.py
@@ -359,14 +359,14 @@ from typing import Protocol
 
 
 class BulkWriteOptimizer(Protocol):
-    """批量写入性能优化器"""
+    """Batch write performance optimizer"""
 
     def preserve(self) -> None:
-        """保存当前数据库配置"""
+        """Save current database configuration"""
         ...
 
     def optimize(self, expected_rows: int | None = None) -> None:
-        """应用批量写入优化
+        """Apply batch write optimizations
         SQLite: PRAGMA synchronous = OFF, journal_mode = MEMORY
         PG: SET synchronous_commit = OFF
         MySQL: SET unique_checks = 0
@@ -374,44 +374,44 @@ class BulkWriteOptimizer(Protocol):
         ...
 
     def restore(self) -> None:
-        """恢复原配置"""
+        """Restore original configuration"""
         ...
 
 
 class SQLiteBulkOptimizer:
-    """现有 PragmaOptimizer 重构而来"""
-    # 委托给 optimizer.py 的 PragmaOptimizer
+    """Refactored from existing PragmaOptimizer"""
+    # Delegates to optimizer.py's PragmaOptimizer
 
 
 class PostgresBulkOptimizer:
-    """PG 批量写入优化"""
+    """PG batch write optimization"""
     # SET synchronous_commit = OFF
-    # 可选: ALTER TABLE ... SET UNLOGGED（数据可重建时）
+    # Optional: ALTER TABLE ... SET UNLOGGED (when data is reproducible)
 
 
 class MySQLBulkOptimizer:
-    """MySQL 批量写入优化"""
+    """MySQL batch write optimization"""
     # ALTER TABLE ... DISABLE KEYS
     # SET unique_checks = 0
     # SET foreign_key_checks = 0
 ```
 
-### 4.7 DatabaseAdapter 协议演进
+### 4.7 DatabaseAdapter Protocol Evolution
 
 ```python
-# _protocol.py — 新增属性（可选，带默认实现）
+# _protocol.py — new properties (optional, with default implementations)
 @runtime_checkable
 class DatabaseAdapter(Protocol):
-    # ... 现有方法不变 ...
+    # ... existing methods unchanged ...
 
     @property
     def dialect(self) -> Dialect:
-        """数据库方言"""
+        """Database dialect"""
         ...
 
     @property
     def bulk_optimizer(self) -> BulkWriteOptimizer | None:
-        """批量写入优化器（可选）"""
+        """Batch write optimizer (optional)"""
         ...
 ```
 
@@ -427,7 +427,7 @@ from sqlalchemy import create_engine, inspect
 
 
 class SQLAlchemyAdapter:
-    """基于 SQLAlchemy 的统一数据库适配器"""
+    """SQLAlchemy-based unified database adapter"""
 
     def __init__(self) -> None:
         self._engine = None
@@ -437,13 +437,13 @@ class SQLAlchemyAdapter:
         self._db_url = ""
 
     def connect(self, db_url: str) -> None:
-        """支持多种连接方式：
+        """Supports multiple connection methods:
         "sqlite:///path/to/db"           → SQLite
         "postgresql://user:pass@host/db" → PostgreSQL
         "mysql+pymysql://user:pass@host/db" → MySQL
-        也兼容纯文件路径: "/path/to/db.sqlite" → 自动转为 sqlite:/// URL
+        Also compatible with pure file paths: "/path/to/db.sqlite" → auto-converted to sqlite:/// URL
         """
-        # 纯文件路径自动转为 SQLite URL
+        # Pure file path auto-converted to SQLite URL
         if "://" not in db_url:
             db_url = f"sqlite:///{db_url}"
 
@@ -460,7 +460,7 @@ class SQLAlchemyAdapter:
         elif dialect_name == "postgresql":
             return PostgresDialect()
         elif dialect_name == "mysql":
-            # 阶段 3 不实现，未来扩展
+            # Not implemented in Phase 3, future extension
             raise NotImplementedError(f"MySQL support not yet implemented")
         raise ValueError(f"Unsupported dialect: {dialect_name}")
 
@@ -501,7 +501,7 @@ class SQLAlchemyAdapter:
         data: Iterator[dict[str, Any]],
         batch_size: int = 5000,
     ) -> int:
-        # 使用 Dialect 提供的批量写入器
+        # Use the batch writer provided by Dialect
         inserter = self._dialect.create_batch_inserter(self._engine, table_name)
         return batch_insert_rows(data, batch_size, inserter.insert)
 
@@ -511,37 +511,37 @@ class SQLAlchemyAdapter:
             self._dialect.reset_autoincrement(conn.execute, table_name)
             conn.commit()
 
-    # ... 其他方法实现 ...
+    # ... other method implementations ...
 ```
 
-### 4.9 Orchestrator 派发逻辑
+### 4.9 Orchestrator Dispatch Logic
 
 ```python
-# orchestrator.py — _create_adapter 演进
+# orchestrator.py — _create_adapter evolution
 def _create_adapter(self) -> DatabaseAdapter:
-    # 如果用户传了 URL (postgresql://, mysql://)
+    # If user passed a URL (postgresql://, mysql://)
     if self._db_url and "://" in self._db_url:
         return SQLAlchemyAdapter()
 
-    # 向后兼容: 纯文件路径优先走 SQLAlchemy SQLite 方言
+    # Backward compatibility: pure file path prefers SQLAlchemy SQLite dialect
     if HAS_SQLALCHEMY:
         return SQLAlchemyAdapter()
 
-    # 回退: 无 SQLAlchemy 时走 RawSQLiteAdapter
+    # Fallback: use RawSQLiteAdapter when no SQLAlchemy
     return RawSQLiteAdapter()
 ```
 
-### 4.10 sql_safe.py 改造
+### 4.10 sql_safe.py Refactoring
 
-保留安全验证层，引用逻辑委托给 Dialect。
+Keep the safety validation layer; delegate quoting logic to Dialect.
 
 ```python
-# sql_safe.py — 改造后
+# sql_safe.py — after refactoring
 def quote_identifier(name: str, *, dialect: Dialect | None = None) -> str:
-    name = _sanitize_identifier(name)  # 安全验证不变
+    name = _sanitize_identifier(name)  # safety validation unchanged
     if dialect is not None:
         return dialect.quote_identifier(name)
-    # 回退: 默认用 SQL 标准双引号
+    # Fallback: default to SQL standard double quotes
     escaped = name.replace('"', '""')
     return f'"{escaped}"'
 
@@ -552,7 +552,7 @@ def build_insert_sql(
     *,
     dialect: Dialect | None = None,
 ) -> str:
-    """构建安全的 INSERT SQL 语句
+    """Build a safe INSERT SQL statement
     SQLite: INSERT INTO "table" ("col1") VALUES (?, ?)
     PG:     INSERT INTO "table" ("col1") VALUES (%s, %s)
     MySQL:  INSERT INTO `table` (`col1`) VALUES (%s, %s)
@@ -566,23 +566,23 @@ def build_insert_sql(
 
 ---
 
-## 5. AI 插件改造
+## 5. AI Plugin Refactoring
 
-### 5.1 原则
+### 5.1 Principle
 
-AI 插件只消费 `ColumnInfo`/`ForeignKeyInfo` 等数据库无关的数据结构，不感知底层是 SQLite 还是 PG。
+The AI plugin only consumes database-agnostic data structures like `ColumnInfo`/`ForeignKeyInfo`, without awareness of whether the underlying layer is SQLite or PG.
 
-### 5.2 改动范围
+### 5.2 Scope of Changes
 
-| 文件 | 改动 | 原因 |
-|------|------|------|
-| `analyzer.py` SYSTEM_PROMPT | `"SQLite table schemas"` → `"database table schemas"` | 去硬编码 |
-| `analyzer.py` Key Rules | `"INTEGER PRIMARY KEY AUTOINCREMENT"` → `"auto-incrementing primary keys"` | 通用描述 |
-| `analyzer.py` GEMMA_TOOLS | `is_autoincrement` 描述改为通用 | 通用描述 |
-| `analyzer.py` analyze_table_from_ctx | 新增 `dialect: str = "sqlite"` 参数 | 让 AI 知道目标数据库类型 |
-| `__init__.py` hook | `sqlseed_ai_analyze_table` 传入 dialect 信息 | 适配新签名 |
+| File | Change | Reason |
+|------|--------|--------|
+| `analyzer.py` SYSTEM_PROMPT | `"SQLite table schemas"` → `"database table schemas"` | Remove hardcoding |
+| `analyzer.py` Key Rules | `"INTEGER PRIMARY KEY AUTOINCREMENT"` → `"auto-incrementing primary keys"` | Generic description |
+| `analyzer.py` GEMMA_TOOLS | `is_autoincrement` description changed to generic | Generic description |
+| `analyzer.py` analyze_table_from_ctx | Add `dialect: str = "sqlite"` parameter | Let AI know the target database type |
+| `__init__.py` hook | `sqlseed_ai_analyze_table` passes dialect info | Adapt to new signature |
 
-### 5.3 Prompt 改造
+### 5.3 Prompt Refactoring
 
 ```python
 SYSTEM_PROMPT = """You are an expert database test data engineer.
@@ -596,11 +596,11 @@ Column types are normalized (e.g., "VARCHAR" for all variable-length string type
 1. Auto-incrementing primary key columns → do NOT include (auto-skip)
 2. Columns with DEFAULT values → do NOT include (auto-skip)
 3. Nullable columns → do NOT include unless they have semantic meaning
-... (其余规则不变)
+... (other rules unchanged)
 """
 ```
 
-### 5.4 Schema Context 传入 dialect
+### 5.4 Schema Context Passes dialect
 
 ```python
 def analyze_table_from_ctx(
@@ -612,39 +612,39 @@ def analyze_table_from_ctx(
     indexes: list,
     sample_data: list,
     all_table_names: list,
-    dialect: str = "sqlite",  # 新增
+    dialect: str = "sqlite",  # new
 ) -> dict:
-    # dialect 信息传入 prompt，让 AI 知道目标数据库类型
-    # 但 AI 的输出格式不变，仍然是 ColumnConfig JSON
+    # dialect info passed into prompt so AI knows the target database type
+    # but AI's output format is unchanged, still ColumnConfig JSON
     ...
 ```
 
 ---
 
-## 6. MCP Server 改造
+## 6. MCP Server Refactoring
 
-### 6.1 原则
+### 6.1 Principle
 
-专注数据生成，搭配通用 MCP 使用。
+Focus on data generation; pair with general MCPs.
 
-### 6.2 改动范围
+### 6.2 Scope of Changes
 
-| 文件 | 改动 | 原因 |
-|------|------|------|
-| `server.py` `_validate_db_path` | → `_validate_db_target`，支持 URL | 多数据库 |
-| `server.py` 所有 tool 函数 | `db_path: str` 参数支持 URL | 多数据库 |
-| `server.py` `DataOrchestrator(...)` | 适配新签名 | 多数据库 |
+| File | Change | Reason |
+|------|--------|--------|
+| `server.py` `_validate_db_path` | → `_validate_db_target`, support URL | Multi-database |
+| `server.py` all tool functions | `db_path: str` parameter supports URL | Multi-database |
+| `server.py` `DataOrchestrator(...)` | Adapt to new signature | Multi-database |
 
-### 6.3 _validate_db_target 改造
+### 6.3 _validate_db_target Refactoring
 
 ```python
 def _validate_db_target(db_target: str) -> str:
-    """验证数据库连接目标，支持文件路径和 URL"""
-    # URL 格式: postgresql://user:pass@host/db
+    """Validate database connection target, supporting file paths and URLs"""
+    # URL format: postgresql://user:pass@host/db
     if "://" in db_target:
-        return db_target  # URL 直接通过，后续由 SQLAlchemy 验证
+        return db_target  # URL passes through directly, validated later by SQLAlchemy
 
-    # 文件路径: 保持现有验证逻辑
+    # File path: keep existing validation logic
     resolved = Path(db_target).resolve()
     valid_exts = (".db", ".sqlite", ".sqlite3")
     if not str(resolved).endswith(valid_exts):
@@ -660,7 +660,7 @@ def _validate_db_target(db_target: str) -> str:
 
 ---
 
-## 7. 公共 API 演进
+## 7. Public API Evolution
 
 ### 7.1 Python API
 
@@ -668,16 +668,16 @@ def _validate_db_target(db_target: str) -> str:
 # src/sqlseed/__init__.py
 
 def connect(
-    db_path: str | None = None,   # 向后兼容: SQLite 文件路径
+    db_path: str | None = None,   # backward compatible: SQLite file path
     *,
-    url: str | None = None,       # 新增: 数据库 URL
+    url: str | None = None,       # new: database URL
     **kwargs,
 ) -> DataOrchestrator:
-    """连接数据库，返回 DataOrchestrator 上下文管理器
+    """Connect to database, returns DataOrchestrator context manager
 
-    支持两种连接方式：
-    - connect("app.db")                              → SQLite 文件
-    - connect(url="postgresql://user:pass@host/db")  → 数据库 URL
+    Supports two connection methods:
+    - connect("app.db")                              → SQLite file
+    - connect(url="postgresql://user:pass@host/db")  → database URL
     """
     target = url or db_path
     if not target:
@@ -688,12 +688,12 @@ def connect(
 def fill(
     db_path: str | None = None,
     *,
-    url: str | None = None,       # 新增
+    url: str | None = None,       # new
     table: str,
     count: int,
     **kwargs,
 ) -> FillResult:
-    """单表零配置填充"""
+    """Single-table zero-config fill"""
     target = url or db_path
     if not target:
         raise ValueError("Either db_path or url must be provided")
@@ -704,59 +704,59 @@ def fill(
 ### 7.2 CLI
 
 ```bash
-# 现有用法不变
+# Existing usage unchanged
 sqlseed fill app.db -t users -n 10000
 
-# 新增 URL 支持（自动识别）
+# New URL support (auto-detected)
 sqlseed fill "postgresql://user:pass@localhost/mydb" -t users -n 10000
 
-# 显式 --url 参数
+# Explicit --url parameter
 sqlseed fill --url "postgresql://user:pass@localhost/mydb" -t users -n 10000
 ```
 
-### 7.3 配置文件
+### 7.3 Configuration File
 
-YAML 配置新增 `url` 字段，与 `db_path` 互斥：
+YAML config adds a `url` field, mutually exclusive with `db_path`:
 
 ```yaml
-# 现有格式不变
+# Existing format unchanged
 db_path: app.db
 
-# 新增 URL 格式
+# New URL format
 url: postgresql://user:pass@localhost/mydb
 ```
 
-`GeneratorConfig` Pydantic 模型新增 `url` 字段，通过 `model_validator` 确保与 `db_path` 互斥。
+The `GeneratorConfig` Pydantic model adds a `url` field, with `model_validator` ensuring mutual exclusivity with `db_path`.
 
 ---
 
-## 8. 测试策略
+## 8. Testing Strategy
 
-### 8.1 验证命令
+### 8.1 Validation Commands
 
-每个阶段必须通过四条验证命令才能进入下一阶段：
+Each phase must pass the four validation commands before proceeding to the next:
 
 ```bash
 ruff check . && ruff format --check . && mypy src plugins && pytest
 ```
 
-### 8.2 测试层次
+### 8.2 Test Layers
 
-| 测试类型 | 位置 | 目的 |
-|---------|------|------|
-| 契约测试 | `tests/test_database_contract.py` | 对所有适配器跑同一套接口测试，确保行为一致 |
-| 方言测试 | `tests/test_dialect.py` | 验证 TypeNormalizer、quote_identifier、autoincrement 检测 |
-| 集成测试 | `tests/test_postgres_integration.py` | 真实 PG 连接测试，标记 `@pytest.mark.postgres` |
-| 回归测试 | 现有 `tests/` | 确保现有 618 个测试全部通过 |
+| Test Type | Location | Purpose |
+|-----------|----------|---------|
+| Contract tests | `tests/test_database_contract.py` | Run the same interface tests against all adapters to ensure consistent behavior |
+| Dialect tests | `tests/test_dialect.py` | Validate TypeNormalizer, quote_identifier, autoincrement detection |
+| Integration tests | `tests/test_postgres_integration.py` | Real PG connection tests, marked `@pytest.mark.postgres` |
+| Regression tests | existing `tests/` | Ensure all existing 618 tests pass |
 
-### 8.3 契约测试设计
+### 8.3 Contract Test Design
 
 ```python
 # tests/test_database_contract.py
-"""所有 DatabaseAdapter 实现必须通过的契约测试"""
+"""Contract tests that all DatabaseAdapter implementations must pass"""
 
 class DatabaseAdapterContract:
-    """子类化并提供 fixture 即可自动测试所有适配器"""
+    """Subclass and provide fixtures to auto-test all adapters"""
 
     @pytest.fixture
     @abstractmethod
@@ -792,10 +792,10 @@ class TestSQLAlchemyPostgresContract(DatabaseAdapterContract):
     def adapter(self, pg_db): return SQLAlchemyAdapter()
 ```
 
-### 8.4 PG 集成测试 CI
+### 8.4 PG Integration Test CI
 
 ```yaml
-# .github/workflows/test.yml — 新增 PG 服务
+# .github/workflows/test.yml — add PG service
 services:
   postgres:
     image: postgres:16
@@ -817,115 +817,115 @@ steps:
 
 ---
 
-## 9. 四阶段迁移计划
+## 9. Four-Phase Migration Plan
 
-### 阶段 1: 抽象 Dialect + BulkWriteOptimizer + TypeNormalizer
+### Phase 1: Abstract Dialect + BulkWriteOptimizer + TypeNormalizer
 
-**目标**: 抽出接口，现有代码零改动
+**Goal**: Extract interfaces, zero changes to existing code
 
-**新增文件**:
-- `src/sqlseed/database/_dialect.py` — Dialect 协议 + SQLiteDialect 实现
+**New files**:
+- `src/sqlseed/database/_dialect.py` — Dialect protocol + SQLiteDialect implementation
 - `src/sqlseed/database/_type_normalizer.py` — TypeNormalizer + NormalizedType
-- `src/sqlseed/database/_bulk_optimizer.py` — BulkWriteOptimizer 协议 + SQLiteBulkOptimizer
+- `src/sqlseed/database/_bulk_optimizer.py` — BulkWriteOptimizer protocol + SQLiteBulkOptimizer
 
-**修改文件**:
-- `src/sqlseed/database/_protocol.py` — DatabaseAdapter 新增 `dialect` 和 `bulk_optimizer` 属性（可选，带默认实现）
-- `src/sqlseed/database/__init__.py` — 导出新类
+**Modified files**:
+- `src/sqlseed/database/_protocol.py` — DatabaseAdapter adds `dialect` and `bulk_optimizer` properties (optional, with default implementations)
+- `src/sqlseed/database/__init__.py` — Export new classes
 
-**不动的文件**:
-- `raw_sqlite_adapter.py` — 零改动
-- `sqlite_utils_adapter.py` — 零改动
-- `optimizer.py` — 保留，SQLiteBulkOptimizer 内部委托给它
+**Unchanged files**:
+- `raw_sqlite_adapter.py` — zero changes
+- `sqlite_utils_adapter.py` — zero changes
+- `optimizer.py` — kept; SQLiteBulkOptimizer internally delegates to it
 
-**验证**: 现有 618 测试全部通过 + 新增契约测试框架
+**Validation**: All existing 618 tests pass + new contract test framework
 
-### 阶段 2: 引入 SQLAlchemyAdapter
+### Phase 2: Introduce SQLAlchemyAdapter
 
-**目标**: 新增 SQLAlchemy 适配器，与现有适配器并存
+**Goal**: Add SQLAlchemy adapter, coexisting with existing adapters
 
-**新增文件**:
-- `src/sqlseed/database/sqlalchemy_adapter.py` — SQLAlchemyAdapter 实现
+**New files**:
+- `src/sqlseed/database/sqlalchemy_adapter.py` — SQLAlchemyAdapter implementation
 
-**修改文件**:
-- `pyproject.toml` — dependencies 新增 `sqlalchemy>=2.0`
-- `src/sqlseed/database/__init__.py` — 导出 SQLAlchemyAdapter
-- `src/sqlseed/core/orchestrator.py` — `_create_adapter()` 增加 SQLAlchemy 路径
+**Modified files**:
+- `pyproject.toml` — dependencies adds `sqlalchemy>=2.0`
+- `src/sqlseed/database/__init__.py` — Export SQLAlchemyAdapter
+- `src/sqlseed/core/orchestrator.py` — `_create_adapter()` adds SQLAlchemy path
 
-**新增测试**:
-- `tests/test_database_contract.py` — SQLAlchemySQLiteContract 契约测试
+**New tests**:
+- `tests/test_database_contract.py` — SQLAlchemySQLiteContract contract tests
 
-**验证**: 现有测试通过 + SQLAlchemy SQLite 方言通过契约测试
+**Validation**: Existing tests pass + SQLAlchemy SQLite dialect passes contract tests
 
-### 阶段 3: PostgreSQL 支持
+### Phase 3: PostgreSQL Support
 
-**目标**: 完整支持 PostgreSQL
+**Goal**: Full PostgreSQL support
 
-**新增文件**:
-- `src/sqlseed/database/_dialect.py` — 新增 PostgresDialect
-- `src/sqlseed/database/_bulk_optimizer.py` — 新增 PostgresBulkOptimizer
-- `tests/test_postgres_integration.py` — PG 集成测试
+**New files**:
+- `src/sqlseed/database/_dialect.py` — Add PostgresDialect
+- `src/sqlseed/database/_bulk_optimizer.py` — Add PostgresBulkOptimizer
+- `tests/test_postgres_integration.py` — PG integration tests
 
-**修改文件**:
-- `pyproject.toml` — 新增 `[project.optional-dependencies] postgres = ["psycopg[binary]>=3.0"]`
-- `src/sqlseed/core/orchestrator.py` — `_create_adapter()` 支持 URL 派发
-- `src/sqlseed/__init__.py` — `connect()` / `fill()` 支持 `url` 参数
-- `src/sqlseed/cli/main.py` — CLI 支持 `--url` 参数
-- `src/sqlseed/config/models.py` — GeneratorConfig 新增 `url` 字段
-- `plugins/sqlseed-ai/src/sqlseed_ai/analyzer.py` — Prompt 去 SQLite 硬编码
-- `plugins/mcp-server-sqlseed/src/mcp_server_sqlseed/server.py` — `_validate_db_target` 支持 URL
+**Modified files**:
+- `pyproject.toml` — Add `[project.optional-dependencies] postgres = ["psycopg[binary]>=3.0"]`
+- `src/sqlseed/core/orchestrator.py` — `_create_adapter()` supports URL dispatch
+- `src/sqlseed/__init__.py` — `connect()` / `fill()` supports `url` parameter
+- `src/sqlseed/cli/main.py` — CLI supports `--url` parameter
+- `src/sqlseed/config/models.py` — GeneratorConfig adds `url` field
+- `plugins/sqlseed-ai/src/sqlseed_ai/analyzer.py` — Remove SQLite hardcoding from prompts
+- `plugins/mcp-server-sqlseed/src/mcp_server_sqlseed/server.py` — `_validate_db_target` supports URL
 
-**验证**: 现有测试通过 + PG 集成测试通过
+**Validation**: Existing tests pass + PG integration tests pass
 
-### 阶段 4: 清理
+### Phase 4: Cleanup
 
-**目标**: 退役旧适配器和 sqlite-utils
+**Goal**: Retire old adapters and sqlite-utils
 
-**删除文件**:
+**Deleted files**:
 - `src/sqlseed/database/sqlite_utils_adapter.py`
 - `src/sqlseed/database/_compat.py`
 
-**修改文件**:
-- `pyproject.toml` — 移除 `sqlite-utils` 可选依赖
-- `src/sqlseed/database/__init__.py` — 移除旧导出
-- `src/sqlseed/core/orchestrator.py` — 移除旧适配器引用
+**Modified files**:
+- `pyproject.toml` — Remove `sqlite-utils` optional dependency
+- `src/sqlseed/database/__init__.py` — Remove old exports
+- `src/sqlseed/core/orchestrator.py` — Remove old adapter references
 
-**评估保留**:
-- `raw_sqlite_adapter.py` — 评估是否保留作为无 SQLAlchemy 的回退（取决于社区需求）
-- `_base_adapter.py` — 评估是否重构或保留（取决于 RawSQLiteAdapter 的去留）
+**Evaluate retention**:
+- `raw_sqlite_adapter.py` — Evaluate whether to keep as no-SQLAlchemy fallback (depends on community demand)
+- `_base_adapter.py` — Evaluate whether to refactor or keep (depends on RawSQLiteAdapter's fate)
 
-**验证**: 全量测试通过 + 文档同步更新
-
----
-
-## 10. 文档同步规则
-
-根据项目 `CLAUDE.md` 的 Doc Sync Rules，以下文档需在对应阶段同步更新：
-
-| 阶段 | 源文件 | 需更新的文档 |
-|------|--------|-------------|
-| 阶段 2 | `_protocol.py`, `sqlalchemy_adapter.py` | README.md, README.zh-CN.md, docs/architecture.md |
-| 阶段 3 | `__init__.py`, `cli/main.py`, `config/models.py` | README.md, README.zh-CN.md (API 表 + CLI 参考) |
-| 阶段 3 | `analyzer.py` | README.md, README.zh-CN.md (AI CLI 参考) |
-| 阶段 4 | `pyproject.toml` | README.md (依赖说明) |
+**Validation**: Full test suite passes + docs updated in sync
 
 ---
 
-## 11. 风险与缓解
+## 10. Documentation Sync Rules
 
-| 风险 | 影响 | 缓解措施 |
-|------|------|---------|
-| SQLAlchemy 引入导致性能回归 | SQLite 批量写入变慢 | 阶段 2 用契约测试对比性能，必要时保留 RawSQLiteAdapter |
-| PG autoincrement 检测不准 | 数据生成异常 | 三重检测（identity + nextval + autoincrement 标志） |
-| 类型归一化遗漏 | mapper.py 规则失效 | 完整的 PG/MySQL 类型映射表 + 单元测试覆盖 |
-| 主分支被污染 | 稳定版本受损 | 严格分支隔离，每阶段验证通过才合并 |
-| 现有测试回归 | 功能损坏 | 每阶段跑全量 618 测试 |
+According to the project's `CLAUDE.md` Doc Sync Rules, the following docs need to be updated in sync during the corresponding phases:
+
+| Phase | Source Files | Docs to Update |
+|-------|--------------|----------------|
+| Phase 2 | `_protocol.py`, `sqlalchemy_adapter.py` | README.md, README.zh-CN.md, docs/architecture.md |
+| Phase 3 | `__init__.py`, `cli/main.py`, `config/models.py` | README.md, README.zh-CN.md (API table + CLI reference) |
+| Phase 3 | `analyzer.py` | README.md, README.zh-CN.md (AI CLI reference) |
+| Phase 4 | `pyproject.toml` | README.md (dependency description) |
 
 ---
 
-## 12. 成功标准
+## 11. Risks and Mitigation
 
-- [ ] 阶段 1: 现有 618 测试全部通过 + 契约测试框架就绪
-- [ ] 阶段 2: SQLAlchemy SQLite 方言通过契约测试 + 性能不劣于 RawSQLiteAdapter
-- [ ] 阶段 3: PG 集成测试通过 + `sqlseed fill "postgresql://..." -t users -n 10000` 可用
-- [ ] 阶段 4: sqlite-utils 退役 + 全量测试通过 + 文档同步完成
-- [ ] 全程: 主分支零改动，所有开发在 `feat/multi-db-support` 分支
+| Risk | Impact | Mitigation |
+|------|--------|------------|
+| SQLAlchemy introduction causes performance regression | SQLite batch writes slower | Phase 2 uses contract tests to compare performance; keep RawSQLiteAdapter if necessary |
+| PG autoincrement detection inaccurate | Data generation anomalies | Triple detection (identity + nextval + autoincrement flag) |
+| Type normalization omissions | mapper.py rules fail | Complete PG/MySQL type mapping table + unit test coverage |
+| Main branch contamination | Stable version compromised | Strict branch isolation; merge only after each phase passes validation |
+| Existing test regression | Functionality broken | Run full 618 tests each phase |
+
+---
+
+## 12. Success Criteria
+
+- [ ] Phase 1: All existing 618 tests pass + contract test framework ready
+- [ ] Phase 2: SQLAlchemy SQLite dialect passes contract tests + performance no worse than RawSQLiteAdapter
+- [ ] Phase 3: PG integration tests pass + `sqlseed fill "postgresql://..." -t users -n 10000` works
+- [ ] Phase 4: sqlite-utils retired + full test suite passes + docs synced
+- [ ] Throughout: Zero changes to main branch; all development on `feat/multi-db-support` branch

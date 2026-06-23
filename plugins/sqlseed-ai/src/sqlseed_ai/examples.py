@@ -1,7 +1,20 @@
+"""Few-shot examples for LLM schema analysis prompts.
+
+This module holds :data:`FEW_SHOT_EXAMPLES`, a list of input/output pairs
+that teach the Gemma 4 model how to map a SQL table schema (rendered as
+markdown) to a sqlseed generation template (JSON). The examples cover
+common patterns: basic columns, unique constraints, derived columns,
+foreign keys, and composite unique indexes.
+"""
+
 from __future__ import annotations
 
 import json
 
+# Few-shot input/output pairs for the schema-analysis prompt.
+# Each "input" is a markdown table schema; each "output" is the expected
+# JSON generation template. Used to prime the LLM before analyzing a
+# real table.
 FEW_SHOT_EXAMPLES: list[dict[str, str]] = [
     {
         "input": """# Table: users

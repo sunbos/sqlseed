@@ -1,9 +1,9 @@
-"""数据库方言抽象层。
+"""Database dialect abstraction layer.
 
-封装各数据库的专属行为（类型归一化、自增检测、标识符引用、批量写入器创建），
-让上层代码无需感知底层是 SQLite、PostgreSQL 还是 MySQL。
+Encapsulates database-specific behavior (type normalization, autoincrement detection, identifier quoting),
+so upper-layer code does not need to be aware of whether the underlying database is SQLite, PostgreSQL, or MySQL.
 
-阶段 1 仅实现 SQLiteDialect，PostgresDialect/MySQLDialect 留待后续阶段。
+Phase 1 implements SQLiteDialect; phase 3 adds PostgresDialect; MySQLDialect is left for future work.
 """
 
 from __future__ import annotations
@@ -15,45 +15,32 @@ if TYPE_CHECKING:
 
 
 @runtime_checkable
-class BatchInserter(Protocol):
-    """批量写入器接口。
-
-    由各方言通过 ``Dialect.create_batch_inserter`` 创建，
-    封装数据库专属的高性能批量写入方式（如 PG 的 COPY 协议）。
-    """
-
-    def insert(self, rows: list[dict[str, Any]]) -> int:
-        """写入一批数据，返回写入行数。"""
-        ...
-
-
-@runtime_checkable
 class Dialect(Protocol):
-    """数据库方言抽象。
+    """Database dialect abstraction.
 
-    封装各数据库的专属行为，让上层代码无需感知底层方言。
+    Encapsulates database-specific behavior so upper-layer code does not need to be aware of the underlying dialect.
     """
 
     name: str
 
     def normalize_type(self, raw_type: str) -> str:
-        """将数据库原始类型名归一化为 sqlseed 内部类型。
+        """Normalize the database raw type name to sqlseed internal type.
 
-        SQLite: "TEXT" → "TEXT", "INTEGER" → "INTEGER"
-        PG: "character varying(255)" → "VARCHAR(255)"
+        SQLite: "TEXT" -> "TEXT", "INTEGER" -> "INTEGER"
+        PG: "character varying(255)" -> "VARCHAR(255)"
         """
         ...
 
     def detect_autoincrement(self, column_info: dict[str, Any]) -> bool:
-        """检测列是否自增。
+        """Detect whether a column is autoincrement.
 
-        SQLite: 解析 CREATE TABLE 找 AUTOINCREMENT
-        PG: 检测 SERIAL / IDENTITY / nextval()
+        SQLite: parse CREATE TABLE to find AUTOINCREMENT
+        PG: detect SERIAL / IDENTITY / nextval()
         """
         ...
 
     def reset_autoincrement(self, execute_fn: Callable[..., Any], table_name: str) -> None:
-        """重置自增计数器。
+        """Reset the autoincrement counter.
 
         SQLite: DELETE FROM sqlite_sequence
         PG: TRUNCATE ... RESTART IDENTITY / ALTER SEQUENCE
@@ -62,59 +49,117 @@ class Dialect(Protocol):
         ...
 
     def quote_identifier(self, name: str) -> str:
-        """引用标识符。
+        """Quote an identifier.
 
         SQLite/PG: "name"
         MySQL: `name`
         """
         ...
 
-    def create_batch_inserter(self, engine: Any, table_name: str) -> BatchInserter:
-        """创建批量写入器。
-
-        SQLite: SQLAlchemy bulk_insert_mappings
-        PG: psycopg3 COPY 协议（比 INSERT 快 5-10x）
-        """
-        ...
-
 
 class SQLiteDialect:
-    """SQLite 方言实现。
+    """SQLite dialect implementation.
 
-    autoincrement 检测委托给 ``sqlseed._utils.schema_helpers.detect_autoincrement``，
-    该函数解析 ``sqlite_master`` 中的 CREATE TABLE SQL。
+    Autoincrement detection is delegated to ``sqlseed._utils.schema_helpers.detect_autoincrement``,
+    which parses the CREATE TABLE SQL in ``sqlite_master``.
     """
 
     name = "sqlite"
 
     def normalize_type(self, raw_type: str) -> str:
-        """SQLite 类型已经是规范化的大写形式。"""
+        """SQLite types are already in normalized uppercase form."""
         return raw_type.upper() if raw_type else "TEXT"
 
     def detect_autoincrement(self, column_info: dict[str, Any]) -> bool:
-        """SQLite 的 autoincrement 检测需要解析 CREATE TABLE SQL。
+        """SQLite autoincrement detection requires parsing the CREATE TABLE SQL.
 
-        阶段 1 不在此处实现，由 SQLAlchemyAdapter/RawSQLiteAdapter
-        通过 ``schema_helpers.detect_autoincrement`` 完成。
-        此方法保留接口一致性，返回 False 作为占位。
+        Not implemented here in phase 1; completed by SQLAlchemyAdapter/RawSQLiteAdapter
+        via ``schema_helpers.detect_autoincrement``.
+        This method is retained for interface consistency and returns False as a placeholder.
         """
         return False
 
     def reset_autoincrement(self, execute_fn: Callable[..., Any], table_name: str) -> None:
-        """重置 SQLite 自增序列：DELETE FROM sqlite_sequence。"""
+        """Reset the SQLite autoincrement sequence: DELETE FROM sqlite_sequence."""
         execute_fn("DELETE FROM sqlite_sequence WHERE name = ?", [table_name])
 
     def quote_identifier(self, name: str) -> str:
-        """SQLite 使用双引号引用标识符。"""
+        """SQLite uses double quotes to quote identifiers."""
         escaped = name.replace('"', '""')
         return f'"{escaped}"'
 
-    def create_batch_inserter(self, engine: Any, table_name: str) -> BatchInserter:
-        """创建 SQLite 批量写入器。
 
-        阶段 2 引入 SQLAlchemyAdapter 后实现，阶段 1 抛出 NotImplementedError。
+class PostgresDialect:
+    """PostgreSQL dialect implementation.
+
+    Autoincrement detection supports three PG autoincrement modes:
+    - GENERATED ... AS IDENTITY (recommended for PG 10+)
+    - SERIAL / BIGSERIAL (traditional mode, default contains nextval())
+    - SQLAlchemy's autoincrement flag (integer PK inference)
+    """
+
+    name = "postgresql"
+
+    def normalize_type(self, raw_type: str) -> str:
+        """PG type normalization is delegated to TypeNormalizer (via _PG_TYPE_MAP)."""
+        if not raw_type:
+            return "TEXT"
+        return raw_type.upper()
+
+    def detect_autoincrement(self, column_info: dict[str, Any]) -> bool:
+        """Triple detection of PG autoincrement columns.
+
+        Args:
+            column_info: Column info dict returned by the SQLAlchemy inspector,
+                         may contain ``identity``, ``default``, ``autoincrement`` fields.
+
+        Returns:
+            True if the column is IDENTITY / SERIAL / BIGSERIAL.
         """
-        raise NotImplementedError("SQLiteBatchInserter will be implemented in phase 2")
+        # 1. GENERATED ... AS IDENTITY (PG 10+)
+        if column_info.get("identity") is not None:
+            return True
+        # 2. SERIAL / BIGSERIAL: default value contains nextval('..._seq'::regclass)
+        default = column_info.get("default")
+        if default and "nextval" in str(default):
+            return True
+        # 3. SQLAlchemy's autoincrement flag (integer PK inference)
+        return bool(column_info.get("autoincrement"))
+
+    def reset_autoincrement(self, execute_fn: Callable[..., Any], table_name: str) -> None:
+        """Reset the PG autoincrement sequence.
+
+        PG has no global table like sqlite_sequence; the sequence name corresponding
+        to the table must be queried before RESTART.
+        For IDENTITY columns use ``ALTER TABLE ... RESTART IDENTITY`` (via TRUNCATE);
+        for SERIAL columns use ``ALTER SEQUENCE ... RESTART WITH 1``.
+
+        Args:
+            execute_fn: Callable that executes SQL with signature ``(sql, params=None) -> cursor``.
+            table_name: Table name.
+        """
+        # Query all sequence names of the table (SERIAL mode)
+        # pg_get_serial_sequence returns the fully qualified name of the sequence
+        try:
+            cursor = execute_fn(
+                "SELECT c.column_name, pg_get_serial_sequence(a.attrelid::regclass::text, c.column_name) "
+                "FROM information_schema.columns c "
+                "JOIN pg_attribute a ON a.attname = c.column_name "
+                "WHERE c.table_name = %s AND c.table_schema = 'public'",
+                [table_name],
+            )
+            rows = cursor.fetchall() if hasattr(cursor, "fetchall") else []
+            for _col, seq_name in rows:
+                if seq_name:
+                    execute_fn(f"ALTER SEQUENCE {seq_name} RESTART WITH 1")
+        except Exception:
+            # Sequence reset failure should not block the main clear_table flow
+            pass
+
+    def quote_identifier(self, name: str) -> str:
+        """PG uses double quotes to quote identifiers (same as SQLite)."""
+        escaped = name.replace('"', '""')
+        return f'"{escaped}"'
 
 
-__all__ = ["BatchInserter", "Dialect", "SQLiteDialect"]
+__all__ = ["Dialect", "PostgresDialect", "SQLiteDialect"]

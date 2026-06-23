@@ -1,16 +1,16 @@
 """
-快速入门演示脚本 - 实时进度显示
+Quick start demo script - with real-time progress display.
 
-功能：
-- 创建包含 8 张表的演示数据库
-- 带实时进度条填充测试数据
-- 展示完成统计和样本数据
-- 快速执行（约 10 秒）
+Features:
+- Creates a demo database with 8 tables
+- Fills test data with a real-time progress bar
+- Shows completion stats and sample data
+- Fast execution (about 10 seconds)
 
-用法：
+Usage:
     python quick_demo.py
 
-适合现场演示！
+Great for live demos!
 """
 
 from __future__ import annotations
@@ -29,8 +29,8 @@ from sqlseed import fill
 def main():
     console = Console()
 
-    # 步骤 1：创建数据库
-    console.print("\n[bold blue]🚀 快速入门演示：sqlseed SQLite 测试数据生成器[/bold blue]")
+    # Step 1: Create the database
+    console.print("\n[bold blue]🚀 Quick start demo: sqlseed SQLite test data generator[/bold blue]")
     console.print("=" * 60)
 
     with Progress(
@@ -39,14 +39,14 @@ def main():
         console=console,
         transient=False,
     ) as progress:
-        task = progress.add_task("正在创建演示数据库...", total=None)
+        task = progress.add_task("Creating demo database...", total=None)
         db_path = str(build_demo(Path(__file__).parent / "_demo.db"))
         progress.update(task, completed=1)
 
-    console.print(f"✅ 数据库已创建：[green]{db_path}[/green]")
+    console.print(f"✅ Database created: [green]{db_path}[/green]")
 
-    # 步骤 2：带进度条填充数据
-    console.print("\n[bold blue]📊 正在填充测试数据（实时进度）：[/bold blue]")
+    # Step 2: Fill data with a progress bar
+    console.print("\n[bold blue]📊 Filling test data (real-time progress):[/bold blue]")
 
     fill_stats = []
 
@@ -86,12 +86,12 @@ def main():
         fill_stats.append(("tasks", result.count, result.elapsed))
         progress.update(task, completed=200)
 
-    # 步骤 3：展示汇总统计
-    console.print("\n[bold blue]📈 填充统计：[/bold blue]")
+    # Step 3: Show summary stats
+    console.print("\n[bold blue]📈 Fill statistics:[/bold blue]")
     table = Table(show_header=True, header_style="bold green")
-    table.add_column("表名")
-    table.add_column("行数")
-    table.add_column("耗时 (s)", justify="right")
+    table.add_column("Table")
+    table.add_column("Rows")
+    table.add_column("Elapsed (s)", justify="right")
 
     total_rows = 0
     total_time = 0.0
@@ -100,17 +100,17 @@ def main():
         total_rows += count
         total_time += elapsed
 
-    table.add_row("[bold]合计[/bold]", str(total_rows), f"[bold]{total_time:.2f}[/bold]")
+    table.add_row("[bold]Total[/bold]", str(total_rows), f"[bold]{total_time:.2f}[/bold]")
     console.print(table)
 
-    # 步骤 4：展示样本数据
-    console.print("\n[bold blue]🔍 样本数据预览：[/bold blue]")
+    # Step 4: Show sample data
+    console.print("\n[bold blue]🔍 Sample data preview:[/bold blue]")
 
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
 
-    # 预览 members 表
-    console.print("\n[bold green]members[/bold green]（3 行）：")
+    # Preview members table
+    console.print("\n[bold green]members[/bold green] (3 rows):")
     cursor = conn.execute("SELECT member_id, name, email, org_code FROM members LIMIT 3")
     rows = cursor.fetchall()
     member_table = Table()
@@ -120,8 +120,8 @@ def main():
         member_table.add_row(*[str(row[c]) for c in ("member_id", "name", "email", "org_code")])
     console.print(member_table)
 
-    # 预览 tasks 表
-    console.print("\n[bold green]tasks[/bold green]（3 行）：")
+    # Preview tasks table
+    console.print("\n[bold green]tasks[/bold green] (3 rows):")
     cursor = conn.execute("SELECT task_id, project_id, title, priority, status FROM tasks LIMIT 3")
     rows = cursor.fetchall()
     task_table = Table()
@@ -133,15 +133,15 @@ def main():
 
     conn.close()
 
-    # 步骤 5：结束信息
+    # Step 5: Closing message
     console.print("\n" + "=" * 60)
-    console.print("[bold green]🎉 演示完成！[/bold green]")
-    console.print("\n已展示的核心功能：")
-    console.print("  • 自动模式检测")
-    console.print("  • 智能列类型匹配")
-    console.print("  • 外键完整性")
-    console.print("  • 实时进度追踪")
-    console.print(f"\n[italic]总耗时：[/italic][bold]{total_time:.2f} 秒[/bold]")
+    console.print("[bold green]🎉 Demo complete![/bold green]")
+    console.print("\nCore features demonstrated:")
+    console.print("  • Automatic schema detection")
+    console.print("  • Smart column type matching")
+    console.print("  • Foreign key integrity")
+    console.print("  • Real-time progress tracking")
+    console.print(f"\n[italic]Total elapsed:[/italic] [bold]{total_time:.2f} seconds[/bold]")
 
 
 if __name__ == "__main__":

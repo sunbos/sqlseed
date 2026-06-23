@@ -1,3 +1,14 @@
+"""sqlseed configuration model definitions.
+
+Type-safe configuration models built on Pydantic, including:
+- GeneratorConfig: Global generation configuration (connection target, provider, locale, etc.)
+- TableConfig: Single-table generation configuration
+- ColumnConfig: Column configuration (supports both source-column and derived-column modes)
+- ColumnAssociation: Cross-table column association declaration
+- ColumnConstraintsConfig: Column constraint configuration
+- ProviderType: Data provider type enum
+"""
+
 from __future__ import annotations
 
 from enum import Enum
@@ -15,7 +26,7 @@ class ProviderType(str, Enum):
 
 
 class ColumnConstraintsConfig(BaseModel):
-    """列约束配置"""
+    """Column constraint configuration"""
 
     unique: bool = False
     min_value: int | float | None = None
@@ -26,31 +37,31 @@ class ColumnConstraintsConfig(BaseModel):
 
 class ColumnConfig(BaseModel):
     """
-    列配置 — 支持源列和派生列两种模式。
+    Column configuration — supports both source-column and derived-column modes.
 
-    源列模式：指定 generator + params
-    派生列模式：指定 derive_from + expression
-    两者不能同时使用。
+    Source-column mode: specify generator + params
+    Derived-column mode: specify derive_from + expression
+    The two modes cannot be used together.
 
-    支持从 dict 快捷构造：
-      - "type" 作为 "generator" 的别名
-      - 未知键自动归入 params
-      - 嵌套 "params" 字典会被展平
+    Supports convenient construction from a dict:
+      - "type" is treated as an alias for "generator"
+      - Unknown keys are automatically merged into params
+      - A nested "params" dict is flattened
     """
 
     name: str
 
-    # === 源列模式 ===
+    # === Source-column mode ===
     generator: str | None = None
     provider: ProviderType | None = None
     params: dict[str, Any] = Field(default_factory=dict)
     null_ratio: float = Field(default=0.0, ge=0.0, le=1.0)
 
-    # === 派生列模式 ===
-    derive_from: str | None = None  # 源列名
-    expression: str | None = None  # 派生表达式
+    # === Derived-column mode ===
+    derive_from: str | None = None  # source column name
+    expression: str | None = None  # derivation expression
 
-    # === 约束 ===
+    # === Constraints ===
     constraints: ColumnConstraintsConfig | None = None
 
     # === Native method overrides (from AI suggestions) ===
@@ -103,7 +114,7 @@ class ColumnConfig(BaseModel):
 
 
 class TableConfig(BaseModel):
-    """单表生成配置"""
+    """Single-table generation configuration"""
 
     name: str
     count: int = Field(default=1000, gt=0)
@@ -116,7 +127,8 @@ class TableConfig(BaseModel):
 
 
 class ColumnAssociation(BaseModel):
-    """跨表列关联声明 — 用于隐式关联（同名列跨表引用）"""
+    """Cross-table column association declaration — used for implicit associations
+    (same-name column references across tables)."""
 
     column_name: str
     source_table: str
@@ -126,13 +138,36 @@ class ColumnAssociation(BaseModel):
 
 
 class GeneratorConfig(BaseModel):
-    """全局生成配置"""
+    """Global generation configuration.
 
-    db_path: str
+    The connection target is specified via ``db_path`` (SQLite file path) or
+    ``url`` (database URL); the two are mutually exclusive. At least one of
+    them must be provided.
+    """
+
+    db_path: str | None = None
+    url: str | None = None
     provider: ProviderType = ProviderType.MIMESIS
     locale: str = "en_US"
     tables: list[TableConfig] = Field(default_factory=list)
     associations: list[ColumnAssociation] = Field(default_factory=list)
     optimize_pragma: bool = True
-    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     snapshot_dir: str | None = None
+
+    @model_validator(mode="after")
+    def validate_connection_target(self) -> Self:
+        """Validate that db_path and url are mutually exclusive and at least one is provided."""
+        if self.db_path is not None and self.url is not None:
+            raise ValueError("Cannot specify both 'db_path' and 'url'. Use one or the other.")
+        if self.db_path is None and self.url is None:
+            raise ValueError("Either 'db_path' or 'url' must be provided.")
+        return self
+
+    @property
+    def connection_target(self) -> str:
+        """Return the connection target string (db_path or url)."""
+        if self.url is not None:
+            return self.url
+        if self.db_path is not None:
+            return self.db_path
+        raise RuntimeError("No connection target configured")

@@ -1,3 +1,10 @@
+"""Uniqueness adjuster: handles retry logic for unique constraint conflicts.
+
+Adjusts generation parameters for string/integer/choice type columns before data generation:
+ensures their value space is sufficient to accommodate the target row count: reducing
+the probability of unique constraint conflicts.
+"""
+
 from __future__ import annotations
 
 import math
@@ -13,7 +20,15 @@ logger = get_logger(__name__)
 
 
 class UniqueAdjuster:
+    """Uniqueness adjuster: adjusts generator spec parameters for unique constraint columns.
+
+    Based on the target row count and column type: extends string length, integer value
+    range, or falls back to type inference for choice columns: to best ensure uniqueness
+    of generated values.
+    """
+
     def __init__(self, mapper: ColumnMapper) -> None:
+        """Initialize the adjuster: bind a column mapper for choice column fallback inference."""
         self._mapper = mapper
 
     def adjust(
@@ -23,6 +38,12 @@ class UniqueAdjuster:
         count: int,
         column_infos: list[ColumnInfo] | None = None,
     ) -> dict[str, GeneratorSpec]:
+        """Adjust generator specs by type for the set of unique constraint columns.
+
+        - string: extends the minimum length to satisfy the value space;
+        - integer: extends the value range to accommodate the target row count;
+        - choice: falls back to type inference and recursively adjusts when choices are insufficient.
+        """
         for col_name in unique_columns:
             if col_name not in specs:
                 continue
@@ -46,6 +67,9 @@ class UniqueAdjuster:
         count: int,
         _column_infos: list[ColumnInfo] | None,
     ) -> GeneratorSpec:
+        """Adjust string column parameters: compute the required minimum length based on
+        charset size to satisfy uniqueness.
+        """
         params = dict(spec.params)
         params.setdefault("max_length", 50)
         params.setdefault("min_length", 1)
@@ -92,6 +116,11 @@ class UniqueAdjuster:
         count: int,
         column_infos: list[ColumnInfo] | None,
     ) -> GeneratorSpec:
+        """Adjust integer column parameters: extend the value range to accommodate the target row count.
+
+        When the original value range is insufficient, extends max_value by count*10;
+        logs a warning when exceeding the limit for small-range types like INT8/INT16.
+        """
         params = dict(spec.params)
         min_val = params.get("min_value", 0)
         max_val = params.get("max_value", 999999)
@@ -127,6 +156,7 @@ class UniqueAdjuster:
         count: int,
         column_infos: list[ColumnInfo] | None,
     ) -> dict[str, GeneratorSpec]:
+        """Adjust choice column: fall back to type inference and recursively adjust when choices are insufficient."""
         choices = spec.params.get("choices", [])
         if len(choices) < count:
             col_info = None

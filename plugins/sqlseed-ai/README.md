@@ -98,12 +98,12 @@ AI configs cached in platform-specific cache directory (`~/Library/Caches/sqlsee
 
 | Variable | Fallback | Default | Description |
 |:---------|:---------|:--------|:------------|
-| `SQLSEED_AI_API_KEY` | `OPENAI_API_KEY` | — | API key (required) |
+| `SQLSEED_AI_API_KEY` | `GOOGLE_API_KEY` → `OPENAI_API_KEY` | — | API key (required) |
 | `SQLSEED_AI_BASE_URL` | `OPENAI_BASE_URL` | (auto by backend) | API endpoint |
 | `SQLSEED_AI_MODEL` | — | `gemma-4-26b-a4b-it` | Model name |
-| `SQLSEED_AI_TIMEOUT` | — | `60` | API timeout (seconds) |
+| `SQLSEED_AI_TIMEOUT` | — | (auto by backend: 60s cloud, 120s local) | API timeout (seconds) |
 | `SQLSEED_AI_BACKEND` | — | `google_ai_studio` | AI backend: `google_ai_studio`, `lm_studio`, `ollama`, `openai_compat` |
-| `GOOGLE_API_KEY` | — | — | Google AI Studio API key (required when backend is `google_ai_studio`) |
+| `GOOGLE_API_KEY` | — | — | Google AI Studio API key (fallback for `SQLSEED_AI_API_KEY` when backend is `google_ai_studio`) |
 
 ### CLI Options
 
@@ -114,7 +114,7 @@ AI configs cached in platform-specific cache directory (`~/Library/Caches/sqlsee
 --max-retries     Self-correction rounds (default: 3, 0=disable)
 --verify/--no-verify  Toggle self-correction (default: verify)
 --no-cache        Skip file cache
---timeout         API timeout in seconds (default: 120)
+--timeout         API timeout in seconds (auto by backend: 60s cloud, 120s local)
 ```
 
 ## Plugin Hooks
@@ -125,8 +125,8 @@ This plugin registers via `[project.entry-points."sqlseed"]` and implements:
 |:-----|:--------|
 | `sqlseed_ai_analyze_table` | LLM-driven table analysis, returns column configs |
 | `sqlseed_pre_generate_templates` | Pre-generate candidate values for complex columns |
-| `sqlseed_register_providers` | Placeholder (no-op, entry-point registration) |
-| `sqlseed_register_column_mappers` | Placeholder (no-op, entry-point registration) |
+
+> **Note**: This plugin does NOT implement `sqlseed_register_providers` or `sqlseed_register_column_mappers` — registration is handled via the `pyproject.toml` entry point.
 
 ## Requirements
 
@@ -141,11 +141,13 @@ When using the `google_ai_studio` backend, sqlseed-ai leverages **Gemma 4 Native
 
 ### GEMMA_TOOLS
 
-The plugin defines a `GEMMA_TOOLS` function declaration that tells Gemma 4 how to respond with structured column configs. Instead of parsing free-form text, the model is instructed to call a `generate_column_config` function with typed parameters (column name, generator, parameters, etc.), ensuring output conforms to the expected schema.
+The plugin defines a `GEMMA_TOOLS` function declaration (in `_tools.py`, previously in `analyzer.py`) that tells Gemma 4 how to respond with structured schema analysis. Instead of parsing free-form text, the model is instructed to call an `analyze_schema` function with typed parameters (table name, columns, foreign keys, indexes), ensuring output conforms to the expected schema.
+
+> **Note**: All LLM prompt templates (full, compact, ultra-compact, and template-generation prompts) are centralized in `_prompts.py`.
 
 ### Native Function Calling Mechanism
 
-1. **Tool Definition**: `GEMMA_TOOLS` declares a `generate_column_config` function with a strict JSON Schema describing each parameter (column_name, generator_name, parameters, nullable, etc.).
+1. **Tool Definition**: `GEMMA_TOOLS` declares an `analyze_schema` function with a strict JSON Schema describing each parameter (table_name, columns, foreign_keys, indexes, etc.).
 2. **Request**: The schema context and analysis prompt are sent to the Gemma 4 model with `tools=[GEMMA_TOOLS]` and `tool_config` set to force a function call.
 3. **Response Parsing**: The model returns a `FunctionCall` object instead of plain text. The plugin extracts the structured args directly — no regex or fragile parsing needed.
 4. **Validation**: The extracted args are passed through the same `AiConfigRefiner` pipeline for self-correction.

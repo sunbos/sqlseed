@@ -41,6 +41,9 @@ Use command: `mcp-server-sqlseed`
 | `sqlseed_inspect_schema` | Inspect database schema: columns, foreign keys, indexes, sample data, schema_hash. Accepts optional `table_name` (all tables if omitted). |
 | `sqlseed_generate_yaml` | AI-driven YAML config generation with self-correction. Requires `sqlseed-ai` plugin and API key. Supports `api_key`/`base_url`/`model` parameter overrides. |
 | `sqlseed_execute_fill` | Execute data generation. Accepts optional `yaml_config` string, `count`, and `enrich` flag. Max YAML config size: 256KB. |
+| `sqlseed_gemma4_analyze` | Use Gemma 4 to analyze schema and generate config |
+| `sqlseed_gemma4_agent_fill` | Use Gemma 4 agent to fill table end-to-end |
+| `sqlseed_list_gemma_models` | List available Gemma 4 model variants |
 
 ### MCP Resource
 
@@ -62,6 +65,10 @@ The AI assistant will call:
 ## AI Integration
 
 When `sqlseed-ai` is installed and an API key is configured (`SQLSEED_AI_API_KEY` or `OPENAI_API_KEY`), the `sqlseed_generate_yaml` tool uses LLM-driven analysis with self-correction. Without the AI plugin, the tool returns a fallback message.
+
+## Gemma 4 Integration
+
+The `sqlseed_gemma4_analyze` and `sqlseed_gemma4_agent_fill` tools leverage **Gemma 4 Native Function Calling** via the `GEMMA_TOOLS` interface. When `google-generativeai` is installed and a Google API key (`GOOGLE_API_KEY`) is configured, these tools use Gemma 4's built-in function calling to directly analyze schemas and orchestrate end-to-end fill workflows. Use `sqlseed_list_gemma_models` to view available model variants and backends.
 
 ## Requirements
 

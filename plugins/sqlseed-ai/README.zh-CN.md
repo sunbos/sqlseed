@@ -98,12 +98,12 @@ AI 配置缓存在平台标准缓存目录（macOS: `~/Library/Caches/sqlseed/ai
 
 | 变量 | 回退 | 默认值 | 说明 |
 |:-----|:-----|:-------|:-----|
-| `SQLSEED_AI_API_KEY` | `OPENAI_API_KEY` | — | API Key（必填） |
+| `SQLSEED_AI_API_KEY` | `GOOGLE_API_KEY` → `OPENAI_API_KEY` | — | API Key（必填） |
 | `SQLSEED_AI_BASE_URL` | `OPENAI_BASE_URL` | （按后端自动设置） | API 端点 |
 | `SQLSEED_AI_MODEL` | — | `gemma-4-26b-a4b-it` | 模型名称 |
-| `SQLSEED_AI_TIMEOUT` | — | `60` | API 超时（秒） |
+| `SQLSEED_AI_TIMEOUT` | — | （按后端自动：云端 60s，本地 120s） | API 超时（秒） |
 | `SQLSEED_AI_BACKEND` | — | `google_ai_studio` | AI 后端：`google_ai_studio`、`lm_studio`、`ollama`、`openai_compat` |
-| `GOOGLE_API_KEY` | — | — | Google AI Studio API Key（后端为 `google_ai_studio` 时必填） |
+| `GOOGLE_API_KEY` | — | — | Google AI Studio API Key（后端为 `google_ai_studio` 时作为 `SQLSEED_AI_API_KEY` 的回退） |
 
 ### CLI 参数
 
@@ -114,7 +114,7 @@ AI 配置缓存在平台标准缓存目录（macOS: `~/Library/Caches/sqlseed/ai
 --max-retries     自纠正轮数（默认: 3，0=禁用）
 --verify/--no-verify  切换自纠正（默认: verify）
 --no-cache        跳过文件缓存
---timeout         API 超时秒数（默认: 120）
+--timeout         API 超时秒数（按后端自动：云端 60s，本地 120s）
 ```
 
 ## 插件 Hooks
@@ -125,8 +125,8 @@ AI 配置缓存在平台标准缓存目录（macOS: `~/Library/Caches/sqlseed/ai
 |:-----|:-----|
 | `sqlseed_ai_analyze_table` | LLM 驱动的表分析，返回列配置 |
 | `sqlseed_pre_generate_templates` | 为复杂列预生成候选值 |
-| `sqlseed_register_providers` | 占位（无操作，entry-point 注册） |
-| `sqlseed_register_column_mappers` | 占位（无操作，entry-point 注册） |
+
+> **注**：本插件**未实现** `sqlseed_register_providers` 和 `sqlseed_register_column_mappers` —— 注册通过 `pyproject.toml` entry point 处理。
 
 ## 依赖
 
@@ -141,11 +141,13 @@ AI 配置缓存在平台标准缓存目录（macOS: `~/Library/Caches/sqlseed/ai
 
 ### GEMMA_TOOLS
 
-插件定义了 `GEMMA_TOOLS` 函数声明，指示 Gemma 4 以结构化列配置响应。模型被要求调用 `generate_column_config` 函数并传入类型化参数（列名、生成器、参数等），而非输出自由文本，从而确保输出符合预期的 Schema。
+插件定义了 `GEMMA_TOOLS` 函数声明（现定义在 `_tools.py` 中，原在 `analyzer.py`），指示 Gemma 4 以结构化 Schema 分析响应。模型被要求调用 `analyze_schema` 函数并传入类型化参数（表名、列、外键、索引等），而非输出自由文本，从而确保输出符合预期的 Schema。
+
+> **注**：所有 LLM prompt 模板（full、compact、ultra-compact 及模板生成 prompt）均集中位于 `_prompts.py`。
 
 ### 原生函数调用机制
 
-1. **工具定义**：`GEMMA_TOOLS` 声明 `generate_column_config` 函数，使用严格的 JSON Schema 描述每个参数（column_name、generator_name、parameters、nullable 等）。
+1. **工具定义**：`GEMMA_TOOLS` 声明 `analyze_schema` 函数，使用严格的 JSON Schema 描述每个参数（table_name、columns、foreign_keys、indexes 等）。
 2. **请求发送**：将 Schema 上下文和分析 Prompt 发送给 Gemma 4 模型，附带 `tools=[GEMMA_TOOLS]` 和 `tool_config` 设置为强制函数调用。
 3. **响应解析**：模型返回 `FunctionCall` 对象而非纯文本。插件直接提取结构化参数，无需正则匹配或脆弱的文本解析。
 4. **验证**：提取的参数通过相同的 `AiConfigRefiner` 管道进行自纠正验证。

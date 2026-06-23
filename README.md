@@ -4,7 +4,7 @@
 
 **[English](README.md)** | [中文](README.zh-CN.md)
 
-### Declarative SQLite Test Data Generation Toolkit
+### Declarative Multi-Database Test Data Generation Toolkit
 
 **One line of code, tens of thousands of rows. Zero-config smart generation, AI-powered precision tuning.**
 
@@ -31,7 +31,7 @@ print(result)
 
 ## 💡 Why sqlseed?
 
-In development and testing workflows, we often need to populate SQLite databases with large volumes of realistic test data. Traditional approaches either require writing verbose data generation scripts or maintaining hard-to-scale SQL fixtures. sqlseed solves this with a declarative approach:
+In development and testing workflows, we often need to populate SQLite, PostgreSQL, and MySQL databases with large volumes of realistic test data. Traditional approaches either require writing verbose data generation scripts or maintaining hard-to-scale SQL fixtures. sqlseed solves this with a declarative approach:
 
 | Feature | sqlseed | Hand-written Scripts | SQL Fixtures |
 | :------ | :-----: | :-----------------: | :----------: |
@@ -134,6 +134,23 @@ pip install sqlseed[faker]
 # Install all
 pip install sqlseed[all]
 ```
+
+### Choose Database Backend
+
+sqlseed supports SQLite (default), PostgreSQL, and MySQL via SQLAlchemy.
+
+```bash
+# PostgreSQL support (psycopg driver)
+pip install "sqlseed[postgres]"
+
+# MySQL support (mysqlclient driver)
+pip install "sqlseed[mysql]"
+
+# All database backends + all data engines
+pip install "sqlseed[all]"
+```
+
+> **💡 Note**: SQLite works out of the box with no extra dependencies. PostgreSQL/MySQL drivers are only required when connecting to those databases.
 
 ### Optional Plugins
 
@@ -241,6 +258,32 @@ sqlseed automatically:
 - ✅ `balance` → generates floats
 
 **Fully zero-config. Smart inference for everything.**
+
+### Connect to PostgreSQL / MySQL
+
+sqlseed supports PostgreSQL and MySQL in addition to SQLite. Pass a SQLAlchemy URL instead of a file path:
+
+```python
+import sqlseed
+
+# PostgreSQL (requires: pip install "sqlseed[postgres]")
+result = sqlseed.fill(
+    "postgresql+psycopg://user:password@localhost:5432/mydb",
+    table="users",
+    count=10_000,
+)
+print(result)
+
+# MySQL (requires: pip install "sqlseed[mysql]")
+result = sqlseed.fill(
+    "mysql+mysqldb://user:password@localhost:3306/mydb",
+    table="users",
+    count=10_000,
+)
+print(result)
+```
+
+The same API works for all three databases — schema inference, FK resolution, expression engine, and plugin hooks all run identically across SQLite, PostgreSQL, and MySQL.
 
 ***
 
@@ -964,7 +1007,7 @@ src/sqlseed/
 │   └── stream.py            # DataStream streaming + constraint backtracking
 ├── database/                # ===== Database Layer =====
 │   ├── _protocol.py         # DatabaseAdapter Protocol (ColumnInfo, ForeignKeyInfo, IndexInfo)
-│   ├── sqlite_utils_adapter.py   # Default adapter
+│   ├── sqlalchemy_adapter.py    # Default adapter (SQLite/PostgreSQL/MySQL)
 │   ├── raw_sqlite_adapter.py     # sqlite3 fallback adapter
 │   └── optimizer.py         # PragmaOptimizer 3-tier optimization
 ├── plugins/                 # ===== Plugin Layer =====
@@ -1015,9 +1058,11 @@ Tests cover all core modules, with path structure mirroring `src/`: `test_core/`
 
 | Package | Core Dependencies | Description |
 | :------ | :---------------- | :---------- |
-| `sqlseed` | sqlite-utils, pydantic, pluggy, structlog, pyyaml, click, rich, typing_extensions, simpleeval, **rstr** | rstr used for `pattern` generator regex matching |
+| `sqlseed` | sqlalchemy, pydantic, pluggy, structlog, pyyaml, click, rich, typing_extensions, simpleeval, **rstr** | rstr used for `pattern` generator regex matching |
 | `sqlseed[faker]` | + faker>=30.0 | Faker data engine |
 | `sqlseed[mimesis]` | + mimesis>=18.0 | Mimesis data engine (recommended) |
+| `sqlseed[postgres]` | + psycopg | PostgreSQL driver for SQLAlchemy |
+| `sqlseed[mysql]` | + mysqlclient | MySQL driver for SQLAlchemy |
 | `sqlseed[docs]` | + mkdocs-material, mkdocstrings | Documentation build |
 | `sqlseed-ai` | sqlseed, **openai>=1.0** | AI plugin (Gemma 4 Native Function Calling), auto-registered via entry-point |
 | `mcp-server-sqlseed` | sqlseed, **mcp>=1.0** | MCP server, standalone CLI tool |

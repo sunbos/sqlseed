@@ -1,3 +1,10 @@
+"""Expression evaluation engine, simpleeval sandbox.
+
+ExpressionEngine evaluates derived column expressions in a safe sandbox,
+providing 20 safe functions. Simple expressions are evaluated directly,
+while complex expressions are executed in a separate thread with a timeout.
+"""
+
 from __future__ import annotations
 
 import re
@@ -12,10 +19,20 @@ logger = get_logger(__name__)
 
 
 class ExpressionTimeoutError(TimeoutError):
+    """Exception raised when expression evaluation times out."""
+
     pass
 
 
 class ExpressionEngine:
+    """Engine that evaluates derived column expressions in a simpleeval sandbox.
+
+    Provides 20 safe functions (len, int, str, upper, concat, etc.).
+    Simple expressions (method chains like value.strip()) are evaluated directly
+    in the calling thread; complex expressions are executed in a separate thread
+    with a timeout, and the thread is abandoned on timeout (as a daemon thread).
+    """
+
     SAFE_FUNCTIONS: ClassVar[dict[str, Any]] = {
         "len": len,
         "int": int,

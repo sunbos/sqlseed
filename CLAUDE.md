@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What is sqlseed
 
-Python 3.10+ declarative SQLite test data generation toolkit. Single API call infers schema, picks generators via 9-level column mapping, streams data in batches, and maintains FK integrity across tables. Optional AI plugin (`sqlseed-ai`) adds LLM-powered schema analysis.
+Python 3.10+ declarative multi-database test data generation toolkit. Single API call infers schema, picks generators via 9-level column mapping, streams data in batches, and maintains FK integrity across tables. Supports SQLite (default), PostgreSQL, and MySQL via SQLAlchemy. Optional AI plugin (`sqlseed-ai`) adds LLM-powered schema analysis.
 
 **Stack**: hatchling + hatch-vcs build, ruff lint, mypy strict, pytest. License: AGPL-3.0-or-later.
 
@@ -63,7 +63,7 @@ _utils/ → (no internal deps, used by all layers)
 
 ### Key Modules
 
-- **`core/orchestrator.py`** — `DataOrchestrator` is the central coordinator. Uses `CoreCtx` (db, schema, mapper, relation, shared_pool) and `ExtCtx` (registry, plugins, mediator, enrichment, metrics) dataclasses. `fill_table()` is the main entry point; `fill()` is its alias. Public methods: `get_column_mapping(table_name)` for diagnostic display, `execute(sql, params)` for direct SQL.
+- **`core/orchestrator.py`** — `DataOrchestrator` is the central coordinator. Uses `CoreCtx` (db, schema, mapper, relation, shared_pool) and `ExtCtx` (registry, plugins, mediator, enrichment, metrics) dataclasses. `fill_table()` is the main entry point; `fill()` is its alias. Public methods: `get_column_mapping(table_name)` for diagnostic display, `execute(sql, params)` for direct SQL, `query(sql, params)` for query results, `fetch_one(sql, params)` for single row.
 - **`core/mapper.py`** — `ColumnMapper` with 9-level strategy chain (L1: autoincrement PK → L2: user config → L3: custom exact match → L4: built-in exact match → L5: default value → L6: custom pattern match → L7: built-in pattern match → L8: nullable → L9: type fallback). 74 exact rules, 27 regex patterns.
 - **`core/schema.py`** — `SchemaInferrer` reads SQLite schema + `CREATE TABLE` SQL for autoincrement detection.
 - **`core/relation.py`** — `RelationResolver` + `SharedPool` for cross-table FK integrity. Implicit associations via name matching, explicit via `ColumnAssociation` config.
@@ -75,8 +75,8 @@ _utils/ → (no internal deps, used by all layers)
 - **`core/plugin_mediator.py`** — Bridges plugins and core (not direct calls).
 - **`core/transform.py`** — Row/batch transform pipeline.
 - **`core/result.py`** — `FillResult` dataclass for generation results.
-- **`generators/`** — `DataProvider` protocol: `name`, `set_locale`, `set_seed`, `generate(type_name, **params)`. 31 generator types dispatched via `GeneratorDispatchMixin._GENERATOR_MAP`. Three providers: `BaseProvider` (always available), `FakerProvider`, `MimesisProvider`.
-- **`database/`** — `DatabaseAdapter` protocol with two implementations: `SQLiteUtilsAdapter` (default, requires `sqlite-utils`) and `RawSQLiteAdapter` (fallback). `_compat.py` controls `HAS_SQLITE_UTILS` flag. Additional: `_base_adapter.py` (shared base), `_helpers.py` (batch insert helpers), `optimizer.py` (PRAGMA optimization).
+- **`generators/`** — `DataProvider` protocol: `name`, `set_locale`, `set_seed`, `generate(type_name, **params)`. 31 generator types dispatched via `GeneratorDispatchMixin._GENERATOR_MAP`. Three providers: `BaseProvider` (type-routing only, no real data), `FakerProvider` (required, standard), `MimesisProvider` (optional, high-performance).
+- **`database/`** — `DatabaseAdapter` protocol with `SQLAlchemyAdapter` (required core dependency, supports SQLite/PostgreSQL/MySQL via SQLAlchemy) and `RawSQLiteAdapter` (test-only fallback). Dialect abstraction in `_dialect.py`, type normalization in `_type_normalizer.py`, bulk write optimization in `_bulk_optimizer.py`. Additional: `_base_adapter.py` (shared base), `_helpers.py` (batch insert helpers), `optimizer.py` (PRAGMA optimization).
 - **`plugins/`** — 11 pluggy hooks. `PluginManager` + `PluginMediator` bridge plugins and core.
 - **`config/`** — Pydantic models (`GeneratorConfig`, `TableConfig`, `ColumnConfig`, `ColumnConstraintsConfig`, `ColumnAssociation`), YAML/JSON loader, `SnapshotManager` (save/load/list_snapshots; replay removed — CLI `replay` command uses `SnapshotManager.load()` + `DataOrchestrator.from_config()`).
 - **`cli/main.py`** — Click commands: `fill`, `preview`, `inspect`, `init`, `replay`. CLI log level via `SQLSEED_LOG_LEVEL` env var (default `WARNING`). Cache dir via `SQLSEED_CACHE_DIR` env var.
@@ -129,7 +129,7 @@ ColumnConfig supports two mutually exclusive modes (enforced by Pydantic `model_
 - Logging: `structlog` via `sqlseed._utils.logger.get_logger(__name__)`
 - New config models: Pydantic `BaseModel`
 - New providers/adapters: must satisfy existing `Protocol` definitions
-- Optional deps (faker, mimesis, sqlite-utils): always lazy import with try/except
+- Optional deps (mimesis, sqlite-utils): always lazy import with try/except
 - Register new providers via `pyproject.toml` `[project.entry-points."sqlseed"]`
 - **Ruff config**: Line length 120, isort `known-first-party=["sqlseed"]`
 - **Mypy scope**: Strict on `src/` and `plugins/`, relaxed on `tests/`
@@ -144,7 +144,7 @@ if TYPE_CHECKING:
 
 # Optional deps: lazy import inside methods
 def method(self):
-    import sqlite_utils  # not at module top
+    import sqlalchemy  # not at module top
 ```
 
 ## Doc Sync Rules
@@ -182,8 +182,8 @@ Run `pytest tests/test_doc_sync.py` to verify doc sync after changes.
 6. **Expression timeout**: Always handle `ExpressionTimeoutError`; timeout threads can't be killed
 7. **Batch transforms chain**: Last non-`None` result wins — it's not accumulative
 8. **PRAGMA restore**: Must be in `finally` block or DB stays in unsafe state
-9. **sqlite-utils optional**: `database/_compat.py` controls `HAS_SQLITE_UTILS`; never `import sqlite_utils` in core paths
-10. **Provider fallback**: `_ensure_connected()` silently falls back to `"base"` on provider load failure. Provider chain: mimesis → faker → base (auto-degrades).
+9. **SQLAlchemy core dep**: `database/sqlalchemy_adapter.py` is the required adapter; `RawSQLiteAdapter` is test-only fallback
+10. **Provider fallback**: `_ensure_connected()` silently falls back to `"base"` on provider load failure. Provider chain: mimesis (optional, high-performance) → faker (required, standard) → base (type-routing only, no real data).
 
 ## Release Checklist
 
@@ -218,6 +218,6 @@ When preparing a new version release:
 
 ## Dependencies
 
-**Core**: pydantic, pluggy, structlog, pyyaml, click, rich, typing_extensions, simpleeval, rstr
-**Optional**: sqlite-utils (`sqlseed[sqlite-utils]`), faker (`sqlseed[faker]`), mimesis (`sqlseed[mimesis]`), tqdm (`sqlseed[tqdm]`)
+**Core**: pydantic, pluggy, structlog, pyyaml, click, rich, typing_extensions, simpleeval, rstr, faker
+**Optional**: sqlite-utils (`sqlseed[sqlite-utils]`), mimesis (`sqlseed[mimesis]`), tqdm (`sqlseed[notebook]`)
 **Dev**: pytest, pytest-cov, pytest-asyncio, pytest-benchmark, ruff, mypy, pre-commit

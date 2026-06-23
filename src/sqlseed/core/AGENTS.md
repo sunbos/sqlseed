@@ -1,5 +1,7 @@
 # CORE ORCHESTRATION LAYER
 
+**Generated:** 2026-06-21
+
 ## OVERVIEW
 
 Central orchestration: schema inference, column mapping, constraint solving, data streaming.
@@ -8,6 +10,7 @@ Central orchestration: schema inference, column mapping, constraint solving, dat
 
 ```
 core/
+├── __init__.py          # Public API exports: DataOrchestrator, ColumnMapper, GeneratorSpec, etc.
 ├── orchestrator.py      # DataOrchestrator main engine
 ├── mapper.py            # ColumnMapper 9-level strategy chain
 ├── schema.py            # SchemaInferrer — column info, indexes, distribution
@@ -26,6 +29,7 @@ core/
 
 | Task | Location | Notes |
 |------|----------|-------|
+| Public API exports | `__init__.py` | Exports DataOrchestrator, ColumnMapper, GeneratorSpec, RelationResolver, GenerationResult, SchemaInferrer |
 | Add fill logic | `orchestrator.py` | DataOrchestrator.fill_table() |
 | Modify mapping | `mapper.py` | ColumnMapper.map_columns() — 9-level chain |
 | Add schema info | `schema.py` | SchemaInferrer.get_column_info() |
@@ -40,7 +44,8 @@ core/
 
 - **Context manager**: DataOrchestrator uses `__enter__`/`__exit__`
 - **Property access**: Private via `self._core.*` and `self._ext.*`
-- **Error handling**: Catch `ValueError, RuntimeError, OSError, sqlite3.OperationalError`
+- **Error handling**: Catch `ValueError, RuntimeError, OSError, sqlalchemy.exc.OperationalError` (alias `SAOperationalError`) / `sqlalchemy.exc.IntegrityError` (alias `SAIntegrityError`)
+- **Exception catching**: Production environments use SQLAlchemyAdapter, all database exceptions are `sqlalchemy.exc.*`; do not catch `sqlite3.*` (RawSQLiteAdapter is only for zero-dependency tests)
 - **Metrics**: Record via `self._metrics.record(key, value)`
 - **Progress**: Rich progress bars via `create_progress()`
 

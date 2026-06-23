@@ -1,6 +1,12 @@
+"""sqlseed CLI AI subcommand module.
+
+Defines the `ai-suggest` command, which invokes the sqlseed-ai plugin to
+analyze table schemas and generate data configuration suggestions.
+Supports streaming output display and a self-correction workflow.
+"""
+
 from __future__ import annotations
 
-import signal
 from typing import Any
 
 import click
@@ -12,6 +18,10 @@ from rich.text import Text
 from sqlseed._utils.logger import get_logger
 from sqlseed.cli.main import cli
 from sqlseed.core.orchestrator import DataOrchestrator
+
+# NOTE: Circular dependency explanation — this module is imported at the end of
+# main.py, at which point `cli` is already defined, so no circular ImportError
+# is triggered. See the design-decision comment at the end of main.py.
 
 try:
     from sqlseed_ai.analyzer import SchemaAnalyzer
@@ -258,7 +268,6 @@ def _handle_ai_verification_streaming(
 
 def _write_ai_output(output: str, db_path: str, result: Any) -> None:
     # Import inside function to avoid circular dependency.
-    # pylint: disable=import-outside-toplevel
     from sqlseed.cli.main import _sanitize_table_config  # noqa: PLC0415
 
     _sanitize_table_config(result)
@@ -347,34 +356,23 @@ def ai_suggest(
     click.echo(f"Using AI model: {resolved_model} (via {backend_name})")
 
     analyzer = SchemaAnalyzer(config=ai_config)
-    resolved_timeout = ai_config.resolve_timeout()
-    total_timeout = resolved_timeout * 2
 
-    old_handler: Any = None
-    if hasattr(signal, "SIGALRM"):
-        old_handler = signal.signal(signal.SIGALRM, lambda _s, _f: _sigalrm_handler(total_timeout))
-        _alarm_fn = vars(signal)["alarm"]
-        _alarm_fn(int(total_timeout))
-
+    # Timeouts are handled uniformly by the LLM client layer (httpx); no signal-based hack needed at the CLI layer
     try:
         result = _run_ai_analysis(analyzer, db_path, table, verify, max_retries, no_cache)
-    finally:
-        if hasattr(signal, "SIGALRM"):
-            _alarm_fn = vars(signal)["alarm"]
-            _alarm_fn(0)
-            if old_handler is not None:
-                signal.signal(signal.SIGALRM, old_handler)
+    except (ValueError, RuntimeError, OSError) as exc:
+        err_msg = str(exc).lower()
+        if "timeout" in err_msg or "timed out" in err_msg:
+            click.echo(
+                "\nError: AI suggestion timed out. "
+                "Try a different model with --model, or increase timeout with --timeout.",
+                err=True,
+            )
+        else:
+            click.echo(f"AI suggestion failed: {exc}", err=True)
+        raise SystemExit(1) from exc
 
     if result:
         _write_ai_output(output, db_path, result)
     else:
         _report_ai_failure()
-
-
-def _sigalrm_handler(total_timeout: float) -> None:
-    click.echo(
-        f"\nError: AI suggestion timed out after {total_timeout:.0f}s. "
-        "Try a different model with --model, or increase timeout with --timeout.",
-        err=True,
-    )
-    raise SystemExit(1)

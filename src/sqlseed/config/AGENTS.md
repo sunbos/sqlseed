@@ -1,30 +1,32 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-04-29 | Updated: 2026-04-29 -->
 
 # config
 
+**Generated:** 2026-06-21
+
 ## Purpose
 
-YAML/JSON 配置文件的加载、校验和模型定义。基于 Pydantic 构建类型安全的配置模型。
+Loading, validation, and model definitions for YAML/JSON configuration files. Builds type-safe configuration models on top of Pydantic.
 
 ## Key Files
 
 | File | Description |
 |------|-------------|
-| `models.py` | Pydantic 配置模型：`GeneratorConfig`, `TableConfig`, `ColumnConfig`, `ColumnConstraintsConfig`, `ProviderType` |
-| `loader.py` | 配置文件加载器，支持 YAML 和 JSON 格式，含模板生成功能 |
-| `snapshot.py` | `SnapshotManager` 配置快照的保存与加载（save/load/list_snapshots；replay 已移除） |
+| `models.py` | Pydantic configuration models: `GeneratorConfig`, `TableConfig`, `ColumnConfig`, `ColumnConstraintsConfig`, `ProviderType` |
+| `loader.py` | Configuration file loader supporting YAML and JSON formats, with template generation (supports multi-database URLs) |
+| `snapshot.py` | `SnapshotManager` for saving and loading configuration snapshots (save/load/list_snapshots; replay has been removed) |
+| `__init__.py` | Public API exports |
 
 ## For AI Agents
 
 ### Working In This Directory
 
-- 源列模式（`generator` + `params`）和派生列模式（`derive_from` + `expression`）互斥，通过 `model_validator` 校验，不要破坏此约束
-- `ProviderType` 枚举包含 BASE/FAKER/MIMESIS/CUSTOM 四种类型
-- Pydantic 模型修改需考虑向后兼容，已有配置文件不应因模型变更而无法加载
-- `field_validator`/`model_validator` 是核心校验逻辑，修改需确保所有约束条件仍然满足
-- 新增配置项应提供合理默认值，避免破坏现有用户配置
-- `ColumnAssociation` 是独立的跨表关联模型（非 ColumnConfig 内部枚举），字段：`column_name`, `source_table`, `source_column`(默认 None 回退到 column_name), `target_tables`, `strategy="shared_pool"`
+- Source-column mode (`generator` + `params`) and derived-column mode (`derive_from` + `expression`) are mutually exclusive, enforced via `model_validator`; do not break this constraint
+- The `ProviderType` enum has four values: BASE/FAKER/MIMESIS/CUSTOM
+- Modifications to Pydantic models must remain backward compatible; existing configuration files should not fail to load due to model changes
+- `field_validator`/`model_validator` are the core validation logic; when modifying them, ensure all constraints are still satisfied
+- New configuration options should provide sensible defaults to avoid breaking existing user configurations
+- `ColumnAssociation` is an independent cross-table association model (not an enum inside `ColumnConfig`); fields: `column_name`, `source_table`, `source_column` (defaults to None, falls back to column_name), `target_tables`, `strategy="shared_pool"`
 
 ### Testing Requirements
 
@@ -34,19 +36,25 @@ pytest tests/test_config/
 
 ### Common Patterns
 
-- 模型层次：`GeneratorConfig` → `TableConfig` → `ColumnConfig` → `ColumnConstraintsConfig`
-- `SnapshotManager` 按时间戳命名快照文件
-- 配置模板通过 `loader.py` 的 `generate_template()` 生成
+- Model hierarchy: `GeneratorConfig` → `TableConfig` → `ColumnConfig` → `ColumnConstraintsConfig`
+- `SnapshotManager` names snapshot files by timestamp
+- Configuration templates are generated via `generate_template()` in `loader.py`
+- `url` provides multi-database support (mutually exclusive with db_path): `GeneratorConfig` specifies the connection target via either `db_path` or `url`; the two are mutually exclusive
+- The `connection_target` property returns the connection target (url or db_path)
+- `generate_template` supports URLs (uses SQLAlchemy to read table names, imported lazily to avoid circular dependencies)
 
 ## Dependencies
 
 ### Internal
 
-- `_utils`（logger）
+- `_utils` (logger)
+- `paths` (snapshot.py uses get_cache_dir)
 
 ### External
 
-- `pydantic>=2.0` — 模型定义与校验
-- `pyyaml>=6.0` — YAML 加载
+- `pydantic>=2.0` — model definition and validation
+- `pyyaml>=6.0` — YAML loading
+- `typing_extensions` — `Self` type (model_validator return type)
+- `sqlalchemy` — loader.py reads table names (imported lazily)
 
 <!-- MANUAL: Any manually added notes below this line are preserved on regeneration -->

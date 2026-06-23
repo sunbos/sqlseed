@@ -4,7 +4,7 @@
 
 [English](README.md) | **[中文](README.zh-CN.md)**
 
-### 声明式 SQLite 测试数据生成工具包
+### 声明式多数据库测试数据生成工具包
 
 **一行代码，数万行数据。零配置智能生成，AI 驱动精准调优。**
 
@@ -133,6 +133,23 @@ pip install sqlseed[faker]
 pip install sqlseed[all]
 ```
 
+### 选择数据库后端
+
+sqlseed 通过 SQLAlchemy 支持 SQLite（默认）、PostgreSQL 和 MySQL。
+
+```bash
+# PostgreSQL 支持（psycopg 驱动）
+pip install "sqlseed[postgres]"
+
+# MySQL 支持（mysqlclient 驱动）
+pip install "sqlseed[mysql]"
+
+# 所有数据库后端 + 所有数据引擎
+pip install "sqlseed[all]"
+```
+
+> **💡 提示**：SQLite 开箱即用，无需额外依赖。PostgreSQL/MySQL 驱动仅在连接对应数据库时需要安装。
+
 ### 可选插件
 
 ```bash
@@ -241,6 +258,32 @@ sqlseed 会自动：
 - ✅ `balance` → 生成浮点数
 
 **完全零配置，智能推断一切。**
+
+### 连接 PostgreSQL / MySQL
+
+sqlseed 除 SQLite 外，还支持 PostgreSQL 和 MySQL。传入 SQLAlchemy URL 替代文件路径即可：
+
+```python
+import sqlseed
+
+# PostgreSQL（需安装：pip install "sqlseed[postgres]"）
+result = sqlseed.fill(
+    "postgresql+psycopg://user:password@localhost:5432/mydb",
+    table="users",
+    count=10_000,
+)
+print(result)
+
+# MySQL（需安装：pip install "sqlseed[mysql]"）
+result = sqlseed.fill(
+    "mysql+mysqldb://user:password@localhost:3306/mydb",
+    table="users",
+    count=10_000,
+)
+print(result)
+```
+
+三种数据库使用相同的 API —— Schema 推断、外键解析、表达式引擎和插件 Hook 在 SQLite、PostgreSQL 和 MySQL 上行为完全一致。
 
 ***
 
@@ -781,7 +824,7 @@ src/sqlseed/
 │   └── stream.py            # DataStream 流式生成 + 约束回溯
 ├── database/                # ===== 数据库层 =====
 │   ├── _protocol.py         # DatabaseAdapter Protocol (ColumnInfo, ForeignKeyInfo, IndexInfo)
-│   ├── sqlite_utils_adapter.py   # 默认适配器
+│   ├── sqlalchemy_adapter.py    # 默认适配器（SQLite/PostgreSQL/MySQL）
 │   ├── raw_sqlite_adapter.py     # sqlite3 回退适配器
 │   └── optimizer.py         # PragmaOptimizer 三级优化
 ├── plugins/                 # ===== 插件层 =====
@@ -823,9 +866,11 @@ mypy src/sqlseed/                   # 类型检查
 
 | 包 | 核心依赖 | 说明 |
 |:--|:--------|:-----|
-| `sqlseed` | sqlite-utils, pydantic, pluggy, structlog, pyyaml, click, rich, typing_extensions, simpleeval, **rstr** | rstr 用于 `pattern` 生成器的正则匹配 |
+| `sqlseed` | sqlalchemy, pydantic, pluggy, structlog, pyyaml, click, rich, typing_extensions, simpleeval, **rstr** | rstr 用于 `pattern` 生成器的正则匹配 |
 | `sqlseed[faker]` | + faker>=30.0 | Faker 数据引擎 |
 | `sqlseed[mimesis]` | + mimesis>=18.0 | Mimesis 数据引擎（推荐） |
+| `sqlseed[postgres]` | + psycopg | PostgreSQL SQLAlchemy 驱动 |
+| `sqlseed[mysql]` | + mysqlclient | MySQL SQLAlchemy 驱动 |
 | `sqlseed[docs]` | + mkdocs-material, mkdocstrings | 文档构建 |
 | `sqlseed-ai` | sqlseed, **openai>=1.0** | AI 插件，通过 entry-point 自动注册，支持 Gemma 4 GEMMA_TOOLS |
 | `mcp-server-sqlseed` | sqlseed, **mcp>=1.0** | MCP 服务器，独立 CLI 工具 |

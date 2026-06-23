@@ -1,3 +1,10 @@
+"""Column dependency graph (DAG) construction and topological sorting.
+
+ColumnDAG builds a directed acyclic graph based on column derive_from dependencies
+and performs topological sorting using Kahn's algorithm to ensure derived columns
+are generated after their source columns.
+"""
+
 from __future__ import annotations
 
 from collections import deque
@@ -9,7 +16,7 @@ from sqlseed.core.mapper import GeneratorSpec
 
 @dataclass
 class ColumnConstraints:
-    """列级约束"""
+    """Column-level constraints."""
 
     unique: bool = False
     min_value: int | float | None = None
@@ -20,14 +27,14 @@ class ColumnConstraints:
 
 @dataclass
 class ColumnNode:
-    """DAG 中的一个节点，代表一个列"""
+    """A node in the DAG representing a column."""
 
     name: str
     generator_spec: GeneratorSpec
-    depends_on: list[str] = field(default_factory=list)  # 依赖的源列名
-    expression: str | None = None  # 派生表达式
-    constraints: ColumnConstraints | None = None  # 约束条件
-    is_derived: bool = False  # 是否为派生列
+    depends_on: list[str] = field(default_factory=list)  # source column names this column depends on
+    expression: str | None = None  # derived expression
+    constraints: ColumnConstraints | None = None  # constraints
+    is_derived: bool = False  # whether this is a derived column
 
     @property
     def is_skip(self) -> bool:
@@ -35,7 +42,7 @@ class ColumnNode:
 
 
 class ColumnDAG:
-    """构建并管理列依赖图"""
+    """Builds and manages the column dependency graph."""
 
     def build(
         self,
@@ -43,6 +50,19 @@ class ColumnDAG:
         column_configs: list[Any] | None = None,
         unique_columns: set[str] | None = None,
     ) -> list[ColumnNode]:
+        """Build a DAG from generator specs and column configs, returning topologically sorted nodes.
+
+        Args:
+            specs: Mapping of column name to generator spec.
+            column_configs: Optional list of column configs, used to extract constraints and derive relationships.
+            unique_columns: Optional set of unique constraint columns, used to force-mark unique constraints.
+
+        Returns:
+            Topologically sorted list of ColumnNode, with derived columns placed after their source columns.
+
+        Raises:
+            ValueError: When a circular dependency is detected among columns.
+        """
         nodes: dict[str, ColumnNode] = {}
         config_map: dict[str, Any] = {}
         unique_columns = unique_columns or set()
@@ -103,7 +123,7 @@ class ColumnDAG:
         )
 
     def _topological_sort(self, nodes: dict[str, ColumnNode]) -> list[ColumnNode]:
-        """Kahn 算法拓扑排序"""
+        """Topological sort using Kahn's algorithm."""
         in_degree: dict[str, int] = dict.fromkeys(nodes, 0)
         adjacency: dict[str, list[str]] = {name: [] for name in nodes}
 

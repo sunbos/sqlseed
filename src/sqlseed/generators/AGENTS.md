@@ -1,5 +1,7 @@
 # DATA GENERATORS LAYER
 
+**Generated:** 2026-06-21
+
 ## OVERVIEW
 
 31 generators across 3 providers: base (no deps), faker (optional), mimesis (optional).
@@ -8,6 +10,7 @@
 
 ```
 generators/
+├── __init__.py           # Public API exports
 ├── _protocol.py         # DataProvider protocol + UnknownGeneratorError
 ├── _dispatch.py         # GeneratorDispatchMixin — 31 generator dispatch + verify_dispatch_sync()
 ├── _json_helpers.py     # JSON schema-based generation

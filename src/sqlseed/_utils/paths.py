@@ -29,6 +29,7 @@ def get_cache_dir(subdir: str = "") -> Path:
     Returns:
         Absolute ``Path`` to the cache directory (may not exist on disk).
     """
+    # SQLSEED_CACHE_DIR takes highest priority and overrides all platform defaults.
     env_root = os.environ.get(_CACHE_DIR_ENV)
     if env_root:
         root = Path(env_root)

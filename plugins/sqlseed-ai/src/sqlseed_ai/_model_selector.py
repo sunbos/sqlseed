@@ -1,3 +1,11 @@
+"""Gemma 4 model selection and fallback logic.
+
+Selects the best Gemma 4 model variant for a given backend and provides
+graceful fallback to smaller models when a request fails. Model IDs from
+different backends (Google AI Studio, LM Studio, Ollama, OpenRouter) are
+normalized so that fallback comparisons work across providers.
+"""
+
 from __future__ import annotations
 
 import re

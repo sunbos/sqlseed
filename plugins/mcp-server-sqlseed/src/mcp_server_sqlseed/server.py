@@ -1,17 +1,22 @@
+"""MCP server exposing sqlseed functionality as tools and resources."""
+
 from __future__ import annotations
 
 import hashlib
 import json
 import urllib.request
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
 from mcp.server.fastmcp import FastMCP
-
-from mcp_server_sqlseed.config import MCPServerConfig
 from sqlseed.config.models import ColumnConfig, GeneratorConfig
 from sqlseed.core.orchestrator import DataOrchestrator
+
+from mcp_server_sqlseed.config import MCPServerConfig
+
+if TYPE_CHECKING:
+    from sqlseed_ai.config import AIConfig
 
 try:
     from sqlseed_ai._hardware import MODEL_REQUIREMENTS, detect_hardware, evaluate_model_status
@@ -33,15 +38,15 @@ def _build_ai_config(
     db_path: str,
     model: str | None,
     backend: str | None,
-) -> tuple[AIConfig | None, dict[str, Any] | None]:
+) -> AIConfig | dict[str, Any]:
     """Build an AIConfig with Gemma 4 defaults, validating db_path and backend.
 
-    Returns (config, None) on success, or (None, error_dict) on failure.
+    Returns the AIConfig on success, or an error dict on failure.
     """
     if not _AI_AVAILABLE:
-        return None, {"error": "sqlseed-ai plugin not installed. Install with: pip install sqlseed-ai"}
+        return {"error": "sqlseed-ai plugin not installed. Install with: pip install sqlseed-ai"}
 
-    db_path = _validate_db_path(db_path)
+    db_path = _validate_db_target(db_path)
 
     ai_config = AIConfig.from_env()
     if model:
@@ -50,19 +55,40 @@ def _build_ai_config(
         try:
             ai_config.backend = AIBackend(backend)
         except ValueError:
-            return None, {
+            return {
                 "error": f"Invalid backend: {backend}. Use: google_ai_studio, lm_studio, ollama, openai_compat"
             }
-    ai_config.resolve_model()
+    ai_config.model = ai_config.resolve_model()
 
-    return ai_config, None
+    return ai_config
 
 
-def _validate_db_path(db_path: str) -> str:
+def _validate_db_target(db_path: str) -> str:
+    """Validate a database connection target, which may be a file path or URL.
+
+    Args:
+        db_path: Database file path or database URL
+            (e.g., ``postgresql://user:pass@host/db``).
+
+    Returns:
+        The validated connection target string.
+
+    Raises:
+        ValueError: If a file path is invalid or the file does not exist.
+    """
+    # URL format (with scheme) passes through; validated later by SQLAlchemy
+    if "://" in db_path:
+        return db_path
+
+    # File path: apply existing validation logic
     resolved = Path(db_path).resolve()
     valid_exts = (".db", ".sqlite", ".sqlite3")
     if not str(resolved).endswith(valid_exts):
-        raise ValueError(f"Invalid database path: {db_path}. Must be a .db, .sqlite, or .sqlite3 file.")
+        raise ValueError(
+            f"Invalid database target: {db_path}. "
+            "Must be a .db/.sqlite/.sqlite3 file or a database URL "
+            "(e.g., postgresql://user:pass@host/db)."
+        )
     if not resolved.exists():
         raise ValueError(f"Database file not found: {db_path}")
     return str(resolved)
@@ -110,7 +136,7 @@ def _compute_schema_hash(schema_ctx: dict[str, Any]) -> str:
 
 @mcp.resource("sqlseed://schema/{db_path}/{table_name}")
 def get_schema_resource(db_path: str, table_name: str) -> str:
-    db_path = _validate_db_path(db_path)
+    db_path = _validate_db_target(db_path)
     with DataOrchestrator(db_path) as orch:
         _validate_table_name(table_name, orch.get_table_names())
         ctx = orch.get_schema_context(table_name)
@@ -122,7 +148,7 @@ def get_schema_resource(db_path: str, table_name: str) -> str:
 def sqlseed_inspect_schema(db_path: str, table_name: str | None = None) -> dict[str, Any]:
     """Inspect database schema. Returns column info, foreign keys, indexes,
     sample data, and schema_hash for specified table or all tables."""
-    db_path = _validate_db_path(db_path)
+    db_path = _validate_db_target(db_path)
     with DataOrchestrator(db_path) as orch:
         if table_name:
             _validate_table_name(table_name, orch.get_table_names())
@@ -149,13 +175,13 @@ def sqlseed_generate_yaml(
     if not _AI_AVAILABLE:
         return "# No AI suggestions available. Ensure sqlseed-ai plugin is installed and API key is configured."
 
-    db_path = _validate_db_path(db_path)
+    db_path = _validate_db_target(db_path)
     with DataOrchestrator(db_path) as orch:
         _validate_table_name(table_name, orch.get_table_names())
 
     ai_config = AIConfig.from_env().apply_overrides(api_key=api_key, base_url=base_url, model=model)
 
-    ai_config.resolve_model()
+    ai_config.model = ai_config.resolve_model()
 
     analyzer = SchemaAnalyzer(config=ai_config)
     refiner = AiConfigRefiner(analyzer, db_path)
@@ -171,7 +197,7 @@ def sqlseed_generate_yaml(
         return f"# Error: {e}"
 
     if result:
-        output = {"db_path": db_path, "provider": "mimesis", "locale": "en_US", "tables": [result]}
+        output = {"db_path": db_path, "provider": "faker", "locale": "en_US", "tables": [result]}
         return str(yaml.dump(output, allow_unicode=True, sort_keys=False, default_flow_style=False))
     return "# No AI suggestions available. Ensure sqlseed-ai plugin is installed and API key is configured."
 
@@ -185,9 +211,9 @@ def sqlseed_execute_fill(
     enrich: bool = False,
 ) -> dict[str, Any]:
     """Execute data generation for a table. Optionally provide YAML config string for column rules."""
-    db_path = _validate_db_path(db_path)
+    db_path = _validate_db_target(db_path)
 
-    if yaml_config is not None and len(yaml_config) > _MAX_YAML_CONFIG_SIZE:
+    if yaml_config is not None and len(yaml_config.encode("utf-8")) > _MAX_YAML_CONFIG_SIZE:
         raise ValueError(f"yaml_config exceeds maximum allowed size of {_MAX_YAML_CONFIG_SIZE} bytes")
 
     with DataOrchestrator(db_path) as orch:
@@ -239,11 +265,9 @@ def sqlseed_gemma4_analyze(
     Supported backends: google_ai_studio (default), lm_studio, ollama, openai_compat.
     Supported models: gemma-4-26b-a4b-it (default), gemma-4-31b-it, gemma-4-12b-it, gemma-4-e4b-it, gemma-4-e2b-it.
     """
-    ai_config, err = _build_ai_config(db_path, model, backend)
-    if err is not None:
-        return err
-    if ai_config is None:
-        raise ValueError("AI configuration is required but was not provided.")
+    ai_config = _build_ai_config(db_path, model, backend)
+    if isinstance(ai_config, dict):
+        return ai_config
 
     with DataOrchestrator(db_path) as orch:
         _validate_table_name(table_name, orch.get_table_names())
@@ -283,11 +307,9 @@ def sqlseed_gemma4_agent_fill(
     The agent uses Gemma 4's tool use to understand schema semantics and
     produce appropriate data generation rules automatically.
     """
-    ai_config, err = _build_ai_config(db_path, model, backend)
-    if err is not None:
-        return err
-    if ai_config is None:
-        raise ValueError("AI configuration is required but was not provided.")
+    ai_config = _build_ai_config(db_path, model, backend)
+    if isinstance(ai_config, dict):
+        return ai_config
 
     # Step 1: AI analysis with self-correction
     analyzer = SchemaAnalyzer(config=ai_config)
@@ -380,7 +402,7 @@ def _check_local_backend(backend_id: str, url: str) -> dict[str, Any]:
     }
 
 
-def _build_backends(ai_config: Any) -> list[dict[str, Any]]:
+def _build_backends(ai_config: AIConfig) -> list[dict[str, Any]]:
     """Build the list of backend availability info."""
     backends: list[dict[str, Any]] = []
 
@@ -439,7 +461,7 @@ def _pick_default_model(models: list[dict[str, Any]]) -> str:
     for m in reversed(models):
         if m["status"] in {"recommended", "capable"} and not m["local_only"]:
             return str(m["id"])
-    return GemmaModel.GEMMA_4_26B_A4B.value
+    return str(GemmaModel.GEMMA_4_26B_A4B.value)
 
 
 def _pick_default_backend(backends: list[dict[str, Any]]) -> str:

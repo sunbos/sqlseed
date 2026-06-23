@@ -4,7 +4,7 @@
 
 > 本文档使用 Mermaid 图表可视化 sqlseed 的整体架构和各模块内部结构。
 
----
+***
 
 ## 1. 整体系统架构
 
@@ -41,9 +41,14 @@ graph TB
 
     subgraph DB["💾 数据库层 (database/)"]
         DBProto["DatabaseAdapter<br/>Protocol"]
-        SU["SQLiteUtilsAdapter<br/>默认"]
-        Raw["RawSQLiteAdapter<br/>回退"]
+        SU["SQLAlchemyAdapter<br/>必选"]
+        Raw["RawSQLiteAdapter<br/>仅测试"]
         Pragma["PragmaOptimizer<br/>三级优化"]
+        Dialect["_dialect.py<br/>方言抽象"]
+        TypeNorm["_type_normalizer.py<br/>类型归一化"]
+        BulkOpt["_bulk_optimizer.py<br/>批量写入优化"]
+        BaseAdapt["_base_adapter.py<br/>共享基类"]
+        Helpers["_helpers.py<br/>批量插入辅助"]
     end
 
     subgraph Plugin["🧩 插件层 (plugins/)"]
@@ -111,6 +116,13 @@ graph TB
     DBProto --> Raw
     SU --> Pragma
     Raw --> Pragma
+    SU --> Dialect
+    SU --> TypeNorm
+    SU --> BulkOpt
+    SU --> BaseAdapt
+    SU --> Helpers
+    Raw --> BaseAdapt
+    Raw --> Helpers
 
     PM --> HookSpec
     PM --> AI
@@ -134,9 +146,9 @@ graph TB
     Raw -.-> Helpers
 ```
 
----
+***
 
-## 2. 核心编排流程（fill_table 执行链路）
+## 2. 核心编排流程（fill\_table 执行链路）
 
 ```mermaid
 sequenceDiagram
@@ -190,7 +202,7 @@ sequenceDiagram
     O-->>U: GenerationResult
 ```
 
----
+***
 
 ## 3. ColumnMapper 9 级策略链
 
@@ -248,7 +260,7 @@ flowchart TD
     style L10 fill:#9E9E9E,color:#fff
 ```
 
----
+***
 
 ## 4. 数据生成层架构
 
@@ -267,19 +279,19 @@ classDiagram
         -_rng: Random
         -_locale: str
         +name = "base"
-        零外部依赖
+        仅类型路由，不生成真实数据
     }
 
     class FakerProvider {
         -_faker: Faker
         +name = "faker"
-        延迟导入 faker
+        必选核心依赖
     }
 
     class MimesisProvider {
         -_generic: Generic
         +name = "mimesis"
-        地区映射 en_US→en
+        可选，高性能
     }
 
     class ProviderRegistry {
@@ -311,7 +323,7 @@ classDiagram
     DataStream --> ConstraintSolver
 ```
 
----
+***
 
 ## 5. 数据库层架构
 
@@ -361,16 +373,18 @@ classDiagram
         +unique: bool
     }
 
-    class SQLiteUtilsAdapter {
+    class SQLAlchemyAdapter {
         -_db: Database
         -_optimizer: PragmaOptimizer
-        使用 sqlite-utils
+        必选核心依赖
+        使用 SQLAlchemy
     }
 
     class RawSQLiteAdapter {
         -_conn: Connection
         -_optimizer: PragmaOptimizer
-        使用 sqlite3 (回退)
+        仅测试回退
+        使用 sqlite3
     }
 
     class PragmaOptimizer {
@@ -383,16 +397,16 @@ classDiagram
         -_apply_aggressive()
     }
 
-    DatabaseAdapter <|.. SQLiteUtilsAdapter
+    DatabaseAdapter <|.. SQLAlchemyAdapter
     DatabaseAdapter <|.. RawSQLiteAdapter
-    SQLiteUtilsAdapter --> PragmaOptimizer
+    SQLAlchemyAdapter --> PragmaOptimizer
     RawSQLiteAdapter --> PragmaOptimizer
     DatabaseAdapter --> ColumnInfo
     DatabaseAdapter --> ForeignKeyInfo
     DatabaseAdapter --> IndexInfo
 ```
 
----
+***
 
 ## 6. 列依赖 DAG 与约束回溯
 
@@ -423,7 +437,7 @@ flowchart LR
     end
 ```
 
----
+***
 
 ## 7. AI 插件架构
 
@@ -496,7 +510,7 @@ flowchart TB
     style FailErr fill:#F44336,color:#fff
 ```
 
----
+***
 
 ## 8. 插件 Hook 生命周期
 
@@ -545,7 +559,7 @@ flowchart TB
     style H6 fill:#F44336,color:#fff
 ```
 
----
+***
 
 ## 9. 配置模型层次结构
 
@@ -558,7 +572,6 @@ classDiagram
         +tables: list~TableConfig~
         +associations: list~ColumnAssociation~
         +optimize_pragma: bool = True
-        +log_level: Literal["DEBUG","INFO","WARNING","ERROR","CRITICAL"] = "INFO"
         +snapshot_dir: str | None
     }
 
@@ -620,7 +633,7 @@ classDiagram
     ColumnConfig --> ProviderType
 ```
 
----
+***
 
 ## 10. MCP 服务器架构
 
@@ -669,7 +682,7 @@ flowchart LR
     SchemaCtx --> Orchestrator
 ```
 
----
+***
 
 ## 11. Gemma 4 集成架构
 
@@ -728,3 +741,4 @@ flowchart TB
     style FCResult fill:#34A853,color:#fff
     style FCIterate fill:#EA4335,color:#fff
 ```
+

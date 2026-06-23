@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import contextlib
-import sqlite3
 from typing import TYPE_CHECKING, Any
+
+from sqlalchemy.exc import OperationalError as SAOperationalError
 
 from sqlseed._utils.logger import get_logger
 from sqlseed.core.mapper import GeneratorSpec
@@ -298,7 +299,7 @@ class RelationResolver:
                 if pool_values:
                     self._shared_pool.merge(col_name, pool_values)
             else:
-                with contextlib.suppress(ValueError, OSError, RuntimeError, sqlite3.OperationalError):
+                with contextlib.suppress(ValueError, OSError, RuntimeError, SAOperationalError):
                     values = self._db.get_column_values(source_table, source_col, limit=10000)
                     if values:
                         self._shared_pool.merge(col_name, values)
@@ -373,17 +374,17 @@ class RelationResolver:
         generator_specs: dict[str, GeneratorSpec],
     ) -> None:
         pk_columns: set[str] = set()
-        with contextlib.suppress(ValueError, OSError, RuntimeError, sqlite3.OperationalError):
+        with contextlib.suppress(ValueError, OSError, RuntimeError, SAOperationalError):
             pk_columns = set(self._db.get_primary_keys(table_name))
 
         fk_columns: set[str] = set()
-        with contextlib.suppress(ValueError, OSError, RuntimeError, sqlite3.OperationalError):
+        with contextlib.suppress(ValueError, OSError, RuntimeError, SAOperationalError):
             fk_columns = {fk.column for fk in self.get_foreign_keys(table_name)}
 
         for col_name, spec in generator_specs.items():
             if col_name not in pk_columns and col_name not in fk_columns:
                 continue
-            with contextlib.suppress(ValueError, OSError, RuntimeError, sqlite3.OperationalError):
+            with contextlib.suppress(ValueError, OSError, RuntimeError, SAOperationalError):
                 values = self._db.get_column_values(table_name, col_name, limit=10000)
                 if values:
                     self._shared_pool.merge(col_name, values)

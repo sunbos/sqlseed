@@ -1,3 +1,5 @@
+"""Shared pytest fixtures for sqlseed tests."""
+
 from __future__ import annotations
 
 import gc
@@ -210,3 +212,91 @@ def create_project_info_db(
             )
     conn.commit()
     conn.close()
+
+
+@pytest.fixture(scope="session")
+def pg_url() -> Generator[str, None, None]:
+    """Start a real PG container and return the connection URL. Fail with a hint if Docker is unavailable.
+
+    Uses testcontainers to start a postgres:16-alpine container.
+    Session-scoped fixture: all PG tests share a single container.
+    """
+    try:
+        from testcontainers.postgres import PostgresContainer  # noqa: PLC0415
+    except ImportError:
+        pytest.fail("testcontainers package is required for PG integration tests. Install: pip install testcontainers")
+    try:
+        pg = PostgresContainer("postgres:16-alpine")
+        pg.start()
+        # PostgresContainer.get_connection_url() returns postgresql+psycopg2://...,
+        # but we have psycopg (v3) installed, so we need the postgresql+psycopg:// scheme
+        url = pg.get_connection_url()
+        url = url.replace("postgresql+psycopg2://", "postgresql+psycopg://", 1)
+        yield url
+        pg.stop()
+    except Exception as e:
+        if "docker" in str(e).lower() or "connection" in str(e).lower() or "daemon" in str(e).lower():
+            pytest.fail(
+                "Docker must be running to execute PostgreSQL integration tests.\n"
+                "Install guide: https://docs.docker.com/get-docker/\n"
+                f"Error details: {e}"
+            )
+        raise
+
+
+@pytest.fixture(scope="session")
+def available_llm_backend() -> dict[str, str]:
+    """Detect available LLM backend. Fail with a hint if none is available.
+
+    Fallback chain: Ollama -> LM Studio -> Google AI Studio.
+    Returns {"backend": ..., "model": ...} where model is the Gemma 4 model ID for that backend.
+    """
+    import json  # noqa: PLC0415
+    import os  # noqa: PLC0415
+    import urllib.request  # noqa: PLC0415
+
+    # 1. Ollama — check /api/tags and verify that a gemma4 model has been pulled
+    try:
+        with urllib.request.urlopen("http://localhost:11434/api/tags", timeout=2) as resp:
+            tags = json.loads(resp.read())
+            models = {m.get("name", "") for m in tags.get("models", [])}
+            for preferred in ("gemma4:26b", "gemma4:31b", "gemma4:e4b", "gemma4:12b"):
+                if any(m.startswith(preferred) for m in models):
+                    return {"backend": "ollama", "model": preferred}
+            pytest.fail(
+                "Ollama is running but no Gemma 4 model has been pulled. Please run:\n"
+                "  ollama pull gemma4:26b   # recommended (requires 16GB VRAM)\n"
+                "  ollama pull gemma4:e4b   # lightweight alternative (requires 4GB RAM)"
+            )
+    except Exception:
+        pass
+
+    # 2. LM Studio — check /v1/models and verify that a gemma-4 model has been loaded
+    try:
+        with urllib.request.urlopen("http://localhost:1234/v1/models", timeout=2) as resp:
+            data = json.loads(resp.read())
+            model_ids = {m.get("id", "") for m in data.get("data", [])}
+            for preferred in ("google/gemma-4-26b-a4b", "google/gemma-4-31b", "google/gemma-4-e4b"):
+                if preferred in model_ids:
+                    return {"backend": "lm_studio", "model": preferred}
+            pytest.skip(
+                "LM Studio is running but no Gemma 4 model has been loaded. Please load in LM Studio:\n"
+                "  google/gemma-4-26b-a4b   # recommended\n"
+                "  google/gemma-4-e4b       # lightweight alternative"
+            )
+    except Exception:
+        pass
+
+    # 3. Google AI Studio — check environment variable
+    if os.environ.get("GOOGLE_API_KEY"):
+        return {"backend": "google_ai_studio", "model": "gemma-4-26b-a4b-it"}
+
+    pytest.skip(
+        "At least one LLM backend is required to run AI integration tests:\n"
+        "  - Ollama: install (https://ollama.ai) and pull a Gemma 4 model:\n"
+        "      ollama pull gemma4:26b   # recommended (requires 16GB VRAM)\n"
+        "      ollama pull gemma4:e4b   # lightweight alternative (requires 4GB RAM)\n"
+        "  - LM Studio: install and load a Gemma 4 model (google/gemma-4-26b-a4b)\n"
+        "  - Google AI Studio: set the GOOGLE_API_KEY environment variable\n"
+        "    (model: gemma-4-26b-a4b-it)"
+    )

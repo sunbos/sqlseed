@@ -12,7 +12,7 @@
 | File | Description |
 |------|-------------|
 | `test_raw_sqlite_adapter.py` | RawSQLiteAdapter 功能测试 |
-| `test_sqlite_utils_adapter.py` | SQLiteUtilsAdapter 功能测试 |
+| `test_sqlalchemy_adapter.py` | SQLAlchemyAdapter 契约测试（默认适配器） |
 | `test_optimizer.py` | PragmaOptimizer PRAGMA 优化测试 |
 | `test_sql_safe.py` | SQL 注入防护测试 |
 

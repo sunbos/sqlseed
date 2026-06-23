@@ -1,3 +1,10 @@
+"""Constraint solver supporting backtracking and composite unique constraints.
+
+ConstraintSolver maintains sets of generated values, supporting single-column
+and composite unique constraints. For large datasets (>100K rows), probabilistic
+mode (hash-based) can be enabled to reduce memory usage.
+"""
+
 from __future__ import annotations
 
 import hashlib
@@ -7,13 +14,15 @@ from typing import Any
 
 @dataclass
 class RegisterResult:
+    """Constraint registration result, carrying backtracking need and target column info."""
+
     registered: bool = True
     need_backtrack: bool = False
     backtrack_targets: list[str] = field(default_factory=list)
 
 
 class ConstraintSolver:
-    """约束求解器，支持回溯和复合唯一约束
+    """Constraint solver supporting backtracking and composite unique constraints.
 
     For large datasets (>100K rows), set probabilistic=True to use
     a hash-based probabilistic set that trades a small false-positive
@@ -65,6 +74,18 @@ class ConstraintSolver:
         value: Any,
         unique: bool = False,
     ) -> bool:
+        """Check whether a single-column value satisfies the unique constraint and register it.
+
+        Args:
+            column_name: Column name.
+            value: The value to check.
+            unique: Whether to enable unique constraint checking.
+
+        Returns:
+            True means the value passed the check and was registered;
+            False means the value already exists (unique constraint violated).
+            None values always return True (NULL does not participate in uniqueness checks).
+        """
         if not unique:
             return True
         if value is None:
@@ -81,6 +102,23 @@ class ConstraintSolver:
         unique: bool = False,
         source_columns: list[str] | None = None,
     ) -> RegisterResult:
+        """Attempt to register a single-column value, returning a result carrying backtracking info.
+
+        Unlike check_and_register, this method returns a RegisterResult when
+        the unique constraint is violated, containing the list of target columns
+        to backtrack, enabling upper-layer streaming generators to perform
+        backtracking retries.
+
+        Args:
+            column_name: Column name.
+            value: The value to register.
+            unique: Whether to enable unique constraint checking.
+            source_columns: Optional list of backtracking target columns, defaults to [column_name].
+
+        Returns:
+            RegisterResult: registered=True means registration succeeded;
+            registered=False with need_backtrack=True means backtracking is required.
+        """
         if not unique:
             return RegisterResult(registered=True)
 
@@ -111,6 +149,20 @@ class ConstraintSolver:
         key_name: str,
         values: tuple[Any, ...],
     ) -> bool:
+        """Check the composite unique constraint and register the tuple value.
+
+        Used for multi-column composite unique constraints (e.g., (col_a, col_b) joint unique).
+        Skips the check when any value is None (under SQL semantics, NULL does not
+        participate in unique constraints).
+
+        Args:
+            key_name: Composite constraint key name (typically a concatenation of column names).
+            values: Tuple of column values to check.
+
+        Returns:
+            True means the composite value passed the check and was registered;
+            False means an identical composite already exists.
+        """
         if any(v is None for v in values):
             return True
 
@@ -128,6 +180,11 @@ class ConstraintSolver:
             self._composite_seen[key_name].discard(values)
 
     def reset(self) -> None:
+        """Clear all registered single-column and composite unique constraint values.
+
+        Called before generating data for a new table, to avoid values registered
+        for the previous table affecting the current table.
+        """
         self._seen.clear()
         self._composite_seen.clear()
         if self._probabilistic:

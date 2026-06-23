@@ -1,3 +1,10 @@
+"""sqlseed CLI entry module.
+
+Defines the `cli` group and core subcommands: fill, preview, inspect, init, replay.
+AI-related commands (ai-suggest) are defined in ai_commands.py and registered
+via module-level import.
+"""
+
 from __future__ import annotations
 
 import os
@@ -44,7 +51,7 @@ def _fill_from_config_cmd(config_path: str, *, clear_before: bool = False, **kwa
 
 
 def _save_snapshot_cmd(
-    db_path: str,
+    db_path: str | None,
     table: str,
     count: int,
     provider: str,
@@ -52,9 +59,12 @@ def _save_snapshot_cmd(
     seed: int | None,
     batch_size: int,
     clear: bool,
+    *,
+    url: str | None = None,
 ) -> None:
     config = GeneratorConfig(
         db_path=db_path,
+        url=url,
         provider=ProviderType(provider),
         locale=locale,
         tables=[
@@ -106,16 +116,38 @@ _FILL_DEFAULT_COUNT = 1000
 @click.option("--snapshot", is_flag=True, help="Save generation snapshot for replay")
 @click.option("--enrich", is_flag=True, help="Enrich data using existing table distribution")
 @click.option("--no-ai", is_flag=True, help="Skip AI suggestions and template generation")
-def fill(**kwargs: Any) -> None:
+@click.option(
+    "--url",
+    "db_url",
+    default=None,
+    help="Database URL (e.g., postgresql://user:pass@host/db). Alternative to db_path argument.",
+)
+def fill(
+    db_path: str | None,
+    table: str | None,
+    count: int | None,
+    provider: str,
+    locale: str,
+    seed: int | None,
+    batch_size: int,
+    clear: bool,
+    config_path: str | None,
+    transform_path: str | None,
+    snapshot: bool,
+    enrich: bool,
+    no_ai: bool,
+    db_url: str | None,
+) -> None:
     """Fill a table with generated test data.
 
     Use --config for config-driven generation, or provide db_path + --table
     + --count for direct generation. When using --config, CLI options
     override the corresponding YAML values.
-    """
-    count = kwargs.get("count")
-    config_path = kwargs.get("config_path")
 
+    Connection methods (mutually exclusive):
+    - Positional db_path: sqlseed fill app.db -t users -n 1000
+    - --url flag: sqlseed fill --url "postgresql://user:pass@host/db" -t users -n 1000
+    """
     if count is not None and count <= 0:
         logger.debug("Invalid count value", count=count)
         raise click.UsageError(f"--count must be greater than 0, got {count}")
@@ -125,58 +157,94 @@ def fill(**kwargs: Any) -> None:
             "--count is required when not using --config. Use -n <number> to specify the number of rows to generate."
         )
 
-    kwargs["count"] = count
-    _execute_fill(kwargs)
+    # Validate that db_path and --url are mutually exclusive
+    if db_path and db_url:
+        raise click.UsageError("Cannot specify both positional db_path and --url. Use one or the other.")
+    if not config_path and not db_path and not db_url:
+        raise click.UsageError("db_path or --url is required when not using --config.")
+
+    _execute_fill(
+        db_path=db_path,
+        table=table,
+        count=count,
+        provider=provider,
+        locale=locale,
+        seed=seed,
+        batch_size=batch_size,
+        clear=clear,
+        config_path=config_path,
+        transform_path=transform_path,
+        snapshot=snapshot,
+        enrich=enrich,
+        no_ai=no_ai,
+        db_url=db_url,
+    )
 
 
-def _execute_fill(opts: dict[str, Any]) -> None:
-    config_path = opts.get("config_path")
+def _execute_fill(
+    *,
+    db_path: str | None,
+    table: str | None,
+    count: int | None,
+    provider: str,
+    locale: str,
+    seed: int | None,
+    batch_size: int,
+    clear: bool,
+    config_path: str | None,
+    transform_path: str | None,
+    snapshot: bool,
+    enrich: bool,
+    no_ai: bool,
+    db_url: str | None,
+) -> None:
     if config_path:
         logger.debug("Using config-driven generation", config_path=config_path)
         _fill_from_config_cmd(
             config_path,
-            clear_before=opts.get("clear", False),
-            skip_ai=opts.get("no_ai", False),
-            count=opts.get("count"),
-            provider=opts.get("provider"),
-            seed=opts.get("seed"),
-            batch_size=opts.get("batch_size"),
-            locale=opts.get("locale"),
+            clear_before=clear,
+            skip_ai=no_ai,
+            count=count,
+            provider=provider,
+            seed=seed,
+            batch_size=batch_size,
+            locale=locale,
         )
         return
 
-    db_path = opts.get("db_path")
-    table = opts.get("table")
-    if not db_path:
-        raise click.UsageError("db_path is required when not using --config")
     if not table:
         raise click.UsageError("--table is required when not using --config")
 
-    count = opts.get("count", _FILL_DEFAULT_COUNT)
-    provider = opts.get("provider", "mimesis")
-    locale = opts.get("locale", "en_US")
-    seed = opts.get("seed")
-    batch_size = opts.get("batch_size", 5000)
-    clear_before = opts.get("clear", False)
-    enrich = opts.get("enrich", False)
-    transform = opts.get("transform_path")
-    skip_ai = opts.get("no_ai", False)
+    effective_count = count if count is not None else _FILL_DEFAULT_COUNT
 
-    logger.debug("Starting fill", db_path=db_path, table=table, count=count)
+    # Resolve connection target: db_url takes precedence over db_path.
+    # api_fill's db_path and url are mutually exclusive; pass None for the unused one.
+    if db_url:
+        fill_db_path: str | None = None
+        fill_url: str | None = db_url
+    else:
+        fill_db_path = db_path
+        fill_url = None
+
+    if not (fill_db_path or fill_url):
+        raise click.UsageError("db_path or --url is required when not using --config")
+
+    logger.debug("Starting fill", target=fill_url or fill_db_path, table=table, count=effective_count)
 
     try:
         result = api_fill(
-            db_path,
+            fill_db_path,
+            url=fill_url,
             table=table,
-            count=count,
+            count=effective_count,
             provider=provider,
             locale=locale,
             seed=seed,
             batch_size=batch_size,
-            clear_before=clear_before,
+            clear_before=clear,
             enrich=enrich,
-            transform=transform,
-            skip_ai=skip_ai,
+            transform=transform_path,
+            skip_ai=no_ai,
         )
     except ValueError as exc:
         logger.debug("Fill failed with ValueError", error=str(exc))
@@ -186,21 +254,22 @@ def _execute_fill(opts: dict[str, Any]) -> None:
         for err in result.errors:
             click.echo(f"  Warning: {err}", err=True)
 
-    if opts.get("snapshot"):
+    if snapshot:
         _save_snapshot_cmd(
-            db_path,
-            table,
-            count,
-            provider,
-            locale,
-            seed,
-            batch_size,
-            clear_before,
+            db_path=fill_db_path,
+            table=table,
+            count=effective_count,
+            provider=provider,
+            locale=locale,
+            seed=seed,
+            batch_size=batch_size,
+            clear=clear,
+            url=fill_url,
         )
 
 
 @cli.command()
-@click.argument("db_path")
+@click.argument("db_path", required=False)
 @click.option("--table", "-t", required=True, help="Target table name")
 @click.option("--count", "-n", default=5, type=int, help="Number of rows to preview (default: 5)")
 @click.option(
@@ -211,17 +280,35 @@ def _execute_fill(opts: dict[str, Any]) -> None:
 )
 @click.option("--locale", "-l", default="en_US", help="Locale (default: en_US)")
 @click.option("--seed", "-s", default=None, type=int, help="Random seed")
+@click.option(
+    "--url",
+    "db_url",
+    default=None,
+    help="Database URL (e.g., postgresql://user:pass@host/db). Alternative to db_path argument.",
+)
 def preview(
-    db_path: str,
+    db_path: str | None,
     table: str,
     count: int,
     provider: str,
     locale: str,
     seed: int | None,
+    db_url: str | None,
 ) -> None:
-    """Preview generated data without writing to database."""
+    """Preview generated data without writing to database.
+
+    Connection methods (mutually exclusive):
+    - Positional db_path: sqlseed preview app.db -t users
+    - --url flag: sqlseed preview --url "postgresql://..." -t users
+    """
+    if db_path and db_url:
+        raise click.UsageError("Cannot specify both positional db_path and --url. Use one or the other.")
+    if not db_path and not db_url:
+        raise click.UsageError("db_path or --url is required.")
+
     rows = api_preview(
         db_path,
+        url=db_url,
         table=table,
         count=count,
         provider=provider,
@@ -296,12 +383,28 @@ def _inspect_table(orch: Any, tbl: str, show_mapping: bool, console: Any) -> Non
 
 
 @cli.command()
-@click.argument("db_path")
+@click.argument("db_path", required=False)
 @click.option("--table", "-t", default=None, help="Specific table to inspect")
 @click.option("--show-mapping", is_flag=True, help="Show column mapping strategy")
-def inspect(db_path: str, table: str | None, show_mapping: bool) -> None:
-    """Inspect database schema and column mapping strategies."""
-    with DataOrchestrator(db_path) as orch:
+@click.option(
+    "--url",
+    "db_url",
+    default=None,
+    help="Database URL (e.g., postgresql://user:pass@host/db). Alternative to db_path argument.",
+)
+def inspect(db_path: str | None, table: str | None, show_mapping: bool, db_url: str | None) -> None:
+    """Inspect database schema and column mapping strategies.
+
+    Connection methods (mutually exclusive):
+    - Positional db_path: sqlseed inspect app.db
+    - --url flag: sqlseed inspect --url "postgresql://..."
+    """
+    if db_path and db_url:
+        raise click.UsageError("Cannot specify both positional db_path and --url. Use one or the other.")
+    target = db_url or db_path
+    if not target:
+        raise click.UsageError("db_path or --url is required.")
+    with DataOrchestrator(target) as orch:
         console = Console()
 
         tables = [table] if table else orch.get_table_names()
@@ -313,9 +416,26 @@ def inspect(db_path: str, table: str | None, show_mapping: bool) -> None:
 @cli.command()
 @click.argument("config_path")
 @click.option("--db", default="test.db", help="Database path for template (default: test.db)")
-def init(config_path: str, db: str) -> None:
-    """Generate a YAML configuration template."""
-    config = generate_template(db)
+@click.option(
+    "--url",
+    "db_url",
+    default=None,
+    help="Database URL (e.g., postgresql://user:pass@host/db). Alternative to --db.",
+)
+def init(config_path: str, db: str, db_url: str | None) -> None:
+    """Generate a YAML configuration template.
+
+    Connection methods (mutually exclusive):
+    - --db flag: sqlseed init config.yaml --db app.db
+    - --url flag: sqlseed init config.yaml --url "postgresql://..."
+    """
+    if db and db_url:
+        raise click.UsageError("Cannot specify both --db and --url. Use one or the other.")
+
+    # --db defaults to "test.db", but if the user provides --url, ignore the --db default
+    effective_db = None if db_url else db
+
+    config = generate_template(db_path=effective_db, url=db_url)
     save_config(config, config_path)
     click.echo(f"Configuration template saved to: {config_path}")
 
@@ -325,8 +445,18 @@ def init(config_path: str, db: str) -> None:
 def replay(snapshot_path: str) -> None:
     """Replay a previously saved snapshot."""
     manager = SnapshotManager()
-    data = manager.load(snapshot_path)
-    config = GeneratorConfig(**data["config"])
+    try:
+        data = manager.load(snapshot_path)
+    except FileNotFoundError as exc:
+        raise click.UsageError(f"Snapshot file not found: {snapshot_path}") from exc
+    except (ValueError, KeyError) as exc:
+        raise click.UsageError(f"Invalid snapshot file format: {exc}") from exc
+
+    try:
+        config = GeneratorConfig(**data["config"])
+    except Exception as exc:  # Pydantic ValidationError
+        raise click.UsageError(f"Invalid config in snapshot: {exc}") from exc
+
     table_name = data["table_name"]
     count = data["count"]
     seed = data.get("seed")
@@ -365,11 +495,23 @@ def main() -> None:
 
 
 # Import AI commands to register them with the CLI group.
-# Must be after `cli` is defined to avoid circular ImportError
-# (ai_commands imports `cli` from this module at module level).
+#
+# Design decision: why use module-level import instead of lazy import?
+# - ai_commands.py uses the @cli.command() decorator to register commands; Click
+#   discovers commands at load time.
+# - If we switched to lazy import (importing inside a command function), Click
+#   would be unable to discover the ai-suggest command.
+# - Therefore the import must happen at module level to trigger decorator registration.
+#
+# Circular dependency avoidance:
+# - ai_commands.py obtains the CLI group via `from sqlseed.cli.main import cli`.
+# - This file defines `cli` first, then imports ai_commands, relying on load
+#   order to avoid a circular ImportError.
+# - try/except handles the case where sqlseed-ai is not installed
+#   (ImportError -> pass).
+#
 # NOTE: Do NOT use contextlib.suppress here — it silently swallows
 # the circular ImportError that occurs when main.py is loaded first.
-# pylint: disable=unused-import
 try:  # noqa: SIM105
     import sqlseed.cli.ai_commands  # noqa: F401
 except ImportError:

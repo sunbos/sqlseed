@@ -1,8 +1,8 @@
 # sqlseed
 
-**Declarative SQLite test data generation toolkit.**
+**Declarative Multi-Database test data generation toolkit.**
 
-Generate realistic test data for SQLite databases using YAML/JSON config or Python API.
+Generate realistic test data for SQLite, PostgreSQL, and MySQL databases using YAML/JSON config or Python API.
 Auto-infers schema, 9-level column mapping, 31 generators, plugin system (pluggy).
 
 ## Quick Start
@@ -14,8 +14,23 @@ pip install sqlseed[mimesis]
 ```python
 from sqlseed import fill
 
+# SQLite (default)
 fill("app.db", tables={"users": {"count": 100}})
+
+# PostgreSQL (requires: pip install "sqlseed[postgres]")
+fill(
+    "postgresql+psycopg://user:password@localhost:5432/mydb",
+    tables={"users": {"count": 100}},
+)
+
+# MySQL (requires: pip install "sqlseed[mysql]")
+fill(
+    "mysql+mysqldb://user:password@localhost:3306/mydb",
+    tables={"users": {"count": 100}},
+)
 ```
+
+The same API works across SQLite, PostgreSQL, and MySQL — schema inference, FK resolution, expression engine, and plugin hooks all run identically.
 
 ## CLI
 
@@ -42,8 +57,10 @@ sqlseed inspect app.db --show-mapping
 
 | Command | Description |
 |---------|-------------|
-| `pip install sqlseed` | Base package |
+| `pip install sqlseed` | Base package (SQLite only) |
 | `pip install sqlseed[mimesis]` | + Mimesis data engine (recommended) |
 | `pip install sqlseed[faker]` | + Faker data engine |
-| `pip install sqlseed[all]` | All data engines + sqlite-utils + tqdm |
+| `pip install "sqlseed[postgres]"` | + PostgreSQL driver (psycopg) |
+| `pip install "sqlseed[mysql]"` | + MySQL driver (mysqlclient) |
+| `pip install sqlseed[all]` | All data engines + all DB drivers (faker, mimesis, psycopg, mysqlclient) + tqdm |
 | `pip install sqlseed[docs]` | mkdocs-material + mkdocstrings (this site) |

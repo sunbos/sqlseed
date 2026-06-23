@@ -1,3 +1,14 @@
+"""Iterative refinement of AI-generated sqlseed configs.
+
+This module hosts :class:`AiConfigRefiner`, which wraps a
+:class:`~sqlseed_ai.analyzer.SchemaAnalyzer` and a database path, then drives
+a retry loop that (1) asks the LLM for a config, (2) validates it against the
+live schema via :class:`~sqlseed.core.orchestrator.DataOrchestrator`, and
+(3) feeds validation errors back to the LLM until the config is valid or the
+retry budget is exhausted. Successful configs are cached on disk keyed by a
+schema hash so repeated runs skip the LLM round-trip.
+"""
+
 from __future__ import annotations
 
 import hashlib
@@ -36,10 +47,18 @@ class _RetryState:
 
 
 class AISuggestionFailedError(Exception):
-    pass
+    """Raised when AI config generation/refinement cannot produce a valid config."""
 
 
 class AiConfigRefiner:
+    """Refine AI-generated configs against a live database schema.
+
+    The refiner orchestrates a multi-attempt loop: each attempt calls the LLM,
+    validates the result with :class:`DataOrchestrator`, and on failure appends
+    a refinement prompt so the next attempt can fix the reported error.
+    Successful configs are cached on disk keyed by a schema hash.
+    """
+
     def __init__(
         self,
         analyzer: SchemaAnalyzer,
@@ -47,11 +66,30 @@ class AiConfigRefiner:
         *,
         cache_dir: str | None = None,
     ) -> None:
+        """Initialize the refiner.
+
+        Args:
+            analyzer: The :class:`SchemaAnalyzer` used for LLM calls.
+            db_path: Path to the database file (or URL) to validate against.
+            cache_dir: Optional override for the cache directory. Defaults to
+                the sqlseed cache dir under ``ai_configs``.
+        """
         self._analyzer = analyzer
         self._db_path = db_path
         self._cache_dir = Path(cache_dir) if cache_dir else get_cache_dir("ai_configs")
 
     def _handle_generation_failure(self, error: ErrorSummary, attempt: int, max_retries: int) -> None:
+        """Decide whether to retry or raise after an LLM generation failure.
+
+        Args:
+            error: Summary of the generation error.
+            attempt: Current attempt index (0-based).
+            max_retries: Maximum number of retries allowed.
+
+        Raises:
+            AISuggestionFailedError: If the error is non-retryable or the
+                retry budget is exhausted.
+        """
         if not error.retryable:
             raise AISuggestionFailedError(f"Non-retryable error: {error.message}")
         if attempt == max_retries:
@@ -64,6 +102,18 @@ class AiConfigRefiner:
         )
 
     def _handle_validation_failure(self, error: ErrorSummary, attempt: int, max_retries: int, table_name: str) -> None:
+        """Decide whether to retry or raise after a config validation failure.
+
+        Args:
+            error: Summary of the validation error.
+            attempt: Current attempt index (0-based).
+            max_retries: Maximum number of retries allowed.
+            table_name: Name of the table being refined.
+
+        Raises:
+            AISuggestionFailedError: If the error is non-retryable or the
+                retry budget is exhausted.
+        """
         if not error.retryable:
             raise AISuggestionFailedError(f"Non-retryable error: {error.message}")
 
@@ -91,6 +141,20 @@ class AiConfigRefiner:
         last_error_type: str | None,
         same_error_count: int,
     ) -> tuple[str, int]:
+        """Detect repeated non-retryable errors and bail out early.
+
+        Args:
+            error: The current error summary.
+            last_error_type: The error type from the previous attempt.
+            same_error_count: How many times the previous error has repeated.
+
+        Returns:
+            Updated ``(error_type, same_error_count)`` tuple.
+
+        Raises:
+            AISuggestionFailedError: If the same non-retryable error repeats
+                twice in a row (the model is unlikely to recover).
+        """
         if error.error_type in self._NON_RETRYABLE_ERRORS:
             if error.error_type == last_error_type:
                 same_error_count += 1
@@ -165,7 +229,7 @@ class AiConfigRefiner:
 
     def _handle_validation_result(
         self,
-        orch: Any,
+        orch: DataOrchestrator,
         table_name: str,
         schema_hash: str,
         config_dict: dict[str, Any],
@@ -201,7 +265,7 @@ class AiConfigRefiner:
 
     def _refinement_loop(
         self,
-        orch: Any,
+        orch: DataOrchestrator,
         table_name: str,
         schema_ctx: Any,
         schema_hash: str,
@@ -249,7 +313,7 @@ class AiConfigRefiner:
                     self._handle_generation_failure(error, attempt, max_retries)
                 continue
 
-            # config_dict is not None — validate it
+            # config_dict is not None -- validate it
             if on_progress:
                 on_progress("validating", {"attempt": attempt})
 
@@ -276,6 +340,17 @@ class AiConfigRefiner:
         no_cache: bool = False,
         use_compact: bool | None = None,
     ) -> dict[str, Any]:
+        """Generate and refine an AI config for a table (non-streaming).
+
+        Args:
+            table_name: Name of the table to generate a config for.
+            max_retries: Maximum number of refinement retries.
+            no_cache: If True, skip cache lookup and storage.
+            use_compact: If set, force/override compact mode; None for auto-detect.
+
+        Returns:
+            Validated config dict.
+        """
         with DataOrchestrator(self._db_path) as orch:
             schema_hash = self._compute_schema_hash(orch, table_name)
             schema_ctx = orch.get_schema_context(table_name)
@@ -304,7 +379,7 @@ class AiConfigRefiner:
         use_compact: bool | None = None,
     ) -> dict[str, Any]:
         """Streaming version of generate_and_refine with progress callbacks and
-        context-size-aware prompt downgrading (normal → compact → ultra-compact).
+        context-size-aware prompt downgrading (normal -> compact -> ultra-compact).
         """
         with DataOrchestrator(self._db_path) as orch:
             schema_hash = self._compute_schema_hash(orch, table_name)
@@ -325,17 +400,37 @@ class AiConfigRefiner:
                 on_progress=on_progress,
             )
 
-    def _compute_schema_hash(self, orch: Any, table_name: str) -> str:
+    def _compute_schema_hash(self, orch: DataOrchestrator, table_name: str) -> str:
+        """Compute a stable hash of the table's column set for cache keys.
+
+        Args:
+            orch: Orchestrator with access to the live schema.
+            table_name: Name of the table to hash.
+
+        Returns:
+            Truncated SHA-256 hex digest (16 chars) of the sorted column names.
+        """
         column_names = orch.get_column_names(table_name)
         raw = "|".join(sorted(column_names))
         return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
     def _validate_config(
         self,
-        orch: Any,
+        orch: DataOrchestrator,
         table_name: str,
         config_dict: dict[str, Any],
     ) -> ErrorSummary | None:
+        """Validate an AI-generated config against the live schema.
+
+        Args:
+            orch: Orchestrator used for column lookups and preview.
+            table_name: Name of the table the config targets.
+            config_dict: The AI-generated config to validate.
+
+        Returns:
+            :class:`ErrorSummary` describing the first validation failure,
+            or ``None`` if the config is valid.
+        """
         try:
             table_config = TableConfig(**config_dict)
         except PydanticValidationError as e:
@@ -389,6 +484,16 @@ class AiConfigRefiner:
         attempt: int,
         max_retries: int,
     ) -> str:
+        """Build the user-message prompt asking the LLM to fix a validation error.
+
+        Args:
+            error: The validation error to surface to the model.
+            attempt: Current attempt index (0-based).
+            max_retries: Maximum number of retries allowed.
+
+        Returns:
+            Refinement prompt string.
+        """
         parts = [
             "Your previous configuration contained an error. Please fix it.",
             "",
@@ -415,6 +520,13 @@ class AiConfigRefiner:
         config_dict: dict[str, Any],
         schema_hash: str,
     ) -> None:
+        """Persist a successful config to disk keyed by table name and schema hash.
+
+        Args:
+            table_name: Name of the table the config targets.
+            config_dict: The validated config to cache.
+            schema_hash: Hash of the table schema for invalidation.
+        """
         try:
             self._cache_dir.mkdir(parents=True, exist_ok=True)
             cache_file = self._cache_dir / f"{table_name}.json"
@@ -443,6 +555,16 @@ class AiConfigRefiner:
         table_name: str,
         schema_hash: str | None = None,
     ) -> dict[str, Any] | None:
+        """Retrieve a previously cached config for the table, if still valid.
+
+        Args:
+            table_name: Name of the table to look up.
+            schema_hash: Expected schema hash. If provided and the cached
+                entry's hash differs, the cache is treated as invalid.
+
+        Returns:
+            Cached config dict, or ``None`` if no valid cache exists.
+        """
         cache_file = self._cache_dir / f"{table_name}.json"
         if cache_file.exists():
             try:

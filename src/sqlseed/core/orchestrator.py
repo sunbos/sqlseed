@@ -1,10 +1,22 @@
+"""Data orchestration engine, coordinating schema inference, column mapping, relation resolution,
+constraint solving, enrichment, and database writes.
+
+DataOrchestrator serves as the core entry point, wiring together SchemaInferrer,
+ColumnMapper, RelationResolver, ConstraintSolver, EnrichmentEngine and other components
+to complete the full flow from schema inference to batch data writes. Production
+environments uniformly use SQLAlchemyAdapter, and all database exceptions are of
+sqlalchemy.exc.* types.
+"""
+
 from __future__ import annotations
 
 import contextlib
-import sqlite3
 import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
+
+from sqlalchemy.exc import IntegrityError as SAIntegrityError
+from sqlalchemy.exc import OperationalError as SAOperationalError
 
 from sqlseed._utils.logger import get_logger
 from sqlseed._utils.metrics import MetricsCollector
@@ -22,9 +34,6 @@ from sqlseed.core.result import GenerationResult
 from sqlseed.core.schema import SchemaInferrer
 from sqlseed.core.transform import load_transform
 from sqlseed.core.unique_adjuster import UniqueAdjuster
-from sqlseed.database._compat import HAS_SQLITE_UTILS
-from sqlseed.database.raw_sqlite_adapter import RawSQLiteAdapter
-from sqlseed.database.sqlite_utils_adapter import SQLiteUtilsAdapter
 from sqlseed.generators.registry import ProviderRegistry
 from sqlseed.generators.stream import DataStream
 from sqlseed.plugins.manager import PluginManager
@@ -33,6 +42,17 @@ if TYPE_CHECKING:
     from sqlseed.database._protocol import DatabaseAdapter
 
 logger = get_logger(__name__)
+
+
+def _is_db_url(target: str) -> bool:
+    """Determine whether the connection target is a database URL (with scheme) or a plain file path.
+
+    URL examples: "postgresql://user:pass@host/db", "mysql+pymysql://..."
+    File path examples: "/path/to/db.sqlite", "app.db"
+
+    A SQLAlchemy URL must contain "://" (the scheme + authority/path separator).
+    """
+    return "://" in target
 
 
 @dataclass
@@ -55,6 +75,15 @@ class ExtCtx:
 
 
 class DataOrchestrator:
+    """Data orchestration engine, wiring together schema inference, column mapping,
+    relation resolution, and batch writes.
+
+    Manages core components (schema, mapper, relation) and extension components
+    (registry, plugins, enrichment) via two context groups CoreCtx/ExtCtx.
+    Supports the context manager protocol to ensure controllable connection lifecycle.
+    Production environments uniformly use SQLAlchemyAdapter to shield multi-database dialect differences.
+    """
+
     def __init__(
         self,
         db_path: str,
@@ -148,7 +177,7 @@ class DataOrchestrator:
     @classmethod
     def from_config(cls, config: Any) -> DataOrchestrator:
         return cls(
-            db_path=config.db_path,
+            db_path=config.connection_target,
             provider_name=config.provider.value,
             locale=config.locale,
             optimize_pragma=config.optimize_pragma,
@@ -156,10 +185,16 @@ class DataOrchestrator:
         )
 
     def _create_adapter(self) -> DatabaseAdapter:
-        if not HAS_SQLITE_UTILS:
-            logger.debug("sqlite-utils not available, falling back to raw sqlite3")
-            return RawSQLiteAdapter()
-        return SQLiteUtilsAdapter()
+        # Phase 4: uniformly use SQLAlchemyAdapter (SQLAlchemy is a core dependency).
+        # SQLAlchemyAdapter automatically handles database URLs (postgresql://, mysql://, etc.)
+        # and SQLite file paths, shielding dialect differences via the Dialect abstraction.
+        from sqlseed.database.sqlalchemy_adapter import SQLAlchemyAdapter  # noqa: PLC0415
+
+        if _is_db_url(self._db_path):
+            logger.debug("Using SQLAlchemyAdapter (database URL)", db_target=self._db_path)
+        else:
+            logger.debug("Using SQLAlchemyAdapter (SQLite file)", db_target=self._db_path)
+        return SQLAlchemyAdapter()
 
     def _ensure_connected(self) -> None:
         if not self._connected:
@@ -191,6 +226,19 @@ class DataOrchestrator:
         column_configs: list[Any] | None,
         enrich: bool,
     ) -> tuple[dict[str, Any], dict[str, Any], set[str]]:
+        """Resolve column generator specs, executing schema inference, column mapping, enrichment,
+        uniqueness adjustment, and foreign key resolution in order.
+
+        Args:
+            table_name: Target table name.
+            count: Number of rows to generate, used to compute the value space during uniqueness adjustment.
+            columns: Simple column config dict (column name -> string/dict).
+            column_configs: List of ColumnConfig objects (full column config).
+            enrich: Whether to enable enrichment mode (identify enumeration columns based on existing data).
+
+        Returns:
+            A triple (generator_specs, user_configs, unique_columns).
+        """
         column_infos = self._schema.get_column_info(table_name)
         user_configs = self._resolve_user_configs(columns, column_configs)
         generator_specs = self._mapper.map_columns(column_infos, user_configs, enrich=enrich)
@@ -245,14 +293,37 @@ class DataOrchestrator:
         clear_before: bool,
         skip_ai: bool = False,
     ) -> tuple[dict[str, Any], dict[str, Any], set[str]]:
+        """Prepare generator specs, handling the execution order of clear_before and enrich,
+        and apply AI suggestions and template pool.
+
+        Execution order rules:
+            - enrich and clear_before: resolve specs first (enrich based on existing data), then clear the table
+            - clear_before only: clear the table first, then resolve specs
+            - Otherwise: resolve specs directly
+
+        When skip_ai=False, calls PluginMediator to apply AI column suggestions and template pool enrichment.
+
+        Args:
+            table_name: Target table name.
+            count: Number of rows to generate.
+            columns: Simple column config dict (optional).
+            column_configs: List of ColumnConfig objects (optional).
+            enrich: Whether to enable enrichment mode.
+            clear_before: Whether to clear the table before generation.
+            skip_ai: Whether to skip AI suggestions and template pool application.
+
+        Returns:
+            A triple (generator_specs, user_configs, unique_columns).
+        """
         t_resolve = time.monotonic()
         if enrich and clear_before:
             specs, user_configs, unique_columns = self._resolve_specs(
                 table_name, count, columns, column_configs, enrich
             )
-        if clear_before:
             self._db.clear_table(table_name)
-        if not (enrich and clear_before):
+        else:
+            if clear_before:
+                self._db.clear_table(table_name)
             specs, user_configs, unique_columns = self._resolve_specs(
                 table_name, count, columns, column_configs, enrich
             )
@@ -299,6 +370,23 @@ class DataOrchestrator:
         progress: ProgressBackend | None = None,
         task_id: Any | None = None,
     ) -> tuple[int, int]:
+        """Generate and write data batch by batch, triggering before/after_insert plugin hooks.
+
+        Each batch executes in order: sqlseed_before_insert hook, PluginMediator batch transform,
+        batch_insert write, metrics recording, sqlseed_after_insert hook, progress update.
+        When progress is not passed in, an internal progress bar is created and its lifecycle managed.
+
+        Args:
+            table_name: Target table name.
+            stream: Data stream, producing dict rows per batch.
+            count: Total number of rows to generate.
+            batch_size: Desired batch size; actual batch size is adaptively adjusted based on count.
+            progress: Optional progress bar instance; created internally when None.
+            task_id: Optional progress task ID; added internally when None.
+
+        Returns:
+            A tuple (total_inserted, batch_count).
+        """
         total_inserted = 0
         batch_count = 0
         effective_batch_size = min(batch_size, count)
@@ -356,6 +444,31 @@ class DataOrchestrator:
         enrich: bool = False,
         skip_ai: bool = False,
     ) -> GenerationResult:
+        """Batch-generate and write test data to the specified table, returning the generation result.
+
+        Full flow: connection init -> table name validation -> pragma optimization ->
+        spec preparation (_prepare_specs) -> data stream build (_build_stream) ->
+        batch generation & write (_generate_and_insert_batches) -> shared pool registration ->
+        hook notification. Catches ValueError/RuntimeError/OSError and sqlalchemy.exc
+        exceptions, returning a GenerationResult with an errors field instead of raising.
+
+        Args:
+            table_name: Target table name.
+            count: Number of rows to generate, must be greater than 0.
+            columns: Optional simple column config dict (column name -> string/dict).
+            seed: Optional random seed, for reproducible results.
+            batch_size: Batch size, default 5000.
+            clear_before: Whether to clear the table before generation, default False.
+            column_configs: Optional list of ColumnConfig objects (full column config).
+            transform: Optional user transform script path, defining a transform_row function.
+            enrich: Whether to enable enrichment mode (identify enumeration columns based on
+                existing data), default False.
+            skip_ai: Whether to skip AI suggestions and template pool application, default False.
+
+        Returns:
+            GenerationResult containing table_name, count, elapsed, batch_count;
+            on failure the errors field carries exception info.
+        """
         self._ensure_connected()
         validate_table_name(table_name)
         if count <= 0:
@@ -394,8 +507,8 @@ class DataOrchestrator:
                     table_name, stream, count, batch_size, progress, gen_task
                 )
 
-            except (ValueError, RuntimeError, OSError, sqlite3.OperationalError, sqlite3.IntegrityError) as e:
-                if isinstance(e, sqlite3.IntegrityError) and enrich:
+            except (ValueError, RuntimeError, OSError, SAOperationalError, SAIntegrityError) as e:
+                if isinstance(e, SAIntegrityError) and enrich:
                     logger.warning("Integrity constraint during enrich", table_name=table_name, error=e)
                 else:
                     logger.error("Failed to fill table", table_name=table_name, error=e)
@@ -466,16 +579,16 @@ class DataOrchestrator:
         all_tables = self._db.get_table_names()
 
         indexes: list[dict[str, Any]] = []
-        with contextlib.suppress(ValueError, OSError, RuntimeError, sqlite3.OperationalError):
+        with contextlib.suppress(ValueError, OSError, RuntimeError, SAOperationalError):
             idx_infos = self._schema.get_index_info(table_name)
             indexes = [{"name": idx.name, "columns": idx.columns, "unique": idx.unique} for idx in idx_infos]
 
         sample_data: list[dict[str, Any]] = []
-        with contextlib.suppress(ValueError, OSError, RuntimeError, sqlite3.OperationalError):
+        with contextlib.suppress(ValueError, OSError, RuntimeError, SAOperationalError):
             sample_data = self._schema.get_sample_data(table_name, limit=5)
 
         distribution: list[dict[str, Any]] = []
-        with contextlib.suppress(ValueError, OSError, RuntimeError, sqlite3.OperationalError):
+        with contextlib.suppress(ValueError, OSError, RuntimeError, SAOperationalError):
             distribution = self._schema.profile_column_distribution(table_name, limit=1000)
 
         return {
@@ -486,7 +599,21 @@ class DataOrchestrator:
             "sample_data": sample_data,
             "all_table_names": all_tables,
             "distribution": distribution,
+            "dialect": self._get_dialect_name(),
         }
+
+    def _get_dialect_name(self) -> str:
+        """Get the current database dialect name (sqlite/postgresql/mysql), used for AI analysis context.
+
+        If the adapter does not expose a dialect attribute (e.g., RawSQLiteAdapter), defaults to "sqlite".
+        """
+        db = self._core.db
+        if db is not None and hasattr(db, "dialect"):
+            try:
+                return str(db.dialect.name)
+            except RuntimeError:
+                pass
+        return "sqlite"
 
     def get_column_names(self, table_name: str) -> set[str]:
         self._ensure_connected()
@@ -620,20 +747,6 @@ class DataOrchestrator:
             return None
         columns = [desc[0] for desc in cursor.description]
         return dict(zip(columns, row, strict=True))
-
-    def fetch_all(self, sql: str, params: tuple[Any, ...] | None = None) -> list[Any]:
-        """Execute a SELECT query and return results as a list of lists.
-
-        Args:
-            sql: The SQL SELECT query to execute.
-            params: Optional tuple of parameters for parameterized queries.
-
-        Returns:
-            A list of rows, where each row is a list of values.
-        """
-        self._ensure_connected()
-        cursor = self.execute(sql, params)
-        return cursor.fetchall()  # type: ignore[no-any-return]
 
     def close(self) -> None:
         if self._connected:

@@ -1,3 +1,5 @@
+"""Core orchestration layer public API exports: DataOrchestrator, ColumnMapper, SchemaInferrer, etc."""
+
 from __future__ import annotations
 
 from sqlseed.core.mapper import ColumnMapper, GeneratorSpec

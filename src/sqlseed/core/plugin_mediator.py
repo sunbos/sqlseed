@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import contextlib
-import sqlite3
 from typing import TYPE_CHECKING, Any, ClassVar
+
+from sqlalchemy.exc import OperationalError as SAOperationalError
 
 from sqlseed._utils.logger import get_logger
 from sqlseed.core.mapper import GeneratorSpec
@@ -174,7 +175,7 @@ class PluginMediator:
         eligible = list(self._iter_template_eligible_specs(specs, column_infos, configured, unique_columns))
         for col_name, _, col_info in eligible:
             sample_data_for_col: list[Any] = []
-            with contextlib.suppress(ValueError, OSError, RuntimeError, sqlite3.OperationalError):
+            with contextlib.suppress(ValueError, OSError, RuntimeError, SAOperationalError):
                 sample_data_for_col = self._db.get_column_values(table_name, col_name, limit=10)
 
             template_values = self._plugins.hook.sqlseed_pre_generate_templates(

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import importlib.util
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable  # noqa: UP035
+from typing import Any
 
 RowTransformFn = Callable[[dict[str, Any], dict[str, Any]], dict[str, Any]]
 

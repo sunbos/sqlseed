@@ -1,3 +1,9 @@
+"""Schema inferrer: reads table structure from the database and infers column attributes.
+
+Wraps the database adapter: provides query capabilities for column info, foreign keys,
+primary keys, indexes, unique constraints, and column distribution profiling.
+"""
+
 from __future__ import annotations
 
 import collections
@@ -13,36 +19,55 @@ logger = get_logger(__name__)
 
 
 class SchemaInferrer:
+    """Schema inferrer: reads table structure based on the database adapter and infers column attributes.
+
+    All table-name queries are validated first via _validate for safety:
+    to avoid injection risks and unify exception handling.
+    """
+
     def __init__(self, db_adapter: DatabaseAdapter) -> None:
+        """Initialize the inferrer: bind a database adapter instance."""
         self._db = db_adapter
 
     def _validate(self, table_name: str) -> None:
+        """Validate the table name: to prevent SQL injection."""
         validate_table_name(table_name)
 
     def get_column_info(self, table_name: str) -> list[ColumnInfo]:
+        """Return the list of column info for the specified table."""
         self._validate(table_name)
         return list(self._db.get_column_info(table_name))
 
     def get_foreign_keys(self, table_name: str) -> list[ForeignKeyInfo]:
+        """Return the list of foreign key info for the specified table."""
         self._validate(table_name)
         return list(self._db.get_foreign_keys(table_name))
 
     def get_table_names(self) -> list[str]:
+        """Return a list of all user table names in the database."""
         return list(self._db.get_table_names())
 
     def get_primary_keys(self, table_name: str) -> list[str]:
+        """Return the list of primary key column names for the specified table."""
         self._validate(table_name)
         return list(self._db.get_primary_keys(table_name))
 
     def get_table_schema(self, table_name: str) -> dict[str, ColumnInfo]:
+        """Return a column-info dict indexed by column name."""
         columns = self.get_column_info(table_name)
         return {col.name: col for col in columns}
 
     def get_index_info(self, table_name: str) -> list[IndexInfo]:
+        """Return the list of index info for the specified table."""
         self._validate(table_name)
         return list(self._db.get_index_info(table_name))
 
     def detect_unique_columns(self, table_name: str) -> set[str]:
+        """Detect the set of columns with unique constraints in the table.
+
+        Combines single-column unique indexes and non-autoincrement primary keys:
+        any query failure only logs without raising an exception.
+        """
         unique_cols: set[str] = set()
         try:
             indexes = self.get_index_info(table_name)
@@ -65,6 +90,7 @@ class SchemaInferrer:
         return unique_cols
 
     def get_sample_data(self, table_name: str, limit: int = 5) -> list[dict[str, Any]]:
+        """Return the first few rows of sample data for the specified table: default 5 rows."""
         self._validate(table_name)
         return self._db.get_sample_rows(table_name, limit=limit)
 
@@ -73,6 +99,12 @@ class SchemaInferrer:
         table_name: str,
         limit: int = 1000,
     ) -> list[dict[str, Any]]:
+        """Profile the distribution of each column in the table: sampling up to limit rows.
+
+        Skips autoincrement primary key columns: returns per-column statistics including
+        null ratio, distinct count, top values, and numeric range; returns an empty list
+        when the table is empty.
+        """
         self._validate(table_name)
         columns = self.get_column_info(table_name)
         row_count = self._db.get_row_count(table_name)
@@ -97,6 +129,10 @@ class SchemaInferrer:
         total_rows: int,
         limit: int,
     ) -> dict[str, Any]:
+        """Profile a single column's distribution.
+
+        Returns null ratio, distinct count, top values, and numeric range statistics.
+        """
         profile: dict[str, Any] = {"column": column_name}
 
         try:

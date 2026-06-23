@@ -1,3 +1,10 @@
+"""Data enrichment engine with 19 enumeration pattern recognition.
+
+EnrichmentEngine analyzes distribution characteristics of existing data
+(cardinality ratio, type, naming patterns) to identify enumeration columns
+and generate choice generators, or fall back to type-inferred generators.
+"""
+
 from __future__ import annotations
 
 import re
@@ -14,6 +21,14 @@ logger = get_logger(__name__)
 
 
 class EnrichmentEngine:
+    """Data enrichment engine that identifies enumeration columns by analyzing existing data distribution.
+
+    Provides 19 enumeration naming pattern recognitions (e.g., *_type, *_status, is_*, etc.),
+    combined with cardinality ratio, column type and other features to determine whether
+    a column is an enumeration column. For enumeration columns, generates a choice generator;
+    for non-enumeration columns, falls back to a type-inferred generator.
+    """
+
     ENUM_NAME_PATTERNS: ClassVar[list[str]] = [
         r"^[bB]y[A-Za-z]",
         r".*_type$",
@@ -51,6 +66,28 @@ class EnrichmentEngine:
         total_rows: int,
         is_unique: bool,
     ) -> bool:
+        """Determine whether a column is an enumeration column.
+
+        Comprehensively considers column name pattern matching, cardinality ratio
+        (distinct/total), column type (small integer), and other features.
+        Unique constraint columns, empty tables, or all-NULL columns return False directly.
+
+        Decision rules (satisfying any one means the column is an enumeration column):
+            - Column name matches an enumeration pattern and cardinality ratio < 0.1
+            - Small integer type and cardinality ratio < 0.1
+            - distinct_count <= 10 and cardinality ratio < 0.05
+            - distinct_count <= 30 and cardinality ratio < 0.01 (excluding character types)
+
+        Args:
+            col_name: Column name.
+            col_info: Column info object.
+            distinct_count: Number of distinct values in this column.
+            total_rows: Total number of rows in the table.
+            is_unique: Whether this column is a unique constraint column.
+
+        Returns:
+            True means the column is identified as an enumeration column.
+        """
         if is_unique:
             return False
         if total_rows == 0 or distinct_count == 0:
@@ -78,6 +115,23 @@ class EnrichmentEngine:
         column_infos: list[Any],
         unique_columns: set[str] | None = None,
     ) -> dict[str, GeneratorSpec]:
+        """Apply enrichment processing to columns marked as __enrich__.
+
+        Reads existing data from the table, and for each __enrich__ column determines
+        whether it is an enumeration column:
+            - Enumeration column: generates a choice generator (based on existing distinct values)
+            - Non-enumeration column: falls back to a type-inferred generator
+            - Empty table or read failure: falls back to a skip generator
+
+        Args:
+            table_name: Table name.
+            specs: Mapping of column name to generator spec (modified in place).
+            column_infos: List of column info objects.
+            unique_columns: Optional set of unique constraint columns.
+
+        Returns:
+            The updated specs dictionary.
+        """
         has_enrich = any(s.generator_name == "__enrich__" for s in specs.values())
         if not has_enrich:
             return specs

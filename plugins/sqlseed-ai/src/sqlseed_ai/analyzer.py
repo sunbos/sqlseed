@@ -1,3 +1,12 @@
+"""Schema analysis driven by Gemma 4 (and other OpenAI-compatible LLMs).
+
+This module hosts :class:`SchemaAnalyzer`, the entry point used by the CLI,
+MCP server, and refiner to turn a database table schema into a sqlseed JSON
+configuration. The analyzer supports three prompt verbosity tiers (full,
+compact, ultra-compact), Gemma 4 native function calling, JSON-mode fallback,
+and automatic model fallback on timeout/connection errors.
+"""
+
 from __future__ import annotations
 
 import json
@@ -9,6 +18,13 @@ from openai import APIConnectionError, APIError, APITimeoutError
 from sqlseed_ai._client import get_openai_client
 from sqlseed_ai._json_utils import parse_json_response
 from sqlseed_ai._model_selector import _normalize_model_id, select_next_gemma_model
+from sqlseed_ai._prompts import (
+    _COMPACT_SYSTEM_PROMPT,
+    _ULTRA_COMPACT_SYSTEM_PROMPT,
+    SYSTEM_PROMPT,
+    TEMPLATE_SYSTEM_PROMPT,
+)
+from sqlseed_ai._tools import GEMMA_TOOLS
 from sqlseed_ai.config import AIBackend, AIConfig
 from sqlseed_ai.examples import FEW_SHOT_EXAMPLES
 
@@ -19,182 +35,29 @@ logger = get_logger(__name__)
 # Type alias for progress callback
 ProgressCallback = Callable[[str, dict[str, Any]], None]
 
-SYSTEM_PROMPT = """You are an expert database test data engineer.
-You analyze SQLite table schemas and recommend data generation configurations for the sqlseed toolkit.
-
-## Available Generators
-- string (params: min_length, max_length, charset)
-- integer (params: min_value, max_value)
-- float (params: min_value, max_value, precision)
-- boolean
-- bytes (params: length)
-- name, first_name, last_name
-- username — realistic usernames like "jsmith42", "john.doe", "john_smith"
-- email, phone, address, company
-- city, country, state, zip_code, country_code — real geographic data
-- job_title — real job titles like "Software Engineer"
-- url, ipv4, uuid
-- date (params: start_year, end_year)
-- datetime (params: start_year, end_year)
-- timestamp
-- text (params: min_length, max_length)
-- sentence, password
-- choice (params: choices)
-- json (params: schema)
-- pattern (params: regex) — generates strings matching a regex pattern
-
-## Native Method Selection
-For columns that would default to "string" type, you can also recommend
-native Faker/Mimesis methods:
-- faker_method: A Faker method name
-  (e.g., "license_plate", "color_name", "iban", "credit_card_number")
-- mimesis_method: A Mimesis method path
-  (e.g., "transport.vehicle_registration_code", "text.color",
-  "hardware.cpu", "payment.credit_card_number")
-- native_params: Parameters for the native method if needed
-
-Only recommend methods you are confident exist. When uncertain, omit these
-fields and the system will fall back to the generator type.
-
-## Key Rules
-1. INTEGER PRIMARY KEY AUTOINCREMENT columns → do NOT include (auto-skip)
-2. Columns with DEFAULT values → do NOT include (auto-skip)
-3. Nullable columns → do NOT include unless they have semantic meaning
-4. Prefer specific generators over generic "string":
-   use username, city, country, state, zip_code, job_title,
-   country_code when column names match
-5. For "age" columns, use min_value: 18, max_value: 65 (working age range)
-6. Use `pattern` generator with regex for codes, IDs, serial numbers with specific formats
-7. Use `derive_from` + `expression` when one column is computed from another
-8. Use `constraints.unique: true` for columns that must be unique
-9. Detect cross-column dependencies: if short_code = last 6 chars of project_no, use derive_from
-10. Detect implicit business associations: if member_no appears in multiple tables, note it
-
-## Output Format
-You MUST respond with ONLY a valid JSON object (NOT YAML, NOT markdown fences, no explanations before or after).
-The JSON object must have this exact structure:
-{
-  "name": "table_name",
-  "count": 1000,
-  "columns": [
-    {
-      "name": "column_name",
-      "generator": "generator_name",
-      "params": {"key": "value"}
-    },
-    {
-      "name": "license_plate",
-      "generator": "string",
-      "params": {"min_length": 5, "max_length": 10},
-      "faker_method": "license_plate",
-      "mimesis_method": "transport.vehicle_registration_code"
-    },
-    {
-      "name": "derived_column",
-      "derive_from": "source_column",
-      "expression": "value[-8:]",
-      "constraints": {"unique": true}
-    }
-  ]
-}
-
-IMPORTANT: Do NOT include columns that are PRIMARY KEY AUTOINCREMENT or have DEFAULT values.
-IMPORTANT: Output ONLY the JSON object, nothing else.
-IMPORTANT: Do NOT wrap output in markdown code blocks (no ```json```). Output raw JSON only."""
-
-_COMPACT_SYSTEM_PROMPT = """Output a JSON config for test data generation.
-
-Generators: string, integer, float, boolean, name, first_name, last_name, username, email,
-phone, address, company, city, country, state, zip_code, job_title, url, ipv4, uuid,
-date, datetime, timestamp, text, sentence, password, choice, json, pattern.
-Skip PK AUTOINCREMENT and DEFAULT cols.
-Format: {"name":"T","count":1000,"columns":[{"name":"c","generator":"type","params":{},
-  "faker_method":"method_name","mimesis_method":"path.to.method","native_params":{}}]}
-Optional: faker_method (Faker method), mimesis_method (Mimesis path), native_params.
-
-Output ONLY raw JSON. No markdown, no ```json```, no explanation, no whitespace."""
-
 _MAX_FALLBACK_ATTEMPTS = 3
-
-# ── Gemma 4 Native Function Calling Tool Definitions ─────────────────
-# These tools leverage Gemma 4's native function calling capability,
-# allowing the model to invoke sqlseed operations directly.
-
-GEMMA_TOOLS: tuple[dict[str, Any], ...] = (
-    {
-        "type": "function",
-        "function": {
-            "name": "analyze_schema",
-            "description": (
-                "Analyze a database table schema and recommend data generation configuration. "
-                "Use this tool to examine table structure, column types, constraints, and foreign keys, "
-                "then produce a complete sqlseed JSON configuration for generating realistic test data."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "table_name": {
-                        "type": "string",
-                        "description": "Name of the table to analyze",
-                    },
-                    "columns": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "name": {"type": "string", "description": "Column name"},
-                                "type": {"type": "string", "description": "Column SQL type"},
-                                "is_primary_key": {"type": "boolean", "description": "Whether column is primary key"},
-                                "is_autoincrement": {
-                                    "type": "boolean",
-                                    "description": "Whether column auto-increments",
-                                },
-                                "nullable": {"type": "boolean", "description": "Whether column is nullable"},
-                                "default": {"type": "string", "description": "Default value if any"},
-                            },
-                            "required": ["name", "type"],
-                        },
-                        "description": "List of column definitions in the table",
-                    },
-                    "foreign_keys": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "column": {"type": "string"},
-                                "ref_table": {"type": "string"},
-                                "ref_column": {"type": "string"},
-                            },
-                        },
-                        "description": "Foreign key relationships",
-                    },
-                    "indexes": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "columns": {
-                                    "type": "array",
-                                    "items": {"type": "string"},
-                                },
-                                "unique": {"type": "boolean"},
-                            },
-                        },
-                        "description": "Table indexes",
-                    },
-                },
-                "required": ["table_name", "columns"],
-            },
-        },
-    },
-)
 
 
 class SchemaAnalyzer:
+    """Analyze database table schemas and produce sqlseed JSON configs via an LLM.
+
+    The analyzer wraps an :class:`AIConfig` and exposes both non-streaming
+    (:meth:`call_llm`) and streaming (:meth:`call_llm_streaming`) entry points.
+    It automatically downgrades the system prompt (full -> compact ->
+    ultra-compact) when the context window overflows, and falls back to
+    smaller Gemma 4 variants on timeout/connection errors.
+    """
+
     def __init__(self, config: AIConfig | None = None) -> None:
+        """Initialize the analyzer with an optional pre-built config.
+
+        Args:
+            config: AI configuration. If ``None``, it is lazily built from
+                environment variables on the first analysis call.
+        """
         self._config = config
         if self._config is not None:
-            self._config.resolve_model()
+            self._config.model = self._config.resolve_model()
 
     @property
     def config(self) -> AIConfig | None:
@@ -205,10 +68,20 @@ class SchemaAnalyzer:
         self,
         **kwargs: Any,
     ) -> dict[str, Any] | None:
+        """Analyze a table from a schema context dict and return a config.
+
+        Args:
+            **kwargs: Schema context fields (table_name, columns, indexes,
+                foreign_keys, all_table_names, sample_data, distribution).
+
+        Returns:
+            Parsed JSON config dict, or ``None`` if the API key is missing
+            or the LLM call fails with a recoverable error.
+        """
         if self._config is None:
             self._config = AIConfig.from_env()
 
-        self._config.resolve_model()
+        self._config.model = self._config.resolve_model()
 
         if not self._config.resolve_api_key():
             logger.warning(
@@ -233,10 +106,25 @@ class SchemaAnalyzer:
         compact: bool = False,
         ultra_compact: bool = False,
     ) -> list[dict[str, str]]:
+        """Build the chat messages for an LLM analysis request.
+
+        Args:
+            schema_ctx: Schema context produced by the orchestrator.
+            compact: If True, use the compact system prompt and skip examples.
+            ultra_compact: If True, use the ultra-compact system prompt and
+                skip examples. Takes precedence over ``compact``.
+
+        Returns:
+            List of ``{"role": ..., "content": ...}`` message dicts.
+        """
         context = self._build_context(schema_ctx)
 
-        # In ultra-compact mode, use a shorter system prompt
-        system_prompt = _COMPACT_SYSTEM_PROMPT if ultra_compact else SYSTEM_PROMPT
+        # Three-tier prompt selection: ultra-compact > compact > full
+        system_prompt = (
+            _ULTRA_COMPACT_SYSTEM_PROMPT
+            if ultra_compact
+            else (_COMPACT_SYSTEM_PROMPT if compact else SYSTEM_PROMPT)
+        )
 
         messages: list[dict[str, str]] = [
             {"role": "system", "content": system_prompt},
@@ -266,18 +154,18 @@ class SchemaAnalyzer:
     ) -> str | None:
         """Check if a fallback model is available on the local backend.
 
-        Uses _detect_all_local_models to match against all loaded models,
+        Uses detect_all_local_models to match against all loaded models,
         not just the first one. Returns the actual local model ID if found,
         or None if no suitable fallback exists.
         """
         config = self._config
         if config is None:
             raise RuntimeError("AIConfig must be initialized before checking local fallback")
-        all_local = config._detect_all_local_models()
+        all_local = config.detect_all_local_models()
         if not all_local:
             return None
 
-        # Build a normalized→actual mapping of all local models
+        # Build a normalized->actual mapping of all local models
         local_map: dict[str, str] = {}
         for m in all_local:
             local_map[_normalize_model_id(m)] = m
@@ -308,7 +196,7 @@ class SchemaAnalyzer:
         """Initialize and validate AIConfig if not already done."""
         if self._config is None:
             self._config = AIConfig.from_env()
-        self._config.resolve_model()
+        self._config.model = self._config.resolve_model()
         if not self._config.resolve_api_key():
             raise ValueError("AI API key not configured")
 
@@ -363,6 +251,14 @@ class SchemaAnalyzer:
         raise RuntimeError(f"LLM API call failed after {_MAX_FALLBACK_ATTEMPTS} fallback attempts")
 
     def call_llm(self, messages: list[dict[str, str]]) -> dict[str, Any]:
+        """Send messages to the LLM (non-streaming) and return the parsed JSON.
+
+        Args:
+            messages: Chat messages built by :meth:`build_initial_messages`.
+
+        Returns:
+            Parsed JSON dict from the model response.
+        """
         self._ensure_config()
         return self._call_with_fallback(lambda model: self._call_llm_once(messages, model=model))
 
@@ -496,6 +392,16 @@ class SchemaAnalyzer:
         *,
         model: str | None = None,
     ) -> dict[str, Any]:
+        """Execute a single streaming LLM call (no fallback).
+
+        Args:
+            messages: Chat messages to send.
+            on_progress: Optional progress callback.
+            model: Model ID to use; falls back to ``self._config.model``.
+
+        Returns:
+            Parsed JSON dict from the streamed response.
+        """
         if self._config is None:
             raise RuntimeError("AIConfig must be initialized before calling LLM")
         client = get_openai_client(self._config)
@@ -592,6 +498,15 @@ class SchemaAnalyzer:
             raise
 
     def _call_llm_once(self, messages: list[dict[str, str]], *, model: str | None = None) -> dict[str, Any]:
+        """Execute a single non-streaming LLM call (no fallback).
+
+        Args:
+            messages: Chat messages to send.
+            model: Model ID to use; falls back to ``self._config.model``.
+
+        Returns:
+            Parsed JSON dict from the model response.
+        """
         if self._config is None:
             raise RuntimeError("AIConfig must be initialized before calling LLM")
         client = get_openai_client(self._config)
@@ -694,13 +609,6 @@ class SchemaAnalyzer:
                 return None
             raise
 
-    TEMPLATE_SYSTEM_PROMPT = (
-        "You are a data generation assistant. Generate realistic sample values "
-        "for the given database column. Return a JSON object with a 'values' "
-        "array containing the requested number of unique, realistic values. "
-        "Each value must be valid for the column type. Do NOT include explanations."
-    )
-
     def generate_template_values(
         self,
         column_name: str,
@@ -709,6 +617,18 @@ class SchemaAnalyzer:
         sample_data: list[Any],
         table_name: str = "",
     ) -> list[Any]:
+        """Generate realistic sample values for a column via the LLM.
+
+        Args:
+            column_name: Name of the column to generate values for.
+            column_type: SQL type of the column.
+            count: Number of values to request.
+            sample_data: Existing sample values to guide generation.
+            table_name: Optional table name for context.
+
+        Returns:
+            List of generated values (may be empty on failure).
+        """
         prompt = (
             f"Generate {count} realistic sample values for a database column "
             f"named '{column_name}' with type '{column_type}'"
@@ -723,7 +643,7 @@ class SchemaAnalyzer:
         )
 
         messages = [
-            {"role": "system", "content": self.TEMPLATE_SYSTEM_PROMPT},
+            {"role": "system", "content": TEMPLATE_SYSTEM_PROMPT},
             {"role": "user", "content": prompt},
         ]
         result = self.call_llm(messages)
@@ -734,6 +654,14 @@ class SchemaAnalyzer:
         self,
         schema_ctx: dict[str, Any],
     ) -> str:
+        """Build the user-message text describing the table schema.
+
+        Args:
+            schema_ctx: Schema context dict from the orchestrator.
+
+        Returns:
+            Markdown-formatted schema description for the LLM.
+        """
         table_name = schema_ctx.get("table_name", "unknown")
         columns = schema_ctx.get("columns", [])
         indexes = schema_ctx.get("indexes", [])
@@ -741,9 +669,11 @@ class SchemaAnalyzer:
         all_table_names = schema_ctx.get("all_table_names", [])
         sample_data = schema_ctx.get("sample_data", [])
         distribution_profiles = schema_ctx.get("distribution")
+        dialect = schema_ctx.get("dialect", "sqlite")
 
         lines: list[str] = []
         lines.append(f"# Table: {table_name}")
+        lines.append(f"Database dialect: {dialect}")
         lines.append("")
 
         self._append_columns_info(lines, columns)
@@ -785,6 +715,12 @@ class SchemaAnalyzer:
         lines: list[str],
         columns: list[Any],
     ) -> None:
+        """Append the column list section to the context lines.
+
+        Args:
+            lines: Mutable list of context lines to extend.
+            columns: Column descriptor objects with name/type/flags.
+        """
         lines.append("## Columns")
         for col in columns:
             parts = [f"- {col.name}: {col.type}"]
@@ -805,6 +741,12 @@ class SchemaAnalyzer:
         lines: list[str],
         indexes: list[dict[str, Any]],
     ) -> None:
+        """Append the indexes section to the context lines.
+
+        Args:
+            lines: Mutable list of context lines to extend.
+            indexes: Index descriptors with columns/unique flags.
+        """
         lines.append("")
         lines.append("## Indexes")
         for idx in indexes:
@@ -817,6 +759,12 @@ class SchemaAnalyzer:
         lines: list[str],
         distribution_profiles: list[dict[str, Any]],
     ) -> None:
+        """Append the column distribution section to the context lines.
+
+        Args:
+            lines: Mutable list of context lines to extend.
+            distribution_profiles: Per-column distribution stats.
+        """
         lines.append("")
         lines.append("## Column Distribution (from existing data)")
         for profile in distribution_profiles:
@@ -833,4 +781,13 @@ class SchemaAnalyzer:
                 lines.append(f"  Range: [{vr['min']}, {vr['max']}]")
 
     def _parse_json_response(self, content: str) -> dict[str, Any]:
+        """Parse a JSON object out of an LLM response string.
+
+        Args:
+            content: Raw text returned by the model (may include prose
+                or markdown fences around the JSON payload).
+
+        Returns:
+            Parsed JSON dict.
+        """
         return parse_json_response(content)

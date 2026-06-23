@@ -1,3 +1,5 @@
+"""Generator dispatch mixin. Maps 31 generator types to methods and dispatches calls."""
+
 from __future__ import annotations
 
 from typing import Any, ClassVar
@@ -6,6 +8,12 @@ from sqlseed.generators._protocol import UnknownGeneratorError
 
 
 class GeneratorDispatchMixin:
+    """Generator dispatch mixin.
+
+    Maps generator type names to ``_gen_*`` methods via ``_GENERATOR_MAP`` and
+    dispatches calls through ``generate``.
+    """
+
     _GENERATOR_MAP: ClassVar[dict[str, str]] = {
         "string": "_gen_string",
         "integer": "_gen_integer",
@@ -41,6 +49,10 @@ class GeneratorDispatchMixin:
     }
 
     def generate(self, type_name: str, **params: Any) -> Any:
+        """Look up the method name for ``type_name`` in ``_GENERATOR_MAP`` and call it.
+
+        Raises ``UnknownGeneratorError`` if the type is not registered.
+        """
         method_name = self._GENERATOR_MAP.get(type_name)
         if method_name is None:
             raise UnknownGeneratorError(type_name)
@@ -49,9 +61,11 @@ class GeneratorDispatchMixin:
 
 
 def verify_dispatch_sync() -> None:
-    """Verify that GENERATOR_MAP entries match actual methods on BaseProvider."""
-    # Imports inside function to avoid circular dependency at module load time.
-    # pylint: disable=import-outside-toplevel
+    """Verify that the method names in ``_GENERATOR_MAP`` actually exist on ``BaseProvider``.
+
+    Emits a warning for any missing methods.
+    """
+    # Import inside the function to avoid a circular import at module load time
     from sqlseed.generators.base_provider import BaseProvider  # noqa: PLC0415
 
     for gen_name, method_name in GeneratorDispatchMixin._GENERATOR_MAP.items():

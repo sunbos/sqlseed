@@ -1,3 +1,7 @@
+"""sqlseed — declarative SQLite/multi-database test data generation toolkit.
+
+Public API: fill, connect, fill_from_config, preview.
+"""
 from __future__ import annotations
 
 from typing import Any
@@ -33,8 +37,9 @@ logger = get_logger(__name__)
 
 
 def fill(
-    db_path: str,
+    db_path: str | None = None,
     *,
+    url: str | None = None,
     table: str,
     count: int = 1000,
     columns: dict[str, Any] | None = None,
@@ -48,8 +53,22 @@ def fill(
     transform: str | None = None,
     skip_ai: bool = True,
 ) -> GenerationResult:
+    """Fill a single table with zero configuration.
+
+    Two mutually exclusive connection modes are supported:
+    - ``fill("app.db", table="users", count=1000)`` — SQLite file path
+    - ``fill(url="postgresql://user:pass@host/db", table="users", count=1000)`` — database URL
+
+    Args:
+        db_path: SQLite database file path (mutually exclusive with ``url``).
+        url: Database URL, e.g. ``postgresql://user:pass@host/db`` (mutually exclusive with ``db_path``).
+
+    Raises:
+        ValueError: If neither ``db_path`` nor ``url`` is provided, or if both are provided.
+    """
+    target = _resolve_db_target(db_path, url)
     with DataOrchestrator(
-        db_path=db_path,
+        db_path=target,
         provider_name=provider,
         locale=locale,
         optimize_pragma=optimize_pragma,
@@ -68,18 +87,55 @@ def fill(
 
 
 def connect(
-    db_path: str,
+    db_path: str | None = None,
     *,
+    url: str | None = None,
     provider: str = "mimesis",
     locale: str = "en_US",
     optimize_pragma: bool = True,
 ) -> DataOrchestrator:
+    """Connect to a database and return a DataOrchestrator context manager.
+
+    Two mutually exclusive connection modes are supported:
+    - ``connect("app.db")`` — SQLite file path
+    - ``connect(url="postgresql://user:pass@host/db")`` — database URL
+
+    Args:
+        db_path: SQLite database file path (mutually exclusive with ``url``).
+        url: Database URL (mutually exclusive with ``db_path``).
+
+    Raises:
+        ValueError: If neither ``db_path`` nor ``url`` is provided, or if both are provided.
+    """
+    target = _resolve_db_target(db_path, url)
     return DataOrchestrator(
-        db_path=db_path,
+        db_path=target,
         provider_name=provider,
         locale=locale,
         optimize_pragma=optimize_pragma,
     )
+
+
+def _resolve_db_target(db_path: str | None, url: str | None) -> str:
+    """Resolve the database connection target; db_path and url are mutually exclusive.
+
+    Args:
+        db_path: SQLite file path.
+        url: Database URL.
+
+    Returns:
+        Connection target string for DataOrchestrator.
+
+    Raises:
+        ValueError: If both are provided or neither is provided.
+    """
+    if db_path is not None and url is not None:
+        raise ValueError("Cannot specify both db_path and url. Use one or the other.")
+    if db_path is not None:
+        return db_path
+    if url is not None:
+        return url
+    raise ValueError("Either db_path or url must be provided.")
 
 
 def fill_from_config(
@@ -93,6 +149,24 @@ def fill_from_config(
     batch_size: int | None = None,
     locale: str | None = None,
 ) -> list[GenerationResult]:
+    """Load data generation config from a YAML/JSON file and fill multiple tables.
+
+    All tables are filled in topological order (foreign key dependencies first).
+    Global parameters in the config can be overridden via keyword arguments.
+
+    Args:
+        config_path: Path to the config file (YAML or JSON).
+        skip_ai: Skip AI analysis (default True).
+        clear_before: Clear tables before filling (default False).
+        count: Override row count for all tables (None uses each table's config).
+        provider: Override data provider (None uses config value).
+        seed: Override random seed (None uses each table's config).
+        batch_size: Override batch size (None uses each table's config).
+        locale: Override locale (None uses config value).
+
+    Returns:
+        List of generation results per table, in topological order.
+    """
     config = load_config(config_path)
     if provider is not None:
         config.provider = ProviderType(provider)
@@ -131,8 +205,9 @@ def fill_from_config(
 
 
 def preview(
-    db_path: str,
+    db_path: str | None = None,
     *,
+    url: str | None = None,
     table: str,
     count: int = 5,
     columns: dict[str, Any] | None = None,
@@ -142,8 +217,22 @@ def preview(
     enrich: bool = False,
     transform: str | None = None,
 ) -> list[dict[str, Any]]:
+    """Preview generated data without writing to the database.
+
+    Two mutually exclusive connection modes are supported:
+    - ``preview("app.db", table="users")`` — SQLite file path
+    - ``preview(url="postgresql://...", table="users")`` — database URL
+
+    Args:
+        db_path: SQLite database file path (mutually exclusive with ``url``).
+        url: Database URL (mutually exclusive with ``db_path``).
+
+    Raises:
+        ValueError: If neither ``db_path`` nor ``url`` is provided, or if both are provided.
+    """
+    target = _resolve_db_target(db_path, url)
     with DataOrchestrator(
-        db_path=db_path,
+        db_path=target,
         provider_name=provider,
         locale=locale,
         optimize_pragma=False,

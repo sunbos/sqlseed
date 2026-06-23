@@ -36,6 +36,8 @@ dependencies = [
     "typing_extensions>=4.4",
     "simpleeval>=1.0",
     "rstr>=3.2",
+    "sqlalchemy>=2.0",
+    "faker>=30.0",
 ]
 
 [project.urls]
@@ -45,13 +47,12 @@ Repository = "https://github.com/sunbos/sqlseed"
 Issues = "https://github.com/sunbos/sqlseed/issues"
 
 [project.optional-dependencies]
-sqlite-utils = ["sqlite-utils>=3.36"]
-faker = ["faker>=30.0"]
 mimesis = ["mimesis>=18.0"]
-tqdm = ["tqdm>=4.66"]
-all = ["sqlite-utils>=3.36", "faker>=30.0", "mimesis>=18.0", "tqdm>=4.66"]
+notebook = ["tqdm>=4.66"]
+postgres = ["psycopg[binary]>=3.0"]
+mysql = ["pymysql>=1.1"]
+all = ["mimesis>=18.0", "tqdm>=4.66", "psycopg[binary]>=3.0", "testcontainers>=4.0"]
 dev = [
-    "sqlite-utils>=3.36",
     "pytest>=8.0",
     "pytest-cov>=5.0",
     "pytest-asyncio>=0.24",
@@ -60,6 +61,8 @@ dev = [
     "mypy>=1.10",
     "pre-commit>=3.0",
     "tqdm>=4.66",
+    "testcontainers>=4.0",
+    "psycopg[binary]>=3.0",
 ]
 docs = [
     "mkdocs-material>=9.0",
@@ -98,6 +101,7 @@ exclude = [
 [tool.ruff]
 target-version = "py310"
 line-length = 120
+extend-exclude = ["examples/notebooks"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["sqlseed"]
@@ -118,7 +122,7 @@ python_version = "3.10"
 files = ["src", "plugins"]
 
 [[tool.mypy.overrides]]
-module = ["mimesis.*", "faker.*", "sqlite_utils.*", "yaml", "simpleeval", "sqlseed_ai.*", "mcp.*", "mcp_server_sqlseed.*", "tqdm", "tqdm.*"]
+module = ["mimesis.*", "faker.*", "yaml", "simpleeval", "sqlseed_ai.*", "mcp.*", "mcp_server_sqlseed.*", "tqdm", "tqdm.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
@@ -136,5 +140,9 @@ disallow_untyped_calls = false
 check_untyped_defs = true
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "plugins/mcp-server-sqlseed/tests"]
 addopts = "-ra --strict-markers"
+markers = [
+    "integration: marks tests as integration tests (require external services like Docker/PostgreSQL)",
+]
+consider_namespace_packages = true

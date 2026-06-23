@@ -1,5 +1,7 @@
 # SQLSEED-AI PLUGIN
 
+**Generated:** 2026-06-21
+
 ## OVERVIEW
 
 LLM-powered schema analysis and template generation. Separate package with own pyproject.toml. Supports 4 backends (Google AI Studio, LM Studio, Ollama, OpenAI-compatible) and 5 Gemma 4 model variants.
@@ -19,6 +21,8 @@ sqlseed-ai/
     ├── _hardware.py      # Cross-platform hardware detection (RAM, GPU/VRAM) for model selection
     ├── _model_selector.py # Gemma 4 model selection and fallback chain
     ├── _json_utils.py    # JSON parsing utilities (3-strategy fallback)
+    ├── _prompts.py       # LLM prompt templates (full, compact, ultra-compact, template)
+    ├── _tools.py         # Gemma 4 native function calling tool definitions (GEMMA_TOOLS)
     └── examples.py       # Few-shot examples for prompts
 ```
 
@@ -30,7 +34,8 @@ sqlseed-ai/
 | Modify LLM calls | `analyzer.py` | `call_llm()`, `call_llm_streaming()`, `_call_llm_once()` |
 | Change model selection | `_model_selector.py` | `select_gemma_model()`, `select_next_gemma_model()` |
 | Add config option | `config.py` | `AIConfig.from_env()`, `GemmaModel`, `AIBackend` |
-| Modify prompt templates | `analyzer.py` | `_SYSTEM_PROMPT`, `_COMPACT_SYSTEM_PROMPT`, `_ULTRA_COMPACT_SYSTEM_PROMPT` |
+| Modify prompt templates | `_prompts.py` | `SYSTEM_PROMPT`, `_COMPACT_SYSTEM_PROMPT`, `_ULTRA_COMPACT_SYSTEM_PROMPT` |
+| Modify Gemma tools | `_tools.py` | `GEMMA_TOOLS` function declarations |
 | Change error handling | `errors.py` | `summarize_error()` with 7 processors |
 
 ## CONVENTIONS
@@ -43,7 +48,7 @@ sqlseed-ai/
 
 ## ANTI-PATTERNS
 
-- **NEVER** import openai at module top → use lazy init in `_get_analyzer()`
+- **NEVER** import `openai` at module top in `analyzer.py` → use lazy init via `_client.py`
 - **NEVER** raise from hook methods → return None on failure
 - **ALWAYS** use `AIConfig.from_env()` for configuration
 - **ALWAYS** cap template generation at 50 values (`min(count, 50)`)

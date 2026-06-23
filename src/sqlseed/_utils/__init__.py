@@ -1,3 +1,5 @@
+"""Public API exports for cross-module shared utility functions."""
+
 from __future__ import annotations
 
 from sqlseed._utils.metrics import MetricsCollector

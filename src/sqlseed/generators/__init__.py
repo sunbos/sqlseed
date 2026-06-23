@@ -1,3 +1,5 @@
+"""Public API exports for the data generators layer."""
+
 from __future__ import annotations
 
 from sqlseed.generators._protocol import ConfigurationError, DataProvider, GenerationError, UnknownGeneratorError

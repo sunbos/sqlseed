@@ -1,6 +1,6 @@
 site_name: sqlseed
 site_description: Declarative SQLite test data generation toolkit
-site_url: https://github.com/sunbos/sqlseed
+site_url: https://sunbos.github.io/sqlseed/
 repo_url: https://github.com/sunbos/sqlseed
 repo_name: sunbos/sqlseed
 edit_uri: edit/main/docs/
@@ -33,9 +33,12 @@ theme:
 
 nav:
   - Home: index.md
-  - Documentation:
+  - User Guide: guide.md
+  - API Reference: api.md
+  - Architecture:
       - Architecture (EN): architecture.md
       - Architecture (中文): architecture.zh-CN.md
+  - Gemma 4 Integration:
       - Gemma 4 Integration (EN): gemma4-integration.md
       - Gemma 4 Integration (中文): gemma4-integration.zh-CN.md
 

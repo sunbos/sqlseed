@@ -1,6 +1,7 @@
+"""Tests for the sqlseed-ai plugin integration."""
+
 from __future__ import annotations
 
-from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -34,7 +35,7 @@ class TestAIConfig:
         assert config.max_tokens == 0  # 0 means auto-resolve
         assert config.timeout == pytest.approx(0.0)  # 0 means auto-resolve
 
-    def test_from_env_missing(self, monkeypatch: Any) -> None:
+    def test_from_env_missing(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("SQLSEED_AI_API_KEY", raising=False)
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
         monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
@@ -49,7 +50,7 @@ class TestAIConfig:
         assert config.model is None
         assert config.timeout == pytest.approx(0.0)  # 0 means auto-resolve
 
-    def test_from_env_set(self, monkeypatch: Any) -> None:
+    def test_from_env_set(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("SQLSEED_AI_API_KEY", "sk-test123")
         monkeypatch.setenv("SQLSEED_AI_BASE_URL", "https://api.test.com/v1")
         monkeypatch.setenv("SQLSEED_AI_MODEL", "gpt-4o")
@@ -60,7 +61,7 @@ class TestAIConfig:
         assert config.model == "gpt-4o"
         assert config.timeout == pytest.approx(120.0)
 
-    def test_from_env_fallback_openai(self, monkeypatch: Any) -> None:
+    def test_from_env_fallback_openai(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("SQLSEED_AI_API_KEY", raising=False)
         monkeypatch.setenv("OPENAI_API_KEY", "sk-openai-key")
         monkeypatch.delenv("SQLSEED_AI_BASE_URL", raising=False)
@@ -75,7 +76,7 @@ class TestAIConfig:
         assert result == "gpt-4o"
         assert config.model == "gpt-4o"
 
-    def test_resolve_model_auto_detect_local(self, monkeypatch: Any) -> None:
+    def test_resolve_model_auto_detect_local(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("SQLSEED_AI_BACKEND", "lm_studio")
         config = AIConfig.from_env()
         # Mock _detect_local_model to return None (no local server running)
@@ -366,3 +367,252 @@ class TestProjectInfoIntegration:
             assert "UNIQUE" in context
             assert "short_code" in context
             assert "NOT NULL" in context
+
+
+class TestSchemaAnalyzerDialect:
+    """Tests for SchemaAnalyzer dialect context propagation (includes real LLM calls)."""
+
+    def test_build_context_with_sqlite_dialect(self) -> None:
+        """dialect="sqlite" produces output containing "Database dialect: sqlite"."""
+        analyzer = SchemaAnalyzer(AIConfig())
+        schema_ctx = {
+            "table_name": "users",
+            "columns": [make_col("id", "INTEGER", is_pk=True, is_auto=True), make_col("name", "TEXT")],
+            "indexes": [],
+            "foreign_keys": [],
+            "all_table_names": ["users"],
+            "sample_data": [],
+            "dialect": "sqlite",
+        }
+        context = analyzer._build_context(schema_ctx)
+        assert "Database dialect: sqlite" in context
+
+    def test_build_context_with_postgresql_dialect(self) -> None:
+        """dialect="postgresql" produces output containing "Database dialect: postgresql"."""
+        analyzer = SchemaAnalyzer(AIConfig())
+        schema_ctx = {
+            "table_name": "users",
+            "columns": [make_col("id", "INTEGER", is_pk=True, is_auto=True), make_col("name", "TEXT")],
+            "indexes": [],
+            "foreign_keys": [],
+            "all_table_names": ["users"],
+            "sample_data": [],
+            "dialect": "postgresql",
+        }
+        context = analyzer._build_context(schema_ctx)
+        assert "Database dialect: postgresql" in context
+
+    def test_build_context_default_dialect_is_sqlite(self) -> None:
+        """When dialect is not provided, it defaults to "sqlite"."""
+        analyzer = SchemaAnalyzer(AIConfig())
+        schema_ctx = {
+            "table_name": "users",
+            "columns": [make_col("id", "INTEGER")],
+            "indexes": [],
+            "foreign_keys": [],
+            "all_table_names": ["users"],
+            "sample_data": [],
+        }
+        context = analyzer._build_context(schema_ctx)
+        assert "Database dialect: sqlite" in context
+
+    def test_analyze_schema_sqlite_real_llm(
+        self, tmp_db: str, available_llm_backend: dict[str, str], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Real SQLite schema analysis, verifying that the LLM returns a valid configuration."""
+        backend = available_llm_backend["backend"]
+        model = available_llm_backend["model"]
+
+        # Configure environment variables based on the backend (use monkeypatch to avoid polluting other tests)
+        if backend == "ollama":
+            monkeypatch.setenv("SQLSEED_AI_BACKEND", "ollama")
+            monkeypatch.setenv("SQLSEED_AI_BASE_URL", "http://localhost:11434/v1")
+        elif backend == "lm_studio":
+            monkeypatch.setenv("SQLSEED_AI_BACKEND", "lm_studio")
+            monkeypatch.setenv("OPENAI_BASE_URL", "http://localhost:1234/v1")
+            monkeypatch.setenv("OPENAI_API_KEY", "lm-studio")
+        elif backend == "google_ai_studio":
+            # GOOGLE_API_KEY is already set
+            pass
+
+        monkeypatch.setenv("SQLSEED_AI_MODEL", model)
+
+        config = AIConfig.from_env()
+        analyzer = SchemaAnalyzer(config)
+
+        with DataOrchestrator(tmp_db, provider_name="base") as orch:
+            orch._ensure_connected()
+            schema_ctx = orch.get_schema_context("users")
+            result = analyzer.analyze_table_from_ctx(**schema_ctx)
+
+        # Verify that the LLM returns a valid structure
+        assert result is not None, "LLM should return valid config, got None (API key missing or call failed)"
+        assert isinstance(result, dict), f"LLM response should be a dict, got: {type(result)}"
+        assert "tables" in result or "columns" in result, f"Unexpected LLM response structure: {result}"
+
+    def test_analyze_schema_postgresql_real_llm(
+        self, pg_url: str, available_llm_backend: dict[str, str], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Real PG schema analysis, verifying that dialect propagates to the LLM prompt."""
+        # First create the table on PG
+        import sqlalchemy  # noqa: PLC0415
+
+        engine = sqlalchemy.create_engine(pg_url)
+        with engine.connect() as conn:
+            conn.execute(
+                sqlalchemy.text(
+                    "CREATE TABLE IF NOT EXISTS users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT)"
+                )
+            )
+            conn.commit()
+        engine.dispose()
+
+        backend = available_llm_backend["backend"]
+        model = available_llm_backend["model"]
+
+        if backend == "ollama":
+            monkeypatch.setenv("SQLSEED_AI_BACKEND", "ollama")
+            monkeypatch.setenv("SQLSEED_AI_BASE_URL", "http://localhost:11434/v1")
+        elif backend == "lm_studio":
+            monkeypatch.setenv("SQLSEED_AI_BACKEND", "lm_studio")
+            monkeypatch.setenv("OPENAI_BASE_URL", "http://localhost:1234/v1")
+            monkeypatch.setenv("OPENAI_API_KEY", "lm-studio")
+        elif backend == "google_ai_studio":
+            # GOOGLE_API_KEY is already set
+            pass
+
+        monkeypatch.setenv("SQLSEED_AI_MODEL", model)
+
+        config = AIConfig.from_env()
+        analyzer = SchemaAnalyzer(config)
+
+        with DataOrchestrator(pg_url, provider_name="base") as orch:
+            orch._ensure_connected()
+            schema_ctx = orch.get_schema_context("users")
+            # Verify that dialect propagates to the context
+            assert schema_ctx.get("dialect") == "postgresql"
+            # Verify that dialect propagates to the LLM prompt
+            messages = analyzer.build_initial_messages(schema_ctx)
+            result = analyzer.analyze_table_from_ctx(**schema_ctx)
+
+        # Verify that the prompt contains PG dialect info (take the last user message, i.e. the context)
+        user_messages = [m for m in messages if m["role"] == "user"]
+        assert len(user_messages) > 0
+        context_message = user_messages[-1]  # The last user message is the context
+        assert "Database dialect: postgresql" in context_message["content"], (
+            f"PG dialect was not propagated to the LLM prompt, prompt content: {context_message['content'][:200]}"
+        )
+
+        assert result is not None, "LLM should return a valid configuration"
+        assert isinstance(result, dict), f"LLM response should be a dict, got: {type(result)}"
+
+    def test_analyze_schema_dialect_in_prompt(
+        self, pg_url: str, available_llm_backend: dict[str, str], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Capture the actual prompt sent to the LLM and assert it contains "Database dialect: postgresql".
+
+        Note: build_initial_messages() first adds the system message, then few-shot examples
+        (user/assistant pairs), and finally adds the context as a user message. Therefore we
+        must take the last user message (i.e. the context), not the first one.
+        """
+        # First create the table on PG
+        import sqlalchemy  # noqa: PLC0415
+
+        engine = sqlalchemy.create_engine(pg_url)
+        with engine.connect() as conn:
+            conn.execute(
+                sqlalchemy.text(
+                    "CREATE TABLE IF NOT EXISTS users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT)"
+                )
+            )
+            conn.commit()
+        engine.dispose()
+
+        backend = available_llm_backend["backend"]
+        model = available_llm_backend["model"]
+
+        if backend == "ollama":
+            monkeypatch.setenv("SQLSEED_AI_BACKEND", "ollama")
+            monkeypatch.setenv("SQLSEED_AI_BASE_URL", "http://localhost:11434/v1")
+        elif backend == "lm_studio":
+            monkeypatch.setenv("SQLSEED_AI_BACKEND", "lm_studio")
+            monkeypatch.setenv("OPENAI_BASE_URL", "http://localhost:1234/v1")
+            monkeypatch.setenv("OPENAI_API_KEY", "lm-studio")
+        elif backend == "google_ai_studio":
+            # GOOGLE_API_KEY is already set
+            pass
+
+        monkeypatch.setenv("SQLSEED_AI_MODEL", model)
+
+        config = AIConfig.from_env()
+        analyzer = SchemaAnalyzer(config)
+
+        with DataOrchestrator(pg_url, provider_name="base") as orch:
+            orch._ensure_connected()
+            schema_ctx = orch.get_schema_context("users")
+            messages = analyzer.build_initial_messages(schema_ctx)
+
+        # Take the last user message (i.e. the context, not a few-shot example)
+        user_messages = [m for m in messages if m["role"] == "user"]
+        assert len(user_messages) > 0
+        context_message = user_messages[-1]
+        assert "Database dialect: postgresql" in context_message["content"], (
+            f"PG dialect was not propagated to the LLM prompt, prompt content: {context_message['content'][:200]}"
+        )
+
+    def test_analyze_schema_llm_response_structure(
+        self, tmp_db: str, available_llm_backend: dict[str, str], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Verify the LLM response structure (tables/columns/generators)."""
+        backend = available_llm_backend["backend"]
+        model = available_llm_backend["model"]
+
+        if backend == "ollama":
+            monkeypatch.setenv("SQLSEED_AI_BACKEND", "ollama")
+            monkeypatch.setenv("SQLSEED_AI_BASE_URL", "http://localhost:11434/v1")
+        elif backend == "lm_studio":
+            monkeypatch.setenv("SQLSEED_AI_BACKEND", "lm_studio")
+            monkeypatch.setenv("OPENAI_BASE_URL", "http://localhost:1234/v1")
+            monkeypatch.setenv("OPENAI_API_KEY", "lm-studio")
+        elif backend == "google_ai_studio":
+            # GOOGLE_API_KEY is already set
+            pass
+
+        monkeypatch.setenv("SQLSEED_AI_MODEL", model)
+
+        config = AIConfig.from_env()
+        analyzer = SchemaAnalyzer(config)
+
+        with DataOrchestrator(tmp_db, provider_name="base") as orch:
+            orch._ensure_connected()
+            schema_ctx = orch.get_schema_context("users")
+            result = analyzer.analyze_table_from_ctx(**schema_ctx)
+
+        assert result is not None, "LLM should return a valid configuration"
+        # Verify that the response is a dict and contains a "tables" or "columns" key
+        assert isinstance(result, dict), f"LLM response should be a dict, got: {type(result)}"
+        has_key = "tables" in result or "columns" in result
+        keys = list(result.keys()) if isinstance(result, dict) else "N/A"
+        assert has_key, f"LLM response should contain a 'tables' or 'columns' key, actual keys: {keys}"
+
+    def test_analyze_schema_llm_failure_clear_error(self, tmp_db: str, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Simulate LLM timeout/error and verify that the error message is clear."""
+        # Use an invalid base_url to simulate a connection failure
+        # Note: valid values for SQLSEED_AI_BACKEND are lm_studio/ollama/openai_compat/google_ai_studio, not "openai"
+        monkeypatch.setenv("SQLSEED_AI_BACKEND", "openai_compat")
+        monkeypatch.setenv("OPENAI_BASE_URL", "http://localhost:9999/v1")  # Non-existent port
+        monkeypatch.setenv("OPENAI_API_KEY", "invalid_key")
+        monkeypatch.setenv("SQLSEED_AI_MODEL", "gemma-4-26b-a4b-it")
+        monkeypatch.setenv("SQLSEED_AI_TIMEOUT", "5")  # Short timeout
+
+        config = AIConfig.from_env()
+        analyzer = SchemaAnalyzer(config)
+
+        with DataOrchestrator(tmp_db, provider_name="base") as orch:
+            orch._ensure_connected()
+            schema_ctx = orch.get_schema_context("users")
+            # A failed call should return None (rather than raising an exception and crashing)
+            result = analyzer.analyze_table_from_ctx(**schema_ctx)
+
+        # On failure, returns None without crashing
+        assert result is None

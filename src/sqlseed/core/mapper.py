@@ -1,3 +1,9 @@
+"""Column mapper: infers column generators via a 9-level strategy chain.
+
+Infers an appropriate generator spec (GeneratorSpec) for each column based on a
+multi-level strategy chain considering column name, type, default value, user config, etc.
+"""
+
 from __future__ import annotations
 
 import re
@@ -10,6 +16,12 @@ if TYPE_CHECKING:
 
 @dataclass
 class GeneratorSpec:
+    """Generator spec: describes which data generator and parameters a column should use.
+
+    Encapsulates generator name, parameters, null ratio, and native provider method info:
+    serves as the unified contract between the column mapper and data generators.
+    """
+
     generator_name: str
     params: dict[str, Any] = field(default_factory=dict)
     null_ratio: float = 0.0
@@ -20,6 +32,20 @@ class GeneratorSpec:
 
 
 class ColumnMapper:
+    """Column mapper: infers column generator specs based on a 9-level strategy chain.
+
+    Strategy chain order (priority from high to low):
+      1. Primary key autoincrement columns are skipped directly;
+      2. User explicit config (user_config);
+      3. Column name exact match (including custom rules);
+      4. Column default value / nullability handling;
+      5. Column name regex pattern match (including custom rules);
+      6. CamelCase to snake_case conversion then exact match again;
+      7. Pattern match again after snake_case conversion;
+      8. Fallback default value / nullability handling (include_nullable=True);
+      9. Type-faithful fallback (inferred by SQL type).
+    """
+
     EXACT_MATCH_RULES: ClassVar[dict[str, str]] = {
         "email": "email",
         "phone": "phone",
@@ -187,16 +213,20 @@ class ColumnMapper:
     }
 
     def __init__(self) -> None:
+        """Initialize the column mapper: prepare custom exact match and pattern match rule containers."""
         self._custom_exact_rules: dict[str, tuple[str, dict[str, Any]]] = {}
         self._custom_pattern_rules: list[tuple[str, str, dict[str, Any]]] = []
 
     def register_exact_rule(self, column_name: str, generator: str, params: dict[str, Any] | None = None) -> None:
+        """Register a custom column name exact match rule: priority is higher than built-in rules."""
         self._custom_exact_rules[column_name.lower()] = (generator, params or {})
 
     def register_pattern_rule(self, pattern: str, generator: str, params: dict[str, Any] | None = None) -> None:
+        """Register a custom column name regex pattern match rule: priority is higher than built-in rules."""
         self._custom_pattern_rules.append((pattern, generator, params or {}))
 
     def _match_exact(self, column_name: str) -> GeneratorSpec | None:
+        """Perform column name exact match against custom rules then built-in rules: returns generator spec or None."""
         if column_name in self._custom_exact_rules:
             gen, params = self._custom_exact_rules[column_name]
             return GeneratorSpec(generator_name=gen, params=params)
@@ -209,6 +239,10 @@ class ColumnMapper:
         return None
 
     def _match_pattern(self, column_name: str) -> GeneratorSpec | None:
+        """Perform column name regex pattern match against custom rules then built-in rules.
+
+        Returns the generator spec or None.
+        """
         for pattern, gen, params in self._custom_pattern_rules:
             if re.match(pattern, column_name):
                 return GeneratorSpec(generator_name=gen, params=params)
@@ -220,6 +254,7 @@ class ColumnMapper:
         return None
 
     def _map_from_user_config(self, user_config: Any) -> GeneratorSpec | None:
+        """Build a generator spec from explicit user config; returns None if no generator is provided."""
         if user_config and hasattr(user_config, "generator") and user_config.generator:
             provider_val = (
                 user_config.provider.value if hasattr(user_config, "provider") and user_config.provider else None
@@ -244,6 +279,13 @@ class ColumnMapper:
         *,
         include_nullable: bool = False,
     ) -> GeneratorSpec | None:
+        """Generate a spec based on the column default value or nullability.
+
+        When the column has a default value (or is nullable and include_nullable=True):
+        - If force_type_infer is True, falls back to type-faithful inference;
+        - If enrich is True, returns an __enrich__ spec preserving the original default value;
+        - Otherwise returns skip to skip generation for this column.
+        """
         if column_info.default is not None or (include_nullable and column_info.nullable):
             if force_type_infer:
                 return self._type_faithful_fallback(column_type)
@@ -259,6 +301,7 @@ class ColumnMapper:
 
     @classmethod
     def _to_snake_case(cls, name: str) -> str:
+        """Convert CamelCase naming to snake_case: to facilitate subsequent matching."""
         return cls._CAMELCASE_RE.sub("_", name).lower()
 
     def map_column(
@@ -269,6 +312,12 @@ class ColumnMapper:
         enrich: bool = False,
         force_type_infer: bool = False,
     ) -> GeneratorSpec:
+        """Infer a generator spec for a single column via the 9-level strategy chain.
+
+        When enrich is True, returns an __enrich__ spec (instead of skip) for columns
+        with default values; when force_type_infer is True, forces fallback by SQL type,
+        ignoring the default-value skip logic.
+        """
         column_name = column_info.name.lower()
         column_type = column_info.type.upper() if column_info.type else "TEXT"
 
@@ -315,6 +364,7 @@ class ColumnMapper:
         return self._type_faithful_fallback(column_type)
 
     def _type_faithful_fallback(self, column_type: str) -> GeneratorSpec:
+        """Infer a generator spec via type-faithful fallback by SQL type: preserving length info where possible."""
         length_match = re.search(r"\((\d+)\)", column_type)
         max_length = int(length_match.group(1)) if length_match else None
 
@@ -340,6 +390,10 @@ class ColumnMapper:
         *,
         enrich: bool = False,
     ) -> dict[str, GeneratorSpec]:
+        """Batch-map multiple columns into a generator spec dict.
+
+        Optionally accepts user configs indexed by column name.
+        """
         user_configs = user_configs or {}
         result: dict[str, GeneratorSpec] = {}
         for col in columns:

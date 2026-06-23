@@ -41,9 +41,14 @@ graph TB
 
     subgraph DB["💾 Database Layer (database/)"]
         DBProto["DatabaseAdapter<br/>Protocol"]
-        SU["SQLiteUtilsAdapter<br/>default"]
-        Raw["RawSQLiteAdapter<br/>fallback"]
+        SU["SQLAlchemyAdapter<br/>required"]
+        Raw["RawSQLiteAdapter<br/>test-only"]
         Pragma["PragmaOptimizer<br/>3-tier optimization"]
+        Dialect["_dialect.py<br/>dialect abstraction"]
+        TypeNorm["_type_normalizer.py<br/>type normalization"]
+        BulkOpt["_bulk_optimizer.py<br/>bulk write optimization"]
+        BaseAdapt["_base_adapter.py<br/>shared base"]
+        Helpers["_helpers.py<br/>batch insert helpers"]
     end
 
     subgraph Plugin["🧩 Plugin Layer (plugins/)"]
@@ -111,6 +116,13 @@ graph TB
     DBProto --> Raw
     SU --> Pragma
     Raw --> Pragma
+    SU --> Dialect
+    SU --> TypeNorm
+    SU --> BulkOpt
+    SU --> BaseAdapt
+    SU --> Helpers
+    Raw --> BaseAdapt
+    Raw --> Helpers
 
     PM --> HookSpec
     PM --> AI
@@ -267,19 +279,19 @@ classDiagram
         -_rng: Random
         -_locale: str
         +name = "base"
-        zero external dependencies
+        type-routing only, no real data
     }
 
     class FakerProvider {
         -_faker: Faker
         +name = "faker"
-        lazy imports faker
+        required core dependency
     }
 
     class MimesisProvider {
         -_generic: Generic
         +name = "mimesis"
-        locale mapping en_US→en
+        optional, high-performance
     }
 
     class ProviderRegistry {
@@ -361,16 +373,18 @@ classDiagram
         +unique: bool
     }
 
-    class SQLiteUtilsAdapter {
+    class SQLAlchemyAdapter {
         -_db: Database
         -_optimizer: PragmaOptimizer
-        uses sqlite-utils
+        required core dependency
+        uses SQLAlchemy
     }
 
     class RawSQLiteAdapter {
         -_conn: Connection
         -_optimizer: PragmaOptimizer
-        uses sqlite3 (fallback)
+        test-only fallback
+        uses sqlite3
     }
 
     class PragmaOptimizer {
@@ -383,9 +397,9 @@ classDiagram
         -_apply_aggressive()
     }
 
-    DatabaseAdapter <|.. SQLiteUtilsAdapter
+    DatabaseAdapter <|.. SQLAlchemyAdapter
     DatabaseAdapter <|.. RawSQLiteAdapter
-    SQLiteUtilsAdapter --> PragmaOptimizer
+    SQLAlchemyAdapter --> PragmaOptimizer
     RawSQLiteAdapter --> PragmaOptimizer
     DatabaseAdapter --> ColumnInfo
     DatabaseAdapter --> ForeignKeyInfo
@@ -558,7 +572,6 @@ classDiagram
         +tables: list~TableConfig~
         +associations: list~ColumnAssociation~
         +optimize_pragma: bool = True
-        +log_level: Literal["DEBUG","INFO","WARNING","ERROR","CRITICAL"] = "INFO"
         +snapshot_dir: str | None
     }
 

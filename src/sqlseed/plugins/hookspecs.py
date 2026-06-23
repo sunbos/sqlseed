@@ -1,12 +1,16 @@
+"""pluggy plugin hook specification definitions.
+
+11 hooks covering the full lifecycle of registration/generation/transformation/insertion.
+"""
+
 from __future__ import annotations
 
 from typing import Any
 
 import pluggy
 
-# pluggy hookspec methods use placeholder parameters that are intentionally
-# unused — they define the hook signature for plugin implementers.
-# pylint: disable=unused-argument
+# pluggy hookspec methods use placeholder parameters; they only define the
+# hook signature for plugin implementers' reference
 
 hookspec = pluggy.HookspecMarker("sqlseed")
 hookimpl = pluggy.HookimplMarker("sqlseed")
@@ -15,11 +19,22 @@ PROJECT_NAME = "sqlseed"
 
 
 class SqlseedHookSpec:
-    @hookspec
-    def sqlseed_register_providers(self, registry: Any) -> None: ...
+    """sqlseed plugin hook specification class.
+
+    Defines 11 hooks for plugin implementers to override, covering the full
+    data generation lifecycle: registration, before/after generation, row/batch
+    transformation, before/after insertion, shared pool loading, and AI analysis.
+    """
 
     @hookspec
-    def sqlseed_register_column_mappers(self, mapper: Any) -> None: ...
+    def sqlseed_register_providers(self, registry: Any) -> None:
+        """Register data providers into the registry."""
+        ...
+
+    @hookspec
+    def sqlseed_register_column_mappers(self, mapper: Any) -> None:
+        """Register column mapping rules into the mapper."""
+        ...
 
     @hookspec(firstresult=True)
     def sqlseed_ai_analyze_table(
@@ -31,9 +46,7 @@ class SqlseedHookSpec:
         foreign_keys: list[Any],
         all_table_names: list[str],
     ) -> dict[str, Any] | None:
-        """
-        [AI Hook] 分析整张表，返回完整的列配置建议。
-        """
+        """[AI Hook] Analyze an entire table and return complete column configuration suggestions."""
 
     @hookspec
     def sqlseed_before_generate(
@@ -41,7 +54,9 @@ class SqlseedHookSpec:
         table_name: str,
         count: int,
         config: Any,
-    ) -> None: ...
+    ) -> None:
+        """Callback before data generation."""
+        ...
 
     @hookspec
     def sqlseed_after_generate(
@@ -49,7 +64,9 @@ class SqlseedHookSpec:
         table_name: str,
         count: int,
         elapsed: float,
-    ) -> None: ...
+    ) -> None:
+        """Callback after data generation."""
+        ...
 
     @hookspec
     def sqlseed_transform_row(
@@ -57,10 +74,9 @@ class SqlseedHookSpec:
         table_name: str,
         row: dict[str, Any],
     ) -> dict[str, Any] | None:
-        """
-        Transform/modify each generated row.
-        Return modified row, or None to keep unchanged.
-        Note: This hook is in the hot path - performance sensitive.
+        """Transform a single row of data. Returns the modified row, or None to indicate no modification.
+
+        Note: This hook is on the hot path and is performance-sensitive.
         """
 
     @hookspec
@@ -69,9 +85,9 @@ class SqlseedHookSpec:
         table_name: str,
         batch: list[dict[str, Any]],
     ) -> list[dict[str, Any]] | None:
-        """
-        Transform/modify a batch of generated data.
-        Multiple plugins can chain: each plugin's output feeds into the next.
+        """Transform a batch of data.
+
+        Supports chained application: each plugin's output becomes the next plugin's input.
         """
 
     @hookspec
@@ -80,7 +96,9 @@ class SqlseedHookSpec:
         table_name: str,
         batch_number: int,
         batch_size: int,
-    ) -> None: ...
+    ) -> None:
+        """Callback before batch insertion."""
+        ...
 
     @hookspec
     def sqlseed_after_insert(
@@ -88,7 +106,9 @@ class SqlseedHookSpec:
         table_name: str,
         batch_number: int,
         rows_inserted: int,
-    ) -> None: ...
+    ) -> None:
+        """Callback after batch insertion."""
+        ...
 
     @hookspec
     def sqlseed_shared_pool_loaded(
@@ -96,8 +116,8 @@ class SqlseedHookSpec:
         table_name: str,
         shared_pool: Any,
     ) -> None:
-        """
-        Called after a table's generated values are loaded into the shared pool.
+        """Called after a table's generated values are loaded into the shared pool.
+
         Other plugins can use this to track cross-table associations.
         """
 
@@ -110,8 +130,8 @@ class SqlseedHookSpec:
         count: int,
         sample_data: list[Any],
     ) -> list[Any] | None:
-        """
-        [AI Hook] Pre-generate candidate value pool for columns that cannot match
-        a deterministic generator. Called before DataStream creation.
-        Returns a list of template values, or None if the plugin does not handle this column.
+        """[AI Hook] Pre-generate a pool of candidate values for columns that cannot match a deterministic generator.
+
+        Called before DataStream creation. Returns a list of template values, or None
+        to indicate the plugin does not handle this column.
         """

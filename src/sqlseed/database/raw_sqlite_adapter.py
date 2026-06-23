@@ -1,3 +1,5 @@
+"""Database adapter based on the native sqlite3 module (used only for zero-dependency tests)."""
+
 from __future__ import annotations
 
 import contextlib
@@ -6,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 from sqlseed._utils.logger import get_logger
 from sqlseed._utils.sql_safe import build_insert_sql, quote_identifier, validate_table_name
-from sqlseed.database._base_adapter import BaseSQLiteAdapter
+from sqlseed.database._base_adapter import BaseRawSQLiteAdapter
 from sqlseed.database._helpers import batch_insert_rows
 from sqlseed.database._protocol import ColumnInfo, ForeignKeyInfo
 from sqlseed.database.optimizer import PragmaOptimizer
@@ -17,21 +19,44 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
-class RawSQLiteAdapter(BaseSQLiteAdapter):
+class RawSQLiteAdapter(BaseRawSQLiteAdapter):
+    """Database adapter based on the Python built-in sqlite3 module.
+
+    Used only for zero-dependency test scenarios, without relying on SQLAlchemy.
+    For production, use SQLAlchemyAdapter to get multi-dialect support.
+
+    Implements SQLite bulk write optimization (PRAGMA tuning) via PragmaOptimizer.
+    """
+
     def __init__(self) -> None:
+        """Initialize the adapter; the connection object is initially None."""
         super().__init__()
         self._conn: sqlite3.Connection | None = None
 
     @property
     def conn(self) -> sqlite3.Connection:
+        """Current sqlite3 connection object.
+
+        Raises:
+            RuntimeError: Raised when accessed without calling connect() first.
+        """
         if self._conn is None:
             raise RuntimeError("Database not connected. Call connect() first.")
         return self._conn
 
     def _get_execute_fn(self) -> Callable[..., Any]:
+        """Return conn.execute as the SQL execution function."""
         return self.conn.execute
 
     def connect(self, db_path: str) -> None:
+        """Connect to a SQLite database file.
+
+        After connecting, foreign key constraints are automatically enabled
+        and a PragmaOptimizer instance is created.
+
+        Args:
+            db_path: SQLite database file path.
+        """
         self._db_path = db_path
         self._conn = sqlite3.connect(db_path)
         self._conn.execute("PRAGMA foreign_keys = ON")
@@ -42,16 +67,29 @@ class RawSQLiteAdapter(BaseSQLiteAdapter):
         logger.debug("Connected to database via raw sqlite3", db_path=db_path)
 
     def close(self) -> None:
+        """Close the database connection. No-op if not connected."""
         if self._conn is not None:
             self._conn.close()
             self._conn = None
             logger.debug("Closed raw sqlite3 connection", db_path=self._db_path)
 
     def get_table_names(self) -> list[str]:
+        """Return all user table names in the database (excluding internal tables with the sqlite_ prefix)."""
         cursor = self.conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
         return [row[0] for row in cursor.fetchall()]
 
     def get_column_info(self, table_name: str) -> list[ColumnInfo]:
+        """Get column information for a table.
+
+        Reads column definitions via PRAGMA table_info, and constructs a ColumnInfo list
+        combined with the primary key set and autoincrement detection.
+
+        Args:
+            table_name: Target table name.
+
+        Returns:
+            A list of ColumnInfo for all columns of the table.
+        """
         validate_table_name(table_name)
         pks = set(self.get_primary_keys(table_name))
 
@@ -76,6 +114,14 @@ class RawSQLiteAdapter(BaseSQLiteAdapter):
         return result
 
     def get_primary_keys(self, table_name: str) -> list[str]:
+        """Get the list of primary key column names for a table.
+
+        Args:
+            table_name: Target table name.
+
+        Returns:
+            List of primary key column names, in the order returned by PRAGMA table_info.
+        """
         validate_table_name(table_name)
         cursor = self.conn.execute(f"PRAGMA table_info({quote_identifier(table_name)})")
         pks: list[str] = []
@@ -86,6 +132,14 @@ class RawSQLiteAdapter(BaseSQLiteAdapter):
         return pks
 
     def get_foreign_keys(self, table_name: str) -> list[ForeignKeyInfo]:
+        """Get foreign key information for a table.
+
+        Args:
+            table_name: Target table name.
+
+        Returns:
+            A list of ForeignKeyInfo for all foreign keys of the table.
+        """
         validate_table_name(table_name)
         cursor = self.conn.execute(f"PRAGMA foreign_key_list({quote_identifier(table_name)})")
         result: list[ForeignKeyInfo] = []
@@ -101,6 +155,14 @@ class RawSQLiteAdapter(BaseSQLiteAdapter):
         return result
 
     def get_row_count(self, table_name: str) -> int:
+        """Get the total number of rows in a table.
+
+        Args:
+            table_name: Target table name.
+
+        Returns:
+            The number of rows in the table.
+        """
         validate_table_name(table_name)
         safe_table = quote_identifier(table_name)
         cursor = self.conn.execute(f"SELECT COUNT(*) FROM {safe_table}")
@@ -112,10 +174,29 @@ class RawSQLiteAdapter(BaseSQLiteAdapter):
         data: Iterator[dict[str, Any]],
         batch_size: int = 5000,
     ) -> int:
+        """Insert data in batches.
+
+        Args:
+            table_name: Target table name.
+            data: Row data iterator, each row is a dict mapping column names to values.
+            batch_size: Maximum number of rows per batch, default 5000.
+
+        Returns:
+            Total number of inserted rows.
+        """
         validate_table_name(table_name)
         return batch_insert_rows(data, batch_size, lambda b: self._insert_batch(table_name, b))
 
     def _insert_batch(self, table_name: str, batch: list[dict[str, Any]]) -> int:
+        """Actually write a batch of data.
+
+        Args:
+            table_name: Target table name.
+            batch: A batch of row data, each row is a dict mapping column names to values.
+
+        Returns:
+            Number of rows inserted in this batch; returns 0 when batch is empty.
+        """
         if not batch:
             return 0
         column_names = list(batch[0].keys())
@@ -126,6 +207,11 @@ class RawSQLiteAdapter(BaseSQLiteAdapter):
         return len(batch)
 
     def clear_table(self, table_name: str) -> None:
+        """Clear table data and reset the autoincrement counter.
+
+        Args:
+            table_name: Target table name.
+        """
         validate_table_name(table_name)
         safe_table = quote_identifier(table_name)
         self.conn.execute(f"DELETE FROM {safe_table}")
@@ -135,13 +221,27 @@ class RawSQLiteAdapter(BaseSQLiteAdapter):
         logger.debug("Cleared table", table_name=table_name)
 
     def restore_settings(self) -> None:
+        """Restore the PRAGMA configuration prior to optimization, and commit the transaction."""
         super().restore_settings()
         self.conn.commit()
 
     def _execute_pragma(self, sql: str) -> None:
+        """Execute a PRAGMA statement (called by PragmaOptimizer).
+
+        Args:
+            sql: PRAGMA statement string.
+        """
         self.conn.execute(sql)
 
     def _fetch_pragma(self, name: str) -> Any:
+        """Read the current PRAGMA value (called by PragmaOptimizer).
+
+        Args:
+            name: PRAGMA name (e.g. "synchronous").
+
+        Returns:
+            The first row and first column value of the PRAGMA; returns None when there is no result.
+        """
         cursor = self.conn.execute(f"PRAGMA {name}")
         row = cursor.fetchone()
         return row[0] if row else None

@@ -41,6 +41,9 @@ pip install mcp-server-sqlseed[ai]
 | `sqlseed_inspect_schema` | 检查数据库 Schema：列、外键、索引、样本数据、schema_hash。可选 `table_name`（省略则返回所有表）。 |
 | `sqlseed_generate_yaml` | AI 驱动的 YAML 配置生成，含自纠正。需要 `sqlseed-ai` 插件和 API Key。支持 `api_key`/`base_url`/`model` 参数覆盖。 |
 | `sqlseed_execute_fill` | 执行数据生成。可选 `yaml_config` 字符串、`count` 和 `enrich` 标志。YAML 配置最大 256KB。 |
+| `sqlseed_gemma4_analyze` | 使用 Gemma 4 分析 Schema 并生成配置 |
+| `sqlseed_gemma4_agent_fill` | 使用 Gemma 4 代理端到端填充表 |
+| `sqlseed_list_gemma_models` | 列出可用的 Gemma 4 模型变体 |
 
 ### MCP Resource
 

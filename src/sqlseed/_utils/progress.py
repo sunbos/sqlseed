@@ -124,6 +124,7 @@ class NullProgressBackend(ProgressBackend):
     """
 
     def __enter__(self) -> NullProgressBackend:
+        """Enter the context manager (no-op)."""
         return self
 
     def __exit__(self, *args: Any) -> None:
@@ -157,6 +158,12 @@ class RichProgressBackend(ProgressBackend):
     """
 
     def __init__(self, *, ascii_only: bool = False) -> None:
+        """Initialize the Rich progress bar with appropriate columns.
+
+        Args:
+            ascii_only: If ``True``, use ASCII-safe spinner and omit the
+                        graphical bar (for GBK/Big5 console encodings).
+        """
         if ascii_only:
             columns: list[Any] = [
                 SpinnerColumn("line"),
@@ -183,22 +190,27 @@ class RichProgressBackend(ProgressBackend):
         )
 
     def __enter__(self) -> RichProgressBackend:
+        """Start the Rich progress display."""
         self._progress.__enter__()
         return self
 
     def __exit__(self, *args: Any) -> None:
+        """Stop the Rich progress display."""
         self._progress.__exit__(*args)
 
     def add_task(self, description: str, *, total: int | None = None) -> Any:
+        """Add a new task to the Rich progress bar."""
         return self._progress.add_task(description, total=total)
 
     def update(self, task_id: Any, *, advance: int = 0, description: str | None = None) -> None:
+        """Advance and/or update the description of a Rich task."""
         kwargs: dict[str, Any] = {"advance": advance}
         if description is not None:
             kwargs["description"] = description
         self._progress.update(task_id, **kwargs)
 
     def remove_task(self, task_id: Any) -> None:
+        """Remove a task from the Rich progress bar."""
         self._progress.remove_task(task_id)
 
 
@@ -221,14 +233,17 @@ class TqdmNotebookBackend(ProgressBackend):
     """
 
     def __init__(self) -> None:
+        """Initialize internal tracking state (no bars created yet)."""
         self._bars: dict[int, Any] = {}
         self._pending: dict[int, tuple[str, int | None]] = {}
         self._counter = 0
 
     def __enter__(self) -> TqdmNotebookBackend:
+        """Enter the context manager (bars are created lazily on update)."""
         return self
 
     def __exit__(self, *args: Any) -> None:
+        """Refresh and close all tqdm bars, then clear internal state."""
         for pbar in self._bars.values():
             pbar.refresh()
             pbar.close()
@@ -236,6 +251,11 @@ class TqdmNotebookBackend(ProgressBackend):
         self._pending.clear()
 
     def _ensure_bar(self, task_id: int) -> Any:
+        """Lazily create the tqdm bar for *task_id* on first access.
+
+        Returns ``None`` if the task is indeterminate (``total=None``) or
+        if tqdm is not installed.
+        """
         if task_id in self._bars:
             return self._bars[task_id]
         if task_id not in self._pending:
@@ -254,6 +274,7 @@ class TqdmNotebookBackend(ProgressBackend):
         return pbar
 
     def add_task(self, description: str, *, total: int | None = None) -> int:
+        """Register a task; the tqdm bar is created lazily on first update."""
         task_id = self._counter
         self._counter += 1
         if total is None:
@@ -262,6 +283,7 @@ class TqdmNotebookBackend(ProgressBackend):
         return task_id
 
     def update(self, task_id: Any, *, advance: int = 0, description: str | None = None) -> None:
+        """Advance and/or update the description of a tqdm task."""
         pbar = self._ensure_bar(task_id)
         if pbar is None:
             return
@@ -271,6 +293,7 @@ class TqdmNotebookBackend(ProgressBackend):
             pbar.update(advance)
 
     def remove_task(self, task_id: Any) -> None:
+        """Close and remove the tqdm bar associated with *task_id*."""
         self._pending.pop(task_id, None)
         pbar = self._bars.pop(task_id, None)
         if pbar is not None:

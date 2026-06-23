@@ -1,3 +1,11 @@
+"""JSON parsing utilities for LLM responses.
+
+Provides :func:`parse_json_response`, a robust 3-strategy parser that
+extracts JSON from LLM output (raw JSON, markdown-fenced JSON, or JSON
+embedded in prose) and normalizes the resulting dict via
+:func:`_sanitize_names`.
+"""
+
 from __future__ import annotations
 
 import json
@@ -25,7 +33,7 @@ def _try_direct_parse(content: str) -> dict[str, Any] | None:
 
 
 def _try_markdown_fence_parse(content: str) -> dict[str, Any] | None:
-    """Strategy 2: Strip markdown code fences (```json\\n{...}\\n```)."""
+    """Strategy 2: Strip markdown code fences (```json\n{...}\n```)."""
     open_idx = content.find("```")
     if open_idx < 0:
         return None
@@ -69,6 +77,12 @@ def _try_raw_decode(content: str) -> dict[str, Any] | None:
 
 
 def _sanitize_names(data: dict[str, Any]) -> None:
+    """Strip leading colons/dots from table and column name fields.
+
+    Some LLMs prepend ``:`` or ``.`` to names (e.g., ``":users"``).
+    This mutates ``data`` in place, cleaning ``data["name"]`` and every
+    column's ``name`` inside ``data["columns"]``.
+    """
     name = data.get("name")
     if isinstance(name, str):
         data["name"] = re.sub(r"^[:.]+", "", name)

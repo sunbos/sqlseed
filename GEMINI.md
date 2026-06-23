@@ -1,7 +1,7 @@
 # sqlseed - Project Context
 
 ## Project Overview
-`sqlseed` is a declarative SQLite test data generation toolkit written in Python (>=3.10). It intelligently generates large volumes of high-quality test data with minimal configuration. The tool automatically infers database schemas and selects appropriate data generation strategies, while offering fine-grained control via Python API or declarative YAML/JSON configuration.
+`sqlseed` is a declarative multi-database test data generation toolkit written in Python (>=3.10). It intelligently generates large volumes of high-quality test data with minimal configuration. The tool automatically infers database schemas and selects appropriate data generation strategies, while offering fine-grained control via Python API or declarative YAML/JSON configuration. sqlseed supports SQLite (default), PostgreSQL, and MySQL via SQLAlchemy.
 
 Core features include:
 - High-performance data generation engines: Mimesis (recommended) and Faker
@@ -19,7 +19,7 @@ Core features include:
 - **Root directory**: Contains CI/CD and publishing GitHub Actions workflows (`.github/`) along with PR/Issue template instructions.
 - **`src/sqlseed/core/`**: Core orchestrator engine handling main flow orchestration (`orchestrator.py`), generation result statistics (`result.py`), schema inference (`schema.py`), strategy mapping (`mapper.py`), relation resolution (`relation.py`), column dependency DAG (`column_dag.py`), expression evaluation (`expression.py`), constraint solving (`constraints.py`), transform loading (`transform.py`), column data enrichment (`enrichment.py`), unique strategy adjustment (`unique_adjuster.py`), and plugin/AI suggestion mediation (`plugin_mediator.py`).
 - **`src/sqlseed/generators/`**: Data provider registry and generator implementations (`mimesis_provider.py`, `faker_provider.py`) with streaming generation adapter (`stream.py`). Includes protocol definitions (`_protocol.py`), base implementation (`base_provider.py`), registration mechanism (`registry.py`), and internal helpers (`_dispatch.py`, `_json_helpers.py`, `_string_helpers.py`).
-- **`src/sqlseed/database/`**: SQLite interaction adapter base class (`_base_adapter.py`) with concrete implementations (`sqlite_utils_adapter.py` and `raw_sqlite_adapter.py`), including PRAGMA optimization (`optimizer.py`). Protocol (`_protocol.py`) defines `ColumnInfo`, `ForeignKeyInfo`, `IndexInfo` metadata and data query methods, plus internal helpers (`_compat.py`, `_helpers.py`).
+- **`src/sqlseed/database/`**: Database adapter base class (`_base_adapter.py`) with `SQLAlchemyAdapter` (default, multi-DB via SQLAlchemy — supports SQLite, PostgreSQL, and MySQL) and `RawSQLiteAdapter` (zero-dep fallback), including PRAGMA optimization (`optimizer.py`). Protocol (`_protocol.py`) defines `ColumnInfo`, `ForeignKeyInfo`, `IndexInfo` metadata and data query methods, plus internal helpers (`_helpers.py`, `_dialect.py`, `_type_normalizer.py`, `_bulk_optimizer.py`). PostgreSQL requires `pip install "sqlseed[postgres]"` (psycopg driver); MySQL requires `pip install "sqlseed[mysql]"` (mysqlclient driver).
 - **`src/sqlseed/plugins/`**: Plugin management and hook specification definitions based on `pluggy` (`hookspecs.py` and `manager.py`).
 - **`src/sqlseed/config/`**: Configuration management using `pydantic` models, YAML/JSON loader (`loader.py`, `models.py`), and runtime snapshots (`snapshot.py` — save/load/list_snapshots; CLI `replay` command uses `SnapshotManager.load()` + `DataOrchestrator.from_config()`).
 - **`src/sqlseed/cli/`**: `click`-based command-line interface. Core commands in `main.py` (fill, preview, inspect, init, replay); AI commands in `ai_commands.py` (ai-suggest).
@@ -76,13 +76,27 @@ SQLSEED_LOG_LEVEL=DEBUG sqlseed fill test.db --table users --count 10
 ```python
 import sqlseed
 
-# Simple fill
+# Simple fill (SQLite)
 result = sqlseed.fill("test.db", table="users", count=1000)
 print(f"Elapsed: {result.elapsed:.2f}s, Inserted: {result.count} rows")
 
 # Using Orchestrator (context manager)
 with sqlseed.connect("test.db", provider="mimesis") as db:
     db.fill("users", count=5000)
+
+# PostgreSQL (requires: pip install "sqlseed[postgres]")
+result = sqlseed.fill(
+    "postgresql+psycopg://user:password@localhost:5432/mydb",
+    table="users",
+    count=1000,
+)
+
+# MySQL (requires: pip install "sqlseed[mysql]")
+result = sqlseed.fill(
+    "mysql+mysqldb://user:password@localhost:3306/mydb",
+    table="users",
+    count=1000,
+)
 ```
 
 ## Development Guidelines

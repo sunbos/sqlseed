@@ -1,3 +1,9 @@
+"""SQLite PRAGMA optimizer for bulk write performance tuning.
+
+Temporarily adjusts PRAGMAs such as ``synchronous``, ``journal_mode``, ``cache_size``
+to improve throughput in bulk write scenarios, and restores the original configuration after writing completes.
+"""
+
 from __future__ import annotations
 
 import re
@@ -12,6 +18,13 @@ logger = get_logger(__name__)
 
 @dataclass
 class PragmaProfile:
+    """PRAGMA configuration snapshot.
+
+    Saves the original value of each controlled PRAGMA before optimization,
+    used by the ``restore`` phase to revert item by item.
+    A field of ``None`` means the item was not captured or cannot be restored.
+    """
+
     synchronous: Any = None
     journal_mode: Any = None
     cache_size: Any = None
@@ -22,14 +35,29 @@ class PragmaProfile:
 
 
 class PragmaOptimizer:
+    """SQLite PRAGMA three-level optimizer.
+
+    Selects light (<=10k), moderate (<=100k), or aggressive (>100k) strategies
+    based on ``expected_rows``, calling ``preserve``/``optimize`` and ``restore``
+    in pairs before and after bulk writes to ensure safety.
+    """
+
     TEMP_STORE_MEMORY: str = "PRAGMA temp_store = MEMORY"
 
     def __init__(self, execute_fn: Any, fetch_pragma_fn: Any) -> None:
+        """Initialize the optimizer.
+
+        :param execute_fn: Callable that executes PRAGMA statements,
+            typically the adapter's execute method.
+        :param fetch_pragma_fn: Callable that reads the current PRAGMA value,
+            accepts the PRAGMA name and returns its value.
+        """
         self._execute = execute_fn
         self._fetch_pragma = fetch_pragma_fn
         self._original: PragmaProfile | None = None
 
     def preserve(self) -> None:
+        """Capture and cache the original values of all controlled PRAGMAs for later restoration."""
         self._original = PragmaProfile(
             synchronous=self._fetch_pragma("synchronous"),
             journal_mode=self._fetch_pragma("journal_mode"),
@@ -42,6 +70,11 @@ class PragmaOptimizer:
         logger.debug("Preserved PRAGMA config", config=self._original)
 
     def optimize(self, expected_rows: int | None = None) -> None:
+        """Select and apply an optimization tier based on the expected number of rows to write.
+
+        :param expected_rows: Expected number of rows to write, defaults to 10000 when ``None``,
+            used to switch between light/moderate/aggressive tiers.
+        """
         if expected_rows is None:
             expected_rows = 10000
 
@@ -53,12 +86,17 @@ class PragmaOptimizer:
             self._apply_light()
 
     def _apply_light(self) -> None:
+        """Apply the light tier: NORMAL sync + in-memory temp tables + 8MB cache, balancing safety and speed."""
         self._execute("PRAGMA synchronous = NORMAL")
         self._execute(self.TEMP_STORE_MEMORY)
         self._execute("PRAGMA cache_size = -8000")
         logger.debug("Applied LIGHT PRAGMA optimization")
 
     def _apply_moderate(self) -> None:
+        """Apply the moderate tier: disable sync, in-memory journal, 16MB cache and 256MB mmap.
+
+        Suitable for medium batches.
+        """
         self._execute("PRAGMA synchronous = OFF")
         self._execute("PRAGMA journal_mode = MEMORY")
         self._execute(self.TEMP_STORE_MEMORY)
@@ -67,6 +105,10 @@ class PragmaOptimizer:
         logger.debug("Applied MODERATE PRAGMA optimization")
 
     def _apply_aggressive(self) -> None:
+        """Apply the aggressive tier: disable sync and journal, 32MB cache, 512MB mmap and 4KB page size.
+
+        Suitable for large bulk writes.
+        """
         self._execute("PRAGMA synchronous = OFF")
         self._execute("PRAGMA journal_mode = OFF")
         self._execute(self.TEMP_STORE_MEMORY)
@@ -84,6 +126,10 @@ class PragmaOptimizer:
         logger.debug("Applied AGGRESSIVE PRAGMA optimization")
 
     def restore(self) -> None:
+        """Restore all controlled PRAGMAs to the original values captured by ``preserve``.
+
+        Failed items are ignored and logged.
+        """
         if self._original is None:
             return
 
