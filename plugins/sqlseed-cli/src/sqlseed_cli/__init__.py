@@ -38,12 +38,20 @@ def _register_plugin_commands() -> None:
         try:
             register = ep.load()
             register(cli)
-        except Exception:
+        except (
+            ImportError,
+            AttributeError,
+            TypeError,
+            ValueError,
+            RuntimeError,
+            OSError,
+        ):
             # A failing plugin must never break the core CLI; silently skip.
             # Users who need diagnostics can set SQLSEED_LOG_LEVEL=DEBUG.
-            logging.getLogger(__name__).debug(
-                "Failed to load CLI plugin entry point", extra={"entry_point": ep.name}
-            )
+            # Specific exception types are caught rather than bare Exception
+            # to avoid suppressing BaseException subclasses (KeyboardInterrupt,
+            # SystemExit) and to make the resilience contract explicit.
+            logging.getLogger(__name__).debug("Failed to load CLI plugin entry point", extra={"entry_point": ep.name})
 
 
 _register_plugin_commands()

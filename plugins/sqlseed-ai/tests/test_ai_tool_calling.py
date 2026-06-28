@@ -66,6 +66,7 @@ class TestTryToolCallingSuccess:
         client.chat.completions.create.return_value = response
 
         result = analyzer._try_tool_calling(client, {"model": "gemma-4-26b-a4b-it"})
+        assert isinstance(result, dict)
         assert result == {"table_name": "users", "columns": []}
 
     def test_response_format_removed_from_tool_kwargs(self) -> None:
@@ -103,6 +104,7 @@ class TestTryToolCallingSuccess:
         client.chat.completions.create.return_value = response
 
         result = analyzer._try_tool_calling(client, {"model": "test"})
+        assert isinstance(result, dict)
         assert result == {"table_name": "first"}
 
 
@@ -124,6 +126,31 @@ class TestTryToolCallingNoChoices:
 # ── Content fallback when no tool call is made ───────────────────────
 
 
+def _run_content_fallback(
+    analyzer: SchemaAnalyzer, choice: Any, *, expected_parse_call: str | None = None
+) -> dict[str, Any]:
+    """Run _try_tool_calling with a client returning ``choice``, expect content fallback.
+
+    Builds a mock client whose ``chat.completions.create`` returns a response
+    containing the given choice, patches ``_parse_json_response`` to return
+    ``{"name": "fallback"}``, and asserts the result equals that dict.
+
+    If ``expected_parse_call`` is provided, also asserts ``_parse_json_response``
+    was called once with that string.
+    """
+    response = _make_response([choice])
+    client = MagicMock()
+    client.chat.completions.create.return_value = response
+
+    with patch.object(analyzer, "_parse_json_response", return_value={"name": "fallback"}) as mock_parse:
+        result = analyzer._try_tool_calling(client, {"model": "test"})
+        assert isinstance(result, dict)
+        assert result == {"name": "fallback"}
+        if expected_parse_call is not None:
+            mock_parse.assert_called_once_with(expected_parse_call)
+    return result
+
+
 class TestTryToolCallingContentFallback:
     def test_falls_back_to_parse_json_response_when_content_present(self) -> None:
         """_try_tool_calling parses message content via _parse_json_response."""
@@ -137,6 +164,7 @@ class TestTryToolCallingContentFallback:
 
         with patch.object(analyzer, "_parse_json_response", return_value={"name": "users"}) as mock_parse:
             result = analyzer._try_tool_calling(client, {"model": "test"})
+            assert isinstance(result, dict)
             assert result == {"name": "users"}
             mock_parse.assert_called_once_with('{"name": "users"}')
 
@@ -168,63 +196,29 @@ class TestTryToolCallingContentFallback:
     def test_wrong_function_then_content_fallback(self) -> None:
         """_try_tool_calling falls back to content when tool call name is wrong."""
         analyzer = SchemaAnalyzer(config=_make_config())
-
         wrong_tc = _make_tool_call("other_function", '{"foo": "bar"}')
         choice = _make_choice(tool_calls=[wrong_tc], content='{"name": "fallback"}')
-        response = _make_response([choice])
-
-        client = MagicMock()
-        client.chat.completions.create.return_value = response
-
-        with patch.object(analyzer, "_parse_json_response", return_value={"name": "fallback"}) as mock_parse:
-            result = analyzer._try_tool_calling(client, {"model": "test"})
-            assert result == {"name": "fallback"}
-            mock_parse.assert_called_once_with('{"name": "fallback"}')
+        _run_content_fallback(analyzer, choice, expected_parse_call='{"name": "fallback"}')
 
     def test_invalid_json_args_skipped_then_content_fallback(self) -> None:
         """_try_tool_calling skips invalid JSON args and falls back to content."""
         analyzer = SchemaAnalyzer(config=_make_config())
-
         bad_tc = _make_tool_call("analyze_schema", "not valid json {{{")
         choice = _make_choice(tool_calls=[bad_tc], content='{"name": "fallback"}')
-        response = _make_response([choice])
-
-        client = MagicMock()
-        client.chat.completions.create.return_value = response
-
-        with patch.object(analyzer, "_parse_json_response", return_value={"name": "fallback"}) as mock_parse:
-            result = analyzer._try_tool_calling(client, {"model": "test"})
-            assert result == {"name": "fallback"}
-            mock_parse.assert_called_once_with('{"name": "fallback"}')
+        _run_content_fallback(analyzer, choice, expected_parse_call='{"name": "fallback"}')
 
     def test_empty_arguments_skipped_then_content_fallback(self) -> None:
         """_try_tool_calling skips analyze_schema calls with empty arguments."""
         analyzer = SchemaAnalyzer(config=_make_config())
-
         empty_args_tc = _make_tool_call("analyze_schema", "")
         choice = _make_choice(tool_calls=[empty_args_tc], content='{"name": "fallback"}')
-        response = _make_response([choice])
-
-        client = MagicMock()
-        client.chat.completions.create.return_value = response
-
-        with patch.object(analyzer, "_parse_json_response", return_value={"name": "fallback"}):
-            result = analyzer._try_tool_calling(client, {"model": "test"})
-            assert result == {"name": "fallback"}
+        _run_content_fallback(analyzer, choice)
 
     def test_empty_tool_calls_list_falls_back_to_content(self) -> None:
         """_try_tool_calling treats an empty tool_calls list as no tool calls."""
         analyzer = SchemaAnalyzer(config=_make_config())
-
         choice = _make_choice(tool_calls=[], content='{"name": "fallback"}')
-        response = _make_response([choice])
-
-        client = MagicMock()
-        client.chat.completions.create.return_value = response
-
-        with patch.object(analyzer, "_parse_json_response", return_value={"name": "fallback"}):
-            result = analyzer._try_tool_calling(client, {"model": "test"})
-            assert result == {"name": "fallback"}
+        _run_content_fallback(analyzer, choice)
 
 
 # ── Exception handling: fallback vs. re-raise ────────────────────────

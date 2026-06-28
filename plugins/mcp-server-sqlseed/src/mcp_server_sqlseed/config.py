@@ -16,6 +16,7 @@ class MCPServerConfig(BaseModel):
     @field_validator("port")
     @classmethod
     def validate_port(cls, v: int) -> int:
+        """Validate that the port is in the valid TCP range (1-65535)."""
         if not 1 <= v <= 65535:
             raise ValueError(f"port must be 1-65535, got {v}")
         return v
@@ -23,6 +24,7 @@ class MCPServerConfig(BaseModel):
     @field_validator("host")
     @classmethod
     def validate_host(cls, v: str) -> str:
+        """Validate that the host is non-empty after stripping whitespace."""
         if not v.strip():
             raise ValueError("host must be non-empty")
         return v

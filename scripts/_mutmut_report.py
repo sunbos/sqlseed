@@ -3,6 +3,7 @@
 One-shot helper script for the Phase 3 mutation-test audit. Run with:
     python scripts/_mutmut_report.py
 """
+
 from __future__ import annotations
 
 import sqlite3

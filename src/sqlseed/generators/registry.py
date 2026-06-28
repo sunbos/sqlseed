@@ -62,7 +62,10 @@ class ProviderRegistry:
         """
         try:
             eps = importlib.metadata.entry_points()
-            sqlseed_eps = eps.select(group="sqlseed") if hasattr(eps, "select") else eps.get("sqlseed", [])  # type: ignore[arg-type]
+            # Python 3.10+: entry_points() returns EntryPoints with .select().
+            # The legacy dict-based .get() fallback was removed; .select() is
+            # the only supported API on the project's minimum Python version.
+            sqlseed_eps = eps.select(group="sqlseed")
             for ep in sqlseed_eps:
                 try:
                     loaded = ep.load()
@@ -80,7 +83,7 @@ class ProviderRegistry:
                     else:
                         logger.debug("Skipping non-provider entry point", name=ep.name, entry_point=ep.value)
                 except (ImportError, AttributeError, ValueError, TypeError, OSError, RuntimeError) as e:
-                    logger.warning("Failed to load provider", name=ep.name, error=e)
+                    logger.debug("Entry point discovery failed", name=ep.name, error=e)
         except (ImportError, AttributeError, ValueError, TypeError, OSError, RuntimeError) as e:
             logger.debug("Entry point discovery failed", error=e)
 

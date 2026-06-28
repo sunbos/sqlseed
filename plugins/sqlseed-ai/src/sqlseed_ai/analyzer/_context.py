@@ -50,9 +50,7 @@ class ContextBuilderMixin:
 
         # Three-tier prompt selection: ultra-compact > compact > full
         system_prompt = (
-            _ULTRA_COMPACT_SYSTEM_PROMPT
-            if ultra_compact
-            else (_COMPACT_SYSTEM_PROMPT if compact else SYSTEM_PROMPT)
+            _ULTRA_COMPACT_SYSTEM_PROMPT if ultra_compact else (_COMPACT_SYSTEM_PROMPT if compact else SYSTEM_PROMPT)
         )
 
         messages: list[dict[str, str]] = [

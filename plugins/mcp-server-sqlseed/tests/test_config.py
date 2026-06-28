@@ -7,9 +7,8 @@ host non-empty validation, and Pydantic-specific coercion behavior.
 from __future__ import annotations
 
 import pytest
-from pydantic import BaseModel, ValidationError
-
 from mcp_server_sqlseed.config import MCPServerConfig
+from pydantic import BaseModel, ValidationError
 
 # ---------------------------------------------------------------------------
 # Defaults
@@ -253,14 +252,19 @@ class TestMCPServerConfigPydantic:
 
     def test_model_fields_exist(self) -> None:
         """The model has db_path, host, and port fields."""
-        field_names = set(MCPServerConfig.model_fields.keys())
+        # Use model_dump() on an instance to get field names. Pydantic v2
+        # injects ``model_fields`` as a ClassVar via metaclass; pylint
+        # cannot see it and reports no-member. model_dump() returns a dict
+        # of field-name -> value, so its keys are exactly the field names.
+        field_names = set(MCPServerConfig().model_dump().keys())
         assert "db_path" in field_names
         assert "host" in field_names
         assert "port" in field_names
 
     def test_model_fields_count(self) -> None:
         """The model has exactly three fields."""
-        assert len(MCPServerConfig.model_fields) == 3
+        # Use model_dump() on an instance (see test_model_fields_exist note).
+        assert len(MCPServerConfig().model_dump()) == 3
 
     def test_field_assignment_allowed(self) -> None:
         """Pydantic v2 allows field assignment by default (not frozen)."""
@@ -285,9 +289,7 @@ class TestMCPServerConfigPydantic:
 
     def test_model_validate_from_dict(self) -> None:
         """model_validate() constructs an instance from a dict."""
-        config = MCPServerConfig.model_validate(
-            {"db_path": "/y.db", "host": "localhost", "port": 5000}
-        )
+        config = MCPServerConfig.model_validate({"db_path": "/y.db", "host": "localhost", "port": 5000})
         assert config.db_path == "/y.db"
         assert config.host == "localhost"
         assert config.port == 5000
@@ -304,9 +306,7 @@ class TestMCPServerConfigPydantic:
 
     def test_extra_fields_ignored_by_default(self) -> None:
         """Extra fields are ignored by default (Pydantic v2 default behavior)."""
-        config = MCPServerConfig.model_validate(
-            {"host": "1.2.3.4", "port": 80, "extra_field": "ignored"}
-        )
+        config = MCPServerConfig.model_validate({"host": "1.2.3.4", "port": 80, "extra_field": "ignored"})
         assert config.host == "1.2.3.4"
         assert config.port == 80
         assert not hasattr(config, "extra_field")

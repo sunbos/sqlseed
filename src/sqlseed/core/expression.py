@@ -21,8 +21,6 @@ logger = get_logger(__name__)
 class ExpressionTimeoutError(TimeoutError):
     """Exception raised when expression evaluation times out."""
 
-    pass
-
 
 class ExpressionEngine:
     """Engine that evaluates derived column expressions in a simpleeval sandbox.

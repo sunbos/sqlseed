@@ -9,6 +9,7 @@ AI-related commands (e.g. ai-suggest) are discovered via the
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass
 from typing import Any
 
 import click
@@ -86,6 +87,55 @@ def _save_snapshot_cmd(
 _FILL_DEFAULT_COUNT = 1000
 
 
+@dataclass(frozen=True)
+class ConnectionTarget:
+    """Connection target for the ``fill`` command (mutually exclusive)."""
+
+    db_path: str | None
+    db_url: str | None
+
+
+@dataclass(frozen=True)
+class FillGeneratorConfig:
+    """Generator configuration for the ``fill`` command."""
+
+    provider: str
+    locale: str
+    seed: int | None
+    batch_size: int
+
+
+@dataclass(frozen=True)
+class FillFlags:
+    """Boolean flags for the ``fill`` command."""
+
+    clear: bool
+    snapshot: bool
+    enrich: bool
+    no_ai: bool
+
+
+@dataclass(frozen=True)
+class FillOptions:
+    """Encapsulates all options for the ``fill`` command.
+
+    Passed from the Click ``fill`` command to ``_execute_fill`` to avoid
+    duplicating the 14-parameter list in both function signatures (which
+    triggered pylint ``duplicate-code`` warnings). Fields are grouped into
+    sub-dataclasses (ConnectionTarget, FillGeneratorConfig, FillFlags) to keep
+    the instance attribute count under pylint's too-many-instance-attributes
+    threshold (11).
+    """
+
+    connection: ConnectionTarget
+    generator: FillGeneratorConfig
+    flags: FillFlags
+    table: str | None
+    count: int | None
+    config_path: str | None
+    transform_path: str | None
+
+
 @cli.command()
 @click.argument("db_path", required=False)
 @click.option("--table", "-t", default=None, help="Target table name")
@@ -123,22 +173,7 @@ _FILL_DEFAULT_COUNT = 1000
     default=None,
     help="Database URL (e.g., postgresql://user:pass@host/db). Alternative to db_path argument.",
 )
-def fill(
-    db_path: str | None,
-    table: str | None,
-    count: int | None,
-    provider: str,
-    locale: str,
-    seed: int | None,
-    batch_size: int,
-    clear: bool,
-    config_path: str | None,
-    transform_path: str | None,
-    snapshot: bool,
-    enrich: bool,
-    no_ai: bool,
-    db_url: str | None,
-) -> None:
+def fill(**kwargs: Any) -> None:
     """Fill a table with generated test data.
 
     Use --config for config-driven generation, or provide db_path + --table
@@ -148,7 +183,27 @@ def fill(
     Connection methods (mutually exclusive):
     - Positional db_path: sqlseed fill app.db -t users -n 1000
     - --url flag: sqlseed fill --url "postgresql://user:pass@host/db" -t users -n 1000
+
+    Note: the 14 Click options are collected via ``**kwargs`` to keep the
+    function signature under pylint's too-many-arguments threshold (10).
+    The kwargs are unpacked into a ``FillOptions`` dataclass below, which
+    is then passed to ``_execute_fill``.
     """
+    db_path: str | None = kwargs["db_path"]
+    table: str | None = kwargs["table"]
+    count: int | None = kwargs["count"]
+    provider: str = kwargs["provider"]
+    locale: str = kwargs["locale"]
+    seed: int | None = kwargs["seed"]
+    batch_size: int = kwargs["batch_size"]
+    clear: bool = kwargs["clear"]
+    config_path: str | None = kwargs["config_path"]
+    transform_path: str | None = kwargs["transform_path"]
+    snapshot: bool = kwargs["snapshot"]
+    enrich: bool = kwargs["enrich"]
+    no_ai: bool = kwargs["no_ai"]
+    db_url: str | None = kwargs["db_url"]
+
     if count is not None and count <= 0:
         logger.debug("Invalid count value", count=count)
         raise click.UsageError(f"--count must be greater than 0, got {count}")
@@ -164,88 +219,67 @@ def fill(
     if not config_path and not db_path and not db_url:
         raise click.UsageError("db_path or --url is required when not using --config.")
 
-    _execute_fill(
-        db_path=db_path,
+    options = FillOptions(
+        connection=ConnectionTarget(db_path=db_path, db_url=db_url),
+        generator=FillGeneratorConfig(provider=provider, locale=locale, seed=seed, batch_size=batch_size),
+        flags=FillFlags(clear=clear, snapshot=snapshot, enrich=enrich, no_ai=no_ai),
         table=table,
         count=count,
-        provider=provider,
-        locale=locale,
-        seed=seed,
-        batch_size=batch_size,
-        clear=clear,
         config_path=config_path,
         transform_path=transform_path,
-        snapshot=snapshot,
-        enrich=enrich,
-        no_ai=no_ai,
-        db_url=db_url,
     )
+    _execute_fill(options)
 
 
-def _execute_fill(
-    *,
-    db_path: str | None,
-    table: str | None,
-    count: int | None,
-    provider: str,
-    locale: str,
-    seed: int | None,
-    batch_size: int,
-    clear: bool,
-    config_path: str | None,
-    transform_path: str | None,
-    snapshot: bool,
-    enrich: bool,
-    no_ai: bool,
-    db_url: str | None,
-) -> None:
+def _execute_fill(options: FillOptions) -> None:
+    config_path = options.config_path
     if config_path:
         logger.debug("Using config-driven generation", config_path=config_path)
         _fill_from_config_cmd(
             config_path,
-            clear_before=clear,
-            skip_ai=no_ai,
-            count=count,
-            provider=provider,
-            seed=seed,
-            batch_size=batch_size,
-            locale=locale,
+            clear_before=options.flags.clear,
+            skip_ai=options.flags.no_ai,
+            count=options.count,
+            provider=options.generator.provider,
+            seed=options.generator.seed,
+            batch_size=options.generator.batch_size,
+            locale=options.generator.locale,
         )
         return
 
-    if not table:
+    if not options.table:
         raise click.UsageError("--table is required when not using --config")
 
-    effective_count = count if count is not None else _FILL_DEFAULT_COUNT
+    effective_count = options.count if options.count is not None else _FILL_DEFAULT_COUNT
 
     # Resolve connection target: db_url takes precedence over db_path.
     # api_fill's db_path and url are mutually exclusive; pass None for the unused one.
-    if db_url:
+    if options.connection.db_url:
         fill_db_path: str | None = None
-        fill_url: str | None = db_url
+        fill_url: str | None = options.connection.db_url
     else:
-        fill_db_path = db_path
+        fill_db_path = options.connection.db_path
         fill_url = None
 
     if not (fill_db_path or fill_url):
         raise click.UsageError("db_path or --url is required when not using --config")
 
-    logger.debug("Starting fill", target=fill_url or fill_db_path, table=table, count=effective_count)
+    logger.debug("Starting fill", target=fill_url or fill_db_path, table=options.table, count=effective_count)
 
     try:
         result = api_fill(
             fill_db_path,
             url=fill_url,
-            table=table,
+            table=options.table,
             count=effective_count,
-            provider=provider,
-            locale=locale,
-            seed=seed,
-            batch_size=batch_size,
-            clear_before=clear,
-            enrich=enrich,
-            transform=transform_path,
-            skip_ai=no_ai,
+            provider=options.generator.provider,
+            locale=options.generator.locale,
+            seed=options.generator.seed,
+            batch_size=options.generator.batch_size,
+            clear_before=options.flags.clear,
+            enrich=options.flags.enrich,
+            transform=options.transform_path,
+            skip_ai=options.flags.no_ai,
         )
     except ValueError as exc:
         logger.debug("Fill failed with ValueError", error=str(exc))
@@ -255,16 +289,16 @@ def _execute_fill(
         for err in result.errors:
             click.echo(f"  Warning: {err}", err=True)
 
-    if snapshot:
+    if options.flags.snapshot:
         _save_snapshot_cmd(
             db_path=fill_db_path,
-            table=table,
+            table=options.table,
             count=effective_count,
-            provider=provider,
-            locale=locale,
-            seed=seed,
-            batch_size=batch_size,
-            clear=clear,
+            provider=options.generator.provider,
+            locale=options.generator.locale,
+            seed=options.generator.seed,
+            batch_size=options.generator.batch_size,
+            clear=options.flags.clear,
             url=fill_url,
         )
 
@@ -481,6 +515,7 @@ def replay(snapshot_path: str) -> None:
 
 
 def main() -> None:
+    """Entry point for the ``sqlseed`` console script (registered via ``[project.scripts]``)."""
     cli()
 
 

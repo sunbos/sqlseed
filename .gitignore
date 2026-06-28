@@ -85,5 +85,6 @@ node_modules/
 # mkdocs build output (deployed via GitHub Actions, not committed)
 site/
 
-# CodeFlow warning reports (local analysis artifacts, not for repo)
+# CodeFlow warning/issue reports (local analysis artifacts, not for repo)
 codeflow-warnings*.md
+codeflow_issues_report.md

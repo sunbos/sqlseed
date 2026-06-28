@@ -2,9 +2,9 @@ name: doc-sync
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, 'feat/**', 'refactor/**', 'fix/**']
   push:
-    branches: [main]
+    branches: [main, 'feat/**', 'refactor/**', 'fix/**']
 
 jobs:
   doc-sync:
@@ -20,7 +20,12 @@ jobs:
           python-version: "3.13"
 
       - name: Install Python dependencies
+        # Install local plugins BEFORE core extras so pip can satisfy
+        # `sqlseed-cli>=0.1.0` (referenced in [dev] extra) from the
+        # local editable install instead of PyPI. sqlseed-cli is not
+        # yet published to PyPI (monorepo package).
         run: |
+          pip install -e "./plugins/sqlseed-cli"
           pip install -e ".[dev]"
 
       - name: Run doc_sync tests

@@ -31,6 +31,7 @@ class _FakeDB:
         # old per-column get_column_values calls. The ``columns`` argument
         # (column projection) is accepted for interface compatibility but
         # ignored here since the fake already returns only PK/FK columns.
+        del columns
         fk_columns = {fk.column for fk in self._fks}
         all_columns = set(self._primary_keys) | fk_columns
         if not all_columns:

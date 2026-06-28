@@ -23,6 +23,8 @@ logger = get_logger(__name__)
 
 
 class ProviderType(str, Enum):
+    """Data provider type enumeration (base/faker/mimesis/custom)."""
+
     BASE = "base"
     FAKER = "faker"
     MIMESIS = "mimesis"
@@ -82,6 +84,7 @@ class ColumnConfig(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def normalize_dict_input(cls, data: Any) -> Any:
+        """Normalize dict input: treat 'type' as alias for 'generator' and merge unknown keys into params."""
         if not isinstance(data, dict):
             return data
         result = dict(data)
@@ -120,6 +123,7 @@ class ColumnConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_column_mode(self) -> Self:
+        """Validate that source-column mode and derived-column mode are not mixed."""
         if self.derive_from and self.generator:
             raise ValueError(f"Column '{self.name}': cannot use both 'generator' and 'derive_from'")
         if self.derive_from and not self.expression:

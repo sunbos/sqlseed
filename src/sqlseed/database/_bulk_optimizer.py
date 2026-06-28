@@ -16,11 +16,10 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 from sqlalchemy.exc import SQLAlchemyError
 
 from sqlseed._utils.logger import get_logger
+from sqlseed.database.optimizer import PragmaOptimizer
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-
-    from sqlseed.database.optimizer import PragmaOptimizer
 
 logger = get_logger(__name__)
 
@@ -42,7 +41,6 @@ class BulkWriteOptimizer(Protocol):
 
     def preserve(self) -> None:
         """Save current database configuration (called before optimization)."""
-        ...
 
     def optimize(self, expected_rows: int | None = None) -> None:
         """Apply bulk write optimization.
@@ -51,11 +49,9 @@ class BulkWriteOptimizer(Protocol):
             expected_rows: Expected number of rows to write, used to select the optimization level.
                           Uses default value (typically 10000) when None.
         """
-        ...
 
     def restore(self) -> None:
         """Restore original configuration (called after write completes)."""
-        ...
 
 
 class SQLiteBulkOptimizer:
@@ -75,9 +71,6 @@ class SQLiteBulkOptimizer:
             execute_fn: Callable that executes PRAGMA SQL.
             fetch_pragma_fn: Callable that retrieves the current PRAGMA value.
         """
-        # Lazy import to avoid circular dependency
-        from sqlseed.database.optimizer import PragmaOptimizer  # noqa: PLC0415
-
         self._optimizer: PragmaOptimizer = PragmaOptimizer(
             execute_fn=execute_fn,
             fetch_pragma_fn=fetch_pragma_fn,

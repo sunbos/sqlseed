@@ -27,7 +27,7 @@ Data generator correctness and consistency tests. Covers Base/Faker/Mimesis prov
 - `_mixin.py` provides shared Provider test methods to avoid duplication
 - Faker/Mimesis tests must use `pytest.importorskip` to handle missing optional dependencies
 - Generator tests must verify seed reproducibility
-- Dispatch sync tests ensure `_GENERATOR_MAP` consistency across providers
+- Dispatch sync tests ensure `GENERATOR_MAP` consistency across providers
 
 ### Testing Requirements
 

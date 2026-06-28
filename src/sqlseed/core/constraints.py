@@ -176,6 +176,7 @@ class ConstraintSolver:
         key_name: str,
         values: tuple[Any, ...],
     ) -> None:
+        """Remove a previously registered composite unique-constraint value tuple."""
         if key_name in self._composite_seen:
             self._composite_seen[key_name].discard(values)
 
@@ -191,9 +192,11 @@ class ConstraintSolver:
             self._hash_seen.clear()
 
     def reset_column(self, column_name: str) -> None:
+        """Clear all registered unique values for a single column."""
         self._seen.pop(column_name, None)
         if self._probabilistic:
             self._hash_seen.pop(column_name, None)
 
     def unregister(self, column_name: str, value: Any) -> None:
+        """Remove a previously registered single-column unique value, allowing it to be re-registered."""
         self._unregister_value(column_name, value)

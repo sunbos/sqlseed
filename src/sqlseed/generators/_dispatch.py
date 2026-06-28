@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from typing import Any, ClassVar
 
 from sqlseed.generators._protocol import UnknownGeneratorError
@@ -10,11 +11,11 @@ from sqlseed.generators._protocol import UnknownGeneratorError
 class GeneratorDispatchMixin:
     """Generator dispatch mixin.
 
-    Maps generator type names to ``_gen_*`` methods via ``_GENERATOR_MAP`` and
+    Maps generator type names to ``_gen_*`` methods via ``GENERATOR_MAP`` and
     dispatches calls through ``generate``.
     """
 
-    _GENERATOR_MAP: ClassVar[dict[str, str]] = {
+    GENERATOR_MAP: ClassVar[dict[str, str]] = {
         "string": "_gen_string",
         "integer": "_gen_integer",
         "float": "_gen_float",
@@ -49,30 +50,29 @@ class GeneratorDispatchMixin:
     }
 
     def generate(self, type_name: str, **params: Any) -> Any:
-        """Look up the method name for ``type_name`` in ``_GENERATOR_MAP`` and call it.
+        """Look up the method name for ``type_name`` in ``GENERATOR_MAP`` and call it.
 
         Raises ``UnknownGeneratorError`` if the type is not registered.
         """
-        method_name = self._GENERATOR_MAP.get(type_name)
+        method_name = self.GENERATOR_MAP.get(type_name)
         if method_name is None:
             raise UnknownGeneratorError(type_name)
         method = getattr(self, method_name)
         return method(**params) if params else method()
 
 
-def verify_dispatch_sync() -> None:
-    """Verify that the method names in ``_GENERATOR_MAP`` actually exist on ``BaseProvider``.
+def verify_dispatch_sync(provider_class: type) -> None:
+    """Verify that the method names in ``GENERATOR_MAP`` actually exist on ``provider_class``.
+
+    Args:
+        provider_class: The provider class to verify against (e.g., ``BaseProvider``).
 
     Emits a warning for any missing methods.
     """
-    # Import inside the function to avoid a circular import at module load time
-    from sqlseed.generators.base_provider import BaseProvider  # noqa: PLC0415
-
-    for gen_name, method_name in GeneratorDispatchMixin._GENERATOR_MAP.items():
-        if not hasattr(BaseProvider, method_name):
-            import warnings  # noqa: PLC0415
-
+    for gen_name, method_name in GeneratorDispatchMixin.GENERATOR_MAP.items():
+        if not hasattr(provider_class, method_name):
             warnings.warn(
-                f"GENERATOR_MAP['{gen_name}'] references '{method_name}' which does not exist on BaseProvider",
+                f"GENERATOR_MAP['{gen_name}'] references '{method_name}' which does not exist on "
+                f"{provider_class.__name__}",
                 stacklevel=1,
             )

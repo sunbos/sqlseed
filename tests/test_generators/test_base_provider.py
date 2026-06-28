@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from sqlseed.generators.base_provider import BaseProvider
-from tests.test_generators._mixin import (
+
+from ._mixin import (
     IdentityProviderTestMixin,
     JsonSchemaTestMixin,
     TemporalProviderTestMixin,

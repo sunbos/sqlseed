@@ -17,7 +17,6 @@ return-type mismatch gets caught.
 
 from __future__ import annotations
 
-from typing import Any
 from unittest.mock import MagicMock
 
 from sqlseed_ai.ai_mediator import (
@@ -30,28 +29,7 @@ from sqlseed_ai.ai_mediator import (
 )
 
 from sqlseed.core.mapper import GeneratorSpec
-from sqlseed.database._protocol import ColumnInfo
-
-
-def _make_col_info(
-    name: str,
-    col_type: str = "VARCHAR(50)",
-    *,
-    nullable: bool = True,
-    default: Any = None,
-    is_primary_key: bool = False,
-    is_autoincrement: bool = False,
-) -> ColumnInfo:
-    """Factory to create ColumnInfo for tests."""
-    return ColumnInfo(
-        name=name,
-        type=col_type,
-        nullable=nullable,
-        default=default,
-        is_primary_key=is_primary_key,
-        is_autoincrement=is_autoincrement,
-    )
-
+from tests.conftest import make_column_info
 
 # ---------------------------------------------------------------------------
 # AI_APPLICABLE_GENERATORS constant
@@ -79,27 +57,27 @@ class TestAiApplicableGenerators:
 
 class TestHasUnmatchedCols:
     def test_returns_false_when_no_ai_applicable_cols(self) -> None:
-        col_infos = [_make_col_info("name", "VARCHAR(50)")]
+        col_infos = [make_column_info("name", "VARCHAR(50)", nullable=True)]
         specs = {"name": GeneratorSpec(generator_name="email")}
         assert _has_unmatched_cols(col_infos, specs) is False
 
     def test_returns_true_when_string_col_without_default(self) -> None:
-        col_infos = [_make_col_info("name", "VARCHAR(50)")]
+        col_infos = [make_column_info("name", "VARCHAR(50)", nullable=True)]
         specs = {"name": GeneratorSpec(generator_name="string")}
         assert _has_unmatched_cols(col_infos, specs) is True
 
     def test_returns_false_when_string_col_has_default(self) -> None:
-        col_infos = [_make_col_info("status", "VARCHAR(50)", default="active")]
+        col_infos = [make_column_info("status", "VARCHAR(50)", nullable=True, default="active")]
         specs = {"status": GeneratorSpec(generator_name="string")}
         assert _has_unmatched_cols(col_infos, specs) is False
 
     def test_returns_false_when_string_col_is_primary_key(self) -> None:
-        col_infos = [_make_col_info("id", "VARCHAR(50)", is_primary_key=True)]
+        col_infos = [make_column_info("id", "VARCHAR(50)", nullable=True, is_primary_key=True)]
         specs = {"id": GeneratorSpec(generator_name="string")}
         assert _has_unmatched_cols(col_infos, specs) is False
 
     def test_returns_false_when_string_col_is_autoincrement(self) -> None:
-        col_infos = [_make_col_info("id", "INTEGER", is_autoincrement=True)]
+        col_infos = [make_column_info("id", "INTEGER", nullable=True, is_autoincrement=True)]
         specs = {"id": GeneratorSpec(generator_name="string")}
         assert _has_unmatched_cols(col_infos, specs) is False
 
@@ -113,12 +91,12 @@ class TestProcessSingleAiColumn:
     def test_skips_when_no_name(self) -> None:
         specs: dict[str, GeneratorSpec] = {}
         _process_single_ai_column({}, specs)
-        assert specs == {}
+        assert not specs
 
     def test_skips_when_name_not_in_specs(self) -> None:
         specs: dict[str, GeneratorSpec] = {}
         _process_single_ai_column({"name": "unknown"}, specs)
-        assert specs == {}
+        assert not specs
 
     def test_skips_when_no_generator(self) -> None:
         specs = {"col": GeneratorSpec(generator_name="string")}
@@ -276,7 +254,7 @@ class TestBuildAiContext:
         result = _build_ai_context(mediator_ctx.adapter, mediator_ctx.schema, "t")
         assert result is not None
         # Real schema: table "t" has no FKs; table_names includes "t"
-        assert result["foreign_keys"] == []
+        assert not result["foreign_keys"]
         assert "t" in result["all_table_names"]
         assert isinstance(result["indexes"], list)
         assert isinstance(result["sample_data"], list)
@@ -295,7 +273,7 @@ class TestApplyAiSuggestions:
         db = MagicMock()
         schema = MagicMock()
         analyze_fn = MagicMock()
-        col_infos = [_make_col_info("name", "VARCHAR(50)")]
+        col_infos = [make_column_info("name", "VARCHAR(50)", nullable=True)]
         specs = {"name": GeneratorSpec(generator_name="email")}
         result = apply_ai_suggestions(
             analyze_fn=analyze_fn,
@@ -315,7 +293,7 @@ class TestApplyAiSuggestions:
         db.get_foreign_keys.side_effect = RuntimeError("fail")
         schema = MagicMock()
         analyze_fn = MagicMock()
-        col_infos = [_make_col_info("name", "VARCHAR(50)")]
+        col_infos = [make_column_info("name", "VARCHAR(50)", nullable=True)]
         specs = {"name": GeneratorSpec(generator_name="string")}
         result = apply_ai_suggestions(
             analyze_fn=analyze_fn,

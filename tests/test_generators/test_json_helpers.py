@@ -16,6 +16,20 @@ from sqlseed.generators._json_helpers import (
 )
 from sqlseed.generators.base_provider import BaseProvider
 
+# Shared schema used by both TestGenerateJsonFromSchema.test_nested_object_in_array
+# and TestGenerateFromSchema.test_nested_array_of_objects. Extracted to eliminate
+# a CodeDuplication warning across the two test classes.
+_NESTED_OBJECT_ARRAY_SCHEMA: dict[str, Any] = {
+    "type": "array",
+    "items": {
+        "type": "object",
+        "properties": {
+            "id": {"type": "integer"},
+            "name": {"type": "string"},
+        },
+    },
+}
+
 
 class FakeProvider:
     """Fake DataProvider that records calls and returns predictable values."""
@@ -175,17 +189,7 @@ class TestGenerateJsonFromSchema:
 
     def test_nested_object_in_array(self) -> None:
         provider = FakeProvider()
-        schema = {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "id": {"type": "integer"},
-                    "name": {"type": "string"},
-                },
-            },
-        }
-        result = generate_json_from_schema(provider, schema, lambda: 2)
+        result = generate_json_from_schema(provider, _NESTED_OBJECT_ARRAY_SCHEMA, lambda: 2)
         data = json.loads(result)
         assert isinstance(data, list)
         assert len(data) == 2
@@ -298,9 +302,7 @@ class TestGenerateFromSchema:
 
     def test_array_type(self) -> None:
         provider = FakeProvider()
-        result = _generate_from_schema(
-            provider, {"type": "array", "items": {"type": "integer"}}, lambda: 3
-        )
+        result = _generate_from_schema(provider, {"type": "array", "items": {"type": "integer"}}, lambda: 3)
         assert result == [42, 42, 42]
 
     def test_array_uses_get_array_count(self) -> None:
@@ -311,9 +313,7 @@ class TestGenerateFromSchema:
             count_calls.append(1)
             return 4
 
-        result = _generate_from_schema(
-            provider, {"type": "array", "items": {"type": "integer"}}, get_count
-        )
+        result = _generate_from_schema(provider, {"type": "array", "items": {"type": "integer"}}, get_count)
         assert len(result) == 4
         assert len(count_calls) == 1
 
@@ -351,17 +351,7 @@ class TestGenerateFromSchema:
 
     def test_nested_array_of_objects(self) -> None:
         provider = FakeProvider()
-        schema = {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "id": {"type": "integer"},
-                    "name": {"type": "string"},
-                },
-            },
-        }
-        result = _generate_from_schema(provider, schema, lambda: 2)
+        result = _generate_from_schema(provider, _NESTED_OBJECT_ARRAY_SCHEMA, lambda: 2)
         assert result == [
             {"id": 42, "name": "fake_string"},
             {"id": 42, "name": "fake_string"},
@@ -380,9 +370,7 @@ class TestGenerateFromSchema:
 
     def test_empty_array_when_count_is_zero(self) -> None:
         provider = FakeProvider()
-        result = _generate_from_schema(
-            provider, {"type": "array", "items": {"type": "integer"}}, lambda: 0
-        )
+        result = _generate_from_schema(provider, {"type": "array", "items": {"type": "integer"}}, lambda: 0)
         assert result == []
 
     def test_integration_with_base_provider(self) -> None:

@@ -43,6 +43,8 @@ def _is_db_url(target: str) -> bool:
 
 @dataclass
 class CoreCtx:
+    """Core context: shared database, schema, mapper, relation, and pool refs."""
+
     db: DatabaseAdapter | None = None
     schema: SchemaInferrer | None = None
     mapper: ColumnMapper = field(default_factory=ColumnMapper)
@@ -52,6 +54,8 @@ class CoreCtx:
 
 @dataclass
 class ExtCtx:
+    """Extension context: registry, plugins, mediator, enrichment, adjuster, metrics."""
+
     registry: ProviderRegistry = field(default_factory=ProviderRegistry)
     plugins: PluginManager = field(default_factory=PluginManager)
     plugin_mediator: PluginMediator | None = None

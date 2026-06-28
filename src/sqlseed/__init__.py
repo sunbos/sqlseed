@@ -2,6 +2,7 @@
 
 Public API: fill, connect, fill_from_config, preview, load_config.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -62,6 +63,18 @@ def fill(
     Args:
         db_path: SQLite database file path (mutually exclusive with ``url``).
         url: Database URL, e.g. ``postgresql://user:pass@host/db`` (mutually exclusive with ``db_path``).
+        table: Target table name to fill.
+        count: Number of rows to generate.
+        columns: Optional column overrides (column name → generator params).
+        provider: Data provider name (``"mimesis"``, ``"faker"``, or ``"base"``).
+        locale: Locale for localized data (e.g. ``"en_US"``, ``"zh_CN"``).
+        seed: Random seed for reproducible generation.
+        batch_size: Rows per batch insert.
+        clear_before: If True, delete existing rows before filling.
+        optimize_pragma: If True, apply SQLite PRAGMA optimizations during fill.
+        enrich: If True, apply local enum enrichment to column mapping.
+        transform: Optional path to a user transform script.
+        skip_ai: If True, skip AI-suggested column mapping.
 
     Raises:
         ValueError: If neither ``db_path`` nor ``url`` is provided, or if both are provided.
@@ -103,6 +116,9 @@ def connect(
     Args:
         db_path: SQLite database file path (mutually exclusive with ``url``).
         url: Database URL (mutually exclusive with ``db_path``).
+        provider: Data provider name (``"mimesis"``, ``"faker"``, or ``"base"``).
+        locale: Locale for localized data (e.g. ``"en_US"``, ``"zh_CN"``).
+        optimize_pragma: If True, apply SQLite PRAGMA optimizations during fill.
 
     Raises:
         ValueError: If neither ``db_path`` nor ``url`` is provided, or if both are provided.
@@ -226,6 +242,14 @@ def preview(
     Args:
         db_path: SQLite database file path (mutually exclusive with ``url``).
         url: Database URL (mutually exclusive with ``db_path``).
+        table: Target table name to preview.
+        count: Number of rows to generate for preview.
+        columns: Optional column overrides (column name → generator params).
+        provider: Data provider name (``"mimesis"``, ``"faker"``, or ``"base"``).
+        locale: Locale for localized data (e.g. ``"en_US"``, ``"zh_CN"``).
+        seed: Random seed for reproducible generation.
+        enrich: If True, apply local enum enrichment to column mapping.
+        transform: Optional path to a user transform script.
 
     Raises:
         ValueError: If neither ``db_path`` nor ``url`` is provided, or if both are provided.

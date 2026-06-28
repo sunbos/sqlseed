@@ -38,6 +38,7 @@ class ColumnNode:
 
     @property
     def is_skip(self) -> bool:
+        """Return True if the column's generator is the skip generator (no value produced)."""
         return self.generator_spec.generator_name == "skip"
 
 

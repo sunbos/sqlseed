@@ -10,6 +10,7 @@ from __future__ import annotations
 import importlib
 import logging
 import os
+import re
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
@@ -392,9 +393,7 @@ class TestModuleAutoConfiguration:
         finally:
             configure_logging("INFO")
 
-    def test_env_var_invalid_falls_back_to_info(
-        self, capsys: pytest.CaptureFixture[str]
-    ) -> None:
+    def test_env_var_invalid_falls_back_to_info(self, capsys: pytest.CaptureFixture[str]) -> None:
         """An invalid SQLSEED_LOG_LEVEL falls back to INFO (via getattr default).
 
         The env var default is WARNING only when the variable is unset. When it
@@ -414,9 +413,7 @@ class TestModuleAutoConfiguration:
         finally:
             configure_logging("INFO")
 
-    def test_env_var_empty_string_falls_back_to_info(
-        self, capsys: pytest.CaptureFixture[str]
-    ) -> None:
+    def test_env_var_empty_string_falls_back_to_info(self, capsys: pytest.CaptureFixture[str]) -> None:
         """An empty SQLSEED_LOG_LEVEL falls back to INFO (via getattr default).
 
         ``"".upper()`` is ``""``, and ``getattr(logging, "", logging.INFO)``
@@ -462,12 +459,8 @@ class TestLoggerOutput:
         # ISO-8601 timestamp looks like 2026-06-23T12:34:56.789012
         assert "timestamped message" in captured.err
         # Check for a date-like pattern in the output.
-        import re  # noqa: PLC0415
-
         iso_pattern = r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}"
-        assert re.search(iso_pattern, captured.err), (
-            f"Expected ISO timestamp in output, got: {captured.err!r}"
-        )
+        assert re.search(iso_pattern, captured.err), f"Expected ISO timestamp in output, got: {captured.err!r}"
 
     def test_output_includes_bound_context(self, capsys: pytest.CaptureFixture[str]) -> None:
         """Bound context values appear in the rendered output."""

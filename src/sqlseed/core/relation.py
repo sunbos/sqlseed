@@ -1,3 +1,10 @@
+"""Cross-table referential integrity resolution via foreign keys and a shared value pool.
+
+Provides ``SharedPool`` (cross-table value reuse for implicit associations) and
+``RelationResolver`` (foreign-key discovery, dependency ordering, and spec
+rewriting for FK / association / shared-pool columns).
+"""
+
 from __future__ import annotations
 
 import contextlib
@@ -35,15 +42,19 @@ class SharedPool:
         self._pools: dict[str, list[Any]] = {}
 
     def register(self, column_name: str, values: list[Any]) -> None:
+        """Register (replace) the value pool for a column."""
         self._pools[column_name] = list(values)
 
     def get(self, column_name: str) -> list[Any]:
+        """Return the list of values registered for a column (empty if absent)."""
         return self._pools.get(column_name, [])
 
     def has(self, column_name: str) -> bool:
+        """Return True if the pool has at least one value for the column."""
         return column_name in self._pools and len(self._pools[column_name]) > 0
 
     def merge(self, column_name: str, values: list[Any]) -> None:
+        """Merge values into the column's pool, deduplicating against existing entries."""
         if column_name not in self._pools:
             self._pools[column_name] = []
         existing = set(self._pools[column_name])
@@ -57,9 +68,11 @@ class SharedPool:
                     self._pools[column_name].append(v)
 
     def clear(self) -> None:
+        """Remove all column pools from the shared pool."""
         self._pools.clear()
 
     def items(self) -> dict[str, list[Any]]:
+        """Return a shallow copy of all column pools as a dict."""
         return dict(self._pools)
 
     def __bool__(self) -> bool:
@@ -67,6 +80,14 @@ class SharedPool:
 
 
 class RelationResolver:
+    """Resolves foreign-key and cross-table association specs against the database and shared pool.
+
+    Caches foreign-key metadata per table, computes table dependencies for
+    topological ordering, and rewrites column generator specs to draw values
+    from referenced tables, explicit ``ColumnAssociation`` configs, or the
+    implicit same-name shared pool.
+    """
+
     def __init__(self, db_adapter: Any, shared_pool: SharedPool | None = None) -> None:
         self._db = db_adapter
         self._fk_cache: dict[str, list[ForeignKeyInfo]] = {}
@@ -74,14 +95,17 @@ class RelationResolver:
         self._associations: list[Any] = []
 
     def set_associations(self, associations: list[Any]) -> None:
+        """Set the cross-table column associations used for implicit and explicit resolution."""
         self._associations = associations
 
     def get_foreign_keys(self, table_name: str) -> list[ForeignKeyInfo]:
+        """Return foreign keys for a table, caching the result on first access."""
         if table_name not in self._fk_cache:
             self._fk_cache[table_name] = self._db.get_foreign_keys(table_name)
         return self._fk_cache[table_name]
 
     def get_dependencies(self, table_name: str) -> set[str]:
+        """Return the set of tables the given table depends on (FK targets and association sources)."""
         fks = self.get_foreign_keys(table_name)
         deps = {fk.ref_table for fk in fks if fk.ref_table != table_name}
         for assoc in self._associations:
@@ -90,6 +114,10 @@ class RelationResolver:
         return deps
 
     def topological_sort(self, table_names: list[str]) -> list[str]:
+        """Return tables in dependency order so that referenced tables precede their dependents.
+
+        Raises ``ValueError`` if a circular dependency is detected.
+        """
         graph: dict[str, set[str]] = {}
         for table in table_names:
             deps = self.get_dependencies(table)
@@ -121,6 +149,10 @@ class RelationResolver:
         table_name: str,
         column_name: str,
     ) -> list[Any]:
+        """Return the list of referenced values for a column that participates in a foreign key.
+
+        Returns an empty list when the column is not a foreign key.
+        """
         fks = self.get_foreign_keys(table_name)
         for fk in fks:
             if fk.column == column_name:
@@ -137,6 +169,7 @@ class RelationResolver:
         return []
 
     def get_fk_info(self, table_name: str, column_name: str) -> ForeignKeyInfo | None:
+        """Return the foreign key info for a column, or None if it is not a foreign key."""
         fks = self.get_foreign_keys(table_name)
         for fk in fks:
             if fk.column == column_name:
@@ -247,6 +280,13 @@ class RelationResolver:
         specs: dict[str, GeneratorSpec],
         unique_columns: set[str] | None = None,
     ) -> dict[str, GeneratorSpec]:
+        """Resolve foreign key and association specs for every column in the table.
+
+        Upgrades ``foreign_key_or_integer`` specs to concrete ``foreign_key`` or
+        type-faithful fallbacks, hydrates explicit ``foreign_key`` specs with
+        referenced values, upgrades FK-constrained columns, and finally applies
+        explicit and implicit associations via the shared pool.
+        """
         fks = self.get_foreign_keys(table_name)
         fk_columns = {fk.column for fk in fks}
 
@@ -322,6 +362,7 @@ class RelationResolver:
         table_name: str,
         specs: dict[str, GeneratorSpec],
     ) -> dict[str, GeneratorSpec]:
+        """Apply explicit ``ColumnAssociation`` configs to the column specs of the given table."""
         if not self._associations:
             return specs
 
@@ -336,6 +377,10 @@ class RelationResolver:
         specs: dict[str, GeneratorSpec],
         unique_columns: set[str] | None = None,
     ) -> dict[str, GeneratorSpec]:
+        """Rewrite ``foreign_key_or_integer`` specs to draw from the shared pool by column name.
+
+        Skips columns marked as UNIQUE (non-FK) so implicit reuse does not violate uniqueness.
+        """
         if not self._shared_pool:
             return specs
 
@@ -373,6 +418,11 @@ class RelationResolver:
         table_name: str,
         generator_specs: dict[str, GeneratorSpec],
     ) -> None:
+        """Register PK and FK column values for the table into the shared pool.
+
+        Used after a table is filled so that downstream tables referencing the
+        same column names (implicit associations) can reuse the generated values.
+        """
         pk_columns: set[str] = set()
         with contextlib.suppress(ValueError, OSError, RuntimeError, SAOperationalError):
             pk_columns = set(self._db.get_primary_keys(table_name))
@@ -382,9 +432,7 @@ class RelationResolver:
             fk_columns = {fk.column for fk in self.get_foreign_keys(table_name)}
 
         # Collect PK/FK column names that need value fetching.
-        target_columns = [
-            col_name for col_name in generator_specs if col_name in pk_columns or col_name in fk_columns
-        ]
+        target_columns = [col_name for col_name in generator_specs if col_name in pk_columns or col_name in fk_columns]
 
         # Batch-fetch all PK/FK column values in a single query (avoids N+1 queries).
         # Pass target_columns so the adapter projects only the needed columns instead
@@ -392,9 +440,7 @@ class RelationResolver:
         sample_rows: list[dict[str, Any]] = []
         if target_columns:
             with contextlib.suppress(ValueError, OSError, RuntimeError, SAOperationalError):
-                sample_rows = self._db.get_sample_rows(
-                    table_name, limit=10000, columns=target_columns
-                )
+                sample_rows = self._db.get_sample_rows(table_name, limit=10000, columns=target_columns)
 
         for col_name, spec in generator_specs.items():
             if col_name not in pk_columns and col_name not in fk_columns:

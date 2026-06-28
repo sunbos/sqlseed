@@ -30,7 +30,7 @@ def _extract_quoted_key(line: str) -> str | None:
 
 
 def get_generator_types() -> set[str]:
-    """Extract generator type names from _GENERATOR_MAP."""
+    """Extract generator type names from GENERATOR_MAP."""
     code = _read(ROOT / "src" / "sqlseed" / "generators" / "_dispatch.py")
     names: set[str] = set()
     marker = '"_gen_'

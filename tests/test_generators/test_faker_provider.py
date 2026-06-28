@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from sqlseed.generators.faker_provider import FakerProvider
-from tests.test_generators._mixin import (
+
+from ._mixin import (
     CoreProviderTestMixin,
     IdentityProviderTestMixin,
     TemporalProviderTestMixin,

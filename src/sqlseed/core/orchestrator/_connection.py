@@ -15,6 +15,7 @@ from sqlseed.core.plugin_mediator import PluginMediator
 from sqlseed.core.relation import RelationResolver, SharedPool
 from sqlseed.core.schema import SchemaInferrer
 from sqlseed.core.unique_adjuster import UniqueAdjuster
+from sqlseed.database.sqlalchemy_adapter import SQLAlchemyAdapter
 
 from ._common import CoreCtx, ExtCtx, _is_db_url
 
@@ -140,6 +141,7 @@ class ConnectionMixin:
 
     @classmethod
     def from_config(cls, config: Any) -> DataOrchestrator:
+        """Construct a DataOrchestrator from a GeneratorConfig instance."""
         return cast(
             "DataOrchestrator",
             cls(
@@ -155,8 +157,6 @@ class ConnectionMixin:
         # Phase 4: uniformly use SQLAlchemyAdapter (SQLAlchemy is a core dependency).
         # SQLAlchemyAdapter automatically handles database URLs (postgresql://, etc.)
         # and SQLite file paths, shielding dialect differences via the Dialect abstraction.
-        from sqlseed.database.sqlalchemy_adapter import SQLAlchemyAdapter  # noqa: PLC0415
-
         if _is_db_url(self._db_path):
             logger.debug("Using SQLAlchemyAdapter (database URL)", db_target=self._db_path)
         else:
@@ -186,6 +186,7 @@ class ConnectionMixin:
             self._plugin_mediator = PluginMediator(self._plugins, self._db, self._schema)
 
     def close(self) -> None:
+        """Close the database connection if it is currently open."""
         if self._connected:
             self._db.close()
             self._connected = False

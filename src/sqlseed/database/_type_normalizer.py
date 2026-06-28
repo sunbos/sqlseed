@@ -82,6 +82,7 @@ _PG_TYPE_MAP: dict[str, str] = {
     "bit": "BLOB",
 }
 
+
 class TypeNormalizer:
     """Normalizes type names from different databases so that mapper.py rules keep working.
 

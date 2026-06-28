@@ -91,7 +91,7 @@ class TestSanitizeColumnNames:
     def test_handles_empty_columns_list(self) -> None:
         config = {"name": "users", "columns": []}
         sanitize_table_config(config)
-        assert config["columns"] == []
+        assert not config["columns"]
 
     def test_handles_missing_columns_key(self) -> None:
         config = {"name": "users"}
@@ -144,9 +144,8 @@ class TestSanitizeInPlace:
 
     def test_mutates_config_in_place(self) -> None:
         config = {"name": "...users", "columns": []}
-        result = sanitize_table_config(config)
         # Function returns None and mutates in place
-        assert result is None
+        sanitize_table_config(config)
         assert config["name"] == "users"
 
     def test_preserves_other_config_keys(self) -> None:

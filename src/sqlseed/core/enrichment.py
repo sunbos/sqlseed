@@ -156,9 +156,7 @@ class EnrichmentEngine:
             if spec.generator_name != "__enrich__":
                 continue
             is_unique = col_name in unique_columns
-            specs[col_name] = self._build_enriched_spec(
-                table_name, col_name, spec, column_infos, is_unique, row_count
-            )
+            specs[col_name] = self._build_enriched_spec(table_name, col_name, spec, column_infos, is_unique, row_count)
 
         return specs
 

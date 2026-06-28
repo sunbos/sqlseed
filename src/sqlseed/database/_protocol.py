@@ -70,45 +70,60 @@ class DatabaseAdapter(Protocol):
     Instead, they are explicitly implemented in SQLAlchemyAdapter and detected at runtime via hasattr().
     """
 
-    def connect(self, db_path: str) -> None: ...
+    def connect(self, db_path: str) -> None:
+        """Connect to the database at the given path (SQLite file or database URL)."""
 
-    def close(self) -> None: ...
+    def close(self) -> None:
+        """Close the database connection and release underlying resources."""
 
-    def get_table_names(self) -> list[str]: ...
+    def get_table_names(self) -> list[str]:
+        """Return the names of all tables in the connected database."""
 
-    def get_column_info(self, table_name: str) -> list[ColumnInfo]: ...
+    def get_column_info(self, table_name: str) -> list[ColumnInfo]:
+        """Return column metadata for every column of the given table."""
 
-    def get_primary_keys(self, table_name: str) -> list[str]: ...
+    def get_primary_keys(self, table_name: str) -> list[str]:
+        """Return the primary key column names for the given table."""
 
-    def get_foreign_keys(self, table_name: str) -> list[ForeignKeyInfo]: ...
+    def get_foreign_keys(self, table_name: str) -> list[ForeignKeyInfo]:
+        """Return foreign key metadata for every foreign key of the given table."""
 
-    def get_row_count(self, table_name: str) -> int: ...
+    def get_row_count(self, table_name: str) -> int:
+        """Return the total number of rows in the given table."""
 
-    def get_column_values(self, table_name: str, column_name: str, limit: int = 1000) -> list[Any]: ...
+    def get_column_values(self, table_name: str, column_name: str, limit: int = 1000) -> list[Any]:
+        """Return up to ``limit`` distinct values of the given column from the table."""
 
-    def get_index_info(self, table_name: str) -> list[IndexInfo]: ...
+    def get_index_info(self, table_name: str) -> list[IndexInfo]:
+        """Return index metadata for every index defined on the given table."""
 
     def get_sample_rows(
         self,
         table_name: str,
         limit: int = 5,
         columns: list[str] | None = None,
-    ) -> list[dict[str, Any]]: ...
+    ) -> list[dict[str, Any]]:
+        """Return up to ``limit`` sample rows from the table, optionally projected to ``columns``."""
 
     def batch_insert(
         self,
         table_name: str,
         data: Iterator[dict[str, Any]],
         batch_size: int = 5000,
-    ) -> int: ...
+    ) -> int:
+        """Insert rows yielded by ``data`` in batches and return the number of rows inserted."""
 
-    def clear_table(self, table_name: str) -> None: ...
+    def clear_table(self, table_name: str) -> None:
+        """Delete all rows from the given table."""
 
-    def optimize_for_bulk_write(self, expected_rows: int | None = None) -> None: ...
+    def optimize_for_bulk_write(self, expected_rows: int | None = None) -> None:
+        """Apply bulk-write optimizations (e.g., PRAGMAs) before a large insert."""
 
-    def restore_settings(self) -> None: ...
+    def restore_settings(self) -> None:
+        """Restore database settings previously changed by ``optimize_for_bulk_write``."""
 
-    def execute(self, sql: str, params: tuple[Any, ...] = ()) -> Any: ...
+    def execute(self, sql: str, params: tuple[Any, ...] = ()) -> Any:
+        """Execute a SQL statement with optional parameters and return the cursor."""
 
     def __enter__(self) -> DatabaseAdapter: ...
 

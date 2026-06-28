@@ -8,6 +8,7 @@ and ``_extract_column_from_message`` handlers that are not exercised by
 from __future__ import annotations
 
 import pytest
+import simpleeval
 
 from sqlseed.generators import UnknownGeneratorError
 
@@ -46,8 +47,6 @@ class TestTryExpressionError:
         Covers NameNotDefined and FunctionNotDefined, the two most common
         simpleeval errors raised during expression evaluation.
         """
-        import simpleeval  # noqa: PLC0415
-
         # NameNotDefined: raised when a name is not in the evaluation context
         name_exc = simpleeval.NameNotDefined("undefined_var", "expression")
         name_summary = _try_expression_error(name_exc)

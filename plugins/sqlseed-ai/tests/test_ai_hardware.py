@@ -137,7 +137,7 @@ class TestGetRamMacos:
             "Pages speculative:                   50000.\n"
         )
 
-        def fake_run(cmd: list[str], **kwargs: Any) -> Any:
+        def fake_run(cmd: list[str], **_kwargs: Any) -> Any:
             if "sysctl" in cmd:
                 return sysctl_result
             if "vm_stat" in cmd:
@@ -163,7 +163,7 @@ class TestGetRamMacos:
         vm_stat_result.returncode = 1  # failure
         vm_stat_result.stdout = ""
 
-        def fake_run(cmd: list[str], **kwargs: Any) -> Any:
+        def fake_run(cmd: list[str], **_kwargs: Any) -> Any:
             if "sysctl" in cmd:
                 return sysctl_result
             return vm_stat_result
@@ -264,7 +264,7 @@ class TestDetectGpuNvidia:
         mock_result.returncode = 1
         mock_result.stdout = ""
         monkeypatch.setattr(_hardware.subprocess, "run", lambda cmd, **kw: mock_result)
-        assert _detect_gpu_nvidia() == []
+        assert not _detect_gpu_nvidia()
 
     def test_returns_empty_on_empty_stdout(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """_detect_gpu_nvidia returns [] when nvidia-smi produces no output."""
@@ -272,7 +272,7 @@ class TestDetectGpuNvidia:
         mock_result.returncode = 0
         mock_result.stdout = ""
         monkeypatch.setattr(_hardware.subprocess, "run", lambda cmd, **kw: mock_result)
-        assert _detect_gpu_nvidia() == []
+        assert not _detect_gpu_nvidia()
 
     def test_returns_empty_when_nvidia_smi_not_found(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """_detect_gpu_nvidia returns [] when nvidia-smi binary is not installed."""
@@ -281,7 +281,7 @@ class TestDetectGpuNvidia:
             raise FileNotFoundError("nvidia-smi")
 
         monkeypatch.setattr(_hardware.subprocess, "run", raise_fnf)
-        assert _detect_gpu_nvidia() == []
+        assert not _detect_gpu_nvidia()
 
     def test_returns_empty_on_timeout(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """_detect_gpu_nvidia returns [] when nvidia-smi times out."""
@@ -290,7 +290,7 @@ class TestDetectGpuNvidia:
             raise subprocess.TimeoutExpired(cmd="nvidia-smi", timeout=5)
 
         monkeypatch.setattr(_hardware.subprocess, "run", raise_timeout)
-        assert _detect_gpu_nvidia() == []
+        assert not _detect_gpu_nvidia()
 
     def test_skips_malformed_lines(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """_detect_gpu_nvidia skips CSV lines with fewer than 4 fields."""
@@ -309,6 +309,14 @@ class TestDetectGpuNvidia:
 
 
 class TestDetectGpuMacos:
+    def _stub_macos_profile(self, monkeypatch: pytest.MonkeyPatch, profiler_data: dict[str, Any]) -> MagicMock:
+        """Stub subprocess.run to return the given macOS profiler_data JSON."""
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = json.dumps(profiler_data)
+        monkeypatch.setattr(_hardware.subprocess, "run", lambda cmd, **kw: mock_result)
+        return mock_result
+
     def test_parses_system_profiler_json_gb(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """_detect_gpu_macos parses SPDisplaysDataType JSON with GB vram."""
         profiler_data = {
@@ -319,10 +327,7 @@ class TestDetectGpuMacos:
                 }
             ]
         }
-        mock_result = MagicMock()
-        mock_result.returncode = 0
-        mock_result.stdout = json.dumps(profiler_data)
-        monkeypatch.setattr(_hardware.subprocess, "run", lambda cmd, **kw: mock_result)
+        self._stub_macos_profile(monkeypatch, profiler_data)
 
         gpus = _detect_gpu_macos()
         assert len(gpus) == 1
@@ -343,10 +348,7 @@ class TestDetectGpuMacos:
                 }
             ]
         }
-        mock_result = MagicMock()
-        mock_result.returncode = 0
-        mock_result.stdout = json.dumps(profiler_data)
-        monkeypatch.setattr(_hardware.subprocess, "run", lambda cmd, **kw: mock_result)
+        self._stub_macos_profile(monkeypatch, profiler_data)
 
         gpus = _detect_gpu_macos()
         assert len(gpus) == 1
@@ -362,10 +364,7 @@ class TestDetectGpuMacos:
                 }
             ]
         }
-        mock_result = MagicMock()
-        mock_result.returncode = 0
-        mock_result.stdout = json.dumps(profiler_data)
-        monkeypatch.setattr(_hardware.subprocess, "run", lambda cmd, **kw: mock_result)
+        self._stub_macos_profile(monkeypatch, profiler_data)
 
         gpus = _detect_gpu_macos()
         assert len(gpus) == 1
@@ -375,10 +374,7 @@ class TestDetectGpuMacos:
     def test_defaults_name_to_unknown_when_missing(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """_detect_gpu_macos defaults name to 'Unknown GPU' when sppci_model absent."""
         profiler_data = {"SPDisplaysDataType": [{}]}
-        mock_result = MagicMock()
-        mock_result.returncode = 0
-        mock_result.stdout = json.dumps(profiler_data)
-        monkeypatch.setattr(_hardware.subprocess, "run", lambda cmd, **kw: mock_result)
+        self._stub_macos_profile(monkeypatch, profiler_data)
 
         gpus = _detect_gpu_macos()
         assert len(gpus) == 1
@@ -390,7 +386,7 @@ class TestDetectGpuMacos:
         mock_result.returncode = 1
         mock_result.stdout = ""
         monkeypatch.setattr(_hardware.subprocess, "run", lambda cmd, **kw: mock_result)
-        assert _detect_gpu_macos() == []
+        assert not _detect_gpu_macos()
 
     def test_returns_empty_when_system_profiler_not_found(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """_detect_gpu_macos returns [] when system_profiler is not installed."""
@@ -399,7 +395,7 @@ class TestDetectGpuMacos:
             raise FileNotFoundError("system_profiler")
 
         monkeypatch.setattr(_hardware.subprocess, "run", raise_fnf)
-        assert _detect_gpu_macos() == []
+        assert not _detect_gpu_macos()
 
 
 # ── GPU dispatcher ───────────────────────────────────────────────────
@@ -424,7 +420,7 @@ class TestDetectGpus:
         """_detect_gpus returns [] when no NVIDIA GPU on a non-macOS platform."""
         monkeypatch.setattr(_hardware, "_detect_gpu_nvidia", lambda: [])
         monkeypatch.setattr(_hardware.platform, "system", lambda: "Linux")
-        assert _detect_gpus() == []
+        assert not _detect_gpus()
 
 
 # ── Public API: detect_hardware ──────────────────────────────────────
@@ -435,6 +431,23 @@ class TestDetectHardware:
         monkeypatch.setattr(_hardware.platform, "system", lambda: "Linux")
         monkeypatch.setattr(_hardware.platform, "release", lambda: "6.5.0")
         monkeypatch.setattr(_hardware.platform, "machine", lambda: "x86_64")
+
+    def _stub_detect_with_counter(self, monkeypatch: pytest.MonkeyPatch) -> dict[str, int]:
+        """Stub platform + _detect_system_ram (with counter) + _detect_gpus.
+
+        Returns the ``call_count`` dict-like container so callers can read/verify
+        the invocation count after the fact. Use ``counter["n"]`` to read.
+        """
+        self._stub_platform(monkeypatch)
+        counter: dict[str, int] = {"n": 0}
+
+        def mock_detect_ram() -> dict[str, Any]:
+            counter["n"] += 1
+            return {"total_gb": 16.0, "available_gb": 8.0}
+
+        monkeypatch.setattr(_hardware, "_detect_system_ram", mock_detect_ram)
+        monkeypatch.setattr(_hardware, "_detect_gpus", lambda: [])
+        return counter
 
     def test_returns_full_hardware_info(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """detect_hardware returns platform, ram, gpus, and max_vram_gb."""
@@ -480,52 +493,34 @@ class TestDetectHardware:
 
     def test_caches_result_within_ttl(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """detect_hardware caches the result and reuses it on subsequent calls."""
-        self._stub_platform(monkeypatch)
-        call_count = 0
-
-        def mock_detect_ram() -> dict[str, Any]:
-            nonlocal call_count
-            call_count += 1
-            return {"total_gb": 16.0, "available_gb": 8.0}
-
-        monkeypatch.setattr(_hardware, "_detect_system_ram", mock_detect_ram)
-        monkeypatch.setattr(_hardware, "_detect_gpus", lambda: [])
+        counter = self._stub_detect_with_counter(monkeypatch)
 
         first = detect_hardware()
         second = detect_hardware()
         assert first is second  # Same cached object
-        assert call_count == 1  # _detect_system_ram only called once
+        assert counter["n"] == 1  # _detect_system_ram only called once
 
     def test_redetects_after_cache_expiry(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """detect_hardware re-detects after the cache TTL (300s) expires."""
-        self._stub_platform(monkeypatch)
-        call_count = 0
-
-        def mock_detect_ram() -> dict[str, Any]:
-            nonlocal call_count
-            call_count += 1
-            return {"total_gb": 16.0, "available_gb": 8.0}
-
-        monkeypatch.setattr(_hardware, "_detect_system_ram", mock_detect_ram)
-        monkeypatch.setattr(_hardware, "_detect_gpus", lambda: [])
+        counter = self._stub_detect_with_counter(monkeypatch)
 
         current_time = 100.0
         monkeypatch.setattr(_hardware.time, "monotonic", lambda: current_time)
 
         # First call — detects and caches at t=100
         first = detect_hardware()
-        assert call_count == 1
+        assert counter["n"] == 1
 
         # Second call within TTL — returns cached
         current_time = 200.0
         second = detect_hardware()
-        assert call_count == 1
+        assert counter["n"] == 1
         assert second is first
 
         # Third call after TTL — re-detects
         current_time = 500.0  # 400s later, > 300s TTL
         detect_hardware()
-        assert call_count == 2
+        assert counter["n"] == 2
 
 
 # ── Public API: evaluate_model_status ────────────────────────────────

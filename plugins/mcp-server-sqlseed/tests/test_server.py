@@ -15,21 +15,13 @@ from typing import TYPE_CHECKING
 
 import pytest
 import yaml as yaml_module
-
 from mcp_server_sqlseed.server import sqlseed_execute_fill, sqlseed_generate_yaml
+from sqlalchemy import create_engine, text
+
+from tests._helpers import create_simple_users_db
 
 if TYPE_CHECKING:
     from pathlib import Path
-
-
-def _create_test_db(db_path: str) -> None:
-    """Create a test database."""
-    conn = sqlite3.connect(db_path)
-    conn.execute(
-        "CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, email TEXT, age INTEGER)"
-    )
-    conn.commit()
-    conn.close()
 
 
 class TestMCPTools:
@@ -38,7 +30,7 @@ class TestMCPTools:
     @pytest.fixture
     def test_db(self, tmp_path: Path) -> str:
         db_path = str(tmp_path / "mcp_test.db")
-        _create_test_db(db_path)
+        create_simple_users_db(db_path)
         return db_path
 
     def test_sqlseed_generate_yaml_rule_driven(self, test_db: str) -> None:
@@ -108,8 +100,6 @@ class TestMCPTools:
 
     def test_sqlseed_generate_yaml_pg(self, pg_url: str) -> None:
         """generate_yaml tool with a PostgreSQL URL (rule-driven)."""
-        from sqlalchemy import create_engine, text  # noqa: PLC0415
-
         engine = create_engine(pg_url)
         with engine.connect() as conn:
             conn.execute(text("CREATE TABLE IF NOT EXISTS mcp_test (id SERIAL PRIMARY KEY, name TEXT, email TEXT)"))
@@ -123,8 +113,6 @@ class TestMCPTools:
 
     def test_tool_url_passes_through(self, pg_url: str) -> None:
         """execute_fill passes a URL through to the orchestrator."""
-        from sqlalchemy import create_engine, text  # noqa: PLC0415
-
         engine = create_engine(pg_url)
         with engine.connect() as conn:
             conn.execute(text("CREATE TABLE IF NOT EXISTS url_test (id SERIAL PRIMARY KEY, name TEXT)"))

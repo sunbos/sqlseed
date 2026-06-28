@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NoReturn
 
 from sqlseed_ai._client import APIConnectionError, APIError, APITimeoutError, get_openai_client
 from sqlseed_ai._model_selector import _normalize_model_id, select_next_gemma_model
@@ -38,11 +38,22 @@ class LLMCallerMixin:
     _config: AIConfig | None
 
     if TYPE_CHECKING:
-        # Provided by StreamingHandlerMixin when combined in SchemaAnalyzer.
-        def _send_llm_request(self, client: Any, kwargs: dict[str, Any]) -> Any: ...
+        # Provided by StreamingHandlerMixin / JsonParserMixin when combined
+        # in SchemaAnalyzer. Stubs use `raise RuntimeError("provided by ...")`
+        # (NOT `...` which pylint infers as implicit None return ->
+        # assignment-from-no-return; NOT `return None`/`return {}` which
+        # pylint flags as assignment-from-none (E1128) on callers that
+        # assign the result; and NOT `raise NotImplementedError` which
+        # pylint treats as abstract method -> abstract-method). RuntimeError
+        # avoids all three: it's a raise (no implicit None return), it's
+        # not an explicit None return, and it's not NotImplementedError.
+        # Real impls live in sibling mixins and DO return values.
+        def _send_llm_request(self, client: Any, kwargs: dict[str, Any]) -> Any:
+            raise RuntimeError("provided by StreamingHandlerMixin")
 
         # Provided by JsonParserMixin when combined in SchemaAnalyzer.
-        def _parse_json_response(self, content: str) -> dict[str, Any]: ...
+        def _parse_json_response(self, content: str) -> dict[str, Any]:
+            raise RuntimeError("provided by JsonParserMixin")
 
     def _find_local_fallback_model(
         self,
@@ -227,6 +238,45 @@ class LLMCallerMixin:
                 return client.chat.completions.create(**kwargs)
             raise
 
+    def _handle_llm_api_exception(
+        self,
+        e: Exception,
+        model: str | None,
+        *,
+        streaming: bool = False,
+    ) -> NoReturn:
+        """Classify and re-raise LLM API exceptions.
+
+        Shared error handling for both non-streaming (``_call_llm_once``) and
+        streaming (``call_llm_streaming``) paths. Centralizes the
+        classification of API errors into ``ContextOverflowError`` (signals
+        compact retry) vs. generic ``RuntimeError`` (non-recoverable).
+
+        Args:
+            e: The caught exception (from the API call try block).
+            model: Model ID used in the call, for error messages. Falls back
+                to ``self._config.model`` when None.
+            streaming: If True, log context overflow at info level (the
+                streaming path provides this hint to the caller for compact
+                retry). Non-streaming path skips the log to keep noise down.
+
+        Raises:
+            APITimeoutError | APIConnectionError: Re-raised directly for the
+                caller's fallback logic.
+            ContextOverflowError: Re-raised so the caller can rebuild with
+                compact/ultra-compact messages.
+            RuntimeError: Wraps non-recoverable errors with model context.
+        """
+        if isinstance(e, (APITimeoutError, APIConnectionError)):
+            raise e
+        model_name = model or (self._config.model if self._config else "unknown")
+        classified = classify_api_error(e)
+        if isinstance(classified, ContextOverflowError):
+            if streaming:
+                logger.info("Context size exceeded, retrying with compact messages", model=model_name)
+            raise classified from e
+        raise RuntimeError(f"LLM API call failed (model={model_name}): {e}") from e
+
     def _call_llm_once(self, messages: list[dict[str, str]], *, model: str | None = None) -> dict[str, Any]:
         """Execute a single non-streaming LLM call (no fallback).
 
@@ -246,13 +296,7 @@ class LLMCallerMixin:
             kwargs["messages"] = messages
             response = self._send_llm_request(client, kwargs)
         except (APITimeoutError, APIConnectionError, APIError, ValueError, RuntimeError, OSError) as e:
-            if isinstance(e, (APITimeoutError, APIConnectionError)):
-                raise
-            # Detect context overflow via structured classification (non-streaming path)
-            classified = classify_api_error(e)
-            if isinstance(classified, ContextOverflowError):
-                raise classified from e
-            raise RuntimeError(f"LLM API call failed (model={model or self._config.model}): {e}") from e
+            self._handle_llm_api_exception(e, model, streaming=False)
 
         if not response.choices:
             raise RuntimeError(

@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'feat/**', 'refactor/**', 'fix/**']
   pull_request:
-    branches: [main]
+    branches: [main, 'feat/**', 'refactor/**', 'fix/**']
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -33,10 +33,14 @@ jobs:
             plugins/*/pyproject.toml
 
       - name: Install dependencies
+        # Install local plugins BEFORE core extras so pip can satisfy
+        # `sqlseed-cli>=0.1.0` (referenced in [dev] and [all] extras)
+        # from the local editable install instead of PyPI. sqlseed-cli
+        # is not yet published to PyPI (monorepo package).
         run: |
+          pip install -e "./plugins/sqlseed-cli"
           pip install -e ".[all,dev]"
           pip install -e "./plugins/sqlseed-ai"
-          pip install -e "./plugins/sqlseed-cli"
           pip install -e "./plugins/mcp-server-sqlseed"
 
       - name: Lint
@@ -71,10 +75,14 @@ jobs:
             plugins/*/pyproject.toml
 
       - name: Install dependencies
+        # Install local plugins BEFORE core extras so pip can satisfy
+        # `sqlseed-cli>=0.1.0` (referenced in [dev] and [all] extras)
+        # from the local editable install instead of PyPI. sqlseed-cli
+        # is not yet published to PyPI (monorepo package).
         run: |
+          pip install -e "./plugins/sqlseed-cli"
           pip install -e ".[all,dev]"
           pip install -e "./plugins/sqlseed-ai"
-          pip install -e "./plugins/sqlseed-cli"
           pip install -e "./plugins/mcp-server-sqlseed"
 
       - name: Test with coverage
@@ -114,10 +122,14 @@ jobs:
             plugins/*/pyproject.toml
 
       - name: Install dependencies
+        # Install local plugins BEFORE core extras so pip can satisfy
+        # `sqlseed-cli>=0.1.0` (referenced in [dev] and [all] extras)
+        # from the local editable install instead of PyPI. sqlseed-cli
+        # is not yet published to PyPI (monorepo package).
         run: |
+          pip install -e "./plugins/sqlseed-cli"
           pip install -e ".[all,dev]"
           pip install -e "./plugins/sqlseed-ai"
-          pip install -e "./plugins/sqlseed-cli"
           pip install -e "./plugins/mcp-server-sqlseed"
 
       - name: Test
@@ -161,10 +173,14 @@ jobs:
             plugins/*/pyproject.toml
 
       - name: Install dependencies
+        # Install local plugins BEFORE core extras so pip can satisfy
+        # `sqlseed-cli>=0.1.0` (referenced in [dev] and [all] extras)
+        # from the local editable install instead of PyPI. sqlseed-cli
+        # is not yet published to PyPI (monorepo package).
         run: |
+          pip install -e "./plugins/sqlseed-cli"
           pip install -e ".[all,dev]"
           pip install -e "./plugins/sqlseed-ai"
-          pip install -e "./plugins/sqlseed-cli"
           pip install -e "./plugins/mcp-server-sqlseed"
 
       - name: Run PostgreSQL integration tests

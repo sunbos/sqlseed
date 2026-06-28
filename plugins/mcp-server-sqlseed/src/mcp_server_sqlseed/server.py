@@ -9,16 +9,17 @@ as mcp-database-server.
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import yaml
 from mcp.server.fastmcp import FastMCP
+from mcp_server_sqlseed.config import MCPServerConfig
+
 from sqlseed._utils.logger import get_logger
+from sqlseed._utils.paths import validate_db_target as _validate_db_target
+from sqlseed._utils.paths import validate_table_name as _validate_table_name
 from sqlseed.config.models import GeneratorConfig
 from sqlseed.core.orchestrator import DataOrchestrator
-
-from mcp_server_sqlseed.config import MCPServerConfig
 
 logger = get_logger(__name__)
 
@@ -29,48 +30,6 @@ _server_config = MCPServerConfig()
 mcp = FastMCP("sqlseed", host=_server_config.host, port=_server_config.port)
 
 _MAX_YAML_CONFIG_SIZE = 256 * 1024
-
-
-def _validate_db_target(db_path: str) -> str:
-    """Validate a database connection target, which may be a file path or URL.
-
-    .. note::
-        This MCP server is designed for local use. Path traversal is not a
-        realistic threat because the user invoking the server is the same
-        user providing the db_path. No directory restriction is enforced.
-
-    Args:
-        db_path: Database file path or database URL
-            (e.g., ``postgresql://user:pass@host/db``).
-
-    Returns:
-        The validated connection target string.
-
-    Raises:
-        ValueError: If a file path is invalid or the file does not exist.
-    """
-    # URL format (with scheme) passes through; validated later by SQLAlchemy
-    if "://" in db_path:
-        return db_path
-
-    # File path: apply existing validation logic
-    resolved = Path(db_path).resolve()
-    valid_exts = (".db", ".sqlite", ".sqlite3")
-    if not str(resolved).endswith(valid_exts):
-        raise ValueError(
-            f"Invalid database target: {db_path}. "
-            "Must be a .db/.sqlite/.sqlite3 file or a database URL "
-            "(e.g., postgresql://user:pass@host/db)."
-        )
-    if not resolved.exists():
-        raise ValueError(f"Database file not found: {db_path}")
-    return str(resolved)
-
-
-def _validate_table_name(table_name: str, allowed_tables: list[str]) -> str:
-    if table_name not in allowed_tables:
-        raise ValueError(f"Table '{table_name}' does not exist in the database. Available: {allowed_tables}")
-    return table_name
 
 
 def _spec_to_column_entry(col_name: str, spec: GeneratorSpec) -> dict[str, Any]:

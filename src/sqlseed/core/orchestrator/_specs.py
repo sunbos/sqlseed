@@ -47,33 +47,48 @@ class SpecResolverMixin:
     _provider_name: str
 
     if TYPE_CHECKING:
-        # Provided by ConnectionMixin as read-only properties.
+        # Provided by ConnectionMixin as read-only properties. Split into two
+        # TYPE_CHECKING blocks to keep each block's McCabe complexity under
+        # pylint's too-complex threshold (10). The first block groups the
+        # Connection/registry accessors; the second groups the enrichment/
+        # unique-adjuster accessors.
         @property
-        def _db(self) -> DatabaseAdapter: ...
+        def _db(self) -> DatabaseAdapter:
+            raise NotImplementedError
 
         @property
-        def _schema(self) -> SchemaInferrer: ...
+        def _schema(self) -> SchemaInferrer:
+            raise NotImplementedError
 
         @property
-        def _mapper(self) -> ColumnMapper: ...
+        def _mapper(self) -> ColumnMapper:
+            raise NotImplementedError
 
         @property
-        def _relation(self) -> RelationResolver: ...
+        def _relation(self) -> RelationResolver:
+            raise NotImplementedError
 
         @property
-        def _registry(self) -> ProviderRegistry: ...
+        def _registry(self) -> ProviderRegistry:
+            raise NotImplementedError
+
+    if TYPE_CHECKING:
 
         @property
-        def _plugins(self) -> PluginManager: ...
+        def _plugins(self) -> PluginManager:
+            raise NotImplementedError
 
         @property
-        def _plugin_mediator(self) -> PluginMediator | None: ...
+        def _plugin_mediator(self) -> PluginMediator | None:
+            raise NotImplementedError
 
         @property
-        def _enrichment(self) -> EnrichmentEngine | None: ...
+        def _enrichment(self) -> EnrichmentEngine | None:
+            raise NotImplementedError
 
         @property
-        def _unique_adjuster(self) -> UniqueAdjuster: ...
+        def _unique_adjuster(self) -> UniqueAdjuster:
+            raise NotImplementedError
 
     def _resolve_specs(
         self,

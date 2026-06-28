@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError as PydanticValidationError
 from sqlseed_ai._json_utils import _sanitize_names
+from sqlseed_ai.analyzer import SchemaAnalyzer
 from sqlseed_ai.errors import ErrorSummary, summarize_error
 from sqlseed_ai.exceptions import ContextOverflowError
 
@@ -30,7 +31,7 @@ from sqlseed.core.orchestrator import DataOrchestrator
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from sqlseed_ai.analyzer import SchemaAnalyzer
+    from sqlseed_ai.config import AIConfig
 
 logger = get_logger(__name__)
 
@@ -47,8 +48,14 @@ class _RetryState:
         self.min_prompt_level: int = 0
 
 
-class AISuggestionFailedError(Exception):
-    """Raised when AI config generation/refinement cannot produce a valid config."""
+class AISuggestionFailedError(RuntimeError):
+    """Raised when AI config generation/refinement cannot produce a valid config.
+
+    Inherits from :class:`RuntimeError` so that callers catching
+    ``(ValueError, RuntimeError, OSError)`` (the standard recoverable-error
+    tuple used across sqlseed-ai) also catch this exception without needing
+    to import it explicitly.
+    """
 
 
 class AiConfigRefiner:
@@ -78,6 +85,32 @@ class AiConfigRefiner:
         self._analyzer = analyzer
         self._db_path = db_path
         self._cache_dir = Path(cache_dir) if cache_dir else get_cache_dir("ai_configs")
+
+    @classmethod
+    def from_config(
+        cls,
+        ai_config: AIConfig,
+        db_path: str,
+        *,
+        cache_dir: str | None = None,
+    ) -> AiConfigRefiner:
+        """Create a refiner with an internally-constructed analyzer.
+
+        Convenience factory for callers that don't need the
+        :class:`SchemaAnalyzer` separately (e.g., MCP tools that only call
+        ``generate_and_refine``). Callers that need the analyzer for other
+        operations (e.g., CLI streaming display) should construct the
+        analyzer explicitly and use the regular constructor.
+
+        Args:
+            ai_config: The AI configuration to build the analyzer from.
+            db_path: Path to the database file (or URL) to validate against.
+            cache_dir: Optional override for the cache directory.
+
+        Returns:
+            A new :class:`AiConfigRefiner` instance.
+        """
+        return cls(SchemaAnalyzer(config=ai_config), db_path, cache_dir=cache_dir)
 
     def _handle_generation_failure(self, error: ErrorSummary, attempt: int, max_retries: int) -> None:
         """Decide whether to retry or raise after an LLM generation failure.

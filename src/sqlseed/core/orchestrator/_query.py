@@ -16,6 +16,8 @@ from sqlalchemy.exc import OperationalError as SAOperationalError
 from sqlseed._utils.sql_safe import validate_table_name
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from sqlseed.core.mapper import ColumnMapper
     from sqlseed.core.relation import RelationResolver
     from sqlseed.core.schema import SchemaInferrer
@@ -61,16 +63,14 @@ class QueryMixin:
         def _ensure_connected(self) -> None: ...
 
         # Provided by SpecResolverMixin when combined in DataOrchestrator.
-        def _resolve_specs(
-            self,
-            table_name: str,
-            count: int,
-            columns: dict[str, Any] | None,
-            column_configs: list[Any] | None,
-            enrich: bool,
-        ) -> tuple[dict[str, Any], dict[str, Any], set[str]]: ...
+        # Declared as ``Callable[..., T]`` to preserve return type checking
+        # without duplicating the full parameter signature (which would
+        # trigger CodeDuplication with _specs.py). Argument checking is
+        # deferred to DataOrchestrator, where mypy sees the real method.
+        _resolve_specs: Callable[..., tuple[dict[str, Any], dict[str, Any], set[str]]]
 
     def get_schema_context(self, table_name: str) -> dict[str, Any]:
+        """Build a schema context dict for a table (columns, FKs, indexes, sample data, distribution)."""
         self._ensure_connected()
         validate_table_name(table_name)
         column_infos = self._schema.get_column_info(table_name)
@@ -115,10 +115,12 @@ class QueryMixin:
         return "sqlite"
 
     def get_column_names(self, table_name: str) -> set[str]:
+        """Return the set of column names for the given table."""
         self._ensure_connected()
         return {c.name for c in self._schema.get_column_info(table_name)}
 
     def get_skippable_columns(self, table_name: str) -> set[str]:
+        """Return columns that need no generated value (autoincrement PKs and columns with defaults)."""
         self._ensure_connected()
         return {
             c.name
@@ -127,29 +129,36 @@ class QueryMixin:
         }
 
     def get_topological_table_order(self, table_names: list[str]) -> list[str]:
+        """Return the given tables ordered so referenced tables precede their dependents."""
         self._ensure_connected()
         return self._relation.topological_sort(table_names)
 
     def get_table_names(self) -> list[str]:
+        """Return all table names in the connected database."""
         self._ensure_connected()
         return self._db.get_table_names()
 
     def get_column_info(self, table_name: str) -> list[Any]:
+        """Return column metadata for the given table."""
         self._ensure_connected()
         return self._schema.get_column_info(table_name)
 
     def get_foreign_keys(self, table_name: str) -> list[Any]:
+        """Return foreign key metadata for the given table."""
         self._ensure_connected()
         return self._db.get_foreign_keys(table_name)
 
     def get_row_count(self, table_name: str) -> int:
+        """Return the row count for the given table."""
         self._ensure_connected()
         return self._db.get_row_count(table_name)
 
     def map_column(self, column_info: Any) -> Any:
+        """Map a single column to its generator spec via the column mapper."""
         return self._mapper.map_column(column_info)
 
     def report(self) -> str:
+        """Return a human-readable report of database tables and their row counts."""
         if not self._connected:
             return "Not connected to any database."
 

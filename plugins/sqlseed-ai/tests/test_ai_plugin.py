@@ -7,21 +7,22 @@ from unittest.mock import patch
 import pytest
 
 from sqlseed.core.orchestrator import DataOrchestrator
+from tests._helpers import (
+    clear_llm_env,
+    configure_llm_backend_env,
+    ensure_pg_users_table,
+)
 from tests.conftest import make_column_info
 
 try:
     from openai import APITimeoutError
     from sqlseed_ai.analyzer import SchemaAnalyzer
     from sqlseed_ai.config import AIConfig
-
-    HAS_SQLSEED_AI = True
 except ImportError:
-    HAS_SQLSEED_AI = False
-    SchemaAnalyzer = None  # type: ignore
-    AIConfig = None  # type: ignore
-    APITimeoutError = None  # type: ignore
-
-if not HAS_SQLSEED_AI:
+    # pytest.skip with allow_module_level=True raises NoReturn — mypy
+    # understands the except branch does not fall through, so the names
+    # imported in the try branch are definitely bound for the rest of
+    # the module. No placeholder None assignments or type: ignore needed.
     pytest.skip("sqlseed-ai plugin not installed", allow_module_level=True)
 
 
@@ -36,14 +37,7 @@ class TestAIConfig:
         assert config.timeout == pytest.approx(0.0)  # 0 means auto-resolve
 
     def test_from_env_missing(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.delenv("SQLSEED_AI_API_KEY", raising=False)
-        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-        monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
-        monkeypatch.delenv("SQLSEED_AI_BASE_URL", raising=False)
-        monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
-        monkeypatch.delenv("SQLSEED_AI_MODEL", raising=False)
-        monkeypatch.delenv("SQLSEED_AI_BACKEND", raising=False)
-        monkeypatch.delenv("SQLSEED_AI_TIMEOUT", raising=False)
+        clear_llm_env(monkeypatch)
         config = AIConfig.from_env()
         assert config.api_key is None
         assert config.base_url is None
@@ -240,6 +234,7 @@ class TestSchemaAnalyzer:
         analyzer = SchemaAnalyzer(config=AIConfig(model="test-model"))
         json_str = '{"name": "test", "count": 100, "columns": [{"name": "id", "generator": "integer"}]}'
         result = analyzer._parse_json_response(json_str)
+        assert isinstance(result, dict)
         assert result["name"] == "test"
         assert result["count"] == 100
 
@@ -247,23 +242,25 @@ class TestSchemaAnalyzer:
         analyzer = SchemaAnalyzer(config=AIConfig(model="test-model"))
         json_str = '```json\n{"name": "test", "count": 100}\n```'
         result = analyzer._parse_json_response(json_str)
+        assert isinstance(result, dict)
         assert result["name"] == "test"
 
     def test_parse_json_response_with_plain_fences(self) -> None:
         analyzer = SchemaAnalyzer(config=AIConfig(model="test-model"))
         json_str = '```\n{"name": "test", "count": 100}\n```'
         result = analyzer._parse_json_response(json_str)
+        assert isinstance(result, dict)
         assert result["name"] == "test"
 
     def test_parse_json_response_invalid(self) -> None:
         analyzer = SchemaAnalyzer(config=AIConfig(model="test-model"))
         result = analyzer._parse_json_response("not valid json [[[")
-        assert result == {}
+        assert not result
 
     def test_parse_json_response_non_dict(self) -> None:
         analyzer = SchemaAnalyzer(config=AIConfig(model="test-model"))
         result = analyzer._parse_json_response("[1, 2, 3]")
-        assert result == {}
+        assert not result
 
     def test_build_initial_messages(self) -> None:
         analyzer = SchemaAnalyzer(config=AIConfig(model="test-model"))
@@ -323,7 +320,7 @@ class TestSchemaAnalyzer:
         analyzer = SchemaAnalyzer(config=AIConfig(api_key="test-key", model="test-model"))
         with patch.object(analyzer, "call_llm", return_value={}):
             result = analyzer.generate_template_values("project_no", "VARCHAR(20)", 3, [])
-            assert result == []
+            assert not result
 
 
 class TestProjectInfoIntegration:
@@ -372,8 +369,9 @@ class TestProjectInfoIntegration:
 class TestSchemaAnalyzerDialect:
     """Tests for SchemaAnalyzer dialect context propagation (includes real LLM calls)."""
 
-    def test_build_context_with_sqlite_dialect(self) -> None:
-        """dialect="sqlite" produces output containing "Database dialect: sqlite"."""
+    @pytest.mark.parametrize("dialect", ["sqlite", "postgresql"])
+    def test_build_context_with_dialect(self, dialect: str) -> None:
+        """dialect field produces output containing "Database dialect: <dialect>"."""
         analyzer = SchemaAnalyzer(AIConfig())
         schema_ctx = {
             "table_name": "users",
@@ -385,28 +383,10 @@ class TestSchemaAnalyzerDialect:
             "foreign_keys": [],
             "all_table_names": ["users"],
             "sample_data": [],
-            "dialect": "sqlite",
+            "dialect": dialect,
         }
         context = analyzer._build_context(schema_ctx)
-        assert "Database dialect: sqlite" in context
-
-    def test_build_context_with_postgresql_dialect(self) -> None:
-        """dialect="postgresql" produces output containing "Database dialect: postgresql"."""
-        analyzer = SchemaAnalyzer(AIConfig())
-        schema_ctx = {
-            "table_name": "users",
-            "columns": [
-                make_column_info("id", "INTEGER", is_primary_key=True, is_autoincrement=True),
-                make_column_info("name", "TEXT"),
-            ],
-            "indexes": [],
-            "foreign_keys": [],
-            "all_table_names": ["users"],
-            "sample_data": [],
-            "dialect": "postgresql",
-        }
-        context = analyzer._build_context(schema_ctx)
-        assert "Database dialect: postgresql" in context
+        assert f"Database dialect: {dialect}" in context
 
     def test_build_context_default_dialect_is_sqlite(self) -> None:
         """When dialect is not provided, it defaults to "sqlite"."""
@@ -422,29 +402,25 @@ class TestSchemaAnalyzerDialect:
         context = analyzer._build_context(schema_ctx)
         assert "Database dialect: sqlite" in context
 
+    def _make_real_llm_analyzer(
+        self, monkeypatch: pytest.MonkeyPatch, available_llm_backend: dict[str, str]
+    ) -> SchemaAnalyzer:
+        """Configure backend env vars from the session fixture and return a SchemaAnalyzer.
+
+        Shared by the real-LLM integration tests to eliminate the repeated
+        ``backend = ...; model = ...; configure_llm_backend_env(...); config = ...;
+        analyzer = ...`` setup block.
+        """
+        backend = available_llm_backend["backend"]
+        model = available_llm_backend["model"]
+        configure_llm_backend_env(monkeypatch, backend, model)
+        return SchemaAnalyzer(AIConfig.from_env())
+
     def test_analyze_schema_sqlite_real_llm(
         self, tmp_db: str, available_llm_backend: dict[str, str], monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Real SQLite schema analysis, verifying that the LLM returns a valid configuration."""
-        backend = available_llm_backend["backend"]
-        model = available_llm_backend["model"]
-
-        # Configure environment variables based on the backend (use monkeypatch to avoid polluting other tests)
-        if backend == "ollama":
-            monkeypatch.setenv("SQLSEED_AI_BACKEND", "ollama")
-            monkeypatch.setenv("SQLSEED_AI_BASE_URL", "http://localhost:11434/v1")
-        elif backend == "lm_studio":
-            monkeypatch.setenv("SQLSEED_AI_BACKEND", "lm_studio")
-            monkeypatch.setenv("OPENAI_BASE_URL", "http://localhost:1234/v1")
-            monkeypatch.setenv("OPENAI_API_KEY", "lm-studio")
-        elif backend == "google_ai_studio":
-            # GOOGLE_API_KEY is already set
-            pass
-
-        monkeypatch.setenv("SQLSEED_AI_MODEL", model)
-
-        config = AIConfig.from_env()
-        analyzer = SchemaAnalyzer(config)
+        analyzer = self._make_real_llm_analyzer(monkeypatch, available_llm_backend)
 
         with DataOrchestrator(tmp_db, provider_name="base") as orch:
             orch._ensure_connected()
@@ -461,36 +437,9 @@ class TestSchemaAnalyzerDialect:
     ) -> None:
         """Real PG schema analysis, verifying that dialect propagates to the LLM prompt."""
         # First create the table on PG
-        import sqlalchemy  # noqa: PLC0415
+        ensure_pg_users_table(pg_url)
 
-        engine = sqlalchemy.create_engine(pg_url)
-        with engine.connect() as conn:
-            conn.execute(
-                sqlalchemy.text(
-                    "CREATE TABLE IF NOT EXISTS users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT)"
-                )
-            )
-            conn.commit()
-        engine.dispose()
-
-        backend = available_llm_backend["backend"]
-        model = available_llm_backend["model"]
-
-        if backend == "ollama":
-            monkeypatch.setenv("SQLSEED_AI_BACKEND", "ollama")
-            monkeypatch.setenv("SQLSEED_AI_BASE_URL", "http://localhost:11434/v1")
-        elif backend == "lm_studio":
-            monkeypatch.setenv("SQLSEED_AI_BACKEND", "lm_studio")
-            monkeypatch.setenv("OPENAI_BASE_URL", "http://localhost:1234/v1")
-            monkeypatch.setenv("OPENAI_API_KEY", "lm-studio")
-        elif backend == "google_ai_studio":
-            # GOOGLE_API_KEY is already set
-            pass
-
-        monkeypatch.setenv("SQLSEED_AI_MODEL", model)
-
-        config = AIConfig.from_env()
-        analyzer = SchemaAnalyzer(config)
+        analyzer = self._make_real_llm_analyzer(monkeypatch, available_llm_backend)
 
         with DataOrchestrator(pg_url, provider_name="base") as orch:
             orch._ensure_connected()
@@ -522,36 +471,9 @@ class TestSchemaAnalyzerDialect:
         must take the last user message (i.e. the context), not the first one.
         """
         # First create the table on PG
-        import sqlalchemy  # noqa: PLC0415
+        ensure_pg_users_table(pg_url)
 
-        engine = sqlalchemy.create_engine(pg_url)
-        with engine.connect() as conn:
-            conn.execute(
-                sqlalchemy.text(
-                    "CREATE TABLE IF NOT EXISTS users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT)"
-                )
-            )
-            conn.commit()
-        engine.dispose()
-
-        backend = available_llm_backend["backend"]
-        model = available_llm_backend["model"]
-
-        if backend == "ollama":
-            monkeypatch.setenv("SQLSEED_AI_BACKEND", "ollama")
-            monkeypatch.setenv("SQLSEED_AI_BASE_URL", "http://localhost:11434/v1")
-        elif backend == "lm_studio":
-            monkeypatch.setenv("SQLSEED_AI_BACKEND", "lm_studio")
-            monkeypatch.setenv("OPENAI_BASE_URL", "http://localhost:1234/v1")
-            monkeypatch.setenv("OPENAI_API_KEY", "lm-studio")
-        elif backend == "google_ai_studio":
-            # GOOGLE_API_KEY is already set
-            pass
-
-        monkeypatch.setenv("SQLSEED_AI_MODEL", model)
-
-        config = AIConfig.from_env()
-        analyzer = SchemaAnalyzer(config)
+        analyzer = self._make_real_llm_analyzer(monkeypatch, available_llm_backend)
 
         with DataOrchestrator(pg_url, provider_name="base") as orch:
             orch._ensure_connected()
@@ -570,24 +492,7 @@ class TestSchemaAnalyzerDialect:
         self, tmp_db: str, available_llm_backend: dict[str, str], monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Verify the LLM response structure (tables/columns/generators)."""
-        backend = available_llm_backend["backend"]
-        model = available_llm_backend["model"]
-
-        if backend == "ollama":
-            monkeypatch.setenv("SQLSEED_AI_BACKEND", "ollama")
-            monkeypatch.setenv("SQLSEED_AI_BASE_URL", "http://localhost:11434/v1")
-        elif backend == "lm_studio":
-            monkeypatch.setenv("SQLSEED_AI_BACKEND", "lm_studio")
-            monkeypatch.setenv("OPENAI_BASE_URL", "http://localhost:1234/v1")
-            monkeypatch.setenv("OPENAI_API_KEY", "lm-studio")
-        elif backend == "google_ai_studio":
-            # GOOGLE_API_KEY is already set
-            pass
-
-        monkeypatch.setenv("SQLSEED_AI_MODEL", model)
-
-        config = AIConfig.from_env()
-        analyzer = SchemaAnalyzer(config)
+        analyzer = self._make_real_llm_analyzer(monkeypatch, available_llm_backend)
 
         with DataOrchestrator(tmp_db, provider_name="base") as orch:
             orch._ensure_connected()

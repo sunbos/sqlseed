@@ -19,9 +19,7 @@ import yaml
 from rich.console import Console
 from rich.live import Live
 from rich.text import Text
-from sqlseed_ai.analyzer import SchemaAnalyzer
-from sqlseed_ai.config import AIBackend, AIConfig
-from sqlseed_ai.refiner import AiConfigRefiner
+from sqlseed_ai import AIBackend, AIConfig, AiConfigRefiner, SchemaAnalyzer
 
 # sanitize_table_config lives in the sqlseed-cli package; this is the only
 # cross-plugin import permitted per ARCHITECTURE.md Section 4 (sqlseed-ai
@@ -84,15 +82,18 @@ class _StreamingProgressDisplay:
         return text
 
     def start(self) -> None:
+        """Start the live rich display for streaming LLM output."""
         self._live = Live(self._render(), console=Console(), transient=False, refresh_per_second=8)
         self._live.start()
 
     def stop(self) -> None:
+        """Stop the live display and release the terminal."""
         if self._live:
             self._live.stop()
             self._live = None
 
     def update(self, phase: str, info: dict[str, Any]) -> None:
+        """Update the streaming progress display with a new phase and token info."""
         self._phase = phase
         if "model" in info:
             self._model = info["model"]
@@ -111,6 +112,30 @@ class _StreamingProgressDisplay:
             self._max_retries = info["max_retries"]
         if self._live:
             self._live.update(self._render())
+
+
+def _emit_ai_suggestion_failure(
+    e: Exception,
+    *,
+    display: _StreamingProgressDisplay | None = None,
+) -> None:
+    """Emit the standard ``AI suggestion failed: {e}`` error to stderr.
+
+    Centralizes the ``(display.stop() if display) + click.echo("AI suggestion
+    failed: {e}", err=True)`` pattern repeated across the AI handler
+    functions (CodeFlow duplicate-code). The caller remains responsible for
+    ``return None`` or ``raise SystemExit(1)`` as appropriate to its control
+    flow — this helper only standardizes the side-effects (stop display +
+    emit message).
+
+    Args:
+        e: The caught exception whose ``str()`` representation is echoed.
+        display: Optional streaming display to stop before emitting the error
+            so the Rich Live region is closed before the stderr write.
+    """
+    if display:
+        display.stop()
+    click.echo(f"AI suggestion failed: {e}", err=True)
 
 
 def _run_ai_analysis(
@@ -200,13 +225,13 @@ def _handle_ai_direct(
                 click.echo("AI returned empty result, retrying with shorter prompt...", err=True)
                 continue
             except (ValueError, RuntimeError, OSError) as e:
-                if display:
-                    display.stop()
                 err_msg = str(e).lower()
                 if "context" in err_msg and "exceed" in err_msg and not ultra:
+                    if display:
+                        display.stop()
                     click.echo("Context size exceeded, retrying with shorter prompt...", err=True)
                     continue
-                click.echo(f"AI suggestion failed: {e}", err=True)
+                _emit_ai_suggestion_failure(e, display=display)
                 return None
     return None
 
@@ -231,7 +256,7 @@ def _handle_ai_verification_non_streaming(
             use_compact=use_compact,
         )
     except (ValueError, RuntimeError, OSError) as e:
-        click.echo(f"AI suggestion failed: {e}", err=True)
+        _emit_ai_suggestion_failure(e)
         return None
 
 
@@ -258,8 +283,7 @@ def _handle_ai_verification_streaming(
         display.stop()
         return result
     except (ValueError, RuntimeError, OSError) as e:
-        display.stop()
-        click.echo(f"AI suggestion failed: {e}", err=True)
+        _emit_ai_suggestion_failure(e, display=display)
         return None
 
 
@@ -360,7 +384,7 @@ def ai_suggest(
                 err=True,
             )
         else:
-            click.echo(f"AI suggestion failed: {exc}", err=True)
+            _emit_ai_suggestion_failure(exc)
         raise SystemExit(1) from exc
 
     if result:

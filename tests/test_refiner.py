@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from unittest.mock import patch
 
 import pytest
@@ -18,22 +18,11 @@ try:
     from sqlseed_ai.errors import ErrorSummary, summarize_error
     from sqlseed_ai.exceptions import ContextOverflowError
     from sqlseed_ai.refiner import AiConfigRefiner, AISuggestionFailedError, _RetryState
-
-    HAS_SQLSEED_AI = True
 except ImportError:
-    HAS_SQLSEED_AI = False
-    SchemaAnalyzer = None  # type: ignore
-    AIConfig = None  # type: ignore
-    AIBackend = None  # type: ignore
-    ErrorSummary = None  # type: ignore
-    summarize_error = None  # type: ignore
-    AiConfigRefiner = None  # type: ignore
-    AISuggestionFailedError = Exception  # type: ignore
-    _RetryState = None  # type: ignore
-    ContextOverflowError = Exception  # type: ignore
-    _ULTRA_COMPACT_SYSTEM_PROMPT = ""  # type: ignore
-
-if not HAS_SQLSEED_AI:
+    # pytest.skip with allow_module_level=True raises NoReturn — mypy
+    # understands the except branch does not fall through, so the names
+    # imported in the try branch are definitely bound for the rest of
+    # the module. No placeholder None assignments or type: ignore needed.
     pytest.skip("sqlseed-ai plugin not installed", allow_module_level=True)
 
 
@@ -95,7 +84,10 @@ class TestSummarizeError:
             items: list[Inner]
 
         try:
-            Outer(items=[{"value": "not_int"}])  # type: ignore
+            # Intentionally pass wrong type (dict instead of Inner) to test
+            # Pydantic validation. cast(Any, ...) tells mypy we know the
+            # type is wrong — this is the error path we're verifying.
+            Outer(items=cast("Any", [{"value": "not_int"}]))
         except ValidationError as e:
             summary = summarize_error(e)
             assert summary.error_type == "pydantic_validation"
@@ -241,6 +233,40 @@ def _create_users_db(tmp_path: Any) -> str:
 
 def _valid_users_config() -> dict[str, Any]:
     return {"name": "users", "count": 10, "columns": [{"name": "name", "generator": "string"}]}
+
+
+def _make_fail_then_succeed_streaming(
+    valid_config: dict[str, Any], *, fail_until_call: int, error: Exception
+) -> tuple[Any, list[int]]:
+    """Build a mock ``call_llm_streaming`` that fails N times then succeeds.
+
+    Extracted to avoid CodeDuplication between
+    ``test_streaming_continues_after_generation_failure`` (RuntimeError on call 1)
+    and ``test_streaming_implements_normal_to_ultra_compact_degradation``
+    (ContextOverflowError on calls 1-2). Both tests previously inlined an
+    identical ``mock_streaming`` closure that differed only in the failure
+    condition and error type.
+
+    Args:
+        valid_config: config dict returned on the success call.
+        fail_until_call: raise ``error`` for calls 1..fail_until_call (inclusive);
+            succeed on call ``fail_until_call + 1``.
+        error: exception instance to raise on failing calls.
+
+    Returns:
+        ``(mock_fn, call_log)`` where ``call_log`` is a list that records one
+        entry per invocation; use ``len(call_log)`` to assert the call count.
+    """
+    call_log: list[int] = []
+
+    def mock_streaming(_msgs: list[dict[str, str]], on_progress: Any = None) -> dict[str, Any]:
+        del on_progress
+        call_log.append(1)
+        if len(call_log) <= fail_until_call:
+            raise error
+        return valid_config
+
+    return mock_streaming, call_log
 
 
 class TestRetryBudgetHandling:
@@ -402,7 +428,7 @@ class TestTryPromptLevels:
         state = _RetryState()
         call_count = 0
 
-        def call_fn(msgs: list[dict[str, str]]) -> dict[str, Any] | None:
+        def call_fn(_msgs: list[dict[str, str]]) -> dict[str, Any] | None:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
@@ -457,12 +483,13 @@ class TestTryPromptLevels:
         call_count = 0
 
         def call_fn(msgs: list[dict[str, str]]) -> dict[str, Any] | None:
+            del msgs
             nonlocal call_count
             call_count += 1
             return {"name": "users"}
 
         with self._patch_messages(refiner):
-            config, _error = refiner._try_prompt_levels({}, state, use_compact=False, call_fn=call_fn)
+            config, _ = refiner._try_prompt_levels({}, state, use_compact=False, call_fn=call_fn)
         assert call_count == 1
         assert config == {"name": "users"}
 
@@ -472,6 +499,7 @@ class TestTryPromptLevels:
         state.min_prompt_level = 10  # Skip all levels
 
         def call_fn(msgs: list[dict[str, str]]) -> dict[str, Any] | None:
+            del msgs
             return {"name": "users"}
 
         with self._patch_messages(refiner):
@@ -506,8 +534,9 @@ class TestValidateConfig:
         db_path = _create_users_db(tmp_path)
         refiner = _make_refiner(tmp_path, db_path=db_path)
         config = _valid_users_config()
-        with DataOrchestrator(db_path) as orch, patch.object(
-            orch, "preview_table", side_effect=RuntimeError("preview failed")
+        with (
+            DataOrchestrator(db_path) as orch,
+            patch.object(orch, "preview_table", side_effect=RuntimeError("preview failed")),
         ):
             error = refiner._validate_config(orch, "users", config)
         # Strengthened from `assert error is not None` (mutmut weak assertion).
@@ -560,7 +589,14 @@ class TestHandleValidationResult:
         state = _RetryState()
         with DataOrchestrator(db_path) as orch:
             result = refiner._handle_validation_result(
-                orch, "users", "abc", valid_config, 0, 3, state, on_progress=None,
+                orch,
+                "users",
+                "abc",
+                valid_config,
+                0,
+                3,
+                state,
+                on_progress=None,
             )
         assert result == valid_config
 
@@ -571,7 +607,14 @@ class TestHandleValidationResult:
         state = _RetryState()
         with DataOrchestrator(db_path) as orch:
             result = refiner._handle_validation_result(
-                orch, "users", "abc", invalid_config, 0, 3, state, on_progress=None,
+                orch,
+                "users",
+                "abc",
+                invalid_config,
+                0,
+                3,
+                state,
+                on_progress=None,
             )
         assert result is None
         # Should have appended assistant + user messages for refinement
@@ -598,7 +641,9 @@ class TestStreamingRefinement:
         progress_events: list[tuple[str, dict[str, Any]]] = []
         with patch.object(refiner._analyzer, "call_llm_streaming", return_value=valid_config):
             refiner.generate_and_refine_streaming(
-                "users", max_retries=3, on_progress=lambda p, i: progress_events.append((p, i)),
+                "users",
+                max_retries=3,
+                on_progress=lambda p, i: progress_events.append((p, i)),
             )
         phases = [p for p, _ in progress_events]
         assert "refining" in phases
@@ -614,7 +659,8 @@ class TestStreamingRefinement:
         refiner._cache_successful_config("users", cached_config, schema_hash)
         call_count = 0
 
-        def mock_streaming(msgs: list[dict[str, str]], on_progress: Any = None) -> dict[str, Any]:
+        def mock_streaming(_msgs: list[dict[str, str]], on_progress: Any = None) -> dict[str, Any]:
+            del on_progress
             nonlocal call_count
             call_count += 1
             return cached_config
@@ -622,7 +668,9 @@ class TestStreamingRefinement:
         progress_events: list[tuple[str, dict[str, Any]]] = []
         with patch.object(refiner._analyzer, "call_llm_streaming", side_effect=mock_streaming):
             result = refiner.generate_and_refine_streaming(
-                "users", max_retries=3, on_progress=lambda p, i: progress_events.append((p, i)),
+                "users",
+                max_retries=3,
+                on_progress=lambda p, i: progress_events.append((p, i)),
             )
         assert result["name"] == "users"
         assert call_count == 0  # Cache hit, no LLM call
@@ -631,40 +679,30 @@ class TestStreamingRefinement:
     def test_streaming_continues_after_generation_failure(self, tmp_path: Any) -> None:
         db_path = _create_users_db(tmp_path)
         refiner = _make_refiner(tmp_path, db_path=db_path)
-        valid_config = _valid_users_config()
-        call_count = 0
-
-        def mock_streaming(msgs: list[dict[str, str]], on_progress: Any = None) -> dict[str, Any]:
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                raise RuntimeError("LLM temporarily failed")
-            return valid_config
-
-        with patch.object(refiner._analyzer, "call_llm_streaming", side_effect=mock_streaming):
+        mock_fn, call_log = _make_fail_then_succeed_streaming(
+            _valid_users_config(),
+            fail_until_call=1,
+            error=RuntimeError("LLM temporarily failed"),
+        )
+        with patch.object(refiner._analyzer, "call_llm_streaming", side_effect=mock_fn):
             result = refiner.generate_and_refine_streaming("users", max_retries=3)
         assert result["name"] == "users"
-        assert call_count == 2
+        assert len(call_log) == 2
 
     def test_streaming_implements_normal_to_ultra_compact_degradation(self, tmp_path: Any) -> None:
         """Verify normal -> compact -> ultra-compact degradation on context overflow."""
         db_path = _create_users_db(tmp_path)
         refiner = _make_refiner(tmp_path, db_path=db_path)
-        valid_config = _valid_users_config()
-        call_count = 0
-
-        def mock_streaming(msgs: list[dict[str, str]], on_progress: Any = None) -> dict[str, Any]:
-            nonlocal call_count
-            call_count += 1
-            if call_count <= 2:
-                raise ContextOverflowError("context exceeded")
-            return valid_config
-
-        with patch.object(refiner._analyzer, "call_llm_streaming", side_effect=mock_streaming):
+        mock_fn, call_log = _make_fail_then_succeed_streaming(
+            _valid_users_config(),
+            fail_until_call=2,
+            error=ContextOverflowError("context exceeded"),
+        )
+        with patch.object(refiner._analyzer, "call_llm_streaming", side_effect=mock_fn):
             result = refiner.generate_and_refine_streaming("users", max_retries=3)
         assert result["name"] == "users"
         # 3 calls: normal overflow, compact overflow, ultra success
-        assert call_count == 3
+        assert len(call_log) == 3
 
 
 class TestRefinementLoopExhaustion:
@@ -673,9 +711,11 @@ class TestRefinementLoopExhaustion:
     def test_raises_unexpected_state_when_all_attempts_return_none(self, tmp_path: Any) -> None:
         db_path = _create_users_db(tmp_path)
         refiner = _make_refiner(tmp_path, db_path=db_path)
-        with DataOrchestrator(db_path) as orch, patch.object(
-            refiner, "_try_prompt_levels", return_value=(None, None)
-        ), pytest.raises(AISuggestionFailedError, match="Unexpected state"):
+        with (
+            DataOrchestrator(db_path) as orch,
+            patch.object(refiner, "_try_prompt_levels", return_value=(None, None)),
+            pytest.raises(AISuggestionFailedError, match="Unexpected state"),
+        ):
             refiner._refinement_loop(
                 orch,
                 "users",

@@ -11,23 +11,99 @@ and HTTP calls are mocked — no real API requests are made.
 
 from __future__ import annotations
 
-from typing import Any
+from contextlib import ExitStack, contextmanager
+from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+# Skip this module if the sqlseed-ai plugin or its openai dependency is not
+# installed. The try/except + pytest.skip(allow_module_level=True) pattern
+# is required because pytest.skip only takes effect in the module where it
+# is called — pytest.importorskip cannot be used here because we need the
+# individual symbols (AIBackend, AIConfig, etc.) as module-level names for
+# use in type annotations and mock.patch targets throughout this module.
 try:
     from openai import APIConnectionError, APIError, APITimeoutError
     from sqlseed_ai.analyzer import SchemaAnalyzer
     from sqlseed_ai.config import AIBackend, AIConfig
     from sqlseed_ai.exceptions import ContextOverflowError
+
+    from tests._ai_helpers import _lm_studio_analyzer_with_models
 except ImportError:
     pytest.skip("sqlseed-ai plugin not installed", allow_module_level=True)
+
+from tests._helpers import clear_llm_env
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 
 def _make_request_obj() -> Any:
     """Build a minimal mock request object for OpenAI exception constructors."""
     return MagicMock()
+
+
+def _make_default_analyzer() -> SchemaAnalyzer:
+    """Build a SchemaAnalyzer with the standard GOOGLE_AI_STUDIO config used across _call_llm_once tests."""
+    config = AIConfig(backend=AIBackend.GOOGLE_AI_STUDIO, model="gemma-4-26b-a4b-it")
+    return SchemaAnalyzer(config=config)
+
+
+def _make_mock_response(content: Any, reasoning_content: Any = None) -> MagicMock:
+    """Build a mock LLM response with a single choice whose message has the given content."""
+    mock_message = MagicMock()
+    mock_message.content = content
+    mock_message.reasoning_content = reasoning_content
+    mock_response = MagicMock()
+    mock_response.choices = [MagicMock()]
+    mock_response.choices[0].message = mock_message
+    return mock_response
+
+
+@contextmanager
+def _patch_call_llm_once_chain(
+    analyzer: SchemaAnalyzer,
+    mock_response: Any,
+    *,
+    parse_return: Any = None,
+    parse_as_mock: bool = False,
+) -> Iterator[MagicMock]:
+    """Patch the _call_llm_once dependency chain (context manager).
+
+    Extracted to avoid CodeDuplication: the 4-patch ``with`` block mocking
+    ``get_openai_client`` → ``_build_llm_kwargs`` → ``_send_llm_request`` →
+    ``_parse_json_response`` was repeated across multiple ``_call_llm_once``
+    success-path tests with only the response and expected-value differing.
+
+    Args:
+        analyzer: The SchemaAnalyzer instance whose methods are patched.
+        mock_response: Return value for ``_send_llm_request`` patch.
+        parse_return: Return value for ``_parse_json_response`` patch
+            (ignored when ``parse_as_mock`` is True). ``None`` is treated as
+            the default sentinel ``{}`` to avoid a mutable default argument
+            (ruff B006).
+        parse_as_mock: When True, patch ``_parse_json_response`` as a plain
+            mock (yielded by the context manager) instead of setting a return
+            value. Used by tests that assert the parser was NOT called.
+    """
+    if parse_return is None:
+        parse_return = {}
+    patches = [
+        patch("sqlseed_ai.analyzer._caller.get_openai_client", return_value=MagicMock()),
+        patch.object(analyzer, "_build_llm_kwargs", return_value={}),
+        patch.object(analyzer, "_send_llm_request", return_value=mock_response),
+    ]
+    if parse_as_mock:
+        parse_patch = patch.object(analyzer, "_parse_json_response")
+    else:
+        parse_patch = patch.object(analyzer, "_parse_json_response", return_value=parse_return)
+
+    with ExitStack() as stack:
+        mock_parse = stack.enter_context(parse_patch)
+        for p in patches:
+            stack.enter_context(p)
+        yield mock_parse
 
 
 class TestFindLocalFallbackModelConfigGuard:
@@ -55,14 +131,7 @@ class TestFindLocalFallbackModelWalksChain:
         but E4B is loaded. The walk should traverse 31B -> 12B -> E4B and
         return the actual local model ID.
         """
-        config = AIConfig(backend=AIBackend.LM_STUDIO, model="google/gemma-4-26b-a4b")
-        analyzer = SchemaAnalyzer(config=config)
-
-        with patch.object(
-            AIConfig,
-            "detect_all_local_models",
-            return_value=["google/gemma-4-e4b"],
-        ):
+        with _lm_studio_analyzer_with_models(["google/gemma-4-e4b"]) as analyzer:
             result = analyzer._find_local_fallback_model(
                 current_model="google/gemma-4-26b-a4b",
                 next_model="gemma-4-31b-it",
@@ -78,14 +147,7 @@ class TestFindLocalFallbackModelWalksChain:
         traverses the entire Gemma 4 chain (31B -> 12B -> E4B -> E2B) without
         finding a match, so the method returns None.
         """
-        config = AIConfig(backend=AIBackend.LM_STUDIO, model="google/gemma-4-26b-a4b")
-        analyzer = SchemaAnalyzer(config=config)
-
-        with patch.object(
-            AIConfig,
-            "detect_all_local_models",
-            return_value=["llama-3-model"],
-        ):
+        with _lm_studio_analyzer_with_models(["llama-3-model"]) as analyzer:
             result = analyzer._find_local_fallback_model(
                 current_model="google/gemma-4-26b-a4b",
                 next_model="gemma-4-31b-it",
@@ -99,14 +161,7 @@ class TestFindLocalFallbackModelWalksChain:
         Setup: current model is 26B, next_model is 31B, and only 12B is loaded
         locally (not 31B or E4B). The walk should find 12B.
         """
-        config = AIConfig(backend=AIBackend.LM_STUDIO, model="google/gemma-4-26b-a4b")
-        analyzer = SchemaAnalyzer(config=config)
-
-        with patch.object(
-            AIConfig,
-            "detect_all_local_models",
-            return_value=["google/gemma-4-12b"],
-        ):
+        with _lm_studio_analyzer_with_models(["google/gemma-4-12b"]) as analyzer:
             result = analyzer._find_local_fallback_model(
                 current_model="google/gemma-4-26b-a4b",
                 next_model="gemma-4-31b-it",
@@ -136,10 +191,7 @@ class TestEnsureConfig:
 
     def test_ensure_config_raises_value_error_when_no_api_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Verify _ensure_config() raises ValueError when no API key is configured."""
-        monkeypatch.delenv("SQLSEED_AI_API_KEY", raising=False)
-        monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
-        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-        monkeypatch.delenv("SQLSEED_AI_BACKEND", raising=False)
+        clear_llm_env(monkeypatch)
 
         analyzer = SchemaAnalyzer(config=None)
         with pytest.raises(ValueError, match="AI API key not configured"):
@@ -373,8 +425,7 @@ class TestCallLlmOnceContextOverflow:
 
     def test_call_llm_once_raises_context_overflow_error(self) -> None:
         """Verify errors classified as ContextOverflowError are re-raised as that type."""
-        config = AIConfig(backend=AIBackend.GOOGLE_AI_STUDIO, model="gemma-4-26b-a4b-it")
-        analyzer = SchemaAnalyzer(config=config)
+        analyzer = _make_default_analyzer()
 
         overflow_err = ValueError("context length exceed maximum")
 
@@ -388,8 +439,7 @@ class TestCallLlmOnceContextOverflow:
 
     def test_call_llm_once_reraises_api_timeout_error(self) -> None:
         """Verify APITimeoutError from _send_llm_request is re-raised unchanged."""
-        config = AIConfig(backend=AIBackend.GOOGLE_AI_STUDIO, model="gemma-4-26b-a4b-it")
-        analyzer = SchemaAnalyzer(config=config)
+        analyzer = _make_default_analyzer()
 
         timeout_err = APITimeoutError(request=_make_request_obj())
 
@@ -403,8 +453,7 @@ class TestCallLlmOnceContextOverflow:
 
     def test_call_llm_once_wraps_other_errors_as_runtime_error(self) -> None:
         """Verify non-timeout, non-overflow errors are wrapped as RuntimeError."""
-        config = AIConfig(backend=AIBackend.GOOGLE_AI_STUDIO, model="gemma-4-26b-a4b-it")
-        analyzer = SchemaAnalyzer(config=config)
+        analyzer = _make_default_analyzer()
 
         other_err = OSError("disk write failed")
 
@@ -422,8 +471,7 @@ class TestCallLlmOnceResponseHandling:
 
     def test_call_llm_once_raises_runtime_error_when_no_choices(self) -> None:
         """Verify RuntimeError is raised when the response has no choices."""
-        config = AIConfig(backend=AIBackend.GOOGLE_AI_STUDIO, model="gemma-4-26b-a4b-it")
-        analyzer = SchemaAnalyzer(config=config)
+        analyzer = _make_default_analyzer()
 
         mock_response = MagicMock()
         mock_response.choices = []
@@ -438,16 +486,8 @@ class TestCallLlmOnceResponseHandling:
 
     def test_call_llm_once_returns_empty_dict_when_content_none(self) -> None:
         """Verify {} is returned when the message content is None."""
-        config = AIConfig(backend=AIBackend.GOOGLE_AI_STUDIO, model="gemma-4-26b-a4b-it")
-        analyzer = SchemaAnalyzer(config=config)
-
-        mock_message = MagicMock()
-        mock_message.content = None
-        mock_message.reasoning_content = None
-
-        mock_response = MagicMock()
-        mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message = mock_message
+        analyzer = _make_default_analyzer()
+        mock_response = _make_mock_response(content=None, reasoning_content=None)
 
         with (
             patch("sqlseed_ai.analyzer._caller.get_openai_client", return_value=MagicMock()),
@@ -467,24 +507,14 @@ class TestCallLlmOnceResponseHandling:
         When the response message has ``reasoning_content``, the method logs a
         debug message and then proceeds to parse the regular content.
         """
-        config = AIConfig(backend=AIBackend.GOOGLE_AI_STUDIO, model="gemma-4-26b-a4b-it")
-        analyzer = SchemaAnalyzer(config=config)
-
-        mock_message = MagicMock()
-        mock_message.content = '{"table_name": "users"}'
-        mock_message.reasoning_content = "chain of thought..."  # truthy
-
-        mock_response = MagicMock()
-        mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message = mock_message
+        analyzer = _make_default_analyzer()
+        mock_response = _make_mock_response(
+            content='{"table_name": "users"}',
+            reasoning_content="chain of thought...",  # truthy
+        )
 
         expected = {"table_name": "users"}
-        with (
-            patch("sqlseed_ai.analyzer._caller.get_openai_client", return_value=MagicMock()),
-            patch.object(analyzer, "_build_llm_kwargs", return_value={}),
-            patch.object(analyzer, "_send_llm_request", return_value=mock_response),
-            patch.object(analyzer, "_parse_json_response", return_value=expected),
-        ):
+        with _patch_call_llm_once_chain(analyzer, mock_response, parse_return=expected):
             result = analyzer._call_llm_once([])
 
         # The parsed result should be returned even when reasoning_content is present.
@@ -492,24 +522,14 @@ class TestCallLlmOnceResponseHandling:
 
     def test_call_llm_once_returns_parsed_dict_on_success(self) -> None:
         """Verify _call_llm_once() returns the parsed JSON dict on a normal response."""
-        config = AIConfig(backend=AIBackend.GOOGLE_AI_STUDIO, model="gemma-4-26b-a4b-it")
-        analyzer = SchemaAnalyzer(config=config)
-
-        mock_message = MagicMock()
-        mock_message.content = '{"table_name": "orders", "columns": []}'
-        mock_message.reasoning_content = None
-
-        mock_response = MagicMock()
-        mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message = mock_message
+        analyzer = _make_default_analyzer()
+        mock_response = _make_mock_response(
+            content='{"table_name": "orders", "columns": []}',
+            reasoning_content=None,
+        )
 
         expected = {"table_name": "orders", "columns": []}
-        with (
-            patch("sqlseed_ai.analyzer._caller.get_openai_client", return_value=MagicMock()),
-            patch.object(analyzer, "_build_llm_kwargs", return_value={}),
-            patch.object(analyzer, "_send_llm_request", return_value=mock_response),
-            patch.object(analyzer, "_parse_json_response", return_value=expected),
-        ):
+        with _patch_call_llm_once_chain(analyzer, mock_response, parse_return=expected):
             result = analyzer._call_llm_once(
                 [{"role": "user", "content": "analyze"}],
                 model="gemma-4-26b-a4b-it",
@@ -519,15 +539,8 @@ class TestCallLlmOnceResponseHandling:
 
     def test_call_llm_once_passes_model_to_build_llm_kwargs(self) -> None:
         """Verify the model parameter is forwarded to _build_llm_kwargs."""
-        config = AIConfig(backend=AIBackend.GOOGLE_AI_STUDIO, model="gemma-4-26b-a4b-it")
-        analyzer = SchemaAnalyzer(config=config)
-
-        mock_message = MagicMock()
-        mock_message.content = None
-        mock_message.reasoning_content = None
-        mock_response = MagicMock()
-        mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message = mock_message
+        analyzer = _make_default_analyzer()
+        mock_response = _make_mock_response(content=None, reasoning_content=None)
 
         with (
             patch("sqlseed_ai.analyzer._caller.get_openai_client", return_value=MagicMock()),
@@ -561,7 +574,7 @@ class TestCallLlmEntryAndFallback:
 
         call_count = 0
 
-        def mock_call_llm_once(_self, _messages, **kwargs):
+        def mock_call_llm_once(_self, _messages, **_kwargs):
             nonlocal call_count
             call_count += 1
             if call_count == 1:

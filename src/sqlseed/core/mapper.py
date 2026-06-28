@@ -317,6 +317,13 @@ class ColumnMapper:
         When enrich is True, returns an __enrich__ spec (instead of skip) for columns
         with default values; when force_type_infer is True, forces fallback by SQL type,
         ignoring the default-value skip logic.
+
+        Strategy levels L1-L5 are evaluated inline (PK skip, user config, exact
+        match, default value, pattern match). Levels L6-L9 (snake_case retry,
+        nullable fallback, type-faithful fallback) are delegated to
+        :meth:`_match_snake_retry_or_fallback` to keep the return-statement
+        count within pylint's threshold while preserving the documented
+        strategy order.
         """
         column_name = column_info.name.lower()
         column_type = column_info.type.upper() if column_info.type else "TEXT"
@@ -342,6 +349,27 @@ class ColumnMapper:
         if pattern_match:
             return pattern_match
 
+        return self._match_snake_retry_or_fallback(column_info, column_name, column_type, enrich, force_type_infer)
+
+    def _match_snake_retry_or_fallback(
+        self,
+        column_info: ColumnInfo,
+        column_name: str,
+        column_type: str,
+        enrich: bool,
+        force_type_infer: bool,
+    ) -> GeneratorSpec:
+        """Levels L6-L9 of the 9-level strategy chain.
+
+        - L6: CamelCase -> snake_case exact retry
+        - L7: snake_case pattern retry
+        - L8: nullable fallback (default value with include_nullable=True)
+        - L9: type-faithful fallback by SQL type
+
+        Extracted from :meth:`map_column` to keep the parent method within
+        pylint's too-many-return-statements threshold. The strategy order is
+        preserved exactly as documented in CLAUDE.md.
+        """
         snake_name = self._to_snake_case(column_info.name)
         if snake_name != column_name:
             snake_exact = self._match_exact(snake_name)

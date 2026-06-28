@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from mcp_server_sqlseed.server import _validate_db_target
 
 

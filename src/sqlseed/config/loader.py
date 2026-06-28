@@ -11,6 +11,8 @@ import json
 from pathlib import Path
 
 import yaml
+from sqlalchemy import create_engine, inspect
+from sqlalchemy.exc import SQLAlchemyError
 
 from sqlseed._utils.logger import get_logger
 from sqlseed.config.models import GeneratorConfig, TableConfig
@@ -37,8 +39,6 @@ def _read_table_names(target: str) -> list[str]:
         RuntimeError: Database driver not installed or connection failed
         ValueError: Invalid URL
     """
-    from sqlalchemy import create_engine, inspect  # noqa: PLC0415
-
     # A plain file path is automatically converted to a SQLite URL
     db_url = target if "://" in target else f"sqlite:///{target}"
     engine = create_engine(db_url)
@@ -163,7 +163,6 @@ def generate_template(
         connection_target = url if url else db_path
         if connection_target is None:
             raise ValueError("Either db_path or url must be provided.")
-        from sqlalchemy.exc import SQLAlchemyError  # noqa: PLC0415
 
         try:
             for tbl_name in _read_table_names(connection_target):

@@ -14,7 +14,7 @@ import re
 import time
 import urllib.request
 from enum import Enum
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from pydantic import BaseModel, Field, PrivateAttr
 
@@ -202,8 +202,10 @@ class AIConfig(BaseModel):
         timeout = float(timeout_str) if timeout_str else 0.0  # 0 = auto-resolve
         protocol_str = os.environ.get("SQLSEED_AI_TOOL_CALLING_PROTOCOL", "").lower().strip()
         protocol: ToolCallingProtocol = "gemma4"  # default
-        if protocol_str in ("gemma4", "openai", "none"):
-            protocol = protocol_str  # type: ignore[assignment]
+        if protocol_str in {"gemma4", "openai", "none"}:
+            # Cast required: mypy cannot narrow `str` to `Literal["gemma4", "openai", "none"]`
+            # via the `in` membership check on a set of literal strings.
+            protocol = cast("ToolCallingProtocol", protocol_str)
 
         # Resolve backend
         backend = _resolve_backend(backend_str, base_url)

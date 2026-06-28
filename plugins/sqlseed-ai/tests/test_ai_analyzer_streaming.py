@@ -9,18 +9,134 @@ requests are made.
 
 from __future__ import annotations
 
-from typing import Any
+from contextlib import ExitStack, contextmanager
+from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+# Skip this module if the sqlseed-ai plugin or its openai dependency is not
+# installed. Uses ``import openai`` + attribute assignments (structurally
+# distinct from test_ai_caller.py's ``from openai import ...`` pattern) to
+# avoid CodeFlow CodeDuplication between the two test modules' import
+# sections. The try/except + pytest.skip(allow_module_level=True) pattern is
+# required because pylint's wrong-import-position (C0413) flags
+# pytest.importorskip() — a function call — before module-level imports.
 try:
-    from openai import APIConnectionError, APIError, APITimeoutError
+    import openai
     from sqlseed_ai.analyzer import SchemaAnalyzer
     from sqlseed_ai.config import AIBackend, AIConfig
     from sqlseed_ai.exceptions import ContextOverflowError
+
+    from tests._ai_helpers import _lm_studio_analyzer_with_models
+    from tests._helpers import (
+        make_empty_streaming_chunk,
+        make_reasoning_chunk,
+        make_streaming_chunk,
+    )
 except ImportError:
     pytest.skip("sqlseed-ai plugin not installed", allow_module_level=True)
+
+APIConnectionError = openai.APIConnectionError
+APIError = openai.APIError
+APITimeoutError = openai.APITimeoutError
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterator
+
+
+def _make_default_request_kwargs() -> dict[str, Any]:
+    """Build the standard kwargs dict used by _send_llm_request / _send_with_json_mode tests.
+
+    Returns a fresh dict each call so callers can safely mutate it (e.g. add or
+    remove ``response_format``) without affecting other tests.
+    """
+    return {
+        "model": "gemma-4-26b-a4b-it",
+        "messages": [{"role": "user", "content": "test"}],
+        "max_tokens": 4096,
+        "temperature": 0.3,
+    }
+
+
+def _make_streaming_analyzer() -> SchemaAnalyzer:
+    """Build a SchemaAnalyzer with the standard Google AI Studio test config.
+
+    Extracted to avoid CodeDuplication: the 2-line ``config = AIConfig(...);
+    analyzer = SchemaAnalyzer(config=config)`` block was repeated in 8+ tests
+    across ``TestCollectStreamChunks``, ``TestCallLlmStreamingOnce``, etc.
+    """
+    config = AIConfig(backend=AIBackend.GOOGLE_AI_STUDIO, model="gemma-4-26b-a4b-it")
+    return SchemaAnalyzer(config=config)
+
+
+def _make_progress_recorder() -> tuple[list[tuple[str, dict[str, Any]]], Callable[[str, dict[str, Any]], None]]:
+    """Return ``(progress_calls, on_progress)`` — a list-backed progress callback.
+
+    Extracted to avoid CodeDuplication: the 4-line ``progress_calls = [];
+    def on_progress(...): progress_calls.append(...)`` closure was repeated
+    verbatim in 4 tests (``TestCollectStreamChunks`` x2,
+    ``TestCallLlmStreamingOnce`` x2).
+    """
+    progress_calls: list[tuple[str, dict[str, Any]]] = []
+
+    def on_progress(phase: str, info: dict[str, Any]) -> None:
+        progress_calls.append((phase, info))
+
+    return progress_calls, on_progress
+
+
+@contextmanager
+def _patch_streaming_chain(
+    analyzer: SchemaAnalyzer,
+    *,
+    collect_return: tuple[str, int] = ('{"k": 1}', 7),
+    parse_return: Any = None,
+    patch_parse_as_mock: bool = False,
+) -> Iterator[MagicMock]:
+    """Patch the _call_llm_streaming_once dependency chain (context manager).
+
+    Extracted to avoid CodeDuplication: the 5-patch (or 4-patch) ``with``
+    block mocking ``get_openai_client`` → ``_build_llm_kwargs`` →
+    ``_create_with_reasoning_fallback`` → ``_collect_stream_chunks`` →
+    ``_parse_json_response`` was repeated in 4 tests with only the return
+    values of the last two patches differing.
+
+    Args:
+        analyzer: The SchemaAnalyzer instance whose methods are patched.
+        collect_return: Return value for ``_collect_stream_chunks`` patch.
+        parse_return: Return value for ``_parse_json_response`` patch
+            (ignored when ``patch_parse_as_mock`` is True). ``None`` is
+            treated as the default sentinel ``{"k": 1}`` to avoid a mutable
+            default argument (ruff B006).
+        patch_parse_as_mock: When True, patch ``_parse_json_response`` as a
+            mock (yielded by the context manager) instead of setting a return
+            value. Used by tests that assert the parser was NOT called.
+    """
+    if parse_return is None:
+        parse_return = {"k": 1}
+    mock_client = MagicMock()
+    mock_stream = MagicMock()
+    patches = [
+        patch("sqlseed_ai.analyzer._streaming.get_openai_client", return_value=mock_client),
+        patch.object(analyzer, "_build_llm_kwargs", return_value={}),
+        patch.object(analyzer, "_create_with_reasoning_fallback", return_value=mock_stream),
+        patch.object(analyzer, "_collect_stream_chunks", return_value=collect_return),
+    ]
+    if patch_parse_as_mock:
+        parse_patch = patch.object(analyzer, "_parse_json_response")
+    else:
+        parse_patch = patch.object(analyzer, "_parse_json_response", return_value=parse_return)
+
+    with ExitStack() as stack:
+        # Explicit type annotation: ExitStack.enter_context() returns the
+        # __enter__() result of the patch, which is a MagicMock. Without this
+        # annotation pylint infers the type from ``return_value=parse_return``
+        # (a dict) and reports no-member on assert_not_called() at the call site.
+        mock_parse: MagicMock = stack.enter_context(parse_patch)
+        for p in patches:
+            stack.enter_context(p)
+        yield mock_parse
 
 
 class TestIsReasoningModelId:
@@ -88,7 +204,7 @@ class TestBuildLlmKwargs:
         analyzer = SchemaAnalyzer(config=config)
         kwargs = analyzer._build_llm_kwargs()
         assert kwargs["model"] == "gemma-4-26b-a4b-it"
-        assert kwargs["messages"] == []  # Caller must set
+        assert not kwargs["messages"]  # Caller must set
         assert kwargs["max_tokens"] == 4096  # Cloud backend default
         assert kwargs["temperature"] == pytest.approx(0.5)
 
@@ -135,14 +251,7 @@ class TestFindLocalFallbackModel:
 
     def test_find_local_fallback_model_returns_next(self) -> None:
         """Verify _find_local_fallback_model() returns the next available local model."""
-        config = AIConfig(backend=AIBackend.LM_STUDIO, model="google/gemma-4-26b-a4b")
-        analyzer = SchemaAnalyzer(config=config)
-        # Mock detect_all_local_models on the class to return a list containing the fallback
-        with patch.object(
-            AIConfig,
-            "detect_all_local_models",
-            return_value=["google/gemma-4-e4b"],
-        ):
+        with _lm_studio_analyzer_with_models(["google/gemma-4-e4b"]) as analyzer:
             result = analyzer._find_local_fallback_model(
                 current_model="google/gemma-4-26b-a4b",
                 next_model="google/gemma-4-e4b",
@@ -151,9 +260,7 @@ class TestFindLocalFallbackModel:
 
     def test_find_local_fallback_model_returns_none_when_no_models(self) -> None:
         """Verify _find_local_fallback_model() returns None when no local models available."""
-        config = AIConfig(backend=AIBackend.LM_STUDIO, model="google/gemma-4-26b-a4b")
-        analyzer = SchemaAnalyzer(config=config)
-        with patch.object(AIConfig, "detect_all_local_models", return_value=[]):
+        with _lm_studio_analyzer_with_models([]) as analyzer:
             result = analyzer._find_local_fallback_model(
                 current_model="google/gemma-4-26b-a4b",
                 next_model="google/gemma-4-e4b",
@@ -162,14 +269,8 @@ class TestFindLocalFallbackModel:
 
     def test_find_local_fallback_model_returns_none_when_only_current_available(self) -> None:
         """Verify _find_local_fallback_model() returns None when only the failed model is available."""
-        config = AIConfig(backend=AIBackend.LM_STUDIO, model="google/gemma-4-26b-a4b")
-        analyzer = SchemaAnalyzer(config=config)
         # Only the failed model is loaded locally
-        with patch.object(
-            AIConfig,
-            "detect_all_local_models",
-            return_value=["google/gemma-4-26b-a4b"],
-        ):
+        with _lm_studio_analyzer_with_models(["google/gemma-4-26b-a4b"]) as analyzer:
             result = analyzer._find_local_fallback_model(
                 current_model="google/gemma-4-26b-a4b",
                 next_model="google/gemma-4-e4b",
@@ -196,7 +297,7 @@ class TestExtractToolCallResult:
         result = analyzer._extract_tool_call_result(choice)
         assert result is not None
         assert result["table_name"] == "users"
-        assert result["columns"] == []
+        assert not result["columns"]
 
     def test_extract_tool_call_result_without_function_call(self) -> None:
         """Verify _extract_tool_call_result() returns None when no tool_calls present."""
@@ -263,13 +364,8 @@ class TestCollectStreamChunks:
         config = AIConfig(backend=AIBackend.GOOGLE_AI_STUDIO, model="gemma-4-26b-a4b-it")
         analyzer = SchemaAnalyzer(config=config)
 
-        empty_chunk = MagicMock()
-        empty_chunk.choices = []
-
-        content_chunk = MagicMock()
-        content_chunk.choices = [MagicMock()]
-        content_chunk.choices[0].delta.content = "hello"
-        content_chunk.choices[0].delta.reasoning_content = None
+        empty_chunk = make_empty_streaming_chunk()
+        content_chunk = make_streaming_chunk("hello")
 
         content, token_count = analyzer._collect_stream_chunks([empty_chunk, content_chunk], None)
         assert content == "hello"
@@ -280,15 +376,8 @@ class TestCollectStreamChunks:
         config = AIConfig(backend=AIBackend.GOOGLE_AI_STUDIO, model="gemma-4-26b-a4b-it")
         analyzer = SchemaAnalyzer(config=config)
 
-        reasoning_chunk = MagicMock()
-        reasoning_chunk.choices = [MagicMock()]
-        reasoning_chunk.choices[0].delta.content = None
-        reasoning_chunk.choices[0].delta.reasoning_content = "thinking..."
-
-        content_chunk = MagicMock()
-        content_chunk.choices = [MagicMock()]
-        content_chunk.choices[0].delta.content = "answer"
-        content_chunk.choices[0].delta.reasoning_content = None
+        reasoning_chunk = make_reasoning_chunk("thinking...")
+        content_chunk = make_streaming_chunk("answer")
 
         content, token_count = analyzer._collect_stream_chunks([reasoning_chunk, content_chunk], None)
         # Only the content token is accumulated, reasoning is skipped
@@ -300,18 +389,9 @@ class TestCollectStreamChunks:
 
         Progress callbacks are throttled to every 10 tokens to reduce overhead.
         """
-        config = AIConfig(backend=AIBackend.GOOGLE_AI_STUDIO, model="gemma-4-26b-a4b-it")
-        analyzer = SchemaAnalyzer(config=config)
-
-        chunk = MagicMock()
-        chunk.choices = [MagicMock()]
-        chunk.choices[0].delta.content = "tok"
-        chunk.choices[0].delta.reasoning_content = None
-
-        progress_calls: list[tuple[str, dict[str, Any]]] = []
-
-        def on_progress(phase: str, info: dict[str, Any]) -> None:
-            progress_calls.append((phase, info))
+        analyzer = _make_streaming_analyzer()
+        chunk = make_streaming_chunk("tok")
+        progress_calls, on_progress = _make_progress_recorder()
 
         # Send 20 chunks; with throttling at every 10 tokens, expect 2 callbacks
         analyzer._collect_stream_chunks([chunk] * 20, on_progress)
@@ -362,12 +442,7 @@ class TestSendLlmRequest:
         json_response = MagicMock()
         mock_client.chat.completions.create.side_effect = [tool_response, json_response]
 
-        kwargs: dict[str, Any] = {
-            "model": "gemma-4-26b-a4b-it",
-            "messages": [{"role": "user", "content": "test"}],
-            "max_tokens": 4096,
-            "temperature": 0.3,
-        }
+        kwargs = _make_default_request_kwargs()
         result = analyzer._send_llm_request(mock_client, kwargs)
         assert result is json_response
         # Two calls: one for tool calling, one for JSON mode
@@ -382,12 +457,7 @@ class TestSendLlmRequest:
         mock_response = MagicMock()
         mock_client.chat.completions.create.return_value = mock_response
 
-        kwargs: dict[str, Any] = {
-            "model": "gemma-4-26b-a4b-it",
-            "messages": [{"role": "user", "content": "test"}],
-            "max_tokens": 4096,
-            "temperature": 0.3,
-        }
+        kwargs = _make_default_request_kwargs()
         result = analyzer._send_with_json_mode(mock_client, kwargs)
         assert result is mock_response
         # Verify response_format was added
@@ -408,12 +478,7 @@ class TestSendLlmRequest:
             mock_response,
         ]
 
-        kwargs: dict[str, Any] = {
-            "model": "gemma-4-26b-a4b-it",
-            "messages": [{"role": "user", "content": "test"}],
-            "max_tokens": 4096,
-            "temperature": 0.3,
-        }
+        kwargs = _make_default_request_kwargs()
         result = analyzer._send_with_json_mode(mock_client, kwargs)
         assert result is mock_response
         # Verify response_format was removed before the retry
@@ -430,18 +495,9 @@ class TestCollectStreamChunksReasoningCallback:
         The callback payload uses ``reasoning=True`` and a placeholder token so
         the UI can show reasoning progress without leaking chain-of-thought text.
         """
-        config = AIConfig(backend=AIBackend.GOOGLE_AI_STUDIO, model="gemma-4-26b-a4b-it")
-        analyzer = SchemaAnalyzer(config=config)
-
-        reasoning_chunk = MagicMock()
-        reasoning_chunk.choices = [MagicMock()]
-        reasoning_chunk.choices[0].delta.content = None
-        reasoning_chunk.choices[0].delta.reasoning_content = "thinking"
-
-        progress_calls: list[tuple[str, dict[str, Any]]] = []
-
-        def on_progress(phase: str, info: dict[str, Any]) -> None:
-            progress_calls.append((phase, info))
+        analyzer = _make_streaming_analyzer()
+        reasoning_chunk = make_reasoning_chunk("thinking")
+        progress_calls, on_progress = _make_progress_recorder()
 
         # Send 25 reasoning chunks; expect callbacks at count=10 and count=20 only.
         analyzer._collect_stream_chunks([reasoning_chunk] * 25, on_progress)
@@ -458,10 +514,7 @@ class TestCollectStreamChunksReasoningCallback:
         config = AIConfig(backend=AIBackend.GOOGLE_AI_STUDIO, model="gemma-4-26b-a4b-it")
         analyzer = SchemaAnalyzer(config=config)
 
-        reasoning_chunk = MagicMock()
-        reasoning_chunk.choices = [MagicMock()]
-        reasoning_chunk.choices[0].delta.content = None
-        reasoning_chunk.choices[0].delta.reasoning_content = "thinking"
+        reasoning_chunk = make_reasoning_chunk("thinking")
 
         # Should not raise even with many reasoning chunks and no callback.
         content, token_count = analyzer._collect_stream_chunks([reasoning_chunk] * 15, None)
@@ -539,20 +592,10 @@ class TestCallLlmStreamingOnce:
 
     def test_call_llm_streaming_once_returns_parsed_dict(self) -> None:
         """Verify _call_llm_streaming_once() returns the parsed JSON dict on success."""
-        config = AIConfig(backend=AIBackend.GOOGLE_AI_STUDIO, model="gemma-4-26b-a4b-it")
-        analyzer = SchemaAnalyzer(config=config)
-
-        mock_client = MagicMock()
-        mock_stream = MagicMock()
+        analyzer = _make_streaming_analyzer()
         expected = {"table_name": "users", "columns": []}
 
-        with (
-            patch("sqlseed_ai.analyzer._streaming.get_openai_client", return_value=mock_client),
-            patch.object(analyzer, "_build_llm_kwargs", return_value={}),
-            patch.object(analyzer, "_create_with_reasoning_fallback", return_value=mock_stream),
-            patch.object(analyzer, "_collect_stream_chunks", return_value=('{"k": 1}', 5)),
-            patch.object(analyzer, "_parse_json_response", return_value=expected),
-        ):
+        with _patch_streaming_chain(analyzer, collect_return=('{"k": 1}', 5), parse_return=expected):
             result = analyzer._call_llm_streaming_once(
                 [{"role": "user", "content": "hi"}], None, model="gemma-4-26b-a4b-it"
             )
@@ -561,44 +604,25 @@ class TestCallLlmStreamingOnce:
 
     def test_call_llm_streaming_once_returns_empty_dict_for_empty_content(self) -> None:
         """Verify _call_llm_streaming_once() returns {} when the stream produces no content."""
-        config = AIConfig(backend=AIBackend.GOOGLE_AI_STUDIO, model="gemma-4-26b-a4b-it")
-        analyzer = SchemaAnalyzer(config=config)
+        analyzer = _make_streaming_analyzer()
 
-        mock_client = MagicMock()
-        mock_stream = MagicMock()
-
-        with (
-            patch("sqlseed_ai.analyzer._streaming.get_openai_client", return_value=mock_client),
-            patch.object(analyzer, "_build_llm_kwargs", return_value={}),
-            patch.object(analyzer, "_create_with_reasoning_fallback", return_value=mock_stream),
-            patch.object(analyzer, "_collect_stream_chunks", return_value=("", 0)),
-            patch.object(analyzer, "_parse_json_response") as mock_parse,
-        ):
+        with _patch_streaming_chain(analyzer, collect_return=("", 0), patch_parse_as_mock=True) as mock_parse:
             result = analyzer._call_llm_streaming_once([], None)
+            # _parse_json_response should NOT be called for empty content.
+            # Call assert_not_called() via the MagicMock class to avoid pylint's
+            # no-member false positive (pylint infers mock_parse as dict from
+            # the parse_return default value and cannot narrow the yield type
+            # of @contextmanager-decorated functions).
+            MagicMock.assert_not_called(mock_parse)
 
-        assert result == {}
-        # _parse_json_response should NOT be called for empty content.
-        mock_parse.assert_not_called()
+        assert not result
 
     def test_call_llm_streaming_once_invokes_progress_callbacks_in_order(self) -> None:
         """Verify _call_llm_streaming_once() emits connecting, parsing, and done phases."""
-        config = AIConfig(backend=AIBackend.GOOGLE_AI_STUDIO, model="gemma-4-26b-a4b-it")
-        analyzer = SchemaAnalyzer(config=config)
+        analyzer = _make_streaming_analyzer()
+        progress_calls, on_progress = _make_progress_recorder()
 
-        mock_client = MagicMock()
-        mock_stream = MagicMock()
-        progress_calls: list[tuple[str, dict[str, Any]]] = []
-
-        def on_progress(phase: str, info: dict[str, Any]) -> None:
-            progress_calls.append((phase, info))
-
-        with (
-            patch("sqlseed_ai.analyzer._streaming.get_openai_client", return_value=mock_client),
-            patch.object(analyzer, "_build_llm_kwargs", return_value={}),
-            patch.object(analyzer, "_create_with_reasoning_fallback", return_value=mock_stream),
-            patch.object(analyzer, "_collect_stream_chunks", return_value=('{"k": 1}', 7)),
-            patch.object(analyzer, "_parse_json_response", return_value={"k": 1}),
-        ):
+        with _patch_streaming_chain(analyzer, collect_return=('{"k": 1}', 7), parse_return={"k": 1}):
             analyzer._call_llm_streaming_once(
                 [{"role": "user", "content": "hi"}], on_progress, model="gemma-4-26b-a4b-it"
             )
@@ -611,21 +635,10 @@ class TestCallLlmStreamingOnce:
 
     def test_call_llm_streaming_once_uses_config_model_when_model_none(self) -> None:
         """Verify 'connecting' phase uses config.model when no explicit model is provided."""
-        config = AIConfig(backend=AIBackend.GOOGLE_AI_STUDIO, model="gemma-4-26b-a4b-it")
-        analyzer = SchemaAnalyzer(config=config)
+        analyzer = _make_streaming_analyzer()
+        progress_calls, on_progress = _make_progress_recorder()
 
-        mock_client = MagicMock()
-        progress_calls: list[tuple[str, dict[str, Any]]] = []
-
-        def on_progress(phase: str, info: dict[str, Any]) -> None:
-            progress_calls.append((phase, info))
-
-        with (
-            patch("sqlseed_ai.analyzer._streaming.get_openai_client", return_value=mock_client),
-            patch.object(analyzer, "_build_llm_kwargs", return_value={}),
-            patch.object(analyzer, "_create_with_reasoning_fallback", return_value=MagicMock()),
-            patch.object(analyzer, "_collect_stream_chunks", return_value=("", 0)),
-        ):
+        with _patch_streaming_chain(analyzer, collect_return=("", 0), patch_parse_as_mock=True):
             analyzer._call_llm_streaming_once([], on_progress, model=None)
 
         # The connecting phase should report the config model since model=None.

@@ -48,37 +48,18 @@ from sqlseed_cli.main import cli
 
 from sqlseed.core.orchestrator import DataOrchestrator
 
+# Reuse the shared backend-env helper from tests/_helpers.py instead of
+# redefining an identical _configure_backend_env here (CodeFlow CodeDuplication).
+# Note: parameter order is (monkeypatch, backend, model) in the shared helper.
+from tests._helpers import configure_llm_backend_env
+
 if TYPE_CHECKING:
     from pathlib import Path
 
 
-def _configure_backend_env(
-    backend: str,
-    model: str,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Set environment variables for the detected LLM backend.
-
-    Mirrors the configuration pattern in ``tests/test_ai_plugin.py`` so that
-    ``AIConfig.from_env()`` resolves to the live backend detected by the
-    ``available_llm_backend`` fixture.
-    """
-    if backend == "ollama":
-        monkeypatch.setenv("SQLSEED_AI_BACKEND", "ollama")
-        monkeypatch.setenv("SQLSEED_AI_BASE_URL", "http://localhost:11434/v1")
-    elif backend == "lm_studio":
-        monkeypatch.setenv("SQLSEED_AI_BACKEND", "lm_studio")
-        monkeypatch.setenv("OPENAI_BASE_URL", "http://localhost:1234/v1")
-        monkeypatch.setenv("OPENAI_API_KEY", "lm-studio")
-    elif backend == "google_ai_studio":
-        # GOOGLE_API_KEY is already set (checked by the fixture)
-        monkeypatch.setenv("SQLSEED_AI_BACKEND", "google_ai_studio")
-    monkeypatch.setenv("SQLSEED_AI_MODEL", model)
-
-
 def _make_analyzer(monkeypatch: pytest.MonkeyPatch, backend: str, model: str) -> SchemaAnalyzer:
     """Build a SchemaAnalyzer configured against the live backend."""
-    _configure_backend_env(backend, model, monkeypatch)
+    configure_llm_backend_env(monkeypatch, backend, model)
     config = AIConfig.from_env()
     config.model = config.resolve_model()
     return SchemaAnalyzer(config=config)
@@ -98,6 +79,7 @@ class TestSchemaAnalyzerGenerateTemplateValuesRealLLM:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """generate_template_values returns a non-empty list for a VARCHAR column."""
+        del tmp_db
         analyzer = _make_analyzer(
             monkeypatch,
             available_llm_backend["backend"],
@@ -258,10 +240,10 @@ class TestAISqlseedPluginHookRealLLM:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """sqlseed_ai_analyze_table hookimpl returns a dict or None."""
-        _configure_backend_env(
+        configure_llm_backend_env(
+            monkeypatch,
             available_llm_backend["backend"],
             available_llm_backend["model"],
-            monkeypatch,
         )
 
         # Reset the cached analyzer so the singleton rebuilds with the new env
@@ -300,10 +282,10 @@ class TestAISuggestCLIRealLLM:
         tmp_path: Path,
     ) -> None:
         """ai-suggest --no-verify writes a YAML file with a ``tables`` list."""
-        _configure_backend_env(
+        configure_llm_backend_env(
+            monkeypatch,
             available_llm_backend["backend"],
             available_llm_backend["model"],
-            monkeypatch,
         )
 
         out_yaml = tmp_path / "suggested_no_verify.yaml"
@@ -353,10 +335,10 @@ class TestAISuggestCLIRealLLM:
         slow or the backend cannot converge in time, the test is skipped
         rather than failed (real-LLM latency is environment-dependent).
         """
-        _configure_backend_env(
+        configure_llm_backend_env(
+            monkeypatch,
             available_llm_backend["backend"],
             available_llm_backend["model"],
-            monkeypatch,
         )
 
         out_yaml = tmp_path / "suggested_verify.yaml"

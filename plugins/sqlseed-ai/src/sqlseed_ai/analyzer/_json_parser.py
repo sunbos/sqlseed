@@ -32,16 +32,24 @@ class JsonParserMixin:
 
     if TYPE_CHECKING:
         # Provided by ContextBuilderMixin when combined in SchemaAnalyzer.
+        # Stubs use `raise NotImplementedError` (not docstring-only body)
+        # so pylint does not infer an implicit `return None` and falsely
+        # flag callers with assignment-from-no-return. Real impls live in
+        # ContextBuilderMixin / LLMCallerMixin and DO return values.
         def build_initial_messages(
             self,
             schema_ctx: dict[str, Any],
             *,
             compact: bool = False,
             ultra_compact: bool = False,
-        ) -> list[dict[str, str]]: ...
+        ) -> list[dict[str, str]]:
+            """Build the initial LLM message list from schema context (stub; real impl in ContextBuilderMixin)."""
+            raise NotImplementedError
 
         # Provided by LLMCallerMixin when combined in SchemaAnalyzer.
-        def call_llm(self, messages: list[dict[str, str]]) -> dict[str, Any]: ...
+        def call_llm(self, messages: list[dict[str, str]]) -> dict[str, Any]:
+            """Send messages to the LLM and return the parsed response (stub; real impl in LLMCallerMixin)."""
+            raise NotImplementedError
 
     def analyze_table_from_ctx(
         self,

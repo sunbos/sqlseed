@@ -42,9 +42,30 @@ def _generate_from_schema(
 
     Supports ``string``, ``integer``, ``number``, ``boolean``, ``array`` and ``object`` types.
     For ``array`` the element count is decided by ``get_array_count``; for ``object`` the
-    ``properties`` are iterated and generated recursively.
+    ``properties`` are iterated and generated recursively. Scalar types delegate to
+    :func:`_generate_scalar`.
     """
     schema_type = schema.get("type", "string")
+
+    # Complex types require schema-driven recursion.
+    if schema_type == "array":
+        items = schema.get("items", {"type": "string"})
+        count = get_array_count()
+        return [_generate_from_schema(provider, items, get_array_count) for _ in range(count)]
+    if schema_type == "object":
+        properties = schema.get("properties", {})
+        return {k: _generate_from_schema(provider, v, get_array_count) for k, v in properties.items()}
+
+    # Scalar types (string, integer, number, boolean, fallback).
+    return _generate_scalar(provider, schema_type)
+
+
+def _generate_scalar(provider: DataProvider, schema_type: str) -> Any:
+    """Generate a scalar value for the given JSON Schema type.
+
+    Handles ``string``, ``integer``, ``number``, ``boolean``. Falls back to a
+    plain string for unknown or missing types.
+    """
     if schema_type == "string":
         return provider.generate("string", min_length=5, max_length=20)
     if schema_type == "integer":
@@ -53,11 +74,4 @@ def _generate_from_schema(
         return provider.generate("float")
     if schema_type == "boolean":
         return provider.generate("boolean")
-    if schema_type == "array":
-        items = schema.get("items", {"type": "string"})
-        count = get_array_count()
-        return [_generate_from_schema(provider, items, get_array_count) for _ in range(count)]
-    if schema_type == "object":
-        properties = schema.get("properties", {})
-        return {k: _generate_from_schema(provider, v, get_array_count) for k, v in properties.items()}
     return provider.generate("string")

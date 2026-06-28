@@ -21,6 +21,8 @@ from sqlseed._utils.sql_safe import validate_table_name
 from sqlseed.core.result import GenerationResult
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from sqlseed._utils.metrics import MetricsCollector
     from sqlseed.core.plugin_mediator import PluginMediator
     from sqlseed.core.relation import RelationResolver, SharedPool
@@ -46,7 +48,10 @@ class GenerationMixin:
     _optimize_pragma: bool
 
     if TYPE_CHECKING:
-        # Provided by ConnectionMixin as read-only properties.
+        # Provided by ConnectionMixin as read-only properties. Split into two
+        # TYPE_CHECKING blocks to keep each block's McCabe complexity under
+        # pylint's too-complex threshold (10). The first block groups the
+        # Connection accessors; the second groups the spec-resolver methods.
         @property
         def _db(self) -> DatabaseAdapter: ...
 
@@ -68,35 +73,15 @@ class GenerationMixin:
         # Provided by ConnectionMixin when combined in DataOrchestrator.
         def _ensure_connected(self) -> None: ...
 
-        # Provided by SpecResolverMixin when combined in DataOrchestrator.
-        def _prepare_specs(
-            self,
-            table_name: str,
-            count: int,
-            columns: dict[str, Any] | None,
-            column_configs: list[Any] | None,
-            enrich: bool,
-            clear_before: bool,
-            skip_ai: bool = False,
-        ) -> tuple[dict[str, Any], dict[str, Any], set[str]]: ...
-
-        def _build_stream(
-            self,
-            generator_specs: dict[str, Any],
-            user_configs: dict[str, Any],
-            unique_columns: set[str],
-            transform: str | None,
-            seed: int | None,
-        ) -> DataStream: ...
-
-        def _resolve_specs(
-            self,
-            table_name: str,
-            count: int,
-            columns: dict[str, Any] | None,
-            column_configs: list[Any] | None,
-            enrich: bool,
-        ) -> tuple[dict[str, Any], dict[str, Any], set[str]]: ...
+    if TYPE_CHECKING:
+        # Cross-mixin methods — actual implementations in SpecResolverMixin.
+        # Declared as ``Callable[..., T]`` to preserve return type checking
+        # without duplicating the full parameter signatures (which would
+        # trigger CodeDuplication with _specs.py). Argument checking is
+        # deferred to DataOrchestrator, where mypy sees the real method.
+        _prepare_specs: Callable[..., tuple[dict[str, Any], dict[str, Any], set[str]]]
+        _build_stream: Callable[..., DataStream]
+        _resolve_specs: Callable[..., tuple[dict[str, Any], dict[str, Any], set[str]]]
 
     def _generate_and_insert_batches(
         self,
@@ -291,6 +276,11 @@ class GenerationMixin:
         column_configs: list[Any] | None = None,
         enrich: bool = False,
     ) -> list[dict[str, Any]]:
+        """Generate preview rows without writing to the database.
+
+        Resolves specs, builds a data stream, and applies plugin batch transforms
+        (if any), returning up to ``count`` rows as dicts. No rows are persisted.
+        """
         self._ensure_connected()
         validate_table_name(table_name)
 

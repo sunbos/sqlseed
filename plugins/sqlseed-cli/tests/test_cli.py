@@ -421,7 +421,7 @@ class TestCLIUrlOption:
         def mock_create_engine(url: str, **kwargs: Any) -> Any:
             raise NoSuchModuleError("postgresql.psycopg")
 
-        monkeypatch.setattr("sqlalchemy.create_engine", mock_create_engine)
+        monkeypatch.setattr("sqlseed.database.sqlalchemy_adapter.create_engine", mock_create_engine)
 
         runner = CliRunner()
         result = runner.invoke(

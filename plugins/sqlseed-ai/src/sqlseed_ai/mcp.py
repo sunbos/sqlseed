@@ -20,59 +20,27 @@ from __future__ import annotations
 
 import json
 import urllib.request
-from pathlib import Path
 from typing import Any
 
 import yaml
 
-from sqlseed._utils.logger import get_logger
-from sqlseed.config.models import ColumnConfig
-from sqlseed.core.orchestrator import DataOrchestrator
-
 try:
     from mcp.server.fastmcp import FastMCP
 except ImportError as _exc:  # pragma: no cover - import error path
-    raise ImportError(
-        "mcp SDK not installed. Install with: pip install 'sqlseed-ai[mcp]'"
-    ) from _exc
+    raise ImportError("mcp SDK not installed. Install with: pip install 'sqlseed-ai[mcp]'") from _exc
 
+from sqlseed_ai import AIBackend, AIConfig, AiConfigRefiner, AISuggestionFailedError, GemmaModel, SchemaAnalyzer
 from sqlseed_ai._hardware import MODEL_REQUIREMENTS, detect_hardware, evaluate_model_status
-from sqlseed_ai.analyzer import SchemaAnalyzer
-from sqlseed_ai.config import AIBackend, AIConfig, GemmaModel
-from sqlseed_ai.refiner import AiConfigRefiner, AISuggestionFailedError
+
+from sqlseed._utils.logger import get_logger
+from sqlseed._utils.paths import validate_db_target as _validate_db_target
+from sqlseed._utils.paths import validate_table_name as _validate_table_name
+from sqlseed.config.models import ColumnConfig
+from sqlseed.core.orchestrator import DataOrchestrator
 
 logger = get_logger(__name__)
 
 mcp = FastMCP("sqlseed-ai")
-
-
-def _validate_db_target(db_path: str) -> str:
-    """Validate a database connection target (file path or URL).
-
-    Mirrors the validation in ``mcp_server_sqlseed.server._validate_db_target``.
-    Duplicated intentionally: the two MCP servers are independent packages
-    and neither should import from the other.
-    """
-    if "://" in db_path:
-        return db_path
-
-    resolved = Path(db_path).resolve()
-    valid_exts = (".db", ".sqlite", ".sqlite3")
-    if not str(resolved).endswith(valid_exts):
-        raise ValueError(
-            f"Invalid database target: {db_path}. "
-            "Must be a .db/.sqlite/.sqlite3 file or a database URL "
-            "(e.g., postgresql://user:pass@host/db)."
-        )
-    if not resolved.exists():
-        raise ValueError(f"Database file not found: {db_path}")
-    return str(resolved)
-
-
-def _validate_table_name(table_name: str, allowed_tables: list[str]) -> str:
-    if table_name not in allowed_tables:
-        raise ValueError(f"Table '{table_name}' does not exist in the database. Available: {allowed_tables}")
-    return table_name
 
 
 def _build_ai_config(
@@ -119,6 +87,7 @@ def sqlseed_ai_generate_yaml(
     api_key: str | None = None,
     base_url: str | None = None,
     model: str | None = None,
+    backend: str | None = None,
 ) -> str:
     """Generate YAML config for a table using LLM-driven semantic analysis.
 
@@ -127,6 +96,7 @@ def sqlseed_ai_generate_yaml(
     semantics. For rule-driven offline generation, use the
     ``sqlseed_generate_yaml`` tool from ``mcp-server-sqlseed`` instead.
 
+    Supported backends: google_ai_studio (default), lm_studio, ollama, openai_compat.
     Returns a YAML string for human review.
     """
     try:
@@ -134,11 +104,15 @@ def sqlseed_ai_generate_yaml(
         with DataOrchestrator(db_path) as orch:
             _validate_table_name(table_name, orch.get_table_names())
 
-        ai_config = AIConfig.from_env().apply_overrides(api_key=api_key, base_url=base_url, model=model)
+        ai_config = AIConfig.from_env().apply_overrides(
+            api_key=api_key,
+            base_url=base_url,
+            model=model,
+            backend=AIBackend(backend) if backend else None,
+        )
         ai_config.model = ai_config.resolve_model()
 
-        analyzer = SchemaAnalyzer(config=ai_config)
-        refiner = AiConfigRefiner(analyzer, db_path)
+        refiner = AiConfigRefiner.from_config(ai_config, db_path)
 
         result = refiner.generate_and_refine(
             table_name=table_name,
@@ -224,8 +198,7 @@ def sqlseed_gemma4_agent_fill(
         ai_config = _build_ai_config(db_path, model, backend)
 
         # Step 1: AI analysis with self-correction
-        analyzer = SchemaAnalyzer(config=ai_config)
-        refiner = AiConfigRefiner(analyzer, db_path)
+        refiner = AiConfigRefiner.from_config(ai_config, db_path)
 
         try:
             ai_result = refiner.generate_and_refine(

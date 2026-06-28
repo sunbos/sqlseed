@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
 from sqlseed.database._helpers import (
     apply_bulk_optimize,
     apply_bulk_restore,
@@ -17,6 +19,12 @@ from sqlseed.database._helpers import (
     fetch_sample_rows,
 )
 from sqlseed.database._protocol import ColumnInfo, IndexInfo
+
+# Reuse the shared ``make_column_info`` factory from the root conftest to
+# avoid duplicating the ColumnInfo construction block (CodeFlow
+# ``ColumnInfo helper`` duplicate-code). ``make_column`` is kept as a thin
+# wrapper so existing call sites stay readable (only 2 args, nullable=True).
+from tests.conftest import make_column_info
 
 
 class FakeCursor:
@@ -30,15 +38,8 @@ class FakeCursor:
 
 
 def make_column(name: str, col_type: str = "TEXT") -> ColumnInfo:
-    """Create a ColumnInfo instance for testing."""
-    return ColumnInfo(
-        name=name,
-        type=col_type,
-        nullable=True,
-        default=None,
-        is_primary_key=False,
-        is_autoincrement=False,
-    )
+    """Create a nullable ColumnInfo instance for testing."""
+    return make_column_info(name, col_type=col_type, nullable=True)
 
 
 class FakeOptimizer:
@@ -105,7 +106,7 @@ class TestFetchIndexInfo:
     def test_no_indexes_returns_empty(self) -> None:
         execute_fn, _ = self._make_execute_fn([])
         result = fetch_index_info(execute_fn, "users")
-        assert result == []
+        assert not result
 
     def test_single_unique_index_single_column(self) -> None:
         execute_fn, _ = self._make_execute_fn(
@@ -208,7 +209,7 @@ class TestFetchIndexInfo:
         )
         result = fetch_index_info(execute_fn, "users")
         assert len(result) == 1
-        assert result[0].columns == ()
+        assert not result[0].columns
 
     def test_integration_with_raw_adapter(self, raw_adapter) -> None:
         """Integration: the users table has an autoindex for its PRIMARY KEY."""
@@ -231,6 +232,7 @@ class TestFetchSampleRows:
     @staticmethod
     def _make_execute_fn(rows: list[Any]) -> Any:
         def execute_fn(sql: str, params: Any = None) -> FakeCursor:
+            del sql, params
             return FakeCursor(rows)
 
         return execute_fn
@@ -239,7 +241,7 @@ class TestFetchSampleRows:
         execute_fn = self._make_execute_fn([])
         columns = [make_column("id"), make_column("name")]
         result = fetch_sample_rows(execute_fn, columns, "users")
-        assert result == []
+        assert not result
 
     def test_single_row(self) -> None:
         execute_fn = self._make_execute_fn([(1, "alice")])
@@ -249,11 +251,13 @@ class TestFetchSampleRows:
         assert result[0] == {"id": 1, "name": "alice"}
 
     def test_multiple_rows(self) -> None:
-        execute_fn = self._make_execute_fn([
-            (1, "alice"),
-            (2, "bob"),
-            (3, "carol"),
-        ])
+        execute_fn = self._make_execute_fn(
+            [
+                (1, "alice"),
+                (2, "bob"),
+                (3, "carol"),
+            ]
+        )
         columns = [make_column("id"), make_column("name")]
         result = fetch_sample_rows(execute_fn, columns, "users")
         assert len(result) == 3
@@ -261,44 +265,39 @@ class TestFetchSampleRows:
         assert result[1]["name"] == "bob"
         assert result[2]["name"] == "carol"
 
-    def test_default_limit_is_five(self) -> None:
+    @pytest.mark.parametrize(
+        ("limit_arg", "expected_params"),
+        [
+            (None, [5]),  # No limit kwarg → default of 5
+            (20, [20]),
+            (0, [0]),
+        ],
+        ids=["default_is_five", "custom_twenty", "zero"],
+    )
+    def test_limit_param_passed_to_execute_fn(
+        self,
+        limit_arg: int | None,
+        expected_params: list[int],
+    ) -> None:
+        """The ``limit`` kwarg (or default 5) is forwarded as ``params`` to ``execute_fn``."""
         captured: dict[str, Any] = {}
 
-        def execute_fn(sql: str, params: Any = None) -> FakeCursor:
-            captured["sql"] = sql
+        def execute_fn(_sql: str, params: Any = None) -> FakeCursor:
             captured["params"] = params
             return FakeCursor([])
 
         columns = [make_column("id")]
-        fetch_sample_rows(execute_fn, columns, "users")
-        assert captured["params"] == [5]
-
-    def test_custom_limit_passed(self) -> None:
-        captured: dict[str, Any] = {}
-
-        def execute_fn(sql: str, params: Any = None) -> FakeCursor:
-            captured["params"] = params
-            return FakeCursor([])
-
-        columns = [make_column("id")]
-        fetch_sample_rows(execute_fn, columns, "users", limit=20)
-        assert captured["params"] == [20]
-
-    def test_limit_zero(self) -> None:
-        captured: dict[str, Any] = {}
-
-        def execute_fn(sql: str, params: Any = None) -> FakeCursor:
-            captured["params"] = params
-            return FakeCursor([])
-
-        columns = [make_column("id")]
-        fetch_sample_rows(execute_fn, columns, "users", limit=0)
-        assert captured["params"] == [0]
+        if limit_arg is None:
+            fetch_sample_rows(execute_fn, columns, "users")
+        else:
+            fetch_sample_rows(execute_fn, columns, "users", limit=limit_arg)
+        assert captured["params"] == expected_params
 
     def test_sql_contains_quoted_identifiers(self) -> None:
         captured: dict[str, Any] = {}
 
         def execute_fn(sql: str, params: Any = None) -> FakeCursor:
+            del params
             captured["sql"] = sql
             return FakeCursor([])
 
@@ -319,7 +318,7 @@ class TestFetchSampleRows:
     def test_empty_columns_list(self) -> None:
         execute_fn = self._make_execute_fn([])
         result = fetch_sample_rows(execute_fn, [], "users")
-        assert result == []
+        assert not result
 
     def test_single_column(self) -> None:
         execute_fn = self._make_execute_fn([(1,), (2,), (3,)])
@@ -352,59 +351,40 @@ class TestBatchInsertRows:
         inserted = batch_insert_rows(data, 5, len)
         assert inserted == 3
 
-    def test_exact_multiple_of_batch_size(self) -> None:
-        data = iter([{"a": i} for i in range(10)])
+    @pytest.mark.parametrize(
+        ("data_count", "batch_size", "expected_inserted", "expected_calls"),
+        [
+            (10, 5, 10, [5, 5]),
+            (7, 5, 7, [5, 2]),
+            (3, 1, 3, [1, 1, 1]),
+            (5, 5, 5, [5]),
+        ],
+        ids=["exact_multiple", "last_batch_smaller", "batch_size_one", "batch_equals_data"],
+    )
+    def test_batching_behavior(
+        self,
+        data_count: int,
+        batch_size: int,
+        expected_inserted: int,
+        expected_calls: list[int],
+    ) -> None:
+        """``batch_insert_rows`` splits data into batches of ``batch_size`` and sums return values."""
+        data = iter([{"a": i} for i in range(data_count)])
         calls: list[int] = []
 
         def insert_fn(batch: list[dict[str, Any]]) -> int:
             calls.append(len(batch))
             return len(batch)
 
-        inserted = batch_insert_rows(data, 5, insert_fn)
-        assert inserted == 10
-        assert calls == [5, 5]
-
-    def test_last_batch_smaller(self) -> None:
-        data = iter([{"a": i} for i in range(7)])
-        calls: list[int] = []
-
-        def insert_fn(batch: list[dict[str, Any]]) -> int:
-            calls.append(len(batch))
-            return len(batch)
-
-        inserted = batch_insert_rows(data, 5, insert_fn)
-        assert inserted == 7
-        assert calls == [5, 2]
-
-    def test_batch_size_one(self) -> None:
-        data = iter([{"a": i} for i in range(3)])
-        calls: list[int] = []
-
-        def insert_fn(batch: list[dict[str, Any]]) -> int:
-            calls.append(len(batch))
-            return len(batch)
-
-        inserted = batch_insert_rows(data, 1, insert_fn)
-        assert inserted == 3
-        assert calls == [1, 1, 1]
-
-    def test_batch_size_equals_data_length(self) -> None:
-        data = iter([{"a": i} for i in range(5)])
-        calls: list[int] = []
-
-        def insert_fn(batch: list[dict[str, Any]]) -> int:
-            calls.append(len(batch))
-            return len(batch)
-
-        inserted = batch_insert_rows(data, 5, insert_fn)
-        assert inserted == 5
-        assert calls == [5]
+        inserted = batch_insert_rows(data, batch_size, insert_fn)
+        assert inserted == expected_inserted
+        assert calls == expected_calls
 
     def test_insert_fn_return_value_summed(self) -> None:
         """The total is the sum of return values, not the data length."""
         data = iter([{"a": i} for i in range(10)])
 
-        def insert_fn(batch: list[dict[str, Any]]) -> int:
+        def insert_fn(_batch: list[dict[str, Any]]) -> int:
             return 1  # always reports 1 regardless of batch size
 
         inserted = batch_insert_rows(data, 5, insert_fn)
@@ -414,6 +394,7 @@ class TestBatchInsertRows:
         data = iter([{"a": i} for i in range(5)])
 
         def return_zero(batch: list[dict[str, Any]]) -> int:
+            del batch
             return 0
 
         inserted = batch_insert_rows(data, 5, return_zero)

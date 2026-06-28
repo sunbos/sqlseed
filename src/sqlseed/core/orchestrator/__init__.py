@@ -22,7 +22,9 @@ from __future__ import annotations
 
 # Shared context dataclasses and helpers live in _common.py to avoid a
 # circular import between the package __init__ and the mixin submodules.
-from ._common import CoreCtx, ExtCtx, _is_db_url  # noqa: F401
+# _is_db_url is re-exported here because tests/test_orchestrator_adapter.py
+# imports it from this package (public API surface for the helper).
+from ._common import CoreCtx, ExtCtx, _is_db_url
 
 # Import mixins after the shared definitions are available.
 from ._connection import ConnectionMixin
@@ -34,6 +36,7 @@ __all__ = [
     "CoreCtx",
     "DataOrchestrator",
     "ExtCtx",
+    "_is_db_url",
 ]
 
 

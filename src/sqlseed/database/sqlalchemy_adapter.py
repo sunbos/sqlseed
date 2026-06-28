@@ -20,6 +20,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from sqlalchemy import MetaData, Table, create_engine, event, inspect, text
+from sqlalchemy.exc import ArgumentError, NoSuchModuleError, NoSuchTableError
+
 from sqlseed._utils.logger import get_logger
 from sqlseed._utils.sql_safe import validate_table_name
 from sqlseed.database._bulk_optimizer import (
@@ -75,8 +78,6 @@ class SQLAlchemyBatchInserter:
         """
         if self._table is not None:
             return self._table
-        from sqlalchemy import MetaData, Table  # noqa: PLC0415
-        from sqlalchemy.exc import NoSuchTableError  # noqa: PLC0415
 
         metadata = MetaData()
         try:
@@ -164,10 +165,8 @@ class SQLAlchemyAdapter:
         Raises:
             RuntimeError: When connecting to PG but the corresponding driver
                 is not installed, gives a friendly hint.
+            ValueError: When the database URL is invalid (sqlalchemy.ArgumentError).
         """
-        from sqlalchemy import create_engine, inspect  # noqa: PLC0415
-        from sqlalchemy.exc import ArgumentError, NoSuchModuleError  # noqa: PLC0415
-
         # Pure file path automatically converted to SQLite URL
         if "://" not in db_path:
             self._db_path = db_path
@@ -198,7 +197,6 @@ class SQLAlchemyAdapter:
         # Using an event listener ensures all connections created by this engine
         # (including from the connection pool) have FK enforcement enabled.
         if self._dialect.name == "sqlite":
-            from sqlalchemy import event  # noqa: PLC0415
 
             @event.listens_for(self._engine, "connect")
             def _enable_sqlite_fk(dbapi_conn: Any, _record: Any) -> None:
@@ -236,19 +234,22 @@ class SQLAlchemyAdapter:
         if self._dialect is None or self._engine is None:
             return None
 
-        if self._dialect.name == "sqlite":
-            # SQLite uses PragmaOptimizer, executed via the raw DBAPI connection (supports ? placeholders)
-            def execute_fn(sql: str, params: Any = ()) -> Any:
-                engine = self._get_engine()
-                raw = engine.raw_connection()
-                try:
-                    cursor = raw.cursor()
-                    cursor.execute(sql, params or ())
-                    raw.commit()
-                    return cursor
-                finally:
-                    raw.close()
+        # Shared execute_fn: dialect-agnostic raw DBAPI execution with commit.
+        # Used by both SQLiteBulkOptimizer (for PRAGMA setup) and
+        # PostgresBulkOptimizer (for SET synchronous_commit = OFF, etc.).
+        def execute_fn(sql: str, params: Any = ()) -> Any:
+            engine = self._get_engine()
+            raw = engine.raw_connection()
+            try:
+                cursor = raw.cursor()
+                cursor.execute(sql, params or ())
+                raw.commit()
+                return cursor
+            finally:
+                raw.close()
 
+        if self._dialect.name == "sqlite":
+            # SQLite additionally needs a fetch_pragma helper for PRAGMA queries.
             def fetch_pragma(name: str) -> Any:
                 engine = self._get_engine()
                 raw = engine.raw_connection()
@@ -264,18 +265,7 @@ class SQLAlchemyAdapter:
 
         if self._dialect.name == "postgresql":
             # PG uses session-level optimizations such as SET synchronous_commit = OFF
-            def pg_execute_fn(sql: str, params: Any = ()) -> Any:
-                engine = self._get_engine()
-                raw = engine.raw_connection()
-                try:
-                    cursor = raw.cursor()
-                    cursor.execute(sql, params or ())
-                    raw.commit()
-                    return cursor
-                finally:
-                    raw.close()
-
-            return PostgresBulkOptimizer(execute_fn=pg_execute_fn)
+            return PostgresBulkOptimizer(execute_fn=execute_fn)
 
         return None
 
@@ -334,7 +324,6 @@ class SQLAlchemyAdapter:
             A list of ColumnInfo for all columns of the table; returns an empty list when the table does not exist.
         """
         validate_table_name(table_name)
-        from sqlalchemy.exc import NoSuchTableError  # noqa: PLC0415
 
         inspector = self._get_inspector()
         dialect = self.dialect
@@ -401,7 +390,6 @@ class SQLAlchemyAdapter:
             List of primary key column names; returns an empty list when the table does not exist.
         """
         validate_table_name(table_name)
-        from sqlalchemy.exc import NoSuchTableError  # noqa: PLC0415
 
         inspector = self._get_inspector()
         try:
@@ -420,7 +408,6 @@ class SQLAlchemyAdapter:
             returns an empty list when the table does not exist.
         """
         validate_table_name(table_name)
-        from sqlalchemy.exc import NoSuchTableError  # noqa: PLC0415
 
         inspector = self._get_inspector()
         try:
@@ -453,7 +440,6 @@ class SQLAlchemyAdapter:
             The number of rows in the table; returns 0 when the table does not exist (consistent with RawSQLiteAdapter).
         """
         validate_table_name(table_name)
-        from sqlalchemy import text  # noqa: PLC0415
 
         # Return 0 when the table does not exist (consistent with RawSQLiteAdapter)
         inspector = self._get_inspector()
@@ -478,7 +464,6 @@ class SQLAlchemyAdapter:
             A list of values for that column; returns an empty list when the table does not exist.
         """
         validate_table_name(table_name)
-        from sqlalchemy import text  # noqa: PLC0415
 
         # Return an empty list when the table does not exist
         inspector = self._get_inspector()
@@ -503,7 +488,6 @@ class SQLAlchemyAdapter:
             A list of IndexInfo for all indexes of the table; returns an empty list when the table does not exist.
         """
         validate_table_name(table_name)
-        from sqlalchemy.exc import NoSuchTableError  # noqa: PLC0415
 
         inspector = self._get_inspector()
         try:
@@ -546,7 +530,6 @@ class SQLAlchemyAdapter:
             list when the table does not exist or has no columns.
         """
         validate_table_name(table_name)
-        from sqlalchemy import text  # noqa: PLC0415
 
         dialect = self.dialect
         all_columns = self.get_column_info(table_name)
@@ -585,8 +568,6 @@ class SQLAlchemyAdapter:
         """
         if table_name in self._table_cache:
             return self._table_cache[table_name]
-        from sqlalchemy import MetaData, Table  # noqa: PLC0415
-        from sqlalchemy.exc import NoSuchTableError  # noqa: PLC0415
 
         engine = self._get_engine()
         metadata = MetaData()
@@ -628,9 +609,7 @@ class SQLAlchemyAdapter:
         table = self._get_table(table_name)
         inserter = SQLAlchemyBatchInserter(engine, table_name, table=table)
         with engine.begin() as conn:
-            return batch_insert_rows(
-                data, batch_size, lambda batch: inserter.insert(batch, conn=conn)
-            )
+            return batch_insert_rows(data, batch_size, lambda batch: inserter.insert(batch, conn=conn))
 
     def clear_table(self, table_name: str) -> None:
         """Clear table data and reset the autoincrement counter.

@@ -41,7 +41,7 @@ class TestResolveBaseUrl:
         config = AIConfig(backend=AIBackend.OLLAMA)
         assert config.resolve_base_url() == OLLAMA_BASE_URL
 
-    def test_resolve_base_url_openai_compat_with_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_resolve_base_url_openai_compat_with_env(self) -> None:
         """Verify resolve_base_url() uses self.base_url for openai_compat backend.
 
         OPENAI_COMPAT requires an explicit base_url (no built-in default).

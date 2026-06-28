@@ -87,6 +87,13 @@ class PluginMediator:
         user_configured_columns: set[str] | None = None,
         unique_columns: set[str] | None = None,
     ) -> dict[str, GeneratorSpec]:
+        """Apply a plugin-provided template pool to eligible unmatched string columns.
+
+        For each eligible column (string generator, not user-configured, not unique,
+        no default, non-PK/non-autoincrement), invokes the
+        ``sqlseed_pre_generate_templates`` hook to obtain candidate values and
+        rewrites the spec to draw from that pool.
+        """
         configured = user_configured_columns or set()
         needs_template = any(
             True for _ in self._iter_template_eligible_specs(specs, column_infos, configured, unique_columns)
@@ -130,6 +137,7 @@ class PluginMediator:
         table_name: str,
         batch: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
+        """Apply plugin batch transforms to a batch of rows, returning the last non-None result."""
         results = self._plugins.hook.sqlseed_transform_batch(
             table_name=table_name,
             batch=batch,

@@ -1,39 +1,54 @@
+"""Progress backend abstraction with Rich (terminal) and tqdm (notebook) implementations.
+
+Selects the appropriate backend at runtime based on environment (Jupyter vs
+terminal) and console encoding (UTF-8 vs GBK/Big5). When no rendering library
+is installed, falls back to a silent ``NullProgressBackend``.
+"""
+
 from __future__ import annotations
 
+import builtins
+import importlib
 import sys
 from abc import ABC, abstractmethod
 from functools import lru_cache
 from importlib.util import find_spec
 from typing import Any, Literal
 
+from sqlseed._utils.logger import get_logger
+
 try:
     from tqdm.auto import tqdm
 except ImportError:
     tqdm = None
 
+# rich is an optional dependency of sqlseed core (per ARCHITECTURE.md
+# Section 7.1: "Core must not depend on click/rich for long-term
+# stability"). When rich is absent, RichProgressBackend is unavailable
+# and create_progress() falls back to NullProgressBackend in terminal
+# environments. Install with: pip install sqlseed-cli (which pulls rich).
+#
+# Uses importlib.import_module() to avoid ruff's import-outside-toplevel
+# warning (which would fire for ``from rich import ...`` inside a
+# function) while keeping the import lazy at module load time. The
+# ``_*_CLASS`` names hold either the rich class (when installed) or
+# ``None`` (when absent), allowing runtime ``is None`` guards and
+# instantiation in RichProgressBackend.__init__.
 try:
-    from rich.progress import (
-        BarColumn,
-        Progress,
-        SpinnerColumn,
-        TextColumn,
-        TimeRemainingColumn,
-        TransferSpeedColumn,
-    )
+    _rich_progress_module = importlib.import_module("rich.progress")
+    _PROGRESS_CLASS = _rich_progress_module.Progress
+    _BAR_COLUMN_CLASS = _rich_progress_module.BarColumn
+    _SPINNER_COLUMN_CLASS = _rich_progress_module.SpinnerColumn
+    _TEXT_COLUMN_CLASS = _rich_progress_module.TextColumn
+    _TIME_REMAINING_COLUMN_CLASS = _rich_progress_module.TimeRemainingColumn
+    _TRANSFER_SPEED_COLUMN_CLASS = _rich_progress_module.TransferSpeedColumn
 except ImportError:
-    # rich is an optional dependency of sqlseed core (per ARCHITECTURE.md
-    # Section 7.1: "Core must not depend on click/rich for long-term
-    # stability"). When rich is absent, RichProgressBackend is unavailable
-    # and create_progress() falls back to NullProgressBackend in terminal
-    # environments. Install with: pip install sqlseed-cli (which pulls rich).
-    Progress = None  # type: ignore[assignment,misc]
-    BarColumn = Progress  # type: ignore[assignment,misc]
-    SpinnerColumn = Progress  # type: ignore[assignment,misc]
-    TextColumn = Progress  # type: ignore[assignment,misc]
-    TimeRemainingColumn = Progress  # type: ignore[assignment,misc]
-    TransferSpeedColumn = Progress  # type: ignore[assignment,misc]
-
-from sqlseed._utils.logger import get_logger
+    _PROGRESS_CLASS = None
+    _BAR_COLUMN_CLASS = None
+    _SPINNER_COLUMN_CLASS = None
+    _TEXT_COLUMN_CLASS = None
+    _TIME_REMAINING_COLUMN_CLASS = None
+    _TRANSFER_SPEED_COLUMN_CLASS = None
 
 logger = get_logger(__name__)
 
@@ -51,31 +66,38 @@ def _detect_environment() -> RuntimeEnv:
     Returns a deterministic literal for testability.
     """
     try:
-        shell = get_ipython()  # type: ignore[name-defined]
-    except NameError:
+        # get_ipython() is injected by IPython/Jupyter at runtime; it's not
+        # available at type-check time. Use builtins lookup to avoid a
+        # name-defined suppression directive.
+        shell = getattr(builtins, "get_ipython", lambda: None)()
+        if shell is None:
+            return "terminal"
+    except (ImportError, NameError):
         return "terminal"
 
-    # IPython exists — check if it's a kernel (notebook) vs interactive shell
-    shell_class = type(shell).__name__
-
-    # ZMQInteractiveShell → standard Jupyter / JupyterLab / VS Code Jupyter
-    if shell_class == "ZMQInteractiveShell":
+    if _is_jupyter_shell(shell):
         return "jupyter"
-
-    # Google Colab uses its own shell class
-    if "google.colab" in str(type(shell).__module__):
-        return "jupyter"
-
-    # Databricks notebook
-    if shell_class == "DatabricksShell":
-        return "jupyter"
-
-    # Fallback: check config for IPKernelApp (catches Kaggle, Papermill, etc.)
-    config = getattr(shell, "config", {})
-    if "IPKernelApp" in config:
-        return "jupyter"
-
     return "terminal"
+
+
+def _is_jupyter_shell(shell: Any) -> bool:
+    """Check if the IPython shell is a notebook kernel (Jupyter/Colab/Databricks).
+
+    Detection covers:
+    - ZMQInteractiveShell (standard Jupyter / JupyterLab / VS Code Jupyter)
+    - google.colab module on the shell class (Google Colab)
+    - DatabricksShell (Databricks notebook)
+    - IPKernelApp in shell config (Kaggle, Papermill, etc.)
+    """
+    shell_class = type(shell).__name__
+    if shell_class == "ZMQInteractiveShell":
+        return True
+    if "google.colab" in str(type(shell).__module__):
+        return True
+    if shell_class == "DatabricksShell":
+        return True
+    config = getattr(shell, "config", {})
+    return "IPKernelApp" in config
 
 
 @lru_cache(maxsize=1)
@@ -108,19 +130,24 @@ class ProgressBackend(ABC):
     """
 
     @abstractmethod
-    def __enter__(self) -> ProgressBackend: ...
+    def __enter__(self) -> ProgressBackend:
+        """Enter the context manager and return self."""
 
     @abstractmethod
-    def __exit__(self, *args: Any) -> None: ...
+    def __exit__(self, *args: Any) -> None:
+        """Exit the context manager, releasing any resources."""
 
     @abstractmethod
-    def add_task(self, description: str, *, total: int | None = None) -> Any: ...
+    def add_task(self, description: str, *, total: int | None = None) -> Any:
+        """Register a new task and return its identifier."""
 
     @abstractmethod
-    def update(self, task_id: Any, *, advance: int = 0, description: str | None = None) -> None: ...
+    def update(self, task_id: Any, *, advance: int = 0, description: str | None = None) -> None:
+        """Advance the task counter and/or update its description."""
 
     @abstractmethod
-    def remove_task(self, task_id: Any) -> None: ...
+    def remove_task(self, task_id: Any) -> None:
+        """Remove a previously added task from the backend."""
 
 
 # ---------------------------------------------------------------------------
@@ -185,34 +212,41 @@ class RichProgressBackend(ProgressBackend):
         Raises:
             RuntimeError: If ``rich`` is not installed.
         """
-        if Progress is None:
-            raise RuntimeError(
-                "rich is not installed. Install with: pip install sqlseed-cli "
-                "(or pip install rich). The sqlseed core package does not "
-                "require rich; RichProgressBackend is only available when "
-                "rich is installed."
-            )
+        # Grouped None guards (3 expressions each, under pylint's
+        # too-many-boolean-expressions threshold of 5). Two groups cover all
+        # six rich classes. Each ``if x is None: raise`` also narrows the type
+        # for mypy, so the class variables are known to be non-None below.
+        _not_installed = (
+            "rich is not installed. Install with: pip install sqlseed-cli "
+            "(or pip install rich). The sqlseed core package does not "
+            "require rich; RichProgressBackend is only available when "
+            "rich is installed."
+        )
+        if _PROGRESS_CLASS is None or _BAR_COLUMN_CLASS is None or _SPINNER_COLUMN_CLASS is None:
+            raise RuntimeError(_not_installed)
+        if _TEXT_COLUMN_CLASS is None or _TIME_REMAINING_COLUMN_CLASS is None or _TRANSFER_SPEED_COLUMN_CLASS is None:
+            raise RuntimeError(_not_installed)
 
         if ascii_only:
             columns: list[Any] = [
-                SpinnerColumn("line"),
-                TextColumn("[progress.description]{task.description}"),
-                TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-                TextColumn("{task.completed}/{task.total}"),
-                TransferSpeedColumn(),
-                TimeRemainingColumn(),
+                _SPINNER_COLUMN_CLASS("line"),
+                _TEXT_COLUMN_CLASS("[progress.description]{task.description}"),
+                _TEXT_COLUMN_CLASS("[progress.percentage]{task.percentage:>3.0f}%"),
+                _TEXT_COLUMN_CLASS("{task.completed}/{task.total}"),
+                _TRANSFER_SPEED_COLUMN_CLASS(),
+                _TIME_REMAINING_COLUMN_CLASS(),
             ]
         else:
             columns = [
-                SpinnerColumn(),
-                TextColumn("[progress.description]{task.description}"),
-                BarColumn(),
-                TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-                TextColumn("{task.completed}/{task.total}"),
-                TransferSpeedColumn(),
-                TimeRemainingColumn(),
+                _SPINNER_COLUMN_CLASS(),
+                _TEXT_COLUMN_CLASS("[progress.description]{task.description}"),
+                _BAR_COLUMN_CLASS(),
+                _TEXT_COLUMN_CLASS("[progress.percentage]{task.percentage:>3.0f}%"),
+                _TEXT_COLUMN_CLASS("{task.completed}/{task.total}"),
+                _TRANSFER_SPEED_COLUMN_CLASS(),
+                _TIME_REMAINING_COLUMN_CLASS(),
             ]
-        self._progress = Progress(
+        self._progress = _PROGRESS_CLASS(
             *columns,
             transient=False,
             refresh_per_second=1,
@@ -377,7 +411,7 @@ def create_progress(*, disable: bool = False) -> ProgressBackend:
     if ascii_only:
         logger.debug("Console encoding does not support Unicode progress characters — using ASCII-safe layout")
 
-    if Progress is None:
+    if _PROGRESS_CLASS is None:
         # rich is not installed — fall back to silent null backend rather
         # than crashing. This keeps the sqlseed core importable without
         # rich (per ARCHITECTURE.md Section 7.1). Users who want progress

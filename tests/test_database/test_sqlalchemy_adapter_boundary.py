@@ -7,31 +7,11 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+import sqlseed
 from sqlseed.database.sqlalchemy_adapter import SQLAlchemyAdapter
 
 if TYPE_CHECKING:
     from pathlib import Path
-
-
-@pytest.fixture
-def sa_adapter(tmp_db: str) -> SQLAlchemyAdapter:
-    """Create a connected SQLAlchemyAdapter."""
-    adapter = SQLAlchemyAdapter()
-    adapter.connect(tmp_db)
-    yield adapter
-    adapter.close()
-
-
-@pytest.fixture
-def empty_sa_adapter(tmp_path: Path) -> SQLAlchemyAdapter:
-    """Create a SQLAlchemyAdapter connected to an empty database."""
-    db_path = str(tmp_path / "empty.db")
-    conn = sqlite3.connect(db_path)
-    conn.close()  # Create an empty file
-    adapter = SQLAlchemyAdapter()
-    adapter.connect(db_path)
-    yield adapter
-    adapter.close()
 
 
 class TestSQLAlchemyAdapterBoundary:
@@ -206,8 +186,6 @@ class TestReservedWordsAndSpecialChars:
         conn.execute('CREATE TABLE "order" (id INTEGER PRIMARY KEY, name TEXT NOT NULL)')
         conn.commit()
         conn.close()
-
-        import sqlseed  # noqa: PLC0415
 
         result = sqlseed.fill(db_path, table="order", count=10, provider="base")
         assert result.count == 10

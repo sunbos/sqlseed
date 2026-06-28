@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from sqlseed.generators.mimesis_provider import MimesisProvider
-from tests.test_generators._mixin import (
+
+from ._mixin import (
     IdentityProviderTestMixin,
     JsonSchemaTestMixin,
     TemporalProviderTestMixin,

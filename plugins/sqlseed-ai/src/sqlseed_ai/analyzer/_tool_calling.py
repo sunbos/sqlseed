@@ -57,7 +57,16 @@ class ToolCallingMixin:
 
     if TYPE_CHECKING:
         # Provided by JsonParserMixin when combined in SchemaAnalyzer.
-        def _parse_json_response(self, content: str) -> dict[str, Any]: ...
+        # Stub uses `raise RuntimeError("provided by ...")` (NOT `...` which
+        # pylint infers as implicit None return -> assignment-from-no-return;
+        # NOT `return {}` which pylint flags as assignment-from-none (E1128)
+        # on callers that assign the result; and NOT
+        # `raise NotImplementedError` which pylint treats as abstract method
+        # -> abstract-method). RuntimeError avoids all three. Real impl
+        # lives in JsonParserMixin and DOES return a value.
+        def _parse_json_response(self, content: str) -> dict[str, Any]:
+            del content
+            raise RuntimeError("provided by JsonParserMixin")
 
     def _extract_tool_call_result(self, choice: Any) -> dict[str, Any] | None:
         """Extract the analyze_schema result from a tool call choice."""

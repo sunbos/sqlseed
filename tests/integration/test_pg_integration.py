@@ -5,8 +5,11 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from sqlalchemy import create_engine, text
 
+import sqlseed
 from sqlseed.core.orchestrator import DataOrchestrator
+from sqlseed.database._bulk_optimizer import PostgresBulkOptimizer
 from sqlseed.database.sqlalchemy_adapter import SQLAlchemyAdapter
 
 pytestmark = pytest.mark.integration
@@ -33,8 +36,6 @@ class TestPostgreSQLIntegration:
 
     def test_pg_create_table_and_get_column_info(self, pg_url: str) -> None:
         """After creating a table, get_column_info correctly identifies types."""
-        from sqlalchemy import create_engine, text  # noqa: PLC0415
-
         engine = create_engine(pg_url)
         with engine.connect() as conn:
             conn.execute(
@@ -54,8 +55,6 @@ class TestPostgreSQLIntegration:
 
     def test_pg_serial_autoincrement_detection(self, pg_url: str) -> None:
         """SERIAL column is detected as autoincrement."""
-        from sqlalchemy import create_engine, text  # noqa: PLC0415
-
         engine = create_engine(pg_url)
         with engine.connect() as conn:
             conn.execute(text("CREATE TABLE serial_test (id SERIAL PRIMARY KEY, name TEXT)"))
@@ -71,8 +70,6 @@ class TestPostgreSQLIntegration:
 
     def test_pg_bigserial_autoincrement_detection(self, pg_url: str) -> None:
         """BIGSERIAL column is detected as autoincrement."""
-        from sqlalchemy import create_engine, text  # noqa: PLC0415
-
         engine = create_engine(pg_url)
         with engine.connect() as conn:
             conn.execute(text("CREATE TABLE bigserial_test (id BIGSERIAL PRIMARY KEY, name TEXT)"))
@@ -88,8 +85,6 @@ class TestPostgreSQLIntegration:
 
     def test_pg_identity_autoincrement_detection(self, pg_url: str) -> None:
         """GENERATED AS IDENTITY column is detected as autoincrement."""
-        from sqlalchemy import create_engine, text  # noqa: PLC0415
-
         engine = create_engine(pg_url)
         with engine.connect() as conn:
             conn.execute(
@@ -107,8 +102,6 @@ class TestPostgreSQLIntegration:
 
     def test_pg_batch_insert_and_count(self, pg_url: str) -> None:
         """After batch insert, the row count is correct."""
-        from sqlalchemy import create_engine, text  # noqa: PLC0415
-
         engine = create_engine(pg_url)
         with engine.connect() as conn:
             conn.execute(text("CREATE TABLE insert_test (id SERIAL PRIMARY KEY, name TEXT NOT NULL)"))
@@ -125,8 +118,6 @@ class TestPostgreSQLIntegration:
 
     def test_pg_clear_table_resets_sequence(self, pg_url: str) -> None:
         """After clear_table, the sequence is reset (real pg_get_serial_sequence)."""
-        from sqlalchemy import create_engine, text  # noqa: PLC0415
-
         engine = create_engine(pg_url)
         with engine.connect() as conn:
             conn.execute(text("CREATE TABLE seq_reset_test (id SERIAL PRIMARY KEY, name TEXT)"))
@@ -149,8 +140,6 @@ class TestPostgreSQLIntegration:
 
     def test_pg_fill_end_to_end(self, pg_url: str) -> None:
         """fill(url=pg_url, table=..., count=100) full flow."""
-        from sqlalchemy import create_engine, text  # noqa: PLC0415
-
         engine = create_engine(pg_url)
         with engine.connect() as conn:
             conn.execute(
@@ -159,15 +148,11 @@ class TestPostgreSQLIntegration:
             conn.commit()
         engine.dispose()
 
-        import sqlseed  # noqa: PLC0415
-
         result = sqlseed.fill(url=pg_url, table="fill_test", count=100, provider="base")
         assert result.count == 100
 
     def test_pg_fill_with_fk_integrity(self, pg_url: str) -> None:
         """FK-related table data integrity on PG."""
-        from sqlalchemy import create_engine, text  # noqa: PLC0415
-
         engine = create_engine(pg_url)
         with engine.connect() as conn:
             conn.execute(text("CREATE TABLE fk_users (id SERIAL PRIMARY KEY, name TEXT NOT NULL)"))
@@ -179,8 +164,6 @@ class TestPostgreSQLIntegration:
             )
             conn.commit()
         engine.dispose()
-
-        import sqlseed  # noqa: PLC0415
 
         # Fill the parent table first
         sqlseed.fill(url=pg_url, table="fk_users", count=10, provider="base")
@@ -207,8 +190,7 @@ class TestPostgreSQLIntegration:
         record SET command calls and verify that the optimizer did issue SET synchronous_commit = OFF.
         This is a contract test of optimizer behavior, not a test of PG itself.
         """
-        from sqlseed.database._bulk_optimizer import PostgresBulkOptimizer  # noqa: PLC0415
-
+        del pg_url
         set_calls: list[str] = []
 
         class _FakeResult:
@@ -217,7 +199,7 @@ class TestPostgreSQLIntegration:
             def fetchone(self) -> tuple[str, ...]:
                 return ("on",)
 
-        def execute_fn(sql: str, params: Any = None) -> _FakeResult:
+        def execute_fn(sql: str, _params: Any = None) -> _FakeResult:
             sql_upper = sql.upper()
             # Record all SET commands
             if "SET" in sql_upper:
@@ -231,16 +213,12 @@ class TestPostgreSQLIntegration:
 
         # Verify that SET synchronous_commit = OFF was called
         sync_off_calls = [s for s in set_calls if "synchronous_commit" in s.lower() and "off" in s.lower()]
-        assert len(sync_off_calls) > 0, (
-            f"SET synchronous_commit = OFF was not called, actual SET calls: {set_calls}"
-        )
+        assert len(sync_off_calls) > 0, f"SET synchronous_commit = OFF was not called, actual SET calls: {set_calls}"
 
         optimizer.restore()
 
     def test_pg_dialect_in_schema_context(self, pg_url: str) -> None:
         """On PG, get_schema_context returns dialect="postgresql"."""
-        from sqlalchemy import create_engine, text  # noqa: PLC0415
-
         engine = create_engine(pg_url)
         with engine.connect() as conn:
             conn.execute(text("CREATE TABLE ctx_test (id SERIAL PRIMARY KEY, name TEXT)"))

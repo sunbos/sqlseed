@@ -18,15 +18,25 @@ If any of these tests fails, do NOT silence it — either fix the code to
 honor the architecture, or update CLAUDE.md + this test together with a
 recorded decision (ADR) explaining why the invariant changed.
 """
+
 from __future__ import annotations
 
 import ast
 import importlib
 import inspect
 import sys
+from importlib.metadata import entry_points
 from pathlib import Path
 
 import pytest
+
+import sqlseed
+import sqlseed.core.orchestrator as orch_pkg
+
+try:
+    from sqlseed_ai.ai_mediator import AI_APPLICABLE_GENERATORS
+except ImportError:
+    AI_APPLICABLE_GENERATORS = None
 
 SRC_ROOT = Path(__file__).resolve().parent.parent / "src" / "sqlseed"
 
@@ -49,11 +59,19 @@ class TestModuleLocationGuards:
         violation. See CLAUDE.md "Critical Pitfalls" #10 and the refactor
         noted in the 2026-05 architecture review.
         """
-        from sqlseed.core.stream import DataStream  # noqa: F401, PLC0415
+        # Verify DataStream is importable from core.stream (use importlib to
+        # avoid triggering unused-import — the import's sole purpose is to
+        # prove the module path exists, not to bind a name for later use).
+        _stream_mod = importlib.import_module("sqlseed.core.stream")
+        assert hasattr(_stream_mod, "DataStream"), (
+            "DataStream must be importable from sqlseed.core.stream. Historical context: "
+            "DataStream was moved from generators/ to core/ because it depends on core "
+            "constructs (ConstraintSolver, ColumnDAG, ExpressionEngine)."
+        )
 
         # DataStream must NOT be importable from generators
         with pytest.raises(ImportError):
-            from sqlseed.generators.stream import DataStream as _Wrong  # noqa: F401, PLC0415
+            importlib.import_module("sqlseed.generators.stream")
 
     def test_orchestrator_is_package_not_single_file(self) -> None:
         """sqlseed.core.orchestrator must be a package (directory), not a single file.
@@ -64,15 +82,17 @@ class TestModuleLocationGuards:
         the mixin architecture is lost and the file becomes too large to
         maintain. See CLAUDE.md Architecture > Key Modules > core/orchestrator/.
         """
-        import sqlseed.core.orchestrator as orch_pkg  # noqa: PLC0415
-
         assert hasattr(orch_pkg, "__path__"), (
             "sqlseed.core.orchestrator must be a package (directory with __init__.py), "
             "not a single orchestrator.py file. The package contains 4 mixins that "
             "should not be collapsed back into one file."
         )
         # The 4 mixin files must exist inside the package
-        orch_dir = Path(orch_pkg.__file__).parent  # type: ignore[arg-type]
+        assert orch_pkg.__file__ is not None, (
+            "sqlseed.core.orchestrator must be a real on-disk package with __file__ set; "
+            "got None (likely a namespace package or virtual module)."
+        )
+        orch_dir = Path(orch_pkg.__file__).parent
         for mixin in ("_common.py", "_connection.py", "_specs.py", "_generation.py", "_query.py"):
             assert (orch_dir / mixin).exists(), (
                 f"orchestrator package missing {mixin}. The 4-mixin + 1-shared architecture "
@@ -104,11 +124,18 @@ class TestModuleLocationGuards:
 
         # The standalone sqlseed_cli package must provide the cli group
         # The entry-point group must register ai-suggest
-        from importlib.metadata import entry_points  # noqa: PLC0415
-
-        # The sqlseed_ai.cli subpackage must provide ai_commands
-        from sqlseed_ai.cli.ai_commands import ai_suggest  # noqa: F401, PLC0415
-        from sqlseed_cli.main import cli  # noqa: F401, PLC0415
+        # Verify ai_suggest and cli are importable from their plugin packages
+        # (use importlib to avoid unused-import — these imports only verify
+        # that the plugin entry-point modules exist and are loadable).
+        _ai_cmds_mod = importlib.import_module("sqlseed_ai.cli.ai_commands")
+        assert hasattr(_ai_cmds_mod, "ai_suggest"), (
+            "sqlseed_ai.cli.ai_commands must expose `ai_suggest` for the entry-point registration to resolve correctly."
+        )
+        _cli_main_mod = importlib.import_module("sqlseed_cli.main")
+        assert hasattr(_cli_main_mod, "cli"), (
+            "sqlseed_cli.main must expose `cli` (the Click group) for the "
+            "[project.scripts] entry point to resolve correctly."
+        )
 
         eps = entry_points(group="sqlseed.cli_commands")
         registered_names = {ep.name for ep in eps}
@@ -181,6 +208,32 @@ class TestLayeringGuards:
 # ---------------------------------------------------------------------------
 
 
+def _imports_raw_sqlite_adapter(tree: ast.AST) -> bool:
+    """Check if AST contains a RawSQLiteAdapter import.
+
+    Walks the parsed module looking for ``from ...raw_sqlite_adapter import
+    RawSQLiteAdapter`` (ImportFrom) or ``import ...raw_sqlite_adapter``
+    (Import). Used by :class:`TestProductionIsolation` to keep the nested-
+    block count under pylint's threshold while preserving the same logic.
+
+    Args:
+        tree: Parsed AST module to inspect.
+
+    Returns:
+        True if any import statement references RawSQLiteAdapter via a
+        module path containing ``raw_sqlite_adapter``.
+    """
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module and "raw_sqlite_adapter" in node.module:
+            if any("RawSQLiteAdapter" in alias.name for alias in node.names):
+                return True
+        elif isinstance(node, ast.Import) and any(
+            alias.name and "raw_sqlite_adapter" in alias.name for alias in node.names
+        ):
+            return True
+    return False
+
+
 class TestProductionIsolation:
     """Guard against test-only code leaking into production paths."""
 
@@ -198,22 +251,14 @@ class TestProductionIsolation:
             rel = py_file.relative_to(SRC_ROOT)
             rel_posix = rel.as_posix()
             # Allowed: database/__init__.py (re-export), database/raw_sqlite_adapter.py (definition)
-            if rel_posix in ("database/__init__.py", "database/raw_sqlite_adapter.py"):
+            if rel_posix in {"database/__init__.py", "database/raw_sqlite_adapter.py"}:
                 continue
             try:
                 tree = ast.parse(py_file.read_text(encoding="utf-8"))
             except (SyntaxError, OSError, UnicodeDecodeError):
                 continue
-            for node in ast.walk(tree):
-                if isinstance(node, ast.ImportFrom) and node.module:
-                    if "raw_sqlite_adapter" in node.module:
-                        for alias in node.names:
-                            if "RawSQLiteAdapter" in alias.name:
-                                offenders.append(rel_posix)
-                elif isinstance(node, ast.Import):
-                    for alias in node.names:
-                        if alias.name and "raw_sqlite_adapter" in alias.name:
-                            offenders.append(rel_posix)
+            if _imports_raw_sqlite_adapter(tree):
+                offenders.append(rel_posix)
         assert not offenders, (
             f"RawSQLiteAdapter imported in production code: {offenders}. "
             "RawSQLiteAdapter is test-only; production code must use SQLAlchemyAdapter. "
@@ -293,15 +338,10 @@ class TestPublicApiContract:
         See CLAUDE.md Public API table: fill, connect, preview,
         fill_from_config, load_config. Plus the config/data classes.
         """
-        import sqlseed  # noqa: PLC0415
-
         required = {"fill", "connect", "preview", "fill_from_config", "load_config"}
         exported = set(sqlseed.__all__)
         missing = required - exported
-        assert not missing, (
-            f"Public API missing required exports: {missing}. "
-            "See CLAUDE.md Public API table."
-        )
+        assert not missing, f"Public API missing required exports: {missing}. See CLAUDE.md Public API table."
 
     def test_fill_is_keyword_only(self) -> None:
         """fill() must use keyword-only args (except db_path).
@@ -309,8 +349,6 @@ class TestPublicApiContract:
         See CLAUDE.md: "All public functions use keyword-only arguments
         (except generate_choice(choices))".
         """
-        import sqlseed  # noqa: PLC0415
-
         sig = inspect.signature(sqlseed.fill)
         # After the positional params, all must be keyword-only (KEYWORD_ONLY)
         kw_only = [p.name for p in sig.parameters.values() if p.kind == inspect.Parameter.KEYWORD_ONLY]
@@ -336,9 +374,7 @@ class TestImmutableConstants:
         ("Only AI-specific mediation moves out"). When sqlseed-ai is not
         installed the guard is skipped (no AI path exists).
         """
-        try:
-            from sqlseed_ai.ai_mediator import AI_APPLICABLE_GENERATORS  # noqa: PLC0415
-        except ImportError:
+        if AI_APPLICABLE_GENERATORS is None:
             pytest.skip("sqlseed-ai not installed; AI_APPLICABLE_GENERATORS guard N/A")
 
         assert isinstance(AI_APPLICABLE_GENERATORS, frozenset), (
@@ -392,7 +428,7 @@ class TestCountContracts:
         )
 
     def test_generator_dispatch_count_is_thirty_one(self) -> None:
-        """_dispatch.py _GENERATOR_MAP must have exactly 31 entries.
+        """_dispatch.py GENERATOR_MAP must have exactly 31 entries.
 
         See CLAUDE.md > generators/ "31 generator types". If a generator is
         added or removed, update CLAUDE.md, README, and AUTO-GENERATED markers.
@@ -401,13 +437,13 @@ class TestCountContracts:
         text = dispatch_path.read_text(encoding="utf-8")
         tree = ast.parse(text)
         for node in ast.walk(tree):
-            # _GENERATOR_MAP uses ClassVar type annotation -> ast.AnnAssign
+            # GENERATOR_MAP uses ClassVar type annotation -> ast.AnnAssign
             if isinstance(node, ast.AnnAssign):
                 target = node.target
-                if isinstance(target, ast.Name) and target.id == "_GENERATOR_MAP" and isinstance(node.value, ast.Dict):
+                if isinstance(target, ast.Name) and target.id == "GENERATOR_MAP" and isinstance(node.value, ast.Dict):
                     count = len(node.value.keys)
                     assert count == 31, (
-                        f"Expected 31 generators in _GENERATOR_MAP, found {count}. "
+                        f"Expected 31 generators in GENERATOR_MAP, found {count}. "
                         "If you added/removed a generator, update CLAUDE.md, README, "
                         "and run scripts/sync_docs.py."
                     )
@@ -417,18 +453,18 @@ class TestCountContracts:
                 for target in node.targets:
                     is_match = (
                         isinstance(target, ast.Name)
-                        and target.id == "_GENERATOR_MAP"
+                        and target.id == "GENERATOR_MAP"
                         and isinstance(node.value, ast.Dict)
                     )
                     if is_match:
                         count = len(node.value.keys)
                         assert count == 31, (
-                            f"Expected 31 generators in _GENERATOR_MAP, found {count}. "
+                            f"Expected 31 generators in GENERATOR_MAP, found {count}. "
                             "If you added/removed a generator, update CLAUDE.md, README, "
                             "and run scripts/sync_docs.py."
                         )
                         return
-        pytest.fail("Could not find _GENERATOR_MAP in _dispatch.py")
+        pytest.fail("Could not find GENERATOR_MAP in _dispatch.py")
 
     def test_expression_safe_functions_count_is_twenty_one(self) -> None:
         """expression.py SAFE_FUNCTIONS must have exactly 21 entries.

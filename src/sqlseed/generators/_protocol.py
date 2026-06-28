@@ -6,7 +6,7 @@ from typing import Any, Protocol, runtime_checkable
 
 
 class UnknownGeneratorError(Exception):
-    """Raised when the requested generator type is not registered in ``_GENERATOR_MAP``."""
+    """Raised when the requested generator type is not registered in ``GENERATOR_MAP``."""
 
     def __init__(self, generator_name: str, column_name: str | None = None) -> None:
         self.generator_name = generator_name
@@ -31,10 +31,14 @@ class DataProvider(Protocol):
     """
 
     @property
-    def name(self) -> str: ...
+    def name(self) -> str:
+        """Return the provider's unique name (e.g. ``"faker"``, ``"mimesis"``)."""
 
-    def set_locale(self, locale: str) -> None: ...
+    def set_locale(self, locale: str) -> None:
+        """Set the locale for locale-aware generation (e.g. ``"en_US"``, ``"zh_CN"``)."""
 
-    def set_seed(self, seed: int) -> None: ...
+    def set_seed(self, seed: int) -> None:
+        """Set the random seed for reproducible generation."""
 
-    def generate(self, type_name: str, **params: Any) -> Any: ...
+    def generate(self, type_name: str, **params: Any) -> Any:
+        """Generate a single value of the given type with optional parameters."""

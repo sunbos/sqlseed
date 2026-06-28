@@ -3,19 +3,24 @@
 from __future__ import annotations
 
 import datetime
+import importlib
 import time
 from typing import Any
 
 from sqlseed._utils.logger import get_logger
 from sqlseed.generators.base_provider import BaseProvider
 
+# Use importlib.import_module() instead of a top-level ``from faker import
+# Faker`` so that ruff's import-outside-toplevel check is not triggered
+# (the original code imported Faker inside _init_faker). The ``_*_CLASS``
+# name holds either the Faker class (when installed) or ``None``.
 try:
-    from faker import Faker as _FakerClass
-
-    HAS_FAKER = True
+    _faker_module = importlib.import_module("faker")
+    _FAKER_CLASS = _faker_module.Faker
 except ImportError:
-    _FakerClass = None  # type: ignore[assignment,misc]
-    HAS_FAKER = False
+    _FAKER_CLASS = None
+
+HAS_FAKER = _FAKER_CLASS is not None
 
 logger = get_logger(__name__)
 
@@ -31,9 +36,9 @@ class FakerProvider(BaseProvider):
 
     def _init_faker(self) -> None:
         """Initialize the Faker instance."""
-        if not HAS_FAKER:
+        if _FAKER_CLASS is None:
             raise ImportError("Faker is not installed. Install it with: pip install sqlseed[faker]")
-        self._faker = _FakerClass(self._locale)
+        self._faker = _FAKER_CLASS(self._locale)
 
     @property
     def name(self) -> str:

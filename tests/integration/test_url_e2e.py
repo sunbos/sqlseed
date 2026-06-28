@@ -7,7 +7,12 @@ from typing import TYPE_CHECKING
 import pytest
 import yaml
 from click.testing import CliRunner
+from sqlalchemy import create_engine, text
 from sqlseed_cli.main import cli
+
+import sqlseed
+from sqlseed.config.snapshot import SnapshotManager
+from sqlseed.database.sqlalchemy_adapter import SQLAlchemyAdapter
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -17,8 +22,6 @@ pytestmark = pytest.mark.integration
 
 def _setup_pg_table(pg_url: str) -> None:
     """Create a test table on PG."""
-    from sqlalchemy import create_engine, text  # noqa: PLC0415
-
     engine = create_engine(pg_url)
     with engine.connect() as conn:
         conn.execute(
@@ -47,8 +50,6 @@ class TestUrlE2E:
     def test_api_url_to_pg_e2e(self, pg_url: str) -> None:
         """fill(url=pg_url, ...) full API→PG chain."""
         _setup_pg_table(pg_url)
-        import sqlseed  # noqa: PLC0415
-
         result = sqlseed.fill(url=pg_url, table="users", count=50, provider="base")
         assert result.count == 50
 
@@ -63,15 +64,11 @@ class TestUrlE2E:
         }
         config_path.write_text(yaml.dump(config_data), encoding="utf-8")
 
-        import sqlseed  # noqa: PLC0415
-
         results = sqlseed.fill_from_config(str(config_path))
         assert len(results) == 1
         assert results[0].count == 30
 
-    def test_pg_url_snapshot_and_replay(
-        self, pg_url: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_pg_url_snapshot_and_replay(self, pg_url: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """On PG, snapshot save + replay (via CLI, since fill() has no snapshot param and replay is not exported)."""
         _setup_pg_table(pg_url)
 
@@ -100,16 +97,12 @@ class TestUrlE2E:
         assert result.exit_code == 0, f"CLI fill --snapshot failed: {result.output}"
 
         # 2. Find the snapshot file (list_snapshots returns list[str], not list[dict])
-        from sqlseed.config.snapshot import SnapshotManager  # noqa: PLC0415
-
         sm = SnapshotManager(str(tmp_path / "cache" / "snapshots"))
         snapshots = sm.list_snapshots()
         assert len(snapshots) > 0, "No snapshot file found"
         snapshot_path = snapshots[0]  # Directly a file path string, not a dict
 
         # 3. Clear the table
-        from sqlseed.database.sqlalchemy_adapter import SQLAlchemyAdapter  # noqa: PLC0415
-
         adapter = SQLAlchemyAdapter()
         adapter.connect(pg_url)
         adapter.clear_table("users")
@@ -129,8 +122,6 @@ class TestUrlE2E:
     def test_pg_url_preview_e2e(self, pg_url: str) -> None:
         """preview(url=pg_url, ...) returns correct preview."""
         _setup_pg_table(pg_url)
-        import sqlseed  # noqa: PLC0415
-
         rows = sqlseed.preview(url=pg_url, table="users", count=5, provider="base")
         assert isinstance(rows, list)
         assert len(rows) == 5

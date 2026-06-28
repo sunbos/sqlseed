@@ -15,6 +15,7 @@ Critical constraints verified (per project_memory.md):
 
 from __future__ import annotations
 
+import importlib.util
 import os
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
@@ -41,13 +42,8 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 # Detect whether sqlseed-ai is installed (controls a few test paths).
-_AI_PLUGIN_AVAILABLE: bool = False
-try:
-    import sqlseed_ai  # noqa: F401
-
-    _AI_PLUGIN_AVAILABLE = True
-except ImportError:
-    pass
+# Using find_spec avoids importing the package just to probe availability.
+_AI_PLUGIN_AVAILABLE: bool = importlib.util.find_spec("sqlseed_ai") is not None
 
 # Import the real AIBackend enum when available so that backend comparisons
 # (``config.backend in (AIBackend.LM_STUDIO, ...)``) work against real enum
@@ -62,7 +58,7 @@ if _AI_PLUGIN_AVAILABLE:
 
 
 @contextmanager
-def _patch_orchestrator(schema_ctx: dict[str, Any] | None = None):
+def _patch_orchestrator(_schema_ctx: dict[str, Any] | None = None):
     """No-op context manager — retained to avoid churning 22 call sites.
 
     Previously mocked ``DataOrchestrator`` to avoid database setup, but this
@@ -723,7 +719,13 @@ class TestHandleAIVerificationStreaming:
             mock_refiner.generate_and_refine_streaming.return_value = result_dict
             _handle_ai_verification_streaming(analyzer, tmp_db, "users", max_retries=3, no_cache=False, display=display)
             _, kwargs = mock_refiner.generate_and_refine_streaming.call_args
-            assert kwargs["on_progress"] == display.update
+            # Bound methods are fresh objects on each attribute access, so
+            # ``is`` would always be False. Compare the bound instance and
+            # the underlying function instead — this is the canonical way
+            # to assert "the callback is bound to this display's update".
+            passed_callback = kwargs["on_progress"]
+            assert passed_callback.__self__ is display
+            assert passed_callback.__func__ is type(display).update
 
 
 # ---------------------------------------------------------------------------

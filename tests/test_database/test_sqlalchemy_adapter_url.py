@@ -14,16 +14,23 @@ class TestSQLAlchemyAdapterUrl:
     """测试 SQLAlchemyAdapter 的 URL 连接功能。"""
 
     def test_connect_sqlite_file_url(self, tmp_path: Any) -> None:
-        """connect("sqlite:///path.db") 成功。"""
+        """connect("sqlite:///path.db") 成功,且 dialect 正确识别为 sqlite。
+
+        合并了原 ``test_connect_url_sets_dialect_correctly_sqlite`` 测试
+        (两者仅 ``CREATE TABLE`` 列定义不同,本质都在验证 SQLite URL
+        连接 + dialect 识别),消除 CodeFlow CodeDuplication。
+        """
         db_path = str(tmp_path / "test.db")
         conn = sqlite3.connect(db_path)
-        conn.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)")
+        conn.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
         conn.commit()
         conn.close()
 
         adapter = SQLAlchemyAdapter()
         adapter.connect(f"sqlite:///{db_path}")
         assert adapter.dialect.name == "sqlite"
+        # 同时验证 engine 持久性 (原 test_connect_url_persists_engine 的意图)
+        assert adapter.get_table_names() == ["t"]
         adapter.close()
 
     def test_connect_sqlite_memory_url(self) -> None:
@@ -42,7 +49,7 @@ class TestSQLAlchemyAdapterUrl:
         def mock_create_engine(url: str, **kwargs: Any) -> Any:
             raise NoSuchModuleError("Can't load plugin: sqlalchemy.dialects:postgresql.psycopg")
 
-        monkeypatch.setattr("sqlalchemy.create_engine", mock_create_engine)
+        monkeypatch.setattr("sqlseed.database.sqlalchemy_adapter.create_engine", mock_create_engine)
 
         adapter = SQLAlchemyAdapter()
         with pytest.raises(RuntimeError, match="PostgreSQL driver not installed"):
@@ -59,7 +66,7 @@ class TestSQLAlchemyAdapterUrl:
         def mock_create_engine(url: str, **kwargs: Any) -> Any:
             raise ArgumentError("Invalid URL format")
 
-        monkeypatch.setattr("sqlalchemy.create_engine", mock_create_engine)
+        monkeypatch.setattr("sqlseed.database.sqlalchemy_adapter.create_engine", mock_create_engine)
 
         adapter = SQLAlchemyAdapter()
         with pytest.raises(ValueError, match="Invalid database URL"):
@@ -69,40 +76,12 @@ class TestSQLAlchemyAdapterUrl:
         """connect("oracle://...") 抛 ValueError（_detect_dialect 不支持 oracle）。"""
         mock_engine = MagicMock()
         mock_engine.dialect.name = "oracle"
-        monkeypatch.setattr("sqlalchemy.create_engine", lambda *a, **kw: mock_engine)
-        monkeypatch.setattr("sqlalchemy.inspect", lambda e: MagicMock())
+        monkeypatch.setattr("sqlseed.database.sqlalchemy_adapter.create_engine", lambda *a, **kw: mock_engine)
+        monkeypatch.setattr("sqlseed.database.sqlalchemy_adapter.inspect", lambda e: MagicMock())
 
         adapter = SQLAlchemyAdapter()
         with pytest.raises(ValueError, match="Unsupported dialect"):
             adapter.connect("oracle://user:pass@host/db")
-
-    def test_connect_url_sets_dialect_correctly_sqlite(self, tmp_path: Any) -> None:
-        """连接后 dialect.name == "sqlite"。"""
-        db_path = str(tmp_path / "test.db")
-        conn = sqlite3.connect(db_path)
-        conn.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)")
-        conn.commit()
-        conn.close()
-
-        adapter = SQLAlchemyAdapter()
-        adapter.connect(f"sqlite:///{db_path}")
-        assert adapter.dialect.name == "sqlite"
-        adapter.close()
-
-    def test_connect_url_persists_engine(self, tmp_path: Any) -> None:
-        """连接后 engine 可重复使用。"""
-        db_path = str(tmp_path / "test.db")
-        conn = sqlite3.connect(db_path)
-        conn.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
-        conn.commit()
-        conn.close()
-
-        adapter = SQLAlchemyAdapter()
-        adapter.connect(f"sqlite:///{db_path}")
-        # 多次操作验证 engine 持久
-        assert adapter.get_table_names() == ["t"]
-        assert adapter.get_table_names() == ["t"]
-        adapter.close()
 
     def test_connect_url_close_releases_resources(self, tmp_path: Any) -> None:
         """close 后 engine 释放，再操作抛 RuntimeError。"""
@@ -125,13 +104,6 @@ class TestSQLAlchemyAdapterUrl:
         assert adapter.dialect.name == "postgresql"
         adapter.close()
 
-    def test_connect_url_sets_dialect_correctly_postgresql(self, pg_url: str) -> None:
-        """连接真实 PG 后 dialect.name == "postgresql"。"""
-        adapter = SQLAlchemyAdapter()
-        adapter.connect(pg_url)
-        assert adapter.dialect.name == "postgresql"
-        adapter.close()
-
     def test_connect_malformed_url_raises_value_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """connect("postgresql://") 抛 ValueError（触发 ArgumentError）。
 
@@ -142,7 +114,7 @@ class TestSQLAlchemyAdapterUrl:
         def mock_create_engine(url: str, **kwargs: Any) -> Any:
             raise ArgumentError("Could not parse SQLAlchemy URL")
 
-        monkeypatch.setattr("sqlalchemy.create_engine", mock_create_engine)
+        monkeypatch.setattr("sqlseed.database.sqlalchemy_adapter.create_engine", mock_create_engine)
 
         adapter = SQLAlchemyAdapter()
         with pytest.raises(ValueError, match="Invalid database URL"):

@@ -12,14 +12,34 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import re
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-# Import after sys.path manipulation — cannot be at module top.
-# pylint: disable=wrong-import-position
-from _fact_extractors import collect_all_facts
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+
+def _load_fact_extractors() -> Any:
+    """Load the sibling ``_fact_extractors`` module without sys.path mutation.
+
+    Uses :mod:`importlib.util` to load the helper from its file path so that
+    all module-level imports stay at the top of the file (PEP 8) and we avoid
+    polluting :data:`sys.path` with the scripts directory.
+    """
+    helper_path = Path(__file__).resolve().parent / "_fact_extractors.py"
+    spec = importlib.util.spec_from_file_location("_fact_extractors", helper_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Cannot load _fact_extractors from {helper_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_fact_extractors = _load_fact_extractors()
+collect_all_facts = _fact_extractors.collect_all_facts
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -31,15 +51,17 @@ MARKER_RE = re.compile(
 )
 
 # Map marker names to formatted output (just the number, so it works
-# in both English and Chinese contexts)
-FACT_FORMATTERS: dict[str, object] = {
+# in both English and Chinese contexts). Typed as Callable so mypy can
+# verify each lambda conforms to (dict[str, Any]) -> str without needing
+# per-lambda type: ignore annotations.
+FACT_FORMATTERS: dict[str, Callable[[dict[str, Any]], str]] = {
     "generator-count": lambda f: f"{f['generator_count']}",
     "exact-match-rule-count": lambda f: f"{f['exact_match_rule_count']}",
     "pattern-match-rule-count": lambda f: f"{f['pattern_match_rule_count']}",
     "safe-function-count": lambda f: f"{f['safe_function_count']}",
     "enum-name-pattern-count": lambda f: f"{f['enum_name_pattern_count']}",
     "hook-count": lambda f: f"{f['hook_count']}",
-    "mcp-tool-names": lambda f: ", ".join(f["mcp_tool_names"]),  # type: ignore[arg-type]
+    "mcp-tool-names": lambda f: ", ".join(f["mcp_tool_names"]),
 }
 
 

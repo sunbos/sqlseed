@@ -12,7 +12,7 @@ introducing the SQLAlchemyAdapter.
 from __future__ import annotations
 
 import sqlite3
-from typing import Any
+from typing import Any, cast
 from unittest.mock import MagicMock
 
 import pytest
@@ -56,7 +56,8 @@ class TestSQLiteDialect:
     def test_normalize_type_empty(self) -> None:
         dialect = SQLiteDialect()
         assert dialect.normalize_type("") == "TEXT"
-        assert dialect.normalize_type(None) == "TEXT"  # type: ignore[arg-type]
+        # cast(Any, None) intentionally passes None to test the fallback path
+        assert dialect.normalize_type(cast("Any", None)) == "TEXT"
 
     def test_normalize_type_already_upper(self) -> None:
         dialect = SQLiteDialect()
@@ -123,7 +124,7 @@ class TestTypeNormalizer:
     def test_sqlite_basic_types(self) -> None:
         result = self.normalizer.normalize("TEXT", "sqlite")
         assert result.base == "TEXT"
-        assert result.params == ()
+        assert not result.params
 
         result = self.normalizer.normalize("integer", "sqlite")
         assert result.base == "INTEGER"
@@ -137,7 +138,7 @@ class TestTypeNormalizer:
     def test_postgresql_serial(self) -> None:
         result = self.normalizer.normalize("serial", "postgresql")
         assert result.base == "INTEGER"
-        assert result.params == ()
+        assert not result.params
 
     def test_postgresql_bigserial(self) -> None:
         result = self.normalizer.normalize("bigserial", "postgresql")
@@ -174,7 +175,7 @@ class TestTypeNormalizer:
     def test_empty_type(self) -> None:
         result = self.normalizer.normalize("", "sqlite")
         assert result.base == "TEXT"
-        assert result.params == ()
+        assert not result.params
 
     def test_unknown_type_falls_back_to_uppercase(self) -> None:
         result = self.normalizer.normalize("custom_type", "postgresql")
@@ -197,7 +198,7 @@ class TestTypeNormalizer:
         """Non-numeric type parameters (e.g. ENUM values) should be ignored."""
         result = self.normalizer.normalize("enum('a','b','c')", "sqlite")
         assert result.base == "ENUM"
-        assert result.params == ()
+        assert not result.params
 
 
 class TestNormalizedType:
@@ -206,7 +207,10 @@ class TestNormalizedType:
     def test_frozen(self) -> None:
         nt = NormalizedType(base="VARCHAR", params=(255,), raw="varchar(255)")
         with pytest.raises(AttributeError):
-            nt.base = "TEXT"  # type: ignore[misc]
+            # cast(Any, nt) lets us attempt mutation of a frozen dataclass
+            # field to verify it raises AttributeError — this is the error
+            # path we're testing.
+            cast("Any", nt).base = "TEXT"
 
     def test_equality(self) -> None:
         nt1 = NormalizedType(base="INTEGER", params=(), raw="int")
@@ -666,8 +670,6 @@ class DatabaseAdapterContract:
     # @pytest.fixture
     # def test_table(self) -> str: ...
 
-    pass
-
 
 class TestTypeNormalizerBoundary:
     """Boundary condition tests for TypeNormalizer."""
@@ -678,31 +680,33 @@ class TestTypeNormalizerBoundary:
 
     def test_normalize_none_input(self) -> None:
         """normalize(None, "sqlite") returns the TEXT fallback type."""
-        result = self.normalizer.normalize(None, "sqlite")  # type: ignore[arg-type]
+        # cast(Any, None) intentionally passes None to trigger the
+        # `not raw_type` short-circuit that returns the TEXT fallback
+        result = self.normalizer.normalize(cast("Any", None), "sqlite")
         # None input triggers the `not raw_type` short-circuit, returns TEXT fallback
         assert result.base == "TEXT"
-        assert result.params == ()
+        assert not result.params
 
     def test_normalize_whitespace_only(self) -> None:
         """normalize("   ", "sqlite") returns the TEXT fallback type."""
         result = self.normalizer.normalize("   ", "sqlite")
         # Pure whitespace triggers `not raw_type.strip()`, returns TEXT fallback
         assert result.base == "TEXT"
-        assert result.params == ()
+        assert not result.params
 
     def test_normalize_unknown_dialect(self) -> None:
         """normalize("int", "oracle") goes through the default uppercase branch, returns INT."""
         result = self.normalizer.normalize("int", "oracle")
         # Unknown dialect (not postgresql) goes through default branch: base_raw.upper() = "INT"
         assert result.base == "INT"
-        assert result.params == ()
+        assert not result.params
 
     def test_normalize_empty_string(self) -> None:
         """normalize("", "postgresql") returns the TEXT fallback type."""
         result = self.normalizer.normalize("", "postgresql")
         # Empty string triggers the `not raw_type` short-circuit, returns TEXT fallback
         assert result.base == "TEXT"
-        assert result.params == ()
+        assert not result.params
 
 
 class TestPostgresDialectBoundary:
@@ -731,7 +735,7 @@ class TestPostgresDialectBoundary:
             def execute(self, sql: str, params: Any = None) -> None:
                 pass
 
-        def execute_fn(sql: str, params: Any = None) -> Any:
+        def execute_fn(_sql: str, _params: Any = None) -> Any:
             return FakeCursor()
 
         # Should not raise an exception
@@ -739,17 +743,15 @@ class TestPostgresDialectBoundary:
 
     def test_pg_bulk_optimizer_preserve_failure_then_restore(self) -> None:
         """After preserve fails, restore uses default values."""
-        from sqlseed.database._bulk_optimizer import PostgresBulkOptimizer  # noqa: PLC0415
-
         call_count = {"preserve": 0, "restore": 0}
 
         def execute_fn(sql: str, params: Any = None) -> Any:
+            del params
             if "SHOW" in sql:
                 call_count["preserve"] += 1
                 raise RuntimeError("Connection lost")
             if "SET" in sql:
                 call_count["restore"] += 1
-            return None
 
         optimizer = PostgresBulkOptimizer(execute_fn)
         # preserve fails
@@ -760,9 +762,8 @@ class TestPostgresDialectBoundary:
 
     def test_pg_bulk_optimizer_restore_without_preserve(self) -> None:
         """Restore without preserve does not crash."""
-        from sqlseed.database._bulk_optimizer import PostgresBulkOptimizer  # noqa: PLC0415
 
-        def execute_fn(sql: str, params: Any = None) -> Any:
+        def execute_fn(_sql: str, _params: Any = None) -> Any:
             return None
 
         optimizer = PostgresBulkOptimizer(execute_fn)

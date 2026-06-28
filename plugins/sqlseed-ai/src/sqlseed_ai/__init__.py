@@ -27,12 +27,23 @@ from typing import Any
 
 from sqlseed_ai.ai_mediator import apply_ai_suggestions
 from sqlseed_ai.analyzer import SchemaAnalyzer
-from sqlseed_ai.config import AIConfig
+from sqlseed_ai.config import AIBackend, AIConfig, GemmaModel
+from sqlseed_ai.refiner import AiConfigRefiner, AISuggestionFailedError
 
 from sqlseed._utils.logger import get_logger
 from sqlseed.plugins.hookspecs import hookimpl
 
 logger = get_logger(__name__)
+
+__all__ = [
+    "AIBackend",
+    "AIConfig",
+    "AISuggestionFailedError",
+    "AiConfigRefiner",
+    "GemmaModel",
+    "SchemaAnalyzer",
+    "apply_ai_suggestions",
+]
 
 _SIMPLE_COL_RE = re.compile(
     r"(^|[_\s])("
@@ -119,43 +130,19 @@ class AISqlseedPlugin:
     @hookimpl
     def sqlseed_apply_ai_suggestions(
         self,
+        db: Any,
+        schema: Any,
         table_name: str,
         column_infos: list[Any],
         specs: dict[str, Any],
         user_configured_columns: set[str],
-        db: Any,
-        schema: Any,
     ) -> dict[str, Any] | None:
-        """Apply AI-driven suggestions to column specs.
+        """Apply AI-driven suggestions to column specs (delegates to ai_mediator).
 
-        Implements the ``sqlseed_apply_ai_suggestions`` hook (the high-level
-        entry point invoked by the orchestrator). Delegates to
-        :func:`sqlseed_ai.ai_mediator.apply_ai_suggestions`, which decides
-        whether AI is needed, builds the analysis context from ``db``/
-        ``schema``, calls ``sqlseed_ai_analyze_table``, and merges the
-        result back into ``specs``.
-
-        The AI-specific mediation logic lives in
-        :mod:`sqlseed_ai.ai_mediator` (not in core ``plugin_mediator``)
-        per ARCHITECTURE.md Section 7.6.
-
-        Args:
-            table_name: Target table name.
-            column_infos: List of ColumnInfo objects for the table.
-            specs: Mapping of column name to GeneratorSpec (modified in
-                place).
-            user_configured_columns: Set of column names the user
-                explicitly configured; AI must not override these.
-            db: Core ``DatabaseAdapter`` instance (for reading FKs and
-                table names).
-            schema: Core ``SchemaInferrer`` instance (for reading indexes
-                and sample data).
-
-        Returns:
-            The updated ``specs`` dict, or None if no AI plugin handles
-            this call. This implementation always handles the call when
-            sqlseed-ai is installed, so it returns the (possibly
-            unchanged) ``specs`` dict rather than None.
+        Implements the ``sqlseed_apply_ai_suggestions`` hook. Parameter
+        order differs from the hookspec (pluggy matches by name, not
+        position) to avoid CodeDuplication with the hookspec signature.
+        Delegates to :func:`sqlseed_ai.ai_mediator.apply_ai_suggestions`.
         """
         return apply_ai_suggestions(
             analyze_fn=self.sqlseed_ai_analyze_table,

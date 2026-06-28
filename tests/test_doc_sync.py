@@ -9,28 +9,31 @@ updating — not that the code is wrong.
 
 from __future__ import annotations
 
+import importlib.util
 import re
-import sys
 from pathlib import Path
 
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 
-# Import shared fact extractors from scripts/ to avoid code duplication.
-# This ensures tests validate the same logic that sync_docs.py uses.
-sys.path.insert(0, str(ROOT / "scripts"))
-# Import after sys.path manipulation — cannot be at module top.
-# pylint: disable=wrong-import-position
-from _fact_extractors import (  # noqa: E402
-    get_enum_name_patterns,
-    get_exact_match_rules,
-    get_generator_types,
-    get_hook_names,
-    get_mcp_tool_names,
-    get_pattern_match_rules,
-    get_safe_functions,
-)
+# Load the shared fact extractors from scripts/ via importlib to avoid
+# sys.path mutation. This keeps all imports at module top-level (PEP 8)
+# and ensures tests validate the same logic that sync_docs.py uses.
+_HELPER_PATH = ROOT / "scripts" / "_fact_extractors.py"
+_spec = importlib.util.spec_from_file_location("_fact_extractors", _HELPER_PATH)
+if _spec is None or _spec.loader is None:
+    raise ImportError(f"Cannot load _fact_extractors from {_HELPER_PATH}")
+_fact_extractors = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_fact_extractors)
+
+get_enum_name_patterns = _fact_extractors.get_enum_name_patterns
+get_exact_match_rules = _fact_extractors.get_exact_match_rules
+get_generator_types = _fact_extractors.get_generator_types
+get_hook_names = _fact_extractors.get_hook_names
+get_mcp_tool_names = _fact_extractors.get_mcp_tool_names
+get_pattern_match_rules = _fact_extractors.get_pattern_match_rules
+get_safe_functions = _fact_extractors.get_safe_functions
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
@@ -223,19 +226,19 @@ class TestGeneratorTypes:
             matches = _extract_number_before_keyword(text, ["个生成器", "种生成器", "generator"])
             for m in matches:
                 assert int(m) == count, (
-                    f"{doc_path}: claims {m} generators, but _GENERATOR_MAP has {count}. "
+                    f"{doc_path}: claims {m} generators, but GENERATOR_MAP has {count}. "
                     f"Generators: {sorted(generators)}"
                 )
 
     def test_new_types_documented(self):
-        """Every generator in _GENERATOR_MAP should appear in README."""
+        """Every generator in GENERATOR_MAP should appear in README."""
         generators = get_generator_types()
         readme = _read(ROOT / "README.md")
 
         for gen in sorted(generators):
             # Generator names should appear in the generator table
             # Use word boundary to avoid false matches
-            assert gen in readme, f"Generator '{gen}' is in _GENERATOR_MAP but not mentioned in README.md"
+            assert gen in readme, f"Generator '{gen}' is in GENERATOR_MAP but not mentioned in README.md"
 
 
 class TestExactMatchRules:

@@ -272,7 +272,7 @@ classDiagram
         +set_locale(locale: str)
         +set_seed(seed: int)
         +generate(type_name: str, **params) Any
-        ... dispatches via _GENERATOR_MAP to 31 internal methods
+        ... dispatches via GENERATOR_MAP to 31 internal methods
     }
 
     class BaseProvider {

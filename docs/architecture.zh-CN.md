@@ -272,7 +272,7 @@ classDiagram
         +set_locale(locale: str)
         +set_seed(seed: int)
         +generate(type_name: str, **params) Any
-        ... 通过 _GENERATOR_MAP 分派到 31 种内部方法
+        ... 通过 GENERATOR_MAP 分派到 31 种内部方法
     }
 
     class BaseProvider {

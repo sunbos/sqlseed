@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from sqlseed.database._bulk_optimizer import BulkWriteOptimizer, SQLiteBulkOptimizer
 from sqlseed.database.optimizer import PragmaOptimizer
+from sqlseed.database.raw_sqlite_adapter import RawSQLiteAdapter
 
 
 class TestPragmaOptimizer:
@@ -86,9 +88,6 @@ class TestBulkWriteOptimizerAbstraction:
 
     def test_pragma_optimizer_via_sqlite_bulk_optimizer(self, tmp_db: str) -> None:
         """Invoke PragmaOptimizer via SQLiteBulkOptimizer."""
-        from sqlseed.database._bulk_optimizer import SQLiteBulkOptimizer  # noqa: PLC0415
-        from sqlseed.database.raw_sqlite_adapter import RawSQLiteAdapter  # noqa: PLC0415
-
         adapter = RawSQLiteAdapter()
         adapter.connect(tmp_db)
         fetch_pragma = self._make_fetch_pragma_fn(adapter)
@@ -100,9 +99,6 @@ class TestBulkWriteOptimizerAbstraction:
 
     def test_bulk_optimizer_protocol_satisfied(self, tmp_db: str) -> None:
         """SQLiteBulkOptimizer satisfies the BulkWriteOptimizer protocol."""
-        from sqlseed.database._bulk_optimizer import BulkWriteOptimizer, SQLiteBulkOptimizer  # noqa: PLC0415
-        from sqlseed.database.raw_sqlite_adapter import RawSQLiteAdapter  # noqa: PLC0415
-
         adapter = RawSQLiteAdapter()
         adapter.connect(tmp_db)
         fetch_pragma = self._make_fetch_pragma_fn(adapter)
@@ -121,9 +117,6 @@ class TestBulkWriteOptimizerAbstraction:
         - >10000: moderate (synchronous=OFF, journal_mode=MEMORY)
         - else: light (synchronous=NORMAL, temp_store=MEMORY)
         """
-        from sqlseed.database._bulk_optimizer import SQLiteBulkOptimizer  # noqa: PLC0415
-        from sqlseed.database.raw_sqlite_adapter import RawSQLiteAdapter  # noqa: PLC0415
-
         adapter = RawSQLiteAdapter()
         adapter.connect(tmp_db)
         fetch_pragma = self._make_fetch_pragma_fn(adapter)
@@ -146,9 +139,6 @@ class TestBulkWriteOptimizerAbstraction:
 
     def test_sqlite_bulk_optimizer_restore_after_optimize(self, tmp_db: str) -> None:
         """restore after optimize recovers original values."""
-        from sqlseed.database._bulk_optimizer import SQLiteBulkOptimizer  # noqa: PLC0415
-        from sqlseed.database.raw_sqlite_adapter import RawSQLiteAdapter  # noqa: PLC0415
-
         adapter = RawSQLiteAdapter()
         adapter.connect(tmp_db)
 

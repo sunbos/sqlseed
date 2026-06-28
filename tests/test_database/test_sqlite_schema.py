@@ -70,11 +70,11 @@ class TestSplitSqlDefinitions:
 
     def test_empty_parens(self) -> None:
         sql = "CREATE TABLE t ()"
-        assert _split_sql_definitions(sql) == []
+        assert not _split_sql_definitions(sql)
 
     def test_no_parens(self) -> None:
         sql = "CREATE TABLE t"
-        assert _split_sql_definitions(sql) == []
+        assert not _split_sql_definitions(sql)
 
     def test_strips_whitespace(self) -> None:
         sql = "CREATE TABLE t (  a INTEGER  ,  b TEXT  )"

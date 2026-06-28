@@ -7,11 +7,11 @@ request strategy (tool calling vs JSON mode vs text mode).
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NoReturn
 
 from sqlseed_ai._client import APIConnectionError, APIError, APITimeoutError, get_openai_client
 from sqlseed_ai.config import AIBackend, AIConfig
-from sqlseed_ai.exceptions import ContextOverflowError, ModelFallbackError, classify_api_error
+from sqlseed_ai.exceptions import ModelFallbackError, classify_api_error
 
 from sqlseed._utils.logger import get_logger
 
@@ -38,20 +38,40 @@ class StreamingHandlerMixin:
     _config: AIConfig | None
 
     if TYPE_CHECKING:
-        # Provided by LLMCallerMixin when combined in SchemaAnalyzer.
-        def _ensure_config(self) -> None: ...
+        # Provided by LLMCallerMixin / ToolCallingMixin / JsonParserMixin
+        # when combined in SchemaAnalyzer. Stubs use
+        # `raise RuntimeError("provided by ...")` (NOT `...` which pylint
+        # infers as implicit None return -> assignment-from-no-return; NOT
+        # `return None`/`return {}` which pylint flags as
+        # assignment-from-none (E1128) on callers that assign the result;
+        # and NOT `raise NotImplementedError` which pylint treats as
+        # abstract method -> abstract-method). RuntimeError avoids all
+        # three. The `-> None` stub (`_ensure_config`) uses plain `return`
+        # since its result is never assigned. The `-> NoReturn` stub
+        # (`_handle_llm_api_exception`) already raises. Real impls live in
+        # sibling mixins and DO return values.
+        def _ensure_config(self) -> None:
+            return
 
-        def _call_with_fallback(self, call_fn: Callable[[str], dict[str, Any]]) -> dict[str, Any]: ...
+        def _call_with_fallback(self, call_fn: Callable[[str], dict[str, Any]]) -> dict[str, Any]:
+            raise RuntimeError("provided by LLMCallerMixin")
 
-        def _build_llm_kwargs(self, *, stream: bool = False, model: str | None = None) -> dict[str, Any]: ...
+        def _build_llm_kwargs(self, *, stream: bool = False, model: str | None = None) -> dict[str, Any]:
+            raise RuntimeError("provided by LLMCallerMixin")
 
-        def _create_with_reasoning_fallback(self, client: Any, kwargs: dict[str, Any]) -> Any: ...
+        def _create_with_reasoning_fallback(self, client: Any, kwargs: dict[str, Any]) -> Any:
+            raise RuntimeError("provided by LLMCallerMixin")
+
+        def _handle_llm_api_exception(self, e: Exception, model: str | None, *, streaming: bool = False) -> NoReturn:
+            raise RuntimeError("provided by LLMCallerMixin")
 
         # Provided by ToolCallingMixin when combined in SchemaAnalyzer.
-        def _try_tool_calling(self, client: Any, kwargs: dict[str, Any]) -> dict[str, Any] | None: ...
+        def _try_tool_calling(self, client: Any, kwargs: dict[str, Any]) -> dict[str, Any] | None:
+            raise RuntimeError("provided by ToolCallingMixin")
 
         # Provided by JsonParserMixin when combined in SchemaAnalyzer.
-        def _parse_json_response(self, content: str) -> dict[str, Any]: ...
+        def _parse_json_response(self, content: str) -> dict[str, Any]:
+            raise RuntimeError("provided by JsonParserMixin")
 
     def call_llm_streaming(
         self,
@@ -165,14 +185,7 @@ class StreamingHandlerMixin:
             return result
 
         except (APITimeoutError, APIConnectionError, APIError, ValueError, RuntimeError, OSError) as e:
-            if isinstance(e, (APITimeoutError, APIConnectionError)):
-                raise
-            # Detect context overflow via structured exception classification
-            classified = classify_api_error(e)
-            if isinstance(classified, ContextOverflowError):
-                logger.info("Context size exceeded, retrying with compact messages", model=model or self._config.model)
-                raise classified from e  # Will be caught by caller which can rebuild with compact=True
-            raise RuntimeError(f"LLM API call failed (model={model or self._config.model}): {e}") from e
+            self._handle_llm_api_exception(e, model, streaming=True)
 
     def _send_llm_request(
         self,
@@ -199,7 +212,7 @@ class StreamingHandlerMixin:
         # the server-side interpretation differs (Gemma 4 special tokens vs.
         # standard OpenAI function calling).
         protocol = self._config.resolve_tool_calling_protocol()
-        if protocol in ("gemma4", "openai"):
+        if protocol in {"gemma4", "openai"}:
             result = self._try_tool_calling(client, kwargs)
             if result is not None:
                 return result

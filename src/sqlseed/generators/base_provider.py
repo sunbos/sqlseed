@@ -7,6 +7,8 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Any
 
+import rstr as _rstr
+
 from sqlseed.generators._dispatch import GeneratorDispatchMixin
 from sqlseed.generators._json_helpers import generate_json_from_schema
 from sqlseed.generators._string_helpers import generate_random_string
@@ -172,10 +174,13 @@ class BaseProvider(GeneratorDispatchMixin):
     # ── Text generators ───────────────────────────────────────────────
 
     def _gen_text(self, *, min_length: int = 50, max_length: int = 200) -> str:
-        """Generate text."""
+        """Generate text padded to the requested length range."""
         n = self._next_id()
         s = self._seeded_id()
-        return f"text_{n:03d}_{s:04d}"
+        core = f"text_{n:03d}_{s:04d}"
+        while len(core) < min_length:
+            core += str(self._rng.randint(0, 9))
+        return core[:max_length]
 
     def _gen_sentence(self) -> str:
         """Generate a sentence."""
@@ -186,15 +191,19 @@ class BaseProvider(GeneratorDispatchMixin):
     # ── Date/time generators ──────────────────────────────────────────
 
     def _gen_date(self, *, start_year: int = 2000, end_year: int | None = None) -> str:
-        """Generate a date string."""
-        n = self._next_id()
-        base = datetime(start_year, 1, 1) + timedelta(days=n - 1)
-        return base.strftime("%Y-%m-%d")
+        """Generate a date string within the given year range."""
+        self._next_id()
+        return self._random_date(start_year, end_year).strftime("%Y-%m-%d")
 
     def _gen_datetime(self, *, start_year: int = 2000, end_year: int | None = None) -> str:
-        """Generate a datetime string."""
-        n = self._next_id()
-        base = datetime(start_year, 1, 1) + timedelta(hours=n - 1)
+        """Generate a datetime string within the given year range."""
+        self._next_id()
+        base = self._random_date(start_year, end_year)
+        base = base.replace(
+            hour=self._rng.randint(0, 23),
+            minute=self._rng.randint(0, 59),
+            second=self._rng.randint(0, 59),
+        )
         return base.strftime("%Y-%m-%d %H:%M:%S")
 
     @staticmethod
@@ -276,12 +285,5 @@ class BaseProvider(GeneratorDispatchMixin):
     def _gen_pattern(self, *, pattern: str | None = None, regex: str | None = None) -> str:
         """Generate a string matching the regex pattern."""
         effective = pattern or regex or ""
-        try:
-            # Optional dependency — import inside the function to defer ImportError
-            import rstr as _rstr  # noqa: PLC0415
-        except ImportError as err:
-            raise ImportError(
-                "The 'rstr' package is required for pattern generation. Install it with: pip install rstr"
-            ) from err
         r = _rstr.Rstr(self._rng)
         return r.xeger(effective)

@@ -1,34 +1,16 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
+
+import pytest
 
 from sqlseed.core.mapper import ColumnMapper, GeneratorSpec
 from sqlseed.core.unique_adjuster import UniqueAdjuster
-from sqlseed.database._protocol import ColumnInfo
 
-if TYPE_CHECKING:
-    import pytest
-
-
-def _make_col_info(
-    name: str,
-    col_type: str = "VARCHAR(50)",
-    *,
-    nullable: bool = True,
-    default: object = None,
-    is_primary_key: bool = False,
-    is_autoincrement: bool = False,
-) -> ColumnInfo:
-    """Factory to create ColumnInfo for tests."""
-    return ColumnInfo(
-        name=name,
-        type=col_type,
-        nullable=nullable,
-        default=default,
-        is_primary_key=is_primary_key,
-        is_autoincrement=is_autoincrement,
-    )
+# Import the shared ColumnInfo factory from tests.conftest to avoid
+# CodeDuplication with test_plugin_mediator.py (both files previously
+# defined an identical _make_col_info helper).
+from tests.conftest import make_col_info_varchar as _make_col_info
 
 
 class TestUniqueAdjuster:
@@ -282,7 +264,11 @@ class TestAdjustChoiceFallback:
         # defensive guard against infinite recursion. We assert on the *state*
         # (original spec preserved) rather than the mock call signature.
         mapper = ColumnMapper()
-        mapper.map_column = MagicMock(  # type: ignore[method-assign]
+        # Monkey-patch the bound method for testing — this is intentional
+        # test behavior to verify the defensive guard against infinite
+        # recursion. We assert on the *state* (original spec preserved)
+        # rather than the mock call signature.
+        mapper.map_column = MagicMock(
             return_value=GeneratorSpec(
                 generator_name="choice",
                 params={"choices": ["x", "y", "z"]},
@@ -334,22 +320,29 @@ class TestAdjustChoiceFallback:
 class TestAdjustIntegerWarnings:
     """Tests for INT8/INT16 warning paths (lines 130-138)."""
 
-    def test_int8_column_with_count_over_255_warns(self, caplog: pytest.LogCaptureFixture) -> None:
-        mapper = ColumnMapper()
-        adjuster = UniqueAdjuster(mapper)
-        specs = {
-            "code": GeneratorSpec(
-                generator_name="integer",
-                params={"min_value": 0, "max_value": 100},
-            )
-        }
-        col_infos = [_make_col_info("code", "INT8")]
-        with caplog.at_level("WARNING"):
-            result = adjuster.adjust(specs, {"code"}, 300, col_infos)
-        # Range should be expanded
-        assert result["code"].params["max_value"] >= 3000
+    @pytest.mark.parametrize(
+        ("col_type", "count", "expected_min_max"),
+        [
+            ("INT8", 300, 3000),
+            ("INT16", 70000, 700000),
+            ("INT8", 200, 2000),
+        ],
+        ids=["int8_over_255_warns", "int16_over_65535_warns", "int8_under_256_no_warning"],
+    )
+    def test_int_column_range_expanded(
+        self,
+        caplog: pytest.LogCaptureFixture,
+        col_type: str,
+        count: int,
+        expected_min_max: int,
+    ) -> None:
+        """INT8/INT16 integer ranges are expanded to fit ``count`` unique rows.
 
-    def test_int16_column_with_count_over_65535_warns(self, caplog: pytest.LogCaptureFixture) -> None:
+        The first two cases (count > 255 for INT8, count > 65535 for INT16)
+        trigger a WARNING log; the third (count < 256 for INT8) expands the
+        range silently. All three assert only that ``max_value`` grew enough
+        to hold ``count * 10`` unique values.
+        """
         mapper = ColumnMapper()
         adjuster = UniqueAdjuster(mapper)
         specs = {
@@ -358,25 +351,10 @@ class TestAdjustIntegerWarnings:
                 params={"min_value": 0, "max_value": 100},
             )
         }
-        col_infos = [_make_col_info("code", "INT16")]
+        col_infos = [_make_col_info("code", col_type)]
         with caplog.at_level("WARNING"):
-            result = adjuster.adjust(specs, {"code"}, 70000, col_infos)
-        # Range should be expanded
-        assert result["code"].params["max_value"] >= 700000
-
-    def test_int8_column_with_count_under_256_no_warning(self) -> None:
-        mapper = ColumnMapper()
-        adjuster = UniqueAdjuster(mapper)
-        specs = {
-            "code": GeneratorSpec(
-                generator_name="integer",
-                params={"min_value": 0, "max_value": 100},
-            )
-        }
-        col_infos = [_make_col_info("code", "INT8")]
-        # count=200 < 256, range 0-100 < 2000, so range expands but no warning
-        result = adjuster.adjust(specs, {"code"}, 200, col_infos)
-        assert result["code"].params["max_value"] >= 2000
+            result = adjuster.adjust(specs, {"code"}, count, col_infos)
+        assert result["code"].params["max_value"] >= expected_min_max
 
     def test_integer_column_with_no_col_info_still_adjusts(self) -> None:
         # When col_infos is None, adjustment still happens (no warning path)

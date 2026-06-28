@@ -37,7 +37,8 @@ class Dialect(Protocol):
         SQLite: "TEXT" -> "TEXT", "INTEGER" -> "INTEGER"
         PG: "character varying(255)" -> "VARCHAR(255)"
         """
-        ...
+        del raw_type
+        raise NotImplementedError
 
     def detect_autoincrement(
         self,
@@ -57,7 +58,8 @@ class Dialect(Protocol):
             execute_fn: Callable executing SQL with signature (sql, params) -> cursor
                 (required by SQLite to query sqlite_master; ignored by PG).
         """
-        ...
+        del column_info, table_name, execute_fn
+        raise NotImplementedError
 
     def reset_autoincrement(self, execute_fn: Callable[..., Any], table_name: str) -> None:
         """Reset the autoincrement counter.
@@ -65,14 +67,15 @@ class Dialect(Protocol):
         SQLite: DELETE FROM sqlite_sequence
         PG: TRUNCATE ... RESTART IDENTITY / ALTER SEQUENCE
         """
-        ...
+        del execute_fn, table_name
 
     def quote_identifier(self, name: str) -> str:
         """Quote an identifier.
 
         SQLite/PG: "name"
         """
-        ...
+        del name
+        raise NotImplementedError
 
 
 class SQLiteDialect:
@@ -161,6 +164,10 @@ class PostgresDialect:
         Returns:
             True if the column is IDENTITY / SERIAL / BIGSERIAL.
         """
+        # PG autoincrement metadata is fully available in column_info; the
+        # table_name and execute_fn kwargs exist only for interface symmetry
+        # with other dialect implementations.
+        del table_name, execute_fn
         # 1. GENERATED ... AS IDENTITY (PG 10+)
         if column_info.get("identity") is not None:
             return True
@@ -194,7 +201,7 @@ class PostgresDialect:
                 [table_name],
             )
             rows = cursor.fetchall() if hasattr(cursor, "fetchall") else []
-            for _col, seq_name in rows:
+            for _, seq_name in rows:
                 if seq_name:
                     # Quote each part of the fully qualified sequence name to prevent
                     # SQL injection and handle identifiers requiring quoting.

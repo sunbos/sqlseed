@@ -22,15 +22,6 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
-@pytest.fixture(name="sa_adapter")
-def create_sa_adapter(tmp_db: str) -> SQLAlchemyAdapter:
-    """创建已连接的 SQLAlchemyAdapter。"""
-    adapter = SQLAlchemyAdapter()
-    adapter.connect(tmp_db)
-    yield adapter
-    adapter.close()
-
-
 @pytest.fixture(name="sa_adapter_with_data")
 def create_sa_adapter_with_data(tmp_db_with_data: str) -> SQLAlchemyAdapter:
     """创建已连接且有数据的 SQLAlchemyAdapter。"""
@@ -108,7 +99,7 @@ class TestSQLAlchemyAdapterSchema:
         col_map = {c.name: c for c in columns}
 
         # SQLite 类型应保持大写
-        assert col_map["name"].type == "VARCHAR" or col_map["name"].type == "TEXT"
+        assert col_map["name"].type in {"VARCHAR", "TEXT"}
         assert col_map["age"].type == "INTEGER"
 
     def test_column_info_primary_key(self, sa_adapter: SQLAlchemyAdapter) -> None:

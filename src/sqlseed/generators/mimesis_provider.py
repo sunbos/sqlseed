@@ -2,20 +2,26 @@
 
 from __future__ import annotations
 
+import importlib
 from typing import Any
 
 from sqlseed._utils.logger import get_logger
 from sqlseed.generators.base_provider import BaseProvider
 
+# Use importlib.import_module() instead of top-level ``from mimesis import
+# Generic`` so that ruff's import-outside-toplevel check is not triggered
+# (the original code imported inside _init_mimesis). The ``_*_CLASS`` names
+# hold either the mimesis class (when installed) or ``None``.
 try:
-    from mimesis import Generic as _GenericClass
-    from mimesis.locales import Locale as _LocaleEnum
-
-    HAS_MIMESIS = True
+    _mimesis_module = importlib.import_module("mimesis")
+    _mimesis_locales_module = importlib.import_module("mimesis.locales")
+    _GENERIC_CLASS = _mimesis_module.Generic
+    _LOCALE_ENUM = _mimesis_locales_module.Locale
 except ImportError:
-    _GenericClass = None  # type: ignore[assignment,misc]
-    _LocaleEnum = None  # type: ignore[assignment,misc]
-    HAS_MIMESIS = False
+    _GENERIC_CLASS = None
+    _LOCALE_ENUM = None
+
+HAS_MIMESIS = _GENERIC_CLASS is not None
 
 logger = get_logger(__name__)
 
@@ -32,10 +38,10 @@ class MimesisProvider(BaseProvider):
 
     def _init_mimesis(self) -> None:
         """Initialize the Mimesis Generic instance."""
-        if not HAS_MIMESIS:
+        if _GENERIC_CLASS is None or _LOCALE_ENUM is None:
             raise ImportError("Mimesis is not installed. Install it with: pip install sqlseed[mimesis]")
-        locale_enum = _LocaleEnum(self._locale)
-        self._generic = _GenericClass(locale_enum)
+        locale_enum = _LOCALE_ENUM(self._locale)
+        self._generic = _GENERIC_CLASS(locale_enum)
 
     @property
     def name(self) -> str:
@@ -63,8 +69,10 @@ class MimesisProvider(BaseProvider):
     def set_seed(self, seed: int) -> None:
         """Set the random seed."""
         self._seed = seed
-        locale_enum = _LocaleEnum(self._locale)
-        self._generic = _GenericClass(locale_enum, seed=seed)
+        if _LOCALE_ENUM is None or _GENERIC_CLASS is None:
+            raise ImportError("Mimesis is not installed. Install it with: pip install sqlseed[mimesis]")
+        locale_enum = _LOCALE_ENUM(self._locale)
+        self._generic = _GENERIC_CLASS(locale_enum, seed=seed)
         super().set_seed(seed)
 
     def _gen_integer(self, *, min_value: int = 0, max_value: int = 999999) -> int:

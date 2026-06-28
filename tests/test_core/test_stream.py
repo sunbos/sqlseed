@@ -1,31 +1,34 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 from unittest.mock import MagicMock
 
 import pytest
 
 from sqlseed.core.column_dag import ColumnConstraints, ColumnDAG, ColumnNode
 from sqlseed.core.constraints import ConstraintSolver
-from sqlseed.core.expression import ExpressionEngine
 from sqlseed.core.mapper import GeneratorSpec
-from sqlseed.core.stream import _NATIVE_MISS, DataStream
+from sqlseed.core.stream import _NATIVE_MISS
 from sqlseed.generators import UnknownGeneratorError
 from sqlseed.generators._protocol import ConfigurationError, GenerationError
 from sqlseed.generators.base_provider import BaseProvider
+
+from .conftest import make_stream
+
+# Shared parametrize values for native-method exception tests (avoids
+# CodeDuplication between test_try_faker_native_returns_miss_on_exception and
+# test_try_mimesis_native_returns_miss_on_exception).
+_NATIVE_EXCEPTION_PARAMS = [
+    pytest.param(TypeError("bad args"), id="type_error"),
+    pytest.param(ValueError("bad value"), id="value_error"),
+]
 
 
 class TestDataStream:
     def _create_stream(self, specs: Any, seed: int = 42) -> Any:
         dag = ColumnDAG()
         nodes = dag.build(specs)
-        return DataStream(
-            dag_nodes=nodes,
-            provider=BaseProvider(),
-            expr_engine=ExpressionEngine(),
-            constraint_solver=ConstraintSolver(),
-            seed=seed,
-        )
+        return make_stream(nodes, BaseProvider(), seed=seed)
 
     def test_generate_single_batch(self) -> None:
         specs = {
@@ -154,13 +157,7 @@ class TestDataStream:
                 )
             else:
                 unique_nodes.append(n)
-        stream = DataStream(
-            dag_nodes=unique_nodes,
-            provider=BaseProvider(),
-            expr_engine=ExpressionEngine(),
-            constraint_solver=ConstraintSolver(),
-            seed=42,
-        )
+        stream = make_stream(unique_nodes, BaseProvider())
         batches = list(stream.generate(10, batch_size=10))
         codes = [row["code"] for row in batches[0]]
         assert len(codes) == len(set(codes))
@@ -177,13 +174,7 @@ class TestDataStream:
             )
         ]
         provider = BaseProvider()
-        stream = DataStream(
-            dag_nodes=nodes,
-            provider=provider,
-            expr_engine=ExpressionEngine(),
-            constraint_solver=ConstraintSolver(),
-            seed=42,
-        )
+        stream = make_stream(nodes, provider)
         with pytest.raises(RuntimeError, match="Failed to generate row satisfying all constraints after"):
             next(stream.generate(3))
 
@@ -213,38 +204,20 @@ class TestExpressionErrorPaths:
     def test_expression_value_error_raises_generation_error(self) -> None:
         # ValueError in expression → GenerationError
         node = self._make_derived_node("derived", "int('not_a_number')")
-        stream = DataStream(
-            dag_nodes=[node],
-            provider=BaseProvider(),
-            expr_engine=ExpressionEngine(),
-            constraint_solver=ConstraintSolver(),
-            seed=42,
-        )
+        stream = make_stream([node], BaseProvider())
         with pytest.raises(GenerationError, match="Expression evaluation failed"):
             stream._generate_node_value(node, {"row": {}, "value": None})
 
     def test_expression_syntax_error_raises_generation_error(self) -> None:
         node = self._make_derived_node("derived", "value +")
-        stream = DataStream(
-            dag_nodes=[node],
-            provider=BaseProvider(),
-            expr_engine=ExpressionEngine(),
-            constraint_solver=ConstraintSolver(),
-            seed=42,
-        )
+        stream = make_stream([node], BaseProvider())
         with pytest.raises(GenerationError, match="Expression evaluation failed"):
             stream._generate_node_value(node, {"row": {}, "value": None})
 
     def test_expression_type_error_raises_configuration_error(self) -> None:
         # TypeError in expression → ConfigurationError
         node = self._make_derived_node("derived", "value + 1")
-        stream = DataStream(
-            dag_nodes=[node],
-            provider=BaseProvider(),
-            expr_engine=ExpressionEngine(),
-            constraint_solver=ConstraintSolver(),
-            seed=42,
-        )
+        stream = make_stream([node], BaseProvider())
         # value is None → None + 1 raises TypeError
         with pytest.raises(ConfigurationError, match="Expression misconfigured"):
             stream._generate_node_value(node, {"row": {}, "value": None})
@@ -261,13 +234,7 @@ class TestGeneratorErrorPaths:
         )
         provider = MagicMock()
         provider.generate.side_effect = TypeError("bad type")
-        stream = DataStream(
-            dag_nodes=[node],
-            provider=provider,
-            expr_engine=ExpressionEngine(),
-            constraint_solver=ConstraintSolver(),
-            seed=42,
-        )
+        stream = make_stream([node], provider)
         with pytest.raises(ConfigurationError, match="Generator 'integer' misconfigured"):
             stream._generate_node_value(node, {})
 
@@ -278,13 +245,7 @@ class TestGeneratorErrorPaths:
         )
         provider = MagicMock()
         provider.generate.side_effect = ValueError("bad value")
-        stream = DataStream(
-            dag_nodes=[node],
-            provider=provider,
-            expr_engine=ExpressionEngine(),
-            constraint_solver=ConstraintSolver(),
-            seed=42,
-        )
+        stream = make_stream([node], provider)
         with pytest.raises(GenerationError, match="Generator 'integer' value error"):
             stream._generate_node_value(node, {})
 
@@ -295,13 +256,7 @@ class TestGeneratorErrorPaths:
         )
         provider = MagicMock()
         provider.generate.side_effect = OverflowError("too big")
-        stream = DataStream(
-            dag_nodes=[node],
-            provider=provider,
-            expr_engine=ExpressionEngine(),
-            constraint_solver=ConstraintSolver(),
-            seed=42,
-        )
+        stream = make_stream([node], provider)
         with pytest.raises(GenerationError, match="Generator 'integer' value error"):
             stream._generate_node_value(node, {})
 
@@ -312,13 +267,7 @@ class TestGeneratorErrorPaths:
         )
         provider = MagicMock()
         provider.generate.side_effect = AttributeError("missing attr")
-        stream = DataStream(
-            dag_nodes=[node],
-            provider=provider,
-            expr_engine=ExpressionEngine(),
-            constraint_solver=ConstraintSolver(),
-            seed=42,
-        )
+        stream = make_stream([node], provider)
         with pytest.raises(ConfigurationError, match="Generator 'integer' misconfigured"):
             stream._generate_node_value(node, {})
 
@@ -331,13 +280,7 @@ class TestRollbackSourceColumns:
         solver._register("src1", "val1")
         solver._register("src2", "val2")
 
-        stream = DataStream(
-            dag_nodes=[],
-            provider=BaseProvider(),
-            expr_engine=ExpressionEngine(),
-            constraint_solver=solver,
-            seed=42,
-        )
+        stream = make_stream([], BaseProvider(), constraint_solver=solver)
         row = {"src1": "val1", "src2": "val2", "other": "keep"}
         generated = {"src1": "val1", "src2": "val2"}
         stream._rollback_source_columns(["src1", "src2"], row, generated)
@@ -352,13 +295,7 @@ class TestRollbackSourceColumns:
 
     def test_rollback_skips_columns_not_in_generated(self) -> None:
         solver = ConstraintSolver()
-        stream = DataStream(
-            dag_nodes=[],
-            provider=BaseProvider(),
-            expr_engine=ExpressionEngine(),
-            constraint_solver=solver,
-            seed=42,
-        )
+        stream = make_stream([], BaseProvider(), constraint_solver=solver)
         row = {"src1": "val1"}
         generated = {"src1": "val1"}
         # src2 not in generated_values — should not raise
@@ -371,13 +308,7 @@ class TestRollbackSourceColumns:
         solver._register("col", "val")
         assert solver._is_seen("col", "val")
 
-        stream = DataStream(
-            dag_nodes=[],
-            provider=BaseProvider(),
-            expr_engine=ExpressionEngine(),
-            constraint_solver=solver,
-            seed=42,
-        )
+        stream = make_stream([], BaseProvider(), constraint_solver=solver)
         stream._rollback_source_columns(["col"], {"col": "val"}, {"col": "val"})
         # Value should be unregistered
         assert not solver._is_seen("col", "val")
@@ -395,13 +326,7 @@ class TestAttemptNodeGeneration:
         )
         provider = MagicMock()
         provider.generate.side_effect = ValueError("fail")
-        stream = DataStream(
-            dag_nodes=[node],
-            provider=provider,
-            expr_engine=ExpressionEngine(),
-            constraint_solver=ConstraintSolver(),
-            seed=42,
-        )
+        stream = make_stream([node], provider)
         success, backtrack_to = stream._attempt_node_generation(node, {}, {})
         assert success is False
         assert backtrack_to is None
@@ -425,24 +350,21 @@ class TestAttemptNodeGeneration:
             name="src",
             generator_spec=GeneratorSpec(generator_name="string", params={"min_length": 3, "max_length": 3}),
         )
-        stream = DataStream(
-            dag_nodes=[src_node, node],
-            provider=BaseProvider(),
-            expr_engine=ExpressionEngine(),
-            constraint_solver=solver,
-            seed=42,
-        )
+        stream = make_stream([src_node, node], BaseProvider(), constraint_solver=solver)
         # Force the generator to produce "existing" to trigger collision
         # We do this by making the generated value collide
         row = {"src": "src_val"}
         generated = {"src": "src_val"}
         # Mock _generate_node_value to return "existing"
-        original = stream._generate_node_value
-        stream._generate_node_value = lambda n, r: "existing"  # type: ignore[method-assign]
+        # cast(Any, stream) lets us monkey-patch the bound method for testing
+        # without triggering method-assign — this is intentional test behavior.
+        stream_any = cast("Any", stream)
+        original = stream_any._generate_node_value
+        stream_any._generate_node_value = lambda n, r: "existing"
         try:
-            success, backtrack_to = stream._attempt_node_generation(node, row, generated)
+            success, backtrack_to = stream_any._attempt_node_generation(node, row, generated)
         finally:
-            stream._generate_node_value = original  # type: ignore[method-assign]
+            stream_any._generate_node_value = original
         assert success is False
         assert backtrack_to is not None
         # Backtrack target should be the index of "src"
@@ -457,19 +379,13 @@ class TestHandleColFailure:
         solver._register("col1", "val1")
         solver._register("col2", "val2")
 
-        stream = DataStream(
-            dag_nodes=[],
-            provider=BaseProvider(),
-            expr_engine=ExpressionEngine(),
-            constraint_solver=solver,
-            seed=42,
-        )
+        stream = make_stream([], BaseProvider(), constraint_solver=solver)
         row = {"col1": "val1", "col2": "val2"}
         generated = {"col1": "val1", "col2": "val2"}
         stream._handle_col_failure(None, row, generated)
 
-        assert row == {}
-        assert generated == {}
+        assert not row
+        assert not generated
         # Values unregistered from solver
         assert not solver._is_seen("col1", "val1")
         assert not solver._is_seen("col2", "val2")
@@ -485,14 +401,7 @@ class TestFinalizeRow:
             row["retry_count"] = ctx["retry_count"]
             return row
 
-        stream = DataStream(
-            dag_nodes=[],
-            provider=BaseProvider(),
-            expr_engine=ExpressionEngine(),
-            constraint_solver=ConstraintSolver(),
-            transform_fn=transform,
-            seed=42,
-        )
+        stream = make_stream([], BaseProvider(), transform_fn=transform)
         row = {"name": "test"}
         result = stream._finalize_row(row, row_idx=5, total_retries=2)
         assert result["transformed"] is True
@@ -501,26 +410,16 @@ class TestFinalizeRow:
 
     def test_non_callable_transform_logs_warning(self) -> None:
         # transform_fn is set but not callable → should log warning and return row unchanged
-        stream = DataStream(
-            dag_nodes=[],
-            provider=BaseProvider(),
-            expr_engine=ExpressionEngine(),
-            constraint_solver=ConstraintSolver(),
-            transform_fn="not_callable",  # type: ignore[arg-type]
-            seed=42,
-        )
+        # cast(Any, "not_callable") intentionally passes a non-callable to
+        # test the warning path — transform_fn expects Callable but we're
+        # verifying the graceful-degradation behavior.
+        stream = make_stream([], BaseProvider(), transform_fn=cast("Any", "not_callable"))
         row = {"name": "test"}
         result = stream._finalize_row(row, row_idx=1, total_retries=0)
         assert result == {"name": "test"}
 
     def test_no_transform_fn_returns_row_unchanged(self) -> None:
-        stream = DataStream(
-            dag_nodes=[],
-            provider=BaseProvider(),
-            expr_engine=ExpressionEngine(),
-            constraint_solver=ConstraintSolver(),
-            seed=42,
-        )
+        stream = make_stream([], BaseProvider())
         row = {"name": "test"}
         result = stream._finalize_row(row, row_idx=1, total_retries=0)
         assert result == {"name": "test"}
@@ -534,25 +433,13 @@ class TestFindNodeIndex:
             ColumnNode(name="a", generator_spec=GeneratorSpec(generator_name="string")),
             ColumnNode(name="b", generator_spec=GeneratorSpec(generator_name="string")),
         ]
-        stream = DataStream(
-            dag_nodes=nodes,
-            provider=BaseProvider(),
-            expr_engine=ExpressionEngine(),
-            constraint_solver=ConstraintSolver(),
-            seed=42,
-        )
+        stream = make_stream(nodes, BaseProvider())
         assert stream._find_node_index("a") == 0
         assert stream._find_node_index("b") == 1
 
     def test_returns_none_for_missing_column(self) -> None:
         nodes = [ColumnNode(name="a", generator_spec=GeneratorSpec(generator_name="string"))]
-        stream = DataStream(
-            dag_nodes=nodes,
-            provider=BaseProvider(),
-            expr_engine=ExpressionEngine(),
-            constraint_solver=ConstraintSolver(),
-            seed=42,
-        )
+        stream = make_stream(nodes, BaseProvider())
         assert stream._find_node_index("nonexistent") is None
 
 
@@ -562,25 +449,13 @@ class TestApplyGenerator:
     def test_null_ratio_returns_none(self) -> None:
         # null_ratio=1.0 → always returns None
         spec = GeneratorSpec(generator_name="string", null_ratio=1.0)
-        stream = DataStream(
-            dag_nodes=[],
-            provider=BaseProvider(),
-            expr_engine=ExpressionEngine(),
-            constraint_solver=ConstraintSolver(),
-            seed=42,
-        )
+        stream = make_stream([], BaseProvider())
         result = stream._apply_generator(spec)
         assert result is None
 
     def test_zero_null_ratio_never_returns_none(self) -> None:
         spec = GeneratorSpec(generator_name="integer", null_ratio=0.0)
-        stream = DataStream(
-            dag_nodes=[],
-            provider=BaseProvider(),
-            expr_engine=ExpressionEngine(),
-            constraint_solver=ConstraintSolver(),
-            seed=42,
-        )
+        stream = make_stream([], BaseProvider())
         for _ in range(20):
             assert stream._apply_generator(spec) is not None
 
@@ -592,13 +467,7 @@ class TestApplyGenerator:
         )
         provider = MagicMock()
         provider.generate.side_effect = UnknownGeneratorError("choice")
-        stream = DataStream(
-            dag_nodes=[],
-            provider=provider,
-            expr_engine=ExpressionEngine(),
-            constraint_solver=ConstraintSolver(),
-            seed=42,
-        )
+        stream = make_stream([], provider)
         result = stream._apply_generator(spec)
         assert result in {10, 20, 30}
 
@@ -609,13 +478,7 @@ class TestApplyGenerator:
         )
         provider = MagicMock()
         provider.generate.side_effect = UnknownGeneratorError("foreign_key")
-        stream = DataStream(
-            dag_nodes=[],
-            provider=provider,
-            expr_engine=ExpressionEngine(),
-            constraint_solver=ConstraintSolver(),
-            seed=42,
-        )
+        stream = make_stream([], provider)
         result = stream._apply_generator(spec)
         assert result in {100, 200, 300}
 
@@ -632,13 +495,7 @@ class TestApplyGenerator:
             UnknownGeneratorError("foreign_key"),
             42,
         ]
-        stream = DataStream(
-            dag_nodes=[],
-            provider=provider,
-            expr_engine=ExpressionEngine(),
-            constraint_solver=ConstraintSolver(),
-            seed=42,
-        )
+        stream = make_stream([], provider)
         result = stream._apply_generator(spec)
         assert result == 42
         # Verify the integer call had correct params
@@ -648,18 +505,30 @@ class TestApplyGenerator:
         assert second_call.kwargs == {"min_value": 1, "max_value": 50}
 
 
+def _make_provider_with_missing_native_attr(
+    provider_name: str,
+    native_attr: str,
+    del_attr: str,
+) -> MagicMock:
+    """Build a mock provider whose native object has an attribute deleted.
+
+    Used to verify ``_try_native_method`` returns ``_NATIVE_MISS`` when the
+    native target (faker method or mimesis path component) is missing.
+    """
+    native_obj = MagicMock()
+    delattr(native_obj, del_attr)
+    provider = MagicMock()
+    provider.name = provider_name
+    setattr(provider, native_attr, native_obj)
+    return provider
+
+
 class TestTryNativeMethod:
     """Tests for _try_native_method, _try_faker_native, _try_mimesis_native."""
 
     def test_try_native_returns_miss_when_no_native_config(self) -> None:
         spec = GeneratorSpec(generator_name="string")  # No native methods configured
-        stream = DataStream(
-            dag_nodes=[],
-            provider=BaseProvider(),
-            expr_engine=ExpressionEngine(),
-            constraint_solver=ConstraintSolver(),
-            seed=42,
-        )
+        stream = make_stream([], BaseProvider())
         # _NATIVE_MISS is a private sentinel, compare by identity
         result = stream._try_native_method(spec)
         assert result is _NATIVE_MISS
@@ -667,13 +536,7 @@ class TestTryNativeMethod:
     def test_try_faker_native_returns_miss_when_no_faker_attr(self) -> None:
         # BaseProvider has no _faker attribute
         spec = GeneratorSpec(generator_name="string", native_faker_method="email")
-        stream = DataStream(
-            dag_nodes=[],
-            provider=BaseProvider(),
-            expr_engine=ExpressionEngine(),
-            constraint_solver=ConstraintSolver(),
-            seed=42,
-        )
+        stream = make_stream([], BaseProvider())
         result = stream._try_native_method(spec)
         assert result is _NATIVE_MISS
 
@@ -690,69 +553,30 @@ class TestTryNativeMethod:
             native_faker_method="email",
             native_params={"domain": "example.com"},
         )
-        stream = DataStream(
-            dag_nodes=[],
-            provider=provider,
-            expr_engine=ExpressionEngine(),
-            constraint_solver=ConstraintSolver(),
-            seed=42,
-        )
+        stream = make_stream([], provider)
         result = stream._try_native_method(spec)
         assert result == "test@example.com"
         fake_faker.email.assert_called_once_with(domain="example.com")
 
-    def test_try_faker_native_returns_miss_on_type_error(self) -> None:
-        fake_faker = MagicMock()
-        fake_faker.email.side_effect = TypeError("bad args")
-        provider = MagicMock()
-        provider.name = "faker"
-        provider._faker = fake_faker
-
-        spec = GeneratorSpec(generator_name="string", native_faker_method="email")
-        stream = DataStream(
-            dag_nodes=[],
-            provider=provider,
-            expr_engine=ExpressionEngine(),
-            constraint_solver=ConstraintSolver(),
-            seed=42,
-        )
-        result = stream._try_native_method(spec)
-        assert result is _NATIVE_MISS
-
     def test_try_faker_native_returns_miss_when_method_not_found(self) -> None:
-        fake_faker = MagicMock()
-        # Configure so getattr returns None for the missing method
-        del fake_faker.nonexistent_method
-        provider = MagicMock()
-        provider.name = "faker"
-        provider._faker = fake_faker
+        provider = _make_provider_with_missing_native_attr("faker", "_faker", "nonexistent_method")
 
         spec = GeneratorSpec(generator_name="string", native_faker_method="nonexistent_method")
-        stream = DataStream(
-            dag_nodes=[],
-            provider=provider,
-            expr_engine=ExpressionEngine(),
-            constraint_solver=ConstraintSolver(),
-            seed=42,
-        )
+        stream = make_stream([], provider)
         result = stream._try_native_method(spec)
         assert result is _NATIVE_MISS
 
-    def test_try_faker_native_returns_miss_on_value_error(self) -> None:
+    @pytest.mark.parametrize("exc", _NATIVE_EXCEPTION_PARAMS)
+    def test_try_faker_native_returns_miss_on_exception(self, exc: Exception) -> None:
+        """Faker native call raising TypeError or ValueError should yield _NATIVE_MISS."""
         fake_faker = MagicMock()
-        fake_faker.email.side_effect = ValueError("bad value")
+        fake_faker.email.side_effect = exc
         provider = MagicMock()
         provider.name = "faker"
         provider._faker = fake_faker
 
         spec = GeneratorSpec(generator_name="string", native_faker_method="email")
-        stream = DataStream(
-            dag_nodes=[],
-            provider=provider,
-            expr_engine=ExpressionEngine(),
-            constraint_solver=ConstraintSolver(),
-            seed=42,
-        )
+        stream = make_stream([], provider)
         result = stream._try_native_method(spec)
         assert result is _NATIVE_MISS
 
@@ -766,13 +590,7 @@ class TestTryNativeMethod:
             generator_name="string",
             native_mimesis_method="person.full_name",
         )
-        stream = DataStream(
-            dag_nodes=[],
-            provider=provider,
-            expr_engine=ExpressionEngine(),
-            constraint_solver=ConstraintSolver(),
-            seed=42,
-        )
+        stream = make_stream([], provider)
         result = stream._try_native_method(spec)
         assert result is _NATIVE_MISS
 
@@ -789,42 +607,27 @@ class TestTryNativeMethod:
             native_mimesis_method="person.full_name",
             native_params={},
         )
-        stream = DataStream(
-            dag_nodes=[],
-            provider=provider,
-            expr_engine=ExpressionEngine(),
-            constraint_solver=ConstraintSolver(),
-            seed=42,
-        )
+        stream = make_stream([], provider)
         result = stream._try_native_method(spec)
         assert result == "John Doe"
         generic.person.full_name.assert_called_once_with()
 
     def test_try_mimesis_native_returns_miss_on_invalid_path(self) -> None:
-        # Path component doesn't exist → returns _NATIVE_MISS
-        generic = MagicMock()
-        del generic.nonexistent
-        provider = MagicMock()
-        provider.name = "mimesis"
-        provider._generic = generic
+        provider = _make_provider_with_missing_native_attr("mimesis", "_generic", "nonexistent")
 
         spec = GeneratorSpec(
             generator_name="string",
             native_mimesis_method="nonexistent.method",
         )
-        stream = DataStream(
-            dag_nodes=[],
-            provider=provider,
-            expr_engine=ExpressionEngine(),
-            constraint_solver=ConstraintSolver(),
-            seed=42,
-        )
+        stream = make_stream([], provider)
         result = stream._try_native_method(spec)
         assert result is _NATIVE_MISS
 
-    def test_try_mimesis_native_returns_miss_on_type_error(self) -> None:
+    @pytest.mark.parametrize("exc", _NATIVE_EXCEPTION_PARAMS)
+    def test_try_mimesis_native_returns_miss_on_exception(self, exc: Exception) -> None:
+        """Mimesis native call raising TypeError or ValueError should yield _NATIVE_MISS."""
         generic = MagicMock()
-        generic.person.full_name.side_effect = TypeError("bad args")
+        generic.person.full_name.side_effect = exc
         provider = MagicMock()
         provider.name = "mimesis"
         provider._generic = generic
@@ -833,34 +636,7 @@ class TestTryNativeMethod:
             generator_name="string",
             native_mimesis_method="person.full_name",
         )
-        stream = DataStream(
-            dag_nodes=[],
-            provider=provider,
-            expr_engine=ExpressionEngine(),
-            constraint_solver=ConstraintSolver(),
-            seed=42,
-        )
-        result = stream._try_native_method(spec)
-        assert result is _NATIVE_MISS
-
-    def test_try_mimesis_native_returns_miss_on_value_error(self) -> None:
-        generic = MagicMock()
-        generic.person.full_name.side_effect = ValueError("bad value")
-        provider = MagicMock()
-        provider.name = "mimesis"
-        provider._generic = generic
-
-        spec = GeneratorSpec(
-            generator_name="string",
-            native_mimesis_method="person.full_name",
-        )
-        stream = DataStream(
-            dag_nodes=[],
-            provider=provider,
-            expr_engine=ExpressionEngine(),
-            constraint_solver=ConstraintSolver(),
-            seed=42,
-        )
+        stream = make_stream([], provider)
         result = stream._try_native_method(spec)
         assert result is _NATIVE_MISS
 
@@ -876,13 +652,7 @@ class TestTryNativeMethod:
             generator_name="string",
             native_mimesis_method="person.full_name",
         )
-        stream = DataStream(
-            dag_nodes=[],
-            provider=provider,
-            expr_engine=ExpressionEngine(),
-            constraint_solver=ConstraintSolver(),
-            seed=42,
-        )
+        stream = make_stream([], provider)
         result = stream._try_native_method(spec)
         assert result is _NATIVE_MISS
 
@@ -911,13 +681,7 @@ class TestGenerateRowBacktracking:
                     is_derived=True,
                     constraints=ColumnConstraints(unique=True, max_retries=10),
                 )
-        stream = DataStream(
-            dag_nodes=nodes,
-            provider=BaseProvider(),
-            expr_engine=ExpressionEngine(),
-            constraint_solver=ConstraintSolver(),
-            seed=42,
-        )
+        stream = make_stream(nodes, BaseProvider())
         row = stream._generate_row(row_idx=1)
         assert "base" in row
         assert "derived" in row
@@ -931,45 +695,34 @@ class TestGenerateRowBacktracking:
                 generator_spec=GeneratorSpec(generator_name="skip"),
             ),
         ]
-        stream = DataStream(
-            dag_nodes=nodes,
-            provider=BaseProvider(),
-            expr_engine=ExpressionEngine(),
-            constraint_solver=ConstraintSolver(),
-            seed=42,
-        )
+        stream = make_stream(nodes, BaseProvider())
         row = stream._generate_row(row_idx=1)
-        assert row == {}
+        assert not row
 
 
 class TestGenerateBatchSize:
     """Tests for batch size edge cases in generate()."""
 
-    def test_generate_count_zero(self) -> None:
+    @pytest.mark.parametrize(
+        ("count", "batch_size", "expected_batch_count", "expected_first_batch_len"),
+        [
+            pytest.param(0, 10, 0, 0, id="count_zero"),
+            pytest.param(3, 100, 1, 3, id="batch_larger_than_count"),
+        ],
+    )
+    def test_generate_batch_size_edge_cases(
+        self,
+        count: int,
+        batch_size: int,
+        expected_batch_count: int,
+        expected_first_batch_len: int,
+    ) -> None:
+        """Parametrized coverage of count=0 (no batches) and batch_size > count (single short batch)."""
         specs = {"name": GeneratorSpec(generator_name="name")}
         dag = ColumnDAG()
         nodes = dag.build(specs)
-        stream = DataStream(
-            dag_nodes=nodes,
-            provider=BaseProvider(),
-            expr_engine=ExpressionEngine(),
-            constraint_solver=ConstraintSolver(),
-            seed=42,
-        )
-        batches = list(stream.generate(0, batch_size=10))
-        assert batches == []
-
-    def test_generate_batch_larger_than_count(self) -> None:
-        specs = {"name": GeneratorSpec(generator_name="name")}
-        dag = ColumnDAG()
-        nodes = dag.build(specs)
-        stream = DataStream(
-            dag_nodes=nodes,
-            provider=BaseProvider(),
-            expr_engine=ExpressionEngine(),
-            constraint_solver=ConstraintSolver(),
-            seed=42,
-        )
-        batches = list(stream.generate(3, batch_size=100))
-        assert len(batches) == 1
-        assert len(batches[0]) == 3
+        stream = make_stream(nodes, BaseProvider())
+        batches = list(stream.generate(count, batch_size=batch_size))
+        assert len(batches) == expected_batch_count
+        if expected_batch_count > 0:
+            assert len(batches[0]) == expected_first_batch_len
