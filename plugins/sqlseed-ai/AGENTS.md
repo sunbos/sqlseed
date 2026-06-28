@@ -21,6 +21,7 @@ sqlseed-ai/
     │   ├── _context.py   # ContextBuilderMixin — chat message and schema context construction
     │   └── _json_parser.py # JsonParserMixin — JSON response parsing and analysis entry points
     ├── refiner.py        # AiConfigRefiner — post-generation refinement, self-correction, streaming
+    ├── ai_mediator.py    # AI-specific mediation — apply_ai_suggestions() (Phase C moved from core)
     ├── config.py         # AIConfig — env-based config, GemmaModel, AIBackend, ToolCallingProtocol
     ├── errors.py         # Error classification (7 processors)
     ├── exceptions.py     # Structured exception types (ContextOverflowError, ToolCallError, ModelFallbackError, classify_api_error)
@@ -30,7 +31,9 @@ sqlseed-ai/
     ├── _json_utils.py    # JSON parsing utilities (3-strategy fallback)
     ├── _prompts.py       # LLM prompt templates (full, compact, ultra-compact, template)
     ├── _tools.py         # Gemma 4 native function calling tool definitions (GEMMA_TOOLS)
-    └── examples.py       # Few-shot examples for prompts
+    ├── examples.py       # Few-shot examples for prompts
+    ├── cli/ai_commands.py # ai-suggest command injected into sqlseed CLI via entry_points
+    └── mcp.py            # AI MCP server (sqlseed_ai_generate_yaml, sqlseed_gemma4_analyze, sqlseed_gemma4_agent_fill, sqlseed_list_gemma_models)
 ```
 
 ## WHERE TO LOOK

@@ -16,17 +16,16 @@ tests/
 ├── test_schema.py           # SchemaInferrer tests
 ├── test_relation.py         # RelationResolver tests
 ├── test_result.py           # GenerationResult tests
-├── test_refiner.py          # AI refiner tests
 ├── test_enrich_enum_detection.py  # Enrichment tests
-├── test_cli.py              # CLI tests
-├── test_cli_yaml_priority.py    # CLI YAML priority tests
-├── test_ai_plugin.py        # AI plugin integration tests
+├── test_architecture.py     # Architecture guard tests (13 invariants)
+├── test_doc_sync.py         # Doc sync verification (AUTO-GENERATED markers)
 ├── test_core/               # Core module tests
 ├── test_generators/         # Generator tests
 ├── test_database/           # Database adapter tests
 ├── test_config/             # Config tests
 ├── test_plugins/            # Plugin tests
 ├── test_utils/              # Utility tests
+├── integration/             # Integration tests (test_pg_integration.py, test_url_e2e.py)
 └── benchmarks/              # Performance benchmarks
 ```
 
@@ -37,8 +36,8 @@ tests/
 | Add fixture | `conftest.py` | tmp_db, tmp_db_with_data, unique_test_db |
 | Test new generator | `test_generators/` | Mirror generators/ structure |
 | Test core logic | `test_core/` | Mirror core/ structure |
-| Test CLI | `test_cli.py` | Click CliRunner |
-| Test AI plugin | `test_ai_plugin.py` | Integration tests |
+| Test CLI | `plugins/sqlseed-cli/tests/` | Click CliRunner |
+| Test AI plugin | `plugins/sqlseed-ai/tests/` | Integration tests |
 | Add benchmark | `benchmarks/` | pytest-benchmark |
 
 ## CONVENTIONS

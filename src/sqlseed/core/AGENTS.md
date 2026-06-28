@@ -46,7 +46,7 @@ core/
 | Add constraint | `constraints.py` | ConstraintSolver — retry logic |
 | Add enum pattern | `enrichment.py` | EnrichmentEngine — 19 patterns |
 | Batch generation | `stream.py` | DataStream.generate() — yields batches |
-| Add plugin hook | `plugin_mediator.py` | PluginMediator.apply_*() methods |
+| Add plugin hook | `plugin_mediator.py` | PluginMediator.apply_batch_transforms(), apply_template_pool() (generic only; apply_ai_suggestions moved to sqlseed-ai/ai_mediator.py in Phase C) |
 
 ## CONVENTIONS
 

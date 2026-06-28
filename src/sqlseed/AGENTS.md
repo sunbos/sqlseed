@@ -18,7 +18,6 @@ src/sqlseed/
 ├── database/         # Database adapters: SQLAlchemy (production), raw sqlite3 (testing) + dialect, optimizer, helpers (11 files)
 ├── plugins/          # Plugin system: hookspecs (12 hooks), manager (3 files)
 ├── config/           # Pydantic models, YAML loader, snapshot manager (4 files)
-├── cli/              # Click commands: fill, preview, inspect, init, replay, ai-suggest (4 files)
 └── _utils/           # Internal utilities: sql_safe, metrics, progress, logger, paths (6 files)
 ```
 
@@ -41,7 +40,7 @@ src/sqlseed/
 - **Imports**: Always `from __future__ import annotations` first
 - **Logging**: `logger = get_logger(__name__)` at module top
 - **SQL safety**: `quote_identifier()` for all identifiers
-- **Optional deps**: try/except for mimesis, psycopg, pymysql (faker is required)
+- **Optional deps**: try/except for mimesis, psycopg (faker is required)
 - **Provider protocol**: Implement `DataProvider` protocol, no base class required
 - **Multi-DB support**: `db_path` (SQLite) and `url` (database URL) are mutually exclusive
 - **Exception handling**: Use `sqlalchemy.exc.*` in SQLAlchemyAdapter; `sqlite3.*` only in RawSQLiteAdapter/PragmaOptimizer

@@ -28,6 +28,7 @@ model fallback on timeout/connection errors.
 | `_tools.py` | Gemma 4 native function calling tool definitions (`GEMMA_TOOLS`) |
 | `config.py` | `AIConfig`, `GemmaModel`, `AIBackend`, `ToolCallingProtocol` and resolution logic |
 | `refiner.py` | `AiConfigRefiner` self-correction loop (generate → validate → fix) |
+| `ai_mediator.py` | AI-specific mediation — apply_ai_suggestions() hookimpl (Phase C moved from core) |
 | `errors.py` | Error summarization system (`ErrorSummary` / `summarize_error()`) |
 | `exceptions.py` | Structured exception types (`ContextOverflowError`, `ToolCallError`, `ModelFallbackError`, `classify_api_error()`) |
 | `_client.py` | OpenAI client factory with unified httpx timeout |
@@ -35,6 +36,8 @@ model fallback on timeout/connection errors.
 | `_json_utils.py` | LLM JSON response parsing (3-strategy fallback) |
 | `_model_selector.py` | Gemma model selection and fallback chain |
 | `examples.py` | Few-shot examples for LLM schema-analysis prompts |
+| `cli/ai_commands.py` | ai-suggest CLI command (injected into sqlseed CLI via entry_points) |
+| `mcp.py` | AI MCP server (4 LLM-driven tools, install with sqlseed-ai[mcp]) |
 
 ## WHERE TO LOOK
 
@@ -50,6 +53,7 @@ model fallback on timeout/connection errors.
 | Change httpx timeout profile | `_client.py` | `httpx_timeout()` |
 | Add few-shot examples | `examples.py` | Append to `FEW_SHOT_EXAMPLES` |
 | Modify hook implementations | `__init__.py` | `sqlseed_ai_analyze_table`, `sqlseed_pre_generate_templates` |
+| Modify AI mediation hook | `ai_mediator.py` | `sqlseed_apply_ai_suggestions` (high-level AI mediation, Phase C) |
 
 ## AIConfig Environment Variables
 
@@ -151,7 +155,7 @@ first non-None result wins:
 
 ### Working In This Directory
 
-- `AISqlseedPlugin` implements `hookimpl` for `sqlseed_ai_analyze_table` (full-table analysis) and `sqlseed_pre_generate_templates` (per-column value generation for non-simple columns). It does NOT implement `sqlseed_register_providers` or `sqlseed_register_column_mappers`.
+- `AISqlseedPlugin` implements `hookimpl` for `sqlseed_ai_analyze_table` (full-table analysis) and `sqlseed_pre_generate_templates` (per-column value generation for non-simple columns). The `sqlseed_apply_ai_suggestions` hook (high-level AI mediation) is implemented in `ai_mediator.py` (Phase C, moved from core). It does NOT implement `sqlseed_register_providers` or `sqlseed_register_column_mappers`.
 - Simple columns (name, email, phone, etc.) are skipped via the `_SIMPLE_COL_RE` regex — do not waste LLM tokens on them.
 - `_model_selector.py` maintains the Gemma 4 model list: `select_gemma_model()` for initial selection, `select_next_gemma_model()` for fallback.
 - JSON parsing must go through `_json_utils.parse_json_response()` (3 strategies: direct → fence-strip → `raw_decode`). Never call `json.loads()` directly on LLM output.
@@ -178,6 +182,7 @@ pytest tests/test_ai_plugin.py tests/test_refiner.py
 ### Internal
 
 - `sqlseed` (core, generators, plugins hookspecs, `_utils.logger`, `_utils.paths`, `config.models.TableConfig`, `core.orchestrator.DataOrchestrator`)
+- `sqlseed-cli` (ai-suggest command injected via entry_points; sqlseed-ai depends on sqlseed-cli per ARCHITECTURE.md Section 6 Note)
 
 ### External
 

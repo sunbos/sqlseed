@@ -4,7 +4,7 @@
 
 ## OVERVIEW
 
-31 generators across 3 providers: base (no deps), faker (optional), mimesis (optional).
+31 generators across 3 providers: base (type-routing only, no real data), faker (required), mimesis (optional).
 
 ## STRUCTURE
 
@@ -16,7 +16,7 @@ generators/
 ├── _json_helpers.py     # JSON schema-based generation
 ├── _string_helpers.py   # Random string utilities
 ├── registry.py          # ProviderRegistry — entry-point discovery
-├── base_provider.py     # BaseProvider — 31 generators, lazy deps
+├── base_provider.py     # BaseProvider — type-routing only (no real data generation); delegates to faker/mimesis
 ├── faker_provider.py    # FakerProvider — faker adapter
 └── mimesis_provider.py  # MimesisProvider — mimesis adapter
 ```
@@ -41,7 +41,7 @@ generators/
 
 ## ANTI-PATTERNS
 
-- **NEVER** import faker/mimesis/rstr at module top → use try/except (lazy import)
+- **NEVER** import mimesis at module top → use try/except (lazy import). faker and rstr are required deps, import at module top.
 - **NEVER** raise in generate() without UnknownGeneratorError
 - **ALWAYS** implement all 31 generators or handle gracefully
 - **ALWAYS** use `self._rng` for random (seed support)

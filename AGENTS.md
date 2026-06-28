@@ -69,7 +69,7 @@ sqlseed/
 ## UNIQUE STYLES
 
 - **Provider fallback chain**: mimesis (optional, high-performance) → faker (required, standard) → base (type-routing only, no real data)
-- **AI backend fallback chain**: Google AI Studio → LM Studio → Ollama (multi-backend)
+- **AI backend fallback chain**: Google AI Studio → LM Studio → Ollama → OpenAI-compat (4 backends, no gemma4 backend)
 - **Gemma 4 protocol-based tool calling**: `AIConfig.tool_calling_protocol: Literal["gemma4", "openai", "none"]` (Phase E). `GEMMA_TOOLS` shared across protocols; `resolve_tool_calling_protocol()` narrows based on backend support. Gemma4 is a long-term LLM backend (NOT competition-only).
 - **Context manager pattern**: `DataOrchestrator` is a context manager
 - **Plugin mediation**: `PluginMediator` bridges plugins and core (generic methods only: `apply_batch_transforms`, `apply_template_pool`). AI-specific `apply_ai_suggestions` moved to `sqlseed-ai` (Phase C), invoked via pluggy hook.
