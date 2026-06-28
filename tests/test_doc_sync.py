@@ -91,10 +91,11 @@ def _find_doc_files() -> list[Path]:
         ROOT / "src" / "sqlseed" / "core" / "AGENTS.md",
         ROOT / "src" / "sqlseed" / "generators" / "AGENTS.md",
         ROOT / "src" / "sqlseed" / "config" / "AGENTS.md",
-        ROOT / "src" / "sqlseed" / "cli" / "AGENTS.md",
         ROOT / "src" / "sqlseed" / "database" / "AGENTS.md",
         ROOT / "src" / "sqlseed" / "plugins" / "AGENTS.md",
         ROOT / "src" / "sqlseed" / "_utils" / "AGENTS.md",
+        ROOT / "plugins" / "sqlseed-cli" / "AGENTS.md",
+        ROOT / "plugins" / "sqlseed-cli" / "src" / "sqlseed_cli" / "AGENTS.md",
         ROOT / "plugins" / "sqlseed-ai" / "AGENTS.md",
         ROOT / "plugins" / "sqlseed-ai" / "src" / "sqlseed_ai" / "AGENTS.md",
         ROOT / "plugins" / "mcp-server-sqlseed" / "AGENTS.md",
@@ -290,7 +291,11 @@ class TestPluginHooks:
         hooks = get_hook_names()
         count = len(hooks)
 
-        for doc_path in _find_doc_files():
+        # Skip CHANGELOG (records historical facts, not current state) —
+        # mirrors TestGeneratorTypes.test_count_in_readme logic.
+        check_files = [p for p in _find_doc_files() if "CHANGELOG" not in p.name]
+
+        for doc_path in check_files:
             text = _read(doc_path)
             matches = _extract_number_before_keyword(text, ["个 hook 点", "个hook点", "hook point", "hook"])
             for m in matches:

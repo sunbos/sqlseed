@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic import ValidationError as PydanticValidationError
 from sqlseed_ai._json_utils import _sanitize_names
 from sqlseed_ai.errors import ErrorSummary, summarize_error
+from sqlseed_ai.exceptions import ContextOverflowError
 
 from sqlseed._utils.logger import get_logger
 from sqlseed._utils.paths import get_cache_dir
@@ -162,7 +163,7 @@ class AiConfigRefiner:
                 same_error_count = 1  # Reset count when error type changes
             if same_error_count >= 2:
                 raise AISuggestionFailedError(
-                    f"Same error '{error.error_type}' repeated {same_error_count + 1} times. "
+                    f"Same error '{error.error_type}' repeated {same_error_count} times. "
                     f"The AI model may not support this task. "
                     f"Try a different model with --model. Last error: {error.message}"
                 )
@@ -214,9 +215,8 @@ class AiConfigRefiner:
                         retryable=True,
                     )
                 return config_dict, None
-            except (ValueError, RuntimeError, OSError) as e:
-                err_lower = str(e).lower()
-                if "context" in err_lower and "exceed" in err_lower and not ultra:
+            except ContextOverflowError:
+                if not ultra:
                     logger.info(
                         "Context overflow, retrying with shorter prompt",
                         compact=compact,
@@ -224,6 +224,8 @@ class AiConfigRefiner:
                     )
                     state.min_prompt_level = level_idx + 1
                     continue
+                raise
+            except (ValueError, RuntimeError, OSError) as e:
                 return None, summarize_error(e)
         return None, None
 

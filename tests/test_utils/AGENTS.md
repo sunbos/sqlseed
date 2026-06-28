@@ -1,26 +1,29 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-04-29 | Updated: 2026-04-29 -->
+<!-- Generated: 2026-04-29 | Updated: 2026-06-21 -->
 
 # test_utils
 
 ## Purpose
 
-工具模块测试。覆盖指标收集等工具函数。
+Utility module tests. Covers logging configuration, metrics collection, cache path resolution, and progress bar display.
 
 ## Key Files
 
 | File | Description |
 |------|-------------|
-| `test_metrics.py` | MetricsCollector 指标收集测试 |
-| `test_paths.py` | 缓存路径解析测试 |
-| `test_progress.py` | 进度条显示测试 |
+| `test_logger.py` | structlog configuration and `get_logger()` tests |
+| `test_metrics.py` | MetricsCollector metrics collection tests |
+| `test_paths.py` | Cache path resolution tests (platform-aware, `SQLSEED_CACHE_DIR` override) |
+| `test_progress.py` | Progress bar display tests (Null/Rich/tqdm backends) |
 
 ## For AI Agents
 
 ### Working In This Directory
 
-- 验证指标的记录、过滤和汇总统计
-- 测试空指标集的边界情况
+- Verify metric recording, filtering, and aggregate statistics
+- Test boundary cases for empty metric sets
+- Logger tests must verify structlog auto-configuration on module import
+- Path tests must cover macOS/Linux/Windows platform differences and env var override
 
 ### Testing Requirements
 
@@ -30,7 +33,8 @@ pytest tests/test_utils/
 
 ### Common Patterns
 
-- 直接实例化 `MetricsCollector` 进行测试
+- Directly instantiate `MetricsCollector` for testing
+- Use `tmp_path` for cache directory isolation in path tests
 
 ## Dependencies
 

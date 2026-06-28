@@ -82,43 +82,6 @@ _PG_TYPE_MAP: dict[str, str] = {
     "bit": "BLOB",
 }
 
-# MySQL type mapping table
-_MYSQL_TYPE_MAP: dict[str, str] = {
-    "int": "INTEGER",
-    "integer": "INTEGER",
-    "bigint": "INTEGER",
-    "smallint": "INTEGER",
-    "tinyint": "INTEGER",
-    "mediumint": "INTEGER",
-    "varchar": "VARCHAR",
-    "char": "CHAR",
-    "text": "TEXT",
-    "tinytext": "TEXT",
-    "mediumtext": "TEXT",
-    "longtext": "TEXT",
-    "datetime": "DATETIME",
-    "timestamp": "TIMESTAMP",
-    "date": "DATE",
-    "time": "TIME",
-    "year": "INTEGER",
-    "double": "FLOAT",
-    "float": "FLOAT",
-    "decimal": "NUMERIC",
-    "numeric": "NUMERIC",
-    "boolean": "BOOLEAN",
-    "bool": "BOOLEAN",
-    "blob": "BLOB",
-    "tinyblob": "BLOB",
-    "mediumblob": "BLOB",
-    "longblob": "BLOB",
-    "json": "JSON",
-    "binary": "BLOB",
-    "varbinary": "BLOB",
-    "enum": "TEXT",
-    "set": "TEXT",
-}
-
-
 class TypeNormalizer:
     """Normalizes type names from different databases so that mapper.py rules keep working.
 
@@ -135,7 +98,7 @@ class TypeNormalizer:
 
         Args:
             raw_type: Original type string returned by the database
-            dialect_name: Dialect name ("sqlite", "postgresql", "mysql")
+            dialect_name: Dialect name ("sqlite", "postgresql")
 
         Returns:
             NormalizedType: Normalized type information
@@ -162,8 +125,6 @@ class TypeNormalizer:
         """Map the base type name to sqlseed internal type by dialect."""
         if dialect_name == "postgresql":
             return _PG_TYPE_MAP.get(base_raw, base_raw.upper())
-        if dialect_name == "mysql":
-            return _MYSQL_TYPE_MAP.get(base_raw, base_raw.upper())
         # SQLite types are already in normalized uppercase form
         return base_raw.upper()
 

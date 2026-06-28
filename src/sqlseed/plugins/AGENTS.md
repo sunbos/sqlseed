@@ -16,21 +16,22 @@ pluggy-based plugin framework integration. Defines hook specifications and manag
 | `hookspecs.py` | `SqlseedHookSpec` hook specification definitions, `hookspec`/`hookimpl` markers |
 | `manager.py` | `PluginManager` wraps pluggy.PluginManager, auto-discovers and registers plugins |
 
-## Complete Hook List (11 hooks)
+## Complete Hook List (12 hooks)
 
 | # | Hook Name | firstresult | Signature |
 |---|-----------|-------------|-----------|
 | 1 | `sqlseed_register_providers` | No | `(self, registry: Any) -> None` |
 | 2 | `sqlseed_register_column_mappers` | No | `(self, mapper: Any) -> None` |
 | 3 | `sqlseed_ai_analyze_table` | **Yes** | `(self, table_name, columns, indexes, sample_data, foreign_keys, all_table_names) -> dict | None` |
-| 4 | `sqlseed_before_generate` | No | `(self, table_name, count, config) -> None` |
-| 5 | `sqlseed_after_generate` | No | `(self, table_name, count, elapsed) -> None` |
-| 6 | `sqlseed_transform_row` | No | `(self, table_name, row) -> dict | None` |
-| 7 | `sqlseed_transform_batch` | No | `(self, table_name, batch) -> list | None` |
-| 8 | `sqlseed_before_insert` | No | `(self, table_name, batch_number, batch_size) -> None` |
-| 9 | `sqlseed_after_insert` | No | `(self, table_name, batch_number, rows_inserted) -> None` |
-| 10 | `sqlseed_shared_pool_loaded` | No | `(self, table_name, shared_pool) -> None` |
-| 11 | `sqlseed_pre_generate_templates` | **Yes** | `(self, table_name, column_name, column_type, count, sample_data) -> list | None` |
+| 4 | `sqlseed_apply_ai_suggestions` | **Yes** | `(self, table_name, column_infos, specs, user_configured_columns, db, schema) -> dict | None` |
+| 5 | `sqlseed_before_generate` | No | `(self, table_name, count, config) -> None` |
+| 6 | `sqlseed_after_generate` | No | `(self, table_name, count, elapsed) -> None` |
+| 7 | `sqlseed_transform_row` | No | `(self, table_name, row) -> dict | None` |
+| 8 | `sqlseed_transform_batch` | No | `(self, table_name, batch) -> list | None` |
+| 9 | `sqlseed_before_insert` | No | `(self, table_name, batch_number, batch_size) -> None` |
+| 10 | `sqlseed_after_insert` | No | `(self, table_name, batch_number, rows_inserted) -> None` |
+| 11 | `sqlseed_shared_pool_loaded` | No | `(self, table_name, shared_pool) -> None` |
+| 12 | `sqlseed_pre_generate_templates` | **Yes** | `(self, table_name, column_name, column_type, count, sample_data) -> list | None` |
 
 - `sqlseed_transform_row` is marked as "hot path - performance sensitive"
 - `sqlseed_transform_batch` supports chained application: each plugin's output becomes the next plugin's input

@@ -81,7 +81,12 @@ def available_llm_backend() -> dict[str, str]:
         with urllib.request.urlopen("http://localhost:1234/v1/models", timeout=2) as resp:
             data = json_mod.loads(resp.read())
             model_ids = {m.get("id", "") for m in data.get("data", [])}
-            for preferred in ("google/gemma-4-26b-a4b", "google/gemma-4-31b", "google/gemma-4-e4b"):
+            for preferred in (
+                "google/gemma-4-26b-a4b",
+                "google/gemma-4-31b",
+                "google/gemma-4-e4b",
+                "google/gemma-4-e2b",  # ultra-light edge model
+            ):
                 if preferred in model_ids:
                     return {"backend": "lm_studio", "model": preferred}
     except (OSError, ConnectionError, RuntimeError):

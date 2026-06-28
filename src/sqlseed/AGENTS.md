@@ -13,27 +13,27 @@ src/sqlseed/
 ├── __init__.py       # Public API: fill, connect, fill_from_config, preview
 ├── _version.py       # Version info (importlib.metadata dynamic detection)
 ├── py.typed          # PEP 561 type marker
-├── core/             # Orchestration engine: orchestrator, mapper, schema, constraints, DAG, enrichment, transform (14 files)
-├── generators/       # Data providers: base, faker, mimesis + dispatch, registry, stream (11 files)
+├── core/             # Orchestration engine: orchestrator, mapper, schema, constraints, DAG, enrichment, transform, stream (19 files)
+├── generators/       # Data providers: base, faker, mimesis + dispatch, registry (9 files)
 ├── database/         # Database adapters: SQLAlchemy (production), raw sqlite3 (testing) + dialect, optimizer, helpers (11 files)
-├── plugins/          # Plugin system: hookspecs (11 hooks), manager (4 files)
-├── config/           # Pydantic models, YAML loader, snapshot manager (5 files)
+├── plugins/          # Plugin system: hookspecs (12 hooks), manager (3 files)
+├── config/           # Pydantic models, YAML loader, snapshot manager (4 files)
 ├── cli/              # Click commands: fill, preview, inspect, init, replay, ai-suggest (4 files)
-└── _utils/           # Internal utilities: sql_safe, metrics, progress, logger, schema_helpers (7 files)
+└── _utils/           # Internal utilities: sql_safe, metrics, progress, logger, paths (6 files)
 ```
 
 ## WHERE TO LOOK
 
 | Task | Location | Notes |
 |------|----------|-------|
-| Public API | `__init__.py` | fill, connect, fill_from_config, preview |
-| Orchestrator | `core/orchestrator.py` | DataOrchestrator main engine |
+| Public API | `__init__.py` | fill, connect, fill_from_config, preview, load_config |
+| Orchestrator | `core/orchestrator/` | DataOrchestrator package (4 mixins + shared _common) |
 | Column mapping | `core/mapper.py` | 9-level strategy chain |
 | Schema inference | `core/schema.py` | SchemaInferrer class |
-| Data stream | `generators/stream.py` | DataStream + constraint backtracking |
+| Data stream | `core/stream.py` | DataStream + constraint backtracking |
 | Base provider | `generators/base_provider.py` | 31 built-in generators, fallback provider with no external dependencies |
 | DB adapters | `database/` | SQLAlchemyAdapter (required), RawSQLiteAdapter (test-only) |
-| Plugin hooks | `plugins/hookspecs.py` | 11 pluggy hook definitions |
+| Plugin hooks | `plugins/hookspecs.py` | 12 pluggy hook definitions |
 | Config models | `config/models.py` | Pydantic: GeneratorConfig, TableConfig, ColumnConfig, ColumnConstraintsConfig, ColumnAssociation |
 
 ## CONVENTIONS

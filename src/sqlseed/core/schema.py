@@ -9,6 +9,8 @@ from __future__ import annotations
 import collections
 from typing import TYPE_CHECKING, Any
 
+from sqlalchemy.exc import OperationalError as SAOperationalError
+
 from sqlseed._utils.logger import get_logger
 from sqlseed._utils.sql_safe import validate_table_name
 
@@ -74,7 +76,7 @@ class SchemaInferrer:
             for idx in indexes:
                 if idx.unique and len(idx.columns) == 1:
                     unique_cols.add(idx.columns[0])
-        except (ValueError, OSError):
+        except (ValueError, RuntimeError, OSError, SAOperationalError):
             logger.debug("Failed to detect unique constraints from indexes", table_name=table_name)
 
         try:
@@ -84,7 +86,7 @@ class SchemaInferrer:
             for pk in pks:
                 if pk not in autoincrement_pks:
                     unique_cols.add(pk)
-        except (ValueError, OSError):
+        except (ValueError, RuntimeError, OSError, SAOperationalError):
             logger.debug("Failed to detect PK unique constraints", table_name=table_name)
 
         return unique_cols
@@ -155,13 +157,15 @@ class SchemaInferrer:
             else:
                 profile["top_values"] = []
 
-            numeric_values = [v for v in non_null_values if isinstance(v, int | float)]
+            # Exclude bool: in Python, bool is a subclass of int, so isinstance(True, int) is True.
+            # Treating bool columns as numeric would produce misleading value_range stats.
+            numeric_values = [v for v in non_null_values if isinstance(v, int | float) and not isinstance(v, bool)]
             if numeric_values:
                 profile["value_range"] = {"min": min(numeric_values), "max": max(numeric_values)}
             else:
                 profile["value_range"] = None
 
-        except (ValueError, OSError):
+        except (ValueError, RuntimeError, OSError, SAOperationalError):
             profile["error"] = "failed to profile"
 
         return profile

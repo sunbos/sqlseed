@@ -1,6 +1,6 @@
 """pluggy plugin hook specification definitions.
 
-11 hooks covering the full lifecycle of registration/generation/transformation/insertion.
+12 hooks covering the full lifecycle of registration/generation/transformation/insertion.
 """
 
 from __future__ import annotations
@@ -21,9 +21,13 @@ PROJECT_NAME = "sqlseed"
 class SqlseedHookSpec:
     """sqlseed plugin hook specification class.
 
-    Defines 11 hooks for plugin implementers to override, covering the full
+    Defines 12 hooks for plugin implementers to override, covering the full
     data generation lifecycle: registration, before/after generation, row/batch
-    transformation, before/after insertion, shared pool loading, and AI analysis.
+    transformation, before/after insertion, shared pool loading, and AI
+    analysis. The ``sqlseed_apply_ai_suggestions`` hook is the high-level
+    entry point used by the orchestrator; the lower-level
+    ``sqlseed_ai_analyze_table`` hook is the LLM call itself and is invoked
+    by the AI plugin's implementation of ``sqlseed_apply_ai_suggestions``.
     """
 
     @hookspec
@@ -47,6 +51,28 @@ class SqlseedHookSpec:
         all_table_names: list[str],
     ) -> dict[str, Any] | None:
         """[AI Hook] Analyze an entire table and return complete column configuration suggestions."""
+
+    @hookspec(firstresult=True)
+    def sqlseed_apply_ai_suggestions(
+        self,
+        table_name: str,
+        column_infos: list[Any],
+        specs: dict[str, Any],
+        user_configured_columns: set[str],
+        db: Any,
+        schema: Any,
+    ) -> dict[str, Any] | None:
+        """[AI Hook] Apply AI-driven suggestions to column specs.
+
+        This is the high-level entry point invoked by the orchestrator. The
+        AI plugin implementation is responsible for: deciding whether AI is
+        needed (e.g., unmatched ``string`` columns), building the analysis
+        context from ``db``/``schema``, calling the lower-level
+        ``sqlseed_ai_analyze_table`` hook, and merging the AI result back
+        into ``specs``. Returns the updated ``specs`` dict, or ``None`` if
+        no AI plugin handles this call (in which case the orchestrator
+        keeps the original ``specs`` unchanged).
+        """
 
     @hookspec
     def sqlseed_before_generate(

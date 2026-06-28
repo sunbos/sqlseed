@@ -17,7 +17,6 @@ Cross-module shared low-level utility functions. Includes logging, metrics, prog
 | `paths.py` | `get_cache_dir(subdir)` platform-standard cache directory (macOS/Linux/Windows), `SQLSEED_CACHE_DIR` environment variable takes highest priority, shared by SnapshotManager and AiConfigRefiner |
 | `progress.py` | `create_progress()` three-backend progress bar factory: Null (disabled) / Rich (terminal, with ASCII fallback) / tqdm (Jupyter), auto-selected by runtime environment |
 | `sql_safe.py` | SQL injection protection three layers: `validate_table_name()` / `quote_identifier()` / `build_insert_sql()`; double-quote escaping, rejects `; \n \r '` but allows `-` |
-| `schema_helpers.py` | SQLite schema detection (depends on `sqlite_master` catalog table), `detect_autoincrement` uses bracket-aware splitter to avoid splitting comma-containing definitions like `DECIMAL(10,2)` |
 
 ## For AI Agents
 
@@ -27,7 +26,6 @@ Cross-module shared low-level utility functions. Includes logging, metrics, prog
 - Logging uniformly uses structlog; all modules obtain loggers via `get_logger(__name__)`, do not use the standard library `logging`
 - When adding new utility functions, consider whether they are truly shared by multiple modules; functions used by a single module should be placed in the corresponding module
 - `MetricsCollector` uses dataclass to store metric entries, supports filtering by name and aggregate statistics
-- `schema_helpers.py` only supports SQLite, depends on the `sqlite_master` catalog table, does not support other databases
 
 ### Testing Requirements
 

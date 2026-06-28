@@ -7,7 +7,7 @@ Design notes:
 - Metadata reading: uses SQLAlchemy inspect() to mask dialect differences
 - Bulk write: uses SQLAlchemy bulk_insert_mappings(); PG dialect may use the COPY protocol in the future
 - Type normalization: maps database types to sqlseed internal types via TypeNormalizer
-- Autoincrement detection: SQLite delegates to schema_helpers; PG uses triple detection via Dialect
+- Autoincrement detection: delegated to the Dialect (SQLite parses sqlite_master; PG uses column_info)
 - Performance optimization: abstracts dialect-specific optimization strategies via BulkWriteOptimizer
 
 Connection forms:
@@ -18,7 +18,6 @@ Connection forms:
 
 from __future__ import annotations
 
-import contextlib
 from typing import TYPE_CHECKING, Any
 
 from sqlseed._utils.logger import get_logger
@@ -46,29 +45,60 @@ logger = get_logger(__name__)
 class SQLAlchemyBatchInserter:
     """Generic batch writer using SQLAlchemy bulk_insert_mappings.
 
-    Applicable to all SQLAlchemy-supported dialects such as SQLite / PostgreSQL / MySQL.
+    Applicable to all SQLAlchemy-supported dialects such as SQLite / PostgreSQL.
     In the future, PG may be upgraded to the psycopg3 COPY protocol for a 5-10x performance boost.
+
+    H2 optimization: supports a pre-reflected Table object passed in via the constructor
+    to avoid reflecting the table structure on every batch, and accepts a shared Connection
+    in insert() so all batches can be written within a single outer transaction.
     """
 
-    def __init__(self, engine: Engine, table_name: str) -> None:
+    def __init__(self, engine: Engine, table_name: str, table: Any = None) -> None:
         """Initialize the batch writer.
 
         Args:
             engine: SQLAlchemy Engine instance.
             table_name: Target table name.
+            table: Optional pre-reflected SQLAlchemy Table object (H2 optimization).
+                When provided, reuses it instead of reflecting on every insert.
         """
         self._engine = engine
         self._table_name = table_name
+        self._table = table  # cached Table object (H2 optimization)
         self._normalizer = TypeNormalizer()
 
-    def insert(self, rows: list[dict[str, Any]]) -> int:
+    def _resolve_table(self) -> Any:
+        """Return the cached Table or reflect it on first use.
+
+        Raises:
+            RuntimeError: Raised when the target table does not exist.
+        """
+        if self._table is not None:
+            return self._table
+        from sqlalchemy import MetaData, Table  # noqa: PLC0415
+        from sqlalchemy.exc import NoSuchTableError  # noqa: PLC0415
+
+        metadata = MetaData()
+        try:
+            self._table = Table(
+                self._table_name,
+                metadata,
+                autoload_with=self._engine,
+                extend_existing=True,
+            )
+        except NoSuchTableError as e:
+            raise RuntimeError(f"Table '{self._table_name}' does not exist") from e
+        return self._table
+
+    def insert(self, rows: list[dict[str, Any]], conn: Any = None) -> int:
         """Insert a batch of row data.
 
-        Reflects the table structure to obtain a Table object, then writes via table.insert().
-        Raises RuntimeError when the table does not exist (uniformly caught by the orchestrator).
+        When a pre-reflected Table is supplied, reuses it instead of reflecting on every call.
+        When a shared Connection is supplied, writes within that transaction; otherwise opens a new one.
 
         Args:
             rows: List of row data, each row is a dict mapping column names to values.
+            conn: Optional shared SQLAlchemy Connection for single-transaction batching.
 
         Returns:
             The actual number of inserted rows; returns 0 when rows is empty.
@@ -78,23 +108,12 @@ class SQLAlchemyBatchInserter:
         """
         if not rows:
             return 0
-        from sqlalchemy import MetaData, Table  # noqa: PLC0415
-        from sqlalchemy.exc import NoSuchTableError  # noqa: PLC0415
-
-        metadata = MetaData()
-        # Reflect the table structure to obtain the Table object
-        try:
-            table = Table(
-                self._table_name,
-                metadata,
-                autoload_with=self._engine,
-                extend_existing=True,
-            )
-        except NoSuchTableError as e:
-            # Convert to RuntimeError so the orchestrator's except clause can uniformly catch it
-            raise RuntimeError(f"Table '{self._table_name}' does not exist") from e
-        with self._engine.begin() as conn:
+        table = self._resolve_table()
+        if conn is not None:
             conn.execute(table.insert(), rows)
+        else:
+            with self._engine.begin() as connection:
+                connection.execute(table.insert(), rows)
         return len(rows)
 
 
@@ -118,6 +137,7 @@ class SQLAlchemyAdapter:
         self._db_url: str = ""
         self._db_path: str = ""
         self._normalizer = TypeNormalizer()
+        self._table_cache: dict[str, Any] = {}
 
     @property
     def dialect(self) -> Dialect:
@@ -142,7 +162,7 @@ class SQLAlchemyAdapter:
             db_path: Database URL or file path
 
         Raises:
-            RuntimeError: When connecting to PG/MySQL but the corresponding driver
+            RuntimeError: When connecting to PG but the corresponding driver
                 is not installed, gives a friendly hint.
         """
         from sqlalchemy import create_engine, inspect  # noqa: PLC0415
@@ -165,8 +185,6 @@ class SQLAlchemyAdapter:
                 raise RuntimeError(
                     "PostgreSQL driver not installed. Install with: pip install sqlseed[postgres]"
                 ) from exc
-            if "mysql" in db_url:
-                raise RuntimeError("MySQL driver not installed. Install with: pip install sqlseed[mysql]") from exc
             raise
         except ArgumentError as exc:
             raise ValueError(f"Invalid database URL: {db_url}") from exc
@@ -175,13 +193,18 @@ class SQLAlchemyAdapter:
         self._dialect = self._detect_dialect()
         self._optimizer = self._create_optimizer()
 
-        # SQLite needs to enable foreign key constraints
+        # SQLite needs to enable foreign key constraints on every new connection,
+        # because PRAGMA foreign_keys is per-connection (not persisted to disk).
+        # Using an event listener ensures all connections created by this engine
+        # (including from the connection pool) have FK enforcement enabled.
         if self._dialect.name == "sqlite":
-            with self._engine.connect() as conn:
-                from sqlalchemy import text  # noqa: PLC0415
+            from sqlalchemy import event  # noqa: PLC0415
 
-                conn.execute(text("PRAGMA foreign_keys = ON"))
-                conn.commit()
+            @event.listens_for(self._engine, "connect")
+            def _enable_sqlite_fk(dbapi_conn: Any, _record: Any) -> None:
+                cursor = dbapi_conn.cursor()
+                cursor.execute("PRAGMA foreign_keys = ON")
+                cursor.close()
 
         logger.debug("Connected to database via SQLAlchemy", db_url=db_url, dialect=self._dialect.name)
 
@@ -193,6 +216,7 @@ class SQLAlchemyAdapter:
             self._inspector = None
             self._dialect = None
             self._optimizer = None
+            self._table_cache.clear()
             logger.debug("Closed SQLAlchemy connection", db_url=self._db_url)
 
     def _detect_dialect(self) -> Dialect:
@@ -205,9 +229,6 @@ class SQLAlchemyAdapter:
             return SQLiteDialect()
         if dialect_name == "postgresql":
             return PostgresDialect()
-        if dialect_name == "mysql":
-            # Future extension
-            raise NotImplementedError("MySQL support not yet implemented")
         raise ValueError(f"Unsupported dialect: {dialect_name}")
 
     def _create_optimizer(self) -> BulkWriteOptimizer | None:
@@ -256,7 +277,6 @@ class SQLAlchemyAdapter:
 
             return PostgresBulkOptimizer(execute_fn=pg_execute_fn)
 
-        # MySQL optimizer left for future work
         return None
 
     def _get_engine(self) -> Engine:
@@ -348,31 +368,28 @@ class SQLAlchemyAdapter:
     def _detect_autoincrement(self, table_name: str, column_info: dict[str, Any]) -> bool:
         """Detect whether a column is autoincrement.
 
-        SQLite: parses the CREATE TABLE SQL via schema_helpers.detect_autoincrement
-                (SQLiteDialect.detect_autoincrement is a placeholder implementation).
-        PG: triple detection via PostgresDialect.detect_autoincrement
-             (identity / nextval / autoincrement flag).
+        Pure delegation to the Dialect's detect_autoincrement with a
+        raw-connection execute_fn. SQLite uses it to query sqlite_master;
+        PG ignores it and detects from column_info alone. No dialect
+        branching — adding a new dialect requires no change here.
         """
         dialect = self.dialect
+        engine = self._get_engine()
+        raw = engine.raw_connection()
+        try:
+            cursor = raw.cursor()
 
-        if dialect.name == "sqlite":
-            from sqlseed._utils.schema_helpers import detect_autoincrement  # noqa: PLC0415
+            def execute_fn(sql: str, params: Any = ()) -> Any:
+                cursor.execute(sql, params or ())
+                return cursor
 
-            engine = self._get_engine()
-            raw = engine.raw_connection()
-            try:
-                cursor = raw.cursor()
-
-                def execute_fn(sql: str, params: Any = ()) -> Any:
-                    cursor.execute(sql, params or ())
-                    return cursor
-
-                return detect_autoincrement(execute_fn, table_name, column_info["name"])
-            finally:
-                raw.close()
-
-        # PG / other dialects: delegate to Dialect.detect_autoincrement
-        return dialect.detect_autoincrement(column_info)
+            return dialect.detect_autoincrement(
+                column_info,
+                table_name=table_name,
+                execute_fn=execute_fn,
+            )
+        finally:
+            raw.close()
 
     def get_primary_keys(self, table_name: str) -> list[str]:
         """Get the list of primary key column names for a table.
@@ -507,12 +524,22 @@ class SQLAlchemyAdapter:
             )
         return result
 
-    def get_sample_rows(self, table_name: str, limit: int = 5) -> list[dict[str, Any]]:
+    def get_sample_rows(
+        self,
+        table_name: str,
+        limit: int = 5,
+        columns: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
         """Get sample rows from a table.
 
         Args:
             table_name: Target table name.
             limit: Maximum number of rows to return, default 5.
+            columns: Optional list of column names to project. When ``None``,
+                all columns are selected. When provided, only the named columns
+                are fetched (reduces data transfer for wide tables with many
+                columns but only a few PK/FK columns of interest). Unknown
+                names are ignored.
 
         Returns:
             A list of dicts keyed by column names with row values; returns an empty
@@ -522,11 +549,18 @@ class SQLAlchemyAdapter:
         from sqlalchemy import text  # noqa: PLC0415
 
         dialect = self.dialect
-        columns = self.get_column_info(table_name)
+        all_columns = self.get_column_info(table_name)
         # Return an empty list when the table does not exist or has no columns (consistent with RawSQLiteAdapter)
-        if not columns:
+        if not all_columns:
             return []
-        col_names = [dialect.quote_identifier(c.name) for c in columns]
+        if columns is not None:
+            projection_set = set(columns)
+            selected = [c for c in all_columns if c.name in projection_set]
+            if not selected:
+                return []
+        else:
+            selected = all_columns
+        col_names = [dialect.quote_identifier(c.name) for c in selected]
         safe_table = dialect.quote_identifier(table_name)
         cols_sql = ", ".join(col_names)
         sql = f"SELECT {cols_sql} FROM {safe_table} LIMIT :limit"
@@ -534,8 +568,34 @@ class SQLAlchemyAdapter:
         engine = self._get_engine()
         with engine.connect() as conn:
             result = conn.execute(text(sql), {"limit": limit})
-            col_name_list = [c.name for c in columns]
+            col_name_list = [c.name for c in selected]
             return [dict(zip(col_name_list, row, strict=True)) for row in result.fetchall()]
+
+    def _get_table(self, table_name: str) -> Any:
+        """Get a cached SQLAlchemy Table object, reflecting on first access (H2 optimization).
+
+        Args:
+            table_name: Target table name.
+
+        Returns:
+            SQLAlchemy Table object.
+
+        Raises:
+            RuntimeError: Raised when the target table does not exist.
+        """
+        if table_name in self._table_cache:
+            return self._table_cache[table_name]
+        from sqlalchemy import MetaData, Table  # noqa: PLC0415
+        from sqlalchemy.exc import NoSuchTableError  # noqa: PLC0415
+
+        engine = self._get_engine()
+        metadata = MetaData()
+        try:
+            table = Table(table_name, metadata, autoload_with=engine, extend_existing=True)
+        except NoSuchTableError as e:
+            raise RuntimeError(f"Table '{table_name}' does not exist") from e
+        self._table_cache[table_name] = table
+        return table
 
     def batch_insert(
         self,
@@ -544,6 +604,16 @@ class SQLAlchemyAdapter:
         batch_size: int = 5000,
     ) -> int:
         """Insert data in batches.
+
+        Uses a cached Table object (H2 optimization: reflect once, reuse for all batches)
+        and wraps all batches in a single outer transaction via ``engine.begin()``.
+
+        Atomicity semantics (behavioral change from pre-H2):
+            All batches commit or roll back together. If batch K fails, batches 1..K-1
+            are rolled back and 0 rows are persisted. This is preferable for test-data
+            generation (avoids partial datasets that violate FK constraints), but
+            differs from the previous per-batch commit semantics where a failure at
+            batch 8/10 would leave the first 7 batches committed.
 
         Args:
             table_name: Target table name.
@@ -555,8 +625,12 @@ class SQLAlchemyAdapter:
         """
         validate_table_name(table_name)
         engine = self._get_engine()
-        inserter = SQLAlchemyBatchInserter(engine, table_name)
-        return batch_insert_rows(data, batch_size, inserter.insert)
+        table = self._get_table(table_name)
+        inserter = SQLAlchemyBatchInserter(engine, table_name, table=table)
+        with engine.begin() as conn:
+            return batch_insert_rows(
+                data, batch_size, lambda batch: inserter.insert(batch, conn=conn)
+            )
 
     def clear_table(self, table_name: str) -> None:
         """Clear table data and reset the autoincrement counter.
@@ -573,12 +647,14 @@ class SQLAlchemyAdapter:
         try:
             cursor = raw.cursor()
             cursor.execute(f"DELETE FROM {safe_table}")
-            # Reset the autoincrement counter
-            with contextlib.suppress(Exception):
-                dialect.reset_autoincrement(
-                    lambda sql, params=None: cursor.execute(sql, params or ()),
-                    table_name,
-                )
+            # Reset the autoincrement counter. Each Dialect self-handles expected
+            # failures (SQLite: sqlite_sequence missing; PG: no sequence) via its
+            # own reset_autoincrement implementation, so no dialect-specific
+            # exception handling is needed here.
+            dialect.reset_autoincrement(
+                lambda sql, params=None: cursor.execute(sql, params or ()),
+                table_name,
+            )
             raw.commit()
         finally:
             raw.close()

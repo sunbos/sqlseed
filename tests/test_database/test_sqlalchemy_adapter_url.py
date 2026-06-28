@@ -48,18 +48,6 @@ class TestSQLAlchemyAdapterUrl:
         with pytest.raises(RuntimeError, match="PostgreSQL driver not installed"):
             adapter.connect("postgresql://user:pass@host/db")
 
-    def test_connect_mysql_missing_driver(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """pymysql 未装时抛 RuntimeError 含 "pip install sqlseed[mysql]"。"""
-
-        def mock_create_engine(url: str, **kwargs: Any) -> Any:
-            raise NoSuchModuleError("Can't load plugin: sqlalchemy.dialects:mysql.pymysql")
-
-        monkeypatch.setattr("sqlalchemy.create_engine", mock_create_engine)
-
-        adapter = SQLAlchemyAdapter()
-        with pytest.raises(RuntimeError, match="MySQL driver not installed"):
-            adapter.connect("mysql://user:pass@host/db")
-
     def test_connect_invalid_url_raises_value_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """无效 URL（触发 ArgumentError）抛 ValueError。
 

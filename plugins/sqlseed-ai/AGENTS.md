@@ -13,10 +13,17 @@ sqlseed-ai/
 ├── pyproject.toml        # Separate package: sqlseed>=0.1.0, openai>=1.0, httpx>=0.24.0
 └── src/sqlseed_ai/
     ├── __init__.py       # AISqlseedPlugin, plugin instance, hookimpl registration
-    ├── analyzer.py       # SchemaAnalyzer — LLM schema analysis, streaming, tool calling
+    ├── analyzer/         # SchemaAnalyzer package — split into 5 mixin modules by concern
+    │   ├── __init__.py   # SchemaAnalyzer class, composes all mixins via multiple inheritance
+    │   ├── _caller.py    # LLMCallerMixin — non-streaming LLM calls, model fallback chain
+    │   ├── _streaming.py # StreamingHandlerMixin — streaming LLM calls, protocol-aware dispatch
+    │   ├── _tool_calling.py # ToolCallingMixin — native function calling (gemma4 / openai protocols)
+    │   ├── _context.py   # ContextBuilderMixin — chat message and schema context construction
+    │   └── _json_parser.py # JsonParserMixin — JSON response parsing and analysis entry points
     ├── refiner.py        # AiConfigRefiner — post-generation refinement, self-correction, streaming
-    ├── config.py         # AIConfig — env-based config, GemmaModel enum, AIBackend enum
+    ├── config.py         # AIConfig — env-based config, GemmaModel, AIBackend, ToolCallingProtocol
     ├── errors.py         # Error classification (7 processors)
+    ├── exceptions.py     # Structured exception types (ContextOverflowError, ToolCallError, ModelFallbackError, classify_api_error)
     ├── _client.py        # OpenAI client wrapper, httpx timeout config
     ├── _hardware.py      # Cross-platform hardware detection (RAM, GPU/VRAM) for model selection
     ├── _model_selector.py # Gemma 4 model selection and fallback chain
@@ -31,7 +38,7 @@ sqlseed-ai/
 | Task | Location | Notes |
 |------|----------|-------|
 | Add hook | `__init__.py` | Decorate with `@hookimpl` |
-| Modify LLM calls | `analyzer.py` | `call_llm()`, `call_llm_streaming()`, `_call_llm_once()` |
+| Modify LLM calls | `analyzer/` | `call_llm()`, `call_llm_streaming()`, `_call_llm_once()` |
 | Change model selection | `_model_selector.py` | `select_gemma_model()`, `select_next_gemma_model()` |
 | Add config option | `config.py` | `AIConfig.from_env()`, `GemmaModel`, `AIBackend` |
 | Modify prompt templates | `_prompts.py` | `SYSTEM_PROMPT`, `_COMPACT_SYSTEM_PROMPT`, `_ULTRA_COMPACT_SYSTEM_PROMPT` |
@@ -48,7 +55,7 @@ sqlseed-ai/
 
 ## ANTI-PATTERNS
 
-- **NEVER** import `openai` at module top in `analyzer.py` → use lazy init via `_client.py`
+- **NEVER** import `openai` at module top in `analyzer/` → use lazy init via `_client.py`
 - **NEVER** raise from hook methods → return None on failure
 - **ALWAYS** use `AIConfig.from_env()` for configuration
 - **ALWAYS** cap template generation at 50 values (`min(count, 50)`)
@@ -65,9 +72,14 @@ sqlseed-ai/
 
 ## Backend Configuration
 
-| Backend | Default Base URL | Notes |
-|---------|-----------------|-------|
-| `google_ai_studio` | `https://generativelanguage.googleapis.com/v1beta/openai/` | Cloud, supports tool calling |
-| `lm_studio` | `http://127.0.0.1:1234/v1` | Local, auto-detect models |
-| `ollama` | `http://localhost:11434/v1` | Local, offline |
-| `openai_compat` | (must set `SQLSEED_AI_BASE_URL`) | Generic OpenAI-compatible |
+| Backend | Default Base URL | Tool Calling Protocols |
+|---------|-----------------|----------------------|
+| `google_ai_studio` | `https://generativelanguage.googleapis.com/v1beta/openai/` | `gemma4`, `openai` |
+| `lm_studio` | `http://127.0.0.1:1234/v1` | `none` (text mode only) |
+| `ollama` | `http://localhost:11434/v1` | `none` (text mode only) |
+| `openai_compat` | (must set `SQLSEED_AI_BASE_URL`) | `openai` |
+
+Tool calling protocol is selected via `AIConfig.tool_calling_protocol` (default
+`"gemma4"`). `resolve_tool_calling_protocol()` narrows the choice based on what
+the active backend supports (Phase E). Set `SQLSEED_AI_TOOL_CALLING_PROTOCOL`
+env var to override (`gemma4`, `openai`, or `none`).

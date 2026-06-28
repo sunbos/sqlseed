@@ -95,7 +95,7 @@ print(result)
 <tr>
 <td>
 
-**🧩 11 个 Hook 全生命周期**
+**🧩 12 个 Hook 全生命周期**
 
 基于 pluggy 的插件架构，从 Provider 注册到批次插入，覆盖数据生成的每个环节。
 
@@ -782,13 +782,14 @@ Level 9 │ 类型忠实回退      VARCHAR(32)→最长32字符, INT8→0~255, 
 
 ## 🧩 插件系统
 
-sqlseed 通过 [pluggy](https://pluggy.readthedocs.io/) 提供 11 个 Hook 点：
+sqlseed 通过 [pluggy](https://pluggy.readthedocs.io/) 提供 12 个 Hook 点：
 
 | Hook | firstresult | 触发时机 |
 | :--- | :---------: | :------- |
 | `sqlseed_register_providers` |    <br />   | 注册自定义数据 Provider |
 | `sqlseed_register_column_mappers` |    <br />   | 注册自定义列映射规则 |
 | `sqlseed_ai_analyze_table` |      ✓      | AI 分析表 Schema（返回列配置建议） |
+| `sqlseed_apply_ai_suggestions` |      ✓      | 高层 AI 中介（orchestrator 入口；实现在 `sqlseed_ai.ai_mediator`） |
 | `sqlseed_pre_generate_templates` |      ✓      | AI 预计算候选值池 |
 | `sqlseed_before_generate` |    <br />   | 数据生成循环前 |
 | `sqlseed_after_generate` |    <br />   | 数据生成完成后 |
@@ -828,7 +829,7 @@ src/sqlseed/
 │   ├── raw_sqlite_adapter.py     # sqlite3 回退适配器
 │   └── optimizer.py         # PragmaOptimizer 三级优化
 ├── plugins/                 # ===== 插件层 =====
-│   ├── hookspecs.py         # 11 个 pluggy Hook 定义
+│   ├── hookspecs.py         # 12 个 pluggy Hook 定义
 │   └── manager.py           # PluginManager
 ├── config/                  # ===== 配置管理 =====
 │   ├── models.py            # Pydantic 模型 (GeneratorConfig/TableConfig/ColumnConfig)

@@ -31,8 +31,6 @@ dependencies = [
     "pluggy>=1.3",
     "structlog>=24.0",
     "pyyaml>=6.0",
-    "click>=8.0",
-    "rich>=13.0",
     "typing_extensions>=4.4",
     "simpleeval>=1.0",
     "rstr>=3.2",
@@ -50,8 +48,13 @@ Issues = "https://github.com/sunbos/sqlseed/issues"
 mimesis = ["mimesis>=18.0"]
 notebook = ["tqdm>=4.66"]
 postgres = ["psycopg[binary]>=3.0"]
-mysql = ["pymysql>=1.1"]
-all = ["mimesis>=18.0", "tqdm>=4.66", "psycopg[binary]>=3.0", "testcontainers>=4.0"]
+# Per ARCHITECTURE.md Section 3.2: the `sqlseed` console command lives in
+# the standalone `sqlseed-cli` package. Users who want the CLI install
+# with: pip install sqlseed-cli  (which auto-pulls sqlseed core).
+# `pip install "sqlseed[cli]"` is a convenience alias that pulls
+# sqlseed-cli into the current install.
+cli = ["sqlseed-cli>=0.1.0"]
+all = ["mimesis>=18.0", "tqdm>=4.66", "psycopg[binary]>=3.0", "testcontainers>=4.0", "sqlseed-cli>=0.1.0"]
 dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
@@ -63,14 +66,20 @@ dev = [
     "tqdm>=4.66",
     "testcontainers>=4.0",
     "psycopg[binary]>=3.0",
+    "import-linter>=2.0",
+    "mutmut>=2.5,<3",
+    "sqlseed-cli>=0.1.0",
 ]
 docs = [
     "mkdocs-material>=9.0",
     "mkdocstrings[python]>=0.25",
 ]
 
-[project.scripts]
-sqlseed = "sqlseed.cli.main:cli"
+# Per ARCHITECTURE.md Section 7.1: the `sqlseed` console command is
+# provided by the standalone `sqlseed-cli` package, NOT by core sqlseed.
+# Core sqlseed has no `[project.scripts]` entry point — installing
+# `pip install sqlseed` alone provides only the Python API.
+# Install `pip install sqlseed-cli` to get the `sqlseed` command.
 
 [project.entry-points."sqlseed"]
 faker = "sqlseed.generators.faker_provider:FakerProvider"
@@ -88,6 +97,7 @@ exclude = [
     "docs/",
     "tests/",
     "plugins/sqlseed-ai/",
+    "plugins/sqlseed-cli/",
     "plugins/mcp-server-sqlseed/",
     ".github/",
     ".trae/",
@@ -105,7 +115,7 @@ extend-exclude = ["examples/notebooks"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["sqlseed"]
-known-third-party = ["sqlseed_ai"]
+known-third-party = ["sqlseed_ai", "sqlseed_cli"]
 
 [tool.ruff.lint]
 select = ["E", "W", "F", "I", "N", "UP", "B", "A", "SIM", "TCH", "RET", "PLW", "PLC", "PLR", "RUF"]
@@ -120,9 +130,13 @@ allowed-confusables = ["：", "（", "）"]
 strict = true
 python_version = "3.10"
 files = ["src", "plugins"]
+# Exclude test directories: per CLAUDE.md, mypy is strict on src/ and plugins/
+# source code, relaxed on tests/. Multiple plugins/*/tests/__init__.py files
+# would otherwise collide as duplicate "tests" modules.
+exclude = ["tests/", "plugins/.*/tests/"]
 
 [[tool.mypy.overrides]]
-module = ["mimesis.*", "faker.*", "yaml", "simpleeval", "sqlseed_ai.*", "mcp.*", "mcp_server_sqlseed.*", "tqdm", "tqdm.*"]
+module = ["mimesis.*", "faker.*", "yaml", "simpleeval", "sqlseed_ai.*", "sqlseed_cli.*", "mcp.*", "mcp_server_sqlseed.*", "tqdm", "tqdm.*", "rich.*", "click.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
@@ -140,9 +154,73 @@ disallow_untyped_calls = false
 check_untyped_defs = true
 
 [tool.pytest.ini_options]
-testpaths = ["tests", "plugins/mcp-server-sqlseed/tests"]
+testpaths = ["tests", "plugins/mcp-server-sqlseed/tests", "plugins/sqlseed-cli/tests", "plugins/sqlseed-ai/tests"]
 addopts = "-ra --strict-markers"
 markers = [
     "integration: marks tests as integration tests (require external services like Docker/PostgreSQL)",
 ]
 consider_namespace_packages = true
+
+# ---------------------------------------------------------------------------
+# import-linter: architectural layer enforcement (CI gate)
+# Encodes the "Never" rules from CLAUDE.md so violations fail CI automatically
+# instead of relying on AI agents reading the docs.
+# Run: lint-imports
+# ---------------------------------------------------------------------------
+[tool.importlinter]
+root_packages = ["sqlseed"]
+
+# Rule 1: generators must not depend on core (CLAUDE.md: "Never: generators → core")
+[[tool.importlinter.contracts]]
+name = "Generators must not depend on core"
+type = "forbidden"
+source_modules = ["sqlseed.generators"]
+forbidden_modules = ["sqlseed.core"]
+
+# Rule 2: database must not depend on core (CLAUDE.md: "Never: database → core")
+[[tool.importlinter.contracts]]
+name = "Database must not depend on core"
+type = "forbidden"
+source_modules = ["sqlseed.database"]
+forbidden_modules = ["sqlseed.core"]
+
+# Rule 3: _utils must not depend on any upper layer (CLAUDE.md: "_utils → no internal deps")
+[[tool.importlinter.contracts]]
+name = "Utils must not depend on upper layers"
+type = "forbidden"
+source_modules = ["sqlseed._utils"]
+forbidden_modules = [
+    "sqlseed.core",
+    "sqlseed.generators",
+    "sqlseed.database",
+    "sqlseed.plugins",
+    "sqlseed.config",
+]
+
+# ---------------------------------------------------------------------------
+# mutmut: mutation testing to detect self-proving mock-based tests.
+# Mock-heavy tests can pass because the mock returns what the test author
+# expected, not because the production code actually computes the right thing.
+# mutmut injects small faults (e.g. `==` -> `!=`, `50` -> `51`) into production
+# code and re-runs tests — surviving mutants indicate tests that fail to catch
+# real behavior changes (i.e. self-proving tests).
+#
+# Baseline (2026-06-25) for src/sqlseed/core/unique_adjuster.py:
+#   - 122 mutants generated, 62 killed (50.8%), 60 survived (49.2%)
+#   - Hot zones: _adjust_string (lines 74-103), _adjust_integer (lines 125-143)
+#   - Root cause: tests mock ColumnMapper.map_column and assert on the call
+#     rather than on the computed GeneratorSpec.params values.
+#
+# Run on Windows:  set PYTHONUTF8=1 && set PYTHONIOENCODING=utf-8 && python -m mutmut run
+# Run on Linux/CI: PYTHONUTF8=1 python -m mutmut run
+# Inspect:         python -m mutmut results
+# Diff a survivor:  python -m mutmut show <mutant_id>
+# Apply + retest:   python -m mutmut apply <mutant_id> && pytest <test_file>
+# ---------------------------------------------------------------------------
+[tool.mutmut]
+# Default target: the highest-risk module from the 2026-06-25 baseline.
+# Override on the CLI with --paths-to-mutate and --runner, e.g.
+#   python -m mutmut run --paths-to-mutate "src/sqlseed/core/stream.py" \
+#     --runner "python -m pytest tests/test_core/test_stream.py -x -q"
+paths_to_mutate = ["src/sqlseed/core/unique_adjuster.py"]
+runner = "python -m pytest tests/test_core/test_unique_adjuster.py -x -q --no-header"

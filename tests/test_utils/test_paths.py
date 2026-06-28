@@ -26,27 +26,23 @@ class TestGetCacheDir:
             result = get_cache_dir("snapshots")
         assert result == Path(custom) / "snapshots"
 
-    def test_darwin_uses_library_caches(self) -> None:
+    def test_darwin_uses_library_caches(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv(_CACHE_DIR_ENV, raising=False)
         with (
-            patch.dict(os.environ, {}, clear=False),
             patch("sqlseed._utils.paths.sys") as mock_sys,
             patch("sqlseed._utils.paths.Path") as mock_path_cls,
         ):
-            # Remove env var if present
-            os.environ.pop(_CACHE_DIR_ENV, None)
             mock_sys.platform = "darwin"
             mock_home = Path("/Users/testuser")
             mock_path_cls.home.return_value = mock_home
             result = get_cache_dir()
             assert "Library" in str(result) or result == mock_home / "Library" / "Caches" / "sqlseed"
 
-    def test_linux_uses_xdg_cache(self, tmp_path: Path) -> None:
+    def test_linux_uses_xdg_cache(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         xdg_dir = str(tmp_path / "xdg")
-        with (
-            patch.dict(os.environ, {"XDG_CACHE_HOME": xdg_dir}, clear=False),
-            patch("sqlseed._utils.paths.sys") as mock_sys,
-        ):
-            os.environ.pop(_CACHE_DIR_ENV, None)
+        monkeypatch.delenv(_CACHE_DIR_ENV, raising=False)
+        monkeypatch.setenv("XDG_CACHE_HOME", xdg_dir)
+        with patch("sqlseed._utils.paths.sys") as mock_sys:
             mock_sys.platform = "linux"
             result = get_cache_dir()
             assert result == Path(xdg_dir) / "sqlseed"

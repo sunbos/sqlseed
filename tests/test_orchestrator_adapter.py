@@ -13,10 +13,6 @@ class TestOrchestratorAdapter:
         """_is_db_url("postgresql://...") returns True."""
         assert _is_db_url("postgresql://user:pass@host/db") is True
 
-    def test_is_db_url_with_mysql(self) -> None:
-        """_is_db_url("mysql://...") returns True."""
-        assert _is_db_url("mysql://user:pass@host/db") is True
-
     def test_is_db_url_with_sqlite_url(self) -> None:
         """_is_db_url("sqlite:///path.db") returns True."""
         assert _is_db_url("sqlite:///path/to/db.db") is True

@@ -67,7 +67,11 @@ def find_markdown_files() -> list[Path]:
 
 def sync_file(path: Path, facts: dict[str, object], check_only: bool) -> list[str]:
     """Sync markers in a single file. Returns list of changed marker names."""
-    text = path.read_text(encoding="utf-8")
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (FileNotFoundError, PermissionError, UnicodeDecodeError) as e:
+        print(f"WARNING: Skipping {path}: {e}")
+        return []
     changes: list[str] = []
 
     def replacer(match: re.Match[str]) -> str:
@@ -86,7 +90,10 @@ def sync_file(path: Path, facts: dict[str, object], check_only: bool) -> list[st
 
     new_text = MARKER_RE.sub(replacer, text)
     if new_text != text and not check_only:
-        path.write_text(new_text, encoding="utf-8")
+        try:
+            path.write_text(new_text, encoding="utf-8")
+        except OSError as e:
+            print(f"WARNING: Failed to write {path}: {e}")
     return changes
 
 

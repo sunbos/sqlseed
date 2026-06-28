@@ -7,10 +7,12 @@ from sqlseed.core.orchestrator import DataOrchestrator
 from sqlseed.core.relation import RelationResolver
 from sqlseed.core.result import GenerationResult
 from sqlseed.core.schema import SchemaInferrer
+from sqlseed.core.stream import DataStream
 
 __all__ = [
     "ColumnMapper",
     "DataOrchestrator",
+    "DataStream",
     "GenerationResult",
     "GeneratorSpec",
     "RelationResolver",

@@ -106,32 +106,30 @@ def main():
     # Step 4: Show sample data
     console.print("\n[bold blue]🔍 Sample data preview:[/bold blue]")
 
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
 
-    # Preview members table
-    console.print("\n[bold green]members[/bold green] (3 rows):")
-    cursor = conn.execute("SELECT member_id, name, email, org_code FROM members LIMIT 3")
-    rows = cursor.fetchall()
-    member_table = Table()
-    for col in ("member_id", "name", "email", "org_code"):
-        member_table.add_column(col, style="cyan")
-    for row in rows:
-        member_table.add_row(*[str(row[c]) for c in ("member_id", "name", "email", "org_code")])
-    console.print(member_table)
+        # Preview members table
+        console.print("\n[bold green]members[/bold green] (3 rows):")
+        cursor = conn.execute("SELECT member_id, name, email, org_code FROM members LIMIT 3")
+        rows = cursor.fetchall()
+        member_table = Table()
+        for col in ("member_id", "name", "email", "org_code"):
+            member_table.add_column(col, style="cyan")
+        for row in rows:
+            member_table.add_row(*[str(row[c]) for c in ("member_id", "name", "email", "org_code")])
+        console.print(member_table)
 
-    # Preview tasks table
-    console.print("\n[bold green]tasks[/bold green] (3 rows):")
-    cursor = conn.execute("SELECT task_id, project_id, title, priority, status FROM tasks LIMIT 3")
-    rows = cursor.fetchall()
-    task_table = Table()
-    for col in ("task_id", "project_id", "title", "priority", "status"):
-        task_table.add_column(col, style="cyan")
-    for row in rows:
-        task_table.add_row(*[str(row[c]) for c in ("task_id", "project_id", "title", "priority", "status")])
-    console.print(task_table)
-
-    conn.close()
+        # Preview tasks table
+        console.print("\n[bold green]tasks[/bold green] (3 rows):")
+        cursor = conn.execute("SELECT task_id, project_id, title, priority, status FROM tasks LIMIT 3")
+        rows = cursor.fetchall()
+        task_table = Table()
+        for col in ("task_id", "project_id", "title", "priority", "status"):
+            task_table.add_column(col, style="cyan")
+        for row in rows:
+            task_table.add_row(*[str(row[c]) for c in ("task_id", "project_id", "title", "priority", "status")])
+        console.print(task_table)
 
     # Step 5: Closing message
     console.print("\n" + "=" * 60)

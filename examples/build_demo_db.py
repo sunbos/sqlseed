@@ -192,23 +192,20 @@ def ensure_db(db_path: str | Path | None = None) -> Path:
     path = _validate_db_path(Path(db_path) if db_path else _DEFAULT_DB_PATH)
 
     if path.exists():
-        conn = sqlite3.connect(str(path))
-        existing = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
-        if _EXPECTED_TABLES.issubset(existing):
-            conn.close()
-            return path
-        # Schema incomplete — repair it
-        conn.executescript(SCHEMA_SQL)
-        conn.commit()
-        conn.close()
+        with sqlite3.connect(str(path)) as conn:
+            existing = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+            if _EXPECTED_TABLES.issubset(existing):
+                return path
+            # Schema incomplete — repair it
+            conn.executescript(SCHEMA_SQL)
+            conn.commit()
         return path
 
     # Database does not exist — create schema only
     path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(path))
-    conn.executescript(SCHEMA_SQL)
-    conn.commit()
-    conn.close()
+    with sqlite3.connect(str(path)) as conn:
+        conn.executescript(SCHEMA_SQL)
+        conn.commit()
     return path
 
 
@@ -228,10 +225,9 @@ def build(db_path: str | Path | None = None) -> Path:
         path.unlink()
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(path))
-    conn.executescript(SCHEMA_SQL)
-    conn.commit()
-    conn.close()
+    with sqlite3.connect(str(path)) as conn:
+        conn.executescript(SCHEMA_SQL)
+        conn.commit()
     return path
 
 

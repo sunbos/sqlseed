@@ -12,7 +12,10 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def _read(path: Path) -> str:
-    return path.read_text(encoding="utf-8")
+    try:
+        return path.read_text(encoding="utf-8")
+    except (FileNotFoundError, PermissionError, UnicodeDecodeError) as e:
+        raise RuntimeError(f"Failed to read {path}: {e}") from e
 
 
 def _extract_quoted_key(line: str) -> str | None:

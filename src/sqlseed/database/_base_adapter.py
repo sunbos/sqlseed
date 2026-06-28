@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Any
 from typing_extensions import Self
 
 from sqlseed._utils.logger import get_logger
-from sqlseed._utils.schema_helpers import detect_autoincrement
 from sqlseed._utils.sql_safe import quote_identifier, validate_table_name
 from sqlseed.database._helpers import (
     apply_bulk_optimize,
@@ -15,6 +14,7 @@ from sqlseed.database._helpers import (
     fetch_index_info,
     fetch_sample_rows,
 )
+from sqlseed.database._sqlite_schema import detect_sqlite_autoincrement
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -101,19 +101,26 @@ class BaseRawSQLiteAdapter:
         validate_table_name(table_name)
         return fetch_index_info(self._get_execute_fn(), table_name)
 
-    def get_sample_rows(self, table_name: str, limit: int = 5) -> list[dict[str, Any]]:
+    def get_sample_rows(
+        self,
+        table_name: str,
+        limit: int = 5,
+        columns: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
         """Get sample rows from a table.
 
         Args:
             table_name: Target table name.
             limit: Maximum number of rows to return, default 5.
+            columns: Optional list of column names to project. When ``None``,
+                all columns are selected. Unknown names are ignored.
 
         Returns:
             A list of dicts keyed by column names with row values.
         """
         validate_table_name(table_name)
-        columns = self.get_column_info(table_name)
-        return fetch_sample_rows(self._get_execute_fn(), columns, table_name, limit)
+        col_infos = self.get_column_info(table_name)
+        return fetch_sample_rows(self._get_execute_fn(), col_infos, table_name, limit, column_projection=columns)
 
     def get_column_values(self, table_name: str, column_name: str, limit: int = 1000) -> list[Any]:
         """Get all values of a specified column.
@@ -162,7 +169,7 @@ class BaseRawSQLiteAdapter:
         Returns:
             True if it is an autoincrement column, False otherwise.
         """
-        return detect_autoincrement(self._get_execute_fn(), table_name, column_name)
+        return detect_sqlite_autoincrement(self._get_execute_fn(), table_name, column_name)
 
     def __enter__(self) -> Self:
         """Enter the context, returning self."""

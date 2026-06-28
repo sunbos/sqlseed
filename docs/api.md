@@ -576,8 +576,8 @@ class IndexInfo:
 
 ### `SQLAlchemyAdapter`
 
-The **required** adapter for production use. Supports SQLite, PostgreSQL, and
-MySQL via SQLAlchemy. Auto-detects the dialect from the connection URL.
+The **required** adapter for production use. Supports SQLite and PostgreSQL
+via SQLAlchemy. Auto-detects the dialect from the connection URL.
 
 ```python
 from sqlseed.database import SQLAlchemyAdapter
@@ -589,7 +589,6 @@ from sqlseed.database import SQLAlchemyAdapter
 |-----|----------|
 | `sqlite:///path/to/db` | SQLite |
 | `postgresql+psycopg://user:pass@host/db` | PostgreSQL (requires `sqlseed[postgres]`) |
-| `mysql+mysqldb://user:pass@host/db` | MySQL (requires `sqlseed[mysql]`) |
 | `/path/to/db.sqlite` | SQLite (auto-converted to `sqlite:///` URL) |
 
 **Dialect attributes**

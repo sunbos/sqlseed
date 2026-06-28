@@ -1,24 +1,24 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-04-29 | Updated: 2026-04-29 -->
+<!-- Generated: 2026-04-29 | Updated: 2026-06-21 -->
 
 # benchmarks
 
 ## Purpose
 
-性能基准测试。使用 pytest-benchmark 进行数据生成性能测量。
+Performance benchmarks. Uses pytest-benchmark for data generation performance measurement.
 
 ## Key Files
 
 | File | Description |
 |------|-------------|
-| `bench_fill.py` | fill 函数的基准测试 |
+| `bench_fill.py` | Benchmark tests for the `fill` function |
 
 ## For AI Agents
 
 ### Working In This Directory
 
-- 基准测试结果受环境影响，不要在 CI 中设置严格阈值
-- 新增基准测试应使用 `@pytest.mark.benchmark` 标记
+- Benchmark results are environment-sensitive; do not set strict thresholds in CI
+- New benchmarks should use the `@pytest.mark.benchmark` marker
 
 ### Testing Requirements
 
@@ -29,8 +29,8 @@ pytest tests/benchmarks/ --benchmark-only --benchmark-compare
 
 ### Common Patterns
 
-- 使用 `pytest-benchmark` 的 `benchmark` fixture 包装被测函数
-- 测试场景：1K 行、10K 行、不同 provider 对比
+- Use the `benchmark` fixture from `pytest-benchmark` to wrap the function under test
+- Test scenarios: 1K rows, 10K rows, provider comparison
 
 ## Dependencies
 

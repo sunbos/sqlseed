@@ -14,11 +14,17 @@ import re
 import time
 import urllib.request
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, PrivateAttr
 
 from sqlseed._utils.logger import get_logger
+
+# Tool calling protocol selector (ARCHITECTURE.md Section 3.3, Phase E).
+# - "gemma4": Gemma 4 native function calling (special-token based; Google AI Studio only)
+# - "openai": Standard OpenAI function calling (OpenAI tools API; cloud backends)
+# - "none":   No tool calling (use JSON mode or text mode)
+ToolCallingProtocol = Literal["gemma4", "openai", "none"]
 
 logger = get_logger(__name__)
 
@@ -147,8 +153,15 @@ class AIConfig(BaseModel):
     Fields are populated from environment variables (via :meth:`from_env`) or
     set explicitly by the caller. Resolution methods (:meth:`resolve_model`,
     :meth:`resolve_base_url`, :meth:`resolve_api_key`, :meth:`resolve_timeout`,
-    :meth:`resolve_max_tokens`) are pure functions: they return the resolved
-    value without mutating ``self``, so callers must use the return value.
+    :meth:`resolve_max_tokens`, :meth:`resolve_tool_calling_protocol`) are pure
+    functions: they return the resolved value without mutating ``self``, so
+    callers must use the return value.
+
+    The ``tool_calling_protocol`` field (Phase E) selects the native function
+    calling strategy: ``"gemma4"`` (Gemma 4 special-token protocol, default),
+    ``"openai"`` (standard OpenAI function calling), or ``"none"`` (no tool
+    calling). :meth:`resolve_tool_calling_protocol` narrows the user's choice
+    based on what the active backend actually supports.
     """
 
     model_config = {"arbitrary_types_allowed": True}
@@ -157,6 +170,7 @@ class AIConfig(BaseModel):
     model: str | None = None
     base_url: str | None = None
     backend: AIBackend = AIBackend.GOOGLE_AI_STUDIO
+    tool_calling_protocol: ToolCallingProtocol = "gemma4"
     temperature: float = Field(default=0.3, ge=0.0, le=2.0)
     max_tokens: int = Field(default=0, ge=0)  # 0 means auto-resolve based on backend
     timeout: float = Field(default=0.0, ge=0)  # 0 means auto-resolve based on backend
@@ -173,7 +187,7 @@ class AIConfig(BaseModel):
         Recognized variables: ``SQLSEED_AI_API_KEY`` (or ``GOOGLE_API_KEY`` /
         ``OPENAI_API_KEY`` fallback), ``SQLSEED_AI_BASE_URL`` (or
         ``OPENAI_BASE_URL``), ``SQLSEED_AI_MODEL``, ``SQLSEED_AI_BACKEND``,
-        ``SQLSEED_AI_TIMEOUT``.
+        ``SQLSEED_AI_TOOL_CALLING_PROTOCOL``, ``SQLSEED_AI_TIMEOUT``.
 
         Returns:
             A configured :class:`AIConfig` instance.
@@ -186,11 +200,22 @@ class AIConfig(BaseModel):
         backend_str = os.environ.get("SQLSEED_AI_BACKEND", "").lower()
         timeout_str = os.environ.get("SQLSEED_AI_TIMEOUT")
         timeout = float(timeout_str) if timeout_str else 0.0  # 0 = auto-resolve
+        protocol_str = os.environ.get("SQLSEED_AI_TOOL_CALLING_PROTOCOL", "").lower().strip()
+        protocol: ToolCallingProtocol = "gemma4"  # default
+        if protocol_str in ("gemma4", "openai", "none"):
+            protocol = protocol_str  # type: ignore[assignment]
 
         # Resolve backend
         backend = _resolve_backend(backend_str, base_url)
 
-        return cls(api_key=api_key, base_url=base_url, model=model, backend=backend, timeout=timeout)
+        return cls(
+            api_key=api_key,
+            base_url=base_url,
+            model=model,
+            backend=backend,
+            tool_calling_protocol=protocol,
+            timeout=timeout,
+        )
 
     def resolve_model(self) -> str:
         """Resolve the model ID to use, without mutating ``self.model``.
@@ -357,6 +382,48 @@ class AIConfig(BaseModel):
         # Cloud backends: use larger max_tokens
         return 4096
 
+    def resolve_tool_calling_protocol(self) -> str:
+        """Resolve the effective tool calling protocol based on backend support.
+
+        The ``self.tool_calling_protocol`` field expresses the user's intent.
+        This method narrows it to what the active backend actually supports,
+        gracefully degrading to ``"none"`` when the requested protocol is not
+        available on the current backend.
+
+        Protocol support matrix:
+
+        - ``"gemma4"``: Gemma 4 native function calling (special-token based).
+          Supported only on ``GOOGLE_AI_STUDIO`` which implements Gemma 4's
+          ``<|tool|>`` / ``<|tool_call|>`` token protocol.
+        - ``"openai"``: Standard OpenAI function calling (OpenAI tools API).
+          Supported on ``GOOGLE_AI_STUDIO`` and ``OPENAI_COMPAT``.
+        - ``"none"``: No tool calling; the caller uses JSON mode or text mode.
+
+        On backends that do not support the requested protocol, this method
+        returns ``"none"`` so the caller falls back to JSON/text mode.
+
+        NOTE: This is a pure function -- it does not modify
+        ``self.tool_calling_protocol``.
+
+        Returns:
+            One of ``"gemma4"``, ``"openai"``, ``"none"``.
+        """
+        proto = self.tool_calling_protocol
+        if proto == "none":
+            return "none"
+        if proto == "gemma4":
+            # Gemma 4 native function calling requires Google AI Studio's
+            # special-token implementation. Other backends (LM Studio, Ollama,
+            # OpenAI-compatible) do not implement the <|tool|> protocol.
+            return "gemma4" if self.backend == AIBackend.GOOGLE_AI_STUDIO else "none"
+        if proto == "openai":
+            # Standard OpenAI function calling works on cloud backends that
+            # implement the OpenAI tools API.
+            return "openai" if self.backend in (AIBackend.GOOGLE_AI_STUDIO, AIBackend.OPENAI_COMPAT) else "none"
+        # Defensive default for forward compatibility (e.g. if a new protocol
+        # value is added without updating this method).
+        return "none"
+
     def is_small_local_model(self) -> bool:
         """Check if the current model is a small local model (E2B/E4B).
 
@@ -426,6 +493,7 @@ class AIConfig(BaseModel):
         base_url: str | None = None,
         model: str | None = None,
         backend: AIBackend | None = None,
+        tool_calling_protocol: ToolCallingProtocol | None = None,
     ) -> AIConfig:
         """Apply non-None overrides to this config in place and return self.
 
@@ -434,6 +502,7 @@ class AIConfig(BaseModel):
             base_url: Override base URL if provided.
             model: Override model ID if provided.
             backend: Override backend if provided.
+            tool_calling_protocol: Override tool calling protocol if provided.
 
         Returns:
             The same :class:`AIConfig` instance (for chaining).
@@ -446,6 +515,8 @@ class AIConfig(BaseModel):
             self.model = model
         if backend:
             self.backend = backend
+        if tool_calling_protocol is not None:
+            self.tool_calling_protocol = tool_calling_protocol
         return self
 
     def probe_inference_speed(self) -> dict[str, Any] | None:

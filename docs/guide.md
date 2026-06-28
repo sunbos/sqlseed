@@ -37,14 +37,11 @@ pip install sqlseed[all]
 
 ### Database Backend Installation
 
-sqlseed supports SQLite (default), PostgreSQL, and MySQL via SQLAlchemy.
+sqlseed supports SQLite (default) and PostgreSQL via SQLAlchemy.
 
 ```bash
 # PostgreSQL support (psycopg driver)
 pip install "sqlseed[postgres]"
-
-# MySQL support (mysqlclient driver)
-pip install "sqlseed[mysql]"
 
 # All database backends + all data engines
 pip install "sqlseed[all]"
@@ -53,7 +50,7 @@ pip install "sqlseed[all]"
 !!! note "SQLite requires no extra dependencies"
 
     SQLite works out of the box using Python's built-in `sqlite3` module.
-    PostgreSQL/MySQL drivers are only required when connecting to those
+    PostgreSQL drivers are only required when connecting to PostgreSQL
     databases.
 
 ### AI Plugin Installation
@@ -154,19 +151,18 @@ sqlseed fill examples/sqlseed_demo.db --table members --count 100
 
 ## Multi-Database Support
 
-sqlseed supports SQLite, PostgreSQL, and MySQL. The same API works across all
-three databases — schema inference, FK resolution, expression engine, and
+sqlseed supports SQLite and PostgreSQL. The same API works across
+both databases — schema inference, FK resolution, expression engine, and
 plugin hooks all run identically.
 
 ### Connection URLs
 
-Pass a SQLAlchemy URL instead of a file path to connect to PostgreSQL or MySQL.
+Pass a SQLAlchemy URL instead of a file path to connect to PostgreSQL.
 
 | Database | URL format | Driver |
 |----------|-----------|--------|
 | SQLite | `sqlite:///path/to/db` or just a file path | built-in `sqlite3` |
 | PostgreSQL | `postgresql+psycopg://user:pass@host:5432/db` | `psycopg` (`pip install sqlseed[postgres]`) |
-| MySQL | `mysql+mysqldb://user:pass@host:3306/db` | `mysqlclient` (`pip install sqlseed[mysql]`) |
 
 ### SQLite
 
@@ -189,22 +185,6 @@ import sqlseed
 
 result = sqlseed.fill(
     url="postgresql+psycopg://user:password@localhost:5432/mydb",
-    table="users",
-    count=10_000,
-)
-```
-
-### MySQL
-
-```bash
-pip install "sqlseed[mysql]"
-```
-
-```python
-import sqlseed
-
-result = sqlseed.fill(
-    url="mysql+mysqldb://user:password@localhost:3306/mydb",
     table="users",
     count=10_000,
 )
@@ -806,7 +786,7 @@ What this means in practice:
 
 ## Plugin System
 
-sqlseed provides 11 hook points via [pluggy](https://pluggy.readthedocs.io/),
+sqlseed provides 12 hook points via [pluggy](https://pluggy.readthedocs.io/),
 covering the full data generation lifecycle:
 
 | Hook | firstresult | Trigger |
@@ -814,6 +794,7 @@ covering the full data generation lifecycle:
 | `sqlseed_register_providers` | | Register custom data providers |
 | `sqlseed_register_column_mappers` | | Register custom column mapping rules |
 | `sqlseed_ai_analyze_table` | ✓ | AI analyzes table schema (returns column config) |
+| `sqlseed_apply_ai_suggestions` | ✓ | High-level AI mediation (orchestrator entry; implemented in `sqlseed_ai.ai_mediator`) |
 | `sqlseed_pre_generate_templates` | ✓ | AI pre-computes candidate value pools |
 | `sqlseed_before_generate` | | Before data generation loop |
 | `sqlseed_after_generate` | | After data generation completes |

@@ -7,8 +7,7 @@ from typing import TYPE_CHECKING
 import pytest
 import yaml
 from click.testing import CliRunner
-
-from sqlseed.cli.main import cli
+from sqlseed_cli.main import cli
 
 if TYPE_CHECKING:
     from pathlib import Path

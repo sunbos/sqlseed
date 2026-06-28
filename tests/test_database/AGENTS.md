@@ -1,28 +1,35 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-04-29 | Updated: 2026-04-29 -->
+<!-- Generated: 2026-04-29 | Updated: 2026-06-21 -->
 
 # test_database
 
 ## Purpose
 
-数据库适配层测试。覆盖双适配器功能、PRAGMA 优化和 SQL 安全。
+Database adapter layer tests. Covers dual-adapter functionality, PRAGMA optimization, dialect abstraction, and SQL safety.
 
 ## Key Files
 
 | File | Description |
 |------|-------------|
-| `test_raw_sqlite_adapter.py` | RawSQLiteAdapter 功能测试 |
-| `test_sqlalchemy_adapter.py` | SQLAlchemyAdapter 契约测试（默认适配器） |
-| `test_optimizer.py` | PragmaOptimizer PRAGMA 优化测试 |
-| `test_sql_safe.py` | SQL 注入防护测试 |
+| `test_raw_sqlite_adapter.py` | RawSQLiteAdapter functional tests |
+| `test_sqlalchemy_adapter.py` | SQLAlchemyAdapter contract tests (default adapter) |
+| `test_sqlalchemy_adapter_boundary.py` | SQLAlchemyAdapter boundary condition tests |
+| `test_sqlalchemy_adapter_url.py` | SQLAlchemyAdapter multi-DB URL connection tests |
+| `test_adapter_contract.py` | Adapter protocol contract tests |
+| `test_sqlite_schema.py` | SQLite AUTOINCREMENT detection tests (`detect_sqlite_autoincrement`) |
+| `test_dialect.py` | Dialect protocol, SQLiteDialect, PostgresDialect contract tests |
+| `test_optimizer.py` | PragmaOptimizer PRAGMA optimization tests |
+| `test_helpers.py` | Database helper function tests |
+| `test_sql_safe.py` | SQL injection protection tests |
 
 ## For AI Agents
 
 ### Working In This Directory
 
-- 适配器测试需要真实 SQLite 数据库，使用 `tmp_db` fixture
-- SQL 安全测试需覆盖各种注入攻击向量
-- 优化器测试需验证 PRAGMA 设置的恢复逻辑（包括异常时恢复）
+- Adapter tests require a real SQLite database, use the `tmp_db` fixture
+- SQL safety tests must cover various injection attack vectors
+- Optimizer tests must verify PRAGMA setting restoration logic (including restoration on exceptions)
+- Dialect tests verify DB-specific behavior abstraction (type normalization, autoincrement detection, identifier quoting)
 
 ### Testing Requirements
 
@@ -32,8 +39,8 @@ pytest tests/test_database/
 
 ### Common Patterns
 
-- 使用全局 `conftest.py` 中的 `tmp_db` / `raw_adapter` fixture
-- SQLiteUtils 测试使用 `pytest.importorskip("sqlite_utils")`
+- Use the global `tmp_db` / `raw_adapter` fixtures from `conftest.py`
+- Multi-DB URL tests use `--url` connection mode (PostgreSQL via testcontainers requires Docker)
 
 ## Dependencies
 

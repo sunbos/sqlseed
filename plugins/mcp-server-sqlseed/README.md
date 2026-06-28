@@ -2,16 +2,18 @@
 
 **[English](README.md)** | [中文](README.zh-CN.md)
 
-[Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server for [sqlseed](https://github.com/sunbos/sqlseed) — enabling AI assistants to inspect schemas, generate configs, and fill SQLite databases.
+[Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server for [sqlseed](https://github.com/sunbos/sqlseed) — exposing **core capabilities** (rule-driven YAML generation + data fill) to AI assistants. No LLM required.
 
 ## Installation
 
 ```bash
-# Basic
 pip install mcp-server-sqlseed
+```
 
-# With AI support (includes sqlseed-ai)
-pip install mcp-server-sqlseed[ai]
+For LLM-driven schema analysis, install the separate AI MCP server instead:
+
+```bash
+pip install "sqlseed-ai[mcp]"   # provides sqlseed_ai_generate_yaml + Gemma 4 tools
 ```
 
 ## Configuration
@@ -38,46 +40,33 @@ Use command: `mcp-server-sqlseed`
 
 | Tool | Description |
 |:-----|:------------|
-| `sqlseed_inspect_schema` | Inspect database schema: columns, foreign keys, indexes, sample data, schema_hash. Accepts optional `table_name` (all tables if omitted). |
-| `sqlseed_generate_yaml` | AI-driven YAML config generation with self-correction. Requires `sqlseed-ai` plugin and API key. Supports `api_key`/`base_url`/`model` parameter overrides. |
+| `sqlseed_generate_yaml` | Rule-driven YAML config template generated from the schema via sqlseed's `ColumnMapper` (74 exact rules + 27 regex patterns). Offline, deterministic, no LLM. |
 | `sqlseed_execute_fill` | Execute data generation. Accepts optional `yaml_config` string, `count`, and `enrich` flag. Max YAML config size: 256KB. |
-| `sqlseed_gemma4_analyze` | Use Gemma 4 to analyze schema and generate config |
-| `sqlseed_gemma4_agent_fill` | Use Gemma 4 agent to fill table end-to-end |
-| `sqlseed_list_gemma_models` | List available Gemma 4 model variants |
 
-### MCP Resource
+### What's NOT included
 
-| Resource | Description |
-|:---------|:------------|
-| `sqlseed://schema/{db_path}/{table_name}` | Read-only JSON schema for a specific table |
+Per [ARCHITECTURE.md Section 3.4](../../ARCHITECTURE.md), this server exposes core capabilities only:
+
+- ~~`sqlseed_inspect_schema`~~ — use third-party MCPs such as [mcp-database-server](https://github.com/iPraBhu/mcp-database-server) or [mcp-db-analyzer](https://github.com/Dmitriusan/mcp-db-analyzer)
+- ~~`sqlseed://schema` Resource~~ — schema inspection is delegated to the MCPs above
+- ~~`sqlseed_gemma4_analyze` / `sqlseed_gemma4_agent_fill` / `sqlseed_list_gemma_models`~~ — moved to `sqlseed-ai[mcp]`
+- ~~AI-driven `sqlseed_generate_yaml`~~ — the LLM-driven variant is `sqlseed_ai_generate_yaml` in `sqlseed-ai[mcp]`
 
 ## Example Usage
 
 After configuring your MCP client, you can prompt:
 
-> "Inspect the schema of `app.db`, generate a YAML config for the `users` table, then fill 1000 rows."
+> "Generate a YAML config for the `users` table in `app.db`, then fill 1000 rows."
 
 The AI assistant will call:
-1. `sqlseed_inspect_schema` → get table structure
-2. `sqlseed_generate_yaml` → generate YAML config (if sqlseed-ai is installed)
-3. `sqlseed_execute_fill` → fill data
-
-## AI Integration
-
-When `sqlseed-ai` is installed and an API key is configured (`SQLSEED_AI_API_KEY` or `OPENAI_API_KEY`), the `sqlseed_generate_yaml` tool uses LLM-driven analysis with self-correction. Without the AI plugin, the tool returns a fallback message.
-
-## Gemma 4 Integration
-
-The `sqlseed_gemma4_analyze` and `sqlseed_gemma4_agent_fill` tools leverage **Gemma 4 Native Function Calling** via the `GEMMA_TOOLS` interface. When `google-generativeai` is installed and a Google API key (`GOOGLE_API_KEY`) is configured, these tools use Gemma 4's built-in function calling to directly analyze schemas and orchestrate end-to-end fill workflows. Use `sqlseed_list_gemma_models` to view available model variants and backends.
+1. `sqlseed_generate_yaml` → rule-driven YAML template (offline)
+2. `sqlseed_execute_fill` → fill data
 
 ## Requirements
 
 - Python >= 3.10
 - `sqlseed >= 0.1.0`
 - `mcp >= 1.0`
-
-Optional:
-- `sqlseed-ai` (for `sqlseed_generate_yaml`, `sqlseed_gemma4_analyze`, `sqlseed_gemma4_agent_fill`, `sqlseed_list_gemma_models` tools)
 
 ## License
 

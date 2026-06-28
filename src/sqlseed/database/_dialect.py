@@ -1,17 +1,25 @@
 """Database dialect abstraction layer.
 
 Encapsulates database-specific behavior (type normalization, autoincrement detection, identifier quoting),
-so upper-layer code does not need to be aware of whether the underlying database is SQLite, PostgreSQL, or MySQL.
+so upper-layer code does not need to be aware of whether the underlying database is SQLite or PostgreSQL.
 
-Phase 1 implements SQLiteDialect; phase 3 adds PostgresDialect; MySQLDialect is left for future work.
+Phase 1 implements SQLiteDialect; phase 3 adds PostgresDialect.
 """
 
 from __future__ import annotations
 
+import sqlite3
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+
+from sqlalchemy.exc import SQLAlchemyError
+
+from sqlseed._utils.logger import get_logger
+from sqlseed.database._sqlite_schema import detect_sqlite_autoincrement
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+logger = get_logger(__name__)
 
 
 @runtime_checkable
@@ -31,11 +39,23 @@ class Dialect(Protocol):
         """
         ...
 
-    def detect_autoincrement(self, column_info: dict[str, Any]) -> bool:
+    def detect_autoincrement(
+        self,
+        column_info: dict[str, Any],
+        *,
+        table_name: str,
+        execute_fn: Callable[..., Any],
+    ) -> bool:
         """Detect whether a column is autoincrement.
 
-        SQLite: parse CREATE TABLE to find AUTOINCREMENT
-        PG: detect SERIAL / IDENTITY / nextval()
+        SQLite: parse CREATE TABLE to find AUTOINCREMENT (uses execute_fn + table_name)
+        PG: detect SERIAL / IDENTITY / nextval() (uses column_info only)
+
+        Args:
+            column_info: Column metadata dict from the SQLAlchemy inspector.
+            table_name: Target table name (required by SQLite to query sqlite_master).
+            execute_fn: Callable executing SQL with signature (sql, params) -> cursor
+                (required by SQLite to query sqlite_master; ignored by PG).
         """
         ...
 
@@ -44,7 +64,6 @@ class Dialect(Protocol):
 
         SQLite: DELETE FROM sqlite_sequence
         PG: TRUNCATE ... RESTART IDENTITY / ALTER SEQUENCE
-        MySQL: ALTER TABLE ... AUTO_INCREMENT = 1
         """
         ...
 
@@ -52,7 +71,6 @@ class Dialect(Protocol):
         """Quote an identifier.
 
         SQLite/PG: "name"
-        MySQL: `name`
         """
         ...
 
@@ -60,8 +78,8 @@ class Dialect(Protocol):
 class SQLiteDialect:
     """SQLite dialect implementation.
 
-    Autoincrement detection is delegated to ``sqlseed._utils.schema_helpers.detect_autoincrement``,
-    which parses the CREATE TABLE SQL in ``sqlite_master``.
+    Autoincrement detection parses the CREATE TABLE SQL stored in
+    ``sqlite_master`` via ``database._sqlite_schema.detect_sqlite_autoincrement``.
     """
 
     name = "sqlite"
@@ -70,18 +88,33 @@ class SQLiteDialect:
         """SQLite types are already in normalized uppercase form."""
         return raw_type.upper() if raw_type else "TEXT"
 
-    def detect_autoincrement(self, column_info: dict[str, Any]) -> bool:
-        """SQLite autoincrement detection requires parsing the CREATE TABLE SQL.
+    def detect_autoincrement(
+        self,
+        column_info: dict[str, Any],
+        *,
+        table_name: str,
+        execute_fn: Callable[..., Any],
+    ) -> bool:
+        """SQLite autoincrement detection: parse CREATE TABLE SQL from sqlite_master.
 
-        Not implemented here in phase 1; completed by SQLAlchemyAdapter/RawSQLiteAdapter
-        via ``schema_helpers.detect_autoincrement``.
-        This method is retained for interface consistency and returns False as a placeholder.
+        Args:
+            column_info: Column metadata dict (uses ``column_info["name"]``).
+            table_name: Target table name.
+            execute_fn: Callable executing SQL with signature (sql, params) -> cursor.
         """
-        return False
+        return detect_sqlite_autoincrement(execute_fn, table_name, column_info["name"])
 
     def reset_autoincrement(self, execute_fn: Callable[..., Any], table_name: str) -> None:
-        """Reset the SQLite autoincrement sequence: DELETE FROM sqlite_sequence."""
-        execute_fn("DELETE FROM sqlite_sequence WHERE name = ?", [table_name])
+        """Reset the SQLite autoincrement sequence: DELETE FROM sqlite_sequence.
+
+        Silently skips when the table has no AUTOINCREMENT column (the
+        ``sqlite_sequence`` table does not exist), which raises
+        ``sqlite3.OperationalError``.
+        """
+        try:
+            execute_fn("DELETE FROM sqlite_sequence WHERE name = ?", [table_name])
+        except (sqlite3.Error, OSError):
+            logger.debug("sqlite_sequence reset skipped", table_name=table_name)
 
     def quote_identifier(self, name: str) -> str:
         """SQLite uses double quotes to quote identifiers."""
@@ -106,12 +139,24 @@ class PostgresDialect:
             return "TEXT"
         return raw_type.upper()
 
-    def detect_autoincrement(self, column_info: dict[str, Any]) -> bool:
+    def detect_autoincrement(
+        self,
+        column_info: dict[str, Any],
+        *,
+        table_name: str,
+        execute_fn: Callable[..., Any],
+    ) -> bool:
         """Triple detection of PG autoincrement columns.
+
+        PG autoincrement metadata is fully available in ``column_info`` (returned
+        by the SQLAlchemy inspector), so ``table_name`` and ``execute_fn`` are
+        accepted for interface symmetry but not used.
 
         Args:
             column_info: Column info dict returned by the SQLAlchemy inspector,
                          may contain ``identity``, ``default``, ``autoincrement`` fields.
+            table_name: Target table name (unused by PG).
+            execute_fn: SQL execution callable (unused by PG).
 
         Returns:
             True if the column is IDENTITY / SERIAL / BIGSERIAL.
@@ -151,10 +196,20 @@ class PostgresDialect:
             rows = cursor.fetchall() if hasattr(cursor, "fetchall") else []
             for _col, seq_name in rows:
                 if seq_name:
-                    execute_fn(f"ALTER SEQUENCE {seq_name} RESTART WITH 1")
-        except Exception:
-            # Sequence reset failure should not block the main clear_table flow
-            pass
+                    # Quote each part of the fully qualified sequence name to prevent
+                    # SQL injection and handle identifiers requiring quoting.
+                    # pg_get_serial_sequence may return "schema.seq" or schema.seq.
+                    parts = seq_name.split(".")
+                    quoted_seq = ".".join(self.quote_identifier(p.strip('"')) for p in parts)
+                    execute_fn(f"ALTER SEQUENCE {quoted_seq} RESTART WITH 1")
+        except (SQLAlchemyError, OSError, ValueError, RuntimeError) as exc:
+            # Sequence reset failure should not block the main clear_table flow,
+            # but log it at debug level so failures are diagnosable rather than silent.
+            logger.debug(
+                "PG sequence reset failed; clear_table will continue",
+                table=table_name,
+                error=str(exc),
+            )
 
     def quote_identifier(self, name: str) -> str:
         """PG uses double quotes to quote identifiers (same as SQLite)."""

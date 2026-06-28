@@ -38,7 +38,7 @@ FastMCP server implementation. Provides AI assistants with sqlseed's data genera
 - `_validate_db_target()` validates that the extension must be `.db`, `.sqlite`, or `.sqlite3`
 - `_MAX_YAML_CONFIG_SIZE = 256 * 1024` (256KB) limits the YAML config size
 - `MCPServerConfig` defines `host`/`port` fields, used by `FastMCP()` initialization in `server.py` via `config.host`/`config.port`
-- MCP's `_compute_schema_hash()` uses the first 16 characters of SHA256, while the AI plugin's `_compute_schema_hash()` uses the first 12 characters — they are different functions in different modules
+- MCP's `_compute_schema_hash()` uses the first 16 characters of SHA256, same as the AI plugin's `_compute_schema_hash()` — they are separate functions in different modules but use the same truncation length
 
 ## For AI Agents
 

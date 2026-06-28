@@ -381,17 +381,32 @@ class RelationResolver:
         with contextlib.suppress(ValueError, OSError, RuntimeError, SAOperationalError):
             fk_columns = {fk.column for fk in self.get_foreign_keys(table_name)}
 
+        # Collect PK/FK column names that need value fetching.
+        target_columns = [
+            col_name for col_name in generator_specs if col_name in pk_columns or col_name in fk_columns
+        ]
+
+        # Batch-fetch all PK/FK column values in a single query (avoids N+1 queries).
+        # Pass target_columns so the adapter projects only the needed columns instead
+        # of transferring all columns of wide tables (H5 data-transfer regression fix).
+        sample_rows: list[dict[str, Any]] = []
+        if target_columns:
+            with contextlib.suppress(ValueError, OSError, RuntimeError, SAOperationalError):
+                sample_rows = self._db.get_sample_rows(
+                    table_name, limit=10000, columns=target_columns
+                )
+
         for col_name, spec in generator_specs.items():
             if col_name not in pk_columns and col_name not in fk_columns:
                 continue
-            with contextlib.suppress(ValueError, OSError, RuntimeError, SAOperationalError):
-                values = self._db.get_column_values(table_name, col_name, limit=10000)
-                if values:
-                    self._shared_pool.merge(col_name, values)
-                    if spec.generator_name == "skip" and col_name in pk_columns:
-                        logger.debug(
-                            "Registered auto-increment PK values to SharedPool",
-                            table_name=table_name,
-                            column_name=col_name,
-                            value_count=len(values),
-                        )
+            # Extract per-column values from the batch-fetched sample rows.
+            values = [row[col_name] for row in sample_rows if col_name in row]
+            if values:
+                self._shared_pool.merge(col_name, values)
+                if spec.generator_name == "skip" and col_name in pk_columns:
+                    logger.debug(
+                        "Registered auto-increment PK values to SharedPool",
+                        table_name=table_name,
+                        column_name=col_name,
+                        value_count=len(values),
+                    )

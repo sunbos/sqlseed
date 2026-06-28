@@ -16,6 +16,7 @@ database/
 ├── _helpers.py            # fetch_index_info, fetch_sample_rows, apply_bulk_optimize/restore
 ├── _bulk_optimizer.py     # BulkWriteOptimizer protocol, SQLiteBulkOptimizer, PostgresBulkOptimizer
 ├── _dialect.py            # Dialect protocol, SQLiteDialect, PostgresDialect
+├── _sqlite_schema.py      # SQLite-specific schema introspection (AUTOINCREMENT detection via sqlite_master)
 ├── _type_normalizer.py    # TypeNormalizer — database type normalization
 ├── optimizer.py           # PragmaOptimizer, PragmaProfile — SQLite PRAGMA tuning
 ├── raw_sqlite_adapter.py  # RawSQLiteAdapter — direct sqlite3 (test-only)
@@ -31,6 +32,7 @@ database/
 | Modify pragma tuning | `optimizer.py` | PragmaProfile presets, PragmaOptimizer |
 | Add helper function | `_helpers.py` | Shared SQL utilities |
 | Add new dialect | `_dialect.py` | Implement Dialect protocol |
+| SQLite schema introspection | `_sqlite_schema.py` | `detect_sqlite_autoincrement` parses CREATE TABLE from sqlite_master |
 | Add bulk optimizer | `_bulk_optimizer.py` | Implement BulkWriteOptimizer protocol |
 | Normalize types | `_type_normalizer.py` | TypeNormalizer for DB type mapping |
 | Multi-DB support | `sqlalchemy_adapter.py` | SQLAlchemyAdapter with dialect detection |

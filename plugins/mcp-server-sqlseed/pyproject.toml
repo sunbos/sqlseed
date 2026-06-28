@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "mcp-server-sqlseed"
 dynamic = ["version"]
 requires-python = ">=3.10"
-description = "MCP server for sqlseed - AI-powered SQLite test data generation"
+description = "MCP server for sqlseed - rule-driven YAML generation and data fill (no LLM)"
 readme = "README.md"
 license = "AGPL-3.0-or-later"
 authors = [
@@ -29,9 +29,6 @@ dependencies = [
 [project.urls]
 Homepage = "https://github.com/sunbos/sqlseed"
 Repository = "https://github.com/sunbos/sqlseed/tree/main/plugins/mcp-server-sqlseed"
-
-[project.optional-dependencies]
-ai = ["sqlseed-ai>=0.1.0,<2"]
 
 [project.scripts]
 mcp-server-sqlseed = "mcp_server_sqlseed:main"

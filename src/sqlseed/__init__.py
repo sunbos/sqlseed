@@ -1,6 +1,6 @@
 """sqlseed — declarative SQLite/multi-database test data generation toolkit.
 
-Public API: fill, connect, fill_from_config, preview.
+Public API: fill, connect, fill_from_config, preview, load_config.
 """
 from __future__ import annotations
 

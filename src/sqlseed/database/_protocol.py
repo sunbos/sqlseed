@@ -88,7 +88,12 @@ class DatabaseAdapter(Protocol):
 
     def get_index_info(self, table_name: str) -> list[IndexInfo]: ...
 
-    def get_sample_rows(self, table_name: str, limit: int = 5) -> list[dict[str, Any]]: ...
+    def get_sample_rows(
+        self,
+        table_name: str,
+        limit: int = 5,
+        columns: list[str] | None = None,
+    ) -> list[dict[str, Any]]: ...
 
     def batch_insert(
         self,

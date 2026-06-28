@@ -23,7 +23,7 @@ _DEFAULT_TEMPLATE_COUNT = 1000
 def _read_table_names(target: str) -> list[str]:
     """Read all user table names from the database.
 
-    Supports SQLite file paths and database URLs (postgresql://, mysql://, etc.).
+    Supports SQLite file paths and database URLs (postgresql://, etc.).
     Excludes SQLite system tables (sqlite_ prefix).
 
     Args:
@@ -129,7 +129,7 @@ def generate_template(
 
     Reads table names from the database and generates a configuration template
     containing all tables. Supports SQLite file paths and database URLs
-    (postgresql://, mysql://, etc.).
+    (postgresql://, etc.).
 
     Args:
         db_path: SQLite database file path. Mutually exclusive with url.
@@ -143,6 +143,8 @@ def generate_template(
     Raises:
         ValueError: When db_path and url are both provided, or neither is provided
     """
+    # Note: GeneratorConfig.validate_connection_target also enforces mutual exclusivity,
+    # but we check early here to avoid wasted table-reading when inputs are invalid.
     if db_path and url:
         raise ValueError("Cannot specify both 'db_path' and 'url'. Use one or the other.")
     if not db_path and not url:

@@ -19,14 +19,14 @@ theme:
     - content.code.copy
   palette:
     - scheme: default
-      primary: deep purple
-      accent: amber
+      primary: white
+      accent: black
       toggle:
         icon: material/brightness-7
         name: Switch to dark mode
     - scheme: slate
-      primary: deep purple
-      accent: amber
+      primary: black
+      accent: grey
       toggle:
         icon: material/brightness-4
         name: Switch to light mode

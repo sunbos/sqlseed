@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import contextlib
 import sqlite3
 from typing import TYPE_CHECKING, Any
 
@@ -215,8 +214,12 @@ class RawSQLiteAdapter(BaseRawSQLiteAdapter):
         validate_table_name(table_name)
         safe_table = quote_identifier(table_name)
         self.conn.execute(f"DELETE FROM {safe_table}")
-        with contextlib.suppress(Exception):
+        # sqlite_sequence table only exists when at least one table uses AUTOINCREMENT.
+        # Failure here is expected and non-critical.
+        try:
             self.conn.execute("DELETE FROM sqlite_sequence WHERE name = ?", [table_name])
+        except sqlite3.Error:
+            logger.debug("sqlite_sequence reset skipped", table_name=table_name)
         self.conn.commit()
         logger.debug("Cleared table", table_name=table_name)
 

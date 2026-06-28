@@ -10,8 +10,14 @@ Central orchestration: schema inference, column mapping, constraint solving, dat
 
 ```
 core/
-├── __init__.py          # Public API exports: DataOrchestrator, ColumnMapper, GeneratorSpec, etc.
-├── orchestrator.py      # DataOrchestrator main engine
+├── __init__.py          # Public API exports: DataOrchestrator, ColumnMapper, GeneratorSpec, DataStream, etc.
+├── orchestrator/        # DataOrchestrator package (4 mixins + shared _common):
+│   ├── __init__.py      # DataOrchestrator class (composes 4 mixins via multiple inheritance)
+│   ├── _common.py       # CoreCtx, ExtCtx, _is_db_url() — shared defs to avoid circular import
+│   ├── _connection.py   # ConnectionMixin — init, adapter, connect, properties, lifecycle
+│   ├── _specs.py        # SpecResolverMixin — resolve_specs, build_stream, prepare_specs
+│   ├── _generation.py   # GenerationMixin — fill_table, preview_table, batch insert
+│   └── _query.py        # QueryMixin — schema context, SQL execute/query, table info
 ├── mapper.py            # ColumnMapper 9-level strategy chain
 ├── schema.py            # SchemaInferrer — column info, indexes, distribution
 ├── relation.py          # RelationResolver + SharedPool — FK resolution
@@ -20,7 +26,8 @@ core/
 ├── constraints.py       # ConstraintSolver — unique constraint backtracking
 ├── enrichment.py        # EnrichmentEngine — 19 enum patterns
 ├── unique_adjuster.py   # UniqueAdjuster — auto-adjust unique specs
-├── transform.py         # TransformLoader — user script dynamic loading
+├── transform.py         # load_transform() function — user script dynamic loading
+├── stream.py            # DataStream — batch generation + constraint backtracking
 ├── plugin_mediator.py   # PluginMediator — plugin ↔ core bridge
 └── result.py            # GenerationResult dataclass
 ```
@@ -29,8 +36,8 @@ core/
 
 | Task | Location | Notes |
 |------|----------|-------|
-| Public API exports | `__init__.py` | Exports DataOrchestrator, ColumnMapper, GeneratorSpec, RelationResolver, GenerationResult, SchemaInferrer |
-| Add fill logic | `orchestrator.py` | DataOrchestrator.fill_table() |
+| Public API exports | `__init__.py` | Exports DataOrchestrator, ColumnMapper, GeneratorSpec, DataStream, RelationResolver, GenerationResult, SchemaInferrer |
+| Add fill logic | `orchestrator/_generation.py` | DataOrchestrator.fill_table() |
 | Modify mapping | `mapper.py` | ColumnMapper.map_columns() — 9-level chain |
 | Add schema info | `schema.py` | SchemaInferrer.get_column_info() |
 | Handle FK | `relation.py` | RelationResolver.resolve_foreign_keys() |
@@ -38,6 +45,7 @@ core/
 | Modify expressions | `expression.py` | ExpressionEngine — 21 safe functions |
 | Add constraint | `constraints.py` | ConstraintSolver — retry logic |
 | Add enum pattern | `enrichment.py` | EnrichmentEngine — 19 patterns |
+| Batch generation | `stream.py` | DataStream.generate() — yields batches |
 | Add plugin hook | `plugin_mediator.py` | PluginMediator.apply_*() methods |
 
 ## CONVENTIONS

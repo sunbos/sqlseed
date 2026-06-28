@@ -19,13 +19,7 @@ Dangerous-character rejection (``_DANGEROUS_CHARS_RE``):
     identifiers in some edge cases. The hyphen ``-`` is **not** rejected because
     once the identifier is wrapped in double quotes, ``-`` is a legal character
     in SQLite and PostgreSQL (e.g. ``"my-table"``). The ``--`` comment sequence
-    cannot be triggered because the ``-`` is inside a quoted identifier.
-
-    .. note::
-        MySQL uses backticks (`` ` ``) rather than double quotes for identifier
-        quoting by default. This module's double-quote escaping is **not**
-        safe for MySQL. sqlseed's SQLAlchemyAdapter handles MySQL quoting via
-        SQLAlchemy's dialect system; this module is intended for SQLite/PG paths.
+cannot be triggered because the ``-`` is inside a quoted identifier.
 """
 
 from __future__ import annotations

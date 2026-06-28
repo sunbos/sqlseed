@@ -17,12 +17,19 @@ model fallback on timeout/connection errors.
 | File | Purpose |
 |------|---------|
 | `__init__.py` | Plugin entry point, hook implementations, exports `plugin` |
-| `analyzer.py` | `SchemaAnalyzer` core logic — calls LLM, parses responses |
+| `analyzer/` | `SchemaAnalyzer` package — split into 5 mixin modules by concern |
+| `analyzer/__init__.py` | `SchemaAnalyzer` class, composes all mixins via multiple inheritance |
+| `analyzer/_caller.py` | `LLMCallerMixin` — non-streaming LLM calls, model fallback chain, kwargs building |
+| `analyzer/_streaming.py` | `StreamingHandlerMixin` — streaming LLM calls, request dispatch (tool/JSON/text mode) |
+| `analyzer/_tool_calling.py` | `ToolCallingMixin` — native function calling (gemma4 / openai protocols) |
+| `analyzer/_context.py` | `ContextBuilderMixin` — chat message and schema context construction |
+| `analyzer/_json_parser.py` | `JsonParserMixin` — JSON response parsing and analysis entry points |
 | `_prompts.py` | LLM prompt templates (`SYSTEM_PROMPT`, `_COMPACT_SYSTEM_PROMPT`, `_ULTRA_COMPACT_SYSTEM_PROMPT`, `TEMPLATE_SYSTEM_PROMPT`) |
 | `_tools.py` | Gemma 4 native function calling tool definitions (`GEMMA_TOOLS`) |
-| `config.py` | `AIConfig`, `GemmaModel`, `AIBackend` enums and resolution logic |
+| `config.py` | `AIConfig`, `GemmaModel`, `AIBackend`, `ToolCallingProtocol` and resolution logic |
 | `refiner.py` | `AiConfigRefiner` self-correction loop (generate → validate → fix) |
 | `errors.py` | Error summarization system (`ErrorSummary` / `summarize_error()`) |
+| `exceptions.py` | Structured exception types (`ContextOverflowError`, `ToolCallError`, `ModelFallbackError`, `classify_api_error()`) |
 | `_client.py` | OpenAI client factory with unified httpx timeout |
 | `_hardware.py` | Cross-platform hardware detection (RAM, GPU/VRAM) |
 | `_json_utils.py` | LLM JSON response parsing (3-strategy fallback) |
@@ -39,6 +46,7 @@ model fallback on timeout/connection errors.
 | Change model fallback order | `_model_selector.py` | `_GEMMA_MODEL_PRIORITY` tuple |
 | Tune retry / refinement loop | `refiner.py` | `_refinement_loop()`, `_try_prompt_levels()` |
 | Add a new error handler | `errors.py` | Append to `handlers` list in `summarize_error()` |
+| Add structured exception type | `exceptions.py` | Subclass `SqlseedAIError`, add classifier logic to `classify_api_error()` |
 | Change httpx timeout profile | `_client.py` | `httpx_timeout()` |
 | Add few-shot examples | `examples.py` | Append to `FEW_SHOT_EXAMPLES` |
 | Modify hook implementations | `__init__.py` | `sqlseed_ai_analyze_table`, `sqlseed_pre_generate_templates` |
@@ -52,6 +60,7 @@ model fallback on timeout/connection errors.
 | `SQLSEED_AI_MODEL` | `model` | None (auto-detect local models) |
 | `SQLSEED_AI_TIMEOUT` | `timeout` | Default 60.0 |
 | `SQLSEED_AI_BACKEND` | `backend` | Auto-detect (`google_ai_studio`, `lm_studio`, `ollama`, `openai_compat`) |
+| `SQLSEED_AI_TOOL_CALLING_PROTOCOL` | `tool_calling_protocol` | `gemma4` (options: `gemma4`, `openai`, `none`) |
 
 ## 3-Tier Prompt System
 
@@ -78,9 +87,20 @@ downgrades full → compact → ultra-compact.
 5. At most `_MAX_FALLBACK_ATTEMPTS = 3` model downgrades are attempted.
 6. If all models fail, the last exception is raised.
 
-Gemma 4 native function calling (`_try_tool_calling()`) is attempted first on
-Google AI Studio: the model is offered `GEMMA_TOOLS` and may return a
-structured `analyze_schema` invocation. On any tool-related error, the analyzer
+Gemma 4 native function calling (`_try_tool_calling()`) is attempted first
+when `AIConfig.resolve_tool_calling_protocol()` returns `"gemma4"` or
+`"openai"`: the model is offered `GEMMA_TOOLS` and may return a structured
+`analyze_schema` invocation. The dispatch is protocol-driven (Phase E), not
+backend-driven:
+
+- `"gemma4"` (default): Gemma 4 special-token protocol; supported only on
+  `GOOGLE_AI_STUDIO`.
+- `"openai"`: Standard OpenAI function calling; supported on `GOOGLE_AI_STUDIO`
+  and `OPENAI_COMPAT`.
+- `"none"`: Skip tool calling entirely.
+
+On backends that do not support the requested protocol, the resolver
+gracefully degrades to `"none"`. On any tool-related error, the analyzer
 falls back to JSON mode.
 
 ## Self-Correction Flow (AiConfigRefiner)
@@ -120,7 +140,7 @@ first non-None result wins:
 
 ## ANTI-PATTERNS
 
-- **NEVER** import `openai` at module top in `analyzer.py` → use lazy init via `_client.py` (`get_openai_client()`). The top-level `from openai import OpenAI` lives only in `_client.py`, which is itself lazily imported.
+- **NEVER** import `openai` at module top in `analyzer/` → use lazy init via `_client.py` (`get_openai_client()`). The top-level `from openai import OpenAI` lives only in `_client.py`, which is itself lazily imported.
 - **NEVER** use `assert` for runtime validation → use `RuntimeError`/`ValueError`.
 - **NEVER** suppress type errors with `# type: ignore` or `Any` where a concrete type is available.
 - **NEVER** call `json.loads()` directly on LLM output → use `parse_json_response()` from `_json_utils.py` (3-strategy fallback).
@@ -137,7 +157,7 @@ first non-None result wins:
 - JSON parsing must go through `_json_utils.parse_json_response()` (3 strategies: direct → fence-strip → `raw_decode`). Never call `json.loads()` directly on LLM output.
 - All AI calls must handle `APIConnectionError` / `APITimeoutError` / `APIError`.
 - `refiner.py` self-correction flow: generate → validate (`TableConfig`) → fix, up to `max_retries` times.
-- `config.py` `AIConfig` supports multi-backend auto-detection. Key methods: `resolve_model()`, `resolve_base_url()`, `resolve_api_key()`, `resolve_max_tokens()`, `resolve_timeout()`, `should_use_streaming()`, `should_use_ultra_compact()`, `detect_all_local_models()`.
+- `config.py` `AIConfig` supports multi-backend auto-detection. Key methods: `resolve_model()`, `resolve_base_url()`, `resolve_api_key()`, `resolve_max_tokens()`, `resolve_timeout()`, `resolve_tool_calling_protocol()`, `should_use_streaming()`, `should_use_ultra_compact()`, `detect_all_local_models()`. The `tool_calling_protocol` field (Phase E) selects between `gemma4` / `openai` / `none` native function calling protocols.
 - Streaming: `call_llm_streaming()` + `generate_and_refine_streaming()`. E2B/E4B models auto-disable streaming (high TTFT).
 - Prompt downgrade: normal → compact → ultra-compact. Small models (E2B/E4B) auto-enable ultra-compact.
 
@@ -150,7 +170,7 @@ pytest tests/test_ai_plugin.py tests/test_refiner.py
 ### Common Patterns
 
 - Plugin registration: `ai = "sqlseed_ai:plugin"` under `[project.entry-points."sqlseed"]` in `plugins/sqlseed-ai/pyproject.toml`.
-- AI call flow: `_client.py` builds client → `analyzer.py` builds messages (from `_prompts.py`) → LLM call (with `_tools.py` for Gemma 4) → `_json_utils.py` parses response.
+- AI call flow: `_client.py` builds client → `analyzer/_context.py` builds messages (from `_prompts.py`) → LLM call via `analyzer/_caller.py` or `analyzer/_streaming.py` (with `_tools.py` for Gemma 4) → `_json_utils.py` parses response.
 - Error handling: `errors.py` `summarize_error()` converts exceptions into user-friendly `ErrorSummary` objects for LLM retry prompts.
 
 ## Dependencies

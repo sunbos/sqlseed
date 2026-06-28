@@ -1,0 +1,59 @@
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[project]
+name = "sqlseed-cli"
+dynamic = ["version"]
+requires-python = ">=3.10"
+description = "CLI plugin for sqlseed (declarative test data generation)"
+readme = "README.md"
+license = "AGPL-3.0-or-later"
+authors = [
+    {name = "SunBo", email = "1443584939@qq.com"},
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+dependencies = [
+    "sqlseed>=0.1.0",
+    "click>=8.0",
+    "rich>=13.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/sunbos/sqlseed"
+Repository = "https://github.com/sunbos/sqlseed/tree/main/plugins/sqlseed-cli"
+
+# Console script: `pip install sqlseed-cli` provides the `sqlseed` command.
+# Per ARCHITECTURE.md Section 3.2: entry point is `sqlseed_cli:main`.
+[project.scripts]
+sqlseed = "sqlseed_cli:main"
+
+# Entry point for AI subcommand discovery (used by sqlseed-ai to inject `ai-suggest`).
+# The sqlseed_cli package iterates this group at startup and calls each entry's
+# ``register(cli_group)`` callable to attach subcommands.
+[project.entry-points."sqlseed.cli_commands"]
+# (none in sqlseed-cli itself; sqlseed-ai registers ai-suggest here)
+
+[tool.hatch.version]
+source = "vcs"
+fallback-version = "0.0.0"
+
+[tool.hatch.version.raw-options]
+root = "../.."
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sqlseed_cli"]
+
+[tool.hatch.build.targets.sdist]
+exclude = [
+    "AGENTS.md",
+    "uv.lock",
+]

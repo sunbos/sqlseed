@@ -3,6 +3,8 @@ from __future__ import annotations
 import sqlite3
 from typing import Any
 
+import pytest
+
 import sqlseed
 from sqlseed.core.mapper import GeneratorSpec
 from sqlseed.core.relation import RelationResolver, SharedPool
@@ -22,6 +24,18 @@ class _FakeDB:
 
     def get_column_values(self, _table_name, _column_name, limit=10000):
         return self._column_values[:limit]
+
+    def get_sample_rows(self, _table_name, limit=5, columns=None):
+        # Return rows as dicts covering all PK/FK columns so that batch
+        # extraction in register_shared_pool yields the same values as the
+        # old per-column get_column_values calls. The ``columns`` argument
+        # (column projection) is accepted for interface compatibility but
+        # ignored here since the fake already returns only PK/FK columns.
+        fk_columns = {fk.column for fk in self._fks}
+        all_columns = set(self._primary_keys) | fk_columns
+        if not all_columns:
+            return []
+        return [{col: val for col in all_columns} for val in self._column_values[:limit]]
 
     def get_primary_keys(self, _table_name):
         return self._primary_keys
@@ -100,11 +114,8 @@ class TestRelationResolver:
         adapter.connect(db_path)
         try:
             resolver = RelationResolver(adapter)
-            try:
+            with pytest.raises(ValueError):
                 resolver.topological_sort(["a", "b"])
-                raise AssertionError("Should have raised ValueError for circular dependency")
-            except ValueError:
-                pass
         finally:
             adapter.close()
 

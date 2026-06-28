@@ -965,13 +965,14 @@ What this means:
 
 ## 🧩 Plugin System
 
-sqlseed provides 11 hook points via [pluggy](https://pluggy.readthedocs.io/), covering the full data generation lifecycle:
+sqlseed provides 12 hook points via [pluggy](https://pluggy.readthedocs.io/), covering the full data generation lifecycle:
 
 | Hook | firstresult | Trigger |
 | :--- | :---------: | :------ |
 | `sqlseed_register_providers` |    <br />   | Register custom data providers |
 | `sqlseed_register_column_mappers` |    <br />   | Register custom column mapping rules |
 | `sqlseed_ai_analyze_table` |      ✓      | AI analyzes table schema (returns column config) |
+| `sqlseed_apply_ai_suggestions` |      ✓      | High-level AI mediation (orchestrator entry; implemented in `sqlseed_ai.ai_mediator`) |
 | `sqlseed_pre_generate_templates` |      ✓      | AI pre-computes candidate value pools |
 | `sqlseed_before_generate` |    <br />   | Before data generation loop |
 | `sqlseed_after_generate` |    <br />   | After data generation completes |
@@ -1011,7 +1012,7 @@ src/sqlseed/
 │   ├── raw_sqlite_adapter.py     # sqlite3 fallback adapter
 │   └── optimizer.py         # PragmaOptimizer 3-tier optimization
 ├── plugins/                 # ===== Plugin Layer =====
-│   ├── hookspecs.py         # 11 pluggy hook definitions
+│   ├── hookspecs.py         # 12 pluggy hook definitions
 │   └── manager.py           # PluginManager
 ├── config/                  # ===== Config Management =====
 │   ├── models.py            # Pydantic models (GeneratorConfig/TableConfig/ColumnConfig)

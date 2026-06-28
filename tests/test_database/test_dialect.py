@@ -16,6 +16,7 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
+from sqlalchemy.exc import SQLAlchemyError
 
 from sqlseed.database._bulk_optimizer import (
     BulkWriteOptimizer,
@@ -28,6 +29,16 @@ from sqlseed.database._dialect import (
     SQLiteDialect,
 )
 from sqlseed.database._type_normalizer import NormalizedType, TypeNormalizer
+
+
+class _FakeCursor:
+    """Minimal cursor-like object returning a single row from fetchone()."""
+
+    def __init__(self, row: Any) -> None:
+        self._row = row
+
+    def fetchone(self) -> Any:
+        return self._row
 
 
 class TestSQLiteDialect:
@@ -66,14 +77,36 @@ class TestSQLiteDialect:
         dialect.reset_autoincrement(mock_execute, "users")
         mock_execute.assert_called_once_with("DELETE FROM sqlite_sequence WHERE name = ?", ["users"])
 
-    def test_detect_autoincrement_returns_false_placeholder(self) -> None:
-        """Phase 1: SQLiteDialect.detect_autoincrement returns False as a placeholder.
+    def test_detect_autoincrement_delegates_to_sqlite_schema(self) -> None:
+        """SQLiteDialect.detect_autoincrement delegates to detect_sqlite_autoincrement.
 
-        Actual detection is performed by RawSQLiteAdapter/SQLAlchemyAdapter via
-        schema_helpers.detect_autoincrement.
+        Verifies the dialect parses CREATE TABLE SQL from sqlite_master via
+        execute_fn and returns True for INTEGER PRIMARY KEY AUTOINCREMENT.
         """
         dialect = SQLiteDialect()
-        assert dialect.detect_autoincrement({}) is False
+        ddl = "CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT)"
+        execute_fn = MagicMock(return_value=_FakeCursor((ddl,)))
+        col_info = {"name": "id"}
+        result = dialect.detect_autoincrement(
+            col_info,
+            table_name="users",
+            execute_fn=execute_fn,
+        )
+        assert result is True
+        execute_fn.assert_called_once()
+
+    def test_detect_autoincrement_no_autoincrement_returns_false(self) -> None:
+        """SQLiteDialect.detect_autoincrement returns False when AUTOINCREMENT absent."""
+        dialect = SQLiteDialect()
+        ddl = "CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)"
+        execute_fn = MagicMock(return_value=_FakeCursor((ddl,)))
+        col_info = {"name": "id"}
+        result = dialect.detect_autoincrement(
+            col_info,
+            table_name="t",
+            execute_fn=execute_fn,
+        )
+        assert result is False
 
     def test_satisfies_dialect_protocol(self) -> None:
         """SQLiteDialect satisfies the Dialect protocol."""
@@ -138,23 +171,6 @@ class TestTypeNormalizer:
         result = self.normalizer.normalize("uuid", "postgresql")
         assert result.base == "UUID"
 
-    def test_mysql_int(self) -> None:
-        result = self.normalizer.normalize("int", "mysql")
-        assert result.base == "INTEGER"
-
-    def test_mysql_bigint(self) -> None:
-        result = self.normalizer.normalize("bigint", "mysql")
-        assert result.base == "INTEGER"
-
-    def test_mysql_varchar(self) -> None:
-        result = self.normalizer.normalize("varchar(100)", "mysql")
-        assert result.base == "VARCHAR"
-        assert result.params == (100,)
-
-    def test_mysql_datetime(self) -> None:
-        result = self.normalizer.normalize("datetime", "mysql")
-        assert result.base == "DATETIME"
-
     def test_empty_type(self) -> None:
         result = self.normalizer.normalize("", "sqlite")
         assert result.base == "TEXT"
@@ -178,9 +194,9 @@ class TestTypeNormalizer:
         assert result.display == "NUMERIC(10,2)"
 
     def test_non_numeric_params_ignored(self) -> None:
-        """ENUM type parameters (non-numeric) should be ignored."""
-        result = self.normalizer.normalize("enum('a','b','c')", "mysql")
-        assert result.base == "TEXT"
+        """Non-numeric type parameters (e.g. ENUM values) should be ignored."""
+        result = self.normalizer.normalize("enum('a','b','c')", "sqlite")
+        assert result.base == "ENUM"
         assert result.params == ()
 
 
@@ -339,7 +355,7 @@ class TestPostgresDialect:
         """GENERATED ... AS IDENTITY pattern detection."""
         dialect = PostgresDialect()
         col_info = {"name": "id", "identity": {"always": True}, "autoincrement": False, "default": None}
-        assert dialect.detect_autoincrement(col_info) is True
+        assert dialect.detect_autoincrement(col_info, table_name="t", execute_fn=MagicMock()) is True
 
     def test_detect_autoincrement_serial_via_nextval(self) -> None:
         """SERIAL pattern: default contains nextval()."""
@@ -350,7 +366,7 @@ class TestPostgresDialect:
             "autoincrement": False,
             "default": "nextval('users_id_seq'::regclass)",
         }
-        assert dialect.detect_autoincrement(col_info) is True
+        assert dialect.detect_autoincrement(col_info, table_name="t", execute_fn=MagicMock()) is True
 
     def test_detect_autoincrement_bigserial(self) -> None:
         """BIGSERIAL pattern: default contains nextval()."""
@@ -361,19 +377,19 @@ class TestPostgresDialect:
             "autoincrement": False,
             "default": "nextval('orders_id_seq'::regclass)",
         }
-        assert dialect.detect_autoincrement(col_info) is True
+        assert dialect.detect_autoincrement(col_info, table_name="t", execute_fn=MagicMock()) is True
 
     def test_detect_autoincrement_autoincrement_flag(self) -> None:
         """SQLAlchemy autoincrement flag (integer PK inference)."""
         dialect = PostgresDialect()
         col_info = {"name": "id", "identity": None, "autoincrement": True, "default": None}
-        assert dialect.detect_autoincrement(col_info) is True
+        assert dialect.detect_autoincrement(col_info, table_name="t", execute_fn=MagicMock()) is True
 
     def test_detect_autoincrement_not_autoincrement(self) -> None:
         """Non-autoincrement column detection."""
         dialect = PostgresDialect()
         col_info = {"name": "name", "identity": None, "autoincrement": False, "default": None}
-        assert dialect.detect_autoincrement(col_info) is False
+        assert dialect.detect_autoincrement(col_info, table_name="t", execute_fn=MagicMock()) is False
 
     def test_detect_autoincrement_default_without_nextval(self) -> None:
         """A column with a default but no nextval is not autoincrement."""
@@ -384,7 +400,7 @@ class TestPostgresDialect:
             "autoincrement": False,
             "default": "'active'::text",
         }
-        assert dialect.detect_autoincrement(col_info) is False
+        assert dialect.detect_autoincrement(col_info, table_name="t", execute_fn=MagicMock()) is False
 
     def test_reset_autoincrement_queries_sequences(self) -> None:
         """reset_autoincrement should query pg_get_serial_sequence and ALTER SEQUENCE."""
@@ -420,7 +436,7 @@ class TestPostgresDialect:
     def test_reset_autoincrement_handles_exception(self) -> None:
         """reset_autoincrement should silently degrade on query failure (not block clear_table)."""
         dialect = PostgresDialect()
-        mock_execute = MagicMock(side_effect=Exception("PG error"))
+        mock_execute = MagicMock(side_effect=SQLAlchemyError("PG error"))
 
         # Should not raise an exception
         dialect.reset_autoincrement(mock_execute, "users")
@@ -519,7 +535,7 @@ class TestPostgresBulkOptimizer:
         """Trigger disable failure (insufficient permissions) should degrade silently."""
         mock_execute = MagicMock()
         # First call SET synchronous_commit succeeds, second (session_replication_role) raises
-        mock_execute.side_effect = [None, Exception("permission denied"), None]
+        mock_execute.side_effect = [None, SQLAlchemyError("permission denied"), None]
 
         optimizer = PostgresBulkOptimizer(execute_fn=mock_execute)
         # Should not raise an exception
@@ -677,7 +693,7 @@ class TestTypeNormalizerBoundary:
     def test_normalize_unknown_dialect(self) -> None:
         """normalize("int", "oracle") goes through the default uppercase branch, returns INT."""
         result = self.normalizer.normalize("int", "oracle")
-        # Unknown dialect (not postgresql/mysql) goes through default branch: base_raw.upper() = "INT"
+        # Unknown dialect (not postgresql) goes through default branch: base_raw.upper() = "INT"
         assert result.base == "INT"
         assert result.params == ()
 
@@ -689,60 +705,6 @@ class TestTypeNormalizerBoundary:
         assert result.params == ()
 
 
-class TestMySQLTypeMapping:
-    """MySQL type mapping tests.
-
-    Note: TypeNormalizer.normalize is an instance method, must instantiate first.
-    Expected values based on _MYSQL_TYPE_MAP (src/sqlseed/database/_type_normalizer.py lines 86-119).
-    """
-
-    def setup_method(self) -> None:
-        """Create a TypeNormalizer instance before each test."""
-        self.normalizer = TypeNormalizer()
-
-    def test_mysql_int_mapping(self) -> None:
-        """INT -> INTEGER (_MYSQL_TYPE_MAP: "int": "INTEGER")."""
-        result = self.normalizer.normalize("int", "mysql")
-        assert result.base == "INTEGER"
-
-    def test_mysql_bigint_mapping(self) -> None:
-        """BIGINT -> INTEGER (_MYSQL_TYPE_MAP: "bigint": "INTEGER")."""
-        result = self.normalizer.normalize("bigint", "mysql")
-        assert result.base == "INTEGER"
-
-    def test_mysql_varchar_mapping(self) -> None:
-        """VARCHAR(255) -> VARCHAR (_MYSQL_TYPE_MAP: "varchar": "VARCHAR")."""
-        result = self.normalizer.normalize("varchar(255)", "mysql")
-        assert result.base == "VARCHAR"
-        assert result.params == (255,)
-
-    def test_mysql_text_mapping(self) -> None:
-        """TEXT -> TEXT (_MYSQL_TYPE_MAP: "text": "TEXT")."""
-        result = self.normalizer.normalize("text", "mysql")
-        assert result.base == "TEXT"
-
-    def test_mysql_datetime_mapping(self) -> None:
-        """DATETIME -> DATETIME (_MYSQL_TYPE_MAP: "datetime": "DATETIME")."""
-        result = self.normalizer.normalize("datetime", "mysql")
-        assert result.base == "DATETIME"
-
-    def test_mysql_tinyint_mapping(self) -> None:
-        """TINYINT -> INTEGER (_MYSQL_TYPE_MAP: "tinyint": "INTEGER")."""
-        result = self.normalizer.normalize("tinyint", "mysql")
-        assert result.base == "INTEGER"
-
-    def test_mysql_decimal_mapping(self) -> None:
-        """DECIMAL(10,2) -> NUMERIC (_MYSQL_TYPE_MAP: "decimal": "NUMERIC")."""
-        result = self.normalizer.normalize("decimal(10,2)", "mysql")
-        assert result.base == "NUMERIC"
-        assert result.params == (10, 2)
-
-    def test_mysql_json_mapping(self) -> None:
-        """JSON -> JSON (_MYSQL_TYPE_MAP: "json": "JSON")."""
-        result = self.normalizer.normalize("json", "mysql")
-        assert result.base == "JSON"
-
-
 class TestPostgresDialectBoundary:
     """Boundary condition tests for PostgresDialect."""
 
@@ -750,14 +712,14 @@ class TestPostgresDialectBoundary:
         """Returns False when column_info is missing identity/default/autoincrement keys."""
         dialect = PostgresDialect()
         # Completely empty column_info
-        result = dialect.detect_autoincrement({})
+        result = dialect.detect_autoincrement({}, table_name="t", execute_fn=MagicMock())
         assert result is False
 
     def test_pg_detect_autoincrement_none_values(self) -> None:
         """Returns False when all column_info key values are None."""
         dialect = PostgresDialect()
         col_info = {"identity": None, "default": None, "autoincrement": None}
-        result = dialect.detect_autoincrement(col_info)
+        result = dialect.detect_autoincrement(col_info, table_name="t", execute_fn=MagicMock())
         assert result is False
 
     def test_pg_reset_autoincrement_cursor_without_fetchall(self) -> None:

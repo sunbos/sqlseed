@@ -2,16 +2,18 @@
 
 [English](README.md) | **[中文](README.zh-CN.md)**
 
-[Model Context Protocol (MCP)](https://modelcontextprotocol.io/) 服务器，用于 [sqlseed](https://github.com/sunbos/sqlseed) — 让 AI 助手直接检查 Schema、生成配置和填充 SQLite 数据库。
+[Model Context Protocol (MCP)](https://modelcontextprotocol.io/) 服务器，用于 [sqlseed](https://github.com/sunbos/sqlseed) — 向 AI 助手暴露**核心能力**（规则驱动的 YAML 生成 + 数据填充），无需 LLM。
 
 ## 安装
 
 ```bash
-# 基础安装
 pip install mcp-server-sqlseed
+```
 
-# 含 AI 支持（包含 sqlseed-ai）
-pip install mcp-server-sqlseed[ai]
+如需 LLM 驱动的 Schema 分析，请安装独立的 AI MCP 服务器：
+
+```bash
+pip install "sqlseed-ai[mcp]"   # 提供 sqlseed_ai_generate_yaml + Gemma 4 工具
 ```
 
 ## 配置
@@ -38,46 +40,33 @@ pip install mcp-server-sqlseed[ai]
 
 | Tool | 说明 |
 |:-----|:-----|
-| `sqlseed_inspect_schema` | 检查数据库 Schema：列、外键、索引、样本数据、schema_hash。可选 `table_name`（省略则返回所有表）。 |
-| `sqlseed_generate_yaml` | AI 驱动的 YAML 配置生成，含自纠正。需要 `sqlseed-ai` 插件和 API Key。支持 `api_key`/`base_url`/`model` 参数覆盖。 |
+| `sqlseed_generate_yaml` | 基于 sqlseed `ColumnMapper`（74 条精确规则 + 27 个正则模式）的规则驱动 YAML 配置模板。离线、确定性、无需 LLM。 |
 | `sqlseed_execute_fill` | 执行数据生成。可选 `yaml_config` 字符串、`count` 和 `enrich` 标志。YAML 配置最大 256KB。 |
-| `sqlseed_gemma4_analyze` | 使用 Gemma 4 分析 Schema 并生成配置 |
-| `sqlseed_gemma4_agent_fill` | 使用 Gemma 4 代理端到端填充表 |
-| `sqlseed_list_gemma_models` | 列出可用的 Gemma 4 模型变体 |
 
-### MCP Resource
+### 不包含的内容
 
-| Resource | 说明 |
-|:---------|:-----|
-| `sqlseed://schema/{db_path}/{table_name}` | 指定表的只读 JSON Schema |
+依据 [ARCHITECTURE.md Section 3.4](../../ARCHITECTURE.md)，本服务器仅暴露核心能力：
+
+- ~~`sqlseed_inspect_schema`~~ — 使用第三方 MCP，如 [mcp-database-server](https://github.com/iPraBhu/mcp-database-server) 或 [mcp-db-analyzer](https://github.com/Dmitriusan/mcp-db-analyzer)
+- ~~`sqlseed://schema` Resource~~ — Schema 检查由上述 MCP 负责
+- ~~`sqlseed_gemma4_analyze` / `sqlseed_gemma4_agent_fill` / `sqlseed_list_gemma_models`~~ — 已移至 `sqlseed-ai[mcp]`
+- ~~AI 驱动的 `sqlseed_generate_yaml`~~ — LLM 驱动变体为 `sqlseed_ai_generate_yaml`，位于 `sqlseed-ai[mcp]`
 
 ## 使用示例
 
 配置 MCP 客户端后，可以这样提示：
 
-> "检查 `app.db` 的 Schema，为 `users` 表生成 YAML 配置，然后填充 1000 行数据。"
+> "为 `app.db` 的 `users` 表生成 YAML 配置，然后填充 1000 行数据。"
 
 AI 助手会依次调用：
-1. `sqlseed_inspect_schema` → 获取表结构
-2. `sqlseed_generate_yaml` → 生成 YAML 配置（需安装 sqlseed-ai）
-3. `sqlseed_execute_fill` → 填充数据
-
-## AI 集成
-
-当安装了 `sqlseed-ai` 并配置了 API Key（`SQLSEED_AI_API_KEY` 或 `OPENAI_API_KEY`）时，`sqlseed_generate_yaml` 工具使用 LLM 驱动的分析和自纠正。未安装 AI 插件时，该工具返回回退消息。
-
-### Gemma 4 集成
-
-`sqlseed_gemma4_analyze` 和 `sqlseed_gemma4_agent_fill` 工具通过 `GEMMA_TOOLS` 接口利用 **Gemma 4 Native Function Calling**。当安装了 `google-generativeai` 并配置了 Google API Key（`GOOGLE_API_KEY`）时，这些工具使用 Gemma 4 的内置函数调用直接分析 Schema 并编排端到端填充工作流。使用 `sqlseed_list_gemma_models` 可查看可用的模型变体和后端。
+1. `sqlseed_generate_yaml` → 规则驱动 YAML 模板（离线）
+2. `sqlseed_execute_fill` → 填充数据
 
 ## 依赖
 
 - Python >= 3.10
 - `sqlseed >= 0.1.0`
 - `mcp >= 1.0`
-
-可选：
-- `sqlseed-ai`（用于 `sqlseed_generate_yaml`、`sqlseed_gemma4_analyze`、`sqlseed_gemma4_agent_fill`、`sqlseed_list_gemma_models` 工具）
 
 ## 许可证
 

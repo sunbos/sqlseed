@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
 from sqlseed.config.models import GeneratorConfig, TableConfig
 from sqlseed.config.snapshot import SnapshotManager
 
@@ -46,11 +48,8 @@ class TestSnapshotManager:
 
     def test_load_nonexistent(self, tmp_path: Any) -> None:
         manager = self._make_manager(tmp_path)
-        try:
+        with pytest.raises(FileNotFoundError):
             manager.load("/nonexistent/snapshot.yaml")
-            raise AssertionError("Should have raised FileNotFoundError")
-        except FileNotFoundError:
-            pass
 
     def test_replay_removed(self, tmp_path: Any) -> None:
         """SnapshotManager.replay() was removed (H5: config→core reverse dependency).

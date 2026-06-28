@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from pathlib import Path
 from typing import Any
 
 import yaml
@@ -23,7 +24,7 @@ def fill_from_config_and_verify_fk(
     fk_query: str,
     ref_query: str,
 ) -> list[Any]:
-    config_path = str(config_dir) + "/config.yaml"
+    config_path = str(Path(config_dir) / "config.yaml")
     with open(config_path, "w", encoding="utf-8") as f:
         yaml.dump(config_data, f)
 

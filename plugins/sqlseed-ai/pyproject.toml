@@ -23,6 +23,7 @@ classifiers = [
 ]
 dependencies = [
     "sqlseed>=0.1.0",
+    "sqlseed-cli>=0.1.0",
     "openai>=1.0",
     "httpx>=0.24.0",
 ]
@@ -31,8 +32,21 @@ dependencies = [
 Homepage = "https://github.com/sunbos/sqlseed"
 Repository = "https://github.com/sunbos/sqlseed/tree/main/plugins/sqlseed-ai"
 
+[project.optional-dependencies]
+mcp = ["mcp>=1.0,<2"]
+
+[project.scripts]
+mcp-server-sqlseed-ai = "sqlseed_ai.mcp:main"
+
+# Plugin registration: ai subcommand on the sqlseed core plugin hook.
 [project.entry-points."sqlseed"]
 ai = "sqlseed_ai:plugin"
+
+# CLI subcommand registration: sqlseed_cli iterates this group at startup
+# and calls each entry's ``register(cli_group)`` callable to attach
+# subcommands. This decouples sqlseed-cli from importing sqlseed-ai.
+[project.entry-points."sqlseed.cli_commands"]
+ai_suggest = "sqlseed_ai.cli.ai_commands:register"
 
 [tool.hatch.version]
 source = "vcs"

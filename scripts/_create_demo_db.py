@@ -20,43 +20,43 @@ def _validate_db_path(path: Path) -> Path:
 
 
 def main() -> None:
-    db_path_str = sys.argv[1] if len(sys.argv) > 1 else "quickstart_demo.db"
+    default_db = str(Path(__file__).resolve().parent.parent / "quickstart_demo.db")
+    db_path_str = sys.argv[1] if len(sys.argv) > 1 else default_db
     db_path = _validate_db_path(Path(db_path_str))
     if db_path.exists():
         db_path.unlink()
 
-    conn = sqlite3.connect(str(db_path))
-    conn.executescript("""
-        CREATE TABLE users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            email TEXT NOT NULL UNIQUE,
-            age INTEGER,
-            city TEXT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        );
-        CREATE TABLE projects (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            description TEXT,
-            status TEXT DEFAULT 'Planning',
-            owner_id INTEGER REFERENCES users(id),
-            budget REAL,
-            deadline DATE,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        );
-        CREATE TABLE orders (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER REFERENCES users(id),
-            project_id INTEGER REFERENCES projects(id),
-            amount REAL NOT NULL,
-            status TEXT DEFAULT 'pending',
-            order_date DATE,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        );
-    """)
-    conn.commit()
-    conn.close()
+    with sqlite3.connect(str(db_path)) as conn:
+        conn.executescript("""
+            CREATE TABLE users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                email TEXT NOT NULL UNIQUE,
+                age INTEGER,
+                city TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE projects (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                description TEXT,
+                status TEXT DEFAULT 'Planning',
+                owner_id INTEGER REFERENCES users(id),
+                budget REAL,
+                deadline DATE,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE orders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER REFERENCES users(id),
+                project_id INTEGER REFERENCES projects(id),
+                amount REAL NOT NULL,
+                status TEXT DEFAULT 'pending',
+                order_date DATE,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+        conn.commit()
     print(f"  Database created: {db_path} (3 tables: users, projects, orders)")
 
 

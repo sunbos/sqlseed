@@ -17,6 +17,10 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, model_validator
 from typing_extensions import Self
 
+from sqlseed._utils.logger import get_logger
+
+logger = get_logger(__name__)
+
 
 class ProviderType(str, Enum):
     BASE = "base"
@@ -26,13 +30,19 @@ class ProviderType(str, Enum):
 
 
 class ColumnConstraintsConfig(BaseModel):
-    """Column constraint configuration"""
+    """Column constraint configuration."""
 
     unique: bool = False
     min_value: int | float | None = None
     max_value: int | float | None = None
     regex: str | None = None
-    max_retries: int = Field(default=100, ge=0)
+    max_retries: int = Field(
+        default=100,
+        ge=0,
+        description="Maximum retry attempts for unique-constraint backtracking. "
+        "Set to 0 to disable retries (the first generated value is kept even if it "
+        "violates the unique constraint). Must be >= 0.",
+    )
 
 
 class ColumnConfig(BaseModel):
@@ -69,8 +79,6 @@ class ColumnConfig(BaseModel):
     mimesis_method: str | None = None
     native_params: dict[str, Any] = Field(default_factory=dict)
 
-    model_config = {"extra": "ignore"}
-
     @model_validator(mode="before")
     @classmethod
     def normalize_dict_input(cls, data: Any) -> Any:
@@ -81,6 +89,12 @@ class ColumnConfig(BaseModel):
         if "type" in result and "generator" not in result:
             result["generator"] = result.pop("type")
         elif "type" in result and "generator" in result:
+            # Both 'type' and 'generator' provided: 'type' is discarded.
+            # Warn the user so they notice the silent drop.
+            logger.warning(
+                "Column has both 'type' and 'generator' specified; 'type' is ignored",
+                column=result.get("name", "<unknown>"),
+            )
             result.pop("type")
 
         derive_from = result.get("derive_from")
@@ -153,6 +167,15 @@ class GeneratorConfig(BaseModel):
     associations: list[ColumnAssociation] = Field(default_factory=list)
     optimize_pragma: bool = True
     snapshot_dir: str | None = None
+    # Deprecated: retained for backward compatibility with existing YAML/JSON configs.
+    # The value is no longer used; configure logging via sqlseed._utils.logger.configure_logging().
+    log_level: str | None = Field(
+        default=None,
+        deprecated=(
+            "log_level is deprecated and no longer applied; configure logging via "
+            "sqlseed._utils.logger.configure_logging() directly."
+        ),
+    )
 
     @model_validator(mode="after")
     def validate_connection_target(self) -> Self:

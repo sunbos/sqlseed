@@ -59,7 +59,9 @@ class SnapshotManager:
         """
         self._snapshot_dir.mkdir(parents=True, exist_ok=True)
 
-        timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+        # Include microseconds to avoid filename collisions when multiple snapshots
+        # are saved within the same second.
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S_%f")
         filename = f"{timestamp}_{table_name}.yaml"
         filepath = self._snapshot_dir / filename
 

@@ -52,7 +52,7 @@ graph TB
     end
 
     subgraph Plugin["🧩 Plugin Layer (plugins/)"]
-        HookSpec["SqlseedHookSpec<br/>11 hooks"]
+        HookSpec["SqlseedHookSpec<br/>12 hooks"]
         PM["PluginManager<br/>pluggy"]
     end
 

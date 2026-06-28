@@ -11,14 +11,27 @@ try:
 except ImportError:
     tqdm = None
 
-from rich.progress import (
-    BarColumn,
-    Progress,
-    SpinnerColumn,
-    TextColumn,
-    TimeRemainingColumn,
-    TransferSpeedColumn,
-)
+try:
+    from rich.progress import (
+        BarColumn,
+        Progress,
+        SpinnerColumn,
+        TextColumn,
+        TimeRemainingColumn,
+        TransferSpeedColumn,
+    )
+except ImportError:
+    # rich is an optional dependency of sqlseed core (per ARCHITECTURE.md
+    # Section 7.1: "Core must not depend on click/rich for long-term
+    # stability"). When rich is absent, RichProgressBackend is unavailable
+    # and create_progress() falls back to NullProgressBackend in terminal
+    # environments. Install with: pip install sqlseed-cli (which pulls rich).
+    Progress = None  # type: ignore[assignment,misc]
+    BarColumn = Progress  # type: ignore[assignment,misc]
+    SpinnerColumn = Progress  # type: ignore[assignment,misc]
+    TextColumn = Progress  # type: ignore[assignment,misc]
+    TimeRemainingColumn = Progress  # type: ignore[assignment,misc]
+    TransferSpeedColumn = Progress  # type: ignore[assignment,misc]
 
 from sqlseed._utils.logger import get_logger
 
@@ -155,6 +168,11 @@ class RichProgressBackend(ProgressBackend):
     (Braille spinners, block-element bars) that cannot be encoded by
     limited console encodings such as GBK or Big5.  The spinner falls back
     to the ``"line"`` style (``|/-\\``) and the graphical bar is omitted.
+
+    Raises:
+        RuntimeError: If ``rich`` is not installed. Callers should use
+            :func:`create_progress` (which never raises on missing deps)
+            rather than instantiating this class directly.
     """
 
     def __init__(self, *, ascii_only: bool = False) -> None:
@@ -163,7 +181,18 @@ class RichProgressBackend(ProgressBackend):
         Args:
             ascii_only: If ``True``, use ASCII-safe spinner and omit the
                         graphical bar (for GBK/Big5 console encodings).
+
+        Raises:
+            RuntimeError: If ``rich`` is not installed.
         """
+        if Progress is None:
+            raise RuntimeError(
+                "rich is not installed. Install with: pip install sqlseed-cli "
+                "(or pip install rich). The sqlseed core package does not "
+                "require rich; RichProgressBackend is only available when "
+                "rich is installed."
+            )
+
         if ascii_only:
             columns: list[Any] = [
                 SpinnerColumn("line"),
@@ -347,4 +376,13 @@ def create_progress(*, disable: bool = False) -> ProgressBackend:
     ascii_only = not _can_render_unicode()
     if ascii_only:
         logger.debug("Console encoding does not support Unicode progress characters — using ASCII-safe layout")
+
+    if Progress is None:
+        # rich is not installed — fall back to silent null backend rather
+        # than crashing. This keeps the sqlseed core importable without
+        # rich (per ARCHITECTURE.md Section 7.1). Users who want progress
+        # bars should install sqlseed-cli (which pulls rich).
+        logger.debug("rich not installed — progress bars disabled. Install with: pip install sqlseed-cli")
+        return NullProgressBackend()
+
     return RichProgressBackend(ascii_only=ascii_only)

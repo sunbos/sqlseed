@@ -17,11 +17,6 @@ class TestValidateDbPath:
         url = "postgresql://user:pass@host:5432/db"
         assert _validate_db_target(url) == url
 
-    def test_validate_mysql_url_passes_through(self) -> None:
-        """A mysql URL is returned directly."""
-        url = "mysql://user:pass@host:3306/db"
-        assert _validate_db_target(url) == url
-
     def test_validate_sqlite_url_passes_through(self) -> None:
         """A sqlite URL is returned directly."""
         url = "sqlite:///path/to/db.sqlite"

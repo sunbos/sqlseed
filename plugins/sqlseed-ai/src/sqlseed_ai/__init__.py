@@ -3,8 +3,14 @@
 This module exposes the :class:`AISqlseedPlugin`, a pluggy plugin that
 integrates LLM-powered schema analysis into sqlseed's generation pipeline.
 
-The plugin implements two sqlseed hooks:
+The plugin implements three sqlseed hooks:
 
+* ``sqlseed_apply_ai_suggestions`` — high-level entry point invoked by
+  the orchestrator. Decides whether AI is needed, builds the analysis
+  context, calls the low-level analyze hook, and merges the result back
+  into the column specs. The implementation lives in
+  :mod:`sqlseed_ai.ai_mediator` (moved out of core per ARCHITECTURE.md
+  Section 7.6).
 * ``sqlseed_ai_analyze_table`` — analyzes a full table schema and returns a
   YAML/JSON generation template.
 * ``sqlseed_pre_generate_templates`` — generates sample values for columns
@@ -19,10 +25,14 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from sqlseed_ai.ai_mediator import apply_ai_suggestions
 from sqlseed_ai.analyzer import SchemaAnalyzer
 from sqlseed_ai.config import AIConfig
 
+from sqlseed._utils.logger import get_logger
 from sqlseed.plugins.hookspecs import hookimpl
+
+logger = get_logger(__name__)
 
 _SIMPLE_COL_RE = re.compile(
     r"(^|[_\s])("
@@ -96,7 +106,66 @@ class AISqlseedPlugin:
             The analysis result dict, or None on failure.
         """
         analyzer = self._get_analyzer()
-        return analyzer.analyze_table_from_ctx(**kwargs)
+        try:
+            return analyzer.analyze_table_from_ctx(**kwargs)
+        except (ValueError, RuntimeError, OSError) as e:
+            logger.warning(
+                "AI table analysis hook failed",
+                table_name=kwargs.get("table_name", ""),
+                error=str(e),
+            )
+            return None
+
+    @hookimpl
+    def sqlseed_apply_ai_suggestions(
+        self,
+        table_name: str,
+        column_infos: list[Any],
+        specs: dict[str, Any],
+        user_configured_columns: set[str],
+        db: Any,
+        schema: Any,
+    ) -> dict[str, Any] | None:
+        """Apply AI-driven suggestions to column specs.
+
+        Implements the ``sqlseed_apply_ai_suggestions`` hook (the high-level
+        entry point invoked by the orchestrator). Delegates to
+        :func:`sqlseed_ai.ai_mediator.apply_ai_suggestions`, which decides
+        whether AI is needed, builds the analysis context from ``db``/
+        ``schema``, calls ``sqlseed_ai_analyze_table``, and merges the
+        result back into ``specs``.
+
+        The AI-specific mediation logic lives in
+        :mod:`sqlseed_ai.ai_mediator` (not in core ``plugin_mediator``)
+        per ARCHITECTURE.md Section 7.6.
+
+        Args:
+            table_name: Target table name.
+            column_infos: List of ColumnInfo objects for the table.
+            specs: Mapping of column name to GeneratorSpec (modified in
+                place).
+            user_configured_columns: Set of column names the user
+                explicitly configured; AI must not override these.
+            db: Core ``DatabaseAdapter`` instance (for reading FKs and
+                table names).
+            schema: Core ``SchemaInferrer`` instance (for reading indexes
+                and sample data).
+
+        Returns:
+            The updated ``specs`` dict, or None if no AI plugin handles
+            this call. This implementation always handles the call when
+            sqlseed-ai is installed, so it returns the (possibly
+            unchanged) ``specs`` dict rather than None.
+        """
+        return apply_ai_suggestions(
+            analyze_fn=self.sqlseed_ai_analyze_table,
+            db=db,
+            schema=schema,
+            table_name=table_name,
+            column_infos=column_infos,
+            specs=specs,
+            user_configured_columns=user_configured_columns,
+        )
 
     @hookimpl
     def sqlseed_pre_generate_templates(

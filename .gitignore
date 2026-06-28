@@ -45,6 +45,9 @@ ENV/
 .coverage
 coverage.xml
 htmlcov/
+.mutmut-cache
+mutmut_*.log
+mutmut_results_*.txt
 .mypy_cache/
 .dmypy.json
 dmypy.json

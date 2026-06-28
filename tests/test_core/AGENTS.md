@@ -1,32 +1,34 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-04-29 | Updated: 2026-04-29 -->
+<!-- Generated: 2026-04-29 | Updated: 2026-06-21 -->
 
 # test_core
 
 ## Purpose
 
-核心引擎组件的单元测试。覆盖 DAG、约束求解、枚举增强、表达式求值、唯一性调整和插件中介。
+Unit tests for core engine components. Covers DAG, constraint solving, enum enrichment, expression evaluation, uniqueness adjustment, and plugin mediation.
 
 ## Key Files
 
 | File | Description |
 |------|-------------|
-| `conftest.py` | 核心模块局部 fixture（enrich_ctx, mediator_ctx 等） |
-| `test_column_dag.py` | ColumnDAG 拓扑排序和依赖解析测试 |
-| `test_constraints.py` | ConstraintSolver 唯一性约束和回溯测试 |
-| `test_enrichment.py` | EnrichmentEngine 枚举列增强测试 |
-| `test_expression.py` | ExpressionEngine 表达式求值测试 |
-| `test_plugin_mediator.py` | PluginMediator 插件交互测试 |
-| `test_transform.py` | 用户自定义变换脚本加载测试 |
-| `test_unique_adjuster.py` | UniqueAdjuster 唯一性调整测试 |
+| `conftest.py` | Local fixtures for core modules (enrich_ctx, mediator_ctx, etc.) |
+| `test_column_dag.py` | ColumnDAG topological sort and dependency resolution tests |
+| `test_constraints.py` | ConstraintSolver uniqueness constraint and backtracking tests |
+| `test_enrichment.py` | EnrichmentEngine enum column enrichment tests |
+| `test_expression.py` | ExpressionEngine expression evaluation tests |
+| `test_plugin_mediator.py` | PluginMediator plugin interaction tests |
+| `test_stream.py` | DataStream batch generation tests |
+| `test_transform.py` | User-defined transform script loading tests |
+| `test_unique_adjuster.py` | UniqueAdjuster uniqueness adjustment tests |
 
 ## For AI Agents
 
 ### Working In This Directory
 
-- DAG 测试需覆盖循环依赖检测
-- 约束求解测试需覆盖大数据集场景（概率集合模式）
-- 表达式引擎测试需覆盖安全沙箱边界
+- DAG tests must cover circular dependency detection
+- Constraint solver tests must cover large dataset scenarios (probabilistic set mode)
+- Expression engine tests must cover safety sandbox boundaries
+- Enrichment tests verify enum pattern detection from existing data distribution
 
 ### Testing Requirements
 
@@ -36,7 +38,7 @@ pytest tests/test_core/
 
 ### Common Patterns
 
-- 使用 `conftest.py` 中的局部 fixture 创建测试用核心组件实例
+- Use local fixtures in `conftest.py` to create test core component instances
 
 ## Dependencies
 

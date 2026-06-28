@@ -1,7 +1,20 @@
+"""Plugin mediator — bridges core orchestrator and pluggy plugin hooks.
+
+The mediator is the single call-site through which the orchestrator
+invokes pluggy hooks for batch transforms and template-pool enrichment.
+
+AI-specific mediation (``apply_ai_suggestions``) was moved to
+``sqlseed_ai.ai_mediator`` per ARCHITECTURE.md Section 7.6 ("Only
+AI-specific mediation moves out"). The orchestrator now invokes the
+AI path directly via the ``sqlseed_apply_ai_suggestions`` pluggy hook
+(see ``core.orchestrator._specs``), so this module no longer touches
+the AI path.
+"""
+
 from __future__ import annotations
 
 import contextlib
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.exc import OperationalError as SAOperationalError
 
@@ -19,7 +32,19 @@ logger = get_logger(__name__)
 
 
 class PluginMediator:
-    AI_APPLICABLE_GENERATORS: ClassVar[frozenset[str]] = frozenset({"string"})
+    """Bridge between the orchestrator and pluggy plugins.
+
+    Owns the two non-AI hook call paths:
+    * ``apply_template_pool`` — pre-generate a pool of candidate values
+      for columns the built-in mappers could not match deterministically
+      (calls the ``sqlseed_pre_generate_templates`` hook).
+    * ``apply_batch_transforms`` — let plugins transform a batch of
+      rows post-generation (calls the ``sqlseed_transform_batch`` hook).
+
+    The AI suggestion path (formerly ``apply_ai_suggestions``) was moved
+    to ``sqlseed_ai.ai_mediator`` and is invoked by the orchestrator
+    via the ``sqlseed_apply_ai_suggestions`` pluggy hook.
+    """
 
     def __init__(
         self,
@@ -30,107 +55,6 @@ class PluginMediator:
         self._plugins = plugins
         self._db = db
         self._schema = schema
-
-    def _has_unmatched_cols(self, column_infos: list[Any], specs: dict[str, GeneratorSpec]) -> bool:
-        return any(
-            specs.get(col.name) is not None
-            and specs[col.name].generator_name in self.AI_APPLICABLE_GENERATORS
-            and not col.is_primary_key
-            and not col.is_autoincrement
-            and col.default is None
-            for col in column_infos
-        )
-
-    def _process_single_ai_column(self, col_cfg: dict[str, Any], specs: dict[str, GeneratorSpec]) -> None:
-        col_name = col_cfg.get("name")
-        if not col_name or col_name not in specs:
-            return
-
-        gen = col_cfg.get("generator")
-        if not gen or gen == "skip":
-            return
-
-        derive_from = col_cfg.get("derive_from")
-        expression = col_cfg.get("expression")
-
-        if derive_from and expression:
-            specs[col_name] = GeneratorSpec(
-                generator_name="__derive__",
-                params={"derive_from": derive_from, "expression": expression},
-            )
-        else:
-            params = col_cfg.get("params", {})
-            if isinstance(params, dict):
-                specs[col_name] = GeneratorSpec(
-                    generator_name=gen,
-                    params=params,
-                    native_faker_method=col_cfg.get("faker_method"),
-                    native_mimesis_method=col_cfg.get("mimesis_method"),
-                    native_params=col_cfg.get("native_params"),
-                )
-
-    def _process_ai_result(
-        self,
-        ai_result: Any,
-        specs: dict[str, GeneratorSpec],
-        configured: set[str] | None = None,
-    ) -> None:
-        if not ai_result or not isinstance(ai_result, dict):
-            return
-
-        skip = configured or set()
-        ai_columns = ai_result.get("columns", [])
-        if not isinstance(ai_columns, list):
-            return
-
-        for col_cfg in ai_columns:
-            if isinstance(col_cfg, dict):
-                col_name = col_cfg.get("name")
-                if col_name and col_name in skip:
-                    continue
-                self._process_single_ai_column(col_cfg, specs)
-
-    def _build_ai_context(self, table_name: str) -> dict[str, Any] | None:
-        try:
-            fks = self._db.get_foreign_keys(table_name)
-            indexes = self._schema.get_index_info(table_name)
-            return {
-                "foreign_keys": fks,
-                "all_table_names": self._db.get_table_names(),
-                "indexes": [{"name": i.name, "columns": i.columns, "unique": i.unique} for i in indexes],
-                "sample_data": self._schema.get_sample_data(table_name, limit=5),
-            }
-        except (ValueError, RuntimeError, ImportError) as e:
-            logger.debug("AI context not available", table_name=table_name, error=str(e))
-            return None
-
-    def apply_ai_suggestions(
-        self,
-        table_name: str,
-        column_infos: list[Any],
-        specs: dict[str, GeneratorSpec],
-        user_configured_columns: set[str] | None = None,
-    ) -> dict[str, GeneratorSpec]:
-        if not self._has_unmatched_cols(column_infos, specs):
-            return specs
-
-        ctx = self._build_ai_context(table_name)
-        if ctx is None:
-            return specs
-
-        ai_result = self._plugins.hook.sqlseed_ai_analyze_table(
-            table_name=table_name,
-            columns=column_infos,
-            indexes=ctx["indexes"],
-            sample_data=ctx["sample_data"],
-            foreign_keys=ctx["foreign_keys"],
-            all_table_names=ctx["all_table_names"],
-        )
-
-        configured = user_configured_columns or set()
-        self._process_ai_result(ai_result, specs, configured)
-
-        return specs
 
     def _iter_template_eligible_specs(
         self,
@@ -173,10 +97,14 @@ class PluginMediator:
         # and the generator yields from specs.items(). Without snapshotting
         # first, iterating would raise RuntimeError.
         eligible = list(self._iter_template_eligible_specs(specs, column_infos, configured, unique_columns))
+        # Batch-fetch sample rows once for all eligible columns (avoids N+1 queries).
+        sample_rows: list[dict[str, Any]] = []
+        with contextlib.suppress(ValueError, OSError, RuntimeError, SAOperationalError):
+            sample_rows = self._db.get_sample_rows(table_name, limit=10)
+
         for col_name, _, col_info in eligible:
-            sample_data_for_col: list[Any] = []
-            with contextlib.suppress(ValueError, OSError, RuntimeError, SAOperationalError):
-                sample_data_for_col = self._db.get_column_values(table_name, col_name, limit=10)
+            # Extract per-column values from the batch-fetched sample rows.
+            sample_data_for_col: list[Any] = [row[col_name] for row in sample_rows if col_name in row]
 
             template_values = self._plugins.hook.sqlseed_pre_generate_templates(
                 table_name=table_name,

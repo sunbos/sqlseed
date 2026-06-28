@@ -46,6 +46,7 @@ def fetch_sample_rows(
     columns: list[ColumnInfo],
     table_name: str,
     limit: int = 5,
+    column_projection: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Get sample rows from a table.
 
@@ -54,15 +55,27 @@ def fetch_sample_rows(
         columns: Column info list, determines the SELECT column order and the keys of the result dict.
         table_name: Target table name.
         limit: Maximum number of rows to return, default 5.
+        column_projection: Optional list of column names to SELECT. When provided,
+            only the named columns are fetched (reduces data transfer for wide tables);
+            when ``None``, all columns are selected. Unknown names are ignored.
 
     Returns:
         A list of dicts keyed by column names with row values.
     """
     safe_table = quote_identifier(table_name)
-    col_names = [quote_identifier(c.name) for c in columns]
+    if column_projection is not None:
+        projection_set = set(column_projection)
+        selected = [c for c in columns if c.name in projection_set]
+    else:
+        selected = columns
+    # Return an empty list when the projection matches no columns (consistent with
+    # SQLAlchemyAdapter behavior for nonexistent tables).
+    if not selected:
+        return []
+    col_names = [quote_identifier(c.name) for c in selected]
     cols_sql = ", ".join(col_names)
     rows = execute_fn(f"SELECT {cols_sql} FROM {safe_table} LIMIT ?", [limit]).fetchall()
-    col_name_list = [c.name for c in columns]
+    col_name_list = [c.name for c in selected]
     return [dict(zip(col_name_list, row, strict=True)) for row in rows]
 
 

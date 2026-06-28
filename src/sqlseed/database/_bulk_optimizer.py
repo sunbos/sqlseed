@@ -3,21 +3,30 @@
 Abstracts bulk write optimization strategies across databases:
 - SQLite: PRAGMA synchronous = OFF, journal_mode = MEMORY
 - PostgreSQL: SET synchronous_commit = OFF
-- MySQL: SET unique_checks = 0, foreign_key_checks = 0
 
 Phase 1 defines the protocol and SQLiteBulkOptimizer (delegating to the existing PragmaOptimizer).
-Phase 3 adds PostgresBulkOptimizer; MySQLBulkOptimizer is left for future work.
+Phase 3 adds PostgresBulkOptimizer.
 """
 
 from __future__ import annotations
 
-import contextlib
+import re
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+
+from sqlalchemy.exc import SQLAlchemyError
+
+from sqlseed._utils.logger import get_logger
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from sqlseed.database.optimizer import PragmaOptimizer
+
+logger = get_logger(__name__)
+
+# PG session setting values are simple identifiers (e.g., 'on', 'off', 'origin', 'replica').
+# Validate before f-string interpolation to defend against unexpected content.
+_PG_SETTING_RE = re.compile(r"^[a-zA-Z0-9_]+$")
 
 
 @runtime_checkable
@@ -121,14 +130,16 @@ class PostgresBulkOptimizer:
             cursor = self._execute_fn("SHOW synchronous_commit")
             row = cursor.fetchone() if hasattr(cursor, "fetchone") else None
             self._original_synchronous_commit = row[0] if row else "on"
-        except Exception:
+        except (SQLAlchemyError, OSError, ValueError, RuntimeError) as exc:
+            logger.debug("Failed to read synchronous_commit; using default", error=str(exc))
             self._original_synchronous_commit = "on"
 
         try:
             cursor = self._execute_fn("SHOW session_replication_role")
             row = cursor.fetchone() if hasattr(cursor, "fetchone") else None
             self._original_replication_role = row[0] if row else "origin"
-        except Exception:
+        except (SQLAlchemyError, OSError, ValueError, RuntimeError) as exc:
+            logger.debug("Failed to read session_replication_role; using default", error=str(exc))
             self._original_replication_role = "origin"
 
     def optimize(self, expected_rows: int | None = None) -> None:
@@ -147,17 +158,31 @@ class PostgresBulkOptimizer:
         threshold = 10000
         if expected_rows is not None and expected_rows > threshold:
             # Silently degrade on insufficient privileges or unsupported session-level setting
-            with contextlib.suppress(Exception):
+            try:
                 self._execute_fn("SET session_replication_role = 'replica'")
+            except (SQLAlchemyError, OSError, ValueError, RuntimeError) as exc:
+                logger.debug("Failed to set session_replication_role; degrading", error=str(exc))
 
     def restore(self) -> None:
         """Restore original synchronous_commit and session_replication_role configuration."""
         if self._original_synchronous_commit is not None:
-            with contextlib.suppress(Exception):
-                self._execute_fn(f"SET synchronous_commit = '{self._original_synchronous_commit}'")
+            value = self._original_synchronous_commit
+            if _PG_SETTING_RE.match(value):
+                try:
+                    self._execute_fn(f"SET synchronous_commit = '{value}'")
+                except (SQLAlchemyError, OSError, ValueError, RuntimeError) as exc:
+                    logger.debug("Failed to restore synchronous_commit", error=str(exc))
+            else:
+                logger.warning("Skipping synchronous_commit restore: unexpected value", value=value)
         if self._original_replication_role is not None:
-            with contextlib.suppress(Exception):
-                self._execute_fn(f"SET session_replication_role = '{self._original_replication_role}'")
+            value = self._original_replication_role
+            if _PG_SETTING_RE.match(value):
+                try:
+                    self._execute_fn(f"SET session_replication_role = '{value}'")
+                except (SQLAlchemyError, OSError, ValueError, RuntimeError) as exc:
+                    logger.debug("Failed to restore session_replication_role", error=str(exc))
+            else:
+                logger.warning("Skipping session_replication_role restore: unexpected value", value=value)
 
 
 __all__ = ["BulkWriteOptimizer", "PostgresBulkOptimizer", "SQLiteBulkOptimizer"]

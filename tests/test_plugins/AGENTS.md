@@ -1,26 +1,26 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-04-29 | Updated: 2026-04-29 -->
+<!-- Generated: 2026-04-29 | Updated: 2026-06-21 -->
 
 # test_plugins
 
 ## Purpose
 
-插件系统测试。覆盖 hook 规范定义和插件管理器生命周期。
+Plugin system tests. Covers hook specification definitions and plugin manager lifecycle.
 
 ## Key Files
 
 | File | Description |
 |------|-------------|
-| `test_hookspecs.py` | Hook 规范定义测试 |
-| `test_manager.py` | PluginManager 生命周期测试 |
+| `test_hookspecs.py` | Hook specification definition tests |
+| `test_manager.py` | PluginManager lifecycle tests |
 
 ## For AI Agents
 
 ### Working In This Directory
 
-- 测试插件的注册、发现和卸载
-- 验证 hook 调用的正确分派
-- 测试 entry_points 自动发现机制
+- Test plugin registration, discovery, and unloading
+- Verify correct hook call dispatch
+- Test entry_points auto-discovery mechanism
 
 ### Testing Requirements
 
@@ -30,7 +30,7 @@ pytest tests/test_plugins/
 
 ### Common Patterns
 
-- 使用 `unittest.mock.patch` 模拟 entry_points
+- Use `unittest.mock.patch` to mock entry_points
 
 ## Dependencies
 

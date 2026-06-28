@@ -8,12 +8,20 @@ unified httpx timeouts suitable for both cloud and local (GPU) inference.
 from __future__ import annotations
 
 import httpx
-from openai import OpenAI
+from openai import APIConnectionError, APIError, APITimeoutError, OpenAI
 from sqlseed_ai.config import AIConfig
 
 from sqlseed._utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+__all__ = [
+    "APIConnectionError",
+    "APIError",
+    "APITimeoutError",
+    "get_openai_client",
+    "httpx_timeout",
+]
 
 
 def get_openai_client(config: AIConfig | None = None) -> OpenAI:

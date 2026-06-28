@@ -27,7 +27,7 @@ class ExpressionTimeoutError(TimeoutError):
 class ExpressionEngine:
     """Engine that evaluates derived column expressions in a simpleeval sandbox.
 
-    Provides 20 safe functions (len, int, str, upper, concat, etc.).
+    Provides 21 safe functions (len, int, str, upper, concat, etc.).
     Simple expressions (method chains like value.strip()) are evaluated directly
     in the calling thread; complex expressions are executed in a separate thread
     with a timeout, and the thread is abandoned on timeout (as a daemon thread).

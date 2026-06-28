@@ -10,6 +10,8 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, Any, ClassVar
 
+from sqlalchemy.exc import OperationalError as SAOperationalError
+
 from sqlseed._utils.logger import get_logger
 from sqlseed.core.mapper import ColumnMapper, GeneratorSpec
 
@@ -154,7 +156,9 @@ class EnrichmentEngine:
             if spec.generator_name != "__enrich__":
                 continue
             is_unique = col_name in unique_columns
-            specs[col_name] = self._build_enriched_spec(table_name, col_name, spec, column_infos, is_unique)
+            specs[col_name] = self._build_enriched_spec(
+                table_name, col_name, spec, column_infos, is_unique, row_count
+            )
 
         return specs
 
@@ -205,12 +209,13 @@ class EnrichmentEngine:
         _spec: GeneratorSpec,
         column_infos: list[Any],
         is_unique: bool = False,
+        row_count: int = 0,
     ) -> GeneratorSpec:
         col_info = next((c for c in column_infos if c.name == col_name), None)
 
         try:
             values = self._db.get_column_values(table_name, col_name, limit=10000)
-        except (ValueError, OSError, RuntimeError):
+        except (ValueError, RuntimeError, OSError, SAOperationalError):
             return GeneratorSpec(generator_name="skip")
 
         if not values:
@@ -223,7 +228,6 @@ class EnrichmentEngine:
 
         distinct_values = list(set(non_null_values))
         distinct_count = len(distinct_values)
-        row_count = self._db.get_row_count(table_name)
 
         if self.is_enumeration_column(col_name, col_info, distinct_count, row_count, is_unique):
             return self._build_enum_spec(col_info, distinct_values, null_ratio)

@@ -1,27 +1,28 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-04-29 | Updated: 2026-04-29 -->
+<!-- Generated: 2026-04-29 | Updated: 2026-06-21 -->
 
 # test_config
 
 ## Purpose
 
-配置系统测试。覆盖模型校验、文件加载和快照管理。
+Configuration system tests. Covers model validation, file loading, and snapshot management.
 
 ## Key Files
 
 | File | Description |
 |------|-------------|
-| `test_loader.py` | YAML/JSON 配置加载测试 |
-| `test_models.py` | Pydantic 模型校验测试 |
-| `test_snapshot.py` | SnapshotManager 快照管理测试 |
+| `test_loader.py` | YAML/JSON config loading tests |
+| `test_models.py` | Pydantic model validation tests |
+| `test_snapshot.py` | SnapshotManager snapshot management tests |
 
 ## For AI Agents
 
 ### Working In This Directory
 
-- 模型校验需覆盖源列/派生列互斥约束
-- 加载器需覆盖 YAML 和 JSON 两种格式
-- 需测试非法配置文件的错误提示
+- Model validation must cover source-column/derived-column mutual exclusion constraint
+- Loader must cover both YAML and JSON formats
+- Must test error messages for invalid config files
+- Snapshot tests verify save/load/list_snapshots lifecycle
 
 ### Testing Requirements
 
@@ -31,7 +32,8 @@ pytest tests/test_config/
 
 ### Common Patterns
 
-- 使用临时文件（`tmp_path`）创建测试配置文件
+- Use `tmp_path` to create test config files
+- Multi-DB URL config tests use `url` field (mutually exclusive with `db_path`)
 
 ## Dependencies
 

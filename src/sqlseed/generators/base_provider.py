@@ -235,7 +235,7 @@ class BaseProvider(GeneratorDispatchMixin):
     def _gen_uuid(self) -> str:
         """Generate a UUID."""
         self._next_id()
-        return str(uuid.uuid4())
+        return str(uuid.UUID(int=self._rng.getrandbits(128), version=4))
 
     # ── Credential generators ─────────────────────────────────────────
 
@@ -262,7 +262,7 @@ class BaseProvider(GeneratorDispatchMixin):
     def _gen_choice(self, choices: list[Any]) -> Any:
         """Select a value from the given choices."""
         self._next_id()
-        return choices[0]
+        return self._rng.choice(choices)
 
     def _gen_json(self, *, schema: dict[str, Any] | None = None) -> str:
         """Generate a JSON string based on the schema."""

@@ -18,8 +18,7 @@ generators/
 ├── registry.py          # ProviderRegistry — entry-point discovery
 ├── base_provider.py     # BaseProvider — 31 generators, lazy deps
 ├── faker_provider.py    # FakerProvider — faker adapter
-├── mimesis_provider.py  # MimesisProvider — mimesis adapter
-└── stream.py            # DataStream — batch generation + constraint backtracking
+└── mimesis_provider.py  # MimesisProvider — mimesis adapter
 ```
 
 ## WHERE TO LOOK
@@ -31,7 +30,6 @@ generators/
 | Register provider | `registry.py` | Entry-point or plugin hook |
 | Modify dispatch | `_dispatch.py` | GeneratorDispatchMixin.generate(), verify_dispatch_sync() |
 | Add JSON type | `_json_helpers.py` | generate_json_from_schema() |
-| Batch generation | `stream.py` | DataStream.generate() — yields batches |
 
 ## CONVENTIONS
 

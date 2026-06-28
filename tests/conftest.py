@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import gc
 import sqlite3
+import warnings
 from typing import TYPE_CHECKING
 
 import pytest
@@ -17,8 +18,12 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
-@pytest.fixture(autouse=True)
-def _gc_between_tests():
+@pytest.fixture
+def gc_between_tests():
+    """Opt-in garbage collection fixture for memory-sensitive tests.
+
+    Use this fixture when a test needs explicit gc between setup/teardown.
+    """
     gc.collect()
     yield
     gc.collect()
@@ -32,18 +37,21 @@ def make_col(
     is_pk: bool = False,
     is_auto: bool = False,
 ):
-    return type(
-        "Col",
-        (),
-        {
-            "name": name,
-            "type": col_type,
-            "nullable": nullable,
-            "default": default,
-            "is_primary_key": is_pk,
-            "is_autoincrement": is_auto,
-        },
-    )()
+    """Deprecated. Use make_column_info instead."""
+    warnings.warn(
+        "make_col is deprecated and will be removed in a future version. "
+        "Use make_column_info instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return make_column_info(
+        name=name,
+        col_type=col_type,
+        nullable=nullable,
+        default=default,
+        is_primary_key=is_pk,
+        is_autoincrement=is_auto,
+    )
 
 
 def make_column_info(
@@ -64,8 +72,20 @@ def make_column_info(
     )
 
 
-@pytest.fixture(name="tmp_db")
-def create_tmp_db(tmp_path: Path) -> str:
+@pytest.fixture(name="tmp_db_simple")
+def create_tmp_db_simple(tmp_path: Path) -> str:
+    """Simple single-table database for lightweight tests."""
+    db_path = str(tmp_path / "simple.db")
+    conn = sqlite3.connect(db_path)
+    conn.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
+    conn.commit()
+    conn.close()
+    return db_path
+
+
+@pytest.fixture(name="tmp_db_full")
+def create_tmp_db_full(tmp_path: Path) -> str:
+    """Full multi-table database with users + orders and FK constraints."""
     db_path = str(tmp_path / "test.db")
     conn = sqlite3.connect(db_path)
     conn.execute("""
@@ -98,6 +118,12 @@ def create_tmp_db(tmp_path: Path) -> str:
     conn.commit()
     conn.close()
     return db_path
+
+
+@pytest.fixture(name="tmp_db")
+def create_tmp_db(tmp_db_full: str) -> str:
+    """Backward-compatible alias for tmp_db_full."""
+    return tmp_db_full
 
 
 @pytest.fixture(name="tmp_db_with_data")
@@ -187,7 +213,8 @@ def apply_enrichment(db_path: str, table_name: str, provider_name: str = "base")
         column_infos = orch._schema.get_column_info(table_name)
         unique_cols = orch._schema.detect_unique_columns(table_name)
         specs = orch._mapper.map_columns(column_infos, enrich=True)
-        assert orch._enrichment is not None
+        if orch._enrichment is None:
+            raise RuntimeError("Enrichment module not initialized")
         specs = orch._enrichment.apply(table_name, specs, column_infos, unique_cols)
         return orch, specs
 
@@ -224,7 +251,7 @@ def pg_url() -> Generator[str, None, None]:
     try:
         from testcontainers.postgres import PostgresContainer  # noqa: PLC0415
     except ImportError:
-        pytest.fail("testcontainers package is required for PG integration tests. Install: pip install testcontainers")
+        pytest.skip("testcontainers package required for PG integration tests. Install: pip install testcontainers")
     try:
         pg = PostgresContainer("postgres:16-alpine")
         pg.start()
@@ -236,7 +263,7 @@ def pg_url() -> Generator[str, None, None]:
         pg.stop()
     except Exception as e:
         if "docker" in str(e).lower() or "connection" in str(e).lower() or "daemon" in str(e).lower():
-            pytest.fail(
+            pytest.skip(
                 "Docker must be running to execute PostgreSQL integration tests.\n"
                 "Install guide: https://docs.docker.com/get-docker/\n"
                 f"Error details: {e}"
@@ -276,13 +303,19 @@ def available_llm_backend() -> dict[str, str]:
         with urllib.request.urlopen("http://localhost:1234/v1/models", timeout=2) as resp:
             data = json.loads(resp.read())
             model_ids = {m.get("id", "") for m in data.get("data", [])}
-            for preferred in ("google/gemma-4-26b-a4b", "google/gemma-4-31b", "google/gemma-4-e4b"):
+            for preferred in (
+                "google/gemma-4-26b-a4b",
+                "google/gemma-4-31b",
+                "google/gemma-4-e4b",
+                "google/gemma-4-e2b",  # ultra-light edge model
+            ):
                 if preferred in model_ids:
                     return {"backend": "lm_studio", "model": preferred}
             pytest.skip(
                 "LM Studio is running but no Gemma 4 model has been loaded. Please load in LM Studio:\n"
                 "  google/gemma-4-26b-a4b   # recommended\n"
-                "  google/gemma-4-e4b       # lightweight alternative"
+                "  google/gemma-4-e4b       # lightweight alternative\n"
+                "  google/gemma-4-e2b       # ultra-light edge model"
             )
     except Exception:
         pass

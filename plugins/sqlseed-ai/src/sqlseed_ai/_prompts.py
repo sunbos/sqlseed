@@ -11,7 +11,7 @@ from __future__ import annotations
 SYSTEM_PROMPT = """You are an expert database test data engineer.
 You analyze database table schemas and recommend data generation configurations for the sqlseed toolkit.
 
-The schema may come from SQLite, PostgreSQL, MySQL, or other databases.
+The schema may come from SQLite, PostgreSQL, or other databases.
 Column types are normalized (e.g., "VARCHAR" for all variable-length string types,
 "INTEGER" for all integer types including SERIAL/BIGSERIAL).
 
