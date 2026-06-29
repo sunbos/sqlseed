@@ -21,6 +21,7 @@ from ._common import CoreCtx, ExtCtx, _is_db_url
 
 if TYPE_CHECKING:
     from sqlseed._utils.metrics import MetricsCollector
+    from sqlseed.config.models import CustomColumnMappings
     from sqlseed.core.mapper import ColumnMapper
     from sqlseed.database._protocol import DatabaseAdapter
     from sqlseed.generators.registry import ProviderRegistry
@@ -48,6 +49,7 @@ class ConnectionMixin:
     _locale: str
     _optimize_pragma: bool
     _connected: bool
+    _custom_column_mappings: CustomColumnMappings | None
 
     def __init__(
         self,
@@ -57,11 +59,13 @@ class ConnectionMixin:
         locale: str = "en_US",
         optimize_pragma: bool = True,
         associations: list[Any] | None = None,
+        custom_column_mappings: CustomColumnMappings | None = None,
     ) -> None:
         self._db_path = db_path
         self._provider_name = provider_name
         self._locale = locale
         self._optimize_pragma = optimize_pragma
+        self._custom_column_mappings = custom_column_mappings
 
         db_adapter = self._create_adapter()
         shared_pool = SharedPool()
@@ -82,6 +86,15 @@ class ConnectionMixin:
         if self._core.db is None:
             raise RuntimeError("Database adapter not initialized. Call _ensure_connected() first.")
         return self._core.db
+
+    @property
+    def database_adapter(self) -> DatabaseAdapter:
+        """Public accessor for the database adapter.
+
+        Use this instead of the private ``_db`` attribute for external code
+        that needs direct adapter access (e.g., AI plugin schema analysis).
+        """
+        return self._db
 
     @property
     def _schema(self) -> SchemaInferrer:
@@ -150,6 +163,7 @@ class ConnectionMixin:
                 locale=config.locale,
                 optimize_pragma=config.optimize_pragma,
                 associations=config.associations if config.associations else None,
+                custom_column_mappings=config.custom_column_mappings,
             ),
         )
 
@@ -171,6 +185,11 @@ class ConnectionMixin:
             self._plugins.load_plugins()
             self._plugins.hook.sqlseed_register_providers(registry=self._registry)
             self._plugins.hook.sqlseed_register_column_mappers(mapper=self._mapper)
+            # Load user-defined custom column mappings from YAML config.
+            # These rules have higher priority than built-in rules but are
+            # registered after plugin hooks so plugins can also contribute.
+            if self._custom_column_mappings is not None:
+                self._mapper.load_custom_mappings(self._custom_column_mappings)
             self._registry.register_from_entry_points()
             try:
                 self._registry.ensure_provider(self._provider_name)
