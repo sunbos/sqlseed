@@ -156,6 +156,9 @@ class SchemaFallbackGenerator:
                 type_length = _parse_length_from_type(column.type)
                 if type_length and "max_length" in params:
                     params["max_length"] = min(params["max_length"], type_length)
+                # charset required so BaseProvider._gen_string honors min/max_length
+                # (without charset it returns the fixed-length placeholder "str_NNN").
+                params["charset"] = "alphanumeric"
                 return GeneratorSpec(generator_name="string", params=params)
 
         return None
@@ -196,8 +199,6 @@ class SchemaFallbackGenerator:
     @staticmethod
     def _is_integer_range(parsed: ParsedCheck) -> bool:
         """Check if a range parsed from CHECK has integer bounds."""
-        if parsed.min_value is not None and parsed.min_value != int(parsed.min_value):
-            return False
-        if parsed.max_value is not None and parsed.max_value != int(parsed.max_value):
-            return False
-        return True
+        min_ok = parsed.min_value is None or parsed.min_value == int(parsed.min_value)
+        max_ok = parsed.max_value is None or parsed.max_value == int(parsed.max_value)
+        return min_ok and max_ok

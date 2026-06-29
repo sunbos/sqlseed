@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from sqlseed.core.plugin_mediator import PluginMediator
     from sqlseed.core.relation import RelationResolver
     from sqlseed.core.schema import SchemaInferrer
+    from sqlseed.core.schema_fallback import SchemaFallbackGenerator
     from sqlseed.core.unique_adjuster import UniqueAdjuster
     from sqlseed.database._protocol import DatabaseAdapter
     from sqlseed.generators.registry import ProviderRegistry
@@ -90,6 +91,10 @@ class SpecResolverMixin:
         def _unique_adjuster(self) -> UniqueAdjuster:
             raise NotImplementedError
 
+        @property
+        def _schema_fallback(self) -> SchemaFallbackGenerator | None:
+            raise NotImplementedError
+
     def _resolve_specs(
         self,
         table_name: str,
@@ -117,6 +122,27 @@ class SpecResolverMixin:
         unique_columns = self._schema.detect_unique_columns(table_name)
         if self._enrichment is not None:
             generator_specs = self._enrichment.apply(table_name, generator_specs, column_infos, unique_columns)
+        # L9+ enhancement: SchemaFallbackGenerator adds CHECK-constraint and
+        # UNIQUE-aware params to columns that fell through to L9 type-fallback
+        # (generator_name == "string"). Skips columns with user_config (user
+        # intent wins) and L1-L8 name-matched columns (business hints win).
+        if self._schema_fallback is not None:
+            check_constraints = self._db.get_check_constraints(table_name)
+            unique_list = list(unique_columns)
+            for col_info in column_infos:
+                col_name = col_info.name
+                if col_name in user_configs:
+                    continue
+                current_spec = generator_specs.get(col_name)
+                if current_spec is None:
+                    continue
+                if current_spec.generator_name != "string":
+                    continue
+                enhanced = self._schema_fallback.fallback_for_column(
+                    col_info, check_constraints, unique_list
+                )
+                if enhanced is not None:
+                    generator_specs[col_name] = enhanced
         generator_specs = self._unique_adjuster.adjust(generator_specs, unique_columns, count, column_infos)
         generator_specs = self._relation.resolve_foreign_keys(
             table_name,

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from sqlseed.core.schema_fallback import SchemaFallbackGenerator
-from sqlseed.database._protocol import ColumnInfo
+from sqlseed.database._protocol import CheckConstraintInfo, ColumnInfo
 
 
 def _make_col(
@@ -81,9 +81,6 @@ class TestTypeDrivenFallback:
             _make_col("total", "REAL", is_computed=True), [], []
         )
         assert spec is None
-
-
-from sqlseed.database._protocol import CheckConstraintInfo
 
 
 def _make_check(name: str, table: str, columns: tuple[str, ...], expr: str) -> CheckConstraintInfo:

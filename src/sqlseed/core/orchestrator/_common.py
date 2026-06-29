@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from sqlseed.core.enrichment import EnrichmentEngine
     from sqlseed.core.plugin_mediator import PluginMediator
     from sqlseed.core.schema import SchemaInferrer
+    from sqlseed.core.schema_fallback import SchemaFallbackGenerator
     from sqlseed.core.unique_adjuster import UniqueAdjuster
     from sqlseed.database._protocol import DatabaseAdapter
 
@@ -61,6 +62,7 @@ class ExtCtx:
     plugin_mediator: PluginMediator | None = None
     enrichment: EnrichmentEngine | None = None
     unique_adjuster: UniqueAdjuster | None = None
+    schema_fallback: SchemaFallbackGenerator | None = None
     metrics: MetricsCollector = field(default_factory=MetricsCollector)
 
 

@@ -14,6 +14,7 @@ from sqlseed.core.enrichment import EnrichmentEngine
 from sqlseed.core.plugin_mediator import PluginMediator
 from sqlseed.core.relation import RelationResolver, SharedPool
 from sqlseed.core.schema import SchemaInferrer
+from sqlseed.core.schema_fallback import SchemaFallbackGenerator
 from sqlseed.core.unique_adjuster import UniqueAdjuster
 from sqlseed.database.sqlalchemy_adapter import SQLAlchemyAdapter
 
@@ -75,7 +76,10 @@ class ConnectionMixin:
             relation=RelationResolver(db_adapter, shared_pool),
             shared_pool=shared_pool,
         )
-        self._ext = ExtCtx(unique_adjuster=UniqueAdjuster(self._core.mapper))
+        self._ext = ExtCtx(
+            unique_adjuster=UniqueAdjuster(self._core.mapper),
+            schema_fallback=SchemaFallbackGenerator(),
+        )
         self._connected = False
 
         if associations:
@@ -147,6 +151,10 @@ class ConnectionMixin:
         if adj is None:
             raise RuntimeError("UniqueAdjuster not initialized. Call _ensure_connected() first.")
         return adj
+
+    @property
+    def _schema_fallback(self) -> SchemaFallbackGenerator | None:
+        return self._ext.schema_fallback
 
     @property
     def _metrics(self) -> MetricsCollector:
