@@ -27,6 +27,7 @@ from sqlseed._utils.logger import get_logger
 from sqlseed._utils.paths import get_cache_dir
 from sqlseed.config.models import TableConfig
 from sqlseed.core.orchestrator import DataOrchestrator
+from sqlseed.generators._protocol import ConfigurationError
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -502,15 +503,139 @@ class AiConfigRefiner:
                 retryable=True,
             )
 
+        # Pre-check: reject generators assigned to GENERATED/computed columns.
+        # The mapper silently skips computed columns (via is_computed), so
+        # preview_data will never contain them — making the downstream dry-run
+        # insert unable to detect this class of misconfiguration. We surface
+        # it explicitly here by reflecting the schema before preview.
+        computed_err = self._check_computed_column_assignments(orch, table_name, table_config)
+        if computed_err is not None:
+            return computed_err
+
         try:
-            orch.preview_table(
+            preview_data = orch.preview_table(
                 table_name=table_name,
-                count=5,
+                # Use 50 rows (not 5) so UNIQUE collisions on long-string
+                # generators (e.g., bare "text" producing ~50-char sentences)
+                # surface during validation rather than failing the full load.
+                count=50,
                 column_configs=table_config.columns,
             )
-        except (ValueError, RuntimeError, OSError) as e:
+        except (ValueError, RuntimeError, OSError, ConfigurationError) as e:
             return summarize_error(e)
 
+        # Transactional dry-run insert validation to catch DB-level constraints
+        # (CHECK, UNIQUE, NOT NULL, VARCHAR length) that preview cannot detect.
+        # Note: GENERATED/computed columns are already filtered out of preview_data
+        # by the mapper, so the dry-run insert will not attempt to write to them.
+        db_adapter = getattr(orch, "_db", None)
+        if db_adapter and preview_data:
+            engine = getattr(db_adapter, "_engine", None)
+            if engine is not None:
+                try:
+                    from sqlalchemy import MetaData, String, Table
+
+                    metadata = MetaData()
+                    table = Table(table_name, metadata, autoload_with=engine)
+
+                    # Pre-validate VARCHAR length constraints in Python to surface
+                    # the precise column name to the AI (DB error messages vary by dialect).
+                    for row in preview_data:
+                        for col in table.columns:
+                            val = row.get(col.name)
+                            if (
+                                val is not None
+                                and isinstance(col.type, String)
+                                and col.type.length is not None
+                                and len(str(val)) > col.type.length
+                            ):
+                                raise ValueError(
+                                    f"Column '{col.name}' value '{val}' is too long "
+                                    f"for type character varying({col.type.length})"
+                                )
+
+                    # Transactional dry-run insert (for DB-level CHECK/UNIQUE constraints)
+                    with engine.connect() as conn:
+                        transaction = conn.begin()
+                        try:
+                            conn.execute(table.insert(), preview_data)
+                        finally:
+                            transaction.rollback()
+                except Exception as e:
+                    err_msg = str(e).lower()
+                    is_fk_error = False
+
+                    # Detect PostgreSQL foreign key violation code (23503) or generic message
+                    pgcode = getattr(e, "pgcode", None)
+                    if pgcode == "23503" or "foreign key" in err_msg or "foreignkey" in err_msg:
+                        is_fk_error = True
+
+                    if not is_fk_error:
+                        return summarize_error(e)
+
+        return None
+
+    def _check_computed_column_assignments(
+        self,
+        orch: DataOrchestrator,
+        table_name: str,
+        table_config: TableConfig,
+    ) -> ErrorSummary | None:
+        """Reject AI configs that assign generators to GENERATED/computed columns.
+
+        Computed columns (``GENERATED ALWAYS AS (...) STORED/VIRTUAL``) are
+        auto-calculated by the database and cannot be inserted. The mapper
+        silently skips them, so preview_data never contains their values —
+        making the dry-run insert unable to detect this misconfiguration.
+
+        This pre-check reflects the schema via SQLAlchemy and surfaces an
+        explicit error to the AI so it can remove the offending column from
+        its config on the next refinement attempt.
+
+        Args:
+            orch: Orchestrator with the live database connection.
+            table_name: Name of the table being validated.
+            table_config: The AI-generated table config to check.
+
+        Returns:
+            :class:`ErrorSummary` if a generator is assigned to a computed
+            column, otherwise ``None``.
+        """
+        db_adapter = getattr(orch, "_db", None)
+        if db_adapter is None:
+            return None
+        engine = getattr(db_adapter, "_engine", None)
+        if engine is None:
+            # RawSQLiteAdapter (test-only) — skip this pre-check.
+            return None
+
+        try:
+            from sqlalchemy import MetaData, Table
+
+            metadata = MetaData()
+            reflected = Table(table_name, metadata, autoload_with=engine)
+            computed_cols = {col.name for col in reflected.columns if getattr(col, "computed", None) is not None}
+        except Exception:
+            # Reflection failed — skip this pre-check and rely on preview-based validation.
+            return None
+
+        if not computed_cols:
+            return None
+
+        for col_cfg in table_config.columns:
+            if col_cfg.name in computed_cols:
+                return ErrorSummary(
+                    error_type="computed_column_assignment",
+                    message=(
+                        f"Column '{col_cfg.name}' is a GENERATED/computed column "
+                        f"and cannot have a generator assigned. Computed columns "
+                        f"are auto-calculated by the database from the expression "
+                        f"in the schema. Remove '{col_cfg.name}' from the columns "
+                        f"list. Computed columns in '{table_name}': {sorted(computed_cols)}"
+                    ),
+                    column=col_cfg.name,
+                    retryable=True,
+                )
         return None
 
     def _build_refinement_prompt(
@@ -540,9 +665,21 @@ class AiConfigRefiner:
             "- Do NOT modify other column configurations that were working correctly.",
             "- Return the COMPLETE configuration JSON with only the problematic parts corrected.",
             "- If you are unsure how to fix the error, use 'string' generator as a safe fallback.",
-            "",
-            f"This is refinement attempt {attempt + 1} of {max_retries}.",
         ]
+
+        if error.message and ("too long" in error.message.lower() or "varying" in error.message.lower()):
+            parts.append(
+                "- TIP: For varchar/character varying length errors, "
+                "use the 'string' generator with 'params: {\"min_length\": 1, \"max_length\": N}' "
+                "where N is within the database column length limit."
+            )
+
+        parts.extend(
+            [
+                "",
+                f"This is refinement attempt {attempt + 1} of {max_retries}.",
+            ]
+        )
 
         if attempt >= max_retries - 1:
             parts.append("WARNING: This is the LAST attempt. Use the simplest possible generators to ensure validity.")
