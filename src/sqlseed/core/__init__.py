@@ -8,6 +8,7 @@ from sqlseed.core.orchestrator import DataOrchestrator
 from sqlseed.core.relation import RelationResolver
 from sqlseed.core.result import GenerationResult
 from sqlseed.core.schema import SchemaInferrer
+from sqlseed.core.schema_fallback import SchemaFallbackGenerator
 from sqlseed.core.stream import DataStream
 
 __all__ = [
@@ -19,5 +20,6 @@ __all__ = [
     "GeneratorSpec",
     "ParsedCheck",
     "RelationResolver",
+    "SchemaFallbackGenerator",
     "SchemaInferrer",
 ]
