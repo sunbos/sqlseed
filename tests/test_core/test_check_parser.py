@@ -1,7 +1,7 @@
 """Tests for CHECK constraint parser."""
 from __future__ import annotations
 
-from sqlseed.core.check_parser import CheckConstraintParser, ParsedCheck
+from sqlseed.core.check_parser import CheckConstraintParser
 
 
 class TestCheckParserInClause:

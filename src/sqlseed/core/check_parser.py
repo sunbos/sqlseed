@@ -169,8 +169,8 @@ class CheckConstraintParser:
     def _parse_value_list(values_str: str) -> list[Any]:
         """Parse a comma-separated value list from an IN clause."""
         items: list[Any] = []
-        for raw in values_str.split(","):
-            raw = raw.strip()
+        for token in values_str.split(","):
+            raw = token.strip()
             if not raw:
                 continue
             if (raw.startswith("'") and raw.endswith("'")) or (
