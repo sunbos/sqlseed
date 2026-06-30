@@ -12,6 +12,7 @@ point target.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import click
@@ -20,6 +21,7 @@ from rich.console import Console
 from rich.live import Live
 from rich.text import Text
 from sqlseed_ai import AIBackend, AIConfig, AiConfigRefiner, SchemaAnalyzer
+from sqlseed_ai.schema_analyzer import SchemaSemanticAnalyzer
 
 # sanitize_table_config lives in the sqlseed-cli package; this is the only
 # cross-plugin import permitted per ARCHITECTURE.md Section 4 (sqlseed-ai
@@ -393,16 +395,85 @@ def ai_suggest(
         _report_ai_failure()
 
 
+@click.command("ai-analyze")
+@click.option("--db", "db_path", required=True, help="SQLite database path")
+@click.option("--url", "db_url", default=None, help="Database URL (alternative to --db)")
+@click.option("--tables", default=None, help="Comma-separated table names (default: all tables)")
+@click.option("--output", "-o", required=True, type=click.Path(), help="Output YAML file path")
+@click.option(
+    "--no-dependencies",
+    is_flag=True,
+    default=False,
+    help="Skip FK dependency resolution (analyze only specified tables)",
+)
+@click.option("--max-depth", default=5, type=int, help="Max FK recursion depth (default: 5)")
+def ai_analyze(
+    db_path: str,
+    db_url: str | None,
+    tables: str | None,
+    output: str,
+    no_dependencies: bool,
+    max_depth: int,
+) -> None:
+    """Analyze database schema via LLM and generate business YAML config.
+
+    \b
+    Modes:
+      - Full database: sqlseed ai-analyze --db app.db -o config.yaml
+      - Partial tables: sqlseed ai-analyze --db app.db --tables orders,items -o config.yaml
+      - No dependencies: sqlseed ai-analyze --db app.db --tables orders --no-dependencies -o config.yaml
+
+    \b
+    The generated YAML contains business logic (column generators, params,
+    constraints). Review and edit before using with `sqlseed fill`.
+    """
+    import yaml
+
+    from sqlseed import connect
+
+    table_list = None
+    if tables:
+        table_list = [t.strip() for t in tables.split(",") if t.strip()]
+
+    orch = connect(url=db_url) if db_url else connect(db_path=db_path)
+
+    try:
+        with orch:
+            # Use PUBLIC database_adapter property (not private _db)
+            db = orch.database_adapter
+
+            analyzer = SchemaSemanticAnalyzer()
+            config_dict = analyzer.analyze(
+                db,
+                tables=table_list,
+                include_dependencies=not no_dependencies,
+                max_depth=max_depth,
+            )
+
+            output_path = Path(output)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            with output_path.open("w", encoding="utf-8") as f:
+                yaml.safe_dump(config_dict, f, allow_unicode=True, sort_keys=False)
+
+            click.echo(f"Generated YAML config: {output_path}")
+            click.echo(f"Tables: {len(config_dict.get('tables', []))}")
+
+    except Exception as e:
+        click.echo(f"Error: {e}", err=True)
+        raise click.exceptions.Exit(1) from e
+
+
 def register(cli_group: click.Group) -> None:
     """Entry-point target for the ``sqlseed.cli_commands`` group.
 
-    Called by ``sqlseed_cli.__init__`` to attach the ``ai-suggest``
-    subcommand to the ``sqlseed`` CLI group. Using ``register`` (rather
-    than ``register_commands``) keeps this module's public name aligned
-    with the entry-point callable signature documented in
-    ``sqlseed_cli.__init__._register_plugin_commands``.
+    Called by ``sqlseed_cli.__init__`` to attach the ``ai-suggest`` and
+    ``ai-analyze`` subcommands to the ``sqlseed`` CLI group. Using
+    ``register`` (rather than ``register_commands``) keeps this module's
+    public name aligned with the entry-point callable signature documented
+    in ``sqlseed_cli.__init__._register_plugin_commands``.
     """
     cli_group.add_command(ai_suggest)
+    cli_group.add_command(ai_analyze)
 
 
 # Backward-compat alias: existing tests import ``register_commands`` from
