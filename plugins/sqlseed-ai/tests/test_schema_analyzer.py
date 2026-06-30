@@ -105,3 +105,47 @@ class TestSchemaSemanticAnalyzerPrompt:
         user_msg = next(m for m in messages if m["role"] == "user")
         assert "price >= 0" in user_msg["content"]
         assert "CHECK" in user_msg["content"] or "check" in user_msg["content"].lower()
+
+
+class TestSchemaSemanticAnalyzerLLMCall:
+    """Test LLM call delegation and output filtering."""
+
+    def test_call_llm_delegates_to_analyzer(self) -> None:
+        """_call_llm should delegate to SchemaAnalyzer._call_llm_once."""
+        mock_config = MagicMock()
+        analyzer = SchemaSemanticAnalyzer(config=mock_config)
+
+        # Set the backing attribute directly because _analyzer is a property
+        # without a setter (lazy-init). patch.object cannot override it.
+        mock_sa = MagicMock()
+        mock_sa._call_llm_once.return_value = {"tables": [{"name": "orders"}]}
+        analyzer._sa = mock_sa
+
+        messages = [{"role": "user", "content": "test"}]
+        result = analyzer._call_llm(messages)
+
+        assert result == {"tables": [{"name": "orders"}]}
+        mock_sa._call_llm_once.assert_called_once_with(messages)
+
+    def test_filter_to_targets_removes_context(self) -> None:
+        analyzer = SchemaSemanticAnalyzer(config=MagicMock())
+        config_dict = {
+            "tables": [
+                {"name": "orders", "columns": []},
+                {"name": "users", "columns": []},
+            ]
+        }
+        result = analyzer._filter_to_targets(config_dict, ["orders"])
+        assert len(result["tables"]) == 1
+        assert result["tables"][0]["name"] == "orders"
+
+    def test_filter_to_targets_keeps_all_when_all_targets(self) -> None:
+        analyzer = SchemaSemanticAnalyzer(config=MagicMock())
+        config_dict = {
+            "tables": [
+                {"name": "orders", "columns": []},
+                {"name": "items", "columns": []},
+            ]
+        }
+        result = analyzer._filter_to_targets(config_dict, ["orders", "items"])
+        assert len(result["tables"]) == 2

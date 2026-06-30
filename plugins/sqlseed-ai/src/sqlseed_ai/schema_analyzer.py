@@ -311,8 +311,19 @@ class SchemaSemanticAnalyzer:
         return "\n".join(lines)
 
     def _call_llm(self, messages: list[dict[str, str]]) -> dict[str, Any]:
-        """Call LLM and return parsed config dict."""
-        raise NotImplementedError("Implemented in Task 5.3")
+        """Call LLM via SchemaAnalyzer and return parsed config dict.
+
+        Delegates to existing SchemaAnalyzer._call_llm_once for actual
+        API call, model fallback, and JSON parsing.
+        """
+        try:
+            result: dict[str, Any] | None = self._analyzer._call_llm_once(messages)
+            if result is None:
+                return {}
+            return result
+        except (ValueError, RuntimeError, OSError) as e:
+            logger.error("LLM call failed in SchemaSemanticAnalyzer", error=str(e))
+            raise
 
     def _filter_to_targets(
         self, config_dict: dict[str, Any], target_tables: list[str]
