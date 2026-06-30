@@ -180,7 +180,135 @@ class SchemaSemanticAnalyzer:
 
     def _build_llm_messages(self, request: AnalysisRequest) -> list[dict[str, str]]:
         """Build LLM messages with target/context separation."""
-        raise NotImplementedError("Implemented in Task 5.2")
+        system_prompt = self._build_system_prompt()
+        user_prompt = self._build_user_prompt(request)
+        return [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+
+    def _build_system_prompt(self) -> str:
+        """Build system prompt for whole-DB analysis."""
+        lines = [
+            "You are a database semantic analyzer. Your task is to analyze database schema "
+            "and generate a YAML test data configuration file that captures business logic.",
+            "",
+            "## Output Format",
+            "Output ONLY a valid JSON object (will be converted to YAML) with this structure:",
+            "{",
+            '  "tables": [',
+            "    {",
+            '      "name": "<table_name>",',
+            '      "count": 1000,',
+            '      "columns": [',
+            "        {",
+            '          "name": "<column_name>",',
+            '          "generator": "<generator_name>",',
+            '          "params": {...},',
+            '          "constraints": {"unique": false, "min_value": null, "max_value": null, "regex": null},',
+            '          "derive_from": null,',
+            '          "expression": null',
+            "        }",
+            "      ]",
+            "    }",
+            "  ]",
+            "}",
+            "",
+            "## Critical Rules",
+            "1. GENERATE YAML ONLY for TARGET tables. NEVER generate config for CONTEXT tables.",
+            "2. Skip PRIMARY KEY AUTOINCREMENT columns (DB auto-fills).",
+            "3. Skip columns with DEFAULT values (DB auto-fills).",
+            "4. Skip GENERATED/computed columns (DB auto-fills).",
+            "5. Skip FOREIGN KEY columns — they are auto-resolved by core from parent tables.",
+            "6. For UNIQUE columns, set constraints.unique=true and choose a generator that ensures uniqueness.",
+            "7. For CHECK constraints:",
+            "   - CHECK(x IN ('A','B')) -> use \"choice\" generator with params.choices",
+            "   - CHECK(x BETWEEN low AND high) -> use \"integer\"/\"float\" with min_value/max_value",
+            "   - CHECK(length(x) BETWEEN low AND high) -> use \"string\" with min_length/max_length",
+            "   - Cross-column CHECK (e.g., sale_price >= cost_price) -> use \"derive_from\" with an expression",
+            "8. Choose generators based on column NAME semantics:",
+            "   - email columns -> \"email\" generator",
+            "   - phone columns -> \"pattern\" generator with regex params",
+            "   - *_name (person) -> \"name\" generator",
+            "   - *_name (non-person) -> \"word\" generator",
+            "   - *_code, *_no, sku -> \"string\" with alphanumeric charset and fixed length",
+            "   - timestamps (*_at, *_date) -> \"datetime\" generator",
+            "9. If business semantics are unclear, choose a type-appropriate generator (schema-valid fallback).",
+            "10. Output ONLY JSON, no explanations, no markdown fences.",
+        ]
+        return "\n".join(lines)
+
+    def _build_user_prompt(self, request: AnalysisRequest) -> str:
+        """Build user prompt with target/context separation and full schema."""
+        lines: list[str] = []
+
+        lines.append("# Database Schema Analysis Request")
+        lines.append("")
+
+        lines.append("## TARGET TABLES (GENERATE YAML for these)")
+        for t in request.target_tables:
+            lines.append(f"- {t}")
+        lines.append("")
+
+        if request.context_tables:
+            lines.append("## CONTEXT TABLES (for understanding relationships, DO NOT generate YAML)")
+            for t in request.context_tables:
+                lines.append(f"- {t}")
+            lines.append("")
+
+        if request.foreign_keys:
+            lines.append("## Foreign Key Relationships")
+            for table, fks in request.foreign_keys.items():
+                for fk in fks:
+                    lines.append(
+                        f"- {table}.{fk.column} -> {fk.ref_table}.{fk.ref_column}"
+                    )
+            lines.append("")
+            lines.append("NOTE: Foreign-key columns are auto-resolved by core. Do NOT include them in columns list.")
+            lines.append("")
+
+        lines.append("## Full Schema (Target + Context Tables)")
+        for table in sorted(set(request.target_tables) | set(request.context_tables)):
+            schema = request.all_tables_schema.get(table, {})
+            lines.append(f"### Table: {table}")
+            cols = schema.get("columns", [])
+            if cols:
+                lines.append("Columns:")
+                for c in cols:
+                    attrs = []
+                    if c.get("is_pk"):
+                        attrs.append("PK")
+                    if c.get("is_autoincrement"):
+                        attrs.append("AUTOINCREMENT")
+                    if not c.get("nullable", True):
+                        attrs.append("NOT NULL")
+                    if c.get("default") is not None:
+                        attrs.append(f"DEFAULT={c['default']}")
+                    if c.get("is_computed"):
+                        attrs.append("GENERATED")
+                    attr_str = f" [{', '.join(attrs)}]" if attrs else ""
+                    lines.append(f"  - {c['name']}: {c['type']}{attr_str}")
+
+            fks = schema.get("foreign_keys", [])
+            if fks:
+                lines.append("Foreign Keys:")
+                for fk in fks:
+                    lines.append(f"  - {fk['column']} -> {fk['ref_table']}.{fk['ref_column']}")
+
+            checks = schema.get("check_constraints", [])
+            if checks:
+                lines.append("CHECK Constraints:")
+                for chk in checks:
+                    cols_str = ", ".join(chk.get("columns", []))
+                    lines.append(f"  - CHECK ({chk['expression']}) [columns: {cols_str}]")
+            lines.append("")
+
+        lines.append("## Task")
+        lines.append(
+            "Generate the JSON config for TARGET tables only. "
+            "Use CONTEXT tables to understand relationships and business semantics."
+        )
+        return "\n".join(lines)
 
     def _call_llm(self, messages: list[dict[str, str]]) -> dict[str, Any]:
         """Call LLM and return parsed config dict."""

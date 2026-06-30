@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from sqlseed_ai.schema_analyzer import SchemaSemanticAnalyzer
+from sqlseed_ai.schema_analyzer import AnalysisRequest, SchemaSemanticAnalyzer
 
 
 class TestSchemaSemanticAnalyzerStructure:
@@ -52,3 +52,56 @@ class TestSchemaSemanticAnalyzerStructure:
         req = analyzer.build_request(db, tables=["orders"], include_dependencies=False)
         assert req.target_tables == ["orders"]
         assert req.context_tables == []
+
+
+class TestSchemaSemanticAnalyzerPrompt:
+    """Test LLM prompt construction with target/context separation."""
+
+    def test_prompt_includes_target_tables(self) -> None:
+        analyzer = SchemaSemanticAnalyzer(config=MagicMock())
+        req = AnalysisRequest(
+            target_tables=["orders"],
+            context_tables=["users"],
+            all_tables_schema={
+                "orders": {"columns": [{"name": "id", "type": "INTEGER"}], "foreign_keys": [], "check_constraints": []},
+                "users": {"columns": [{"name": "id", "type": "INTEGER"}], "foreign_keys": [], "check_constraints": []},
+            },
+        )
+        messages = analyzer._build_llm_messages(req)
+        assert len(messages) >= 1
+        user_msg = next(m for m in messages if m["role"] == "user")
+        assert "orders" in user_msg["content"]
+        assert "GENERATE YAML" in user_msg["content"] or "generate" in user_msg["content"].lower()
+
+    def test_prompt_marks_context_tables_as_do_not_generate(self) -> None:
+        analyzer = SchemaSemanticAnalyzer(config=MagicMock())
+        req = AnalysisRequest(
+            target_tables=["orders"],
+            context_tables=["users", "merchants"],
+            all_tables_schema={},
+        )
+        messages = analyzer._build_llm_messages(req)
+        user_msg = next(m for m in messages if m["role"] == "user")
+        assert "DO NOT generate" in user_msg["content"] or "do not generate" in user_msg["content"].lower()
+        assert "users" in user_msg["content"]
+        assert "merchants" in user_msg["content"]
+
+    def test_prompt_includes_check_constraints(self) -> None:
+        analyzer = SchemaSemanticAnalyzer(config=MagicMock())
+        req = AnalysisRequest(
+            target_tables=["products"],
+            context_tables=[],
+            all_tables_schema={
+                "products": {
+                    "columns": [{"name": "price", "type": "REAL"}],
+                    "foreign_keys": [],
+                    "check_constraints": [
+                        {"name": "chk_price", "columns": ["price"], "expression": "price >= 0"}
+                    ],
+                }
+            },
+        )
+        messages = analyzer._build_llm_messages(req)
+        user_msg = next(m for m in messages if m["role"] == "user")
+        assert "price >= 0" in user_msg["content"]
+        assert "CHECK" in user_msg["content"] or "check" in user_msg["content"].lower()
