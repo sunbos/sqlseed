@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from typing import TYPE_CHECKING, Any
 
@@ -9,7 +10,7 @@ from sqlseed._utils.logger import get_logger
 from sqlseed._utils.sql_safe import build_insert_sql, quote_identifier, validate_table_name
 from sqlseed.database._base_adapter import BaseRawSQLiteAdapter
 from sqlseed.database._helpers import batch_insert_rows
-from sqlseed.database._protocol import ColumnInfo, ForeignKeyInfo
+from sqlseed.database._protocol import CheckConstraintInfo, ColumnInfo, ForeignKeyInfo
 from sqlseed.database.optimizer import PragmaOptimizer
 
 if TYPE_CHECKING:
@@ -92,14 +93,15 @@ class RawSQLiteAdapter(BaseRawSQLiteAdapter):
         validate_table_name(table_name)
         pks = set(self.get_primary_keys(table_name))
 
-        cursor = self.conn.execute(f"PRAGMA table_info({quote_identifier(table_name)})")
+        cursor = self.conn.execute(f"PRAGMA table_xinfo({quote_identifier(table_name)})")
         result: list[ColumnInfo] = []
         for row in cursor.fetchall():
-            _, name, col_type, notnull, default_val, _ = row
+            _, name, col_type, notnull, default_val, _, hidden = row
             if default_val == "NULL":
                 default_val = None
             is_pk_flag = name in pks
             is_autoincrement = is_pk_flag and self._is_autoincrement(table_name, name)
+            is_computed = hidden in (2, 3)
             result.append(
                 ColumnInfo(
                     name=name,
@@ -108,6 +110,7 @@ class RawSQLiteAdapter(BaseRawSQLiteAdapter):
                     default=default_val,
                     is_primary_key=is_pk_flag,
                     is_autoincrement=is_autoincrement,
+                    is_computed=is_computed,
                 )
             )
         return result
@@ -166,6 +169,71 @@ class RawSQLiteAdapter(BaseRawSQLiteAdapter):
         safe_table = quote_identifier(table_name)
         cursor = self.conn.execute(f"SELECT COUNT(*) FROM {safe_table}")
         return int(cursor.fetchone()[0])
+
+    def get_check_constraints(self, table_name: str) -> list[CheckConstraintInfo]:
+        """Get CHECK constraint metadata for a table by parsing sqlite_master.sql.
+
+        SQLite's built-in reflection (``PRAGMA table_info``) does not expose
+        CHECK constraints, so this implementation parses the ``CREATE TABLE``
+        SQL stored in ``sqlite_master.sql``. Constraints are extracted by
+        locating top-level ``CHECK (...)`` clauses (parenthesis-aware).
+
+        Args:
+            table_name: Target table name.
+
+        Returns:
+            A list of CheckConstraintInfo with the raw CHECK expression and
+            best-effort column references; returns an empty list when the
+            table has no CHECK constraints or cannot be reflected.
+        """
+        validate_table_name(table_name)
+        cursor = self.conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name=?",
+            [table_name],
+        )
+        row = cursor.fetchone()
+        if not row or not row[0]:
+            return []
+        create_sql = row[0]
+
+        # Parenthesis-aware scan for "CHECK (" at the top level of the CREATE
+        # TABLE body. Handles nested parens (e.g., CHECK(length(phone) >= 10)).
+        results: list[CheckConstraintInfo] = []
+        sql_keywords = frozenset(
+            {
+                "in", "and", "or", "not", "null", "is", "between", "like",
+                "case", "when", "then", "else", "end", "true", "false",
+                "length", "round", "abs", "coalesce", "if", "exists",
+            }
+        )
+        for match in re.finditer(r"CHECK\s*\(", create_sql, re.IGNORECASE):
+            # Walk from the opening paren to its matching close.
+            start = match.end() - 1
+            depth = 0
+            end = -1
+            for i in range(start, len(create_sql)):
+                ch = create_sql[i]
+                if ch == "(":
+                    depth += 1
+                elif ch == ")":
+                    depth -= 1
+                    if depth == 0:
+                        end = i
+                        break
+            if end == -1:
+                continue
+            expression = create_sql[start + 1 : end].strip()
+            identifiers = re.findall(r"[A-Za-z_][A-Za-z0-9_]*", expression)
+            cols = tuple(i for i in identifiers if i.lower() not in sql_keywords)
+            results.append(
+                CheckConstraintInfo(
+                    name="",
+                    table=table_name,
+                    columns=cols,
+                    expression=expression,
+                )
+            )
+        return results
 
     def batch_insert(
         self,

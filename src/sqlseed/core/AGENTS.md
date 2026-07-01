@@ -42,7 +42,7 @@ core/
 | Add schema info | `schema.py` | SchemaInferrer.get_column_info() |
 | Handle FK | `relation.py` | RelationResolver.resolve_foreign_keys() |
 | Add derive_from | `column_dag.py` | ColumnDAG.build() — topological sort |
-| Modify expressions | `expression.py` | ExpressionEngine — 21 safe functions |
+| Modify expressions | `expression.py` | ExpressionEngine — 25 safe functions |
 | Add constraint | `constraints.py` | ConstraintSolver — retry logic |
 | Add enum pattern | `enrichment.py` | EnrichmentEngine — 19 patterns |
 | Batch generation | `stream.py` | DataStream.generate() — yields batches |

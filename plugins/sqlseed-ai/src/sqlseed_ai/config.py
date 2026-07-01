@@ -376,7 +376,7 @@ class AIConfig(BaseModel):
         if self.backend in (AIBackend.LM_STUDIO, AIBackend.OLLAMA):
             model_str = (self.model or "").lower()
             if "e2b" in model_str or "e4b" in model_str:
-                return 768  # With reasoning_effort=none: ~200-600 content tokens
+                return 4096  # Reasoning models need larger budget for full YAML
             if "12b" in model_str:
                 return 1024
             return 2048

@@ -82,8 +82,8 @@ class TestAIConfig:
     def test_resolve_max_tokens_auto(self) -> None:
         config = AIConfig(backend="lm_studio", model="google/gemma-4-e4b")
         config.resolve_model()
-        # E4B with reasoning_effort=none: 768 covers up to ~30-column tables
-        assert config.resolve_max_tokens() == 768
+        # E4B reasoning models need larger budget for complete JSON output
+        assert config.resolve_max_tokens() == 4096
 
     def test_resolve_max_tokens_explicit(self) -> None:
         config = AIConfig(max_tokens=2048)
@@ -149,7 +149,8 @@ class TestSchemaAnalyzer:
         columns = [
             make_column_info("project_no", "VARCHAR(20)"),
             make_column_info("member_no", "VARCHAR(32)"),
-            make_column_info("projectId", "INTEGER", is_primary_key=True, is_autoincrement=True),
+            make_column_info("projectId", "INTEGER", is_primary_key=True, is_autoincrement=False),
+            make_column_info("autoId", "INTEGER", is_primary_key=True, is_autoincrement=True),
         ]
         context = analyzer._build_context(
             {
@@ -165,7 +166,7 @@ class TestSchemaAnalyzer:
         assert "project_no" in context
         assert "member_no" in context
         assert "PRIMARY KEY" in context
-        assert "AUTOINCREMENT" in context
+        assert "autoId" not in context
 
     def test_build_context_with_indexes(self) -> None:
         analyzer = SchemaAnalyzer(config=AIConfig(model="test-model"))

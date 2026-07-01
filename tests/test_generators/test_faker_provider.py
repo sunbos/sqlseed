@@ -19,3 +19,10 @@ class TestFakerProvider(
 
     def test_name(self) -> None:
         assert self.provider.name == "faker"
+
+    def test_generate_word_returns_real_word(self) -> None:
+        """Faker's word() returns a real English word (non-empty alphabetic string)."""
+        result = self.provider.generate("word")
+        assert isinstance(result, str)
+        assert len(result) > 0
+        assert result.isalpha()

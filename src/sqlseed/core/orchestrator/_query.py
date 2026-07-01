@@ -90,6 +90,19 @@ class QueryMixin:
         with contextlib.suppress(ValueError, OSError, RuntimeError, SAOperationalError):
             distribution = self._schema.profile_column_distribution(table_name, limit=1000)
 
+        check_constraints: list[dict[str, Any]] = []
+        # CHECK constraint reflection is a new optional adapter capability
+        # (added alongside the AI plugin's CHECK-aware prompt rules). Older
+        # adapters or backends that do not expose CHECK metadata silently
+        # return an empty list — the AI prompt still works, just without
+        # CHECK context.
+        with contextlib.suppress(ValueError, OSError, RuntimeError, SAOperationalError, AttributeError):
+            check_infos = self._db.get_check_constraints(table_name)
+            check_constraints = [
+                {"name": c.name, "columns": list(c.columns), "expression": c.expression}
+                for c in check_infos
+            ]
+
         return {
             "table_name": table_name,
             "columns": column_infos,
@@ -98,6 +111,7 @@ class QueryMixin:
             "sample_data": sample_data,
             "all_table_names": all_tables,
             "distribution": distribution,
+            "check_constraints": check_constraints,
             "dialect": self._get_dialect_name(),
         }
 
@@ -120,12 +134,15 @@ class QueryMixin:
         return {c.name for c in self._schema.get_column_info(table_name)}
 
     def get_skippable_columns(self, table_name: str) -> set[str]:
-        """Return columns that need no generated value (autoincrement PKs and columns with defaults)."""
+        """Return columns that need no generated value.
+
+        These include autoincrement PKs, columns with defaults, and computed columns.
+        """
         self._ensure_connected()
         return {
             c.name
             for c in self._schema.get_column_info(table_name)
-            if (c.is_primary_key and c.is_autoincrement) or c.default is not None
+            if (c.is_primary_key and c.is_autoincrement) or c.default is not None or getattr(c, "is_computed", False)
         }
 
     def get_topological_table_order(self, table_names: list[str]) -> list[str]:

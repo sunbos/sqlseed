@@ -18,6 +18,7 @@ Connection forms:
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import MetaData, Table, create_engine, event, inspect, text
@@ -32,7 +33,7 @@ from sqlseed.database._bulk_optimizer import (
 )
 from sqlseed.database._dialect import Dialect, PostgresDialect, SQLiteDialect
 from sqlseed.database._helpers import apply_bulk_optimize, apply_bulk_restore, batch_insert_rows
-from sqlseed.database._protocol import ColumnInfo, ForeignKeyInfo, IndexInfo
+from sqlseed.database._protocol import CheckConstraintInfo, ColumnInfo, ForeignKeyInfo, IndexInfo
 from sqlseed.database._type_normalizer import TypeNormalizer
 
 if TYPE_CHECKING:
@@ -339,17 +340,24 @@ class SQLAlchemyAdapter:
         for col in columns:
             raw_type = str(col.get("type", ""))
             normalized = self._normalizer.normalize(raw_type, dialect.name)
+            col_dict = dict(col)
             is_pk = col["name"] in pks
-            is_autoincrement = is_pk and self._detect_autoincrement(table_name, dict(col))
+            is_autoincrement = is_pk and self._detect_autoincrement(table_name, col_dict)
+            is_computed = col_dict.get("computed") is not None
+
+            default_val = col_dict.get("default")
+            if default_val is None and col_dict.get("server_default") is not None:
+                default_val = str(col_dict["server_default"])
 
             result.append(
                 ColumnInfo(
                     name=col["name"],
                     type=normalized.display,
                     nullable=col.get("nullable", True) and not is_pk,
-                    default=col.get("default"),
+                    default=default_val,
                     is_primary_key=is_pk,
                     is_autoincrement=is_autoincrement,
+                    is_computed=is_computed,
                 )
             )
         return result
@@ -504,6 +512,59 @@ class SQLAlchemyAdapter:
                     table=table_name,
                     columns=tuple(col_names),
                     unique=bool(idx.get("unique", False)),
+                )
+            )
+        return result
+
+    def get_check_constraints(self, table_name: str) -> list[CheckConstraintInfo]:
+        """Get CHECK constraint metadata for a table.
+
+        Uses SQLAlchemy's inspector to reflect CHECK constraints. The raw SQL
+        expression is returned verbatim so the AI plugin can convey business
+        rules to the LLM. Column references are extracted via a simple
+        identifier scan (lowercased, SQL keywords filtered out); when parsing
+        fails, an empty tuple is returned and the LLM still sees ``expression``.
+
+        Args:
+            table_name: Target table name.
+
+        Returns:
+            A list of CheckConstraintInfo for all CHECK constraints on the
+            table; returns an empty list when the table does not exist or the
+            backend does not expose CHECK constraints.
+        """
+        validate_table_name(table_name)
+
+        inspector = self._get_inspector()
+        try:
+            checks = inspector.get_check_constraints(table_name)
+        except NoSuchTableError:
+            return []
+        except Exception as exc:  # Backend may not support CHECK reflection
+            logger.debug("CHECK constraint reflection unavailable", table_name=table_name, error=str(exc))
+            return []
+
+        # SQL keywords to exclude when extracting column identifiers.
+        sql_keywords = frozenset(
+            {
+                "in", "and", "or", "not", "null", "is", "between", "like",
+                "case", "when", "then", "else", "end", "true", "false",
+                "length", "round", "abs", "coalesce", "if", "exists",
+            }
+        )
+        result: list[CheckConstraintInfo] = []
+        for chk in checks:
+            name = chk.get("name") or ""
+            expression = chk.get("sqltext") or ""
+            # Extract candidate identifiers and filter against keywords.
+            identifiers = re.findall(r"[A-Za-z_][A-Za-z0-9_]*", expression)
+            cols = tuple(i for i in identifiers if i.lower() not in sql_keywords)
+            result.append(
+                CheckConstraintInfo(
+                    name=name,
+                    table=table_name,
+                    columns=cols,
+                    expression=expression,
                 )
             )
         return result

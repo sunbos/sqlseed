@@ -1,4 +1,4 @@
-"""Generator dispatch mixin. Maps 31 generator types to methods and dispatches calls."""
+"""Generator dispatch mixin. Maps 34 generator types to methods and dispatches calls."""
 
 from __future__ import annotations
 
@@ -47,6 +47,9 @@ class GeneratorDispatchMixin:
         "zip_code": "_gen_zip_code",
         "job_title": "_gen_job_title",
         "country_code": "_gen_country_code",
+        "word": "_gen_word",
+        "template": "_gen_template",
+        "weighted_choice": "_gen_weighted_choice",
     }
 
     def generate(self, type_name: str, **params: Any) -> Any:

@@ -40,7 +40,7 @@ Use command: `mcp-server-sqlseed`
 
 | Tool | Description |
 |:-----|:------------|
-| `sqlseed_generate_yaml` | Rule-driven YAML config template generated from the schema via sqlseed's `ColumnMapper` (74 exact rules + 27 regex patterns). Offline, deterministic, no LLM. |
+| `sqlseed_generate_yaml` | Rule-driven YAML config template generated from the schema via sqlseed's `ColumnMapper` (74 exact rules + 29 regex patterns). Offline, deterministic, no LLM. |
 | `sqlseed_execute_fill` | Execute data generation. Accepts optional `yaml_config` string, `count`, and `enrich` flag. Max YAML config size: 256KB. |
 
 ### What's NOT included

@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, ClassVar
 
 if TYPE_CHECKING:
+    from sqlseed.config.models import CustomColumnMappings
     from sqlseed.database._protocol import ColumnInfo
 
 
@@ -170,12 +171,27 @@ class ColumnMapper:
         (r"^created$", "datetime", {}),
         (r"^updated$", "datetime", {}),
         (r"^deleted$", "datetime", {}),
-        (r".*_count$|.*_num$|.*_number$", "integer", {"min_value": 0, "max_value": 10000}),
-        (r".*_amount$|.*_price$|.*_cost$|.*_fee$", "float", {"min_value": 0.01, "max_value": 99999.99, "precision": 2}),
+        (
+            r"^quantity$|.*_quantity$|.*_sold$|.*_count$|.*_num$|.*_number$",
+            "integer",
+            {"min_value": 1, "max_value": 50},
+        ),
+        (r".*_amount$|.*_price$|.*_cost$|.*_fee$", "float", {"min_value": 0.1, "max_value": 999.99, "precision": 2}),
         (r".*_rate$|.*_ratio$|.*_percent$", "float", {"min_value": 0.0, "max_value": 1.0, "precision": 4}),
         (r"^is_.*|^has_.*|^can_.*|^should_.*|^enable.*|^disable.*", "boolean", {}),
         (r".*_code$", "string", {"min_length": 6, "max_length": 12, "charset": "alphanumeric"}),
-        (r".*_name$", "name", {}),
+        # Person-name contexts: explicit human-related prefixes → real person names.
+        (
+            r".*(?:user|customer|employee|member|author|student|teacher|patient|person|contact|owner|admin|guest|subscriber)_name$",
+            "name",
+            {},
+        ),
+        # High-confidence domain contexts: strong semantic match → specialized generator.
+        (r".*(?:company|org|organization|department|unit|vendor|supplier|brand)_name$", "company", {}),
+        # General *_name fallback: real word (not person name) — semantically neutral
+        # for animal_name, medicine_name, plant_name, color_name, course_name, etc.
+        # AI (sqlseed-ai) can override with more specific generators when enabled.
+        (r".*_name$", "word", {}),
         (r".*_email$", "email", {}),
         (r".*_phone$|.*_tel$|.*_mobile$", "phone", {}),
         (r".*_url$|.*_link$|.*_href$", "url", {}),
@@ -224,6 +240,18 @@ class ColumnMapper:
     def register_pattern_rule(self, pattern: str, generator: str, params: dict[str, Any] | None = None) -> None:
         """Register a custom column name regex pattern match rule: priority is higher than built-in rules."""
         self._custom_pattern_rules.append((pattern, generator, params or {}))
+
+    def load_custom_mappings(self, mappings: CustomColumnMappings) -> None:
+        """Load custom column mappings from a YAML config (``CustomColumnMappings``).
+
+        Both exact-match and pattern-match rules are registered with higher
+        priority than the built-in rules, allowing users to override incorrect
+        mappings without modifying core code or writing a plugin.
+        """
+        for col_name, exact_rule in mappings.exact.items():
+            self.register_exact_rule(col_name, exact_rule.generator, exact_rule.params)
+        for pattern_rule in mappings.pattern:
+            self.register_pattern_rule(pattern_rule.pattern, pattern_rule.generator, pattern_rule.params)
 
     def _match_exact(self, column_name: str) -> GeneratorSpec | None:
         """Perform column name exact match against custom rules then built-in rules: returns generator spec or None."""
@@ -328,6 +356,9 @@ class ColumnMapper:
         column_name = column_info.name.lower()
         column_type = column_info.type.upper() if column_info.type else "TEXT"
 
+        if getattr(column_info, "is_computed", False):
+            return GeneratorSpec(generator_name="skip")
+
         if column_info.is_primary_key and (
             column_info.is_autoincrement or "INTEGER" in column_type or "INT" in column_type
         ):
@@ -335,6 +366,29 @@ class ColumnMapper:
 
         user_spec = self._map_from_user_config(user_config)
         if user_spec:
+            exact_match = self._match_exact(column_name) or self._match_pattern(column_name)
+            if exact_match:
+                # Group Merge Compatibility: allow parameter merging across string-like generators
+                same_group = False
+                if exact_match.generator_name == user_spec.generator_name:
+                    same_group = True
+                else:
+                    str_group = {"string", "text", "sentence"}
+                    if exact_match.generator_name in str_group and user_spec.generator_name in str_group:
+                        same_group = True
+
+                if same_group:
+                    merged_params = dict(exact_match.params)
+                    merged_params.update(user_spec.params)
+                    # Resolve min_length/max_length conflicts that would crash
+                    # string/text generators (rng.randint raises ValueError
+                    # when min > max). This happens when the user supplies a
+                    # min_length larger than the rule's max_length.
+                    min_len = merged_params.get("min_length")
+                    max_len = merged_params.get("max_length")
+                    if isinstance(min_len, int) and isinstance(max_len, int) and min_len > max_len:
+                        merged_params.pop("max_length", None)
+                    user_spec.params = merged_params
             return user_spec
 
         exact_match = self._match_exact(column_name)

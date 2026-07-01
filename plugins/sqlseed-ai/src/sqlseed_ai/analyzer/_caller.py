@@ -194,7 +194,7 @@ class LLMCallerMixin:
         if self._config.backend in (AIBackend.LM_STUDIO, AIBackend.OLLAMA):
             model_str = (model_id or "").lower()
             if "e2b" in model_str or "e4b" in model_str:
-                return 768
+                return 4096
             if "12b" in model_str:
                 return 1024
             return 2048
@@ -213,8 +213,11 @@ class LLMCallerMixin:
         }
         if stream:
             kwargs["stream"] = True
-        if self._is_reasoning_model_id(actual_model):
-            kwargs["reasoning_effort"] = "none"
+        # NOTE: Gemma 4 E2B/E4B in LM Studio with reasoning_effort="none" produces
+        # truncated output (finish_reason=stop with incomplete JSON). Let the
+        # model use its native reasoning mode for adequate JSON generation.
+        # The reasoning tokens are counted separately and do not count against
+        # max_tokens budget for content.
         return kwargs
 
     def _create_with_reasoning_fallback(

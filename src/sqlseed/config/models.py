@@ -70,7 +70,7 @@ class ColumnConfig(BaseModel):
     null_ratio: float = Field(default=0.0, ge=0.0, le=1.0)
 
     # === Derived-column mode ===
-    derive_from: str | None = None  # source column name
+    derive_from: str | list[str] | None = None  # source column name(s)
     expression: str | None = None  # derivation expression
 
     # === Constraints ===
@@ -155,6 +155,55 @@ class ColumnAssociation(BaseModel):
     strategy: Literal["shared_pool", "random"] = "shared_pool"
 
 
+class ExactColumnMappingRule(BaseModel):
+    """Exact-match custom column mapping rule (keyed by column name in a dict).
+
+    Allows users to override the built-in exact-match mapping for specific
+    column names without modifying core code or writing a plugin.
+    """
+
+    generator: str
+    params: dict[str, Any] = Field(default_factory=dict)
+
+
+class PatternColumnMappingRule(BaseModel):
+    """Pattern-based custom column mapping rule.
+
+    Allows users to override the built-in pattern-match mapping via regex
+    without modifying core code or writing a plugin.
+    """
+
+    pattern: str
+    generator: str
+    params: dict[str, Any] = Field(default_factory=dict)
+
+
+class CustomColumnMappings(BaseModel):
+    """User-defined custom column mapping rules loaded from YAML config.
+
+    These rules have higher priority than built-in exact/pattern match rules,
+    allowing users to override incorrect mappings (e.g., ``file_name`` matching
+    the ``*_name`` fallback) without modifying core code.
+
+    Example YAML::
+
+        custom_column_mappings:
+          exact:
+            tenant_id:
+              generator: uuid
+            file_name:
+              generator: word
+          pattern:
+            - pattern: "^sku_.*"
+              generator: uuid
+            - pattern: ".*_name$"
+              generator: word
+    """
+
+    exact: dict[str, ExactColumnMappingRule] = Field(default_factory=dict)
+    pattern: list[PatternColumnMappingRule] = Field(default_factory=list)
+
+
 class GeneratorConfig(BaseModel):
     """Global generation configuration.
 
@@ -169,6 +218,7 @@ class GeneratorConfig(BaseModel):
     locale: str = "en_US"
     tables: list[TableConfig] = Field(default_factory=list)
     associations: list[ColumnAssociation] = Field(default_factory=list)
+    custom_column_mappings: CustomColumnMappings | None = None
     optimize_pragma: bool = True
     snapshot_dir: str | None = None
     # Deprecated: retained for backward compatibility with existing YAML/JSON configs.

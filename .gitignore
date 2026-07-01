@@ -68,6 +68,12 @@ examples/notebooks/batch_config.yaml
 
 # AI-generated config outputs
 *_config.yaml
+ai_analyze_out.yaml
+ai_suggest_out/
+out.yaml
+full_config_v2.yaml
+products_order_items.yaml
+test_merchants.yaml
 
 # OS
 .DS_Store

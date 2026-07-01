@@ -1,8 +1,9 @@
-"""Built-in data generator with no external dependencies. Provides 31 generators."""
+"""Built-in data generator with no external dependencies. Provides 34 generators."""
 
 from __future__ import annotations
 
 import random
+import re
 import uuid
 from datetime import datetime, timedelta
 from typing import Any
@@ -57,11 +58,17 @@ class BaseProvider(GeneratorDispatchMixin):
         max_length: int = 100,
         charset: str | None = None,
     ) -> str:
-        """Generate a string."""
-        if charset is not None:
-            return generate_random_string(self._rng, min_length=min_length, max_length=max_length, charset=charset)
-        n = self._next_id()
-        return f"str_{n:03d}"
+        """Generate a random string respecting ``min_length`` and ``max_length``.
+
+        When ``charset`` is ``None``, a default charset (letters, digits, space,
+        underscore, hyphen) is used via :func:`resolve_charset`. This ensures
+        that ``min_length`` is always honored — previously, a missing
+        ``charset`` caused the method to return a fixed-length ``str_NNN``
+        placeholder, ignoring ``min_length``/``max_length`` entirely.
+        """
+        return generate_random_string(
+            self._rng, min_length=min_length, max_length=max_length, charset=charset
+        )
 
     def _gen_integer(self, *, min_value: int = 0, max_value: int = 999999) -> int:
         """Generate an integer."""
@@ -188,6 +195,25 @@ class BaseProvider(GeneratorDispatchMixin):
         s = self._seeded_id()
         return f"text_{n:03d}_{s:04d}."
 
+    def _gen_word(self) -> str:
+        """Generate a pronounceable pseudo-word (e.g., 'banir', 'topelu').
+
+        Uses a consonant-vowel alternation pattern to synthesize word-like
+        tokens without any hardcoded word list, consistent with the base
+        provider's "all values are synthesized" philosophy.
+        """
+        self._next_id()
+        consonants = "bcdfghjklmnpqrstvwxz"
+        vowels = "aeiou"
+        length = self._rng.randint(4, 8)
+        chars: list[str] = []
+        for i in range(length):
+            if i % 2 == 0:
+                chars.append(self._rng.choice(consonants))
+            else:
+                chars.append(self._rng.choice(vowels))
+        return "".join(chars)
+
     # ── Date/time generators ──────────────────────────────────────────
 
     def _gen_date(self, *, start_year: int = 2000, end_year: int | None = None) -> str:
@@ -287,3 +313,125 @@ class BaseProvider(GeneratorDispatchMixin):
         effective = pattern or regex or ""
         r = _rstr.Rstr(self._rng)
         return r.xeger(effective)
+
+    def _gen_template(
+        self,
+        *,
+        template: str = "",
+        sequence_start: int = 1,
+        sequence_step: int = 1,
+    ) -> str:
+        """Generate a value from a template with placeholders.
+
+        Supported placeholders (use Python str.format-style):
+        - ``{sequence}`` — incrementing integer counter (per-provider).
+        - ``{sequence:04d}`` — counter with format spec.
+        - ``{random_string:N}`` — N-character random alphanumeric string.
+        - ``{random_int:MIN-MAX}`` — random integer in [MIN, MAX].
+        - ``{random_digits:N}`` — N random digits (0-9).
+
+        Examples:
+        - ``"MER-{sequence:04d}"`` -> ``MER-0001``, ``MER-0002``...
+        - ``"ORD-{random_string:6}"`` -> ``ORD-aB3x9K``
+        - ``"SKU-{random_int:100-999}"`` -> ``SKU-542``
+
+        Args:
+            template: Template string with placeholders.
+            sequence_start: Starting value for {sequence} (default 1).
+            sequence_step: Increment step for {sequence} (default 1).
+
+        Returns:
+            Formatted string with placeholders replaced.
+        """
+        if not hasattr(self, "_template_seq"):
+            self._template_seq: dict[int, int] = {}
+        seq_key = id(template)
+        if seq_key not in self._template_seq:
+            self._template_seq[seq_key] = sequence_start - sequence_step
+
+        self._template_seq[seq_key] += sequence_step
+        seq_val = self._template_seq[seq_key]
+
+        # Replace custom placeholders first (not in default str.format spec)
+        result = template
+        # {random_string:N}
+        while "{random_string:" in result:
+            start = result.index("{random_string:")
+            end = result.index("}", start)
+            n = int(result[start + len("{random_string:") : end])
+            charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+            replacement = "".join(self._rng.choice(charset) for _ in range(n))
+            result = result[:start] + replacement + result[end + 1 :]
+
+        # {random_digits:N}
+        while "{random_digits:" in result:
+            start = result.index("{random_digits:")
+            end = result.index("}", start)
+            n = int(result[start + len("{random_digits:") : end])
+            replacement = "".join(str(self._rng.randint(0, 9)) for _ in range(n))
+            result = result[:start] + replacement + result[end + 1 :]
+
+        # {random_int:MIN-MAX}
+        while "{random_int:" in result:
+            start = result.index("{random_int:")
+            end = result.index("}", start)
+            range_spec = result[start + len("{random_int:") : end]
+            min_v, max_v = range_spec.split("-")
+            replacement = str(self._rng.randint(int(min_v), int(max_v)))
+            result = result[:start] + replacement + result[end + 1 :]
+
+        # {sequence} or {sequence:format}
+        # Use a sentinel-safe approach: temporarily replace {sequence:XXd} with formatted value
+
+        def _replace_sequence(match: re.Match[str]) -> str:
+            fmt = match.group(1)
+            if fmt:
+                # Strip leading colon: ":04d" -> "04d"
+                return format(seq_val, fmt.lstrip(":"))
+            return str(seq_val)
+
+        return re.sub(r"\{sequence(:[^}]*)?\}", _replace_sequence, result)
+
+    def _gen_weighted_choice(
+        self,
+        *,
+        choices: list[Any] | None = None,
+        weighted_choices: dict[str, int] | list[dict[str, Any]] | None = None,
+    ) -> Any:
+        """Select a value with weighted probability.
+
+        Supports two param formats:
+        1. ``choices`` as list of ``{"value": ..., "weight": ...}`` dicts:
+           .. code-block:: yaml
+               choices:
+                 - value: active
+                   weight: 80
+                 - value: suspended
+                   weight: 15
+        2. ``weighted_choices`` as dict mapping value -> weight:
+           .. code-block:: yaml
+               weighted_choices:
+                 active: 80
+                 suspended: 15
+                 closed: 5
+
+        Args:
+            choices: List of ``{"value": v, "weight": w}`` dicts.
+            weighted_choices: Dict mapping value -> weight (alternative to choices).
+
+        Returns:
+            One value selected with probability proportional to its weight.
+        """
+        self._next_id()
+        if weighted_choices is not None and isinstance(weighted_choices, dict):
+            population = list(weighted_choices.keys())
+            weights = [weighted_choices[v] for v in population]
+        elif choices is not None:
+            population = [c["value"] for c in choices]
+            weights = [c.get("weight", 1) for c in choices]
+        else:
+            raise ValueError("weighted_choice requires 'choices' or 'weighted_choices' param")
+
+        selected = self._rng.choices(population, weights=weights, k=1)
+        return selected[0]
+

@@ -97,7 +97,8 @@ class ColumnDAG:
                     max_retries=cc.constraints.max_retries,
                 )
             if hasattr(cc, "derive_from") and cc.derive_from:
-                depends_on = [cc.derive_from]
+                df = cc.derive_from
+                depends_on = list(df) if isinstance(df, list) else [df]
                 expression = cc.expression
                 is_derived = True
                 final_spec = GeneratorSpec(generator_name="__derive__")

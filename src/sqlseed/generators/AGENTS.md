@@ -4,7 +4,7 @@
 
 ## OVERVIEW
 
-31 generators across 3 providers: base (type-routing only, no real data), faker (required), mimesis (optional).
+34 generators across 3 providers: base (type-routing only, no real data), faker (required), mimesis (optional).
 
 ## STRUCTURE
 
@@ -12,7 +12,7 @@
 generators/
 ├── __init__.py           # Public API exports
 ├── _protocol.py         # DataProvider protocol + UnknownGeneratorError
-├── _dispatch.py         # GeneratorDispatchMixin — 31 generator dispatch + verify_dispatch_sync()
+├── _dispatch.py         # GeneratorDispatchMixin — 34 generator dispatch + verify_dispatch_sync()
 ├── _json_helpers.py     # JSON schema-based generation
 ├── _string_helpers.py   # Random string utilities
 ├── registry.py          # ProviderRegistry — entry-point discovery
@@ -43,5 +43,5 @@ generators/
 
 - **NEVER** import mimesis at module top → use try/except (lazy import). faker and rstr are required deps, import at module top.
 - **NEVER** raise in generate() without UnknownGeneratorError
-- **ALWAYS** implement all 31 generators or handle gracefully
+- **ALWAYS** implement all 34 generators or handle gracefully
 - **ALWAYS** use `self._rng` for random (seed support)

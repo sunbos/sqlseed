@@ -163,11 +163,15 @@ class TestResolveMaxTokensForModel:
     """Tests for :meth:`SchemaAnalyzer._resolve_max_tokens_for_model`."""
 
     def test_resolve_max_tokens_for_model_reasoning(self) -> None:
-        """Verify _resolve_max_tokens_for_model() returns 768 for E2B/E4B on local backend."""
+        """Verify _resolve_max_tokens_for_model() returns 4096 for E2B/E4B on local backend.
+
+        E2B/E4B are reasoning models that need a larger token budget to emit
+        complete JSON output (reasoning tokens + content tokens).
+        """
         config = AIConfig(backend=AIBackend.LM_STUDIO, model="google/gemma-4-e4b")
         analyzer = SchemaAnalyzer(config=config)
-        assert analyzer._resolve_max_tokens_for_model("google/gemma-4-e4b") == 768
-        assert analyzer._resolve_max_tokens_for_model("gemma4:e2b") == 768
+        assert analyzer._resolve_max_tokens_for_model("google/gemma-4-e4b") == 4096
+        assert analyzer._resolve_max_tokens_for_model("gemma4:e2b") == 4096
 
     def test_resolve_max_tokens_for_model_standard(self) -> None:
         """Verify _resolve_max_tokens_for_model() returns larger budgets for non-reasoning models."""
@@ -222,12 +226,17 @@ class TestBuildLlmKwargs:
         kwargs = analyzer._build_llm_kwargs()
         assert "stream" not in kwargs
 
-    def test_build_llm_kwargs_reasoning_effort_for_reasoning_model(self) -> None:
-        """Verify _build_llm_kwargs() adds reasoning_effort='none' for reasoning models."""
+    def test_build_llm_kwargs_no_reasoning_effort_for_reasoning_model(self) -> None:
+        """Verify _build_llm_kwargs() omits reasoning_effort for reasoning models.
+
+        Gemma 4 E2B/E4B in LM Studio with reasoning_effort='none' produces
+        truncated output (finish_reason=stop with incomplete JSON), so we
+        let the model use its native reasoning mode.
+        """
         config = AIConfig(backend=AIBackend.LM_STUDIO, model="google/gemma-4-e4b")
         analyzer = SchemaAnalyzer(config=config)
         kwargs = analyzer._build_llm_kwargs()
-        assert kwargs["reasoning_effort"] == "none"
+        assert "reasoning_effort" not in kwargs
 
     def test_build_llm_kwargs_no_reasoning_effort_for_standard_model(self) -> None:
         """Verify _build_llm_kwargs() omits reasoning_effort for non-reasoning models."""
@@ -242,8 +251,8 @@ class TestBuildLlmKwargs:
         analyzer = SchemaAnalyzer(config=config)
         kwargs = analyzer._build_llm_kwargs(model="gemma-4-e4b-it")
         assert kwargs["model"] == "gemma-4-e4b-it"
-        # Should also pick up reasoning_effort for the provided model
-        assert kwargs["reasoning_effort"] == "none"
+        # reasoning_effort is never set; the model uses its native mode.
+        assert "reasoning_effort" not in kwargs
 
 
 class TestFindLocalFallbackModel:

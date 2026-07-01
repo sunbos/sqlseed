@@ -12,14 +12,17 @@ The analyzer does NOT generate data — it outputs a GeneratorConfig
 dict that users can save as YAML, review, edit, and feed back to
 core for data generation.
 """
+
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from sqlseed_ai.dependency_resolver import DependencyResolver, ResolvedTables
 
 from sqlseed._utils.logger import get_logger
+from sqlseed._utils.sql_safe import quote_identifier
 
 if TYPE_CHECKING:
     from sqlseed_ai.config import AIConfig
@@ -42,6 +45,7 @@ class AnalysisRequest:
             strict can verify ``fk.column`` / ``fk.ref_table`` access in
             ``_build_user_prompt``.
     """
+
     target_tables: list[str]
     context_tables: list[str]
     all_tables_schema: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -69,6 +73,7 @@ class SchemaSemanticAnalyzer:
         """Lazy-init SchemaAnalyzer for LLM calls."""
         if self._sa is None:
             from sqlseed_ai.analyzer import SchemaAnalyzer
+
             self._sa = SchemaAnalyzer(config=self._config)
         return self._sa
 
@@ -94,9 +99,7 @@ class SchemaSemanticAnalyzer:
         target_tables = db.get_table_names() if tables is None else list(tables)
 
         resolver = DependencyResolver(db, max_depth=max_depth)
-        resolved: ResolvedTables = resolver.resolve(
-            target_tables, include_dependencies=include_dependencies
-        )
+        resolved: ResolvedTables = resolver.resolve(target_tables, include_dependencies=include_dependencies)
 
         all_tables = set(target_tables) | set(resolved.context_tables)
         all_tables_schema: dict[str, dict[str, Any]] = {}
@@ -117,14 +120,22 @@ class SchemaSemanticAnalyzer:
         tables: list[str] | None = None,
         include_dependencies: bool = True,
         max_depth: int = 5,
+        progress_callback: Any = None,
     ) -> dict[str, Any]:
         """Analyze database and return GeneratorConfig dict.
+
+        For multiple target tables, calls LLM per-table to avoid
+        overwhelming small models. Each LLM call sees the FULL schema
+        (target + context) for relationship understanding, but generates
+        YAML for ONLY ONE table. Results are combined into a single dict.
 
         Args:
             db: Database adapter.
             tables: Target tables (None = all).
             include_dependencies: Include FK parents as context.
             max_depth: FK recursion depth limit.
+            progress_callback: Optional callable ``(table: str, index: int, total: int) -> None``
+                invoked before each table's LLM call. Use for CLI progress display.
 
         Returns:
             GeneratorConfig dict (can be serialized to YAML).
@@ -136,15 +147,63 @@ class SchemaSemanticAnalyzer:
             max_depth=max_depth,
         )
 
-        messages = self._build_llm_messages(request)
-        config_dict = self._call_llm(messages)
-        return self._filter_to_targets(config_dict, request.target_tables)
+        # Single table (or empty): original single-call behavior
+        if len(request.target_tables) <= 1:
+            if progress_callback is not None and request.target_tables:
+                progress_callback(request.target_tables[0], 1, 1)
+            messages = self._build_llm_messages(request)
+            config_dict = self._call_llm(messages)
+            self._auto_fix_config(config_dict, request.all_tables_schema)
+            return self._filter_to_targets(config_dict, request.target_tables)
+
+        # Multiple tables: per-table LLM calls (small-model friendly)
+        # Each call sees full schema (target + context) but generates YAML
+        # for only ONE table. This keeps prompt size manageable for 2B-7B
+        # parameter models like Gemma 4 E2B while preserving whole-DB context.
+        all_tables_config: list[dict[str, Any]] = []
+        total = len(request.target_tables)
+        for idx, table in enumerate(request.target_tables, 1):
+            if progress_callback is not None:
+                progress_callback(table, idx, total)
+            logger.info("Analyzing table via LLM", table=table, total=total, index=idx)
+            single_request = AnalysisRequest(
+                target_tables=[table],
+                context_tables=request.context_tables,
+                all_tables_schema=request.all_tables_schema,
+                foreign_keys=request.foreign_keys,
+            )
+            messages = self._build_llm_messages(single_request)
+            try:
+                table_config = self._call_llm(messages)
+            except (ValueError, RuntimeError, OSError) as e:
+                logger.warning("LLM call failed for table, skipping", table=table, error=str(e))
+                continue
+
+            self._auto_fix_config(table_config, request.all_tables_schema)
+
+            # Accept both formats: {"tables":[...]} (multi) and
+            # {"name":...,"columns":[...]} (single). Normalize to list.
+            table_list = table_config.get("tables", []) if isinstance(table_config, dict) else []
+            if not table_list and isinstance(table_config, dict) and "name" in table_config:
+                # LLM returned single-table format; wrap in list.
+                table_list = [table_config]
+            if table_list:
+                all_tables_config.extend(table_list)
+            else:
+                logger.warning("LLM returned no config for table", table=table)
+
+        return {"tables": all_tables_config}
 
     def _get_table_schema(self, db: DatabaseAdapter, table: str) -> dict[str, Any]:
         """Get full schema for a single table.
 
         Uses ColumnInfo.type (not type_name). Length parsed downstream
-        from the type string.
+        from the type string. Includes UNIQUE indexes so the LLM can set
+        constraints.unique=true correctly.
+
+        Also detects column-level UNIQUE via SQLite PRAGMA (SQLAlchemy's
+        get_indexes() does not return auto-indexes for column-level UNIQUE
+        constraints like ``email TEXT UNIQUE NOT NULL``).
         """
         try:
             columns = db.get_column_info(table)
@@ -152,6 +211,29 @@ class SchemaSemanticAnalyzer:
             checks = []
             if hasattr(db, "get_check_constraints"):
                 checks = db.get_check_constraints(table)
+            indexes: list[Any] = []
+            if hasattr(db, "get_index_info"):
+                indexes = db.get_index_info(table)
+            # Detect column-level UNIQUE via PRAGMA (SQLite fallback).
+            # SQLAlchemy's get_indexes() misses auto-indexes for column-level
+            # UNIQUE constraints. This PRAGMA query catches them.
+            unique_columns: list[str] = []
+            try:
+                safe_table = quote_identifier(table)
+                result = db.execute(f"PRAGMA index_list({safe_table})")
+                rows = result.fetchall() if hasattr(result, "fetchall") else []
+                for row in rows:
+                    # row: (seq, name, unique, origin, partial)
+                    if len(row) >= 3 and row[2]:
+                        idx_name = row[1]
+                        idx_result = db.execute(f"PRAGMA index_info({quote_identifier(idx_name)})")
+                        idx_rows = idx_result.fetchall() if hasattr(idx_result, "fetchall") else []
+                        for ir in idx_rows:
+                            # ir: (seqno, cid, name)
+                            if len(ir) >= 3 and ir[2]:
+                                unique_columns.append(ir[2])
+            except Exception as exc:
+                logger.debug("PRAGMA index_list fallback failed", table=table, error=str(exc))
             return {
                 "columns": [
                     {
@@ -166,17 +248,27 @@ class SchemaSemanticAnalyzer:
                     for c in columns
                 ],
                 "foreign_keys": [
-                    {"column": fk.column, "ref_table": fk.ref_table, "ref_column": fk.ref_column}
-                    for fk in fks
+                    {"column": fk.column, "ref_table": fk.ref_table, "ref_column": fk.ref_column} for fk in fks
                 ],
                 "check_constraints": [
-                    {"name": c.name, "columns": list(c.columns), "expression": c.expression}
-                    for c in checks
+                    {"name": c.name, "columns": list(c.columns), "expression": c.expression} for c in checks
                 ],
+                "unique_indexes": [
+                    {"name": idx.name, "columns": list(idx.columns), "unique": idx.unique}
+                    for idx in indexes
+                    if getattr(idx, "unique", False)
+                ],
+                "unique_columns": unique_columns,
             }
         except (ValueError, RuntimeError, OSError) as e:
             logger.debug("Failed to get schema for table", table=table, error=str(e))
-            return {"columns": [], "foreign_keys": [], "check_constraints": []}
+            return {
+                "columns": [],
+                "foreign_keys": [],
+                "check_constraints": [],
+                "unique_indexes": [],
+                "unique_columns": [],
+            }
 
     def _build_llm_messages(self, request: AnalysisRequest) -> list[dict[str, str]]:
         """Build LLM messages with target/context separation."""
@@ -188,55 +280,118 @@ class SchemaSemanticAnalyzer:
         ]
 
     def _build_system_prompt(self) -> str:
-        """Build system prompt for whole-DB analysis."""
-        lines = [
-            "You are a database semantic analyzer. Your task is to analyze database schema "
-            "and generate a YAML test data configuration file that captures business logic.",
-            "",
-            "## Output Format",
-            "Output ONLY a valid JSON object (will be converted to YAML) with this structure:",
-            "{",
-            '  "tables": [',
-            "    {",
-            '      "name": "<table_name>",',
-            '      "count": 1000,',
-            '      "columns": [',
-            "        {",
-            '          "name": "<column_name>",',
-            '          "generator": "<generator_name>",',
-            '          "params": {...},',
-            '          "constraints": {"unique": false, "min_value": null, "max_value": null, "regex": null},',
-            '          "derive_from": null,',
-            '          "expression": null',
-            "        }",
-            "      ]",
-            "    }",
-            "  ]",
-            "}",
-            "",
-            "## Critical Rules",
-            "1. GENERATE YAML ONLY for TARGET tables. NEVER generate config for CONTEXT tables.",
-            "2. Skip PRIMARY KEY AUTOINCREMENT columns (DB auto-fills).",
-            "3. Skip columns with DEFAULT values (DB auto-fills).",
-            "4. Skip GENERATED/computed columns (DB auto-fills).",
-            "5. Skip FOREIGN KEY columns — they are auto-resolved by core from parent tables.",
-            "6. For UNIQUE columns, set constraints.unique=true and choose a generator that ensures uniqueness.",
-            "7. For CHECK constraints:",
-            "   - CHECK(x IN ('A','B')) -> use \"choice\" generator with params.choices",
-            "   - CHECK(x BETWEEN low AND high) -> use \"integer\"/\"float\" with min_value/max_value",
-            "   - CHECK(length(x) BETWEEN low AND high) -> use \"string\" with min_length/max_length",
-            "   - Cross-column CHECK (e.g., sale_price >= cost_price) -> use \"derive_from\" with an expression",
-            "8. Choose generators based on column NAME semantics:",
-            "   - email columns -> \"email\" generator",
-            "   - phone columns -> \"pattern\" generator with regex params",
-            "   - *_name (person) -> \"name\" generator",
-            "   - *_name (non-person) -> \"word\" generator",
-            "   - *_code, *_no, sku -> \"string\" with alphanumeric charset and fixed length",
-            "   - timestamps (*_at, *_date) -> \"datetime\" generator",
-            "9. If business semantics are unclear, choose a type-appropriate generator (schema-valid fallback).",
-            "10. Output ONLY JSON, no explanations, no markdown fences.",
-        ]
-        return "\n".join(lines)
+        """Build system prompt for whole-DB analysis.
+
+        Compact tier: includes P0-P3 capabilities (template, weighted_choice,
+        lookup, multi-column derive_from) but kept under ~1000 tokens to fit
+        small-context models (e.g., LM Studio's default 2048 n_ctx).
+        """
+        return """You are a database test data engineer. Output JSON config for the TARGET table only.
+
+Generators: string(min_length,max_length,charset), integer(min_value,max_value),
+float(min_value,max_value,precision), boolean, name, first_name, last_name, username,
+email, phone, address, company, city, country, state, zip_code, country_code,
+job_title, url, ipv4, uuid, date(start_year,end_year), datetime(start_year,end_year),
+timestamp, text(min_length,max_length), sentence, password, word, choice,
+json(schema), pattern(regex), template, weighted_choice.
+
+template generator: params={"template":"FORMAT","sequence_start":0,"sequence_step":1}.
+  FORMAT MUST contain {sequence} or {random_digits:N} or {random_string:N} placeholder.
+  Example: params={"template":"CAT-{sequence:04d}"} -> CAT-0001, CAT-0002, ...
+  Use for *_code/*_no/sku/username (UNIQUE business codes).
+  Use TABLE-SPECIFIC prefix: MER- for merchants, PROD- for products, ITEM- for items,
+  ORD- for orders, CAT- for categories, USER- for users. NEVER use literal "PREFIX".
+  NEVER use literal "XXXX" or "0000" in place of {sequence}. The template MUST contain
+  the {sequence} placeholder for UNIQUE columns, otherwise all rows will have the same value.
+choice generator: params={"choices":["a","b","c"]}. Uniform random selection.
+weighted_choice generator: params={"weighted_choices":{"active":80,"suspended":15,"closed":5}}.
+  Weighted random selection. Use for status/role CHECK IN columns.
+  IMPORTANT: generator MUST be "weighted_choice" (NOT "choice") when using weighted_choices.
+lookup(table,column,key): cross-table value fetch. Use in derive_from expressions.
+  Example: {"name":"unit_price","derive_from":"item_id","expression":"lookup('items','price',value)"}
+
+## Available expression functions
+In derive_from expressions, you can use these functions:
+  len, int, str, float, abs, min, max, round, upper, lower, strip, concat,
+  random_float(min,max), random_int(min,max), random_choice(list), lookup(table,col,key).
+Example: {"name":"discount","derive_from":"price_per_unit","expression":"round(random_float(0,value),2)"}
+Use random_float for random derived values bounded by another column (e.g., discounts, margins).
+
+## CRITICAL: value vs value[0]
+- SINGLE-column derive_from: "value" is the SCALAR value. Use "value" (NOT "value[0]").
+  RIGHT: {"name":"sale_price","derive_from":"cost_price","expression":"round(value*1.2,2)"}
+  WRONG: {"name":"sale_price","derive_from":"cost_price","expression":"round(value[0]*1.2,2)"}
+  WRONG: {"name":"sale_price","derive_from":"cost_price","expression":"round(cost_price*1.2,2)"}  # using column NAME, not "value"
+- MULTI-column derive_from: "value" is a LIST. Use "value[0]", "value[1]", etc.
+  RIGHT: {"name":"total","derive_from":["price","qty"],"expression":"round(value[0]*value[1],2)"}
+- The expression engine ONLY knows the keyword "value". It does NOT know source column names.
+  NEVER use the source column name in the expression — ALWAYS use "value" (or "value[N]" for multi-column).
+
+## derive_from is MUTUALLY EXCLUSIVE with generator
+A column is EITHER generated (has "generator"+"params") OR derived (has "derive_from"+"expression").
+NEVER include both "generator" and "derive_from" in the same column.
+When using derive_from, OMIT "generator" and "params" entirely.
+derive_from must be column NAME(s), NOT a formula:
+  Single source: "derive_from":"cost_price"
+  Multi source: "derive_from":["price_per_unit","quantity"]
+  WRONG: "derive_from":"quantity * price_per_unit" (this is a formula, not a column name)
+  Formula goes in "expression", not in "derive_from".
+
+RIGHT example (derived column):
+  {"name":"sale_price","derive_from":"cost_price","expression":"round(value*1.2,2)"}
+WRONG example (will be REJECTED):
+  {"name":"item_total","generator":"float","params":{"min_value":0},
+   "derive_from":"quantity * price_per_unit","expression":"round(value[0]*value[1],2)"}
+
+Rules:
+1. SKIP entirely (do NOT include in columns list):
+   - PK AUTOINCREMENT columns
+   - DEFAULT columns (e.g., created_at DEFAULT CURRENT_TIMESTAMP)
+   - GENERATED columns (e.g., item_total GENERATED ALWAYS AS (...) STORED)
+     GENERATED columns are computed by the database — NEVER generate or derive them.
+   - Foreign-key columns (auto-resolved by core)
+2. UNIQUE cols -> "constraints":{"unique":true}. Use template generator for UNIQUE codes.
+3. *_code/*_no/sku -> template generator with table-specific prefix
+   (MER-, PROD-, ITEM-, ORD-, CAT-, USER-). Template MUST contain {sequence:04d}.
+   NEVER use literal "PREFIX" or "XXXX" — use {sequence} placeholder.
+4. Enum CHECK (col IN ('a','b')) -> weighted_choice with weighted_choices.
+   CRITICAL: The keys in weighted_choices MUST match the EXACT values from the CHECK IN
+   constraint. Read the schema's CHECK constraint to get valid values.
+   Example: CHECK(role IN ('admin','manager','staff')) -> weighted_choices:{"admin":50,"manager":30,"staff":20}
+   WRONG: using 'active'/'suspended'/'closed' when the CHECK values are 'admin'/'manager'/'staff'.
+5. Cross-col CHECK (price2>=price1) -> ALWAYS use derive_from + expression returning VALUE.
+   NEVER generate both columns independently — independent random values WILL violate the CHECK.
+   RIGHT: {"name":"sale_price","derive_from":"cost_price","expression":"round(value*1.2,2)"}.
+   If sale_price has CHECK(sale_price >= cost_price), sale_price MUST derive from cost_price.
+6. Multi-col CHECK (discount<=price_per_unit) -> derive_from as LIST of column names:
+   {"derive_from":["price_per_unit","quantity"],"expression":"round(value[0]*0.05*min(value[1],5)/5,2)"}.
+7. Cross-table sync (B=A.col for FK) -> derive_from + lookup('A','col',value).
+8. *_name non-person -> word; merchant_name -> company; username -> template.
+9. phone -> pattern generator with params={"regex":"^[0-9]{3}-[0-9]{3}-[0-9]{4}$"}.
+   Do NOT use "string" with "expression" for phone.
+10. string params: min_length+max_length (NOT "length").
+11. expression MUST RETURN A VALUE, NOT a boolean.
+12. NEVER skip a table. Always provide config for all non-skipped columns.
+13. Never use "foreign_key" generator (FK cols are skipped).
+14. email columns -> use "email" generator (NOT "string").
+
+Generator selection by column name:
+- *_name non-person (category_name, product_name, item_name) -> word (readable words, NOT string)
+- merchant_name / company_name -> company (company names, NOT text/sentence)
+- *_email / email -> email (valid email format, NOT string)
+- *_phone / phone -> phone or pattern(regex) (phone format, NOT string)
+- *_code / *_no / sku -> template (UNIQUE business codes with sequence)
+- *_status / role -> weighted_choice (enum with realistic distribution, NOT choice)
+- *_price / *_amount -> float with precision=2 (monetary values)
+- *_count / quantity* -> integer with max_value (avoid absurdly large numbers)
+
+Output format (MUST wrap in "tables" list):
+{"tables":[{"name":"<table>","count":1000,"columns":[
+  {"name":"col","generator":"type","params":{},"constraints":{"unique":false},
+   "derive_from":null,"expression":null},
+  {"name":"derived_col","derive_from":["src1","src2"],"expression":"round(value[0]+value[1],2)"}
+]}]}
+Output ONLY raw JSON. No markdown, no explanation."""
 
     def _build_user_prompt(self, request: AnalysisRequest) -> str:
         """Build user prompt with target/context separation and full schema."""
@@ -260,9 +415,7 @@ class SchemaSemanticAnalyzer:
             lines.append("## Foreign Key Relationships")
             for table, fks in request.foreign_keys.items():
                 for fk in fks:
-                    lines.append(
-                        f"- {table}.{fk.column} -> {fk.ref_table}.{fk.ref_column}"
-                    )
+                    lines.append(f"- {table}.{fk.column} -> {fk.ref_table}.{fk.ref_column}")
             lines.append("")
             lines.append("NOTE: Foreign-key columns are auto-resolved by core. Do NOT include them in columns list.")
             lines.append("")
@@ -301,6 +454,13 @@ class SchemaSemanticAnalyzer:
                 for chk in checks:
                     cols_str = ", ".join(chk.get("columns", []))
                     lines.append(f"  - CHECK ({chk['expression']}) [columns: {cols_str}]")
+
+            uniques = schema.get("unique_indexes", [])
+            if uniques:
+                lines.append("UNIQUE Indexes (set constraints.unique=true for these columns):")
+                for u in uniques:
+                    cols_str = ", ".join(u.get("columns", []))
+                    lines.append(f"  - UNIQUE ({cols_str})")
             lines.append("")
 
         lines.append("## Task")
@@ -315,24 +475,420 @@ class SchemaSemanticAnalyzer:
 
         Delegates to existing SchemaAnalyzer._call_llm_once for actual
         API call, model fallback, and JSON parsing.
-        """
-        try:
-            result: dict[str, Any] | None = self._analyzer._call_llm_once(messages)
-            if result is None:
-                return {}
-            return result
-        except (ValueError, RuntimeError, OSError) as e:
-            logger.error("LLM call failed in SchemaSemanticAnalyzer", error=str(e))
-            raise
 
-    def _filter_to_targets(
-        self, config_dict: dict[str, Any], target_tables: list[str]
+        Retries up to 2 times on empty response (small models like Gemma 4
+        E2B sometimes return empty content or unparseable text on the first
+        call due to non-determinism). A response is considered empty if it
+        has no ``tables`` key and no ``name`` key.
+        """
+        max_attempts = 5  # 1 initial + 4 retries (Gemma 4 E2B is non-deterministic)
+        last_error: Exception | None = None
+        for attempt in range(1, max_attempts + 1):
+            try:
+                result: dict[str, Any] | None = self._analyzer._call_llm_once(messages)
+                if result is None:
+                    result = {}
+                # Check if result is non-empty (has tables or name)
+                if isinstance(result, dict) and (result.get("tables") or result.get("name")):
+                    return result
+                # Empty response — retry if attempts remain
+                if attempt < max_attempts:
+                    logger.warning(
+                        "LLM returned empty config, retrying",
+                        attempt=attempt,
+                        max_attempts=max_attempts,
+                    )
+                    continue
+                return result
+            except (ValueError, RuntimeError, OSError) as e:
+                last_error = e
+                if attempt < max_attempts:
+                    logger.warning(
+                        "LLM call failed, retrying",
+                        attempt=attempt,
+                        max_attempts=max_attempts,
+                        error=str(e)[:200],
+                    )
+                    continue
+                logger.error("LLM call failed in SchemaSemanticAnalyzer", error=str(e))
+                raise
+        # Should not reach here, but just in case
+        if last_error is not None:
+            raise last_error
+        return {}
+
+    def _auto_fix_config(
+        self,
+        config: dict[str, Any],
+        schema: dict[str, dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
+        """Auto-fix common LLM mistakes that cause validation or runtime errors.
+
+        Small LLMs (e.g., Gemma 4 E2B, 2B params) sometimes violate rules that
+        larger models follow consistently. Rather than failing the entire
+        iteration, we apply deterministic fixes:
+
+        1. Mutual exclusivity: if a column has both "generator" (non-null)
+           and "derive_from" (non-null), keep "derive_from" + "expression"
+           and drop "generator" + "params".
+
+        2. Generator/params mismatch: if "params" contains "weighted_choices"
+           but "generator" is "choice", fix the generator to
+           "weighted_choice".
+
+        3. Single-column value[0] fix: when ``derive_from`` has exactly one
+           source column, the expression engine passes ``value`` as a scalar.
+           If the expression uses ``value[0]`` (LLM confusion with multi-column
+           syntax), replace ``value[0]`` with ``value`` to avoid
+           ``'float' object is not subscriptable`` errors.
+
+        4. Source-column-name-as-value fix: when ``derive_from`` is a single
+           column, the expression engine exposes the source value via the
+           ``value`` keyword. If the LLM uses the source column's NAME
+           directly (e.g., ``round(cost_price*1.2, 2)`` instead of
+           ``round(value*1.2, 2)``), the expression raises
+           ``NameNotDefined`` at eval time. We replace bare occurrences of
+           the source column name with ``value`` (only when ``value`` is not
+           already used as a bare identifier in the expression).
+
+        5. GENERATED column removal: if the schema indicates a column is
+           computed (``is_computed=True``), the database computes it and
+           INSERT will fail with ``cannot INSERT into generated column``.
+           We remove such columns from the config entirely.
+
+        6. UNIQUE index enforcement: if the schema has a UNIQUE index on a
+           column but the LLM set ``constraints.unique=false``, override to
+           ``true`` so the constraint solver enforces uniqueness (otherwise
+           duplicates cause INSERT failures).
+
+        7. Orphan expression cleanup: if ``generator`` is set and
+           ``derive_from`` is null but ``expression`` is set, the expression
+           is meaningless in source mode and could confuse downstream
+           processing. We remove it.
+
+        8. Cross-column CHECK constraint conversion: when a column is in
+           source mode (has ``generator``, no ``derive_from``) but is
+           bounded by another column via a CHECK constraint like
+           ``col >= 0 AND col <= other_col``, generating it independently
+           risks CHECK violations (e.g., discount=0.5 but
+           price_per_unit=0.01). We convert it to derive_from mode using
+           the bounding column as source with expression
+           ``round(random_float(0, value), 2)`` so the value is always
+           within [0, other_col]. Only triggers for the specific pattern
+           ``{col} (>=|>) 0 AND {col} <= {other_col}`` where other_col is
+           a real column in the same table.
+        9. Name column generator correction: columns ending in ``_name`` using
+           ``string`` or ``text`` are corrected to ``word`` (readable words)
+           or ``company`` (for merchant/company names). Prevents gibberish.
+        10. Missing max_value for integer: when ``integer`` generator has no
+           ``max_value``, a reasonable default is added based on column name
+           (quantity -> 100, count/stock -> 9999, default -> 99999).
+        11. Email/phone generator enforcement: ``*_email`` columns using
+           ``string`` are corrected to ``email``; ``*_phone`` columns using
+           ``string`` are corrected to ``phone``. Ensures format correctness.
+
+        Args:
+            config: Parsed config dict from LLM (single-table
+                ``{"name":...}`` or multi-table ``{"tables":[...]}`` format).
+            schema: Optional table schema dict (``{table_name: {schema_dict}}``)
+                used by Fixes 5, 6, and 8. When None, those fixes are skipped.
+
+        Returns:
+            The same dict with fixes applied in-place.
+        """
+        if "tables" in config:
+            tables = config["tables"]
+        elif "name" in config:
+            tables = [config]
+        else:
+            return config
+
+        for table in tables:
+            if not isinstance(table, dict):
+                continue
+            columns = table.get("columns", [])
+            if not isinstance(columns, list):
+                continue
+            for col in columns:
+                if not isinstance(col, dict):
+                    continue
+                col_name = col.get("name", "<unknown>")
+                derive_from = col.get("derive_from")
+                generator = col.get("generator")
+                # Fix 1: mutual exclusivity — derive_from wins
+                if derive_from and generator:
+                    logger.warning(
+                        "Auto-fix: stripping generator+params (derive_from takes precedence)",
+                        column=col_name,
+                        generator=generator,
+                    )
+                    col.pop("generator", None)
+                    col.pop("params", None)
+                    # Re-read derive_from after stripping generator
+                    derive_from = col.get("derive_from")
+                    generator = None
+                # Fix 2: weighted_choices in params but generator is "choice"
+                params = col.get("params")
+                if (
+                    generator == "choice"
+                    and isinstance(params, dict)
+                    and "weighted_choices" in params
+                ):
+                    logger.warning(
+                        "Auto-fix: generator 'choice' has weighted_choices, fixing to 'weighted_choice'",
+                        column=col_name,
+                    )
+                    col["generator"] = "weighted_choice"
+                # Fix 3 & 4: single-column derive_from expression corrections
+                expression = col.get("expression")
+                if derive_from and expression and isinstance(expression, str):
+                    is_single = isinstance(derive_from, str) or (
+                        isinstance(derive_from, list) and len(derive_from) == 1
+                    )
+                    if is_single:
+                        # Fix 3: replace value[0] with value (scalar, not subscriptable)
+                        if "value[0]" in expression:
+                            logger.warning(
+                                "Auto-fix: replacing value[0] with value (single-column derive_from)",
+                                column=col_name,
+                            )
+                            expression = expression.replace("value[0]", "value")
+                            col["expression"] = expression
+                        # Fix 4: replace source column name with "value" if
+                        # the LLM used the column name directly instead of
+                        # the "value" keyword (causes NameNotDefined at eval)
+                        if isinstance(derive_from, str):
+                            src_col = derive_from
+                        elif isinstance(derive_from, list) and derive_from:
+                            src_col = derive_from[0]
+                        else:
+                            src_col = ""
+                        if (
+                            src_col
+                            and src_col in expression
+                            and not re.search(r"\bvalue\b", expression)
+                        ):
+                            logger.warning(
+                                "Auto-fix: replacing source column name with 'value' "
+                                "(single-column derive_from)",
+                                column=col_name,
+                                source_column=src_col,
+                            )
+                            col["expression"] = re.sub(
+                                r"\b" + re.escape(src_col) + r"\b", "value", expression
+                            )
+                # Fix 7: orphan expression cleanup
+                # If generator is set (source mode) and derive_from is null,
+                # but expression is set, the expression is meaningless in
+                # source mode — remove it to avoid confusion.
+                if generator and not derive_from and col.get("expression"):
+                    logger.warning(
+                        "Auto-fix: removing orphan expression (generator set, derive_from is null)",
+                        column=col_name,
+                    )
+                    col.pop("expression", None)
+
+                # Fix 9: name column generator correction.
+                # Columns ending in _name should use readable generators (word
+                # or company), not string/text (which produce random gibberish).
+                # merchant_name / company_name -> company; other *_name -> word.
+                # This is a generic naming-convention heuristic, not business logic.
+                if (
+                    isinstance(col_name, str)
+                    and col_name.endswith("_name")
+                    and col.get("generator") in ("string", "text")
+                    and not col.get("derive_from")
+                ):
+                    old_gen = col.get("generator")
+                    if "merchant" in col_name or "company" in col_name:
+                        new_gen = "company"
+                    else:
+                        new_gen = "word"
+                    logger.warning(
+                        "Auto-fix: correcting name column generator "
+                        "(string/text -> readable)",
+                        table=table.get("name"),
+                        column=col_name,
+                        old_generator=old_gen,
+                        new_generator=new_gen,
+                    )
+                    col["generator"] = new_gen
+                    col.pop("params", None)
+
+                # Fix 10: add max_value to integer generator when missing.
+                # Without max_value, the generator can produce absurdly large
+                # numbers (e.g., stock=503893). Add a reasonable default based
+                # on column name heuristics.
+                if (
+                    col.get("generator") == "integer"
+                    and isinstance(col.get("params"), dict)
+                    and "max_value" not in col["params"]
+                ):
+                    if col_name and isinstance(col_name, str):
+                        name_lower = col_name.lower()
+                        if "quantity" in name_lower:
+                            default_max = 100
+                        elif "count" in name_lower or "stock" in name_lower:
+                            default_max = 9999
+                        else:
+                            default_max = 99999
+                    else:
+                        default_max = 99999
+                    logger.warning(
+                        "Auto-fix: adding max_value to integer generator",
+                        table=table.get("name"),
+                        column=col_name,
+                        max_value=default_max,
+                    )
+                    col["params"]["max_value"] = default_max
+
+                # Fix 11: enforce semantic generators for email/phone columns.
+                # *_email -> email, *_phone -> phone (not string).
+                if (
+                    isinstance(col_name, str)
+                    and col.get("generator") == "string"
+                    and not col.get("derive_from")
+                ):
+                    if col_name.endswith("_email") or col_name == "email":
+                        logger.warning(
+                            "Auto-fix: correcting email column generator (string -> email)",
+                            table=table.get("name"),
+                            column=col_name,
+                        )
+                        col["generator"] = "email"
+                        col.pop("params", None)
+                    elif col_name.endswith("_phone") or col_name == "phone":
+                        logger.warning(
+                            "Auto-fix: correcting phone column generator (string -> phone)",
+                            table=table.get("name"),
+                            column=col_name,
+                        )
+                        col["generator"] = "phone"
+                        col.pop("params", None)
+
+            # Fix 5: remove GENERATED columns from config
+            if schema:
+                table_name = table.get("name")
+                if isinstance(table_name, str) and table_name in schema:
+                    table_schema = schema[table_name]
+                    generated_cols = {
+                        c["name"]
+                        for c in table_schema.get("columns", [])
+                        if isinstance(c, dict) and c.get("is_computed")
+                    }
+                    if generated_cols:
+                        logger.warning(
+                            "Auto-fix: removing GENERATED columns from config",
+                            table=table_name,
+                            columns=list(generated_cols),
+                        )
+                        table["columns"] = [
+                            c
+                            for c in columns
+                            if isinstance(c, dict) and c.get("name") not in generated_cols
+                        ]
+
+            # Fix 6: enforce UNIQUE indexes as constraints.unique=true
+            if schema:
+                table_name = table.get("name")
+                if isinstance(table_name, str) and table_name in schema:
+                    table_schema = schema[table_name]
+                    unique_cols: set[str] = set()
+                    # From explicit UNIQUE indexes (CREATE INDEX ... UNIQUE)
+                    for idx in table_schema.get("unique_indexes", []):
+                        if isinstance(idx, dict) and idx.get("unique"):
+                            for col_in_idx in idx.get("columns", []):
+                                unique_cols.add(col_in_idx)
+                    # From column-level UNIQUE (SQLite PRAGMA auto-indexes)
+                    for col_name_unique in table_schema.get("unique_columns", []):
+                        unique_cols.add(col_name_unique)
+                    if unique_cols:
+                        for c in table.get("columns", []):
+                            if isinstance(c, dict) and c.get("name") in unique_cols:
+                                constraints = c.get("constraints")
+                                if not isinstance(constraints, dict):
+                                    constraints = {}
+                                    c["constraints"] = constraints
+                                if not constraints.get("unique"):
+                                    logger.warning(
+                                        "Auto-fix: setting constraints.unique=true "
+                                        "(UNIQUE index detected in schema)",
+                                        table=table_name,
+                                        column=c.get("name"),
+                                    )
+                                    constraints["unique"] = True
+
+            # Fix 8: cross-column CHECK — convert source-mode columns to derive_from.
+            # When a column is in source mode but bounded by another column via
+            # a CHECK like "col >= 0 AND col <= other_col", generating it
+            # independently risks CHECK violations (e.g., discount=0.5 but
+            # price_per_unit=0.01). Convert to derive_from so the value is
+            # always within [0, other_col].
+            if schema:
+                table_name = table.get("name")
+                if isinstance(table_name, str) and table_name in schema:
+                    table_schema = schema[table_name]
+                    checks = table_schema.get("check_constraints", [])
+                    valid_cols = {
+                        c["name"]
+                        for c in table_schema.get("columns", [])
+                        if isinstance(c, dict) and isinstance(c.get("name"), str)
+                    }
+                    for c in table.get("columns", []):
+                        if not isinstance(c, dict):
+                            continue
+                        col_name = c.get("name")
+                        if not isinstance(col_name, str):
+                            continue
+                        # Only fix source-mode columns (has generator, no derive_from)
+                        if not c.get("generator") or c.get("derive_from"):
+                            continue
+                        # Find a cross-column CHECK involving this column
+                        for chk in checks:
+                            if not isinstance(chk, dict):
+                                continue
+                            chk_cols = set(chk.get("columns", []))
+                            if col_name not in chk_cols or len(chk_cols) <= 1:
+                                continue
+                            expr = chk.get("expression", "")
+                            if not isinstance(expr, str):
+                                continue
+                            # Pattern: {col} <= {other_col} (upper bound is another column)
+                            upper_pat = re.search(
+                                rf"\b{re.escape(col_name)}\s*<=\s*([a-zA-Z_]\w*)",
+                                expr,
+                                re.IGNORECASE,
+                            )
+                            # Pattern: {col} >= 0 or {col} > 0 (lower bound is zero)
+                            lower_zero_pat = re.search(
+                                rf"\b{re.escape(col_name)}\s*>=?\s*0\b",
+                                expr,
+                                re.IGNORECASE,
+                            )
+                            if upper_pat and lower_zero_pat:
+                                other_col = upper_pat.group(1)
+                                # Validate other_col is a real column (not the same column)
+                                if other_col == col_name or other_col not in valid_cols:
+                                    continue
+                                logger.warning(
+                                    "Auto-fix: converting source-mode column to derive_from "
+                                    "(cross-column CHECK constraint detected)",
+                                    table=table_name,
+                                    column=col_name,
+                                    source_column=other_col,
+                                    check_expression=expr,
+                                )
+                                c["derive_from"] = [other_col]
+                                c["expression"] = "round(random_float(0, value), 2)"
+                                c.pop("generator", None)
+                                c.pop("params", None)
+                                break  # Only convert once per column
+        return config
+
+    def _filter_to_targets(self, config_dict: dict[str, Any], target_tables: list[str]) -> dict[str, Any]:
         """Ensure config only contains target tables (not context)."""
         if "tables" not in config_dict:
             return config_dict
         target_set = set(target_tables)
-        config_dict["tables"] = [
-            t for t in config_dict["tables"] if t.get("name") in target_set
-        ]
+        config_dict["tables"] = [t for t in config_dict["tables"] if t.get("name") in target_set]
         return config_dict

@@ -96,7 +96,14 @@ class DataStream:
             The value generated for the node.
         """
         if node.is_derived and node.expression:
-            ctx = {"row": row, "value": row.get(node.depends_on[0]) if node.depends_on else None}
+            deps = node.depends_on
+            if len(deps) <= 1:
+                # Single-column derive: value is scalar (backward compatible)
+                ctx = {"row": row, "value": row.get(deps[0]) if deps else None}
+            else:
+                # Multi-column derive: value is a list of source values.
+                # Users can reference via value[0], value[1] or row['col_name'].
+                ctx = {"row": row, "value": [row.get(d) for d in deps]}
             try:
                 return self._expr_engine.evaluate(node.expression, ctx)
             except (ValueError, SyntaxError) as exc:

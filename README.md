@@ -346,10 +346,13 @@ print(result)
 | `timestamp` | Unix timestamp | — |
 | `text` | Long text | `min_length`, `max_length` |
 | `sentence` | Sentence | — |
+| `word` | Real English word | — |
 | `password` | Password | `length` |
 | `choice` | Pick from list | `choices` |
+| `weighted_choice` | Weighted random pick | `choices` (list of `{value, weight}`) or `weighted_choices` (dict) |
 | `json` | JSON string | `schema` |
 | `pattern` | Regex match | `regex` |
+| `template` | Formatted string with placeholders | `template`, `sequence_start`, `sequence_step` |
 | `bytes` | Binary data | `length` |
 | `username` | Username | — |
 | `city` | City | — |
@@ -543,7 +546,7 @@ tables:
 3. Generates `project_no` first, then computes `short_code` via `value[-6:]`
 4. If `short_code` unique constraint fails, backtracks to regenerate `project_no`
 
-#### Expression Engine Functions (21 total)
+#### Expression Engine Functions (25 total)
 
 | Function | Usage | Description |
 | :------- | :---- | :---------- |
@@ -557,6 +560,7 @@ tables:
 | `abs(n)` | `abs(value)` | Absolute value |
 | `min(*args)` | `min(a, b)` | Minimum |
 | `max(*args)` | `max(a, b)` | Maximum |
+| `round(n, ndigits)` | `round(value, 2)` | Round to N digits |
 | `upper(s)` | `upper(value)` | Uppercase |
 | `lower(s)` | `lower(value)` | Lowercase |
 | `strip(s)` | `strip(value)` | Trim both ends |
@@ -568,6 +572,9 @@ tables:
 | `lpad(s, width, char)` | `lpad(value, 8, "0")` | Left-pad |
 | `rpad(s, width, char)` | `rpad(value, 8, "0")` | Right-pad |
 | `concat(*args)` | `concat("PRE_", value)` | Concatenate |
+| `random_float(min, max)` | `random_float(0, value)` | Random float in range |
+| `random_int(min, max)` | `random_int(1, 100)` | Random integer in range |
+| `random_choice(seq)` | `random_choice([1,2,3])` | Random element from sequence |
 | Slicing | `value[-8:]` | Python slice syntax |
 | Math | `value * 2 + 1` | Basic arithmetic |
 
@@ -946,7 +953,7 @@ Level 5 │ DEFAULT check       Has default → skip / __enrich__ (when enrich=T
         ▼
 Level 6 │ Custom pattern      Regex rules registered via plugin hooks
         ▼
-Level 7 │ Built-in pattern    <!-- BEGIN:AUTO-GENERATED:pattern-match-rule-count -->27<!-- END:AUTO-GENERATED:pattern-match-rule-count --> regexes: *_at→datetime, *_id→foreign_key, is_*→boolean...
+Level 7 │ Built-in pattern    <!-- BEGIN:AUTO-GENERATED:pattern-match-rule-count -->29<!-- END:AUTO-GENERATED:pattern-match-rule-count --> regexes: *_at→datetime, *_id→foreign_key, is_*→boolean...
         ▼
 Level 8 │ NULLABLE fallback   Nullable → skip / __enrich__
         ▼

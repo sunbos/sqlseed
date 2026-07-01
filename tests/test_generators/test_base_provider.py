@@ -53,6 +53,21 @@ class TestBaseProvider(
         result = self.provider.generate("sentence")
         assert result.endswith(".")
 
+    def test_generate_word_is_pronounceable(self) -> None:
+        """word generator produces a non-empty alphabetic token of reasonable length."""
+        result = self.provider.generate("word")
+        assert isinstance(result, str)
+        assert 4 <= len(result) <= 8
+        assert result.isalpha()
+
+    def test_generate_word_seed_reproducibility(self) -> None:
+        """word generator respects set_seed for reproducible output."""
+        self.provider.set_seed(42)
+        r1 = self.provider.generate("word")
+        self.provider.set_seed(42)
+        r2 = self.provider.generate("word")
+        assert r1 == r2
+
     def test_generate_string_default_charset(self) -> None:
         result = self.provider.generate("string", min_length=5, max_length=10, charset=None)
         assert len(result) >= 5

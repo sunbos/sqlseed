@@ -18,8 +18,9 @@ if TYPE_CHECKING:
 class ColumnInfo:
     """Column metadata snapshot.
 
-    Contains column name, type, nullability, default value, primary key and autoincrement flags,
-    returned by adapter ``get_column_info`` for use by the mapper and constraint checks.
+    Contains column name, type, nullability, default value, primary key, autoincrement,
+    and computed/generated flags, returned by adapter ``get_column_info`` for use by the
+    mapper and constraint checks.
     """
 
     name: str
@@ -28,6 +29,7 @@ class ColumnInfo:
     default: Any
     is_primary_key: bool
     is_autoincrement: bool
+    is_computed: bool = False
 
 
 @dataclass(frozen=True)
@@ -55,6 +57,31 @@ class IndexInfo:
     table: str
     columns: tuple[str, ...]
     unique: bool
+
+
+@dataclass(frozen=True)
+class CheckConstraintInfo:
+    """CHECK constraint metadata.
+
+    Describes a table-level CHECK constraint by its raw SQL expression and the
+    columns it references. Used by the AI plugin to convey business rules
+    (e.g., ``sale_price >= cost_price``, ``status IN ('a','b','c')``) to the
+    LLM so it can pick appropriate generators or ``derive_from`` expressions.
+
+    Attributes:
+        name: Constraint name (may be empty for unnamed constraints).
+        table: Owning table name.
+        columns: Tuple of column names referenced in the check expression.
+            Empty tuple when the parser could not extract column references
+            (the LLM still sees the raw ``expression`` in that case).
+        expression: Raw CHECK constraint SQL expression (e.g.,
+            ``"sale_price >= cost_price"``, ``"status IN ('a','b','c')"``).
+    """
+
+    name: str
+    table: str
+    columns: tuple[str, ...]
+    expression: str
 
 
 @runtime_checkable
@@ -96,6 +123,15 @@ class DatabaseAdapter(Protocol):
 
     def get_index_info(self, table_name: str) -> list[IndexInfo]:
         """Return index metadata for every index defined on the given table."""
+
+    def get_check_constraints(self, table_name: str) -> list[CheckConstraintInfo]:
+        """Return CHECK constraint metadata for every CHECK on the given table.
+
+        Implementations should return the raw SQL expression so the AI plugin
+        can convey business rules to the LLM. May return an empty list for
+        backends that do not expose CHECK constraints (e.g., older SQLite
+        versions without ``sqlite_master`` parsing support).
+        """
 
     def get_sample_rows(
         self,

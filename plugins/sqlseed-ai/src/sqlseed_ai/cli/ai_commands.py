@@ -369,6 +369,8 @@ def ai_suggest(
         raise SystemExit(1)
 
     resolved_model = ai_config.resolve_model()
+    ai_config.model = resolved_model  # Persist so _resolve_max_tokens_for_model
+    # detects E2B/E4B and returns 4096 (not 2048 default).
     backend_name = ai_config.backend.value.replace("_", " ").title()
     click.echo(f"Using AI model: {resolved_model} (via {backend_name})")
 
@@ -407,6 +409,15 @@ def ai_suggest(
     help="Skip FK dependency resolution (analyze only specified tables)",
 )
 @click.option("--max-depth", default=5, type=int, help="Max FK recursion depth (default: 5)")
+@click.option("--model", "-m", default=None, help="AI model name (default: auto-select based on backend)")
+@click.option("--api-key", envvar="SQLSEED_AI_API_KEY", default=None, help="AI API key (env: SQLSEED_AI_API_KEY)")
+@click.option(
+    "--base-url",
+    envvar="SQLSEED_AI_BASE_URL",
+    default=None,
+    help="AI API base URL (env: SQLSEED_AI_BASE_URL)",
+)
+@click.option("--timeout", default=0, type=float, help="API call timeout in seconds (0=auto, default: auto)")
 def ai_analyze(
     db_path: str,
     db_url: str | None,
@@ -414,6 +425,10 @@ def ai_analyze(
     output: str,
     no_dependencies: bool,
     max_depth: int,
+    model: str | None,
+    api_key: str | None,
+    base_url: str | None,
+    timeout: float,
 ) -> None:
     """Analyze database schema via LLM and generate business YAML config.
 
@@ -431,6 +446,29 @@ def ai_analyze(
 
     from sqlseed import connect
 
+    # Initialize AIConfig from env + CLI overrides (mirrors ai-suggest pattern)
+    ai_config = AIConfig.from_env().apply_overrides(api_key=api_key, base_url=base_url, model=model)
+    ai_config.timeout = timeout
+
+    if not ai_config.resolve_api_key():
+        click.echo(
+            "Error: AI API key not configured. "
+            "Set SQLSEED_AI_API_KEY or OPENAI_API_KEY. "
+            "For Google AI Studio, set GOOGLE_API_KEY. "
+            "For LM Studio/Ollama, set SQLSEED_AI_BACKEND=lm_studio or ollama.",
+            err=True,
+        )
+        raise SystemExit(1)
+
+    resolved_model = ai_config.resolve_model()
+    ai_config.model = resolved_model  # Persist resolved model so downstream
+    # code (_resolve_max_tokens_for_model) can detect E2B/E4B and return
+    # the correct max_tokens (4096 for reasoning models vs 2048 default).
+    # Without this, max_tokens=2048 is too small for Gemma 4 E2B's reasoning
+    # + content generation, causing empty responses.
+    backend_name = ai_config.backend.value.replace("_", " ").title()
+    click.echo(f"Using AI model: {resolved_model} (via {backend_name})")
+
     table_list = None
     if tables:
         table_list = [t.strip() for t in tables.split(",") if t.strip()]
@@ -442,13 +480,27 @@ def ai_analyze(
             # Use PUBLIC database_adapter property (not private _db)
             db = orch.database_adapter
 
-            analyzer = SchemaSemanticAnalyzer()
+            analyzer = SchemaSemanticAnalyzer(config=ai_config)
+
+            # Progress callback for real-time CLI display (user preference:
+            # show progress during LLM calls, not just final result)
+            def _progress(table: str, idx: int, total: int) -> None:
+                click.echo(f"[{idx}/{total}] Analyzing table: {table} ...")
+
             config_dict = analyzer.analyze(
                 db,
                 tables=table_list,
                 include_dependencies=not no_dependencies,
                 max_depth=max_depth,
+                progress_callback=_progress,
             )
+
+            # Inject db_path / url so the generated YAML is directly fillable
+            # by `sqlseed fill --config <yaml>` without manual editing.
+            if db_url:
+                config_dict["url"] = db_url
+            else:
+                config_dict["db_path"] = db_path
 
             output_path = Path(output)
             output_path.parent.mkdir(parents=True, exist_ok=True)

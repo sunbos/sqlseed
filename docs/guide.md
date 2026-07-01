@@ -453,7 +453,7 @@ and regenerates the source column.
 
 ### Generators
 
-sqlseed ships with 31 built-in generators. The most common ones:
+sqlseed ships with 32 built-in generators. The most common ones:
 
 | Generator | Description | Example Parameters |
 |-----------|-------------|-------------------|
@@ -476,6 +476,7 @@ sqlseed ships with 31 built-in generators. The most common ones:
 | `timestamp` | Unix timestamp | — |
 | `text` | Long text | `min_length`, `max_length` |
 | `sentence` | Sentence | — |
+| `word` | Real English word | — |
 | `password` | Password | `length` |
 | `choice` | Pick from list | `choices` |
 | `json` | JSON string | `schema` |
@@ -513,7 +514,7 @@ columns:
 
 ### Expressions
 
-The expression engine supports 21 safe functions plus slicing and basic
+The expression engine supports 25 safe functions plus slicing and basic
 arithmetic. Expressions are sandboxed via `simpleeval` with a 5-second timeout.
 `import`, `exec`, and file I/O are not allowed.
 
@@ -529,6 +530,7 @@ arithmetic. Expressions are sandboxed via `simpleeval` with a 5-second timeout.
 | `abs(n)` | `abs(value)` | Absolute value |
 | `min(*args)` | `min(a, b)` | Minimum |
 | `max(*args)` | `max(a, b)` | Maximum |
+| `round(n, ndigits)` | `round(value, 2)` | Round to N digits |
 | `upper(s)` | `upper(value)` | Uppercase |
 | `lower(s)` | `lower(value)` | Lowercase |
 | `strip(s)` | `strip(value)` | Trim both ends |
@@ -540,6 +542,9 @@ arithmetic. Expressions are sandboxed via `simpleeval` with a 5-second timeout.
 | `lpad(s, width, char)` | `lpad(value, 8, "0")` | Left-pad |
 | `rpad(s, width, char)` | `rpad(value, 8, "0")` | Right-pad |
 | `concat(*args)` | `concat("PRE_", value)` | Concatenate |
+| `random_float(min, max)` | `random_float(0, value)` | Random float in range |
+| `random_int(min, max)` | `random_int(1, 100)` | Random integer in range |
+| `random_choice(seq)` | `random_choice([1,2,3])` | Random element from sequence |
 | Slicing | `value[-8:]` | Python slice syntax |
 | Math | `value * 2 + 1` | Basic arithmetic |
 

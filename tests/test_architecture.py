@@ -12,7 +12,7 @@ enforces dependency direction) by guarding things import-linter cannot:
   no runtime ``assert`` in production code)
 * Public API contract (keyword-only args, ``__all__`` exports)
 * Immutable constants (``AI_APPLICABLE_GENERATORS`` is a frozenset)
-* Count contracts (12 hooks, 31 generators — synced with docs)
+* Count contracts (12 hooks, 34 generators — synced with docs)
 
 If any of these tests fails, do NOT silence it — either fix the code to
 honor the architecture, or update CLAUDE.md + this test together with a
@@ -427,10 +427,10 @@ class TestCountContracts:
             "tests/test_doc_sync.py together."
         )
 
-    def test_generator_dispatch_count_is_thirty_one(self) -> None:
-        """_dispatch.py GENERATOR_MAP must have exactly 31 entries.
+    def test_generator_dispatch_count_is_thirty_four(self) -> None:
+        """_dispatch.py GENERATOR_MAP must have exactly 34 entries.
 
-        See CLAUDE.md > generators/ "31 generator types". If a generator is
+        See CLAUDE.md > generators/ "34 generator types". If a generator is
         added or removed, update CLAUDE.md, README, and AUTO-GENERATED markers.
         """
         dispatch_path = SRC_ROOT / "generators" / "_dispatch.py"
@@ -442,8 +442,8 @@ class TestCountContracts:
                 target = node.target
                 if isinstance(target, ast.Name) and target.id == "GENERATOR_MAP" and isinstance(node.value, ast.Dict):
                     count = len(node.value.keys)
-                    assert count == 31, (
-                        f"Expected 31 generators in GENERATOR_MAP, found {count}. "
+                    assert count == 34, (
+                        f"Expected 34 generators in GENERATOR_MAP, found {count}. "
                         "If you added/removed a generator, update CLAUDE.md, README, "
                         "and run scripts/sync_docs.py."
                     )
@@ -458,18 +458,18 @@ class TestCountContracts:
                     )
                     if is_match:
                         count = len(node.value.keys)
-                        assert count == 31, (
-                            f"Expected 31 generators in GENERATOR_MAP, found {count}. "
+                        assert count == 34, (
+                            f"Expected 34 generators in GENERATOR_MAP, found {count}. "
                             "If you added/removed a generator, update CLAUDE.md, README, "
                             "and run scripts/sync_docs.py."
                         )
                         return
         pytest.fail("Could not find GENERATOR_MAP in _dispatch.py")
 
-    def test_expression_safe_functions_count_is_twenty_one(self) -> None:
-        """expression.py SAFE_FUNCTIONS must have exactly 21 entries.
+    def test_expression_safe_functions_count_is_twenty_two(self) -> None:
+        """expression.py SAFE_FUNCTIONS must have exactly 22 entries.
 
-        See CLAUDE.md > core/expression.py "21 whitelisted functions".
+        See CLAUDE.md > core/expression.py "22 whitelisted functions".
         Handles ClassVar annotation (ast.AnnAssign) since SAFE_FUNCTIONS uses
         ``SAFE_FUNCTIONS: ClassVar[dict[str, Any]] = {...}``.
         """
@@ -481,8 +481,8 @@ class TestCountContracts:
                 target = node.target
                 if isinstance(target, ast.Name) and target.id == "SAFE_FUNCTIONS" and isinstance(node.value, ast.Dict):
                     count = len(node.value.keys)
-                    assert count == 21, (
-                        f"Expected 21 SAFE_FUNCTIONS, found {count}. "
+                    assert count == 22, (
+                        f"Expected 22 SAFE_FUNCTIONS, found {count}. "
                         "Update CLAUDE.md and core/AGENTS.md if this changed."
                     )
                     return
@@ -496,8 +496,8 @@ class TestCountContracts:
                     )
                     if is_match:
                         count = len(node.value.keys)
-                        assert count == 21, (
-                            f"Expected 21 SAFE_FUNCTIONS, found {count}. "
+                        assert count == 22, (
+                            f"Expected 22 SAFE_FUNCTIONS, found {count}. "
                             "Update CLAUDE.md and core/AGENTS.md if this changed."
                         )
                         return

@@ -16,7 +16,7 @@ from sqlseed.database._dialect import (
     PostgresDialect,
     SQLiteDialect,
 )
-from sqlseed.database._protocol import ColumnInfo, DatabaseAdapter, ForeignKeyInfo, IndexInfo
+from sqlseed.database._protocol import CheckConstraintInfo, ColumnInfo, DatabaseAdapter, ForeignKeyInfo, IndexInfo
 from sqlseed.database._type_normalizer import NormalizedType, TypeNormalizer
 from sqlseed.database.optimizer import PragmaOptimizer, PragmaProfile
 from sqlseed.database.raw_sqlite_adapter import RawSQLiteAdapter
@@ -24,6 +24,7 @@ from sqlseed.database.sqlalchemy_adapter import SQLAlchemyAdapter
 
 __all__ = [
     "BulkWriteOptimizer",
+    "CheckConstraintInfo",
     "ColumnInfo",
     "DatabaseAdapter",
     "Dialect",

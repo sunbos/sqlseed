@@ -202,3 +202,7 @@ class MimesisProvider(BaseProvider):
     def _gen_country_code(self) -> str:
         """Generate a country code."""
         return self._generic.address.country_code()
+
+    def _gen_word(self) -> str:
+        """Generate a real English word (e.g., 'apple', 'computer', 'mountain')."""
+        return self._generic.text.word()

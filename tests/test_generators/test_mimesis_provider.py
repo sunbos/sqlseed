@@ -20,6 +20,12 @@ class TestMimesisProvider(
     def test_name(self) -> None:
         assert self.provider.name == "mimesis"
 
+    def test_generate_word_returns_real_word(self) -> None:
+        """Mimesis's text.word() returns a real English word (non-empty string)."""
+        result = self.provider.generate("word")
+        assert isinstance(result, str)
+        assert len(result) > 0
+
     def test_generate_uuid(self) -> None:
         result = self.provider.generate("uuid")
         assert isinstance(result, str)

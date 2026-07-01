@@ -228,7 +228,7 @@ flowchart TD
     L6{"Level 6<br/>自定义模式匹配？"} -->|匹配| R6["使用插件注册的正则规则"]
     L6 -->|未匹配| L7
 
-    L7{"Level 7<br/>内置模式匹配？<br/>(<!-- BEGIN:AUTO-GENERATED:pattern-match-rule-count -->27<!-- END:AUTO-GENERATED:pattern-match-rule-count --> 条正则)"} -->|匹配| R7["*_at→datetime<br/>*_id / *_no→foreign_key_or_integer<br/>is_*→boolean<br/>..."]
+    L7{"Level 7<br/>内置模式匹配？<br/>(<!-- BEGIN:AUTO-GENERATED:pattern-match-rule-count -->29<!-- END:AUTO-GENERATED:pattern-match-rule-count --> 条正则)"} -->|匹配| R7["*_at→datetime<br/>*_id / *_no→foreign_key_or_integer<br/>is_*→boolean<br/>..."]
     L7 -->|未匹配| L8
 
     L8{"Level 8<br/>可 NULL？"} -->|是| R8["skip (跳过生成)<br/>或 __enrich__"]

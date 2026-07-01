@@ -87,20 +87,38 @@ class ContextBuilderMixin:
             Markdown-formatted schema description for the LLM.
         """
         table_name = schema_ctx.get("table_name", "unknown")
-        columns = schema_ctx.get("columns", [])
+        raw_columns = schema_ctx.get("columns", [])
         indexes = schema_ctx.get("indexes", [])
         foreign_keys = schema_ctx.get("foreign_keys", [])
         all_table_names = schema_ctx.get("all_table_names", [])
         sample_data = schema_ctx.get("sample_data", [])
         distribution_profiles = schema_ctx.get("distribution")
+        check_constraints = schema_ctx.get("check_constraints", [])
         dialect = schema_ctx.get("dialect", "sqlite")
+
+        # Set of FK column names — used to mark them in the column list so
+        # the LLM knows to OMIT them from the output (the sqlseed core
+        # auto-resolves FK columns by sampling existing parent-table ids).
+        fk_column_names = {fk.column for fk in foreign_keys}
+
+        # Exclude skippable columns (autoincrement PKs, defaults, computed columns)
+        # from the prompt context so that the LLM (especially local models) won't attempt
+        # to generate rules for columns that are already handled automatically.
+        columns = [
+            col for col in raw_columns
+            if not (
+                (col.is_primary_key and col.is_autoincrement)
+                or col.default is not None
+                or getattr(col, "is_computed", False)
+            )
+        ]
 
         lines: list[str] = []
         lines.append(f"# Table: {table_name}")
         lines.append(f"Database dialect: {dialect}")
         lines.append("")
 
-        self._append_columns_info(lines, columns)
+        self._append_columns_info(lines, columns, fk_column_names)
 
         if indexes:
             self._append_indexes_info(lines, indexes)
@@ -110,6 +128,14 @@ class ContextBuilderMixin:
             lines.append("## Foreign Keys")
             for fk in foreign_keys:
                 lines.append(f"- {fk.column} → {fk.ref_table}.{fk.ref_column}")
+            lines.append(
+                "NOTE: Foreign-key columns are auto-resolved by the sqlseed core "
+                "from existing parent-table ids. Do NOT include them in the output "
+                "columns list."
+            )
+
+        if check_constraints:
+            self._append_check_constraints_info(lines, check_constraints)
 
         if all_table_names:
             lines.append("")
@@ -138,13 +164,18 @@ class ContextBuilderMixin:
         self,
         lines: list[str],
         columns: list[Any],
+        fk_column_names: set[str] | None = None,
     ) -> None:
         """Append the column list section to the context lines.
 
         Args:
             lines: Mutable list of context lines to extend.
             columns: Column descriptor objects with name/type/flags.
+            fk_column_names: Optional set of FK column names. When provided,
+                FK columns are tagged with ``[FOREIGN KEY — skip]`` so the
+                LLM knows to omit them from the output.
         """
+        fk_column_names = fk_column_names or set()
         lines.append("## Columns")
         for col in columns:
             parts = [f"- {col.name}: {col.type}"]
@@ -158,7 +189,31 @@ class ContextBuilderMixin:
                 parts.append(f"DEFAULT={col.default}")
             if not col.nullable and col.default is None and not col.is_primary_key:
                 parts.append("NOT NULL")
+            if col.name in fk_column_names:
+                parts.append("[FOREIGN KEY — skip in output]")
             lines.append(" ".join(parts))
+
+    def _append_check_constraints_info(
+        self,
+        lines: list[str],
+        check_constraints: list[dict[str, Any]],
+    ) -> None:
+        """Append the CHECK constraints section to the context lines.
+
+        Args:
+            lines: Mutable list of context lines to extend.
+            check_constraints: List of dicts with ``name``, ``columns``,
+                and ``expression`` keys.
+        """
+        lines.append("")
+        lines.append("## CHECK Constraints")
+        for chk in check_constraints:
+            name = chk.get("name") or ""
+            cols = chk.get("columns", [])
+            expr = chk.get("expression", "")
+            label = f" ({name})" if name else ""
+            cols_str = f" [columns: {', '.join(cols)}]" if cols else ""
+            lines.append(f"- CHECK{label}: {expr}{cols_str}")
 
     def _append_indexes_info(
         self,

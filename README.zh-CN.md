@@ -339,10 +339,13 @@ print(result)
 | `timestamp` | Unix 时间戳 | — |
 | `text` | 长文本 | `min_length`, `max_length` |
 | `sentence` | 句子 | — |
+| `word` | 真实英文单词 | — |
 | `password` | 密码 | `length` |
 | `choice` | 从列表选择 | `choices` |
+| `weighted_choice` | 加权随机选择 | `choices`（`{value, weight}` 列表）或 `weighted_choices`（字典） |
 | `json` | JSON 字符串 | `schema` |
 | `pattern` | 正则匹配 | `regex` |
+| `template` | 模板字符串（带占位符） | `template`, `sequence_start`, `sequence_step` |
 | `bytes` | 二进制数据 | `length` |
 | `username` | 用户名 | — |
 | `city` | 城市 | — |
@@ -506,7 +509,7 @@ tables:
 3. 先生成 `project_no`，再通过表达式 `value[-6:]` 计算 `short_code`
 4. 如果 `short_code` 的唯一性约束失败，回溯重新生成 `project_no`
 
-#### 表达式引擎支持的函数（21 个）
+#### 表达式引擎支持的函数（25 个）
 
 | 函数 | 用法 | 说明 |
 | :--- | :--- | :--- |
@@ -520,6 +523,7 @@ tables:
 | `abs(n)` | `abs(value)` | 绝对值 |
 | `min(*args)` | `min(a, b)` | 最小值 |
 | `max(*args)` | `max(a, b)` | 最大值 |
+| `round(n, ndigits)` | `round(value, 2)` | 四舍五入到 N 位 |
 | `upper(s)` | `upper(value)` | 转大写 |
 | `lower(s)` | `lower(value)` | 转小写 |
 | `strip(s)` | `strip(value)` | 去两端空白 |
@@ -531,6 +535,9 @@ tables:
 | `lpad(s, width, char)` | `lpad(value, 8, "0")` | 左填充 |
 | `rpad(s, width, char)` | `rpad(value, 8, "0")` | 右填充 |
 | `concat(*args)` | `concat("PRE_", value)` | 拼接 |
+| `random_float(min, max)` | `random_float(0, value)` | 范围内随机浮点数 |
+| `random_int(min, max)` | `random_int(1, 100)` | 范围内随机整数 |
+| `random_choice(seq)` | `random_choice([1,2,3])` | 从序列中随机选择 |
 | 切片 | `value[-8:]` | Python 切片语法 |
 | 数学 | `value * 2 + 1` | 基本数学运算 |
 
@@ -763,7 +770,7 @@ Level 5 │ DEFAULT 检查      有默认值 → skip / __enrich__（enrich=True
         ▼
 Level 6 │ 自定义模式匹配    通过插件 Hook 注册的正则规则
         ▼
-Level 7 │ 内置模式匹配      <!-- BEGIN:AUTO-GENERATED:pattern-match-rule-count -->27<!-- END:AUTO-GENERATED:pattern-match-rule-count --> 条正则：*_at→datetime, *_id→foreign_key, is_*→boolean...
+Level 7 │ 内置模式匹配      <!-- BEGIN:AUTO-GENERATED:pattern-match-rule-count -->29<!-- END:AUTO-GENERATED:pattern-match-rule-count --> 条正则：*_at→datetime, *_id→foreign_key, is_*→boolean...
         ▼
 Level 8 │ NULLABLE 回退     可 NULL → skip / __enrich__
         ▼

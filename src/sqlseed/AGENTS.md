@@ -30,7 +30,7 @@ src/sqlseed/
 | Column mapping | `core/mapper.py` | 9-level strategy chain |
 | Schema inference | `core/schema.py` | SchemaInferrer class |
 | Data stream | `core/stream.py` | DataStream + constraint backtracking |
-| Base provider | `generators/base_provider.py` | 31 built-in generators, fallback provider with no external dependencies |
+| Base provider | `generators/base_provider.py` | 34 built-in generators, fallback provider with no external dependencies |
 | DB adapters | `database/` | SQLAlchemyAdapter (required), RawSQLiteAdapter (test-only) |
 | Plugin hooks | `plugins/hookspecs.py` | 12 pluggy hook definitions |
 | Config models | `config/models.py` | Pydantic: GeneratorConfig, TableConfig, ColumnConfig, ColumnConstraintsConfig, ColumnAssociation |

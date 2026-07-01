@@ -163,7 +163,7 @@ class SpecResolverMixin:
         col_configs_list = list(user_configs.values()) if user_configs else None
         dag_nodes = dag.build(generator_specs, col_configs_list, unique_columns=unique_columns)
 
-        expr_engine = ExpressionEngine()
+        expr_engine = ExpressionEngine(db_adapter=self._db)
         constraint_solver = ConstraintSolver()
 
         transform_fn = None
