@@ -175,6 +175,11 @@ class AIConfig(BaseModel):
     max_tokens: int = Field(default=0, ge=0)  # 0 means auto-resolve based on backend
     timeout: float = Field(default=0.0, ge=0)  # 0 means auto-resolve based on backend
 
+    # Staged pipeline flag (Phase 1 of LLM staged YAML-driven analysis).
+    # - False (default): use existing SchemaSemanticAnalyzer (backward compat)
+    # - True: use new StagedSchemaAnalyzer (3-stage LtM pipeline for small models)
+    use_staged_pipeline: bool = False
+
     # Non-serialized cache for inference speed probe results
     _speed_probe_cache: tuple[float, dict[str, Any]] | None = PrivateAttr(default=None)
     # Non-serialized cache for all local models detection (avoids repeated HTTP calls)
