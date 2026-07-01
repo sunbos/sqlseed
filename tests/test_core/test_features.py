@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 from typing import TYPE_CHECKING
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -259,3 +260,20 @@ def test_extractor_sqlite_detects_column_collation(tmp_path: Path):
     code_col = next(c for c in items.columns if c.name == "code")
     assert name_col.collation == "NOCASE"
     assert code_col.collation == "BINARY"
+
+
+def test_extractor_postgresql_dialect_returns_empty_features():
+    """PG dialect extension returns empty features dict (stub for now).
+
+    Full PG introspection (SEQUENCE/EXCLUSION/PARTITION) is implemented
+    in integration test phase (Task 16).
+    """
+    mock_adapter = MagicMock()
+    mock_adapter.dialect = "postgresql"
+    mock_adapter.get_table_names.return_value = []
+    extractor = StructuralFeatureExtractor(mock_adapter)
+    features = extractor.extract()
+    assert features.dialect == "postgresql"
+    assert features.dialect_specific is not None
+    assert features.dialect_specific.dialect == "postgresql"
+    assert features.dialect_specific.features == {}

@@ -374,9 +374,20 @@ class StructuralFeatureExtractor:
         return DialectSpecificFeatures(dialect="sqlite", features=features)
 
     def _extract_postgresql_specific(self, tables: list[str]) -> DialectSpecificFeatures:
-        """PostgreSQL-specific: SEQUENCE, EXCLUSION, PARTITION, COLLATION.
+        """PostgreSQL-specific: SEQUENCE, EXCLUSION, PARTITION, INHERITANCE, COLLATION.
 
-        Implemented in Task 4.
+        Phase 1 stub: returns empty features. Full implementation deferred
+        to a future phase (tracked in spec §11.3 as a non-blocking enhancement).
+        When implemented, this method will query:
+        - pg_sequences for SEQUENCE objects (SERIAL/IDENTITY)
+        - pg_constraint conflist for EXCLUSION constraints
+        - pg_partitioned_table for PARTITION BY
+        - pg_inherits for INHERITS
+        - pg_collation per column for COLLATION
+
+        The stub is intentional: Phase 1 focuses on SQLite + core PostgreSQL
+        feature parity (tables, columns, PKs, FKs, indexes, checks, uniques)
+        which the DatabaseAdapter Protocol already exposes.
         """
         return DialectSpecificFeatures(dialect="postgresql", features={})
 
