@@ -2,15 +2,23 @@
 
 from __future__ import annotations
 
+import sqlite3
+from typing import TYPE_CHECKING
+
+import pytest
+
 from sqlseed.core.features import (
-    CheckConstraintFeatures,
     ColumnFeatures,
     ForeignKeyFeatures,
-    IndexFeatures,
+    StructuralFeatureExtractor,
     StructuralFeatures,
     TableFeatures,
     UniqueConstraintFeatures,
 )
+from sqlseed.database.raw_sqlite_adapter import RawSQLiteAdapter
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def test_column_features_min_fields():
@@ -113,3 +121,88 @@ def test_structural_features_has_schema_hash_and_dialect():
     assert sf.dialect == "sqlite"
     assert sf.schema_hash == "abc123"
     assert sf.dialect_specific is None
+
+
+@pytest.fixture
+def tmp_users_db(tmp_path: Path) -> RawSQLiteAdapter:
+    """Create a small users/orders DB for feature extraction tests."""
+    db_path = tmp_path / "test.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.executescript("""
+        CREATE TABLE users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT NOT NULL UNIQUE,
+            name TEXT NOT NULL,
+            age INTEGER DEFAULT 0 CHECK (age >= 0)
+        );
+        CREATE TABLE orders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            total REAL DEFAULT 0 CHECK (total >= 0),
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        );
+        CREATE INDEX idx_orders_user_id ON orders(user_id);
+    """)
+    conn.commit()
+    conn.close()
+    adapter = RawSQLiteAdapter()
+    adapter.connect(str(db_path))
+    return adapter
+
+
+def test_extractor_extract_returns_structural_features(tmp_users_db):
+    """extract() returns StructuralFeatures with correct dialect."""
+    extractor = StructuralFeatureExtractor(tmp_users_db)
+    features = extractor.extract()
+    assert isinstance(features, StructuralFeatures)
+    assert features.dialect == "sqlite"
+    assert len(features.tables) == 2
+
+
+def test_extractor_resolves_scope_all_tables(tmp_users_db):
+    """_resolve_scope(None) returns all table names."""
+    extractor = StructuralFeatureExtractor(tmp_users_db)
+    scope = extractor._resolve_scope(None)
+    assert set(scope) == {"users", "orders"}
+
+
+def test_extractor_resolves_scope_with_fk_closure(tmp_users_db):
+    """_resolve_scope(['orders']) includes FK parent 'users'."""
+    extractor = StructuralFeatureExtractor(tmp_users_db)
+    scope = extractor._resolve_scope(["orders"])
+    assert "orders" in scope
+    assert "users" in scope  # FK parent
+
+
+def test_extractor_extracts_table_features_correctly(tmp_users_db):
+    """_extract_table_common extracts columns, PK, FK, CHECK, UNIQUE."""
+    extractor = StructuralFeatureExtractor(tmp_users_db)
+    features = extractor.extract(["users"])
+    users = next(t for t in features.tables if t.name == "users")
+    assert len(users.columns) == 4
+    assert users.primary_key == ["id"]
+    assert len(users.check_constraints) == 1  # age >= 0
+    assert users.check_constraints[0].expression == "age >= 0"
+    # email UNIQUE detected from index
+    assert len(users.unique_constraints) >= 1
+    assert any("email" in uc.columns for uc in users.unique_constraints)
+
+
+def test_extractor_preserves_single_column_fk(tmp_users_db):
+    """P2 #1 fix: each single-column FK preserved as separate features."""
+    extractor = StructuralFeatureExtractor(tmp_users_db)
+    features = extractor.extract(["orders"])
+    orders = next(t for t in features.tables if t.name == "orders")
+    assert len(orders.foreign_keys) == 1
+    fk = orders.foreign_keys[0]
+    assert fk.columns == ["user_id"]
+    assert fk.ref_table == "users"
+    assert fk.ref_columns == ["id"]
+
+
+def test_extractor_computes_schema_hash(tmp_users_db):
+    """_compute_schema_hash returns stable hash for same schema."""
+    extractor = StructuralFeatureExtractor(tmp_users_db)
+    features1 = extractor.extract()
+    features2 = extractor.extract()
+    assert features1.schema_hash == features2.schema_hash
