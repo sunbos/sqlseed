@@ -208,3 +208,104 @@ def test_stage1_topological_sort_orders_by_fk_dependency():
     order = analyzer._topological_sort(features)
     # users must come before orders (orders has FK to users)
     assert order.index("users") < order.index("orders")
+
+
+def test_stage2_per_column_calls_llm_once_per_column():
+    """Stage 2 per_column mode calls LLM once per non-skipped column."""
+    from sqlseed_ai.staged_analyzer import StagedSchemaAnalyzer
+
+    features = _make_simple_features()
+    analyzer = StagedSchemaAnalyzer(config=None)
+
+    # Mock low-level analyzer
+    mock_low_level = MagicMock()
+    stage2_response = '{"column":"id","generator":"integer","params":{},"derive_from":null,"expression":null}'
+    mock_low_level._call_llm_once.return_value = stage2_response
+    analyzer._low_level_analyzer = mock_low_level
+
+    # Build summary
+    summary = analyzer._run_stage1_with_fallback(features)
+
+    # Reset mock to isolate Stage 2 call count (Stage 1 also calls LLM)
+    mock_low_level._call_llm_once.reset_mock()
+
+    # Run stage 2 per_column
+    result = analyzer._run_stage2_per_column(features, summary, target_tables=["users"])
+
+    # Should have called LLM for each non-skipped column
+    # users has id (PK autoincrement, skipped) + email (1 call)
+    assert mock_low_level._call_llm_once.call_count == 1
+    assert "tables" in result
+    assert len(result["tables"]) == 1
+    assert result["tables"][0]["name"] == "users"
+
+
+def test_stage2_per_column_skips_pk_autoincrement_columns():
+    """Stage 2 skips PK/AUTOINCREMENT/GENERATED/DEFAULT columns."""
+    from sqlseed_ai.staged_analyzer import StagedSchemaAnalyzer
+
+    features = _make_simple_features()
+    analyzer = StagedSchemaAnalyzer(config=None)
+
+    # Should skip id (PK + autoincrement)
+    skip_cols = analyzer._get_skippable_columns(next(t for t in features.tables if t.name == "users"))
+    assert "id" in skip_cols
+    assert "email" not in skip_cols
+
+
+def test_stage2_per_column_injects_cross_column_checks_in_prompt():
+    """P1 #3 fix: cross-column CHECK injected into per_column prompt."""
+    from sqlseed_ai.staged_analyzer import StagedSchemaAnalyzer
+
+    analyzer = StagedSchemaAnalyzer(config=None)
+    # Build features with cross-column CHECK
+    cross_check_table = TableFeatures(
+        name="projects",
+        columns=[
+            ColumnFeatures(
+                name="start_date",
+                type="DATE",
+                nullable=False,
+                default=None,
+                is_primary_key=False,
+                is_autoincrement=False,
+                is_computed=False,
+            ),
+            ColumnFeatures(
+                name="end_date",
+                type="DATE",
+                nullable=False,
+                default=None,
+                is_primary_key=False,
+                is_autoincrement=False,
+                is_computed=False,
+            ),
+        ],
+        primary_key=[],
+        foreign_keys=[],
+        unique_constraints=[],
+        check_constraints=[],
+        indexes=[],
+    )
+    # Manually add cross-column CHECK (since check_constraints needs CheckConstraintFeatures)
+    from sqlseed.core.features import CheckConstraintFeatures
+
+    cross_check_table.check_constraints.append(
+        CheckConstraintFeatures(
+            table="projects",
+            name="ck_dates",
+            expression="end_date >= start_date",
+            columns=["end_date", "start_date"],
+        )
+    )
+    features = StructuralFeatures(
+        dialect="sqlite",
+        tables=[cross_check_table],
+        schema_hash="cross",
+    )
+
+    cross_checks = analyzer._extract_cross_column_checks("projects", features)
+    assert len(cross_checks) == 1
+    assert cross_checks[0]["expression"] == "end_date >= start_date"
+    assert cross_checks[0]["columns"]["start_date"] == "DATE"
+    assert cross_checks[0]["columns"]["end_date"] == "DATE"

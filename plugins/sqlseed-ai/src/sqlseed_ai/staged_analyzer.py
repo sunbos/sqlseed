@@ -30,7 +30,7 @@ if TYPE_CHECKING:
     from sqlseed_ai.config import AIConfig
     from sqlseed_ai.schema_analyzer import SchemaSemanticAnalyzer
 
-    from sqlseed.core.features import StructuralFeatures
+    from sqlseed.core.features import ColumnFeatures, StructuralFeatures, TableFeatures
 
 logger = get_logger(__name__)
 
@@ -423,6 +423,156 @@ class StagedSchemaAnalyzer:
                 )
         return result
 
-    def _get_skippable_columns(self, table_features: Any) -> list[str]:
-        """Return columns to skip in stage 2 (PK/AUTOINCREMENT/GENERATED/DEFAULT)."""
-        return [c.name for c in table_features.columns if (c.is_primary_key and c.is_autoincrement) or c.is_computed]
+    def _run_stage2_per_column(
+        self,
+        features: StructuralFeatures,
+        summary: StructureSummary,
+        target_tables: list[str],
+    ) -> dict[str, Any]:
+        """Stage 2: per_column analysis (2B model recommended).
+
+        Spec §6.1 per_column mode:
+          - Input per call: 1 column constraints + structure summary
+            + same-table cross-column CHECK context (P1 #3 fix)
+          - Output: {column, generator, params, derive_from, expression}
+          - Skip: PK/AUTOINCREMENT/GENERATED/DEFAULT (auto-fix handles)
+        """
+        from sqlseed_ai._stage_prompts import (
+            STAGE2_PER_COLUMN_SYSTEM_PROMPT,
+            STAGE2_PER_COLUMN_USER_TEMPLATE,
+        )
+
+        all_tables_config: list[dict[str, Any]] = []
+        for table_name in summary.topological_order:
+            if target_tables and table_name not in target_tables:
+                continue
+            table_features = next((t for t in features.tables if t.name == table_name), None)
+            if table_features is None:
+                continue
+            table_summary = next((t for t in summary.tables if t.name == table_name), None)
+            naming_prefix = table_summary.naming_prefix if table_summary else self._derive_naming_prefix(table_name)
+            cross_checks = self._extract_cross_column_checks(table_name, features)
+            skip_cols = self._get_skippable_columns(table_features)
+
+            columns_config: list[dict[str, Any]] = []
+            for col in table_features.columns:
+                if col.name in skip_cols:
+                    continue
+                # Build per-column prompt with cross-column context
+                fk_summary = self._format_fks_for_prompt(table_features)
+                cross_checks_str = self._format_cross_checks_for_prompt(cross_checks)
+                user_prompt = STAGE2_PER_COLUMN_USER_TEMPLATE.format(
+                    table_name=table_name,
+                    naming_prefix=naming_prefix,
+                    column_name=col.name,
+                    column_type=col.type,
+                    nullable=col.nullable,
+                    default=col.default,
+                    is_pk=col.is_primary_key,
+                    is_autoincrement=col.is_autoincrement,
+                    is_computed=col.is_computed,
+                    is_unique=self._is_column_unique(table_features, col.name),
+                    cross_column_checks=cross_checks_str,
+                    foreign_keys=fk_summary,
+                )
+                messages = [
+                    {"role": "system", "content": STAGE2_PER_COLUMN_SYSTEM_PROMPT},
+                    {"role": "user", "content": user_prompt},
+                ]
+                try:
+                    response = self._low_level_analyzer._call_llm_once(messages)
+                    col_config = self._parse_stage2_response(response)
+                    col_config["name"] = col.name
+                    columns_config.append(col_config)
+                except Exception as e:
+                    category = ErrorClassifier.classify(e)
+                    if category == ErrorCategory.TRANSIENT:
+                        # Retry once
+                        try:
+                            response = self._low_level_analyzer._call_llm_once(messages)
+                            col_config = self._parse_stage2_response(response)
+                            col_config["name"] = col.name
+                            columns_config.append(col_config)
+                            continue
+                        except Exception:
+                            pass
+                    # LOGIC/QUALITY or retry failed: degrade to type-routed config
+                    logger.warning(
+                        "Stage 2 column analysis failed, degrading to type-routed config",
+                        table=table_name,
+                        column=col.name,
+                        error=str(e)[:200],
+                    )
+                    columns_config.append(self._degrade_to_type_routed(col))
+
+            all_tables_config.append(
+                {
+                    "name": table_name,
+                    "columns": columns_config,
+                }
+            )
+
+        return {"tables": all_tables_config}
+
+    def _is_column_unique(self, table: TableFeatures, column_name: str) -> bool:
+        """Check if column is UNIQUE."""
+        return any(column_name in uc.columns for uc in table.unique_constraints)
+
+    def _format_fks_for_prompt(self, table: TableFeatures) -> str:
+        """Format FKs for prompt injection."""
+        if not table.foreign_keys:
+            return "(none)"
+        return "\n".join(f"- {fk.columns} -> {fk.ref_table}.{fk.ref_columns}" for fk in table.foreign_keys)
+
+    def _format_cross_checks_for_prompt(self, cross_checks: list[dict[str, Any]]) -> str:
+        """P1 #3 fix: format cross-column CHECKs for prompt injection."""
+        if not cross_checks:
+            return "(none)"
+        return "\n".join(f"- {chk['expression']} (columns: {chk['columns']})" for chk in cross_checks)
+
+    def _parse_stage2_response(self, response: str) -> dict[str, Any]:
+        """Parse LLM stage 2 response."""
+        try:
+            data = json.loads(response)
+            if not isinstance(data, dict):
+                raise ValueError("Response is not a JSON object")
+            return data
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON from LLM: {e}") from e
+
+    def _degrade_to_type_routed(self, col: ColumnFeatures) -> dict[str, Any]:
+        """Degrade to type-routed minimal config (QUALITY fallback)."""
+        type_upper = col.type.upper()
+        if "INT" in type_upper:
+            generator = "integer"
+            params: dict[str, Any] = {"min_value": 0, "max_value": 99999}
+        elif any(t in type_upper for t in ("REAL", "FLOAT", "DOUBLE", "DECIMAL")):
+            generator = "float"
+            params = {"min_value": 0.0, "max_value": 9999.0}
+        elif "BOOL" in type_upper:
+            generator = "boolean"
+            params = {}
+        elif "DATE" in type_upper and "TIME" not in type_upper:
+            generator = "date"
+            params = {}
+        elif any(t in type_upper for t in ("DATETIME", "TIMESTAMP")):
+            generator = "datetime"
+            params = {}
+        else:
+            generator = "string"
+            params = {"min_length": 1, "max_length": 100}
+        return {
+            "name": col.name,
+            "generator": generator,
+            "params": params,
+            "derive_from": None,
+            "expression": None,
+        }
+
+    def _get_skippable_columns(self, table: TableFeatures) -> set[str]:
+        """Skip PK + AUTOINCREMENT + GENERATED + DEFAULT (handled by auto-fix)."""
+        skip = set()
+        for col in table.columns:
+            if (col.is_primary_key and col.is_autoincrement) or col.is_computed:
+                skip.add(col.name)
+        return skip
