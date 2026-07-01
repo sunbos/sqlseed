@@ -295,11 +295,83 @@ class StructuralFeatureExtractor:
         return None
 
     def _extract_sqlite_specific(self, tables: list[str]) -> DialectSpecificFeatures:
-        """SQLite-specific: STRICT, WITHOUT ROWID, ON CONFLICT, COLLATE, partial indexes.
+        """SQLite-specific: STRICT, WITHOUT ROWID, ON CONFLICT, COLLATE.
 
-        Implemented in Task 3.
+        Uses sqlite_master.sql DDL parsing (no extra Protocol methods needed).
         """
-        return DialectSpecificFeatures(dialect="sqlite", features={})
+        import re
+
+        features: dict[str, Any] = {}
+        for table_name in tables:
+            table_features: dict[str, Any] = {}
+            # Read DDL from sqlite_master
+            try:
+                result = self.adapter.execute(
+                    "SELECT sql FROM sqlite_master WHERE type='table' AND name=?",
+                    (table_name,),
+                )
+                rows = result.fetchall() if hasattr(result, "fetchall") else []
+                ddl = rows[0][0] if rows and rows[0] else ""
+            except Exception:
+                ddl = ""
+
+            if ddl:
+                # STRICT table
+                if re.search(r"\bSTRICT\b", ddl, re.IGNORECASE):
+                    table_features["is_strict"] = True
+                # WITHOUT ROWID
+                if re.search(r"\bWITHOUT\s+ROWID\b", ddl, re.IGNORECASE):
+                    table_features["is_without_rowid"] = True
+                # ON CONFLICT clause (rare)
+                on_conflict_match = re.search(
+                    r"\bON\s+CONFLICT\s+(ROLLBACK|ABORT|FAIL|IGNORE|REPLACE)\b",
+                    ddl,
+                    re.IGNORECASE,
+                )
+                if on_conflict_match:
+                    table_features["on_conflict"] = on_conflict_match.group(1).upper()
+
+                # Per-column COLLATE
+                col_collations: dict[str, str] = {}
+                # Match: column_name TYPE ... COLLATE COLLATION_NAME
+                # Skip CONSTRAINT keyword to avoid table-level constraints
+                col_pattern = re.compile(
+                    r'"?(\w+)"?\s+\w+(?:\s*\([^)]*\))?'
+                    r"(?:\s+(?:NOT\s+NULL|NULL|PRIMARY\s+KEY|UNIQUE|DEFAULT\s+\S+))*"
+                    r"\s+COLLATE\s+(\w+)",
+                    re.IGNORECASE,
+                )
+                for match in col_pattern.finditer(ddl):
+                    col_name = match.group(1)
+                    collation = match.group(2).upper()
+                    col_collations[col_name] = collation
+                if col_collations:
+                    table_features["column_collations"] = col_collations
+
+            # Partial index predicates via PRAGMA index_list
+            index_predicates: dict[str, str] = {}
+            try:
+                from sqlseed._utils.sql_safe import quote_identifier
+
+                safe_table = quote_identifier(table_name)
+                result = self.adapter.execute(f"PRAGMA index_list({safe_table})")
+                rows = result.fetchall() if hasattr(result, "fetchall") else []
+                for row in rows:
+                    # row: (seq, name, unique, origin, partial)
+                    if len(row) >= 5 and row[4]:
+                        idx_name = row[1]
+                        partial = row[4]
+                        if isinstance(partial, str) and partial.strip():
+                            index_predicates[idx_name] = partial
+            except Exception:
+                pass
+            if index_predicates:
+                table_features["index_predicates"] = index_predicates
+
+            if table_features:
+                features[table_name] = table_features
+
+        return DialectSpecificFeatures(dialect="sqlite", features=features)
 
     def _extract_postgresql_specific(self, tables: list[str]) -> DialectSpecificFeatures:
         """PostgreSQL-specific: SEQUENCE, EXCLUSION, PARTITION, COLLATION.

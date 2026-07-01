@@ -95,8 +95,13 @@ def test_table_features_aggregates_all():
         name="users",
         columns=[
             ColumnFeatures(
-                name="id", type="INTEGER", nullable=False, default=None,
-                is_primary_key=True, is_autoincrement=True, is_computed=False,
+                name="id",
+                type="INTEGER",
+                nullable=False,
+                default=None,
+                is_primary_key=True,
+                is_autoincrement=True,
+                is_computed=False,
             ),
         ],
         primary_key=["id"],
@@ -206,3 +211,51 @@ def test_extractor_computes_schema_hash(tmp_users_db):
     features1 = extractor.extract()
     features2 = extractor.extract()
     assert features1.schema_hash == features2.schema_hash
+
+
+def test_extractor_sqlite_detects_strict_table(tmp_path: Path):
+    """SQLite STRICT table detected via DDL parsing."""
+    db_path = tmp_path / "strict.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.executescript("CREATE TABLE strict_tbl (x INTEGER) STRICT;")
+    conn.commit()
+    conn.close()
+    adapter = RawSQLiteAdapter()
+    adapter.connect(str(db_path))
+    extractor = StructuralFeatureExtractor(adapter)
+    features = extractor.extract()
+    strict_tbl = next(t for t in features.tables if t.name == "strict_tbl")
+    assert strict_tbl.is_strict is True
+
+
+def test_extractor_sqlite_detects_without_rowid(tmp_path: Path):
+    """SQLite WITHOUT ROWID table detected."""
+    db_path = tmp_path / "wrid.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.executescript("CREATE TABLE wrid_tbl (id INTEGER PRIMARY KEY) WITHOUT ROWID;")
+    conn.commit()
+    conn.close()
+    adapter = RawSQLiteAdapter()
+    adapter.connect(str(db_path))
+    extractor = StructuralFeatureExtractor(adapter)
+    features = extractor.extract()
+    wrid = next(t for t in features.tables if t.name == "wrid_tbl")
+    assert wrid.is_without_rowid is True
+
+
+def test_extractor_sqlite_detects_column_collation(tmp_path: Path):
+    """SQLite per-column COLLATE detected."""
+    db_path = tmp_path / "collate.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.executescript("CREATE TABLE items (name TEXT COLLATE NOCASE, code TEXT COLLATE BINARY);")
+    conn.commit()
+    conn.close()
+    adapter = RawSQLiteAdapter()
+    adapter.connect(str(db_path))
+    extractor = StructuralFeatureExtractor(adapter)
+    features = extractor.extract()
+    items = next(t for t in features.tables if t.name == "items")
+    name_col = next(c for c in items.columns if c.name == "name")
+    code_col = next(c for c in items.columns if c.name == "code")
+    assert name_col.collation == "NOCASE"
+    assert code_col.collation == "BINARY"
