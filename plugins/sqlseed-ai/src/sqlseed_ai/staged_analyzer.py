@@ -415,12 +415,19 @@ class StagedSchemaAnalyzer:
         response = self._get_low_level_analyzer()._call_llm_once(messages)
         return self._parse_stage1_response(response, features)
 
-    def _parse_stage1_response(self, response: str, features: StructuralFeatures) -> StructureSummary:
-        """Parse LLM JSON response into StructureSummary."""
-        try:
-            data = json.loads(response)
-        except json.JSONDecodeError as e:
-            raise ValueError(f"Invalid JSON from LLM: {e}") from e
+    def _parse_stage1_response(self, response: str | dict[str, Any], features: StructuralFeatures) -> StructureSummary:
+        """Parse LLM JSON response into StructureSummary.
+
+        ``SchemaAnalyzer._call_llm_once`` returns a parsed dict directly; we
+        also accept a raw JSON string for testability and backward compat.
+        """
+        if isinstance(response, dict):
+            data = response
+        else:
+            try:
+                data = json.loads(response)
+            except json.JSONDecodeError as e:
+                raise ValueError(f"Invalid JSON from LLM: {e}") from e
 
         # Build StructureSummary from parsed JSON
         tables = []
@@ -654,8 +661,14 @@ class StagedSchemaAnalyzer:
             return "(none)"
         return "\n".join(f"- {chk['expression']} (columns: {chk['columns']})" for chk in cross_checks)
 
-    def _parse_stage2_response(self, response: str) -> dict[str, Any]:
-        """Parse LLM stage 2 response."""
+    def _parse_stage2_response(self, response: str | dict[str, Any]) -> dict[str, Any]:
+        """Parse LLM stage 2 response.
+
+        ``SchemaAnalyzer._call_llm_once`` returns a parsed dict directly; we
+        also accept a raw JSON string for testability and backward compat.
+        """
+        if isinstance(response, dict):
+            return response
         try:
             data = json.loads(response)
             if not isinstance(data, dict):
