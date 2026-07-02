@@ -158,7 +158,9 @@ class ErrorClassifier:
 # ── Spec §6.2: dynamic granularity decision ──────────────────────────
 
 
-def decide_granularity(features: StructuralFeatures, *, model_id: str) -> str:
+def decide_granularity(
+    features: StructuralFeatures, *, model_id: str
+) -> str:
     """Choose stage 2 granularity: 'per_column' | 'per_table' | 'per_db'.
 
     Spec §6.2 complexity_score (P2 #3 simple version):
@@ -231,6 +233,20 @@ class StagedSchemaAnalyzer:
         self._semantic_analyzer: SchemaSemanticAnalyzer | None = None
         self._low_level_analyzer: Any = None  # SchemaAnalyzer, lazy-init
         self._validator = Stage3Validator()
+
+    def _get_low_level_analyzer(self) -> Any:
+        """Lazy-init the low-level SchemaAnalyzer used for raw LLM calls.
+
+        Mirrors ``SchemaSemanticAnalyzer._analyzer`` property: when the staged
+        pipeline is invoked with a real ``AIConfig`` (e.g. via the CLI), the
+        SchemaAnalyzer is constructed on first use so module import does not
+        require a configured backend.
+        """
+        if self._low_level_analyzer is None:
+            from sqlseed_ai.analyzer import SchemaAnalyzer
+
+            self._low_level_analyzer = SchemaAnalyzer(config=self._config)
+        return self._low_level_analyzer
 
     # Full implementation in Task 7 (stage 1) + Task 8 (stage 2) + Task 10 (stage 3)
     def analyze(
@@ -391,15 +407,12 @@ class StagedSchemaAnalyzer:
             fk_summary=fk_summary or "(none)",
         )
 
-        # Call LLM (reuse existing SchemaAnalyzer if available)
-        if self._low_level_analyzer is None:
-            raise RuntimeError("Low-level analyzer not configured")
-
+        # Call LLM (lazy-init SchemaAnalyzer on first use)
         messages = [
             {"role": "system", "content": STAGE1_SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt},
         ]
-        response = self._low_level_analyzer._call_llm_once(messages)
+        response = self._get_low_level_analyzer()._call_llm_once(messages)
         return self._parse_stage1_response(response, features)
 
     def _parse_stage1_response(self, response: str, features: StructuralFeatures) -> StructureSummary:
@@ -591,7 +604,7 @@ class StagedSchemaAnalyzer:
                     {"role": "user", "content": user_prompt},
                 ]
                 try:
-                    response = self._low_level_analyzer._call_llm_once(messages)
+                    response = self._get_low_level_analyzer()._call_llm_once(messages)
                     col_config = self._parse_stage2_response(response)
                     col_config["name"] = col.name
                     columns_config.append(col_config)
@@ -600,7 +613,7 @@ class StagedSchemaAnalyzer:
                     if category == ErrorCategory.TRANSIENT:
                         # Retry once
                         try:
-                            response = self._low_level_analyzer._call_llm_once(messages)
+                            response = self._get_low_level_analyzer()._call_llm_once(messages)
                             col_config = self._parse_stage2_response(response)
                             col_config["name"] = col.name
                             columns_config.append(col_config)
