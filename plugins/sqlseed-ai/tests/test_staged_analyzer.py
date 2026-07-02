@@ -478,3 +478,166 @@ def test_staged_analyzer_analyze_full_pipeline_calls_stages_in_order(monkeypatch
     # stage 2 added the email column
     email_col = next(c for c in config["tables"][0]["columns"] if c["name"] == "email")
     assert email_col["generator"] == "email"
+
+
+def test_decide_granularity_2b_model_uses_per_column():
+    """Small model (E2B) + table with FK + UNIQUE + CHECK -> per_column."""
+    from sqlseed_ai.staged_analyzer import decide_granularity
+
+    from sqlseed.core.features import (
+        CheckConstraintFeatures,
+        ColumnFeatures,
+        ForeignKeyFeatures,
+        StructuralFeatures,
+        TableFeatures,
+    )
+
+    features = StructuralFeatures(
+        tables=[
+            TableFeatures(
+                name="orders",
+                columns=[
+                    ColumnFeatures(
+                        name="id",
+                        type="INTEGER",
+                        nullable=False,
+                        default=None,
+                        is_primary_key=True,
+                        is_autoincrement=True,
+                        is_computed=False,
+                    ),
+                    ColumnFeatures(
+                        name="user_id",
+                        type="INTEGER",
+                        nullable=False,
+                        default=None,
+                        is_primary_key=False,
+                        is_autoincrement=False,
+                        is_computed=False,
+                    ),
+                    ColumnFeatures(
+                        name="amount",
+                        type="REAL",
+                        nullable=False,
+                        default=None,
+                        is_primary_key=False,
+                        is_autoincrement=False,
+                        is_computed=False,
+                    ),
+                ],
+                primary_key=["id"],
+                foreign_keys=[
+                    ForeignKeyFeatures(
+                        table="orders",
+                        columns=["user_id"],
+                        ref_table="users",
+                        ref_columns=["id"],
+                    ),
+                ],
+                unique_constraints=[],
+                check_constraints=[
+                    CheckConstraintFeatures(
+                        table="orders",
+                        name="ck_positive",
+                        columns=["amount"],
+                        expression="amount > 0",
+                    ),
+                ],
+                indexes=[],
+            ),
+        ],
+        dialect="sqlite",
+        schema_hash="test",
+    )
+    # E2B model -> per_column (max LLM calls, smallest context per call)
+    granularity = decide_granularity(features, model_id="gemma-4-e2b-it")
+    assert granularity == "per_column"
+
+
+def test_decide_granularity_7b_model_uses_per_table():
+    """Mid-size model (E4B) + simple table -> per_table (balance cost and context)."""
+    from sqlseed_ai.staged_analyzer import decide_granularity
+
+    from sqlseed.core.features import (
+        ColumnFeatures,
+        StructuralFeatures,
+        TableFeatures,
+    )
+
+    features = StructuralFeatures(
+        tables=[
+            TableFeatures(
+                name="simple",
+                columns=[
+                    ColumnFeatures(
+                        name="id",
+                        type="INTEGER",
+                        nullable=False,
+                        default=None,
+                        is_primary_key=True,
+                        is_autoincrement=True,
+                        is_computed=False,
+                    ),
+                    ColumnFeatures(
+                        name="name",
+                        type="TEXT",
+                        nullable=True,
+                        default=None,
+                        is_primary_key=False,
+                        is_autoincrement=False,
+                        is_computed=False,
+                    ),
+                ],
+                primary_key=["id"],
+                foreign_keys=[],
+                unique_constraints=[],
+                check_constraints=[],
+                indexes=[],
+            ),
+        ],
+        dialect="sqlite",
+        schema_hash="test",
+    )
+    # E4B model + simple table (score = 1 table = 1 < 5) -> per_table
+    granularity = decide_granularity(features, model_id="gemma-4-e4b-it")
+    assert granularity == "per_table"
+
+
+def test_decide_granularity_cloud_model_uses_per_db():
+    """Large cloud model -> per_db (single LLM call for the whole db)."""
+    from sqlseed_ai.staged_analyzer import decide_granularity
+
+    from sqlseed.core.features import (
+        ColumnFeatures,
+        StructuralFeatures,
+        TableFeatures,
+    )
+
+    features = StructuralFeatures(
+        tables=[
+            TableFeatures(
+                name="t1",
+                columns=[
+                    ColumnFeatures(
+                        name="id",
+                        type="INTEGER",
+                        nullable=False,
+                        default=None,
+                        is_primary_key=True,
+                        is_autoincrement=True,
+                        is_computed=False,
+                    ),
+                ],
+                primary_key=["id"],
+                foreign_keys=[],
+                unique_constraints=[],
+                check_constraints=[],
+                indexes=[],
+            ),
+        ],
+        dialect="sqlite",
+        schema_hash="test",
+    )
+    # 31B model + simple table (score = 1 < 20) -> per_db
+    granularity = decide_granularity(features, model_id="gemma-4-31b-it")
+    assert granularity == "per_db"

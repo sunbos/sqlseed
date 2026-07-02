@@ -155,6 +155,57 @@ class ErrorClassifier:
         return ErrorCategory.QUALITY
 
 
+# ── Spec §6.2: dynamic granularity decision ──────────────────────────
+
+
+def decide_granularity(features: StructuralFeatures, *, model_id: str) -> str:
+    """Choose stage 2 granularity: 'per_column' | 'per_table' | 'per_db'.
+
+    Spec §6.2 complexity_score (P2 #3 simple version):
+      score = (#tables) + (#fk_columns) + 2 * (#check_constraints) + (#unique_columns)
+
+    Decision matrix (P2 #3 simple version):
+      - E2B (2B):  score >= 1           -> per_column
+      - E4B (4B):  score >= 5           -> per_column; else per_table
+      - 12B+:      score >= 10          -> per_column; else per_table
+      - 26B+/31B+: score >= 20          -> per_table; else per_db
+      - Unknown model id: default per_column (safest)
+
+    Args:
+        features: Layer 1 structural features.
+        model_id: LLM model id (e.g., "gemma-4-e2b-it").
+
+    Returns:
+        One of 'per_column', 'per_table', 'per_db'.
+    """
+    score = _compute_complexity_score(features)
+    model_lower = (model_id or "").lower()
+
+    if "e2b" in model_lower:
+        # 2B: always per_column (smallest context per call)
+        return "per_column"
+    if "e4b" in model_lower:
+        return "per_column" if score >= 5 else "per_table"
+    if "12b" in model_lower:
+        return "per_column" if score >= 10 else "per_table"
+    # 26B / 31B / unknown-large: prefer per_db for simplicity
+    if "26b" in model_lower or "31b" in model_lower:
+        return "per_table" if score >= 20 else "per_db"
+    # Unknown model: safest = per_column (most LLM calls, smallest context each)
+    return "per_column"
+
+
+def _compute_complexity_score(features: StructuralFeatures) -> int:
+    """Spec §6.2 simple complexity_score (P2 #3 simple version)."""
+    score = 0
+    for t in features.tables:
+        score += 1  # one per table
+        score += sum(len(fk.columns) for fk in t.foreign_keys)
+        score += 2 * len(t.check_constraints)
+        score += sum(len(u.columns) for u in t.unique_constraints)
+    return score
+
+
 # ── Spec §6.6: StagedSchemaAnalyzer (flag-switched entry point) ───────
 # Full implementation in Task 7+
 
