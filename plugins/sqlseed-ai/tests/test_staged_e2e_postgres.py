@@ -111,9 +111,9 @@ def test_pg_layer1_extraction(pg_complex_biz_url: str) -> None:
     finally:
         adapter.close()
 
-    # All 4 tables detected
+    # All 4 complex_biz tables detected (container may have other tests' tables)
     table_names = {t.name for t in features.tables}
-    assert table_names == {"categories", "products", "orders", "order_items"}
+    assert {"categories", "products", "orders", "order_items"}.issubset(table_names)
 
     # PostgreSQL dialect detected. features.dialect is a Dialect OBJECT
     # (PostgresDialect) when the adapter is SQLAlchemyAdapter; the name string
@@ -150,14 +150,9 @@ def test_pg_staged_analyzer_deterministic_fallback(pg_complex_biz_url: str) -> N
     analyzer = StagedSchemaAnalyzer(config=None)
     summary = analyzer._build_deterministic_fallback(features)
 
-    # All 4 tables present in the summary
-    assert len(summary.tables) == 4
-    assert {t.name for t in summary.tables} == {
-        "categories",
-        "products",
-        "orders",
-        "order_items",
-    }
+    # All 4 complex_biz tables present in the summary (container may have others)
+    summary_names = {t.name for t in summary.tables}
+    assert {"categories", "products", "orders", "order_items"}.issubset(summary_names)
 
     # schema_hash propagated from features
     assert summary.schema_hash == features.schema_hash
