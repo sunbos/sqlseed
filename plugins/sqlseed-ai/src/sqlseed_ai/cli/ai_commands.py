@@ -13,7 +13,7 @@ point target.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import click
 import yaml
@@ -31,6 +31,13 @@ from sqlseed_cli._utils import sanitize_table_config
 
 from sqlseed._utils.logger import get_logger
 from sqlseed.core.orchestrator import DataOrchestrator
+
+if TYPE_CHECKING:
+    # Type-only import: StagedSchemaAnalyzer is imported lazily at runtime
+    # (inside the ai_analyze branch) to avoid loading the staged pipeline
+    # module unless --staged-pipeline is set. The TYPE_CHECKING alias
+    # lets us annotate the union type for mypy without a runtime cost.
+    from sqlseed_ai.staged_analyzer import StagedSchemaAnalyzer
 
 logger = get_logger(__name__)
 
@@ -397,6 +404,27 @@ def ai_suggest(
         _report_ai_failure()
 
 
+def _build_ai_config(
+    *,
+    api_key: str | None = None,
+    base_url: str | None = None,
+    model: str | None = None,
+    timeout: float = 0.0,
+    staged_pipeline: bool = False,
+) -> AIConfig:
+    """Build an :class:`AIConfig` from env defaults plus CLI overrides.
+
+    Centralizes the ``from_env`` + ``apply_overrides`` + ``timeout`` +
+    ``use_staged_pipeline`` assignment previously inlined in ``ai_analyze``.
+    Extracted as a helper so the ``--staged-pipeline`` flag can be unit-tested
+    in isolation without invoking the Click command or the LLM.
+    """
+    ai_config = AIConfig.from_env().apply_overrides(api_key=api_key, base_url=base_url, model=model)
+    ai_config.timeout = timeout
+    ai_config.use_staged_pipeline = staged_pipeline
+    return ai_config
+
+
 @click.command("ai-analyze")
 @click.option("--db", "db_path", required=True, help="SQLite database path")
 @click.option("--url", "db_url", default=None, help="Database URL (alternative to --db)")
@@ -418,6 +446,13 @@ def ai_suggest(
     help="AI API base URL (env: SQLSEED_AI_BASE_URL)",
 )
 @click.option("--timeout", default=0, type=float, help="API call timeout in seconds (0=auto, default: auto)")
+@click.option(
+    "--staged-pipeline",
+    is_flag=True,
+    default=False,
+    help="Use the new 3-stage LtM pipeline (StagedSchemaAnalyzer) instead of "
+    "the legacy SchemaSemanticAnalyzer. Recommended for 2B local models.",
+)
 def ai_analyze(
     db_path: str,
     db_url: str | None,
@@ -429,6 +464,7 @@ def ai_analyze(
     api_key: str | None,
     base_url: str | None,
     timeout: float,
+    staged_pipeline: bool = False,
 ) -> None:
     """Analyze database schema via LLM and generate business YAML config.
 
@@ -446,9 +482,17 @@ def ai_analyze(
 
     from sqlseed import connect
 
-    # Initialize AIConfig from env + CLI overrides (mirrors ai-suggest pattern)
-    ai_config = AIConfig.from_env().apply_overrides(api_key=api_key, base_url=base_url, model=model)
-    ai_config.timeout = timeout
+    # Initialize AIConfig from env + CLI overrides (mirrors ai-suggest pattern).
+    # _build_ai_config centralizes from_env + apply_overrides + timeout +
+    # use_staged_pipeline so the --staged-pipeline flag can be unit-tested
+    # in isolation (see test_ai_analyze_command_staged_pipeline_flag_sets_config).
+    ai_config = _build_ai_config(
+        api_key=api_key,
+        base_url=base_url,
+        model=model,
+        timeout=timeout,
+        staged_pipeline=staged_pipeline,
+    )
 
     if not ai_config.resolve_api_key():
         click.echo(
@@ -480,7 +524,17 @@ def ai_analyze(
             # Use PUBLIC database_adapter property (not private _db)
             db = orch.database_adapter
 
-            analyzer = SchemaSemanticAnalyzer(config=ai_config)
+            if ai_config.use_staged_pipeline:
+                # New 3-stage LtM pipeline (StagedSchemaAnalyzer). Same
+                # analyze() signature as SchemaSemanticAnalyzer, so the
+                # downstream config_dict handling is unchanged.
+                from sqlseed_ai.staged_analyzer import StagedSchemaAnalyzer
+
+                analyzer: StagedSchemaAnalyzer | SchemaSemanticAnalyzer = StagedSchemaAnalyzer(
+                    config=ai_config
+                )
+            else:
+                analyzer = SchemaSemanticAnalyzer(config=ai_config)
 
             # Progress callback for real-time CLI display (user preference:
             # show progress during LLM calls, not just final result)

@@ -78,3 +78,33 @@ class TestAiAnalyzeCommand:
             assert result.exit_code == 0
             call_kwargs = mock_inst.analyze.call_args.kwargs
             assert call_kwargs.get("include_dependencies") is False
+
+
+def test_ai_analyze_command_accepts_staged_pipeline_flag() -> None:
+    """ai-analyze command accepts --staged-pipeline flag."""
+    from sqlseed_ai.cli.ai_commands import ai_analyze
+
+    runner = CliRunner()
+    # Use --help to verify the flag exists without invoking the LLM
+    result = runner.invoke(ai_analyze, ["--help"])
+    assert result.exit_code == 0
+    assert "--staged-pipeline" in result.output
+
+
+def test_ai_analyze_command_staged_pipeline_flag_sets_config() -> None:
+    """--staged-pipeline flag flips AIConfig.use_staged_pipeline to True."""
+    from sqlseed_ai.cli.ai_commands import _build_ai_config
+
+    config = _build_ai_config(
+        api_key="test",
+        model="gemma-4-e2b-it",
+        staged_pipeline=True,
+    )
+    assert config.use_staged_pipeline is True
+
+    config2 = _build_ai_config(
+        api_key="test",
+        model="gemma-4-e2b-it",
+        staged_pipeline=False,
+    )
+    assert config2.use_staged_pipeline is False
