@@ -576,3 +576,171 @@ class StagedSchemaAnalyzer:
             if (col.is_primary_key and col.is_autoincrement) or col.is_computed:
                 skip.add(col.name)
         return skip
+
+
+# ── Spec §6.1 stage 3: Stage3Validator (rules #14-#16) ───────────────
+
+
+# Rule #14: GENERATOR_PARAMS whitelist — based on src/sqlseed/generators/base_provider.py
+# Each generator's accepted keyword arguments. Params not in this list are stripped.
+_GENERATOR_ACCEPTED_PARAMS: dict[str, set[str]] = {
+    "string": {"min_length", "max_length", "charset"},
+    "integer": {"min_value", "max_value"},
+    "float": {"min_value", "max_value", "precision"},
+    "boolean": set(),
+    "bytes": {"length"},
+    "name": set(),
+    "first_name": set(),
+    "last_name": set(),
+    "email": set(),
+    "phone": set(),
+    "address": set(),
+    "company": set(),
+    "url": set(),
+    "ipv4": set(),
+    "uuid": set(),
+    "date": {"start_year", "end_year"},
+    "datetime": {"start_year", "end_year"},
+    "timestamp": set(),
+    "text": {"min_length", "max_length"},
+    "sentence": set(),
+    "password": {"length"},
+    "choice": {"choices"},
+    "json": {"schema"},
+    "pattern": {"pattern", "regex"},
+    "username": set(),
+    "city": set(),
+    "country": set(),
+    "state": set(),
+    "zip_code": set(),
+    "job_title": set(),
+    "country_code": set(),
+    "word": set(),  # word takes NO params (P2 #1 root cause)
+    "template": {"template", "sequence_start", "sequence_step"},
+    "weighted_choice": {"choices", "weighted_choices"},
+}
+
+# Rule #15: regex patterns that match unbounded quantifiers {N,}
+_UNBOUNDED_REGEX_PATTERN = re.compile(r"\{(\d+),\}")
+
+
+class Stage3Validator:
+    """Stage 3 validator: apply auto-fix rules #14-#16 on top of LLM output.
+
+    Rule #14: GENERATOR_PARAMS validation — strip params not accepted by generator.
+    Rule #15: bounds unbounded regex quantifiers {N,} -> {N,N+5}.
+    Rule #16: FK semantic check — FK columns must use a generator compatible with
+              the referenced column's type.
+    """
+
+    def validate(
+        self,
+        config: dict[str, Any],
+        *,
+        schema: dict[str, dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        """Apply all Stage 3 rules in-place. Returns the same config dict."""
+        for table in config.get("tables", []):
+            table_name = table.get("name")
+            if not isinstance(table_name, str):
+                continue
+            for col in table.get("columns", []):
+                if not isinstance(col, dict):
+                    continue
+                self._apply_rule_14_strip_invalid_params(col)
+                self._apply_rule_15_bound_regex(col)
+            if schema and table_name in schema:
+                self._apply_rule_16_fk_semantic(table, schema[table_name])
+        return config
+
+    def _apply_rule_14_strip_invalid_params(self, col: dict[str, Any]) -> None:
+        """Rule #14: strip params not in generator's accepted whitelist."""
+        gen = col.get("generator")
+        if not isinstance(gen, str):
+            return
+        accepted = _GENERATOR_ACCEPTED_PARAMS.get(gen)
+        if accepted is None:
+            # Unknown generator — leave params alone (let core raise at runtime)
+            return
+        params = col.get("params")
+        if not isinstance(params, dict):
+            return
+        invalid_keys = set(params.keys()) - accepted
+        for key in invalid_keys:
+            logger.warning(
+                "Stage3 Rule #14: stripping invalid param for generator",
+                generator=gen,
+                param=key,
+            )
+            params.pop(key, None)
+
+    def _apply_rule_15_bound_regex(self, col: dict[str, Any]) -> None:
+        """Rule #15: bound unbounded regex quantifiers {N,} -> {N,N+5}."""
+        if col.get("generator") not in ("pattern",):
+            return
+        params = col.get("params")
+        if not isinstance(params, dict):
+            return
+        for key in ("regex", "pattern"):
+            val = params.get(key)
+            if not isinstance(val, str):
+                continue
+            # Replace each {N,} with {N,N+5}
+            new_val = _UNBOUNDED_REGEX_PATTERN.sub(_bound_unbounded_quantifier, val)
+            if new_val != val:
+                logger.warning(
+                    "Stage3 Rule #15: bounding unbounded regex quantifier",
+                    original=val,
+                    bounded=new_val,
+                )
+                params[key] = new_val
+
+    def _apply_rule_16_fk_semantic(self, table: dict[str, Any], table_schema: dict[str, Any]) -> None:
+        """Rule #16: FK columns must use a generator compatible with ref column type.
+
+        Currently only checks: FK to integer column must use integer generator
+        (common LLM mistake: assigning username/name to FK columns ending in _by).
+        """
+        fks = table_schema.get("foreign_keys", [])
+        if not isinstance(fks, list):
+            return
+        # Build set of FK column names whose ref column is integer-like.
+        # Note: ref column type is not always available in schema snapshot;
+        # we assume "id" / "user_id" / "*_id" ref columns are integers.
+        integer_fk_cols: set[str] = set()
+        for fk in fks:
+            if not isinstance(fk, dict):
+                continue
+            ref_cols = fk.get("ref_columns", [])
+            if not ref_cols:
+                continue
+            ref_col_lower = str(ref_cols[0]).lower()
+            # Heuristic: ref column ending in "id" is integer (PK autoincrement).
+            if ref_col_lower.endswith("id"):
+                for col_in_fk in fk.get("columns", []):
+                    integer_fk_cols.add(col_in_fk)
+
+        for col in table.get("columns", []):
+            if not isinstance(col, dict):
+                continue
+            col_name = col.get("name")
+            if col_name not in integer_fk_cols:
+                continue
+            gen = col.get("generator")
+            # Integer-compatible generators
+            if gen in ("integer", "uuid", "pattern"):
+                continue
+            logger.warning(
+                "Stage3 Rule #16: replacing string generator on integer FK column",
+                column=col_name,
+                original_generator=gen,
+                ref_column_type="integer",
+            )
+            col["generator"] = "integer"
+            col["params"] = {"min_value": 1, "max_value": 999999}
+
+
+def _bound_unbounded_quantifier(match: re.Match[str]) -> str:
+    """Replace {N,} with {N,N+5} (module-level helper to satisfy B023)."""
+    n = int(match.group(1))
+    return f"{{{n},{n + 5}}}"

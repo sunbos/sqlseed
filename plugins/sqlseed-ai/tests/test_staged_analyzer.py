@@ -309,3 +309,99 @@ def test_stage2_per_column_injects_cross_column_checks_in_prompt():
     assert cross_checks[0]["expression"] == "end_date >= start_date"
     assert cross_checks[0]["columns"]["start_date"] == "DATE"
     assert cross_checks[0]["columns"]["end_date"] == "DATE"
+
+
+def test_stage3_validator_rule_14_strips_invalid_params_for_word():
+    """Rule #14: GENERATOR_PARAMS validation — word does not accept min_length."""
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "projects",
+                "columns": [
+                    {"name": "project_name", "generator": "word", "params": {"min_length": 5, "max_length": 100}},
+                ],
+            }
+        ]
+    }
+    validator = Stage3Validator()
+    validator.validate(config)
+    col = config["tables"][0]["columns"][0]
+    # word does not accept min_length/max_length -> stripped
+    assert "min_length" not in col["params"]
+    assert "max_length" not in col["params"]
+    assert col["generator"] == "word"
+
+
+def test_stage3_validator_rule_14_keeps_valid_params_for_string():
+    """Rule #14: string accepts min_length/max_length, kept."""
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "t",
+                "columns": [
+                    {"name": "code", "generator": "string", "params": {"min_length": 3, "max_length": 10}},
+                ],
+            }
+        ]
+    }
+    validator = Stage3Validator()
+    validator.validate(config)
+    col = config["tables"][0]["columns"][0]
+    assert col["params"]["min_length"] == 3
+    assert col["params"]["max_length"] == 10
+
+
+def test_stage3_validator_rule_15_bounds_unbounded_regex():
+    """Rule #15: unbounded regex {N,} -> {N,N+5}."""
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "t",
+                "columns": [
+                    {"name": "phone", "generator": "pattern", "params": {"regex": r"\d{5,}"}},
+                ],
+            }
+        ]
+    }
+    validator = Stage3Validator()
+    validator.validate(config)
+    regex = config["tables"][0]["columns"][0]["params"]["regex"]
+    # {5,} should be replaced with {5,10}
+    assert "{5,10}" in regex
+    assert "{5,}" not in regex
+
+
+def test_stage3_validator_rule_16_detects_fk_semantic_mismatch():
+    """Rule #16: FK semantic check — created_by → users(id) should use integer generator."""
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    # created_by is FK to users.id (integer), but LLM chose "username" generator (string)
+    config = {
+        "tables": [
+            {
+                "name": "orders",
+                "columns": [
+                    {"name": "created_by", "generator": "username", "params": {}},
+                ],
+            }
+        ]
+    }
+    schema = {
+        "orders": {
+            "foreign_keys": [
+                {"columns": ["created_by"], "ref_table": "users", "ref_columns": ["id"]},
+            ]
+        }
+    }
+    validator = Stage3Validator()
+    validator.validate(config, schema=schema)
+    col = config["tables"][0]["columns"][0]
+    # FK to integer column must use integer generator, not username (string)
+    assert col["generator"] == "integer"
+    assert col["params"]["max_value"] >= 1
