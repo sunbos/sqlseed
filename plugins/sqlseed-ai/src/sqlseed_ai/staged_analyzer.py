@@ -179,6 +179,7 @@ class StagedSchemaAnalyzer:
         self._config = config
         self._semantic_analyzer: SchemaSemanticAnalyzer | None = None
         self._low_level_analyzer: Any = None  # SchemaAnalyzer, lazy-init
+        self._validator = Stage3Validator()
 
     # Full implementation in Task 7 (stage 1) + Task 8 (stage 2) + Task 10 (stage 3)
     def analyze(
@@ -192,46 +193,105 @@ class StagedSchemaAnalyzer:
     ) -> dict[str, Any]:
         """Analyze database via staged pipeline.
 
-        Implemented incrementally:
-          - Stage 1 (this task): structure analysis with fallback
-          - Stage 2 (Task 8): per_column column analysis
-          - Stage 3 (Task 10): validation + auto-fix
+        Full pipeline (Task 11 integration):
+          - Layer 1: extract StructuralFeatures via StructuralFeatureExtractor
+          - Stage 1: _run_stage1_with_fallback -> StructureSummary
+          - Stage 2: _run_stage2_per_column(features, summary, target_tables)
+                     returns config dict with all tables/columns
+          - Stage 3: _run_stage3_validate (auto-fix rules #1-#16)
         """
         from sqlseed_ai.stage_relevance import determine_stage_relevance
 
         from sqlseed.core.features import StructuralFeatureExtractor
 
-        # Pre-check: extract structural features
+        # Layer 1: extract structural features
         extractor = StructuralFeatureExtractor(db)
         features = extractor.extract(table_names=tables)
-        # Stage relevance computed for stage 2/3 wiring (Task 8/10); stage 1
-        # does not consume it directly, but the call validates the pipeline.
-        determine_stage_relevance(features)
+        determine_stage_relevance(features)  # Side-effect-free; future use
 
-        # Stage 1: structure analysis (with fallback on LLM failure)
-        summary = self._run_stage1_with_fallback(features)
+        # Stage 1: structure analysis (with deterministic fallback on LLM failure)
+        summary: StructureSummary = self._run_stage1_with_fallback(features)
 
-        # Stage 2 + 3 are wired up in Task 11 (full integration).
-        # In this Task 7 we return a minimal config dict derived purely from
-        # the deterministic stage-1 fallback, so the public analyze() entry
-        # point is callable end-to-end without waiting for Task 11.
-        tables_config: list[dict[str, Any]] = []
-        for table_name in summary.topological_order:
-            table_features = next(
-                (t for t in features.tables if t.name == table_name),
-                None,
-            )
-            if table_features is None:
-                continue
-            # Skip autoincrement PK columns (LLM stage 2 will handle in Task 8)
-            skippable = self._get_skippable_columns(table_features)
-            columns = [
-                {"name": c.name, "generator": "string", "params": {}}
-                for c in table_features.columns
-                if c.name not in skippable
-            ]
-            tables_config.append({"name": table_name, "columns": columns})
-        return {"tables": tables_config}
+        # Stage 2: per_column analysis (returns full config dict).
+        # _run_stage2_per_column is defined in Task 8 with this exact signature:
+        #   (features, summary, target_tables) -> dict[str, Any]
+        target_tables = tables if tables is not None else summary.topological_order
+        config: dict[str, Any] = self._run_stage2_per_column(
+            features,
+            summary,
+            target_tables,
+        )
+
+        # Stage 3: validate + auto-fix rules #1-#13 (Task 9) + #14-#16 (Task 10)
+        return self._run_stage3_validate(config, features)
+
+    def _run_stage3_validate(
+        self,
+        config: dict[str, Any],
+        features: StructuralFeatures,
+    ) -> dict[str, Any]:
+        """Stage 3: apply existing rules #1-#13 + new rules #14-#16 in place."""
+        # Existing rules #1-#13 (extracted in Task 9 as public function)
+        from sqlseed_ai.schema_analyzer import apply_auto_fix_rules_1_13
+
+        schema_dict = self._features_to_schema_dict(features)
+        config = apply_auto_fix_rules_1_13(config, schema_dict)
+
+        # New rules #14-#16 (Task 10 Stage3Validator)
+        return self._validator.validate(config, schema=schema_dict)
+
+    def _features_to_schema_dict(
+        self,
+        features: StructuralFeatures,
+    ) -> dict[str, dict[str, Any]]:
+        """Convert StructuralFeatures to legacy schema dict shape.
+
+        apply_auto_fix_rules_1_13() expects dict[str, dict] with keys
+        'columns' / 'primary_keys' / 'foreign_keys' / 'unique_indexes' /
+        'unique_columns' / 'check_constraints' — same shape that
+        SchemaSemanticAnalyzer._auto_fix_config used to receive.
+        """
+        result: dict[str, dict[str, Any]] = {}
+        for t in features.tables:
+            # Build set of FK column names for is_foreign_key flag (Fix 13 needs it)
+            fk_col_names: set[str] = set()
+            for fk in t.foreign_keys:
+                for col in fk.columns:
+                    fk_col_names.add(col)
+            result[t.name] = {
+                "columns": [
+                    {
+                        "name": c.name,
+                        "type": c.type,
+                        "nullable": c.nullable,
+                        "default": c.default,
+                        "is_primary_key": c.is_primary_key,
+                        "is_autoincrement": c.is_autoincrement,
+                        "is_computed": c.is_computed,
+                        "is_foreign_key": c.name in fk_col_names,
+                    }
+                    for c in t.columns
+                ],
+                "primary_keys": list(t.primary_key),  # CORRECTED: primary_key (singular)
+                "foreign_keys": [
+                    {
+                        "columns": list(fk.columns),
+                        "ref_table": fk.ref_table,
+                        "ref_columns": list(fk.ref_columns),
+                    }
+                    for fk in t.foreign_keys
+                ],
+                # UniqueConstraintFeatures has no `name` field; the auto-fix
+                # rules only read `unique` and `columns` from unique_indexes,
+                # so we omit `name` entirely (cleaner than a synthetic name).
+                "unique_indexes": [{"columns": list(u.columns), "unique": True} for u in t.unique_constraints],
+                "unique_columns": [col for u in t.unique_constraints for col in u.columns],
+                "check_constraints": [
+                    {"name": c.name, "columns": list(c.columns), "expression": c.expression}
+                    for c in t.check_constraints
+                ],
+            }
+        return result
 
     def _run_stage1_with_fallback(self, features: StructuralFeatures) -> StructureSummary:
         """Run stage 1 with deterministic fallback on LLM failure (P3 #4)."""

@@ -405,3 +405,76 @@ def test_stage3_validator_rule_16_detects_fk_semantic_mismatch():
     # FK to integer column must use integer generator, not username (string)
     assert col["generator"] == "integer"
     assert col["params"]["max_value"] >= 1
+
+
+def test_staged_analyzer_analyze_full_pipeline_calls_stages_in_order(monkeypatch, raw_adapter):
+    """Full analyze(adapter) pipeline: stage 1 -> stage 2 -> stage 3.
+
+    Verifies that the analyze() entry point wires up all three stages
+    in the correct order, producing a config dict with table entries.
+    Uses monkeypatch to mock LLM-calling internals so no real LLM is needed.
+    Uses raw_adapter fixture (RawSQLiteAdapter, DatabaseAdapter Protocol-compliant).
+    """
+    from sqlseed_ai.staged_analyzer import StagedSchemaAnalyzer, StructureSummary, TableStructureSummary
+
+    analyzer = StagedSchemaAnalyzer(config=None)
+
+    # Mock stage 1 to return a StructureSummary dataclass (not dict!)
+    fake_summary = StructureSummary(
+        schema_hash="fake_hash",
+        topological_order=["users"],
+        fk_graph=[],
+        tables=[
+            TableStructureSummary(
+                name="users",
+                purpose="test",
+                anchor_columns=["id"],
+                naming_prefix="USER-",
+                complexity=1,
+                cross_column_checks=[],
+                fk_references=[],
+            ),
+        ],
+        naming_conventions={"users": "USER-"},
+        complexity_score={"tables": 1, "avg_columns": 1, "avg_constraints": 0},
+        dialect="sqlite",
+    )
+    monkeypatch.setattr(
+        analyzer,
+        "_run_stage1_with_fallback",
+        lambda features: fake_summary,
+    )
+
+    # Mock stage 2 to return a complete config dict (Task 8 signature:
+    # _run_stage2_per_column(features, summary, target_tables) -> dict[str, Any])
+    monkeypatch.setattr(
+        analyzer,
+        "_run_stage2_per_column",
+        lambda features, summary, target_tables: {
+            "tables": [
+                {
+                    "name": "users",
+                    "columns": [
+                        {"name": "email", "generator": "email", "params": {}},
+                    ],
+                },
+            ],
+        },
+    )
+
+    # Mock stage 3 to be a pass-through (rules are tested in Task 9/10)
+    monkeypatch.setattr(
+        analyzer,
+        "_run_stage3_validate",
+        lambda config, features: config,
+    )
+
+    config = analyzer.analyze(raw_adapter)
+
+    # Pipeline produced a config dict with the expected table
+    assert "tables" in config
+    assert len(config["tables"]) == 1
+    assert config["tables"][0]["name"] == "users"
+    # stage 2 added the email column
+    email_col = next(c for c in config["tables"][0]["columns"] if c["name"] == "email")
+    assert email_col["generator"] == "email"
