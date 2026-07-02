@@ -613,6 +613,7 @@ class StagedSchemaAnalyzer:
                 try:
                     response = self._get_low_level_analyzer()._call_llm_once(messages)
                     col_config = self._parse_stage2_response(response)
+                    col_config.pop("column", None)  # remove LLM-returned "column" key to avoid clash with "name"
                     col_config["name"] = col.name
                     columns_config.append(col_config)
                 except Exception as e:
@@ -622,6 +623,7 @@ class StagedSchemaAnalyzer:
                         try:
                             response = self._get_low_level_analyzer()._call_llm_once(messages)
                             col_config = self._parse_stage2_response(response)
+                            col_config.pop("column", None)
                             col_config["name"] = col.name
                             columns_config.append(col_config)
                             continue

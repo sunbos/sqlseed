@@ -240,6 +240,46 @@ def test_stage2_per_column_calls_llm_once_per_column():
     assert result["tables"][0]["name"] == "users"
 
 
+def test_stage2_per_column_strips_llm_returned_column_key():
+    """Bug #3 regression: LLM returns {"column": "email", ...} but Stage 2 must
+    replace it with the canonical "name" field (matched to the real column),
+    not keep both. Keeping both caused Pydantic to forward "column" as a
+    generator param, raising
+    ``BaseProvider._gen_string() got an unexpected keyword argument 'column'``.
+
+    This is a behavior test (not a wiring test): it verifies the *output shape*
+    of the generated config dict, not the call count.
+    """
+    from sqlseed_ai.staged_analyzer import StagedSchemaAnalyzer
+
+    features = _make_simple_features()
+    analyzer = StagedSchemaAnalyzer(config=None)
+
+    # Mock low-level analyzer with a response that includes the "column" key
+    # (which is what the LLM actually returns; see complex_biz_staged.yaml).
+    mock_low_level = MagicMock()
+    stage2_response = (
+        '{"column":"email","generator":"email","params":{},'
+        '"derive_from":null,"expression":null}'
+    )
+    mock_low_level._call_llm_once.return_value = stage2_response
+    analyzer._low_level_analyzer = mock_low_level
+
+    summary = analyzer._run_stage1_with_fallback(features)
+    mock_low_level._call_llm_once.reset_mock()
+
+    result = analyzer._run_stage2_per_column(features, summary, target_tables=["users"])
+
+    col_config = result["tables"][0]["columns"][0]
+    # The "name" key must be present and equal the real column name
+    assert col_config["name"] == "email"
+    # The LLM-returned "column" key must be stripped to avoid generator param clash
+    assert "column" not in col_config, (
+        f"Expected 'column' key to be stripped, got keys: {list(col_config.keys())}"
+    )
+
+
+
 def test_stage2_per_column_skips_pk_autoincrement_columns():
     """Stage 2 skips PK/AUTOINCREMENT/GENERATED/DEFAULT columns."""
     from sqlseed_ai.staged_analyzer import StagedSchemaAnalyzer
@@ -483,13 +523,9 @@ def test_staged_analyzer_analyze_full_pipeline_calls_stages_in_order(monkeypatch
 def test_decide_granularity_2b_model_uses_per_column():
     """Small model (E2B) + table with FK + UNIQUE + CHECK -> per_column."""
     from sqlseed_ai.staged_analyzer import decide_granularity
-
     from sqlseed.core.features import (
-        CheckConstraintFeatures,
-        ColumnFeatures,
-        ForeignKeyFeatures,
-        StructuralFeatures,
-        TableFeatures,
+        ColumnFeatures, ForeignKeyFeatures, CheckConstraintFeatures,
+        TableFeatures, StructuralFeatures,
     )
 
     features = StructuralFeatures(
@@ -498,49 +534,30 @@ def test_decide_granularity_2b_model_uses_per_column():
                 name="orders",
                 columns=[
                     ColumnFeatures(
-                        name="id",
-                        type="INTEGER",
-                        nullable=False,
-                        default=None,
-                        is_primary_key=True,
-                        is_autoincrement=True,
-                        is_computed=False,
+                        name="id", type="INTEGER", nullable=False, default=None,
+                        is_primary_key=True, is_autoincrement=True, is_computed=False,
                     ),
                     ColumnFeatures(
-                        name="user_id",
-                        type="INTEGER",
-                        nullable=False,
-                        default=None,
-                        is_primary_key=False,
-                        is_autoincrement=False,
-                        is_computed=False,
+                        name="user_id", type="INTEGER", nullable=False, default=None,
+                        is_primary_key=False, is_autoincrement=False, is_computed=False,
                     ),
                     ColumnFeatures(
-                        name="amount",
-                        type="REAL",
-                        nullable=False,
-                        default=None,
-                        is_primary_key=False,
-                        is_autoincrement=False,
-                        is_computed=False,
+                        name="amount", type="REAL", nullable=False, default=None,
+                        is_primary_key=False, is_autoincrement=False, is_computed=False,
                     ),
                 ],
                 primary_key=["id"],
                 foreign_keys=[
                     ForeignKeyFeatures(
-                        table="orders",
-                        columns=["user_id"],
-                        ref_table="users",
-                        ref_columns=["id"],
+                        table="orders", columns=["user_id"],
+                        ref_table="users", ref_columns=["id"],
                     ),
                 ],
                 unique_constraints=[],
                 check_constraints=[
                     CheckConstraintFeatures(
-                        table="orders",
-                        name="ck_positive",
-                        columns=["amount"],
-                        expression="amount > 0",
+                        table="orders", name="ck_positive",
+                        columns=["amount"], expression="amount > 0",
                     ),
                 ],
                 indexes=[],
@@ -557,11 +574,8 @@ def test_decide_granularity_2b_model_uses_per_column():
 def test_decide_granularity_7b_model_uses_per_table():
     """Mid-size model (E4B) + simple table -> per_table (balance cost and context)."""
     from sqlseed_ai.staged_analyzer import decide_granularity
-
     from sqlseed.core.features import (
-        ColumnFeatures,
-        StructuralFeatures,
-        TableFeatures,
+        ColumnFeatures, TableFeatures, StructuralFeatures,
     )
 
     features = StructuralFeatures(
@@ -570,22 +584,12 @@ def test_decide_granularity_7b_model_uses_per_table():
                 name="simple",
                 columns=[
                     ColumnFeatures(
-                        name="id",
-                        type="INTEGER",
-                        nullable=False,
-                        default=None,
-                        is_primary_key=True,
-                        is_autoincrement=True,
-                        is_computed=False,
+                        name="id", type="INTEGER", nullable=False, default=None,
+                        is_primary_key=True, is_autoincrement=True, is_computed=False,
                     ),
                     ColumnFeatures(
-                        name="name",
-                        type="TEXT",
-                        nullable=True,
-                        default=None,
-                        is_primary_key=False,
-                        is_autoincrement=False,
-                        is_computed=False,
+                        name="name", type="TEXT", nullable=True, default=None,
+                        is_primary_key=False, is_autoincrement=False, is_computed=False,
                     ),
                 ],
                 primary_key=["id"],
@@ -606,11 +610,8 @@ def test_decide_granularity_7b_model_uses_per_table():
 def test_decide_granularity_cloud_model_uses_per_db():
     """Large cloud model -> per_db (single LLM call for the whole db)."""
     from sqlseed_ai.staged_analyzer import decide_granularity
-
     from sqlseed.core.features import (
-        ColumnFeatures,
-        StructuralFeatures,
-        TableFeatures,
+        ColumnFeatures, TableFeatures, StructuralFeatures,
     )
 
     features = StructuralFeatures(
@@ -619,13 +620,8 @@ def test_decide_granularity_cloud_model_uses_per_db():
                 name="t1",
                 columns=[
                     ColumnFeatures(
-                        name="id",
-                        type="INTEGER",
-                        nullable=False,
-                        default=None,
-                        is_primary_key=True,
-                        is_autoincrement=True,
-                        is_computed=False,
+                        name="id", type="INTEGER", nullable=False, default=None,
+                        is_primary_key=True, is_autoincrement=True, is_computed=False,
                     ),
                 ],
                 primary_key=["id"],
