@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import datetime
 import importlib
-import time
 from typing import Any
 
 from sqlseed._utils.logger import get_logger
@@ -118,25 +117,43 @@ class FakerProvider(BaseProvider):
         """Generate a UUID."""
         return self._faker.uuid4()
 
-    def _gen_date(self, *, start_year: int = 2000, end_year: int | None = None) -> str:
-        """Generate a date string."""
+    def _gen_date(self, *, start_year: int = 2000, end_year: int | None = None) -> datetime.date:
+        """Generate a ``datetime.date`` object.
+
+        Returning a ``date`` object (rather than a ``strftime`` string)
+        ensures SQLAlchemy ``DATE`` columns accept the value directly —
+        SQLite's ``DATE`` type rejects ISO-format strings with
+        ``StatementError: SQLite Date type only accepts Python date objects``.
+        """
         _, resolved_end = self._resolve_date_range(start_year, end_year)
         start = datetime.datetime(start_year, 1, 1).date()
         end = datetime.datetime(resolved_end, 12, 31).date()
-        return self._faker.date_between_dates(date_start=start, date_end=end).strftime("%Y-%m-%d")
+        return self._faker.date_between_dates(date_start=start, date_end=end)
 
-    def _gen_datetime(self, *, start_year: int = 2000, end_year: int | None = None) -> str:
-        """Generate a datetime string."""
+    def _gen_datetime(self, *, start_year: int = 2000, end_year: int | None = None) -> datetime.datetime:
+        """Generate a ``datetime.datetime`` object.
+
+        Returning a ``datetime`` object (rather than a ``strftime`` string)
+        ensures SQLAlchemy ``DATETIME``/``TIMESTAMP`` columns accept the value
+        directly — SQLite's ``DateTime`` type rejects ISO-format strings with
+        ``StatementError: SQLite DateTime type only accepts Python datetime
+        and date objects as input``.
+        """
         _, resolved_end = self._resolve_date_range(start_year, end_year)
         start = datetime.datetime(start_year, 1, 1)
         end = datetime.datetime(resolved_end, 12, 31, 23, 59, 59)
-        dt = self._faker.date_time_between_dates(datetime_start=start, datetime_end=end)
-        return dt.strftime("%Y-%m-%d %H:%M:%S")
+        return self._faker.date_time_between_dates(datetime_start=start, datetime_end=end)
 
-    def _gen_timestamp(self) -> int:
-        """Generate a Unix timestamp."""
-        dt = self._faker.date_time_this_decade()
-        return int(time.mktime(dt.timetuple()))
+    def _gen_timestamp(self, *, start_year: int = 2000, end_year: int | None = None) -> datetime.datetime:
+        """Generate a ``datetime.datetime`` object.
+
+        Returning a ``datetime`` object (rather than a Unix epoch integer)
+        ensures SQLAlchemy ``TIMESTAMP``/``DATETIME`` columns accept the value
+        directly — SQLite's ``DateTime`` type rejects integers with
+        ``StatementError: SQLite DateTime type only accepts Python datetime
+        and date objects as input``.
+        """
+        return self._gen_datetime(start_year=start_year, end_year=end_year)
 
     def _gen_text(self, *, min_length: int = 50, max_length: int = 200) -> str:
         """Generate text."""

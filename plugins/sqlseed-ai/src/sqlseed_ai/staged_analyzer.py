@@ -764,12 +764,16 @@ _UNBOUNDED_REGEX_PATTERN = re.compile(r"\{(\d+),\}")
 
 
 class Stage3Validator:
-    """Stage 3 validator: apply auto-fix rules #14-#16 on top of LLM output.
+    """Stage 3 validator: apply auto-fix rules #14-#17 on top of LLM output.
 
     Rule #14: GENERATOR_PARAMS validation — strip params not accepted by generator.
+              Also corrects the common LLM typo ``choice`` -> ``choices``.
     Rule #15: bounds unbounded regex quantifiers {N,} -> {N,N+5}.
     Rule #16: FK semantic check — FK columns must use a generator compatible with
-              the referenced column's type.
+              the referenced column's type. Skips columns with derive_from set.
+    Rule #17: boolean-expression derive_from detection — rewrites LLM-returned
+              boolean comparisons (``>= value``, ``X >= 0 AND X <= value``) into
+              valid assignment expressions, or strips derive_from if unrecognised.
     """
 
     def validate(
@@ -788,12 +792,19 @@ class Stage3Validator:
                     continue
                 self._apply_rule_14_strip_invalid_params(col)
                 self._apply_rule_15_bound_regex(col)
+                self._apply_rule_17_boolean_expression(col)
             if schema and table_name in schema:
                 self._apply_rule_16_fk_semantic(table, schema[table_name])
         return config
 
     def _apply_rule_14_strip_invalid_params(self, col: dict[str, Any]) -> None:
-        """Rule #14: strip params not in generator's accepted whitelist."""
+        """Rule #14: strip params not in generator's accepted whitelist.
+
+        Also corrects the common LLM typo of returning ``choice`` (singular)
+        for the ``choice`` generator — the correct param name is ``choices``
+        (plural). Without this correction the param would be stripped, leaving
+        the generator with no choices and falling back to 0/1 integers.
+        """
         gen = col.get("generator")
         if not isinstance(gen, str):
             return
@@ -804,6 +815,14 @@ class Stage3Validator:
         params = col.get("params")
         if not isinstance(params, dict):
             return
+        # Common LLM typo: "choice" (singular) should be "choices" (plural)
+        # for the "choice" generator. Rename rather than strip.
+        if gen == "choice" and "choice" in params and "choices" not in params:
+            logger.warning(
+                "Stage3 Rule #14: correcting singular 'choice' param to 'choices'",
+                column=col.get("name"),
+            )
+            params["choices"] = params.pop("choice")
         invalid_keys = set(params.keys()) - accepted
         for key in invalid_keys:
             logger.warning(
@@ -834,11 +853,90 @@ class Stage3Validator:
                 )
                 params[key] = new_val
 
+    def _apply_rule_17_boolean_expression(self, col: dict[str, Any]) -> None:
+        """Rule #17: detect and correct boolean-comparison derive_from expressions.
+
+        LLMs sometimes return a boolean comparison (e.g. ``sale_price >= value``
+        or ``>= value``) instead of an assignment expression. Such expressions
+        evaluate to True/False (1/0) at runtime, producing nonsensical data.
+
+        Corrected forms:
+          - ``<col> >= value`` or ``>= value``  ->  ``value + random_float(0, value)``
+            (ensures the derived value is >= the source value)
+          - ``<col> >= 0 AND <col> <= value`` (or similar range)  ->
+            ``random_float(0, value)`` (keeps the value within [0, source])
+          - Unrecognised boolean expressions  ->  derive_from + expression
+            stripped, falling back to a type-routed generator.
+        """
+        derive_from = col.get("derive_from")
+        expression = col.get("expression")
+        if not derive_from or not isinstance(expression, str):
+            return
+        expr = expression.strip()
+        col_name = col.get("name", "<unknown>")
+
+        # Detect a range comparison like "X >= 0 AND X <= value" or
+        # "X >= 0 and X <= value" (case-insensitive).
+        range_match = re.match(
+            r"^\w+\s*(>=|>)\s*0\s*(?:AND|and)\s*\w+\s*(<=|<)\s*value\s*$",
+            expr,
+        )
+        if range_match:
+            col["expression"] = "random_float(0, value)"
+            logger.warning(
+                "Stage3 Rule #17: rewriting boolean range expression",
+                column=col_name,
+                original=expr,
+                corrected="random_float(0, value)",
+            )
+            return
+
+        # Detect "X >= value" or ">= value" (target should be >= source).
+        ge_match = re.match(r"^(?:\w+\s*)?>=\s*value\s*$", expr)
+        if ge_match:
+            col["expression"] = "value + random_float(0, value)"
+            logger.warning(
+                "Stage3 Rule #17: rewriting boolean '>=' expression",
+                column=col_name,
+                original=expr,
+                corrected="value + random_float(0, value)",
+            )
+            return
+
+        # Detect "X <= value" or "<= value" (target should be <= source).
+        le_match = re.match(r"^(?:\w+\s*)?<=\s*value\s*$", expr)
+        if le_match:
+            col["expression"] = "random_float(0, value)"
+            logger.warning(
+                "Stage3 Rule #17: rewriting boolean '<=' expression",
+                column=col_name,
+                original=expr,
+                corrected="random_float(0, value)",
+            )
+            return
+
+        # Fallback: any other expression containing a comparison operator is
+        # likely a boolean comparison — strip derive_from so the column falls
+        # back to its generator (type-routed) instead of producing True/False.
+        if re.search(r"(>=|<=|==|!=|[^<>]=[^=])", expr) or re.search(r"\b(AND|OR|and|or)\b", expr):
+            logger.warning(
+                "Stage3 Rule #17: stripping unrecognised boolean derive_from expression",
+                column=col_name,
+                expression=expr,
+            )
+            col.pop("derive_from", None)
+            col.pop("expression", None)
+
     def _apply_rule_16_fk_semantic(self, table: dict[str, Any], table_schema: dict[str, Any]) -> None:
         """Rule #16: FK columns must use a generator compatible with ref column type.
 
         Currently only checks: FK to integer column must use integer generator
         (common LLM mistake: assigning username/name to FK columns ending in _by).
+
+        Skips columns that already have ``derive_from`` set — derive_from takes
+        precedence over generator (enforced by Fix 1 in rules #1-#13), so adding
+        a generator back here would re-introduce the mutual-exclusivity clash
+        that Pydantic rejects (``cannot use both 'generator' and 'derive_from'``).
         """
         fks = table_schema.get("foreign_keys", [])
         if not isinstance(fks, list):
@@ -865,9 +963,17 @@ class Stage3Validator:
             col_name = col.get("name")
             if col_name not in integer_fk_cols:
                 continue
+            # derive_from takes precedence — do not re-add generator+params
+            # (would clash with derive_from and break Pydantic validation).
+            if col.get("derive_from"):
+                continue
             gen = col.get("generator")
             # Integer-compatible generators
             if gen in ("integer", "uuid", "pattern"):
+                # Even for integer FKs, cap an unreasonably large max_value
+                # (LLMs sometimes return 10^9). Test datasets rarely exceed
+                # 1000 parent rows, so cap at 1000 to keep FKs resolvable.
+                self._cap_fk_max_value(col, col_name)
                 continue
             logger.warning(
                 "Stage3 Rule #16: replacing string generator on integer FK column",
@@ -876,7 +982,29 @@ class Stage3Validator:
                 ref_column_type="integer",
             )
             col["generator"] = "integer"
-            col["params"] = {"min_value": 1, "max_value": 999999}
+            col["params"] = {"min_value": 1, "max_value": 1000}
+
+    @staticmethod
+    def _cap_fk_max_value(col: dict[str, Any], col_name: Any) -> None:
+        """Cap an unreasonably large FK ``max_value`` to 1000.
+
+        LLMs sometimes return ``max_value`` like 10^9 for FK columns, which
+        produces orphan FKs (the referenced parent table typically has far
+        fewer rows). Capping at 1000 keeps generated FKs resolvable in
+        typical test datasets (100-1000 rows per table).
+        """
+        params = col.get("params")
+        if not isinstance(params, dict):
+            return
+        max_val = params.get("max_value")
+        if isinstance(max_val, (int, float)) and max_val > 1000:
+            logger.warning(
+                "Stage3 Rule #16: capping unreasonably large FK max_value",
+                column=col_name,
+                original_max_value=max_val,
+                capped_max_value=1000,
+            )
+            params["max_value"] = 1000
 
 
 def _bound_unbounded_quantifier(match: re.Match[str]) -> str:

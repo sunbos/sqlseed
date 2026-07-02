@@ -38,12 +38,18 @@ class TestBaseProvider(
         assert result.count("-") == 4
 
     def test_generate_date_range(self) -> None:
-        result = self.provider.generate("date", start_year=2020, end_year=2024)
-        assert result.startswith("20")
+        import datetime as _dt
 
-    def test_generate_datetime_has_space(self) -> None:
+        result = self.provider.generate("date", start_year=2020, end_year=2024)
+        assert isinstance(result, _dt.date)
+        assert _dt.date(2020, 1, 1) <= result <= _dt.date(2024, 12, 31)
+
+    def test_generate_datetime_is_datetime_object(self) -> None:
+        import datetime as _dt
+
         result = self.provider.generate("datetime", start_year=2020, end_year=2024)
-        assert " " in result
+        assert isinstance(result, _dt.datetime)
+        assert _dt.datetime(2020, 1, 1) <= result <= _dt.datetime(2024, 12, 31, 23, 59, 59)
 
     def test_generate_text_long(self) -> None:
         result = self.provider.generate("text", min_length=50, max_length=200)

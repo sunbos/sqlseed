@@ -447,6 +447,266 @@ def test_stage3_validator_rule_16_detects_fk_semantic_mismatch():
     assert col["params"]["max_value"] >= 1
 
 
+def test_stage3_validator_rule_14_corrects_singular_choice_to_choices():
+    """Rule #14: LLM typo ``choice`` (singular) -> ``choices`` (plural).
+
+    Reproduces the P0 #2 bug observed in complex_biz.db: the LLM returned
+    ``params: {choice: [...]}`` for a ``choice`` generator, and Rule #14
+    stripped it (since ``choice`` is not in the accepted param set),
+    leaving the generator with no choices and silently degrading to
+    integer 0/1 fallback at fill time.
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "orders",
+                "columns": [
+                    {
+                        "name": "order_status",
+                        "generator": "choice",
+                        "params": {"choice": ["pending", "paid", "shipped"]},
+                    },
+                ],
+            }
+        ]
+    }
+    validator = Stage3Validator()
+    validator.validate(config)
+    col = config["tables"][0]["columns"][0]
+    # The singular "choice" key must be renamed to "choices", not stripped
+    assert "choice" not in col["params"]
+    assert "choices" in col["params"]
+    assert col["params"]["choices"] == ["pending", "paid", "shipped"]
+    assert col["generator"] == "choice"
+
+
+def test_stage3_validator_rule_16_skips_derive_from_columns():
+    """Rule #16: columns with ``derive_from`` set are skipped.
+
+    Reproduces the P1 #3 bug: Rule #16 was re-adding ``generator+params``
+    to FK columns that already had ``derive_from`` set (after Fix 1 in
+    rules #1-#13 had stripped them), causing Pydantic to reject the
+    config with ``cannot use both 'generator' and 'derive_from'``.
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "orders",
+                "columns": [
+                    {
+                        "name": "project_id",
+                        "derive_from": "projects.id",
+                        "expression": "value",
+                    },
+                ],
+            }
+        ]
+    }
+    schema = {
+        "orders": {
+            "foreign_keys": [
+                {"columns": ["project_id"], "ref_table": "projects", "ref_columns": ["id"]},
+            ]
+        }
+    }
+    validator = Stage3Validator()
+    validator.validate(config, schema=schema)
+    col = config["tables"][0]["columns"][0]
+    # derive_from must remain; generator+params must NOT be re-added
+    assert col.get("derive_from") == "projects.id"
+    assert "generator" not in col
+    assert "params" not in col
+
+
+def test_stage3_validator_rule_16_caps_large_fk_max_value():
+    """Rule #16: unreasonably large FK ``max_value`` is capped to 1000.
+
+    Reproduces the P2 #5 bug: the LLM returned ``max_value: 1000000000``
+    for an integer FK column, which produced FK values that almost
+    never resolved to a parent row (parent tables typically have <1000
+    rows in test datasets).
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "orders",
+                "columns": [
+                    {
+                        "name": "merchant_id",
+                        "generator": "integer",
+                        "params": {"min_value": 1, "max_value": 1000000000},
+                    },
+                ],
+            }
+        ]
+    }
+    schema = {
+        "orders": {
+            "foreign_keys": [
+                {"columns": ["merchant_id"], "ref_table": "merchants", "ref_columns": ["id"]},
+            ]
+        }
+    }
+    validator = Stage3Validator()
+    validator.validate(config, schema=schema)
+    col = config["tables"][0]["columns"][0]
+    # max_value must be capped at 1000; min_value unchanged
+    assert col["params"]["max_value"] == 1000
+    assert col["params"]["min_value"] == 1
+    # generator stays as integer (already compatible)
+    assert col["generator"] == "integer"
+
+
+def test_stage3_validator_rule_17_rewrites_range_boolean_expression():
+    """Rule #17: ``X >= 0 AND X <= value`` -> ``random_float(0, value)``.
+
+    Reproduces the P1 #4 bug: LLMs sometimes return a boolean range
+    comparison as the derive_from expression, which evaluates to
+    True/False (1/0) at runtime instead of producing a meaningful
+    derived value.
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "products",
+                "columns": [
+                    {
+                        "name": "discount_ratio",
+                        "derive_from": "base_price",
+                        "expression": "discount_ratio >= 0 AND discount_ratio <= value",
+                    },
+                ],
+            }
+        ]
+    }
+    validator = Stage3Validator()
+    validator.validate(config)
+    col = config["tables"][0]["columns"][0]
+    assert col["expression"] == "random_float(0, value)"
+    # derive_from preserved (the rewritten expression is a valid assignment)
+    assert col.get("derive_from") == "base_price"
+
+
+def test_stage3_validator_rule_17_rewrites_ge_boolean_expression():
+    """Rule #17: ``X >= value`` or ``>= value`` -> ``value + random_float(0, value)``."""
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    for expr in ("sale_price >= value", ">= value"):
+        config = {
+            "tables": [
+                {
+                    "name": "products",
+                    "columns": [
+                        {
+                            "name": "sale_price",
+                            "derive_from": "base_price",
+                            "expression": expr,
+                        },
+                    ],
+                }
+            ]
+        }
+        validator = Stage3Validator()
+        validator.validate(config)
+        col = config["tables"][0]["columns"][0]
+        assert col["expression"] == "value + random_float(0, value)", (
+            f"failed for expression: {expr}"
+        )
+        assert col.get("derive_from") == "base_price"
+
+
+def test_stage3_validator_rule_17_rewrites_le_boolean_expression():
+    """Rule #17: ``X <= value`` or ``<= value`` -> ``random_float(0, value)``."""
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    for expr in ("sale_price <= value", "<= value"):
+        config = {
+            "tables": [
+                {
+                    "name": "products",
+                    "columns": [
+                        {
+                            "name": "sale_price",
+                            "derive_from": "base_price",
+                            "expression": expr,
+                        },
+                    ],
+                }
+            ]
+        }
+        validator = Stage3Validator()
+        validator.validate(config)
+        col = config["tables"][0]["columns"][0]
+        assert col["expression"] == "random_float(0, value)", (
+            f"failed for expression: {expr}"
+        )
+        assert col.get("derive_from") == "base_price"
+
+
+def test_stage3_validator_rule_17_strips_unrecognised_boolean_expression():
+    """Rule #17: unrecognised boolean expressions strip derive_from entirely.
+
+    Falls back to the column's type-routed generator rather than producing
+    True/False (1/0) values from a boolean comparison.
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "products",
+                "columns": [
+                    {
+                        "name": "is_discounted",
+                        "derive_from": "base_price",
+                        "expression": "value > 100 AND value < 500",
+                    },
+                ],
+            }
+        ]
+    }
+    validator = Stage3Validator()
+    validator.validate(config)
+    col = config["tables"][0]["columns"][0]
+    # Unrecognised boolean expression -> derive_from and expression stripped
+    assert "derive_from" not in col
+    assert "expression" not in col
+
+
+def test_stage3_validator_rule_17_preserves_non_boolean_expression():
+    """Rule #17: non-boolean expressions (e.g. ``value * 0.9``) are preserved."""
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "products",
+                "columns": [
+                    {
+                        "name": "sale_price",
+                        "derive_from": "base_price",
+                        "expression": "value * 0.9",
+                    },
+                ],
+            }
+        ]
+    }
+    validator = Stage3Validator()
+    validator.validate(config)
+    col = config["tables"][0]["columns"][0]
+    # No boolean operator -> expression and derive_from preserved
+    assert col["expression"] == "value * 0.9"
+    assert col.get("derive_from") == "base_price"
+
+
 def test_staged_analyzer_analyze_full_pipeline_calls_stages_in_order(monkeypatch, raw_adapter):
     """Full analyze(adapter) pipeline: stage 1 -> stage 2 -> stage 3.
 

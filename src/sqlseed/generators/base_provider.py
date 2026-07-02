@@ -5,6 +5,7 @@ from __future__ import annotations
 import random
 import re
 import uuid
+from datetime import date as _date
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -216,21 +217,33 @@ class BaseProvider(GeneratorDispatchMixin):
 
     # ── Date/time generators ──────────────────────────────────────────
 
-    def _gen_date(self, *, start_year: int = 2000, end_year: int | None = None) -> str:
-        """Generate a date string within the given year range."""
-        self._next_id()
-        return self._random_date(start_year, end_year).strftime("%Y-%m-%d")
+    def _gen_date(self, *, start_year: int = 2000, end_year: int | None = None) -> _date:
+        """Generate a ``datetime.date`` within the given year range.
 
-    def _gen_datetime(self, *, start_year: int = 2000, end_year: int | None = None) -> str:
-        """Generate a datetime string within the given year range."""
+        Returning a ``date`` object (rather than a ``strftime`` string)
+        ensures SQLAlchemy ``DATE`` columns accept the value directly —
+        SQLite's ``DATE`` type rejects ISO-format strings with
+        ``StatementError: SQLite Date type only accepts Python date objects``.
+        """
+        self._next_id()
+        return self._random_date(start_year, end_year).date()
+
+    def _gen_datetime(self, *, start_year: int = 2000, end_year: int | None = None) -> datetime:
+        """Generate a ``datetime.datetime`` within the given year range.
+
+        Returning a ``datetime`` object (rather than a ``strftime`` string)
+        ensures SQLAlchemy ``DATETIME``/``TIMESTAMP`` columns accept the value
+        directly — SQLite's ``DateTime`` type rejects strings and Unix epoch
+        integers with ``StatementError: SQLite DateTime type only accepts
+        Python datetime and date objects as input``.
+        """
         self._next_id()
         base = self._random_date(start_year, end_year)
-        base = base.replace(
+        return base.replace(
             hour=self._rng.randint(0, 23),
             minute=self._rng.randint(0, 59),
             second=self._rng.randint(0, 59),
         )
-        return base.strftime("%Y-%m-%d %H:%M:%S")
 
     @staticmethod
     def _resolve_date_range(start_year: int, end_year: int | None) -> tuple[int, int]:
@@ -246,13 +259,17 @@ class BaseProvider(GeneratorDispatchMixin):
         delta = max((end - start).days, 0)
         return start + timedelta(days=self._rng.randint(0, max(delta, 1)))
 
-    def _gen_timestamp(self) -> int:
-        """Generate a Unix timestamp."""
-        start = datetime(2000, 1, 1)
-        end = datetime(2030, 12, 31, 23, 59, 59)
-        delta = (end - start).total_seconds()
-        random_dt = start + timedelta(seconds=self._rng.uniform(0, delta))
-        return int(random_dt.timestamp())
+    def _gen_timestamp(self, *, start_year: int = 2000, end_year: int | None = None) -> datetime:
+        """Generate a ``datetime.datetime`` within the given year range.
+
+        Returning a ``datetime`` object (rather than a Unix epoch integer)
+        ensures SQLAlchemy ``TIMESTAMP``/``DATETIME`` columns accept the value
+        directly — SQLite's ``DateTime`` type rejects integers with
+        ``StatementError: SQLite DateTime type only accepts Python datetime
+        and date objects as input``.
+        """
+        self._next_id()
+        return self._gen_datetime(start_year=start_year, end_year=end_year)
 
     # ── Network generators ────────────────────────────────────────────
 

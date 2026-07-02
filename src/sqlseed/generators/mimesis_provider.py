@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import importlib
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlseed._utils.logger import get_logger
 from sqlseed.generators.base_provider import BaseProvider
+
+if TYPE_CHECKING:
+    import datetime
 
 # Use importlib.import_module() instead of top-level ``from mimesis import
 # Generic`` so that ruff's import-outside-toplevel check is not triggered
@@ -140,21 +143,39 @@ class MimesisProvider(BaseProvider):
         """Generate a UUID."""
         return str(self._generic.cryptographic.uuid_object())
 
-    def _gen_date(self, *, start_year: int = 2000, end_year: int | None = None) -> str:
-        """Generate a date string."""
-        _, resolved_end = self._resolve_date_range(start_year, end_year)
-        date = self._generic.datetime.date(start=start_year, end=resolved_end)
-        return str(date)
+    def _gen_date(self, *, start_year: int = 2000, end_year: int | None = None) -> datetime.date:
+        """Generate a ``datetime.date`` object.
 
-    def _gen_datetime(self, *, start_year: int = 2000, end_year: int | None = None) -> str:
-        """Generate a datetime string."""
+        Returning a ``date`` object (rather than a ``str(date)`` string)
+        ensures SQLAlchemy ``DATE`` columns accept the value directly —
+        SQLite's ``DATE`` type rejects ISO-format strings with
+        ``StatementError: SQLite Date type only accepts Python date objects``.
+        """
         _, resolved_end = self._resolve_date_range(start_year, end_year)
-        dt = self._generic.datetime.datetime(start=start_year, end=resolved_end)
-        return str(dt)
+        return self._generic.datetime.date(start=start_year, end=resolved_end)
 
-    def _gen_timestamp(self) -> int:
-        """Generate a Unix timestamp."""
-        return self._generic.datetime.timestamp()
+    def _gen_datetime(self, *, start_year: int = 2000, end_year: int | None = None) -> datetime.datetime:
+        """Generate a ``datetime.datetime`` object.
+
+        Returning a ``datetime`` object (rather than a ``str(datetime)`` string)
+        ensures SQLAlchemy ``DATETIME``/``TIMESTAMP`` columns accept the value
+        directly — SQLite's ``DateTime`` type rejects ISO-format strings with
+        ``StatementError: SQLite DateTime type only accepts Python datetime
+        and date objects as input``.
+        """
+        _, resolved_end = self._resolve_date_range(start_year, end_year)
+        return self._generic.datetime.datetime(start=start_year, end=resolved_end)
+
+    def _gen_timestamp(self, *, start_year: int = 2000, end_year: int | None = None) -> datetime.datetime:
+        """Generate a ``datetime.datetime`` object.
+
+        Returning a ``datetime`` object (rather than a Unix epoch integer)
+        ensures SQLAlchemy ``TIMESTAMP``/``DATETIME`` columns accept the value
+        directly — SQLite's ``DateTime`` type rejects integers with
+        ``StatementError: SQLite DateTime type only accepts Python datetime
+        and date objects as input``.
+        """
+        return self._gen_datetime(start_year=start_year, end_year=end_year)
 
     def _gen_text(self, *, min_length: int = 50, max_length: int = 200) -> str:
         """Generate text."""
