@@ -1,4 +1,5 @@
 """Tests for SchemaSemanticAnalyzer."""
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock
@@ -30,6 +31,7 @@ class TestSchemaSemanticAnalyzerStructure:
         db = MagicMock()
         db.get_table_names.return_value = ["users", "orders", "items", "categories"]
         from sqlseed.database._protocol import ForeignKeyInfo
+
         db.get_foreign_keys.side_effect = lambda t: {
             "orders": [ForeignKeyInfo(column="user_id", ref_table="users", ref_column="id")],
             "users": [],
@@ -95,9 +97,7 @@ class TestSchemaSemanticAnalyzerPrompt:
                 "products": {
                     "columns": [{"name": "price", "type": "REAL"}],
                     "foreign_keys": [],
-                    "check_constraints": [
-                        {"name": "chk_price", "columns": ["price"], "expression": "price >= 0"}
-                    ],
+                    "check_constraints": [{"name": "chk_price", "columns": ["price"], "expression": "price >= 0"}],
                 }
             },
         )
@@ -446,8 +446,11 @@ class TestAutoFixConfig:
                     "columns": [
                         {"name": "quantity", "generator": "integer", "params": {"min_value": 1}},
                         {"name": "price_per_unit", "generator": "float", "params": {"min_value": 0.01}},
-                        {"name": "item_total", "derive_from": ["quantity", "price_per_unit"],
-                         "expression": "round(value[0]*value[1],2)"},
+                        {
+                            "name": "item_total",
+                            "derive_from": ["quantity", "price_per_unit"],
+                            "expression": "round(value[0]*value[1],2)",
+                        },
                     ],
                 }
             ]
@@ -476,8 +479,7 @@ class TestAutoFixConfig:
                 {
                     "name": "order_items",
                     "columns": [
-                        {"name": "item_total", "derive_from": ["quantity"],
-                         "expression": "round(value,2)"},
+                        {"name": "item_total", "derive_from": ["quantity"], "expression": "round(value,2)"},
                     ],
                 }
             ]
@@ -495,11 +497,13 @@ class TestAutoFixConfig:
                 {
                     "name": "users",
                     "columns": [
-                        {"name": "username", "generator": "template",
-                         "params": {"template": "USER-{sequence:04d}"},
-                         "constraints": {"unique": True}},
-                        {"name": "email", "generator": "email", "params": {},
-                         "constraints": {"unique": False}},
+                        {
+                            "name": "username",
+                            "generator": "template",
+                            "params": {"template": "USER-{sequence:04d}"},
+                            "constraints": {"unique": True},
+                        },
+                        {"name": "email", "generator": "email", "params": {}, "constraints": {"unique": False}},
                     ],
                 }
             ]
@@ -1030,3 +1034,40 @@ class TestAutoFixConfig:
         assert col["generator"] == "email"
 
 
+def test_apply_auto_fix_rules_1_13_is_public_function():
+    """P3 #5: _auto_fix_config extracted as public function apply_auto_fix_rules_1_13()."""
+    from sqlseed_ai.schema_analyzer import apply_auto_fix_rules_1_13
+
+    config = {
+        "name": "users",
+        "columns": [
+            {"name": "id", "generator": "integer", "derive_from": ["x"]},  # mutual exclusivity
+        ],
+    }
+    fixed = apply_auto_fix_rules_1_13(config)
+    # Fix 1: derive_from wins, generator stripped
+    col = fixed["columns"][0]
+    assert "generator" not in col
+    assert col["derive_from"] == ["x"]
+
+
+def test_apply_auto_fix_rules_preserves_existing_behavior():
+    """Public function preserves existing _auto_fix_config behavior."""
+    from sqlseed_ai.schema_analyzer import (
+        SchemaSemanticAnalyzer,
+        apply_auto_fix_rules_1_13,
+    )
+
+    config = {
+        "name": "t",
+        "columns": [
+            {"name": "x", "generator": "choice", "params": {"weighted_choices": [{"value": "a", "weight": 1}]}},
+        ],
+    }
+    # Public function
+    result_pub = apply_auto_fix_rules_1_13(dict(config))
+    # Existing method
+    analyzer = SchemaSemanticAnalyzer()
+    result_method = analyzer._auto_fix_config(dict(config))
+
+    assert result_pub == result_method
