@@ -105,7 +105,8 @@ class ContextBuilderMixin:
         # from the prompt context so that the LLM (especially local models) won't attempt
         # to generate rules for columns that are already handled automatically.
         columns = [
-            col for col in raw_columns
+            col
+            for col in raw_columns
             if not (
                 (col.is_primary_key and col.is_autoincrement)
                 or col.default is not None

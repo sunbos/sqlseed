@@ -67,9 +67,7 @@ class BaseProvider(GeneratorDispatchMixin):
         ``charset`` caused the method to return a fixed-length ``str_NNN``
         placeholder, ignoring ``min_length``/``max_length`` entirely.
         """
-        return generate_random_string(
-            self._rng, min_length=min_length, max_length=max_length, charset=charset
-        )
+        return generate_random_string(self._rng, min_length=min_length, max_length=max_length, charset=charset)
 
     def _gen_integer(self, *, min_value: int = 0, max_value: int = 999999) -> int:
         """Generate an integer."""
@@ -451,4 +449,3 @@ class BaseProvider(GeneratorDispatchMixin):
 
         selected = self._rng.choices(population, weights=weights, k=1)
         return selected[0]
-

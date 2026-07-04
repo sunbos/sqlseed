@@ -5,6 +5,7 @@ mocked LLM responses, validating that the final YAML config is well-formed
 and that the StagedSchemaAnalyzer integrates correctly with the rest of
 the system.
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -91,9 +92,7 @@ def test_layer1_extract_features_from_complex_biz(complex_biz_db):
     assert any(fk.ref_table == "categories" for fk in products.foreign_keys)
 
     # products has CHECK on price > 0
-    assert any(
-        any("price" in c for c in check.columns) for check in products.check_constraints
-    )
+    assert any(any("price" in c for c in check.columns) for check in products.check_constraints)
 
 
 def test_staged_analyzer_topological_sort_puts_parents_first(complex_biz_db):
@@ -129,7 +128,10 @@ def test_staged_analyzer_deterministic_fallback(complex_biz_db):
     assert len(summary.tables) == 4
     assert summary.schema_hash == features.schema_hash
     assert set(summary.topological_order) == {
-        "categories", "products", "orders", "order_items",
+        "categories",
+        "products",
+        "orders",
+        "order_items",
     }
     # Topological order in fallback is also valid
     order = summary.topological_order
@@ -153,7 +155,8 @@ def test_staged_analyzer_full_pipeline_with_mocked_llm(complex_biz_db, monkeypat
     # Stage 2: mock _run_stage2_per_column to return full config dict
     # (Task 8 signature: features, summary, target_tables -> dict[str, Any])
     monkeypatch.setattr(
-        analyzer, "_run_stage2_per_column",
+        analyzer,
+        "_run_stage2_per_column",
         lambda features, summary, target_tables: _mock_stage2_config(features, target_tables),
     )
 
@@ -185,30 +188,20 @@ def _mock_stage2_config(features: Any, target_tables: list[str]) -> dict[str, An
         ],
         "products": [
             {"name": "name", "generator": "word", "params": {}},
-            {"name": "category_id", "generator": "integer",
-             "params": {"min_value": 1, "max_value": 100}},
-            {"name": "price", "generator": "float",
-             "params": {"min_value": 0.01, "max_value": 999.99, "precision": 2}},
-            {"name": "sku", "generator": "template",
-             "params": {"template": "SKU-{sequence:04d}"}},
+            {"name": "category_id", "generator": "integer", "params": {"min_value": 1, "max_value": 100}},
+            {"name": "price", "generator": "float", "params": {"min_value": 0.01, "max_value": 999.99, "precision": 2}},
+            {"name": "sku", "generator": "template", "params": {"template": "SKU-{sequence:04d}"}},
         ],
         "orders": [
             {"name": "customer_name", "generator": "name", "params": {}},
             {"name": "created_at", "generator": "datetime", "params": {}},
-            {"name": "total", "generator": "float",
-             "params": {"min_value": 0.0, "max_value": 10000.0, "precision": 2}},
+            {"name": "total", "generator": "float", "params": {"min_value": 0.0, "max_value": 10000.0, "precision": 2}},
         ],
         "order_items": [
-            {"name": "order_id", "generator": "integer",
-             "params": {"min_value": 1, "max_value": 100}},
-            {"name": "product_id", "generator": "integer",
-             "params": {"min_value": 1, "max_value": 100}},
-            {"name": "quantity", "generator": "integer",
-             "params": {"min_value": 1, "max_value": 100}},
+            {"name": "order_id", "generator": "integer", "params": {"min_value": 1, "max_value": 100}},
+            {"name": "product_id", "generator": "integer", "params": {"min_value": 1, "max_value": 100}},
+            {"name": "quantity", "generator": "integer", "params": {"min_value": 1, "max_value": 100}},
         ],
     }
-    tables_config = [
-        {"name": name, "columns": mocks.get(name, [])}
-        for name in target_tables
-    ]
+    tables_config = [{"name": name, "columns": mocks.get(name, [])} for name in target_tables]
     return {"tables": tables_config}

@@ -9,6 +9,7 @@ This is schema semantics, NOT business logic: parsing CHECK(x >= 0) into
 min_value=0 is reading the schema declaration, not understanding business
 intent.
 """
+
 from __future__ import annotations
 
 import re
@@ -29,6 +30,7 @@ class ParsedCheck:
         min_length: For "length_range" kind, the minimum length (inclusive).
         max_length: For "length_range" kind, the maximum length (inclusive).
     """
+
     column: str
     kind: str
     choices: tuple[Any, ...] = ()
@@ -173,9 +175,7 @@ class CheckConstraintParser:
             raw = token.strip()
             if not raw:
                 continue
-            if (raw.startswith("'") and raw.endswith("'")) or (
-                raw.startswith('"') and raw.endswith('"')
-            ):
+            if (raw.startswith("'") and raw.endswith("'")) or (raw.startswith('"') and raw.endswith('"')):
                 items.append(raw[1:-1])
             else:
                 try:

@@ -201,9 +201,27 @@ class RawSQLiteAdapter(BaseRawSQLiteAdapter):
         results: list[CheckConstraintInfo] = []
         sql_keywords = frozenset(
             {
-                "in", "and", "or", "not", "null", "is", "between", "like",
-                "case", "when", "then", "else", "end", "true", "false",
-                "length", "round", "abs", "coalesce", "if", "exists",
+                "in",
+                "and",
+                "or",
+                "not",
+                "null",
+                "is",
+                "between",
+                "like",
+                "case",
+                "when",
+                "then",
+                "else",
+                "end",
+                "true",
+                "false",
+                "length",
+                "round",
+                "abs",
+                "coalesce",
+                "if",
+                "exists",
             }
         )
         for match in re.finditer(r"CHECK\s*\(", create_sql, re.IGNORECASE):

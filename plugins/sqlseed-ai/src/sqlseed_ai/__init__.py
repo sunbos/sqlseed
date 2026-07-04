@@ -80,6 +80,7 @@ def _check_ai_enabled() -> bool:
     val = os.environ.get("SQLSEED_AI_ENABLED", "").lower().strip()
     return val in ("1", "true", "yes", "on")
 
+
 _SIMPLE_COL_RE = re.compile(
     r"(^|[_\s])("
     r"name|email|phone|address|url|uuid|"

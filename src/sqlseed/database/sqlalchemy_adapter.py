@@ -547,9 +547,27 @@ class SQLAlchemyAdapter:
         # SQL keywords to exclude when extracting column identifiers.
         sql_keywords = frozenset(
             {
-                "in", "and", "or", "not", "null", "is", "between", "like",
-                "case", "when", "then", "else", "end", "true", "false",
-                "length", "round", "abs", "coalesce", "if", "exists",
+                "in",
+                "and",
+                "or",
+                "not",
+                "null",
+                "is",
+                "between",
+                "like",
+                "case",
+                "when",
+                "then",
+                "else",
+                "end",
+                "true",
+                "false",
+                "length",
+                "round",
+                "abs",
+                "coalesce",
+                "if",
+                "exists",
             }
         )
         result: list[CheckConstraintInfo] = []

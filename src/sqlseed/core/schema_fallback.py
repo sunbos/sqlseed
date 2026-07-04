@@ -19,6 +19,7 @@ Guarantees:
 - Generated data may NOT match business intent.
 - Offline-capable: no LLM, no network, no external services.
 """
+
 from __future__ import annotations
 
 import re

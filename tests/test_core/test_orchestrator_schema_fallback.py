@@ -4,6 +4,7 @@ Verifies that L9 type-fallback columns (generator_name == "string") are
 enhanced with CHECK constraint and UNIQUE-aware params WITHOUT overriding
 L1-L8 name-matched columns or user-configured columns.
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -54,9 +55,7 @@ def db_with_check_constraint(tmp_path: Path) -> str:
 class TestSchemaFallbackIntegration:
     """Test SchemaFallbackGenerator integration in _resolve_specs."""
 
-    def test_l9_string_column_gets_check_length_constraint(
-        self, db_with_check_constraint: str
-    ) -> None:
+    def test_l9_string_column_gets_check_length_constraint(self, db_with_check_constraint: str) -> None:
         """L9 'code' column (no name match) enhanced with CHECK length params."""
         with DataOrchestrator(db_with_check_constraint, provider_name="base") as orch:
             specs, _, _ = orch._resolve_specs(
@@ -74,9 +73,7 @@ class TestSchemaFallbackIntegration:
         assert code_spec.params.get("min_length") == 8
         assert code_spec.params.get("max_length") == 20
 
-    def test_l3_name_matched_column_not_overridden(
-        self, db_with_check_constraint: str
-    ) -> None:
+    def test_l3_name_matched_column_not_overridden(self, db_with_check_constraint: str) -> None:
         """L3 'email' exact-match column must NOT be overridden by schema_fallback."""
         with DataOrchestrator(db_with_check_constraint, provider_name="base") as orch:
             specs, _, _ = orch._resolve_specs(
@@ -91,9 +88,7 @@ class TestSchemaFallbackIntegration:
         # L3 exact match produces "email" generator, NOT "string"
         assert email_spec.generator_name == "email"
 
-    def test_user_configured_column_not_overridden(
-        self, db_with_check_constraint: str
-    ) -> None:
+    def test_user_configured_column_not_overridden(self, db_with_check_constraint: str) -> None:
         """User-supplied column config must NOT be overridden by schema_fallback."""
         from sqlseed.config.models import ColumnConfig
 
@@ -111,9 +106,7 @@ class TestSchemaFallbackIntegration:
         # User config "uuid" must win, not schema_fallback "string"
         assert code_spec.generator_name == "uuid"
 
-    def test_l9_string_column_without_check_gets_type_length(
-        self, db_with_check_constraint: str
-    ) -> None:
+    def test_l9_string_column_without_check_gets_type_length(self, db_with_check_constraint: str) -> None:
         """L9 'misc' column (no CHECK) gets type-parsed max_length only."""
         with DataOrchestrator(db_with_check_constraint, provider_name="base") as orch:
             specs, _, _ = orch._resolve_specs(
@@ -129,9 +122,7 @@ class TestSchemaFallbackIntegration:
         # TEXT type has no length, so no max_length param
         # (SchemaFallbackGenerator returns "string" with empty params for bare TEXT)
 
-    def test_generated_data_satisfies_check_constraint(
-        self, db_with_check_constraint: str
-    ) -> None:
+    def test_generated_data_satisfies_check_constraint(self, db_with_check_constraint: str) -> None:
         """End-to-end: generated rows must pass CHECK(length(code) BETWEEN 8 AND 20)."""
         with DataOrchestrator(db_with_check_constraint, provider_name="base") as orch:
             result = orch.fill_table("products", count=20)

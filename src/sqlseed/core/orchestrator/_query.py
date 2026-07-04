@@ -99,8 +99,7 @@ class QueryMixin:
         with contextlib.suppress(ValueError, OSError, RuntimeError, SAOperationalError, AttributeError):
             check_infos = self._db.get_check_constraints(table_name)
             check_constraints = [
-                {"name": c.name, "columns": list(c.columns), "expression": c.expression}
-                for c in check_infos
+                {"name": c.name, "columns": list(c.columns), "expression": c.expression} for c in check_infos
             ]
 
         return {

@@ -138,9 +138,7 @@ class SpecResolverMixin:
                     continue
                 if current_spec.generator_name != "string":
                     continue
-                enhanced = self._schema_fallback.fallback_for_column(
-                    col_info, check_constraints, unique_list
-                )
+                enhanced = self._schema_fallback.fallback_for_column(col_info, check_constraints, unique_list)
                 if enhanced is not None:
                     generator_specs[col_name] = enhanced
         generator_specs = self._unique_adjuster.adjust(generator_specs, unique_columns, count, column_infos)

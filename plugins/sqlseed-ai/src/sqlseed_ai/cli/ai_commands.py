@@ -530,9 +530,7 @@ def ai_analyze(
                 # downstream config_dict handling is unchanged.
                 from sqlseed_ai.staged_analyzer import StagedSchemaAnalyzer
 
-                analyzer: StagedSchemaAnalyzer | SchemaSemanticAnalyzer = StagedSchemaAnalyzer(
-                    config=ai_config
-                )
+                analyzer: StagedSchemaAnalyzer | SchemaSemanticAnalyzer = StagedSchemaAnalyzer(config=ai_config)
             else:
                 analyzer = SchemaSemanticAnalyzer(config=ai_config)
 

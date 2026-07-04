@@ -1,4 +1,5 @@
 """Tests for schema-driven fallback generator."""
+
 from __future__ import annotations
 
 from sqlseed.core.schema_fallback import SchemaFallbackGenerator
@@ -63,23 +64,18 @@ class TestTypeDrivenFallback:
     def test_pk_autoincrement_returns_none(self) -> None:
         gen = SchemaFallbackGenerator()
         spec = gen.fallback_for_column(
-            _make_col("id", "INTEGER", is_pk=True, is_autoincrement=True, nullable=False),
-            [], []
+            _make_col("id", "INTEGER", is_pk=True, is_autoincrement=True, nullable=False), [], []
         )
         assert spec is None
 
     def test_column_with_default_returns_none(self) -> None:
         gen = SchemaFallbackGenerator()
-        spec = gen.fallback_for_column(
-            _make_col("status", "TEXT", default="pending"), [], []
-        )
+        spec = gen.fallback_for_column(_make_col("status", "TEXT", default="pending"), [], [])
         assert spec is None
 
     def test_computed_column_returns_none(self) -> None:
         gen = SchemaFallbackGenerator()
-        spec = gen.fallback_for_column(
-            _make_col("total", "REAL", is_computed=True), [], []
-        )
+        spec = gen.fallback_for_column(_make_col("total", "REAL", is_computed=True), [], [])
         assert spec is None
 
 
@@ -137,9 +133,7 @@ class TestCheckDrivenFallback:
     def test_unique_string_gets_min_length(self) -> None:
         """UNIQUE string columns get min_length=8 to reduce collisions."""
         gen = SchemaFallbackGenerator()
-        spec = gen.fallback_for_column(
-            _make_col("code", "VARCHAR(20)"), [], ["code"]
-        )
+        spec = gen.fallback_for_column(_make_col("code", "VARCHAR(20)"), [], ["code"])
         assert spec is not None
         assert spec.params.get("min_length") == 8
         assert spec.params.get("max_length") == 20

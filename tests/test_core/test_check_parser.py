@@ -1,4 +1,5 @@
 """Tests for CHECK constraint parser."""
+
 from __future__ import annotations
 
 from sqlseed.core.check_parser import CheckConstraintParser
@@ -8,9 +9,7 @@ class TestCheckParserInClause:
     """Test parsing of CHECK(x IN ('A', 'B', 'C'))."""
 
     def test_parse_string_in_clause(self) -> None:
-        result = CheckConstraintParser.parse(
-            "status", "status IN ('active', 'inactive', 'pending')"
-        )
+        result = CheckConstraintParser.parse("status", "status IN ('active', 'inactive', 'pending')")
         assert result is not None
         assert result.column == "status"
         assert result.kind == "choice"
@@ -102,14 +101,10 @@ class TestCheckParserCrossColumn:
         assert result is None
 
     def test_is_cross_column_detects_multiple(self) -> None:
-        assert CheckConstraintParser.is_cross_column(
-            "sale_price >= cost_price", ["sale_price", "cost_price"]
-        ) is True
+        assert CheckConstraintParser.is_cross_column("sale_price >= cost_price", ["sale_price", "cost_price"]) is True
 
     def test_is_cross_column_single_column(self) -> None:
-        assert CheckConstraintParser.is_cross_column(
-            "price >= 0", ["price", "cost"]
-        ) is False
+        assert CheckConstraintParser.is_cross_column("price >= 0", ["price", "cost"]) is False
 
     def test_is_cross_column_no_substring_false_positive(self) -> None:
         """Word boundary: 'price' must NOT match inside 'unit_price'.
@@ -118,9 +113,7 @@ class TestCheckParserCrossColumn:
         false positive cross-column detection.
         """
         # 'price' should NOT be detected in 'unit_price >= 100'
-        assert CheckConstraintParser.is_cross_column(
-            "unit_price >= 100", ["price", "unit_price"]
-        ) is False
+        assert CheckConstraintParser.is_cross_column("unit_price >= 100", ["price", "unit_price"]) is False
 
     def test_parse_does_not_match_substring_column(self) -> None:
         """parse('price', 'unit_price >= 100') must return None.

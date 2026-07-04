@@ -8,6 +8,7 @@ for understanding relationships.
 Cycle detection prevents infinite loops on self-referencing or
 circular FK relationships.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -32,6 +33,7 @@ class ResolvedTables:
             Typed as ``dict[str, list[ForeignKeyInfo]]`` for mypy strict
             consistency with ``AnalysisRequest.foreign_keys``.
     """
+
     target_tables: list[str]
     context_tables: list[str]
     foreign_keys: dict[str, list[ForeignKeyInfo]] = field(default_factory=dict)

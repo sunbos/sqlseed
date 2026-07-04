@@ -65,9 +65,7 @@ class TestUniqueSemanticGenerators:
 
         assert len(emails) == 1000, f"Expected 1000 rows, got {len(emails)}"
         unique_count = len(set(emails))
-        assert unique_count == 1000, (
-            f"Duplicate emails found: {len(emails) - unique_count} duplicates in 1000 rows"
-        )
+        assert unique_count == 1000, f"Duplicate emails found: {len(emails) - unique_count} duplicates in 1000 rows"
 
     def test_faker_name_unique_500_rows_succeeds(self) -> None:
         """500 UNIQUE ``faker.name()`` rows succeed (semantic generator + UNIQUE).
@@ -97,9 +95,7 @@ class TestUniqueSemanticGenerators:
 
         assert len(names) == 500
         unique_count = len(set(names))
-        assert unique_count == 500, (
-            f"Duplicate names found: {len(names) - unique_count} duplicates in 500 rows"
-        )
+        assert unique_count == 500, f"Duplicate names found: {len(names) - unique_count} duplicates in 500 rows"
 
     def test_faker_phone_unique_300_rows_succeeds(self) -> None:
         """300 UNIQUE ``faker.phone_number()`` rows succeed.
@@ -129,9 +125,7 @@ class TestUniqueSemanticGenerators:
 
         assert len(phones) == 300
         unique_count = len(set(phones))
-        assert unique_count == 300, (
-            f"Duplicate phones found: {len(phones) - unique_count} duplicates in 300 rows"
-        )
+        assert unique_count == 300, f"Duplicate phones found: {len(phones) - unique_count} duplicates in 300 rows"
 
     def test_base_provider_email_unique_1000_rows_succeeds(self) -> None:
         """1000 UNIQUE ``BaseProvider._gen_email()`` rows succeed.
