@@ -26,6 +26,22 @@ def cli_runner() -> CliRunner:
     return CliRunner()
 
 
+def _fake_ai_config() -> object:
+    """Build a fake ``AIConfig`` with a placeholder API key.
+
+    The ``ai_analyze`` CLI command calls ``ai_config.resolve_api_key()`` before
+    reaching the mocked analyzer. Without a configured key, the command exits
+    with ``SystemExit(1)`` and the test never reaches the mock. Returning a
+    config with ``api_key="test-key"`` makes ``resolve_api_key()`` short-circuit
+    on the truthy ``api_key`` attribute, bypassing environment-variable lookup.
+    """
+    from sqlseed_ai.config import AIConfig
+
+    config = AIConfig.from_env()
+    config.api_key = "test-key"
+    return config
+
+
 class TestAiAnalyzeCommand:
     """Test the ai-analyze CLI command."""
 
@@ -41,7 +57,10 @@ class TestAiAnalyzeCommand:
     def test_ai_analyze_full_database(self, cli_runner: CliRunner, tmp_db_full: str) -> None:
         from sqlseed_ai.cli.ai_commands import ai_analyze
 
-        with patch("sqlseed_ai.cli.ai_commands.SchemaSemanticAnalyzer") as mock_analyzer:
+        with (
+            patch("sqlseed_ai.cli.ai_commands._build_ai_config", return_value=_fake_ai_config()),
+            patch("sqlseed_ai.cli.ai_commands.SchemaSemanticAnalyzer") as mock_analyzer,
+        ):
             mock_inst = mock_analyzer.return_value
             mock_inst.analyze.return_value = {"tables": [{"name": "users"}]}
             result = cli_runner.invoke(
@@ -54,7 +73,10 @@ class TestAiAnalyzeCommand:
     def test_ai_analyze_partial_tables(self, cli_runner: CliRunner, tmp_db_full: str) -> None:
         from sqlseed_ai.cli.ai_commands import ai_analyze
 
-        with patch("sqlseed_ai.cli.ai_commands.SchemaSemanticAnalyzer") as mock_analyzer:
+        with (
+            patch("sqlseed_ai.cli.ai_commands._build_ai_config", return_value=_fake_ai_config()),
+            patch("sqlseed_ai.cli.ai_commands.SchemaSemanticAnalyzer") as mock_analyzer,
+        ):
             mock_inst = mock_analyzer.return_value
             mock_inst.analyze.return_value = {"tables": []}
             result = cli_runner.invoke(
@@ -68,7 +90,10 @@ class TestAiAnalyzeCommand:
     def test_ai_analyze_no_dependencies_flag(self, cli_runner: CliRunner, tmp_db_full: str) -> None:
         from sqlseed_ai.cli.ai_commands import ai_analyze
 
-        with patch("sqlseed_ai.cli.ai_commands.SchemaSemanticAnalyzer") as mock_analyzer:
+        with (
+            patch("sqlseed_ai.cli.ai_commands._build_ai_config", return_value=_fake_ai_config()),
+            patch("sqlseed_ai.cli.ai_commands.SchemaSemanticAnalyzer") as mock_analyzer,
+        ):
             mock_inst = mock_analyzer.return_value
             mock_inst.analyze.return_value = {"tables": []}
             result = cli_runner.invoke(
