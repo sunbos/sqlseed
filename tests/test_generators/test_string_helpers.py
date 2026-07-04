@@ -81,6 +81,42 @@ class TestResolveCharset:
         for c in string.ascii_letters:
             assert c not in result
 
+    # --- alias support (LLMs sometimes emit non-canonical names) ---
+
+    def test_alias_alphanum_resolves_to_alphanumeric(self) -> None:
+        result = resolve_charset("alphanum")
+        assert result == string.ascii_letters + string.digits
+
+    def test_alias_letters_digits_resolves_to_alphanumeric(self) -> None:
+        result = resolve_charset("letters_digits")
+        assert result == string.ascii_letters + string.digits
+
+    def test_alias_ascii_letters_digits_resolves_to_alphanumeric(self) -> None:
+        result = resolve_charset("ascii_letters_digits")
+        assert result == string.ascii_letters + string.digits
+
+    def test_alias_letters_resolves_to_alpha(self) -> None:
+        result = resolve_charset("letters")
+        assert result == string.ascii_letters
+
+    def test_alias_ascii_letters_resolves_to_alpha(self) -> None:
+        result = resolve_charset("ascii_letters")
+        assert result == string.ascii_letters
+
+    def test_alias_numeric_resolves_to_digits(self) -> None:
+        result = resolve_charset("numeric")
+        assert result == string.digits
+
+    def test_alias_numbers_resolves_to_digits(self) -> None:
+        result = resolve_charset("numbers")
+        assert result == string.digits
+
+    def test_aliases_are_case_sensitive(self) -> None:
+        """Aliases must be lowercase (custom charsets can be anything)."""
+        # "ALPHANUMERIC" is not a recognised alias → returned as-is literal
+        result = resolve_charset("ALPHANUMERIC")
+        assert result == "ALPHANUMERIC"
+
 
 # ---------------------------------------------------------------------------
 # generate_random_string

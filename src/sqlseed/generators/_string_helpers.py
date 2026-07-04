@@ -12,15 +12,26 @@ if TYPE_CHECKING:
 def resolve_charset(charset: str | None) -> str:
     """Resolve a charset name and return the corresponding character set.
 
-    Supports predefined names (``alphanumeric``, ``alpha``, ``digits``) as well as
-    custom character sets. When ``None`` is passed, the default charset is returned
-    (letters, digits, space, underscore and hyphen).
+    Supports predefined names (``alphanumeric``, ``alpha``, ``digits``) plus
+    several common aliases (``alphanum``, ``letters``, ``numeric``, etc.) that
+    LLMs sometimes emit. Custom character sets are returned as-is. When
+    ``None`` is passed, the default charset is returned (letters, digits,
+    space, underscore and hyphen).
+
+    Recognised canonical names and aliases (all lowercase, case-sensitive):
+
+      - ``alphanumeric`` / ``alphanum`` / ``letters_digits`` / ``ascii_letters_digits``
+        → ASCII letters + digits
+      - ``alpha`` / ``letters`` / ``ascii_letters``
+        → ASCII letters only
+      - ``digits`` / ``numeric`` / ``numbers``
+        → ASCII digits only
     """
-    if charset == "alphanumeric":
+    if charset in ("alphanumeric", "alphanum", "letters_digits", "ascii_letters_digits"):
         return string.ascii_letters + string.digits
-    if charset == "alpha":
+    if charset in ("alpha", "letters", "ascii_letters"):
         return string.ascii_letters
-    if charset == "digits":
+    if charset in ("digits", "numeric", "numbers"):
         return string.digits
     if charset is not None:
         return charset
