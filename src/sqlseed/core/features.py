@@ -101,7 +101,7 @@ class IndexFeatures:
     table: str
     name: str
     columns: list[str]
-    unique: bool
+    is_unique: bool
     partial_predicate: str | None = None  # Requires dialect extension
 
 
@@ -239,7 +239,7 @@ class StructuralFeatureExtractor:
                 table=table_name,
                 name=idx.name,
                 columns=list(idx.columns),
-                unique=idx.unique,
+                is_unique=idx.unique,
                 # partial_predicate filled by dialect extension
             )
             for idx in index_infos

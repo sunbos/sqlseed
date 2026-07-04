@@ -31,7 +31,7 @@ print(result)
 
 ## 💡 Why sqlseed?
 
-In development and testing workflows, we often need to populate SQLite, PostgreSQL, and MySQL databases with large volumes of realistic test data. Traditional approaches either require writing verbose data generation scripts or maintaining hard-to-scale SQL fixtures. sqlseed solves this with a declarative approach:
+In development and testing workflows, we often need to populate SQLite and PostgreSQL databases with large volumes of realistic test data. Traditional approaches either require writing verbose data generation scripts or maintaining hard-to-scale SQL fixtures. sqlseed solves this with a declarative approach:
 
 | Feature | sqlseed | Hand-written Scripts | SQL Fixtures |
 | :------ | :-----: | :-----------------: | :----------: |
@@ -97,7 +97,7 @@ Supports derived column computation (`short_code = project_no[-8:]`), unique con
 <tr>
 <td>
 
-**🧩 11 Lifecycle Hooks**
+**🧩 12 Lifecycle Hooks**
 
 pluggy-based plugin architecture covering every stage from provider registration to batch insertion.
 
@@ -128,8 +128,7 @@ pip install sqlseed
 # Recommended: Mimesis (high performance, great locale support)
 pip install sqlseed[mimesis]
 
-# Optional: Faker (rich ecosystem)
-pip install sqlseed[faker]
+# Note: Faker is a required core dependency, included in `pip install sqlseed`.
 
 # Install all
 pip install sqlseed[all]
@@ -137,20 +136,17 @@ pip install sqlseed[all]
 
 ### Choose Database Backend
 
-sqlseed supports SQLite (default), PostgreSQL, and MySQL via SQLAlchemy.
+sqlseed supports SQLite (default) and PostgreSQL via SQLAlchemy.
 
 ```bash
 # PostgreSQL support (psycopg driver)
 pip install "sqlseed[postgres]"
 
-# MySQL support (mysqlclient driver)
-pip install "sqlseed[mysql]"
-
 # All database backends + all data engines
 pip install "sqlseed[all]"
 ```
 
-> **💡 Note**: SQLite works out of the box with no extra dependencies. PostgreSQL/MySQL drivers are only required when connecting to those databases.
+> **💡 Note**: SQLite works out of the box with no extra dependencies. PostgreSQL driver is only required when connecting to that database.
 
 ### Optional Plugins
 
@@ -161,8 +157,8 @@ pip install sqlseed-ai
 # MCP server (requires mcp SDK, lets AI assistants operate sqlseed)
 pip install mcp-server-sqlseed
 
-# MCP server + AI support (all-in-one)
-pip install mcp-server-sqlseed[ai]
+# AI MCP server (4 LLM tools, requires sqlseed-ai)
+pip install "sqlseed-ai[mcp]"
 ```
 
 ### Docs Build (Developers)
@@ -259,9 +255,9 @@ sqlseed automatically:
 
 **Fully zero-config. Smart inference for everything.**
 
-### Connect to PostgreSQL / MySQL
+### Connect to PostgreSQL
 
-sqlseed supports PostgreSQL and MySQL in addition to SQLite. Pass a SQLAlchemy URL instead of a file path:
+sqlseed supports PostgreSQL in addition to SQLite. Pass a SQLAlchemy URL instead of a file path:
 
 ```python
 import sqlseed
@@ -273,17 +269,9 @@ result = sqlseed.fill(
     count=10_000,
 )
 print(result)
-
-# MySQL (requires: pip install "sqlseed[mysql]")
-result = sqlseed.fill(
-    "mysql+mysqldb://user:password@localhost:3306/mydb",
-    table="users",
-    count=10_000,
-)
-print(result)
 ```
 
-The same API works for all three databases — schema inference, FK resolution, expression engine, and plugin hooks all run identically across SQLite, PostgreSQL, and MySQL.
+The same API works for both databases — schema inference, FK resolution, expression engine, and plugin hooks all run identically across SQLite and PostgreSQL.
 
 ***
 
@@ -760,11 +748,11 @@ sqlseed ai-suggest app.db --table projects --output projects.yaml --no-cache
 Let AI assistants (Claude, Cursor, etc.) operate sqlseed directly via [Model Context Protocol](https://modelcontextprotocol.io/):
 
 ```bash
-# Install MCP server
+# Install MCP server (core, no LLM dependency)
 pip install mcp-server-sqlseed
 
-# All-in-one: MCP server + AI support
-pip install mcp-server-sqlseed[ai]
+# Install AI MCP server (LLM-driven, requires sqlseed-ai)
+pip install "sqlseed-ai[mcp]"
 
 # Manual start (usually managed by MCP client)
 python -m mcp_server_sqlseed
@@ -784,12 +772,18 @@ python -m mcp_server_sqlseed
 
 **MCP Capabilities**:
 
+**mcp-server-sqlseed** (2 Tools, 0 Resources — core, no LLM dependency):
+
 | Type | Name | Description |
 | :--- | :--- | :---------- |
-| 📖 Resource | `sqlseed://schema/{db_path}/{table_name}` | Get table schema as JSON |
-| 🔍 Tool | `sqlseed_inspect_schema` | Inspect schema (columns, FK, indexes, samples, schema_hash) |
-| 🤖 Tool | `sqlseed_generate_yaml` | AI-driven YAML config generation with self-correction. Supports `api_key`/`base_url`/`model` overrides |
+| 🤖 Tool | `sqlseed_generate_yaml` | Rule-driven YAML config generation via `ColumnMapper` |
 | ⚡ Tool | `sqlseed_execute_fill` | Execute data generation (supports YAML config string, includes `enrich` option) |
+
+**sqlseed-ai[mcp]** (4 Tools, 0 Resources — LLM-driven, install with `pip install "sqlseed-ai[mcp]"`):
+
+| Type | Name | Description |
+| :--- | :--- | :---------- |
+| 🧠 Tool | `sqlseed_ai_generate_yaml` | AI-driven YAML config generation with self-correction |
 | 🧠 Tool | `sqlseed_gemma4_analyze` | Analyze schema using Gemma 4 with Native Function Calling |
 | 🧠 Tool | `sqlseed_gemma4_agent_fill` | End-to-end Agent workflow (analyze -> config -> fill) |
 | 🧠 Tool | `sqlseed_list_gemma_models` | List available Gemma 4 models and backend status |
@@ -798,7 +792,7 @@ This means you can tell your AI assistant:
 
 > "Analyze the structure of the `projects` table in `app.db`, generate a YAML config, then fill 5000 rows."
 
-The AI assistant will call `sqlseed_inspect_schema` → `sqlseed_generate_yaml` → `sqlseed_execute_fill` in sequence, without you writing any code.
+The AI assistant will call `sqlseed_generate_yaml` → `sqlseed_execute_fill` in sequence, without you writing any code.
 
 ***
 
@@ -997,7 +991,13 @@ sqlseed provides 12 hook points via [pluggy](https://pluggy.readthedocs.io/), co
 src/sqlseed/
 ├── __init__.py              # Public API (fill, connect, fill_from_config, preview)
 ├── core/                    # ===== Core Orchestration =====
-│   ├── orchestrator.py      # DataOrchestrator main engine
+│   ├── orchestrator/        # DataOrchestrator package (4 mixins + 1 shared data module)
+│   │   ├── __init__.py
+│   │   ├── _common.py
+│   │   ├── _connection.py
+│   │   ├── _specs.py
+│   │   ├── _generation.py
+│   │   └── _query.py
 │   ├── mapper.py            # ColumnMapper 9-level strategy chain
 │   ├── schema.py            # SchemaInferrer — columns, indexes, distribution
 │   ├── relation.py          # RelationResolver + SharedPool — FK & cross-table sharing
@@ -1015,7 +1015,7 @@ src/sqlseed/
 │   └── stream.py            # DataStream streaming + constraint backtracking
 ├── database/                # ===== Database Layer =====
 │   ├── _protocol.py         # DatabaseAdapter Protocol (ColumnInfo, ForeignKeyInfo, IndexInfo)
-│   ├── sqlalchemy_adapter.py    # Default adapter (SQLite/PostgreSQL/MySQL)
+│   ├── sqlalchemy_adapter.py    # Default adapter (SQLite/PostgreSQL)
 │   ├── raw_sqlite_adapter.py     # sqlite3 fallback adapter
 │   └── optimizer.py         # PragmaOptimizer 3-tier optimization
 ├── plugins/                 # ===== Plugin Layer =====
@@ -1025,8 +1025,6 @@ src/sqlseed/
 │   ├── models.py            # Pydantic models (GeneratorConfig/TableConfig/ColumnConfig)
 │   ├── loader.py            # YAML/JSON load & save
 │   └── snapshot.py          # Snapshot save & load
-├── cli/                     # ===== CLI =====
-│   └── main.py              # click commands (fill/preview/inspect/init/replay/ai-suggest)
 └── _utils/                  # ===== Internal Utilities =====
     ├── sql_safe.py          # quote_identifier — SQL injection protection
     ├── schema_helpers.py    # AUTOINCREMENT detection
@@ -1036,10 +1034,12 @@ src/sqlseed/
     └── logger.py            # structlog logging
 
 plugins/
+├── sqlseed-cli/             # CLI plugin — click commands (fill/preview/inspect/init/replay/ai-suggest)
+│   └── src/sqlseed_cli/     # Standalone package, separate pyproject.toml
 ├── sqlseed-ai/              # AI plugin — LLM-driven smart configuration
 │   └── src/sqlseed_ai/      # SchemaAnalyzer, AiConfigRefiner, few-shot examples...
 └── mcp-server-sqlseed/      # MCP server — AI assistant integration
-    └── src/mcp_server_sqlseed/   # FastMCP tools (sqlseed_inspect_schema/sqlseed_generate_yaml/sqlseed_execute_fill)
+    └── src/mcp_server_sqlseed/   # FastMCP tools (sqlseed_generate_yaml/sqlseed_execute_fill)
 ```
 
 ***
@@ -1066,15 +1066,13 @@ Tests cover all core modules, with path structure mirroring `src/`: `test_core/`
 
 | Package | Core Dependencies | Description |
 | :------ | :---------------- | :---------- |
-| `sqlseed` | sqlalchemy, pydantic, pluggy, structlog, pyyaml, click, rich, typing_extensions, simpleeval, **rstr** | rstr used for `pattern` generator regex matching |
-| `sqlseed[faker]` | + faker>=30.0 | Faker data engine |
+| `sqlseed` | sqlalchemy, pydantic, pluggy, structlog, pyyaml, faker, typing_extensions, simpleeval, **rstr** | faker is required core dep; rstr used for `pattern` generator regex matching |
 | `sqlseed[mimesis]` | + mimesis>=18.0 | Mimesis data engine (recommended) |
 | `sqlseed[postgres]` | + psycopg | PostgreSQL driver for SQLAlchemy |
-| `sqlseed[mysql]` | + mysqlclient | MySQL driver for SQLAlchemy |
 | `sqlseed[docs]` | + mkdocs-material, mkdocstrings | Documentation build |
 | `sqlseed-ai` | sqlseed, **openai>=1.0** | AI plugin (Gemma 4 Native Function Calling), auto-registered via entry-point |
-| `mcp-server-sqlseed` | sqlseed, **mcp>=1.0** | MCP server, standalone CLI tool |
-| `mcp-server-sqlseed[ai]` | + sqlseed-ai | MCP server with AI support |
+| `sqlseed-ai[mcp]` | + sqlseed-ai, **mcp>=1.0** | AI MCP server (4 LLM tools); install with `pip install "sqlseed-ai[mcp]"` |
+| `mcp-server-sqlseed` | sqlseed, **mcp>=1.0** | MCP server (2 core tools, no LLM), standalone CLI tool |
 
 ***
 

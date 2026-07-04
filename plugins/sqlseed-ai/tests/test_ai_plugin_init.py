@@ -122,6 +122,7 @@ class TestPreGenerateTemplatesHook:
         analyzer raises ValueError which the hook swallows and returns None.
         """
         plugin = AISqlseedPlugin()
+        plugin._is_ai_enabled = True  # Enable AI for this test
         mock_analyzer = MagicMock()
         mock_analyzer.generate_template_values.side_effect = ValueError("boom")
         plugin._analyzer = mock_analyzer

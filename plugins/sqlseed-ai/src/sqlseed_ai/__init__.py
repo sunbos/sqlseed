@@ -3,18 +3,26 @@
 This module exposes the :class:`AISqlseedPlugin`, a pluggy plugin that
 integrates LLM-powered schema analysis into sqlseed's generation pipeline.
 
-The plugin implements three sqlseed hooks:
+The plugin implements four sqlseed hooks:
 
 * ``sqlseed_apply_ai_suggestions`` — high-level entry point invoked by
   the orchestrator. Decides whether AI is needed, builds the analysis
   context, calls the low-level analyze hook, and merges the result back
   into the column specs. The implementation lives in
   :mod:`sqlseed_ai.ai_mediator` (moved out of core per ARCHITECTURE.md
-  Section 7.6).
+  Section 7.6). Also caches DATE-type column names for the transform
+  hook.
 * ``sqlseed_ai_analyze_table`` — analyzes a full table schema and returns a
   YAML/JSON generation template.
 * ``sqlseed_pre_generate_templates`` — generates sample values for columns
   that are not covered by sqlseed's built-in simple-column heuristics.
+* ``sqlseed_transform_row`` — defensive fallback that converts ISO date
+  strings to ``datetime.date`` objects for DATE-type columns. The core
+  ``_gen_date`` generator now returns ``datetime.date`` objects directly
+  (fixed 2026-07-02), so this hook is a no-op under normal configuration.
+  It only triggers when an LLM (or user) mis-configures a DATE column to
+  use a ``string`` generator emitting ISO-format strings, which
+  SQLAlchemy's SQLite Date column would otherwise reject.
 
 The plugin lazily constructs a :class:`SchemaAnalyzer` (and the underlying
 LLM client) on first use, so importing the module has no side effects.
@@ -22,6 +30,7 @@ LLM client) on first use, so importing the module has no side effects.
 
 from __future__ import annotations
 
+import datetime
 import re
 from typing import Any
 
@@ -50,6 +59,27 @@ __all__ = [
     "apply_ai_suggestions",
 ]
 
+# Regex to detect ISO-format date strings (YYYY-MM-DD) produced by the
+# core `date` generator. Used by sqlseed_transform_row to convert these
+# strings to datetime.date objects for SQLAlchemy DATE columns.
+_ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _check_ai_enabled() -> bool:
+    """Check whether AI is explicitly enabled via environment variable.
+
+    The AI plugin is disabled by default to prevent unsolicited LLM calls
+    during ``fill_table``. Users enable it by setting::
+
+        SQLSEED_AI_ENABLED=1
+
+    or by calling ``plugin.set_config(config)`` from the CLI/API.
+    """
+    import os
+
+    val = os.environ.get("SQLSEED_AI_ENABLED", "").lower().strip()
+    return val in ("1", "true", "yes", "on")
+
 _SIMPLE_COL_RE = re.compile(
     r"(^|[_\s])("
     r"name|email|phone|address|url|uuid|"
@@ -76,6 +106,36 @@ class AISqlseedPlugin:
     def __init__(self) -> None:
         """Initialize the plugin with no analyzer yet (lazy construction)."""
         self._analyzer: SchemaAnalyzer | None = None
+        self._config: AIConfig | None = None
+        # Cache of DATE-type column names per table, populated during
+        # sqlseed_apply_ai_suggestions (which has schema access) and
+        # consumed by sqlseed_transform_row (which runs per-row during
+        # generation). Defensive fallback: the core `_gen_date` generator
+        # now returns `datetime.date` objects directly, so this cache is
+        # only consulted when a DATE column is mis-configured to use a
+        # `string` generator that emits ISO-format strings.
+        self._date_columns_cache: dict[str, set[str]] = {}
+        # AI is disabled by default. The orchestrator hooks
+        # (sqlseed_apply_ai_suggestions, sqlseed_pre_generate_templates)
+        # are no-ops unless explicitly enabled via env var or set_config().
+        # This prevents the AI plugin from making unsolicited LLM calls
+        # during fill_table when the user only wants built-in generation.
+        self._is_ai_enabled: bool = _check_ai_enabled()
+
+    def set_config(self, config: AIConfig) -> None:
+        """Explicitly set the AI config and enable the plugin.
+
+        Called by the CLI (``ai-suggest``) or user code to activate the
+        AI hooks. When set, ``_is_ai_enabled`` becomes True and subsequent
+        calls to ``sqlseed_apply_ai_suggestions`` and
+        ``sqlseed_pre_generate_templates`` will proceed.
+
+        Args:
+            config: The AI configuration to use for LLM calls.
+        """
+        self._is_ai_enabled = True
+        self._config = config
+        self._analyzer = SchemaAnalyzer(config=config)
 
     def _get_analyzer(self) -> SchemaAnalyzer:
         """Return the cached analyzer, constructing it on first call.
@@ -148,7 +208,35 @@ class AISqlseedPlugin:
         order differs from the hookspec (pluggy matches by name, not
         position) to avoid CodeDuplication with the hookspec signature.
         Delegates to :func:`sqlseed_ai.ai_mediator.apply_ai_suggestions`.
+
+        Also caches DATE-type column names for ``table_name`` so the
+        ``sqlseed_transform_row`` hook can convert ISO date strings to
+        ``datetime.date`` objects during generation. This is now a
+        **defensive fallback**: the core ``_gen_date`` generator returns
+        ``datetime.date`` objects directly, so the transform hook only
+        triggers when an LLM (or user) mis-configures a DATE column to
+        use a ``string`` generator that emits ISO-format strings.
+
+        When AI is not enabled (default), the LLM call is skipped but DATE
+        column caching still runs so the transform_row hook can defend
+        against mis-configured DATE columns regardless of AI activation.
         """
+        # Cache DATE columns for sqlseed_transform_row (defensive fallback
+        # against mis-configured DATE columns using `string` generators).
+        if column_infos:
+            date_cols: set[str] = set()
+            for col in column_infos:
+                col_type = str(getattr(col, "type", "")).upper()
+                if col_type == "DATE":
+                    col_name = getattr(col, "name", "")
+                    if isinstance(col_name, str) and col_name:
+                        date_cols.add(col_name)
+            if date_cols:
+                self._date_columns_cache[table_name] = date_cols
+        # Skip LLM call when AI is not explicitly enabled. This prevents
+        # unsolicited LLM calls during fill_table (the default use case).
+        if not self._is_ai_enabled:
+            return None
         return apply_ai_suggestions(
             analyze_fn=self.sqlseed_ai_analyze_table,
             db=db,
@@ -158,6 +246,40 @@ class AISqlseedPlugin:
             specs=specs,
             user_configured_columns=user_configured_columns,
         )
+
+    @hookimpl
+    def sqlseed_transform_row(
+        self,
+        table_name: str,
+        row: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        """Convert ISO date strings to ``datetime.date`` for DATE columns.
+
+        Implements the ``sqlseed_transform_row`` hook. This is a
+        **defensive fallback**: the core ``_gen_date`` generator now
+        returns ``datetime.date`` objects directly (fixed 2026-07-02),
+        so under normal configuration this hook is a no-op. It only
+        triggers when an LLM (or user) mis-configures a DATE column to
+        use a ``string`` generator that emits ISO-format date strings
+        (e.g., ``"2023-04-28"``), which SQLAlchemy's SQLite Date column
+        would reject with ``StatementError: SQLite Date type only accepts
+        Python date objects``.
+
+        Returns the modified row, or ``None`` if no modification was needed.
+        """
+        date_cols = self._date_columns_cache.get(table_name)
+        if not date_cols:
+            return None
+        modified = False
+        for col_name in date_cols:
+            val = row.get(col_name)
+            if isinstance(val, str) and _ISO_DATE_RE.match(val):
+                try:
+                    row[col_name] = datetime.date.fromisoformat(val)
+                    modified = True
+                except ValueError:
+                    pass
+        return row if modified else None
 
     @hookimpl
     def sqlseed_pre_generate_templates(
@@ -186,6 +308,8 @@ class AISqlseedPlugin:
         Returns:
             A list of generated values, or None to defer to built-ins.
         """
+        if not self._is_ai_enabled:
+            return None
         if self._is_simple_column(column_name, column_type):
             return None
 

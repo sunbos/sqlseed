@@ -158,7 +158,7 @@ class DataStream:
         """
         col_name = node.name
         max_retries = node.constraints.max_retries if node.constraints else 100
-        is_unique = node.constraints.unique if node.constraints else False
+        is_unique = node.constraints.is_unique if node.constraints else False
         source_columns = node.depends_on if node.is_derived else None
 
         for _ in range(max_retries):
@@ -176,16 +176,16 @@ class DataStream:
             result = self._constraint_solver.try_register(
                 col_name,
                 val,
-                unique=is_unique,
+                is_unique=is_unique,
                 source_columns=source_columns,
             )
 
-            if result.registered:
+            if result.is_registered:
                 row[col_name] = val
                 generated_values[col_name] = val
                 return True, None
 
-            if result.need_backtrack and source_columns:
+            if result.should_backtrack and source_columns:
                 self._rollback_source_columns(source_columns, row, generated_values)
                 bt_idx = self._find_node_index(source_columns[0])
                 return False, bt_idx
@@ -262,12 +262,12 @@ class DataStream:
             if node.is_skip or (backtrack_to is not None and idx < backtrack_to):
                 continue
 
-            col_success, new_backtrack_to = self._attempt_node_generation(node, row, generated_values)
+            col_succeeded, new_backtrack_to = self._attempt_node_generation(node, row, generated_values)
 
             if new_backtrack_to is not None:
                 backtrack_to = new_backtrack_to
 
-            if not col_success:
+            if not col_succeeded:
                 self._handle_col_failure(backtrack_to, row, generated_values)
                 return False, backtrack_to
 
@@ -326,7 +326,7 @@ class DataStream:
         unique_nodes = [
             f"{n.name}(generator={n.generator_spec.generator_name!r})"
             for n in self._nodes
-            if not n.is_skip and n.constraints and n.constraints.unique
+            if not n.is_skip and n.constraints and n.constraints.is_unique
         ]
         detail = f" Unique-constraint columns: {unique_nodes}" if unique_nodes else ""
         raise RuntimeError(

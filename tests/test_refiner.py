@@ -706,7 +706,7 @@ class TestStreamingRefinement:
 
 
 class TestRefinementLoopExhaustion:
-    """Tests for _refinement_loop edge cases."""
+    """Tests for _run_refinement_loop edge cases."""
 
     def test_raises_unexpected_state_when_all_attempts_return_none(self, tmp_path: Any) -> None:
         db_path = _create_users_db(tmp_path)
@@ -716,7 +716,7 @@ class TestRefinementLoopExhaustion:
             patch.object(refiner, "_try_prompt_levels", return_value=(None, None)),
             pytest.raises(AISuggestionFailedError, match="Unexpected state"),
         ):
-            refiner._refinement_loop(
+            refiner._run_refinement_loop(
                 orch,
                 "users",
                 {},

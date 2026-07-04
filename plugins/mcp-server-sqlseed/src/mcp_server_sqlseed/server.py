@@ -32,7 +32,7 @@ mcp = FastMCP("sqlseed", host=_server_config.host, port=_server_config.port)
 _MAX_YAML_CONFIG_SIZE = 256 * 1024
 
 
-def _spec_to_column_entry(col_name: str, spec: GeneratorSpec) -> dict[str, Any]:
+def _convert_spec_to_column_entry(col_name: str, spec: GeneratorSpec) -> dict[str, Any]:
     """Convert a rule-driven GeneratorSpec into a YAML column config entry."""
     entry: dict[str, Any] = {"name": col_name, "generator": spec.generator_name}
     if spec.params:
@@ -46,7 +46,7 @@ def _spec_to_column_entry(col_name: str, spec: GeneratorSpec) -> dict[str, Any]:
 def sqlseed_generate_yaml(db_path: str, table_name: str) -> str:
     """Generate a YAML config template for a table using rule-driven column mapping.
 
-    Uses sqlseed's core ``ColumnMapper`` (74 exact rules + 27 regex patterns)
+    Uses sqlseed's core ``ColumnMapper`` (75 exact rules + 29 regex patterns)
     to infer a generator for each column. Offline, deterministic, no LLM
     required. For LLM-driven semantic inference, use the
     ``sqlseed_ai_generate_yaml`` tool from the ``sqlseed-ai[mcp]`` package.
@@ -59,7 +59,7 @@ def sqlseed_generate_yaml(db_path: str, table_name: str) -> str:
             _validate_table_name(table_name, orch.get_table_names())
             specs = orch.get_column_mapping(table_name)
 
-        columns = [_spec_to_column_entry(name, spec) for name, spec in specs.items()]
+        columns = [_convert_spec_to_column_entry(name, spec) for name, spec in specs.items()]
         output = {
             "db_path": db_path,
             "provider": "faker",

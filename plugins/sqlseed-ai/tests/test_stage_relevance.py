@@ -104,7 +104,7 @@ def _make_features(
                 table="t",
                 name="idx_partial",
                 columns=["x"],
-                unique=False,
+                is_unique=False,
                 partial_predicate="x > 0",
             )
         )

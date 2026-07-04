@@ -299,7 +299,7 @@ class AiConfigRefiner:
         )
         return None
 
-    def _refinement_loop(
+    def _run_refinement_loop(
         self,
         orch: DataOrchestrator,
         table_name: str,
@@ -394,7 +394,7 @@ class AiConfigRefiner:
             def _call_non_streaming(messages: list[dict[str, str]]) -> dict[str, Any] | None:
                 return self._analyzer.call_llm(messages)
 
-            return self._refinement_loop(
+            return self._run_refinement_loop(
                 orch,
                 table_name,
                 schema_ctx,
@@ -424,7 +424,7 @@ class AiConfigRefiner:
             def _call_streaming(messages: list[dict[str, str]]) -> dict[str, Any] | None:
                 return self._analyzer.call_llm_streaming(messages, on_progress=on_progress)
 
-            return self._refinement_loop(
+            return self._run_refinement_loop(
                 orch,
                 table_name,
                 schema_ctx,

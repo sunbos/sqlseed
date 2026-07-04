@@ -47,7 +47,7 @@ model fallback on timeout/connection errors.
 | Modify Gemma 4 tool schema | `_tools.py` | `GEMMA_TOOLS` tuple consumed by `analyzer._try_tool_calling()` |
 | Add a new backend | `config.py` | Extend `AIBackend` enum + `_resolve_backend()` + `resolve_base_url()` |
 | Change model fallback order | `_model_selector.py` | `_GEMMA_MODEL_PRIORITY` tuple |
-| Tune retry / refinement loop | `refiner.py` | `_refinement_loop()`, `_try_prompt_levels()` |
+| Tune retry / refinement loop | `refiner.py` | `_run_refinement_loop()`, `_try_prompt_levels()` |
 | Add a new error handler | `errors.py` | Append to `handlers` list in `summarize_error()` |
 | Add structured exception type | `exceptions.py` | Subclass `SqlseedAIError`, add classifier logic to `classify_api_error()` |
 | Change httpx timeout profile | `_client.py` | `httpx_timeout()` |

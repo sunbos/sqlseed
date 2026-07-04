@@ -18,7 +18,7 @@ from sqlseed.core.mapper import GeneratorSpec
 class ColumnConstraints:
     """Column-level constraints."""
 
-    unique: bool = False
+    is_unique: bool = False
     min_value: int | float | None = None
     max_value: int | float | None = None
     regex: str | None = None
@@ -90,7 +90,7 @@ class ColumnDAG:
         if cc:
             if hasattr(cc, "constraints") and cc.constraints:
                 constraints = ColumnConstraints(
-                    unique=cc.constraints.unique,
+                    is_unique=cc.constraints.unique,
                     min_value=cc.constraints.min_value,
                     max_value=cc.constraints.max_value,
                     regex=cc.constraints.regex,
@@ -105,10 +105,10 @@ class ColumnDAG:
 
         if is_unique:
             if constraints is None:
-                constraints = ColumnConstraints(unique=True)
-            elif not constraints.unique:
+                constraints = ColumnConstraints(is_unique=True)
+            elif not constraints.is_unique:
                 constraints = ColumnConstraints(
-                    unique=True,
+                    is_unique=True,
                     min_value=constraints.min_value,
                     max_value=constraints.max_value,
                     regex=constraints.regex,

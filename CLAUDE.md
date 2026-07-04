@@ -103,6 +103,8 @@ Core (`sqlseed`) has **no CLI, no AI, no MCP code** — these are all plugins. C
 - **`_utils/progress.py`** — Progress bar abstraction (`ProgressBackend` protocol) with Rich and tqdm backends, factory `create_progress()`.
 - **`_utils/metrics.py`** — `MetricsCollector` for performance metrics.
 - **`_utils/logger.py`** — Structured logging via `structlog`. `get_logger()`, `configure_logging()`.
+- **`plugins/sqlseed-ai/staged_analyzer.py`** — `StagedSchemaAnalyzer` (3-stage LtM pipeline entry point, flag-gated by `AIConfig.use_staged_pipeline`) and `Stage3Validator` (rule-based validation: Rule #14 strips invalid generator params, Rule #26 coerces `random_float` → `random_int` for INTEGER columns). See [Staged Pipeline](#staged-pipeline-sqlseed-ai) below.
+- **`plugins/sqlseed-ai/schema_analyzer.py`** — Legacy `SchemaSemanticAnalyzer` (single-shot LLM path). `apply_auto_fix_rules_1_13()` public function shared with the staged path.
 
 > **Note**: The `cli/` directory no longer exists in `src/sqlseed/` — CLI code moved to `plugins/sqlseed-cli/` (Phase B). Core `pyproject.toml` has no `[project.scripts]` entry.
 
@@ -148,6 +150,26 @@ ColumnConfig also supports `faker_method`, `mimesis_method`, and `native_params`
 | `sqlseed_after_insert(table_name, batch_number, rows_inserted)` | ✗ | After each batch write |
 | `sqlseed_shared_pool_loaded(table_name, shared_pool)` | ✗ | After `register_shared_pool()` |
 | `sqlseed_pre_generate_templates(...)` | ✓ | `apply_template_pool()` |
+
+### Staged Pipeline (sqlseed-ai)
+
+The `sqlseed-ai` plugin ships two schema-analysis paths, switchable via `AIConfig.use_staged_pipeline`:
+
+- **Legacy path** (`use_staged_pipeline=False`, default): `SchemaSemanticAnalyzer` in `schema_analyzer.py` — single-shot LLM call per table. Used by `ai-suggest` without `--staged-pipeline`.
+- **Staged path** (`use_staged_pipeline=True`): `StagedSchemaAnalyzer` in `staged_analyzer.py` — 3-stage Least-to-Most (LtM) pipeline designed for small LLMs. Stages: structural features → per-column generation plan → YAML assembly + validation.
+
+Key classes and rules:
+
+- `StagedSchemaAnalyzer` — Entry point, flag-gated by `use_staged_pipeline`. Orchestrates the 3 stages and delegates Stage 3 validation to `Stage3Validator`.
+- `Stage3Validator` — Rule-based validation applied on top of LLM output (rules #14-#19). Notable rules:
+  - **Rule #14** — Parameter whitelist stripping. Removes params not accepted by the generator (e.g., `domain`/`min_length`/`example` hallucinated on `email`, which accepts no params). Also corrects the common `choice` → `choices` typo.
+  - **Rule #26** — INTEGER column `random_float` → `random_int` coercion. LLMs sometimes return `random_float(0, value)` for INTEGER columns (e.g., `tasks.actual_hours INTEGER`); SQLite's dynamic typing would otherwise store fractional values. Rewrites `random_float(...)` to `random_int(...)` when the target column is INTEGER-family (INTEGER/INT/BIGINT/SMALLINT/TINYINT/MEDIUMINT).
+
+Supporting modules:
+
+- `stage_relevance.py` — Stage relevance scoring (selects which stages run per table).
+- `dependency_resolver.py` — Column dependency resolution (orders columns within a stage).
+- `_stage_prompts.py` — Stage-specific prompt templates (separate from the legacy 3-tier `_prompts.py`).
 
 ## Coding Conventions
 
@@ -267,7 +289,7 @@ When preparing a new version release:
 ## Plugins (separate packages)
 
 - `plugins/sqlseed-cli/` — CLI plugin (Click commands: `fill`, `preview`, `inspect`, `init`, `replay`). Has its own `pyproject.toml` and `[project.scripts] sqlseed = sqlseed_cli:main`. Contains: `main.py` (Click commands), `_utils.py` (`sanitize_table_config()`). Core `sqlseed` package has NO `[project.scripts]` — install `sqlseed-cli` to get the `sqlseed` command. Install: `pip install sqlseed-cli` (auto-pulls `sqlseed` core).
-- `plugins/sqlseed-ai/` — LLM-powered schema analysis via Gemma 4 (long-term LLM backend, NOT competition-only). Has its own `pyproject.toml`. Contains: `analyzer/` (package: LLM table-level analysis with streaming/tool-calling submodules — `_caller.py`, `_streaming.py`, `_tool_calling.py` [protocol-based: `gemma4`/`openai`/`none`], `_context.py`, `_json_parser.py`), `refiner.py` (self-correction loop), `ai_mediator.py` (AI-specific mediation — `apply_ai_suggestions()` moved from core in Phase C), `config.py` (`AIConfig` with `tool_calling_protocol: Literal["gemma4", "openai", "none"]` field added in Phase E, multi-backend support), `errors.py` (error summary), `exceptions.py` (structured exception types), `examples.py` (few-shot), `_client.py` (API client), `_json_utils.py` (JSON parsing), `_model_selector.py` (Gemma 4 model selection), `_hardware.py` (cross-platform RAM/GPU detection), `_prompts.py` (3-tier prompt system), `_tools.py` (`GEMMA_TOOLS` for native function calling), `cli/` (`ai_commands.py` — `ai-suggest` command injected into `sqlseed` CLI via entry_points), `mcp.py` (AI MCP server: `sqlseed_ai_generate_yaml`, `sqlseed_gemma4_analyze`, `sqlseed_gemma4_agent_fill`, `sqlseed_list_gemma_models`; install with `pip install "sqlseed-ai[mcp]"`). Install: `pip install sqlseed-ai` (depends on `sqlseed-cli`).
+- `plugins/sqlseed-ai/` — LLM-powered schema analysis via Gemma 4 (long-term LLM backend, NOT competition-only). Has its own `pyproject.toml`. Contains: `analyzer/` (package: LLM table-level analysis with streaming/tool-calling submodules — `_caller.py`, `_streaming.py`, `_tool_calling.py` [protocol-based: `gemma4`/`openai`/`none`], `_context.py`, `_json_parser.py`), `refiner.py` (self-correction loop), `schema_analyzer.py` (legacy schema analyzer — single-shot LLM path used by `ai-suggest` without `--staged-pipeline`), `staged_analyzer.py` (3-stage LtM pipeline entry point, flag-gated by `AIConfig.use_staged_pipeline`), `stage_relevance.py` (stage relevance scoring), `dependency_resolver.py` (column dependency resolution), `_stage_prompts.py` (stage-specific prompt templates), `ai_mediator.py` (AI-specific mediation — `apply_ai_suggestions()` moved from core in Phase C), `config.py` (`AIConfig` with `tool_calling_protocol: Literal["gemma4", "openai", "none"]` field added in Phase E, multi-backend support), `errors.py` (error summary), `exceptions.py` (structured exception types), `examples.py` (few-shot), `_client.py` (API client), `_json_utils.py` (JSON parsing), `_model_selector.py` (Gemma 4 model selection), `_hardware.py` (cross-platform RAM/GPU detection), `_prompts.py` (3-tier prompt system), `_tools.py` (`GEMMA_TOOLS` for native function calling), `cli/` (`ai_commands.py` — `ai-suggest` command injected into `sqlseed` CLI via entry_points), `mcp.py` (AI MCP server: `sqlseed_ai_generate_yaml`, `sqlseed_gemma4_analyze`, `sqlseed_gemma4_agent_fill`, `sqlseed_list_gemma_models`; install with `pip install "sqlseed-ai[mcp]"`). Install: `pip install sqlseed-ai` (depends on `sqlseed-cli`).
 - `plugins/mcp-server-sqlseed/` — MCP server (FastMCP) exposing **core capabilities only** (no LLM dependency). 2 Tools (`sqlseed_generate_yaml` rule-driven via `ColumnMapper`, `sqlseed_execute_fill`). No Resources. Schema inspection delegated to third-party MCPs; AI tools moved to `sqlseed-ai[mcp]` (Phase D). Install: `pip install mcp-server-sqlseed`.
 
 ## Dependencies

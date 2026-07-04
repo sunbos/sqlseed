@@ -134,16 +134,16 @@ class ConnectionMixin:
         return self._ext.plugin_mediator
 
     @_plugin_mediator.setter
-    def _plugin_mediator(self, v: PluginMediator | None) -> None:
-        self._ext.plugin_mediator = v
+    def _plugin_mediator(self, value: PluginMediator | None) -> None:
+        self._ext.plugin_mediator = value
 
     @property
     def _enrichment(self) -> EnrichmentEngine | None:
         return self._ext.enrichment
 
     @_enrichment.setter
-    def _enrichment(self, v: EnrichmentEngine | None) -> None:
-        self._ext.enrichment = v
+    def _enrichment(self, value: EnrichmentEngine | None) -> None:
+        self._ext.enrichment = value
 
     @property
     def _unique_adjuster(self) -> UniqueAdjuster:

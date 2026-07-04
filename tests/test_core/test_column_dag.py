@@ -58,7 +58,7 @@ class TestColumnDAG:
         nodes = dag.build(specs, unique_columns={"email"})
         email_node = next(n for n in nodes if n.name == "email")
         assert email_node.constraints is not None
-        assert email_node.constraints.unique is True
+        assert email_node.constraints.is_unique is True
 
     def test_build_with_column_config_constraints(self) -> None:
         specs = {
@@ -75,7 +75,7 @@ class TestColumnDAG:
         nodes = dag.build(specs, configs)
         age_node = next(n for n in nodes if n.name == "age")
         assert age_node.constraints is not None
-        assert age_node.constraints.unique is True
+        assert age_node.constraints.is_unique is True
         assert age_node.constraints.max_retries == 50
 
     def test_topological_sort_order(self) -> None:

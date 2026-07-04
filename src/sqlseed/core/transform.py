@@ -34,12 +34,12 @@ def load_transform(script_path: str) -> Callable[[dict[str, Any], dict[str, Any]
     # default causes pylint to infer the return as None, which propagates
     # through the return type and triggers not-callable (E1102) on callers.
     try:
-        fn_any: Any = module.transform_row
+        transform_fn_any: Any = module.transform_row
     except AttributeError:
         raise AttributeError(
             f"Transform script must define a 'transform_row(row, ctx)' function: {script_path}"
         ) from None
-    if not callable(fn_any):
+    if not callable(transform_fn_any):
         raise TypeError(f"Transform script's 'transform_row' must be a callable function: {script_path}")
-    fn: RowTransformFn = fn_any
+    fn: RowTransformFn = transform_fn_any
     return fn

@@ -373,8 +373,11 @@ class ColumnMapper:
                 if exact_match.generator_name == user_spec.generator_name:
                     same_group = True
                 else:
-                    str_group = {"string", "text", "sentence"}
-                    if exact_match.generator_name in str_group and user_spec.generator_name in str_group:
+                    string_generators = {"string", "text", "sentence"}
+                    if (
+                        exact_match.generator_name in string_generators
+                        and user_spec.generator_name in string_generators
+                    ):
                         same_group = True
 
                 if same_group:

@@ -16,8 +16,8 @@ from typing import Any
 class RegisterResult:
     """Constraint registration result, carrying backtracking need and target column info."""
 
-    registered: bool = True
-    need_backtrack: bool = False
+    is_registered: bool = True
+    should_backtrack: bool = False
     backtrack_targets: list[str] = field(default_factory=list)
 
 
@@ -72,21 +72,21 @@ class ConstraintSolver:
         self,
         column_name: str,
         value: Any,
-        unique: bool = False,
+        is_unique: bool = False,
     ) -> bool:
         """Check whether a single-column value satisfies the unique constraint and register it.
 
         Args:
             column_name: Column name.
             value: The value to check.
-            unique: Whether to enable unique constraint checking.
+            is_unique: Whether to enable unique constraint checking.
 
         Returns:
             True means the value passed the check and was registered;
             False means the value already exists (unique constraint violated).
             None values always return True (NULL does not participate in uniqueness checks).
         """
-        if not unique:
+        if not is_unique:
             return True
         if value is None:
             return True
@@ -99,7 +99,7 @@ class ConstraintSolver:
         self,
         column_name: str,
         value: Any,
-        unique: bool = False,
+        is_unique: bool = False,
         source_columns: list[str] | None = None,
     ) -> RegisterResult:
         """Attempt to register a single-column value, returning a result carrying backtracking info.
@@ -112,27 +112,27 @@ class ConstraintSolver:
         Args:
             column_name: Column name.
             value: The value to register.
-            unique: Whether to enable unique constraint checking.
+            is_unique: Whether to enable unique constraint checking.
             source_columns: Optional list of backtracking target columns, defaults to [column_name].
 
         Returns:
-            RegisterResult: registered=True means registration succeeded;
-            registered=False with need_backtrack=True means backtracking is required.
+            RegisterResult: is_registered=True means registration succeeded;
+            is_registered=False with should_backtrack=True means backtracking is required.
         """
-        if not unique:
-            return RegisterResult(registered=True)
+        if not is_unique:
+            return RegisterResult(is_registered=True)
 
         if value is None:
-            return RegisterResult(registered=True)
+            return RegisterResult(is_registered=True)
 
         if self._is_seen(column_name, value):
             return RegisterResult(
-                registered=False,
-                need_backtrack=True,
+                is_registered=False,
+                should_backtrack=True,
                 backtrack_targets=source_columns if source_columns else [column_name],
             )
         self._register(column_name, value)
-        return RegisterResult(registered=True)
+        return RegisterResult(is_registered=True)
 
     def _is_composite_seen(self, key_name: str, values: tuple[Any, ...]) -> bool:
         if any(v is None for v in values):

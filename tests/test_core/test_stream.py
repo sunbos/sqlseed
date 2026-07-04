@@ -152,7 +152,7 @@ class TestDataStream:
                     ColumnNode(
                         name=n.name,
                         generator_spec=n.generator_spec,
-                        constraints=ColumnConstraints(unique=True, max_retries=100),
+                        constraints=ColumnConstraints(is_unique=True, max_retries=100),
                     )
                 )
             else:
@@ -170,7 +170,7 @@ class TestDataStream:
                     generator_name="integer",
                     params={"min_value": 1, "max_value": 1},
                 ),
-                constraints=ColumnConstraints(unique=True, max_retries=2),
+                constraints=ColumnConstraints(is_unique=True, max_retries=2),
             )
         ]
         provider = BaseProvider()
@@ -322,7 +322,7 @@ class TestAttemptNodeGeneration:
         node = ColumnNode(
             name="col",
             generator_spec=GeneratorSpec(generator_name="integer"),
-            constraints=ColumnConstraints(unique=False, max_retries=3),
+            constraints=ColumnConstraints(is_unique=False, max_retries=3),
         )
         provider = MagicMock()
         provider.generate.side_effect = ValueError("fail")
@@ -343,7 +343,7 @@ class TestAttemptNodeGeneration:
             depends_on=["src"],
             expression=None,
             is_derived=True,
-            constraints=ColumnConstraints(unique=True, max_retries=5),
+            constraints=ColumnConstraints(is_unique=True, max_retries=5),
         )
         # Build a stream with src node first, then derived
         src_node = ColumnNode(
@@ -679,7 +679,7 @@ class TestGenerateRowBacktracking:
                     depends_on=["base"],
                     expression="value + 1",
                     is_derived=True,
-                    constraints=ColumnConstraints(unique=True, max_retries=10),
+                    constraints=ColumnConstraints(is_unique=True, max_retries=10),
                 )
         stream = make_stream(nodes, BaseProvider())
         row = stream._generate_row(row_idx=1)

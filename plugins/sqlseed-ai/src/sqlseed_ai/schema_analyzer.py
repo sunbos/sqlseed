@@ -930,7 +930,7 @@ Output ONLY raw JSON. No markdown, no explanation."""
         API call, model fallback, and JSON parsing.
 
         Retries up to 2 times on empty response (small models like Gemma 4
-        E2B sometimes return empty content or unparseable text on the first
+        E2B sometimes return empty content or unparsable text on the first
         call due to non-determinism). A response is considered empty if it
         has no ``tables`` key and no ``name`` key.
         """

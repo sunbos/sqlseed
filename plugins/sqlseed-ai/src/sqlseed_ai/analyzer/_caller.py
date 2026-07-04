@@ -232,9 +232,9 @@ class LLMCallerMixin:
         """
         try:
             return client.chat.completions.create(**kwargs)
-        except APIError as param_err:
+        except APIError as parameter_error:
             # Detect unsupported reasoning_effort via structured classification
-            classified = classify_api_error(param_err)
+            classified = classify_api_error(parameter_error)
             if "reasoning_effort" in kwargs and isinstance(classified, ModelFallbackError):
                 logger.debug("reasoning_effort not supported, retrying without it", model=kwargs.get("model"))
                 del kwargs["reasoning_effort"]
