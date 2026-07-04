@@ -12,11 +12,12 @@ class TestCamelCaseMapping:
 
     def test_hungarian_s_order_no_matches_no_pattern(self) -> None:
         spec = self.mapper.map_column(make_column_info("sOrderNo", "TEXT"))
-        assert spec.generator_name == "foreign_key_or_integer"
+        # `*_no` columns are now string (alphanumeric) — see mapper.py PATTERN_MATCH_RULES
+        assert spec.generator_name == "string"
 
     def test_hungarian_s_item_no_matches_no_pattern(self) -> None:
         spec = self.mapper.map_column(make_column_info("sItemNo", "TEXT"))
-        assert spec.generator_name == "foreign_key_or_integer"
+        assert spec.generator_name == "string"
 
     def test_camel_user_name_matches_username_exact(self) -> None:
         spec = self.mapper.map_column(make_column_info("userName", "TEXT"))
@@ -63,9 +64,11 @@ class TestCamelCaseMapping:
         ["order_no", "item_no"],
         ids=["order_no", "item_no"],
     )
-    def test_non_sensitive_no_still_integer(self, col_name: str) -> None:
+    def test_non_sensitive_no_now_string(self, col_name: str) -> None:
         spec = self.mapper.map_column(make_column_info(col_name, "TEXT"))
-        assert spec.generator_name == "foreign_key_or_integer"
+        # `*_no` columns are now string (alphanumeric), not foreign_key_or_integer.
+        # Foreign keys are typically `*_id`; `*_no` is a business code (order_no, item_no).
+        assert spec.generator_name == "string"
 
     def test_hungarian_s_user_no_is_desensitized(self) -> None:
         spec = self.mapper.map_column(make_column_info("sUserNo", "TEXT"))

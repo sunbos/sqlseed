@@ -219,7 +219,7 @@ flowchart TD
     L3{"Level 3<br/>自定义精确匹配？"} -->|匹配| R3["使用插件注册的精确规则"]
     L3 -->|未匹配| L4
 
-    L4{"Level 4<br/>内置精确匹配？<br/>(<!-- BEGIN:AUTO-GENERATED:exact-match-rule-count -->74<!-- END:AUTO-GENERATED:exact-match-rule-count --> 条规则)"} -->|匹配| R4["email→email<br/>phone→phone<br/>age→integer<br/>city→city<br/>..."]
+    L4{"Level 4<br/>内置精确匹配？<br/>(<!-- BEGIN:AUTO-GENERATED:exact-match-rule-count -->75<!-- END:AUTO-GENERATED:exact-match-rule-count --> 条规则)"} -->|匹配| R4["email→email<br/>phone→phone<br/>age→integer<br/>city→city<br/>..."]
     L4 -->|未匹配| L5
 
     L5{"Level 5<br/>有默认值？"} -->|是| R5["skip (跳过生成)<br/>或 __enrich__"]

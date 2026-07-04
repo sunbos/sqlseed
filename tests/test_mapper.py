@@ -77,6 +77,45 @@ class TestColumnMapper:
         spec = self.mapper.map_column(make_column_info("email"), user_config)
         assert spec.generator_name == "name"
 
+    def test_exact_match_sku_maps_to_alphanumeric_string(self) -> None:
+        """``sku`` column → string generator with alphanumeric charset.
+
+        SKU (Stock Keeping Unit) codes must NOT contain spaces or dashes
+        (they're used as product identifiers in URLs, barcodes, and joins).
+        The default charset for the string generator includes ``" _-"`` which
+        is unsafe for SKUs — the rule must explicitly use ``alphanumeric``.
+        """
+        spec = self.mapper.map_column(make_column_info("sku", "TEXT"))
+        assert spec.generator_name == "string"
+        assert spec.params["charset"] == "alphanumeric"
+
+    def test_pattern_match_order_no_maps_to_string_not_integer(self) -> None:
+        """``order_no`` column → string generator (not foreign_key_or_integer).
+
+        Business codes like ``order_no``, ``task_no``, ``invoice_no`` are
+        alphanumeric identifiers, not integers. The previous rule mapped
+        ``.*_no$|.*_nbr$`` to ``foreign_key_or_integer`` which falls back
+        to plain integer when the column is not a FK — producing numeric
+        order numbers instead of alphanumeric codes.
+        """
+        spec = self.mapper.map_column(make_column_info("order_no", "TEXT"))
+        assert spec.generator_name == "string", (
+            f"order_no should map to 'string' (alphanumeric code), got {spec.generator_name!r}"
+        )
+        assert spec.params.get("charset") == "alphanumeric"
+
+    def test_pattern_match_task_no_maps_to_string(self) -> None:
+        """``task_no`` column → string generator (regression for task_no bug)."""
+        spec = self.mapper.map_column(make_column_info("task_no", "TEXT"))
+        assert spec.generator_name == "string"
+        assert spec.params.get("charset") == "alphanumeric"
+
+    def test_pattern_match_invoice_nbr_maps_to_string(self) -> None:
+        """``invoice_nbr`` column → string generator (regression for *_nbr bug)."""
+        spec = self.mapper.map_column(make_column_info("invoice_nbr", "TEXT"))
+        assert spec.generator_name == "string"
+        assert spec.params.get("charset") == "alphanumeric"
+
 
 class TestNameColumnMapping:
     """Tests for *_name column mapping rules (word fallback, person-name contexts)."""
@@ -159,9 +198,7 @@ class TestLoadCustomMappings:
         """Custom pattern rule overrides built-in *_name fallback."""
         from sqlseed.config.models import CustomColumnMappings, PatternColumnMappingRule
 
-        mappings = CustomColumnMappings(
-            pattern=[PatternColumnMappingRule(pattern=r"^sku_.*$", generator="uuid")]
-        )
+        mappings = CustomColumnMappings(pattern=[PatternColumnMappingRule(pattern=r"^sku_.*$", generator="uuid")])
         self.mapper.load_custom_mappings(mappings)
         spec = self.mapper.map_column(make_column_info("sku_product_id"))
         assert spec.generator_name == "uuid"

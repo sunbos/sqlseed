@@ -122,6 +122,10 @@ class ColumnMapper:
         "occupation": "job_title",
         "position": "job_title",
         "country_code": "country_code",
+        # SKU (Stock Keeping Unit) codes must be alphanumeric (no spaces/dashes)
+        # — they're used as product identifiers in URLs, barcodes, and joins.
+        # The default string charset includes " _-" which is unsafe for SKUs.
+        "sku": "string",
     }
 
     EXACT_MATCH_PARAMS: ClassVar[dict[str, dict[str, Any]]] = {
@@ -152,6 +156,8 @@ class ColumnMapper:
         "description": {"min_length": 100, "max_length": 500},
         "content": {"min_length": 200, "max_length": 1000},
         "comment": {"min_length": 10, "max_length": 200},
+        # SKU codes: alphanumeric only (no spaces/dashes), 6-12 chars.
+        "sku": {"min_length": 6, "max_length": 12, "charset": "alphanumeric"},
     }
 
     PATTERN_MATCH_RULES: ClassVar[tuple[tuple[str, str, dict[str, Any]], ...]] = (
@@ -162,7 +168,11 @@ class ColumnMapper:
             "string",
             {"min_length": 8, "max_length": 20, "charset": "alphanumeric"},
         ),
-        (r".*_no$|.*_nbr$", "foreign_key_or_integer", {}),
+        (
+            r".*_no$|.*_nbr$",
+            "string",
+            {"min_length": 6, "max_length": 20, "charset": "alphanumeric"},
+        ),
         (r".*_ids$", "json", {}),
         (r".*_at$", "datetime", {}),
         (r".*_date$", "date", {}),
