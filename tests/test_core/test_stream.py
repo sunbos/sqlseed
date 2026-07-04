@@ -360,7 +360,9 @@ class TestAttemptNodeGeneration:
         # without triggering method-assign — this is intentional test behavior.
         stream_any = cast("Any", stream)
         original = stream_any._generate_node_value
-        stream_any._generate_node_value = lambda n, r: "existing"
+        # Lambda accepts exclude_values kwarg to match the updated
+        # _generate_node_value signature (UNIQUE retry passes exclude_values).
+        stream_any._generate_node_value = lambda n, r, *, exclude_values=None: "existing"
         try:
             success, backtrack_to = stream_any._attempt_node_generation(node, row, generated)
         finally:
@@ -726,3 +728,116 @@ class TestGenerateBatchSize:
         assert len(batches) == expected_batch_count
         if expected_batch_count > 0:
             assert len(batches[0]) == expected_first_batch_len
+
+
+class TestAttemptNodeGenerationExcludeValues:
+    """Tests for ``exclude_values`` propagation in ``_attempt_node_generation``.
+
+    Root-cause fix for the "UNIQUE + semantic generators" failure pattern:
+    when a column has a UNIQUE constraint, ``DataStream`` must pass the
+    constraint solver's seen set as ``exclude_values`` to the generator, so
+    the generator can avoid producing values already in use.
+
+    Without this, generators like ``faker.email()`` produce duplicates on
+    large row counts, leading to ``RuntimeError`` after 1000 retries.
+    """
+
+    def test_attempt_node_generation_passes_exclude_values_to_generator(self) -> None:
+        """UNIQUE column: ``DataStream`` passes the seen set to generator as ``exclude_values``."""
+        solver = ConstraintSolver()
+        solver._register("col", "val1")
+        solver._register("col", "val2")
+
+        node = ColumnNode(
+            name="col",
+            generator_spec=GeneratorSpec(generator_name="string", params={"min_length": 3, "max_length": 3}),
+            constraints=ColumnConstraints(is_unique=True, max_retries=5),
+        )
+
+        provider = MagicMock()
+        provider.generate.return_value = "new_val"
+        provider.name = "base"
+
+        stream = make_stream([node], provider, constraint_solver=solver)
+        success, _ = stream._attempt_node_generation(node, {}, {})
+
+        assert success is True
+        # Verify exclude_values was passed with the seen set
+        call_kwargs = provider.generate.call_args.kwargs
+        assert "exclude_values" in call_kwargs
+        assert call_kwargs["exclude_values"] == {"val1", "val2"}
+
+    def test_attempt_node_generation_passes_empty_exclude_for_fresh_unique_column(self) -> None:
+        """UNIQUE column with no prior registrations: ``exclude_values`` is an empty set (not None)."""
+        node = ColumnNode(
+            name="col",
+            generator_spec=GeneratorSpec(generator_name="string"),
+            constraints=ColumnConstraints(is_unique=True, max_retries=5),
+        )
+
+        provider = MagicMock()
+        provider.generate.return_value = "val"
+        provider.name = "base"
+
+        stream = make_stream([node], provider)
+        success, _ = stream._attempt_node_generation(node, {}, {})
+
+        assert success is True
+        call_kwargs = provider.generate.call_args.kwargs
+        # exclude_values should be an empty set (UNIQUE column → always pass the seen set)
+        assert "exclude_values" in call_kwargs
+        assert call_kwargs["exclude_values"] == set()
+
+    def test_attempt_node_generation_no_exclude_for_non_unique_column(self) -> None:
+        """Non-UNIQUE column: ``exclude_values`` is ``None`` (no exclusion overhead)."""
+        node = ColumnNode(
+            name="col",
+            generator_spec=GeneratorSpec(generator_name="string"),
+            constraints=ColumnConstraints(is_unique=False, max_retries=5),
+        )
+
+        provider = MagicMock()
+        provider.generate.return_value = "val"
+        provider.name = "base"
+
+        stream = make_stream([node], provider)
+        success, _ = stream._attempt_node_generation(node, {}, {})
+
+        assert success is True
+        call_kwargs = provider.generate.call_args.kwargs
+        # exclude_values should be None (non-UNIQUE column → no exclusion needed)
+        assert call_kwargs.get("exclude_values") is None
+
+    def test_attempt_node_generation_updates_exclude_on_retry(self) -> None:
+        """UNIQUE retry: ``exclude_values`` reflects newly registered values on each retry.
+
+        When the first generated value collides, the retry must include the
+        colliding value in ``exclude_values`` so the generator avoids it on
+        the next attempt.
+        """
+        solver = ConstraintSolver()
+        solver._register("col", "existing")
+
+        node = ColumnNode(
+            name="col",
+            generator_spec=GeneratorSpec(generator_name="string", params={"min_length": 3, "max_length": 3}),
+            constraints=ColumnConstraints(is_unique=True, max_retries=5),
+        )
+
+        provider = MagicMock()
+        # First call returns "existing" (collides), second returns "new_val"
+        provider.generate.side_effect = ["existing", "new_val"]
+        provider.name = "base"
+
+        stream = make_stream([node], provider, constraint_solver=solver)
+        success, _ = stream._attempt_node_generation(node, {}, {})
+
+        assert success is True
+        assert provider.generate.call_count == 2
+        # First call: exclude_values contains {"existing"}
+        first_call_exclude = provider.generate.call_args_list[0].kwargs.get("exclude_values")
+        assert first_call_exclude == {"existing"}
+        # Second call (retry): exclude_values still contains {"existing"}
+        # (the colliding value was NOT registered because try_register rejected it)
+        second_call_exclude = provider.generate.call_args_list[1].kwargs.get("exclude_values")
+        assert second_call_exclude == {"existing"}

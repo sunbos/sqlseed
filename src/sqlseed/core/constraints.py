@@ -200,3 +200,26 @@ class ConstraintSolver:
     def unregister(self, column_name: str, value: Any) -> None:
         """Remove a previously registered single-column unique value, allowing it to be re-registered."""
         self._unregister_value(column_name, value)
+
+    def get_seen(self, column_name: str) -> set[Any]:
+        """Return a copy of the seen values for a column.
+
+        Used by ``DataStream`` to pass ``exclude_values`` to generators on
+        UNIQUE retry, so generators can avoid producing values already in
+        use. This is the root-cause fix for the "UNIQUE + semantic
+        generators" failure pattern where ``faker.email()`` etc. produce
+        duplicates on large row counts.
+
+        Args:
+            column_name: The column name.
+
+        Returns:
+            A copy of the set of seen values for the column. Empty set if
+            the column has no registered values. In probabilistic mode,
+            returns the hash set (generators cannot avoid duplicates by
+            value comparison since they only see hashes, but the contract
+            still holds).
+        """
+        if self._probabilistic:
+            return set(self._hash_seen.get(column_name, set()))
+        return set(self._seen.get(column_name, set()))

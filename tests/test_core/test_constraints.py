@@ -83,3 +83,85 @@ class TestConstraintSolver:
         solver.check_and_register_composite("idx", (1, "a"))
         solver.unregister_composite("idx", (1, "a"))
         assert solver.check_and_register_composite("idx", (1, "a")) is True
+
+
+class TestGetSeen:
+    """Tests for the ``get_seen`` method (UNIQUE retry-with-exclude support).
+
+    ``get_seen`` exposes a per-column view of the registered unique values so
+    that ``DataStream`` can pass them to the generator as ``exclude_values``,
+    letting the generator avoid producing values already known to be in use.
+    This is the root-cause fix for the "UNIQUE + semantic generators" failure
+    pattern where ``faker.email()`` etc. produce duplicates on large row counts.
+    """
+
+    def test_get_seen_returns_empty_set_for_unknown_column(self) -> None:
+        solver = ConstraintSolver()
+        seen = solver.get_seen("col")
+        assert isinstance(seen, set)
+        assert len(seen) == 0
+
+    def test_get_seen_returns_registered_values(self) -> None:
+        solver = ConstraintSolver()
+        solver._register("col", 1)
+        solver._register("col", 2)
+        solver._register("col", 3)
+        seen = solver.get_seen("col")
+        assert seen == {1, 2, 3}
+
+    def test_get_seen_isolates_columns(self) -> None:
+        """get_seen returns only values for the requested column."""
+        solver = ConstraintSolver()
+        solver._register("col_a", 1)
+        solver._register("col_b", 100)
+        assert solver.get_seen("col_a") == {1}
+        assert solver.get_seen("col_b") == {100}
+
+    def test_get_seen_returns_independent_copy(self) -> None:
+        """get_seen must return a copy — mutating it must not affect the solver's state.
+
+        Without this guarantee, a generator that accidentally mutates
+        ``exclude_values`` could corrupt the solver's seen set.
+        """
+        solver = ConstraintSolver()
+        solver._register("col", 1)
+        seen = solver.get_seen("col")
+        seen.add(999)  # Mutate the returned set
+        # Internal state must be unaffected
+        assert solver._is_seen("col", 1)
+        assert not solver._is_seen("col", 999)
+
+    def test_get_seen_reflects_unregistration(self) -> None:
+        """get_seen reflects values removed via unregister()."""
+        solver = ConstraintSolver()
+        solver._register("col", 1)
+        solver._register("col", 2)
+        solver.unregister("col", 1)
+        assert solver.get_seen("col") == {2}
+
+    def test_get_seen_returns_empty_after_reset(self) -> None:
+        solver = ConstraintSolver()
+        solver._register("col", 1)
+        solver._register("col", 2)
+        solver.reset()
+        assert solver.get_seen("col") == set()
+
+    def test_get_seen_returns_empty_after_reset_column(self) -> None:
+        solver = ConstraintSolver()
+        solver._register("col", 1)
+        solver.reset_column("col")
+        assert solver.get_seen("col") == set()
+
+    def test_get_seen_probabilistic_mode(self) -> None:
+        """Probabilistic mode also exposes seen hashes via get_seen.
+
+        Probabilistic mode stores hashes, not raw values, so get_seen returns
+        the hash set directly. Generators in probabilistic mode cannot avoid
+        duplicates by value comparison (they only see hashes), but the
+        contract (returns a set, empty for unknown columns) still holds.
+        """
+        solver = ConstraintSolver(probabilistic=True)
+        solver._register("col", 42)
+        seen = solver.get_seen("col")
+        assert isinstance(seen, set)
+        assert len(seen) == 1  # Contains the hash, not the raw value

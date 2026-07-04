@@ -81,7 +81,13 @@ class DataStream:
             yield batch
             generated += current_batch_size
 
-    def _generate_node_value(self, node: ColumnNode, row: dict[str, Any]) -> Any:
+    def _generate_node_value(
+        self,
+        node: ColumnNode,
+        row: dict[str, Any],
+        *,
+        exclude_values: set[Any] | None = None,
+    ) -> Any:
         """Generate the value for a single node.
 
         Derived columns are evaluated via the expression engine; other columns are
@@ -91,6 +97,10 @@ class DataStream:
         Args:
             node: The current column node.
             row: The currently generated row data.
+            exclude_values: Optional set of values to avoid (UNIQUE-constrained
+                columns). Passed through to ``_apply_generator`` so the dispatch
+                layer can retry-with-exclude. ``None`` for non-UNIQUE columns or
+                derived columns (which don't call the generator).
 
         Returns:
             The value generated for the node.
@@ -112,7 +122,7 @@ class DataStream:
                 raise ConfigurationError(f"Expression misconfigured: {exc}") from exc
 
         try:
-            return self._apply_generator(node.generator_spec)
+            return self._apply_generator(node.generator_spec, exclude_values=exclude_values)
         except (TypeError, AttributeError) as exc:
             raise ConfigurationError(f"Generator '{node.generator_spec.generator_name}' misconfigured: {exc}") from exc
         except (ValueError, OverflowError) as exc:
@@ -163,7 +173,13 @@ class DataStream:
 
         for _ in range(max_retries):
             try:
-                val = self._generate_node_value(node, row)
+                # UNIQUE columns: pass the seen set as exclude_values so the
+                # generator can avoid producing values already in use. This is
+                # the root-cause fix for the "UNIQUE + semantic generators"
+                # failure pattern where faker.email() etc. produce duplicates
+                # on large row counts. Non-UNIQUE columns pass None (no overhead).
+                exclude = self._constraint_solver.get_seen(col_name) if is_unique else None
+                val = self._generate_node_value(node, row, exclude_values=exclude)
             except GenerationError as exc:
                 logger.debug(
                     "Retriable generation error",
@@ -348,18 +364,24 @@ class DataStream:
                 return i
         return None
 
-    def _apply_generator(self, spec: GeneratorSpec) -> Any:
+    def _apply_generator(self, spec: GeneratorSpec, *, exclude_values: set[Any] | None = None) -> Any:
         """Apply a generator spec to produce a value.
 
         Processing order:
         1. If ``null_ratio`` hits, return ``None``;
-        2. Try a native method (direct faker/mimesis call);
-        3. Call ``provider.generate`` for regular generation;
+        2. Try a native method (direct faker/mimesis call) — skipped when
+           ``exclude_values`` is non-empty, because native methods don't
+           support exclude and would bypass the dispatch-layer retry loop;
+        3. Call ``provider.generate`` for regular generation, passing
+           ``exclude_values`` for UNIQUE-aware retry;
         4. On ``UnknownGeneratorError``, ``choice`` falls back to local random and
            ``foreign_key`` is handled by the foreign-key routine.
 
         Args:
             spec: Generator spec.
+            exclude_values: Optional set of values to avoid (UNIQUE-constrained
+                columns). Passed to ``provider.generate`` for the dispatch
+                layer's retry-with-exclude logic.
 
         Returns:
             The generated value.
@@ -367,14 +389,19 @@ class DataStream:
         if spec.null_ratio > 0 and self._rng.random() < spec.null_ratio:
             return None
 
-        native_result = self._try_native_method(spec)
-        if native_result is not _NATIVE_MISS:
-            return native_result
+        # Skip native method when exclude_values is needed — native methods
+        # (faker/mimesis direct calls via native_faker_method/native_mimesis_method)
+        # don't support exclude_values, so we fall through to the dispatch
+        # layer's retry-with-exclude logic which does.
+        if not exclude_values:
+            native_result = self._try_native_method(spec)
+            if native_result is not _NATIVE_MISS:
+                return native_result
 
         try:
             if spec.params:
-                return self._provider.generate(spec.generator_name, **spec.params)
-            return self._provider.generate(spec.generator_name)
+                return self._provider.generate(spec.generator_name, exclude_values=exclude_values, **spec.params)
+            return self._provider.generate(spec.generator_name, exclude_values=exclude_values)
         except UnknownGeneratorError:
             if spec.generator_name == "choice" and "choices" in spec.params:
                 return self._rng.choice(spec.params["choices"])
