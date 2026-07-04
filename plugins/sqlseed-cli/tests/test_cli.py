@@ -268,7 +268,16 @@ class TestCLIAISuggest:
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
         monkeypatch.delenv("SQLSEED_AI_API_KEY", raising=False)
         monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
-        monkeypatch.delenv("SQLSEED_AI_BACKEND", raising=False)
+        # Force a cloud backend so resolve_api_key() returns None when no API
+        # key env var is set. Without this, if SQLSEED_AI_BACKEND=lm_studio is
+        # set (or auto-detected), resolve_api_key() returns a placeholder
+        # ("lm-studio") and the CLI proceeds instead of erroring out — which
+        # would make these "no API key" tests fail when LM Studio is running.
+        monkeypatch.setenv("SQLSEED_AI_BACKEND", "google_ai_studio")
+        # Point cache dir at an empty temp dir so previously-cached AI configs
+        # (e.g., from a prior LM Studio run) don't short-circuit the API-key
+        # error path that the tests below assert on.
+        monkeypatch.setenv("SQLSEED_CACHE_DIR", str(tmp_path / "empty_cache"))
         runner = CliRunner()
         output_path = str(tmp_path / "output.yaml")
         return runner, unique_test_db, output_path

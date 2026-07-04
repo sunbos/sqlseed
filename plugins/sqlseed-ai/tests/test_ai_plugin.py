@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -72,6 +73,12 @@ class TestAIConfig:
 
     def test_resolve_model_auto_detect_local(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("SQLSEED_AI_BACKEND", "lm_studio")
+        # Clear SQLSEED_AI_MODEL so config.model is None, forcing resolve_model()
+        # to exercise the auto-detect path rather than short-circuiting on a
+        # user-supplied model. Without this, a SQLSEED_AI_MODEL env var leaked
+        # from a prior session (e.g., "google/gemma-4-e2b") would cause the
+        # test to assert against the wrong fallback model.
+        monkeypatch.delenv("SQLSEED_AI_MODEL", raising=False)
         config = AIConfig.from_env()
         # Mock _detect_local_model to return None (no local server running)
         monkeypatch.setattr(config, "_detect_local_model", lambda: None)
@@ -276,7 +283,18 @@ class TestSchemaAnalyzer:
                 "all_table_names": ["users"],
             }
         )
-        assert len(messages) == 10
+        # Expected structure: 1 system + (N few-shot pairs = 2*N) + 1 actual query.
+        # Computing from FEW_SHOT_EXAMPLES makes the test robust against
+        # future few-shot additions (was hardcoded to 10, broke at 14 after
+        # P0-P3 examples were added).
+        from sqlseed_ai.examples import FEW_SHOT_EXAMPLES
+
+        expected_count = 1 + len(FEW_SHOT_EXAMPLES) * 2 + 1
+        assert len(messages) == expected_count, (
+            f"expected {expected_count} messages (1 system + "
+            f"{len(FEW_SHOT_EXAMPLES)}*2 few-shot pairs + 1 query), "
+            f"got {len(messages)}"
+        )
         assert messages[0]["role"] == "system"
         assert messages[1]["role"] == "user"
         assert messages[2]["role"] == "assistant"
@@ -508,17 +526,22 @@ class TestSchemaAnalyzerDialect:
         assert has_key, f"LLM response should contain a 'tables' or 'columns' key, actual keys: {keys}"
 
     def test_analyze_schema_llm_failure_clear_error(self, tmp_db: str, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Simulate LLM timeout/error and verify that the error message is clear."""
-        # Use an invalid base_url to simulate a connection failure
-        # Note: valid values for SQLSEED_AI_BACKEND are lm_studio/ollama/openai_compat/google_ai_studio, not "openai"
-        monkeypatch.setenv("SQLSEED_AI_BACKEND", "openai_compat")
-        monkeypatch.setenv("OPENAI_BASE_URL", "http://localhost:9999/v1")  # Non-existent port
-        monkeypatch.setenv("OPENAI_API_KEY", "invalid_key")
-        monkeypatch.setenv("SQLSEED_AI_MODEL", "gemma-4-26b-a4b-it")
-        monkeypatch.setenv("SQLSEED_AI_TIMEOUT", "5")  # Short timeout
+        """Simulate LLM timeout/error and verify that the error message is clear.
 
-        config = AIConfig.from_env()
+        Previously this test pointed at localhost:9999 to simulate a connection
+        failure. However, when a real LLM backend (LM Studio/Ollama) is running
+        locally, the analyzer may fall back to it and succeed, making the test
+        environment-dependent. We now monkeypatch ``call_llm`` to deterministically
+        raise a RuntimeError, verifying the error-handling path returns None.
+        """
+        config = AIConfig(model="test-model")
         analyzer = SchemaAnalyzer(config)
+
+        # Force the LLM call to fail with a recoverable error.
+        def _boom(messages: list[dict[str, str]]) -> dict[str, Any]:
+            raise RuntimeError("simulated LLM failure")
+
+        monkeypatch.setattr(analyzer, "call_llm", _boom)
 
         with DataOrchestrator(tmp_db, provider_name="base") as orch:
             orch._ensure_connected()
