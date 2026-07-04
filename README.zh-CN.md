@@ -509,7 +509,7 @@ tables:
 3. 先生成 `project_no`，再通过表达式 `value[-6:]` 计算 `short_code`
 4. 如果 `short_code` 的唯一性约束失败，回溯重新生成 `project_no`
 
-#### 表达式引擎支持的函数（25 个）
+#### 表达式引擎支持的函数（26 个）
 
 | 函数 | 用法 | 说明 |
 | :--- | :--- | :--- |
@@ -538,6 +538,7 @@ tables:
 | `random_float(min, max)` | `random_float(0, value)` | 范围内随机浮点数 |
 | `random_int(min, max)` | `random_int(1, 100)` | 范围内随机整数 |
 | `random_choice(seq)` | `random_choice([1,2,3])` | 从序列中随机选择 |
+| `timedelta(days, seconds)` | `value + timedelta(days=7)` | 日期/时间算术 (给日期源列增加间隔) |
 | 切片 | `value[-8:]` | Python 切片语法 |
 | 数学 | `value * 2 + 1` | 基本数学运算 |
 
@@ -764,7 +765,7 @@ Level 2 │ 用户配置          columns={"email": "email"} 最高优先级
         ▼
 Level 3 │ 自定义精确匹配    通过插件 Hook 注册的规则
         ▼
-Level 4 │ 内置精确匹配      <!-- BEGIN:AUTO-GENERATED:exact-match-rule-count -->74<!-- END:AUTO-GENERATED:exact-match-rule-count --> 条规则：email→email, phone→phone, age→integer...
+Level 4 │ 内置精确匹配      <!-- BEGIN:AUTO-GENERATED:exact-match-rule-count -->75<!-- END:AUTO-GENERATED:exact-match-rule-count --> 条规则：email→email, phone→phone, age→integer...
         ▼
 Level 5 │ DEFAULT 检查      有默认值 → skip / __enrich__（enrich=True 时生成数据）
         ▼

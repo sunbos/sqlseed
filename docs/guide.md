@@ -514,7 +514,7 @@ columns:
 
 ### Expressions
 
-The expression engine supports 25 safe functions plus slicing and basic
+The expression engine supports 26 safe functions plus slicing and basic
 arithmetic. Expressions are sandboxed via `simpleeval` with a 5-second timeout.
 `import`, `exec`, and file I/O are not allowed.
 

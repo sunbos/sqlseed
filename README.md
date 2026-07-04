@@ -534,7 +534,7 @@ tables:
 3. Generates `project_no` first, then computes `short_code` via `value[-6:]`
 4. If `short_code` unique constraint fails, backtracks to regenerate `project_no`
 
-#### Expression Engine Functions (25 total)
+#### Expression Engine Functions (26 total)
 
 | Function | Usage | Description |
 | :------- | :---- | :---------- |
@@ -563,6 +563,7 @@ tables:
 | `random_float(min, max)` | `random_float(0, value)` | Random float in range |
 | `random_int(min, max)` | `random_int(1, 100)` | Random integer in range |
 | `random_choice(seq)` | `random_choice([1,2,3])` | Random element from sequence |
+| `timedelta(days, seconds)` | `value + timedelta(days=7)` | Date/time arithmetic (adds interval to date source) |
 | Slicing | `value[-8:]` | Python slice syntax |
 | Math | `value * 2 + 1` | Basic arithmetic |
 
@@ -941,7 +942,7 @@ Level 2 │ User config         columns={"email": "email"} highest priority
         ▼
 Level 3 │ Custom exact match  Rules registered via plugin hooks
         ▼
-Level 4 │ Built-in exact      <!-- BEGIN:AUTO-GENERATED:exact-match-rule-count -->74<!-- END:AUTO-GENERATED:exact-match-rule-count --> rules: email→email, phone→phone, age→integer...
+Level 4 │ Built-in exact      <!-- BEGIN:AUTO-GENERATED:exact-match-rule-count -->75<!-- END:AUTO-GENERATED:exact-match-rule-count --> rules: email→email, phone→phone, age→integer...
         ▼
 Level 5 │ DEFAULT check       Has default → skip / __enrich__ (when enrich=True)
         ▼

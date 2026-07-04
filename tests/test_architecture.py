@@ -466,10 +466,10 @@ class TestCountContracts:
                         return
         pytest.fail("Could not find GENERATOR_MAP in _dispatch.py")
 
-    def test_expression_safe_functions_count_is_twenty_two(self) -> None:
-        """expression.py SAFE_FUNCTIONS must have exactly 22 entries.
+    def test_expression_safe_functions_count_is_twenty_six(self) -> None:
+        """expression.py SAFE_FUNCTIONS must have exactly 26 entries.
 
-        See CLAUDE.md > core/expression.py "22 whitelisted functions".
+        See CLAUDE.md > core/expression.py "26 whitelisted functions".
         Handles ClassVar annotation (ast.AnnAssign) since SAFE_FUNCTIONS uses
         ``SAFE_FUNCTIONS: ClassVar[dict[str, Any]] = {...}``.
         """
@@ -481,8 +481,8 @@ class TestCountContracts:
                 target = node.target
                 if isinstance(target, ast.Name) and target.id == "SAFE_FUNCTIONS" and isinstance(node.value, ast.Dict):
                     count = len(node.value.keys)
-                    assert count == 22, (
-                        f"Expected 22 SAFE_FUNCTIONS, found {count}. "
+                    assert count == 26, (
+                        f"Expected 26 SAFE_FUNCTIONS, found {count}. "
                         "Update CLAUDE.md and core/AGENTS.md if this changed."
                     )
                     return
@@ -496,8 +496,8 @@ class TestCountContracts:
                     )
                     if is_match:
                         count = len(node.value.keys)
-                        assert count == 22, (
-                            f"Expected 22 SAFE_FUNCTIONS, found {count}. "
+                        assert count == 26, (
+                            f"Expected 26 SAFE_FUNCTIONS, found {count}. "
                             "Update CLAUDE.md and core/AGENTS.md if this changed."
                         )
                         return

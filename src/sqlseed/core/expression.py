@@ -1,7 +1,7 @@
 """Expression evaluation engine, simpleeval sandbox.
 
 ExpressionEngine evaluates derived column expressions in a safe sandbox,
-providing 25 safe functions plus an optional ``lookup`` function for
+providing 26 safe functions plus an optional ``lookup`` function for
 cross-table value reference (requires a db_adapter). Simple expressions
 are evaluated directly, while complex expressions are executed in a
 separate thread with a timeout.
@@ -12,6 +12,7 @@ from __future__ import annotations
 import random
 import re
 import threading
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import simpleeval
@@ -32,12 +33,13 @@ class ExpressionTimeoutError(TimeoutError):
 class ExpressionEngine:
     """Engine that evaluates derived column expressions in a simpleeval sandbox.
 
-    Provides 25 safe functions (len, int, str, upper, concat, random_float, etc.).
-    When a ``db_adapter`` is supplied, also exposes a ``lookup(table, column, key)``
-    function for cross-table value reference (results cached per tuple).
-    Simple expressions (method chains like value.strip()) are evaluated directly
-    in the calling thread; complex expressions are executed in a separate thread
-    with a timeout, and the thread is abandoned on timeout (as a daemon thread).
+    Provides 26 safe functions (len, int, str, upper, concat, random_float,
+    timedelta, etc.). When a ``db_adapter`` is supplied, also exposes a
+    ``lookup(table, column, key)`` function for cross-table value reference
+    (results cached per tuple). Simple expressions (method chains like
+    value.strip()) are evaluated directly in the calling thread; complex
+    expressions are executed in a separate thread with a timeout, and the
+    thread is abandoned on timeout (as a daemon thread).
     """
 
     SAFE_FUNCTIONS: ClassVar[dict[str, Any]] = {
@@ -66,6 +68,12 @@ class ExpressionEngine:
         "random_float": lambda min_val, max_val: random.uniform(float(min_val), float(max_val)),
         "random_int": lambda min_val, max_val: random.randint(int(min_val), int(max_val)),
         "random_choice": lambda seq: random.choice(list(seq)),
+        # timedelta enables date arithmetic in derived expressions, e.g.
+        # ``value + timedelta(days=7)`` to add a week to a date source column.
+        # Only days/seconds are exposed (the most common units) to keep the
+        # sandbox minimal — microseconds/milliseconds are rarely needed for
+        # test data generation and can be added later if required.
+        "timedelta": lambda days=0, seconds=0: timedelta(days=int(days), seconds=int(seconds)),
     }
 
     _SIMPLE_EXPR_RE: ClassVar[re.Pattern[str]] = re.compile(r"^[a-zA-Z_]\w*\s*(\.\s*[a-zA-Z_]\w*\s*\([^)]*\)\s*)+$")
