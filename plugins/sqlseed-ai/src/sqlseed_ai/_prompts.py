@@ -43,7 +43,10 @@ Column types are normalized (e.g., "VARCHAR" for all variable-length string type
   string with placeholders: {sequence} (auto-incrementing int),
   {random_string:N} (N random alphanumeric chars), {random_digits:N}
   (N random digits), {random_int:MIN-MAX}. Use for readable codes:
-  "MER-{sequence:04d}", "ORD-{random_digits:8}", "user{sequence:04d}"
+  "{PREFIX}-{sequence:04d}" where {PREFIX} is a short, domain-relevant
+  abbreviation derived from the table or column name (e.g., for a
+  departments table use "DEPT-", for employees use "EMP-", for products
+  use "PRD-"). NEVER reuse a prefix from a different domain
 - weighted_choice (params: choices OR weighted_choices) — weighted random
   pick. choices: [{"value":"active","weight":80},...]. weighted_choices:
   {"active":80,"suspended":15,"closed":5}. Use for status/role columns
@@ -95,12 +98,12 @@ from price + quantity).
    use "name" only when the prefix clearly indicates a person
    (user_name, customer_name, employee_name, etc.); otherwise
    use "word" (product_name, animal_name, medicine_name, category_name,
-   item_name, merchant_name, etc.).
+   item_name, dept_name, etc.).
 7. For "age" columns, use min_value: 18, max_value: 65 (working age range)
-8. *_code, *_no, sku, serial columns → use "string" with min_length + max_length
-   (e.g., {"min_length": 8, "max_length": 16, "charset": "alphanumeric"}),
-   OR "pattern" with a regex. NEVER use "text" (produces long sentences that
-   collide under UNIQUE constraints).
+8. *_code, *_no, sku, serial columns → PREFER "template" with {sequence}
+   (see Rule 16). NEVER use "string" (default charset includes spaces and
+   hyphens, unsafe for codes/SKUs that join on equality) and NEVER use
+   "text" (long sentences that collide under UNIQUE constraints).
 9. UNIQUE-constrained columns (see "UNIQUE INDEX" in Indexes section) →
    add "constraints": {"unique": true}. Do NOT skip them.
 10. CHECK constraints (see "## CHECK Constraints" section):
@@ -128,8 +131,11 @@ from price + quantity).
     output mixed formats (e.g., mixing "+1..." and "###-...") to prevent
     front-end layout or validation failures.
 16. *_code, *_no, sku, serial columns → PREFER "template" with {sequence}
-    for readable codes (e.g., "MER-{sequence:04d}", "PROD-{sequence:04d}").
-    Use "string" only when no business prefix is appropriate.
+    for readable codes (derive prefix from table/column name, e.g.,
+    "DEPT-{sequence:04d}" for departments, "EMP-{sequence:04d}" for employees).
+    For UNIQUE-constrained codes ALWAYS use "template" with {sequence} (the
+    sequence guarantees uniqueness). Use "string" only when no business
+    prefix is appropriate AND the column is not UNIQUE-constrained.
 17. Status/role columns with CHECK IN ('a','b','c') → PREFER "weighted_choice"
     with realistic distribution (e.g., active 80%, suspended 15%, closed 5%)
     over uniform "choice". Use weighted_choices dict form for brevity.
@@ -177,9 +183,9 @@ The JSON object must have this exact structure:
       "constraints": {"unique": true}
     },
     {
-      "name": "merchant_code",
+      "name": "code",
       "generator": "template",
-      "params": {"template": "MER-{sequence:04d}"},
+      "params": {"template": "CODE-{sequence:04d}"},
       "constraints": {"unique": true}
     },
     {
@@ -212,7 +218,7 @@ Generators and key params:
 - word — real English word for non-person *_name columns (product_name, animal_name, etc.)
 - choice (choices: [...]) — for enum CHECK constraints (col IN ('a','b','c'))
 - json (schema), pattern (regex) — for codes/IDs/serials with specific formats
-- template (template, sequence_start, sequence_step) — readable codes: MER-{sequence:04d}
+- template (template, sequence_start, sequence_step) — readable codes: {PREFIX}-{sequence:04d}
 - weighted_choice (choices:[{value,weight}] or weighted_choices:{v:w}) — realistic status distribution
 
 Rules:
@@ -221,11 +227,11 @@ Rules:
 3. UNIQUE cols → add "constraints": {"unique": true} (do NOT skip them).
 4. Enum CHECK (col IN ('a','b')) → choice generator with choices.
 5. Cross-column CHECK (price2 >= price1) → use derive_from + expression.
-6. *_code, *_no, sku columns → string with min_length+max_length, or pattern with regex.
+6. *_code, *_no, sku columns → PREFER template with {sequence} (NOT string — default charset has spaces/hyphens).
 7. *_name non-person (product_name, item_name) → word; person (user_name) → name.
 8. phone/zip with strict format → pattern with regex (NOT bare phone).
 9. Never use generator "foreign_key" — it does not exist; FK cols are skipped.
-10. *_code/*_no/sku → PREFER template with {sequence} (e.g., MER-{sequence:04d}).
+10. *_code/*_no/sku → PREFER template with {sequence} (derive prefix from table name).
 11. status/role CHECK IN → PREFER weighted_choice (e.g., active:80,suspended:15,closed:5).
 12. Cross-table sync (B = A.col for FK) → derive_from + lookup('A','col',value).
 13. Multi-col derive → derive_from:[c1,c2], expression uses value[0],value[1].
@@ -244,13 +250,13 @@ Format: {"name":"t","count":1000,"columns":[
 Output ONLY raw JSON. No markdown, no ```json```, no explanation, no whitespace."""
 
 _ULTRA_COMPACT_SYSTEM_PROMPT = """Output JSON test data config.
-Skip PK AUTOINCREMENT, DEFAULT, GENERATED, and foreign-key cols (auto-handled by core).
+Skip PRIMARY KEY AUTOINCREMENT, DEFAULT, GENERATED, and foreign-key cols (auto-handled by core).
 UNIQUE col → add "constraints":{"unique":true} (do NOT skip).
 Enum CHECK (col IN ('a','b')) → weighted_choice with weighted_choices:{a:80,b:15,c:5} (realistic, NOT uniform).
 Cross-col CHECK (price2>=price1) → derive_from + expression returning VALUE (e.g., round(value*1.2,2)). NOT boolean.
 Cross-table sync (B=A.col for FK) → derive_from + lookup('A','col',value).
 Multi-col derive → derive_from:[c1,c2], expr uses value[0],value[1].
-*_code/*_no/sku → template with {sequence} (e.g., MER-{sequence:04d}). NOT string.
+*_code/*_no/sku → template with {sequence} (derive prefix from table name, e.g., DEPT-{sequence:04d}). NOT string.
 UNIQUE username → template with {sequence} (NOT word, too few words).
 string params: min_length+max_length (NOT length).
 Never use "foreign_key" generator (does not exist).

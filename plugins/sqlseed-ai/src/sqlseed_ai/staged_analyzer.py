@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
@@ -158,9 +159,7 @@ class ErrorClassifier:
 # ── Spec §6.2: dynamic granularity decision ──────────────────────────
 
 
-def decide_granularity(
-    features: StructuralFeatures, *, model_id: str
-) -> str:
+def decide_granularity(features: StructuralFeatures, *, model_id: str) -> str:
     """Choose stage 2 granularity: 'per_column' | 'per_table' | 'per_db'.
 
     Spec §6.2 complexity_score (P2 #3 simple version):
@@ -276,6 +275,13 @@ class StagedSchemaAnalyzer:
         features = extractor.extract(table_names=tables)
         determine_stage_relevance(features)  # Side-effect-free; future use
 
+        # P3 #5 fix: enrich UNIQUE constraints that SQLAlchemy's get_indexes()
+        # misses (column-level UNIQUE like ``email TEXT UNIQUE`` creates
+        # sqlite_autoindex_* which get_indexes() filters out). This is a
+        # plugin-layer workaround for a core extraction gap — the legacy
+        # SchemaSemanticAnalyzer had the same PRAGMA fallback inline.
+        self._enrich_unique_constraints_from_db(features, db)
+
         # Stage 1: structure analysis (with deterministic fallback on LLM failure)
         summary: StructureSummary = self._run_stage1_with_fallback(features)
 
@@ -306,6 +312,114 @@ class StagedSchemaAnalyzer:
 
         # New rules #14-#16 (Task 10 Stage3Validator)
         return self._validator.validate(config, schema=schema_dict)
+
+    def _enrich_unique_constraints_from_db(
+        self,
+        features: StructuralFeatures,
+        db: Any,
+    ) -> None:
+        """Enrich UNIQUE constraints that SQLAlchemy's get_indexes() misses.
+
+        SQLAlchemy's ``inspector.get_indexes()`` filters out implicit
+        auto-indexes created by column-level UNIQUE constraints (e.g.,
+        ``email TEXT UNIQUE`` creates ``sqlite_autoindex_*``). This leaves
+        ``features.tables[i].unique_constraints`` empty for tables that use
+        inline UNIQUE, which breaks Rule #24 (UNIQUE-aware template upgrade)
+        and rules #1-#13 that set ``constraints.unique=true``.
+
+        This plugin-layer workaround queries the DB directly:
+          - SQLite: ``PRAGMA index_list`` + ``PRAGMA index_info`` (same
+            approach as the legacy ``SchemaSemanticAnalyzer._get_schema``).
+          - Other dialects: best-effort via ``hasattr`` probe of the
+            adapter's underlying inspector; silently skips on failure.
+
+        Mutates ``features.tables[i].unique_constraints`` in place by
+        appending any UNIQUE columns not already present. Idempotent:
+        re-running on an already-enriched features object is a no-op.
+        """
+        from sqlseed._utils.sql_safe import quote_identifier
+
+        # Detect dialect via the adapter's public ``dialect`` property when
+        # available; fall back to a conservative string probe.
+        dialect_name = ""
+        try:
+            dialect_obj = getattr(db, "dialect", None)
+            if dialect_obj is not None and hasattr(dialect_obj, "name"):
+                dialect_name = dialect_obj.name
+        except Exception as exc:
+            logger.debug("Dialect detection failed", error=str(exc)[:120])
+
+        for table_features in features.tables:
+            table_name = table_features.name
+            # Collect UNIQUE columns already known (idempotency guard).
+            existing_unique_cols: set[str] = set()
+            for uc in table_features.unique_constraints:
+                for col in uc.columns:
+                    existing_unique_cols.add(col)
+
+            new_unique_cols: list[str] = []
+            if dialect_name == "sqlite":
+                # PRAGMA index_list returns: (seq, name, unique, origin, partial)
+                # PRAGMA index_info(name) returns: (seqno, cid, name)
+                try:
+                    safe_table = quote_identifier(table_name)
+                    result = db.execute(f"PRAGMA index_list({safe_table})")
+                    rows = result.fetchall() if hasattr(result, "fetchall") else []
+                    for row in rows:
+                        if len(row) >= 3 and row[2]:
+                            idx_name = row[1]
+                            idx_result = db.execute(f"PRAGMA index_info({quote_identifier(idx_name)})")
+                            idx_rows = idx_result.fetchall() if hasattr(idx_result, "fetchall") else []
+                            for ir in idx_rows:
+                                if len(ir) >= 3 and ir[2]:
+                                    new_unique_cols.append(ir[2])
+                except Exception as exc:
+                    logger.debug(
+                        "PRAGMA index_list fallback failed",
+                        table=table_name,
+                        error=str(exc)[:120],
+                    )
+            else:
+                # Non-SQLite: try SQLAlchemy inspector.get_unique_constraints().
+                # The adapter may expose the inspector via a private attribute;
+                # probe defensively since the Protocol doesn't guarantee it.
+                inspector = getattr(db, "_inspector", None)
+                if inspector is not None and hasattr(inspector, "get_unique_constraints"):
+                    try:
+                        ucs = inspector.get_unique_constraints(table_name)
+                        for uc in ucs:
+                            for col in uc.get("column_names", []):
+                                if col:
+                                    new_unique_cols.append(col)
+                    except Exception as exc:
+                        logger.debug(
+                            "get_unique_constraints failed",
+                            table=table_name,
+                            error=str(exc)[:120],
+                        )
+
+            # Append newly-discovered UNIQUE columns (dedup against existing).
+            from sqlseed.core.features import UniqueConstraintFeatures
+
+            added: list[str] = []
+            for col in new_unique_cols:
+                if col in existing_unique_cols:
+                    continue
+                existing_unique_cols.add(col)
+                added.append(col)
+            if added:
+                table_features.unique_constraints.append(
+                    UniqueConstraintFeatures(
+                        table=table_name,
+                        columns=added,
+                        is_index_based=True,
+                    )
+                )
+                logger.info(
+                    "Enriched UNIQUE constraints from DB",
+                    table=table_name,
+                    columns=added,
+                )
 
     def _features_to_schema_dict(
         self,
@@ -764,7 +878,7 @@ _UNBOUNDED_REGEX_PATTERN = re.compile(r"\{(\d+),\}")
 
 
 class Stage3Validator:
-    """Stage 3 validator: apply auto-fix rules #14-#17 on top of LLM output.
+    """Stage 3 validator: apply auto-fix rules #14-#19 on top of LLM output.
 
     Rule #14: GENERATOR_PARAMS validation — strip params not accepted by generator.
               Also corrects the common LLM typo ``choice`` -> ``choices``.
@@ -774,6 +888,11 @@ class Stage3Validator:
     Rule #17: boolean-expression derive_from detection — rewrites LLM-returned
               boolean comparisons (``>= value``, ``X >= 0 AND X <= value``) into
               valid assignment expressions, or strips derive_from if unrecognised.
+    Rule #18: caps unreasonable future ``end_year`` on date/datetime generators
+              to ``current_year + 1`` (prevents 22nd-century test data).
+    Rule #19: extracts min_value/max_value from simple CHECK constraints
+              (``col >= N``, ``col <= N``) and lifts the generator's bounds
+              to satisfy the constraint. Skips derive_from columns.
     """
 
     def validate(
@@ -787,14 +906,31 @@ class Stage3Validator:
             table_name = table.get("name")
             if not isinstance(table_name, str):
                 continue
+            table_schema = schema.get(table_name) if schema and isinstance(schema, dict) else None
             for col in table.get("columns", []):
                 if not isinstance(col, dict):
                     continue
                 self._apply_rule_14_strip_invalid_params(col)
                 self._apply_rule_15_bound_regex(col)
-                self._apply_rule_17_boolean_expression(col)
-            if schema and table_name in schema:
-                self._apply_rule_16_fk_semantic(table, schema[table_name])
+                self._apply_rule_17_boolean_expression(col, table_schema)
+                self._apply_rule_20_sandbox_external_functions(col)
+                # Rule #26 must run AFTER Rule #20: Rule #20 may rewrite
+                # sandbox-external patterns into ``random_float(...)`` (e.g.,
+                # ``random() * value`` → ``random_float(0, value)``), and
+                # Rule #26 then coerces that to ``random_int`` for INTEGER
+                # columns. Running Rule #26 before Rule #20 would miss these.
+                self._apply_rule_26_int_column_float_to_int(col, table_schema)
+                self._apply_rule_18_cap_future_end_year(col)
+                self._apply_rule_23_phone_to_pattern(col)
+                # Rule #25 must run BEFORE Rule #24: it converts text→string
+                # for code-like columns so Rule #24 Case 2 can subsequently
+                # upgrade the string to template when UNIQUE is required.
+                self._apply_rule_25_text_to_string_for_codes(col)
+                self._apply_rule_24_unique_word_to_template(col, table_schema)
+            if table_schema:
+                self._apply_rule_16_fk_semantic(table, table_schema)
+                self._apply_rule_19_check_constraint_bounds(table, table_schema)
+                self._apply_rule_22_cross_column_date_range_isolation(table, table_schema)
         return config
 
     def _apply_rule_14_strip_invalid_params(self, col: dict[str, Any]) -> None:
@@ -853,7 +989,11 @@ class Stage3Validator:
                 )
                 params[key] = new_val
 
-    def _apply_rule_17_boolean_expression(self, col: dict[str, Any]) -> None:
+    def _apply_rule_17_boolean_expression(
+        self,
+        col: dict[str, Any],
+        table_schema: dict[str, Any] | None = None,
+    ) -> None:
         """Rule #17: detect and correct boolean-comparison derive_from expressions.
 
         LLMs sometimes return a boolean comparison (e.g. ``sale_price >= value``
@@ -867,6 +1007,11 @@ class Stage3Validator:
             ``random_float(0, value)`` (keeps the value within [0, source])
           - Unrecognised boolean expressions  ->  derive_from + expression
             stripped, falling back to a type-routed generator.
+
+        Type-awareness (Rule #17.1): for DATE/DATETIME/TIMESTAMP source columns,
+        the ``value + random_float(0, value)`` rewrite is skipped because
+        ``float(date)`` raises TypeError at runtime. The derive_from + expression
+        are stripped so the column falls back to its type-routed date generator.
         """
         derive_from = col.get("derive_from")
         expression = col.get("expression")
@@ -875,10 +1020,38 @@ class Stage3Validator:
         expr = expression.strip()
         col_name = col.get("name", "<unknown>")
 
+        # Type-awareness check: if the source column is a DATE-family type,
+        # any rewrite involving random_float/random_int arithmetic would crash
+        # at runtime (float(date) raises TypeError). Strip derive_from +
+        # expression so the column falls back to its type-routed generator.
+        # This takes precedence over all other branches below.
+        if (
+            isinstance(derive_from, list)
+            and len(derive_from) > 0
+            and table_schema is not None
+            and self._is_date_family_source_column(derive_from[0], table_schema)
+        ):
+            logger.warning(
+                "Stage3 Rule #17: stripping boolean expression for DATE-family source column",
+                column=col_name,
+                source_column=derive_from[0],
+                original=expr,
+                reason="float(date) raises TypeError; cannot apply arithmetic rewrite",
+            )
+            col.pop("derive_from", None)
+            col.pop("expression", None)
+            return
+
         # Detect a range comparison like "X >= 0 AND X <= value" or
         # "X >= 0 and X <= value" (case-insensitive).
+        # Also matches the reversed order "X <= value AND X >= 0" (LLMs
+        # sometimes emit the comparison in reverse, which would otherwise
+        # fall through to the fallback branch and strip derive_from entirely).
         range_match = re.match(
             r"^\w+\s*(>=|>)\s*0\s*(?:AND|and)\s*\w+\s*(<=|<)\s*value\s*$",
+            expr,
+        ) or re.match(
+            r"^\w+\s*(<=|<)\s*value\s*(?:AND|and)\s*\w+\s*(>=|>)\s*0\s*$",
             expr,
         )
         if range_match:
@@ -926,6 +1099,265 @@ class Stage3Validator:
             )
             col.pop("derive_from", None)
             col.pop("expression", None)
+
+    @staticmethod
+    def _is_date_family_source_column(source_col_name: Any, table_schema: dict[str, Any]) -> bool:
+        """Check whether ``source_col_name`` is a DATE/DATETIME/TIMESTAMP column.
+
+        Returns True iff the column type (case-insensitive) is one of:
+        DATE, DATETIME, TIMESTAMP, TIME, SMALLDATETIME, DATETIME2.
+        """
+        if not isinstance(source_col_name, str):
+            return False
+        columns = table_schema.get("columns")
+        if not isinstance(columns, list):
+            return False
+        for col_info in columns:
+            if not isinstance(col_info, dict):
+                continue
+            if col_info.get("name") != source_col_name:
+                continue
+            col_type = col_info.get("type")
+            if not isinstance(col_type, str):
+                continue
+            col_type_upper = col_type.upper()
+            date_family = {"DATE", "DATETIME", "TIMESTAMP", "TIME", "SMALLDATETIME", "DATETIME2"}
+            # Also handle "DATE NOT NULL" / "VARCHAR(255)" / "DATETIME(6)" etc.
+            # by extracting the leading type name token.
+            type_token = re.split(r"[(\s]", col_type_upper, maxsplit=1)[0]
+            return type_token in date_family
+        return False
+
+    def _apply_rule_20_sandbox_external_functions(self, col: dict[str, Any]) -> None:
+        """Rule #20: detect sandbox-external functions/identifiers in derive_from expressions.
+
+        LLMs sometimes invent functions like ``floor``, ``random``, ``random_markup``
+        that aren't in the simpleeval ``ExpressionEngine.SAFE_FUNCTIONS`` sandbox (only
+        ``random_float``/``random_int``/``random_choice`` are exposed). This rule:
+
+          1. Attempts pattern-based rewrites for known LLM mistakes
+             (e.g. ``floor(random() * (value - N + 1)) + N`` → ``random_int(N, value)``).
+          2. If no rewrite matches, scans the expression for unknown identifiers
+             (functions or bare names not in the sandbox + context vars). If any
+             unknown identifier is found, strips ``derive_from`` + ``expression``
+             so the column falls back to its type-routed generator.
+
+        This prevents ``FunctionNotDefined`` / ``NameNotDefined`` crashes at runtime.
+        """
+        derive_from = col.get("derive_from")
+        expression = col.get("expression")
+        if not derive_from or not isinstance(expression, str):
+            return
+        expr = expression.strip()
+        col_name = col.get("name", "<unknown>")
+
+        # 1. Try known pattern rewrites (most common LLM mistakes)
+        rewritten = self._try_rewrite_known_sandbox_patterns(expr)
+        if rewritten is not None and rewritten != expr:
+            logger.warning(
+                "Stage3 Rule #20: rewriting sandbox-external function expression",
+                column=col_name,
+                original=expr,
+                corrected=rewritten,
+            )
+            col["expression"] = rewritten
+            return
+
+        # 2. Check for unknown identifiers (functions or bare variable names)
+        unknown = self._find_unknown_identifiers(expr)
+        if unknown:
+            logger.warning(
+                "Stage3 Rule #20: stripping expression with sandbox-external identifiers",
+                column=col_name,
+                expression=expr,
+                unknown_identifiers=sorted(unknown),
+            )
+            col.pop("derive_from", None)
+            col.pop("expression", None)
+
+    @staticmethod
+    def _try_rewrite_known_sandbox_patterns(expr: str) -> str | None:
+        """Try to rewrite known LLM patterns that use sandbox-external functions.
+
+        Returns the rewritten expression string, or ``None`` if no known
+        pattern matched. Patterns handled (in priority order):
+
+          - ``floor(random() * (value - N + 1)) + N`` → ``random_int(N, value)``
+            (reproduces the hr_biz tasks.actual_hours LLM mistake).
+          - ``floor(random() * value)`` → ``random_int(0, value)``.
+          - ``floor(random() * <int>)`` → ``random_int(0, <int>)``.
+          - ``random()`` (standalone) → ``random_float(0, 1)`` (Python's
+            ``random.random()`` equivalent).
+          - ``random() * (value - N) + N`` → ``random_float(N, value)``.
+          - ``random() * value`` → ``random_float(0, value)``.
+
+        Also handles variants where ``value`` is wrapped in ``CAST(value AS REAL)``
+        — a common LLM pattern for forcing floating-point arithmetic. The
+        CAST wrapper is normalized away before matching (semantically
+        equivalent since ``random_float`` already returns REAL).
+        """
+        # Normalize CAST(value AS REAL) → value (semantically equivalent for
+        # our rewrites; the CAST only forces float arithmetic, which
+        # random_float/random_int already handle internally).
+        normalized = re.sub(
+            r"CAST\s*\(\s*value\s+AS\s+REAL\s*\)",
+            "value",
+            expr,
+            flags=re.IGNORECASE,
+        )
+        # If normalization changed the expression, recurse on the normalized
+        # form so all existing patterns apply to CAST variants too.
+        if normalized != expr:
+            result = Stage3Validator._try_rewrite_known_sandbox_patterns(normalized)
+            if result is not None:
+                return result
+
+        # Pattern: floor(random() * (value - N + 1)) + N  →  random_int(N, value)
+        # The offset N appears twice; if they differ, take the larger (offset).
+        m = re.match(
+            r"^floor\(random\(\)\s*\*\s*\(value\s*-\s*(-?\d+)\s*\+\s*1\)\)\s*\+\s*(-?\d+)$",
+            expr,
+        )
+        if m:
+            n1, n2 = int(m.group(1)), int(m.group(2))
+            offset = n1 if n1 == n2 else max(n1, n2)
+            return f"random_int({offset}, value)"
+
+        # Pattern: floor(random() * (value - N) + N)  →  random_int(N, value)
+        # LLM pattern for "random integer in [N, value)" (e.g., actual_hours
+        # in [0, est_hours)). Handles N=0 (no offset) and positive N.
+        # Differs from the +1 pattern above: no "+1" inside the inner paren,
+        # and the trailing "+N" is INSIDE the floor() call, not outside.
+        m = re.match(
+            r"^floor\(random\(\)\s*\*\s*\(value\s*-\s*(-?\d+(?:\.\d+)?)\)\s*\+\s*(-?\d+(?:\.\d+)?)\)$",
+            expr,
+        )
+        if m:
+            o1, o2 = m.group(1), m.group(2)
+            # If both offsets match, use it; otherwise take the larger (lower bound
+            # for random_int is the offset since floor(random()*range)+offset).
+            offset_val: float = float(o1) if o1 == o2 else max(float(o1), float(o2))
+            offset_str = str(int(offset_val)) if offset_val == int(offset_val) else str(offset_val)
+            return f"random_int({offset_str}, value)"
+
+        # Pattern: floor(random() * value)  →  random_int(0, value)
+        if re.match(r"^floor\(random\(\)\s*\*\s*value\)$", expr):
+            return "random_int(0, value)"
+
+        # Pattern: floor(random() * <int>)  →  random_int(0, <int>)
+        m = re.match(r"^floor\(random\(\)\s*\*\s*(\d+)\)$", expr)
+        if m:
+            return f"random_int(0, {m.group(1)})"
+
+        # Pattern: random() (standalone, exact match)  →  random_float(0, 1)
+        if expr == "random()":
+            return "random_float(0, 1)"
+
+        # Pattern: random() * (value - N) + N  →  random_float(N, value)
+        # Common LLM pattern for "random value in [N, value]" (e.g., discount
+        # in [0, price_per_unit]). Handles N=0 (no offset) and positive N.
+        m = re.match(
+            r"^random\(\)\s*\*\s*\(value\s*-\s*(-?\d+(?:\.\d+)?)\)\s*\+\s*(-?\d+(?:\.\d+)?)$",
+            expr,
+        )
+        if m:
+            o1, o2 = m.group(1), m.group(2)
+            # If both offsets match, use it; otherwise take the smaller (lower bound).
+            lo_val: float = float(o1) if o1 == o2 else min(float(o1), float(o2))
+            # Preserve int formatting when possible (avoids "0.0" in expressions).
+            lo_str = str(int(lo_val)) if lo_val == int(lo_val) else str(lo_val)
+            return f"random_float({lo_str}, value)"
+
+        # Pattern: random() * value  →  random_float(0, value)
+        # LLM pattern for "random fraction of value" (e.g., discount = random * price).
+        if re.match(r"^random\(\)\s*\*\s*value$", expr):
+            return "random_float(0, value)"
+
+        return None
+
+    @staticmethod
+    def _find_unknown_identifiers(expr: str) -> set[str]:
+        """Find identifiers in expression that aren't in the sandbox or context.
+
+        Returns a set of unknown identifier names (functions or bare variable
+        references). Known-safe identifiers are filtered out:
+
+          - ``ExpressionEngine.SAFE_FUNCTIONS`` keys (25 functions).
+          - Context vars: ``value``, ``row``.
+          - Python constants: ``True``, ``False``, ``None``.
+          - Python keywords: ``and``, ``or``, ``not``, ``if``, ``else``,
+            ``for``, ``in``, ``is``.
+        """
+        # Lazy import to avoid hard dependency at module import time
+        from sqlseed.core.expression import ExpressionEngine
+
+        safe_names = set(ExpressionEngine.SAFE_FUNCTIONS.keys())
+        allowed = safe_names | {
+            "value",
+            "row",  # context vars
+            "True",
+            "False",
+            "None",  # Python constants
+            "and",
+            "or",
+            "not",
+            "if",
+            "else",
+            "for",
+            "in",
+            "is",  # keywords
+        }
+        # Match all identifier-like tokens (letters/digits/underscore, starting with letter/_)
+        tokens = set(re.findall(r"\b[a-zA-Z_]\w*\b", expr))
+        # Filter out allowed identifiers
+        return {token for token in tokens if token not in allowed}
+
+    def _apply_rule_26_int_column_float_to_int(
+        self,
+        col: dict[str, Any],
+        table_schema: dict[str, Any] | None,
+    ) -> None:
+        """Rule #26: coerce ``random_float`` to ``random_int`` for INTEGER columns.
+
+        LLMs sometimes return ``random_float(0, value)`` for INTEGER columns
+        (e.g., ``tasks.actual_hours INTEGER``). SQLite's dynamic typing allows
+        storing fractional values in an INTEGER column, but the result is
+        semantically wrong (e.g., 25.57 hours is not a meaningful integer
+        hour count). This rule rewrites ``random_float(...)`` to
+        ``random_int(...)`` when the target column is INTEGER-family.
+
+        Skips:
+          - Columns without ``derive_from`` + ``expression`` (no expression
+            to rewrite).
+          - Columns whose schema type is not INTEGER-family (REAL/FLOAT/
+            DOUBLE/NUMERIC/DECIMAL/TEXT all keep ``random_float``).
+          - Expressions that do not contain ``random_float(`` (no-op).
+        """
+        derive_from = col.get("derive_from")
+        expression = col.get("expression")
+        if not derive_from or not isinstance(expression, str):
+            return
+        if table_schema is None:
+            return
+        col_name = col.get("name")
+        if not isinstance(col_name, str):
+            return
+        col_type = self._get_column_type_from_schema(table_schema, col_name)
+        if not col_type or not self._is_integer_type(col_type):
+            return
+        expr = expression.strip()
+        if "random_float(" not in expr:
+            return
+        new_expr = expr.replace("random_float(", "random_int(")
+        logger.warning(
+            "Stage3 Rule #26: coercing random_float to random_int for INTEGER column",
+            column=col_name,
+            column_type=col_type,
+            original=expr,
+            corrected=new_expr,
+            reason="INTEGER column should not store fractional values",
+        )
+        col["expression"] = new_expr
 
     def _apply_rule_16_fk_semantic(self, table: dict[str, Any], table_schema: dict[str, Any]) -> None:
         """Rule #16: FK columns must use a generator compatible with ref column type.
@@ -986,12 +1418,26 @@ class Stage3Validator:
 
     @staticmethod
     def _cap_fk_max_value(col: dict[str, Any], col_name: Any) -> None:
-        """Cap an unreasonably large FK ``max_value`` to 1000.
+        """Cap an unreasonably large FK ``max_value`` to 1000 and ensure ``min_value`` is set.
 
         LLMs sometimes return ``max_value`` like 10^9 for FK columns, which
         produces orphan FKs (the referenced parent table typically has far
         fewer rows). Capping at 1000 keeps generated FKs resolvable in
         typical test datasets (100-1000 rows per table).
+
+        Also ensures ``min_value=1`` is set when missing — parent rows
+        always start at id=1 (autoincrement), so a FK value of 0 would
+        always be an orphan. LLMs sometimes omit ``min_value`` entirely
+        (e.g., ``tasks.assignee_id`` had only ``max_value: 1000``), which
+        lets the integer generator produce 0 (and negative values via the
+        default ``min_value=0``), producing orphan FKs.
+
+        Also raises ``max_value`` if too low (< 100) — LLMs sometimes
+        confuse FK columns with CHECK-constrained columns in the same table
+        (e.g., ``order_items.product_id`` got ``max_value: 5`` because the
+        LLM confused it with ``quantity CHECK(quantity <= 5)``). FK columns
+        should reference a reasonable range of parent rows (1000 by default)
+        to produce realistic test data.
         """
         params = col.get("params")
         if not isinstance(params, dict):
@@ -1005,6 +1451,855 @@ class Stage3Validator:
                 capped_max_value=1000,
             )
             params["max_value"] = 1000
+        elif isinstance(max_val, (int, float)) and max_val < 100:
+            # LLM likely confused FK column with a CHECK-constrained sibling.
+            # Raise to 1000 so FK references a reasonable range of parent rows.
+            logger.warning(
+                "Stage3 Rule #16: raising too-low FK max_value to 1000",
+                column=col_name,
+                original_max_value=max_val,
+                raised_max_value=1000,
+                reason="FK column max_value < 100 likely confused with CHECK-constrained sibling",
+            )
+            params["max_value"] = 1000
+        # Ensure min_value=1 for FK columns (parent rows start at id=1).
+        # Without this, integer generator defaults min_value=0 and produces
+        # orphan FKs (id=0 never exists in the parent table).
+        min_val = params.get("min_value")
+        if not isinstance(min_val, (int, float)):
+            logger.warning(
+                "Stage3 Rule #16: setting missing FK min_value to 1",
+                column=col_name,
+            )
+            params["min_value"] = 1
+        elif isinstance(min_val, (int, float)) and min_val < 1:
+            # Negative or zero min_value would produce orphan FKs.
+            logger.warning(
+                "Stage3 Rule #16: raising FK min_value from below-1 to 1",
+                column=col_name,
+                original_min_value=min_val,
+            )
+            params["min_value"] = 1
+
+    def _apply_rule_18_cap_future_end_year(self, col: dict[str, Any]) -> None:
+        """Rule #18: cap unreasonable future ``end_year`` on date/datetime generators.
+
+        LLMs sometimes return ``end_year: 2100`` (or similar far-future values),
+        producing test data with dates in the 2090s. Test datasets should use
+        realistic past/current dates, so cap ``end_year`` at ``current_year + 1``
+        (allows a small lookahead for expiry-style columns without producing
+        22nd-century data).
+
+        Only applies to ``date`` and ``datetime`` generators (``timestamp``
+        accepts no params and uses the default range internally).
+        """
+        gen = col.get("generator")
+        if gen not in ("date", "datetime"):
+            return
+        params = col.get("params")
+        if not isinstance(params, dict):
+            return
+        end_year = params.get("end_year")
+        if not isinstance(end_year, int):
+            return
+        cap = datetime.now().year + 1
+        if end_year > cap:
+            logger.warning(
+                "Stage3 Rule #18: capping unreasonable future end_year",
+                column=col.get("name"),
+                original_end_year=end_year,
+                capped_end_year=cap,
+            )
+            params["end_year"] = cap
+
+    def _apply_rule_23_phone_to_pattern(self, col: dict[str, Any]) -> None:
+        """Rule #23: upgrade phone-like columns to a realistic NANP pattern.
+
+        The Faker ``phone`` generator emits mixed formats across rows (e.g.,
+        ``+1 (555) 123-4567`` vs ``555-123-4567`` vs ``(555) 123.4567``). Real
+        front-end validation (and many DB schemas with CHECK constraints) expect
+        a single consistent format. Upgrading to ``pattern`` with a strict NANP
+        regex guarantees every row has the same shape AND realistic digits.
+
+        NANP format: ``^\\+1-[2-9]\\d{2}-[2-9]\\d{2}-\\d{4}$``
+          - Country code ``+1``
+          - Area code ``[2-9]\\d{2}`` (200-999; NANP area codes cannot start with 0/1)
+          - Exchange ``[2-9]\\d{2}`` (200-999; exchanges cannot start with 0/1)
+          - Subscriber ``\\d{4}`` (any 4 digits)
+
+        Three cases trigger on phone-like column names (``phone``, ``mobile``,
+        ``telephone``, ``tel``, ``cell``, ``cellphone``, ``contact_number``,
+        ``*_phone``, ``*_mobile``, etc.):
+
+          - Case 1: bare ``phone`` generator (no params) → upgrade to NANP pattern
+          - Case 2: ``pattern`` generator with simple all-digits regex
+            (e.g., ``^\\d{3}-\\d{3}-\\d{4}$``) → upgrade regex to NANP
+          - Case 3: ``string`` generator on phone column → upgrade to NANP pattern
+
+        A ``phone`` generator with explicit params (rare, but possible from the
+        LLM) is left alone. A pattern that already enforces NANP rules
+        (contains ``[2-9]``) is also left alone.
+        """
+        col_name = col.get("name")
+        if not isinstance(col_name, str):
+            return
+        if not self._is_phone_like_column(col_name):
+            return
+
+        gen = col.get("generator")
+        nanp_regex = r"^\+1-[2-9]\d{2}-[2-9]\d{2}-\d{4}$"
+
+        # Case 1: bare phone generator → upgrade to NANP pattern
+        if gen == "phone":
+            params = col.get("params")
+            if params and len(params) > 0:
+                return  # LLM explicitly set params, leave alone
+            logger.warning(
+                "Stage3 Rule #23: upgrading bare phone generator to NANP pattern",
+                column=col_name,
+            )
+            col["generator"] = "pattern"
+            col["params"] = {"regex": nanp_regex}
+            return
+
+        # Case 2: pattern with simple all-digits regex → upgrade to NANP
+        if gen == "pattern":
+            params = col.get("params")
+            if not isinstance(params, dict):
+                return
+            regex = params.get("regex") or params.get("pattern")
+            if not isinstance(regex, str):
+                return
+            # Already realistic (has [2-9] prefix)? Leave alone.
+            if "[2-9]" in regex:
+                return
+            # Only upgrade simple all-digits patterns (e.g., ^\d{3}-\d{3}-\d{4}$)
+            # Match patterns containing \d (digit class) or [0-9]
+            if re.search(r"\\d|\[0-9\]", regex):
+                logger.warning(
+                    "Stage3 Rule #23: upgrading simple phone pattern to NANP",
+                    column=col_name,
+                    old_regex=regex,
+                )
+                col["params"] = {"regex": nanp_regex}
+            return
+
+        # Case 3: string generator on phone column → upgrade to NANP pattern
+        if gen == "string":
+            logger.warning(
+                "Stage3 Rule #23: upgrading string generator on phone column to NANP pattern",
+                column=col_name,
+            )
+            col["generator"] = "pattern"
+            col["params"] = {"regex": nanp_regex}
+            return
+
+    @staticmethod
+    def _is_phone_like_column(col_name: str) -> bool:
+        """Detect phone-like column names (case-insensitive).
+
+        Matches exact names: ``phone``, ``mobile``, ``telephone``, ``tel``,
+        ``cell``, ``cellphone``, ``contact_number``.
+
+        Matches suffixes: ``*_phone``, ``*_mobile``, ``*_telephone``,
+        ``*_tel``, ``*_cell``, ``*_cellphone``, ``*_contact_number``.
+        """
+        name_lower = col_name.lower()
+        phone_words = {
+            "phone",
+            "mobile",
+            "telephone",
+            "tel",
+            "cell",
+            "cellphone",
+            "contact_number",
+        }
+        if name_lower in phone_words:
+            return True
+        return any(name_lower.endswith("_" + word) for word in phone_words)
+
+    def _apply_rule_25_text_to_string_for_codes(self, col: dict[str, Any]) -> None:
+        """Rule #25: convert ``text`` generator to ``string`` on code-like columns.
+
+        Plugin-layer workaround for a core ``ColumnMapper`` param-merge bug
+        (``mapper.py`` "Group Merge Compatibility", lines ~377-402). When the
+        LLM returns ``text`` for a code-like column (e.g., ``sku``, ``item_code``)
+        and the mapper's exact-match rule has ``string`` with ``charset``
+        (e.g., ``sku`` → ``string`` with ``charset: alphanumeric``), both
+        generators fall into ``string_generators = {"string", "text", "sentence"}``
+        and the merge puts ``charset`` into the ``text`` params. But
+        ``_gen_text`` does NOT accept ``charset``, so generation crashes with
+        ``MimesisProvider._gen_text() got an unexpected keyword argument
+        'charset'``.
+
+        Code-like columns (``_code|_no|sku|serial``) are short identifiers,
+        not free-form text — semantically they should use ``string`` (which
+        accepts ``charset`` to enforce alphanumeric-only, matching real-world
+        SKU/code formats used in barcodes, URLs, and joins).
+
+        Converting ``text`` → ``string`` here ensures:
+          1. The mapper merge keeps both generators in the same group
+             (``string`` == ``string``), so ``charset`` from the exact-match
+             rule correctly applies.
+          2. ``_gen_string`` accepts ``charset``, so no crash.
+          3. Downstream Rule #24 Case 2 can upgrade the ``string`` to
+             ``template`` when UNIQUE is required.
+
+        Only converts when ``generator == "text"`` AND column name matches
+        ``_code|_no|sku|serial`` pattern. Preserves user-supplied params
+        (``min_length``/``max_length``); the mapper will merge ``charset``
+        from the exact-match rule at fill time.
+        """
+        gen = col.get("generator")
+        if gen != "text":
+            return
+        col_name = col.get("name")
+        if not isinstance(col_name, str):
+            return
+        col_name_lower = col_name.lower()
+        # Same code-like pattern used by Rule #24 Case 2/3.
+        if not re.search(r"(_code|_no|sku|serial)$", col_name_lower):
+            return
+        logger.warning(
+            "Stage3 Rule #25: converting text generator to string on code-like column",
+            column=col_name,
+            reason=(
+                "text generator cannot accept charset param from mapper merge; "
+                "string is the correct generator for short alphanumeric identifiers"
+            ),
+        )
+        col["generator"] = "string"
+        # Keep existing params (min_length/max_length). The mapper will merge
+        # charset from the exact-match rule at fill time.
+
+    def _apply_rule_24_unique_word_to_template(
+        self, col: dict[str, Any], table_schema: dict[str, Any] | None = None
+    ) -> None:
+        """Rule #24: upgrade weak/incorrect generators on code/name/id columns to ``template``.
+
+        The English lexicon has only a few hundred common words; Faker's
+        ``word`` generator cannot satisfy a UNIQUE constraint over 1000+ rows.
+        Similarly, ``name`` (real person names) saturates quickly on large
+        tables. Upgrading to a templated value with ``{sequence:04d}`` guarantees
+        uniqueness without sacrificing readability.
+
+        Four cases (UNIQUE flag detected from ``col["constraints"]`` OR
+        ``table_schema["unique_columns"]``):
+
+          - Case 1 (UNIQUE required): generator is ``word``/``name`` → upgrade
+            to ``{gen}{sequence:04d}`` (preserves original gen name as prefix).
+          - Case 2 (UNIQUE required): generator is ``string`` AND column name
+            matches ``_code|_no|sku|serial`` pattern → upgrade to
+            ``{PREFIX}-{sequence:04d}`` (random strings offer no uniqueness
+            guarantee on 1000+ rows).
+          - Case 3 (UNIQUE NOT required): generator is ``integer`` AND column
+            type is TEXT family AND name matches ``_code|_no|sku|serial``
+            pattern → upgrade to ``{PREFIX}-{sequence:04d}`` (type mismatch
+            fix: LLM generated integer for a TEXT code column — this is a
+            data-quality bug regardless of uniqueness constraints).
+          - Case 4 (UNIQUE required): generator is ``uuid`` AND column name
+            matches ``_id$`` (and is not literally ``uuid``/``guid``/``token``)
+            → upgrade to ``{PREFIX}-{sequence:04d}`` (readable business ID
+            like ``EMPL-0001`` instead of ``550e8400-e29b-41d4-...``).
+            Random UUIDs are unreadable in HR/business contexts and
+            inconsistent with sibling ``*_code``/``*_no`` columns.
+
+        ``template``/``pattern`` columns are skipped (already safe).
+        """
+        gen = col.get("generator")
+        if gen in ("template", "pattern", None):
+            return  # Already safe or derived mode (None means derived)
+        if gen not in ("word", "name", "string", "integer", "uuid"):
+            return
+
+        col_name = col.get("name")
+        if not isinstance(col_name, str):
+            return
+        col_name_lower = col_name.lower()
+
+        # Determine UNIQUE from col constraints
+        constraints = col.get("constraints")
+        is_unique_constraints = isinstance(constraints, dict) and bool(constraints.get("unique"))
+
+        # Determine UNIQUE from schema (LLM may have omitted the constraints field)
+        is_unique_schema = False
+        if table_schema:
+            unique_cols = table_schema.get("unique_columns", [])
+            if isinstance(unique_cols, list) and col_name in unique_cols:
+                is_unique_schema = True
+
+        is_unique = is_unique_constraints or is_unique_schema
+
+        # Case 1: UNIQUE word/name → upgrade to template (preserve gen name as prefix)
+        if is_unique and gen in ("word", "name"):
+            logger.warning(
+                "Stage3 Rule #24: upgrading UNIQUE word/name generator to template",
+                column=col_name,
+                original_generator=gen,
+            )
+            col["generator"] = "template"
+            col.pop("params", None)
+            col["params"] = {"template": f"{gen}{{sequence:04d}}"}
+            return
+
+        # Cases 2/3 only apply to code-like column names
+        is_code_like = bool(re.search(r"(_code|_no|sku|serial)$", col_name_lower))
+
+        # Case 2: UNIQUE string + code-like name → upgrade to template
+        if is_unique and gen == "string" and is_code_like:
+            prefix = self._derive_code_template_prefix(col_name)
+            logger.warning(
+                "Stage3 Rule #24: upgrading UNIQUE string code column to template",
+                column=col_name,
+                original_generator=gen,
+                template_prefix=prefix,
+            )
+            col["generator"] = "template"
+            col.pop("params", None)
+            col["params"] = {"template": f"{prefix}{{sequence:04d}}"}
+            return
+
+        # Case 3: integer generator on TEXT code/id column → type mismatch fix.
+        # LLMs sometimes generate `integer` for TEXT NOT NULL UNIQUE code columns
+        # (e.g., task_no TEXT NOT NULL UNIQUE with integer generator). Upgrading
+        # to template fixes both the type mismatch and the uniqueness guarantee.
+        # Extended to also handle *_id columns (e.g., employee_id TEXT NOT NULL
+        # UNIQUE with integer generator) when the column is NOT a FK — FK columns
+        # like dept_id INTEGER are correctly integer and must not be upgraded.
+        if gen == "integer" and table_schema:
+            col_type = self._get_column_type_from_schema(table_schema, col_name)
+            if col_type and self._is_text_type(col_type):
+                # Code-like columns (_code|_no|sku|serial) always upgrade
+                should_upgrade = is_code_like
+                # Business ID columns (*_id) upgrade only if UNIQUE and not FK
+                if (
+                    not should_upgrade
+                    and col_name_lower.endswith("_id")
+                    and is_unique
+                    and not self._is_fk_column(table_schema, col_name)
+                ):
+                    should_upgrade = True
+                if should_upgrade:
+                    prefix = self._derive_code_template_prefix(col_name)
+                    logger.warning(
+                        "Stage3 Rule #24: fixing integer generator on TEXT code/id column to template",
+                        column=col_name,
+                        column_type=col_type,
+                        template_prefix=prefix,
+                    )
+                    col["generator"] = "template"
+                    col.pop("params", None)
+                    col["params"] = {"template": f"{prefix}{{sequence:04d}}"}
+                    return
+
+        # Case 4: UNIQUE uuid on business identifier columns (*_id, *_no,
+        # *_code) → upgrade to readable template.
+        # Regression: employees.employee_id used generator: uuid, producing
+        # unreadable UUIDs (550e8400-e29b-...) inconsistent with sibling
+        # *_code/*_no columns (DEPT-/PROJ-/TASK-). Real HR/business systems
+        # use sequential readable employee IDs (EMPL-0001).
+        # Extended for *_no/*_code: orders.order_no used generator: uuid,
+        # producing unreadable UUIDs inconsistent with sibling *_id columns.
+        # Real business systems use sequential readable order numbers (ORDR-0001).
+        # Skips columns explicitly named uuid/guid/token (designed for random).
+        if is_unique and gen == "uuid" and self._is_business_identifier_column(col_name_lower):
+            prefix = self._derive_code_template_prefix(col_name)
+            logger.warning(
+                "Stage3 Rule #24: upgrading UNIQUE uuid on business identifier column to template",
+                column=col_name,
+                template_prefix=prefix,
+            )
+            col["generator"] = "template"
+            col.pop("params", None)
+            col["params"] = {"template": f"{prefix}{{sequence:04d}}"}
+            return
+
+    @staticmethod
+    def _is_business_identifier_column(col_name_lower: str) -> bool:
+        """Check if column is a business identifier that should be sequential.
+
+        Returns True for names ending in ``_id``, ``_no``, or ``_code``
+        (e.g., ``employee_id``, ``order_no``, ``dept_code``) — these are
+        readable business identifiers in HR/commerce systems.
+
+        Returns False for columns explicitly designed to hold random UUIDs:
+        ``uuid``, ``guid``, ``token``, ``*_uuid``, ``*_guid``, ``*_token``,
+        ``session_uuid``. These should remain as ``uuid`` generator.
+        """
+        # Explicit random-UUID columns — keep uuid
+        if col_name_lower in ("uuid", "guid", "token"):
+            return False
+        if col_name_lower.endswith("_uuid") or col_name_lower.endswith("_guid") or col_name_lower.endswith("_token"):
+            return False
+        # Business identifier columns (must end with _id/_no/_code, but not be
+        # a UUID-named column). Includes bare "sku"/"serial" for completeness.
+        if col_name_lower in ("sku", "serial"):
+            return True
+        return bool(
+            col_name_lower.endswith("_id") or col_name_lower.endswith("_no") or col_name_lower.endswith("_code")
+        )
+
+    @staticmethod
+    def _derive_code_template_prefix(col_name: str) -> str:
+        """Derive a template prefix from a code/id column name.
+
+        Strips common code/id suffixes (``_code``/``_no``/``_id``), takes the
+        first 4 alphanumeric characters uppercased, and appends ``-``.
+
+        Examples:
+          - ``"project_code"`` → ``"PROJ-"``
+          - ``"task_no"``       → ``"TASK-"``
+          - ``"dept_code"``     → ``"DEPT-"``
+          - ``"employee_id"``   → ``"EMPL-"``
+          - ``"sku"``           → ``"SKU-"``
+          - ``"serial"``        → ``"SERI-"``
+        """
+        base = re.sub(r"_(code|no|id)$", "", col_name.lower())
+        prefix_chars = "".join(c for c in base[:5] if c.isalnum())[:4]
+        return prefix_chars.upper() + "-"
+
+    @staticmethod
+    def _get_column_type_from_schema(table_schema: dict[str, Any], col_name: str) -> str | None:
+        """Look up a column's type string from the schema dict.
+
+        The schema dict is shaped by ``StagedSchemaAnalyzer._features_to_schema_dict``
+        with ``columns`` as a list of ``ColumnInfo``-like dicts (each having
+        ``name`` and ``type`` keys). Returns ``None`` if the column is not found.
+        """
+        columns = table_schema.get("columns")
+        if not isinstance(columns, list):
+            return None
+        for col_info in columns:
+            if not isinstance(col_info, dict):
+                continue
+            if col_info.get("name") == col_name:
+                col_type = col_info.get("type")
+                if isinstance(col_type, str):
+                    return col_type
+                return None
+        return None
+
+    @staticmethod
+    def _is_text_type(col_type: str) -> bool:
+        """Return True if the SQL type is a TEXT-family type.
+
+        Recognised TEXT-family base types (case-insensitive, ignores params):
+        TEXT, VARCHAR, NVARCHAR, CHAR, NCHAR, CLOB, NCLOB, STRING.
+        """
+        col_type_upper = col_type.upper()
+        type_token = re.split(r"[(\s]", col_type_upper, maxsplit=1)[0]
+        text_family = {"TEXT", "VARCHAR", "NVARCHAR", "CHAR", "NCHAR", "CLOB", "NCLOB", "STRING"}
+        return type_token in text_family
+
+    @staticmethod
+    def _is_integer_type(col_type: str) -> bool:
+        """Return True if the SQL type is an INTEGER-family type.
+
+        Recognised INTEGER-family base types (case-insensitive, ignores params):
+        INTEGER, INT, BIGINT, SMALLINT, TINYINT, MEDIUMINT.
+
+        Used by Rule #26 to decide whether ``random_float`` in a derive_from
+        expression should be coerced to ``random_int`` (e.g., ``actual_hours
+        INTEGER`` should not store fractional values like 25.57 hours).
+        """
+        col_type_upper = col_type.upper()
+        type_token = re.split(r"[(\s]", col_type_upper, maxsplit=1)[0]
+        integer_types = {"INTEGER", "INT", "BIGINT", "SMALLINT", "TINYINT", "MEDIUMINT"}
+        return type_token in integer_types
+
+    @staticmethod
+    def _is_fk_column(table_schema: dict[str, Any], col_name: str) -> bool:
+        """Return True if the column is a foreign key in the given table schema.
+
+        Used by Rule #24 Case 3 to distinguish business ID columns (e.g.,
+        ``employee_id`` TEXT UNIQUE, not a FK) from FK columns (e.g.,
+        ``dept_id`` INTEGER, references departments.id). Without this check,
+        Case 3 would incorrectly upgrade FK integer columns to template.
+        """
+        fks = table_schema.get("foreign_keys", [])
+        if not isinstance(fks, list):
+            return False
+        for fk in fks:
+            if not isinstance(fk, dict):
+                continue
+            cols = fk.get("columns", [])
+            if isinstance(cols, list) and col_name in cols:
+                return True
+        return False
+
+    def _apply_rule_19_check_constraint_bounds(self, table: dict[str, Any], table_schema: dict[str, Any]) -> None:
+        """Rule #19: extract min_value/max_value from simple CHECK constraints.
+
+        Parses simple CHECK constraints of the form ``col >= N`` or ``col <= N``
+        and lifts (or lowers) the generator's ``min_value`` / ``max_value`` to
+        satisfy the constraint. Only single-column, single-comparison CHECK
+        expressions are parsed — complex expressions (AND/OR, BETWEEN, etc.)
+        are skipped (the LLM's bounds are left in place and may produce some
+        constraint violations, which is preferable to silently mis-parsing).
+
+        Only applies to ``integer`` and ``float`` generators. Skips columns
+        with ``derive_from`` (no generator params to adjust).
+        """
+        checks = table_schema.get("check_constraints", [])
+        if not isinstance(checks, list):
+            return
+
+        # Build map of col_name -> {"min_value": N} or {"max_value": N}
+        bounds: dict[str, dict[str, float]] = {}
+        for check in checks:
+            if not isinstance(check, dict):
+                continue
+            expr = check.get("expression")
+            if not isinstance(expr, str):
+                continue
+            m = re.match(
+                r"^\s*(\w+)\s*(>=|<=|>|<)\s*(-?[0-9]+(?:\.[0-9]+)?)\s*$",
+                expr.strip(),
+            )
+            if not m:
+                continue
+            col_name, op, value_str = m.groups()
+            value = float(value_str)
+            # Track operator strictness so the bounds-application step can
+            # adjust by ±1 for integer generators (strict ``>`` and ``<``
+            # cannot be satisfied by the boundary value itself, which the
+            # random generator may produce).
+            if col_name not in bounds:
+                bounds[col_name] = {}
+            if op == ">=":
+                bounds[col_name]["min_value"] = value
+                bounds[col_name]["min_strict"] = False
+            elif op == ">":
+                bounds[col_name]["min_value"] = value
+                bounds[col_name]["min_strict"] = True
+            elif op == "<=":
+                bounds[col_name]["max_value"] = value
+                bounds[col_name]["max_strict"] = False
+            elif op == "<":
+                bounds[col_name]["max_value"] = value
+                bounds[col_name]["max_strict"] = True
+
+        for col in table.get("columns", []):
+            if not isinstance(col, dict):
+                continue
+            col_name = col.get("name")
+            if col_name not in bounds:
+                continue
+            # derive_from columns have no generator params to adjust
+            if col.get("derive_from"):
+                continue
+            gen = col.get("generator")
+            if gen not in ("integer", "float"):
+                continue
+            params = col.get("params")
+            if not isinstance(params, dict):
+                continue
+            col_bounds = bounds[col_name]
+            if "min_value" in col_bounds:
+                check_min = col_bounds["min_value"]
+                # For strict ``>`` on integer generators, the boundary value
+                # itself is not a valid sample — bump by +1 so ``CHECK(x > 0)``
+                # yields ``min_value=1`` rather than ``min_value=0`` (which
+                # would generate 0 and violate the CHECK on batch insert).
+                # Floats keep the bound as-is (no discrete step available).
+                is_strict = col_bounds.get("min_strict", False)
+                if is_strict and gen == "integer":
+                    check_min = check_min + 1
+                current_min = params.get("min_value", 0)
+                if isinstance(current_min, (int, float)) and current_min < check_min:
+                    logger.warning(
+                        "Stage3 Rule #19: lifting min_value to satisfy CHECK constraint",
+                        column=col_name,
+                        original_min_value=current_min,
+                        new_min_value=check_min,
+                        strict_inequality=is_strict,
+                    )
+                    params["min_value"] = check_min if gen == "float" else int(check_min)
+            if "max_value" in col_bounds:
+                check_max = col_bounds["max_value"]
+                # Symmetric to the min branch: strict ``<`` on integer
+                # generators subtracts 1 so ``CHECK(x < 5)`` yields
+                # ``max_value=4`` rather than ``max_value=5``.
+                is_strict = col_bounds.get("max_strict", False)
+                if is_strict and gen == "integer":
+                    check_max = check_max - 1
+                current_max = params.get("max_value", float("inf"))
+                if isinstance(current_max, (int, float)) and current_max > check_max:
+                    logger.warning(
+                        "Stage3 Rule #19: lowering max_value to satisfy CHECK constraint",
+                        column=col_name,
+                        original_max_value=current_max,
+                        new_max_value=check_max,
+                        strict_inequality=is_strict,
+                    )
+                    params["max_value"] = check_max if gen == "float" else int(check_max)
+
+    def _apply_rule_22_cross_column_date_range_isolation(
+        self, table: dict[str, Any], table_schema: dict[str, Any]
+    ) -> None:
+        """Rule #22: isolate date ranges for cross-column date CHECK constraints.
+
+        For CHECK constraints of the form ``<later_col> (>=|>) <earlier_col>`` or
+        ``<earlier_col> (<=|<) <later_col>`` where both columns are DATE-family
+        generators (``date``/``datetime``) with ``start_year``/``end_year`` params,
+        ensures the ranges do not overlap:
+
+          - If ``later_col.start_year > earlier_col.end_year``, no change.
+          - Otherwise, splits the overall range at the midpoint and assigns:
+              ``earlier_col.end_year = midpoint``
+              ``later_col.start_year = midpoint + 1``
+
+        This prevents batch-level CHECK constraint failures caused by random
+        date generation producing ``end_date < start_date`` (sqlseed has no
+        batch-level CHECK retry — failures are fatal).
+
+        Skips:
+          - Non-date-family generators (integer/float/string/etc.)
+          - Columns with ``derive_from`` (no generator params to adjust)
+          - Complex CHECK expressions (AND/OR, function calls, etc.)
+        """
+        checks = table_schema.get("check_constraints", [])
+        if not isinstance(checks, list):
+            return
+
+        # Build column config map for quick lookup
+        col_configs: dict[str, dict[str, Any]] = {}
+        for col in table.get("columns", []):
+            if isinstance(col, dict) and isinstance(col.get("name"), str):
+                col_configs[col["name"]] = col
+
+        for check in checks:
+            if not isinstance(check, dict):
+                continue
+            expr = check.get("expression")
+            if not isinstance(expr, str):
+                continue
+            parsed = self._parse_cross_column_date_comparison(expr)
+            if parsed is None:
+                continue
+            later_col_name, earlier_col_name = parsed
+            later_col = col_configs.get(later_col_name)
+            earlier_col = col_configs.get(earlier_col_name)
+            if not isinstance(later_col, dict) or not isinstance(earlier_col, dict):
+                continue
+            # If either column was stripped by Rule #17 (DATE-family source column
+            # whose derive_from was removed), supplement a date generator so the
+            # range-isolation logic below can adjust its year params. This handles
+            # the Rule #17 + Rule #22 interaction: Rule #17 strips unsafe
+            # derive_from (would crash on float(date)), leaving the column empty;
+            # Rule #22 then needs to give it a date generator and isolate the range.
+            self._ensure_date_generator_for_date_column(later_col, table_schema)
+            self._ensure_date_generator_for_date_column(earlier_col, table_schema)
+            # Both must be date-family generators with start_year/end_year params
+            if not self._has_date_year_range(later_col) or not self._has_date_year_range(earlier_col):
+                continue
+            # Skip columns with derive_from (no generator params to adjust)
+            if later_col.get("derive_from") or earlier_col.get("derive_from"):
+                continue
+            later_params = later_col["params"]
+            earlier_params = earlier_col["params"]
+            later_start = int(later_params["start_year"])
+            later_end = int(later_params["end_year"])
+            earlier_start = int(earlier_params["start_year"])
+            earlier_end = int(earlier_params["end_year"])
+            # Sanity check: if a previous (buggy) Rule #22 run left either
+            # column with an invalid range (start_year > end_year), reset
+            # both columns to the default 2000-2024 range before isolation.
+            # Without this, the date generator would always return start_year
+            # (since end_year < start_year), causing batch CHECK failures.
+            if earlier_start > earlier_end:
+                logger.warning(
+                    "Stage3 Rule #22: resetting invalid earlier_col year range",
+                    column=earlier_col_name,
+                    invalid_start_year=earlier_start,
+                    invalid_end_year=earlier_end,
+                )
+                earlier_params["start_year"] = 2000
+                earlier_params["end_year"] = 2024
+                earlier_start = 2000
+                earlier_end = 2024
+            if later_start > later_end:
+                logger.warning(
+                    "Stage3 Rule #22: resetting invalid later_col year range",
+                    column=later_col_name,
+                    invalid_start_year=later_start,
+                    invalid_end_year=later_end,
+                )
+                later_params["start_year"] = 2000
+                later_params["end_year"] = 2024
+                later_start = 2000
+                later_end = 2024
+            # Already isolated? (later is entirely after earlier)
+            if later_start > earlier_end:
+                continue
+            # Compute the OVERLAP (intersection) range — this is where both
+            # columns can generate dates and isolation is needed. Using the
+            # union range (min/max) would produce a midpoint outside one
+            # column's individual range, leaving that column with an invalid
+            # ``end_year < start_year`` (or ``start_year > end_year``) state.
+            overlap_start = max(later_start, earlier_start)
+            overlap_end = min(later_end, earlier_end)
+            # No overlap (e.g., later is entirely before earlier)? Skip —
+            # the CHECK is structurally violated and Rule #22 cannot fix it
+            # by range isolation alone.
+            if overlap_end < overlap_start:
+                continue
+            # Split the overlap at midpoint. Because midpoint is in
+            # [overlap_start, overlap_end] ⊆ [earlier_start, earlier_end] and
+            # ⊆ [later_start, later_end], both new bounds remain valid.
+            midpoint = (overlap_start + overlap_end) // 2
+            new_earlier_end = midpoint
+            new_later_start = midpoint + 1
+            # Degenerate single-year overlap: midpoint == overlap_end, so
+            # new_later_start == overlap_end + 1. If overlap_end == later_end,
+            # new_later_start > later_end — bail out (cannot isolate safely).
+            if new_later_start > later_end or new_earlier_end < earlier_start:
+                continue
+            logger.warning(
+                "Stage3 Rule #22: isolating date ranges for cross-column CHECK",
+                check_expression=expr.strip(),
+                earlier_column=earlier_col_name,
+                later_column=later_col_name,
+                earlier_old_end_year=earlier_end,
+                earlier_new_end_year=new_earlier_end,
+                later_old_start_year=later_start,
+                later_new_start_year=new_later_start,
+            )
+            earlier_params["end_year"] = new_earlier_end
+            later_params["start_year"] = new_later_start
+
+    @staticmethod
+    def _parse_cross_column_date_comparison(expr: str) -> tuple[str, str] | None:
+        """Parse a cross-column date comparison CHECK expression.
+
+        Recognised patterns (case-insensitive operator, whitespace-tolerant):
+
+          - ``<later_col> (>=|>) <earlier_col>`` → ``(later_col, earlier_col)``
+          - ``<earlier_col> (<=|<) <later_col>`` → ``(later_col, earlier_col)``
+
+        Returns:
+            ``(later_col_name, earlier_col_name)`` if the expression matches a
+            recognised pattern, else ``None``. Both column names must be
+            word characters (letters/digits/underscore) — numeric literals or
+            complex expressions are rejected.
+        """
+        expr_stripped = expr.strip()
+        # Pattern: later_col >= earlier_col  (or >)
+        m = re.match(r"^\s*(\w+)\s*(>=|>)\s*(\w+)\s*$", expr_stripped)
+        if m:
+            later_col, _op, earlier_col = m.groups()
+            # Reject if either side looks like a number
+            if later_col.isdigit() or earlier_col.isdigit():
+                return None
+            return (later_col, earlier_col)
+        # Pattern: earlier_col <= later_col  (or <)
+        m = re.match(r"^\s*(\w+)\s*(<=|<)\s*(\w+)\s*$", expr_stripped)
+        if m:
+            earlier_col, _op, later_col = m.groups()
+            if earlier_col.isdigit() or later_col.isdigit():
+                return None
+            return (later_col, earlier_col)
+        return None
+
+    @staticmethod
+    def _has_date_year_range(col: dict[str, Any]) -> bool:
+        """Check whether the column has a date-family generator with year-range params."""
+        if col.get("generator") not in ("date", "datetime"):
+            return False
+        params = col.get("params")
+        if not isinstance(params, dict):
+            return False
+        start = params.get("start_year")
+        end = params.get("end_year")
+        return isinstance(start, int) and isinstance(end, int)
+
+    def _ensure_date_generator_for_date_column(self, col: dict[str, Any], table_schema: dict[str, Any]) -> None:
+        """Supplement or convert a date-family generator for cross-column CHECK.
+
+        Two cases:
+
+        1. **Stripped column (no generator)**: When Rule #17 strips a DATE-family
+           source column's ``derive_from`` + ``expression`` (because
+           ``float(date)`` would crash), the column is left with only its
+           ``name``. Rule #22 still needs to enforce the cross-column date
+           CHECK, so this helper gives the column a ``date``/``datetime``
+           generator with a default year range (2000-2024).
+
+        2. **timestamp generator on TIMESTAMP-type column**: The ``timestamp``
+           generator has no ``start_year``/``end_year`` params, so Rule #22
+           cannot isolate year ranges. This helper converts it to ``datetime``
+           (with default year range 2000-2024) so the cross-column CHECK
+           (e.g., ``end_time >= start_time`` on TIMESTAMP columns) is enforced.
+           Without this conversion, batch-level CHECK failures would occur
+           because random timestamps could violate ``end_time >= start_time``.
+
+        Only acts when:
+          - Case 1: The column has NO ``generator`` key (or it is None), AND
+            the column exists in ``table_schema`` with a DATE-family type.
+          - Case 2: The column has ``generator == "timestamp"`` AND the column
+            exists in ``table_schema`` with a TIMESTAMP/DATETIME-family type.
+
+        The default range 2000-2024 is chosen so the subsequent range-isolation
+        logic in Rule #22 has room to split at the midpoint.
+        """
+        gen = col.get("generator")
+        col_name = col.get("name")
+        if not isinstance(col_name, str):
+            return
+        columns = table_schema.get("columns")
+        if not isinstance(columns, list):
+            return
+
+        # Case 1: stripped column (no generator) → supplement date/datetime generator
+        if gen is None:
+            for col_info in columns:
+                if not isinstance(col_info, dict) or col_info.get("name") != col_name:
+                    continue
+                col_type = col_info.get("type")
+                if not isinstance(col_type, str):
+                    break
+                col_type_upper = col_type.upper()
+                type_token = re.split(r"[(\s]", col_type_upper, maxsplit=1)[0]
+                date_family = {"DATE", "DATETIME", "TIMESTAMP", "TIME", "SMALLDATETIME", "DATETIME2"}
+                if type_token not in date_family:
+                    break
+                # Use "date" for plain DATE, "datetime" for the rest
+                gen_name = "date" if type_token == "DATE" else "datetime"
+                col["generator"] = gen_name
+                col["params"] = {"start_year": 2000, "end_year": 2024}
+                logger.warning(
+                    "Stage3 Rule #22: supplementing date generator for stripped column",
+                    column=col_name,
+                    column_type=type_token,
+                    generator=gen_name,
+                )
+                break
+            return
+
+        # Case 2: timestamp generator on TIMESTAMP-type column → convert to datetime
+        # so Rule #22 can apply year-range isolation. Without this conversion,
+        # cross-column CHECK (end_time >= start_time) on TIMESTAMP columns
+        # would be silently skipped, causing batch-level CHECK failures.
+        if gen == "timestamp":
+            for col_info in columns:
+                if not isinstance(col_info, dict) or col_info.get("name") != col_name:
+                    continue
+                col_type = col_info.get("type")
+                if not isinstance(col_type, str):
+                    break
+                col_type_upper = col_type.upper()
+                type_token = re.split(r"[(\s]", col_type_upper, maxsplit=1)[0]
+                timestamp_family = {"TIMESTAMP", "DATETIME", "SMALLDATETIME", "DATETIME2"}
+                if type_token not in timestamp_family:
+                    break
+                logger.warning(
+                    "Stage3 Rule #22: converting timestamp generator to datetime for cross-column CHECK",
+                    column=col_name,
+                    column_type=type_token,
+                )
+                col["generator"] = "datetime"
+                col["params"] = {"start_year": 2000, "end_year": 2024}
+                break
 
 
 def _bound_unbounded_quantifier(match: re.Match[str]) -> str:
