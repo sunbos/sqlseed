@@ -248,6 +248,15 @@ class AiConfigRefiner:
                         column=None,
                         retryable=True,
                     )
+                # Apply Rule #14 (strip invalid generator params) before
+                # validation. LLMs sometimes hallucinate params like
+                # email's ``min_length``/``example`` that the generator
+                # does not accept, causing ConfigurationError at
+                # ``_validate_config``. The staged path applies Rule #14
+                # in ``Stage3Validator.validate()``, but this refiner path
+                # uses ``SchemaAnalyzer`` directly and would otherwise
+                # skip Rule #14. Lazy import avoids circular dependency.
+                self._apply_rule_14_param_stripping(config_dict)
                 return config_dict, None
             except ContextOverflowError:
                 if not ultra:
@@ -262,6 +271,34 @@ class AiConfigRefiner:
             except (ValueError, RuntimeError, OSError) as e:
                 return None, summarize_error(e)
         return None, None
+
+    def _apply_rule_14_param_stripping(self, config_dict: dict[str, Any]) -> None:
+        """Apply Rule #14 (strip invalid generator params) in-place.
+
+        Delegates to ``Stage3Validator._apply_rule_14_strip_invalid_params``
+        so the refiner path stays consistent with the staged path. Handles
+        both single-table ``{"name": ...}`` and multi-table
+        ``{"tables": [...]}`` shapes.
+
+        Lazy import avoids a circular dependency at module load time
+        (``staged_analyzer`` imports from ``schema_analyzer`` which is
+        imported by ``refiner``).
+        """
+        from sqlseed_ai.staged_analyzer import Stage3Validator
+
+        validator = Stage3Validator()
+        if "tables" in config_dict:
+            tables = config_dict["tables"]
+        elif "name" in config_dict:
+            tables = [config_dict]
+        else:
+            return
+        for table in tables:
+            if not isinstance(table, dict):
+                continue
+            for col in table.get("columns", []):
+                if isinstance(col, dict):
+                    validator._apply_rule_14_strip_invalid_params(col)
 
     def _handle_validation_result(
         self,

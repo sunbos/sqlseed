@@ -188,10 +188,131 @@ class TestVarCharLengthValidation:
             "name": "items",
             "count": 5,
             "columns": [
-                {"name": "code", "generator": "string", "params": {}},
+                # max_length=20 ensures generated strings fit VARCHAR(20).
+                # Without max_length, the string generator defaults to 50 chars
+                # which would violate the column constraint.
+                {"name": "code", "generator": "string", "params": {"min_length": 1, "max_length": 20}},
             ],
         }
         with DataOrchestrator(str(db_path)) as orch:
             error = refiner._validate_config(orch, "items", good_config)
 
         assert error is None
+
+
+class TestRule14ParamStripping:
+    """Verify ``_apply_rule_14_param_stripping`` strips invalid generator params.
+
+    The refiner path (``AiConfigRefiner._try_prompt_levels``) calls this
+    helper after the LLM returns a config dict, before ``_validate_config``.
+    Without it, LLM-hallucinated params like email's ``min_length``/``example``
+    cause ``ConfigurationError`` at validation time (the failure observed in
+    ``test_generate_and_refine_streaming_invokes_no_state_mutation``).
+    """
+
+    def test_strips_invalid_params_for_email_generator(self, tmp_path: Path) -> None:
+        """email generator does not accept min_length/example — must be stripped."""
+        refiner = _make_refiner(tmp_path / "scratch.db")
+        config = {
+            "name": "users",
+            "count": 5,
+            "columns": [
+                {
+                    "name": "email",
+                    "generator": "email",
+                    "params": {"min_length": 5, "example": "user@example.com"},
+                },
+            ],
+        }
+        refiner._apply_rule_14_param_stripping(config)
+        params = config["columns"][0]["params"]
+        assert params == {}, f"Expected empty params, got {params}"
+
+    def test_keeps_valid_params_for_string_generator(self, tmp_path: Path) -> None:
+        """string generator accepts min_length/max_length — must be kept."""
+        refiner = _make_refiner(tmp_path / "scratch.db")
+        config = {
+            "name": "users",
+            "count": 5,
+            "columns": [
+                {
+                    "name": "code",
+                    "generator": "string",
+                    "params": {"min_length": 1, "max_length": 20},
+                },
+            ],
+        }
+        refiner._apply_rule_14_param_stripping(config)
+        params = config["columns"][0]["params"]
+        assert params == {"min_length": 1, "max_length": 20}
+
+    def test_corrects_singular_choice_to_choices(self, tmp_path: Path) -> None:
+        """choice generator: ``choice`` (singular) typo -> ``choices`` (plural)."""
+        refiner = _make_refiner(tmp_path / "scratch.db")
+        config = {
+            "name": "users",
+            "count": 5,
+            "columns": [
+                {
+                    "name": "status",
+                    "generator": "choice",
+                    "params": {"choice": ["active", "inactive"]},
+                },
+            ],
+        }
+        refiner._apply_rule_14_param_stripping(config)
+        params = config["columns"][0]["params"]
+        assert params == {"choices": ["active", "inactive"]}
+
+    def test_handles_multi_table_config(self, tmp_path: Path) -> None:
+        """Multi-table ``{"tables": [...]}`` shape must be handled."""
+        refiner = _make_refiner(tmp_path / "scratch.db")
+        config = {
+            "tables": [
+                {
+                    "name": "users",
+                    "count": 5,
+                    "columns": [
+                        {
+                            "name": "email",
+                            "generator": "email",
+                            "params": {"min_length": 5},
+                        },
+                    ],
+                },
+                {
+                    "name": "orders",
+                    "count": 5,
+                    "columns": [
+                        {
+                            "name": "code",
+                            "generator": "string",
+                            "params": {"min_length": 1, "max_length": 10, "example": "X"},
+                        },
+                    ],
+                },
+            ]
+        }
+        refiner._apply_rule_14_param_stripping(config)
+        assert config["tables"][0]["columns"][0]["params"] == {}
+        assert config["tables"][1]["columns"][0]["params"] == {"min_length": 1, "max_length": 10}
+
+    def test_no_op_for_unknown_shape(self, tmp_path: Path) -> None:
+        """Config without ``tables`` or ``name`` key is a no-op (no crash)."""
+        refiner = _make_refiner(tmp_path / "scratch.db")
+        config = {"some_other_key": "value"}
+        refiner._apply_rule_14_param_stripping(config)
+        assert config == {"some_other_key": "value"}
+
+    def test_no_op_for_columns_without_generator(self, tmp_path: Path) -> None:
+        """Columns without a ``generator`` key are skipped (no crash)."""
+        refiner = _make_refiner(tmp_path / "scratch.db")
+        config = {
+            "name": "users",
+            "count": 5,
+            "columns": [
+                {"name": "id"},  # no generator (e.g., autoincrement PK)
+            ],
+        }
+        refiner._apply_rule_14_param_stripping(config)
+        assert config["columns"][0] == {"name": "id"}

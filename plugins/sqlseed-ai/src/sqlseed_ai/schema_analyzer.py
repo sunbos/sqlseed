@@ -216,13 +216,24 @@ def apply_auto_fix_rules_1_13(
 
             # Fix 11: enforce semantic generators for email/phone columns.
             # *_email -> email; phone-like columns (phone, mobile, telephone,
-            # tel, cell, cellphone, contact_number) -> phone (not string).
-            if isinstance(col_name, str) and col.get("generator") == "string" and not col.get("derive_from"):
-                if col_name.endswith("_email") or col_name == "email":
+            # tel, cell, cellphone, contact_number) -> phone.
+            # Detect ANY non-matching generator (not just "string") because LLMs
+            # sometimes assign "name", "text", or "word" to email/phone columns,
+            # producing semantically wrong data (e.g. person names in email
+            # columns). The "pattern" generator is preserved (custom regex may
+            # be intentional for site-specific email/phone formats).
+            if isinstance(col_name, str) and not col.get("derive_from"):
+                gen = col.get("generator")
+                if (col_name.endswith("_email") or col_name == "email") and gen not in (
+                    "email",
+                    "pattern",
+                    None,
+                ):
                     logger.warning(
-                        "Auto-fix: correcting email column generator (string -> email)",
+                        "Auto-fix: correcting email column generator (non-email -> email)",
                         table=table.get("name"),
                         column=col_name,
+                        original_generator=gen,
                     )
                     col["generator"] = "email"
                     col.pop("params", None)
@@ -239,11 +250,12 @@ def apply_auto_fix_rules_1_13(
                     )
                     or col_name.endswith("_phone")
                     or col_name.endswith("_mobile")
-                ):
+                ) and gen not in ("phone", "pattern", None):
                     logger.warning(
-                        "Auto-fix: correcting phone column generator (string -> phone)",
+                        "Auto-fix: correcting phone column generator (non-phone -> phone)",
                         table=table.get("name"),
                         column=col_name,
+                        original_generator=gen,
                     )
                     col["generator"] = "phone"
                     col.pop("params", None)
@@ -774,7 +786,8 @@ Use random_float for random derived values bounded by another column (e.g., disc
 - SINGLE-column derive_from: "value" is the SCALAR value. Use "value" (NOT "value[0]").
   RIGHT: {"name":"sale_price","derive_from":"cost_price","expression":"round(value*1.2,2)"}
   WRONG: {"name":"sale_price","derive_from":"cost_price","expression":"round(value[0]*1.2,2)"}
-  WRONG: {"name":"sale_price","derive_from":"cost_price","expression":"round(cost_price*1.2,2)"}  # using column NAME, not "value"
+  WRONG: {"name":"sale_price","derive_from":"cost_price",  # using column NAME, not "value"
+           "expression":"round(cost_price*1.2,2)"}
 - MULTI-column derive_from: "value" is a LIST. Use "value[0]", "value[1]", etc.
   RIGHT: {"name":"total","derive_from":["price","qty"],"expression":"round(value[0]*value[1],2)"}
 - The expression engine ONLY knows the keyword "value". It does NOT know source column names.
@@ -979,8 +992,35 @@ Output ONLY raw JSON. No markdown, no explanation."""
 
         P3 #5 fix: delegates to apply_auto_fix_rules_1_13() public function.
         Preserved for backward compatibility.
+
+        Also applies Rule #14 (strip invalid generator params) to ensure LLM-
+        returned params like email's ``min_length``/``example`` are stripped
+        before validation. Without this, the non-staged path (used by
+        ``ai-suggest`` without ``--staged-pipeline``) crashes with
+        ``ConfigurationError`` on invalid params. The staged path applies
+        Rule #14 separately in ``Stage3Validator.validate()`` and is not
+        affected by this call (it does not route through ``_auto_fix_config``).
         """
-        return apply_auto_fix_rules_1_13(config, schema)
+        config = apply_auto_fix_rules_1_13(config, schema)
+        # Apply Rule #14: strip invalid generator params (e.g., email's
+        # min_length/example) that LLMs sometimes hallucinate.
+        # Lazy import to avoid circular dependency at module load time.
+        from sqlseed_ai.staged_analyzer import Stage3Validator
+
+        validator = Stage3Validator()
+        if "tables" in config:
+            tables = config["tables"]
+        elif "name" in config:
+            tables = [config]
+        else:
+            return config
+        for table in tables:
+            if not isinstance(table, dict):
+                continue
+            for col in table.get("columns", []):
+                if isinstance(col, dict):
+                    validator._apply_rule_14_strip_invalid_params(col)
+        return config
 
     def _filter_to_targets(self, config_dict: dict[str, Any], target_tables: list[str]) -> dict[str, Any]:
         """Ensure config only contains target tables (not context)."""

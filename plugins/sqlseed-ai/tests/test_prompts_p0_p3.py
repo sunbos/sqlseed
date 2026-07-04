@@ -6,16 +6,16 @@ If any prompt is rolled back or refactored without these keywords, the LLM
 will silently regress to pre-P0-P3 behavior (uniform choice, generic string
 codes, independent cross-table values).
 """
+
 from __future__ import annotations
 
 import json
 
 import pytest
-
 from sqlseed_ai._prompts import (
-    SYSTEM_PROMPT,
     _COMPACT_SYSTEM_PROMPT,
     _ULTRA_COMPACT_SYSTEM_PROMPT,
+    SYSTEM_PROMPT,
 )
 from sqlseed_ai.examples import FEW_SHOT_EXAMPLES
 
@@ -48,8 +48,7 @@ FULL_PROMPT_REQUIRED_RULES = [
 def test_prompt_mentions_p0_p3_keyword(prompt: str, name: str, keyword: str) -> None:
     """All 3 prompt tiers must mention template, weighted_choice, lookup, derive_from."""
     assert keyword in prompt, (
-        f"{name} missing P0-P3 keyword '{keyword}'. "
-        f"Without it the LLM will not use the corresponding capability."
+        f"{name} missing P0-P3 keyword '{keyword}'. Without it the LLM will not use the corresponding capability."
     )
 
 
@@ -57,8 +56,7 @@ def test_prompt_mentions_p0_p3_keyword(prompt: str, name: str, keyword: str) -> 
 def test_full_prompt_has_p0_p3_rules(rule: str) -> None:
     """Full SYSTEM_PROMPT must contain specific P0-P3 usage rules."""
     assert rule in SYSTEM_PROMPT, (
-        f"SYSTEM_PROMPT missing rule snippet '{rule}'. "
-        f"This rule prevents a known LLM failure mode."
+        f"SYSTEM_PROMPT missing rule snippet '{rule}'. This rule prevents a known LLM failure mode."
     )
 
 
@@ -82,8 +80,7 @@ def test_few_shot_examples_cover_p0_p3() -> None:
     if "value[0]" in all_text:  # multi-column derive_from marker
         features_found += 1
     assert features_found >= 2, (
-        f"Few-shot examples only demonstrate {features_found}/4 P0-P3 features; "
-        f"need at least 2 to prime the LLM."
+        f"Few-shot examples only demonstrate {features_found}/4 P0-P3 features; need at least 2 to prime the LLM."
     )
 
 

@@ -111,7 +111,11 @@ class TestSchemaSemanticAnalyzerLLMCall:
     """Test LLM call delegation and output filtering."""
 
     def test_call_llm_delegates_to_analyzer(self) -> None:
-        """_call_llm should delegate to SchemaAnalyzer._call_llm_once."""
+        """_call_llm should delegate to SchemaAnalyzer._call_llm_once.
+
+        Happy path: non-empty response on first call returns immediately
+        with exactly one delegation call (no retry).
+        """
         mock_config = MagicMock()
         analyzer = SchemaSemanticAnalyzer(config=mock_config)
 
@@ -126,6 +130,84 @@ class TestSchemaSemanticAnalyzerLLMCall:
 
         assert result == {"tables": [{"name": "orders"}]}
         mock_sa._call_llm_once.assert_called_once_with(messages)
+
+    def test_call_llm_retries_on_empty_response(self) -> None:
+        """_call_llm retries when LLM returns empty config (no tables/name).
+
+        Anti-self-proving: verifies the retry counter increases and a
+        subsequent non-empty response is returned. A bug that returns the
+        empty result immediately (no retry) would fail the call_count
+        assertion of >= 2.
+        """
+        mock_config = MagicMock()
+        analyzer = SchemaSemanticAnalyzer(config=mock_config)
+        mock_sa = MagicMock()
+        # First call returns empty dict, second returns valid config
+        mock_sa._call_llm_once.side_effect = [
+            {},  # empty -> retry
+            {"tables": [{"name": "orders"}]},  # non-empty -> return
+        ]
+        analyzer._sa = mock_sa
+
+        messages = [{"role": "user", "content": "test"}]
+        result = analyzer._call_llm(messages)
+
+        assert result == {"tables": [{"name": "orders"}]}
+        # Must have called LLM at least twice (retry happened)
+        assert mock_sa._call_llm_once.call_count >= 2, (
+            f"Expected retry on empty response (>= 2 calls), got: {mock_sa._call_llm_once.call_count}"
+        )
+
+    def test_call_llm_retries_on_exception(self) -> None:
+        """_call_llm retries on ValueError/RuntimeError/OSError.
+
+        Anti-self-proving: verifies the retry counter increases after an
+        exception and a subsequent successful response is returned. A bug
+        that re-raises immediately (no retry) would fail because the
+        exception would propagate and the test would not reach the
+        assert block.
+        """
+        mock_config = MagicMock()
+        analyzer = SchemaSemanticAnalyzer(config=mock_config)
+        mock_sa = MagicMock()
+        mock_sa._call_llm_once.side_effect = [
+            RuntimeError("LLM transient error"),  # exception -> retry
+            {"tables": [{"name": "orders"}]},  # success -> return
+        ]
+        analyzer._sa = mock_sa
+
+        messages = [{"role": "user", "content": "test"}]
+        result = analyzer._call_llm(messages)
+
+        assert result == {"tables": [{"name": "orders"}]}
+        assert mock_sa._call_llm_once.call_count >= 2, (
+            f"Expected retry on exception (>= 2 calls), got: {mock_sa._call_llm_once.call_count}"
+        )
+
+    def test_call_llm_returns_empty_after_max_retries(self) -> None:
+        """_call_llm returns empty dict after max_attempts exhausted.
+
+        Anti-self-proving: verifies that the retry loop terminates and
+        returns the last empty result (rather than looping forever or
+        raising). A bug that loops indefinitely would hang the test; a
+        bug that raises after max retries would fail the assertion.
+        """
+        mock_config = MagicMock()
+        analyzer = SchemaSemanticAnalyzer(config=mock_config)
+        mock_sa = MagicMock()
+        # Always return empty dict (5 attempts = 1 initial + 4 retries)
+        mock_sa._call_llm_once.return_value = {}
+        analyzer._sa = mock_sa
+
+        messages = [{"role": "user", "content": "test"}]
+        result = analyzer._call_llm(messages)
+
+        # After max_attempts (5), should return the empty dict, not raise
+        assert result == {}
+        # Verify max_attempts = 5 (1 initial + 4 retries)
+        assert mock_sa._call_llm_once.call_count == 5, (
+            f"Expected exactly 5 attempts (1 initial + 4 retries), got: {mock_sa._call_llm_once.call_count}"
+        )
 
     def test_filter_to_targets_removes_context(self) -> None:
         analyzer = SchemaSemanticAnalyzer(config=MagicMock())
@@ -1032,6 +1114,192 @@ class TestAutoFixConfig:
         analyzer._auto_fix_config(config)
         col = config["tables"][0]["columns"][0]
         assert col["generator"] == "email"
+
+    def test_fix_11_corrects_name_generator_on_email_column(self) -> None:
+        """Fix 11: email column using 'name' generator (not just 'string') is corrected.
+
+        Reproduces the hr_biz regression: LLM assigned ``generator: name`` to
+        the ``email`` column, producing person names ('Michael Pope') instead
+        of email addresses. The original Fix 11 only checked for ``string``,
+        missing the ``name`` generator case.
+        """
+        analyzer = SchemaSemanticAnalyzer(config=MagicMock())
+        config: dict = {
+            "tables": [
+                {
+                    "name": "employees",
+                    "columns": [
+                        {
+                            "name": "email",
+                            "generator": "name",
+                            "params": {},
+                            "derive_from": None,
+                            "expression": None,
+                        }
+                    ],
+                }
+            ]
+        }
+        analyzer._auto_fix_config(config)
+        col = config["tables"][0]["columns"][0]
+        assert col["generator"] == "email", "email column with 'name' generator should be corrected to 'email'"
+
+    def test_fix_11_corrects_text_generator_on_email_column(self) -> None:
+        """Fix 11: email column using 'text' generator is corrected to 'email'."""
+        analyzer = SchemaSemanticAnalyzer(config=MagicMock())
+        config: dict = {
+            "tables": [
+                {
+                    "name": "users",
+                    "columns": [
+                        {
+                            "name": "contact_email",
+                            "generator": "text",
+                            "params": {"min_length": 5, "max_length": 50},
+                            "derive_from": None,
+                            "expression": None,
+                        }
+                    ],
+                }
+            ]
+        }
+        analyzer._auto_fix_config(config)
+        col = config["tables"][0]["columns"][0]
+        assert col["generator"] == "email"
+
+    def test_fix_11_corrects_name_generator_on_phone_column(self) -> None:
+        """Fix 11: phone column using 'name' generator is corrected to 'phone'."""
+        analyzer = SchemaSemanticAnalyzer(config=MagicMock())
+        config: dict = {
+            "tables": [
+                {
+                    "name": "employees",
+                    "columns": [
+                        {
+                            "name": "mobile",
+                            "generator": "name",
+                            "params": {},
+                            "derive_from": None,
+                            "expression": None,
+                        }
+                    ],
+                }
+            ]
+        }
+        analyzer._auto_fix_config(config)
+        col = config["tables"][0]["columns"][0]
+        assert col["generator"] == "phone"
+
+    def test_fix_11_preserves_pattern_generator_on_email_column(self) -> None:
+        """Fix 11: 'pattern' generator on email column is preserved (custom regex)."""
+        analyzer = SchemaSemanticAnalyzer(config=MagicMock())
+        config: dict = {
+            "tables": [
+                {
+                    "name": "users",
+                    "columns": [
+                        {
+                            "name": "email",
+                            "generator": "pattern",
+                            "params": {"regex": "[a-z]+@example\\.com"},
+                            "derive_from": None,
+                            "expression": None,
+                        }
+                    ],
+                }
+            ]
+        }
+        analyzer._auto_fix_config(config)
+        col = config["tables"][0]["columns"][0]
+        # pattern generator with custom regex should be preserved
+        assert col["generator"] == "pattern"
+
+    def test_rule_14_strips_invalid_params_for_email_generator(self) -> None:
+        """Rule #14: email generator does not accept min_length/example params.
+
+        Reproduces the non-staged path bug: when ``ai-suggest`` is invoked
+        without ``--staged-pipeline``, the LLM-returned config goes through
+        ``_auto_fix_config`` (not ``Stage3Validator.validate``). Without
+        Rule #14 applied here, invalid params like email's
+        ``min_length``/``example`` cause ``ConfigurationError`` at
+        validation time. This test ensures the non-staged path applies
+        Rule #14 consistently with the staged path.
+        """
+        analyzer = SchemaSemanticAnalyzer(config=MagicMock())
+        config: dict = {
+            "tables": [
+                {
+                    "name": "users",
+                    "columns": [
+                        {
+                            "name": "email",
+                            "generator": "email",
+                            "params": {"min_length": 5, "example": "user@example.com"},
+                            "derive_from": None,
+                            "expression": None,
+                        }
+                    ],
+                }
+            ]
+        }
+        analyzer._auto_fix_config(config)
+        col = config["tables"][0]["columns"][0]
+        assert col["params"] == {}, (
+            f"Rule #14 must strip invalid params (min_length, example) for email generator, got: {col['params']!r}"
+        )
+
+    def test_rule_14_keeps_valid_params_for_string_generator(self) -> None:
+        """Rule #14: string generator accepts min_length/max_length (must keep).
+
+        Ensures Rule #14 in ``_auto_fix_config`` does not over-strip
+        valid params for generators that legitimately accept them.
+        """
+        analyzer = SchemaSemanticAnalyzer(config=MagicMock())
+        config: dict = {
+            "tables": [
+                {
+                    "name": "users",
+                    "columns": [
+                        {
+                            "name": "code",
+                            "generator": "string",
+                            "params": {"min_length": 1, "max_length": 20},
+                            "derive_from": None,
+                            "expression": None,
+                        }
+                    ],
+                }
+            ]
+        }
+        analyzer._auto_fix_config(config)
+        col = config["tables"][0]["columns"][0]
+        assert col["params"] == {"min_length": 1, "max_length": 20}, (
+            f"Rule #14 must keep valid params for string generator, got: {col['params']!r}"
+        )
+
+    def test_rule_14_strips_invalid_params_in_single_table_format(self) -> None:
+        """Rule #14: handles single-table ``{"name": ...}`` config shape.
+
+        The ``_auto_fix_config`` Rule #14 application must support both
+        multi-table ``{"tables": [...]}`` and single-table ``{"name": ...}``
+        formats. This test verifies the single-table branch.
+        """
+        analyzer = SchemaSemanticAnalyzer(config=MagicMock())
+        config: dict = {
+            "name": "users",
+            "columns": [
+                {
+                    "name": "email",
+                    "generator": "email",
+                    "params": {"min_length": 5},
+                    "derive_from": None,
+                    "expression": None,
+                }
+            ],
+        }
+        analyzer._auto_fix_config(config)
+        col = config["columns"][0]
+        assert col["params"] == {}, f"Rule #14 must strip invalid params in single-table format, got: {col['params']!r}"
 
 
 def test_apply_auto_fix_rules_1_13_is_public_function():
