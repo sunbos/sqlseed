@@ -32,5 +32,8 @@ class TestMimesisProvider(
         assert len(result) > 0
 
     def test_generate_date_default_end_year(self) -> None:
+        import datetime as _dt
+
         result = self.provider.generate("date", start_year=2020)
-        assert len(result) > 0
+        assert isinstance(result, _dt.date)
+        assert result.year >= 2020
