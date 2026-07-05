@@ -2955,6 +2955,125 @@ def test_stage3_validator_rule_24_skips_date_on_non_code_column():
     assert col["generator"] == "date", f"Expected date, got {col['generator']}"
 
 
+def test_stage3_validator_rule_30_fixes_text_on_real_column():
+    """Rule #30 Case 4 (new): text/string/word on REAL column → float.
+
+    Regression: ``products.cost_price`` (REAL NOT NULL, CHECK(cost_price > 0))
+    was assigned ``generator: text`` by the LLM. The downstream column
+    ``sale_price`` derives from ``cost_price`` with expression
+    ``value + random_float(0, value)`` — this raised TypeError (text + float)
+    and the products table fill failed with 0 rows generated.
+
+    Case 4 triggers when:
+      - Column type is NUMERIC-family (INTEGER/INT/REAL/FLOAT/DECIMAL/...)
+      - Generator is in _GENERIC_GENERATORS (text/string/word)
+      - Column is NOT in derive_from mode (uses its generator directly)
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "products",
+                "columns": [
+                    {
+                        "name": "cost_price",
+                        "generator": "text",
+                        "params": {"min_length": 5, "max_length": 100},
+                    },
+                ],
+            }
+        ]
+    }
+    table_schema = {
+        "columns": [{"name": "cost_price", "type": "REAL"}],
+        "unique_columns": [],
+    }
+    validator = Stage3Validator()
+    validator.validate(config, schema={"products": table_schema})
+    col = config["tables"][0]["columns"][0]
+    # Rule #30 Case 4 should fix text → float (type-routed for REAL)
+    assert col["generator"] == "float", f"Expected float, got {col['generator']}"
+    # Old text-specific params should be stripped; new float params present
+    assert "min_length" not in col.get("params", {}), (
+        f"text params should be stripped, got {col.get('params')}"
+    )
+    # float generator should have valid numeric params
+    assert col.get("params", {}).get("min_value") is not None, (
+        f"Expected float to have min_value, got {col.get('params')}"
+    )
+
+
+def test_stage3_validator_rule_30_fixes_string_on_integer_column():
+    """Rule #30 Case 4: string on INTEGER column → integer.
+
+    Same pattern as the REAL case but for INTEGER columns. LLMs sometimes
+    hallucinate ``string`` generators for numeric columns when the column
+    name doesn't have an obvious semantic match.
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "inventory",
+                "columns": [
+                    {
+                        "name": "quantity",
+                        "generator": "string",
+                        "params": {"min_length": 1, "max_length": 10},
+                    },
+                ],
+            }
+        ]
+    }
+    table_schema = {
+        "columns": [{"name": "quantity", "type": "INTEGER"}],
+        "unique_columns": [],
+    }
+    validator = Stage3Validator()
+    validator.validate(config, schema={"inventory": table_schema})
+    col = config["tables"][0]["columns"][0]
+    # Rule #30 Case 4 should fix string → integer (type-routed for INTEGER)
+    assert col["generator"] == "integer", f"Expected integer, got {col['generator']}"
+    assert "min_length" not in col.get("params", {}), (
+        f"string params should be stripped, got {col.get('params')}"
+    )
+
+
+def test_stage3_validator_rule_30_case4_negative_text_on_text_column():
+    """Rule #30 Case 4 negative: text on TEXT column stays text.
+
+    Only NUMERIC columns trigger Case 4. A text generator on a TEXT column
+    is semantically valid (produces readable text content).
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "notes",
+                "columns": [
+                    {
+                        "name": "body",
+                        "generator": "text",
+                        "params": {"min_length": 10, "max_length": 500},
+                    },
+                ],
+            }
+        ]
+    }
+    table_schema = {
+        "columns": [{"name": "body", "type": "TEXT"}],
+        "unique_columns": [],
+    }
+    validator = Stage3Validator()
+    validator.validate(config, schema={"notes": table_schema})
+    col = config["tables"][0]["columns"][0]
+    # TEXT column with text generator is valid — no fix
+    assert col["generator"] == "text", f"Expected text, got {col['generator']}"
+
+
 def test_stage3_validator_rule_22_handles_timestamp_columns():
     """Rule #22 extension: TIMESTAMP columns in cross-column date CHECK are handled.
 

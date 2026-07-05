@@ -1411,6 +1411,12 @@ class Stage3Validator:
            TEXT columns produces numbers where text is expected (e.g.,
            ``product_name`` with ``float`` generator). Downgraded to ``string``
            then Rule #28 is re-attempted for semantic upgrade.
+        4. **Crash: text generator on NUMERIC column** — ``text``/``string``/
+           ``word`` on INTEGER/REAL columns causes TypeError when the column
+           is referenced in a ``derive_from`` arithmetic expression (e.g.,
+           ``sale_price = cost_price + random_float(0, cost_price)`` fails
+           with ``text + float``). Fixed to type-routed ``float`` (REAL) or
+           ``integer`` (INT).
 
         Runs after Rule #28 (semantic upgrade) so it catches generators that
         Rule #28 didn't upgrade. Runs before Rule #14 (param stripping) so
@@ -1458,6 +1464,15 @@ class Stage3Validator:
             # Case 2: date/datetime on INTEGER/REAL → type mismatch
             needs_fix = True
             fix_reason = "date generator on numeric column produces wrong type"
+        elif col_base in self._NUMERIC_TYPES and gen in _GENERIC_GENERATORS:
+            # Case 4: text/string/word on NUMERIC column → TypeError in derive_from
+            # LLMs sometimes assign text generators to numeric columns (e.g.,
+            # cost_price REAL gets "text"). This causes derive_from expressions
+            # like "value + random_float(0, value)" to fail with TypeError
+            # (text + float), and produces nonsensical data even without
+            # derive_from. Fix to type-routed float (REAL) or integer (INT).
+            needs_fix = True
+            fix_reason = "text/string generator on NUMERIC column causes TypeError in derive_from expressions"
         elif col_base in self._TEXT_TYPES and gen in _NUMERIC_BOOLEAN_GENERATORS:
             # Case 3: integer/float on TEXT column → semantic violation
             # (won't crash due to SQLite dynamic typing, but data is wrong).
