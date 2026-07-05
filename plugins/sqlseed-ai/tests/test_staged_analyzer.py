@@ -346,7 +346,11 @@ def test_stage2_per_column_injects_cross_column_checks_in_prompt():
 
 
 def test_stage3_validator_rule_14_strips_invalid_params_for_word():
-    """Rule #14: GENERATOR_PARAMS validation — word does not accept min_length."""
+    """Rule #14: GENERATOR_PARAMS validation — word does not accept min_length.
+
+    Uses ``tag`` (not in Rule #28's exact-match or pattern-upgrade tables) so
+    the test isolates Rule #14's param stripping without Rule #28 interference.
+    """
     from sqlseed_ai.staged_analyzer import Stage3Validator
 
     config = {
@@ -354,7 +358,7 @@ def test_stage3_validator_rule_14_strips_invalid_params_for_word():
             {
                 "name": "projects",
                 "columns": [
-                    {"name": "project_name", "generator": "word", "params": {"min_length": 5, "max_length": 100}},
+                    {"name": "tag", "generator": "word", "params": {"min_length": 5, "max_length": 100}},
                 ],
             }
         ]
@@ -2053,7 +2057,11 @@ def test_stage3_validator_rule_24_upgrades_unique_name_to_template():
 
 
 def test_stage3_validator_rule_24_skips_non_unique_word():
-    """Rule #24: a non-UNIQUE `word` column is left untouched (word is fine)."""
+    """Rule #24: a non-UNIQUE `word` column is left untouched (word is fine).
+
+    Uses ``tag`` (not in Rule #28's exact-match or pattern-upgrade tables) so
+    the test isolates Rule #24's behavior without Rule #28 interference.
+    """
     from sqlseed_ai.staged_analyzer import Stage3Validator
 
     config = {
@@ -2061,7 +2069,7 @@ def test_stage3_validator_rule_24_skips_non_unique_word():
             {
                 "name": "products",
                 "columns": [
-                    {"name": "category_name", "generator": "word"},
+                    {"name": "tag", "generator": "word"},
                 ],
             }
         ]
@@ -2248,8 +2256,10 @@ def test_stage3_validator_rule_24_skips_integer_on_non_text_code_column():
 def test_stage3_validator_rule_24_skips_non_code_unique_string():
     """Rule #24: a UNIQUE `string` on a non-code-like name stays as string.
 
-    A UNIQUE ``description`` column with ``string`` generator is left alone —
+    A UNIQUE ``label`` column with ``string`` generator is left alone —
     only code-like names (``_code|_no|sku|serial``) trigger the upgrade.
+    Uses ``label`` (not in Rule #28's exact-match upgrade table) so the
+    test isolates Rule #24's behavior without Rule #28 interference.
     """
     from sqlseed_ai.staged_analyzer import Stage3Validator
 
@@ -2259,7 +2269,7 @@ def test_stage3_validator_rule_24_skips_non_code_unique_string():
                 "name": "products",
                 "columns": [
                     {
-                        "name": "description",
+                        "name": "label",
                         "generator": "string",
                         "params": {"min_length": 50, "max_length": 200},
                         "constraints": {"unique": True},
@@ -2704,7 +2714,12 @@ def test_stage3_validator_rule_23_handles_telephone_tel_cell_variants():
 
 
 def test_stage3_validator_rule_23_skips_username_column():
-    """Rule #23 extension: ``username`` (contains "name" but not phone-like) is not affected."""
+    """Rule #23 extension: ``display_tag`` (contains no phone-like pattern) is not affected.
+
+    Uses ``display_tag`` (not in Rule #28's exact-match or pattern-upgrade
+    tables) so the test isolates Rule #23's behavior without Rule #28
+    interference.
+    """
     from sqlseed_ai.staged_analyzer import Stage3Validator
 
     config = {
@@ -2713,7 +2728,7 @@ def test_stage3_validator_rule_23_skips_username_column():
                 "name": "users",
                 "columns": [
                     {
-                        "name": "username",
+                        "name": "display_tag",
                         "generator": "string",
                         "params": {"min_length": 5, "max_length": 20},
                     },
@@ -2724,7 +2739,7 @@ def test_stage3_validator_rule_23_skips_username_column():
     validator = Stage3Validator()
     validator.validate(config)
     col = config["tables"][0]["columns"][0]
-    # username is not a phone column — Rule #23 should not touch it
+    # display_tag is not a phone column — Rule #23 should not touch it
     assert col["generator"] == "string"
     assert col["params"]["min_length"] == 5
 
@@ -2798,6 +2813,77 @@ def test_stage3_validator_rule_24_skips_uuid_on_uuid_named_column():
         assert col["generator"] == "uuid", f"Column '{col_name}' should remain uuid, got {col['generator']}"
 
 
+def test_stage3_validator_rule_24_upgrades_unique_choice_code_to_template():
+    """Rule #24 Case 5 (new): UNIQUE code-like column with choice generator → template.
+
+    Regression: ``merchants.merchant_code`` (UNIQUE TEXT) used
+    ``generator: choice`` with ``choices: [active, suspended, closed]`` —
+    LLM confused the code column with the status column. A 3-value choice
+    generator cannot satisfy a UNIQUE constraint over 1000+ rows.
+
+    Case 5 triggers when:
+      - Column name matches ``_code|_no|sku|serial`` pattern
+      - Generator is ``choice`` or ``weighted_choice``
+      - Column has UNIQUE constraint (from col constraints OR table_schema)
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "merchants",
+                "columns": [
+                    {
+                        "name": "merchant_code",
+                        "generator": "choice",
+                        "params": {"choices": ["active", "suspended", "closed"]},
+                        "constraints": {"unique": True},
+                    },
+                ],
+            }
+        ]
+    }
+    validator = Stage3Validator()
+    validator.validate(config)
+    col = config["tables"][0]["columns"][0]
+    # Rule #24 Case 5 should upgrade choice → template MERC-{sequence:04d}
+    assert col["generator"] == "template", f"Expected template, got {col['generator']}"
+    assert col["params"]["template"] == "MERC-{sequence:04d}", (
+        f"Expected MERC-{{sequence:04d}}, got {col['params']['template']}"
+    )
+
+
+def test_stage3_validator_rule_24_skips_choice_on_non_code_column():
+    """Rule #24 Case 5 negative: choice on non-code UNIQUE column stays choice.
+
+    Columns like ``status`` or ``role`` are legitimately enum-style choices
+    even when UNIQUE (though UNIQUE on a low-cardinality enum is unusual).
+    Case 5 only fires on code-like names (``_code|_no|sku|serial``).
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "merchants",
+                "columns": [
+                    {
+                        "name": "status",
+                        "generator": "choice",
+                        "params": {"choices": ["active", "suspended", "closed"]},
+                        "constraints": {"unique": True},
+                    },
+                ],
+            }
+        ]
+    }
+    validator = Stage3Validator()
+    validator.validate(config)
+    col = config["tables"][0]["columns"][0]
+    # status is not code-like, so choice should remain
+    assert col["generator"] == "choice", f"Expected choice, got {col['generator']}"
+
+
 def test_stage3_validator_rule_22_handles_timestamp_columns():
     """Rule #22 extension: TIMESTAMP columns in cross-column date CHECK are handled.
 
@@ -2859,3 +2945,820 @@ def test_stage3_validator_rule_22_handles_timestamp_columns():
     assert start_year_end > end_year_start, (
         f"end_time.start_year ({start_year_end}) must be > start_time.end_year ({end_year_start})"
     )
+
+
+# ── Rule #27: missing generator + CHECK derive_from inference ────────
+
+
+def test_stage3_validator_rule_27_infers_derive_from_ge_check():
+    """Rule #27: missing generator + ``sale_price >= cost_price`` → derive_from.
+
+    When a column has no generator but participates in a cross-column CHECK
+    (``sale_price >= cost_price``), Rule #27 infers ``derive_from: [cost_price]``
+    and builds an expression that satisfies the constraint.
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "products",
+                "columns": [
+                    {"name": "cost_price", "generator": "float", "params": {"min_value": 0.01, "max_value": 1000.0}},
+                    # sale_price has NO generator — Rule #27 must fill it
+                    {"name": "sale_price"},
+                ],
+            }
+        ]
+    }
+    schema = {
+        "products": {
+            "columns": [
+                {"name": "cost_price", "type": "REAL"},
+                {"name": "sale_price", "type": "REAL"},
+            ],
+            "check_constraints": [
+                {"expression": "sale_price >= cost_price", "name": "ck_price"},
+            ],
+        }
+    }
+    validator = Stage3Validator()
+    validator.validate(config, schema=schema)
+    sale_col = config["tables"][0]["columns"][1]
+    assert sale_col["derive_from"] == ["cost_price"]
+    assert sale_col["expression"] == "value + random_float(0, value)"
+    assert "generator" not in sale_col or sale_col.get("generator") is None
+
+
+def test_stage3_validator_rule_27_infers_derive_from_le_check():
+    """Rule #27: missing generator + ``discount <= price`` → derive_from with ``<=``.
+
+    For ``CHECK (discount <= price)`` where ``discount`` has no generator,
+    Rule #27 infers ``derive_from: [price]`` with expression
+    ``random_float(0, value)`` (ensures discount <= price).
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "orders",
+                "columns": [
+                    {"name": "price", "generator": "float", "params": {"min_value": 1.0, "max_value": 100.0}},
+                    {"name": "discount"},
+                ],
+            }
+        ]
+    }
+    schema = {
+        "orders": {
+            "columns": [
+                {"name": "price", "type": "REAL"},
+                {"name": "discount", "type": "REAL"},
+            ],
+            "check_constraints": [
+                {"expression": "discount <= price", "name": "ck_disc"},
+            ],
+        }
+    }
+    validator = Stage3Validator()
+    validator.validate(config, schema=schema)
+    disc_col = config["tables"][0]["columns"][1]
+    assert disc_col["derive_from"] == ["price"]
+    assert disc_col["expression"] == "random_float(0, value)"
+
+
+def test_stage3_validator_rule_27_infers_derive_from_reversed_check():
+    """Rule #27: missing generator + reversed CHECK ``price >= discount`` → derive_from.
+
+    When CHECK is ``price >= discount`` and ``discount`` has no generator,
+    Rule #27 must reverse the operator: discount <= price → expression
+    ``random_float(0, value)``.
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "orders",
+                "columns": [
+                    {"name": "price", "generator": "float", "params": {"min_value": 1.0, "max_value": 100.0}},
+                    {"name": "discount"},
+                ],
+            }
+        ]
+    }
+    schema = {
+        "orders": {
+            "columns": [
+                {"name": "price", "type": "REAL"},
+                {"name": "discount", "type": "REAL"},
+            ],
+            "check_constraints": [
+                {"expression": "price >= discount", "name": "ck_disc"},
+            ],
+        }
+    }
+    validator = Stage3Validator()
+    validator.validate(config, schema=schema)
+    disc_col = config["tables"][0]["columns"][1]
+    assert disc_col["derive_from"] == ["price"]
+    # price >= discount ⟺ discount <= price → random_float(0, value)
+    assert disc_col["expression"] == "random_float(0, value)"
+
+
+def test_stage3_validator_rule_27_falls_back_to_type_routed_without_check():
+    """Rule #27: missing generator + no cross-column CHECK → type-routed fallback.
+
+    When a column has no generator and no cross-column CHECK involves it,
+    Rule #27 falls back to a type-routed generator based on the SQL type.
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "t",
+                "columns": [
+                    {"name": "missing_int"},
+                    {"name": "missing_text"},
+                ],
+            }
+        ]
+    }
+    schema = {
+        "t": {
+            "columns": [
+                {"name": "missing_int", "type": "INTEGER"},
+                {"name": "missing_text", "type": "TEXT"},
+            ],
+            "check_constraints": [],
+        }
+    }
+    validator = Stage3Validator()
+    validator.validate(config, schema=schema)
+    int_col = config["tables"][0]["columns"][0]
+    text_col = config["tables"][0]["columns"][1]
+    assert int_col["generator"] == "integer"
+    assert "min_value" in int_col["params"]
+    assert text_col["generator"] == "string"
+    assert "min_length" in text_col["params"]
+
+
+def test_stage3_validator_rule_27_skips_columns_with_generator():
+    """Rule #27: columns that already have a generator are not touched."""
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "t",
+                "columns": [
+                    {"name": "col_a", "generator": "integer", "params": {"min_value": 1, "max_value": 10}},
+                    {"name": "col_b", "generator": "float", "params": {"min_value": 0.0, "max_value": 1.0}},
+                ],
+            }
+        ]
+    }
+    schema = {
+        "t": {
+            "columns": [
+                {"name": "col_a", "type": "INTEGER"},
+                {"name": "col_b", "type": "REAL"},
+            ],
+            "check_constraints": [
+                {"expression": "col_a >= col_b", "name": "ck"},
+            ],
+        }
+    }
+    validator = Stage3Validator()
+    validator.validate(config, schema=schema)
+    # Both columns already have generators — Rule #27 must not change them
+    assert config["tables"][0]["columns"][0]["generator"] == "integer"
+    assert config["tables"][0]["columns"][1]["generator"] == "float"
+
+
+def test_stage3_validator_rule_27_skips_when_source_also_missing():
+    """Rule #27: if both columns in CHECK are missing generators, skip derive_from.
+
+    Cannot derive from a source column that also has no generator — fall
+    back to type-routed generator for both.
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "t",
+                "columns": [
+                    {"name": "col_a"},
+                    {"name": "col_b"},
+                ],
+            }
+        ]
+    }
+    schema = {
+        "t": {
+            "columns": [
+                {"name": "col_a", "type": "REAL"},
+                {"name": "col_b", "type": "REAL"},
+            ],
+            "check_constraints": [
+                {"expression": "col_a >= col_b", "name": "ck"},
+            ],
+        }
+    }
+    validator = Stage3Validator()
+    validator.validate(config, schema=schema)
+    # Both fall back to type-routed (float) — neither gets derive_from
+    col_a = config["tables"][0]["columns"][0]
+    col_b = config["tables"][0]["columns"][1]
+    assert col_a["generator"] == "float"
+    assert col_b["generator"] == "float"
+    assert "derive_from" not in col_a
+    assert "derive_from" not in col_b
+
+
+def test_stage3_validator_rule_27_supplements_date_with_year_range():
+    """Rule #27: missing generator on DATE column → date with default year range.
+
+    The type-routed fallback for DATE columns includes ``start_year``/``end_year``
+    params so Rule #22 can subsequently isolate ranges if the column
+    participates in a cross-column date CHECK.
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "t",
+                "columns": [
+                    {"name": "missing_date"},
+                ],
+            }
+        ]
+    }
+    schema = {
+        "t": {
+            "columns": [
+                {"name": "missing_date", "type": "DATE"},
+            ],
+            "check_constraints": [],
+        }
+    }
+    validator = Stage3Validator()
+    validator.validate(config, schema=schema)
+    date_col = config["tables"][0]["columns"][0]
+    assert date_col["generator"] == "date"
+    assert "start_year" in date_col["params"]
+    assert "end_year" in date_col["params"]
+
+
+# ── Rule #28: exact-match generator upgrade ──────────────────────────
+
+
+def test_stage3_validator_rule_28_upgrades_text_to_sentence_for_description():
+    """Rule #28: ``description`` column with ``text`` generator → ``sentence``.
+
+    LLMs sometimes pick ``text`` for ``description`` columns, producing
+    multi-paragraph blobs that don't fit typical description columns.
+    ``sentence`` produces a realistic single-sentence description.
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "products",
+                "columns": [
+                    {"name": "description", "generator": "text", "params": {"min_length": 100, "max_length": 500}},
+                ],
+            }
+        ]
+    }
+    validator = Stage3Validator()
+    validator.validate(config)
+    col = config["tables"][0]["columns"][0]
+    assert col["generator"] == "sentence"
+    # sentence takes no params — Rule #14 strips them after Rule #28 upgrades
+    assert "min_length" not in col.get("params", {})
+
+
+def test_stage3_validator_rule_28_upgrades_string_to_email():
+    """Rule #28: ``email`` column with ``string`` generator → ``email``."""
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "users",
+                "columns": [
+                    {"name": "email", "generator": "string", "params": {"min_length": 5, "max_length": 50}},
+                ],
+            }
+        ]
+    }
+    validator = Stage3Validator()
+    validator.validate(config)
+    col = config["tables"][0]["columns"][0]
+    assert col["generator"] == "email"
+    assert "min_length" not in col.get("params", {})
+
+
+def test_stage3_validator_rule_28_upgrades_word_to_sentence_for_title():
+    """Rule #28: ``title`` column with ``word`` generator → ``sentence``."""
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "articles",
+                "columns": [
+                    {"name": "title", "generator": "word", "params": {}},
+                ],
+            }
+        ]
+    }
+    validator = Stage3Validator()
+    validator.validate(config)
+    col = config["tables"][0]["columns"][0]
+    assert col["generator"] == "sentence"
+
+
+def test_stage3_validator_rule_28_skips_non_generic_generator():
+    """Rule #28: LLM's non-generic choice (e.g., ``choice``) is preserved.
+
+    If the LLM picked ``choice``/``pattern``/``template`` (non-generic),
+    Rule #28 respects the choice — those generators may reflect domain-specific
+    LLM reasoning.
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "t",
+                "columns": [
+                    {"name": "description", "generator": "choice", "params": {"choices": ["active", "inactive"]}},
+                ],
+            }
+        ]
+    }
+    validator = Stage3Validator()
+    validator.validate(config)
+    col = config["tables"][0]["columns"][0]
+    # choice is not in _GENERIC_GENERATORS — preserved
+    assert col["generator"] == "choice"
+
+
+def test_stage3_validator_rule_28_skips_derive_from_columns():
+    """Rule #28: columns with ``derive_from`` set are not touched.
+
+    Derived columns have no generator to upgrade — they use an expression
+    over other columns.
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "t",
+                "columns": [
+                    {"name": "description", "derive_from": ["summary"], "expression": "value"},
+                ],
+            }
+        ]
+    }
+    validator = Stage3Validator()
+    validator.validate(config)
+    col = config["tables"][0]["columns"][0]
+    # derive_from is set — Rule #28 must not add a generator
+    assert "generator" not in col or col.get("generator") is None
+    assert col["derive_from"] == ["summary"]
+
+
+def test_stage3_validator_rule_28_skips_non_exact_match_columns():
+    """Rule #28: columns not in exact-match table (e.g., ``label``) are not touched."""
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "t",
+                "columns": [
+                    {"name": "label", "generator": "string", "params": {"min_length": 3, "max_length": 10}},
+                ],
+            }
+        ]
+    }
+    validator = Stage3Validator()
+    validator.validate(config)
+    col = config["tables"][0]["columns"][0]
+    # label is not in _EXACT_MATCH_UPGRADE_RULES — preserved
+    assert col["generator"] == "string"
+    assert col["params"]["min_length"] == 3
+
+
+# ── Rule #28: pattern-match generator upgrade ────────────────────────
+
+
+def test_stage3_validator_rule_28_pattern_upgrades_word_to_catch_phrase_for_product_name():
+    """Rule #28 pattern: ``product_name`` with ``word`` → ``catch_phrase``.
+
+    ``word`` generates a single random word; ``catch_phrase`` generates a
+    multi-word business phrase, semantically closer to a real product name.
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "products",
+                "columns": [
+                    {"name": "product_name", "generator": "word"},
+                ],
+            }
+        ]
+    }
+    validator = Stage3Validator()
+    validator.validate(config)
+    col = config["tables"][0]["columns"][0]
+    assert col["generator"] == "catch_phrase"
+    # catch_phrase takes no params — params stripped
+    assert "params" not in col or not col.get("params")
+
+
+def test_stage3_validator_rule_28_pattern_upgrades_string_to_catch_phrase_for_dept_name():
+    """Rule #28 pattern: ``dept_name`` with ``string`` → ``catch_phrase``."""
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "departments",
+                "columns": [
+                    {"name": "dept_name", "generator": "string", "params": {"min_length": 3, "max_length": 20}},
+                ],
+            }
+        ]
+    }
+    validator = Stage3Validator()
+    validator.validate(config)
+    col = config["tables"][0]["columns"][0]
+    assert col["generator"] == "catch_phrase"
+    # catch_phrase takes no params — old string params stripped by Rule #14
+    assert "min_length" not in col.get("params", {})
+
+
+def test_stage3_validator_rule_28_pattern_upgrades_word_to_name_for_user_name():
+    """Rule #28 pattern: ``customer_name`` with ``word`` → ``name`` (person name).
+
+    Person-name prefixes (user/customer/employee/etc.) map to the ``name``
+    generator (real person name), which is more specific than the general
+    ``*_name`` → ``catch_phrase`` fallback.
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "users",
+                "columns": [
+                    {"name": "customer_name", "generator": "word"},
+                ],
+            }
+        ]
+    }
+    validator = Stage3Validator()
+    validator.validate(config)
+    col = config["tables"][0]["columns"][0]
+    assert col["generator"] == "name"
+
+
+def test_stage3_validator_rule_28_pattern_upgrades_text_to_company_for_company_name():
+    """Rule #28 pattern: ``company_name`` with ``text`` → ``company``."""
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "vendors",
+                "columns": [
+                    {"name": "company_name", "generator": "text"},
+                ],
+            }
+        ]
+    }
+    validator = Stage3Validator()
+    validator.validate(config)
+    col = config["tables"][0]["columns"][0]
+    assert col["generator"] == "company"
+
+
+def test_stage3_validator_rule_28_pattern_upgrades_word_to_sentence_for_task_title():
+    """Rule #28 pattern: ``task_title`` with ``word`` → ``sentence``."""
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "tasks",
+                "columns": [
+                    {"name": "task_title", "generator": "word"},
+                ],
+            }
+        ]
+    }
+    validator = Stage3Validator()
+    validator.validate(config)
+    col = config["tables"][0]["columns"][0]
+    assert col["generator"] == "sentence"
+
+
+def test_stage3_validator_rule_28_pattern_skips_unique_columns():
+    """Rule #28 pattern: UNIQUE columns are skipped, deferred to Rule #24.
+
+    For UNIQUE columns, uniqueness guarantee (Rule #24 → template) takes
+    priority over semantic matching (Rule #28 → catch_phrase).
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "products",
+                "columns": [
+                    {
+                        "name": "product_name",
+                        "generator": "word",
+                        "constraints": {"unique": True},
+                    },
+                ],
+            }
+        ]
+    }
+    validator = Stage3Validator()
+    validator.validate(config)
+    col = config["tables"][0]["columns"][0]
+    # Rule #28 skipped (UNIQUE) → Rule #24 upgrades word → template
+    assert col["generator"] == "template"
+    assert col["params"]["template"] == "word{sequence:04d}"
+
+
+def test_stage3_validator_rule_28_pattern_skips_unique_columns_via_schema():
+    """Rule #28 pattern: UNIQUE detected from table_schema (not col constraints) also skips."""
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "products",
+                "columns": [
+                    {"name": "product_name", "generator": "word"},
+                ],
+            }
+        ]
+    }
+    schema = {"products": {"unique_columns": ["product_name"]}}
+    validator = Stage3Validator()
+    validator.validate(config, schema=schema)
+    col = config["tables"][0]["columns"][0]
+    # Rule #28 skipped (UNIQUE via schema) → Rule #24 upgrades word → template
+    assert col["generator"] == "template"
+    assert col["params"]["template"] == "word{sequence:04d}"
+
+
+def test_stage3_validator_rule_28_pattern_skips_non_generic_generator():
+    """Rule #28 pattern: LLM's non-generic choice (e.g., ``choice``) is preserved.
+
+    Even if the column matches a pattern, Rule #28 only upgrades generic
+    generators (string/text/word). A ``choice`` or ``pattern`` generator
+    may reflect domain-specific LLM reasoning.
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "products",
+                "columns": [
+                    {"name": "product_name", "generator": "choice", "params": {"choices": ["A", "B", "C"]}},
+                ],
+            }
+        ]
+    }
+    validator = Stage3Validator()
+    validator.validate(config)
+    col = config["tables"][0]["columns"][0]
+    assert col["generator"] == "choice"
+    assert col["params"]["choices"] == ["A", "B", "C"]
+
+
+def test_stage3_validator_rule_28_exact_match_takes_priority_over_pattern():
+    """Rule #28: exact-match is checked before pattern-match.
+
+    ``email`` matches both the exact-match rule (``email`` → ``email``) and
+    the pattern rule (``.*_email$`` → ``email``). The exact-match rule wins
+    because it's checked first. Both produce the same result here, but the
+    principle matters for columns like ``user_name`` (exact: ``username``,
+    pattern: ``name``).
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "users",
+                "columns": [
+                    {"name": "user_name", "generator": "string"},
+                ],
+            }
+        ]
+    }
+    validator = Stage3Validator()
+    validator.validate(config)
+    col = config["tables"][0]["columns"][0]
+    # Exact-match: user_name → username (NOT pattern: user_name → name)
+    assert col["generator"] == "username"
+
+
+# ── Rule #29: derive_from integrity (cycles + type compatibility) ────
+
+
+def test_stage3_validator_rule_29_breaks_derive_from_cycle():
+    """Rule #29: breaks circular derive_from dependencies.
+
+    When col_a derives from col_b and col_b derives from col_a,
+    the cycle cannot be resolved. Rule #29 strips derive_from from
+    the column that is NOT CHECK-constrained (weaker claim).
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "products",
+                "columns": [
+                    {
+                        "name": "cost_price",
+                        "generator": None,
+                        "derive_from": ["sale_price"],
+                        "expression": "random_float(0, value)",
+                    },
+                    {
+                        "name": "sale_price",
+                        "generator": None,
+                        "derive_from": ["cost_price"],
+                        "expression": "value + random_float(0, value)",
+                    },
+                ],
+            }
+        ]
+    }
+    schema = {
+        "products": {
+            "columns": [
+                {"name": "cost_price", "type": "REAL"},
+                {"name": "sale_price", "type": "REAL"},
+            ],
+            "check_constraints": [
+                {"expression": "sale_price >= cost_price", "columns": ["sale_price", "cost_price"]},
+            ],
+        }
+    }
+    validator = Stage3Validator()
+    validator.validate(config, schema=schema)
+    cols = {c["name"]: c for c in config["tables"][0]["columns"]}
+    # cost_price is NOT in CHECK-constrained columns (it's the source, not the target)
+    # so its derive_from should be stripped; sale_price keeps its derive_from
+    # (it IS constrained by CHECK "sale_price >= cost_price")
+    assert cols["sale_price"].get("derive_from") == ["cost_price"], (
+        "sale_price should keep derive_from (CHECK-constrained)"
+    )
+    assert "derive_from" not in cols["cost_price"], (
+        "cost_price derive_from should be stripped (cycle, non-CHECK)"
+    )
+    assert cols["cost_price"]["generator"] is not None, "cost_price should get a generator after stripping"
+
+
+def test_stage3_validator_rule_29_strips_type_incompatible_derive_from():
+    """Rule #29: strips derive_from when source and target types are incompatible.
+
+    A TEXT column deriving from a REAL column produces nonsensical values
+    (you cannot compute a product name from a float). Rule #29 strips the
+    derive_from and assigns a proper generator.
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "products",
+                "columns": [
+                    {
+                        "name": "product_name",
+                        "generator": None,
+                        "derive_from": ["cost_price"],
+                        "expression": "value + random_float(0, value)",
+                    },
+                    {
+                        "name": "cost_price",
+                        "generator": "float",
+                        "params": {"min_value": 0.01, "max_value": 9999.99, "precision": 2},
+                    },
+                ],
+            }
+        ]
+    }
+    schema = {
+        "products": {
+            "columns": [
+                {"name": "product_name", "type": "TEXT"},
+                {"name": "cost_price", "type": "REAL"},
+            ],
+        }
+    }
+    validator = Stage3Validator()
+    validator.validate(config, schema=schema)
+    col = next(c for c in config["tables"][0]["columns"] if c["name"] == "product_name")
+    # product_name (TEXT) deriving from cost_price (REAL) is type-incompatible
+    assert "derive_from" not in col, "product_name derive_from should be stripped (type-incompatible)"
+    assert col["generator"] == "catch_phrase", f"product_name should get catch_phrase, got {col['generator']}"
+
+
+def test_stage3_validator_rule_29_preserves_compatible_derive_from():
+    """Rule #29: preserves derive_from when types are compatible (numeric→numeric)."""
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "products",
+                "columns": [
+                    {
+                        "name": "sale_price",
+                        "generator": None,
+                        "derive_from": ["cost_price"],
+                        "expression": "value + random_float(0, value)",
+                    },
+                    {
+                        "name": "cost_price",
+                        "generator": "float",
+                        "params": {"min_value": 0.01, "max_value": 999.99, "precision": 2},
+                    },
+                ],
+            }
+        ]
+    }
+    schema = {
+        "products": {
+            "columns": [
+                {"name": "sale_price", "type": "REAL"},
+                {"name": "cost_price", "type": "REAL"},
+            ],
+        }
+    }
+    validator = Stage3Validator()
+    validator.validate(config, schema=schema)
+    col = next(c for c in config["tables"][0]["columns"] if c["name"] == "sale_price")
+    # sale_price (REAL) deriving from cost_price (REAL) is type-compatible
+    assert col["derive_from"] == ["cost_price"], "sale_price derive_from should be preserved (compatible types)"
+
+
+def test_stage3_validator_rule_29_no_cycle_no_action():
+    """Rule #29: no cycle and no type incompatibility → no action."""
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "tasks",
+                "columns": [
+                    {
+                        "name": "actual_hours",
+                        "generator": None,
+                        "derive_from": ["est_hours"],
+                        "expression": "random_int(0, value)",
+                    },
+                    {
+                        "name": "est_hours",
+                        "generator": "integer",
+                        "params": {"min_value": 1, "max_value": 100},
+                    },
+                ],
+            }
+        ]
+    }
+    schema = {
+        "tasks": {
+            "columns": [
+                {"name": "actual_hours", "type": "INTEGER"},
+                {"name": "est_hours", "type": "INTEGER"},
+            ],
+        }
+    }
+    validator = Stage3Validator()
+    validator.validate(config, schema=schema)
+    col = next(c for c in config["tables"][0]["columns"] if c["name"] == "actual_hours")
+    # No cycle, compatible types → preserve derive_from
+    assert col["derive_from"] == ["est_hours"]

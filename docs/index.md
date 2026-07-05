@@ -3,7 +3,7 @@
 **Declarative Multi-Database test data generation toolkit.**
 
 Generate realistic test data for SQLite and PostgreSQL databases using YAML/JSON config or Python API.
-Auto-infers schema, 9-level column mapping, 34 generators, plugin system (pluggy).
+Auto-infers schema, 9-level column mapping, 35 generators, plugin system (pluggy).
 
 ## Quick Start
 

@@ -6,8 +6,11 @@ LLM invocation, model fallback chain, and reasoning-effort handling.
 
 from __future__ import annotations
 
+import json
 import re
+import time
 from collections.abc import Callable
+from datetime import datetime
 from typing import TYPE_CHECKING, Any, NoReturn
 
 from sqlseed_ai._client import APIConnectionError, APIError, APITimeoutError, get_openai_client
@@ -16,6 +19,7 @@ from sqlseed_ai.config import AIBackend, AIConfig
 from sqlseed_ai.exceptions import ContextOverflowError, ModelFallbackError, classify_api_error
 
 from sqlseed._utils.logger import get_logger
+from sqlseed._utils.paths import get_cache_dir
 
 logger = get_logger(__name__)
 
@@ -38,6 +42,8 @@ class LLMCallerMixin:
     _config: AIConfig | None
 
     if TYPE_CHECKING:
+        from pathlib import Path
+
         # Provided by StreamingHandlerMixin / JsonParserMixin when combined
         # in SchemaAnalyzer. Stubs use `raise RuntimeError("provided by ...")`
         # (NOT `...` which pylint infers as implicit None return ->
@@ -54,6 +60,54 @@ class LLMCallerMixin:
         # Provided by JsonParserMixin when combined in SchemaAnalyzer.
         def _parse_json_response(self, content: str) -> dict[str, Any]:
             raise RuntimeError("provided by JsonParserMixin")
+
+    def _log_llm_interaction(
+        self,
+        *,
+        messages: list[dict[str, str]],
+        response: str,
+        model: str | None,
+        stage: str = "",
+        table_name: str = "",
+        elapsed: float = 0.0,
+        error: str | None = None,
+    ) -> Path | None:
+        """Log a full LLM interaction (prompt + response) to a JSON file.
+
+        Writes to ``<cache_root>/ai_logs/<timestamp>_<stage>.json`` when
+        ``self._config.log_llm_interactions`` is True. Returns the file path
+        on success, or None if logging is disabled or failed.
+        """
+        if not self._config or not self._config.log_llm_interactions:
+            return None
+        try:
+            log_dir = get_cache_dir("ai_logs")
+            log_dir.mkdir(parents=True, exist_ok=True)
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+            suffix = f"_{stage}" if stage else ""
+            suffix += f"_{table_name}" if table_name else ""
+            # Sanitize filename (remove invalid chars)
+            safe_suffix = re.sub(r"[^\w\-]", "_", suffix)
+            log_path = log_dir / f"{ts}{safe_suffix}.json"
+            log_data: dict[str, Any] = {
+                "timestamp": datetime.now().isoformat(),
+                "model": model or "(unknown)",
+                "stage": stage,
+                "table_name": table_name,
+                "elapsed_seconds": round(elapsed, 3),
+                "messages": messages,
+                "response": response,
+            }
+            if error:
+                log_data["error"] = error
+            log_path.write_text(
+                json.dumps(log_data, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            return log_path
+        except Exception as e:
+            logger.warning("Failed to log LLM interaction", error=str(e))
+            return None
 
     def _find_local_fallback_model(
         self,
@@ -293,12 +347,20 @@ class LLMCallerMixin:
         if self._config is None:
             raise RuntimeError("AIConfig must be initialized before calling LLM")
         client = get_openai_client(self._config)
+        start_time = time.time()
 
         try:
             kwargs = self._build_llm_kwargs(model=model)
             kwargs["messages"] = messages
             response = self._send_llm_request(client, kwargs)
         except (APITimeoutError, APIConnectionError, APIError, ValueError, RuntimeError, OSError) as e:
+            self._log_llm_interaction(
+                messages=messages,
+                response="",
+                model=model or self._config.model,
+                elapsed=time.time() - start_time,
+                error=str(e),
+            )
             self._handle_llm_api_exception(e, model, streaming=False)
 
         if not response.choices:
@@ -317,7 +379,21 @@ class LLMCallerMixin:
             )
 
         if content is None:
+            self._log_llm_interaction(
+                messages=messages,
+                response="(empty response)",
+                model=actual_model,
+                elapsed=time.time() - start_time,
+            )
             return {}
+
+        # Log the full interaction (prompt + response) to a JSON file
+        self._log_llm_interaction(
+            messages=messages,
+            response=content,
+            model=actual_model,
+            elapsed=time.time() - start_time,
+        )
 
         logger.debug(
             "LLM raw response",
@@ -327,3 +403,4 @@ class LLMCallerMixin:
         )
 
         return self._parse_json_response(content)
+

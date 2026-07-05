@@ -64,8 +64,33 @@ template generator: params={"template":"FORMAT","sequence_start":0,"sequence_ste
 
 Output JSON: {"column":"<name>","generator":"<type>","params":{...},"derive_from":null,"expression":null}
 
-Cross-column CHECK constraints: if this column is bounded by another column,
-set "derive_from":["<other_col>"] and "expression":"<formula>" instead of "generator".
+CRITICAL — Cross-column CHECK constraints:
+If the user prompt lists a cross-column CHECK that involves THIS column alongside another
+column, you MUST use the derived form (NOT an independent generator):
+  "generator": null, "derive_from": ["<source_col>"], "expression": "<formula>"
+where `value` in the expression refers to the source column's value.
+
+Use these expression templates (substitute `value` for the source column):
+  CHECK "this_col >= source_col":  expression = "value + random_float(0, value)"
+  CHECK "this_col >  source_col":  expression = "value + random_float(1, value)"
+  CHECK "this_col <= source_col":  expression = "random_float(0, value)"
+  CHECK "this_col <  source_col":  expression = "random_float(0, max(value - 1, 0))"
+For reversed operators (e.g. CHECK "source_col >= this_col"), flip the relation and apply
+the matching template above.
+
+Examples:
+1) Column sale_price (REAL) with CHECK "sale_price >= cost_price":
+   {"column":"sale_price","generator":null,"params":{},
+    "derive_from":["cost_price"],"expression":"value + random_float(0, value)"}
+2) Column end_date (DATE) with CHECK "end_date >= start_date":
+   {"column":"end_date","generator":null,"params":{},
+    "derive_from":["start_date"],"expression":"value + random_int(1, 30)"}
+3) Column discount (REAL) with CHECK "discount <= price":
+   {"column":"discount","generator":null,"params":{},
+    "derive_from":["price"],"expression":"random_float(0, value)"}
+
+Only use an independent "generator" when this column is NOT bounded by a cross-column
+CHECK. Setting an independent generator for a bounded column violates the constraint.
 
 Respond with ONLY valid JSON, no prose."""
 

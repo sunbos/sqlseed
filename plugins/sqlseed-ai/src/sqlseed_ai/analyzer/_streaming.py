@@ -7,6 +7,7 @@ request strategy (tool calling vs JSON mode vs text mode).
 
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING, Any, NoReturn
 
 from sqlseed_ai._client import APIConnectionError, APIError, APITimeoutError, get_openai_client
@@ -29,13 +30,28 @@ class StreamingHandlerMixin:
     Expects the host class to expose a ``_config`` attribute of type
     ``AIConfig | None`` and to mix in :class:`LLMCallerMixin` for
     ``_call_with_fallback``, ``_build_llm_kwargs``,
-    ``_create_with_reasoning_fallback`` and :class:`ToolCallingMixin`
-    for ``_try_tool_calling`` and :class:`JsonParserMixin` for
-    ``_parse_json_response``.
+    ``_create_with_reasoning_fallback``, ``_log_llm_interaction`` and
+    :class:`ToolCallingMixin` for ``_try_tool_calling`` and
+    :class:`JsonParserMixin` for ``_parse_json_response``.
     """
 
     # Type hints for attributes provided by the host class.
     _config: AIConfig | None
+
+    if TYPE_CHECKING:
+        # Provided by LLMCallerMixin when combined in SchemaAnalyzer.
+        def _log_llm_interaction(
+            self,
+            *,
+            messages: list[dict[str, str]],
+            response: str,
+            model: str | None,
+            stage: str = "",
+            table_name: str = "",
+            elapsed: float = 0.0,
+            error: str | None = None,
+        ) -> Any:
+            raise RuntimeError("provided by LLMCallerMixin")
 
     if TYPE_CHECKING:
         # Provided by LLMCallerMixin / ToolCallingMixin / JsonParserMixin
@@ -151,6 +167,7 @@ class StreamingHandlerMixin:
         if self._config is None:
             raise RuntimeError("AIConfig must be initialized before calling LLM")
         client = get_openai_client(self._config)
+        start_time = time.time()
 
         if on_progress:
             on_progress("connecting", {"model": model or self._config.model})
@@ -166,10 +183,26 @@ class StreamingHandlerMixin:
             if on_progress:
                 on_progress("parsing", {"tokens": token_count})
 
+            actual_model = model or (self._config.model if self._config else "unknown")
+            elapsed = time.time() - start_time
+
             if not content:
+                self._log_llm_interaction(
+                    messages=messages,
+                    response="(empty stream response)",
+                    model=actual_model,
+                    elapsed=elapsed,
+                )
                 return {}
 
-            actual_model = model or (self._config.model if self._config else "unknown")
+            # Log the full interaction (prompt + response) to a JSON file
+            self._log_llm_interaction(
+                messages=messages,
+                response=content,
+                model=actual_model,
+                elapsed=elapsed,
+            )
+
             logger.debug(
                 "LLM streaming raw response",
                 content_length=len(content),
@@ -185,6 +218,13 @@ class StreamingHandlerMixin:
             return result
 
         except (APITimeoutError, APIConnectionError, APIError, ValueError, RuntimeError, OSError) as e:
+            self._log_llm_interaction(
+                messages=messages,
+                response="",
+                model=model or (self._config.model if self._config else "unknown"),
+                elapsed=time.time() - start_time,
+                error=str(e),
+            )
             self._handle_llm_api_exception(e, model, streaming=True)
 
     def _send_llm_request(

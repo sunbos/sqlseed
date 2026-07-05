@@ -12,7 +12,7 @@ enforces dependency direction) by guarding things import-linter cannot:
   no runtime ``assert`` in production code)
 * Public API contract (keyword-only args, ``__all__`` exports)
 * Immutable constants (``AI_APPLICABLE_GENERATORS`` is a frozenset)
-* Count contracts (12 hooks, 34 generators — synced with docs)
+* Count contracts (12 hooks, 35 generators — synced with docs)
 
 If any of these tests fails, do NOT silence it — either fix the code to
 honor the architecture, or update CLAUDE.md + this test together with a
@@ -427,10 +427,10 @@ class TestCountContracts:
             "tests/test_doc_sync.py together."
         )
 
-    def test_generator_dispatch_count_is_thirty_four(self) -> None:
-        """_dispatch.py GENERATOR_MAP must have exactly 34 entries.
+    def test_generator_dispatch_count_is_thirty_five(self) -> None:
+        """_dispatch.py GENERATOR_MAP must have exactly 35 entries.
 
-        See CLAUDE.md > generators/ "34 generator types". If a generator is
+        See CLAUDE.md > generators/ "35 generator types". If a generator is
         added or removed, update CLAUDE.md, README, and AUTO-GENERATED markers.
         """
         dispatch_path = SRC_ROOT / "generators" / "_dispatch.py"
@@ -442,8 +442,8 @@ class TestCountContracts:
                 target = node.target
                 if isinstance(target, ast.Name) and target.id == "GENERATOR_MAP" and isinstance(node.value, ast.Dict):
                     count = len(node.value.keys)
-                    assert count == 34, (
-                        f"Expected 34 generators in GENERATOR_MAP, found {count}. "
+                    assert count == 35, (
+                        f"Expected 35 generators in GENERATOR_MAP, found {count}. "
                         "If you added/removed a generator, update CLAUDE.md, README, "
                         "and run scripts/sync_docs.py."
                     )
@@ -458,8 +458,8 @@ class TestCountContracts:
                     )
                     if is_match:
                         count = len(node.value.keys)
-                        assert count == 34, (
-                            f"Expected 34 generators in GENERATOR_MAP, found {count}. "
+                        assert count == 35, (
+                            f"Expected 35 generators in GENERATOR_MAP, found {count}. "
                             "If you added/removed a generator, update CLAUDE.md, README, "
                             "and run scripts/sync_docs.py."
                         )

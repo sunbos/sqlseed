@@ -411,6 +411,7 @@ def _build_ai_config(
     model: str | None = None,
     timeout: float = 0.0,
     staged_pipeline: bool = False,
+    log_llm: bool = False,
 ) -> AIConfig:
     """Build an :class:`AIConfig` from env defaults plus CLI overrides.
 
@@ -422,6 +423,7 @@ def _build_ai_config(
     ai_config = AIConfig.from_env().apply_overrides(api_key=api_key, base_url=base_url, model=model)
     ai_config.timeout = timeout
     ai_config.use_staged_pipeline = staged_pipeline
+    ai_config.log_llm_interactions = log_llm
     return ai_config
 
 
@@ -453,6 +455,28 @@ def _build_ai_config(
     help="Use the new 3-stage LtM pipeline (StagedSchemaAnalyzer) instead of "
     "the legacy SchemaSemanticAnalyzer. Recommended for 2B local models.",
 )
+@click.option(
+    "--log-llm",
+    is_flag=True,
+    default=False,
+    help="Log full LLM interactions (prompt + response) to JSON files under "
+    "<cache_root>/ai_logs/. Useful for debugging LLM hallucinations and Rule failures.",
+)
+@click.option(
+    "--max-retries",
+    default=2,
+    type=int,
+    help="Max retries for failed table analysis (default: 2). On failure, the "
+    "table is retried with a fresh LLM call up to this many times.",
+)
+@click.option(
+    "--merge",
+    is_flag=True,
+    default=False,
+    help="Merge newly generated tables into existing YAML (instead of overwriting). "
+    "Only tables specified by --tables are replaced; others are kept. "
+    "Useful for re-generating specific tables without re-analyzing the entire database.",
+)
 def ai_analyze(
     db_path: str,
     db_url: str | None,
@@ -465,6 +489,9 @@ def ai_analyze(
     base_url: str | None,
     timeout: float,
     staged_pipeline: bool = False,
+    log_llm: bool = False,
+    max_retries: int = 2,
+    merge: bool = False,
 ) -> None:
     """Analyze database schema via LLM and generate business YAML config.
 
@@ -473,6 +500,8 @@ def ai_analyze(
       - Full database: sqlseed ai-analyze --db app.db -o config.yaml
       - Partial tables: sqlseed ai-analyze --db app.db --tables orders,items -o config.yaml
       - No dependencies: sqlseed ai-analyze --db app.db --tables orders --no-dependencies -o config.yaml
+      - Merge mode: sqlseed ai-analyze --db app.db --tables orders -o config.yaml --merge
+        (re-generates only 'orders', keeps other tables from existing YAML)
 
     \b
     The generated YAML contains business logic (column generators, params,
@@ -492,6 +521,7 @@ def ai_analyze(
         model=model,
         timeout=timeout,
         staged_pipeline=staged_pipeline,
+        log_llm=log_llm,
     )
 
     if not ai_config.resolve_api_key():
@@ -512,10 +542,32 @@ def ai_analyze(
     # + content generation, causing empty responses.
     backend_name = ai_config.backend.value.replace("_", " ").title()
     click.echo(f"Using AI model: {resolved_model} (via {backend_name})")
+    if log_llm:
+        from sqlseed._utils.paths import get_cache_dir
+
+        log_dir = get_cache_dir("ai_logs")
+        click.echo(f"LLM interaction logging enabled: {log_dir}")
 
     table_list = None
     if tables:
         table_list = [t.strip() for t in tables.split(",") if t.strip()]
+
+    # Merge mode: load existing YAML and keep non-regenerated tables
+    existing_tables: list[dict[str, Any]] = []
+    if merge:
+        output_path_check = Path(output)
+        if output_path_check.exists():
+            try:
+                with output_path_check.open("r", encoding="utf-8") as f:
+                    existing_config = yaml.safe_load(f) or {}
+                existing_tables = existing_config.get("tables", [])
+                if existing_tables:
+                    click.echo(
+                        f"Merge mode: keeping {len(existing_tables)} existing tables, "
+                        f"re-generating: {table_list or 'all'}"
+                    )
+            except Exception as e:
+                click.echo(f"Warning: could not load existing YAML for merge: {e}", err=True)
 
     orch = connect(url=db_url) if db_url else connect(db_path=db_path)
 
@@ -539,13 +591,40 @@ def ai_analyze(
             def _progress(table: str, idx: int, total: int) -> None:
                 click.echo(f"[{idx}/{total}] Analyzing table: {table} ...")
 
-            config_dict = analyzer.analyze(
-                db,
-                tables=table_list,
-                include_dependencies=not no_dependencies,
-                max_depth=max_depth,
-                progress_callback=_progress,
-            )
+            # Retry loop: if analyze() fails, retry up to max_retries times.
+            # Each retry gets a fresh LLM call (the StagedSchemaAnalyzer
+            # internal cache is per-instance, so a new analyze() call
+            # re-invokes the LLM).
+            last_error: Exception | None = None
+            config_dict: dict[str, Any] | None = None
+            for attempt in range(1, max_retries + 2):  # +1 for initial attempt
+                try:
+                    config_dict = analyzer.analyze(
+                        db,
+                        tables=table_list,
+                        include_dependencies=not no_dependencies,
+                        max_depth=max_depth,
+                        progress_callback=_progress,
+                    )
+                    break  # Success
+                except Exception as e:
+                    last_error = e
+                    if attempt <= max_retries:
+                        click.echo(
+                            f"Attempt {attempt}/{max_retries + 1} failed: {e}. Retrying...",
+                            err=True,
+                        )
+                    else:
+                        click.echo(f"All {max_retries + 1} attempts failed.", err=True)
+
+            if config_dict is None:
+                raise last_error  # type: ignore[misc]
+
+            # Merge mode: replace regenerated tables in existing config
+            if merge and existing_tables:
+                regenerated_names = {t.get("name") for t in config_dict.get("tables", [])}
+                kept_tables = [t for t in existing_tables if t.get("name") not in regenerated_names]
+                config_dict["tables"] = config_dict.get("tables", []) + kept_tables
 
             # Inject db_path / url so the generated YAML is directly fillable
             # by `sqlseed fill --config <yaml>` without manual editing.

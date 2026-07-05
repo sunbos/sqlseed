@@ -335,6 +335,7 @@ print(result)
 | `text` | Long text | `min_length`, `max_length` |
 | `sentence` | Sentence | — |
 | `word` | Real English word | — |
+| `catch_phrase` | Business catch phrase (multi-word) | — |
 | `password` | Password | `length` |
 | `choice` | Pick from list | `choices` |
 | `weighted_choice` | Weighted random pick | `choices` (list of `{value, weight}`) or `weighted_choices` (dict) |
@@ -942,7 +943,7 @@ Level 2 │ User config         columns={"email": "email"} highest priority
         ▼
 Level 3 │ Custom exact match  Rules registered via plugin hooks
         ▼
-Level 4 │ Built-in exact      <!-- BEGIN:AUTO-GENERATED:exact-match-rule-count -->75<!-- END:AUTO-GENERATED:exact-match-rule-count --> rules: email→email, phone→phone, age→integer...
+Level 4 │ Built-in exact      <!-- BEGIN:AUTO-GENERATED:exact-match-rule-count -->76<!-- END:AUTO-GENERATED:exact-match-rule-count --> rules: email→email, phone→phone, age→integer...
         ▼
 Level 5 │ DEFAULT check       Has default → skip / __enrich__ (when enrich=True)
         ▼

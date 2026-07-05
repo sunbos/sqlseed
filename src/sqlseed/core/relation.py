@@ -255,6 +255,12 @@ class RelationResolver:
             if fk_info is None:
                 continue
             ref_values = self.resolve_foreign_key_values(table_name, col_name)
+            # Preserve the original spec's min_value/max_value so that when the
+            # parent table is empty (empty _ref_values), the FK fallback in
+            # DataStream._handle_foreign_key can generate values within the
+            # user-configured range instead of falling back to 999999.
+            original_min = spec.params.get("min_value", 1)
+            original_max = spec.params.get("max_value", 999999)
             specs[col_name] = GeneratorSpec(
                 generator_name="foreign_key",
                 params={
@@ -262,6 +268,8 @@ class RelationResolver:
                     "ref_column": fk_info.ref_column,
                     "strategy": "random",
                     "_ref_values": ref_values,
+                    "_fallback_min": original_min,
+                    "_fallback_max": original_max,
                 },
                 null_ratio=spec.null_ratio,
                 provider=spec.provider,

@@ -48,6 +48,7 @@ class GeneratorDispatchMixin:
         "job_title": "_gen_job_title",
         "country_code": "_gen_country_code",
         "word": "_gen_word",
+        "catch_phrase": "_gen_catch_phrase",
         "template": "_gen_template",
         "weighted_choice": "_gen_weighted_choice",
     }

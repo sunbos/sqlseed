@@ -213,6 +213,20 @@ class BaseProvider(GeneratorDispatchMixin):
                 chars.append(self._rng.choice(vowels))
         return "".join(chars)
 
+    def _gen_catch_phrase(self) -> str:
+        """Generate a synthesized catch-phrase-style string.
+
+        The base provider has no word list, so we compose a multi-word
+        phrase from synthesized pseudo-words to mimic the structure of a
+        business catch phrase (e.g., 'banir topelu moripar'). This is
+        more suitable than a single ``word`` for business-entity name
+        columns.
+        """
+        self._next_id()
+        num_words = self._rng.randint(2, 4)
+        words = [self._gen_word() for _ in range(num_words)]
+        return " ".join(words)
+
     # ── Date/time generators ──────────────────────────────────────────
 
     def _gen_date(self, *, start_year: int = 2000, end_year: int | None = None) -> _date:

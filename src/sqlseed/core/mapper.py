@@ -100,13 +100,14 @@ class ColumnMapper:
         "headline": "sentence",
         "bio": "text",
         "biography": "text",
-        "description": "text",
+        "description": "sentence",
         "summary": "text",
         "content": "text",
         "body": "text",
-        "comment": "text",
-        "note": "text",
-        "remark": "text",
+        "comment": "sentence",
+        "note": "sentence",
+        "remark": "sentence",
+        "location": "city",
         "latitude": "float",
         "longitude": "float",
         "lat": "float",
@@ -153,9 +154,7 @@ class ColumnMapper:
         "priority": {"choices": ["low", "medium", "high"]},
         "role": {"choices": ["admin", "user", "guest"]},
         "bio": {"min_length": 50, "max_length": 200},
-        "description": {"min_length": 100, "max_length": 500},
         "content": {"min_length": 200, "max_length": 1000},
-        "comment": {"min_length": 10, "max_length": 200},
         # SKU codes: alphanumeric only (no spaces/dashes), 6-12 chars.
         "sku": {"min_length": 6, "max_length": 12, "charset": "alphanumeric"},
     }
@@ -198,10 +197,11 @@ class ColumnMapper:
         ),
         # High-confidence domain contexts: strong semantic match → specialized generator.
         (r".*(?:company|org|organization|department|unit|vendor|supplier|brand)_name$", "company", {}),
-        # General *_name fallback: real word (not person name) — semantically neutral
-        # for animal_name, medicine_name, plant_name, color_name, course_name, etc.
+        # General *_name fallback: catch_phrase (multi-word business phrase) —
+        # semantically closer to a real entity name than a single random word.
+        # For category_name, product_name, dept_name, project_name, etc.
         # AI (sqlseed-ai) can override with more specific generators when enabled.
-        (r".*_name$", "word", {}),
+        (r".*_name$", "catch_phrase", {}),
         (r".*_email$", "email", {}),
         (r".*_phone$|.*_tel$|.*_mobile$", "phone", {}),
         (r".*_url$|.*_link$|.*_href$", "url", {}),

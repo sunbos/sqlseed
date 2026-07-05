@@ -205,3 +205,13 @@ class FakerProvider(BaseProvider):
     def _gen_word(self) -> str:
         """Generate a real English word (e.g., 'apple', 'computer', 'mountain')."""
         return self._faker.word()
+
+    def _gen_catch_phrase(self) -> str:
+        """Generate a business catch phrase (e.g., 'Future-proofed leadingedge paradigm').
+
+        More suitable than ``word`` for business-entity name columns
+        (category_name, product_name, dept_name, project_name) where a
+        multi-word phrase reads like a real entity name rather than a
+        single random word.
+        """
+        return self._faker.catch_phrase()

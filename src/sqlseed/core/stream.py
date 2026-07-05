@@ -492,7 +492,11 @@ class DataStream:
         """Handle foreign-key generation.
 
         If ``spec.params`` contains ``_ref_values``, a value is randomly chosen from it;
-        otherwise an integer between 1 and ``max_ref`` is generated.
+        otherwise an integer between ``_fallback_min`` and ``_fallback_max`` is generated.
+        These fallback bounds are preserved from the original user-configured spec
+        (or the mapper's pattern-matched defaults) during FK upgrade in
+        ``RelationResolver._upgrade_fk_constrained_columns``, so empty-parent-table
+        fallback respects the user's intended value range instead of using 999999.
 
         Args:
             spec: Generator spec.
@@ -503,4 +507,6 @@ class DataStream:
         ref_values = spec.params.get("_ref_values", [])
         if ref_values:
             return self._rng.choice(ref_values)
-        return self._provider.generate("integer", min_value=1, max_value=spec.params.get("max_ref", 999999))
+        fallback_min = spec.params.get("_fallback_min", 1)
+        fallback_max = spec.params.get("_fallback_max", 999999)
+        return self._provider.generate("integer", min_value=fallback_min, max_value=fallback_max)

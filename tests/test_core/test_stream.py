@@ -486,9 +486,10 @@ class TestApplyGenerator:
 
     def test_foreign_key_fallback_without_ref_values(self) -> None:
         # No _ref_values → fallback to provider.generate("integer", ...)
+        # using _fallback_min/_fallback_max preserved from the original spec.
         spec = GeneratorSpec(
             generator_name="foreign_key",
-            params={"max_ref": 50},
+            params={"_fallback_min": 1, "_fallback_max": 50},
         )
         provider = MagicMock()
         # First call (foreign_key) raises UnknownGeneratorError

@@ -180,6 +180,11 @@ class AIConfig(BaseModel):
     # - True: use new StagedSchemaAnalyzer (3-stage LtM pipeline for small models)
     use_staged_pipeline: bool = False
 
+    # LLM interaction logging: when True, full prompt + response are written
+    # to JSON files under <cache_root>/ai_logs/ for debugging. Useful for
+    # diagnosing LLM hallucinations, prompt issues, and Rule failures.
+    log_llm_interactions: bool = False
+
     # Non-serialized cache for inference speed probe results
     _speed_probe_cache: tuple[float, dict[str, Any]] | None = PrivateAttr(default=None)
     # Non-serialized cache for all local models detection (avoids repeated HTTP calls)

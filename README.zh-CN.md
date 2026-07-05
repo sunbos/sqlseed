@@ -340,6 +340,7 @@ print(result)
 | `text` | 长文本 | `min_length`, `max_length` |
 | `sentence` | 句子 | — |
 | `word` | 真实英文单词 | — |
+| `catch_phrase` | 商业口号（多词短语） | — |
 | `password` | 密码 | `length` |
 | `choice` | 从列表选择 | `choices` |
 | `weighted_choice` | 加权随机选择 | `choices`（`{value, weight}` 列表）或 `weighted_choices`（字典） |
@@ -765,7 +766,7 @@ Level 2 │ 用户配置          columns={"email": "email"} 最高优先级
         ▼
 Level 3 │ 自定义精确匹配    通过插件 Hook 注册的规则
         ▼
-Level 4 │ 内置精确匹配      <!-- BEGIN:AUTO-GENERATED:exact-match-rule-count -->75<!-- END:AUTO-GENERATED:exact-match-rule-count --> 条规则：email→email, phone→phone, age→integer...
+Level 4 │ 内置精确匹配      <!-- BEGIN:AUTO-GENERATED:exact-match-rule-count -->76<!-- END:AUTO-GENERATED:exact-match-rule-count --> 条规则：email→email, phone→phone, age→integer...
         ▼
 Level 5 │ DEFAULT 检查      有默认值 → skip / __enrich__（enrich=True 时生成数据）
         ▼

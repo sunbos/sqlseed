@@ -23,7 +23,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from sqlseed._utils.logger import get_logger
 
@@ -869,12 +869,118 @@ _GENERATOR_ACCEPTED_PARAMS: dict[str, set[str]] = {
     "job_title": set(),
     "country_code": set(),
     "word": set(),  # word takes NO params (P2 #1 root cause)
+    "catch_phrase": set(),  # catch_phrase takes NO params
     "template": {"template", "sequence_start", "sequence_step"},
     "weighted_choice": {"choices", "weighted_choices"},
 }
 
 # Rule #15: regex patterns that match unbounded quantifiers {N,}
 _UNBOUNDED_REGEX_PATTERN = re.compile(r"\{(\d+),\}")
+
+# Rule #28: subset of ColumnMapper.EXACT_MATCH_RULES that have unambiguous
+# semantic meaning. When the LLM picks a generic generator (string/text/word)
+# for one of these column names, the exact-match generator is semantically
+# correct and should override. Only unambiguous names are included — names
+# like "state" (could mean US state or order status) or "status" (choice
+# generator, but LLM might have a domain-specific reason) are excluded.
+_EXACT_MATCH_UPGRADE_RULES: dict[str, tuple[str, dict[str, Any]]] = {
+    "email": ("email", {}),
+    "phone": ("phone", {}),
+    "telephone": ("phone", {}),
+    "mobile": ("phone", {}),
+    "address": ("address", {}),
+    "url": ("url", {}),
+    "website": ("url", {}),
+    "homepage": ("url", {}),
+    "avatar": ("url", {}),
+    "avatar_url": ("url", {}),
+    "uuid": ("uuid", {}),
+    "guid": ("uuid", {}),
+    "token": ("uuid", {}),
+    "password": ("password", {}),
+    "passwd": ("password", {}),
+    "secret": ("password", {}),
+    "city": ("city", {}),
+    "country": ("country", {}),
+    "zip_code": ("zip_code", {}),
+    "postal_code": ("zip_code", {}),
+    "postcode": ("zip_code", {}),
+    "country_code": ("country_code", {}),
+    "job_title": ("job_title", {}),
+    "occupation": ("job_title", {}),
+    "position": ("job_title", {}),
+    "location": ("city", {}),
+    # Text-content columns: sentence is semantically closer to a real
+    # description/comment than a single random word or generic text blob.
+    "title": ("sentence", {}),
+    "subject": ("sentence", {}),
+    "headline": ("sentence", {}),
+    "description": ("sentence", {}),
+    "comment": ("sentence", {}),
+    "note": ("sentence", {}),
+    "remark": ("sentence", {}),
+    "username": ("username", {}),
+    "user_name": ("username", {}),
+    "nickname": ("username", {}),
+}
+
+# Rule #28 pattern upgrades: mirror ColumnMapper.PATTERN_MATCH_RULES for
+# high-confidence cases where a generic generator (string/text/word) is
+# semantically wrong. Ordered most-specific first (person-name prefixes
+# before general *_name, etc.) so the strongest match wins.
+# Only patterns whose upgrade target is NOT itself generic are included
+# (e.g., *_description → text is excluded because text is generic).
+_PATTERN_UPGRADE_RULES: tuple[tuple[re.Pattern[str], str, dict[str, Any]], ...] = (
+    # Person-name contexts: human-related prefixes → real person names.
+    (
+        re.compile(
+            r".*(?:user|customer|employee|member|author|student|teacher|patient|person|contact|owner|admin|guest|subscriber)_name$"
+        ),
+        "name",
+        {},
+    ),
+    # High-confidence domain contexts: organization prefixes → company.
+    (
+        re.compile(r".*(?:company|org|organization|department|unit|vendor|supplier|brand)_name$"),
+        "company",
+        {},
+    ),
+    # General *_name fallback: catch_phrase (multi-word business phrase).
+    (re.compile(r".*_name$"), "catch_phrase", {}),
+    # Title-like columns: sentence is semantically closer than a single word.
+    (re.compile(r".*_title$|.*_subject$|.*_headline$"), "sentence", {}),
+    # Contact-info patterns.
+    (re.compile(r".*_email$"), "email", {}),
+    (re.compile(r".*_phone$|.*_tel$|.*_mobile$"), "phone", {}),
+    (re.compile(r".*_url$|.*_link$|.*_href$"), "url", {}),
+    # Secrets/credentials.
+    (re.compile(r".*_password$|.*_passwd$|.*_secret$"), "password", {}),
+    # Address.
+    (re.compile(r".*_address$"), "address", {}),
+)
+
+# Generators considered "generic" — LLMs pick these when they fail to
+# recognize the column's semantic meaning. Rule #28 upgrades these to
+# the specific exact-match generator when one exists.
+_GENERIC_GENERATORS: frozenset[str] = frozenset({"string", "text", "word"})
+
+# Generators that produce numeric/boolean values — incompatible with
+# DATE/TIMESTAMP columns (Rule #30 detects this mismatch).
+_NUMERIC_BOOLEAN_GENERATORS: frozenset[str] = frozenset(
+    {"integer", "float", "boolean", "random_int", "random_float"}
+)
+
+# Generators that produce date/datetime values — incompatible with
+# INTEGER/REAL columns (Rule #30 detects this mismatch).
+_DATE_GENERATORS: frozenset[str] = frozenset({"date", "datetime", "timestamp"})
+
+# Generators that accept a 'choices' param (list of values to pick from).
+# Rule #14 uses this to normalize list-params into {choices: [...]} format.
+_CHOICE_FAMILY_GENERATORS: frozenset[str] = frozenset({"choice", "weighted_choice"})
+
+# All generators that produce non-date values and would crash on DATE/TIMESTAMP
+# columns. Used by Rule #30 to detect severe type mismatches.
+_ALL_NON_DATE_GENERATORS: frozenset[str] = _NUMERIC_BOOLEAN_GENERATORS | _GENERIC_GENERATORS
 
 
 class Stage3Validator:
@@ -893,6 +999,21 @@ class Stage3Validator:
     Rule #19: extracts min_value/max_value from simple CHECK constraints
               (``col >= N``, ``col <= N``) and lifts the generator's bounds
               to satisfy the constraint. Skips derive_from columns.
+    Rule #27: fills columns with missing generators. If the column participates
+              in a cross-column CHECK (e.g., ``sale_price >= cost_price``),
+              infers ``derive_from`` + ``expression`` from the constraint so
+              the derived value automatically satisfies it. Otherwise falls
+              back to a type-routed generator based on the column's SQL type.
+    Rule #28: upgrades generic generators (``string``/``text``/``word``) to
+              the exact-match generator when the column name has an unambiguous
+              semantic mapping (e.g., ``description`` → ``sentence`` instead
+              of ``text``; ``email`` → ``email`` instead of ``string``).
+    Rule #29: detects and breaks derive_from circular dependencies and
+              type-incompatible derive_from (e.g., TEXT column deriving from
+              a REAL column). For cycles, removes the derive_from from the
+              column that has a weaker claim (non-CHECK-constrained). For
+              type incompatibility, strips derive_from and falls back to
+              Rule #28 semantic matching or type-routed generator.
     """
 
     def validate(
@@ -907,13 +1028,30 @@ class Stage3Validator:
             if not isinstance(table_name, str):
                 continue
             table_schema = schema.get(table_name) if schema and isinstance(schema, dict) else None
+            # Rule #27 runs FIRST (table-level): fills missing generators so
+            # subsequent column-level rules can process them normally. Must
+            # run before Rule #22, which assumes all date columns have a
+            # generator (or were stripped by Rule #17, which runs later).
+            if table_schema:
+                self._apply_rule_27_missing_generator_with_check_inference(table, table_schema)
             for col in table.get("columns", []):
                 if not isinstance(col, dict):
                     continue
+                # Rule #28 runs before Rule #14: upgrading the generator may
+                # change which params are valid (e.g., text→sentence drops
+                # min_length/max_length). Rule #14 then strips the now-invalid
+                # params for the new generator.
+                # Rule #28 skips UNIQUE columns so Rule #24 (which runs later)
+                # can upgrade them to template for uniqueness guarantee.
+                self._apply_rule_28_exact_match_upgrade(col, table_schema)
+                # Rule #30 runs after Rule #28 (semantic upgrade) but before
+                # Rule #14 (param stripping): if Rule #30 changes the generator,
+                # Rule #14 will then strip params invalid for the new generator.
+                self._apply_rule_30_generator_type_compatibility(col, table_schema)
                 self._apply_rule_14_strip_invalid_params(col)
                 self._apply_rule_15_bound_regex(col)
                 self._apply_rule_17_boolean_expression(col, table_schema)
-                self._apply_rule_20_sandbox_external_functions(col)
+                self._apply_rule_20_sandbox_external_functions(col, table_schema)
                 # Rule #26 must run AFTER Rule #20: Rule #20 may rewrite
                 # sandbox-external patterns into ``random_float(...)`` (e.g.,
                 # ``random() * value`` → ``random_float(0, value)``), and
@@ -931,27 +1069,78 @@ class Stage3Validator:
                 self._apply_rule_16_fk_semantic(table, table_schema)
                 self._apply_rule_19_check_constraint_bounds(table, table_schema)
                 self._apply_rule_22_cross_column_date_range_isolation(table, table_schema)
+                # Rule #29 runs LAST (table-level): detects and breaks derive_from
+                # cycles and type-incompatible derive_from that would cause runtime
+                # crashes. Must run after Rule #27 (which adds derive_from) and
+                # Rule #17 (which strips unsafe derive_from on DATE columns).
+                self._apply_rule_29_derive_from_integrity(table, table_schema)
         return config
 
     def _apply_rule_14_strip_invalid_params(self, col: dict[str, Any]) -> None:
-        """Rule #14: strip params not in generator's accepted whitelist.
+        """Rule #14: normalize and strip params not in generator's accepted whitelist.
 
-        Also corrects the common LLM typo of returning ``choice`` (singular)
-        for the ``choice`` generator — the correct param name is ``choices``
-        (plural). Without this correction the param would be stripped, leaving
-        the generator with no choices and falling back to 0/1 integers.
+        This rule performs three layers of params normalization:
+
+        1. **List-to-dict wrapping**: When LLM outputs ``params`` as a bare
+           list (e.g., ``['active', 'suspended', 'closed']``) for choice-family
+           generators, wrap it as ``{'choices': [...]}``. This is a common LLM
+           hallucination — the LLM treats ``params`` as a list of values rather
+           than a dict of named parameters.
+
+        2. **weighted_choice downgrade**: When LLM outputs ``weighted_choice``
+           but ``choices`` is a list of strings (not ``[{value, weight}, ...]``
+           dicts), downgrade to plain ``choice``. The ``weighted_choice`` params
+           format is complex and LLMs frequently get it wrong; ``choice``
+           produces equivalent output for equal-weight scenarios.
+
+        3. **Param whitelist stripping**: Strip params not in the generator's
+           accepted whitelist. Also corrects the common ``choice`` (singular)
+           → ``choices`` (plural) typo.
         """
         gen = col.get("generator")
         if not isinstance(gen, str):
             return
+
+        # Layer 1: Wrap list params as {'choices': [...]} for choice-family generators.
+        # LLMs sometimes output params as a bare list (e.g., ['a', 'b', 'c'])
+        # instead of a dict. This is a structural format error that would cause
+        # TypeError at runtime. Fix it at the source.
+        params = col.get("params")
+        if gen in _CHOICE_FAMILY_GENERATORS and isinstance(params, list):
+            logger.warning(
+                "Stage3 Rule #14: wrapping list params as {choices: [...]}",
+                column=col.get("name"),
+                generator=gen,
+                list_length=len(params),
+            )
+            col["params"] = {"choices": params}
+            params = col["params"]
+
+        # Layer 2: Downgrade weighted_choice with string-list choices to choice.
+        # weighted_choice expects choices=[{value, weight}, ...] but LLMs often
+        # output choices=['a', 'b', 'c'] (string list). Rather than trying to
+        # reconstruct weights, downgrade to plain choice which uses the same
+        # string-list format. This is semantically equivalent for equal weights.
+        if gen == "weighted_choice" and isinstance(params, dict):
+            choices = params.get("choices")
+            if isinstance(choices, list) and choices and any(isinstance(c, str) for c in choices):
+                logger.warning(
+                    "Stage3 Rule #14: downgrading weighted_choice to choice "
+                    "(choices is string list, not [{value, weight}, ...])",
+                    column=col.get("name"),
+                    choices=choices,
+                )
+                col["generator"] = "choice"
+                gen = "choice"
+
         accepted = _GENERATOR_ACCEPTED_PARAMS.get(gen)
         if accepted is None:
             # Unknown generator — leave params alone (let core raise at runtime)
             return
-        params = col.get("params")
         if not isinstance(params, dict):
             return
-        # Common LLM typo: "choice" (singular) should be "choices" (plural)
+
+        # Layer 3: Common LLM typo: "choice" (singular) should be "choices" (plural)
         # for the "choice" generator. Rename rather than strip.
         if gen == "choice" and "choice" in params and "choices" not in params:
             logger.warning(
@@ -988,6 +1177,546 @@ class Stage3Validator:
                     bounded=new_val,
                 )
                 params[key] = new_val
+
+    def _apply_rule_28_exact_match_upgrade(
+        self, col: dict[str, Any], table_schema: dict[str, Any] | None = None
+    ) -> None:
+        """Rule #28: upgrade generic generators to semantic-specific generators.
+
+        When a column name has an unambiguous semantic mapping (exact-match
+        or high-confidence pattern) but the LLM picked a generic generator
+        (``string``/``text``/``word``), upgrade to the semantic-specific
+        generator. This fixes semantic mismatches like:
+
+          - ``description`` column with ``text`` generator → ``sentence``
+            (sentence produces a realistic single-sentence description,
+            whereas text produces a multi-paragraph blob that doesn't fit
+            typical ``description`` columns)
+          - ``email`` column with ``string`` generator → ``email``
+            (string produces random alphanumeric, not a valid email)
+          - ``title`` column with ``word`` generator → ``sentence``
+            (word produces a single random word, not a realistic title)
+          - ``product_name`` column with ``word`` generator → ``catch_phrase``
+            (word produces a single random word; catch_phrase produces a
+            multi-word business phrase, semantically closer to a real
+            entity name)
+
+        Only applies when:
+          - The column does not have ``derive_from`` set (derived columns
+            have no generator to upgrade)
+          - LLM-picked generator is in ``_GENERIC_GENERATORS`` (string/text/word)
+          - Column name matches an entry in ``_EXACT_MATCH_UPGRADE_RULES``
+            (unambiguous exact name) or ``_PATTERN_UPGRADE_RULES``
+            (high-confidence pattern)
+          - The column is NOT UNIQUE (UNIQUE columns are deferred to
+            Rule #24, which upgrades them to template for uniqueness
+            guarantee — uniqueness takes priority over semantic matching)
+
+        Respects LLM's non-generic choices: if the LLM picked ``pattern``,
+        ``choice``, ``template``, etc., the choice is preserved (those
+        generators may reflect domain-specific LLM reasoning).
+
+        Exact-match is checked before pattern-match so the strongest
+        semantic signal wins (e.g., ``email`` → ``email`` exact rule, not
+        ``.*_email$`` pattern).
+        """
+        derive_from = col.get("derive_from")
+        if derive_from:
+            return  # Derived column, no generator to upgrade
+
+        gen = col.get("generator")
+        if gen not in _GENERIC_GENERATORS:
+            return  # LLM picked a specific generator, respect it
+
+        col_name = col.get("name")
+        if not isinstance(col_name, str):
+            return
+
+        # Skip UNIQUE columns: Rule #24 (runs later) upgrades them to
+        # template for uniqueness guarantee. Rule #28 must not change the
+        # generator first, or Rule #24 won't recognize it (Rule #24 only
+        # handles word/name/string/integer/uuid).
+        constraints = col.get("constraints")
+        if isinstance(constraints, dict) and constraints.get("unique"):
+            return
+        if table_schema:
+            unique_cols = table_schema.get("unique_columns", [])
+            if isinstance(unique_cols, list) and col_name in unique_cols:
+                return
+
+        # 1. Exact-match upgrade (unambiguous column names).
+        upgrade = _EXACT_MATCH_UPGRADE_RULES.get(col_name)
+        if upgrade is not None:
+            new_gen, new_params = upgrade
+            logger.warning(
+                "Stage3 Rule #28: upgrading generic generator to exact-match",
+                column=col_name,
+                original_generator=gen,
+                upgraded_generator=new_gen,
+                reason="column name has unambiguous semantic mapping",
+            )
+            col["generator"] = new_gen
+            if new_params:
+                col["params"] = dict(new_params)
+            else:
+                col.pop("params", None)
+            return
+
+        # 2. Pattern-match upgrade (high-confidence patterns mirroring
+        # ColumnMapper.PATTERN_MATCH_RULES). Catches semantic mismatches
+        # for derived column names like product_name, dept_name, etc.
+        for pattern, new_gen, new_params in _PATTERN_UPGRADE_RULES:
+            if pattern.match(col_name):
+                logger.warning(
+                    "Stage3 Rule #28: upgrading generic generator via pattern match",
+                    column=col_name,
+                    original_generator=gen,
+                    upgraded_generator=new_gen,
+                    reason="column name matches high-confidence semantic pattern",
+                )
+                col["generator"] = new_gen
+                if new_params:
+                    col["params"] = dict(new_params)
+                else:
+                    col.pop("params", None)
+                return
+
+    # ── Rule #29: derive_from integrity (cycles + type compatibility) ──
+
+    # Type families for derive_from compatibility checking.
+    _NUMERIC_TYPES: ClassVar[frozenset[str]] = frozenset(
+        {"INTEGER", "INT", "BIGINT", "SMALLINT", "TINYINT", "MEDIUMINT",
+         "REAL", "FLOAT", "DOUBLE", "DECIMAL", "NUMERIC", "NUMBER",
+         "INT8", "INT16", "INT32", "INT64"}
+    )
+    _TEXT_TYPES: ClassVar[frozenset[str]] = frozenset(
+        {"TEXT", "VARCHAR", "NVARCHAR", "CHAR", "NCHAR", "CLOB", "STRING"}
+    )
+    _DATE_TYPES: ClassVar[frozenset[str]] = frozenset(
+        {"DATE", "DATETIME", "TIMESTAMP", "TIME"}
+    )
+
+    def _apply_rule_30_generator_type_compatibility(
+        self,
+        col: dict[str, Any],
+        table_schema: dict[str, Any] | None = None,
+    ) -> None:
+        """Rule #30: detect and fix severe generator-type mismatches.
+
+        Detects generator-type combinations that cause runtime crashes or
+        severe semantic violations:
+
+        1. **Crash: non-date generator on DATE/TIMESTAMP column** — SQLAlchemy's
+           DateTime type rejects non-datetime inputs with TypeError. Affected
+           generators: integer, float, boolean, string, text, word.
+        2. **Crash: date generator on INTEGER/REAL column** — produces date
+           objects that SQLAlchemy's numeric types reject.
+        3. **Semantic: numeric generator on TEXT column** — float/integer on
+           TEXT columns produces numbers where text is expected (e.g.,
+           ``product_name`` with ``float`` generator). Downgraded to ``string``
+           then Rule #28 is re-attempted for semantic upgrade.
+
+        Runs after Rule #28 (semantic upgrade) so it catches generators that
+        Rule #28 didn't upgrade. Runs before Rule #14 (param stripping) so
+        invalid params for the new generator are automatically stripped.
+        """
+        if not table_schema:
+            return
+        gen = col.get("generator")
+        if not isinstance(gen, str):
+            return  # Skip null generators (derive_from mode)
+        col_name = col.get("name")
+        if not isinstance(col_name, str):
+            return
+
+        # Find column type from schema
+        col_type = ""
+        schema_cols = table_schema.get("columns")
+        if isinstance(schema_cols, list):
+            for ci in schema_cols:
+                if isinstance(ci, dict) and ci.get("name") == col_name:
+                    col_type = str(ci.get("type", "")).upper()
+                    break
+        if not col_type:
+            return
+
+        # Extract base type token (e.g., "VARCHAR(255)" → "VARCHAR")
+        col_base = re.split(r"[(\s]", col_type.strip(), maxsplit=1)[0].upper()
+
+        # Skip derive_from columns — they don't use their generator directly
+        derive_from = col.get("derive_from")
+        if isinstance(derive_from, list) and derive_from:
+            return
+
+        # Determine if generator is incompatible with column type.
+        # _ALL_NON_DATE_GENERATORS: everything that produces non-datetime values
+        # and would crash on DATE/TIMESTAMP columns.
+        needs_fix = False
+        fix_reason = ""
+
+        if col_base in self._DATE_TYPES and gen in _ALL_NON_DATE_GENERATORS:
+            # Case 1: integer/float/boolean/string/text/word on TIMESTAMP → crash
+            needs_fix = True
+            fix_reason = "non-date generator on DATE/TIMESTAMP column causes TypeError at insert"
+        elif col_base in self._NUMERIC_TYPES and gen in _DATE_GENERATORS:
+            # Case 2: date/datetime on INTEGER/REAL → type mismatch
+            needs_fix = True
+            fix_reason = "date generator on numeric column produces wrong type"
+        elif col_base in self._TEXT_TYPES and gen in _NUMERIC_BOOLEAN_GENERATORS:
+            # Case 3: integer/float on TEXT column → semantic violation
+            # (won't crash due to SQLite dynamic typing, but data is wrong).
+            # DEFER to Rule #24 Case 3 for code-like columns (_code|_no|sku|serial)
+            # and UNIQUE business-id columns (*_id): Rule #24 upgrades them to
+            # template, which is a better fix than the generic string fallback.
+            # Rule #24 runs later in the pipeline (after Rule #30).
+            col_name_lower = col_name.lower()
+            is_code_like = bool(re.search(r"(_code|_no|sku|serial)$", col_name_lower))
+            # Inline uniqueness check (mirrors Rule #24's logic)
+            constraints = col.get("constraints")
+            is_unique_constraints = isinstance(constraints, dict) and bool(constraints.get("unique"))
+            is_unique_schema = False
+            if table_schema:
+                unique_cols = table_schema.get("unique_columns", [])
+                if isinstance(unique_cols, list) and col_name in unique_cols:
+                    is_unique_schema = True
+            is_unique = is_unique_constraints or is_unique_schema
+            is_business_id = (
+                col_name_lower.endswith("_id")
+                and is_unique
+                and not self._is_fk_column(table_schema or {}, col_name)
+            )
+            if is_code_like or is_business_id:
+                return  # Rule #24 Case 3 will handle this
+            needs_fix = True
+            fix_reason = "numeric generator on TEXT column produces wrong data type"
+
+        if not needs_fix:
+            return
+
+        logger.warning(
+            "Stage3 Rule #30: fixing severe generator-type mismatch",
+            column=col_name,
+            column_type=col_base,
+            original_generator=gen,
+            reason=fix_reason,
+        )
+
+        # For TEXT columns with numeric generators, first try Rule #28 semantic
+        # upgrade (e.g., product_name → catch_phrase). If Rule #28 upgrades,
+        # the column gets a semantically correct generator. If not, fall back
+        # to type-routed generator.
+        if col_base in self._TEXT_TYPES:
+            # Set to generic "string" so Rule #28 can upgrade it
+            col["generator"] = "string"
+            col.pop("params", None)
+            # Re-apply Rule #28 for semantic upgrade
+            self._apply_rule_28_exact_match_upgrade(col, table_schema)
+            # If Rule #28 didn't upgrade (still "string"), that's fine —
+            # string is a valid generator for TEXT columns.
+            return
+
+        # For DATE/TIMESTAMP and NUMERIC columns, use type-routed generator
+        self._assign_type_routed_generator(col, col_type)
+
+    def _apply_rule_29_derive_from_integrity(
+        self, table: dict[str, Any], table_schema: dict[str, Any]
+    ) -> None:
+        """Rule #29: detect and break derive_from cycles + type-incompatible derive_from.
+
+        Two problems detected:
+
+        1. **Circular dependencies**: If column A derives from B, and B derives
+           from A (directly or transitively), the generation engine cannot
+           resolve which column to generate first. This rule breaks cycles by
+           removing ``derive_from`` from the column that has a weaker claim:
+             - A column NOT participating in a cross-column CHECK is weaker
+               (its derive_from was likely LLM-hallucinated, not constraint-driven).
+             - If both participate, remove the one whose expression looks like
+               a non-arithmetic derivation (e.g., ``catch_phrase`` from a float).
+
+        2. **Type-incompatible derive_from**: A TEXT column deriving from a
+           NUMERIC column (or vice versa) produces nonsensical values — you
+           cannot compute a realistic product name from a cost_price float.
+           This rule strips the derive_from and replaces it with a proper
+           generator (Rule #28 semantic matching or type-routed fallback).
+
+        Runs after Rule #27 (which adds derive_from for CHECK-constrained
+        columns) and Rule #17 (which strips unsafe DATE derive_from).
+        """
+        columns = table.get("columns", [])
+        if not isinstance(columns, list):
+            return
+
+        # Build column config map
+        col_map: dict[str, dict[str, Any]] = {}
+        for col in columns:
+            if isinstance(col, dict) and isinstance(col.get("name"), str):
+                col_map[col["name"]] = col
+
+        # Build type map from schema
+        col_type_map: dict[str, str] = {}
+        schema_cols = table_schema.get("columns")
+        if isinstance(schema_cols, list):
+            for col_info in schema_cols:
+                if isinstance(col_info, dict) and isinstance(col_info.get("name"), str):
+                    col_type_map[col_info["name"]] = str(col_info.get("type", "")).upper()
+
+        # Detect derive_from cycles
+        self._break_derive_from_cycles(table, col_map, table_schema)
+
+        # Detect type-incompatible derive_from
+        for col in list(columns):  # list() to allow mutation
+            if not isinstance(col, dict):
+                continue
+            derive_from = col.get("derive_from")
+            if not isinstance(derive_from, list) or not derive_from:
+                continue
+            col_name = col.get("name")
+            if not isinstance(col_name, str):
+                continue
+            source_name = derive_from[0] if derive_from else None
+            if not isinstance(source_name, str):
+                continue
+
+            col_type = col_type_map.get(col_name, "")
+            source_type = col_type_map.get(source_name, "")
+
+            if self._is_derive_from_type_incompatible(col_type, source_type):
+                logger.warning(
+                    "Stage3 Rule #29: stripping type-incompatible derive_from",
+                    column=col_name,
+                    column_type=col_type,
+                    source_column=source_name,
+                    source_type=source_type,
+                    reason="source and target column types are incompatible for derive_from",
+                )
+                # Strip derive_from and assign a proper generator
+                col.pop("derive_from", None)
+                col.pop("expression", None)
+                # Try Rule #28 semantic matching first
+                gen = col.get("generator")
+                if gen in _GENERIC_GENERATORS or gen is None:
+                    # Apply exact-match or pattern upgrade
+                    self._apply_rule_28_exact_match_upgrade(col, table_schema)
+                    # If Rule #28 didn't upgrade (e.g., column not in any table),
+                    # fall back to type-routed generator
+                    if col.get("generator") in _GENERIC_GENERATORS or col.get("generator") is None:
+                        self._assign_type_routed_generator(col, col_type)
+
+    def _break_derive_from_cycles(
+        self,
+        table: dict[str, Any],
+        col_map: dict[str, dict[str, Any]],
+        table_schema: dict[str, Any],
+    ) -> None:
+        """Detect and break circular derive_from dependencies.
+
+        Uses DFS cycle detection. When a cycle is found, removes derive_from
+        from the column with the weaker claim:
+          1. A column NOT participating in a cross-column CHECK is weaker.
+          2. If both participate, the column that is the CHECK *source* (right
+             side of >=/>/</<=) is weaker — its derive_from should be stripped
+             because the CHECK constrains the *target* column (left side),
+             which is the one that should derive from the source.
+        """
+        # Build adjacency list: col -> source col
+        adj: dict[str, str | None] = {}
+        for name, col in col_map.items():
+            derive_from = col.get("derive_from")
+            if isinstance(derive_from, list) and len(derive_from) > 0:
+                adj[name] = derive_from[0] if isinstance(derive_from[0], str) else None
+            else:
+                adj[name] = None
+
+        # Find all cycles
+        visited: set[str] = set()
+        in_stack: set[str] = set()
+        cycle_cols: list[str] = []
+
+        def _dfs(node: str) -> bool:
+            if node in in_stack:
+                # Found a cycle — collect all nodes in this cycle
+                cycle_cols.append(node)
+                return True
+            if node in visited:
+                return False
+            visited.add(node)
+            in_stack.add(node)
+            source = adj.get(node)
+            if source and source in col_map:
+                _dfs(source)
+            in_stack.discard(node)
+            return False
+
+        for node in adj:
+            if node not in visited:
+                _dfs(node)
+
+        if not cycle_cols:
+            return
+
+        # Determine CHECK source columns (right side of comparison).
+        # For "sale_price >= cost_price", cost_price is the CHECK source.
+        check_source_cols = self._get_check_source_columns(table_schema)
+
+        # Break cycles: for each cycle column, check if it's the weaker claim
+        for col_name in cycle_cols:
+            col_cfg = col_map.get(col_name)
+            if not isinstance(col_cfg, dict):
+                continue
+            # Weaker claim: the column is the CHECK *source* (it should NOT
+            # derive_from the CHECK *target* — that's backwards)
+            if col_name in check_source_cols:
+                logger.warning(
+                    "Stage3 Rule #29: breaking derive_from cycle — stripping CHECK-source derive_from",
+                    column=col_name,
+                    original_derive_from=col_cfg.get("derive_from"),
+                    reason="column is in derive_from cycle and is CHECK source " "(should not derive from the target)",
+                )
+                col_cfg.pop("derive_from", None)
+                col_cfg.pop("expression", None)
+                # Assign a proper generator (Rule #28 or type-routed)
+                gen = col_cfg.get("generator")
+                if gen in _GENERIC_GENERATORS or gen is None:
+                    self._apply_rule_28_exact_match_upgrade(col_cfg, table_schema)
+                if col_cfg.get("generator") in _GENERIC_GENERATORS or col_cfg.get("generator") is None:
+                    col_type = ""
+                    schema_cols = table_schema.get("columns")
+                    if isinstance(schema_cols, list):
+                        for ci in schema_cols:
+                            if isinstance(ci, dict) and ci.get("name") == col_name:
+                                col_type = str(ci.get("type", "")).upper()
+                                break
+                    self._assign_type_routed_generator(col_cfg, col_type)
+
+    @staticmethod
+    def _is_derive_from_type_incompatible(col_type: str, source_type: str) -> bool:
+        """Check if derive_from source→target types are incompatible.
+
+        Compatible: numeric→numeric, date→date (same family).
+        Incompatible: numeric→text, text→numeric, numeric→date, etc.
+        """
+        if not col_type or not source_type:
+            return False  # Unknown types — don't flag
+
+        # Normalize: extract base type token
+        def _base_type(t: str) -> str:
+            token = re.split(r"[(\s]", t.strip(), maxsplit=1)[0]
+            return token.upper()
+
+        col_base = _base_type(col_type)
+        src_base = _base_type(source_type)
+
+        # Cross-family → incompatible
+        return not (
+            (col_base in Stage3Validator._NUMERIC_TYPES and src_base in Stage3Validator._NUMERIC_TYPES)
+            or (col_base in Stage3Validator._TEXT_TYPES and src_base in Stage3Validator._TEXT_TYPES)
+            or (col_base in Stage3Validator._DATE_TYPES and src_base in Stage3Validator._DATE_TYPES)
+        )
+
+    @staticmethod
+    def _get_check_constrained_columns(table_schema: dict[str, Any]) -> set[str]:
+        """Get column names that participate in cross-column CHECK constraints."""
+        result: set[str] = set()
+        checks = table_schema.get("check_constraints", [])
+        if not isinstance(checks, list):
+            return result
+        for check in checks:
+            if not isinstance(check, dict):
+                continue
+            columns = check.get("columns")
+            if isinstance(columns, list):
+                for c in columns:
+                    if isinstance(c, str):
+                        result.add(c)
+        return result
+
+    @staticmethod
+    def _get_check_source_columns(table_schema: dict[str, Any]) -> set[str]:
+        """Get columns that are the SOURCE (right side) of cross-column CHECK comparisons.
+
+        For ``sale_price >= cost_price``, cost_price is the CHECK source.
+        For ``end_date >= start_date``, start_date is the CHECK source.
+        For ``discount <= price``, price is the CHECK source.
+
+        Supports compound CHECK expressions like::
+            actual_hours >= 0 AND actual_hours <= est_hours
+        where ``est_hours`` is the source (right side of ``<=``).
+
+        These columns should NOT derive_from the CHECK target (left side),
+        because the CHECK constrains the target relative to the source.
+        """
+        result: set[str] = set()
+        checks = table_schema.get("check_constraints", [])
+        if not isinstance(checks, list):
+            return result
+        # Get the set of all column names in this table — used to distinguish
+        # column references from numeric literals (e.g., "0", "18", "30000").
+        schema_cols = table_schema.get("columns")
+        col_name_set: set[str] = set()
+        if isinstance(schema_cols, list):
+            for ci in schema_cols:
+                if isinstance(ci, dict) and isinstance(ci.get("name"), str):
+                    col_name_set.add(ci["name"])
+
+        for check in checks:
+            if not isinstance(check, dict):
+                continue
+            expr = check.get("expression")
+            if not isinstance(expr, str):
+                continue
+            # Scan the ENTIRE expression (including compound AND/OR clauses) for
+            # ``col1 op col2`` patterns. For each match, if the right side is a
+            # known column name (not a numeric literal), it is a CHECK source.
+            # This handles both simple ("sale_price >= cost_price") and compound
+            # ("actual_hours >= 0 AND actual_hours <= est_hours") expressions.
+            for m in re.finditer(r"(\w+)\s*(>=|>|<=|<)\s*(\w+)", expr):
+                right = m.group(3)
+                # Right side is a source column if it's a known column name
+                # (not a number). Checking against col_name_set avoids false
+                # positives from numeric literals like "0" or "1000".
+                if right in col_name_set:
+                    result.add(right)
+        return result
+
+    @staticmethod
+    def _assign_type_routed_generator(col: dict[str, Any], col_type: str) -> None:
+        """Assign a type-routed generator based on column SQL type."""
+        from sqlseed_ai.staged_analyzer import _GENERATOR_ACCEPTED_PARAMS
+
+        base = re.split(r"[(\s]", col_type.strip(), maxsplit=1)[0].upper()
+        if base in {"INTEGER", "INT", "BIGINT", "SMALLINT", "TINYINT", "MEDIUMINT",
+                     "INT8", "INT16", "INT32", "INT64"}:
+            gen_name = "integer"
+            params: dict[str, Any] = {"min_value": 1, "max_value": 1000}
+        elif base in {"REAL", "FLOAT", "DOUBLE", "DECIMAL", "NUMERIC", "NUMBER"}:
+            gen_name = "float"
+            params = {"min_value": 0.01, "max_value": 9999.99, "precision": 2}
+        elif base in {"TEXT", "VARCHAR", "NVARCHAR", "CHAR", "NCHAR", "CLOB", "STRING"}:
+            gen_name = "catch_phrase"
+            params = {}
+        elif base in {"DATE"}:
+            gen_name = "date"
+            params = {"start_year": 2000, "end_year": 2024}
+        elif base in {"DATETIME", "TIMESTAMP"}:
+            gen_name = "datetime"
+            params = {"start_year": 2000, "end_year": 2024}
+        elif base in {"BOOLEAN", "BOOL"}:
+            gen_name = "boolean"
+            params = {}
+        else:
+            gen_name = "string"
+            params = {"min_length": 3, "max_length": 20}
+
+        # Strip params not accepted by the generator
+        accepted = _GENERATOR_ACCEPTED_PARAMS.get(gen_name, set())
+        params = {k: v for k, v in params.items() if k in accepted}
+
+        col["generator"] = gen_name
+        if params:
+            col["params"] = params
+        else:
+            col.pop("params", None)
 
     def _apply_rule_17_boolean_expression(
         self,
@@ -1128,21 +1857,30 @@ class Stage3Validator:
             return type_token in date_family
         return False
 
-    def _apply_rule_20_sandbox_external_functions(self, col: dict[str, Any]) -> None:
+    def _apply_rule_20_sandbox_external_functions(
+        self, col: dict[str, Any], table_schema: dict[str, Any] | None = None
+    ) -> None:
         """Rule #20: detect sandbox-external functions/identifiers in derive_from expressions.
 
         LLMs sometimes invent functions like ``floor``, ``random``, ``random_markup``
         that aren't in the simpleeval ``ExpressionEngine.SAFE_FUNCTIONS`` sandbox (only
         ``random_float``/``random_int``/``random_choice`` are exposed). This rule:
 
-          1. Attempts pattern-based rewrites for known LLM mistakes
+          1. Detects and strips **self-referencing derive_from** (e.g.,
+             ``sale_price derive_from [sale_price]``) — a column cannot derive
+             from itself. Strips derive_from + expression and falls back to a
+             type-routed generator.
+          2. Attempts pattern-based rewrites for known LLM mistakes
              (e.g. ``floor(random() * (value - N + 1)) + N`` → ``random_int(N, value)``).
-          2. If no rewrite matches, scans the expression for unknown identifiers
+          3. If no rewrite matches, scans the expression for unknown identifiers
              (functions or bare names not in the sandbox + context vars). If any
              unknown identifier is found, strips ``derive_from`` + ``expression``
-             so the column falls back to its type-routed generator.
+             and assigns a type-routed generator so the column never falls back
+             to ``generator: null`` (which would produce NULL values and violate
+             NOT NULL / CHECK constraints at insert time).
 
-        This prevents ``FunctionNotDefined`` / ``NameNotDefined`` crashes at runtime.
+        This prevents ``FunctionNotDefined`` / ``NameNotDefined`` crashes at runtime
+        and ensures stripped columns always have a valid generator.
         """
         derive_from = col.get("derive_from")
         expression = col.get("expression")
@@ -1150,6 +1888,23 @@ class Stage3Validator:
             return
         expr = expression.strip()
         col_name = col.get("name", "<unknown>")
+
+        # 0. Detect self-referencing derive_from (e.g., sale_price derive_from [sale_price])
+        # This is always invalid — a column cannot derive from itself. The LLM
+        # sometimes outputs this when confused about CHECK constraints like
+        # ``sale_price >= cost_price`` (it tries to make sale_price reference
+        # itself instead of cost_price). Strip and fall back to type-routed generator.
+        if isinstance(derive_from, list) and col_name in derive_from:
+            logger.warning(
+                "Stage3 Rule #20: stripping self-referencing derive_from",
+                column=col_name,
+                derive_from=derive_from,
+                reason="a column cannot derive_from itself; falling back to type-routed generator",
+            )
+            col.pop("derive_from", None)
+            col.pop("expression", None)
+            self._ensure_fallback_generator(col, col_name, table_schema)
+            return
 
         # 1. Try known pattern rewrites (most common LLM mistakes)
         rewritten = self._try_rewrite_known_sandbox_patterns(expr)
@@ -1174,6 +1929,40 @@ class Stage3Validator:
             )
             col.pop("derive_from", None)
             col.pop("expression", None)
+            # Ensure the column has a valid generator after stripping.
+            # Without this, the column would have generator: null and produce
+            # NULL values at insert time, violating NOT NULL / CHECK constraints.
+            self._ensure_fallback_generator(col, col_name, table_schema)
+
+    def _ensure_fallback_generator(
+        self,
+        col: dict[str, Any],
+        col_name: str,
+        table_schema: dict[str, Any] | None,
+    ) -> None:
+        """Ensure a column has a valid generator after derive_from stripping.
+
+        Tries Rule #28 semantic matching first (e.g., ``sale_price`` → no
+        exact match → pattern match → no match → type-routed fallback).
+        If Rule #28 doesn't upgrade, assigns a type-routed generator based
+        on the column's SQL type.
+        """
+        gen = col.get("generator")
+        if gen not in _GENERIC_GENERATORS and gen is not None:
+            return  # Already has a non-generic generator
+        # Try Rule #28 semantic upgrade first
+        self._apply_rule_28_exact_match_upgrade(col, table_schema)
+        # If still generic or null, assign type-routed generator
+        if col.get("generator") in _GENERIC_GENERATORS or col.get("generator") is None:
+            col_type = ""
+            if table_schema:
+                schema_cols = table_schema.get("columns")
+                if isinstance(schema_cols, list):
+                    for ci in schema_cols:
+                        if isinstance(ci, dict) and ci.get("name") == col_name:
+                            col_type = str(ci.get("type", "")).upper()
+                            break
+            self._assign_type_routed_generator(col, col_type)
 
     @staticmethod
     def _try_rewrite_known_sandbox_patterns(expr: str) -> str | None:
@@ -1358,6 +2147,272 @@ class Stage3Validator:
             reason="INTEGER column should not store fractional values",
         )
         col["expression"] = new_expr
+
+    def _apply_rule_27_missing_generator_with_check_inference(
+        self, table: dict[str, Any], table_schema: dict[str, Any]
+    ) -> None:
+        """Rule #27: fill missing generators + infer derive_from from cross-column CHECKs.
+
+        Two scenarios:
+
+        1. **Column missing generator + participates in cross-column CHECK where
+           the OTHER column has a generator**: infer ``derive_from`` + ``expression``
+           from the CHECK constraint so the derived value automatically satisfies
+           it. Example: ``CHECK (sale_price >= cost_price)`` on a ``sale_price``
+           column with no generator (but ``cost_price`` has one) →
+           ``derive_from: [cost_price]``,
+           ``expression: "value + random_float(0, value)"`` (ensures
+           ``sale_price >= cost_price``).
+
+        2. **Column missing generator + no usable cross-column CHECK**: fall
+           back to a type-routed generator based on the column's SQL type
+           (INTEGER → integer, REAL → float, DATE → date with default year
+           range, etc.). The date/datetime fallback includes default
+           ``start_year``/``end_year`` params so Rule #22 can subsequently
+           isolate ranges if the column participates in a cross-column date
+           CHECK.
+
+        This rule runs FIRST (before Rule #14-#26) so subsequent rules can
+        process the supplemented columns normally.
+
+        Skips:
+          - Columns that already have a generator (``generator`` is not None)
+          - Columns with ``derive_from`` already set (derived mode, no
+            generator needed)
+        """
+        checks = table_schema.get("check_constraints", [])
+        if not isinstance(checks, list):
+            checks = []
+
+        # Build column config map for quick lookup
+        col_configs: dict[str, dict[str, Any]] = {}
+        for col in table.get("columns", []):
+            if isinstance(col, dict) and isinstance(col.get("name"), str):
+                col_configs[col["name"]] = col
+
+        # Snapshot of columns that ORIGINALLY had a generator (before Rule #27
+        # fills any). This prevents ordering-dependent derive_from chains where
+        # col_b derives from col_a after col_a was filled by Rule #27's
+        # type-routed fallback — deriving from a random fallback value has no
+        # semantic meaning and would produce meaningless derived data.
+        original_has_generator: dict[str, bool] = {
+            name: cfg.get("generator") is not None
+            for name, cfg in col_configs.items()
+        }
+
+        # Build column type map for type-routed fallback
+        col_type_map: dict[str, str] = {}
+        for col_info in table_schema.get("columns", []):
+            if isinstance(col_info, dict):
+                name = col_info.get("name")
+                col_type = col_info.get("type")
+                if isinstance(name, str) and isinstance(col_type, str):
+                    col_type_map[name] = col_type
+
+        for col in table.get("columns", []):
+            if not isinstance(col, dict):
+                continue
+            # Skip columns that already have a generator or derive_from
+            if col.get("generator") is not None:
+                continue
+            if col.get("derive_from"):
+                continue
+
+            col_name = col.get("name")
+            if not isinstance(col_name, str):
+                continue
+
+            # Scenario 1: try to infer derive_from from cross-column CHECK.
+            # Only derive from columns that ORIGINALLY had a generator —
+            # deriving from a Rule #27-filled fallback would be meaningless.
+            inferred = self._try_infer_derive_from_check(
+                col_name, checks, col_configs, original_has_generator
+            )
+            if inferred is not None:
+                source_col, expression = inferred
+                col["derive_from"] = [source_col]
+                col["expression"] = expression
+                logger.warning(
+                    "Stage3 Rule #27: inferred derive_from from cross-column CHECK",
+                    column=col_name,
+                    source_column=source_col,
+                    expression=expression,
+                )
+                continue
+
+            # Scenario 2: fall back to type-routed generator
+            col_type = col_type_map.get(col_name, "")
+            type_routed = self._build_type_routed_for_missing(col_type)
+            col["generator"] = type_routed["generator"]
+            col["params"] = type_routed["params"]
+            logger.warning(
+                "Stage3 Rule #27: supplemented missing generator with type-routed fallback",
+                column=col_name,
+                column_type=col_type,
+                generator=type_routed["generator"],
+            )
+
+    def _try_infer_derive_from_check(
+        self,
+        target_col: str,
+        checks: list[Any],
+        col_configs: dict[str, dict[str, Any]],
+        original_has_generator: dict[str, bool] | None = None,
+    ) -> tuple[str, str] | None:
+        """Try to infer ``derive_from`` + ``expression`` from cross-column CHECK.
+
+        Searches CHECK constraints for comparisons involving ``target_col``.
+        If the OTHER column in the comparison originally had a generator
+        (i.e., was not also missing — checked via ``original_has_generator``
+        snapshot to avoid ordering-dependent derive chains), returns
+        ``(other_col, expression)`` where ``expression`` is built to
+        satisfy the comparison.
+
+        Returns ``None`` if:
+          - No cross-column CHECK involves ``target_col``
+          - The other column also originally had no generator (cannot derive
+            from a Rule #27-filled fallback)
+          - The CHECK expression is too complex to parse
+          - The comparison operator is not recognised
+        """
+        for check in checks:
+            if not isinstance(check, dict):
+                continue
+            expr = check.get("expression")
+            if not isinstance(expr, str):
+                continue
+            parsed = self._parse_cross_column_numeric_comparison(expr)
+            if parsed is None:
+                continue
+            col_a, op, col_b = parsed
+
+            # Determine which is target, which is source
+            if col_a == target_col:
+                source_col = col_b
+                # CHECK: target_col op source_col → target must satisfy (target op source)
+                expression = self._build_check_satisfying_expression(op)
+            elif col_b == target_col:
+                source_col = col_a
+                # CHECK: source_col op target_col → target must satisfy (source op target)
+                # Reverse the operator: if CHECK is source >= target, then target <= source
+                reverse_op = self._reverse_operator(op)
+                if reverse_op is None:
+                    continue
+                expression = self._build_check_satisfying_expression(reverse_op)
+            else:
+                continue
+
+            if expression is None:
+                continue
+
+            # Source column must have ORIGINALLY had a generator (not also
+            # missing). Using the pre-Rule-27 snapshot prevents ordering-
+            # dependent derive chains where col_b derives from col_a after
+            # col_a was filled by Rule #27's type-routed fallback.
+            if original_has_generator is not None:
+                if not original_has_generator.get(source_col, False):
+                    continue  # Source also originally missing, cannot derive
+            else:
+                # Fallback for backward compat (no snapshot provided)
+                source_config = col_configs.get(source_col)
+                if not isinstance(source_config, dict):
+                    continue
+                if source_config.get("generator") is None:
+                    continue  # Source also missing, cannot derive
+
+            return (source_col, expression)
+
+        return None
+
+    @staticmethod
+    def _parse_cross_column_numeric_comparison(expr: str) -> tuple[str, str, str] | None:
+        """Parse a cross-column numeric comparison CHECK expression.
+
+        Recognised patterns (case-insensitive operator, whitespace-tolerant):
+          - ``<col_a> (>=|>|<=|<) <col_b>`` → ``(col_a, op, col_b)``
+
+        Returns:
+            ``(col_a, operator, col_b)`` if the expression matches, else ``None``.
+            Both sides must be word characters (letters/digits/underscore) —
+            numeric literals or complex expressions are rejected.
+
+        Note: This is distinct from ``_parse_cross_column_date_comparison``
+        (used by Rule #22) — that method returns ``(later_col, earlier_col)``
+        for date-range isolation, while this method returns the raw triple
+        for numeric derive_from inference.
+        """
+        expr_stripped = expr.strip()
+        m = re.match(r"^\s*(\w+)\s*(>=|>|<=|<)\s*(\w+)\s*$", expr_stripped)
+        if not m:
+            return None
+        col_a, op, col_b = m.groups()
+        # Reject if either side looks like a number
+        if col_a.isdigit() or col_b.isdigit():
+            return None
+        return (col_a, op, col_b)
+
+    @staticmethod
+    def _reverse_operator(op: str) -> str | None:
+        """Reverse a comparison operator for swapped target/source positions.
+
+        If CHECK is ``source op target``, then target must satisfy
+        ``target reverse_op source``:
+
+          - ``>=`` → ``<=`` (source >= target ⟺ target <= source)
+          - ``>``  → ``<``  (source > target  ⟺ target < source)
+          - ``<=`` → ``>=`` (source <= target ⟺ target >= source)
+          - ``<``  → ``>``  (source < target  ⟺ target > source)
+        """
+        return {">=": "<=", ">": "<", "<=": ">=", "<": ">"}.get(op)
+
+    @staticmethod
+    def _build_check_satisfying_expression(op: str) -> str | None:
+        """Build a derive_from expression that satisfies ``target op source``.
+
+        The ``value`` placeholder refers to the source column's value (injected
+        by the ExpressionEngine context when ``derive_from`` is set).
+
+          - ``>=`` → ``value + random_float(0, value)`` (target in [source, 2*source])
+          - ``>``  → ``value + random_float(1, value)`` (target in (source, 2*source])
+          - ``<=`` → ``random_float(0, value)`` (target in [0, source])
+          - ``<``  → ``random_float(0, max(value - 1, 0))`` (target in [0, source))
+
+        All functions (``random_float``, ``max``) are in
+        ``ExpressionEngine.SAFE_FUNCTIONS``, so the expression is
+        sandbox-safe and will not be stripped by Rule #20.
+        """
+        if op == ">=":
+            return "value + random_float(0, value)"
+        if op == ">":
+            return "value + random_float(1, value)"
+        if op == "<=":
+            return "random_float(0, value)"
+        if op == "<":
+            return "random_float(0, max(value - 1, 0))"
+        return None
+
+    @staticmethod
+    def _build_type_routed_for_missing(col_type: str) -> dict[str, Any]:
+        """Build type-routed generator config for a missing-generator column.
+
+        Mirrors ``StagedSchemaAnalyzer._degrade_to_type_routed`` but accepts
+        a type string instead of ``ColumnFeatures``, and adds default
+        year-range params for date/datetime so Rule #22 can subsequently
+        isolate ranges if the column participates in a cross-column date CHECK.
+        """
+        type_upper = col_type.upper()
+        if "INT" in type_upper:
+            return {"generator": "integer", "params": {"min_value": 0, "max_value": 99999}}
+        if any(t in type_upper for t in ("REAL", "FLOAT", "DOUBLE", "DECIMAL")):
+            return {"generator": "float", "params": {"min_value": 0.0, "max_value": 9999.0}}
+        if "BOOL" in type_upper:
+            return {"generator": "boolean", "params": {}}
+        if "DATE" in type_upper and "TIME" not in type_upper:
+            # Default year range so Rule #22 can isolate if needed
+            return {"generator": "date", "params": {"start_year": 2000, "end_year": 2024}}
+        if any(t in type_upper for t in ("DATETIME", "TIMESTAMP")):
+            return {"generator": "datetime", "params": {"start_year": 2000, "end_year": 2024}}
+        return {"generator": "string", "params": {"min_length": 1, "max_length": 100}}
 
     def _apply_rule_16_fk_semantic(self, table: dict[str, Any], table_schema: dict[str, Any]) -> None:
         """Rule #16: FK columns must use a generator compatible with ref column type.
@@ -1703,13 +2758,20 @@ class Stage3Validator:
             like ``EMPL-0001`` instead of ``550e8400-e29b-41d4-...``).
             Random UUIDs are unreadable in HR/business contexts and
             inconsistent with sibling ``*_code``/``*_no`` columns.
+          - Case 5 (UNIQUE required): generator is ``choice``/``weighted_choice``
+            AND column name matches ``_code|_no|sku|serial`` pattern → upgrade
+            to ``{PREFIX}-{sequence:04d}``. LLMs sometimes confuse code columns
+            with status columns (e.g., ``merchant_code`` gets
+            ``choice: [active, suspended, closed]`` instead of ``MERC-0001``).
+            A low-cardinality choice generator cannot satisfy a UNIQUE
+            constraint over 1000+ rows.
 
         ``template``/``pattern`` columns are skipped (already safe).
         """
         gen = col.get("generator")
         if gen in ("template", "pattern", None):
             return  # Already safe or derived mode (None means derived)
-        if gen not in ("word", "name", "string", "integer", "uuid"):
+        if gen not in ("word", "name", "string", "integer", "uuid", "choice", "weighted_choice"):
             return
 
         col_name = col.get("name")
@@ -1808,6 +2870,27 @@ class Stage3Validator:
                 "Stage3 Rule #24: upgrading UNIQUE uuid on business identifier column to template",
                 column=col_name,
                 template_prefix=prefix,
+            )
+            col["generator"] = "template"
+            col.pop("params", None)
+            col["params"] = {"template": f"{prefix}{{sequence:04d}}"}
+            return
+
+        # Case 5: UNIQUE code-like column with low-cardinality generator
+        # (choice/weighted_choice) → upgrade to template. LLMs sometimes
+        # confuse code columns with status columns (e.g., merchant_code gets
+        # choice: [active, suspended, closed] instead of MERC-0001). A 3-value
+        # choice generator cannot satisfy a UNIQUE constraint over 1000+ rows.
+        # Code-like names (_code|_no|sku|serial) should always be sequential
+        # templates, never enum-style choices.
+        if is_unique and gen in ("choice", "weighted_choice") and is_code_like:
+            prefix = self._derive_code_template_prefix(col_name)
+            logger.warning(
+                "Stage3 Rule #24: upgrading UNIQUE code column with low-cardinality choice generator to template",
+                column=col_name,
+                original_generator=gen,
+                template_prefix=prefix,
+                reason="choice cannot satisfy UNIQUE on code-like column (LLM confused code column with status column)",
             )
             col["generator"] = "template"
             col.pop("params", None)
@@ -2216,7 +3299,7 @@ class Stage3Validator:
     def _ensure_date_generator_for_date_column(self, col: dict[str, Any], table_schema: dict[str, Any]) -> None:
         """Supplement or convert a date-family generator for cross-column CHECK.
 
-        Two cases:
+        Three cases:
 
         1. **Stripped column (no generator)**: When Rule #17 strips a DATE-family
            source column's ``derive_from`` + ``expression`` (because
@@ -2233,11 +3316,18 @@ class Stage3Validator:
            Without this conversion, batch-level CHECK failures would occur
            because random timestamps could violate ``end_time >= start_time``.
 
+        3. **date/datetime generator without year-range params**: LLM may return
+           ``date`` with empty params ``{}`` (no start_year/end_year). Rule #22
+           cannot isolate ranges without year params. This helper supplements
+           the default year range (2000-2024) so range isolation can proceed.
+
         Only acts when:
           - Case 1: The column has NO ``generator`` key (or it is None), AND
             the column exists in ``table_schema`` with a DATE-family type.
           - Case 2: The column has ``generator == "timestamp"`` AND the column
             exists in ``table_schema`` with a TIMESTAMP/DATETIME-family type.
+          - Case 3: The column has ``generator`` in ("date", "datetime") but
+            params is missing start_year or end_year.
 
         The default range 2000-2024 is chosen so the subsequent range-isolation
         logic in Rule #22 has room to split at the midpoint.
@@ -2300,6 +3390,25 @@ class Stage3Validator:
                 col["generator"] = "datetime"
                 col["params"] = {"start_year": 2000, "end_year": 2024}
                 break
+            return
+
+        # Case 3: date/datetime generator without year-range params → supplement defaults.
+        # LLM may return `generator: date` with empty params `{}`, which lacks
+        # start_year/end_year. Without year params, Rule #22 cannot isolate ranges,
+        # causing cross-column CHECK failures (e.g., end_date >= start_date).
+        if gen in ("date", "datetime"):
+            params = col.get("params")
+            if not isinstance(params, dict):
+                params = {}
+                col["params"] = params
+            if "start_year" not in params or "end_year" not in params:
+                logger.warning(
+                    "Stage3 Rule #22: supplementing missing year-range params for date generator",
+                    column=col_name,
+                    generator=gen,
+                )
+                params.setdefault("start_year", 2000)
+                params.setdefault("end_year", 2024)
 
 
 def _bound_unbounded_quantifier(match: re.Match[str]) -> str:

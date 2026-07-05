@@ -148,30 +148,30 @@ class TestNameColumnMapping:
         spec = self.mapper.map_column(make_column_info("company_name"))
         assert spec.generator_name == "company"
 
-    def test_product_name_falls_back_to_word(self) -> None:
-        """product_name → word (no longer string gibberish; real word)."""
+    def test_product_name_falls_back_to_catch_phrase(self) -> None:
+        """product_name → catch_phrase (multi-word business phrase, not single word)."""
         spec = self.mapper.map_column(make_column_info("product_name"))
-        assert spec.generator_name == "word"
+        assert spec.generator_name == "catch_phrase"
 
-    def test_animal_name_falls_back_to_word(self) -> None:
-        """animal_name → word (not person name; semantically neutral fallback)."""
+    def test_animal_name_falls_back_to_catch_phrase(self) -> None:
+        """animal_name → catch_phrase (not person name; multi-word fallback)."""
         spec = self.mapper.map_column(make_column_info("animal_name"))
-        assert spec.generator_name == "word"
+        assert spec.generator_name == "catch_phrase"
 
-    def test_medicine_name_falls_back_to_word(self) -> None:
-        """medicine_name → word (not person name; semantically neutral fallback)."""
+    def test_medicine_name_falls_back_to_catch_phrase(self) -> None:
+        """medicine_name → catch_phrase (not person name; multi-word fallback)."""
         spec = self.mapper.map_column(make_column_info("medicine_name"))
-        assert spec.generator_name == "word"
+        assert spec.generator_name == "catch_phrase"
 
-    def test_color_name_falls_back_to_word(self) -> None:
-        """color_name → word (not person name; semantically neutral fallback)."""
+    def test_color_name_falls_back_to_catch_phrase(self) -> None:
+        """color_name → catch_phrase (not person name; multi-word fallback)."""
         spec = self.mapper.map_column(make_column_info("color_name"))
-        assert spec.generator_name == "word"
+        assert spec.generator_name == "catch_phrase"
 
-    def test_generic_name_falls_back_to_word(self) -> None:
-        """Unknown *_name column → word (not person name)."""
+    def test_generic_name_falls_back_to_catch_phrase(self) -> None:
+        """Unknown *_name column → catch_phrase (not person name)."""
         spec = self.mapper.map_column(make_column_info("unknown_thing_name"))
-        assert spec.generator_name == "word"
+        assert spec.generator_name == "catch_phrase"
 
 
 class TestLoadCustomMappings:
