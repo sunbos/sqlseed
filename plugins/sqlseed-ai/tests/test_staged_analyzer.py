@@ -2884,6 +2884,77 @@ def test_stage3_validator_rule_24_skips_choice_on_non_code_column():
     assert col["generator"] == "choice", f"Expected choice, got {col['generator']}"
 
 
+def test_stage3_validator_rule_24_upgrades_unique_date_code_to_template():
+    """Rule #24 Case 6 (new): UNIQUE code-like column with date generator → template.
+
+    Regression: ``projects.project_code`` (TEXT UNIQUE NOT NULL) used
+    ``generator: date`` producing date strings like "2021-10-24" instead
+    of business codes like "PROJ-0001". LLMs sometimes misclassify code
+    columns as date columns. Date values on a code-like column are a
+    semantic error even if they happen to be unique.
+
+    Case 6 triggers when:
+      - Column name matches ``_code|_no|sku|serial`` pattern
+      - Generator is ``date``, ``timestamp``, or ``datetime``
+      - Column has UNIQUE constraint (from col constraints OR table_schema)
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "projects",
+                "columns": [
+                    {
+                        "name": "project_code",
+                        "generator": "date",
+                        "params": {"start_year": 2020, "end_year": 2025},
+                        "constraints": {"unique": True},
+                    },
+                ],
+            }
+        ]
+    }
+    validator = Stage3Validator()
+    validator.validate(config)
+    col = config["tables"][0]["columns"][0]
+    # Rule #24 Case 6 should upgrade date → template PROJ-{sequence:04d}
+    assert col["generator"] == "template", f"Expected template, got {col['generator']}"
+    assert col["params"]["template"] == "PROJ-{sequence:04d}", (
+        f"Expected PROJ-{{sequence:04d}}, got {col['params']['template']}"
+    )
+
+
+def test_stage3_validator_rule_24_skips_date_on_non_code_column():
+    """Rule #24 Case 6 negative: date on non-code UNIQUE column stays date.
+
+    Columns like ``created_at`` or ``hire_date`` legitimately use date
+    generators even when UNIQUE. Case 6 only fires on code-like names.
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "events",
+                "columns": [
+                    {
+                        "name": "created_at",
+                        "generator": "date",
+                        "params": {"start_year": 2020, "end_year": 2025},
+                        "constraints": {"unique": True},
+                    },
+                ],
+            }
+        ]
+    }
+    validator = Stage3Validator()
+    validator.validate(config)
+    col = config["tables"][0]["columns"][0]
+    # created_at is not code-like, so date should remain
+    assert col["generator"] == "date", f"Expected date, got {col['generator']}"
+
+
 def test_stage3_validator_rule_22_handles_timestamp_columns():
     """Rule #22 extension: TIMESTAMP columns in cross-column date CHECK are handled.
 

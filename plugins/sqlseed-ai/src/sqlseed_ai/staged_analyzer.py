@@ -2863,11 +2863,23 @@ class Stage3Validator:
             constraint over 1000+ rows.
 
         ``template``/``pattern`` columns are skipped (already safe).
+
+        Case 6 (UNIQUE required): generator is ``date``/``timestamp``/``datetime``
+        AND column name matches ``_code|_no|sku|serial`` pattern → upgrade to
+        ``{PREFIX}-{sequence:04d}``. LLMs sometimes misclassify code columns
+        as date columns (e.g., ``project_code`` gets ``date`` generator
+        producing "2021-10-24" instead of "PROJ-0001"). Date values on a
+        code-like column are a semantic error even if they happen to be
+        unique (business codes must be readable identifiers).
         """
         gen = col.get("generator")
         if gen in ("template", "pattern", None):
             return  # Already safe or derived mode (None means derived)
-        if gen not in ("word", "name", "string", "integer", "uuid", "choice", "weighted_choice"):
+        if gen not in (
+            "word", "name", "string", "integer", "uuid",
+            "choice", "weighted_choice",
+            "date", "timestamp", "datetime",
+        ):
             return
 
         col_name = col.get("name")
@@ -2987,6 +2999,28 @@ class Stage3Validator:
                 original_generator=gen,
                 template_prefix=prefix,
                 reason="choice cannot satisfy UNIQUE on code-like column (LLM confused code column with status column)",
+            )
+            col["generator"] = "template"
+            col.pop("params", None)
+            col["params"] = {"template": f"{prefix}{{sequence:04d}}"}
+            return
+
+        # Case 6: UNIQUE code-like column with date/timestamp/datetime generator
+        # → upgrade to template. LLMs sometimes misclassify code columns as
+        # date columns (e.g., project_code gets date generator producing
+        # "2021-10-24" instead of "PROJ-0001"). Date values on a code-like
+        # column are a semantic error even if they happen to be unique.
+        if is_unique and gen in ("date", "timestamp", "datetime") and is_code_like:
+            prefix = self._derive_code_template_prefix(col_name)
+            logger.warning(
+                "Stage3 Rule #24: upgrading UNIQUE code column with date-type generator to template",
+                column=col_name,
+                original_generator=gen,
+                template_prefix=prefix,
+                reason=(
+                    "date/timestamp generator on code-like column produces "
+                    "unreadable date values instead of business codes"
+                ),
             )
             col["generator"] = "template"
             col.pop("params", None)
