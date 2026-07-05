@@ -4541,8 +4541,9 @@ def test_regression_column_cache_reuses_identical_column_signatures():
     """
     # Construct two identical column signatures in different tables
     # and verify the cache key matches.
-    from sqlseed.core.features import ColumnFeatures, TableFeatures
     from sqlseed_ai.staged_analyzer import StagedSchemaAnalyzer
+
+    from sqlseed.core.features import ColumnFeatures, TableFeatures
 
     analyzer = StagedSchemaAnalyzer()
     col = ColumnFeatures(
@@ -4583,8 +4584,9 @@ def test_regression_column_cache_reuses_identical_column_signatures():
 
 def test_regression_column_cache_different_types_different_keys():
     """Column cache: different column types produce different cache keys."""
-    from sqlseed.core.features import ColumnFeatures, TableFeatures
     from sqlseed_ai.staged_analyzer import StagedSchemaAnalyzer
+
+    from sqlseed.core.features import ColumnFeatures, TableFeatures
 
     analyzer = StagedSchemaAnalyzer()
     table = TableFeatures(
@@ -4607,5 +4609,437 @@ def test_regression_column_cache_different_types_different_keys():
     key_int = analyzer._make_column_cache_key(col_int, table, [])
     key_str = analyzer._make_column_cache_key(col_str, table, [])
     assert key_int != key_str, "Different columns must have different cache keys"
+
+
+# ────────────────────────────────────────────────────────────────────
+# Phase 4 Loop Engineering — covers Fix 1 (composite UNIQUE),
+# Fix 2 (orphan derive_from), Fix 3 (3-column nested NULL-OR CHECK).
+# All tests use REAL Stage3Validator (no mocks of the validator itself)
+# to be anti-self-proving.
+# ────────────────────────────────────────────────────────────────────
+
+
+def test_regression_rule_31_strips_unique_from_composite_unique_only_columns():
+    """Regression: Rule #31 strips ``unique: true`` from composite-UNIQUE-only columns.
+
+    Reproduces the saas_complex users table failure:
+      - ``UNIQUE(tenant_id, email)`` — composite UNIQUE constraint
+      - LLM incorrectly marked ``tenant_id`` as ``unique: true``
+      - At fill time, 1000 tenants for 1000 users forces a 1:1 mapping
+        that the retry loop cannot satisfy → UNIQUE exhaustion → 0 rows
+
+    Fix: Rule #31 scans ``unique_indexes`` and strips ``unique: true``
+    from columns that appear ONLY in composite UNIQUE constraints
+    (``len(columns) > 1``). Single-column UNIQUE columns are preserved.
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "users",
+                "columns": [
+                    {
+                        "name": "tenant_id",
+                        "generator": "integer",
+                        "params": {"min_value": 1, "max_value": 1000},
+                        "constraints": {"unique": True},  # LLM mistake
+                    },
+                    {
+                        "name": "email",
+                        "generator": "email",
+                        "params": {},
+                        "constraints": {"unique": True},  # LLM mistake
+                    },
+                ],
+            }
+        ]
+    }
+    schema = {
+        "users": {
+            "columns": [
+                {"name": "tenant_id", "type": "INTEGER", "nullable": False, "default": None},
+                {"name": "email", "type": "TEXT", "nullable": False, "default": None},
+            ],
+            "unique_indexes": [
+                {"columns": ["tenant_id", "email"], "unique": True},  # composite
+            ],
+        },
+    }
+    validator = Stage3Validator()
+    validator.validate(config, schema=schema)
+    tenant = config["tables"][0]["columns"][0]
+    email = config["tables"][0]["columns"][1]
+    # Both columns are ONLY in composite UNIQUE → unique must be stripped
+    assert not tenant.get("constraints", {}).get("unique"), (
+        f"Rule #31 must strip unique from composite-UNIQUE-only tenant_id; got: {tenant!r}"
+    )
+    assert not email.get("constraints", {}).get("unique"), (
+        f"Rule #31 must strip unique from composite-UNIQUE-only email; got: {email!r}"
+    )
+
+
+def test_regression_rule_31_preserves_unique_for_single_column_unique():
+    """Rule #31 must NOT strip ``unique: true`` from single-column UNIQUE.
+
+    Anti-self-proving: if Rule #31 stripped ALL unique flags (regardless of
+    constraint type), this test would fail because ``sku`` is in a
+    single-column UNIQUE and must keep ``unique: true`` so Rule #24 can
+    upgrade it to template.
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "products",
+                "columns": [
+                    {
+                        "name": "sku",
+                        "generator": "string",
+                        "params": {"min_length": 4, "max_length": 16},
+                        "constraints": {"unique": True},
+                    },
+                ],
+            }
+        ]
+    }
+    schema = {
+        "products": {
+            "columns": [
+                {"name": "sku", "type": "TEXT", "nullable": False, "default": None},
+            ],
+            "unique_indexes": [
+                {"columns": ["sku"], "unique": True},  # single-column UNIQUE
+            ],
+        },
+    }
+    validator = Stage3Validator()
+    validator.validate(config, schema=schema)
+    sku = config["tables"][0]["columns"][0]
+    # Single-column UNIQUE → unique must be preserved (Rule #24 may upgrade to template)
+    # After Rule #24, the generator becomes "template" but constraints.unique is preserved
+    # or the column is upgraded. Check that the column is now a template (Rule #24 ran).
+    assert sku["generator"] == "template", (
+        f"Rule #24 must upgrade UNIQUE string code to template; got: {sku.get('generator')!r}"
+    )
+
+
+def test_regression_rule_31_mixed_composite_and_single_unique():
+    """Rule #31: column in BOTH composite and single UNIQUE keeps unique (single wins).
+
+    If ``email`` is in ``UNIQUE(tenant_id, email)`` AND ``UNIQUE(email)``,
+    the single-column constraint makes it individually unique. Rule #31
+    must NOT strip ``unique: true`` from such columns.
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "users",
+                "columns": [
+                    {
+                        "name": "tenant_id",
+                        "generator": "integer",
+                        "params": {"min_value": 1, "max_value": 1000},
+                        "constraints": {"unique": True},  # composite-only → strip
+                    },
+                    {
+                        "name": "email",
+                        "generator": "email",
+                        "params": {},
+                        "constraints": {"unique": True},  # also in single UNIQUE → keep
+                    },
+                ],
+            }
+        ]
+    }
+    schema = {
+        "users": {
+            "columns": [
+                {"name": "tenant_id", "type": "INTEGER", "nullable": False, "default": None},
+                {"name": "email", "type": "TEXT", "nullable": False, "default": None},
+            ],
+            "unique_indexes": [
+                {"columns": ["tenant_id", "email"], "unique": True},  # composite
+                {"columns": ["email"], "unique": True},  # single-column
+            ],
+        },
+    }
+    validator = Stage3Validator()
+    validator.validate(config, schema=schema)
+    tenant = config["tables"][0]["columns"][0]
+    email = config["tables"][0]["columns"][1]
+    # tenant_id is ONLY in composite → strip
+    assert not tenant.get("constraints", {}).get("unique"), (
+        f"tenant_id (composite-only) must have unique stripped; got: {tenant!r}"
+    )
+    # email is in BOTH → keep (single wins)
+    # Note: Rule #24 may upgrade email to template if it's a code-like column,
+    # but email is not code-like, so it stays as email generator with unique constraint.
+    # Check that unique is preserved (either in constraints or via Rule #24 upgrade)
+    has_unique = email.get("constraints", {}).get("unique") is True
+    is_template = email.get("generator") == "template"
+    assert has_unique or is_template, (
+        f"email (in single UNIQUE) must keep unique or be upgraded to template; got: {email!r}"
+    )
+
+
+def test_regression_rule_27_infers_expression_for_orphan_derive_from():
+    """Regression: Rule #27 infers expression for orphan derive_from.
+
+    Reproduces the saas_complex products table failure:
+      - ``sale_price`` has ``derive_from: [cost_price]`` but NO ``expression``
+      - ``CHECK(sale_price >= cost_price)`` exists in schema
+      - Previous Rule #27 skipped all columns with ``derive_from`` set,
+        leaving the column with no expression → fill-time crash
+
+    Fix: Rule #27 now detects orphan derive_from (has derive_from but no
+    expression) and tries to infer the expression from cross-column CHECKs.
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "products",
+                "columns": [
+                    {
+                        "name": "cost_price",
+                        "generator": "float",
+                        "params": {"min_value": 0.01, "max_value": 9999.99, "precision": 2},
+                    },
+                    {
+                        "name": "sale_price",
+                        "derive_from": ["cost_price"],
+                        # NO expression, NO generator — orphan derive_from
+                    },
+                ],
+            }
+        ]
+    }
+    schema = {
+        "products": {
+            "columns": [
+                {"name": "cost_price", "type": "REAL", "nullable": False, "default": None},
+                {"name": "sale_price", "type": "REAL", "nullable": False, "default": None},
+            ],
+            "check_constraints": [
+                {"name": "chk_sale", "columns": ["sale_price", "cost_price"],
+                 "expression": "sale_price >= cost_price"},
+            ],
+        },
+    }
+    validator = Stage3Validator()
+    validator.validate(config, schema=schema)
+    sale_price = config["tables"][0]["columns"][1]
+    # Expression must be inferred from CHECK
+    assert sale_price.get("derive_from") == ["cost_price"], (
+        f"derive_from must be preserved; got: {sale_price.get('derive_from')!r}"
+    )
+    assert "expression" in sale_price, (
+        f"Rule #27 must infer expression for orphan derive_from; got: {sale_price!r}"
+    )
+    # Expression should ensure sale_price >= cost_price
+    assert "random_float" in sale_price["expression"], (
+        f"Expression should use random_float to ensure sale_price >= cost_price; "
+        f"got: {sale_price['expression']!r}"
+    )
+
+
+def test_regression_rule_27_strips_orphan_derive_from_when_no_matching_check():
+    """Rule #27 strips orphan derive_from when no matching CHECK exists.
+
+    If the LLM set ``derive_from: [some_col]`` but no expression AND there's
+    no cross-column CHECK to infer from, the orphan derive_from is meaningless
+    (what would the expression compute?). Rule #27 must strip it and fall
+    back to a type-routed generator.
+
+    Anti-self-proving: if Rule #27 kept the orphan derive_from without
+    expression, the fill would crash. This test verifies the column gets
+    a real generator.
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "t",
+                "columns": [
+                    {
+                        "name": "base_value",
+                        "generator": "integer",
+                        "params": {"min_value": 1, "max_value": 100},
+                    },
+                    {
+                        "name": "derived_value",
+                        "derive_from": ["base_value"],
+                        # NO expression, NO generator, NO matching CHECK
+                    },
+                ],
+            }
+        ]
+    }
+    schema = {
+        "t": {
+            "columns": [
+                {"name": "base_value", "type": "INTEGER", "nullable": False, "default": None},
+                {"name": "derived_value", "type": "INTEGER", "nullable": False, "default": None},
+            ],
+            "check_constraints": [],  # No CHECK to infer from
+        },
+    }
+    validator = Stage3Validator()
+    validator.validate(config, schema=schema)
+    derived = config["tables"][0]["columns"][1]
+    # Orphan derive_from must be stripped (no expression can be inferred)
+    assert not derived.get("derive_from"), (
+        f"Rule #27 must strip orphan derive_from when no matching CHECK; got: {derived!r}"
+    )
+    # Type-routed generator must be added
+    assert derived.get("generator") is not None, (
+        f"Rule #27 must add type-routed generator after stripping orphan derive_from; "
+        f"got: {derived!r}"
+    )
+
+
+def test_regression_rule_27_skips_fully_configured_derive_from():
+    """Rule #27 must skip columns with BOTH derive_from AND expression.
+
+    Anti-self-proving: if Rule #27 incorrectly processed fully-configured
+    derived columns, it might overwrite the LLM's expression. This test
+    verifies the expression is left unchanged.
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "t",
+                "columns": [
+                    {
+                        "name": "base",
+                        "generator": "integer",
+                        "params": {"min_value": 1, "max_value": 100},
+                    },
+                    {
+                        "name": "derived",
+                        "derive_from": ["base"],
+                        "expression": "value * 2",  # fully configured
+                    },
+                ],
+            }
+        ]
+    }
+    schema = {
+        "t": {
+            "columns": [
+                {"name": "base", "type": "INTEGER", "nullable": False, "default": None},
+                {"name": "derived", "type": "INTEGER", "nullable": False, "default": None},
+            ],
+            "check_constraints": [],
+        },
+    }
+    validator = Stage3Validator()
+    validator.validate(config, schema=schema)
+    derived = config["tables"][0]["columns"][1]
+    # Fully configured — must be left unchanged
+    assert derived.get("derive_from") == ["base"], (
+        f"derive_from must be unchanged; got: {derived.get('derive_from')!r}"
+    )
+    assert derived.get("expression") == "value * 2", (
+        f"expression must be unchanged; got: {derived.get('expression')!r}"
+    )
+
+
+def test_regression_parse_3_column_nested_null_or_check():
+    """Regression: _parse_cross_column_date_comparison handles 3-column nested NULL-OR.
+
+    Reproduces the saas_complex orders table CHECK:
+      ``delivered_at IS NULL OR (shipped_at IS NOT NULL AND delivered_at >= shipped_at)``
+
+    The previous parser only handled 2-column ``col IS NULL OR col >= col``
+    patterns. The 3-column nested pattern (with ``<guard> IS NOT NULL AND``
+    prefix after the NULL-OR) caused the regex to fail, so Rule #22 never
+    isolated the date ranges → batch CHECK failures.
+
+    Fix: After stripping the NULL-OR prefix and parens, also strip the
+    ``<col> IS NOT NULL AND`` prefix before matching the comparison.
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    # The exact CHECK from saas_complex orders table
+    result = Stage3Validator._parse_cross_column_date_comparison(
+        "delivered_at IS NULL OR (shipped_at IS NOT NULL AND delivered_at >= shipped_at)"
+    )
+    assert result == ("delivered_at", "shipped_at"), (
+        f"Must parse 3-column nested NULL-OR pattern; got: {result!r}"
+    )
+
+    # Also verify the 2-column patterns still work (backward compat)
+    assert Stage3Validator._parse_cross_column_date_comparison(
+        "shipped_at IS NULL OR shipped_at >= placed_at"
+    ) == ("shipped_at", "placed_at")
+    assert Stage3Validator._parse_cross_column_date_comparison(
+        "end_date >= start_date"
+    ) == ("end_date", "start_date")
+
+    # Negative: single-column range check with numeric literals (should NOT match)
+    assert Stage3Validator._parse_cross_column_date_comparison(
+        "age IS NULL OR (age >= 13 AND age <= 120)"
+    ) is None
+
+
+def test_regression_rule_22_isolates_ranges_for_3_column_nested_check():
+    """End-to-end: Rule #22 isolates date ranges for 3-column nested NULL-OR CHECK.
+
+    Verifies that when ``delivered_at IS NULL OR (shipped_at IS NOT NULL
+    AND delivered_at >= shipped_at)`` is present, Rule #22 adjusts the
+    year ranges so ``delivered_at`` is always later than ``shipped_at``.
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "orders",
+                "columns": [
+                    {
+                        "name": "shipped_at",
+                        "generator": "datetime",
+                        "params": {"start_year": 2020, "end_year": 2024},
+                    },
+                    {
+                        "name": "delivered_at",
+                        "generator": "datetime",
+                        "params": {"start_year": 2020, "end_year": 2024},
+                    },
+                ],
+            }
+        ]
+    }
+    schema = {
+        "orders": {
+            "columns": [
+                {"name": "shipped_at", "type": "TIMESTAMP", "nullable": True, "default": None},
+                {"name": "delivered_at", "type": "TIMESTAMP", "nullable": True, "default": None},
+            ],
+            "check_constraints": [
+                {"name": "chk_delivered", "columns": ["delivered_at", "shipped_at"],
+                 "expression": "delivered_at IS NULL OR (shipped_at IS NOT NULL AND delivered_at >= shipped_at)"},
+            ],
+        },
+    }
+    validator = Stage3Validator()
+    validator.validate(config, schema=schema)
+    shipped = config["tables"][0]["columns"][0]
+    delivered = config["tables"][0]["columns"][1]
+    # Rule #22 must isolate: delivered_at.start_year > shipped_at.end_year
+    assert delivered["params"]["start_year"] > shipped["params"]["end_year"], (
+        f"Rule #22 must isolate ranges for 3-column nested CHECK: "
+        f"delivered.start={delivered['params']['start_year']}, "
+        f"shipped.end={shipped['params']['end_year']}"
+    )
 
 

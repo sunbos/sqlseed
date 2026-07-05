@@ -487,7 +487,15 @@ class StagedSchemaAnalyzer:
                 # rules only read `unique` and `columns` from unique_indexes,
                 # so we omit `name` entirely (cleaner than a synthetic name).
                 "unique_indexes": [{"columns": list(u.columns), "unique": True} for u in t.unique_constraints],
-                "unique_columns": [col for u in t.unique_constraints for col in u.columns],
+                # Only SINGLE-column UNIQUE constraints make a column individually
+                # unique. Composite UNIQUE (e.g., UNIQUE(tenant_id, email)) does NOT
+                # make either column individually unique — the uniqueness is on the
+                # combination. Including composite-UNIQUE columns here would cause
+                # Rule #24/#30 to mark them as unique, triggering UNIQUE exhaustion
+                # at fill time. Mirrors the fix in _is_column_unique().
+                "unique_columns": [
+                    col for u in t.unique_constraints if len(u.columns) == 1 for col in u.columns
+                ],
                 "check_constraints": [
                     {"name": c.name, "columns": list(c.columns), "expression": c.expression}
                     for c in t.check_constraints
@@ -875,8 +883,23 @@ class StagedSchemaAnalyzer:
         return "|".join(parts)
 
     def _is_column_unique(self, table: TableFeatures, column_name: str) -> bool:
-        """Check if column is UNIQUE."""
-        return any(column_name in uc.columns for uc in table.unique_constraints)
+        """Check if column is INDIVIDUALLY UNIQUE (single-column constraint only).
+
+        Composite UNIQUE constraints (e.g., ``UNIQUE(tenant_id, email)``) do
+        NOT make any individual column unique — the uniqueness is on the
+        combination. Marking a composite-UNIQUE column as individually unique
+        causes the LLM to set ``constraints: {unique: true}`` on that column,
+        which triggers UNIQUE exhaustion at fill time when the column's range
+        is smaller than the row count (e.g., 1000 tenants for 1000 users
+        forces a 1:1 mapping that the retry loop cannot satisfy).
+
+        Only returns ``True`` when the column appears in a SINGLE-column
+        UNIQUE constraint (``len(uc.columns) == 1``).
+        """
+        return any(
+            column_name in uc.columns and len(uc.columns) == 1
+            for uc in table.unique_constraints
+        )
 
     def _format_fks_for_prompt(self, table: TableFeatures) -> str:
         """Format FKs for prompt injection."""
@@ -1219,6 +1242,11 @@ class Stage3Validator:
             # generator (or were stripped by Rule #17, which runs later).
             if table_schema:
                 self._apply_rule_27_missing_generator_with_check_inference(table, table_schema)
+                # Rule #31 runs BEFORE column-level rules: strips ``unique: true``
+                # from columns that are ONLY in composite UNIQUE constraints.
+                # Must run before Rule #24 (which upgrades UNIQUE strings to
+                # template) and Rule #30 (which checks uniqueness for type fixes).
+                self._apply_rule_31_strip_composite_unique(table, table_schema)
             for col in table.get("columns", []):
                 if not isinstance(col, dict):
                     continue
@@ -1457,6 +1485,78 @@ class Stage3Validator:
                     bounded=new_val,
                 )
                 params[key] = new_val
+
+    def _apply_rule_31_strip_composite_unique(
+        self, table: dict[str, Any], table_schema: dict[str, Any]
+    ) -> None:
+        """Rule #31: strip ``unique: true`` from composite-UNIQUE-only columns.
+
+        A composite UNIQUE constraint (e.g., ``UNIQUE(tenant_id, email)``)
+        does NOT make any individual column unique — the uniqueness is on the
+        combination. However, the LLM sometimes marks composite-UNIQUE columns
+        as individually unique (``constraints: {unique: true}``), which causes
+        UNIQUE exhaustion at fill time when the column's range is smaller than
+        the row count.
+
+        This rule scans ``unique_indexes`` in the table schema to identify
+        columns that appear ONLY in composite UNIQUE constraints (``len(columns) > 1``)
+        and NOT in any single-column UNIQUE constraint. For each such column,
+        it removes ``unique: true`` from the column's ``constraints`` dict.
+
+        Columns in single-column UNIQUE constraints are left unchanged — they
+        ARE individually unique and Rule #24 may upgrade them to template.
+
+        Defensive: this rule runs even though ``_is_column_unique()`` and the
+        ``unique_columns`` schema field were already fixed to exclude composite
+        columns, because the LLM may set ``unique: true`` based on column-name
+        heuristics (e.g., ``tenant_id`` looks like a unique identifier) rather
+        than the schema info.
+        """
+        unique_indexes = table_schema.get("unique_indexes")
+        if not isinstance(unique_indexes, list):
+            return
+
+        # Build sets: columns in single-col UNIQUE vs composite UNIQUE
+        single_unique_cols: set[str] = set()
+        composite_unique_cols: set[str] = set()
+        for idx in unique_indexes:
+            if not isinstance(idx, dict):
+                continue
+            cols = idx.get("columns")
+            if not isinstance(cols, list):
+                continue
+            if len(cols) == 1:
+                single_unique_cols.add(cols[0])
+            elif len(cols) > 1:
+                composite_unique_cols.update(cols)
+
+        # Columns that are ONLY in composite UNIQUE (not in any single-col UNIQUE)
+        composite_only = composite_unique_cols - single_unique_cols
+        if not composite_only:
+            return
+
+        for col in table.get("columns", []):
+            if not isinstance(col, dict):
+                continue
+            col_name = col.get("name")
+            if not isinstance(col_name, str) or col_name not in composite_only:
+                continue
+            constraints = col.get("constraints")
+            if not isinstance(constraints, dict):
+                continue
+            if constraints.get("unique"):
+                constraints.pop("unique", None)
+                # If constraints dict is now empty, remove it to keep the
+                # column config clean (Pydantic accepts empty dict but it's
+                # noise in the YAML output).
+                if not constraints:
+                    col.pop("constraints", None)
+                logger.warning(
+                    "Stage3 Rule #31: stripping unique flag from composite-UNIQUE column",
+                    column=col_name,
+                    reason="composite UNIQUE does not make individual column unique; "
+                           "keeping unique:true would cause UNIQUE exhaustion at fill time",
+                )
 
     def _apply_rule_28_exact_match_upgrade(
         self, col: dict[str, Any], table_schema: dict[str, Any] | None = None
@@ -2524,7 +2624,7 @@ class Stage3Validator:
     ) -> None:
         """Rule #27: fill missing generators + infer derive_from from cross-column CHECKs.
 
-        Two scenarios:
+        Three scenarios:
 
         1. **Column missing generator + participates in cross-column CHECK where
            the OTHER column has a generator**: infer ``derive_from`` + ``expression``
@@ -2535,7 +2635,14 @@ class Stage3Validator:
            ``expression: "value + random_float(0, value)"`` (ensures
            ``sale_price >= cost_price``).
 
-        2. **Column missing generator + no usable cross-column CHECK**: fall
+        2. **Orphan derive_from (has ``derive_from`` but NO ``expression``)**:
+           LLM hallucination where the model set ``derive_from`` but forgot the
+           ``expression``. Try to infer the expression from cross-column CHECKs
+           (the CHECK is authoritative — if it names a different source column
+           than the LLM's guess, the inferred source wins). If inference fails,
+           strip ``derive_from`` and fall back to a type-routed generator (scenario 3).
+
+        3. **Column missing generator + no usable cross-column CHECK**: fall
            back to a type-routed generator based on the column's SQL type
            (INTEGER → integer, REAL → float, DATE → date with default year
            range, etc.). The date/datetime fallback includes default
@@ -2548,8 +2655,8 @@ class Stage3Validator:
 
         Skips:
           - Columns that already have a generator (``generator`` is not None)
-          - Columns with ``derive_from`` already set (derived mode, no
-            generator needed)
+          - Columns with BOTH ``derive_from`` AND ``expression`` (derived mode,
+            fully configured)
         """
         checks = table_schema.get("check_constraints", [])
         if not isinstance(checks, list):
@@ -2582,15 +2689,52 @@ class Stage3Validator:
         for col in table.get("columns", []):
             if not isinstance(col, dict):
                 continue
-            # Skip columns that already have a generator or derive_from
+            # Skip columns that already have a generator (source mode, fully
+            # configured — Rule #27 has nothing to do).
             if col.get("generator") is not None:
                 continue
-            if col.get("derive_from"):
+            # Skip columns that have BOTH derive_from AND expression (derived
+            # mode, fully configured). Do NOT skip orphan derive_from (has
+            # derive_from but NO expression) — these are LLM hallucinations
+            # where the model set derive_from but forgot the expression. We
+            # handle them below by inferring the expression from cross-column
+            # CHECKs, or stripping derive_from and falling back to a
+            # type-routed generator.
+            if col.get("derive_from") and col.get("expression"):
                 continue
 
             col_name = col.get("name")
             if not isinstance(col_name, str):
                 continue
+
+            # Orphan derive_from: has derive_from but NO expression. Try to
+            # infer the expression from cross-column CHECKs; if that fails,
+            # strip derive_from and fall through to type-routed fallback.
+            # The CHECK constraint is authoritative — if it names a different
+            # source column than the LLM's guess, the inferred source wins.
+            if col.get("derive_from") and not col.get("expression"):
+                inferred = self._try_infer_derive_from_check(
+                    col_name, checks, col_configs, original_has_generator
+                )
+                if inferred is not None:
+                    source_col, expression = inferred
+                    col["derive_from"] = [source_col]
+                    col["expression"] = expression
+                    logger.warning(
+                        "Stage3 Rule #27: inferred expression for orphan derive_from",
+                        column=col_name,
+                        source_column=source_col,
+                        expression=expression,
+                    )
+                    continue
+                # Inference failed: strip the orphan derive_from and fall
+                # through to type-routed fallback below.
+                col.pop("derive_from", None)
+                logger.warning(
+                    "Stage3 Rule #27: stripping orphan derive_from (no expression, "
+                    "no matching cross-column CHECK for inference)",
+                    column=col_name,
+                )
 
             # Scenario 1: try to infer derive_from from cross-column CHECK.
             # Only derive from columns that ORIGINALLY had a generator —
@@ -3672,6 +3816,11 @@ class Stage3Validator:
             (NULL-allowed time-chain pattern, common in state-machine schemas
             like ``shipped_at IS NULL OR shipped_at >= placed_at``)
           - ``<earlier_col> IS NULL OR <earlier_col> (<=|<) <later_col>``
+          - ``<later_col> IS NULL OR (<guard_col> IS NOT NULL AND <later_col> (>=|>) <earlier_col>)``
+            (3-column nested NULL-OR pattern, common in state-machine schemas
+            like ``delivered_at IS NULL OR (shipped_at IS NOT NULL AND delivered_at >= shipped_at)``.
+            The ``<guard_col> IS NOT NULL AND`` prefix is stripped to isolate
+            the comparison clause.)
 
         Returns:
             ``(later_col_name, earlier_col_name)`` if the expression matches a
@@ -3693,6 +3842,28 @@ class Stage3Validator:
         if null_prefix:
             expr_stripped = null_prefix.group(2).strip()
             # Strip optional surrounding parentheses: ``(a >= b)``
+            if expr_stripped.startswith("(") and expr_stripped.endswith(")"):
+                expr_stripped = expr_stripped[1:-1].strip()
+        # Strip optional ``<guard_col> IS NOT NULL AND`` prefix.
+        # This handles the 3-column nested NULL-OR pattern common in
+        # state-machine schemas:
+        #   ``delivered_at IS NULL OR (shipped_at IS NOT NULL AND delivered_at >= shipped_at)``
+        # After the NULL-OR prefix and paren stripping above, the remaining
+        # expression is ``shipped_at IS NOT NULL AND delivered_at >= shipped_at``.
+        # We strip the leading ``<col> IS NOT NULL AND `` clause to isolate the
+        # comparison. The guard column is NOT captured — only the comparison
+        # result (later_col, earlier_col) is returned. Rule #22 uses the result
+        # to isolate year ranges; the guard column's nullability is handled by
+        # the date generator's own NULL production (Rule #23).
+        not_null_prefix = re.match(
+            r"^\s*\w+\s+IS\s+NOT\s+NULL\s+AND\s+(.*)$",
+            expr_stripped,
+            flags=re.IGNORECASE,
+        )
+        if not_null_prefix:
+            expr_stripped = not_null_prefix.group(1).strip()
+            # Strip optional surrounding parentheses again (in case the
+            # comparison clause was wrapped): ``(delivered_at >= shipped_at)``
             if expr_stripped.startswith("(") and expr_stripped.endswith(")"):
                 expr_stripped = expr_stripped[1:-1].strip()
         # Pattern: later_col >= earlier_col  (or >)
