@@ -709,12 +709,30 @@ def ai_analyze(
                 kept_tables = [t for t in existing_tables if t.get("name") not in regenerated_names]
                 config_dict["tables"] = config_dict.get("tables", []) + kept_tables
 
-            # Inject db_path / url so the generated YAML is directly fillable
-            # by `sqlseed fill --config <yaml>` without manual editing.
+            # Inject db_path/url + provider + locale so the generated YAML is
+            # directly fillable by `sqlseed fill --config <yaml>` and matches
+            # the field order of `ai-suggest` (db_path → provider → locale →
+            # tables). Rebuilding the dict (instead of mutating in place)
+            # guarantees a stable, human-readable top-level key order,
+            # because PyYAML respects insertion order when sort_keys=False.
+            # Reference: config/models.py GeneratorConfig defaults
+            #   provider: ProviderType.MIMESIS
+            #   locale:   "en_US"
+            tables = config_dict.get("tables", [])
+            rebuilt: dict[str, Any] = {}
             if db_url:
-                config_dict["url"] = db_url
+                rebuilt["url"] = db_url
             else:
-                config_dict["db_path"] = db_path
+                rebuilt["db_path"] = db_path
+            rebuilt["provider"] = config_dict.pop("provider", "mimesis")
+            rebuilt["locale"] = config_dict.pop("locale", "en_US")
+            rebuilt["tables"] = tables
+            # Preserve any remaining unexpected keys after the standard ones
+            # (forward-compat for analyzer-added metadata without reordering).
+            for k, v in config_dict.items():
+                if k not in rebuilt:
+                    rebuilt[k] = v
+            config_dict = rebuilt
 
             output_path = Path(output)
             output_path.parent.mkdir(parents=True, exist_ok=True)

@@ -105,6 +105,47 @@ class TestAiAnalyzeCommand:
             assert call_kwargs.get("include_dependencies") is False
 
 
+def test_ai_analyze_yaml_has_correct_field_order(
+    cli_runner: CliRunner, tmp_db_full: str, tmp_path: Path
+) -> None:
+    """ai-analyze YAML output should have db_path → provider → locale → tables order.
+
+    Regression test: previously the ai-analyze path mutated ``config_dict``
+    in place by appending ``db_path`` at the end (after tables), and entirely
+    omitted ``provider`` and ``locale``. That produced YAML that was harder
+    to read (connection target buried at the bottom) and inconsistent with
+    the ``ai-suggest`` path (which uses ``_write_ai_output`` to build a
+    properly ordered dict). This test pins the canonical top-level key
+    order so both paths converge on the same human-readable layout.
+    """
+    import yaml
+    from sqlseed_ai.cli.ai_commands import ai_analyze
+
+    out_path = tmp_path / "field_order_out.yaml"
+    with (
+        patch("sqlseed_ai.cli.ai_commands._build_ai_config", return_value=_fake_ai_config()),
+        patch("sqlseed_ai.cli.ai_commands.SchemaSemanticAnalyzer") as mock_analyzer,
+    ):
+        mock_inst = mock_analyzer.return_value
+        mock_inst.analyze.return_value = {"tables": [{"name": "users"}]}
+        result = cli_runner.invoke(
+            ai_analyze,
+            ["--db", str(tmp_db_full), "--output", str(out_path)],
+        )
+        assert result.exit_code == 0
+
+    data = yaml.safe_load(out_path.read_text(encoding="utf-8"))
+    keys = list(data.keys())
+    # Canonical order: connection target first, then provider/locale, then tables
+    assert keys == ["db_path", "provider", "locale", "tables"], (
+        f"Expected [db_path, provider, locale, tables], got {keys}"
+    )
+    assert data["db_path"] == str(tmp_db_full)
+    assert data["provider"] == "mimesis"
+    assert data["locale"] == "en_US"
+    assert data["tables"] == [{"name": "users"}]
+
+
 def test_ai_analyze_command_accepts_staged_pipeline_flag() -> None:
     """ai-analyze command accepts --staged-pipeline flag."""
     from sqlseed_ai.cli.ai_commands import ai_analyze
