@@ -156,10 +156,22 @@ class SpecResolverMixin:
         unique_columns: set[str],
         transform: str | None,
         seed: int | None,
+        table_name: str | None = None,
     ) -> DataStream:
         dag = ColumnDAG()
         col_configs_list = list(user_configs.values()) if user_configs else None
-        dag_nodes = dag.build(generator_specs, col_configs_list, unique_columns=unique_columns)
+        # Fetch column_infos (when table_name is known) so the DAG can propagate
+        # NOT NULL semantics onto each ColumnNode — the stream uses this to
+        # suppress null_ratio-driven NULLs for NOT NULL columns.
+        column_infos = None
+        if table_name is not None:
+            column_infos = self._schema.get_column_info(table_name)
+        dag_nodes = dag.build(
+            generator_specs,
+            col_configs_list,
+            unique_columns=unique_columns,
+            column_infos=column_infos,
+        )
 
         expr_engine = ExpressionEngine(db_adapter=self._db)
         constraint_solver = ConstraintSolver()

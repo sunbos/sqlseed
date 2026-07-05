@@ -1,4 +1,5 @@
 """Tests for validator data models (Section 4.2)."""
+
 from __future__ import annotations
 
 from sqlseed_ai.validator.models import (
@@ -11,7 +12,8 @@ from sqlseed_ai.validator.models import (
 
 def test_violation_report_defaults():
     v = ViolationReport(
-        table="users", columns=["email"],
+        table="users",
+        columns=["email"],
         constraint_type=ConstraintType.UNIQUE,
         severity="crash",
     )
@@ -38,10 +40,14 @@ def test_validation_result_is_clean_flag():
     clean = ValidationResult(violations=[], column_groups=[])
     assert clean.is_clean is True
     dirty = ValidationResult(
-        violations=[ViolationReport(
-            table="t", columns=["c"],
-            constraint_type=ConstraintType.CHECK, severity="crash",
-        )],
+        violations=[
+            ViolationReport(
+                table="t",
+                columns=["c"],
+                constraint_type=ConstraintType.CHECK,
+                severity="crash",
+            )
+        ],
         column_groups=[],
     )
     assert dirty.is_clean is False
@@ -50,8 +56,10 @@ def test_validation_result_is_clean_flag():
 def test_violation_report_message_field():
     """Adversarial fix (C3): message field exists for LLMHealer prompt building."""
     v = ViolationReport(
-        table="t", columns=["c"],
-        constraint_type=ConstraintType.CHECK, severity="crash",
+        table="t",
+        columns=["c"],
+        constraint_type=ConstraintType.CHECK,
+        severity="crash",
         message="CHECK constraint failed: price >= 0",
     )
     assert v.message == "CHECK constraint failed: price >= 0"

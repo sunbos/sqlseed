@@ -1,4 +1,5 @@
 """Tests for SingleColumnValidator (2a) — sparse matrix contract check."""
+
 from __future__ import annotations
 
 from sqlseed_ai.contracts.builtin_violations import BUILTIN_VIOLATIONS
@@ -64,12 +65,7 @@ def test_validate_passes_compatible_combo():
 def test_compute_cardinality_choice():
     resolver = ContractResolver(BUILTIN_VIOLATIONS, set())
     validator = SingleColumnValidator(resolver)
-    assert (
-        validator._compute_cardinality(
-            {"generator": "choice", "params": {"choices": ["a", "b", "c"]}}, 100
-        )
-        == 3
-    )
+    assert validator._compute_cardinality({"generator": "choice", "params": {"choices": ["a", "b", "c"]}}, 100) == 3
 
 
 def test_compute_cardinality_integer_robust_defaults():
@@ -79,12 +75,7 @@ def test_compute_cardinality_integer_robust_defaults():
     # No params at all -> robust default
     assert validator._compute_cardinality({"generator": "integer"}, 100) == 10000
     # Only min_value -> max defaults to 9999
-    assert (
-        validator._compute_cardinality(
-            {"generator": "integer", "params": {"min_value": 5}}, 100
-        )
-        == 9995
-    )
+    assert validator._compute_cardinality({"generator": "integer", "params": {"min_value": 5}}, 100) == 9995
 
 
 def test_compute_cardinality_template_infinite():
@@ -100,21 +91,14 @@ def test_compute_cardinality_string():
     # Default max_length=10
     assert validator._compute_cardinality({"generator": "string"}, 100) == 62**10
     # Custom max_length=4
-    assert (
-        validator._compute_cardinality(
-            {"generator": "string", "params": {"max_length": 4}}, 100
-        )
-        == 62**4
-    )
+    assert validator._compute_cardinality({"generator": "string", "params": {"max_length": 4}}, 100) == 62**4
 
 
 def test_compute_cardinality_unknown_generator_returns_row_count():
     """Unknown generators get optimistic row_count cardinality."""
     resolver = ContractResolver(BUILTIN_VIOLATIONS, set())
     validator = SingleColumnValidator(resolver)
-    assert (
-        validator._compute_cardinality({"generator": "unknown_gen"}, 500) == 500
-    )
+    assert validator._compute_cardinality({"generator": "unknown_gen"}, 500) == 500
 
 
 def test_validate_flags_random_float_on_integer_column():

@@ -15,13 +15,10 @@ At startup the FK graph is processed:
      finishes, nullable FK ranges are aligned to parent values so that
      referential integrity is restored without re-creating the cycle.
 """
+
 from __future__ import annotations
 
 from typing import Any
-
-from sqlseed._utils.logger import get_logger
-
-logger = get_logger(__name__)
 
 
 class TarjanSCC:
@@ -92,7 +89,8 @@ class SubgraphSplitter:
         self._max_scc_size = max_scc_size
 
     def split(
-        self, graph: dict[str, list[str]],
+        self,
+        graph: dict[str, list[str]],
     ) -> tuple[list[list[str]], list[tuple[str, str]]]:
         """Return (subgraphs, broken_edges).
 
@@ -116,7 +114,9 @@ class SubgraphSplitter:
         return subgraphs, broken
 
     def _break_megacluster(
-        self, scc: list[str], graph: dict[str, list[str]],
+        self,
+        scc: list[str],
+        graph: dict[str, list[str]],
     ) -> tuple[list[list[str]], list[tuple[str, str]]]:
         """Break a megacluster by removing cycle edges until chunks are <= max_size."""
         scc_set = set(scc)
@@ -139,10 +139,6 @@ class SubgraphSplitter:
                 sub_graph[src].append(dst)
             sub_sccs = TarjanSCC.find_sccs(sub_graph)
             if all(len(s) <= self._max_scc_size for s in sub_sccs):
-                return sub_sccs, broken
-            if not remaining_edges:
-                # Cannot break further — return as-is
-                logger.warning("Megacluster could not be fully broken", size=len(scc))
                 return sub_sccs, broken
             # Remove the last edge (simple heuristic; real impl could pick
             # the nullable FK edge via SchemaSnapshot metadata)

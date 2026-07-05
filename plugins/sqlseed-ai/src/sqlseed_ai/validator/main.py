@@ -2,6 +2,7 @@
 
 Spec reference: Section 4.7, 14.3.
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
@@ -58,10 +59,7 @@ class FastValidator:
             table_meta = snapshot.tables.get(table_config["name"])
             if table_meta is not None:
                 table_schema: dict[str, Any] = {
-                    "columns": [
-                        {"name": c, "type": table_meta.column_types[c]}
-                        for c in table_meta.columns
-                    ],
+                    "columns": [{"name": c, "type": table_meta.column_types[c]} for c in table_meta.columns],
                     "constraints": table_meta.constraints,
                 }
             else:
@@ -71,9 +69,7 @@ class FastValidator:
             all_violations.extend(self._cross.validate(table_config, table_schema, snapshot))
 
         if fill_error is not None:
-            report = DialectErrorParser.parse(
-                fill_error, dialect, table=None, snapshot=snapshot
-            )
+            report = DialectErrorParser.parse(fill_error, dialect, table=None, snapshot=snapshot)
             if report is not None:
                 # Section 14.3: shadow scan for SQLite FK with empty columns
                 if (
@@ -82,9 +78,7 @@ class FastValidator:
                     and dialect == "sqlite"
                     and batch is not None
                 ):
-                    scanner = ShadowFKScanner(
-                        db_path=self._db_path, snapshot=snapshot, url=self._url
-                    )
+                    scanner = ShadowFKScanner(db_path=self._db_path, snapshot=snapshot, url=self._url)
                     report = scanner.scan(report, batch)
                 all_violations.append(report)
 

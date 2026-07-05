@@ -7,6 +7,7 @@ them in production.
 
 Runs in-memory SQLite to avoid CI timeouts (per user requirement).
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -17,22 +18,61 @@ from sqlseed_ai.contracts.builtin_violations import BUILTIN_VIOLATIONS
 from sqlseed_ai.contracts.matrix import ContractResolver, ViolationKind
 
 # Generators that actually exist in the dispatch map
-GENERATORS = st.sampled_from([
-    "integer", "float", "string", "text", "boolean", "date", "datetime",
-    "email", "uuid", "choice", "name", "first_name", "last_name",
-    "phone_number", "address", "city", "country", "url", "ipv4", "ipv6",
-    "random_int", "random_float", "random_string",
-])
+GENERATORS = st.sampled_from(
+    [
+        "integer",
+        "float",
+        "string",
+        "text",
+        "boolean",
+        "date",
+        "datetime",
+        "email",
+        "uuid",
+        "choice",
+        "name",
+        "first_name",
+        "last_name",
+        "phone_number",
+        "address",
+        "city",
+        "country",
+        "url",
+        "ipv4",
+        "ipv6",
+        "random_int",
+        "random_float",
+        "random_string",
+    ]
+)
 
 # Column types that actually appear in real schemas
-COLUMN_TYPES = st.sampled_from([
-    "INTEGER", "INT", "BIGINT", "SMALLINT", "TINYINT", "MEDIUMINT",
-    "REAL", "FLOAT", "DOUBLE", "DECIMAL", "NUMERIC",
-    "TEXT", "VARCHAR", "CHAR", "CLOB",
-    "TIMESTAMP", "DATETIME", "DATE", "TIME",
-    "BLOB", "BINARY",
-    "BOOLEAN",
-])
+COLUMN_TYPES = st.sampled_from(
+    [
+        "INTEGER",
+        "INT",
+        "BIGINT",
+        "SMALLINT",
+        "TINYINT",
+        "MEDIUMINT",
+        "REAL",
+        "FLOAT",
+        "DOUBLE",
+        "DECIMAL",
+        "NUMERIC",
+        "TEXT",
+        "VARCHAR",
+        "CHAR",
+        "CLOB",
+        "TIMESTAMP",
+        "DATETIME",
+        "DATE",
+        "TIME",
+        "BLOB",
+        "BINARY",
+        "BOOLEAN",
+    ]
+)
 
 # Constraint combinations
 CONSTRAINTS = st.lists(
@@ -54,7 +94,8 @@ CONSTRAINTS = st.lists(
 def test_matrix_lookup_never_crashes(generator, column_type, constraints):
     """Property: ContractResolver.check() never raises for any input combo."""
     resolver = ContractResolver(
-        builtin=set(BUILTIN_VIOLATIONS), learned=set(),
+        builtin=set(BUILTIN_VIOLATIONS),
+        learned=set(),
     )
     # Must not raise — gaps are returned as None, not exceptions
     result = resolver.check(
@@ -81,7 +122,8 @@ def test_known_crash_combinations_have_fix(generator, column_type, constraints):
     """Property: known crash combinations (e.g. integer on TIMESTAMP) must
     have a matching contract with a non-empty fix_strategy."""
     resolver = ContractResolver(
-        builtin=set(BUILTIN_VIOLATIONS), learned=set(),
+        builtin=set(BUILTIN_VIOLATIONS),
+        learned=set(),
     )
     # Config that triggers conditional predicates (code-like name + small pool)
     config = {"name": "code", "pool_size": 5, "row_count": 100}

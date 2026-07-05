@@ -7,6 +7,7 @@ are usually unnamed, so we parse error text directly).
 
 Spec reference: Section 7.4, 14.1.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -209,8 +210,7 @@ def write_yaml_with_optimistic_lock(
     """[Defense 8] Verify schema unchanged before writing YAML."""
     if not snapshot.validate_against_current(db_path=db_path, url=url):
         raise SchemaDriftError(
-            "Database schema has changed since analysis started. "
-            "Please re-run ai-analyze to get a fresh snapshot."
+            "Database schema has changed since analysis started. Please re-run ai-analyze to get a fresh snapshot."
         )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", encoding="utf-8") as f:

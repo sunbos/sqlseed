@@ -20,6 +20,13 @@ if TYPE_CHECKING:
 _NATIVE_MISS = object()
 logger = get_logger(__name__)
 
+# Maximum total retries for a single row before giving up. When backtracking
+# is triggered (a derived column's source values conflict with a UNIQUE
+# constraint), the retry counter is incremented. 1000 is generous enough to
+# resolve realistic UNIQUE conflicts on small-to-medium value spaces while
+# bounding the worst-case cost per row.
+MAX_ROW_RETRIES = 1000
+
 
 class DataStream:
     """Batch data stream generator.
@@ -122,7 +129,7 @@ class DataStream:
                 raise ConfigurationError(f"Expression misconfigured: {exc}") from exc
 
         try:
-            return self._apply_generator(node.generator_spec, exclude_values=exclude_values)
+            return self._apply_generator(node.generator_spec, exclude_values=exclude_values, nullable=node.nullable)
         except (TypeError, AttributeError) as exc:
             raise ConfigurationError(f"Generator '{node.generator_spec.generator_name}' misconfigured: {exc}") from exc
         except (ValueError, OverflowError) as exc:
@@ -306,7 +313,7 @@ class DataStream:
             RuntimeError: Raised when constraints cannot be satisfied after the
                 maximum number of retries.
         """
-        max_total_retries = 1000
+        max_total_retries = MAX_ROW_RETRIES
         total_retries = 0
 
         while total_retries < max_total_retries:
@@ -364,11 +371,17 @@ class DataStream:
                 return i
         return None
 
-    def _apply_generator(self, spec: GeneratorSpec, *, exclude_values: set[Any] | None = None) -> Any:
+    def _apply_generator(
+        self,
+        spec: GeneratorSpec,
+        *,
+        exclude_values: set[Any] | None = None,
+        nullable: bool = True,
+    ) -> Any:
         """Apply a generator spec to produce a value.
 
         Processing order:
-        1. If ``null_ratio`` hits, return ``None``;
+        1. If ``null_ratio`` hits AND the column is nullable, return ``None``;
         2. Try a native method (direct faker/mimesis call) — skipped when
            ``exclude_values`` is non-empty, because native methods don't
            support exclude and would bypass the dispatch-layer retry loop;
@@ -382,12 +395,25 @@ class DataStream:
             exclude_values: Optional set of values to avoid (UNIQUE-constrained
                 columns). Passed to ``provider.generate`` for the dispatch
                 layer's retry-with-exclude logic.
+            nullable: Whether the target column accepts NULL. When ``False``
+                (NOT NULL column), the null_ratio branch is suppressed even if
+                ``spec.null_ratio > 0`` — producing a NULL would violate the
+                NOT NULL constraint. A warning is logged once per such column.
 
         Returns:
             The generated value.
         """
-        if spec.null_ratio > 0 and self._rng.random() < spec.null_ratio:
-            return None
+        if spec.null_ratio > 0:
+            if not nullable:
+                # NOT NULL column with null_ratio > 0 — producing NULL would
+                # violate the constraint. Log a warning and fall through to
+                # generate a real value instead.
+                logger.warning(
+                    "Column is NOT NULL but null_ratio > 0; suppressing null generation",
+                    null_ratio=spec.null_ratio,
+                )
+            elif self._rng.random() < spec.null_ratio:
+                return None
 
         # Skip native method when exclude_values is needed — native methods
         # (faker/mimesis direct calls via native_faker_method/native_mimesis_method)

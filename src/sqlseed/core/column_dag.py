@@ -9,9 +9,12 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlseed.core.mapper import GeneratorSpec
+
+if TYPE_CHECKING:
+    from sqlseed.database._protocol import ColumnInfo
 
 
 @dataclass
@@ -35,6 +38,7 @@ class ColumnNode:
     expression: str | None = None  # derived expression
     constraints: ColumnConstraints | None = None  # constraints
     is_derived: bool = False  # whether this is a derived column
+    nullable: bool = True  # whether the column accepts NULL (from schema)
 
     @property
     def is_skip(self) -> bool:
@@ -50,6 +54,7 @@ class ColumnDAG:
         specs: dict[str, GeneratorSpec],
         column_configs: list[Any] | None = None,
         unique_columns: set[str] | None = None,
+        column_infos: list[ColumnInfo] | None = None,
     ) -> list[ColumnNode]:
         """Build a DAG from generator specs and column configs, returning topologically sorted nodes.
 
@@ -57,6 +62,9 @@ class ColumnDAG:
             specs: Mapping of column name to generator spec.
             column_configs: Optional list of column configs, used to extract constraints and derive relationships.
             unique_columns: Optional set of unique constraint columns, used to force-mark unique constraints.
+            column_infos: Optional list of column schema info, used to propagate
+                nullability (``ColumnInfo.nullable``) onto each :class:`ColumnNode`.
+                When ``None``, all nodes default to ``nullable=True``.
 
         Returns:
             Topologically sorted list of ColumnNode, with derived columns placed after their source columns.
@@ -68,6 +76,14 @@ class ColumnDAG:
         config_map: dict[str, Any] = {}
         unique_columns = unique_columns or set()
 
+        # Build a name -> nullable map from schema info so nodes can carry
+        # NOT NULL semantics down to the stream (prevents null_ratio from
+        # producing NULLs that violate a NOT NULL constraint).
+        nullable_map: dict[str, bool] = {}
+        if column_infos is not None:
+            for ci in column_infos:
+                nullable_map[ci.name] = ci.nullable
+
         if column_configs:
             for cc in column_configs:
                 if hasattr(cc, "name"):
@@ -75,12 +91,24 @@ class ColumnDAG:
 
         for col_name, spec in specs.items():
             nodes[col_name] = self._build_node_from_spec(
-                col_name, spec, config_map.get(col_name), col_name in unique_columns
+                col_name,
+                spec,
+                config_map.get(col_name),
+                col_name in unique_columns,
+                nullable=nullable_map.get(col_name, True),
             )
 
         return self._topological_sort(nodes)
 
-    def _build_node_from_spec(self, col_name: str, spec: GeneratorSpec, cc: Any | None, is_unique: bool) -> ColumnNode:
+    def _build_node_from_spec(
+        self,
+        col_name: str,
+        spec: GeneratorSpec,
+        cc: Any | None,
+        is_unique: bool,
+        *,
+        nullable: bool = True,
+    ) -> ColumnNode:
         constraints = None
         expression = None
         depends_on = []
@@ -122,6 +150,7 @@ class ColumnDAG:
             expression=expression,
             constraints=constraints,
             is_derived=is_derived,
+            nullable=nullable,
         )
 
     def _topological_sort(self, nodes: dict[str, ColumnNode]) -> list[ColumnNode]:

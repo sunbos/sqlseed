@@ -6,6 +6,7 @@ Spans all layers: when the total budget is exhausted, the orchestrator
 falls back to deterministic generation (Layer 4d ProgressiveDegrade) for
 any remaining tables.
 """
+
 from __future__ import annotations
 
 import time
@@ -39,5 +40,4 @@ class TimeBudgetController:
     def extend(self, additional_seconds: float) -> None:
         """Extend the total budget (e.g., for retry allocation)."""
         self._total += additional_seconds
-        logger.info("Extended time budget", added=additional_seconds,
-                    new_total=self._total)
+        logger.info("Extended time budget", added=additional_seconds, new_total=self._total)

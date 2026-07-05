@@ -216,10 +216,14 @@ class ConstraintSolver:
         Returns:
             A copy of the set of seen values for the column. Empty set if
             the column has no registered values. In probabilistic mode,
-            returns the hash set (generators cannot avoid duplicates by
-            value comparison since they only see hashes, but the contract
-            still holds).
+            returns an empty set — generators cannot perform value-based
+            exclude against hashes, so we skip the exclude fast-path and
+            rely solely on ``try_register`` hash collision detection to
+            trigger backtracking. Returning the hash set here would cause
+            ``_dispatch.generate`` to compare generated values against
+            hashes (always mismatch), making the exclude logic a no-op
+            while falsely appearing to work.
         """
         if self._probabilistic:
-            return set(self._hash_seen.get(column_name, set()))
+            return set()
         return set(self._seen.get(column_name, set()))

@@ -16,12 +16,15 @@ invokes all such callables at import time so that installing
 
 from __future__ import annotations
 
-import logging
 from importlib.metadata import entry_points
 
 from sqlseed_cli.main import cli, main
 
+from sqlseed._utils.logger import get_logger
+
 __all__ = ["cli", "main"]
+
+_logger = get_logger(__name__)
 
 
 def _register_plugin_commands() -> None:
@@ -29,8 +32,8 @@ def _register_plugin_commands() -> None:
 
     Iterates the ``sqlseed.cli_commands`` entry-point group. Each entry
     point resolves to a callable ``register(cli_group: click.Group) -> None``.
-    Failures are silently ignored so a broken plugin cannot crash the CLI;
-    a debug-level log message is emitted for diagnostics.
+    Failures are logged at WARNING level (not silently swallowed) so users
+    can diagnose missing subcommands without setting SQLSEED_LOG_LEVEL=DEBUG.
     """
     eps = entry_points(group="sqlseed.cli_commands")
 
@@ -45,13 +48,19 @@ def _register_plugin_commands() -> None:
             ValueError,
             RuntimeError,
             OSError,
-        ):
-            # A failing plugin must never break the core CLI; silently skip.
-            # Users who need diagnostics can set SQLSEED_LOG_LEVEL=DEBUG.
-            # Specific exception types are caught rather than bare Exception
-            # to avoid suppressing BaseException subclasses (KeyboardInterrupt,
-            # SystemExit) and to make the resilience contract explicit.
-            logging.getLogger(__name__).debug("Failed to load CLI plugin entry point", extra={"entry_point": ep.name})
+        ) as exc:
+            # A failing plugin must never break the core CLI, but a warning
+            # makes the failure visible by default so users can diagnose
+            # missing subcommands (e.g. ai-suggest not appearing because
+            # sqlseed-ai failed to load). Specific exception types are caught
+            # rather than bare Exception to avoid suppressing BaseException
+            # subclasses (KeyboardInterrupt, SystemExit) and to make the
+            # resilience contract explicit.
+            _logger.warning(
+                "Failed to load CLI plugin entry point",
+                entry_point=ep.name,
+                error=str(exc),
+            )
 
 
 _register_plugin_commands()

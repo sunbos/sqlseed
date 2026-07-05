@@ -180,7 +180,14 @@ class BaseProvider(GeneratorDispatchMixin):
     # ── Text generators ───────────────────────────────────────────────
 
     def _gen_text(self, *, min_length: int = 50, max_length: int = 200) -> str:
-        """Generate text padded to the requested length range."""
+        """Generate text padded to the requested length range.
+
+        Raises:
+            ValueError: When ``min_length > max_length`` — silently swapping or
+                truncating would violate the caller's contract.
+        """
+        if min_length > max_length:
+            raise ValueError(f"min_length ({min_length}) must be <= max_length ({max_length}) for _gen_text")
         n = self._next_id()
         s = self._seeded_id()
         core = f"text_{n:03d}_{s:04d}"
@@ -292,9 +299,15 @@ class BaseProvider(GeneratorDispatchMixin):
         return f"https://example.com/page_{n:03d}_{s:04d}"
 
     def _gen_ipv4(self) -> str:
-        """Generate an IPv4 address."""
-        n = self._next_id()
-        return f"0.0.0.{n}"
+        """Generate an IPv4 address.
+
+        Each octet is constrained to the legal 0-255 range — using the
+        incrementing counter would eventually exceed 255 and produce an
+        illegal address.
+        """
+        self._next_id()
+        octet = self._rng.randint(0, 255)
+        return f"0.0.0.{octet}"
 
     def _gen_uuid(self) -> str:
         """Generate a UUID."""
@@ -324,7 +337,14 @@ class BaseProvider(GeneratorDispatchMixin):
     # ── Other generators ──────────────────────────────────────────────
 
     def _gen_choice(self, choices: list[Any]) -> Any:
-        """Select a value from the given choices."""
+        """Select a value from the given choices.
+
+        Raises:
+            ValueError: When ``choices`` is empty — ``random.choice`` would
+                raise ``IndexError`` which is not actionable for the caller.
+        """
+        if not choices:
+            raise ValueError("_gen_choice requires a non-empty 'choices' list")
         self._next_id()
         return self._rng.choice(choices)
 
@@ -373,8 +393,12 @@ class BaseProvider(GeneratorDispatchMixin):
             Formatted string with placeholders replaced.
         """
         if not hasattr(self, "_template_seq"):
-            self._template_seq: dict[int, int] = {}
-        seq_key = id(template)
+            self._template_seq: dict[str, int] = {}
+        # Use the template string itself as the seq_key — id() can be reused
+        # by the allocator after a string is garbage-collected, causing two
+        # unrelated templates to share a counter. The string value is a stable,
+        # deterministic key.
+        seq_key = template
         if seq_key not in self._template_seq:
             self._template_seq[seq_key] = sequence_start - sequence_step
 
@@ -386,7 +410,9 @@ class BaseProvider(GeneratorDispatchMixin):
         # {random_string:N}
         while "{random_string:" in result:
             start = result.index("{random_string:")
-            end = result.index("}", start)
+            end = result.find("}", start)
+            if end == -1:
+                raise ValueError(f"Malformed template — unmatched '{{' in: {template!r}")
             n = int(result[start + len("{random_string:") : end])
             charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
             replacement = "".join(self._rng.choice(charset) for _ in range(n))
@@ -395,7 +421,9 @@ class BaseProvider(GeneratorDispatchMixin):
         # {random_digits:N}
         while "{random_digits:" in result:
             start = result.index("{random_digits:")
-            end = result.index("}", start)
+            end = result.find("}", start)
+            if end == -1:
+                raise ValueError(f"Malformed template — unmatched '{{' in: {template!r}")
             n = int(result[start + len("{random_digits:") : end])
             replacement = "".join(str(self._rng.randint(0, 9)) for _ in range(n))
             result = result[:start] + replacement + result[end + 1 :]
@@ -403,7 +431,9 @@ class BaseProvider(GeneratorDispatchMixin):
         # {random_int:MIN-MAX}
         while "{random_int:" in result:
             start = result.index("{random_int:")
-            end = result.index("}", start)
+            end = result.find("}", start)
+            if end == -1:
+                raise ValueError(f"Malformed template — unmatched '{{' in: {template!r}")
             range_spec = result[start + len("{random_int:") : end]
             min_v, max_v = range_spec.split("-")
             replacement = str(self._rng.randint(int(min_v), int(max_v)))

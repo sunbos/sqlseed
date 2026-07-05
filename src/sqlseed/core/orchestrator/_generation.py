@@ -13,7 +13,7 @@ import time
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.exc import IntegrityError as SAIntegrityError
-from sqlalchemy.exc import OperationalError as SAOperationalError
+from sqlalchemy.exc import SQLAlchemyError
 
 from sqlseed._utils.logger import get_logger
 from sqlseed._utils.progress import ProgressBackend, create_progress
@@ -113,7 +113,7 @@ class GenerationMixin:
         batch_count = 0
         effective_batch_size = min(batch_size, count)
         if effective_batch_size > 0:
-            desired_batches = max(10, count // effective_batch_size)
+            desired_batches = max(1, min(10, count // effective_batch_size))
             effective_batch_size = max(count // desired_batches, 1)
         own_progress = progress is None
         with contextlib.ExitStack() as stack:
@@ -214,7 +214,9 @@ class GenerationMixin:
                 )
 
                 progress.update(prep_task, description=f"Building data stream for {table_name}...")
-                stream = self._build_stream(generator_specs, user_configs, unique_columns, transform, seed)
+                stream = self._build_stream(
+                    generator_specs, user_configs, unique_columns, transform, seed, table_name=table_name
+                )
 
                 progress.remove_task(prep_task)
                 gen_task = progress.add_task(f"Generating {table_name}", total=count)
@@ -229,7 +231,7 @@ class GenerationMixin:
                     table_name, stream, count, batch_size, progress, gen_task
                 )
 
-            except (ValueError, RuntimeError, OSError, SAOperationalError, SAIntegrityError) as e:
+            except (ValueError, RuntimeError, OSError, TypeError, AttributeError, KeyError, SQLAlchemyError) as e:
                 if isinstance(e, SAIntegrityError) and enrich:
                     logger.warning("Integrity constraint during enrich", table_name=table_name, error=e)
                 else:
@@ -287,7 +289,9 @@ class GenerationMixin:
         generator_specs, user_configs, unique_columns = self._resolve_specs(
             table_name, count, columns, column_configs, enrich
         )
-        stream = self._build_stream(generator_specs, user_configs, unique_columns, transform, seed)
+        stream = self._build_stream(
+            generator_specs, user_configs, unique_columns, transform, seed, table_name=table_name
+        )
 
         result: list[dict[str, Any]] = []
         for batch in stream.generate(count, batch_size=count):

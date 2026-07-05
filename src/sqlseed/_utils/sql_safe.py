@@ -31,7 +31,7 @@ from sqlseed._utils.logger import get_logger
 logger = get_logger(__name__)
 
 _SAFE_IDENTIFIER_RE = re.compile(r"^[a-zA-Z_]\w*$")
-_DANGEROUS_CHARS_RE = re.compile(r"[;\n\r']")
+_DANGEROUS_CHARS_RE = re.compile(r"[\x00;\n\r']")
 
 
 def _sanitize_identifier(name: str) -> str:
@@ -75,6 +75,8 @@ def build_insert_sql(table_name: str, column_names: list[str]) -> str:
     Returns:
         ``INSERT INTO "table" ("col1", "col2") VALUES (?, ?)``
     """
+    if not column_names:
+        raise ValueError("Cannot build INSERT SQL: column_names is empty")
     safe_table = quote_identifier(table_name)
     safe_columns = ", ".join(quote_identifier(col) for col in column_names)
     placeholders = ", ".join(["?"] * len(column_names))

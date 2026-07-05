@@ -10,12 +10,21 @@ etc.). Any match causes the candidate to be silently dropped and logged
 — the LLM may have tried to inject malicious code that would be replayed
 on future runs.
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 from sqlseed_ai.contracts.matrix import ContractViolation, ViolationKind
+
+# Single source of truth for Defense 1 + Defense 7 whitelists lives in
+# contracts/registry.py. Previously diff_learner.py maintained its own
+# copies which drifted out of sync with registry.py — the two lists
+# shared only 2 of 19 strategy names and 6 of 20 forbidden keys, leaving
+# gaps that allowed RCE payloads (e.g. {"expression": "eval('...')"})
+# to slip past DiffLearner's check only to be caught later by registry.
+from sqlseed_ai.contracts.registry import FORBIDDEN_PERSIST_KEYS, SAFE_FIX_STRATEGIES
 
 from sqlseed._utils.logger import get_logger
 
@@ -25,40 +34,22 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
-# Defense 7: keys that, if present in an AppliedFix.after dict, indicate
-# the LLM is trying to persist executable code. Such fixes must NOT be
-# written to the learned contracts registry.
-FORBIDDEN_PERSIST_KEYS: frozenset[str] = frozenset(
-    {
-        "custom_function",
-        "eval",
-        "exec",
-        "__import__",
-        "compile",
-        "globals",
-        "locals",
-        "getattr",
-        "setattr",
-        "delattr",
-        "open",  # file I/O
-        "subprocess",
-        "os",
-        "sys",
-    }
-)
-
-
-# Fix strategies that are safe to persist (whitelist). Strategies not in
-# this set are also rejected, providing a second layer of Defense 7.
-SAFE_FIX_STRATEGIES: frozenset[str] = frozenset(
-    {
-        "switch_generator",
-        "upgrade_to_template",
-        "adjust_params",
-        "coerce_type",
-        "strip_invalid_params",
-        "fix_choice_typo",
-    }
+# Dangerous substrings to scan recursively in string values of the
+# ``after`` dict. Catches payloads like ``"eval('1+1')"`` even when the
+# top-level key is benign (e.g. ``{"params": {"note": "eval('...')"}}``).
+_DANGEROUS_SUBSTRINGS: tuple[str, ...] = (
+    "__import__",
+    "subprocess",
+    "os.system",
+    "os.popen",
+    "eval(",
+    "exec(",
+    "compile(",
+    "globals()",
+    "locals()",
+    "getattr(",
+    "setattr(",
+    "delattr(",
 )
 
 
@@ -112,22 +103,14 @@ class DiffLearner:
         # Build the candidate contract. Predicates are not learned
         # (learned contracts are declarative only — Section 3.2).
         valid_values = {k.value for k in ViolationKind}
-        kind = (
-            ViolationKind(fix.violation_kind)
-            if fix.violation_kind in valid_values
-            else ViolationKind.SEMANTIC_ERROR
-        )
+        kind = ViolationKind(fix.violation_kind) if fix.violation_kind in valid_values else ViolationKind.SEMANTIC_ERROR
         return ContractViolation(
             generator=generator,
             column_type=column_type,
             constraints=constraints,
             kind=kind,
             fix_strategy=fix.fix_strategy,
-            fix_params={
-                k: v
-                for k, v in fix.after.items()
-                if isinstance(v, (str, int, float, bool, list, tuple))
-            },
+            fix_params={k: v for k, v in fix.after.items() if isinstance(v, (str, int, float, bool, list, tuple))},
             predicate=None,
             source="auto_learned",
             learned_at=datetime.now(timezone.utc),
@@ -136,18 +119,31 @@ class DiffLearner:
 
     @staticmethod
     def _contains_forbidden_keys(after: dict[str, Any]) -> bool:
-        """Check the after-dict (recursively one level) for forbidden keys."""
-        for key in after:
-            if key in FORBIDDEN_PERSIST_KEYS:
-                return True
-        # Also scan string values for forbidden substrings (catches
-        # things like {"expression": "eval('1+1')"})
-        for value in after.values():
-            if isinstance(value, str):
-                lowered = value.lower()
-                if any(
-                    forbidden in lowered
-                    for forbidden in ("__import__", "subprocess", "os.system", "os.popen")
-                ):
+        """Recursively check the after-dict for forbidden keys and dangerous substrings.
+
+        Scans the full nested structure (dicts, lists, strings) so LLM
+        payloads hidden inside ``{"params": {"expression": "eval('...')"}}``
+        cannot slip past. Previously this only scanned top-level keys and
+        a 4-item substring allowlist on top-level string values, leaving
+        ``expression`` (the actual RCE entry point) and nested dicts
+        completely unchecked at this layer.
+        """
+
+        def _scan(obj: Any) -> bool:
+            if isinstance(obj, dict):
+                for k, v in obj.items():
+                    if k in FORBIDDEN_PERSIST_KEYS:
+                        return True
+                    if _scan(v):
+                        return True
+            elif isinstance(obj, list):
+                for item in obj:
+                    if _scan(item):
+                        return True
+            elif isinstance(obj, str):
+                lowered = obj.lower()
+                if any(s in lowered for s in _DANGEROUS_SUBSTRINGS):
                     return True
-        return False
+            return False
+
+        return _scan(after)

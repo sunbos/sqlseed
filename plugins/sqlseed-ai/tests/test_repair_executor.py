@@ -1,4 +1,5 @@
 """Tests for RepairExecutor (Section 5.5)."""
+
 from __future__ import annotations
 
 import sqlite3
@@ -47,9 +48,7 @@ def test_executor_repairs_integer_on_timestamp(snapshot: SchemaSnapshot):
     executor = RepairExecutor(REPAIR_STRATEGIES)
     result = executor.repair(config, violations, snapshot)
     assert result.fix_count == 1
-    fixed_col = next(
-        c for c in config["tables"][0]["columns"] if c["name"] == "created_at"
-    )
+    fixed_col = next(c for c in config["tables"][0]["columns"] if c["name"] == "created_at")
     assert fixed_col["generator"] == "datetime"
 
 

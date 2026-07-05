@@ -105,9 +105,7 @@ class TestAiAnalyzeCommand:
             assert call_kwargs.get("include_dependencies") is False
 
 
-def test_ai_analyze_yaml_has_correct_field_order(
-    cli_runner: CliRunner, tmp_db_full: str, tmp_path: Path
-) -> None:
+def test_ai_analyze_yaml_has_correct_field_order(cli_runner: CliRunner, tmp_db_full: str, tmp_path: Path) -> None:
     """ai-analyze YAML output should have db_path → provider → locale → tables order.
 
     Regression test: previously the ai-analyze path mutated ``config_dict``

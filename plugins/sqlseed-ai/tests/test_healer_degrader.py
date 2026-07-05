@@ -1,4 +1,5 @@
 """Tests for healer.degrader module."""
+
 from __future__ import annotations
 
 import sqlite3
@@ -42,13 +43,9 @@ def test_degrade_preserves_successful_columns(snapshot):
     }
     failed = {"email": DegradeReason.LLM_FAILURE}
     new_config, _fixes = degrader.degrade(config, failed, column_groups=[])
-    email_col = next(
-        c for c in new_config["tables"][0]["columns"] if c["name"] == "email"
-    )
+    email_col = next(c for c in new_config["tables"][0]["columns"] if c["name"] == "email")
     assert email_col.get("_degraded") is True
-    id_col = next(
-        c for c in new_config["tables"][0]["columns"] if c["name"] == "id"
-    )
+    id_col = next(c for c in new_config["tables"][0]["columns"] if c["name"] == "id")
     assert id_col.get("_degraded") is not True  # preserved
 
 
@@ -74,11 +71,7 @@ def test_cascade_degrade_covers_derive_from_downstream(snapshot):
     failed = {"email": DegradeReason.LLM_FAILURE}
     new_config, _fixes = degrader.degrade(config, failed, column_groups=[])
     # display_email should be cascaded (degraded) because it derives from email
-    display = next(
-        c
-        for c in new_config["tables"][0]["columns"]
-        if c["name"] == "display_email"
-    )
+    display = next(c for c in new_config["tables"][0]["columns"] if c["name"] == "display_email")
     assert display.get("_degraded") is True
 
 
@@ -112,16 +105,12 @@ def test_cascade_degrade_handles_string_derive_from_no_substring_match(snapshot)
     # display derives from "subtotal_id" (exact match), not "id".
     failed = {"id": DegradeReason.LLM_FAILURE}
     new_config, _fixes = degrader.degrade(config, failed, column_groups=[])
-    display = next(
-        c for c in new_config["tables"][0]["columns"] if c["name"] == "display"
-    )
+    display = next(c for c in new_config["tables"][0]["columns"] if c["name"] == "display")
     assert display.get("_degraded") is not True  # NOT cascaded
     # But subtotal_id-derived column WOULD cascade if subtotal_id fails:
     failed2 = {"subtotal_id": DegradeReason.LLM_FAILURE}
     new_config2, _ = degrader.degrade(config, failed2, column_groups=[])
-    display2 = next(
-        c for c in new_config2["tables"][0]["columns"] if c["name"] == "display"
-    )
+    display2 = next(c for c in new_config2["tables"][0]["columns"] if c["name"] == "display")
     assert display2.get("_degraded") is True  # cascaded via exact string match
 
 
@@ -172,16 +161,10 @@ def test_composite_fk_group_degrades_together(snapshot):
         ]
     }
     failed = {"shop_id": DegradeReason.LLM_FAILURE}
-    new_config, _fixes = degrader.degrade(
-        config, failed, column_groups=[group]
-    )
+    new_config, _fixes = degrader.degrade(config, failed, column_groups=[group])
     # Both shop_id and user_id must be marked degraded (composite group coordination)
-    shop = next(
-        c for c in new_config["tables"][0]["columns"] if c["name"] == "shop_id"
-    )
-    user = next(
-        c for c in new_config["tables"][0]["columns"] if c["name"] == "user_id"
-    )
+    shop = next(c for c in new_config["tables"][0]["columns"] if c["name"] == "shop_id")
+    user = next(c for c in new_config["tables"][0]["columns"] if c["name"] == "user_id")
     assert shop.get("_degraded") is True
     assert user.get("_degraded") is True  # cascaded via group
 
@@ -203,9 +186,7 @@ def test_visited_set_prevents_revisit(snapshot):
     failed = {"a": DegradeReason.LLM_OSCILLATION}
     new_config, _fixes = degrader.degrade(config, failed, column_groups=[])
     # Calling degrade twice must be idempotent for already-degraded columns
-    new_config2, fixes2 = degrader.degrade(
-        new_config, {"a": DegradeReason.LLM_OSCILLATION}, column_groups=[]
-    )
+    new_config2, fixes2 = degrader.degrade(new_config, {"a": DegradeReason.LLM_OSCILLATION}, column_groups=[])
     a_col = next(c for c in new_config2["tables"][0]["columns"] if c["name"] == "a")
     assert a_col.get("_degraded") is True
     # No new fix registered on second pass for the same column

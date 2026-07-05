@@ -1,4 +1,5 @@
 """Tests for LearnedContractsRegistry (Section 3.4, Defenses 1+7)."""
+
 from __future__ import annotations
 
 import json
@@ -17,9 +18,13 @@ if TYPE_CHECKING:
 
 def _make_v(**kwargs):
     defaults = dict(
-        generator="float", column_type="TEXT", constraints=frozenset(),
-        kind=ViolationKind.SEMANTIC_ERROR, fix_strategy="switch_generator",
-        fix_params={"target": "string"}, source="auto_learned",
+        generator="float",
+        column_type="TEXT",
+        constraints=frozenset(),
+        kind=ViolationKind.SEMANTIC_ERROR,
+        fix_strategy="switch_generator",
+        fix_params={"target": "string"},
+        source="auto_learned",
     )
     defaults.update(kwargs)
     return ContractViolation(**defaults)
@@ -71,8 +76,13 @@ def test_forbidden_persist_keys_includes_critical_dangers():
 
 
 def test_safe_fix_strategies_includes_core_strategies():
-    for s in ("switch_generator", "upgrade_to_template", "coerce_float_to_int",
-              "fix_self_reference", "isolate_date_ranges"):
+    for s in (
+        "switch_generator",
+        "upgrade_to_template",
+        "coerce_float_to_int",
+        "fix_self_reference",
+        "isolate_date_ranges",
+    ):
         assert s in SAFE_FIX_STRATEGIES
 
 
@@ -81,10 +91,14 @@ def test_safe_fix_strategies_includes_core_strategies():
 
 def _contract_for_save(generator="integer", col_type="TIMESTAMP", source="auto_learned") -> ContractViolation:
     return ContractViolation(
-        generator=generator, column_type=col_type,
-        constraints=frozenset(), kind=ViolationKind.CRASH,
-        fix_strategy="switch_generator", fix_params={"target": "datetime"},
-        source=source, schema_hash="abc123",
+        generator=generator,
+        column_type=col_type,
+        constraints=frozenset(),
+        kind=ViolationKind.CRASH,
+        fix_strategy="switch_generator",
+        fix_params={"target": "datetime"},
+        source=source,
+        schema_hash="abc123",
     )
 
 
@@ -110,9 +124,14 @@ def test_load_filter_by_schema_hash(tmp_path: Path):
     reg = LearnedContractsRegistry(path=tmp_path / "learned.json")
     c1 = _contract_for_save()
     c2 = ContractViolation(
-        generator="string", column_type="TEXT", constraints=frozenset(),
-        kind=ViolationKind.SEMANTIC_ERROR, fix_strategy="normalize_params",
-        fix_params={}, source="auto_learned", schema_hash="different_hash",
+        generator="string",
+        column_type="TEXT",
+        constraints=frozenset(),
+        kind=ViolationKind.SEMANTIC_ERROR,
+        fix_strategy="normalize_params",
+        fix_params={},
+        source="auto_learned",
+        schema_hash="different_hash",
     )
     reg.save([c1, c2])
     loaded = reg.load(schema_hash="abc123")
@@ -132,13 +151,19 @@ def test_atomic_save_uses_temp_file(tmp_path: Path):
 def test_load_rejects_tampered_rce_entries(tmp_path: Path):
     """Defense 7 re-check: tampered entries with forbidden keys are dropped on load."""
     reg = LearnedContractsRegistry(path=tmp_path / "learned.json")
-    tampered = [{
-        "generator": "string", "column_type": "TEXT",
-        "constraints": [], "kind": "crash",
-        "fix_strategy": "apply_custom_function",  # not in safe whitelist
-        "fix_params": {"custom_function": "lambda x: __import__('os').system(x)"},
-        "source": "auto_learned", "learned_at": None, "schema_hash": "abc123",
-    }]
+    tampered = [
+        {
+            "generator": "string",
+            "column_type": "TEXT",
+            "constraints": [],
+            "kind": "crash",
+            "fix_strategy": "apply_custom_function",  # not in safe whitelist
+            "fix_params": {"custom_function": "lambda x: __import__('os').system(x)"},
+            "source": "auto_learned",
+            "learned_at": None,
+            "schema_hash": "abc123",
+        }
+    ]
     (tmp_path / "learned.json").write_text(json.dumps(tampered), encoding="utf-8")
     loaded = reg.load()
     assert loaded == []

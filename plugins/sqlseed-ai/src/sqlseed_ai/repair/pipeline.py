@@ -3,6 +3,7 @@
 微调2 (Section 5.6): if all violations fixed, skip second global validate.
 Only re-validate modified tables when partial fix.
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
@@ -38,29 +39,17 @@ class RepairPipeline:
         """Validate → repair → (conditionally) re-validate."""
         validation = self._validator.validate(config, snapshot, fill_error, dialect)
         if validation.is_clean:
-            return config, RepairResult(
-                config=config, applied_fixes=[], unfixable=[]
-            )
+            return config, RepairResult(config=config, applied_fixes=[], unfixable=[])
 
-        repair_result = self._executor.repair(
-            config, validation.violations, snapshot
-        )
+        repair_result = self._executor.repair(config, validation.violations, snapshot)
 
         # 微调2: only re-validate if not all fixed (partial fix case)
-        if repair_result.applied_fixes and len(repair_result.applied_fixes) < len(
-            validation.violations
-        ):
+        if repair_result.applied_fixes and len(repair_result.applied_fixes) < len(validation.violations):
             modified_tables = {f.table for f in repair_result.applied_fixes}
             modified_config: dict[str, Any] = {
-                "tables": [
-                    t
-                    for t in config.get("tables", [])
-                    if t["name"] in modified_tables
-                ]
+                "tables": [t for t in config.get("tables", []) if t["name"] in modified_tables]
             }
-            revalidation = self._validator.validate(
-                modified_config, snapshot, None, dialect
-            )
+            revalidation = self._validator.validate(modified_config, snapshot, None, dialect)
             if not revalidation.is_clean:
                 repair_result.unfixable.extend(revalidation.violations)
 

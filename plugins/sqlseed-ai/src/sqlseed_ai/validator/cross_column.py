@@ -5,6 +5,7 @@ semantic relations, and derive_from DAG cycle detection.
 
 Spec reference: Section 4.4.
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
@@ -109,9 +110,7 @@ class CrossColumnValidator:
             derive_from = col.get("derive_from")
             if not derive_from:
                 continue
-            derive_from_list = (
-                [derive_from] if isinstance(derive_from, str) else list(derive_from)
-            )
+            derive_from_list = [derive_from] if isinstance(derive_from, str) else list(derive_from)
             for src in derive_from_list:
                 if src == col_name:
                     result.append(
@@ -129,9 +128,7 @@ class CrossColumnValidator:
                 if src_col:
                     src_df = src_col.get("derive_from")
                     if src_df:
-                        src_df_list = (
-                            [src_df] if isinstance(src_df, str) else list(src_df)
-                        )
+                        src_df_list = [src_df] if isinstance(src_df, str) else list(src_df)
                         if col_name in src_df_list:
                             result.append(
                                 ViolationReport(

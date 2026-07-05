@@ -403,4 +403,3 @@ class LLMCallerMixin:
         )
 
         return self._parse_json_response(content)
-

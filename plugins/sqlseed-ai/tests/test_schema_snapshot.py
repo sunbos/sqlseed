@@ -1,4 +1,5 @@
 """Tests for SchemaSnapshot (Defense 8) + optimistic lock."""
+
 from __future__ import annotations
 
 import sqlite3
@@ -65,17 +66,13 @@ def test_optimistic_lock_raises_on_drift(sqlite_db: Path, tmp_path: Path):
         conn.execute("ALTER TABLE users ADD COLUMN name TEXT")
     out = tmp_path / "out.yaml"
     with pytest.raises(SchemaDriftError):
-        write_yaml_with_optimistic_lock(
-            {"tables": []}, out, snap, db_path=str(sqlite_db)
-        )
+        write_yaml_with_optimistic_lock({"tables": []}, out, snap, db_path=str(sqlite_db))
 
 
 def test_optimistic_lock_writes_when_unchanged(sqlite_db: Path, tmp_path: Path):
     snap = SchemaSnapshot(db_path=str(sqlite_db))
     out = tmp_path / "out.yaml"
-    write_yaml_with_optimistic_lock(
-        {"tables": [{"name": "users"}]}, out, snap, db_path=str(sqlite_db)
-    )
+    write_yaml_with_optimistic_lock({"tables": [{"name": "users"}]}, out, snap, db_path=str(sqlite_db))
     assert out.exists()
 
 

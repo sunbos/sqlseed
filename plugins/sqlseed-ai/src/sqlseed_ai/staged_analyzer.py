@@ -228,11 +228,21 @@ class StagedSchemaAnalyzer:
         new Stage3Validator (rules 14-16)
     """
 
-    def __init__(self, config: AIConfig | None = None) -> None:
+    def __init__(
+        self,
+        config: AIConfig | None = None,
+        *,
+        db_path: str | None = None,
+        url: str | None = None,
+    ) -> None:
         self._config = config
         self._semantic_analyzer: SchemaSemanticAnalyzer | None = None
         self._low_level_analyzer: Any = None  # SchemaAnalyzer, lazy-init
-        self._validator = Stage3Validator()
+        # Pass db_path/url to Stage3Validator so the dual-track pipeline
+        # (RepairPipeline alongside legacy rules) is activated when a DB
+        # connection is available. Without this, _dual_track_enabled is
+        # always False and the new repair path is dead code.
+        self._validator = Stage3Validator(db_path=db_path, url=url)
 
     def _get_low_level_analyzer(self) -> Any:
         """Lazy-init the low-level SchemaAnalyzer used for raw LLM calls.
@@ -967,9 +977,7 @@ _GENERIC_GENERATORS: frozenset[str] = frozenset({"string", "text", "word"})
 
 # Generators that produce numeric/boolean values — incompatible with
 # DATE/TIMESTAMP columns (Rule #30 detects this mismatch).
-_NUMERIC_BOOLEAN_GENERATORS: frozenset[str] = frozenset(
-    {"integer", "float", "boolean", "random_int", "random_float"}
-)
+_NUMERIC_BOOLEAN_GENERATORS: frozenset[str] = frozenset({"integer", "float", "boolean", "random_int", "random_float"})
 
 # Generators that produce date/datetime values — incompatible with
 # INTEGER/REAL columns (Rule #30 detects this mismatch).
@@ -1050,9 +1058,7 @@ class Stage3Validator:
                 from sqlseed_ai.repair.pipeline import RepairPipeline
 
                 resolver = ContractResolver(BUILTIN_VIOLATIONS, set())
-                self._new_pipeline = RepairPipeline(
-                    resolver, db_path=db_path, url=url
-                )
+                self._new_pipeline = RepairPipeline(resolver, db_path=db_path, url=url)
             except ImportError as e:
                 logger.warning(
                     "Dual-track pipeline unavailable; falling back to legacy-only",
@@ -1381,16 +1387,29 @@ class Stage3Validator:
 
     # Type families for derive_from compatibility checking.
     _NUMERIC_TYPES: ClassVar[frozenset[str]] = frozenset(
-        {"INTEGER", "INT", "BIGINT", "SMALLINT", "TINYINT", "MEDIUMINT",
-         "REAL", "FLOAT", "DOUBLE", "DECIMAL", "NUMERIC", "NUMBER",
-         "INT8", "INT16", "INT32", "INT64"}
+        {
+            "INTEGER",
+            "INT",
+            "BIGINT",
+            "SMALLINT",
+            "TINYINT",
+            "MEDIUMINT",
+            "REAL",
+            "FLOAT",
+            "DOUBLE",
+            "DECIMAL",
+            "NUMERIC",
+            "NUMBER",
+            "INT8",
+            "INT16",
+            "INT32",
+            "INT64",
+        }
     )
     _TEXT_TYPES: ClassVar[frozenset[str]] = frozenset(
         {"TEXT", "VARCHAR", "NVARCHAR", "CHAR", "NCHAR", "CLOB", "STRING"}
     )
-    _DATE_TYPES: ClassVar[frozenset[str]] = frozenset(
-        {"DATE", "DATETIME", "TIMESTAMP", "TIME"}
-    )
+    _DATE_TYPES: ClassVar[frozenset[str]] = frozenset({"DATE", "DATETIME", "TIMESTAMP", "TIME"})
 
     def _apply_rule_30_generator_type_compatibility(
         self,
@@ -1492,9 +1511,7 @@ class Stage3Validator:
                     is_unique_schema = True
             is_unique = is_unique_constraints or is_unique_schema
             is_business_id = (
-                col_name_lower.endswith("_id")
-                and is_unique
-                and not self._is_fk_column(table_schema or {}, col_name)
+                col_name_lower.endswith("_id") and is_unique and not self._is_fk_column(table_schema or {}, col_name)
             )
             if is_code_like or is_business_id:
                 return  # Rule #24 Case 3 will handle this
@@ -1529,9 +1546,7 @@ class Stage3Validator:
         # For DATE/TIMESTAMP and NUMERIC columns, use type-routed generator
         self._assign_type_routed_generator(col, col_type)
 
-    def _apply_rule_29_derive_from_integrity(
-        self, table: dict[str, Any], table_schema: dict[str, Any]
-    ) -> None:
+    def _apply_rule_29_derive_from_integrity(self, table: dict[str, Any], table_schema: dict[str, Any]) -> None:
         """Rule #29: detect and break derive_from cycles + type-incompatible derive_from.
 
         Two problems detected:
@@ -1682,7 +1697,7 @@ class Stage3Validator:
                     "Stage3 Rule #29: breaking derive_from cycle — stripping CHECK-source derive_from",
                     column=col_name,
                     original_derive_from=col_cfg.get("derive_from"),
-                    reason="column is in derive_from cycle and is CHECK source " "(should not derive from the target)",
+                    reason="column is in derive_from cycle and is CHECK source (should not derive from the target)",
                 )
                 col_cfg.pop("derive_from", None)
                 col_cfg.pop("expression", None)
@@ -1796,8 +1811,7 @@ class Stage3Validator:
         from sqlseed_ai.staged_analyzer import _GENERATOR_ACCEPTED_PARAMS
 
         base = re.split(r"[(\s]", col_type.strip(), maxsplit=1)[0].upper()
-        if base in {"INTEGER", "INT", "BIGINT", "SMALLINT", "TINYINT", "MEDIUMINT",
-                     "INT8", "INT16", "INT32", "INT64"}:
+        if base in {"INTEGER", "INT", "BIGINT", "SMALLINT", "TINYINT", "MEDIUMINT", "INT8", "INT16", "INT32", "INT64"}:
             gen_name = "integer"
             params: dict[str, Any] = {"min_value": 1, "max_value": 1000}
         elif base in {"REAL", "FLOAT", "DOUBLE", "DECIMAL", "NUMERIC", "NUMBER"}:
@@ -2307,8 +2321,7 @@ class Stage3Validator:
         # type-routed fallback — deriving from a random fallback value has no
         # semantic meaning and would produce meaningless derived data.
         original_has_generator: dict[str, bool] = {
-            name: cfg.get("generator") is not None
-            for name, cfg in col_configs.items()
+            name: cfg.get("generator") is not None for name, cfg in col_configs.items()
         }
 
         # Build column type map for type-routed fallback
@@ -2336,9 +2349,7 @@ class Stage3Validator:
             # Scenario 1: try to infer derive_from from cross-column CHECK.
             # Only derive from columns that ORIGINALLY had a generator —
             # deriving from a Rule #27-filled fallback would be meaningless.
-            inferred = self._try_infer_derive_from_check(
-                col_name, checks, col_configs, original_has_generator
-            )
+            inferred = self._try_infer_derive_from_check(col_name, checks, col_configs, original_has_generator)
             if inferred is not None:
                 source_col, expression = inferred
                 col["derive_from"] = [source_col]
@@ -2891,9 +2902,16 @@ class Stage3Validator:
         if gen in ("template", "pattern", None):
             return  # Already safe or derived mode (None means derived)
         if gen not in (
-            "word", "name", "string", "integer", "uuid",
-            "choice", "weighted_choice",
-            "date", "timestamp", "datetime",
+            "word",
+            "name",
+            "string",
+            "integer",
+            "uuid",
+            "choice",
+            "weighted_choice",
+            "date",
+            "timestamp",
+            "datetime",
         ):
             return
 

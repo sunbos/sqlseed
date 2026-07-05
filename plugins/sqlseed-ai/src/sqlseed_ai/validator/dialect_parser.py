@@ -5,6 +5,7 @@ PostgreSQL uses diag.constraint_name + pre-cached constraint_map.
 
 Spec reference: Section 4.5, 14.1.
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING

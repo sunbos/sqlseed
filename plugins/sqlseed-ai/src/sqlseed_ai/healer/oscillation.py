@@ -2,6 +2,7 @@
 
 Spec reference: Section 6.5.
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -24,18 +25,14 @@ class OscillationDetector:
     healer is oscillating between two failure modes.
     """
 
-    def __init__(
-        self, max_history: int = 6, partial_threshold: float = 0.8
-    ) -> None:
+    def __init__(self, max_history: int = 6, partial_threshold: float = 0.8) -> None:
         self._history: list[frozenset[tuple[str, str]]] = []
         self._max_history = max_history
         self._partial_threshold = partial_threshold
 
     def check_and_record(self, violations: list[ViolationReport]) -> bool:
         """Return True if oscillation detected, else record and return False."""
-        current = frozenset(
-            (col, v.severity) for v in violations for col in v.columns
-        )
+        current = frozenset((col, v.severity) for v in violations for col in v.columns)
         if current in self._history:
             logger.warning("Oscillation detected", history_len=len(self._history))
             return True

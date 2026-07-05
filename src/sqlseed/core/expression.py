@@ -35,11 +35,11 @@ class ExpressionEngine:
 
     Provides 26 safe functions (len, int, str, upper, concat, random_float,
     timedelta, etc.). When a ``db_adapter`` is supplied, also exposes a
-    ``lookup(table, column, key)`` function for cross-table value reference
-    (results cached per tuple). Simple expressions (method chains like
-    value.strip()) are evaluated directly in the calling thread; complex
-    expressions are executed in a separate thread with a timeout, and the
-    thread is abandoned on timeout (as a daemon thread).
+    ``lookup(table, column, key, key_column='id')`` function for cross-table
+    value reference (results cached per tuple). Simple expressions (method
+    chains like value.strip()) are evaluated directly in the calling thread;
+    complex expressions are executed in a separate thread with a timeout,
+    and the thread is abandoned on timeout (as a daemon thread).
     """
 
     SAFE_FUNCTIONS: ClassVar[dict[str, Any]] = {
@@ -84,12 +84,12 @@ class ExpressionEngine:
         Args:
             timeout_seconds: Timeout for complex expression evaluation in seconds.
             db_adapter: Optional database adapter. When provided, enables the
-                ``lookup(table, column, key)`` function for cross-table value
-                reference in derived expressions.
+                ``lookup(table, column, key, key_column='id')`` function for
+                cross-table value reference in derived expressions.
         """
         self._timeout = timeout_seconds
         self._db_adapter = db_adapter
-        self._lookup_cache: dict[tuple[str, str, Any], Any] = {}
+        self._lookup_cache: dict[tuple[str, str, Any, str], Any] = {}
 
     def _get_functions(self) -> dict[str, Any]:
         """Build the functions dict, conditionally including ``lookup``."""
@@ -98,12 +98,13 @@ class ExpressionEngine:
             funcs["lookup"] = self._lookup
         return funcs
 
-    def _lookup(self, table: str, column: str, key: Any) -> Any:
-        """Look up a single value from another table by primary key.
+    def _lookup(self, table: str, column: str, key: Any, key_column: str = "id") -> Any:
+        """Look up a single value from another table by a key column.
 
-        Executes ``SELECT {column} FROM {table} WHERE id = ?`` and returns
-        the scalar value. Results are cached per ``(table, column, key)``
-        tuple to avoid repeated DB hits within the same generation run.
+        Executes ``SELECT {column} FROM {table} WHERE {key_column} = ?`` and
+        returns the scalar value. Results are cached per
+        ``(table, column, key, key_column)`` tuple to avoid repeated DB hits
+        within the same generation run.
 
         This is a generic mechanism — it does NOT encode any business logic.
         Business relationships (which table/column to look up) are expressed
@@ -112,19 +113,31 @@ class ExpressionEngine:
         Args:
             table: Source table name.
             column: Source column name to read.
-            key: Primary key value to look up (matched against ``id`` column).
+            key: Key value to look up (matched against ``key_column``).
+            key_column: Name of the column to match ``key`` against.
+                Defaults to ``"id"`` (the conventional primary key name).
+                Useful when a table uses a non-standard primary key column
+                (e.g. ``user_id``, ``sku``) or when looking up by a unique
+                non-PK column.
 
         Returns:
-            The scalar value of ``column`` for the row whose ``id == key``,
-            or ``None`` if no such row exists.
+            The scalar value of ``column`` for the row whose
+            ``key_column == key``, or ``None`` if no such row exists.
         """
-        cache_key = (table, column, key)
+        cache_key = (table, column, key, key_column)
         if cache_key in self._lookup_cache:
             return self._lookup_cache[cache_key]
-        sql = f"SELECT {quote_identifier(column)} FROM {quote_identifier(table)} WHERE id = ?"
+        sql = (
+            f"SELECT {quote_identifier(column)} FROM {quote_identifier(table)} WHERE {quote_identifier(key_column)} = ?"
+        )
         cursor = self._db_adapter.execute(sql, (key,))  # type: ignore[union-attr]
-        row = cursor.fetchone()
-        result = row[0] if row else None
+        try:
+            row = cursor.fetchone()
+            result = row[0] if row else None
+        finally:
+            # Close cursor so the underlying DBAPI connection is returned
+            # to the pool promptly (see SQLAlchemyAdapter.execute docstring).
+            cursor.close()
         self._lookup_cache[cache_key] = result
         return result
 
@@ -172,7 +185,11 @@ class ExpressionEngine:
             except (ValueError, SyntaxError, TypeError, simpleeval.InvalidExpression) as e:
                 error_container[0] = e
 
-        thread = threading.Thread(target=_eval)
+        # daemon=True ensures the thread cannot block interpreter shutdown
+        # if simpleeval gets stuck (deep recursion / infinite loop). The
+        # thread is abandoned on timeout and will be cleaned up by the OS
+        # when the process exits.
+        thread = threading.Thread(target=_eval, daemon=True)
         thread.start()
         thread.join(timeout=self._timeout)
 

@@ -1,4 +1,5 @@
 """Tests for FastValidator orchestrator (Section 4.7, 14.3)."""
+
 from __future__ import annotations
 
 import sqlite3

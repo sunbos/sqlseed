@@ -5,6 +5,7 @@ for known violations, and runs a cardinality check for UNIQUE columns.
 
 Spec reference: Section 4.3.
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Literal
@@ -72,9 +73,7 @@ class SingleColumnValidator:
                             constraint_type=ConstraintType.UNIQUE,
                             severity="unique_unsatisfiable",
                             fix_hint="upgrade_to_template",
-                            fix_params={
-                                "reason": f"cardinality {cardinality} < row_count {row_count}"
-                            },
+                            fix_params={"reason": f"cardinality {cardinality} < row_count {row_count}"},
                         )
                     )
         return violations
@@ -98,7 +97,7 @@ class SingleColumnValidator:
             return max_val - min_val + 1
         if gen == "string":
             max_length = int(params.get("max_length", 10))
-            return int(62 ** max_length)
+            return int(62**max_length)
         return row_count  # optimistic
 
     def _pool_size(self, col: dict[str, Any]) -> int:

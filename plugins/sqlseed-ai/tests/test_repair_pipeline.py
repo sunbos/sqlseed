@@ -1,4 +1,5 @@
 """Tests for RepairPipeline (Section 5.6, 微调2: incremental verification)."""
+
 from __future__ import annotations
 
 import sqlite3
@@ -45,11 +46,7 @@ def test_pipeline_skips_global_revalidate_when_all_fixed(snapshot: SchemaSnapsho
     """微调2: incremental verification skips global re-validate."""
     resolver = ContractResolver(BUILTIN_VIOLATIONS, set())
     pipeline = RepairPipeline(resolver, db_path=snapshot.db_path)
-    config = {
-        "tables": [
-            {"name": "t", "columns": [{"name": "created_at", "generator": "integer"}]}
-        ]
-    }
+    config = {"tables": [{"name": "t", "columns": [{"name": "created_at", "generator": "integer"}]}]}
     pipeline.run(config, snapshot)
     # Hard to assert "skipped" directly; assert no exception + result is clean
     # (Implementation correctness verified by code review of pipeline.py)

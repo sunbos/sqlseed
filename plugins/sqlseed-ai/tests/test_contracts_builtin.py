@@ -1,4 +1,5 @@
 """Tests for builtin contract violations (Section 3.3)."""
+
 from __future__ import annotations
 
 from sqlseed_ai.contracts.builtin_violations import BUILTIN_VIOLATIONS
@@ -29,8 +30,9 @@ def test_choice_on_unique_code_like_column():
     resolver = ContractResolver(BUILTIN_VIOLATIONS, set())
     # pool_size >= row_count so expand_pool predicate is False;
     # only upgrade_to_template (code-like name) should match.
-    v = resolver.check("choice", "TEXT", frozenset({"UNIQUE"}),
-                       {"name": "order_code", "row_count": 100, "pool_size": 200})
+    v = resolver.check(
+        "choice", "TEXT", frozenset({"UNIQUE"}), {"name": "order_code", "row_count": 100, "pool_size": 200}
+    )
     assert v is not None
     assert v.fix_strategy == "upgrade_to_template"
 

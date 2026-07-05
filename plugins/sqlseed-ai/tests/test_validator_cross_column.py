@@ -1,4 +1,5 @@
 """Tests for CrossColumnValidator (2b) — cross-column constraint checks."""
+
 from __future__ import annotations
 
 import sqlite3
@@ -81,8 +82,7 @@ def test_check_fk_integrity_returns_list_without_crash(tmp_path: Path):
     config = {
         "name": "orders",
         "columns": [
-            {"name": "user_id", "generator": "integer",
-             "params": {"min_value": 0, "max_value": 99999}},
+            {"name": "user_id", "generator": "integer", "params": {"min_value": 0, "max_value": 99999}},
         ],
     }
     violations = validator.validate(config, {"columns": [], "constraints": []}, snapshot)
@@ -97,8 +97,7 @@ def test_check_fk_integrity_no_violation_when_table_not_in_snapshot(tmp_path: Pa
     config = {
         "name": "nonexistent_table",
         "columns": [
-            {"name": "user_id", "generator": "integer",
-             "params": {"max_value": 99999}},
+            {"name": "user_id", "generator": "integer", "params": {"max_value": 99999}},
         ],
     }
     violations = validator.validate(config, {"columns": [], "constraints": []}, snapshot)

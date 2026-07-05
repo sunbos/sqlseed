@@ -7,6 +7,7 @@ from parent) so the composite FK stays satisfiable.
 
 Spec reference: Section 4.6.
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
@@ -56,9 +57,7 @@ class CompositeFKCoordinator:
         if the table_config doesn't include all group members (incomplete
         config is not a coordination violation).
         """
-        cols = [
-            c for c in table_config.get("columns", []) if c.get("name") in group.columns
-        ]
+        cols = [c for c in table_config.get("columns", []) if c.get("name") in group.columns]
         if len(cols) != len(group.columns):
             return None
         generators = {c.get("generator") for c in cols}

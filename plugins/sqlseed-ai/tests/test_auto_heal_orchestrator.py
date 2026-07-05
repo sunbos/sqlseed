@@ -26,7 +26,9 @@ def test_run_returns_yaml_string(simple_db: Path):
     mock_validator.validate.return_value = []  # no violations
 
     orch = AutoHealOrchestrator(
-        db_path=str(simple_db), healer=mock_healer, validator=mock_validator,
+        db_path=str(simple_db),
+        healer=mock_healer,
+        validator=mock_validator,
         total_budget_seconds=10.0,
     )
     yaml_str = orch.run()
@@ -41,7 +43,9 @@ def test_run_invokes_subgraph_splitter(simple_db: Path):
     mock_validator.validate.return_value = []
 
     orch = AutoHealOrchestrator(
-        db_path=str(simple_db), healer=mock_healer, validator=mock_validator,
+        db_path=str(simple_db),
+        healer=mock_healer,
+        validator=mock_validator,
         total_budget_seconds=10.0,
     )
     orch.run()
@@ -55,7 +59,9 @@ def test_run_post_repairs_broken_edges(simple_db: Path):
     mock_validator.validate.return_value = []
 
     orch = AutoHealOrchestrator(
-        db_path=str(simple_db), healer=mock_healer, validator=mock_validator,
+        db_path=str(simple_db),
+        healer=mock_healer,
+        validator=mock_validator,
         total_budget_seconds=10.0,
     )
     yaml_str = orch.run(broken_edges_inject=[("users", "users")])
@@ -69,7 +75,9 @@ def test_run_verifies_schema_hash_at_write_time(simple_db: Path):
     mock_validator.validate.return_value = []
 
     orch = AutoHealOrchestrator(
-        db_path=str(simple_db), healer=mock_healer, validator=mock_validator,
+        db_path=str(simple_db),
+        healer=mock_healer,
+        validator=mock_validator,
         total_budget_seconds=10.0,
     )
     yaml_str = orch.run()

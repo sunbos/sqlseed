@@ -41,9 +41,15 @@ def test_tarjan_detects_three_node_cycle():
 def test_megacluster_breaking_splits_large_scc():
     """Defense 6: SCC > 3 tables is broken at weak links."""
     # 5-table cycle: a -> b -> c -> d -> e -> a
-    graph = _fk_graph([
-        ("a", "b"), ("b", "c"), ("c", "d"), ("d", "e"), ("e", "a"),
-    ])
+    graph = _fk_graph(
+        [
+            ("a", "b"),
+            ("b", "c"),
+            ("c", "d"),
+            ("d", "e"),
+            ("e", "a"),
+        ]
+    )
     splitter = SubgraphSplitter(max_scc_size=3)
     subgraphs, broken = splitter.split(graph)
     # At least 2 subgraphs after breaking
@@ -67,9 +73,15 @@ def test_megacluster_no_break_for_small_scc():
 
 def test_broken_edges_recorded_for_post_repair():
     """Broken edges are returned for post-repair alignment."""
-    graph = _fk_graph([
-        ("a", "b"), ("b", "c"), ("c", "d"), ("d", "e"), ("e", "a"),
-    ])
+    graph = _fk_graph(
+        [
+            ("a", "b"),
+            ("b", "c"),
+            ("c", "d"),
+            ("d", "e"),
+            ("e", "a"),
+        ]
+    )
     splitter = SubgraphSplitter(max_scc_size=3)
     _, broken = splitter.split(graph)
     # Each broken edge is a (src, dst) tuple

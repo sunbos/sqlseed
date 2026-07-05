@@ -1,4 +1,5 @@
 """Tests for repair data structures (Section 5.2)."""
+
 from __future__ import annotations
 
 from sqlseed_ai.repair.models import AppliedFix, RepairResult

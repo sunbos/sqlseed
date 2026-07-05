@@ -21,6 +21,7 @@ Adversarial fixes vs. plan:
     list). Duck-type: if the return value has a ``violations`` attribute,
     use it; otherwise treat the return value as a list of violations.
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
@@ -99,9 +100,7 @@ class AutoHealOrchestrator:
                 config["tables"].extend(sg_config["tables"])
                 continue
             # Layer 3 + Layer 4: repair + heal
-            result = self._heal_subgraph(
-                sg_config, sg_tables, violations, snapshot, original_hash, budget
-            )
+            result = self._heal_subgraph(sg_config, sg_tables, violations, snapshot, original_hash, budget)
             config["tables"].extend(result.get("tables", []))
 
         # Step 4: post-repair broken edges (Section 14)
@@ -114,12 +113,10 @@ class AutoHealOrchestrator:
         if new_snapshot.schema_hash != original_hash:
             logger.error(
                 "Defense 8: schema drift detected, aborting YAML write",
-                original=original_hash, current=new_snapshot.schema_hash,
+                original=original_hash,
+                current=new_snapshot.schema_hash,
             )
-            raise RuntimeError(
-                f"Schema changed during auto-heal: {original_hash} -> "
-                f"{new_snapshot.schema_hash}"
-            )
+            raise RuntimeError(f"Schema changed during auto-heal: {original_hash} -> {new_snapshot.schema_hash}")
 
         # Step 6: emit YAML
         yaml_str: str = yaml.safe_dump(config, sort_keys=False, allow_unicode=True)
@@ -142,9 +139,21 @@ class AutoHealOrchestrator:
         return graph
 
     def _build_subgraph_config(
-        self, tables: list[str], snapshot: SchemaSnapshot,
+        self,
+        tables: list[str],
+        snapshot: SchemaSnapshot,
     ) -> dict[str, Any]:
-        """Build initial config for a subgraph (placeholder generators)."""
+        """Build initial config for a subgraph (placeholder generators).
+
+        Note: placeholders are type-based and do NOT account for
+        UNIQUE/FK/CHECK constraints. Constraint enforcement is deferred
+        to Layer 3 (RepairPipeline) and Layer 4 (LLM healer).
+        """
+        logger.warning(
+            "Subgraph initial config uses type-based placeholders; "
+            "UNIQUE/FK/CHECK constraints will be enforced by Layer 3/4",
+            tables=tables,
+        )
         sg_config: dict[str, Any] = {"tables": []}
         for table_name in tables:
             meta = snapshot.tables.get(table_name)
@@ -153,11 +162,13 @@ class AutoHealOrchestrator:
             cols: list[dict[str, Any]] = []
             for col_name in meta.columns:
                 col_type = meta.column_types.get(col_name, "TEXT")
-                cols.append({
-                    "name": col_name,
-                    "generator": _placeholder_generator(col_type),
-                    "params": {},
-                })
+                cols.append(
+                    {
+                        "name": col_name,
+                        "generator": _placeholder_generator(col_type),
+                        "params": {},
+                    }
+                )
             sg_config["tables"].append({"name": table_name, "columns": cols})
         return sg_config
 
@@ -172,14 +183,13 @@ class AutoHealOrchestrator:
             meta = snapshot.tables.get(table_name)
             if meta is None:
                 continue
-            cols = [
-                {"name": c, "generator": "integer", "params": {}}
-                for c in meta.columns
-            ]
+            cols = [{"name": c, "generator": "integer", "params": {}} for c in meta.columns]
             config["tables"].append({"name": table_name, "columns": cols})
 
     def _validate(
-        self, config: dict[str, Any], snapshot: SchemaSnapshot,
+        self,
+        config: dict[str, Any],
+        snapshot: SchemaSnapshot,
     ) -> list[Any]:
         """Call validator and normalize return value to a list of violations.
 
@@ -206,16 +216,46 @@ class AutoHealOrchestrator:
         budget: TimeBudgetController,
     ) -> dict[str, Any]:
         """Run Layer 3 + Layer 4 healing for a single subgraph."""
+        # Layer 3: local rule-based repair (cheap, deterministic). Runs
+        # before the expensive LLM healer so that simple violations (e.g.,
+        # generator param typos, type mismatches) can be fixed without an
+        # LLM round-trip. If Layer 3 fixes everything, skip Layer 4.
+        try:
+            from sqlseed_ai.contracts.builtin_violations import BUILTIN_VIOLATIONS
+            from sqlseed_ai.contracts.matrix import ContractResolver
+            from sqlseed_ai.repair.pipeline import RepairPipeline
+
+            resolver = ContractResolver(BUILTIN_VIOLATIONS, set())
+            repair_pipe = RepairPipeline(resolver, db_path=self._db_path, url=self._url)
+            # RepairPipeline.run() returns (config, RepairResult). The
+            # config may be mutated in-place by RepairExecutor.
+            sg_config, _ = repair_pipe.run(sg_config, snapshot)
+            # Re-validate to check if Layer 3 resolved all violations.
+            remaining = self._validate(sg_config, snapshot)
+            if not remaining:
+                return sg_config  # Layer 3 fixed everything
+            # Carry over remaining violations for Layer 4.
+            violations = remaining
+        except ImportError as e:
+            logger.warning(
+                "Layer 3 repair unavailable, proceeding to Layer 4",
+                error=str(e),
+            )
+
+        # Layer 4: LLM healing (expensive)
         from sqlseed_ai.healer.coordinator import Layer4Coordinator
         from sqlseed_ai.healer.models import SubgraphTask
 
         task = SubgraphTask(
             task_id=f"sg_{sg_tables[0] if sg_tables else 'empty'}",
-            tables=sg_tables, is_scc=len(sg_tables) > 1,
+            tables=sg_tables,
+            is_scc=len(sg_tables) > 1,
         )
         coord: Layer4Coordinator = Layer4Coordinator(
-            healer=self._healer, validator=self._validator,
-            snapshot=snapshot, max_attempts=3,
+            healer=self._healer,
+            validator=self._validator,
+            snapshot=snapshot,
+            max_attempts=3,
             schema_hash=schema_hash,
             time_budget_seconds=budget.per_table_budget(),
         )

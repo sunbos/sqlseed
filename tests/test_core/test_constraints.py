@@ -153,15 +153,18 @@ class TestGetSeen:
         assert solver.get_seen("col") == set()
 
     def test_get_seen_probabilistic_mode(self) -> None:
-        """Probabilistic mode also exposes seen hashes via get_seen.
+        """Probabilistic mode returns an empty set (not the hash set).
 
-        Probabilistic mode stores hashes, not raw values, so get_seen returns
-        the hash set directly. Generators in probabilistic mode cannot avoid
-        duplicates by value comparison (they only see hashes), but the
-        contract (returns a set, empty for unknown columns) still holds.
+        Previously this returned the SHA256 hash set, but downstream
+        ``_dispatch.generate`` compares generated raw values against
+        ``exclude_values`` — comparing a raw value to a hash always
+        mismatches, so the exclude fast-path was a silent no-op while
+        appearing to work. Returning an empty set forces dispatch to
+        skip the (broken) exclude check and rely solely on
+        ``try_register`` hash-collision detection to trigger backtracking.
         """
         solver = ConstraintSolver(probabilistic=True)
         solver._register("col", 42)
         seen = solver.get_seen("col")
         assert isinstance(seen, set)
-        assert len(seen) == 1  # Contains the hash, not the raw value
+        assert len(seen) == 0  # Empty: probabilistic mode cannot do value-based exclude

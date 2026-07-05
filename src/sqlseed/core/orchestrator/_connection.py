@@ -208,8 +208,24 @@ class ConnectionMixin:
                     provider_name=self._provider_name,
                 )
                 self._provider_name = "base"
+                # Make the fallback durable: subsequent get() calls without an
+                # explicit name (which use the default) must resolve to "base"
+                # rather than re-attempting the failed provider.
+                self._registry.set_default("base")
             provider = self._registry.get(self._provider_name)
-            provider.set_locale(self._locale)
+            try:
+                provider.set_locale(self._locale)
+            except (ValueError, TypeError) as exc:
+                # Invalid locale string (e.g. "en_XX") may crash the provider.
+                # Fall back to a safe default and log a warning so the user can
+                # correct the locale without the whole run failing.
+                logger.warning(
+                    "Invalid locale, falling back to provider default",
+                    locale=self._locale,
+                    provider=self._provider_name,
+                    error=str(exc),
+                )
+                provider.set_locale("en_US" if self._provider_name == "faker" else "en")
             self._plugin_mediator = PluginMediator(self._plugins, self._db, self._schema)
 
     def close(self) -> None:

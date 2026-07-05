@@ -1,4 +1,5 @@
 """Tests for DialectErrorParser (Defense 3, Section 14.1)."""
+
 from __future__ import annotations
 
 import sqlite3

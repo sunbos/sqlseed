@@ -6,6 +6,7 @@ generated values against parent PK set.
 
 Spec reference: Section 14.3.
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
@@ -90,9 +91,7 @@ class ShadowFKScanner:
                     continue
                 parent_pk_set = self._load_parent_pk_set(parent_table, parent_cols[0])
                 for fk_col in fk_cols:
-                    generated_values = {
-                        row.get(fk_col) for row in batch if row.get(fk_col) is not None
-                    }
+                    generated_values = {row.get(fk_col) for row in batch if row.get(fk_col) is not None}
                     offending = generated_values - parent_pk_set
                     if offending:
                         logger.info(
@@ -142,9 +141,7 @@ class ShadowFKScanner:
             engine = create_engine(self._url)
             try:
                 with engine.connect() as conn:
-                    sa_rows = conn.execute(
-                        text(f"SELECT {safe_col} FROM {safe_table}")
-                    ).fetchall()
+                    sa_rows = conn.execute(text(f"SELECT {safe_col} FROM {safe_table}")).fetchall()
                 return {r[0] for r in sa_rows}
             finally:
                 engine.dispose()

@@ -1,4 +1,5 @@
 """Tests for healer.diff_learner module."""
+
 from __future__ import annotations
 
 from sqlseed_ai.contracts.matrix import ContractViolation, ViolationKind

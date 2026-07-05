@@ -2,6 +2,7 @@
 
 Spec reference: Section 6.2.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field

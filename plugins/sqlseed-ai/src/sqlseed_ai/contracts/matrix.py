@@ -10,6 +10,7 @@ The matrix is a *closed set* — only known-bad combinations are listed.
 Unlisted combinations default to COMPATIBLE (no violation). Gaps are
 caught by Layer 5 property-based tests in CI.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -89,9 +90,7 @@ class ContractViolation:
 
     def __hash__(self) -> int:
         """Identity by core fields only (excludes predicate/learned_at/source)."""
-        return hash(
-            (self.generator, self.column_type, self.constraints, self.kind, self.fix_strategy)
-        )
+        return hash((self.generator, self.column_type, self.constraints, self.kind, self.fix_strategy))
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, ContractViolation):
@@ -122,9 +121,7 @@ class ContractResolver:
            3=full wildcard).
     """
 
-    def __init__(
-        self, builtin: set[ContractViolation], learned: set[ContractViolation]
-    ) -> None:
+    def __init__(self, builtin: set[ContractViolation], learned: set[ContractViolation]) -> None:
         self._builtin = builtin
         self._learned = learned
 
@@ -168,9 +165,7 @@ class ContractResolver:
         return matches[0][2]
 
     @staticmethod
-    def _match_specificity(
-        v: ContractViolation, col_type: str, constraints: frozenset[str]
-    ) -> int | None:
+    def _match_specificity(v: ContractViolation, col_type: str, constraints: frozenset[str]) -> int | None:
         """Return specificity level (1=exact, 2=partial, 3=full wildcard) or None (no match)."""
         type_match = v.column_type == col_type
         type_wildcard = v.column_type == "ANY"

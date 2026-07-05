@@ -5,15 +5,23 @@ from sqlseed_ai.healer.post_repair import BrokenEdgeAligner
 
 def test_align_adds_nullable_constraint_to_fk():
     """Broken FK edge gets nullable=True to allow post-repair alignment."""
-    config = {"tables": [
-        {"name": "users", "columns": [
-            {"name": "id", "generator": "integer"},
-        ]},
-        {"name": "orders", "columns": [
-            {"name": "id", "generator": "integer"},
-            {"name": "user_id", "generator": "integer"},
-        ]},
-    ]}
+    config = {
+        "tables": [
+            {
+                "name": "users",
+                "columns": [
+                    {"name": "id", "generator": "integer"},
+                ],
+            },
+            {
+                "name": "orders",
+                "columns": [
+                    {"name": "id", "generator": "integer"},
+                    {"name": "user_id", "generator": "integer"},
+                ],
+            },
+        ]
+    }
     aligner = BrokenEdgeAligner()
     broken = [("orders", "users")]
     new_config = aligner.align(config, broken)
@@ -25,12 +33,17 @@ def test_align_adds_nullable_constraint_to_fk():
 
 def test_align_preserves_non_fk_columns():
     """Columns not part of broken edges are untouched."""
-    config = {"tables": [
-        {"name": "users", "columns": [
-            {"name": "id", "generator": "integer"},
-            {"name": "email", "generator": "email"},
-        ]},
-    ]}
+    config = {
+        "tables": [
+            {
+                "name": "users",
+                "columns": [
+                    {"name": "id", "generator": "integer"},
+                    {"name": "email", "generator": "email"},
+                ],
+            },
+        ]
+    }
     aligner = BrokenEdgeAligner()
     new_config = aligner.align(config, [("users", "users")])
     email = next(c for c in new_config["tables"][0]["columns"] if c["name"] == "email")

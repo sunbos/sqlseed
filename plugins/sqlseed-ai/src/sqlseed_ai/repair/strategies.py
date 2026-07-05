@@ -5,6 +5,7 @@ Stateless: no shared mutable state, no ordering dependencies.
 
 Spec reference: Section 5.3.
 """
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -51,9 +52,7 @@ def _infer_template_prefix(col_name: str) -> str:
     return col_name[:4].upper()
 
 
-def _semantic_upgrade(
-    col: dict[str, Any], v: ViolationReport, ctx: dict[str, Any]
-) -> dict[str, Any]:
+def _semantic_upgrade(col: dict[str, Any], v: ViolationReport, ctx: dict[str, Any]) -> dict[str, Any]:
     """Upgrade a generic string generator based on column-name heuristics.
 
     Mirrors Rule #28 (exact_match_upgrade) for the post-repair path: if the
@@ -90,9 +89,7 @@ def _semantic_upgrade(
     return new_col
 
 
-def _switch_generator(
-    col: dict[str, Any], v: ViolationReport, ctx: dict[str, Any]
-) -> dict[str, Any]:
+def _switch_generator(col: dict[str, Any], v: ViolationReport, ctx: dict[str, Any]) -> dict[str, Any]:
     """Switch to a different generator, with semantic upgrade when target is string.
 
     Adversarial fix (C5 from cross-agent review): Spec version called
@@ -110,9 +107,7 @@ def _switch_generator(
     return new_col
 
 
-def _upgrade_to_template(
-    col: dict[str, Any], v: ViolationReport, ctx: dict[str, Any]
-) -> dict[str, Any]:
+def _upgrade_to_template(col: dict[str, Any], v: ViolationReport, ctx: dict[str, Any]) -> dict[str, Any]:
     """Replace generator with template (UNIQUE code-like columns)."""
     col_name = col.get("name", "row")
     prefix = _infer_template_prefix(col_name)
@@ -125,9 +120,7 @@ def _upgrade_to_template(
     }
 
 
-def _normalize_params(
-    col: dict[str, Any], v: ViolationReport, ctx: dict[str, Any]
-) -> dict[str, Any]:
+def _normalize_params(col: dict[str, Any], v: ViolationReport, ctx: dict[str, Any]) -> dict[str, Any]:
     """Normalize choice/weighted_choice params (Rule #14 Layer 3)."""
     params = col.get("params")
     gen = col.get("generator", "")
@@ -148,9 +141,7 @@ def _normalize_params(
     return new_col
 
 
-def _break_derive_from_cycle(
-    col: dict[str, Any], v: ViolationReport, ctx: dict[str, Any]
-) -> dict[str, Any]:
+def _break_derive_from_cycle(col: dict[str, Any], v: ViolationReport, ctx: dict[str, Any]) -> dict[str, Any]:
     """Strip derive_from + expression and assign fallback generator."""
     new_col = {**col}
     new_col["derive_from"] = None
@@ -161,9 +152,7 @@ def _break_derive_from_cycle(
     return new_col
 
 
-def _adjust_bounds(
-    col: dict[str, Any], v: ViolationReport, ctx: dict[str, Any]
-) -> dict[str, Any]:
+def _adjust_bounds(col: dict[str, Any], v: ViolationReport, ctx: dict[str, Any]) -> dict[str, Any]:
     """Adjust min_value/max_value bounds from fix_params."""
     new_col = {**col}
     params = dict(new_col.get("params") or {})
@@ -174,9 +163,7 @@ def _adjust_bounds(
     return new_col
 
 
-def _align_fk_max_value(
-    col: dict[str, Any], v: ViolationReport, ctx: dict[str, Any]
-) -> dict[str, Any]:
+def _align_fk_max_value(col: dict[str, Any], v: ViolationReport, ctx: dict[str, Any]) -> dict[str, Any]:
     """Align FK column max_value to parent PK range."""
     new_col = {**col}
     params = dict(new_col.get("params") or {})
@@ -186,9 +173,7 @@ def _align_fk_max_value(
     return new_col
 
 
-def _isolate_date_ranges(
-    col: dict[str, Any], v: ViolationReport, ctx: dict[str, Any]
-) -> dict[str, Any]:
+def _isolate_date_ranges(col: dict[str, Any], v: ViolationReport, ctx: dict[str, Any]) -> dict[str, Any]:
     """Isolate date ranges (min_year/max_year) from fix_params."""
     new_col = {**col}
     params = dict(new_col.get("params") or {})
@@ -199,9 +184,7 @@ def _isolate_date_ranges(
     return new_col
 
 
-def _fix_self_reference(
-    col: dict[str, Any], v: ViolationReport, ctx: dict[str, Any]
-) -> dict[str, Any]:
+def _fix_self_reference(col: dict[str, Any], v: ViolationReport, ctx: dict[str, Any]) -> dict[str, Any]:
     """Strip derive_from + expression when column self-references."""
     new_col = {**col}
     new_col["derive_from"] = None
@@ -212,9 +195,7 @@ def _fix_self_reference(
     return new_col
 
 
-def _coerce_float_to_int(
-    col: dict[str, Any], v: ViolationReport, ctx: dict[str, Any]
-) -> dict[str, Any]:
+def _coerce_float_to_int(col: dict[str, Any], v: ViolationReport, ctx: dict[str, Any]) -> dict[str, Any]:
     """Rewrite random_float → random_int for INTEGER columns (Rule #26)."""
     new_col = {**col}
     if new_col.get("generator") == "random_float":
@@ -222,18 +203,14 @@ def _coerce_float_to_int(
     return new_col
 
 
-def _align_group_generators(
-    col: dict[str, Any], v: ViolationReport, ctx: dict[str, Any]
-) -> dict[str, Any]:
+def _align_group_generators(col: dict[str, Any], v: ViolationReport, ctx: dict[str, Any]) -> dict[str, Any]:
     """Align composite FK group to a single generator (integer by default)."""
     new_col = {**col, "generator": "integer"}
     new_col.pop("params", None)
     return new_col
 
 
-def _expand_pool(
-    col: dict[str, Any], v: ViolationReport, ctx: dict[str, Any]
-) -> dict[str, Any]:
+def _expand_pool(col: dict[str, Any], v: ViolationReport, ctx: dict[str, Any]) -> dict[str, Any]:
     """Expand choice pool to satisfy UNIQUE cardinality."""
     new_col = {**col}
     params = dict(new_col.get("params") or {})
@@ -249,9 +226,7 @@ def _expand_pool(
     return new_col
 
 
-def _add_unique_suffix(
-    col: dict[str, Any], v: ViolationReport, ctx: dict[str, Any]
-) -> dict[str, Any]:
+def _add_unique_suffix(col: dict[str, Any], v: ViolationReport, ctx: dict[str, Any]) -> dict[str, Any]:
     """Alias for upgrade_to_template (UNIQUE with suffix)."""
     return _upgrade_to_template(col, v, ctx)
 

@@ -1,4 +1,5 @@
 """Tests for healer.coordinator module."""
+
 from __future__ import annotations
 
 import sqlite3
@@ -13,6 +14,7 @@ from sqlseed_ai.validator.models import ConstraintType, ViolationReport
 
 if TYPE_CHECKING:
     from pathlib import Path
+
     pass
 
 
@@ -32,10 +34,7 @@ def fake_llm_client_success():
         choices=[
             MagicMock(
                 message=MagicMock(
-                    content=(
-                        '{"tables": [{"name": "users", "columns": ['
-                        '{"name": "email", "generator": "email"}]}]}'
-                    )
+                    content=('{"tables": [{"name": "users", "columns": [{"name": "email", "generator": "email"}]}]}')
                 )
             )
         ]
@@ -43,9 +42,7 @@ def fake_llm_client_success():
     return client
 
 
-def test_heal_success_first_attempt(
-    fake_validator, fake_llm_client_success, tmp_path: Path
-):
+def test_heal_success_first_attempt(fake_validator, fake_llm_client_success, tmp_path: Path):
     """Successful heal on first attempt returns HealResult with no degrades."""
     with sqlite3.connect(str(tmp_path / "t.db")) as conn:
         conn.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT)")
@@ -113,10 +110,7 @@ def test_heal_oscillation_triggers_degrade(tmp_path: Path):
         choices=[
             MagicMock(
                 message=MagicMock(
-                    content=(
-                        '{"tables": [{"name": "users", "columns": ['
-                        '{"name": "email", "generator": "string"}]}]}'
-                    )
+                    content=('{"tables": [{"name": "users", "columns": [{"name": "email", "generator": "string"}]}]}')
                 )
             )
         ]
@@ -144,9 +138,11 @@ def test_heal_oscillation_triggers_degrade(tmp_path: Path):
     }
 
     result = coord.reconcile(task, config, [violation])
-    # After oscillation detected, email should be degraded
-    assert "email" in result.degraded_columns
-    assert result.degrade_reasons["email"].value == "llm_oscillation"
+    # After oscillation detected, email should be degraded.
+    # AI-H4 fix: _collect_failed_columns now returns "table:column" format
+    # to avoid cross-table name collisions in multi-table SCC scenarios.
+    assert "users:email" in result.degraded_columns
+    assert result.degrade_reasons["users:email"].value == "llm_oscillation"
 
 
 def test_heal_max_attempts_triggers_degrade(tmp_path: Path):
@@ -199,10 +195,7 @@ def test_heal_max_attempts_triggers_degrade(tmp_path: Path):
         choices=[
             MagicMock(
                 message=MagicMock(
-                    content=(
-                        '{"tables": [{"name": "users", "columns": ['
-                        '{"name": "email", "generator": "string"}]}]}'
-                    )
+                    content=('{"tables": [{"name": "users", "columns": [{"name": "email", "generator": "string"}]}]}')
                 )
             )
         ]
@@ -239,13 +232,12 @@ def test_heal_max_attempts_triggers_degrade(tmp_path: Path):
     )
 
     result = coord.reconcile(task, config, [initial_violation])
-    assert "email" in result.degraded_columns
-    assert result.degrade_reasons["email"].value == "max_retries_exceeded"
+    # AI-H4 fix: _collect_failed_columns returns "table:column" format
+    assert "users:email" in result.degraded_columns
+    assert result.degrade_reasons["users:email"].value == "max_retries_exceeded"
 
 
-def test_diff_learning_collects_candidates(
-    fake_validator, fake_llm_client_success, tmp_path: Path
-):
+def test_diff_learning_collects_candidates(fake_validator, fake_llm_client_success, tmp_path: Path):
     """Successful fixes are passed to DiffLearner and collected."""
     with sqlite3.connect(str(tmp_path / "t.db")) as conn:
         conn.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT)")

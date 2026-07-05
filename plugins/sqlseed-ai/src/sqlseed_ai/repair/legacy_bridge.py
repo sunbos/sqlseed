@@ -7,6 +7,7 @@ to "17 rules (Rule #14-#30)" were factually wrong.
 微调1 (Section 5.4): distinguishes table-level rules (16, 19, 22, 29)
 from column-level rules. Table-level rules receive table_config in ctx.
 """
+
 from __future__ import annotations
 
 from typing import ClassVar

@@ -444,9 +444,7 @@ def _run_auto_heal(
     from sqlseed_ai.healer.llm_healer import LLMHealer
     from sqlseed_ai.validator.main import FastValidator
 
-    ai_config = AIConfig.from_env().apply_overrides(
-        api_key=api_key, base_url=base_url, model=model
-    )
+    ai_config = AIConfig.from_env().apply_overrides(api_key=api_key, base_url=base_url, model=model)
     ai_config.timeout = timeout
 
     resolver = ContractResolver(set(BUILTIN_VIOLATIONS), set())
@@ -455,7 +453,9 @@ def _run_auto_heal(
     healer = LLMHealer(client=client, model=ai_config.resolve_model())
 
     orch = AutoHealOrchestrator(
-        db_path=db_path, healer=healer, validator=validator,
+        db_path=db_path,
+        healer=healer,
+        validator=validator,
         total_budget_seconds=300.0,
     )
     try:
@@ -478,13 +478,18 @@ def _build_llm_client(ai_config: AIConfig) -> Any:
     resolved_key = ai_config.resolve_api_key()
     if not resolved_key:
         click.echo(
-            "Error: AI API key not configured for --auto-heal. "
-            "Set SQLSEED_AI_API_KEY or OPENAI_API_KEY.",
+            "Error: AI API key not configured for --auto-heal. Set SQLSEED_AI_API_KEY or OPENAI_API_KEY.",
             err=True,
         )
         raise SystemExit(1)
     base = ai_config.resolve_base_url() or "https://api.openai.com/v1"
-    return OpenAI(api_key=resolved_key, base_url=base, timeout=ai_config.timeout or None)
+    raw_client = OpenAI(api_key=resolved_key, base_url=base, timeout=ai_config.timeout or None)
+    # Wrap in adapter so the client satisfies the LLMClient protocol
+    # (flat chat_completions_create method) instead of the OpenAI SDK's
+    # attribute-chain style (client.chat.completions.create).
+    from sqlseed_ai.healer.llm_healer import _OpenAICompatAdapter
+
+    return _OpenAICompatAdapter(raw_client)
 
 
 def _build_ai_config(
@@ -665,7 +670,14 @@ def ai_analyze(
                 # downstream config_dict handling is unchanged.
                 from sqlseed_ai.staged_analyzer import StagedSchemaAnalyzer
 
-                analyzer: StagedSchemaAnalyzer | SchemaSemanticAnalyzer = StagedSchemaAnalyzer(config=ai_config)
+                # Pass the active connection target so Stage3Validator can
+                # enable the dual-track repair pipeline. db_path and db_url
+                # are mutually exclusive; pass only the active one.
+                analyzer: StagedSchemaAnalyzer | SchemaSemanticAnalyzer = StagedSchemaAnalyzer(
+                    config=ai_config,
+                    db_path=db_path if not db_url else None,
+                    url=db_url,
+                )
             else:
                 analyzer = SchemaSemanticAnalyzer(config=ai_config)
 

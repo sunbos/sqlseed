@@ -1,4 +1,5 @@
 """Tests for stateless repair strategies (Section 5.3)."""
+
 from __future__ import annotations
 
 from sqlseed_ai.repair.strategies import REPAIR_STRATEGIES

@@ -4,6 +4,7 @@ Applies repair strategies to violations, sorted by severity (crash first).
 
 Spec reference: Section 5.5.
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
@@ -56,9 +57,7 @@ class RepairExecutor:
                     ctx: dict[str, Any] = {
                         "table_schema": snapshot.tables.get(violation.table),
                         "table_config": table_config,
-                        "column_type": snapshot.get_column_type(
-                            violation.table, col.get("name", "")
-                        ),
+                        "column_type": snapshot.get_column_type(violation.table, col.get("name", "")),
                     }
                     try:
                         after = self._strategies[strategy_name](col, violation, ctx)
@@ -81,9 +80,7 @@ class RepairExecutor:
                             error=str(e),
                         )
                         unfixable.append(violation)
-        return RepairResult(
-            config=config, applied_fixes=applied_fixes, unfixable=unfixable
-        )
+        return RepairResult(config=config, applied_fixes=applied_fixes, unfixable=unfixable)
 
     @staticmethod
     def _sort_by_severity(
@@ -92,12 +89,6 @@ class RepairExecutor:
         return sorted(violations, key=lambda v: _SEVERITY_ORDER.get(v.severity, 99))
 
     @staticmethod
-    def _expand_composite_cols(
-        violation: ViolationReport, table_config: dict[str, Any]
-    ) -> list[dict[str, Any]]:
+    def _expand_composite_cols(violation: ViolationReport, table_config: dict[str, Any]) -> list[dict[str, Any]]:
         """Return column dicts that match the violation's columns."""
-        return [
-            c
-            for c in table_config.get("columns", [])
-            if c.get("name") in violation.columns
-        ]
+        return [c for c in table_config.get("columns", []) if c.get("name") in violation.columns]

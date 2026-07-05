@@ -6,6 +6,7 @@ module re-aligns the broken FK columns by marking them nullable so the
 runtime generator can pick from the parent table's existing value set
 without crashing on missing parents.
 """
+
 from __future__ import annotations
 
 import copy
@@ -51,6 +52,7 @@ class BrokenEdgeAligner:
                     col["null_ratio"] = 0.1  # 10% nulls to allow alignment
                     logger.debug(
                         "Marked broken FK column as nullable",
-                        table=table_cfg["name"], column=col["name"],
+                        table=table_cfg["name"],
+                        column=col["name"],
                     )
         return new_config

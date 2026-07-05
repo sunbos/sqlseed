@@ -1,4 +1,5 @@
 """Tests for healer.models module."""
+
 from __future__ import annotations
 
 from sqlseed_ai.healer.models import (

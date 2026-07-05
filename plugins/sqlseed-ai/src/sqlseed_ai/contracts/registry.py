@@ -12,6 +12,7 @@ Defense 7 (RCE interception) is re-checked at load time: any entry whose
 contain forbidden keys, is silently dropped. This catches the case where
 the JSON file was tampered with out-of-band.
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -33,20 +34,62 @@ logger = get_logger(__name__)
 
 # [Defense 1] Whitelist of safe fix strategies that may be persisted.
 # Anything outside this set is refused at registry add() time.
-SAFE_FIX_STRATEGIES = frozenset({
-    "switch_generator", "upgrade_to_template", "expand_pool",
-    "adjust_bounds", "add_unique_suffix", "normalize_params",
-    "break_derive_from_cycle", "align_fk_max_value",
-    "isolate_date_ranges", "semantic_upgrade", "fix_self_reference",
-    "coerce_float_to_int", "align_group_generators",
-})
+# This is the SINGLE source of truth — diff_learner.py imports from here.
+SAFE_FIX_STRATEGIES = frozenset(
+    {
+        # From RepairExecutor (local rule-based fixes):
+        "switch_generator",
+        "upgrade_to_template",
+        "expand_pool",
+        "adjust_bounds",
+        "add_unique_suffix",
+        "normalize_params",
+        "break_derive_from_cycle",
+        "align_fk_max_value",
+        "isolate_date_ranges",
+        "semantic_upgrade",
+        "fix_self_reference",
+        "coerce_float_to_int",
+        "align_group_generators",
+        # From LLM healer (Layer 4):
+        "adjust_params",
+        "coerce_type",
+        "strip_invalid_params",
+        "fix_choice_typo",
+        "llm_heal",
+    }
+)
 
 # [Defense 7] RCE defense: forbid persistence of params whose values
 # could carry arbitrary code (e.g., expression strings, lambda source,
 # eval/exec payloads). These keys are stripped or refused before write.
-FORBIDDEN_PERSIST_KEYS = frozenset({
-    "custom_function", "expression", "code", "eval", "exec", "lambda",
-})
+# This is the SINGLE source of truth — diff_learner.py imports from here.
+# Union of both previous lists to avoid any gap in coverage.
+FORBIDDEN_PERSIST_KEYS = frozenset(
+    {
+        # Code execution primitives:
+        "custom_function",
+        "eval",
+        "exec",
+        "compile",
+        "lambda",
+        "__import__",
+        "globals",
+        "locals",
+        # Attribute/system access:
+        "getattr",
+        "setattr",
+        "delattr",
+        # File / process / OS:
+        "open",
+        "subprocess",
+        "os",
+        "sys",
+        # Expression source strings (core's ExpressionEngine entry point):
+        "expression",
+        "code",
+    }
+)
 
 
 class LearnedContractsRegistry:
@@ -142,7 +185,8 @@ class LearnedContractsRegistry:
         except (json.JSONDecodeError, OSError) as exc:
             logger.warning(
                 "Failed to load learned contracts registry",
-                path=str(self._path), error=str(exc),
+                path=str(self._path),
+                error=str(exc),
             )
             return []
 
@@ -207,13 +251,26 @@ class LearnedContractsRegistry:
             )
 
     def _save(self) -> None:
-        """Persist current contracts to disk as JSON (wrapped-dict format)."""
+        """Persist current contracts to disk as JSON (wrapped-dict format).
+
+        Defense 1: writes to a temp file first, then renames to the final
+        path. This prevents partial writes from corrupting the registry.
+        """
         data = {
             "schema_hash": None,
             "contracts": [v.to_dict() for v in self._contracts],
         }
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._path.write_text(
-            json.dumps(data, ensure_ascii=False, indent=2),
-            encoding="utf-8",
+        fd, tmp_path = tempfile.mkstemp(
+            prefix=f"{self._path.name}.",
+            suffix=".tmp",
+            dir=str(self._path.parent),
         )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, default=str, ensure_ascii=False)
+            os.replace(tmp_path, self._path)
+        except Exception:
+            with contextlib.suppress(OSError):
+                os.unlink(tmp_path)
+            raise

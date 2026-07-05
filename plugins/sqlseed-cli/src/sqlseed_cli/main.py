@@ -9,7 +9,9 @@ AI-related commands (e.g. ai-suggest) are discovered via the
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import click
@@ -21,6 +23,7 @@ from sqlseed import fill as api_fill
 from sqlseed import fill_from_config
 from sqlseed import preview as api_preview
 from sqlseed._utils.logger import configure_logging, get_logger
+from sqlseed._utils.paths import get_cache_dir
 from sqlseed._version import __version__
 from sqlseed.config.loader import generate_template, load_config, save_config
 from sqlseed.config.models import GeneratorConfig, ProviderType, TableConfig
@@ -28,6 +31,18 @@ from sqlseed.config.snapshot import SnapshotManager
 from sqlseed.core.orchestrator import DataOrchestrator
 
 logger = get_logger(__name__)
+
+# Redact credentials (user:pass@) in database URLs so error messages never
+# leak secrets, e.g. "postgresql://admin:s3cret@host/db" -> "postgresql://***:***@host/db".
+_CREDENTIAL_PATTERN = re.compile(r"://[^:@/\s]+:[^@/\s]+@")
+
+
+def _redact_credentials(text: str) -> str:
+    """Redact credentials in URLs to prevent leaking secrets in error messages.
+
+    Replaces the ``user:pass@`` segment of a URL with ``***:***@``.
+    """
+    return _CREDENTIAL_PATTERN.sub("://***:***@", text)
 
 
 @click.group()
@@ -85,6 +100,8 @@ def _save_snapshot_cmd(
 
 
 _FILL_DEFAULT_COUNT = 1000
+# Upper bound for --count to prevent memory exhaustion from accidental huge values.
+_MAX_COUNT = 10_000_000
 
 
 @dataclass(frozen=True)
@@ -208,6 +225,10 @@ def fill(**kwargs: Any) -> None:
         logger.debug("Invalid count value", count=count)
         raise click.UsageError(f"--count must be greater than 0, got {count}")
 
+    if count is not None and count > _MAX_COUNT:
+        logger.debug("Count exceeds maximum", count=count, max_count=_MAX_COUNT)
+        raise click.UsageError(f"--count must be <= {_MAX_COUNT}, got {count}")
+
     if not config_path and count is None:
         raise click.UsageError(
             "--count is required when not using --config. Use -n <number> to specify the number of rows to generate."
@@ -283,7 +304,7 @@ def _execute_fill(options: FillOptions) -> None:
         )
     except ValueError as exc:
         logger.debug("Fill failed with ValueError", error=str(exc))
-        raise click.UsageError(str(exc)) from exc
+        raise click.UsageError(_redact_credentials(str(exc))) from exc
     click.echo(str(result))
     if result.errors:
         for err in result.errors:
@@ -301,6 +322,10 @@ def _execute_fill(options: FillOptions) -> None:
             clear=options.flags.clear,
             url=fill_url,
         )
+
+    # Generation completed with errors: exit non-zero so callers/scripts can detect partial failure.
+    if result.errors:
+        raise SystemExit(1)
 
 
 @cli.command()
@@ -341,15 +366,19 @@ def preview(
     if not db_path and not db_url:
         raise click.UsageError("db_path or --url is required.")
 
-    rows = api_preview(
-        db_path,
-        url=db_url,
-        table=table,
-        count=count,
-        provider=provider,
-        locale=locale,
-        seed=seed,
-    )
+    try:
+        rows = api_preview(
+            db_path,
+            url=db_url,
+            table=table,
+            count=count,
+            provider=provider,
+            locale=locale,
+            seed=seed,
+        )
+    except (ValueError, RuntimeError, OSError) as exc:
+        logger.debug("Preview failed", error=str(exc))
+        raise click.UsageError(_redact_credentials(str(exc))) from exc
 
     if not rows:
         click.echo("No data generated.")
@@ -439,39 +468,55 @@ def inspect(db_path: str | None, table: str | None, show_mapping: bool, db_url: 
     target = db_url or db_path
     if not target:
         raise click.UsageError("db_path or --url is required.")
-    with DataOrchestrator(target) as orch:
-        console = Console()
+    try:
+        with DataOrchestrator(target) as orch:
+            console = Console()
 
-        tables = [table] if table else orch.get_table_names()
+            tables = [table] if table else orch.get_table_names()
 
-        for tbl in tables:
-            _inspect_table(orch, tbl, show_mapping, console)
+            for tbl in tables:
+                _inspect_table(orch, tbl, show_mapping, console)
+    except (ValueError, RuntimeError, OSError) as exc:
+        logger.debug("Inspect failed", error=str(exc))
+        raise click.UsageError(_redact_credentials(str(exc))) from exc
 
 
 @cli.command()
 @click.argument("config_path")
-@click.option("--db", default="test.db", help="Database path for template (default: test.db)")
+@click.option("--db", default=None, help="Database path for template (default: test.db)")
 @click.option(
     "--url",
     "db_url",
     default=None,
     help="Database URL (e.g., postgresql://user:pass@host/db). Alternative to --db.",
 )
-def init(config_path: str, db: str, db_url: str | None) -> None:
+def init(config_path: str, db: str | None, db_url: str | None) -> None:
     """Generate a YAML configuration template.
 
     Connection methods (mutually exclusive):
     - --db flag: sqlseed init config.yaml --db app.db
     - --url flag: sqlseed init config.yaml --url "postgresql://..."
+
+    If neither --db nor --url is provided, --db defaults to "test.db".
     """
     if db and db_url:
         raise click.UsageError("Cannot specify both --db and --url. Use one or the other.")
 
-    # --db defaults to "test.db", but if the user provides --url, ignore the --db default
+    # Apply the "test.db" default only when neither --db nor --url was provided.
+    # Previously --db had default="test.db" which made `db` always truthy,
+    # causing the mutual-exclusion check above to always fire when --url was
+    # passed — rendering `init --url` completely unusable.
+    if not db and not db_url:
+        db = "test.db"
+
     effective_db = None if db_url else db
 
-    config = generate_template(db_path=effective_db, url=db_url)
-    save_config(config, config_path)
+    try:
+        config = generate_template(db_path=effective_db, url=db_url)
+        save_config(config, config_path)
+    except (ValueError, RuntimeError, OSError) as exc:
+        logger.debug("Init failed", error=str(exc))
+        raise click.UsageError(_redact_credentials(str(exc))) from exc
     click.echo(f"Configuration template saved to: {config_path}")
 
 
@@ -479,21 +524,33 @@ def init(config_path: str, db: str, db_url: str | None) -> None:
 @click.argument("snapshot_path")
 def replay(snapshot_path: str) -> None:
     """Replay a previously saved snapshot."""
+    # Security: block path-traversal attempts. A snapshot path containing ``..``
+    # that resolves outside the cache directory is rejected to prevent reading
+    # arbitrary files. Absolute paths without ``..`` are allowed so that users
+    # can still replay snapshots from custom directories.
+    cache_dir = get_cache_dir("snapshots")
+    resolved_path = Path(snapshot_path).resolve()
+    if ".." in Path(snapshot_path).parts and not resolved_path.is_relative_to(cache_dir):
+        raise click.UsageError("snapshot path must be within cache directory")
+
     manager = SnapshotManager()
     try:
         data = manager.load(snapshot_path)
     except FileNotFoundError as exc:
         raise click.UsageError(f"Snapshot file not found: {snapshot_path}") from exc
     except (ValueError, KeyError) as exc:
-        raise click.UsageError(f"Invalid snapshot file format: {exc}") from exc
+        raise click.UsageError(_redact_credentials(f"Invalid snapshot file format: {exc}")) from exc
 
     try:
         config = GeneratorConfig(**data["config"])
-    except pydantic.ValidationError as exc:
-        raise click.UsageError(f"Invalid config in snapshot: {exc}") from exc
+    except (pydantic.ValidationError, KeyError, TypeError) as exc:
+        raise click.UsageError(_redact_credentials(f"Invalid config in snapshot: {exc}")) from exc
 
-    table_name = data["table_name"]
-    count = data["count"]
+    try:
+        table_name = data["table_name"]
+        count = data["count"]
+    except (KeyError, TypeError) as exc:
+        raise click.UsageError(f"Invalid snapshot file format: {exc}") from exc
     seed = data.get("seed")
 
     table_config = None
@@ -512,6 +569,10 @@ def replay(snapshot_path: str) -> None:
             column_configs=table_config.columns if table_config else None,
         )
     click.echo(str(result))
+    if result.errors:
+        for err in result.errors:
+            click.echo(f"  Warning: {err}", err=True)
+        raise SystemExit(1)
 
 
 def main() -> None:

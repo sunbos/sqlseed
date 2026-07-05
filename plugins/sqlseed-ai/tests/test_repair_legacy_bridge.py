@@ -1,4 +1,5 @@
 """Tests for LegacyRuleBridge (Section 5.4, 微调1: table vs column level)."""
+
 from __future__ import annotations
 
 from sqlseed_ai.repair.legacy_bridge import LegacyRuleBridge

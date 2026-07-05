@@ -156,7 +156,14 @@ class RelationResolver:
         fks = self.get_foreign_keys(table_name)
         for fk in fks:
             if fk.column == column_name:
-                values: list[Any] = self._db.get_column_values(fk.ref_table, fk.ref_column)
+                values: list[Any] = self._db.get_column_values(fk.ref_table, fk.ref_column, limit=100000)
+                if len(values) >= 100000:
+                    logger.warning(
+                        "FK parent table very large; consider using shared_pool strategy",
+                        ref_table=fk.ref_table,
+                        column=fk.ref_column,
+                        sampled=len(values),
+                    )
                 logger.debug(
                     "Resolved FK",
                     table_name=table_name,
@@ -449,6 +456,18 @@ class RelationResolver:
         if target_columns:
             with contextlib.suppress(ValueError, OSError, RuntimeError, SAOperationalError):
                 sample_rows = self._db.get_sample_rows(table_name, limit=10000, columns=target_columns)
+
+        if len(sample_rows) >= 10000:
+            actual_count = 0
+            with contextlib.suppress(ValueError, OSError, RuntimeError, SAOperationalError):
+                actual_count = self._db.get_row_count(table_name)
+            if actual_count > 10000:
+                logger.warning(
+                    "SharedPool truncated for large table; FK diversity may be limited",
+                    table_name=table_name,
+                    sampled=len(sample_rows),
+                    total=actual_count,
+                )
 
         for col_name, spec in generator_specs.items():
             if col_name not in pk_columns and col_name not in fk_columns:

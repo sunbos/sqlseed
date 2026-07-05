@@ -11,6 +11,7 @@ Section 14.2 (cycle termination): an explicit ``visited`` set guarantees that
 cyclic dependencies (A derives B, B derives A) cannot cause stack overflow,
 even if the ``_degraded`` marker were somehow bypassed.
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
@@ -71,9 +72,7 @@ class ProgressiveDegrader:
             col_index = {c["name"]: c for c in columns}
 
             # Expand failed_columns with composite FK group members
-            expanded_failed = self._expand_composite_groups(
-                failed_columns, column_groups, table_name
-            )
+            expanded_failed = self._expand_composite_groups(failed_columns, column_groups, table_name)
 
             for col_name, reason in expanded_failed.items():
                 key = (table_name, col_name)
@@ -98,9 +97,22 @@ class ProgressiveDegrader:
         column_groups: list[ColumnGroup],
         table_name: str,
     ) -> dict[str, DegradeReason]:
-        """Defense 5: if any column in a composite FK group fails, the whole group fails."""
-        del table_name  # unused; kept for API symmetry with future per-table groups
-        expanded = dict(failed_columns)
+        """Defense 5: if any column in a composite FK group fails, the whole group fails.
+
+        Filters table-prefixed keys (``table:column``) to only include
+        columns belonging to ``table_name``, preventing cross-table
+        collisions in multi-table SCC scenarios where two tables share a
+        column name (e.g. both have 'id'). Bare column names (no prefix)
+        are kept as-is for backward compatibility.
+        """
+        expanded: dict[str, DegradeReason] = {}
+        for key, reason in failed_columns.items():
+            if ":" in key:
+                tbl, col = key.split(":", 1)
+                if tbl == table_name:
+                    expanded[col] = reason
+            else:
+                expanded[key] = reason
         for group in column_groups:
             if any(col in expanded for col in group.columns):
                 for col in group.columns:
@@ -175,9 +187,7 @@ class ProgressiveDegrader:
         )
 
         # Cascade to downstream: derive_from dependents + composite FK group
-        downstream = self._find_downstream_inclusive(
-            col_name, columns, column_groups
-        )
+        downstream = self._find_downstream_inclusive(col_name, columns, column_groups)
         for ds_col_name in downstream:
             ds_col = col_index.get(ds_col_name)
             if ds_col and not ds_col.get("_degraded"):

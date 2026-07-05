@@ -1,4 +1,5 @@
 """Tests for ShadowFKScanner (Section 14.3) — SQLite FK localization."""
+
 from __future__ import annotations
 
 import sqlite3

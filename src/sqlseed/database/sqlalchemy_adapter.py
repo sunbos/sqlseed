@@ -22,7 +22,7 @@ import re
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import MetaData, Table, create_engine, event, inspect, text
-from sqlalchemy.exc import ArgumentError, NoSuchModuleError, NoSuchTableError
+from sqlalchemy.exc import ArgumentError, NoSuchModuleError, NoSuchTableError, SQLAlchemyError
 
 from sqlseed._utils.logger import get_logger
 from sqlseed._utils.sql_safe import validate_table_name
@@ -291,20 +291,39 @@ class SQLAlchemyAdapter:
         return self._inspector
 
     def execute(self, sql: str, params: tuple[Any, ...] = ()) -> Any:
-        """Execute a SQL statement.
+        """Execute a SQL statement and return the cursor.
 
         Uses a raw DBAPI connection to support native placeholders (SQLite: ?, PG: %s) and tuple parameters,
         keeping protocol semantics consistent with RawSQLiteAdapter.
+
+        The returned cursor holds a reference to the underlying DBAPI
+        connection. Callers MUST invoke ``cursor.close()`` after fetching
+        results (``fetchone``/``fetchall``) so the connection is returned
+        to the pool promptly. Previously this method closed ``raw`` in a
+        ``finally`` block, which left the cursor pointing at a
+        already-released connection — on SQLite the cached result set
+        masked the bug, but on PostgreSQL (psycopg3) ``fetchone``/
+        ``fetchall`` raised ``OperationalError: cursor already closed``.
+
+        If the caller forgets ``cursor.close()``, the connection is still
+        reclaimed when the cursor is garbage-collected (via the DBAPI
+        connection's ``__del__``), so there is no hard leak — only delayed
+        return to the pool.
         """
         engine = self._get_engine()
         raw = engine.raw_connection()
         try:
             cursor = raw.cursor()
-            cursor.execute(sql, params)
-            raw.commit()
-            return cursor
-        finally:
+            try:
+                cursor.execute(sql, params)
+                raw.commit()
+                return cursor
+            except Exception:
+                cursor.close()
+                raise
+        except Exception:
             raw.close()
+            raise
 
     def get_table_names(self) -> list[str]:
         """Return all user table names in the database."""
@@ -373,8 +392,8 @@ class SQLAlchemyAdapter:
         dialect = self.dialect
         engine = self._get_engine()
         raw = engine.raw_connection()
+        cursor = raw.cursor()
         try:
-            cursor = raw.cursor()
 
             def execute_fn(sql: str, params: Any = ()) -> Any:
                 cursor.execute(sql, params or ())
@@ -386,6 +405,7 @@ class SQLAlchemyAdapter:
                 execute_fn=execute_fn,
             )
         finally:
+            cursor.close()
             raw.close()
 
     def get_primary_keys(self, table_name: str) -> list[str]:
@@ -540,7 +560,11 @@ class SQLAlchemyAdapter:
             checks = inspector.get_check_constraints(table_name)
         except NoSuchTableError:
             return []
-        except Exception as exc:  # Backend may not support CHECK reflection
+        except (SQLAlchemyError, NotImplementedError) as exc:
+            # Backend may not support CHECK reflection (e.g. older SQLAlchemy
+            # versions or dialects without get_check_constraints). Narrow to
+            # SQLAlchemyError + NotImplementedError so genuine bugs (e.g.
+            # AttributeError from a typo) are not silently swallowed.
             logger.debug("CHECK constraint reflection unavailable", table_name=table_name, error=str(exc))
             return []
 
@@ -702,8 +726,8 @@ class SQLAlchemyAdapter:
         safe_table = dialect.quote_identifier(table_name)
         engine = self._get_engine()
         raw = engine.raw_connection()
+        cursor = raw.cursor()
         try:
-            cursor = raw.cursor()
             cursor.execute(f"DELETE FROM {safe_table}")
             # Reset the autoincrement counter. Each Dialect self-handles expected
             # failures (SQLite: sqlite_sequence missing; PG: no sequence) via its
@@ -715,6 +739,7 @@ class SQLAlchemyAdapter:
             )
             raw.commit()
         finally:
+            cursor.close()
             raw.close()
         logger.debug("Cleared table", table_name=table_name)
 

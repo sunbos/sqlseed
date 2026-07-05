@@ -12,6 +12,7 @@ count, time budget). For each attempt it:
   3. If failure: records error, checks oscillation, degrades if needed.
   4. On any successful fix: calls DiffLearner.learn_from_fix() (4e).
 """
+
 from __future__ import annotations
 
 import time
@@ -76,36 +77,11 @@ class Layer4Coordinator:
             attempt_num += 1
             # Time budget check
             if time.monotonic() - start > self._time_budget:
-                logger.warning(
-                    "Layer 4 time budget exhausted", budget=self._time_budget
-                )
+                logger.warning("Layer 4 time budget exhausted", budget=self._time_budget)
                 return self._degrade_and_return(
                     current_config,
                     current_violations,
-                    {
-                        c: DegradeReason.TIME_BUDGET_EXHAUSTED
-                        for c in self._collect_failed_columns(current_violations)
-                    },
-                    all_fixes,
-                    learned,
-                    attempt_num,
-                    start,
-                    column_groups,
-                )
-
-            # Oscillation check (4c)
-            if self._oscillation.check_and_record(current_violations):
-                logger.warning(
-                    "Oscillation detected, degrading failing columns",
-                    attempt=attempt_num,
-                )
-                return self._degrade_and_return(
-                    current_config,
-                    current_violations,
-                    {
-                        c: DegradeReason.LLM_OSCILLATION
-                        for c in self._collect_failed_columns(current_violations)
-                    },
+                    {c: DegradeReason.TIME_BUDGET_EXHAUSTED for c in self._collect_failed_columns(current_violations)},
                     all_fixes,
                     learned,
                     attempt_num,
@@ -128,9 +104,7 @@ class Layer4Coordinator:
                         current_violations,
                         {
                             c: DegradeReason.MAX_RETRIES_EXCEEDED
-                            for c in self._collect_failed_columns(
-                                current_violations
-                            )
+                            for c in self._collect_failed_columns(current_violations)
                         },
                         all_fixes,
                         learned,
@@ -149,17 +123,20 @@ class Layer4Coordinator:
                 fix_strategy="llm_heal",
                 before={},
                 after=attempt.config_patch,
-                violation_kind=(
-                    current_violations[0].constraint_type.value
-                    if current_violations
-                    else "unknown"
-                ),
+                violation_kind=(current_violations[0].constraint_type.value if current_violations else "unknown"),
                 success=True,
             )
             all_fixes.append(fix)
 
-            # Re-validate (Layer 2)
-            new_violations = self._validator.validate(current_config)
+            # Re-validate (Layer 2). FastValidator.validate() requires a
+            # snapshot positional arg and returns a ValidationResult
+            # dataclass (not a list). Without passing snapshot the call
+            # raises TypeError; without unwrapping .violations the
+            # truthy dataclass makes the success branch unreachable.
+            val_result = self._validator.validate(current_config, self._snapshot)
+            new_violations = (
+                list(val_result.violations) if hasattr(val_result, "violations") else list(val_result or [])
+            )
             if not new_violations:
                 # Success — try to learn from each applied fix
                 for f in all_fixes:
@@ -184,14 +161,31 @@ class Layer4Coordinator:
             # New violations — feed back into the loop
             current_violations = new_violations
 
+            # Oscillation check (4c) — only after a successful patch
+            # application. Checking at loop start would misfire when the
+            # LLM healer failed (attempt.success=False) and violations
+            # didn't change, falsely detecting "oscillation".
+            if self._oscillation.check_and_record(current_violations):
+                logger.warning(
+                    "Oscillation detected, degrading failing columns",
+                    attempt=attempt_num,
+                )
+                return self._degrade_and_return(
+                    current_config,
+                    current_violations,
+                    {c: DegradeReason.LLM_OSCILLATION for c in self._collect_failed_columns(current_violations)},
+                    all_fixes,
+                    learned,
+                    attempt_num,
+                    start,
+                    column_groups,
+                )
+
         # Exhausted all attempts without success
         return self._degrade_and_return(
             current_config,
             current_violations,
-            {
-                c: DegradeReason.MAX_RETRIES_EXCEEDED
-                for c in self._collect_failed_columns(current_violations)
-            },
+            {c: DegradeReason.MAX_RETRIES_EXCEEDED for c in self._collect_failed_columns(current_violations)},
             all_fixes,
             learned,
             attempt_num,
@@ -221,9 +215,7 @@ class Layer4Coordinator:
                 total_attempts=attempt_num,
                 total_elapsed=time.monotonic() - start,
             )
-        new_config, degrade_fixes = self._degrader.degrade(
-            config, failed, column_groups=column_groups or []
-        )
+        new_config, degrade_fixes = self._degrader.degrade(config, failed, column_groups=column_groups or [])
         applied.extend(degrade_fixes)
         return HealResult(
             config=new_config,
@@ -236,9 +228,7 @@ class Layer4Coordinator:
         )
 
     @staticmethod
-    def _merge_patch(
-        config: dict[str, Any], patch: dict[str, Any]
-    ) -> dict[str, Any]:
+    def _merge_patch(config: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
         """Merge a healer-produced patch into the current config.
 
         For each table in the patch, replace matching columns in the config
@@ -252,9 +242,7 @@ class Layer4Coordinator:
             name = table_cfg["name"]
             if name not in patch_tables:
                 continue
-            patch_cols = {
-                c["name"]: c for c in patch_tables[name].get("columns", [])
-            }
+            patch_cols = {c["name"]: c for c in patch_tables[name].get("columns", [])}
             new_columns = []
             for col in table_cfg.get("columns", []):
                 if col["name"] in patch_cols:
@@ -271,10 +259,21 @@ class Layer4Coordinator:
 
     @staticmethod
     def _collect_failed_columns(violations: list[ViolationReport]) -> list[str]:
-        """Flatten the columns from all violation reports (deduped)."""
+        """Flatten the columns from all violation reports (deduped).
+
+        Includes table prefix when available to avoid cross-table collisions
+        in multi-table SCC scenarios where two tables share a column name
+        (e.g. both have 'id'). The ``table:column`` key format is parsed by
+        :meth:`ProgressiveDegrader._expand_composite_groups` to filter
+        failures per-table before degradation.
+        """
         seen: list[str] = []
         for v in violations:
+            table = getattr(v, "table", "") or ""
             for c in v.columns:
-                if c and c not in seen:
-                    seen.append(c)
+                if not c:
+                    continue
+                key = f"{table}:{c}" if table else c
+                if key not in seen:
+                    seen.append(key)
         return seen

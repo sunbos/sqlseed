@@ -1,4 +1,5 @@
 """Tests for healer.llm_healer module."""
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock
@@ -31,9 +32,7 @@ def test_build_prompt_includes_failure_reasons():
 
 def test_build_prompt_respects_token_budget():
     """Subgraph prompt must stay under 2K tokens (Section 6.4)."""
-    healer = LLMHealer(
-        client=MagicMock(), model="gemma-4-e4b-it", max_prompt_tokens=2000
-    )
+    healer = LLMHealer(client=MagicMock(), model="gemma-4-e4b-it", max_prompt_tokens=2000)
     task = SubgraphTask(task_id="t1", tables=["users"])
     violations = [_violation(f"col_{i}") for i in range(50)]
     prompt = healer.build_prompt(task, violations, parent_config={"tables": []})
@@ -79,9 +78,7 @@ def test_heal_failure_on_malformed_json():
 def test_heal_failure_propagates_api_error():
     """API errors (timeout, connection) are wrapped as failure, not raised."""
     fake_client = MagicMock()
-    fake_client.chat_completions_create.side_effect = RuntimeError(
-        "connection refused"
-    )
+    fake_client.chat_completions_create.side_effect = RuntimeError("connection refused")
     healer = LLMHealer(client=fake_client, model="gemma-4-e4b-it")
     task = SubgraphTask(task_id="t1", tables=["users"])
     violations = [_violation("email")]

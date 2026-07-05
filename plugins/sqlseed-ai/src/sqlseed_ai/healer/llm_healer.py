@@ -12,6 +12,7 @@ Token budget (Section 6.4): the prompt must stay under ``max_prompt_tokens``
 schema is too large, the caller must split it via :class:`SubgraphSplitter`
 (Task 4.x) before invoking the healer.
 """
+
 from __future__ import annotations
 
 import json
@@ -41,6 +42,40 @@ class LLMClient(Protocol):
     ) -> Any:
         """Create a chat completion (openai-compatible)."""
         ...
+
+
+class _OpenAICompatAdapter:
+    """Adapter wrapping ``openai.OpenAI`` to satisfy the ``LLMClient`` protocol.
+
+    The real OpenAI Python SDK exposes ``client.chat.completions.create(...)``
+    (attribute chain), but :class:`LLMHealer` calls
+    ``client.chat_completions_create(...)`` (flat method). Without this
+    adapter, every heal() call raises
+    ``AttributeError: 'OpenAI' object has no attribute 'chat_completions_create'``.
+
+    The adapter is intentionally minimal: it forwards the call verbatim
+    and preserves the response object (``resp.choices[0].message.content``
+    is read by the healer).
+    """
+
+    def __init__(self, openai_client: Any) -> None:
+        self._client = openai_client
+
+    def chat_completions_create(
+        self,
+        *,
+        model: str,
+        messages: list[dict[str, str]],
+        temperature: float,
+        max_tokens: int | None = None,
+    ) -> Any:
+        """Forward to ``client.chat.completions.create``."""
+        return self._client.chat.completions.create(
+            model=model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
 
 
 @dataclass
@@ -119,8 +154,7 @@ class LLMHealer:
         for v in relevant:
             cols = ", ".join(v.columns) if v.columns else "(unknown)"
             lines.append(
-                f"- Table {v.table}, columns [{cols}], "
-                f"constraint={v.constraint_type.value}, severity={v.severity}"
+                f"- Table {v.table}, columns [{cols}], constraint={v.constraint_type.value}, severity={v.severity}"
             )
             if v.message:
                 lines.append(f"  Message: {v.message}")
@@ -136,13 +170,9 @@ class LLMHealer:
                 params = col.get("params", {})
                 derive = col.get("derive_from")
                 if derive:
-                    lines.append(
-                        f"  - {col['name']}: derive_from={derive}, expr={col.get('expression')}"
-                    )
+                    lines.append(f"  - {col['name']}: derive_from={derive}, expr={col.get('expression')}")
                 else:
-                    lines.append(
-                        f"  - {col['name']}: generator={gen}, params={params}"
-                    )
+                    lines.append(f"  - {col['name']}: generator={gen}, params={params}")
 
         user_prompt = "\n".join(lines)
         # Rough token estimate: 4 chars per token
@@ -182,7 +212,10 @@ class LLMHealer:
                 temperature=self._temperature,
                 max_tokens=self._max_response_tokens,
             )
-        except (OSError, RuntimeError) as exc:
+        except (OSError, RuntimeError, AttributeError) as exc:
+            # AttributeError catches a misconfigured client (e.g. raw OpenAI
+            # instance without the _OpenAICompatAdapter wrapper) so the
+            # reconcile loop can degrade gracefully instead of crashing.
             logger.warning("LLM healer call failed", error=str(exc))
             return HealAttemptResult(
                 success=False,

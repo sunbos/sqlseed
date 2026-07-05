@@ -2995,9 +2995,7 @@ def test_stage3_validator_rule_30_fixes_text_on_real_column():
     # Rule #30 Case 4 should fix text → float (type-routed for REAL)
     assert col["generator"] == "float", f"Expected float, got {col['generator']}"
     # Old text-specific params should be stripped; new float params present
-    assert "min_length" not in col.get("params", {}), (
-        f"text params should be stripped, got {col.get('params')}"
-    )
+    assert "min_length" not in col.get("params", {}), f"text params should be stripped, got {col.get('params')}"
     # float generator should have valid numeric params
     assert col.get("params", {}).get("min_value") is not None, (
         f"Expected float to have min_value, got {col.get('params')}"
@@ -3036,9 +3034,7 @@ def test_stage3_validator_rule_30_fixes_string_on_integer_column():
     col = config["tables"][0]["columns"][0]
     # Rule #30 Case 4 should fix string → integer (type-routed for INTEGER)
     assert col["generator"] == "integer", f"Expected integer, got {col['generator']}"
-    assert "min_length" not in col.get("params", {}), (
-        f"string params should be stripped, got {col.get('params')}"
-    )
+    assert "min_length" not in col.get("params", {}), f"string params should be stripped, got {col.get('params')}"
 
 
 def test_stage3_validator_rule_30_case4_negative_text_on_text_column():
@@ -3825,9 +3821,7 @@ def test_stage3_validator_rule_29_breaks_derive_from_cycle():
     assert cols["sale_price"].get("derive_from") == ["cost_price"], (
         "sale_price should keep derive_from (CHECK-constrained)"
     )
-    assert "derive_from" not in cols["cost_price"], (
-        "cost_price derive_from should be stripped (cycle, non-CHECK)"
-    )
+    assert "derive_from" not in cols["cost_price"], "cost_price derive_from should be stripped (cycle, non-CHECK)"
     assert cols["cost_price"]["generator"] is not None, "cost_price should get a generator after stripping"
 
 
