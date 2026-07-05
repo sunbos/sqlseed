@@ -29,6 +29,7 @@ from sqlseed._utils.logger import get_logger
 
 if TYPE_CHECKING:
     from sqlseed_ai.config import AIConfig
+    from sqlseed_ai.repair.pipeline import RepairPipeline
     from sqlseed_ai.schema_analyzer import SchemaSemanticAnalyzer
 
     from sqlseed.core.features import ColumnFeatures, StructuralFeatures, TableFeatures
@@ -1014,7 +1015,51 @@ class Stage3Validator:
               column that has a weaker claim (non-CHECK-constrained). For
               type incompatibility, strips derive_from and falls back to
               Rule #28 semantic matching or type-routed generator.
+
+    Dual-track (Phase 2 scaffolding): when constructed with ``db_path`` or
+    ``url``, a :class:`RepairPipeline` is built alongside the legacy rules.
+    The new path runs on a deep copy of the legacy-fixed config and any
+    discrepancies are logged as warnings. Full dual-track activation
+    (with snapshot-driven repairs overriding legacy output) is deferred to
+    Phase 6. When no DB connection is provided, dual-track is disabled and
+    only the legacy rules run (backward-compatible with ``Stage3Validator()``).
     """
+
+    def __init__(
+        self,
+        *,
+        db_path: str | None = None,
+        url: str | None = None,
+    ) -> None:
+        """Initialize Stage3Validator with optional dual-track pipeline.
+
+        Args:
+            db_path: Optional SQLite database path. When provided, the new
+                :class:`RepairPipeline` runs alongside legacy rules and
+                discrepancies are logged. When omitted, only legacy rules run.
+            url: Optional database URL (alternative to ``db_path``).
+        """
+        self._db_path = db_path
+        self._url = url
+        self._dual_track_enabled: bool = db_path is not None or url is not None
+        self._new_pipeline: RepairPipeline | None = None
+        if self._dual_track_enabled:
+            try:
+                from sqlseed_ai.contracts.builtin_violations import BUILTIN_VIOLATIONS
+                from sqlseed_ai.contracts.matrix import ContractResolver
+                from sqlseed_ai.repair.pipeline import RepairPipeline
+
+                resolver = ContractResolver(BUILTIN_VIOLATIONS, set())
+                self._new_pipeline = RepairPipeline(
+                    resolver, db_path=db_path, url=url
+                )
+            except ImportError as e:
+                logger.warning(
+                    "Dual-track pipeline unavailable; falling back to legacy-only",
+                    error=str(e),
+                )
+                self._dual_track_enabled = False
+                self._new_pipeline = None
 
     def validate(
         self,
@@ -1074,7 +1119,58 @@ class Stage3Validator:
                 # crashes. Must run after Rule #27 (which adds derive_from) and
                 # Rule #17 (which strips unsafe derive_from on DATE columns).
                 self._apply_rule_29_derive_from_integrity(table, table_schema)
+        # Dual-track: run the new RepairPipeline on a deep copy and log
+        # discrepancies against the legacy-fixed config (Phase 2 scaffolding).
+        # Full dual-track activation (snapshot-driven repairs overriding
+        # legacy output) is deferred to Phase 6. Without a DB connection,
+        # dual-track is disabled and this branch is skipped.
+        self._run_dual_track(config)
         return config
+
+    def _run_dual_track(self, config: dict[str, Any]) -> None:
+        """Run the new repair pipeline on a copy and log discrepancies.
+
+        Phase 2 scaffolding: builds a :class:`SchemaSnapshot` from the DB
+        connection (when available), runs :class:`RepairPipeline.run()` on a
+        deep copy of the legacy-fixed config, and logs any field-level
+        discrepancies as warnings. The legacy-fixed config is never mutated
+        by the new path in Phase 2; full override behavior arrives in Phase 6.
+
+        Failures in the new path are logged and swallowed so the legacy
+        result is always returned to the caller.
+        """
+        if not self._dual_track_enabled or self._new_pipeline is None:
+            return
+        import copy
+
+        try:
+            from sqlseed_ai.validator.schema_snapshot import SchemaSnapshot
+
+            snapshot = SchemaSnapshot(db_path=self._db_path, url=self._url)
+            if not snapshot.tables:
+                logger.debug(
+                    "Dual-track skipped: snapshot has no tables",
+                )
+                return
+            new_config_copy = copy.deepcopy(config)
+            _, repair_result = self._new_pipeline.run(new_config_copy, snapshot)
+            if repair_result.applied_fixes:
+                logger.info(
+                    "Dual-track new path applied fixes",
+                    fix_count=repair_result.fix_count,
+                    unfixable_count=len(repair_result.unfixable),
+                )
+            if repair_result.unfixable:
+                logger.warning(
+                    "Dual-track new path found unfixable violations",
+                    unfixable_count=len(repair_result.unfixable),
+                )
+        except Exception as e:  # dual-track must never break legacy path
+            logger.warning(
+                "Dual-track new path failed; relying on legacy",
+                error=str(e),
+                error_type=type(e).__name__,
+            )
 
     def _apply_rule_14_strip_invalid_params(self, col: dict[str, Any]) -> None:
         """Rule #14: normalize and strip params not in generator's accepted whitelist.

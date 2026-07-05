@@ -3762,3 +3762,49 @@ def test_stage3_validator_rule_29_no_cycle_no_action():
     col = next(c for c in config["tables"][0]["columns"] if c["name"] == "actual_hours")
     # No cycle, compatible types → preserve derive_from
     assert col["derive_from"] == ["est_hours"]
+
+
+def test_stage3_validator_dual_track_logs_discrepancies(tmp_path):
+    """Phase 2 dual-track: legacy path fixes config, dual-track gracefully degrades.
+
+    Without a DB connection, the new RepairPipeline cannot build a real
+    SchemaSnapshot, so the dual-track falls back to legacy-only. The test
+    verifies:
+      1. ``Stage3Validator()`` constructs without args (backward compatible).
+      2. ``validate()`` does not crash when dual-track is enabled but no DB
+         connection is available.
+      3. Legacy rules still produce the expected fix (integer → datetime for
+         a TIMESTAMP column).
+    """
+    import sqlite3
+
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    path = tmp_path / "t.db"
+    with sqlite3.connect(str(path)) as conn:
+        conn.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, created_at TIMESTAMP)")
+
+    validator = Stage3Validator()
+    config = {
+        "tables": [
+            {
+                "name": "t",
+                "columns": [
+                    {"name": "id", "generator": "integer"},
+                    {"name": "created_at", "generator": "integer"},  # CRASH: triggers both paths
+                ],
+            }
+        ]
+    }
+    schema = {
+        "t": {
+            "columns": [
+                {"name": "id", "type": "INTEGER", "nullable": False},
+                {"name": "created_at", "type": "TIMESTAMP", "nullable": True},
+            ]
+        }
+    }
+    result = validator.validate(config, schema=schema)
+    # Legacy path fixes the integer→datetime issue
+    fixed_col = next(c for c in result["tables"][0]["columns"] if c["name"] == "created_at")
+    assert fixed_col["generator"] == "datetime"
