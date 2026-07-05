@@ -68,31 +68,42 @@ class ShadowFKScanner:
             )
             return report
 
-        table_meta = self._snapshot.tables.get(report.table)
-        if table_meta is None:
-            return report
+        # SQLite FK errors do not include the table name (Section 14.1).
+        # When ``report.table`` is empty (DialectErrorParser was called with
+        # ``table=None``), scan all tables in the snapshot to find the one
+        # whose FK columns intersect with the batch keys. When ``report.table``
+        # is set but missing from snapshot, noop (preserve existing behavior).
+        if report.table:
+            table_meta = self._snapshot.tables.get(report.table)
+            if table_meta is None:
+                return report
+            candidate_tables: list[Any] = [table_meta]
+        else:
+            candidate_tables = list(self._snapshot.tables.values())
 
-        for fk in table_meta.foreign_keys:
-            fk_cols = fk.get("columns") or []
-            parent_table = fk.get("ref_table")
-            parent_cols = fk.get("ref_columns") or []
-            if not (fk_cols and parent_table and parent_cols):
-                continue
-            parent_pk_set = self._load_parent_pk_set(parent_table, parent_cols[0])
-            for fk_col in fk_cols:
-                generated_values = {
-                    row.get(fk_col) for row in batch if row.get(fk_col) is not None
-                }
-                offending = generated_values - parent_pk_set
-                if offending:
-                    logger.info(
-                        "Shadow FK scan localized offender",
-                        table=report.table,
-                        column=fk_col,
-                        offending_count=len(offending),
-                    )
-                    report.columns = [fk_col]
-                    return report
+        for table_meta in candidate_tables:
+            for fk in table_meta.foreign_keys:
+                fk_cols = fk.get("columns") or []
+                parent_table = fk.get("ref_table")
+                parent_cols = fk.get("ref_columns") or []
+                if not (fk_cols and parent_table and parent_cols):
+                    continue
+                parent_pk_set = self._load_parent_pk_set(parent_table, parent_cols[0])
+                for fk_col in fk_cols:
+                    generated_values = {
+                        row.get(fk_col) for row in batch if row.get(fk_col) is not None
+                    }
+                    offending = generated_values - parent_pk_set
+                    if offending:
+                        logger.info(
+                            "Shadow FK scan localized offender",
+                            table=table_meta.name,
+                            column=fk_col,
+                            offending_count=len(offending),
+                        )
+                        report.columns = [fk_col]
+                        report.table = table_meta.name  # backfill table name
+                        return report
         logger.warning("Shadow FK scan found no culprit", table=report.table)
         return report
 
