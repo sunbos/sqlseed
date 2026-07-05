@@ -93,6 +93,9 @@ class StreamingHandlerMixin:
         self,
         messages: list[dict[str, str]],
         on_progress: ProgressCallback | None = None,
+        *,
+        stage: str = "",
+        table_name: str = "",
     ) -> dict[str, Any]:
         """Call LLM with streaming output and progress callbacks.
 
@@ -104,9 +107,15 @@ class StreamingHandlerMixin:
                 - "streaming": token being generated, info={"token": str, "count": int}
                 - "parsing": parsing the response JSON
                 - "done": analysis complete, info={"tokens": int, "model": str}
+            stage: Pipeline stage identifier for LLM interaction log attribution.
+            table_name: Table being analyzed; populates the JSON log field.
         """
         self._ensure_config()
-        return self._call_with_fallback(lambda model: self._call_llm_streaming_once(messages, on_progress, model=model))
+        return self._call_with_fallback(
+            lambda model: self._call_llm_streaming_once(
+                messages, on_progress, model=model, stage=stage, table_name=table_name
+            )
+        )
 
     def _collect_stream_chunks(
         self,
@@ -153,6 +162,8 @@ class StreamingHandlerMixin:
         on_progress: ProgressCallback | None,
         *,
         model: str | None = None,
+        stage: str = "",
+        table_name: str = "",
     ) -> dict[str, Any]:
         """Execute a single streaming LLM call (no fallback).
 
@@ -160,6 +171,10 @@ class StreamingHandlerMixin:
             messages: Chat messages to send.
             on_progress: Optional progress callback.
             model: Model ID to use; falls back to ``self._config.model``.
+            stage: Pipeline stage identifier for LLM interaction log attribution
+                (e.g., "stage2_per_column", "refiner").
+            table_name: Table being analyzed; populates the ``table_name`` field
+                in the JSON log so the log analyzer can group calls by table.
 
         Returns:
             Parsed JSON dict from the streamed response.
@@ -191,6 +206,8 @@ class StreamingHandlerMixin:
                     messages=messages,
                     response="(empty stream response)",
                     model=actual_model,
+                    stage=stage,
+                    table_name=table_name,
                     elapsed=elapsed,
                 )
                 return {}
@@ -200,6 +217,8 @@ class StreamingHandlerMixin:
                 messages=messages,
                 response=content,
                 model=actual_model,
+                stage=stage,
+                table_name=table_name,
                 elapsed=elapsed,
             )
 
@@ -222,6 +241,8 @@ class StreamingHandlerMixin:
                 messages=messages,
                 response="",
                 model=model or (self._config.model if self._config else "unknown"),
+                stage=stage,
+                table_name=table_name,
                 elapsed=time.time() - start_time,
                 error=str(e),
             )

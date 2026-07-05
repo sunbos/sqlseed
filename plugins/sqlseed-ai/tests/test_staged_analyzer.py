@@ -4343,3 +4343,269 @@ def test_regression_rule_14_params_value_takes_priority_over_stray():
     # Stray column-level key removed
     assert "charset" not in col
 
+
+# ────────────────────────────────────────────────────────────────────
+# Phase 2/3 best-practice optimizations — covers Rule #30 type-mismatch
+# fix (name→datetime), Rule #22 NULL-OR pattern, column-level LLM
+# response cache, and dialect object repr leak fix.
+# ────────────────────────────────────────────────────────────────────
+
+
+def test_regression_rule_30_fixes_name_generator_on_timestamp_column():
+    """Regression: LLM gave ``name`` generator (Faker person name) to ``created_at`` TIMESTAMP column.
+
+    Reproduces the saas_complex_v2 fill failure:
+    ``SQLite DateTime type only accepts Python datetime and date objects``.
+
+    The previous Rule #30 used a closed-set check (``gen in
+    _ALL_NON_DATE_GENERATORS``) that only covered integer/float/boolean/
+    string/text/word. It missed semantic generators like ``name``/``email``/
+    ``username``/``sentence`` that also produce non-datetime values.
+
+    Fix: Rule #30 now uses whitelist logic (``gen not in _DATE_GENERATORS``)
+    which catches ALL non-date generators on DATE/TIMESTAMP columns.
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "tenants",
+                "columns": [
+                    {
+                        "name": "created_at",
+                        "generator": "name",  # LLM mistake: person name on timestamp
+                        "params": {},
+                    }
+                ],
+            }
+        ]
+    }
+    schema = {
+        "tenants": {
+            "columns": [
+                {"name": "created_at", "type": "TIMESTAMP", "nullable": False, "default": None},
+            ],
+        },
+    }
+    validator = Stage3Validator()
+    validator.validate(config, schema=schema)
+    col = config["tables"][0]["columns"][0]
+    # Rule #30 must convert name → date-family generator
+    assert col["generator"] in ("datetime", "timestamp", "date"), (
+        f"Rule #30 must fix name-on-TIMESTAMP; got generator={col['generator']!r}"
+    )
+
+
+def test_regression_rule_22_handles_null_or_time_chain_check():
+    """Regression: Rule #22 must handle ``col IS NULL OR col >= other_col``.
+
+    Reproduces the orders/notifications CHECK constraint failure:
+    ``CHECK(shipped_at IS NULL OR shipped_at >= placed_at)``.
+
+    The previous ``_parse_cross_column_date_comparison`` only matched pure
+    ``col >= col`` expressions. The ``IS NULL OR`` prefix (standard SQL
+    pattern for optional time-chain constraints) caused the regex to fail,
+    so Rule #22 never isolated the date ranges, leading to batch-level
+    CHECK failures (random ``shipped_at < placed_at``).
+
+    Fix: ``_parse_cross_column_date_comparison`` now strips the
+    ``<col> IS NULL OR`` prefix before matching the comparison.
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    # Test the parser directly
+    result = Stage3Validator._parse_cross_column_date_comparison(
+        "shipped_at IS NULL OR shipped_at >= placed_at"
+    )
+    assert result == ("shipped_at", "placed_at"), (
+        f"Rule #22 must parse NULL-OR time-chain; got: {result!r}"
+    )
+    # Also test with parentheses
+    result2 = Stage3Validator._parse_cross_column_date_comparison(
+        "delivered_at IS NULL OR (delivered_at >= shipped_at)"
+    )
+    assert result2 == ("delivered_at", "shipped_at"), (
+        f"Rule #22 must parse NULL-OR with parens; got: {result2!r}"
+    )
+    # Test backward compatibility: pure comparison still works
+    result3 = Stage3Validator._parse_cross_column_date_comparison("end_date >= start_date")
+    assert result3 == ("end_date", "start_date")
+
+
+def test_regression_rule_22_isolates_ranges_for_null_or_check():
+    """End-to-end: Rule #22 isolates date ranges for NULL-OR time-chain CHECK.
+
+    Verifies that when ``shipped_at IS NULL OR shipped_at >= placed_at``
+    is present, Rule #22 adjusts the year ranges so ``shipped_at`` is
+    always later than ``placed_at`` (eliminating batch CHECK failures).
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "orders",
+                "columns": [
+                    {
+                        "name": "placed_at",
+                        "generator": "datetime",
+                        "params": {"start_year": 2020, "end_year": 2024},
+                    },
+                    {
+                        "name": "shipped_at",
+                        "generator": "datetime",
+                        "params": {"start_year": 2020, "end_year": 2024},
+                    },
+                ],
+            }
+        ]
+    }
+    schema = {
+        "orders": {
+            "columns": [
+                {"name": "placed_at", "type": "TIMESTAMP", "nullable": False, "default": None},
+                {"name": "shipped_at", "type": "TIMESTAMP", "nullable": True, "default": None},
+            ],
+            "check_constraints": [
+                {"name": "chk_ship", "columns": ["shipped_at", "placed_at"],
+                 "expression": "shipped_at IS NULL OR shipped_at >= placed_at"},
+            ],
+        },
+    }
+    validator = Stage3Validator()
+    validator.validate(config, schema=schema)
+    placed = config["tables"][0]["columns"][0]
+    shipped = config["tables"][0]["columns"][1]
+    # Rule #22 must isolate: shipped_at.start_year > placed_at.end_year
+    assert placed["params"]["end_year"] < shipped["params"]["start_year"], (
+        f"Rule #22 must isolate ranges: placed.end={placed['params']['end_year']}, "
+        f"shipped.start={shipped['params']['start_year']}"
+    )
+
+
+def test_regression_dialect_object_normalized_to_string():
+    """Regression: dialect object repr must not leak into LLM prompts.
+
+    StructuralFeatureExtractor previously stored the raw Dialect OBJECT
+    (e.g., ``<sqlseed.database._dialect.SQLiteDialect object at 0x...>``)
+    in ``self.dialect``, which then leaked into the Stage 1 user prompt
+    via ``STAGE1_USER_TEMPLATE.format(dialect=features.dialect, ...)``.
+
+    Fix: ``StructuralFeatureExtractor.__init__`` now normalizes to
+    ``getattr(raw_dialect, "name", raw_dialect)`` which extracts the
+    canonical string identifier (e.g., "sqlite", "postgresql").
+    """
+    from sqlseed.core.features import StructuralFeatureExtractor
+
+    # Use a mock adapter that returns an object with a .name attribute
+    class FakeDialect:
+        name = "sqlite"
+
+    class FakeAdapter:
+        dialect = FakeDialect()
+
+    extractor = StructuralFeatureExtractor(FakeAdapter())
+    assert isinstance(extractor.dialect, str), (
+        f"dialect must be a string, got {type(extractor.dialect).__name__}: {extractor.dialect!r}"
+    )
+    assert extractor.dialect == "sqlite"
+
+    # Also test with a string dialect (defensive)
+    class FakeAdapterString:
+        dialect = "postgresql"
+
+    extractor2 = StructuralFeatureExtractor(FakeAdapterString())
+    assert isinstance(extractor2.dialect, str)
+    assert extractor2.dialect == "postgresql"
+
+    # Also test with no dialect attribute (default)
+    class FakeAdapterNoDialect:
+        pass
+
+    extractor3 = StructuralFeatureExtractor(FakeAdapterNoDialect())
+    assert isinstance(extractor3.dialect, str)
+    assert extractor3.dialect == "sqlite"
+
+
+def test_regression_column_cache_reuses_identical_column_signatures():
+    """Regression: Stage 2 column cache reuses LLM responses for identical columns.
+
+    When ``created_at TIMESTAMP NOT NULL`` appears in 10 tables, the LLM
+    should be called once and the result reused for the other 9. The
+    cache key is based on column signature (name+type+nullable+unique+
+    default+pk+fk+checks), NOT table identity.
+
+    This test verifies the cache key is deterministic for identical
+    columns in different tables.
+    """
+    # Construct two identical column signatures in different tables
+    # and verify the cache key matches.
+    from sqlseed.core.features import ColumnFeatures, TableFeatures
+    from sqlseed_ai.staged_analyzer import StagedSchemaAnalyzer
+
+    analyzer = StagedSchemaAnalyzer()
+    col = ColumnFeatures(
+        name="created_at",
+        type="TIMESTAMP",
+        nullable=False,
+        default=None,
+        is_primary_key=False,
+        is_autoincrement=False,
+        is_computed=False,
+    )
+    table1 = TableFeatures(
+        name="users",
+        columns=[col],
+        primary_key=["id"],
+        foreign_keys=[],
+        unique_constraints=[],
+        check_constraints=[],
+        indexes=[],
+    )
+    table2 = TableFeatures(
+        name="orders",
+        columns=[col],
+        primary_key=["id"],
+        foreign_keys=[],
+        unique_constraints=[],
+        check_constraints=[],
+        indexes=[],
+    )
+    key1 = analyzer._make_column_cache_key(col, table1, [])
+    key2 = analyzer._make_column_cache_key(col, table2, [])
+    # Same column signature → same cache key (regardless of table name)
+    assert key1 == key2, (
+        f"Identical column signatures must produce same cache key; "
+        f"got key1={key1!r}, key2={key2!r}"
+    )
+
+
+def test_regression_column_cache_different_types_different_keys():
+    """Column cache: different column types produce different cache keys."""
+    from sqlseed.core.features import ColumnFeatures, TableFeatures
+    from sqlseed_ai.staged_analyzer import StagedSchemaAnalyzer
+
+    analyzer = StagedSchemaAnalyzer()
+    table = TableFeatures(
+        name="t",
+        columns=[],
+        primary_key=["id"],
+        foreign_keys=[],
+        unique_constraints=[],
+        check_constraints=[],
+        indexes=[],
+    )
+    col_int = ColumnFeatures(
+        name="id", type="INTEGER", nullable=False, default=None,
+        is_primary_key=True, is_autoincrement=True, is_computed=False,
+    )
+    col_str = ColumnFeatures(
+        name="name", type="TEXT", nullable=False, default=None,
+        is_primary_key=False, is_autoincrement=False, is_computed=False,
+    )
+    key_int = analyzer._make_column_cache_key(col_int, table, [])
+    key_str = analyzer._make_column_cache_key(col_str, table, [])
+    assert key_int != key_str, "Different columns must have different cache keys"
+
+

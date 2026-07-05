@@ -212,17 +212,27 @@ class LLMCallerMixin:
 
         raise RuntimeError(f"LLM API call failed after {_MAX_FALLBACK_ATTEMPTS} fallback attempts")
 
-    def call_llm(self, messages: list[dict[str, str]]) -> dict[str, Any]:
+    def call_llm(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        stage: str = "",
+        table_name: str = "",
+    ) -> dict[str, Any]:
         """Send messages to the LLM (non-streaming) and return the parsed JSON.
 
         Args:
             messages: Chat messages built by :meth:`build_initial_messages`.
+            stage: Pipeline stage identifier for LLM interaction log attribution.
+            table_name: Table being analyzed; populates the JSON log field.
 
         Returns:
             Parsed JSON dict from the model response.
         """
         self._ensure_config()
-        return self._call_with_fallback(lambda model: self._call_llm_once(messages, model=model))
+        return self._call_with_fallback(
+            lambda model: self._call_llm_once(messages, model=model, stage=stage, table_name=table_name)
+        )
 
     @staticmethod
     def _is_reasoning_model_id(model_id: str | None) -> bool:
@@ -334,12 +344,24 @@ class LLMCallerMixin:
             raise classified from e
         raise RuntimeError(f"LLM API call failed (model={model_name}): {e}") from e
 
-    def _call_llm_once(self, messages: list[dict[str, str]], *, model: str | None = None) -> dict[str, Any]:
+    def _call_llm_once(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        model: str | None = None,
+        stage: str = "",
+        table_name: str = "",
+    ) -> dict[str, Any]:
         """Execute a single non-streaming LLM call (no fallback).
 
         Args:
             messages: Chat messages to send.
             model: Model ID to use; falls back to ``self._config.model``.
+            stage: Pipeline stage identifier (e.g., "stage1", "stage2_per_column",
+                "stage3_validation") for LLM interaction log attribution.
+            table_name: Table being analyzed when ``stage`` is per-table or
+                per-column. Populates the ``table_name`` field in the JSON log
+                so the log analyzer can group calls by table.
 
         Returns:
             Parsed JSON dict from the model response.
@@ -358,6 +380,8 @@ class LLMCallerMixin:
                 messages=messages,
                 response="",
                 model=model or self._config.model,
+                stage=stage,
+                table_name=table_name,
                 elapsed=time.time() - start_time,
                 error=str(e),
             )
@@ -383,6 +407,8 @@ class LLMCallerMixin:
                 messages=messages,
                 response="(empty response)",
                 model=actual_model,
+                stage=stage,
+                table_name=table_name,
                 elapsed=time.time() - start_time,
             )
             return {}
@@ -392,6 +418,8 @@ class LLMCallerMixin:
             messages=messages,
             response=content,
             model=actual_model,
+            stage=stage,
+            table_name=table_name,
             elapsed=time.time() - start_time,
         )
 

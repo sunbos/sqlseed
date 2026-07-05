@@ -951,7 +951,9 @@ Output ONLY raw JSON. No markdown, no explanation."""
         last_error: Exception | None = None
         for attempt in range(1, max_attempts + 1):
             try:
-                result: dict[str, Any] | None = self._analyzer._call_llm_once(messages)
+                result: dict[str, Any] | None = self._analyzer._call_llm_once(
+                    messages, stage="legacy_single_shot", table_name="(multi_table)"
+                )
                 if result is None:
                     result = {}
                 # Check if result is non-empty (has tables or name)

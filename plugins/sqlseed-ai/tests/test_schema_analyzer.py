@@ -129,7 +129,12 @@ class TestSchemaSemanticAnalyzerLLMCall:
         result = analyzer._call_llm(messages)
 
         assert result == {"tables": [{"name": "orders"}]}
-        mock_sa._call_llm_once.assert_called_once_with(messages)
+        # _call_llm now passes stage/table_name kwargs for LLM log attribution.
+        # The legacy single-shot path tags calls as "legacy_single_shot" with
+        # table_name "(multi_table)" so the log analyzer can attribute them.
+        mock_sa._call_llm_once.assert_called_once_with(
+            messages, stage="legacy_single_shot", table_name="(multi_table)"
+        )
 
     def test_call_llm_retries_on_empty_response(self) -> None:
         """_call_llm retries when LLM returns empty config (no tables/name).

@@ -156,8 +156,22 @@ class StructuralFeatureExtractor:
 
     def __init__(self, adapter: DatabaseAdapter) -> None:
         self.adapter = adapter
-        # dialect via hasattr (Protocol does not declare attributes)
-        self.dialect = getattr(adapter, "dialect", "sqlite")
+        # dialect via hasattr (Protocol does not declare attributes).
+        # Normalize to a string here to prevent Dialect OBJECT repr leaks
+        # into LLM prompts (e.g., ``<sqlseed.database._dialect.SQLiteDialect
+        # object at 0x...>``). SQLAlchemyAdapter.dialect returns a Dialect
+        # instance; we extract its ``.name`` attribute (e.g., "sqlite",
+        # "postgresql") which is the canonical string identifier. The
+        # ``getattr(obj, "name", obj)`` fallback handles adapters that
+        # already return a string dialect (defensive). Mirrors the logic
+        # in ``orchestrator._query._get_dialect_name()``.
+        raw_dialect = getattr(adapter, "dialect", "sqlite")
+        self.dialect = getattr(raw_dialect, "name", raw_dialect)
+        if not isinstance(self.dialect, str):
+            # Final safety net: if .name was missing or returned a non-string,
+            # fall back to str() to guarantee a string value (StructuralFeatures
+            # declares this field as ``str``).
+            self.dialect = str(self.dialect)
 
     def extract(self, table_names: list[str] | None = None) -> StructuralFeatures:
         """Extract structural features.

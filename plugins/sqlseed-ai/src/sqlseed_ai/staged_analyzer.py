@@ -243,6 +243,16 @@ class StagedSchemaAnalyzer:
         # connection is available. Without this, _dual_track_enabled is
         # always False and the new repair path is dead code.
         self._validator = Stage3Validator(db_path=db_path, url=url)
+        # In-memory cache for Stage 2 per-column LLM responses. Keyed by
+        # column signature (name+type+nullable+unique+default+pk+fk+checks).
+        # Columns with identical signatures produce identical LLM analyses,
+        # so caching avoids redundant calls when the same column appears in
+        # multiple tables (e.g., ``created_at TIMESTAMP NOT NULL`` in 10
+        # tables → 1 LLM call instead of 10). Log analysis found ``created_at``
+        # was analyzed 62 times (1307s wasted) — this cache eliminates that
+        # waste within a single analyzer instance. Cache is per-instance
+        # (not persistent across runs) to avoid stale-entry risks.
+        self._column_analysis_cache: dict[str, dict[str, Any]] = {}
 
     def _get_low_level_analyzer(self) -> Any:
         """Lazy-init the low-level SchemaAnalyzer used for raw LLM calls.
@@ -537,7 +547,9 @@ class StagedSchemaAnalyzer:
             {"role": "system", "content": STAGE1_SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt},
         ]
-        response = self._get_low_level_analyzer()._call_llm_once(messages)
+        response = self._get_low_level_analyzer()._call_llm_once(
+            messages, stage="stage1_structural", table_name="(schema)"
+        )
         return self._parse_stage1_response(response, features)
 
     def _parse_stage1_response(self, response: str | dict[str, Any], features: StructuralFeatures) -> StructureSummary:
@@ -717,6 +729,29 @@ class StagedSchemaAnalyzer:
                 # Build per-column prompt with cross-column context
                 fk_summary = self._format_fks_for_prompt(table_features)
                 cross_checks_str = self._format_cross_checks_for_prompt(cross_checks)
+                # Column-level LLM response cache: columns with identical
+                # (name, type, nullable, unique, default, pk, fk_target,
+                # cross_check_signature) produce identical LLM analyses.
+                # Caching avoids redundant LLM calls when the same column
+                # signature appears across tables (e.g., ``created_at
+                # TIMESTAMP NOT NULL`` in 10 tables → 1 LLM call instead
+                # of 10). Discovered via log analysis: ``created_at`` was
+                # analyzed 62 times across runs (1307s wasted on one
+                # logical column signature).
+                cache_key = self._make_column_cache_key(col, table_features, cross_checks)
+                cached = self._column_analysis_cache.get(cache_key)
+                if cached is not None:
+                    # Reuse cached LLM response; just update the column name
+                    col_config = dict(cached)
+                    col_config["name"] = col.name
+                    columns_config.append(col_config)
+                    logger.info(
+                        "Stage 2: reusing cached column analysis",
+                        table=table_name,
+                        column=col.name,
+                        cache_key=cache_key[:32],
+                    )
+                    continue
                 user_prompt = STAGE2_PER_COLUMN_USER_TEMPLATE.format(
                     table_name=table_name,
                     naming_prefix=naming_prefix,
@@ -736,21 +771,30 @@ class StagedSchemaAnalyzer:
                     {"role": "user", "content": user_prompt},
                 ]
                 try:
-                    response = self._get_low_level_analyzer()._call_llm_once(messages)
+                    response = self._get_low_level_analyzer()._call_llm_once(
+                        messages, stage="stage2_per_column", table_name=table_name
+                    )
                     col_config = self._parse_stage2_response(response)
                     col_config.pop("column", None)  # remove LLM-returned "column" key to avoid clash with "name"
                     col_config["name"] = col.name
                     columns_config.append(col_config)
+                    # Cache successful analysis for reuse by other tables
+                    self._column_analysis_cache[cache_key] = dict(col_config)
                 except Exception as e:
                     category = ErrorClassifier.classify(e)
                     if category == ErrorCategory.TRANSIENT:
                         # Retry once
                         try:
-                            response = self._get_low_level_analyzer()._call_llm_once(messages)
+                            response = self._get_low_level_analyzer()._call_llm_once(
+                                messages, stage="stage2_per_column_retry", table_name=table_name
+                            )
                             col_config = self._parse_stage2_response(response)
                             col_config.pop("column", None)
                             col_config["name"] = col.name
                             columns_config.append(col_config)
+                            # Cache successful retry too — subsequent tables
+                            # with the same column signature can reuse it.
+                            self._column_analysis_cache[cache_key] = dict(col_config)
                             continue
                         except Exception:
                             pass
@@ -771,6 +815,64 @@ class StagedSchemaAnalyzer:
             )
 
         return {"tables": all_tables_config}
+
+    def _make_column_cache_key(
+        self,
+        col: ColumnFeatures,
+        table: TableFeatures,
+        cross_checks: list[dict[str, Any]],
+    ) -> str:
+        """Build a cache key for Stage 2 per-column LLM response reuse.
+
+        Two columns with the same cache key produce identical LLM analyses
+        because the Stage 2 prompt is fully determined by these features:
+
+          - column_name (semantic identity, e.g., ``created_at``)
+          - column_type (e.g., ``TIMESTAMP NOT NULL``)
+          - nullable, default, is_pk, is_autoincrement, is_unique
+          - FK target (if FK column)
+          - cross_column_checks signature (CHECK constraints involving
+            this column — affects derive_from/expression suggestions)
+
+        The key deliberately EXCLUDES table_name and naming_prefix because
+        those affect only the prompt template substitution, not the
+        semantic analysis outcome. Two ``created_at TIMESTAMP NOT NULL``
+        columns in different tables get the same analysis regardless of
+        table name.
+
+        Returns:
+            A string cache key. Uses ``|`` as field separator (cannot
+            appear in column names or types). Cross-check expressions are
+            joined with ``;`` and sorted for deterministic ordering.
+        """
+        # Extract FK target for this column (if any)
+        fk_target = ""
+        for fk in table.foreign_keys:
+            if col.name in fk.columns:
+                fk_target = f"{fk.ref_table}.{fk.ref_columns}"
+                break
+        # Extract cross-check expressions involving this column
+        col_checks: list[str] = []
+        if isinstance(cross_checks, list):
+            for check in cross_checks:
+                if isinstance(check, dict):
+                    expr = check.get("expression", "")
+                    if isinstance(expr, str) and col.name in expr:
+                        col_checks.append(expr.strip())
+        col_checks.sort()  # deterministic ordering
+        is_unique = self._is_column_unique(table, col.name)
+        parts = [
+            col.name,
+            str(col.type),
+            str(col.nullable),
+            str(col.default),
+            str(col.is_primary_key),
+            str(col.is_autoincrement),
+            str(is_unique),
+            fk_target,
+            ";".join(col_checks),
+        ]
+        return "|".join(parts)
 
     def _is_column_unique(self, table: TableFeatures, column_name: str) -> bool:
         """Check if column is UNIQUE."""
@@ -1551,8 +1653,17 @@ class Stage3Validator:
         needs_fix = False
         fix_reason = ""
 
-        if col_base in self._DATE_TYPES and gen in _ALL_NON_DATE_GENERATORS:
-            # Case 1: integer/float/boolean/string/text/word on TIMESTAMP → crash
+        if col_base in self._DATE_TYPES and gen not in _DATE_GENERATORS:
+            # Case 1: ANY non-date generator on DATE/TIMESTAMP column crashes.
+            # SQLAlchemy's DateTime type rejects non-datetime inputs with
+            # TypeError. The previous closed-set check (``gen in
+            # _ALL_NON_DATE_GENERATORS``) missed semantic generators like
+            # ``name``/``email``/``username``/``sentence``/``paragraph`` that
+            # also produce strings (not datetimes) and crash at insert.
+            # Discovered via saas_complex_v2 fill failure where LLM gave
+            # ``created_at`` column a ``name`` generator (Faker person name).
+            # The whitelist check (``gen not in _DATE_GENERATORS``) is more
+            # robust: it covers ALL current and future non-date generators.
             needs_fix = True
             fix_reason = "non-date generator on DATE/TIMESTAMP column causes TypeError at insert"
         elif col_base in self._NUMERIC_TYPES and gen in _DATE_GENERATORS:
@@ -3557,6 +3668,10 @@ class Stage3Validator:
 
           - ``<later_col> (>=|>) <earlier_col>`` → ``(later_col, earlier_col)``
           - ``<earlier_col> (<=|<) <later_col>`` → ``(later_col, earlier_col)``
+          - ``<later_col> IS NULL OR <later_col> (>=|>) <earlier_col>``
+            (NULL-allowed time-chain pattern, common in state-machine schemas
+            like ``shipped_at IS NULL OR shipped_at >= placed_at``)
+          - ``<earlier_col> IS NULL OR <earlier_col> (<=|<) <later_col>``
 
         Returns:
             ``(later_col_name, earlier_col_name)`` if the expression matches a
@@ -3565,6 +3680,21 @@ class Stage3Validator:
             complex expressions are rejected.
         """
         expr_stripped = expr.strip()
+        # Strip optional NULL-handling prefix: ``<col> IS NULL OR ...``
+        # This is the standard SQL pattern for optional time-chain constraints
+        # (e.g., ``shipped_at IS NULL OR shipped_at >= placed_at``). We extract
+        # the comparison clause after ``OR`` and parse it as a pure comparison.
+        # The regex is anchored to the start to avoid stripping inner ORs.
+        null_prefix = re.match(
+            r"^\s*(\w+)\s+IS\s+NULL\s+OR\s+(.*)$",
+            expr_stripped,
+            flags=re.IGNORECASE,
+        )
+        if null_prefix:
+            expr_stripped = null_prefix.group(2).strip()
+            # Strip optional surrounding parentheses: ``(a >= b)``
+            if expr_stripped.startswith("(") and expr_stripped.endswith(")"):
+                expr_stripped = expr_stripped[1:-1].strip()
         # Pattern: later_col >= earlier_col  (or >)
         m = re.match(r"^\s*(\w+)\s*(>=|>)\s*(\w+)\s*$", expr_stripped)
         if m:
