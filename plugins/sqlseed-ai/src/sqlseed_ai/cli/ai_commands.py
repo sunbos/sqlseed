@@ -759,17 +759,174 @@ def ai_analyze(
         raise click.exceptions.Exit(1) from e
 
 
+@click.command("auto-heal")
+@click.option(
+    "--db",
+    "db_path",
+    required=False,
+    type=click.Path(),
+    help="SQLite database path (mutually exclusive with --url)",
+)
+@click.option("--url", "db_url", default=None, help="Database URL (mutually exclusive with --db)")
+@click.option("--config", "config_path", required=True, type=click.Path(), help="Existing YAML config to repair")
+@click.option(
+    "-o",
+    "--output",
+    "output_path",
+    default=None,
+    type=click.Path(),
+    help="Output path for healed YAML (default: <config>_healed.yaml)",
+)
+@click.option("--model", "-m", default=None, help="LLM model name (default: auto-detect from available backends)")
+@click.option("--max-retries", default=3, type=int, help="Max heal attempts per subgraph (default: 3)")
+@click.option(
+    "--log-llm",
+    is_flag=True,
+    default=False,
+    help="Log full LLM request/response to JSON files under <cache_root>/ai_logs/.",
+)
+@click.option(
+    "--api-key",
+    envvar="SQLSEED_AI_API_KEY",
+    default=None,
+    help="API key for cloud backends (env: SQLSEED_AI_API_KEY)",
+)
+@click.option(
+    "--base-url",
+    envvar="SQLSEED_AI_BASE_URL",
+    default=None,
+    help="Base URL for OpenAI-compatible backend (env: SQLSEED_AI_BASE_URL)",
+)
+def auto_heal(
+    db_path: str | None,
+    db_url: str | None,
+    config_path: str,
+    output_path: str | None,
+    model: str | None,
+    max_retries: int,
+    log_llm: bool,
+    api_key: str | None,
+    base_url: str | None,
+) -> None:
+    """Repair broken YAML config files using LLM-driven self-healing.
+
+    \b
+    Usage:
+      - sqlseed auto-heal --db app.db --config broken.yaml -o healed.yaml
+      - sqlseed auto-heal --url "postgresql+psycopg://..." --config broken.yaml
+
+    \b
+    After `sqlseed ai-analyze` generates a YAML config, if `sqlseed fill`
+    fails on some tables (CHECK constraint violations, FK violations, etc.),
+    this command repairs the YAML using an LLM + rule-based repair pipeline.
+    The output is a fillable YAML config ready for `sqlseed fill`.
+    """
+    # Validate mutual exclusivity of --db and --url
+    if not db_path and not db_url:
+        raise click.UsageError("Either --db or --url must be provided.")
+    if db_path and db_url:
+        raise click.UsageError("--db and --url are mutually exclusive. Provide only one.")
+
+    # Validate config file exists
+    config_file = Path(config_path)
+    if not config_file.exists():
+        raise click.UsageError(f"Config file not found: {config_path}")
+
+    # Determine output path (default: <config_stem>_healed.yaml)
+    output = output_path if output_path is not None else str(config_file.with_suffix("")) + "_healed.yaml"
+
+    # Build AI config from env + CLI overrides (mirrors ai-analyze pattern)
+    ai_config = _build_ai_config(
+        api_key=api_key,
+        base_url=base_url,
+        model=model,
+        timeout=0.0,
+        log_llm=log_llm,
+    )
+
+    if not ai_config.resolve_api_key():
+        click.echo(
+            "Error: AI API key not configured. "
+            "Set SQLSEED_AI_API_KEY or OPENAI_API_KEY. "
+            "For Google AI Studio, set GOOGLE_API_KEY. "
+            "For LM Studio/Ollama, set SQLSEED_AI_BACKEND=lm_studio or ollama.",
+            err=True,
+        )
+        raise SystemExit(1)
+
+    resolved_model = ai_config.resolve_model()
+    ai_config.model = resolved_model
+    backend_name = ai_config.backend.value.replace("_", " ").title()
+    click.echo(f"Using AI model: {resolved_model} (via {backend_name})")
+
+    if log_llm:
+        from sqlseed._utils.paths import get_cache_dir
+
+        log_dir = get_cache_dir("ai_logs")
+        click.echo(f"LLM interaction logging enabled: {log_dir}")
+
+    # Build validator + healer + orchestrator (lazy imports to avoid
+    # loading auto_heal submodules unless the command is actually invoked)
+    from sqlseed_ai.auto_heal.orchestrator import AutoHealOrchestrator
+    from sqlseed_ai.contracts.builtin_violations import BUILTIN_VIOLATIONS
+    from sqlseed_ai.contracts.matrix import ContractResolver
+    from sqlseed_ai.healer.llm_healer import LLMHealer
+    from sqlseed_ai.validator.main import FastValidator
+
+    resolver = ContractResolver(set(BUILTIN_VIOLATIONS), set())
+    validator = FastValidator(resolver, db_path=db_path, url=db_url)
+    client = _build_llm_client(ai_config)
+    healer = LLMHealer(client=client, model=resolved_model)
+
+    orch = AutoHealOrchestrator(
+        db_path=db_path,
+        url=db_url,
+        healer=healer,
+        validator=validator,
+        total_budget_seconds=300.0,
+        max_retries=max_retries,
+    )
+
+    try:
+        yaml_str = orch.run()
+    except (ValueError, RuntimeError, OSError) as exc:
+        err_msg = str(exc)
+        if db_url:
+            try:
+                from sqlseed_cli.main import _redact_credentials
+
+                err_msg = _redact_credentials(err_msg)
+            except ImportError:
+                pass
+        click.echo(f"Error: auto-heal failed: {err_msg}", err=True)
+        raise SystemExit(1) from exc
+
+    # Write healed YAML
+    output_file = Path(output)
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+    with output_file.open("w", encoding="utf-8") as f:
+        f.write(yaml_str)
+
+    # Summary: count tables in the healed output
+    healed_config = yaml.safe_load(yaml_str) or {}
+    tables_repaired = len(healed_config.get("tables", []))
+
+    click.echo(f"Healed YAML written to: {output_file}")
+    click.echo(f"Tables repaired: {tables_repaired}")
+
+
 def register(cli_group: click.Group) -> None:
     """Entry-point target for the ``sqlseed.cli_commands`` group.
 
-    Called by ``sqlseed_cli.__init__`` to attach the ``ai-suggest`` and
-    ``ai-analyze`` subcommands to the ``sqlseed`` CLI group. Using
-    ``register`` (rather than ``register_commands``) keeps this module's
-    public name aligned with the entry-point callable signature documented
-    in ``sqlseed_cli.__init__._register_plugin_commands``.
+    Called by ``sqlseed_cli.__init__`` to attach the ``ai-suggest``,
+    ``ai-analyze``, and ``auto-heal`` subcommands to the ``sqlseed`` CLI
+    group. Using ``register`` (rather than ``register_commands``) keeps
+    this module's public name aligned with the entry-point callable
+    signature documented in ``sqlseed_cli.__init__._register_plugin_commands``.
     """
     cli_group.add_command(ai_suggest)
     cli_group.add_command(ai_analyze)
+    cli_group.add_command(auto_heal)
 
 
 # Backward-compat alias: existing tests import ``register_commands`` from

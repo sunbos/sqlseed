@@ -845,6 +845,38 @@ class StagedSchemaAnalyzer:
 # ── Spec §6.1 stage 3: Stage3Validator (rules #14-#16) ───────────────
 
 
+# Rule #14: Column-level recognized keys whitelist.
+# LLMs occasionally emit generator params at the column root level instead of
+# nested inside ``params`` (e.g., ``{generator: template, charset: ascii, ...}``
+# instead of ``{generator: template, params: {template: ..., charset: ascii}}``).
+# When ``ColumnConfig.normalize_dict_input`` runs at YAML load time, it merges
+# these stray keys into ``params`` — but Stage3Validator runs BEFORE that
+# normalization on raw LLM output dicts, so it never sees them. Rule #24 then
+# upgrades the generator (e.g., string -> template) using ``col.pop("params")``
+# which leaves the column-level stray keys in place. The subsequent Pydantic
+# normalization merges them into the new ``params``, producing invalid kwargs
+# for the new generator (e.g., ``charset`` on ``template`` -> runtime crash).
+#
+# Fix: Rule #14 normalizes column-level stray keys INTO ``params`` first, so
+# the whitelist stripping below handles them uniformly regardless of where
+# the LLM placed them. Mirrors ``ColumnConfig.model_fields`` exactly.
+_COLUMN_RECOGNIZED_KEYS: frozenset[str] = frozenset({
+    "name",
+    "generator",
+    "provider",
+    "params",
+    "null_ratio",
+    "derive_from",
+    "expression",
+    "constraints",
+    "faker_method",
+    "mimesis_method",
+    "native_params",
+    # ``type`` is accepted as a legacy alias for ``generator`` (handled by
+    # ColumnConfig.normalize_dict_input). Not a param, so recognized here.
+    "type",
+})
+
 # Rule #14: GENERATOR_PARAMS whitelist — based on src/sqlseed/generators/base_provider.py
 # Each generator's accepted keyword arguments. Params not in this list are stripped.
 _GENERATOR_ACCEPTED_PARAMS: dict[str, set[str]] = {
@@ -1181,27 +1213,71 @@ class Stage3Validator:
     def _apply_rule_14_strip_invalid_params(self, col: dict[str, Any]) -> None:
         """Rule #14: normalize and strip params not in generator's accepted whitelist.
 
-        This rule performs three layers of params normalization:
+        This rule performs four layers of params normalization:
 
-        1. **List-to-dict wrapping**: When LLM outputs ``params`` as a bare
+        1. **Column-level stray key normalization**: When LLM emits generator
+           params at the column root level instead of nested inside ``params``
+           (e.g., ``{generator: template, charset: ascii, name: dept_code}``),
+           move them into ``params`` so subsequent layers and the whitelist
+           stripper handle them uniformly. Without this, Rule #24's
+           ``col.pop("params")`` would leave the stray keys in place; the
+           subsequent Pydantic ``ColumnConfig.normalize_dict_input`` would
+           then merge them into the new ``params``, producing invalid kwargs
+           for the upgraded generator (e.g., ``charset`` on ``template`` ->
+           ``BaseProvider._gen_template() got an unexpected keyword argument
+           'charset'``).
+
+        2. **List-to-dict wrapping**: When LLM outputs ``params`` as a bare
            list (e.g., ``['active', 'suspended', 'closed']``) for choice-family
            generators, wrap it as ``{'choices': [...]}``. This is a common LLM
            hallucination — the LLM treats ``params`` as a list of values rather
            than a dict of named parameters.
 
-        2. **weighted_choice downgrade**: When LLM outputs ``weighted_choice``
+        3. **weighted_choice downgrade**: When LLM outputs ``weighted_choice``
            but ``choices`` is a list of strings (not ``[{value, weight}, ...]``
            dicts), downgrade to plain ``choice``. The ``weighted_choice`` params
            format is complex and LLMs frequently get it wrong; ``choice``
            produces equivalent output for equal-weight scenarios.
 
-        3. **Param whitelist stripping**: Strip params not in the generator's
+        4. **Param whitelist stripping**: Strip params not in the generator's
            accepted whitelist. Also corrects the common ``choice`` (singular)
            → ``choices`` (plural) typo.
         """
         gen = col.get("generator")
         if not isinstance(gen, str):
             return
+
+        # Layer 0: Normalize column-level stray keys into ``params``.
+        # LLMs sometimes place generator params at the column root level
+        # (sibling to ``generator``/``name``/``params``) instead of inside
+        # ``params``. Without this normalization, Rule #24's
+        # ``col.pop("params")`` later leaves the stray keys in place, and
+        # Pydantic's ``ColumnConfig.normalize_dict_input`` merges them into
+        # the new ``params`` at YAML load time — producing invalid kwargs
+        # for the upgraded generator (e.g., ``charset`` on ``template``).
+        # Mirrors ``ColumnConfig.normalize_dict_input`` behavior, but runs
+        # BEFORE Pydantic so Stage3Validator sees a uniform shape.
+        if not col.get("derive_from"):
+            stray_keys = [k for k in col if k not in _COLUMN_RECOGNIZED_KEYS]
+            if stray_keys:
+                params_dict = col.get("params")
+                if not isinstance(params_dict, dict):
+                    params_dict = {}
+                    col["params"] = params_dict
+                for key in stray_keys:
+                    # Don't overwrite an explicit ``params[key]`` with the
+                    # column-level stray value — ``params`` is the canonical
+                    # location, so it wins.
+                    if key not in params_dict:
+                        params_dict[key] = col.pop(key)
+                    else:
+                        col.pop(key, None)
+                logger.warning(
+                    "Stage3 Rule #14: normalized column-level stray keys into params",
+                    column=col.get("name"),
+                    stray_keys=stray_keys,
+                    generator=gen,
+                )
 
         # Layer 1: Wrap list params as {'choices': [...]} for choice-family generators.
         # LLMs sometimes output params as a bare list (e.g., ['a', 'b', 'c'])
@@ -1879,12 +1955,27 @@ class Stage3Validator:
         # at runtime (float(date) raises TypeError). Strip derive_from +
         # expression so the column falls back to its type-routed generator.
         # This takes precedence over all other branches below.
+        #
+        # SAFE-TIMEDALEXCEPTION: expressions that use ``timedelta(...)`` are safe
+        # date arithmetic (``value + timedelta(days=random_int(0, 30))``) and must
+        # NOT be stripped — stripping them leaves the column with no generator,
+        # causing sqlseed's type fallback to produce values that violate
+        # cross-column CHECK constraints (e.g. shipped_at < placed_at).
         if (
             isinstance(derive_from, list)
             and len(derive_from) > 0
             and table_schema is not None
             and self._is_date_family_source_column(derive_from[0], table_schema)
         ):
+            if "timedelta" in expr:
+                logger.info(
+                    "Stage3 Rule #17: preserving timedelta-based derive_from for DATE-family column",
+                    column=col_name,
+                    source_column=derive_from[0],
+                    expression=expr,
+                    reason="timedelta is safe date arithmetic; no float(date) TypeError risk",
+                )
+                return
             logger.warning(
                 "Stage3 Rule #17: stripping boolean expression for DATE-family source column",
                 column=col_name,
@@ -1894,6 +1985,23 @@ class Stage3Validator:
             )
             col.pop("derive_from", None)
             col.pop("expression", None)
+            # Rule #27 runs BEFORE Rule #17 and skips columns with derive_from,
+            # so it didn't supplement a generator for this column. Now that
+            # derive_from is stripped, supplement a type-routed generator to
+            # avoid leaving the column without any generator (which would cause
+            # sqlseed's type fallback to produce values that may violate CHECK
+            # constraints like ``shipped_at >= placed_at``).
+            if col.get("generator") is None:
+                col_type = self._get_column_type_from_schema(table_schema, col_name) or ""
+                type_routed = self._build_type_routed_for_missing(col_type)
+                col["generator"] = type_routed["generator"]
+                col["params"] = type_routed["params"]
+                logger.warning(
+                    "Stage3 Rule #17: supplemented type-routed generator after stripping DATE derive_from",
+                    column=col_name,
+                    column_type=col_type,
+                    generator=type_routed["generator"],
+                )
             return
 
         # Detect a range comparison like "X >= 0 AND X <= value" or
@@ -1953,6 +2061,20 @@ class Stage3Validator:
             )
             col.pop("derive_from", None)
             col.pop("expression", None)
+            # Same fix as the DATE-family branch above: Rule #27 ran before us
+            # and skipped this column (had derive_from). Supplement a type-routed
+            # generator now to avoid leaving the column without any generator.
+            if col.get("generator") is None and table_schema is not None:
+                col_type = self._get_column_type_from_schema(table_schema, col_name) or ""
+                type_routed = self._build_type_routed_for_missing(col_type)
+                col["generator"] = type_routed["generator"]
+                col["params"] = type_routed["params"]
+                logger.warning(
+                    "Stage3 Rule #17: supplemented type-routed generator after stripping unrecognised derive_from",
+                    column=col_name,
+                    column_type=col_type,
+                    generator=type_routed["generator"],
+                )
 
     @staticmethod
     def _is_date_family_source_column(source_col_name: Any, table_schema: dict[str, Any]) -> bool:
@@ -2201,6 +2323,10 @@ class Stage3Validator:
           - Python constants: ``True``, ``False``, ``None``.
           - Python keywords: ``and``, ``or``, ``not``, ``if``, ``else``,
             ``for``, ``in``, ``is``.
+          - Python keyword argument names (the ``name`` in ``func(name=value)``).
+            These are parameter names of the called function, not free
+            identifiers — e.g., ``timedelta(days=7)`` has ``days`` as a
+            keyword argument to ``timedelta``, not a bare variable.
         """
         # Lazy import to avoid hard dependency at module import time
         from sqlseed.core.expression import ExpressionEngine
@@ -2221,6 +2347,15 @@ class Stage3Validator:
             "in",
             "is",  # keywords
         }
+        # Extract Python keyword argument names: matches ``name=`` (identifier
+        # immediately followed by ``=`` and NOT ``==``). These are parameter
+        # names of the called function (e.g., ``days`` in ``timedelta(days=N)``),
+        # not free identifiers — excluding them prevents false positives that
+        # would otherwise strip safe expressions like
+        # ``value + timedelta(days=random_int(1, 30))`` (regression discovered
+        # by the timedelta preservation test in the regression corpus).
+        kwarg_names: set[str] = set(re.findall(r"\b([a-zA-Z_]\w*)\s*=(?!=)", expr))
+        allowed |= kwarg_names
         # Match all identifier-like tokens (letters/digits/underscore, starting with letter/_)
         tokens = set(re.findall(r"\b[a-zA-Z_]\w*\b", expr))
         # Filter out allowed identifiers

@@ -3992,3 +3992,354 @@ def test_stage3_validator_dual_track_logs_discrepancies(tmp_path):
     # Legacy path fixes the integer→datetime issue
     fixed_col = next(c for c in result["tables"][0]["columns"] if c["name"] == "created_at")
     assert fixed_col["generator"] == "datetime"
+
+
+# ────────────────────────────────────────────────────────────────────
+# Regression corpus — covers known LLM failure patterns discovered
+# during saas_complex_v2.db autonomous analysis runs. Each test targets
+# one blind spot in Stage3Validator. Together they form a fast regression
+# suite (runs in <2s) that verifies fixes without re-running the full
+# 52-minute ai-analyze pipeline. This is the "lower verification cost"
+# mechanism: instead of re-running ai-analyze after every Rule fix, run
+# the regression suite. Add a new test here whenever a new LLM failure
+# pattern is discovered.
+# ────────────────────────────────────────────────────────────────────
+
+
+def test_regression_rule_14_normalizes_column_level_stray_charset():
+    """Regression: LLM placed ``charset`` at column root instead of inside ``params``.
+
+    Reproduces the ``saas_complex_v2_fill.yaml`` failure where the LLM
+    returned ``{generator: template, charset: ascii, name: dept_code,
+    params: {template: DEPT-{sequence:04d}}}``. Rule #14 only scanned
+    ``params`` (which had no invalid keys), so ``charset`` survived.
+    Rule #24 then upgraded ``string -> template`` via ``col.pop("params")``,
+    leaving ``charset`` at column level. Pydantic ``ColumnConfig`` later
+    merged the stray ``charset`` into the new ``params``, crashing with
+    ``BaseProvider._gen_template() got an unexpected keyword argument
+    'charset'``.
+
+    Fix: Rule #14 Layer 0 normalizes column-level stray keys into
+    ``params`` first, so the whitelist stripper handles them uniformly.
+
+    This test isolates Rule #14's normalization by using a non-UNIQUE,
+    non-code-like column (so Rule #24 doesn't upgrade it to template).
+    The end-to-end scenario (with Rule #24 upgrade) is covered by
+    ``test_regression_rule_14_then_rule_24_strips_charset_when_upgraded_to_template``.
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "users",
+                "columns": [
+                    {
+                        "name": "notes",  # not code-like, not UNIQUE, no Rule #28 pattern match
+                        "generator": "string",
+                        "charset": "ascii",  # stray column-level key (LLM mistake)
+                        "params": {"min_length": 4, "max_length": 16},
+                    }
+                ],
+            }
+        ]
+    }
+    validator = Stage3Validator()
+    validator.validate(config)
+    col = config["tables"][0]["columns"][0]
+    # ``charset`` must be moved into params by Rule #14 Layer 0
+    assert "charset" not in col, (
+        f"Rule #14 must move stray column-level 'charset' into params; "
+        f"still present at column root: {col!r}"
+    )
+    # string generator accepts charset, so it should now be inside params
+    assert col["params"].get("charset") == "ascii"
+
+
+def test_regression_rule_14_then_rule_24_strips_charset_when_upgraded_to_template():
+    """End-to-end regression: stray ``charset`` stripped after Rule #24 upgrade.
+
+    Combines Rule #14 (normalize stray keys) + Rule #25 (text→string for
+    code columns) + Rule #24 (UNIQUE string code → template) to verify
+    the full chain leaves no invalid params on the final template generator.
+
+    Reproduces the exact saas_complex_v2 scenario:
+      1. LLM returns ``text`` for ``dept_code`` (UNIQUE) with ``charset: ascii``
+         at column root.
+      2. Rule #25 converts text→string (charset stays).
+      3. Rule #24 upgrades string→template (col.pop("params")).
+      4. Without Rule #14 Layer 0, charset would survive at column root,
+         then Pydantic merges it into the new template params → crash.
+
+    With the fix, Rule #14 Layer 0 normalizes charset into params BEFORE
+    Rule #24 runs, and Rule #24's col.pop("params") cleanly removes it.
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "departments",
+                "columns": [
+                    {
+                        "name": "dept_code",
+                        "generator": "text",  # LLM picked text (Rule #25 will convert)
+                        "charset": "ascii",  # stray column-level key
+                        "constraints": {"unique": True},
+                        "params": {"min_length": 4, "max_length": 16},
+                    }
+                ],
+            }
+        ]
+    }
+    validator = Stage3Validator()
+    validator.validate(config)
+    col = config["tables"][0]["columns"][0]
+    # Final generator must be template (Rule #24 upgrade)
+    assert col["generator"] == "template", (
+        f"Rule #24 must upgrade UNIQUE string code column to template; got: {col.get('generator')!r}"
+    )
+    # No stray column-level charset
+    assert "charset" not in col, (
+        f"charset must not survive at column root after Rule #24 upgrade: {col!r}"
+    )
+    # template params must contain ONLY template/sequence_start/sequence_step
+    params = col.get("params", {})
+    invalid = set(params.keys()) - {"template", "sequence_start", "sequence_step"}
+    assert not invalid, (
+        f"template params must not contain invalid keys {invalid!r}; params={params!r}"
+    )
+    # template value must be present
+    assert "template" in params
+    assert "charset" not in params
+
+
+def test_regression_rule_17_supplements_generator_after_stripping_date_derive_from():
+    """Regression: Rule #17 stripped DATE-family derive_from but left column empty.
+
+    Reproduces the orders/notifications failure: LLM gave ``shipped_at`` a
+    ``derive_from: [placed_at]`` + ``>= value`` expression. Rule #17
+    detected placed_at is DATE-family and stripped the derive_from (to
+    avoid ``float(date)`` TypeError), but didn't supplement a generator.
+    Rule #27 (which supplements missing generators) had already run and
+    skipped this column (it had derive_from at the time). The result:
+    ``generator: null`` → CHECK constraint failure at insert time.
+
+    Fix: Rule #17 supplements a type-routed generator after stripping
+    DATE-family derive_from, so the column is never left empty.
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "orders",
+                "columns": [
+                    {
+                        "name": "placed_at",
+                        "generator": "datetime",
+                        "params": {"start_year": 2020, "end_year": 2024},
+                    },
+                    {
+                        "name": "shipped_at",
+                        "derive_from": ["placed_at"],
+                        "expression": ">= value",
+                    },
+                ],
+            }
+        ]
+    }
+    schema = {
+        "orders": {
+            "columns": [
+                {"name": "placed_at", "type": "TIMESTAMP", "nullable": False, "default": None},
+                {"name": "shipped_at", "type": "TIMESTAMP", "nullable": True, "default": None},
+            ],
+            "check_constraints": [
+                {"name": "chk_shipped", "columns": ["shipped_at", "placed_at"],
+                 "expression": "shipped_at IS NULL OR shipped_at >= placed_at"},
+            ],
+        },
+    }
+    validator = Stage3Validator()
+    validator.validate(config, schema=schema)
+    shipped_col = config["tables"][0]["columns"][1]
+    # derive_from must be stripped (cannot do date arithmetic with float)
+    assert not shipped_col.get("derive_from"), (
+        f"Rule #17 must strip DATE-family derive_from; got: {shipped_col.get('derive_from')!r}"
+    )
+    # Generator MUST be supplemented (this was the bug — column was left empty)
+    assert shipped_col.get("generator") is not None, (
+        f"Rule #17 must supplement generator after stripping DATE derive_from; "
+        f"column left empty: {shipped_col!r}"
+    )
+    # Should be a date-family generator for a TIMESTAMP column
+    assert shipped_col["generator"] in ("datetime", "timestamp", "date"), (
+        f"Supplemented generator should be date-family for TIMESTAMP column; "
+        f"got: {shipped_col['generator']!r}"
+    )
+
+
+def test_regression_rule_17_preserves_timedelta_expression_for_date_source():
+    """Regression: Rule #17 must NOT strip timedelta-based DATE expressions.
+
+    ``value + timedelta(days=random_int(0, 30))`` is safe date arithmetic
+    — it doesn't trigger ``float(date)`` TypeError because timedelta is
+    the proper date-arithmetic type. Rule #17 must preserve these
+    expressions, only stripping boolean/arithmetic expressions that would
+    actually crash (e.g., ``value + random_float(0, value)``).
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "projects",
+                "columns": [
+                    {
+                        "name": "start_date",
+                        "generator": "date",
+                        "params": {"start_year": 2020, "end_year": 2024},
+                    },
+                    {
+                        "name": "end_date",
+                        "derive_from": ["start_date"],
+                        "expression": "value + timedelta(days=random_int(1, 30))",
+                    },
+                ],
+            }
+        ]
+    }
+    schema = {
+        "projects": {
+            "columns": [
+                {"name": "start_date", "type": "DATE", "nullable": False, "default": None},
+                {"name": "end_date", "type": "DATE", "nullable": False, "default": None},
+            ],
+            "check_constraints": [
+                {"name": "chk_dates", "columns": ["end_date", "start_date"],
+                 "expression": "end_date >= start_date"},
+            ],
+        },
+    }
+    validator = Stage3Validator()
+    validator.validate(config, schema=schema)
+    end_col = config["tables"][0]["columns"][1]
+    # timedelta expression must be preserved (safe date arithmetic)
+    assert end_col.get("derive_from") == ["start_date"], (
+        f"Rule #17 must preserve timedelta-based derive_from; "
+        f"got derive_from={end_col.get('derive_from')!r}"
+    )
+    assert "timedelta" in end_col.get("expression", ""), (
+        f"Rule #17 must preserve timedelta expression; "
+        f"got expression={end_col.get('expression')!r}"
+    )
+
+
+def test_regression_rule_14_skips_stray_key_normalization_for_derived_columns():
+    """Rule #14 Layer 0 must NOT run on derived columns.
+
+    Derived columns (``derive_from`` set) have no generator, so the param
+    whitelist check is irrelevant. Stray keys on derived columns are
+    structurally invalid but should be left for Pydantic to reject —
+    Rule #14 should not silently merge them into a phantom ``params``.
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "t",
+                "columns": [
+                    {
+                        "name": "sale_price",
+                        "derive_from": ["cost_price"],
+                        "expression": "value + random_float(0, value)",
+                        "stray_key": "should_not_be_touched",  # stray key on derived column
+                    }
+                ],
+            }
+        ]
+    }
+    validator = Stage3Validator()
+    validator.validate(config)
+    col = config["tables"][0]["columns"][0]
+    # Rule #14 Layer 0 must skip derived columns (no generator to validate params against)
+    # Stray key is left in place for Pydantic to handle (it will merge into params,
+    # but since there's no generator, the column is in derived mode and params are ignored).
+    assert col.get("derive_from") == ["cost_price"]
+
+
+def test_regression_rule_14_normalizes_multiple_stray_keys():
+    """Rule #14 Layer 0 handles multiple stray keys at once.
+
+    LLM might emit multiple params at column root (e.g., ``charset`` and
+    ``min_length`` both at root level). All should be moved into ``params``.
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "t",
+                "columns": [
+                    {
+                        "name": "sku",
+                        "generator": "string",
+                        "charset": "alphanumeric",  # stray
+                        "min_length": 8,  # stray
+                        "max_length": 12,  # stray
+                        "params": {},  # empty params
+                    }
+                ],
+            }
+        ]
+    }
+    validator = Stage3Validator()
+    validator.validate(config)
+    col = config["tables"][0]["columns"][0]
+    # All stray keys must be moved into params
+    assert "charset" not in col
+    assert "min_length" not in col
+    assert "max_length" not in col
+    # And preserved in params (string accepts all three)
+    assert col["params"]["charset"] == "alphanumeric"
+    assert col["params"]["min_length"] == 8
+    assert col["params"]["max_length"] == 12
+
+
+def test_regression_rule_14_params_value_takes_priority_over_stray():
+    """Rule #14 Layer 0: explicit ``params[key]`` wins over column-level stray.
+
+    If the LLM emitted both ``params.charset`` and a column-level
+    ``charset``, the value inside ``params`` is the canonical location
+    and should be preserved; the stray column-level key is removed.
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "t",
+                "columns": [
+                    {
+                        "name": "code",
+                        "generator": "string",
+                        "charset": "ascii",  # stray column-level (should be discarded)
+                        "params": {
+                            "charset": "alphanumeric",  # canonical value (should win)
+                            "min_length": 4,
+                        },
+                    }
+                ],
+            }
+        ]
+    }
+    validator = Stage3Validator()
+    validator.validate(config)
+    col = config["tables"][0]["columns"][0]
+    # Canonical params value wins
+    assert col["params"]["charset"] == "alphanumeric"
+    # Stray column-level key removed
+    assert "charset" not in col
+

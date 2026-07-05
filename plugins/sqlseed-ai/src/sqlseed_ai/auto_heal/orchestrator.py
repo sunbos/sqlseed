@@ -52,6 +52,7 @@ class AutoHealOrchestrator:
         validator: Any,  # FastValidator
         total_budget_seconds: float = 300.0,
         max_scc_size: int = 3,
+        max_retries: int = 3,
     ) -> None:
         self._db_path = db_path
         self._url = url
@@ -59,6 +60,7 @@ class AutoHealOrchestrator:
         self._validator = validator
         self._total_budget = total_budget_seconds
         self._max_scc_size = max_scc_size
+        self._max_retries = max_retries
 
     def run(
         self,
@@ -255,7 +257,7 @@ class AutoHealOrchestrator:
             healer=self._healer,
             validator=self._validator,
             snapshot=snapshot,
-            max_attempts=3,
+            max_attempts=self._max_retries,
             schema_hash=schema_hash,
             time_budget_seconds=budget.per_table_budget(),
         )
