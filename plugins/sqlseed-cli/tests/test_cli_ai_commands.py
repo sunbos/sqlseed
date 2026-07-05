@@ -1236,14 +1236,24 @@ class TestRegisterCommands:
         assert db_path_param.required is True
 
     def test_ai_suggest_has_table_output_options(self) -> None:
-        """The ai-suggest command has --table and --output options."""
+        """The ai-suggest command has --table and --output options.
+
+        Note: ``--table`` and ``--output`` are NOT required at the Click
+        declaration level — they are validated at runtime so that the
+        ``--auto-heal`` flag can bypass them (auto-heal mode processes
+        all tables and emits YAML to stdout). When ``--auto-heal`` is
+        absent, the handler enforces ``--table``/``--output`` via
+        ``SystemExit(2)``.
+        """
         params = {p.name: p for p in ai_suggest.params}
         assert "table" in params
         assert "output" in params
         table_param = params["table"]
         output_param = params["output"]
-        assert table_param.required is True
-        assert output_param.required is True
+        # Required=False at declaration; runtime validation in handler
+        # enforces presence when --auto-heal is not set.
+        assert table_param.required is False
+        assert output_param.required is False
 
     def test_ai_suggest_has_model_api_key_base_url_options(self) -> None:
         """The ai-suggest command has --model, --api-key, --base-url options."""
