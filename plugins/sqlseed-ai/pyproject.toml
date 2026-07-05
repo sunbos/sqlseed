@@ -26,6 +26,7 @@ dependencies = [
     "sqlseed-cli>=0.1.0",
     "openai>=1.0",
     "httpx>=0.24.0",
+    "networkx>=3.0",
 ]
 
 [project.urls]
@@ -34,6 +35,12 @@ Repository = "https://github.com/sunbos/sqlseed/tree/main/plugins/sqlseed-ai"
 
 [project.optional-dependencies]
 mcp = ["mcp>=1.0,<2"]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "pytest-asyncio>=0.21",
+    "hypothesis>=6.100",
+]
 
 [project.scripts]
 mcp-server-sqlseed-ai = "sqlseed_ai.mcp:main"
