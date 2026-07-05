@@ -74,3 +74,71 @@ def test_safe_fix_strategies_includes_core_strategies():
     for s in ("switch_generator", "upgrade_to_template", "coerce_float_to_int",
               "fix_self_reference", "isolate_date_ranges"):
         assert s in SAFE_FIX_STRATEGIES
+
+
+# --- Phase 5 Task 5.1: save()/load() API with atomic save + Defense 7 re-check ---
+
+
+def _contract_for_save(generator="integer", col_type="TIMESTAMP", source="auto_learned") -> ContractViolation:
+    return ContractViolation(
+        generator=generator, column_type=col_type,
+        constraints=frozenset(), kind=ViolationKind.CRASH,
+        fix_strategy="switch_generator", fix_params={"target": "datetime"},
+        source=source, schema_hash="abc123",
+    )
+
+
+def test_save_and_load_roundtrip(tmp_path: Path):
+    """Saved contracts can be loaded back via load()."""
+    reg = LearnedContractsRegistry(path=tmp_path / "learned.json")
+    c = _contract_for_save()
+    reg.save([c])
+    loaded = reg.load()
+    assert len(loaded) == 1
+    assert loaded[0].generator == "integer"
+    assert loaded[0].schema_hash == "abc123"
+
+
+def test_load_empty_file_returns_empty_list(tmp_path: Path):
+    """Missing or empty file = empty list (no crash)."""
+    reg = LearnedContractsRegistry(path=tmp_path / "nonexistent.json")
+    assert reg.load() == []
+
+
+def test_load_filter_by_schema_hash(tmp_path: Path):
+    """Defense 8: only contracts matching the schema_hash are loaded."""
+    reg = LearnedContractsRegistry(path=tmp_path / "learned.json")
+    c1 = _contract_for_save()
+    c2 = ContractViolation(
+        generator="string", column_type="TEXT", constraints=frozenset(),
+        kind=ViolationKind.SEMANTIC_ERROR, fix_strategy="normalize_params",
+        fix_params={}, source="auto_learned", schema_hash="different_hash",
+    )
+    reg.save([c1, c2])
+    loaded = reg.load(schema_hash="abc123")
+    assert len(loaded) == 1
+    assert loaded[0].schema_hash == "abc123"
+
+
+def test_atomic_save_uses_temp_file(tmp_path: Path):
+    """Defense 1: save is atomic (temp file + rename)."""
+    reg = LearnedContractsRegistry(path=tmp_path / "learned.json")
+    reg.save([_contract_for_save()])
+    assert (tmp_path / "learned.json").exists()
+    temp_files = list(tmp_path.glob("learned.json.*.tmp"))
+    assert temp_files == []
+
+
+def test_load_rejects_tampered_rce_entries(tmp_path: Path):
+    """Defense 7 re-check: tampered entries with forbidden keys are dropped on load."""
+    reg = LearnedContractsRegistry(path=tmp_path / "learned.json")
+    tampered = [{
+        "generator": "string", "column_type": "TEXT",
+        "constraints": [], "kind": "crash",
+        "fix_strategy": "apply_custom_function",  # not in safe whitelist
+        "fix_params": {"custom_function": "lambda x: __import__('os').system(x)"},
+        "source": "auto_learned", "learned_at": None, "schema_hash": "abc123",
+    }]
+    (tmp_path / "learned.json").write_text(json.dumps(tampered), encoding="utf-8")
+    loaded = reg.load()
+    assert loaded == []
