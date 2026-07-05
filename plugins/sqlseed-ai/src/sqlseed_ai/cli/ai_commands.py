@@ -335,8 +335,8 @@ def _report_ai_failure() -> None:
 
 @click.command("ai-suggest")
 @click.argument("db_path")
-@click.option("--table", "-t", required=True, help="Target table name")
-@click.option("--output", "-o", required=True, help="Output YAML file path")
+@click.option("--table", "-t", required=False, help="Target table name (required unless --auto-heal)")
+@click.option("--output", "-o", required=False, help="Output YAML file path (required unless --auto-heal)")
 @click.option("--model", "-m", default=None, help="AI model name (default: auto-select based on backend)")
 @click.option("--api-key", envvar="SQLSEED_AI_API_KEY", default=None, help="AI API key (env: SQLSEED_AI_API_KEY)")
 @click.option(
@@ -349,10 +349,19 @@ def _report_ai_failure() -> None:
 @click.option("--verify/--no-verify", default=True, help="Enable AI config self-correction (default: verify)")
 @click.option("--no-cache", is_flag=True, help="Skip cached AI configs")
 @click.option("--timeout", default=0, type=float, help="API call timeout in seconds (0=auto, default: auto)")
+@click.option(
+    "--auto-heal",
+    is_flag=True,
+    default=False,
+    help=(
+        "Enable Contract-Driven Self-Healing (Layer 4 LLM healer + progressive "
+        "degrade). Processes ALL tables; ignores --table/--output."
+    ),
+)
 def ai_suggest(
     db_path: str,
-    table: str,
-    output: str,
+    table: str | None,
+    output: str | None,
     model: str | None,
     api_key: str | None,
     base_url: str | None,
@@ -360,8 +369,20 @@ def ai_suggest(
     verify: bool,
     no_cache: bool,
     timeout: float,
+    auto_heal: bool,
 ) -> None:
     """Analyze table schema and suggest generation rules via AI."""
+    if auto_heal:
+        _run_auto_heal(db_path, model=model, api_key=api_key, base_url=base_url, timeout=timeout)
+        return
+
+    if not table or not output:
+        click.echo(
+            "Error: --table and --output are required (unless --auto-heal is set).",
+            err=True,
+        )
+        raise SystemExit(2)
+
     ai_config = AIConfig.from_env().apply_overrides(api_key=api_key, base_url=base_url, model=model)
     ai_config.timeout = timeout
 
@@ -402,6 +423,68 @@ def ai_suggest(
         _write_ai_output(output, db_path, result)
     else:
         _report_ai_failure()
+
+
+def _run_auto_heal(
+    db_path: str,
+    *,
+    model: str | None,
+    api_key: str | None,
+    base_url: str | None,
+    timeout: float,
+) -> None:
+    """Dispatch to :class:`AutoHealOrchestrator` for the ``--auto-heal`` flag.
+
+    Builds the validator + healer from the resolved :class:`AIConfig` and
+    emits the resulting YAML to stdout.
+    """
+    from sqlseed_ai.auto_heal.orchestrator import AutoHealOrchestrator
+    from sqlseed_ai.contracts.builtin_violations import BUILTIN_VIOLATIONS
+    from sqlseed_ai.contracts.matrix import ContractResolver
+    from sqlseed_ai.healer.llm_healer import LLMHealer
+    from sqlseed_ai.validator.main import FastValidator
+
+    ai_config = AIConfig.from_env().apply_overrides(
+        api_key=api_key, base_url=base_url, model=model
+    )
+    ai_config.timeout = timeout
+
+    resolver = ContractResolver(set(BUILTIN_VIOLATIONS), set())
+    validator = FastValidator(resolver, db_path=db_path)
+    client = _build_llm_client(ai_config)
+    healer = LLMHealer(client=client, model=ai_config.resolve_model())
+
+    orch = AutoHealOrchestrator(
+        db_path=db_path, healer=healer, validator=validator,
+        total_budget_seconds=300.0,
+    )
+    try:
+        yaml_str = orch.run()
+    except (ValueError, RuntimeError, OSError) as exc:
+        click.echo(f"Error: auto-heal failed: {exc}", err=True)
+        raise SystemExit(1) from exc
+    click.echo(yaml_str)
+
+
+def _build_llm_client(ai_config: AIConfig) -> Any:
+    """Build an LLM client from the given :class:`AIConfig`.
+
+    Reuses the existing OpenAI-compatible client construction from
+    :mod:`sqlseed_ai.analyzer._client`. Returns an object satisfying the
+    :class:`~sqlseed_ai.healer.llm_healer.LLMClient` protocol.
+    """
+    from openai import OpenAI
+
+    resolved_key = ai_config.resolve_api_key()
+    if not resolved_key:
+        click.echo(
+            "Error: AI API key not configured for --auto-heal. "
+            "Set SQLSEED_AI_API_KEY or OPENAI_API_KEY.",
+            err=True,
+        )
+        raise SystemExit(1)
+    base = ai_config.resolve_base_url() or "https://api.openai.com/v1"
+    return OpenAI(api_key=resolved_key, base_url=base, timeout=ai_config.timeout or None)
 
 
 def _build_ai_config(
