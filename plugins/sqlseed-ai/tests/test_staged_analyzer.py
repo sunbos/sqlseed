@@ -1794,6 +1794,11 @@ def test_stage3_validator_rule_22_skips_when_one_column_is_not_date_generator():
     If either column in the cross-column CHECK is not a date-family
     generator (e.g., integer, or derive_from), range isolation cannot
     apply — the rule must leave the columns untouched.
+
+    Note: Rule #34 (cross-column numeric CHECK) runs AFTER Rule #22 and
+    converts the lesser integer column to ``derive_from``. This test
+    verifies that Rule #22 itself skips (no year-range adjustment) while
+    acknowledging Rule #34's subsequent conversion.
     """
     from sqlseed_ai.staged_analyzer import Stage3Validator
 
@@ -1831,8 +1836,14 @@ def test_stage3_validator_rule_22_skips_when_one_column_is_not_date_generator():
     validator.validate(config, schema=schema)
     start_col = config["tables"][0]["columns"][0]
     end_col = config["tables"][0]["columns"][1]
-    # Integer columns — Rule #22 must not touch them
-    assert start_col["params"]["min_value"] == 1
+    # Rule #22 must not touch integer columns (no year ranges to adjust).
+    # Rule #34 converts the lesser column (start_seq) to derive_from
+    # the greater column (end_seq) with ``random_int(0, value)``.
+    assert start_col.get("derive_from") == ["end_seq"], (
+        f"Rule #34 must convert start_seq to derive_from [end_seq], got {start_col.get('derive_from')}"
+    )
+    # The greater column (end_seq) keeps its integer generator unchanged
+    assert end_col["generator"] == "integer"
     assert end_col["params"]["min_value"] == 1
 
 
@@ -3500,7 +3511,13 @@ def test_stage3_validator_rule_27_falls_back_to_type_routed_without_check():
 
 
 def test_stage3_validator_rule_27_skips_columns_with_generator():
-    """Rule #27: columns that already have a generator are not touched."""
+    """Rule #27: columns that already have a generator are not touched.
+
+    Note: Rule #34 (cross-column numeric CHECK) runs AFTER Rule #27 and
+    converts the lesser column (col_b) to ``derive_from`` the greater
+    column (col_a). This test verifies Rule #27 itself skips columns with
+    generators, while acknowledging Rule #34's subsequent conversion.
+    """
     from sqlseed_ai.staged_analyzer import Stage3Validator
 
     config = {
@@ -3527,9 +3544,16 @@ def test_stage3_validator_rule_27_skips_columns_with_generator():
     }
     validator = Stage3Validator()
     validator.validate(config, schema=schema)
-    # Both columns already have generators — Rule #27 must not change them
+    # Rule #27 must not touch col_a (already has generator) — keeps integer
     assert config["tables"][0]["columns"][0]["generator"] == "integer"
-    assert config["tables"][0]["columns"][1]["generator"] == "float"
+    # Rule #34 converts col_b (lesser, REAL) to derive_from col_a (greater, INTEGER)
+    col_b = config["tables"][0]["columns"][1]
+    assert col_b.get("derive_from") == ["col_a"], (
+        f"Rule #34 must convert col_b to derive_from [col_a], got {col_b.get('derive_from')}"
+    )
+    assert col_b.get("expression") == "random_float(0, value)", (
+        f"Rule #34 must assign random_float(0, value) for REAL lesser column, got {col_b.get('expression')}"
+    )
 
 
 def test_stage3_validator_rule_27_skips_when_source_also_missing():
@@ -3537,6 +3561,10 @@ def test_stage3_validator_rule_27_skips_when_source_also_missing():
 
     Cannot derive from a source column that also has no generator — fall
     back to type-routed generator for both.
+
+    Note: Rule #34 (cross-column numeric CHECK) runs AFTER Rule #27 and
+    converts the lesser column (col_b) to ``derive_from`` the greater
+    column (col_a) once both have been supplemented with float generators.
     """
     from sqlseed_ai.staged_analyzer import Stage3Validator
 
@@ -3564,13 +3592,17 @@ def test_stage3_validator_rule_27_skips_when_source_also_missing():
     }
     validator = Stage3Validator()
     validator.validate(config, schema=schema)
-    # Both fall back to type-routed (float) — neither gets derive_from
+    # Rule #27 supplements both with float generators (type-routed fallback)
     col_a = config["tables"][0]["columns"][0]
     col_b = config["tables"][0]["columns"][1]
     assert col_a["generator"] == "float"
-    assert col_b["generator"] == "float"
-    assert "derive_from" not in col_a
-    assert "derive_from" not in col_b
+    # Rule #34 then converts col_b (lesser) to derive_from col_a (greater)
+    assert col_b.get("derive_from") == ["col_a"], (
+        f"Rule #34 must convert col_b to derive_from [col_a], got {col_b.get('derive_from')}"
+    )
+    assert col_b.get("expression") == "random_float(0, value)", (
+        f"Rule #34 must assign random_float(0, value), got {col_b.get('expression')}"
+    )
 
 
 def test_stage3_validator_rule_27_supplements_date_with_year_range():
@@ -5974,6 +6006,458 @@ def test_regression_rule_32_skips_already_choice_generator():
     # Rule #32 must NOT change the boolean generator
     assert col["generator"] == "boolean", (
         f"Rule #32 must not touch boolean generator; got generator={col.get('generator')!r}"
+    )
+
+
+def test_regression_rule_34_converts_lesser_integer_to_derive_from():
+    """Rule #34: convert ``filled_quantity <= quantity`` to derive_from.
+
+    Reproduces the trading_platform ``orders`` failure: the LLM assigned
+    independent integer generators to ``filled_quantity`` (0-1000000) and
+    ``quantity`` (1-1000000), causing ``CHECK(filled_quantity <= quantity)``
+    to fail when ``filled_quantity > quantity``.
+
+    The fix: Rule #34 detects the cross-column numeric CHECK and converts
+    ``filled_quantity`` to ``derive_from: [quantity]`` with
+    ``expression: random_int(0, value)``, guaranteeing row-level CHECK
+    satisfaction.
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "orders",
+                "columns": [
+                    {
+                        "name": "quantity",
+                        "generator": "integer",
+                        "params": {"min_value": 1, "max_value": 1000000},
+                    },
+                    {
+                        "name": "filled_quantity",
+                        "generator": "integer",
+                        "params": {"min_value": 0, "max_value": 1000000},
+                    },
+                ],
+            }
+        ]
+    }
+    schema = {
+        "orders": {
+            "columns": [
+                {"name": "quantity", "type": "INTEGER", "nullable": False, "default": None},
+                {"name": "filled_quantity", "type": "INTEGER", "nullable": False, "default": None},
+            ],
+            "check_constraints": [
+                {"name": "chk_filled", "columns": ["filled_quantity", "quantity"],
+                 "expression": "filled_quantity <= quantity"},
+            ],
+        },
+    }
+    validator = Stage3Validator()
+    validator.validate(config, schema=schema)
+    filled = config["tables"][0]["columns"][1]
+    # Rule #34 must convert filled_quantity to derive_from [quantity]
+    assert filled.get("derive_from") == ["quantity"], (
+        f"filled_quantity must derive_from [quantity], got {filled.get('derive_from')}"
+    )
+    assert filled.get("expression") == "random_int(0, value)", (
+        f"expression must be random_int(0, value), got {filled.get('expression')}"
+    )
+    # Generator must be cleared (derive_from mode)
+    assert filled.get("generator") is None, (
+        f"generator must be None for derive_from mode, got {filled.get('generator')}"
+    )
+
+
+def test_regression_rule_34_handles_reversed_operator():
+    """Rule #34: detect ``quantity >= filled_quantity`` (reversed operator).
+
+    The CHECK ``quantity >= filled_quantity`` is equivalent to
+    ``filled_quantity <= quantity``. Rule #34 must detect the reversed form
+    and convert the lesser column (``filled_quantity``) to derive_from.
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "orders",
+                "columns": [
+                    {
+                        "name": "quantity",
+                        "generator": "integer",
+                        "params": {"min_value": 1, "max_value": 1000000},
+                    },
+                    {
+                        "name": "filled_quantity",
+                        "generator": "integer",
+                        "params": {"min_value": 0, "max_value": 1000000},
+                    },
+                ],
+            }
+        ]
+    }
+    schema = {
+        "orders": {
+            "columns": [
+                {"name": "quantity", "type": "INTEGER", "nullable": False, "default": None},
+                {"name": "filled_quantity", "type": "INTEGER", "nullable": False, "default": None},
+            ],
+            "check_constraints": [
+                {"name": "chk_filled", "columns": ["quantity", "filled_quantity"],
+                 "expression": "quantity >= filled_quantity"},
+            ],
+        },
+    }
+    validator = Stage3Validator()
+    validator.validate(config, schema=schema)
+    filled = config["tables"][0]["columns"][1]
+    assert filled.get("derive_from") == ["quantity"], (
+        f"filled_quantity must derive_from [quantity] for reversed operator, "
+        f"got {filled.get('derive_from')}"
+    )
+    assert filled.get("expression") == "random_int(0, value)", (
+        f"expression must be random_int(0, value), got {filled.get('expression')}"
+    )
+
+
+def test_regression_rule_34_strict_inequality_integer():
+    """Rule #34: strict ``filled_quantity < quantity`` uses random_int(0, value - 1)."""
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "orders",
+                "columns": [
+                    {
+                        "name": "quantity",
+                        "generator": "integer",
+                        "params": {"min_value": 1, "max_value": 1000000},
+                    },
+                    {
+                        "name": "filled_quantity",
+                        "generator": "integer",
+                        "params": {"min_value": 0, "max_value": 1000000},
+                    },
+                ],
+            }
+        ]
+    }
+    schema = {
+        "orders": {
+            "columns": [
+                {"name": "quantity", "type": "INTEGER", "nullable": False, "default": None},
+                {"name": "filled_quantity", "type": "INTEGER", "nullable": False, "default": None},
+            ],
+            "check_constraints": [
+                {"name": "chk_strict", "columns": ["filled_quantity", "quantity"],
+                 "expression": "filled_quantity < quantity"},
+            ],
+        },
+    }
+    validator = Stage3Validator()
+    validator.validate(config, schema=schema)
+    filled = config["tables"][0]["columns"][1]
+    assert filled.get("derive_from") == ["quantity"], (
+        f"filled_quantity must derive_from [quantity], got {filled.get('derive_from')}"
+    )
+    assert filled.get("expression") == "random_int(0, value - 1)", (
+        f"strict < must use random_int(0, value - 1), got {filled.get('expression')}"
+    )
+
+
+def test_regression_rule_34_float_uses_random_float():
+    """Rule #34: float columns use random_float(0, value) expression."""
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "orders",
+                "columns": [
+                    {
+                        "name": "price",
+                        "generator": "float",
+                        "params": {"min_value": 0.01, "max_value": 100000.0, "precision": 2},
+                    },
+                    {
+                        "name": "discounted_price",
+                        "generator": "float",
+                        "params": {"min_value": 0.0, "max_value": 100000.0, "precision": 2},
+                    },
+                ],
+            }
+        ]
+    }
+    schema = {
+        "orders": {
+            "columns": [
+                {"name": "price", "type": "REAL", "nullable": False, "default": None},
+                {"name": "discounted_price", "type": "REAL", "nullable": False, "default": None},
+            ],
+            "check_constraints": [
+                {"name": "chk_price", "columns": ["discounted_price", "price"],
+                 "expression": "discounted_price <= price"},
+            ],
+        },
+    }
+    validator = Stage3Validator()
+    validator.validate(config, schema=schema)
+    discounted = config["tables"][0]["columns"][1]
+    assert discounted.get("derive_from") == ["price"], (
+        f"discounted_price must derive_from [price], got {discounted.get('derive_from')}"
+    )
+    assert discounted.get("expression") == "random_float(0, value)", (
+        f"float must use random_float(0, value), got {discounted.get('expression')}"
+    )
+
+
+def test_regression_rule_34_skips_fk_columns():
+    """Rule #34: must NOT convert FK columns (Rule #16 owns those)."""
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "orders",
+                "columns": [
+                    {
+                        "name": "account_id",
+                        "generator": "integer",
+                        "params": {"min_value": 1, "max_value": 1000},
+                    },
+                    {
+                        "name": "trader_id",
+                        "generator": "integer",
+                        "params": {"min_value": 1, "max_value": 1000},
+                    },
+                ],
+            }
+        ]
+    }
+    schema = {
+        "orders": {
+            "columns": [
+                {"name": "account_id", "type": "INTEGER", "nullable": False, "default": None},
+                {"name": "trader_id", "type": "INTEGER", "nullable": False, "default": None},
+            ],
+            "foreign_keys": [
+                {"columns": ["account_id"], "ref_table": "accounts", "ref_columns": ["id"]},
+                {"columns": ["trader_id"], "ref_table": "traders", "ref_columns": ["id"]},
+            ],
+            "check_constraints": [
+                {"name": "chk_fk", "columns": ["account_id", "trader_id"],
+                 "expression": "account_id <= trader_id"},
+            ],
+        },
+    }
+    validator = Stage3Validator()
+    validator.validate(config, schema=schema)
+    account_id = config["tables"][0]["columns"][0]
+    # Rule #34 must skip FK columns — no derive_from conversion
+    assert not account_id.get("derive_from"), (
+        f"FK column must not be converted to derive_from, got {account_id.get('derive_from')}"
+    )
+    assert account_id.get("generator") == "integer", (
+        f"FK column must keep integer generator, got {account_id.get('generator')}"
+    )
+
+
+def test_regression_rule_34_skips_already_correct_derive_from():
+    """Rule #34: preserve columns that already derive_from the greater column."""
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "orders",
+                "columns": [
+                    {
+                        "name": "quantity",
+                        "generator": "integer",
+                        "params": {"min_value": 1, "max_value": 1000000},
+                    },
+                    {
+                        "name": "filled_quantity",
+                        "derive_from": ["quantity"],
+                        "expression": "random_int(0, value)",
+                    },
+                ],
+            }
+        ]
+    }
+    schema = {
+        "orders": {
+            "columns": [
+                {"name": "quantity", "type": "INTEGER", "nullable": False, "default": None},
+                {"name": "filled_quantity", "type": "INTEGER", "nullable": False, "default": None},
+            ],
+            "check_constraints": [
+                {"name": "chk_filled", "columns": ["filled_quantity", "quantity"],
+                 "expression": "filled_quantity <= quantity"},
+            ],
+        },
+    }
+    validator = Stage3Validator()
+    validator.validate(config, schema=schema)
+    filled = config["tables"][0]["columns"][1]
+    # Already correct derive_from must be preserved (not overwritten)
+    assert filled.get("derive_from") == ["quantity"], (
+        f"existing correct derive_from must be preserved, got {filled.get('derive_from')}"
+    )
+    assert filled.get("expression") == "random_int(0, value)", (
+        f"existing correct expression must be preserved, got {filled.get('expression')}"
+    )
+
+
+def test_regression_rule_34_skips_non_numeric_columns():
+    """Rule #34: must NOT convert non-numeric columns (dates handled by Rule #22)."""
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "orders",
+                "columns": [
+                    {
+                        "name": "created_at",
+                        "generator": "datetime",
+                        "params": {"start_year": 2020, "end_year": 2024},
+                    },
+                    {
+                        "name": "updated_at",
+                        "generator": "datetime",
+                        "params": {"start_year": 2020, "end_year": 2024},
+                    },
+                ],
+            }
+        ]
+    }
+    schema = {
+        "orders": {
+            "columns": [
+                {"name": "created_at", "type": "DATETIME", "nullable": False, "default": None},
+                {"name": "updated_at", "type": "DATETIME", "nullable": False, "default": None},
+            ],
+            "check_constraints": [
+                {"name": "chk_dates", "columns": ["updated_at", "created_at"],
+                 "expression": "updated_at >= created_at"},
+            ],
+        },
+    }
+    validator = Stage3Validator()
+    validator.validate(config, schema=schema)
+    updated = config["tables"][0]["columns"][1]
+    # Rule #34 must skip date columns — Rule #22 handles those via range isolation
+    # The datetime generator should remain (Rule #22 may adjust year ranges)
+    assert updated.get("generator") in ("datetime", "date"), (
+        f"date column must keep date-family generator, got {updated.get('generator')}"
+    )
+    # Rule #34 must NOT add derive_from to date columns
+    assert not updated.get("derive_from"), (
+        f"Rule #34 must not add derive_from to date columns, got {updated.get('derive_from')}"
+    )
+
+
+def test_regression_rule_34_skips_negative_min_value():
+    """Rule #34: skip when greater column's min_value could be negative.
+
+    ``random_int(0, value)`` would fail when ``value < 0``. Rule #34 must
+    detect this and skip the conversion, leaving the CHECK to be reported
+    as a failure rather than crashing the expression engine.
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "positions",
+                "columns": [
+                    {
+                        "name": "quantity",
+                        "generator": "integer",
+                        "params": {"min_value": -1000000, "max_value": 1000000},
+                    },
+                    {
+                        "name": "closed_quantity",
+                        "generator": "integer",
+                        "params": {"min_value": -1000000, "max_value": 1000000},
+                    },
+                ],
+            }
+        ]
+    }
+    schema = {
+        "positions": {
+            "columns": [
+                {"name": "quantity", "type": "INTEGER", "nullable": False, "default": None},
+                {"name": "closed_quantity", "type": "INTEGER", "nullable": False, "default": None},
+            ],
+            "check_constraints": [
+                {"name": "chk_closed", "columns": ["closed_quantity", "quantity"],
+                 "expression": "closed_quantity <= quantity"},
+            ],
+        },
+    }
+    validator = Stage3Validator()
+    validator.validate(config, schema=schema)
+    closed = config["tables"][0]["columns"][1]
+    # Rule #34 must skip — greater column (quantity) has min_value=-1000000 < 0
+    assert not closed.get("derive_from"), (
+        f"Rule #34 must skip when greater column min_value < 0, got derive_from={closed.get('derive_from')}"
+    )
+    assert closed.get("generator") == "integer", (
+        f"generator must remain integer when skipped, got {closed.get('generator')}"
+    )
+
+
+def test_regression_rule_34_handles_null_or_prefix():
+    """Rule #34: handle ``filled_quantity IS NULL OR filled_quantity <= quantity``."""
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "orders",
+                "columns": [
+                    {
+                        "name": "quantity",
+                        "generator": "integer",
+                        "params": {"min_value": 1, "max_value": 1000000},
+                    },
+                    {
+                        "name": "filled_quantity",
+                        "generator": "integer",
+                        "params": {"min_value": 0, "max_value": 1000000},
+                    },
+                ],
+            }
+        ]
+    }
+    schema = {
+        "orders": {
+            "columns": [
+                {"name": "quantity", "type": "INTEGER", "nullable": False, "default": None},
+                {"name": "filled_quantity", "type": "INTEGER", "nullable": True, "default": None},
+            ],
+            "check_constraints": [
+                {"name": "chk_filled", "columns": ["filled_quantity", "quantity"],
+                 "expression": "filled_quantity IS NULL OR filled_quantity <= quantity"},
+            ],
+        },
+    }
+    validator = Stage3Validator()
+    validator.validate(config, schema=schema)
+    filled = config["tables"][0]["columns"][1]
+    # Rule #34 must strip the IS NULL OR prefix and detect the comparison
+    assert filled.get("derive_from") == ["quantity"], (
+        f"must derive_from [quantity] with NULL-OR prefix, got {filled.get('derive_from')}"
+    )
+    assert filled.get("expression") == "random_int(0, value)", (
+        f"expression must be random_int(0, value), got {filled.get('expression')}"
     )
 
 

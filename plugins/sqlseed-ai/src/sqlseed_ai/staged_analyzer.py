@@ -1258,6 +1258,11 @@ class Stage3Validator:
               column that has a weaker claim (non-CHECK-constrained). For
               type incompatibility, strips derive_from and falls back to
               Rule #28 semantic matching or type-routed generator.
+    Rule #34: converts cross-column numeric CHECK(a (<=|<) b) on integer/float
+              columns to ``derive_from: [b]`` with ``expression: random_int(0, value)``
+              (or ``random_float(0, value)`` for floats). Guarantees row-level
+              CHECK satisfaction — independent random generators cannot enforce
+              cross-column ordering (e.g., ``filled_quantity <= quantity``).
 
     Dual-track (Phase 2 scaffolding): when constructed with ``db_path`` or
     ``url``, a :class:`RepairPipeline` is built alongside the legacy rules.
@@ -1369,6 +1374,12 @@ class Stage3Validator:
                 # to choice so they satisfy ``CHECK(col IN ('a', 'b', ...))``.
                 self._apply_rule_33_text_enum_check(table, table_schema)
                 self._apply_rule_22_cross_column_date_range_isolation(table, table_schema)
+                # Rule #34 runs after Rule #22 (date isolation) but before Rule #29
+                # (derive_from integrity): converts cross-column numeric CHECK
+                # constraints (e.g., ``filled_quantity <= quantity``) to derive_from
+                # with a bounded random expression. Must run before Rule #29 so the
+                # new derive_from is checked for cycles and type compatibility.
+                self._apply_rule_34_cross_column_numeric_check(table, table_schema)
                 # Rule #29 runs LAST (table-level): detects and breaks derive_from
                 # cycles and type-incompatible derive_from that would cause runtime
                 # crashes. Must run after Rule #27 (which adds derive_from) and
@@ -4512,6 +4523,232 @@ class Stage3Validator:
                 )
                 params.setdefault("start_year", 2000)
                 params.setdefault("end_year", 2024)
+
+    def _apply_rule_34_cross_column_numeric_check(
+        self, table: dict[str, Any], table_schema: dict[str, Any]
+    ) -> None:
+        """Rule #34: convert cross-column numeric CHECK(a (<=|<) b) to derive_from.
+
+        For CHECK constraints like ``filled_quantity <= quantity`` on numeric
+        (integer/float) columns, converts the lesser column to ``derive_from``
+        the greater column with a bounded random expression. This guarantees
+        the CHECK is satisfied at the row level — independent random
+        generators cannot enforce cross-column ordering.
+
+        For integer columns:
+          - Non-strict ``<=``: ``expression: random_int(0, value)``
+          - Strict ``<``: ``expression: random_int(0, value - 1)``
+            (only when greater column's min_value >= 1)
+
+        For float columns:
+          - Non-strict ``<=``: ``expression: random_float(0, value)``
+          - Strict ``<``: ``expression: random_float(0, value - epsilon)``
+            (epsilon derived from greater column's precision, default 1e-6)
+
+        Skips:
+          - Non-numeric columns (date-family handled by Rule #22)
+          - FK columns (Rule #16 handles those)
+          - Columns with existing correct derive_from pointing to the greater
+            column (the expression already enforces the CHECK)
+          - Greater columns whose min_value could be negative (would make
+            ``random_int(0, value)`` fail when value < 0)
+          - Complex CHECK expressions (AND/OR, function calls)
+        """
+        checks = table_schema.get("check_constraints", [])
+        if not isinstance(checks, list):
+            return
+
+        # Build column config map for quick lookup
+        col_configs: dict[str, dict[str, Any]] = {}
+        for col in table.get("columns", []):
+            if isinstance(col, dict) and isinstance(col.get("name"), str):
+                col_configs[col["name"]] = col
+
+        # Collect FK column names — Rule #16 owns those, skip here
+        fk_columns: set[str] = set()
+        for fk in table_schema.get("foreign_keys", []):
+            if not isinstance(fk, dict):
+                continue
+            cols = fk.get("columns")
+            if isinstance(cols, list):
+                fk_columns.update(c for c in cols if isinstance(c, str))
+
+        integer_types = {
+            "INTEGER", "INT", "BIGINT", "SMALLINT", "TINYINT",
+            "MEDIUMINT", "INT8", "INT16", "INT32", "INT64",
+        }
+        float_types = {"REAL", "FLOAT", "DOUBLE", "DECIMAL", "NUMERIC", "NUMBER"}
+
+        for check in checks:
+            if not isinstance(check, dict):
+                continue
+            expr = check.get("expression")
+            if not isinstance(expr, str):
+                continue
+            parsed = self._parse_cross_column_numeric_check(expr)
+            if parsed is None:
+                continue
+            lesser_col_name, greater_col_name, is_strict = parsed
+            # Degenerate self-comparison (a <= a) — always true, skip
+            if lesser_col_name == greater_col_name:
+                continue
+            lesser_col = col_configs.get(lesser_col_name)
+            greater_col = col_configs.get(greater_col_name)
+            if not isinstance(lesser_col, dict) or not isinstance(greater_col, dict):
+                continue
+            # Skip FK columns — Rule #16 owns them
+            if lesser_col_name in fk_columns or greater_col_name in fk_columns:
+                continue
+            # Skip if lesser_col already derives from greater_col (correct setup)
+            existing_df = lesser_col.get("derive_from")
+            if existing_df:
+                sources = existing_df if isinstance(existing_df, list) else [existing_df]
+                if greater_col_name in sources:
+                    continue
+            # Resolve SQL types for both columns
+            lesser_type = self._get_column_type_from_schema(table_schema, lesser_col_name) or ""
+            greater_type = self._get_column_type_from_schema(table_schema, greater_col_name) or ""
+            lesser_base = re.split(r"[(\s]", lesser_type.strip(), maxsplit=1)[0].upper() if lesser_type else ""
+            greater_base = re.split(r"[(\s]", greater_type.strip(), maxsplit=1)[0].upper() if greater_type else ""
+            if lesser_base not in self._NUMERIC_TYPES or greater_base not in self._NUMERIC_TYPES:
+                continue
+            # Determine integer vs float for the lesser column (expression type
+            # must match the column type to avoid SQLite type coercion issues)
+            is_integer = lesser_base in integer_types
+            is_float = lesser_base in float_types
+            if not (is_integer or is_float):
+                continue
+            # Determine greater column's min_value to ensure random_int(0, value)
+            # is valid (value must be >= 0 for the range to be non-empty)
+            greater_params = greater_col.get("params")
+            if not isinstance(greater_params, dict):
+                greater_params = {}
+            greater_min = greater_params.get("min_value", 0)
+            try:
+                greater_min_num = float(greater_min)
+            except (TypeError, ValueError):
+                greater_min_num = 0.0
+            # Negative greater_min would make random_int(0, value) fail when
+            # value < 0 — skip and let the CHECK failure be reported
+            if greater_min_num < 0:
+                logger.warning(
+                    "Stage3 Rule #34: skipping cross-column numeric CHECK (greater column min_value < 0)",
+                    check_expression=expr.strip(),
+                    lesser_column=lesser_col_name,
+                    greater_column=greater_col_name,
+                    greater_min_value=greater_min,
+                    reason="random_int(0, value) would fail when value < 0",
+                )
+                continue
+            # Build the expression based on column type and strictness
+            if is_integer:
+                if is_strict:
+                    # random_int(0, value - 1) requires value >= 1
+                    if greater_min_num < 1:
+                        logger.warning(
+                            "Stage3 Rule #34: skipping strict < numeric CHECK (greater column min_value < 1)",
+                            check_expression=expr.strip(),
+                            lesser_column=lesser_col_name,
+                            greater_column=greater_col_name,
+                            greater_min_value=greater_min,
+                            reason="random_int(0, value - 1) would fail when value == 0",
+                        )
+                        continue
+                    new_expression = "random_int(0, value - 1)"
+                else:
+                    new_expression = "random_int(0, value)"
+            elif is_float:  # is_float
+                if is_strict:
+                    greater_precision = greater_params.get("precision")
+                    if isinstance(greater_precision, int) and greater_precision > 0:
+                        epsilon = float(10 ** (-greater_precision))
+                    else:
+                        epsilon = 1e-6
+                    # Format epsilon cleanly to avoid scientific notation in expression
+                    new_expression = f"random_float(0, value - {epsilon})"
+                else:
+                    new_expression = "random_float(0, value)"
+            # Apply the conversion: replace lesser_col's generator with derive_from
+            old_generator = lesser_col.get("generator")
+            old_params = lesser_col.get("params")
+            old_derive_from = lesser_col.get("derive_from")
+            old_expression = lesser_col.get("expression")
+            lesser_col["generator"] = None
+            lesser_col["params"] = {}
+            lesser_col["derive_from"] = [greater_col_name]
+            lesser_col["expression"] = new_expression
+            logger.warning(
+                "Stage3 Rule #34: converting lesser column to derive_from for cross-column numeric CHECK",
+                check_expression=expr.strip(),
+                lesser_column=lesser_col_name,
+                greater_column=greater_col_name,
+                is_strict=is_strict,
+                column_type=lesser_base,
+                old_generator=old_generator,
+                old_params=old_params,
+                old_derive_from=old_derive_from,
+                old_expression=old_expression,
+                new_expression=new_expression,
+                reason="independent generators cannot guarantee CHECK(a <= b) at the row level",
+            )
+
+    @staticmethod
+    def _parse_cross_column_numeric_check(expr: str) -> tuple[str, str, bool] | None:
+        """Parse a cross-column numeric CHECK expression.
+
+        Recognised patterns (case-insensitive operator, whitespace-tolerant):
+
+          - ``<lesser_col> (<=|<) <greater_col>`` → ``(lesser, greater, is_strict)``
+          - ``<greater_col> (>=|>) <lesser_col>`` → ``(lesser, greater, is_strict)``
+          - With optional ``<col> IS NULL OR`` prefix(es) (stripped before parsing)
+          - With optional ``<guard_col> IS NOT NULL AND`` prefix (stripped)
+
+        Returns:
+            ``(lesser_col_name, greater_col_name, is_strict)`` if the expression
+            matches a recognised pattern, else ``None``. ``is_strict`` is ``True``
+            for strict ``<`` / ``>`` and ``False`` for ``<=`` / ``>=``. Both
+            column names must be word characters — numeric literals are rejected.
+        """
+        expr_stripped = expr.strip()
+        # Strip optional ``<col> IS NULL OR`` prefix(es) — same logic as
+        # _parse_cross_column_date_comparison, to handle NULL-allowed patterns
+        # like ``filled_quantity IS NULL OR filled_quantity <= quantity``.
+        while True:
+            null_prefix = re.match(
+                r"^\s*(\w+)\s+IS\s+NULL\s+OR\s+(.*)$",
+                expr_stripped,
+                flags=re.IGNORECASE,
+            )
+            if not null_prefix:
+                break
+            expr_stripped = null_prefix.group(2).strip()
+            if expr_stripped.startswith("(") and expr_stripped.endswith(")"):
+                expr_stripped = expr_stripped[1:-1].strip()
+        # Strip optional ``<guard_col> IS NOT NULL AND`` prefix
+        not_null_prefix = re.match(
+            r"^\s*\w+\s+IS\s+NOT\s+NULL\s+AND\s+(.*)$",
+            expr_stripped,
+            flags=re.IGNORECASE,
+        )
+        if not_null_prefix:
+            expr_stripped = not_null_prefix.group(1).strip()
+            if expr_stripped.startswith("(") and expr_stripped.endswith(")"):
+                expr_stripped = expr_stripped[1:-1].strip()
+        # Pattern: greater_col >= lesser_col  (or >)
+        m = re.match(r"^\s*(\w+)\s*(>=|>)\s*(\w+)\s*$", expr_stripped)
+        if m:
+            greater_col, op, lesser_col = m.groups()
+            if greater_col.isdigit() or lesser_col.isdigit():
+                return None
+            return (lesser_col, greater_col, op == ">")
+        # Pattern: lesser_col <= greater_col  (or <)
+        m = re.match(r"^\s*(\w+)\s*(<=|<)\s*(\w+)\s*$", expr_stripped)
+        if m:
+            lesser_col, op, greater_col = m.groups()
+            if lesser_col.isdigit() or greater_col.isdigit():
+                return None
+            return (lesser_col, greater_col, op == "<")
+        return None
 
 
 def _bound_unbounded_quantifier(match: re.Match[str]) -> str:
