@@ -613,13 +613,19 @@ def test_stage3_validator_rule_26_skips_real_columns():
     )
 
 
-def test_stage3_validator_rule_16_skips_derive_from_columns():
-    """Rule #16: columns with ``derive_from`` set are skipped.
+def test_stage3_validator_rule_16_strips_derive_from_from_fk_columns():
+    """Rule #16: FK columns with ``derive_from`` set have it stripped.
 
     Reproduces the P1 #3 bug: Rule #16 was re-adding ``generator+params``
     to FK columns that already had ``derive_from`` set (after Fix 1 in
     rules #1-#13 had stripped them), causing Pydantic to reject the
     config with ``cannot use both 'generator' and 'derive_from'``.
+
+    Updated behavior (Loop Engineering Phase 5): Rule #16 now STRIPS
+    ``derive_from`` from FK columns and assigns an integer generator,
+    because FK columns should always reference parent rows via integer
+    ranges, never derive from sibling columns (which produces orphan FKs
+    and runtime crashes when the derived value doesn't match a parent row).
     """
     from sqlseed_ai.staged_analyzer import Stage3Validator
 
@@ -647,10 +653,12 @@ def test_stage3_validator_rule_16_skips_derive_from_columns():
     validator = Stage3Validator()
     validator.validate(config, schema=schema)
     col = config["tables"][0]["columns"][0]
-    # derive_from must remain; generator+params must NOT be re-added
-    assert col.get("derive_from") == "projects.id"
-    assert "generator" not in col
-    assert "params" not in col
+    # derive_from must be STRIPPED (FK columns must use integer generator)
+    assert col.get("derive_from") is None
+    assert col.get("expression") is None
+    # integer generator with min/max range must be assigned
+    assert col.get("generator") == "integer"
+    assert col.get("params") == {"min_value": 1, "max_value": 1000}
 
 
 def test_stage3_validator_rule_16_caps_large_fk_max_value():
@@ -4807,6 +4815,211 @@ def test_regression_column_cache_different_types_different_keys():
     key_int = analyzer._make_column_cache_key(col_int, table, [])
     key_str = analyzer._make_column_cache_key(col_str, table, [])
     assert key_int != key_str, "Different columns must have different cache keys"
+
+
+# ============================================================
+# Loop Engineering Phase 5 — Trading Platform blind spots
+# ============================================================
+
+
+def test_regression_rule_32_overrides_wrong_choices_on_boolean_enum():
+    """Rule #32: override wrong ``choice`` choices on boolean enum CHECK columns.
+
+    Reproduces the trading_platform regression: the LLM assigned
+    ``choices: [conservative, moderate, aggressive, speculative, null]``
+    to ``is_active`` (a boolean enum column guarded by
+    ``CHECK(is_active IN (0, 1))``) via YAML anchor reuse from
+    ``risk_profile``. The previous Rule #32 skipped ``choice`` columns
+    entirely, leaving the wrong choices in place and causing
+    ``CHECK constraint failed: is_active IN (0, 1)`` on batch insert.
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "traders",
+                "columns": [
+                    {
+                        "name": "is_active",
+                        "generator": "choice",
+                        "params": {
+                            "choices": [
+                                "conservative",
+                                "moderate",
+                                "aggressive",
+                                "speculative",
+                                None,
+                            ]
+                        },
+                    },
+                ],
+            }
+        ]
+    }
+    schema = {
+        "traders": {
+            "check_constraints": [
+                {"expression": "is_active IN (0, 1)", "columns": ["is_active"]},
+            ]
+        }
+    }
+    validator = Stage3Validator()
+    validator.validate(config, schema=schema)
+    col = config["tables"][0]["columns"][0]
+    assert col["generator"] == "choice"
+    assert col["params"]["choices"] == [0, 1], (
+        f"Rule #32 must override wrong choices with [0, 1], got: {col['params']['choices']!r}"
+    )
+
+
+def test_regression_rule_33_text_enum_check_converts_string_to_choice():
+    """Rule #33: detect ``CHECK(col IN ('val1', 'val2', ...))`` TEXT enums.
+
+    Reproduces the trading_platform regression: the LLM assigned a
+    ``string`` generator to ``type`` columns guarded by TEXT enum
+    CHECKs like ``CHECK(type IN ('cash', 'margin', 'ira', 'corporate'))``.
+    Random strings never satisfy the enum CHECK, causing
+    ``CHECK constraint failed: type IN (...)`` on batch insert.
+    Rule #33 converts the column to ``choice`` with the extracted enum values.
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "accounts",
+                "columns": [
+                    {
+                        "name": "type",
+                        "generator": "string",
+                        "params": {"min_length": 5, "max_length": 50},
+                    },
+                ],
+            }
+        ]
+    }
+    schema = {
+        "accounts": {
+            "check_constraints": [
+                {
+                    "expression": "type IN ('cash', 'margin', 'ira', 'corporate')",
+                    "columns": ["type"],
+                },
+            ]
+        }
+    }
+    validator = Stage3Validator()
+    validator.validate(config, schema=schema)
+    col = config["tables"][0]["columns"][0]
+    assert col["generator"] == "choice", (
+        f"Rule #33 must convert string to choice for TEXT enum CHECK, got: {col['generator']!r}"
+    )
+    assert col["params"]["choices"] == ["cash", "margin", "ira", "corporate"], (
+        f"Rule #33 must extract enum values as choices, got: {col['params']['choices']!r}"
+    )
+
+
+def test_regression_rule_33_overrides_wrong_choices_on_text_enum():
+    """Rule #33: override wrong ``choice`` choices on TEXT enum CHECK columns.
+
+    Reproduces the trading_platform regression: when the LLM assigns a
+    ``choice`` generator with WRONG choices (e.g., YAML anchor reuse
+    from another column) to a TEXT enum CHECK column, Rule #33 must
+    override the choices with the CHECK enum values.
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "orders",
+                "columns": [
+                    {
+                        "name": "type",
+                        "generator": "choice",
+                        "params": {"choices": ["buy", "sell"]},  # Wrong choices
+                    },
+                ],
+            }
+        ]
+    }
+    schema = {
+        "orders": {
+            "check_constraints": [
+                {
+                    "expression": "type IN ('market', 'limit', 'stop', 'stop_limit', 'trailing_stop')",
+                    "columns": ["type"],
+                },
+            ]
+        }
+    }
+    validator = Stage3Validator()
+    validator.validate(config, schema=schema)
+    col = config["tables"][0]["columns"][0]
+    assert col["generator"] == "choice"
+    assert col["params"]["choices"] == ["market", "limit", "stop", "stop_limit", "trailing_stop"], (
+        f"Rule #33 must override wrong choices with CHECK enum values, got: {col['params']['choices']!r}"
+    )
+
+
+def test_regression_rule_29_strips_derive_from_with_missing_source_column():
+    """Rule #29: strip ``derive_from`` when source column doesn't exist in table.
+
+    Reproduces the trading_platform regression: the LLM defined a YAML
+    anchor ``&id008`` as ``derive_from: [filled_quantity]`` in the
+    ``orders`` table, then reused it in ``transactions.account_id``,
+    ``margin_calls.account_id``, and ``positions.account_id`` — where
+    ``filled_quantity`` doesn't exist. This caused
+    ``ConfigurationError: Expression misconfigured: int() argument must
+    be a string, a bytes-like object or a real number, not 'NoneType'``
+    at runtime (the missing source column produced None).
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "transactions",
+                "columns": [
+                    {
+                        "name": "account_id",
+                        "generator": None,
+                        "derive_from": ["filled_quantity"],  # Doesn't exist in transactions
+                        "expression": "value + random_int(0, value)",
+                    },
+                    {
+                        "name": "amount",
+                        "generator": "float",
+                        "params": {"min_value": -1000000, "max_value": 1000000},
+                    },
+                ],
+            }
+        ]
+    }
+    schema = {
+        "transactions": {
+            "columns": [
+                {"name": "account_id", "type": "INTEGER"},
+                {"name": "amount", "type": "REAL"},
+            ],
+            "foreign_keys": [
+                {"columns": ["account_id"], "ref_table": "accounts", "ref_columns": ["id"]},
+            ],
+        }
+    }
+    validator = Stage3Validator()
+    validator.validate(config, schema=schema)
+    col = config["tables"][0]["columns"][0]
+    # derive_from must be STRIPPED (source column doesn't exist)
+    assert col.get("derive_from") is None, (
+        f"Rule #29 must strip derive_from when source column is missing, got: {col.get('derive_from')!r}"
+    )
+    assert col.get("expression") is None
+    # An integer generator should be assigned (FK to accounts.id)
+    assert col.get("generator") == "integer", (
+        f"Rule #29/#16 must assign integer generator for FK column, got: {col.get('generator')!r}"
+    )
 
 
 # ────────────────────────────────────────────────────────────────────

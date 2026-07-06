@@ -1339,6 +1339,10 @@ class Stage3Validator:
                 # happen before date isolation so that boolean columns aren't
                 # mistaken for date columns.
                 self._apply_rule_32_boolean_enum_check(table, table_schema)
+                # Rule #33 runs after Rule #32 (boolean enum) but before Rule #22
+                # (date isolation): TEXT enum detection converts string columns
+                # to choice so they satisfy ``CHECK(col IN ('a', 'b', ...))``.
+                self._apply_rule_33_text_enum_check(table, table_schema)
                 self._apply_rule_22_cross_column_date_range_isolation(table, table_schema)
                 # Rule #29 runs LAST (table-level): detects and breaks derive_from
                 # cycles and type-incompatible derive_from that would cause runtime
@@ -1947,6 +1951,28 @@ class Stage3Validator:
                 continue
             source_name = derive_from[0] if derive_from else None
             if not isinstance(source_name, str):
+                continue
+
+            # Check if source column exists in the current table's schema.
+            # Cross-table derive_from references (caused by YAML anchor reuse
+            # across tables) will reference columns that don't exist in this
+            # table, causing runtime crashes (KeyError / None value in expression).
+            if source_name not in col_type_map:
+                logger.warning(
+                    "Stage3 Rule #29: stripping derive_from with missing source column",
+                    column=col_name,
+                    source_column=source_name,
+                    reason="source column does not exist in this table (likely cross-table YAML anchor reuse)",
+                )
+                col.pop("derive_from", None)
+                col.pop("expression", None)
+                # Try Rule #28 semantic matching first
+                gen = col.get("generator")
+                if gen in _GENERIC_GENERATORS or gen is None:
+                    self._apply_rule_28_exact_match_upgrade(col, table_schema)
+                    if col.get("generator") in _GENERIC_GENERATORS or col.get("generator") is None:
+                        col_type = col_type_map.get(col_name, "")
+                        self._assign_type_routed_generator(col, col_type)
                 continue
 
             col_type = col_type_map.get(col_name, "")
@@ -2990,10 +3016,12 @@ class Stage3Validator:
         Currently only checks: FK to integer column must use integer generator
         (common LLM mistake: assigning username/name to FK columns ending in _by).
 
-        Skips columns that already have ``derive_from`` set — derive_from takes
-        precedence over generator (enforced by Fix 1 in rules #1-#13), so adding
-        a generator back here would re-introduce the mutual-exclusivity clash
-        that Pydantic rejects (``cannot use both 'generator' and 'derive_from'``).
+        Also strips ``derive_from`` from FK columns. FK columns should always
+        be integer generators with min/max range (referencing parent rows),
+        never derived from other columns. The LLM sometimes assigns
+        ``derive_from`` to FK columns via YAML anchor reuse (e.g.,
+        ``account_id`` deriving from ``filled_quantity``), which produces
+        orphan FKs and runtime crashes.
         """
         fks = table_schema.get("foreign_keys", [])
         if not isinstance(fks, list):
@@ -3020,10 +3048,24 @@ class Stage3Validator:
             col_name = col.get("name")
             if col_name not in integer_fk_cols:
                 continue
-            # derive_from takes precedence — do not re-add generator+params
-            # (would clash with derive_from and break Pydantic validation).
+            # Strip derive_from from FK columns — FKs should be integer
+            # generators with min/max range, never derived from other columns.
             if col.get("derive_from"):
-                continue
+                logger.warning(
+                    "Stage3 Rule #16: stripping derive_from from FK column",
+                    column=col_name,
+                    old_derive_from=col.get("derive_from"),
+                    old_expression=col.get("expression"),
+                    reason="FK columns must use integer generator with min/max range, not derive_from",
+                )
+                col.pop("derive_from", None)
+                col.pop("expression", None)
+                # Assign integer generator if missing
+                gen = col.get("generator")
+                if gen in _GENERIC_GENERATORS or gen is None:
+                    col["generator"] = "integer"
+                    col["params"] = {"min_value": 1, "max_value": 1000}
+                    continue
             gen = col.get("generator")
             # Integer-compatible generators
             if gen in ("integer", "uuid", "pattern"):
@@ -3790,9 +3832,14 @@ class Stage3Validator:
         ``choice`` generator with ``choices: [0, 1]``, guaranteeing CHECK
         satisfaction.
 
+        Also handles the case where the LLM assigned a ``choice`` generator
+        with WRONG choices (e.g., ``choices: [conservative, moderate, ...]``
+        on an ``is_active`` column — a YAML anchor reuse bug). When the
+        existing choices are not ``[0, 1]`` or ``[1, 0]``, they are overridden.
+
         Skips:
           - Columns with ``derive_from`` (derived mode, no generator to replace)
-          - Columns already using ``choice``/``boolean`` generators
+          - ``choice`` columns whose choices already match ``[0, 1]``/``[1, 0]``
           - CHECK expressions that don't match the ``IN (0, 1)`` pattern
         """
         checks = table_schema.get("check_constraints", [])
@@ -3828,11 +3875,29 @@ class Stage3Validator:
             if col.get("derive_from"):
                 continue
             gen = col.get("generator")
-            # Already a choice/boolean generator — assume the LLM got it right
-            if gen in ("choice", "boolean", "weighted_choice"):
-                continue
+            # For choice generators, check if choices already match [0, 1]
+            if gen in ("choice", "weighted_choice"):
+                params = col.get("params")
+                if isinstance(params, dict):
+                    choices = params.get("choices")
+                    if isinstance(choices, list) and set(choices) == {0, 1}:
+                        continue  # Already correct
+                    # Choices don't match — override them
+                    old_params = params
+                    col["params"] = {"choices": [0, 1]}
+                    logger.warning(
+                        "Stage3 Rule #32: overriding wrong choices on boolean enum CHECK column",
+                        column=col_name,
+                        check_pattern="IN (0, 1)",
+                        old_choices=choices,
+                        new_choices=[0, 1],
+                        reason="LLM assigned wrong choices (likely YAML anchor reuse from another column)",
+                    )
+                    continue
+            elif gen == "boolean":
+                continue  # boolean generator is fine
             old_gen = gen
-            old_params = col.get("params")
+            old_params_val: Any = col.get("params")
             col["generator"] = "choice"
             col["params"] = {"choices": [0, 1]}
             col.pop("derive_from", None)
@@ -3842,9 +3907,128 @@ class Stage3Validator:
                 column=col_name,
                 check_pattern="IN (0, 1)",
                 old_generator=old_gen,
-                old_params=old_params,
+                old_params=old_params_val,
                 new_generator="choice",
                 new_params={"choices": [0, 1]},
+            )
+
+    def _apply_rule_33_text_enum_check(self, table: dict[str, Any], table_schema: dict[str, Any]) -> None:
+        """Rule #33: detect ``CHECK(col IN ('val1', 'val2', ...))`` TEXT enums.
+
+        LLMs sometimes assign ``string`` or ``text`` generators to columns
+        guarded by ``CHECK(col IN ('val1', 'val2', ...))`` TEXT enum
+        constraints. Random strings will never satisfy the enum CHECK,
+        causing the entire table to fail with 0 rows on batch insert.
+
+        This rule detects the ``IN ('str1', 'str2', ...)`` enum pattern
+        (with at least one string literal) and converts the column to a
+        ``choice`` generator with the extracted enum values, guaranteeing
+        CHECK satisfaction.
+
+        Also handles the case where the LLM assigned a ``choice`` generator
+        with WRONG choices (e.g., YAML anchor reuse from another column).
+        When the existing choices don't match the CHECK enum values, they
+        are overridden.
+
+        Skips:
+          - Columns with ``derive_from`` (derived mode, no generator to replace)
+          - ``choice`` columns whose choices already match the enum set
+          - Boolean enum CHECKs (already handled by Rule #32)
+          - CHECK expressions that don't match the ``IN ('str', ...)`` pattern
+        """
+        checks = table_schema.get("check_constraints", [])
+        if not isinstance(checks, list):
+            return
+
+        # Build map of column name -> enum values for TEXT enum CHECKs
+        text_enum_map: dict[str, list[str]] = {}
+        # Match: col IN ('val1', 'val2', ...) or col IN ("val1", "val2", ...)
+        # At least one value must be a quoted string (to exclude boolean 0/1 enums
+        # which are handled by Rule #32).
+        text_enum_re = re.compile(
+            r"^\s*(\w+)\s+IN\s*\(\s*(.+?)\s*\)\s*$",
+            flags=re.IGNORECASE,
+        )
+        for check in checks:
+            if not isinstance(check, dict):
+                continue
+            expr = check.get("expression")
+            if not isinstance(expr, str):
+                continue
+            m = text_enum_re.match(expr.strip())
+            if not m:
+                continue
+            col_name = m.group(1)
+            values_str = m.group(2)
+            # Split by comma, strip whitespace and quotes
+            raw_values = [v.strip() for v in values_str.split(",")]
+            enum_values: list[str] = []
+            has_string_literal = False
+            for v in raw_values:
+                if not v:
+                    continue
+                # Check if it's a quoted string literal
+                if (v.startswith("'") and v.endswith("'")) or (v.startswith('"') and v.endswith('"')):
+                    enum_values.append(v[1:-1])
+                    has_string_literal = True
+                else:
+                    # Unquoted value (could be number or identifier)
+                    enum_values.append(v)
+            # Only treat as TEXT enum if there's at least one string literal
+            # (otherwise it's a numeric/boolean enum, handled by Rule #32)
+            if not has_string_literal or not enum_values:
+                continue
+            # Don't override if already set (first CHECK wins)
+            if col_name not in text_enum_map:
+                text_enum_map[col_name] = enum_values
+
+        if not text_enum_map:
+            return
+
+        for col in table.get("columns", []):
+            if not isinstance(col, dict):
+                continue
+            col_name = col.get("name")
+            if col_name not in text_enum_map:
+                continue
+            # Skip derived columns (derive_from takes precedence)
+            if col.get("derive_from"):
+                continue
+            enum_values = text_enum_map[col_name]
+            enum_set = set(enum_values)
+            gen = col.get("generator")
+            # For choice generators, check if choices already match the enum set
+            if gen in ("choice", "weighted_choice"):
+                params = col.get("params")
+                if isinstance(params, dict):
+                    choices = params.get("choices")
+                    if isinstance(choices, list) and set(str(c) for c in choices) == enum_set:
+                        continue  # Already correct
+                    # Choices don't match — override them
+                    col["params"] = {"choices": enum_values}
+                    logger.warning(
+                        "Stage3 Rule #33: overriding wrong choices on TEXT enum CHECK column",
+                        column=col_name,
+                        check_values=enum_values,
+                        old_choices=choices,
+                        new_choices=enum_values,
+                        reason="LLM assigned wrong choices (likely YAML anchor reuse from another column)",
+                    )
+                    continue
+            old_gen = gen
+            old_params = col.get("params")
+            col["generator"] = "choice"
+            col["params"] = {"choices": enum_values}
+            col.pop("derive_from", None)
+            col.pop("expression", None)
+            logger.warning(
+                "Stage3 Rule #33: converting column to choice for TEXT enum CHECK",
+                column=col_name,
+                enum_values=enum_values,
+                old_generator=old_gen,
+                old_params=old_params,
+                new_generator="choice",
+                new_params={"choices": enum_values},
             )
 
     def _apply_rule_22_cross_column_date_range_isolation(
