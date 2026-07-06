@@ -46,6 +46,7 @@ class DataStream:
         constraint_solver: ConstraintSolver,
         transform_fn: RowTransformFn | None = None,
         seed: int | None = None,
+        composite_unique_constraints: list[list[str]] | None = None,
     ) -> None:
         """Initialize the data stream.
 
@@ -56,12 +57,32 @@ class DataStream:
             constraint_solver: Constraint solver used for uniqueness constraints and backtracking.
             transform_fn: Optional row transform function applied when finalizing a row.
             seed: Random seed. When set, it is also synchronized to the provider.
+            composite_unique_constraints: Optional list of column-name lists, each
+                representing one composite UNIQUE constraint (e.g.,
+                ``UNIQUE(a, b)`` → ``[['a', 'b']]``). After each row is generated,
+                the composite tuple is checked against the constraint solver and
+                registered. Collisions trigger row-level backtracking.
         """
         self._nodes = dag_nodes
         self._provider = provider
         self._expr_engine = expr_engine
         self._constraint_solver = constraint_solver
         self._transform_fn = transform_fn
+        # Normalize composite UNIQUE constraints: skip any that contain columns
+        # not present in the DAG (e.g., autoincrement PKs that are skipped).
+        # Build a list of (key_name, column_list) pairs for fast lookup.
+        node_names = {n.name for n in dag_nodes}
+        self._composite_unique: list[tuple[str, list[str]]] = []
+        if composite_unique_constraints:
+            for cols in composite_unique_constraints:
+                if not isinstance(cols, list) or len(cols) < 2:
+                    continue
+                # Only keep constraints whose columns are all in the DAG —
+                # constraints referencing skipped columns (e.g., autoincrement
+                # PKs) can't be enforced at the row level.
+                if all(c in node_names for c in cols):
+                    key_name = "__composite__" + "_".join(cols)
+                    self._composite_unique.append((key_name, cols))
 
         self._rng = random.Random(seed)
         if seed is not None:
@@ -271,6 +292,10 @@ class DataStream:
         skipped nodes and backtracking. On any column failure, ``_handle_col_failure``
         is invoked and the function returns early.
 
+        After all columns are generated, composite UNIQUE constraints are checked.
+        If a composite tuple collides with an already-registered tuple, the row's
+        single-column registrations are rolled back and the row is retried.
+
         Args:
             row: The current row data.
             generated_values: The current generated-values dict.
@@ -293,6 +318,27 @@ class DataStream:
             if not col_succeeded:
                 self._handle_col_failure(backtrack_to, row, generated_values)
                 return False, backtrack_to
+
+        # Composite UNIQUE enforcement: after all columns are generated, check
+        # each composite UNIQUE constraint. If any tuple collides, roll back
+        # the row's single-column registrations and trigger a retry. This is
+        # the core fix for the "composite UNIQUE never enforced" gap — without
+        # this, the constraint solver's ``check_and_register_composite()`` is
+        # never called, and composite UNIQUE violations only surface at INSERT
+        # time as IntegrityError (fatal, no retry).
+        if self._composite_unique:
+            for key_name, cols in self._composite_unique:
+                composite_tuple = tuple(row.get(c) for c in cols)
+                if not self._constraint_solver.check_and_register_composite(key_name, composite_tuple):
+                    # Collision: roll back all single-column registrations and
+                    # retry the whole row. Use the first composite column as
+                    # the backtracking target so the retry regenerates it.
+                    for col, val in generated_values.items():
+                        self._constraint_solver.unregister(col, val)
+                    generated_values.clear()
+                    row.clear()
+                    bt_idx = self._find_node_index(cols[0])
+                    return False, bt_idx
 
         return True, backtrack_to
 

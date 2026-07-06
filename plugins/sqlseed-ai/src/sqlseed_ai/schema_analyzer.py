@@ -416,13 +416,25 @@ def apply_auto_fix_rules_1_13(
                                     break
                             if "DATE" in col_type_upper:
                                 # Date columns return ISO date strings from the
-                                # generator. simpleeval cannot do date arithmetic
-                                # on strings (no date_parse in SAFE_FUNCTIONS), so
-                                # we use expression "value" (end = start) to
-                                # guarantee the constraint. The transform_row hook
-                                # in the AI plugin converts the string to a
-                                # datetime.date object for the DB.
-                                expr_str = "value"
+                                # generator. Use timedelta arithmetic to guarantee
+                                # the cross-column CHECK: strict ``>`` requires
+                                # ``value + timedelta(days=random_int(1, 30))``
+                                # (always strictly greater); non-strict ``>=``
+                                # allows equality via ``random_int(0, 30)``.
+                                # The expression contains ``timedelta`` so Rule #17
+                                # preserves it (Rule #17 strips non-timedelta
+                                # expressions on DATE-family sources to avoid
+                                # float(date) TypeError).
+                                if min_offset == 1:
+                                    expr_str = (
+                                        "value + timedelta(days=random_int(1, 30)) "
+                                        "if value is not None else None"
+                                    )
+                                else:
+                                    expr_str = (
+                                        "value + timedelta(days=random_int(0, 30)) "
+                                        "if value is not None else None"
+                                    )
                             elif "INT" in col_type_upper:
                                 delta: int | float = 100
                                 expr_str = f"value + random_int({min_offset}, {delta})"

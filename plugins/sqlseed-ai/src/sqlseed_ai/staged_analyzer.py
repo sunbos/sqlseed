@@ -4126,6 +4126,22 @@ class Stage3Validator:
             if isinstance(col, dict) and isinstance(col.get("name"), str):
                 col_configs[col["name"]] = col
 
+        # Build the set of all columns involved in ANY cross-column date CHECK.
+        # Used by _strip_wrong_derive_from to distinguish multi-CHECK chains
+        # (where a timedelta-based derive_from was set by another CHECK and
+        # must be preserved) from LLM errors (where derive_from points to an
+        # unrelated column and should be stripped).
+        check_involved_columns: set[str] = set()
+        for chk in checks:
+            if not isinstance(chk, dict):
+                continue
+            chk_expr = chk.get("expression")
+            if not isinstance(chk_expr, str):
+                continue
+            parsed_chk = self._parse_cross_column_date_comparison(chk_expr)
+            if parsed_chk is not None:
+                check_involved_columns.update(parsed_chk)
+
         for check in checks:
             if not isinstance(check, dict):
                 continue
@@ -4171,6 +4187,36 @@ class Stage3Validator:
                 sources = df if isinstance(df, list) else [df]
                 if expected_source in sources:
                     return  # derive_from points to the correct column — preserve
+                # PRESERVE valid timedelta-based derive_from ONLY when the source
+                # column is involved in another cross-column date CHECK (multi-CHECK
+                # chain scenario). In that case, the derive_from was set by Fix 12
+                # or a previous Rule #22 conversion to satisfy that other CHECK,
+                # and stripping it would break the CHECK. The current CHECK will be
+                # handled by converting the OTHER column (see
+                # _convert_to_derive_from_for_date_check multi-CHECK chain handling
+                # below).
+                #
+                # If the source column is NOT involved in any other CHECK, this is
+                # an LLM error (derive_from points to an unrelated column) and the
+                # derive_from should be stripped so range isolation can enforce
+                # the CHECK instead.
+                expr_val = col.get("expression")
+                if (
+                    isinstance(expr_val, str)
+                    and "timedelta" in expr_val
+                    and any(s in check_involved_columns for s in sources)
+                ):
+                    logger.info(
+                        "Stage3 Rule #22: preserving timedelta-based derive_from (set by another CHECK)",
+                        column=col_name,
+                        existing_derive_from=df,
+                        existing_expression=expr_val,
+                        current_check_source=expected_source,
+                        reason="source column is involved in another cross-column date CHECK; "
+                               "stripping would break that CHECK; the current CHECK will be "
+                               "handled by converting the other column",
+                    )
+                    return
                 logger.warning(
                     "Stage3 Rule #22: stripping derive_from from date column (wrong source)",
                     column=col_name,
@@ -4187,9 +4233,28 @@ class Stage3Validator:
 
             _strip_wrong_derive_from(later_col_name, later_col, earlier_col_name)
             _strip_wrong_derive_from(earlier_col_name, earlier_col, later_col_name)
-            # If either column STILL has derive_from (preserved because it
-            # correctly points to the CHECK counterpart), the timedelta
-            # expression already guarantees the CHECK — skip range isolation.
+            # Multi-CHECK chain handling: if later_col has derive_from pointing to
+            # a DIFFERENT column (not earlier_col), it was set by another CHECK
+            # (e.g., Fix 12 set due_at → issued_at for CHECK #1). The current
+            # CHECK (e.g., CHECK #2: resolved_at <= due_at) needs earlier_col to
+            # derive from later_col. Convert earlier_col to derive_from later_col
+            # with a subtract expression (earlier = later - delta), which
+            # guarantees earlier_col <= later_col without breaking later_col's
+            # existing derive_from.
+            later_df = later_col.get("derive_from")
+            if later_df:
+                later_sources = later_df if isinstance(later_df, list) else [later_df]
+                if (
+                    earlier_col_name not in later_sources
+                    and not earlier_col.get("derive_from")
+                ):
+                    self._convert_to_derive_from_for_date_check(
+                        later_col, earlier_col_name, later_col_name, expr,
+                        earlier_col=earlier_col,
+                    )
+                    continue
+            # If either column has derive_from and we didn't convert above,
+            # the timedelta expression already guarantees the CHECK — skip.
             if later_col.get("derive_from") or earlier_col.get("derive_from"):
                 continue
             later_params = later_col["params"]
@@ -4256,7 +4321,8 @@ class Stage3Validator:
             # OR ...`` CHECK patterns).
             if new_later_start > later_end or new_earlier_end < earlier_start:
                 self._convert_to_derive_from_for_date_check(
-                    later_col, earlier_col_name, later_col_name, expr
+                    later_col, earlier_col_name, later_col_name, expr,
+                    earlier_col=earlier_col,
                 )
                 continue
             logger.warning(
@@ -4278,6 +4344,8 @@ class Stage3Validator:
         earlier_col_name: str,
         later_col_name: str,
         check_expr: str,
+        *,
+        earlier_col: dict[str, Any] | None = None,
     ) -> None:
         """Convert a date column to derive_from for single-year overlap CHECK.
 
@@ -4291,11 +4359,51 @@ class Stage3Validator:
         the later_col is also NULL (satisfying ``later_col IS NULL OR ...``
         CHECK patterns common in state-machine schemas).
 
+        Multi-CHECK chain handling: if ``later_col`` already has ``derive_from``
+        (set by a previous CHECK or by Fix 12 in ``apply_auto_fix_rules_1_13``),
+        overriding it would break the CHECK it currently satisfies. In this case,
+        convert ``earlier_col`` to derive_from ``later_col`` with a subtract
+        expression (``value - timedelta(days=random_int(0, 60))``), which
+        guarantees ``earlier_col <= later_col`` without touching the existing
+        ``later_col.derive_from``.
+
         Example:
             CHECK: ``delivered_at IS NULL OR (shipped_at IS NOT NULL AND delivered_at >= shipped_at)``
             Result: ``derive_from: [shipped_at]``,
                     ``expression: value + timedelta(days=random_int(0, 7)) if value is not None else None``
         """
+        # If later_col already has derive_from, don't override it — that would
+        # break the CHECK it currently satisfies. Instead, convert earlier_col
+        # to derive_from later_col with a subtract expression (earlier = later - delta),
+        # which guarantees earlier_col <= later_col.
+        if later_col.get("derive_from"):
+            if earlier_col is not None and not earlier_col.get("derive_from"):
+                earlier_col.pop("generator", None)
+                earlier_col.pop("params", None)
+                earlier_col["derive_from"] = [later_col_name]
+                earlier_col["expression"] = (
+                    "value - timedelta(days=random_int(0, 60)) if value is not None else None"
+                )
+                logger.warning(
+                    "Stage3 Rule #22: converting earlier_col to derive_from (later_col already derived)",
+                    check_expression=check_expr.strip(),
+                    earlier_column=earlier_col_name,
+                    later_column=later_col_name,
+                    reason="later_col has existing derive_from; converting earlier_col "
+                           "with subtract expression to satisfy CHECK without breaking "
+                           "the existing derive_from",
+                )
+                return
+            # Both columns have derive_from — can't fix without breaking one
+            logger.warning(
+                "Stage3 Rule #22: skipping derive_from conversion (both columns have derive_from)",
+                check_expression=check_expr.strip(),
+                earlier_column=earlier_col_name,
+                later_column=later_col_name,
+                reason="both columns already have derive_from; cannot enforce CHECK "
+                       "without breaking an existing derive_from",
+            )
+            return
         later_col.pop("generator", None)
         later_col.pop("params", None)
         later_col["derive_from"] = [earlier_col_name]

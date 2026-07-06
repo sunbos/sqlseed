@@ -422,10 +422,11 @@ class TestAutoFixGeneralization:
 
         Fix 8 now handles BOTH `col <= other_col` (upper bound) AND
         `col >= other_col` (lower bound) cross-column CHECK patterns.
-        For DATE columns, the lower-bound branch uses `expression: "value"`
-        (end_date = start_date) because simpleeval has no date() constructor,
-        so we can't do date arithmetic in expressions. The sqlseed_transform_row
-        hook in __init__.py later converts the string to a datetime.date.
+        For DATE columns, the lower-bound branch uses timedelta arithmetic
+        (``value + timedelta(days=random_int(0, 30))``) to guarantee the
+        cross-column CHECK. The expression contains ``timedelta`` so Rule #17
+        preserves it (Rule #17 strips non-timedelta expressions on DATE-family
+        sources to avoid float(date) TypeError).
         """
         analyzer = SchemaSemanticAnalyzer(config=MagicMock())
         config: dict = {
@@ -476,10 +477,11 @@ class TestAutoFixGeneralization:
         assert end_date.get("generator") is None, (
             f"source-mode generator should be removed after derive_from conversion, got: {end_date.get('generator')}"
         )
-        # DATE columns can't do date arithmetic in simpleeval (no date() ctor),
-        # so the lower-bound branch uses expression="value" (end_date = start_date).
-        assert end_date.get("expression") == "value", (
-            f"DATE column lower-bound expression should be 'value', got: {end_date.get('expression')}"
+        # DATE columns use timedelta arithmetic for lower-bound CHECKs.
+        # Non-strict >= uses random_int(0, 30) (allows equality via 0 offset).
+        expr = end_date.get("expression")
+        assert isinstance(expr, str) and "timedelta" in expr and "random_int(0, 30)" in expr, (
+            f"DATE column lower-bound expression should use timedelta with random_int(0, 30), got: {expr}"
         )
 
     def test_fix_8_lower_bound_integer_uses_random_int(self) -> None:

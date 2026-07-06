@@ -79,9 +79,9 @@ class GenerationMixin:
         # without duplicating the full parameter signatures (which would
         # trigger CodeDuplication with _specs.py). Argument checking is
         # deferred to DataOrchestrator, where mypy sees the real method.
-        _prepare_specs: Callable[..., tuple[dict[str, Any], dict[str, Any], set[str]]]
+        _prepare_specs: Callable[..., tuple[dict[str, Any], dict[str, Any], set[str], list[list[str]]]]
         _build_stream: Callable[..., DataStream]
-        _resolve_specs: Callable[..., tuple[dict[str, Any], dict[str, Any], set[str]]]
+        _resolve_specs: Callable[..., tuple[dict[str, Any], dict[str, Any], set[str], list[list[str]]]]
 
     def _generate_and_insert_batches(
         self,
@@ -209,13 +209,14 @@ class GenerationMixin:
                     self._db.optimize_for_bulk_write(count)
 
                 progress.update(prep_task, description=f"Resolving schema for {table_name}...")
-                generator_specs, user_configs, unique_columns = self._prepare_specs(
+                generator_specs, user_configs, unique_columns, composite_unique = self._prepare_specs(
                     table_name, count, columns, column_configs, enrich, clear_before, skip_ai
                 )
 
                 progress.update(prep_task, description=f"Building data stream for {table_name}...")
                 stream = self._build_stream(
-                    generator_specs, user_configs, unique_columns, transform, seed, table_name=table_name
+                    generator_specs, user_configs, unique_columns, transform, seed, table_name=table_name,
+                    composite_unique=composite_unique,
                 )
 
                 progress.remove_task(prep_task)
@@ -286,11 +287,12 @@ class GenerationMixin:
         self._ensure_connected()
         validate_table_name(table_name)
 
-        generator_specs, user_configs, unique_columns = self._resolve_specs(
+        generator_specs, user_configs, unique_columns, composite_unique = self._resolve_specs(
             table_name, count, columns, column_configs, enrich
         )
         stream = self._build_stream(
-            generator_specs, user_configs, unique_columns, transform, seed, table_name=table_name
+            generator_specs, user_configs, unique_columns, transform, seed, table_name=table_name,
+            composite_unique=composite_unique,
         )
 
         result: list[dict[str, Any]] = []

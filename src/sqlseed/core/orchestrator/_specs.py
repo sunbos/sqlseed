@@ -102,7 +102,7 @@ class SpecResolverMixin:
         columns: dict[str, Any] | None,
         column_configs: list[Any] | None,
         enrich: bool,
-    ) -> tuple[dict[str, Any], dict[str, Any], set[str]]:
+    ) -> tuple[dict[str, Any], dict[str, Any], set[str], list[list[str]]]:
         """Resolve column generator specs, executing schema inference, column mapping, enrichment,
         uniqueness adjustment, and foreign key resolution in order.
 
@@ -114,12 +114,15 @@ class SpecResolverMixin:
             enrich: Whether to enable enrichment mode (identify enumeration columns based on existing data).
 
         Returns:
-            A triple (generator_specs, user_configs, unique_columns).
+            A 4-tuple (generator_specs, user_configs, unique_columns, composite_unique).
+            ``composite_unique`` is a list of column-name lists, each representing
+            one composite UNIQUE constraint (e.g., ``UNIQUE(a, b)`` → ``[['a', 'b']]``).
         """
         column_infos = self._schema.get_column_info(table_name)
         user_configs = self._resolve_user_configs(columns, column_configs)
         generator_specs = self._mapper.map_columns(column_infos, user_configs, enrich=enrich)
         unique_columns = self._schema.detect_unique_columns(table_name)
+        composite_unique = self._schema.detect_composite_unique_constraints(table_name)
         if self._enrichment is not None:
             generator_specs = self._enrichment.apply(table_name, generator_specs, column_infos, unique_columns)
         # L9+ enhancement: SchemaFallbackGenerator adds CHECK-constraint and
@@ -147,7 +150,7 @@ class SpecResolverMixin:
             generator_specs,
             unique_columns=unique_columns,
         )
-        return generator_specs, user_configs, unique_columns
+        return generator_specs, user_configs, unique_columns, composite_unique
 
     def _build_stream(
         self,
@@ -157,6 +160,7 @@ class SpecResolverMixin:
         transform: str | None,
         seed: int | None,
         table_name: str | None = None,
+        composite_unique: list[list[str]] | None = None,
     ) -> DataStream:
         dag = ColumnDAG()
         col_configs_list = list(user_configs.values()) if user_configs else None
@@ -189,6 +193,7 @@ class SpecResolverMixin:
             constraint_solver=constraint_solver,
             transform_fn=transform_fn,
             seed=seed,
+            composite_unique_constraints=composite_unique,
         )
 
     def _prepare_specs(
@@ -200,7 +205,7 @@ class SpecResolverMixin:
         enrich: bool,
         clear_before: bool,
         skip_ai: bool = False,
-    ) -> tuple[dict[str, Any], dict[str, Any], set[str]]:
+    ) -> tuple[dict[str, Any], dict[str, Any], set[str], list[list[str]]]:
         """Prepare generator specs, handling the execution order of clear_before and enrich,
         and apply AI suggestions and template pool.
 
@@ -221,18 +226,18 @@ class SpecResolverMixin:
             skip_ai: Whether to skip AI suggestions and template pool application.
 
         Returns:
-            A triple (generator_specs, user_configs, unique_columns).
+            A 4-tuple (generator_specs, user_configs, unique_columns, composite_unique).
         """
         t_resolve = time.monotonic()
         if enrich and clear_before:
-            specs, user_configs, unique_columns = self._resolve_specs(
+            specs, user_configs, unique_columns, composite_unique = self._resolve_specs(
                 table_name, count, columns, column_configs, enrich
             )
             self._db.clear_table(table_name)
         else:
             if clear_before:
                 self._db.clear_table(table_name)
-            specs, user_configs, unique_columns = self._resolve_specs(
+            specs, user_configs, unique_columns, composite_unique = self._resolve_specs(
                 table_name, count, columns, column_configs, enrich
             )
         logger.debug("resolve_specs", table_name=table_name, elapsed=f"{time.monotonic() - t_resolve:.3f}s")
@@ -277,7 +282,7 @@ class SpecResolverMixin:
                 unique_columns=unique_columns,
             )
             logger.debug("template_pool", table_name=table_name, elapsed=f"{time.monotonic() - t_tpl:.3f}s")
-        return specs, user_configs, unique_columns
+        return specs, user_configs, unique_columns, composite_unique
 
     def _resolve_user_configs(
         self,

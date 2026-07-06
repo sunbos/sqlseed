@@ -67,7 +67,7 @@ class QueryMixin:
         # without duplicating the full parameter signature (which would
         # trigger CodeDuplication with _specs.py). Argument checking is
         # deferred to DataOrchestrator, where mypy sees the real method.
-        _resolve_specs: Callable[..., tuple[dict[str, Any], dict[str, Any], set[str]]]
+        _resolve_specs: Callable[..., tuple[dict[str, Any], dict[str, Any], set[str], list[list[str]]]]
 
     def get_schema_context(self, table_name: str) -> dict[str, Any]:
         """Build a schema context dict for a table (columns, FKs, indexes, sample data, distribution)."""
@@ -192,7 +192,7 @@ class QueryMixin:
         Returns the generator specs dict keyed by column name.
         """
         self._ensure_connected()
-        specs, _, _ = self._resolve_specs(
+        specs, _, _, _ = self._resolve_specs(
             table_name,
             count=1,
             columns=None,

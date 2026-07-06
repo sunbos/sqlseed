@@ -91,6 +91,30 @@ class SchemaInferrer:
 
         return unique_cols
 
+    def detect_composite_unique_constraints(self, table_name: str) -> list[list[str]]:
+        """Detect composite (multi-column) UNIQUE constraints on the table.
+
+        Returns a list of column-name lists, each representing one composite
+        UNIQUE constraint (e.g., ``UNIQUE(account_id, instrument_id)`` →
+        ``[['account_id', 'instrument_id']]``). Single-column UNIQUE constraints
+        are excluded (they are handled by ``detect_unique_columns`` and the
+        per-column ``constraints.unique`` flag).
+
+        Any query failure only logs without raising an exception.
+        """
+        composite: list[list[str]] = []
+        try:
+            indexes = self.get_index_info(table_name)
+            for idx in indexes:
+                if idx.unique and len(idx.columns) > 1:
+                    composite.append(list(idx.columns))
+        except (ValueError, RuntimeError, OSError, SAOperationalError):
+            logger.debug(
+                "Failed to detect composite UNIQUE constraints from indexes",
+                table_name=table_name,
+            )
+        return composite
+
     def get_sample_data(self, table_name: str, limit: int = 5) -> list[dict[str, Any]]:
         """Return the first few rows of sample data for the specified table: default 5 rows."""
         self._validate(table_name)
