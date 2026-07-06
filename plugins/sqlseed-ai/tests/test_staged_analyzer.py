@@ -4835,6 +4835,180 @@ def test_regression_rule_19_float_strict_inequality_max_side():
     assert col["params"]["min_value"] == 0.0
 
 
+def test_regression_rule_19_float_strict_sets_precision_when_missing():
+    """Rule #19: strict ``>`` on float with no precision also sets precision.
+
+    The float generator defaults to ``precision=2``, which rounds small
+    values to 0 (e.g., ``round(1e-06, 2) == 0.0``), violating strict ``>``
+    CHECK constraints. When Rule #19 lifts ``min_value`` by epsilon and
+    ``precision`` is not explicitly set, it must ALSO set ``precision`` high
+    enough to preserve the epsilon after rounding.
+
+    This reproduces the trading_platform ``instruments.tick_size`` failure
+    where ``min_value: 0`` was lifted to ``1e-6`` but the default
+    ``precision=2`` rounded it back to ``0.0``, causing
+    ``CHECK(tick_size > 0)`` to fail.
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "instruments",
+                "columns": [
+                    {
+                        "name": "tick_size",
+                        "generator": "float",
+                        "params": {"min_value": 0, "max_value": 1.0},
+                    },
+                ],
+            }
+        ]
+    }
+    schema = {
+        "instruments": {
+            "check_constraints": [
+                {"name": "chk_tick", "columns": ["tick_size"],
+                 "expression": "tick_size > 0 AND tick_size <= 1.0"},
+            ],
+        },
+    }
+    validator = Stage3Validator()
+    validator.validate(config, schema=schema)
+    col = config["tables"][0]["columns"][0]
+    # min_value lifted to 1e-6
+    assert col["params"]["min_value"] == 1e-6
+    # precision must be set to preserve the epsilon (>= 6 decimal places)
+    assert "precision" in col["params"], "precision must be set when epsilon is applied"
+    assert col["params"]["precision"] >= 6, (
+        f"precision must be >= 6 to preserve 1e-6 epsilon, got {col['params']['precision']}"
+    )
+
+
+def test_regression_rule_22_strips_wrong_derive_from_for_date_check():
+    """Rule #22: strip derive_from pointing to WRONG column for date CHECK.
+
+    Reproduces the trading_platform ``margin_calls`` failure: the LLM
+    assigned ``due_at`` derive_from ``[resolved_at]`` instead of
+    ``[issued_at]``. The CHECK ``due_at > issued_at`` was unsatisfiable
+    because ``due_at`` was derived from ``resolved_at`` (unrelated to
+    ``issued_at``).
+
+    The fix: Rule #22 detects that ``derive_from`` points to a column that
+    is NOT the CHECK counterpart, strips it, and assigns isolated year
+    ranges so the CHECK is satisfied.
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "margin_calls",
+                "columns": [
+                    {
+                        "name": "issued_at",
+                        "generator": "datetime",
+                        "params": {"start_year": 2020, "end_year": 2024},
+                    },
+                    {
+                        "name": "due_at",
+                        "derive_from": ["resolved_at"],
+                        "expression": "value + timedelta(days=random_int(0, 7))",
+                    },
+                    {
+                        "name": "resolved_at",
+                        "generator": "datetime",
+                        "params": {"start_year": 2020, "end_year": 2024},
+                    },
+                ],
+            }
+        ]
+    }
+    schema = {
+        "margin_calls": {
+            "columns": [
+                {"name": "issued_at", "type": "DATETIME", "nullable": False, "default": None},
+                {"name": "due_at", "type": "DATETIME", "nullable": False, "default": None},
+                {"name": "resolved_at", "type": "DATETIME", "nullable": True, "default": None},
+            ],
+            "check_constraints": [
+                {"name": "chk_due", "columns": ["due_at", "issued_at"],
+                 "expression": "due_at IS NULL OR issued_at IS NULL OR due_at > issued_at"},
+            ],
+        },
+    }
+    validator = Stage3Validator()
+    validator.validate(config, schema=schema)
+    due_at = config["tables"][0]["columns"][1]
+    # derive_from must be stripped (resolved_at is NOT issued_at)
+    assert not due_at.get("derive_from"), (
+        f"derive_from must be stripped when source is wrong column, got {due_at.get('derive_from')}"
+    )
+    # A date generator with year range must be assigned
+    assert due_at.get("generator") in ("date", "datetime"), (
+        f"date generator must be assigned after strip, got {due_at.get('generator')}"
+    )
+    # The year range must be isolated so due_at > issued_at
+    issued_at = config["tables"][0]["columns"][0]
+    assert issued_at["params"]["end_year"] < due_at["params"]["start_year"], (
+        f"Rule #22 must isolate ranges: issued.end={issued_at['params']['end_year']}, "
+        f"due.start={due_at['params']['start_year']}"
+    )
+
+
+def test_regression_rule_22_preserves_correct_derive_from_for_date_check():
+    """Rule #22: preserve derive_from pointing to the correct column.
+
+    When ``end_date`` derives from ``start_date`` (the CHECK counterpart)
+    with a timedelta expression, the expression already guarantees
+    ``end_date > start_date``. Rule #22 must PRESERVE this derive_from
+    and skip range isolation (no need to adjust year ranges).
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "orders",
+                "columns": [
+                    {
+                        "name": "start_date",
+                        "generator": "date",
+                        "params": {"start_year": 2020, "end_year": 2024},
+                    },
+                    {
+                        "name": "end_date",
+                        "generator": "date",
+                        "derive_from": ["start_date"],
+                        "expression": "value + timedelta(days=random_int(1, 30))",
+                        "params": {"start_year": 2020, "end_year": 2024},
+                    },
+                ],
+            }
+        ]
+    }
+    schema = {
+        "orders": {
+            "columns": [
+                {"name": "start_date", "type": "DATE", "nullable": False, "default": None},
+                {"name": "end_date", "type": "DATE", "nullable": True, "default": None},
+            ],
+            "check_constraints": [
+                {"name": "chk_dates", "columns": ["end_date", "start_date"],
+                 "expression": "end_date IS NULL OR end_date >= start_date"},
+            ],
+        },
+    }
+    validator = Stage3Validator()
+    validator.validate(config, schema=schema)
+    end_date = config["tables"][0]["columns"][1]
+    # derive_from must be PRESERVED (start_date is the CHECK counterpart)
+    assert end_date.get("derive_from") == ["start_date"], (
+        f"derive_from must be preserved when source is correct, got {end_date.get('derive_from')}"
+    )
+    assert end_date.get("expression") is not None, "expression must be preserved"
+
+
 def test_regression_dialect_object_normalized_to_string():
     """Regression: dialect object repr must not leak into LLM prompts.
 

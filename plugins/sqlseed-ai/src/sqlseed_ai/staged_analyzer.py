@@ -19,6 +19,7 @@ Spec reference: docs/superpowers/specs/2026-07-02-llm-staged-yaml-analysis-desig
 from __future__ import annotations
 
 import json
+import math
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -3818,7 +3819,22 @@ class Stage3Validator:
                     if gen == "integer":
                         check_min = check_min + 1
                     elif gen == "float":
-                        check_min = check_min + _float_strict_epsilon(params)
+                        epsilon = _float_strict_epsilon(params)
+                        check_min = check_min + epsilon
+                        # If precision is not explicitly set, the float generator
+                        # defaults to ``precision=2``, which rounds small values
+                        # to 0 (e.g., ``round(1e-06, 2) == 0.0``), violating the
+                        # strict ``>`` CHECK. Set precision to match the epsilon
+                        # so the rounded value stays strictly above the boundary.
+                        if "precision" not in params:
+                            params["precision"] = max(6, int(-math.log10(epsilon)) + 1)
+                            logger.warning(
+                                "Stage3 Rule #19: setting precision to preserve strict-inequality epsilon",
+                                column=col_name,
+                                epsilon=epsilon,
+                                new_precision=params["precision"],
+                                reason="default precision=2 would round epsilon to 0, violating strict > CHECK",
+                            )
                 current_min = params.get("min_value", 0)
                 if isinstance(current_min, (int, float)) and current_min < check_min:
                     logger.warning(
@@ -4124,7 +4140,45 @@ class Stage3Validator:
             # Both must be date-family generators with start_year/end_year params
             if not self._has_date_year_range(later_col) or not self._has_date_year_range(earlier_col):
                 continue
-            # Skip columns with derive_from (no generator params to adjust)
+            # Strip derive_from from date columns when the derive_from source is
+            # NOT the other column in the CHECK. The LLM often assigns
+            # derive_from from the WRONG column (e.g., deriving ``due_at`` from
+            # ``resolved_at`` instead of ``issued_at``), which makes the CHECK
+            # unsatisfiable. Stripping allows Rule #22 to assign isolated year
+            # ranges that satisfy the CHECK.
+            #
+            # PRESERVES correct derive_from: if ``later_col`` derives from
+            # ``earlier_col`` with a timedelta expression (e.g.,
+            # ``end_date = start_date + timedelta(days=30)``), the expression
+            # already guarantees ``later_col > earlier_col``, so range isolation
+            # is unnecessary and the derive_from is preserved.
+            def _strip_wrong_derive_from(col_name: str, col: dict[str, Any], expected_source: str) -> None:
+                df = col.get("derive_from")
+                if not df:
+                    return
+                # Normalize to list for comparison
+                sources = df if isinstance(df, list) else [df]
+                if expected_source in sources:
+                    return  # derive_from points to the correct column — preserve
+                logger.warning(
+                    "Stage3 Rule #22: stripping derive_from from date column (wrong source)",
+                    column=col_name,
+                    old_derive_from=df,
+                    old_expression=col.get("expression"),
+                    expected_source=expected_source,
+                    reason="derive_from points to a column that is not the CHECK counterpart; "
+                           "range isolation will enforce the CHECK instead",
+                )
+                col.pop("derive_from", None)
+                col.pop("expression", None)
+                # Re-ensure date generator + year-range params after strip
+                self._ensure_date_generator_for_date_column(col, table_schema)
+
+            _strip_wrong_derive_from(later_col_name, later_col, earlier_col_name)
+            _strip_wrong_derive_from(earlier_col_name, earlier_col, later_col_name)
+            # If either column STILL has derive_from (preserved because it
+            # correctly points to the CHECK counterpart), the timedelta
+            # expression already guarantees the CHECK — skip range isolation.
             if later_col.get("derive_from") or earlier_col.get("derive_from"):
                 continue
             later_params = later_col["params"]
