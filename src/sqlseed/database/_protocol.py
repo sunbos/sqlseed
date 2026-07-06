@@ -124,6 +124,15 @@ class DatabaseAdapter(Protocol):
     def get_index_info(self, table_name: str) -> list[IndexInfo]:
         """Return index metadata for every index defined on the given table."""
 
+    def get_unique_constraints(self, table_name: str) -> list[IndexInfo]:
+        """Return UNIQUE constraint metadata for every UNIQUE constraint on the given table.
+
+        This includes table-level ``UNIQUE(col1, col2)`` constraints that are NOT
+        returned by ``get_index_info`` (SQLite creates auto-indexes for these, but
+        SQLAlchemy's ``inspector.get_indexes`` excludes auto-indexes). Single-column
+        and multi-column UNIQUE constraints are both returned.
+        """
+
     def get_check_constraints(self, table_name: str) -> list[CheckConstraintInfo]:
         """Return CHECK constraint metadata for every CHECK on the given table.
 

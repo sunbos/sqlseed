@@ -536,6 +536,44 @@ class SQLAlchemyAdapter:
             )
         return result
 
+    def get_unique_constraints(self, table_name: str) -> list[IndexInfo]:
+        """Get UNIQUE constraint metadata for a table.
+
+        Uses SQLAlchemy's ``inspector.get_unique_constraints`` to reflect
+        table-level ``UNIQUE(col1, col2)`` constraints. These are NOT returned
+        by ``get_indexes`` because SQLite creates auto-indexes for them, and
+        SQLAlchemy's ``inspector.get_indexes`` excludes auto-indexes.
+
+        Args:
+            table_name: Target table name.
+
+        Returns:
+            A list of IndexInfo for all UNIQUE constraints of the table;
+            returns an empty list when the table does not exist.
+        """
+        validate_table_name(table_name)
+
+        inspector = self._get_inspector()
+        try:
+            constraints = inspector.get_unique_constraints(table_name)
+        except NoSuchTableError:
+            return []
+        result: list[IndexInfo] = []
+        for uc in constraints:
+            uc_name = uc.get("name") or ""
+            col_names = tuple(c or "" for c in uc.get("column_names", []))
+            if not col_names:
+                continue
+            result.append(
+                IndexInfo(
+                    name=uc_name,
+                    table=table_name,
+                    columns=col_names,
+                    unique=True,
+                )
+            )
+        return result
+
     def get_check_constraints(self, table_name: str) -> list[CheckConstraintInfo]:
         """Get CHECK constraint metadata for a table.
 

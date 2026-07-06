@@ -101,6 +101,27 @@ class BaseRawSQLiteAdapter:
         validate_table_name(table_name)
         return fetch_index_info(self._get_execute_fn(), table_name)
 
+    def get_unique_constraints(self, table_name: str) -> list[IndexInfo]:
+        """Get UNIQUE constraint metadata for a table.
+
+        Default implementation returns an empty list. Subclasses using
+        SQLAlchemy should override this to call ``inspector.get_unique_constraints``,
+        which returns table-level ``UNIQUE(col1, col2)`` constraints that are
+        NOT returned by ``get_index_info`` (SQLite creates auto-indexes for
+        these, but SQLAlchemy's ``inspector.get_indexes`` excludes auto-indexes).
+
+        For raw sqlite3 adapters, ``get_index_info`` already returns auto-indexes
+        via ``PRAGMA index_list`` (which includes auto-indexes), so this method
+        can safely return an empty list.
+
+        Args:
+            table_name: Target table name.
+
+        Returns:
+            A list of IndexInfo for all UNIQUE constraints of the table.
+        """
+        return []
+
     def get_sample_rows(
         self,
         table_name: str,

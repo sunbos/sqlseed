@@ -1385,6 +1385,16 @@ class Stage3Validator:
                 # crashes. Must run after Rule #27 (which adds derive_from) and
                 # Rule #17 (which strips unsafe derive_from on DATE columns).
                 self._apply_rule_29_derive_from_integrity(table, table_schema)
+                # Rule #35 runs LAST (after all table-level rules): strips
+                # ``generator`` and ``params`` from any column that has
+                # ``derive_from`` set. This is the LLM hallucination cleanup —
+                # small LLMs sometimes emit both ``generator`` and
+                # ``derive_from`` on the same column, which Pydantic rejects
+                # (``ColumnConfig`` enforces mutually exclusive source/derived
+                # modes). Must run AFTER Rule #17 (which may strip derive_from
+                # and re-add a generator) and Rule #22/#34 (which may convert
+                # columns to derive_from) so the final state is authoritative.
+                self._apply_rule_35_strip_generator_from_derive_from(table)
         # Dual-track: run the new RepairPipeline on a deep copy and log
         # discrepancies against the legacy-fixed config (Phase 2 scaffolding).
         # Full dual-track activation (snapshot-driven repairs overriding
@@ -1392,6 +1402,43 @@ class Stage3Validator:
         # dual-track is disabled and this branch is skipped.
         self._run_dual_track(config)
         return config
+
+    def _apply_rule_35_strip_generator_from_derive_from(self, table: dict[str, Any]) -> None:
+        """Rule #35: strip ``generator``/``params`` from columns with ``derive_from``.
+
+        ``ColumnConfig`` enforces mutually exclusive source mode (``generator`` +
+        ``params``) and derived mode (``derive_from`` + ``expression``). Small
+        LLMs sometimes emit both ``generator`` and ``derive_from`` on the same
+        column — Pydantic rejects this with a ``ValidationError`` at load time.
+
+        This rule runs LAST (after all other table-level rules) so the final
+        derive_from state is authoritative: if a column still has
+        ``derive_from`` after Rule #17 (which strips unsafe DATE derive_from)
+        and Rule #22/#34 (which may convert columns to derive_from), the
+        ``derive_from`` is intentional and the ``generator``/``params`` must
+        be stripped to satisfy Pydantic's mutual-exclusivity constraint.
+
+        Columns that had ``derive_from`` stripped by Rule #17 (which then
+        re-adds a ``generator``) are NOT affected — they no longer have
+        ``derive_from`` by the time this rule runs.
+        """
+        columns = table.get("columns", [])
+        if not isinstance(columns, list):
+            return
+        for col in columns:
+            if not isinstance(col, dict):
+                continue
+            if col.get("derive_from") and (col.get("generator") is not None or col.get("params") is not None):
+                logger.warning(
+                    "Stage3 Rule #35: stripping generator/params from derive_from column",
+                    column=col.get("name"),
+                    old_generator=col.get("generator"),
+                    old_params=col.get("params"),
+                    reason="ColumnConfig enforces mutually exclusive source/derived modes; "
+                           "derive_from is set, so generator/params must be stripped",
+                )
+                col.pop("generator", None)
+                col.pop("params", None)
 
     def _run_dual_track(self, config: dict[str, Any]) -> None:
         """Run the new repair pipeline on a copy and log discrepancies.
@@ -4164,9 +4211,12 @@ class Stage3Validator:
             # Rule #22 then needs to give it a date generator and isolate the range.
             self._ensure_date_generator_for_date_column(later_col, table_schema)
             self._ensure_date_generator_for_date_column(earlier_col, table_schema)
-            # Both must be date-family generators with start_year/end_year params
-            if not self._has_date_year_range(later_col) or not self._has_date_year_range(earlier_col):
-                continue
+            # NOTE: The _has_date_year_range check is deferred to AFTER the
+            # derive_from handling below. Columns in derived mode (have
+            # derive_from but no generator) would fail the year-range check
+            # prematurely, causing Rule #22 to skip CHECKs that still need
+            # derive_from conversion (e.g., margin_calls CHECK #2 where
+            # due_at has derive_from to issued_at but no generator).
             # Strip derive_from from date columns when the derive_from source is
             # NOT the other column in the CHECK. The LLM often assigns
             # derive_from from the WRONG column (e.g., deriving ``due_at`` from
@@ -4253,9 +4303,35 @@ class Stage3Validator:
                         earlier_col=earlier_col,
                     )
                     continue
+            # Case 2: earlier_col has derive_from to a DIFFERENT column (not
+            # later_col), and later_col has NO derive_from. This is the mirror
+            # of Case 1: the earlier_col's derive_from was set by another CHECK
+            # (e.g., Fix 12 set updated_at -> created_at for CHECK #1). The
+            # current CHECK (e.g., CHECK #2: submitted_at >= updated_at) needs
+            # later_col to derive from earlier_col. Convert later_col to
+            # derive_from earlier_col with an add expression
+            # (later = earlier + delta), which guarantees later_col >= earlier_col
+            # without breaking earlier_col's existing derive_from.
+            earlier_df = earlier_col.get("derive_from")
+            if earlier_df:
+                earlier_sources = earlier_df if isinstance(earlier_df, list) else [earlier_df]
+                if (
+                    later_col_name not in earlier_sources
+                    and not later_col.get("derive_from")
+                ):
+                    self._convert_to_derive_from_for_date_check(
+                        later_col, earlier_col_name, later_col_name, expr,
+                    )
+                    continue
             # If either column has derive_from and we didn't convert above,
             # the timedelta expression already guarantees the CHECK — skip.
             if later_col.get("derive_from") or earlier_col.get("derive_from"):
+                continue
+            # Both must be date-family generators with start_year/end_year params.
+            # This check runs AFTER derive_from handling so that derived-mode
+            # columns (which have no generator) are handled by the conversion
+            # logic above instead of being skipped prematurely.
+            if not self._has_date_year_range(later_col) or not self._has_date_year_range(earlier_col):
                 continue
             later_params = later_col["params"]
             earlier_params = earlier_col["params"]
@@ -4562,8 +4638,12 @@ class Stage3Validator:
         if not isinstance(columns, list):
             return
 
-        # Case 1: stripped column (no generator) → supplement date/datetime generator
-        if gen is None:
+        # Case 1: stripped column (no generator) → supplement date/datetime generator.
+        # SKIP if the column has ``derive_from`` set: it is in derived mode and
+        # does not need a generator. Adding one here would create a conflicting
+        # state (both generator and derive_from set) that Rule #35 would later
+        # strip — but it's cleaner to never add it in the first place.
+        if gen is None and not col.get("derive_from"):
             for col_info in columns:
                 if not isinstance(col_info, dict) or col_info.get("name") != col_name:
                     continue

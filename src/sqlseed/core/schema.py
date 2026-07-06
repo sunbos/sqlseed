@@ -100,17 +100,43 @@ class SchemaInferrer:
         are excluded (they are handled by ``detect_unique_columns`` and the
         per-column ``constraints.unique`` flag).
 
+        Two sources are checked:
+
+        1. ``get_index_info`` — returns explicit ``CREATE [UNIQUE] INDEX``
+           indexes. On raw sqlite3 adapters, this also returns auto-indexes
+           created by ``UNIQUE(...)`` constraints (via ``PRAGMA index_list``).
+        2. ``get_unique_constraints`` — returns table-level ``UNIQUE(...)``
+           constraints. On SQLAlchemy adapters, this is the ONLY way to detect
+           them, because ``inspector.get_indexes`` excludes auto-indexes.
+
         Any query failure only logs without raising an exception.
         """
         composite: list[list[str]] = []
+        seen: set[tuple[str, ...]] = set()
         try:
             indexes = self.get_index_info(table_name)
             for idx in indexes:
                 if idx.unique and len(idx.columns) > 1:
-                    composite.append(list(idx.columns))
+                    key = tuple(idx.columns)
+                    if key not in seen:
+                        seen.add(key)
+                        composite.append(list(idx.columns))
         except (ValueError, RuntimeError, OSError, SAOperationalError):
             logger.debug(
                 "Failed to detect composite UNIQUE constraints from indexes",
+                table_name=table_name,
+            )
+        try:
+            unique_constraints = self._db.get_unique_constraints(table_name)
+            for uc in unique_constraints:
+                if uc.unique and len(uc.columns) > 1:
+                    key = tuple(uc.columns)
+                    if key not in seen:
+                        seen.add(key)
+                        composite.append(list(uc.columns))
+        except (ValueError, RuntimeError, OSError, SAOperationalError):
+            logger.debug(
+                "Failed to detect composite UNIQUE constraints from unique_constraints",
                 table_name=table_name,
             )
         return composite
