@@ -210,6 +210,61 @@ def test_stage1_topological_sort_orders_by_fk_dependency():
     assert order.index("users") < order.index("orders")
 
 
+def test_regression_stage1_strips_naming_prefix_from_topological_order():
+    """Stage 1: strip naming prefix from topological_order and fk_graph.
+
+    Reproduces the healthcare_mgmt regression: the Stage 1 LLM returned
+    ``topological_order: ["ORGA->organizations", "DEPA->departments", ...]``
+    (with naming prefix prepended). Without normalization, Stage 2's
+    ``next(t for t in features.tables if t.name == "ORGA->organizations")``
+    returned ``None`` for every table, producing an empty config (0 tables).
+
+    The fix adds ``_strip_naming_prefix`` which strips the ``"<PREFIX->"``
+    prefix when the raw name doesn't match a known table.
+    """
+    from sqlseed_ai.staged_analyzer import StagedSchemaAnalyzer
+
+    features = _make_simple_features()
+    analyzer = StagedSchemaAnalyzer(config=None)
+
+    # Simulate LLM response with naming prefixes in topological_order and fk_graph
+    llm_response = {
+        "tables": [
+            {
+                "name": "users",
+                "purpose": "User accounts",
+                "anchor_columns": ["id"],
+                "naming_prefix": "USER->",
+                "complexity": 4,
+            },
+            {
+                "name": "orders",
+                "purpose": "User orders",
+                "anchor_columns": ["id"],
+                "naming_prefix": "ORDE->",
+                "complexity": 8,
+            },
+        ],
+        "fk_graph": [
+            {"parent": "ORDE->orders", "child": "USER->users", "col": "user_id"},
+        ],
+        "topological_order": ["USER->users", "ORDE->orders"],
+        "naming_conventions": {"users": "USER->", "orders": "ORDE->"},
+    }
+
+    summary = analyzer._parse_stage1_response(llm_response, features)
+
+    # topological_order must have prefixes stripped
+    assert summary.topological_order == ["users", "orders"], (
+        f"Expected ['users', 'orders'], got {summary.topological_order}"
+    )
+    # fk_graph parent/child must have prefixes stripped
+    assert len(summary.fk_graph) == 1
+    edge = summary.fk_graph[0]
+    assert edge["parent"] == "orders", f"Expected 'orders', got {edge['parent']}"
+    assert edge["child"] == "users", f"Expected 'users', got {edge['child']}"
+
+
 def test_stage2_per_column_calls_llm_once_per_column():
     """Stage 2 per_column mode calls LLM once per non-skipped column."""
     from sqlseed_ai.staged_analyzer import StagedSchemaAnalyzer
@@ -1185,6 +1240,149 @@ def test_stage3_validator_rule_19_strict_inequality_preserves_float():
     col = config["tables"][0]["columns"][0]
     # For float, strict > is preserved as the bound itself (no +1)
     assert col["params"]["min_value"] == 0.0
+
+
+def test_regression_rule_19_compound_range_with_null_or_prefix():
+    """Rule #19: parse compound range CHECK with ``IS NULL OR`` prefix.
+
+    Reproduces the tracking_events regression: schema has
+    ``CHECK(longitude IS NULL OR (longitude >= -180 AND longitude <= 180))``
+    but the previous Rule #19 only matched single-comparison expressions
+    (``col >= N`` or ``col <= N``). The LLM-assigned bounds
+    (``min_value: 0.0, max_value: 9999.0``) were left in place, causing
+    batch insert to fail with 0 rows.
+
+    The fix extends Rule #19 to strip the ``IS NULL OR`` prefix and
+    surrounding parens, then parse the compound range as both min and max.
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "tracking_events",
+                "columns": [
+                    {
+                        "name": "longitude",
+                        "generator": "float",
+                        "params": {"min_value": -500.0, "max_value": 9999.0},
+                    },
+                    {
+                        "name": "latitude",
+                        "generator": "float",
+                        "params": {"min_value": -500.0, "max_value": 9999.0},
+                    },
+                ],
+            }
+        ]
+    }
+    schema = {
+        "tracking_events": {
+            "check_constraints": [
+                {
+                    "name": "chk_longitude",
+                    "columns": ["longitude"],
+                    "expression": "longitude IS NULL OR (longitude >= -180 AND longitude <= 180)",
+                },
+                {
+                    "name": "chk_latitude",
+                    "columns": ["latitude"],
+                    "expression": "latitude IS NULL OR (latitude >= -90 AND latitude <= 90)",
+                },
+            ],
+        },
+    }
+    validator = Stage3Validator()
+    validator.validate(config, schema=schema)
+    longitude = config["tables"][0]["columns"][0]
+    latitude = config["tables"][0]["columns"][1]
+    assert longitude["params"]["min_value"] == -180, "longitude min_value must be lifted to -180 to satisfy CHECK"
+    assert longitude["params"]["max_value"] == 180, "longitude max_value must be lowered to 180 to satisfy CHECK"
+    assert latitude["params"]["min_value"] == -90, "latitude min_value must be lifted to -90 to satisfy CHECK"
+    assert latitude["params"]["max_value"] == 90, "latitude max_value must be lowered to 90 to satisfy CHECK"
+
+
+def test_regression_rule_19_compound_range_without_null_or_prefix():
+    """Rule #19: parse compound range CHECK without ``IS NULL OR`` prefix.
+
+    Variant of the compound range pattern: ``CHECK(rating >= 1 AND rating <= 5)``
+    (no NULL-OR prefix, no surrounding parens). Common for mandatory bounded
+    fields like ratings, percentages, and level codes.
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "reviews",
+                "columns": [
+                    {
+                        "name": "rating",
+                        "generator": "integer",
+                        "params": {"min_value": 0, "max_value": 100},
+                    },
+                ],
+            }
+        ]
+    }
+    schema = {
+        "reviews": {
+            "check_constraints": [
+                {
+                    "name": "chk_rating",
+                    "columns": ["rating"],
+                    "expression": "rating >= 1 AND rating <= 5",
+                },
+            ],
+        },
+    }
+    validator = Stage3Validator()
+    validator.validate(config, schema=schema)
+    col = config["tables"][0]["columns"][0]
+    assert col["params"]["min_value"] == 1, "rating min_value must be 1 to satisfy CHECK"
+    assert col["params"]["max_value"] == 5, "rating max_value must be 5 to satisfy CHECK"
+
+
+def test_regression_rule_19_compound_range_reversed_order():
+    """Rule #19: parse compound range CHECK with reversed operand order.
+
+    Some schema generators emit ``CHECK(score <= 100 AND score >= 0)`` (max
+    first, min second). Rule #19 must handle both orders — the previous
+    implementation only matched ``col >= min AND col <= max`` and silently
+    skipped the reversed form, leaving invalid bounds in place.
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "exams",
+                "columns": [
+                    {
+                        "name": "score",
+                        "generator": "integer",
+                        "params": {"min_value": -50, "max_value": 200},
+                    },
+                ],
+            }
+        ]
+    }
+    schema = {
+        "exams": {
+            "check_constraints": [
+                {
+                    "name": "chk_score",
+                    "columns": ["score"],
+                    "expression": "score <= 100 AND score >= 0",
+                },
+            ],
+        },
+    }
+    validator = Stage3Validator()
+    validator.validate(config, schema=schema)
+    col = config["tables"][0]["columns"][0]
+    assert col["params"]["min_value"] == 0, "score min_value must be 0 (reversed compound)"
+    assert col["params"]["max_value"] == 100, "score max_value must be 100 (reversed compound)"
 
 
 def test_stage3_validator_rule_17_skips_ge_value_for_date_source_column():
@@ -5040,6 +5238,210 @@ def test_regression_rule_22_isolates_ranges_for_3_column_nested_check():
         f"Rule #22 must isolate ranges for 3-column nested CHECK: "
         f"delivered.start={delivered['params']['start_year']}, "
         f"shipped.end={shipped['params']['end_year']}"
+    )
+
+
+def test_regression_rule_22_converts_to_derive_from_for_single_year_overlap():
+    """Regression: Rule #22 converts to derive_from for single-year overlap.
+
+    When the overlap between two date columns is a single year (e.g.,
+    ``shipped_at`` is 2024-2024 and ``delivered_at`` is 2000-2024, overlap
+    = 2024), the midpoint split produces ``new_later_start=2025`` which
+    exceeds ``later_end=2024``. Previously Rule #22 bailed out (``continue``),
+    leaving ``delivered_at`` with the default 2000-2024 range. This caused
+    batch-level CHECK violations because ``delivered_at`` could be 2005 while
+    ``shipped_at`` was 2024.
+
+    Fix: instead of bailing out, Rule #22 converts ``delivered_at`` to
+    ``derive_from: [shipped_at]`` with a positive offset expression,
+    guaranteeing ``delivered_at >= shipped_at`` at the row level.
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "orders",
+                "columns": [
+                    {
+                        "name": "shipped_at",
+                        "generator": "datetime",
+                        "params": {"start_year": 2024, "end_year": 2024},
+                    },
+                    {
+                        "name": "delivered_at",
+                        "generator": "datetime",
+                        "params": {"start_year": 2000, "end_year": 2024},
+                    },
+                ],
+            }
+        ]
+    }
+    schema = {
+        "orders": {
+            "columns": [
+                {"name": "shipped_at", "type": "TIMESTAMP", "nullable": True, "default": None},
+                {"name": "delivered_at", "type": "TIMESTAMP", "nullable": True, "default": None},
+            ],
+            "check_constraints": [
+                {"name": "chk_delivered", "columns": ["delivered_at", "shipped_at"],
+                 "expression": "delivered_at IS NULL OR (shipped_at IS NOT NULL AND delivered_at >= shipped_at)"},
+            ],
+        },
+    }
+    validator = Stage3Validator()
+    validator.validate(config, schema=schema)
+    delivered = config["tables"][0]["columns"][1]
+    # Rule #22 must convert delivered_at to derive_from (not keep generator)
+    assert delivered.get("generator") is None, (
+        f"Rule #22 must remove generator for single-year overlap; got generator={delivered.get('generator')!r}"
+    )
+    assert delivered.get("derive_from") == ["shipped_at"], (
+        f"Rule #22 must set derive_from=[shipped_at] for single-year overlap; got: {delivered.get('derive_from')!r}"
+    )
+    expr = delivered.get("expression")
+    assert expr is not None and "timedelta" in expr and "random_int" in expr, (
+        f"Rule #22 must set expression with timedelta+random_int; got: {expr!r}"
+    )
+    # The expression must handle NULL source values (if shipped_at is NULL,
+    # delivered_at must also be NULL to satisfy the CHECK)
+    assert "None" in expr, (
+        f"Rule #22 expression must handle NULL source values; got: {expr!r}"
+    )
+
+
+def test_regression_rule_32_converts_integer_to_choice_for_boolean_enum_check():
+    """Regression: Rule #32 converts integer to choice for ``CHECK(col IN (0, 1))``.
+
+    LLMs sometimes assign ``integer`` with wide bounds (e.g., min=1, max=1000000)
+    to boolean columns guarded by ``CHECK(col IN (0, 1))``. This produces
+    values like 42 that violate the CHECK, causing the table to fail with 0
+    rows.
+
+    Fix: Rule #32 detects the ``IN (0, 1)`` enum pattern and converts the
+    column to ``choice`` with ``choices: [0, 1]``.
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "addresses",
+                "columns": [
+                    {
+                        "name": "is_default",
+                        "generator": "integer",
+                        "params": {"min_value": 1, "max_value": 1000000},
+                    },
+                ],
+            }
+        ]
+    }
+    schema = {
+        "addresses": {
+            "columns": [
+                {"name": "is_default", "type": "INTEGER", "nullable": False, "default": 0},
+            ],
+            "check_constraints": [
+                {"name": "chk_is_default", "columns": ["is_default"],
+                 "expression": "is_default IN (0, 1)"},
+            ],
+        },
+    }
+    validator = Stage3Validator()
+    validator.validate(config, schema=schema)
+    col = config["tables"][0]["columns"][0]
+    assert col["generator"] == "choice", (
+        f"Rule #32 must convert integer to choice for boolean enum CHECK; got generator={col.get('generator')!r}"
+    )
+    assert col["params"] == {"choices": [0, 1]}, (
+        f"Rule #32 must set choices=[0, 1]; got params={col.get('params')!r}"
+    )
+
+
+def test_regression_rule_32_handles_reversed_boolean_enum_and_no_space():
+    """Rule #32: handles ``IN (1, 0)`` (reversed) and ``IN (0,1)`` (no space)."""
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "flags",
+                "columns": [
+                    {
+                        "name": "is_active",
+                        "generator": "integer",
+                        "params": {"min_value": 0, "max_value": 99},
+                    },
+                    {
+                        "name": "is_verified",
+                        "generator": "integer",
+                        "params": {"min_value": 0, "max_value": 99},
+                    },
+                ],
+            }
+        ]
+    }
+    schema = {
+        "flags": {
+            "columns": [
+                {"name": "is_active", "type": "INTEGER", "nullable": False, "default": 1},
+                {"name": "is_verified", "type": "INTEGER", "nullable": False, "default": 0},
+            ],
+            "check_constraints": [
+                {"name": "chk_active", "columns": ["is_active"],
+                 "expression": "is_active IN (1, 0)"},  # reversed order
+                {"name": "chk_verified", "columns": ["is_verified"],
+                 "expression": "is_verified IN (0,1)"},  # no space after comma
+            ],
+        },
+    }
+    validator = Stage3Validator()
+    validator.validate(config, schema=schema)
+    for col in config["tables"][0]["columns"]:
+        assert col["generator"] == "choice", (
+            f"Rule #32 must convert {col['name']} to choice; got generator={col.get('generator')!r}"
+        )
+        assert col["params"] == {"choices": [0, 1]}, (
+            f"Rule #32 must set choices=[0, 1] for {col['name']}; got params={col.get('params')!r}"
+        )
+
+
+def test_regression_rule_32_skips_already_choice_generator():
+    """Rule #32: must NOT touch columns already using choice/boolean generators."""
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "settings",
+                "columns": [
+                    {
+                        "name": "enabled",
+                        "generator": "boolean",
+                        "params": {},
+                    },
+                ],
+            }
+        ]
+    }
+    schema = {
+        "settings": {
+            "columns": [
+                {"name": "enabled", "type": "INTEGER", "nullable": False, "default": 1},
+            ],
+            "check_constraints": [
+                {"name": "chk_enabled", "columns": ["enabled"],
+                 "expression": "enabled IN (0, 1)"},
+            ],
+        },
+    }
+    validator = Stage3Validator()
+    validator.validate(config, schema=schema)
+    col = config["tables"][0]["columns"][0]
+    # Rule #32 must NOT change the boolean generator
+    assert col["generator"] == "boolean", (
+        f"Rule #32 must not touch boolean generator; got generator={col.get('generator')!r}"
     )
 
 

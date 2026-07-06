@@ -565,6 +565,12 @@ class StagedSchemaAnalyzer:
 
         ``SchemaAnalyzer._call_llm_once`` returns a parsed dict directly; we
         also accept a raw JSON string for testability and backward compat.
+
+        Normalizes table names in ``topological_order`` and ``fk_graph`` —
+        the Stage 1 LLM sometimes prepends the naming_prefix (e.g.,
+        ``"ORGA->organizations"`` instead of ``"organizations"``). Without
+        normalization, Stage 2 cannot match table names to schema features,
+        resulting in 0 tables being generated.
         """
         if isinstance(response, dict):
             data = response
@@ -589,10 +595,30 @@ class StagedSchemaAnalyzer:
                     fk_references=[],
                 )
             )
+
+        # Normalize table names in topological_order and fk_graph — the LLM
+        # may prepend the naming_prefix (e.g., "ORGA->organizations"). Without
+        # this, Stage 2's lookup `next(t for t in features.tables if t.name == ...)`
+        # fails for every table, producing an empty config.
+        known_table_names = {t.name for t in features.tables}
+        raw_topo = data.get("topological_order", [t.name for t in features.tables])
+        topological_order = [self._strip_naming_prefix(n, known_table_names) for n in raw_topo]
+
+        raw_fk_graph = data.get("fk_graph", [])
+        fk_graph: list[dict[str, Any]] = []
+        for edge in raw_fk_graph:
+            if not isinstance(edge, dict):
+                continue
+            normalized = dict(edge)
+            for key in ("parent", "child"):
+                if key in normalized and isinstance(normalized[key], str):
+                    normalized[key] = self._strip_naming_prefix(normalized[key], known_table_names)
+            fk_graph.append(normalized)
+
         return StructureSummary(
             schema_hash=features.schema_hash,
-            topological_order=data.get("topological_order", [t.name for t in features.tables]),
-            fk_graph=data.get("fk_graph", []),
+            topological_order=topological_order,
+            fk_graph=fk_graph,
             tables=tables,
             naming_conventions=data.get("naming_conventions", {t.name: t.naming_prefix for t in tables}),
             complexity_score=data.get(
@@ -605,6 +631,33 @@ class StagedSchemaAnalyzer:
             ),
             dialect=features.dialect,
         )
+
+    def _strip_naming_prefix(self, name: str, known_tables: set[str]) -> str:
+        """Strip LLM-added naming prefix from a table name.
+
+        The Stage 1 LLM sometimes prepends the naming_prefix (e.g.,
+        ``"ORGA->"``) to table names in ``topological_order`` and
+        ``fk_graph`` fields, producing entries like ``"ORGA->organizations"``
+        instead of ``"organizations"``.
+
+        If the raw name is already a known table, it is returned as-is.
+        Otherwise, the portion after the last ``"->"`` is tried. If that
+        matches a known table, the stripped form is returned; otherwise
+        the original name is returned unchanged (letting downstream
+        filtering skip it with a clear trace).
+        """
+        if name in known_tables:
+            return name
+        if "->" in name:
+            stripped = name.rsplit("->", 1)[-1].strip()
+            if stripped in known_tables:
+                logger.warning(
+                    "Stage 1: stripping naming prefix from table name",
+                    original=name,
+                    normalized=stripped,
+                )
+                return stripped
+        return name
 
     def _build_deterministic_fallback(self, features: StructuralFeatures) -> StructureSummary:
         """P3 #4 fix: deterministic StructureSummary derived purely from features.
@@ -1281,6 +1334,11 @@ class Stage3Validator:
             if table_schema:
                 self._apply_rule_16_fk_semantic(table, table_schema)
                 self._apply_rule_19_check_constraint_bounds(table, table_schema)
+                # Rule #32 runs after Rule #19 (simple bounds) but before
+                # Rule #22 (date range isolation): boolean enum detection must
+                # happen before date isolation so that boolean columns aren't
+                # mistaken for date columns.
+                self._apply_rule_32_boolean_enum_check(table, table_schema)
                 self._apply_rule_22_cross_column_date_range_isolation(table, table_schema)
                 # Rule #29 runs LAST (table-level): detects and breaks derive_from
                 # cycles and type-incompatible derive_from that would cause runtime
@@ -3564,14 +3622,19 @@ class Stage3Validator:
         return False
 
     def _apply_rule_19_check_constraint_bounds(self, table: dict[str, Any], table_schema: dict[str, Any]) -> None:
-        """Rule #19: extract min_value/max_value from simple CHECK constraints.
+        """Rule #19: extract min_value/max_value from CHECK constraints.
 
-        Parses simple CHECK constraints of the form ``col >= N`` or ``col <= N``
-        and lifts (or lowers) the generator's ``min_value`` / ``max_value`` to
-        satisfy the constraint. Only single-column, single-comparison CHECK
-        expressions are parsed — complex expressions (AND/OR, BETWEEN, etc.)
-        are skipped (the LLM's bounds are left in place and may produce some
-        constraint violations, which is preferable to silently mis-parsing).
+        Parses two CHECK constraint shapes:
+
+        1. **Simple** — ``col >= N`` or ``col <= N`` (single comparison).
+        2. **Compound range** — ``col IS NULL OR (col >= min AND col <= max)``
+           (with optional ``IS NULL OR`` prefix and optional surrounding
+           parentheses; ``AND`` may appear in either order).
+
+        For each parsed bound, the generator's ``min_value`` / ``max_value``
+        is lifted (or lowered) to satisfy the constraint. Complex expressions
+        not matching either shape are skipped — the LLM's bounds are left
+        in place, which is preferable to silently mis-parsing.
 
         Only applies to ``integer`` and ``float`` generators. Skips columns
         with ``derive_from`` (no generator params to adjust).
@@ -3588,9 +3651,52 @@ class Stage3Validator:
             expr = check.get("expression")
             if not isinstance(expr, str):
                 continue
+            stripped = expr.strip()
+
+            # Try compound range first: ``col IS NULL OR (col >= min AND col <= max)``
+            # (or reversed ``col <= max AND col >= min``). The ``IS NULL OR``
+            # prefix and surrounding parens are optional. This pattern is
+            # common for coordinate columns (latitude/longitude), percentage
+            # columns (0-100), and other bounded numeric fields.
+            compound_m = re.match(
+                r"^\s*(?:\w+\s+IS\s+NULL\s+OR\s+)?\(?\s*"
+                r"(\w+)\s*(>=|>)\s*(-?[0-9]+(?:\.[0-9]+)?)\s+AND\s+"
+                r"\1\s*(<=|<)\s*(-?[0-9]+(?:\.[0-9]+)?)\s*\)?\s*$",
+                stripped,
+                flags=re.IGNORECASE,
+            )
+            if compound_m:
+                col_name, min_op, min_str, max_op, max_str = compound_m.groups()
+                if col_name not in bounds:
+                    bounds[col_name] = {}
+                bounds[col_name]["min_value"] = float(min_str)
+                bounds[col_name]["min_strict"] = min_op == ">"
+                bounds[col_name]["max_value"] = float(max_str)
+                bounds[col_name]["max_strict"] = max_op == "<"
+                continue
+
+            # Reversed compound: ``col <= max AND col >= min``
+            compound_rev_m = re.match(
+                r"^\s*(?:\w+\s+IS\s+NULL\s+OR\s+)?\(?\s*"
+                r"(\w+)\s*(<=|<)\s*(-?[0-9]+(?:\.[0-9]+)?)\s+AND\s+"
+                r"\1\s*(>=|>)\s*(-?[0-9]+(?:\.[0-9]+)?)\s*\)?\s*$",
+                stripped,
+                flags=re.IGNORECASE,
+            )
+            if compound_rev_m:
+                col_name, max_op, max_str, min_op, min_str = compound_rev_m.groups()
+                if col_name not in bounds:
+                    bounds[col_name] = {}
+                bounds[col_name]["min_value"] = float(min_str)
+                bounds[col_name]["min_strict"] = min_op == ">"
+                bounds[col_name]["max_value"] = float(max_str)
+                bounds[col_name]["max_strict"] = max_op == "<"
+                continue
+
+            # Fall back to simple single-comparison CHECK: ``col >= N`` or ``col <= N``
             m = re.match(
                 r"^\s*(\w+)\s*(>=|<=|>|<)\s*(-?[0-9]+(?:\.[0-9]+)?)\s*$",
-                expr.strip(),
+                stripped,
             )
             if not m:
                 continue
@@ -3669,6 +3775,77 @@ class Stage3Validator:
                         strict_inequality=is_strict,
                     )
                     params["max_value"] = check_max if gen == "float" else int(check_max)
+
+    def _apply_rule_32_boolean_enum_check(self, table: dict[str, Any], table_schema: dict[str, Any]) -> None:
+        """Rule #32: detect ``CHECK(col IN (0, 1))`` and convert to choice generator.
+
+        LLMs sometimes assign ``integer`` with wide bounds (e.g.,
+        ``min_value: 1, max_value: 1000000``) to boolean columns guarded by
+        ``CHECK(col IN (0, 1))``. This produces values that violate the CHECK
+        constraint on batch insert, causing the entire table to fail with 0
+        rows.
+
+        This rule detects the ``IN (0, 1)`` enum pattern (in either order,
+        with or without spaces after the comma) and converts the column to a
+        ``choice`` generator with ``choices: [0, 1]``, guaranteeing CHECK
+        satisfaction.
+
+        Skips:
+          - Columns with ``derive_from`` (derived mode, no generator to replace)
+          - Columns already using ``choice``/``boolean`` generators
+          - CHECK expressions that don't match the ``IN (0, 1)`` pattern
+        """
+        checks = table_schema.get("check_constraints", [])
+        if not isinstance(checks, list):
+            return
+
+        # Build set of column names that have a ``CHECK(col IN (0, 1))`` constraint
+        boolean_enum_cols: set[str] = set()
+        bool_enum_re = re.compile(
+            r"^\s*(\w+)\s+IN\s*\(\s*(?:0\s*,\s*1|1\s*,\s*0)\s*\)\s*$",
+            flags=re.IGNORECASE,
+        )
+        for check in checks:
+            if not isinstance(check, dict):
+                continue
+            expr = check.get("expression")
+            if not isinstance(expr, str):
+                continue
+            m = bool_enum_re.match(expr.strip())
+            if m:
+                boolean_enum_cols.add(m.group(1))
+
+        if not boolean_enum_cols:
+            return
+
+        for col in table.get("columns", []):
+            if not isinstance(col, dict):
+                continue
+            col_name = col.get("name")
+            if col_name not in boolean_enum_cols:
+                continue
+            # Skip derived columns (derive_from takes precedence)
+            if col.get("derive_from"):
+                continue
+            gen = col.get("generator")
+            # Already a choice/boolean generator — assume the LLM got it right
+            if gen in ("choice", "boolean", "weighted_choice"):
+                continue
+            old_gen = gen
+            old_params = col.get("params")
+            col["generator"] = "choice"
+            col["params"] = {"choices": [0, 1]}
+            col.pop("derive_from", None)
+            col.pop("expression", None)
+            logger.warning(
+                "Stage3 Rule #32: converting integer column to choice for boolean enum CHECK",
+                column=col_name,
+                check_pattern="IN (0, 1)",
+                old_generator=old_gen,
+                old_params=old_params,
+                new_generator="choice",
+                new_params={"choices": [0, 1]},
+            )
 
     def _apply_rule_22_cross_column_date_range_isolation(
         self, table: dict[str, Any], table_schema: dict[str, Any]
@@ -3788,8 +3965,16 @@ class Stage3Validator:
             new_later_start = midpoint + 1
             # Degenerate single-year overlap: midpoint == overlap_end, so
             # new_later_start == overlap_end + 1. If overlap_end == later_end,
-            # new_later_start > later_end — bail out (cannot isolate safely).
+            # new_later_start > later_end — cannot isolate by midpoint split.
+            # Instead of bailing out, convert later_col to derive_from
+            # earlier_col with a positive offset expression. This guarantees
+            # later_col >= earlier_col at the row level (and handles NULL
+            # source values by producing NULL, satisfying ``later_col IS NULL
+            # OR ...`` CHECK patterns).
             if new_later_start > later_end or new_earlier_end < earlier_start:
+                self._convert_to_derive_from_for_date_check(
+                    later_col, earlier_col_name, later_col_name, expr
+                )
                 continue
             logger.warning(
                 "Stage3 Rule #22: isolating date ranges for cross-column CHECK",
@@ -3803,6 +3988,44 @@ class Stage3Validator:
             )
             earlier_params["end_year"] = new_earlier_end
             later_params["start_year"] = new_later_start
+
+    def _convert_to_derive_from_for_date_check(
+        self,
+        later_col: dict[str, Any],
+        earlier_col_name: str,
+        later_col_name: str,
+        check_expr: str,
+    ) -> None:
+        """Convert a date column to derive_from for single-year overlap CHECK.
+
+        When Rule #22 cannot split a single-year overlap by midpoint (e.g.,
+        ``shipped_at`` is 2024-2024 and ``delivered_at`` is 2000-2024, overlap
+        is just 2024), this method converts the later_col to derive_from the
+        earlier_col with a positive offset expression. This guarantees
+        ``later_col >= earlier_col`` at the row level.
+
+        The expression handles NULL source values: if the earlier_col is NULL,
+        the later_col is also NULL (satisfying ``later_col IS NULL OR ...``
+        CHECK patterns common in state-machine schemas).
+
+        Example:
+            CHECK: ``delivered_at IS NULL OR (shipped_at IS NOT NULL AND delivered_at >= shipped_at)``
+            Result: ``derive_from: [shipped_at]``,
+                    ``expression: value + timedelta(days=random_int(0, 7)) if value is not None else None``
+        """
+        later_col.pop("generator", None)
+        later_col.pop("params", None)
+        later_col["derive_from"] = [earlier_col_name]
+        later_col["expression"] = (
+            "value + timedelta(days=random_int(0, 7)) if value is not None else None"
+        )
+        logger.warning(
+            "Stage3 Rule #22: converting later_col to derive_from for single-year overlap",
+            check_expression=check_expr.strip(),
+            earlier_column=earlier_col_name,
+            later_column=later_col_name,
+            reason="overlap too narrow to split by midpoint; derive_from guarantees row-level CHECK satisfaction",
+        )
 
     @staticmethod
     def _parse_cross_column_date_comparison(expr: str) -> tuple[str, str] | None:
