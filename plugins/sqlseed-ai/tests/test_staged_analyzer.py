@@ -1212,13 +1212,14 @@ def test_stage3_validator_rule_19_strict_inequality_lt_subtracts_one_for_int():
     )
 
 
-def test_stage3_validator_rule_19_strict_inequality_preserves_float():
-    """Rule #19: strict ``>`` for float generators preserves the bound as-is.
+def test_stage3_validator_rule_19_strict_inequality_lifts_float_min():
+    """Rule #19: strict ``>`` for float generators lifts min_value by epsilon.
 
-    For floats, ``CHECK(price > 0)`` cannot be satisfied by ``min_value = 1``
-    (would lose precision); instead we keep the bound and trust the random
-    float generator to rarely produce exactly 0.0. This documents the
-    current behavior — strict inequality on floats is a known limitation.
+    For floats, ``CHECK(price > 0)`` with ``min_value = 0.0`` would generate
+    0.00 (after precision rounding) and violate the CHECK. The fix bumps
+    min_value by a precision-aware epsilon: when ``precision=2``, the
+    epsilon is ``0.01``, so ``min_value`` becomes ``0.01`` (which rounds to
+    ``0.01`` and satisfies ``> 0``).
     """
     from sqlseed_ai.staged_analyzer import Stage3Validator
 
@@ -1246,8 +1247,9 @@ def test_stage3_validator_rule_19_strict_inequality_preserves_float():
     validator = Stage3Validator()
     validator.validate(config, schema=schema)
     col = config["tables"][0]["columns"][0]
-    # For float, strict > is preserved as the bound itself (no +1)
-    assert col["params"]["min_value"] == 0.0
+    # For float with precision=2, strict > lifts min_value by 0.01
+    assert col["params"]["min_value"] == 0.01
+    assert col["params"]["max_value"] == 1000.0
 
 
 def test_regression_rule_19_compound_range_with_null_or_prefix():
@@ -4688,6 +4690,149 @@ def test_regression_rule_22_isolates_ranges_for_null_or_check():
         f"Rule #22 must isolate ranges: placed.end={placed['params']['end_year']}, "
         f"shipped.start={shipped['params']['start_year']}"
     )
+
+
+def test_regression_rule_22_strips_multiple_null_or_prefixes_for_3col_chain():
+    """Rule #22: strip MULTIPLE ``IS NULL OR`` prefixes for 3-col NULL-OR chains.
+
+    Reproduces the trading_platform regression: schemas where BOTH columns
+    can be NULL use the 3-column NULL-OR chain pattern:
+      ``closed_at IS NULL OR opened_at IS NULL OR closed_at >= opened_at``
+
+    The previous Rule #22 only stripped ONE ``IS NULL OR`` prefix, leaving
+    ``opened_at IS NULL OR closed_at >= opened_at`` which failed to match
+    the comparison regex, so ranges were never isolated — causing batch
+    CHECK failures on 10/16 tables.
+
+    The fix uses a ``while True`` loop to strip multiple prefixes, leaving
+    the pure comparison ``closed_at >= opened_at`` for the regex to match.
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "accounts",
+                "columns": [
+                    {
+                        "name": "opened_at",
+                        "generator": "datetime",
+                        "params": {"start_year": 2020, "end_year": 2024},
+                    },
+                    {
+                        "name": "closed_at",
+                        "generator": "datetime",
+                        "params": {"start_year": 2020, "end_year": 2024},
+                    },
+                ],
+            }
+        ]
+    }
+    schema = {
+        "accounts": {
+            "columns": [
+                {"name": "opened_at", "type": "TIMESTAMP", "nullable": True, "default": None},
+                {"name": "closed_at", "type": "TIMESTAMP", "nullable": True, "default": None},
+            ],
+            "check_constraints": [
+                {"name": "chk_dates", "columns": ["closed_at", "opened_at"],
+                 "expression": "closed_at IS NULL OR opened_at IS NULL OR closed_at >= opened_at"},
+            ],
+        },
+    }
+    validator = Stage3Validator()
+    validator.validate(config, schema=schema)
+    opened = config["tables"][0]["columns"][0]
+    closed = config["tables"][0]["columns"][1]
+    # Rule #22 must isolate: closed_at.start_year > opened_at.end_year
+    assert opened["params"]["end_year"] < closed["params"]["start_year"], (
+        f"Rule #22 must isolate 3-col NULL-OR chain: opened.end={opened['params']['end_year']}, "
+        f"closed.start={closed['params']['start_year']}"
+    )
+
+
+def test_regression_rule_19_float_strict_inequality_no_precision():
+    """Rule #19: strict ``>`` on float with no precision uses default epsilon.
+
+    When ``precision`` is not set, the epsilon defaults to ``1e-6`` so
+    ``CHECK(tick_size > 0)`` with ``min_value=0`` is lifted to ``1e-6``.
+    This reproduces the trading_platform ``instruments.tick_size`` failure
+    where ``min_value: 0`` violated ``tick_size > 0 AND tick_size <= 1.0``.
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "instruments",
+                "columns": [
+                    {
+                        "name": "tick_size",
+                        "generator": "float",
+                        "params": {"min_value": 0, "max_value": 1.0},
+                    },
+                ],
+            }
+        ]
+    }
+    schema = {
+        "instruments": {
+            "check_constraints": [
+                {"name": "chk_tick", "columns": ["tick_size"],
+                 "expression": "tick_size > 0 AND tick_size <= 1.0"},
+            ],
+        },
+    }
+    validator = Stage3Validator()
+    validator.validate(config, schema=schema)
+    col = config["tables"][0]["columns"][0]
+    # Strict > with no precision: min_value lifted by default epsilon 1e-6
+    assert col["params"]["min_value"] == 1e-6, (
+        f"min_value should be 1e-6 (0 + default epsilon), got {col['params']['min_value']}"
+    )
+    # max_value stays at 1.0 (<= is non-strict)
+    assert col["params"]["max_value"] == 1.0
+
+
+def test_regression_rule_19_float_strict_inequality_max_side():
+    """Rule #19: strict ``<`` on float max_value subtracts epsilon.
+
+    Symmetric to the min branch: ``CHECK(rate < 1.0)`` with ``max_value=1.0``
+    is lowered by a precision-aware epsilon so the generated values stay
+    strictly below 1.0.
+    """
+    from sqlseed_ai.staged_analyzer import Stage3Validator
+
+    config = {
+        "tables": [
+            {
+                "name": "rates",
+                "columns": [
+                    {
+                        "name": "rate",
+                        "generator": "float",
+                        "params": {"min_value": 0.0, "max_value": 1.0, "precision": 4},
+                    },
+                ],
+            }
+        ]
+    }
+    schema = {
+        "rates": {
+            "check_constraints": [
+                {"name": "chk_rate", "columns": ["rate"], "expression": "rate < 1.0"},
+            ],
+        },
+    }
+    validator = Stage3Validator()
+    validator.validate(config, schema=schema)
+    col = config["tables"][0]["columns"][0]
+    # Strict < with precision=4: max_value lowered by 0.0001
+    assert col["params"]["max_value"] == 0.9999, (
+        f"max_value should be 0.9999 (1.0 - 0.0001 epsilon), got {col['params']['max_value']}"
+    )
+    # min_value stays at 0.0 (no min constraint in CHECK)
+    assert col["params"]["min_value"] == 0.0
 
 
 def test_regression_dialect_object_normalized_to_string():

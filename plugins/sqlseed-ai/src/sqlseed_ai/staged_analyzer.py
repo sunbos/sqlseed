@@ -1202,6 +1202,30 @@ _CHOICE_FAMILY_GENERATORS: frozenset[str] = frozenset({"choice", "weighted_choic
 _ALL_NON_DATE_GENERATORS: frozenset[str] = _NUMERIC_BOOLEAN_GENERATORS | _GENERIC_GENERATORS
 
 
+def _float_strict_epsilon(params: dict[str, Any]) -> float:
+    """Return a precision-aware epsilon for strict-inequality float bounds.
+
+    When a CHECK constraint uses strict ``>`` or ``<`` (e.g.,
+    ``CHECK(x > 0)`` or ``CHECK(x < 1.0)``), the boundary value itself is
+    not a valid sample. For float generators, we bump the bound by a small
+    epsilon so the generated values stay strictly inside the valid range.
+
+    The epsilon is precision-aware: when ``precision`` is set in the
+    generator params, the epsilon equals ``10 ** (-precision)`` so that
+    after rounding to the requested precision the value remains strictly
+    inside the range. When no precision is set, a default ``1e-6`` is used.
+
+    Examples:
+      - ``precision=2`` → epsilon = ``0.01`` (``min_value=0`` → ``0.01``)
+      - ``precision=4`` → epsilon = ``0.0001``
+      - no precision    → epsilon = ``1e-6``
+    """
+    precision = params.get("precision")
+    if isinstance(precision, int) and precision > 0:
+        return float(10 ** (-precision))
+    return 1e-6
+
+
 class Stage3Validator:
     """Stage 3 validator: apply auto-fix rules #14-#19 on top of LLM output.
 
@@ -3781,14 +3805,20 @@ class Stage3Validator:
             col_bounds = bounds[col_name]
             if "min_value" in col_bounds:
                 check_min = col_bounds["min_value"]
-                # For strict ``>`` on integer generators, the boundary value
-                # itself is not a valid sample — bump by +1 so ``CHECK(x > 0)``
-                # yields ``min_value=1`` rather than ``min_value=0`` (which
-                # would generate 0 and violate the CHECK on batch insert).
-                # Floats keep the bound as-is (no discrete step available).
+                # For strict ``>`` on numeric generators, the boundary value
+                # itself is not a valid sample. For integer generators, bump by
+                # +1 so ``CHECK(x > 0)`` yields ``min_value=1`` rather than
+                # ``min_value=0``. For float generators, bump by a small
+                # precision-aware epsilon so ``CHECK(x > 0)`` yields
+                # ``min_value=1e-6`` (or ``0.01`` when ``precision=2``) rather
+                # than ``min_value=0`` (which would generate 0 and violate the
+                # CHECK on batch insert).
                 is_strict = col_bounds.get("min_strict", False)
-                if is_strict and gen == "integer":
-                    check_min = check_min + 1
+                if is_strict:
+                    if gen == "integer":
+                        check_min = check_min + 1
+                    elif gen == "float":
+                        check_min = check_min + _float_strict_epsilon(params)
                 current_min = params.get("min_value", 0)
                 if isinstance(current_min, (int, float)) and current_min < check_min:
                     logger.warning(
@@ -3803,10 +3833,15 @@ class Stage3Validator:
                 check_max = col_bounds["max_value"]
                 # Symmetric to the min branch: strict ``<`` on integer
                 # generators subtracts 1 so ``CHECK(x < 5)`` yields
-                # ``max_value=4`` rather than ``max_value=5``.
+                # ``max_value=4``. For float generators, subtract a small
+                # precision-aware epsilon so ``CHECK(x < 1.0)`` yields
+                # ``max_value=0.999999`` (or ``0.99`` when ``precision=2``).
                 is_strict = col_bounds.get("max_strict", False)
-                if is_strict and gen == "integer":
-                    check_max = check_max - 1
+                if is_strict:
+                    if gen == "integer":
+                        check_max = check_max - 1
+                    elif gen == "float":
+                        check_max = check_max - _float_strict_epsilon(params)
                 current_max = params.get("max_value", float("inf"))
                 if isinstance(current_max, (int, float)) and current_max > check_max:
                     logger.warning(
@@ -3883,7 +3918,6 @@ class Stage3Validator:
                     if isinstance(choices, list) and set(choices) == {0, 1}:
                         continue  # Already correct
                     # Choices don't match — override them
-                    old_params = params
                     col["params"] = {"choices": [0, 1]}
                     logger.warning(
                         "Stage3 Rule #32: overriding wrong choices on boolean enum CHECK column",
@@ -4236,17 +4270,26 @@ class Stage3Validator:
             complex expressions are rejected.
         """
         expr_stripped = expr.strip()
-        # Strip optional NULL-handling prefix: ``<col> IS NULL OR ...``
+        # Strip optional NULL-handling prefix(es): ``<col> IS NULL OR ...``
         # This is the standard SQL pattern for optional time-chain constraints
         # (e.g., ``shipped_at IS NULL OR shipped_at >= placed_at``). We extract
         # the comparison clause after ``OR`` and parse it as a pure comparison.
         # The regex is anchored to the start to avoid stripping inner ORs.
-        null_prefix = re.match(
-            r"^\s*(\w+)\s+IS\s+NULL\s+OR\s+(.*)$",
-            expr_stripped,
-            flags=re.IGNORECASE,
-        )
-        if null_prefix:
+        #
+        # Loop to strip MULTIPLE ``<col> IS NULL OR`` prefixes — this handles
+        # the 3-column NULL-OR chain pattern common in schemas where BOTH
+        # columns can be NULL:
+        #   ``closed_at IS NULL OR opened_at IS NULL OR closed_at >= opened_at``
+        # After stripping both prefixes, the remaining expression is the pure
+        # comparison ``closed_at >= opened_at``.
+        while True:
+            null_prefix = re.match(
+                r"^\s*(\w+)\s+IS\s+NULL\s+OR\s+(.*)$",
+                expr_stripped,
+                flags=re.IGNORECASE,
+            )
+            if not null_prefix:
+                break
             expr_stripped = null_prefix.group(2).strip()
             # Strip optional surrounding parentheses: ``(a >= b)``
             if expr_stripped.startswith("(") and expr_stripped.endswith(")"):
