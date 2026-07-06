@@ -1373,6 +1373,13 @@ class Stage3Validator:
                 # (date isolation): TEXT enum detection converts string columns
                 # to choice so they satisfy ``CHECK(col IN ('a', 'b', ...))``.
                 self._apply_rule_33_text_enum_check(table, table_schema)
+                # Rule #36 runs before Rule #22: strips derive_from with
+                # non-timedelta expressions on date columns (e.g.,
+                # ``value + random_float(0, value)``). LLMs sometimes generate
+                # these invalid expressions for date columns, which crash at
+                # runtime because you can't add a float to a date. Stripping
+                # lets Rule #22 handle the CHECK via range isolation instead.
+                self._apply_rule_36_strip_invalid_date_derive_from_expression(table, table_schema)
                 self._apply_rule_22_cross_column_date_range_isolation(table, table_schema)
                 # Rule #34 runs after Rule #22 (date isolation) but before Rule #29
                 # (derive_from integrity): converts cross-column numeric CHECK
@@ -1439,6 +1446,110 @@ class Stage3Validator:
                 )
                 col.pop("generator", None)
                 col.pop("params", None)
+
+    def _apply_rule_36_strip_invalid_date_derive_from_expression(
+        self, table: dict[str, Any], table_schema: dict[str, Any]
+    ) -> None:
+        """Rule #36: strip derive_from with non-timedelta expressions on date columns.
+
+        LLMs sometimes generate expressions like ``value + random_float(0, value)``
+        for date columns, which fails at runtime because you can't add a float to
+        a date (``float() argument must be a string or a real number, not
+        'datetime.date'``). This rule detects date columns whose expression
+        doesn't contain ``timedelta``, and strips the derive_from so Rule #22
+        can handle the CHECK via range isolation instead.
+
+        A column is considered a "date column" if ANY of the following:
+        1. The column's own ``generator`` is ``date`` or ``datetime``.
+        2. Any source column in ``derive_from`` has ``generator`` = ``date``/``datetime``.
+        3. The column name OR any source column name matches a date-like pattern
+           (``*_at``, ``*_date``, ``*_time``, ``*_on``, etc.). This fallback is
+           needed because SQLite stores dates as TEXT, and the LLM may not
+           always set an explicit date generator on every date column.
+
+        Must run BEFORE Rule #22 so Rule #22 can process the CHECK after
+        derive_from is stripped (via range isolation or re-derivation).
+        """
+        columns = table.get("columns", [])
+        if not isinstance(columns, list):
+            return
+
+        # Build generator map from YAML columns
+        col_generators: dict[str, str | None] = {}
+        for col in columns:
+            if isinstance(col, dict):
+                name = col.get("name", "")
+                gen = col.get("generator")
+                if isinstance(name, str):
+                    col_generators[name] = gen if isinstance(gen, str) else None
+
+        date_generators = {"date", "datetime"}
+        date_name_patterns = ("_at", "_date", "_time", "_on", "date_", "time_", "timestamp")
+
+        def looks_like_date(name: str | None) -> bool:
+            if not isinstance(name, str):
+                return False
+            name_lower = name.lower()
+            return any(
+                name_lower.endswith(p) or name_lower.startswith(p)
+                for p in date_name_patterns
+            )
+
+        for col in columns:
+            if not isinstance(col, dict):
+                continue
+            if not col.get("derive_from"):
+                continue
+            expr = col.get("expression")
+            if not expr or not isinstance(expr, str):
+                continue
+            if "timedelta" in expr:
+                continue  # Already using timedelta, OK
+
+            col_name = col.get("name", "")
+            sources = col["derive_from"]
+            if isinstance(sources, str):
+                sources = [sources]
+
+            # Check if this column is a date column:
+            # 1. Own generator is date/datetime, OR
+            # 2. Any source column's generator is date/datetime, OR
+            # 3. Column name or any source name matches a date pattern
+            is_date = col_generators.get(col_name) in date_generators
+            if not is_date:
+                for s in sources:
+                    if isinstance(s, str) and col_generators.get(s) in date_generators:
+                        is_date = True
+                        break
+            if not is_date:
+                if looks_like_date(col_name):
+                    is_date = True
+                if not is_date:
+                    for s in sources:
+                        if looks_like_date(s):
+                            is_date = True
+                            break
+
+            if not is_date:
+                continue
+
+            # This is a date column with a non-timedelta expression — strip derive_from
+            old_derive_from = col.get("derive_from")
+            old_expression = col.get("expression")
+            col.pop("derive_from", None)
+            col.pop("expression", None)
+            # Also clear generator/params if set (to avoid Pydantic mutual-exclusivity
+            # conflict — Rule #35 would strip them anyway, but it's cleaner here)
+            col.pop("generator", None)
+            col.pop("params", None)
+            logger.warning(
+                "Stage3 Rule #36: stripping non-timedelta derive_from expression from date column",
+                column=col_name,
+                old_derive_from=old_derive_from,
+                old_expression=old_expression,
+                reason="date column derive_from expression must use timedelta; "
+                       "stripping to let Rule #22 range isolation handle the CHECK",
+            )
 
     def _run_dual_track(self, config: dict[str, Any]) -> None:
         """Run the new repair pipeline on a copy and log discrepancies.
@@ -4638,12 +4749,28 @@ class Stage3Validator:
         if not isinstance(columns, list):
             return
 
-        # Case 1: stripped column (no generator) → supplement date/datetime generator.
+        # Case 1: stripped column (no generator) OR wrong generator on a date
+        # column → supplement/convert to a date/datetime generator.
         # SKIP if the column has ``derive_from`` set: it is in derived mode and
         # does not need a generator. Adding one here would create a conflicting
         # state (both generator and derive_from set) that Rule #35 would later
         # strip — but it's cleaner to never add it in the first place.
-        if gen is None and not col.get("derive_from"):
+        #
+        # Handles two sub-cases:
+        #   1a. ``gen is None``: column was stripped by Rule #17/#36 (no generator).
+        #   1b. ``gen`` is a non-date string (e.g., ``catch_phrase``, ``integer``):
+        #       LLM assigned a wrong generator to a date column. This is safe
+        #       because this function is only called from Rule #22, which already
+        #       confirmed the column is involved in a date CHECK constraint.
+        #       Without this conversion, Rule #22 would skip the CHECK (because
+        #       ``_has_date_year_range`` returns False for non-date generators),
+        #       causing batch-level CHECK failures at fill time.
+        _date_generator_names = {"date", "datetime", "timestamp"}
+        _is_wrong_or_missing_gen = (
+            gen is None
+            or (isinstance(gen, str) and gen not in _date_generator_names)
+        )
+        if _is_wrong_or_missing_gen and not col.get("derive_from"):
             for col_info in columns:
                 if not isinstance(col_info, dict) or col_info.get("name") != col_name:
                     continue
@@ -4654,9 +4781,28 @@ class Stage3Validator:
                 type_token = re.split(r"[(\s]", col_type_upper, maxsplit=1)[0]
                 date_family = {"DATE", "DATETIME", "TIMESTAMP", "TIME", "SMALLDATETIME", "DATETIME2"}
                 if type_token not in date_family:
-                    break
-                # Use "date" for plain DATE, "datetime" for the rest
-                gen_name = "date" if type_token == "DATE" else "datetime"
+                    # Fallback: check column name pattern for date-like names.
+                    # SQLite stores dates as TEXT, so the type check alone is
+                    # insufficient. This fallback is safe because
+                    # _ensure_date_generator_for_date_column is only called from
+                    # Rule #22, which already confirmed the column is involved
+                    # in a date CHECK constraint.
+                    if not isinstance(col_name, str):
+                        break
+                    col_name_lower = col_name.lower()
+                    date_name_patterns = ("_at", "_date", "_time", "_on", "date_", "time_", "timestamp")
+                    if not any(
+                        col_name_lower.endswith(p) or col_name_lower.startswith(p)
+                        for p in date_name_patterns
+                    ):
+                        break
+                    # Column name suggests a date — use "datetime" as the
+                    # safer default (covers both date and time components)
+                    gen_name = "datetime"
+                else:
+                    # Use "date" for plain DATE, "datetime" for the rest
+                    gen_name = "date" if type_token == "DATE" else "datetime"
+                old_gen = col.get("generator")
                 col["generator"] = gen_name
                 col["params"] = {"start_year": 2000, "end_year": 2024}
                 logger.warning(
@@ -4664,6 +4810,7 @@ class Stage3Validator:
                     column=col_name,
                     column_type=type_token,
                     generator=gen_name,
+                    old_generator=old_gen,
                 )
                 break
             return
