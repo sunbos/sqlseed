@@ -1,9 +1,10 @@
 # Contract-Driven Self-Healing Architecture v4
 
-**Status:** Approved
+**Status:** Implemented (2026-07-07)
 **Date:** 2026-07-05
 **Author:** sqlseed team
 **Supersedes:** Rule-based engine in `staged_analyzer.py` (gradual migration)
+**Implementation:** [2026-07-07-v4-default-migration-and-legacy-removal.md](../plans/2026-07-07-v4-default-migration-and-legacy-removal.md)
 
 ---
 
