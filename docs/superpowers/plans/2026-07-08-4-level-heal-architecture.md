@@ -276,13 +276,17 @@ class SubgraphTask:
 
 @dataclass
 class HealAttempt:
-    """Record of a single LLM healer attempt."""
+    """Record of a single LLM healer attempt.
 
-    attempt_num: int
-    prompt_tokens: int
-    elapsed_seconds: float
-    success: bool
-    error: str | None = None
+    Spec reference: Section 4.3 — tracks which level was tried, the
+    failure type (if any), latency, token estimate, and error message.
+    """
+
+    level: int                                   # 1, 2, or 3 (which healer was tried)
+    failure_type: FailureType | None = None      # None if success
+    latency_ms: int = 0                          # elapsed time in milliseconds
+    token_estimate: int = 0                      # prompt token estimate
+    error_message: str | None = None
     applied_fixes: list[AppliedFix] = field(default_factory=list)
 
 
@@ -1086,6 +1090,63 @@ def test_build_context_with_unique():
     snap = _make_snapshot({"users": table})
     ctx = healer._build_column_context("users", "email", snap)
     assert ctx.is_unique is True
+
+
+def test_build_context_with_derive_from_source():
+    """derive_from source columns are detected from config (_enrich_with_config)."""
+    healer = Level2ColumnHealer(client=MagicMock(), model="any")
+    table = _make_table_meta(
+        "orders",
+        columns=["id", "subtotal", "tax", "total"],
+        column_types={"id": "INTEGER", "subtotal": "REAL", "tax": "REAL", "total": "REAL"},
+    )
+    snap = _make_snapshot({"orders": table})
+    config = {
+        "tables": [
+            {
+                "name": "orders",
+                "columns": [
+                    {"name": "id", "generator": "integer"},
+                    {"name": "subtotal", "generator": "random_float"},
+                    {"name": "tax", "generator": "random_float"},
+                    {"name": "total", "derive_from": ["subtotal", "tax"], "expression": "subtotal + tax"},
+                ],
+            }
+        ]
+    }
+    ctx = healer._build_column_context("orders", "total", snap)
+    ctx = healer._enrich_with_config(ctx, config)
+    src_names = [s[0] for s in ctx.derive_from_sources]
+    assert "subtotal" in src_names
+    assert "tax" in src_names
+
+
+def test_build_context_with_downstream():
+    """derive_from downstream columns are detected from config (_enrich_with_config)."""
+    healer = Level2ColumnHealer(client=MagicMock(), model="any")
+    table = _make_table_meta(
+        "orders",
+        columns=["id", "subtotal", "tax", "total"],
+        column_types={"id": "INTEGER", "subtotal": "REAL", "tax": "REAL", "total": "REAL"},
+    )
+    snap = _make_snapshot({"orders": table})
+    config = {
+        "tables": [
+            {
+                "name": "orders",
+                "columns": [
+                    {"name": "id", "generator": "integer"},
+                    {"name": "subtotal", "generator": "random_float"},
+                    {"name": "tax", "generator": "random_float"},
+                    {"name": "total", "derive_from": ["subtotal", "tax"], "expression": "subtotal + tax"},
+                ],
+            }
+        ]
+    }
+    # subtotal is a source for total → total should appear in downstream.
+    ctx = healer._build_column_context("orders", "subtotal", snap)
+    ctx = healer._enrich_with_config(ctx, config)
+    assert "total" in ctx.derive_from_downstream
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -1417,7 +1478,7 @@ class Level2ColumnHealer:
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `pytest plugins/sqlseed-ai/tests/healer/test_level2_context_builder.py -v`
-Expected: 5 PASSED
+Expected: 7 PASSED
 
 - [ ] **Step 5: Commit**
 
@@ -1820,22 +1881,22 @@ class HealOrchestrator:
         if not skip_l1:
             # Level 1: subgraph-level.
             l1_result = self._level1.heal(task, violations, config)
+            l1_ftype = None if l1_result.success else self._failure_classifier.classify(
+                l1_result.error, l1_result.raw_response
+            )
             attempts.append(HealAttempt(
-                attempt_num=round_num,
-                prompt_tokens=l1_result.prompt_tokens,
-                elapsed_seconds=l1_result.elapsed_seconds,
-                success=l1_result.success,
-                error=str(l1_result.error) if l1_result.error else None,
+                level=1,
+                failure_type=l1_ftype,
+                latency_ms=int(l1_result.elapsed_seconds * 1000),
+                token_estimate=l1_result.prompt_tokens,
+                error_message=str(l1_result.error) if l1_result.error else None,
             ))
             if l1_result.success:
                 return _RoundResult(success=True, level=1, config_patch=l1_result.config_patch or {})
 
             # Classify failure.
-            ftype = self._failure_classifier.classify(
-                l1_result.error, l1_result.raw_response
-            )
             return self._route_after_l1_failure(
-                task, violations, config, ftype, attempts, round_num
+                task, violations, config, l1_ftype or FailureType.UNKNOWN, attempts, round_num
             )
 
         # Pre-judgment skipped Level 1 → go to Level 2.
@@ -1879,12 +1940,15 @@ class HealOrchestrator:
                 l2_result = self._level2.heal_column(
                     v.table, col, v, config, self._snapshot
                 )
+                l2_ftype = None if l2_result.success else self._failure_classifier.classify(
+                    l2_result.error, l2_result.raw_response
+                )
                 attempts.append(HealAttempt(
-                    attempt_num=round_num,
-                    prompt_tokens=l2_result.prompt_tokens,
-                    elapsed_seconds=l2_result.elapsed_seconds,
-                    success=l2_result.success,
-                    error=str(l2_result.error) if l2_result.error else None,
+                    level=2,
+                    failure_type=l2_ftype,
+                    latency_ms=int(l2_result.elapsed_seconds * 1000),
+                    token_estimate=l2_result.prompt_tokens,
+                    error_message=str(l2_result.error) if l2_result.error else None,
                 ))
                 if l2_result.success and l2_result.config_patch:
                     # Merge single-column patch into merged_patch.
@@ -1893,10 +1957,7 @@ class HealOrchestrator:
                 else:
                     all_success = False
                     # Classify failure for routing.
-                    ftype = self._failure_classifier.classify(
-                        l2_result.error, l2_result.raw_response
-                    )
-                    if ftype == FailureType.CONTEXT_OVERFLOW:
+                    if l2_ftype == FailureType.CONTEXT_OVERFLOW:
                         # Single-column prompt overflow → Level 3.
                         return self._try_level3(
                             task, violations, config, attempts, round_num, mode="compact"
@@ -1921,12 +1982,15 @@ class HealOrchestrator:
     ) -> _RoundResult:
         """Try Level 3: compact then ultra_compact."""
         l3_result = self._level3.heal_compact(task, violations, config, mode=mode)  # type: ignore[arg-type]
+        l3_ftype = None if l3_result.success else self._failure_classifier.classify(
+            l3_result.error, l3_result.raw_response
+        )
         attempts.append(HealAttempt(
-            attempt_num=round_num,
-            prompt_tokens=l3_result.prompt_tokens,
-            elapsed_seconds=l3_result.elapsed_seconds,
-            success=l3_result.success,
-            error=str(l3_result.error) if l3_result.error else None,
+            level=3,
+            failure_type=l3_ftype,
+            latency_ms=int(l3_result.elapsed_seconds * 1000),
+            token_estimate=l3_result.prompt_tokens,
+            error_message=str(l3_result.error) if l3_result.error else None,
         ))
         if l3_result.success:
             return _RoundResult(success=True, level=3, config_patch=l3_result.config_patch or {})
@@ -1936,8 +2000,7 @@ class HealOrchestrator:
             return self._try_level3(task, violations, config, attempts, round_num, mode="ultra_compact")
 
         # ultra_compact also failed → degrade.
-        ftype = self._failure_classifier.classify(l3_result.error, l3_result.raw_response)
-        return _RoundResult(success=False, level=3, failure_type=ftype)
+        return _RoundResult(success=False, level=3, failure_type=l3_ftype or FailureType.UNKNOWN)
 
     def _degrade_and_return(
         self,
@@ -2407,7 +2470,7 @@ Expected: All non-LLM tests pass. LLM-dependent tests skip gracefully if no LM S
 - [ ] **Step 5: Run new pure-logic tests**
 
 Run: `pytest plugins/sqlseed-ai/tests/healer/ -v`
-Expected: All pass (ContextWindowDetector: 6, FailureClassifier: 8, Level2 context builder: 5).
+Expected: All pass (ContextWindowDetector: 6, FailureClassifier: 8, Level2 context builder: 7).
 
 - [ ] **Step 6: Run core tests**
 
