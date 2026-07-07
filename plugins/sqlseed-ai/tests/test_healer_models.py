@@ -34,15 +34,16 @@ def test_heal_result_defaults():
 
 
 def test_heal_attempt_optional_error():
-    """HealAttempt.error defaults to None; applied_fixes defaults to empty list."""
+    """HealAttempt.error_message defaults to None; applied_fixes defaults to empty list."""
     attempt = HealAttempt(
-        attempt_num=1,
-        prompt_tokens=100,
-        elapsed_seconds=0.5,
-        success=True,
+        level=1,
+        failure_type=None,
+        latency_ms=500,
+        token_estimate=100,
     )
-    assert attempt.error is None
+    assert attempt.error_message is None
     assert attempt.applied_fixes == []
+    assert attempt.failure_type is None
 
 
 def test_degrade_reason_cascade_value():
