@@ -18,9 +18,11 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any
 
 from sqlseed._utils.logger import get_logger
+
+from sqlseed_ai.healer._client import LLMClient, OpenAICompatAdapter
 
 if TYPE_CHECKING:
     from sqlseed_ai.healer.models import SubgraphTask
@@ -28,54 +30,8 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-
-class LLMClient(Protocol):
-    """Minimal protocol for chat-completion clients (openai-compatible)."""
-
-    def chat_completions_create(
-        self,
-        *,
-        model: str,
-        messages: list[dict[str, str]],
-        temperature: float,
-        max_tokens: int | None = None,
-    ) -> Any:
-        """Create a chat completion (openai-compatible)."""
-        ...
-
-
-class _OpenAICompatAdapter:
-    """Adapter wrapping ``openai.OpenAI`` to satisfy the ``LLMClient`` protocol.
-
-    The real OpenAI Python SDK exposes ``client.chat.completions.create(...)``
-    (attribute chain), but :class:`LLMHealer` calls
-    ``client.chat_completions_create(...)`` (flat method). Without this
-    adapter, every heal() call raises
-    ``AttributeError: 'OpenAI' object has no attribute 'chat_completions_create'``.
-
-    The adapter is intentionally minimal: it forwards the call verbatim
-    and preserves the response object (``resp.choices[0].message.content``
-    is read by the healer).
-    """
-
-    def __init__(self, openai_client: Any) -> None:
-        self._client = openai_client
-
-    def chat_completions_create(
-        self,
-        *,
-        model: str,
-        messages: list[dict[str, str]],
-        temperature: float,
-        max_tokens: int | None = None,
-    ) -> Any:
-        """Forward to ``client.chat.completions.create``."""
-        return self._client.chat.completions.create(
-            model=model,
-            messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
-        )
+# Backward-compatible alias — will be removed when this module is deleted.
+_OpenAICompatAdapter = OpenAICompatAdapter
 
 
 @dataclass

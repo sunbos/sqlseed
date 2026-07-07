@@ -462,7 +462,7 @@ def _build_llm_client(ai_config: AIConfig) -> Any:
     # Wrap in adapter so the client satisfies the LLMClient protocol
     # (flat chat_completions_create method) instead of the OpenAI SDK's
     # attribute-chain style (client.chat.completions.create).
-    from sqlseed_ai.healer.llm_healer import _OpenAICompatAdapter
+    from sqlseed_ai.healer._client import OpenAICompatAdapter as _OpenAICompatAdapter
 
     return _OpenAICompatAdapter(raw_client)
 
