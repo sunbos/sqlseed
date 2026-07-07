@@ -61,7 +61,7 @@ class AutoHealOrchestrator:
         *,
         db_path: str | None = None,
         url: str | None = None,
-        healer: Any,  # LLMHealer
+        heal_orchestrator: Any,  # HealOrchestrator (replaces healer: LLMHealer)
         validator: Any,  # FastValidator
         total_budget_seconds: float = 300.0,
         max_scc_size: int = 3,
@@ -70,7 +70,7 @@ class AutoHealOrchestrator:
     ) -> None:
         self._db_path = db_path
         self._url = url
-        self._healer = healer
+        self._heal_orchestrator = heal_orchestrator
         self._validator = validator
         self._total_budget = total_budget_seconds
         self._max_scc_size = max_scc_size
@@ -364,32 +364,29 @@ class AutoHealOrchestrator:
                 error=str(e),
             )
 
-        # Layer 4: LLM healing (expensive)
-        from sqlseed_ai.healer.coordinator import Layer4Coordinator
+        # Layer 4: 4-level LLM healing (subgraph → column → compact → degrade)
         from sqlseed_ai.healer.models import SubgraphTask
 
         if self._verbose:
-            _debug(f"[ai-analyze]     Layer 4: calling LLM healer (max_attempts={self._max_retries}) ...")
+            _debug(
+                f"[ai-analyze]     Layer 4: calling HealOrchestrator "
+                f"(max_rounds={self._max_retries}) ..."
+            )
         task = SubgraphTask(
             task_id=f"sg_{sg_tables[0] if sg_tables else 'empty'}",
             tables=sg_tables,
             is_scc=len(sg_tables) > 1,
         )
-        coord: Layer4Coordinator = Layer4Coordinator(
-            healer=self._healer,
-            validator=self._validator,
-            snapshot=snapshot,
-            max_attempts=self._max_retries,
-            schema_hash=schema_hash,
-            time_budget_seconds=budget.per_table_budget(),
-        )
-        # Layer4Coordinator.reconcile returns HealResult with .config
-        result = coord.reconcile(task, sg_config, violations)
+        # HealOrchestrator.heal returns HealResult with .config
+        result = self._heal_orchestrator.heal(task, violations, sg_config)
         if self._verbose:
-            # Surface LLM healer outcome (success/failure/degraded)
-            attempts = getattr(result, "attempts", 0)
-            success = getattr(result, "success", None)
-            _debug(f"[ai-analyze]     Layer 4 done: attempts={attempts} success={success}")
+            level = getattr(result, "level_used", 0)
+            success = getattr(result, "success", False)
+            degraded = getattr(result, "degraded_columns", [])
+            _debug(
+                f"[ai-analyze]     Layer 4 done: level={level} "
+                f"success={success} degraded={len(degraded)}"
+            )
         return result.config
 
 
