@@ -175,6 +175,10 @@ class AIConfig(BaseModel):
     max_tokens: int = Field(default=0, ge=0)  # 0 means auto-resolve based on backend
     timeout: float = Field(default=0.0, ge=0)  # 0 means auto-resolve based on backend
 
+    # Model context window size in tokens (None = auto-detect via
+    # ContextWindowDetector). Set explicitly to override detection.
+    max_context_tokens: int | None = None
+
     # LLM interaction logging: when True, full prompt + response are written
     # to JSON files under <cache_root>/ai_logs/ for debugging. Useful for
     # diagnosing LLM hallucinations, prompt issues, and Rule failures.

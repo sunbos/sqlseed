@@ -339,3 +339,15 @@ class TestResolveToolCallingProtocol:
         monkeypatch.setenv("SQLSEED_AI_TOOL_CALLING_PROTOCOL", "none")
         config = AIConfig.from_env()
         assert config.tool_calling_protocol == "none"
+
+
+def test_max_context_tokens_default_none():
+    """max_context_tokens defaults to None (auto-detect)."""
+    cfg = AIConfig()
+    assert cfg.max_context_tokens is None
+
+
+def test_max_context_tokens_explicit():
+    """max_context_tokens can be set explicitly."""
+    cfg = AIConfig(max_context_tokens=8192)
+    assert cfg.max_context_tokens == 8192
