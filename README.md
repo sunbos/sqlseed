@@ -690,7 +690,13 @@ Use cases:
 
 ### Tutorial 8: AI-Powered Configuration (sqlseed-ai Plugin)
 
-Let LLM analyze your database schema and auto-generate optimal config suggestions:
+Let LLM analyze your database schema and auto-generate optimal config suggestions. The sqlseed-ai plugin provides **3 CLI commands**:
+
+| Command | Purpose | When to Use |
+| :------ | :------ | :---------- |
+| `ai-suggest` | Per-table LLM analysis with self-correction | Single-table analysis with `--verify` validation |
+| `ai-analyze` | Full/partial DB analysis via v4 AutoHealOrchestrator (default) | Multi-table YAML generation with contract-driven self-healing |
+| `auto-heal` | Repair broken YAML configs via LLM + rule-based pipeline | Fix YAML files that fail `sqlseed fill` |
 
 ```bash
 # Install AI plugin
@@ -699,7 +705,11 @@ pip install sqlseed-ai
 # Set API key
 export SQLSEED_AI_API_KEY="your-api-key"
 
-# AI analysis and config generation
+# ─────────────────────────────────────────────
+# ai-suggest: Per-table LLM analysis
+# ─────────────────────────────────────────────
+
+# AI analysis and config generation for a single table
 sqlseed ai-suggest app.db --table projects --output projects.yaml
 
 # AI suggestions with self-correction (3 rounds by default)
@@ -710,6 +720,32 @@ sqlseed ai-suggest app.db --table projects --output projects.yaml --model gemma-
 
 # Use local LM Studio / Ollama
 sqlseed ai-suggest app.db --table projects --output projects.yaml --backend lm_studio --model google/gemma-4-e4b
+
+# ─────────────────────────────────────────────
+# ai-analyze: Full DB analysis via v4 architecture (default)
+# ─────────────────────────────────────────────
+
+# Analyze entire database and generate YAML (v4 AutoHealOrchestrator)
+sqlseed ai-analyze --db app.db -o config.yaml
+
+# Output to stdout (no -o)
+sqlseed ai-analyze --db app.db
+
+# Multi-DB via --url
+sqlseed ai-analyze --url "postgresql+psycopg://user:pass@host/db" -o config.yaml
+
+# Log full LLM interactions for debugging
+sqlseed ai-analyze --db app.db -o config.yaml --log-llm
+
+# ─────────────────────────────────────────────
+# auto-heal: Repair broken YAML configs
+# ─────────────────────────────────────────────
+
+# After ai-analyze, if `sqlseed fill` fails on some tables, repair the YAML
+sqlseed auto-heal --db app.db --config broken.yaml -o healed.yaml
+
+# Use a different LLM model for healing
+sqlseed auto-heal --db app.db --config broken.yaml -o healed.yaml --model gemma-4-26b-a4b-it
 ```
 
 **Gemma 4 Native Function Calling (GEMMA_TOOLS)**:
@@ -740,6 +776,19 @@ sqlseed ai-suggest app.db --table projects --output projects.yaml --no-cache
 5. If errors found (unknown generator, type mismatch, etc.), sends correction request to LLM
 6. Up to 3 self-correction rounds, outputs validated YAML config
 ```
+
+**v4 Contract-Driven Self-Healing Architecture** (used by `ai-analyze` and `auto-heal`):
+
+```
+Layer 1: contracts/    Sparse contract matrix + resolver (closed set of known-bad combos)
+Layer 2: validator/    FastValidator (single-column + cross-column + dialect error parsing)
+Layer 3: repair/       Stateless repair strategies (REPAIR_STRATEGIES dict, open for extension)
+Layer 4: healer/       LLM healer + oscillation detection + progressive degrade + cascade
+Layer 5: auto_heal/    AutoHealOrchestrator — top-level entry (SchemaSnapshot → SubgraphSplitter → per-subgraph validate/repair/heal → BrokenEdgeAligner → emit YAML)
+Layer 6: analyzer/     LLM table-level analysis (streaming + tool-calling, protocol-based)
+```
+
+The `_build_subgraph_config()` method in `AutoHealOrchestrator` performs deterministic CHECK-constraint inference before any LLM call: `_parse_single_column_check()` handles LENGTH()/IN/BETWEEN/range patterns (including mixed `> AND <=` and `>= AND <`), while `_infer_cross_column_config()` handles 13 cross-column patterns (col >= other, col > other, col <= other, col < other, col != other, col >= col1 * col2, col = col1 (+|-|*) col2, col = col1 + col2 + col3, col IS NULL OR col (>=|>) other, col >= X AND col <= other_col, col >= other_col AND col <= Y, col > X AND col < other_col, col > other_col AND col < Y).
 
 > **💡 Environment Variables**: Supports `SQLSEED_AI_API_KEY`, `SQLSEED_AI_BASE_URL`, `SQLSEED_AI_MODEL`, `SQLSEED_AI_BACKEND`. Also supports `OPENAI_API_KEY` / `OPENAI_BASE_URL` as fallback. Defaults to Gemma 4 26B via Google AI Studio. Supported backends: `google_ai_studio`, `lm_studio`, `ollama`, `openai_compat`.
 
@@ -928,6 +977,13 @@ sqlseed ai-suggest app.db -t users -o users.yaml --no-verify       # Skip verifi
 
 # Skip cache
 sqlseed ai-suggest app.db -t users -o users.yaml --no-cache
+
+# Full DB analysis via v4 AutoHealOrchestrator (default path)
+sqlseed ai-analyze --db app.db -o config.yaml
+sqlseed ai-analyze --url "postgresql+psycopg://user:pass@host/db" -o config.yaml
+
+# Repair broken YAML configs after a failed `sqlseed fill`
+sqlseed auto-heal --db app.db --config broken.yaml -o healed.yaml
 ```
 
 ***
@@ -1036,7 +1092,7 @@ src/sqlseed/
     └── logger.py            # structlog logging
 
 plugins/
-├── sqlseed-cli/             # CLI plugin — click commands (fill/preview/inspect/init/replay/ai-suggest)
+├── sqlseed-cli/             # CLI plugin — click commands (fill/preview/inspect/init/replay)
 │   └── src/sqlseed_cli/     # Standalone package, separate pyproject.toml
 ├── sqlseed-ai/              # AI plugin — LLM-driven smart configuration
 │   └── src/sqlseed_ai/      # SchemaAnalyzer, AiConfigRefiner, few-shot examples...

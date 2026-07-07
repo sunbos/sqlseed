@@ -67,8 +67,21 @@ class SchemaInferrer:
     def detect_unique_columns(self, table_name: str) -> set[str]:
         """Detect the set of columns with unique constraints in the table.
 
-        Combines single-column unique indexes and non-autoincrement primary keys:
-        any query failure only logs without raising an exception.
+        Combines single-column unique indexes, table-level/column-level UNIQUE
+        constraints, and non-autoincrement primary keys. Any query failure
+        only logs without raising an exception.
+
+        Three sources are checked:
+
+        1. ``get_index_info`` — explicit ``CREATE [UNIQUE] INDEX`` indexes.
+           On raw sqlite3 adapters, this also returns auto-indexes created by
+           inline ``UNIQUE`` constraints (via ``PRAGMA index_list``).
+        2. ``get_unique_constraints`` — table-level and column-level
+           ``UNIQUE`` constraints. On SQLAlchemy adapters, this is the ONLY
+           way to detect inline column-level ``UNIQUE`` (e.g.,
+           ``reservation_id INTEGER NOT NULL UNIQUE``), because
+           ``inspector.get_indexes`` excludes the auto-indexes they create.
+        3. Non-autoincrement primary keys (covered by ``get_primary_keys``).
         """
         unique_cols: set[str] = set()
         try:
@@ -78,6 +91,14 @@ class SchemaInferrer:
                     unique_cols.add(idx.columns[0])
         except (ValueError, RuntimeError, OSError, SAOperationalError):
             logger.debug("Failed to detect unique constraints from indexes", table_name=table_name)
+
+        try:
+            unique_constraints = self._db.get_unique_constraints(table_name)
+            for uc in unique_constraints:
+                if uc.unique and len(uc.columns) == 1:
+                    unique_cols.add(uc.columns[0])
+        except (ValueError, RuntimeError, OSError, SAOperationalError):
+            logger.debug("Failed to detect unique constraints from get_unique_constraints", table_name=table_name)
 
         try:
             pks = self._db.get_primary_keys(table_name)

@@ -160,14 +160,20 @@ class ProgressiveDegrader:
             )
         }
 
-        # Mark degraded and strip LLM-only fields
+        # Mark degraded and strip LLM-only fields.
+        # IMPORTANT: Keep generator/params/derive_from/expression from
+        # ``_build_subgraph_config`` because they encode CHECK constraint
+        # inference (e.g., LENGTH(phone)=11 → string min_length=11,
+        # day_of_week BETWEEN 0 AND 6 → integer min_value=0 max_value=6).
+        # Deleting them would cause the Core 9-level mapper to re-infer from
+        # type alone, losing CHECK-based constraints and causing fill failures
+        # (e.g., LENGTH(phone)=11 CHECK violated, NOT NULL on composite PK).
+        # The Core mapper still runs for columns that have NO generator at all
+        # (truly missing config); keeping existing config is safe because the
+        # ConstraintSolver's backtracking handles UNIQUE at runtime.
         col["_degraded"] = True
         col["degrade_reason"] = reason.value
         for field_name in (
-            "generator",
-            "params",
-            "derive_from",
-            "expression",
             "faker_method",
             "mimesis_method",
             "native_params",

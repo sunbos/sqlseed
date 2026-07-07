@@ -37,9 +37,7 @@ from typing import Any
 from sqlseed_ai.ai_mediator import apply_ai_suggestions
 from sqlseed_ai.analyzer import SchemaAnalyzer
 from sqlseed_ai.config import AIBackend, AIConfig, GemmaModel
-from sqlseed_ai.dependency_resolver import DependencyResolver, ResolvedTables
 from sqlseed_ai.refiner import AiConfigRefiner, AISuggestionFailedError
-from sqlseed_ai.schema_analyzer import SchemaSemanticAnalyzer
 
 from sqlseed._utils.logger import get_logger
 from sqlseed.plugins.hookspecs import hookimpl
@@ -51,11 +49,8 @@ __all__ = [
     "AIConfig",
     "AISuggestionFailedError",
     "AiConfigRefiner",
-    "DependencyResolver",
     "GemmaModel",
-    "ResolvedTables",
     "SchemaAnalyzer",
-    "SchemaSemanticAnalyzer",
     "apply_ai_suggestions",
 ]
 

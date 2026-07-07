@@ -82,8 +82,52 @@ class CrossColumnValidator:
         table_config: dict[str, Any],
         table_schema: dict[str, Any],
     ) -> list[ViolationReport]:
-        """Placeholder for composite UNIQUE cross-checks (future expansion)."""
-        return []
+        """Flag columns marked unique:true that only appear in composite UNIQUE (Rule #31).
+
+        A composite UNIQUE constraint (e.g., ``UNIQUE(tenant_id, email)``)
+        does NOT make any individual column unique. If the LLM marks such a
+        column as ``constraints: {unique: true}``, flag it for stripping.
+        """
+        result: list[ViolationReport] = []
+        unique_indexes = table_schema.get("unique_indexes") or []
+        if not isinstance(unique_indexes, list):
+            return result
+
+        single_unique_cols: set[str] = set()
+        composite_unique_cols: set[str] = set()
+        for idx in unique_indexes:
+            if not isinstance(idx, dict):
+                continue
+            cols = idx.get("columns") or []
+            if not isinstance(cols, list):
+                continue
+            if len(cols) == 1:
+                single_unique_cols.add(cols[0])
+            elif len(cols) > 1:
+                composite_unique_cols.update(cols)
+
+        # Columns in composite UNIQUE but NOT in single-col UNIQUE
+        composite_only = composite_unique_cols - single_unique_cols
+        if not composite_only:
+            return result
+
+        for col in table_config.get("columns", []):
+            col_name = col.get("name", "")
+            if col_name not in composite_only:
+                continue
+            constraints = col.get("constraints") or {}
+            if isinstance(constraints, dict) and constraints.get("unique"):
+                result.append(
+                    ViolationReport(
+                        table=table_config["name"],
+                        columns=[col_name],
+                        constraint_type=ConstraintType.UNIQUE,
+                        severity="semantic_error",
+                        fix_hint="strip_composite_unique",
+                        fix_params={"reason": "column only in composite UNIQUE"},
+                    )
+                )
+        return result
 
     def _check_semantic_relations(
         self,

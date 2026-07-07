@@ -42,3 +42,35 @@ def test_random_float_on_integer_column():
     v = resolver.check("random_float", "INTEGER", frozenset(), {})
     assert v is not None
     assert v.fix_strategy == "coerce_float_to_int"
+
+
+def test_builtin_violations_include_phone_to_pattern_rule():
+    """Rule #23: phone generator on phone-like column should be in BUILTIN_VIOLATIONS."""
+    from sqlseed_ai.contracts.builtin_violations import BUILTIN_VIOLATIONS
+    from sqlseed_ai.contracts.matrix import ContractResolver
+
+    resolver = ContractResolver(set(BUILTIN_VIOLATIONS), set())
+    v = resolver.check(
+        generator="phone",
+        column_type="TEXT",
+        constraints=frozenset(),
+        config={"name": "phone"},
+    )
+    assert v is not None
+    assert v.fix_strategy == "upgrade_phone_to_pattern"
+
+
+def test_builtin_violations_include_text_on_code_unique_rule():
+    """Rule #25: text generator on UNIQUE code-like column should be in BUILTIN_VIOLATIONS."""
+    from sqlseed_ai.contracts.builtin_violations import BUILTIN_VIOLATIONS
+    from sqlseed_ai.contracts.matrix import ContractResolver
+
+    resolver = ContractResolver(set(BUILTIN_VIOLATIONS), set())
+    v = resolver.check(
+        generator="text",
+        column_type="TEXT",
+        constraints=frozenset({"UNIQUE"}),
+        config={"name": "product_code"},
+    )
+    assert v is not None
+    assert v.fix_strategy == "downgrade_text_to_string"

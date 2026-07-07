@@ -111,6 +111,14 @@ class ColumnConfig(BaseModel):
         for k in extra_keys:
             result.pop(k)
 
+        # Filter out Layer 4 internal metadata fields (e.g., _degraded,
+        # degrade_reason) — these are ProgressiveDegrader markers used during
+        # the auto-heal pipeline and must NOT be merged into params, otherwise
+        # they get passed to generators as keyword arguments (e.g.,
+        # ``_gen_string(_degraded=True)`` raises TypeError).
+        _INTERNAL_FIELDS = {"_degraded", "degrade_reason"}
+        extra_keys = {k: v for k, v in extra_keys.items() if k not in _INTERNAL_FIELDS}
+
         merged_params: dict[str, Any] = {}
         if isinstance(nested_params, dict):
             merged_params.update(nested_params)

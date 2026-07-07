@@ -14,9 +14,21 @@ pip install sqlseed-ai
 
 ## 快速开始
 
+sqlseed-ai 插件提供 **3 个 CLI 命令**：
+
+| 命令 | 用途 | 适用场景 |
+| :--- | :--- | :--- |
+| `ai-suggest` | 单表 LLM 分析 + 自纠正 | 单表分析，支持 `--verify` 校验 |
+| `ai-analyze` | 全库/部分表分析，走 v4 AutoHealOrchestrator（默认路径） | 多表 YAML 生成，含契约驱动自愈 |
+| `auto-heal` | 通过 LLM + 规则管道修复损坏的 YAML 配置 | 修复 `sqlseed fill` 失败的 YAML 文件 |
+
 ```bash
 # 设置 API Key（或使用 GOOGLE_API_KEY 用于 Google AI Studio）
 export SQLSEED_AI_API_KEY="your-api-key"
+
+# ─────────────────────────────────────────────
+# ai-suggest: 单表 LLM 分析
+# ─────────────────────────────────────────────
 
 # AI 分析并生成配置
 sqlseed ai-suggest app.db --table users --output users.yaml
@@ -32,6 +44,29 @@ sqlseed ai-suggest app.db --table users -o users.yaml --backend lm_studio --mode
 
 # 跳过缓存
 sqlseed ai-suggest app.db --table users -o users.yaml --no-cache
+
+# ─────────────────────────────────────────────
+# ai-analyze: 全库分析（v4 架构默认路径）
+# ─────────────────────────────────────────────
+
+# 分析整个数据库并生成 YAML（v4 AutoHealOrchestrator）
+sqlseed ai-analyze --db app.db -o config.yaml
+
+# 通过 --url 连接多数据库
+sqlseed ai-analyze --url "postgresql+psycopg://user:pass@host/db" -o config.yaml
+
+# 记录完整 LLM 交互用于调试
+sqlseed ai-analyze --db app.db -o config.yaml --log-llm
+
+# ─────────────────────────────────────────────
+# auto-heal: 修复损坏的 YAML 配置
+# ─────────────────────────────────────────────
+
+# ai-analyze 之后若 `sqlseed fill` 失败，可修复 YAML
+sqlseed auto-heal --db app.db --config broken.yaml -o healed.yaml
+
+# 使用不同的 LLM 模型进行修复
+sqlseed auto-heal --db app.db --config broken.yaml -o healed.yaml --model gemma-4-26b-a4b-it
 ```
 
 ## 功能

@@ -275,30 +275,50 @@ class AiConfigRefiner:
     def _apply_rule_14_param_stripping(self, config_dict: dict[str, Any]) -> None:
         """Apply Rule #14 (strip invalid generator params) in-place.
 
-        Delegates to ``Stage3Validator._apply_rule_14_strip_invalid_params``
-        so the refiner path stays consistent with the staged path. Handles
-        both single-table ``{"name": ...}`` and multi-table
-        ``{"tables": [...]}`` shapes.
+        Delegates to the v4 ``normalize_params`` repair strategy
+        (``sqlseed_ai.repair.strategies.REPAIR_STRATEGIES["normalize_params"]``)
+        so the refiner path stays aligned with the v4 contract-driven self-healing
+        architecture. Handles both single-table ``{"name": ...}`` and
+        multi-table ``{"tables": [...]}`` shapes.
 
-        Lazy import avoids a circular dependency at module load time
-        (``staged_analyzer`` imports from ``schema_analyzer`` which is
-        imported by ``refiner``).
+        The legacy ``Stage3Validator._apply_rule_14_strip_invalid_params`` was
+        removed in Phase 4 of the v4 default migration; this method now uses
+        the stateless v4 strategy as the canonical implementation.
         """
-        from sqlseed_ai.staged_analyzer import Stage3Validator
+        from sqlseed_ai.repair.strategies import REPAIR_STRATEGIES
+        from sqlseed_ai.validator.models import ConstraintType, ViolationReport
 
-        validator = Stage3Validator()
         if "tables" in config_dict:
             tables = config_dict["tables"]
         elif "name" in config_dict:
             tables = [config_dict]
         else:
             return
+        v = ViolationReport(
+            table="",
+            columns=[],
+            constraint_type=ConstraintType.CHECK,
+            severity="semantic_error",
+            fix_hint="normalize_params",
+            fix_params={},
+        )
         for table in tables:
             if not isinstance(table, dict):
                 continue
-            for col in table.get("columns", []):
+            columns = table.get("columns", [])
+            if not isinstance(columns, list) or not columns:
+                # Skip tables with no columns — nothing to strip. Avoids
+                # mutating the dict by adding an empty ``columns: []`` key
+                # that was not present in the original config.
+                continue
+            new_columns: list[dict[str, Any]] = []
+            for col in columns:
                 if isinstance(col, dict):
-                    validator._apply_rule_14_strip_invalid_params(col)
+                    repaired = REPAIR_STRATEGIES["normalize_params"](col, v, {})
+                    new_columns.append(repaired)
+                else:
+                    new_columns.append(col)
+            table["columns"] = new_columns
 
     def _handle_validation_result(
         self,

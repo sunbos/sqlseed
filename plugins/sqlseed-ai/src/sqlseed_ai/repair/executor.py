@@ -61,8 +61,14 @@ class RepairExecutor:
                     }
                     try:
                         after = self._strategies[strategy_name](col, violation, ctx)
+                        # ``after`` may be the same object as ``col`` (when a
+                        # strategy returns ``col`` unchanged to skip repair).
+                        # We must copy it before clearing ``col``, otherwise
+                        # ``col.clear()`` also clears ``after`` and the column
+                        # becomes an empty dict ``{}`` in the output YAML.
+                        after_copy = dict(after)
                         col.clear()
-                        col.update(after)
+                        col.update(after_copy)
                         applied_fixes.append(
                             AppliedFix(
                                 table=violation.table,

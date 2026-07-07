@@ -479,7 +479,7 @@ class DataStream:
                 return self._rng.choice(spec.params["choices"])
 
             if spec.generator_name == "foreign_key":
-                return self._handle_foreign_key(spec)
+                return self._handle_foreign_key(spec, exclude_values=exclude_values)
 
             raise
 
@@ -560,7 +560,12 @@ class DataStream:
         except (TypeError, ValueError, AttributeError):
             return _NATIVE_MISS
 
-    def _handle_foreign_key(self, spec: GeneratorSpec) -> Any:
+    def _handle_foreign_key(
+        self,
+        spec: GeneratorSpec,
+        *,
+        exclude_values: set[Any] | None = None,
+    ) -> Any:
         """Handle foreign-key generation.
 
         If ``spec.params`` contains ``_ref_values``, a value is randomly chosen from it;
@@ -570,14 +575,32 @@ class DataStream:
         ``RelationResolver._upgrade_fk_constrained_columns``, so empty-parent-table
         fallback respects the user's intended value range instead of using 999999.
 
+        When ``exclude_values`` is non-empty (UNIQUE-constrained FK column), the
+        candidate list is filtered to avoid values already used. This is the
+        root-cause fix for the "UNIQUE FK column with child count ≈ parent count"
+        failure pattern: random sampling with replacement from ``N`` parent rows
+        for ``N`` child rows guarantees collisions (birthday paradox), causing
+        batch-level UNIQUE violations. By excluding seen values, each pick is
+        drawn from the remaining unused parent keys, guaranteeing uniqueness
+        when ``len(ref_values) >= child_count``.
+
         Args:
             spec: Generator spec.
+            exclude_values: Optional set of values already used (UNIQUE-constrained
+                columns). When provided, ref_values are filtered to exclude them.
 
         Returns:
             The foreign-key value.
         """
         ref_values = spec.params.get("_ref_values", [])
         if ref_values:
+            if exclude_values:
+                available = [v for v in ref_values if v not in exclude_values]
+                if available:
+                    return self._rng.choice(available)
+                # All ref_values exhausted — fall through to fallback. The
+                # resulting value will likely fail the UNIQUE constraint,
+                # triggering the ConstraintSolver's retry/backtrack mechanism.
             return self._rng.choice(ref_values)
         fallback_min = spec.params.get("_fallback_min", 1)
         fallback_max = spec.params.get("_fallback_max", 999999)

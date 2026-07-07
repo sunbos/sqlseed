@@ -155,7 +155,7 @@ sqlseed is a **declarative multi-database test data generation toolkit**. It foc
 | `refiner.py` | Self-correction loop (normal → compact → ultra-compact) |
 | `config.py` | `AIConfig` model. `backend: AIBackend` enum (values: `google_ai_studio`, `lm_studio`, `ollama`, `openai_compat`; **NO `gemma4` backend**). **Target (Phase E)**: add `tool_calling_protocol: Literal["gemma4", "openai", "none"]` field for native function calling (currently does not exist — tool calling is implicit via `_tool_calling.py` auto-fallback). |
 | `mcp/` (optional) | MCP interface for AI YAML generation (`pip install sqlseed-ai[mcp]`) |
-| Entry point | CLI: `ai-suggest` command (injected into `sqlseed` CLI via entry_points) |
+| Entry point | CLI: 3 commands injected into `sqlseed` CLI via entry_points: `ai-suggest` (per-table LLM analysis), `ai-analyze` (default v4 AutoHealOrchestrator path), `auto-heal` (standalone YAML repair) |
 
 **Install**: `pip install sqlseed-ai` (completely independent package)
 
@@ -232,7 +232,7 @@ sqlseed._utils (no internal deps, used by all)
 |----------|----------------|--------------|
 | Python API only (offline) | `pip install sqlseed` | `from sqlseed import fill` |
 | + CLI | `pip install sqlseed-cli` | `sqlseed` command |
-| + AI YAML generation | `pip install sqlseed-ai` | `sqlseed ai-suggest` + Gemma4 support |
+| + AI YAML generation | `pip install sqlseed-ai` | `sqlseed ai-suggest` / `ai-analyze` / `auto-heal` + Gemma4 support |
 | + PostgreSQL | `pip install sqlseed[postgres]` | PostgreSQL support |
 | + mimesis (high-perf) | `pip install sqlseed[mimesis]` | MimesisProvider |
 | + MCP server (core capabilities) | `pip install mcp-server-sqlseed` | MCP tools for rule-based YAML + fill |
@@ -240,7 +240,7 @@ sqlseed._utils (no internal deps, used by all)
 | Everything | Install all above | All optional features |
 
 > [!NOTE]
-> **Dependency chain**: `sqlseed-ai` depends on `sqlseed-cli` (the `ai-suggest` command is injected into the `sqlseed` CLI via `entry_points`). Installing `sqlseed-ai` will auto-pull `sqlseed-cli` as a dependency. Installing `sqlseed-ai` without `sqlseed-cli` is **not** a supported configuration.
+> **Dependency chain**: `sqlseed-ai` depends on `sqlseed-cli` (3 AI commands — `ai-suggest`, `ai-analyze`, `auto-heal` — are injected into the `sqlseed` CLI via `entry_points`). Installing `sqlseed-ai` will auto-pull `sqlseed-cli` as a dependency. Installing `sqlseed-ai` without `sqlseed-cli` is **not** a supported configuration.
 
 ### 6.1 Version Compatibility Policy
 

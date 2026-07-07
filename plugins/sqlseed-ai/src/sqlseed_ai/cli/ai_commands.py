@@ -13,7 +13,7 @@ point target.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import click
 import yaml
@@ -21,7 +21,6 @@ from rich.console import Console
 from rich.live import Live
 from rich.text import Text
 from sqlseed_ai import AIBackend, AIConfig, AiConfigRefiner, SchemaAnalyzer
-from sqlseed_ai.schema_analyzer import SchemaSemanticAnalyzer
 
 # sanitize_table_config lives in the sqlseed-cli package; this is the only
 # cross-plugin import permitted per ARCHITECTURE.md Section 4 (sqlseed-ai
@@ -31,13 +30,6 @@ from sqlseed_cli._utils import sanitize_table_config
 
 from sqlseed._utils.logger import get_logger
 from sqlseed.core.orchestrator import DataOrchestrator
-
-if TYPE_CHECKING:
-    # Type-only import: StagedSchemaAnalyzer is imported lazily at runtime
-    # (inside the ai_analyze branch) to avoid loading the staged pipeline
-    # module unless --staged-pipeline is set. The TYPE_CHECKING alias
-    # lets us annotate the union type for mypy without a runtime cost.
-    from sqlseed_ai.staged_analyzer import StagedSchemaAnalyzer
 
 logger = get_logger(__name__)
 
@@ -433,36 +425,19 @@ def _run_auto_heal(
     base_url: str | None,
     timeout: float,
 ) -> None:
-    """Dispatch to :class:`AutoHealOrchestrator` for the ``--auto-heal`` flag.
+    """Dispatch to AutoHealOrchestrator for the ``--auto-heal`` flag on ai-suggest.
 
-    Builds the validator + healer from the resolved :class:`AIConfig` and
-    emits the resulting YAML to stdout.
+    Delegates to ``_run_auto_heal_v4`` (shared with ``ai-analyze``) and
+    echoes the YAML to stdout.
     """
-    from sqlseed_ai.auto_heal.orchestrator import AutoHealOrchestrator
-    from sqlseed_ai.contracts.builtin_violations import BUILTIN_VIOLATIONS
-    from sqlseed_ai.contracts.matrix import ContractResolver
-    from sqlseed_ai.healer.llm_healer import LLMHealer
-    from sqlseed_ai.validator.main import FastValidator
-
-    ai_config = AIConfig.from_env().apply_overrides(api_key=api_key, base_url=base_url, model=model)
-    ai_config.timeout = timeout
-
-    resolver = ContractResolver(set(BUILTIN_VIOLATIONS), set())
-    validator = FastValidator(resolver, db_path=db_path)
-    client = _build_llm_client(ai_config)
-    healer = LLMHealer(client=client, model=ai_config.resolve_model())
-
-    orch = AutoHealOrchestrator(
+    yaml_str = _run_auto_heal_v4(
         db_path=db_path,
-        healer=healer,
-        validator=validator,
-        total_budget_seconds=300.0,
+        db_url=None,
+        model=model,
+        api_key=api_key,
+        base_url=base_url,
+        timeout=timeout,
     )
-    try:
-        yaml_str = orch.run()
-    except (ValueError, RuntimeError, OSError) as exc:
-        click.echo(f"Error: auto-heal failed: {exc}", err=True)
-        raise SystemExit(1) from exc
     click.echo(yaml_str)
 
 
@@ -498,28 +473,26 @@ def _build_ai_config(
     base_url: str | None = None,
     model: str | None = None,
     timeout: float = 0.0,
-    staged_pipeline: bool = False,
     log_llm: bool = False,
 ) -> AIConfig:
     """Build an :class:`AIConfig` from env defaults plus CLI overrides.
 
     Centralizes the ``from_env`` + ``apply_overrides`` + ``timeout`` +
-    ``use_staged_pipeline`` assignment previously inlined in ``ai_analyze``.
-    Extracted as a helper so the ``--staged-pipeline`` flag can be unit-tested
+    ``log_llm_interactions`` assignment previously inlined in ``ai_analyze``.
+    Extracted as a helper so the AI config construction can be unit-tested
     in isolation without invoking the Click command or the LLM.
     """
     ai_config = AIConfig.from_env().apply_overrides(api_key=api_key, base_url=base_url, model=model)
     ai_config.timeout = timeout
-    ai_config.use_staged_pipeline = staged_pipeline
     ai_config.log_llm_interactions = log_llm
     return ai_config
 
 
 @click.command("ai-analyze")
-@click.option("--db", "db_path", required=True, help="SQLite database path")
+@click.option("--db", "db_path", required=False, help="SQLite database path")
 @click.option("--url", "db_url", default=None, help="Database URL (alternative to --db)")
 @click.option("--tables", default=None, help="Comma-separated table names (default: all tables)")
-@click.option("--output", "-o", required=True, type=click.Path(), help="Output YAML file path")
+@click.option("--output", "-o", required=False, type=click.Path(), help="Output YAML file path (default: stdout)")
 @click.option(
     "--no-dependencies",
     is_flag=True,
@@ -536,13 +509,6 @@ def _build_ai_config(
     help="AI API base URL (env: SQLSEED_AI_BASE_URL)",
 )
 @click.option("--timeout", default=0, type=float, help="API call timeout in seconds (0=auto, default: auto)")
-@click.option(
-    "--staged-pipeline",
-    is_flag=True,
-    default=False,
-    help="Use the new 3-stage LtM pipeline (StagedSchemaAnalyzer) instead of "
-    "the legacy SchemaSemanticAnalyzer. Recommended for 2B local models.",
-)
 @click.option(
     "--log-llm",
     is_flag=True,
@@ -566,22 +532,25 @@ def _build_ai_config(
     "Useful for re-generating specific tables without re-analyzing the entire database.",
 )
 def ai_analyze(
-    db_path: str,
+    db_path: str | None,
     db_url: str | None,
     tables: str | None,
-    output: str,
+    output: str | None,
     no_dependencies: bool,
     max_depth: int,
     model: str | None,
     api_key: str | None,
     base_url: str | None,
     timeout: float,
-    staged_pipeline: bool = False,
     log_llm: bool = False,
     max_retries: int = 2,
     merge: bool = False,
 ) -> None:
     """Analyze database schema via LLM and generate business YAML config.
+
+    Uses the v4 Contract-Driven Self-Healing architecture
+    (AutoHealOrchestrator) by default. The legacy Stage3Validator path
+    has been removed (Phase 4 of v4 migration).
 
     \b
     Modes:
@@ -589,26 +558,67 @@ def ai_analyze(
       - Partial tables: sqlseed ai-analyze --db app.db --tables orders,items -o config.yaml
       - No dependencies: sqlseed ai-analyze --db app.db --tables orders --no-dependencies -o config.yaml
       - Merge mode: sqlseed ai-analyze --db app.db --tables orders -o config.yaml --merge
-        (re-generates only 'orders', keeps other tables from existing YAML)
-
-    \b
-    The generated YAML contains business logic (column generators, params,
-    constraints). Review and edit before using with `sqlseed fill`.
+      - Stdout: sqlseed ai-analyze --db app.db (no -o, prints YAML to stdout)
     """
-    import yaml
+    if not db_path and not db_url:
+        raise click.UsageError("Either --db or --url must be provided.")
+    if db_path and db_url:
+        raise click.UsageError("--db and --url are mutually exclusive. Provide only one.")
 
-    from sqlseed import connect
+    # v4 path: AutoHealOrchestrator handles all tables, validation, repair, healing.
+    # Note: --tables/--no-dependencies/--max-depth/--merge are accepted for
+    # backward compatibility but not yet forwarded to the v4 orchestrator
+    # (will be wired when AutoHealOrchestrator adds subgraph filtering).
+    yaml_str = _run_auto_heal_v4(
+        db_path=db_path,
+        db_url=db_url,
+        model=model,
+        api_key=api_key,
+        base_url=base_url,
+        timeout=timeout,
+        max_retries=max_retries,
+        log_llm=log_llm,
+    )
 
-    # Initialize AIConfig from env + CLI overrides (mirrors ai-suggest pattern).
-    # _build_ai_config centralizes from_env + apply_overrides + timeout +
-    # use_staged_pipeline so the --staged-pipeline flag can be unit-tested
-    # in isolation (see test_ai_analyze_command_staged_pipeline_flag_sets_config).
+    if output:
+        output_path = Path(output)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with output_path.open("w", encoding="utf-8") as f:
+            f.write(yaml_str)
+        click.echo(f"Generated YAML config: {output_path}")
+    else:
+        click.echo(yaml_str)
+
+
+def _run_auto_heal_v4(
+    *,
+    db_path: str | None,
+    db_url: str | None,
+    model: str | None,
+    api_key: str | None,
+    base_url: str | None,
+    timeout: float,
+    max_retries: int = 2,
+    log_llm: bool = False,
+) -> str:
+    """Build and run AutoHealOrchestrator, returning the YAML string.
+
+    Extracted from ``_run_auto_heal`` to support both ``ai-suggest --auto-heal``
+    (legacy entry point, kept for backward compatibility during Phase 3) and
+    ``ai-analyze`` (new default v4 path). Returns YAML string instead of
+    echoing to stdout so the caller can choose to write to file or echo.
+    """
+    from sqlseed_ai.auto_heal.orchestrator import AutoHealOrchestrator
+    from sqlseed_ai.contracts.builtin_violations import BUILTIN_VIOLATIONS
+    from sqlseed_ai.contracts.matrix import ContractResolver
+    from sqlseed_ai.healer.llm_healer import LLMHealer
+    from sqlseed_ai.validator.main import FastValidator
+
     ai_config = _build_ai_config(
         api_key=api_key,
         base_url=base_url,
         model=model,
         timeout=timeout,
-        staged_pipeline=staged_pipeline,
         log_llm=log_llm,
     )
 
@@ -623,140 +633,35 @@ def ai_analyze(
         raise SystemExit(1)
 
     resolved_model = ai_config.resolve_model()
-    ai_config.model = resolved_model  # Persist resolved model so downstream
-    # code (_resolve_max_tokens_for_model) can detect E2B/E4B and return
-    # the correct max_tokens (4096 for reasoning models vs 2048 default).
-    # Without this, max_tokens=2048 is too small for Gemma 4 E2B's reasoning
-    # + content generation, causing empty responses.
+    ai_config.model = resolved_model
     backend_name = ai_config.backend.value.replace("_", " ").title()
-    click.echo(f"Using AI model: {resolved_model} (via {backend_name})")
+    click.echo(f"Using AI model: {resolved_model} (via {backend_name})", err=True)
+
     if log_llm:
         from sqlseed._utils.paths import get_cache_dir
-
         log_dir = get_cache_dir("ai_logs")
-        click.echo(f"LLM interaction logging enabled: {log_dir}")
+        click.echo(f"LLM interaction logging enabled: {log_dir}", err=True)
 
-    table_list = None
-    if tables:
-        table_list = [t.strip() for t in tables.split(",") if t.strip()]
+    resolver = ContractResolver(set(BUILTIN_VIOLATIONS), set())
+    validator = FastValidator(resolver, db_path=db_path, url=db_url)
+    client = _build_llm_client(ai_config)
+    healer = LLMHealer(client=client, model=resolved_model)
 
-    # Merge mode: load existing YAML and keep non-regenerated tables
-    existing_tables: list[dict[str, Any]] = []
-    if merge:
-        output_path_check = Path(output)
-        if output_path_check.exists():
-            try:
-                with output_path_check.open("r", encoding="utf-8") as f:
-                    existing_config = yaml.safe_load(f) or {}
-                existing_tables = existing_config.get("tables", [])
-                if existing_tables:
-                    click.echo(
-                        f"Merge mode: keeping {len(existing_tables)} existing tables, "
-                        f"re-generating: {table_list or 'all'}"
-                    )
-            except Exception as e:
-                click.echo(f"Warning: could not load existing YAML for merge: {e}", err=True)
-
-    orch = connect(url=db_url) if db_url else connect(db_path=db_path)
+    orch = AutoHealOrchestrator(
+        db_path=db_path,
+        url=db_url,
+        healer=healer,
+        validator=validator,
+        total_budget_seconds=300.0,
+        max_retries=max_retries,
+        verbose=True,  # Always verbose: user needs to see LLM progress in real time
+    )
 
     try:
-        with orch:
-            # Use PUBLIC database_adapter property (not private _db)
-            db = orch.database_adapter
-
-            if ai_config.use_staged_pipeline:
-                # New 3-stage LtM pipeline (StagedSchemaAnalyzer). Same
-                # analyze() signature as SchemaSemanticAnalyzer, so the
-                # downstream config_dict handling is unchanged.
-                from sqlseed_ai.staged_analyzer import StagedSchemaAnalyzer
-
-                # Pass the active connection target so Stage3Validator can
-                # enable the dual-track repair pipeline. db_path and db_url
-                # are mutually exclusive; pass only the active one.
-                analyzer: StagedSchemaAnalyzer | SchemaSemanticAnalyzer = StagedSchemaAnalyzer(
-                    config=ai_config,
-                    db_path=db_path if not db_url else None,
-                    url=db_url,
-                )
-            else:
-                analyzer = SchemaSemanticAnalyzer(config=ai_config)
-
-            # Progress callback for real-time CLI display (user preference:
-            # show progress during LLM calls, not just final result)
-            def _progress(table: str, idx: int, total: int) -> None:
-                click.echo(f"[{idx}/{total}] Analyzing table: {table} ...")
-
-            # Retry loop: if analyze() fails, retry up to max_retries times.
-            # Each retry gets a fresh LLM call (the StagedSchemaAnalyzer
-            # internal cache is per-instance, so a new analyze() call
-            # re-invokes the LLM).
-            last_error: Exception | None = None
-            config_dict: dict[str, Any] | None = None
-            for attempt in range(1, max_retries + 2):  # +1 for initial attempt
-                try:
-                    config_dict = analyzer.analyze(
-                        db,
-                        tables=table_list,
-                        include_dependencies=not no_dependencies,
-                        max_depth=max_depth,
-                        progress_callback=_progress,
-                    )
-                    break  # Success
-                except Exception as e:
-                    last_error = e
-                    if attempt <= max_retries:
-                        click.echo(
-                            f"Attempt {attempt}/{max_retries + 1} failed: {e}. Retrying...",
-                            err=True,
-                        )
-                    else:
-                        click.echo(f"All {max_retries + 1} attempts failed.", err=True)
-
-            if config_dict is None:
-                raise last_error  # type: ignore[misc]
-
-            # Merge mode: replace regenerated tables in existing config
-            if merge and existing_tables:
-                regenerated_names = {t.get("name") for t in config_dict.get("tables", [])}
-                kept_tables = [t for t in existing_tables if t.get("name") not in regenerated_names]
-                config_dict["tables"] = config_dict.get("tables", []) + kept_tables
-
-            # Inject db_path/url + provider + locale so the generated YAML is
-            # directly fillable by `sqlseed fill --config <yaml>` and matches
-            # the field order of `ai-suggest` (db_path → provider → locale →
-            # tables). Rebuilding the dict (instead of mutating in place)
-            # guarantees a stable, human-readable top-level key order,
-            # because PyYAML respects insertion order when sort_keys=False.
-            # Reference: config/models.py GeneratorConfig defaults
-            #   provider: ProviderType.MIMESIS
-            #   locale:   "en_US"
-            tables = config_dict.get("tables", [])
-            rebuilt: dict[str, Any] = {}
-            if db_url:
-                rebuilt["url"] = db_url
-            else:
-                rebuilt["db_path"] = db_path
-            rebuilt["provider"] = config_dict.pop("provider", "mimesis")
-            rebuilt["locale"] = config_dict.pop("locale", "en_US")
-            rebuilt["tables"] = tables
-            # Preserve any remaining unexpected keys after the standard ones
-            # (forward-compat for analyzer-added metadata without reordering).
-            for k, v in config_dict.items():
-                if k not in rebuilt:
-                    rebuilt[k] = v
-            config_dict = rebuilt
-
-            output_path = Path(output)
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            with output_path.open("w", encoding="utf-8") as f:
-                yaml.safe_dump(config_dict, f, allow_unicode=True, sort_keys=False)
-
-            click.echo(f"Generated YAML config: {output_path}")
-            click.echo(f"Tables: {len(config_dict.get('tables', []))}")
-
-    except Exception as e:
-        click.echo(f"Error: {e}", err=True)
-        raise click.exceptions.Exit(1) from e
+        return orch.run()
+    except (ValueError, RuntimeError, OSError) as exc:
+        click.echo(f"Error: v4 auto-heal failed: {exc}", err=True)
+        raise SystemExit(1) from exc
 
 
 @click.command("auto-heal")
@@ -885,6 +790,7 @@ def auto_heal(
         validator=validator,
         total_budget_seconds=300.0,
         max_retries=max_retries,
+        verbose=True,  # Always verbose: user needs to see LLM progress in real time
     )
 
     try:

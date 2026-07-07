@@ -36,7 +36,7 @@ model fallback on timeout/connection errors.
 | `_json_utils.py` | LLM JSON response parsing (3-strategy fallback) |
 | `_model_selector.py` | Gemma model selection and fallback chain |
 | `examples.py` | Few-shot examples for LLM schema-analysis prompts |
-| `cli/ai_commands.py` | ai-suggest CLI command (injected into sqlseed CLI via entry_points) |
+| `cli/ai_commands.py` | 3 CLI commands injected into sqlseed CLI via entry_points: `ai-suggest` (per-table LLM analysis with `--auto-heal` flag), `ai-analyze` (default v4 AutoHealOrchestrator path for full/partial DB), `auto-heal` (standalone repair of existing YAML configs) |
 | `mcp.py` | AI MCP server (4 LLM-driven tools, install with sqlseed-ai[mcp]) |
 
 ## WHERE TO LOOK
@@ -182,7 +182,7 @@ pytest tests/test_ai_plugin.py tests/test_refiner.py
 ### Internal
 
 - `sqlseed` (core, generators, plugins hookspecs, `_utils.logger`, `_utils.paths`, `config.models.TableConfig`, `core.orchestrator.DataOrchestrator`)
-- `sqlseed-cli` (ai-suggest command injected via entry_points; sqlseed-ai depends on sqlseed-cli per ARCHITECTURE.md Section 6 Note)
+- `sqlseed-cli` (3 AI commands injected via entry_points: `ai-suggest`, `ai-analyze`, `auto-heal`; sqlseed-ai depends on sqlseed-cli per ARCHITECTURE.md Section 6 Note)
 
 ### External
 

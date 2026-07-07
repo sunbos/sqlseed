@@ -444,7 +444,7 @@ flowchart LR
 ```mermaid
 flowchart TB
     subgraph CLI_Trigger["触发入口"]
-        CLICmd["sqlseed ai-suggest"]
+        CLICmd["sqlseed ai-suggest / ai-analyze / auto-heal"]
         HookCall["sqlseed_ai_analyze_table Hook"]
         MCPTool["MCP: sqlseed_generate_yaml"]
         MCPGemma4Analyze["MCP: sqlseed_gemma4_analyze"]

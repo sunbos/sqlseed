@@ -14,9 +14,21 @@ pip install sqlseed-ai
 
 ## Quick Start
 
+The sqlseed-ai plugin provides **3 CLI commands**:
+
+| Command | Purpose | When to Use |
+| :------ | :------ | :---------- |
+| `ai-suggest` | Per-table LLM analysis with self-correction | Single-table analysis with `--verify` validation |
+| `ai-analyze` | Full/partial DB analysis via v4 AutoHealOrchestrator (default) | Multi-table YAML generation with contract-driven self-healing |
+| `auto-heal` | Repair broken YAML configs via LLM + rule-based pipeline | Fix YAML files that fail `sqlseed fill` |
+
 ```bash
 # Set API key (or use GOOGLE_API_KEY for Google AI Studio)
 export SQLSEED_AI_API_KEY="your-api-key"
+
+# ─────────────────────────────────────────────
+# ai-suggest: Per-table LLM analysis
+# ─────────────────────────────────────────────
 
 # Generate AI-suggested YAML config
 sqlseed ai-suggest app.db --table users --output users.yaml
@@ -32,6 +44,29 @@ sqlseed ai-suggest app.db --table users -o users.yaml --backend lm_studio --mode
 
 # Skip cache
 sqlseed ai-suggest app.db --table users -o users.yaml --no-cache
+
+# ─────────────────────────────────────────────
+# ai-analyze: Full DB analysis via v4 architecture (default)
+# ─────────────────────────────────────────────
+
+# Analyze entire database and generate YAML (v4 AutoHealOrchestrator)
+sqlseed ai-analyze --db app.db -o config.yaml
+
+# Multi-DB via --url
+sqlseed ai-analyze --url "postgresql+psycopg://user:pass@host/db" -o config.yaml
+
+# Log full LLM interactions for debugging
+sqlseed ai-analyze --db app.db -o config.yaml --log-llm
+
+# ─────────────────────────────────────────────
+# auto-heal: Repair broken YAML configs
+# ─────────────────────────────────────────────
+
+# After ai-analyze, if `sqlseed fill` fails on some tables, repair the YAML
+sqlseed auto-heal --db app.db --config broken.yaml -o healed.yaml
+
+# Use a different LLM model for healing
+sqlseed auto-heal --db app.db --config broken.yaml -o healed.yaml --model gemma-4-26b-a4b-it
 ```
 
 ## Features

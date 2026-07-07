@@ -369,11 +369,20 @@ class ColumnMapper:
         if getattr(column_info, "is_computed", False):
             return GeneratorSpec(generator_name="skip")
 
-        if column_info.is_primary_key and (
-            column_info.is_autoincrement or "INTEGER" in column_type or "INT" in column_type
-        ):
+        # L1a: Explicit AUTOINCREMENT PK — always skip (highest priority).
+        # ``is_autoincrement`` is True only when the SQL has the explicit
+        # ``AUTOINCREMENT`` keyword (see ``detect_sqlite_autoincrement``).
+        if column_info.is_primary_key and column_info.is_autoincrement:
             return GeneratorSpec(generator_name="skip")
 
+        # L2: User explicit config — respect user intent for non-autoincrement
+        # columns. This MUST run before the L1b implicit-INTEGER-PK skip below
+        # so that explicit YAML config for composite PK INTEGER columns (e.g.,
+        # ``doctor_schedules.day_of_week`` with ``generator: integer,
+        # params: {min_value: 0, max_value: 6}``) is honored. Without this
+        # ordering, the L1b heuristic would skip the column and the YAML
+        # config would be silently ignored, causing NOT NULL failures on
+        # composite PK columns that are NOT autoincrement.
         user_spec = self._map_from_user_config(user_config)
         if user_spec:
             exact_match = self._match_exact(column_name) or self._match_pattern(column_name)
@@ -403,6 +412,26 @@ class ColumnMapper:
                         merged_params.pop("max_length", None)
                     user_spec.params = merged_params
             return user_spec
+
+        # L1b: Implicit INTEGER PRIMARY KEY skip (no user config provided).
+        # SQLite treats single-column ``INTEGER PRIMARY KEY`` (without the
+        # explicit ``AUTOINCREMENT`` keyword) as an alias for ROWID — SQLite
+        # auto-generates a value when none is inserted. We skip these columns
+        # so the fill logic does not override SQLite's rowid assignment.
+        #
+        # Composite PK INTEGER columns (e.g., ``day_of_week`` in
+        # ``PRIMARY KEY(doctor_id, day_of_week)``) are NOT autoincrement and
+        # require explicit values. However, when no user config is provided,
+        # we still skip them here for backward compatibility — the caller
+        # (orchestrator/AI plugin) is expected to provide explicit config for
+        # composite PK columns. The AI plugin's ``_build_subgraph_config``
+        # always infers config for composite PK columns via CHECK constraints
+        # or type/name-based placeholders, so this skip only affects the
+        # zero-config path where the user relies on SQLite's implicit behavior.
+        if column_info.is_primary_key and (
+            "INTEGER" in column_type or "INT" in column_type
+        ):
+            return GeneratorSpec(generator_name="skip")
 
         exact_match = self._match_exact(column_name)
         if exact_match:

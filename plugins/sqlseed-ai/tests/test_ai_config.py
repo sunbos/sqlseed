@@ -339,16 +339,3 @@ class TestResolveToolCallingProtocol:
         monkeypatch.setenv("SQLSEED_AI_TOOL_CALLING_PROTOCOL", "none")
         config = AIConfig.from_env()
         assert config.tool_calling_protocol == "none"
-
-
-def test_ai_config_has_use_staged_pipeline_flag_default_false():
-    """use_staged_pipeline flag 默认 False (向后兼容, 走现有 SchemaSemanticAnalyzer)."""
-    config = AIConfig(api_key="test")
-    assert hasattr(config, "use_staged_pipeline")
-    assert config.use_staged_pipeline is False
-
-
-def test_ai_config_use_staged_pipeline_can_be_enabled():
-    """用户可显式开启分阶段管线."""
-    config = AIConfig(api_key="test", use_staged_pipeline=True)
-    assert config.use_staged_pipeline is True

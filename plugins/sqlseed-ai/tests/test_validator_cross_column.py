@@ -119,3 +119,33 @@ def test_validate_handles_string_derive_from(tmp_path: Path):
     violations = validator.validate(config, {"columns": [], "constraints": []}, snapshot)
     # No cycle, no self-reference → no violations
     assert violations == []
+
+
+def test_check_composite_unique_flags_individually_unique_composite_col():
+    """Rule #31: column only in composite UNIQUE should not have unique:true."""
+    from sqlseed_ai.validator.cross_column import CrossColumnValidator
+
+    validator = CrossColumnValidator()
+    table_config = {
+        "name": "user_emails",
+        "columns": [
+            {"name": "tenant_id", "generator": "integer", "params": {}, "constraints": {"unique": True}},
+            {"name": "email", "generator": "string", "params": {}},
+        ],
+    }
+    table_schema = {
+        "name": "user_emails",
+        "columns": [
+            {"name": "tenant_id", "type": "INTEGER", "nullable": False},
+            {"name": "email", "type": "TEXT", "nullable": False},
+        ],
+        "constraints": [
+            {"type": "unique", "columns": ["tenant_id", "email"]},  # composite
+        ],
+        "unique_indexes": [{"columns": ["tenant_id", "email"]}],
+    }
+
+    violations = validator._check_composite_unique(table_config, table_schema)
+    assert len(violations) == 1
+    assert violations[0].columns == ["tenant_id"]
+    assert violations[0].fix_hint == "strip_composite_unique"

@@ -603,9 +603,21 @@ sqlseed replay <cache_dir>/snapshots/YYYY-MM-DD_HHMMSS_users.yaml
 
 ### 教程 8：AI 智能配置（sqlseed-ai 插件）
 
+sqlseed-ai 插件提供 **3 个 CLI 命令**：
+
+| 命令 | 用途 | 适用场景 |
+| :--- | :--- | :--- |
+| `ai-suggest` | 单表 LLM 分析 + 自纠正 | 单表分析，支持 `--verify` 校验 |
+| `ai-analyze` | 全库/部分表分析，走 v4 AutoHealOrchestrator（默认路径） | 多表 YAML 生成，含契约驱动自愈 |
+| `auto-heal` | 通过 LLM + 规则管道修复损坏的 YAML 配置 | 修复 `sqlseed fill` 失败的 YAML 文件 |
+
 ```bash
 pip install sqlseed-ai
 export SQLSEED_AI_API_KEY="your-api-key"
+
+# ─────────────────────────────────────────────
+# ai-suggest: 单表 LLM 分析
+# ─────────────────────────────────────────────
 
 # AI 分析并生成配置
 sqlseed ai-suggest app.db --table projects --output projects.yaml
@@ -618,6 +630,32 @@ sqlseed ai-suggest app.db --table projects -o projects.yaml --model gemma-4-26b-
 sqlseed ai-suggest app.db --table projects -o projects.yaml --model gemma-4-31b-it --backend google_ai_studio
 sqlseed ai-suggest app.db --table projects -o projects.yaml --model google/gemma-4-e4b --backend lm_studio
 sqlseed ai-suggest app.db --table projects -o projects.yaml --model gemma-4-e4b-it --backend ollama
+
+# ─────────────────────────────────────────────
+# ai-analyze: 全库分析（v4 架构默认路径）
+# ─────────────────────────────────────────────
+
+# 分析整个数据库并生成 YAML（v4 AutoHealOrchestrator）
+sqlseed ai-analyze --db app.db -o config.yaml
+
+# 输出到 stdout（不指定 -o）
+sqlseed ai-analyze --db app.db
+
+# 通过 --url 连接多数据库
+sqlseed ai-analyze --url "postgresql+psycopg://user:pass@host/db" -o config.yaml
+
+# 记录完整 LLM 交互用于调试
+sqlseed ai-analyze --db app.db -o config.yaml --log-llm
+
+# ─────────────────────────────────────────────
+# auto-heal: 修复损坏的 YAML 配置
+# ─────────────────────────────────────────────
+
+# ai-analyze 之后若 `sqlseed fill` 失败，可修复 YAML
+sqlseed auto-heal --db app.db --config broken.yaml -o healed.yaml
+
+# 使用不同的 LLM 模型进行修复
+sqlseed auto-heal --db app.db --config broken.yaml -o healed.yaml --model gemma-4-26b-a4b-it
 ```
 
 **Gemma 4 原生函数调用（GEMMA_TOOLS）**：
@@ -753,6 +791,13 @@ sqlseed ai-suggest app.db -t users -o users.yaml --backend google_ai_studio --mo
 sqlseed ai-suggest app.db -t users -o users.yaml --backend ollama --model gemma-4-e4b-it
 sqlseed ai-suggest app.db -t users -o users.yaml --backend lm_studio --model google/gemma-4-e4b
 sqlseed ai-suggest app.db -t users -o users.yaml --backend openai_compat --model your-model --base-url https://your-api-endpoint
+
+# ═══ 全库分析与自愈（v4 默认路径）═══
+sqlseed ai-analyze --db app.db -o config.yaml
+sqlseed ai-analyze --url "postgresql+psycopg://user:pass@host/db" -o config.yaml
+
+# ═══ 修复损坏的 YAML 配置 ═══
+sqlseed auto-heal --db app.db --config broken.yaml -o healed.yaml
 ```
 
 ***
@@ -845,7 +890,7 @@ src/sqlseed/
 │   ├── loader.py            # YAML/JSON 加载与保存
 │   └── snapshot.py          # 快照保存与加载
 ├── cli/                     # ===== CLI =====
-│   └── main.py              # click 命令 (fill/preview/inspect/init/replay/ai-suggest)
+│   └── main.py              # click 命令 (fill/preview/inspect/init/replay)
 └── _utils/                  # ===== 内部工具 =====
     ├── sql_safe.py          # quote_identifier — SQL 注入防护
     ├── schema_helpers.py    # AUTOINCREMENT 检测

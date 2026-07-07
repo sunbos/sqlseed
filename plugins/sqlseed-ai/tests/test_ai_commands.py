@@ -1,8 +1,10 @@
 """Tests for the ``ai-analyze`` CLI command.
 
-These tests cover the ``ai-analyze`` subcommand added in Stage 6 of the
-schema-driven architecture refactor: full-database mode, partial-tables
-mode, and the ``--no-dependencies`` flag.
+Covers the v4 AutoHealOrchestrator default path (Phase 3 Task 3.1 of the
+v4 default migration) and the absence of the legacy ``--staged-pipeline``
+flag (removed in the same task). Legacy tests that mocked
+``SchemaSemanticAnalyzer`` were deleted in Phase 4 Task 4.1 along with the
+legacy analyzer itself.
 
 The ``cli_runner`` fixture is defined locally because the rootdir
 ``conftest.py`` does not provide one — CLI tests in this repo instantiate
@@ -13,9 +15,6 @@ self-contained.
 
 from __future__ import annotations
 
-from pathlib import Path
-from unittest.mock import patch
-
 import pytest
 from click.testing import CliRunner
 
@@ -24,22 +23,6 @@ from click.testing import CliRunner
 def cli_runner() -> CliRunner:
     """Provide a fresh ``CliRunner`` for invoking Click commands."""
     return CliRunner()
-
-
-def _fake_ai_config() -> object:
-    """Build a fake ``AIConfig`` with a placeholder API key.
-
-    The ``ai_analyze`` CLI command calls ``ai_config.resolve_api_key()`` before
-    reaching the mocked analyzer. Without a configured key, the command exits
-    with ``SystemExit(1)`` and the test never reaches the mock. Returning a
-    config with ``api_key="test-key"`` makes ``resolve_api_key()`` short-circuit
-    on the truthy ``api_key`` attribute, bypassing environment-variable lookup.
-    """
-    from sqlseed_ai.config import AIConfig
-
-    config = AIConfig.from_env()
-    config.api_key = "test-key"
-    return config
 
 
 class TestAiAnalyzeCommand:
@@ -54,121 +37,45 @@ class TestAiAnalyzeCommand:
         assert "--tables" in result.output
         assert "--output" in result.output
 
-    def test_ai_analyze_full_database(self, cli_runner: CliRunner, tmp_db_full: str) -> None:
-        from sqlseed_ai.cli.ai_commands import ai_analyze
 
-        with (
-            patch("sqlseed_ai.cli.ai_commands._build_ai_config", return_value=_fake_ai_config()),
-            patch("sqlseed_ai.cli.ai_commands.SchemaSemanticAnalyzer") as mock_analyzer,
-        ):
-            mock_inst = mock_analyzer.return_value
-            mock_inst.analyze.return_value = {"tables": [{"name": "users"}]}
-            result = cli_runner.invoke(
-                ai_analyze,
-                ["--db", str(tmp_db_full), "--output", str(Path(tmp_db_full).parent / "out.yaml")],
-            )
-            assert result.exit_code == 0
-            mock_inst.analyze.assert_called_once()
+def test_ai_analyze_defaults_to_v4_path(monkeypatch, tmp_path):
+    """ai-analyze without --staged-pipeline should use AutoHealOrchestrator (v4)."""
+    import sqlite3
 
-    def test_ai_analyze_partial_tables(self, cli_runner: CliRunner, tmp_db_full: str) -> None:
-        from sqlseed_ai.cli.ai_commands import ai_analyze
-
-        with (
-            patch("sqlseed_ai.cli.ai_commands._build_ai_config", return_value=_fake_ai_config()),
-            patch("sqlseed_ai.cli.ai_commands.SchemaSemanticAnalyzer") as mock_analyzer,
-        ):
-            mock_inst = mock_analyzer.return_value
-            mock_inst.analyze.return_value = {"tables": []}
-            result = cli_runner.invoke(
-                ai_analyze,
-                ["--db", str(tmp_db_full), "--tables", "orders", "--output", "out.yaml"],
-            )
-            assert result.exit_code == 0
-            call_kwargs = mock_inst.analyze.call_args.kwargs
-            assert call_kwargs.get("tables") == ["orders"]
-
-    def test_ai_analyze_no_dependencies_flag(self, cli_runner: CliRunner, tmp_db_full: str) -> None:
-        from sqlseed_ai.cli.ai_commands import ai_analyze
-
-        with (
-            patch("sqlseed_ai.cli.ai_commands._build_ai_config", return_value=_fake_ai_config()),
-            patch("sqlseed_ai.cli.ai_commands.SchemaSemanticAnalyzer") as mock_analyzer,
-        ):
-            mock_inst = mock_analyzer.return_value
-            mock_inst.analyze.return_value = {"tables": []}
-            result = cli_runner.invoke(
-                ai_analyze,
-                ["--db", str(tmp_db_full), "--no-dependencies", "--output", "out.yaml"],
-            )
-            assert result.exit_code == 0
-            call_kwargs = mock_inst.analyze.call_args.kwargs
-            assert call_kwargs.get("include_dependencies") is False
-
-
-def test_ai_analyze_yaml_has_correct_field_order(cli_runner: CliRunner, tmp_db_full: str, tmp_path: Path) -> None:
-    """ai-analyze YAML output should have db_path → provider → locale → tables order.
-
-    Regression test: previously the ai-analyze path mutated ``config_dict``
-    in place by appending ``db_path`` at the end (after tables), and entirely
-    omitted ``provider`` and ``locale``. That produced YAML that was harder
-    to read (connection target buried at the bottom) and inconsistent with
-    the ``ai-suggest`` path (which uses ``_write_ai_output`` to build a
-    properly ordered dict). This test pins the canonical top-level key
-    order so both paths converge on the same human-readable layout.
-    """
-    import yaml
+    from click.testing import CliRunner
     from sqlseed_ai.cli.ai_commands import ai_analyze
 
-    out_path = tmp_path / "field_order_out.yaml"
-    with (
-        patch("sqlseed_ai.cli.ai_commands._build_ai_config", return_value=_fake_ai_config()),
-        patch("sqlseed_ai.cli.ai_commands.SchemaSemanticAnalyzer") as mock_analyzer,
-    ):
-        mock_inst = mock_analyzer.return_value
-        mock_inst.analyze.return_value = {"tables": [{"name": "users"}]}
-        result = cli_runner.invoke(
-            ai_analyze,
-            ["--db", str(tmp_db_full), "--output", str(out_path)],
-        )
-        assert result.exit_code == 0
+    # Create a minimal SQLite db
+    db_path = tmp_path / "test.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
+    conn.commit()
+    conn.close()
 
-    data = yaml.safe_load(out_path.read_text(encoding="utf-8"))
-    keys = list(data.keys())
-    # Canonical order: connection target first, then provider/locale, then tables
-    assert keys == ["db_path", "provider", "locale", "tables"], (
-        f"Expected [db_path, provider, locale, tables], got {keys}"
-    )
-    assert data["db_path"] == str(tmp_db_full)
-    assert data["provider"] == "mimesis"
-    assert data["locale"] == "en_US"
-    assert data["tables"] == [{"name": "users"}]
+    captured: dict = {}
 
+    def _fake_run_auto_heal_v4(*, db_path=None, db_url=None, **kwargs):
+        captured["called"] = True
+        captured["db_path"] = db_path
+        captured["db_url"] = db_url
+        return "tables: []\n"  # Return a minimal YAML string
 
-def test_ai_analyze_command_accepts_staged_pipeline_flag() -> None:
-    """ai-analyze command accepts --staged-pipeline flag."""
-    from sqlseed_ai.cli.ai_commands import ai_analyze
+    monkeypatch.setattr("sqlseed_ai.cli.ai_commands._run_auto_heal_v4", _fake_run_auto_heal_v4)
 
     runner = CliRunner()
-    # Use --help to verify the flag exists without invoking the LLM
-    result = runner.invoke(ai_analyze, ["--help"])
-    assert result.exit_code == 0
-    assert "--staged-pipeline" in result.output
-
-
-def test_ai_analyze_command_staged_pipeline_flag_sets_config() -> None:
-    """--staged-pipeline flag flips AIConfig.use_staged_pipeline to True."""
-    from sqlseed_ai.cli.ai_commands import _build_ai_config
-
-    config = _build_ai_config(
-        api_key="test",
-        model="gemma-4-e2b-it",
-        staged_pipeline=True,
+    result = runner.invoke(
+        ai_analyze,
+        ["--db", str(db_path), "-o", str(tmp_path / "out.yaml")],
+        env={"SQLSEED_AI_API_KEY": "test"},
     )
-    assert config.use_staged_pipeline is True
+    assert result.exit_code == 0, f"exit_code={result.exit_code}, output={result.output}"
+    assert captured.get("called") is True
+    assert captured.get("db_path") == str(db_path)
 
-    config2 = _build_ai_config(
-        api_key="test",
-        model="gemma-4-e2b-it",
-        staged_pipeline=False,
-    )
-    assert config2.use_staged_pipeline is False
+
+def test_ai_analyze_no_longer_has_staged_pipeline_flag():
+    """ai-analyze should NOT have --staged-pipeline flag after migration."""
+    from sqlseed_ai.cli.ai_commands import ai_analyze
+
+    option_names = [opt.name for opt in ai_analyze.params]
+    assert "staged_pipeline" not in option_names

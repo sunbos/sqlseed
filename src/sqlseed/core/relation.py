@@ -252,6 +252,9 @@ class RelationResolver:
         specs: dict[str, GeneratorSpec],
         fk_columns: set[str],
     ) -> None:
+        # Fetch column info once for nullability checks (self-referencing FK
+        # handling below needs to know whether the column permits NULL).
+        column_info_map: dict[str, bool] = {}
         for col_name in fk_columns:
             if col_name not in specs:
                 continue
@@ -262,6 +265,49 @@ class RelationResolver:
             if fk_info is None:
                 continue
             ref_values = self.resolve_foreign_key_values(table_name, col_name)
+            # Self-referencing FK handling: when the parent table is the same
+            # as the current table (e.g., ``departments.parent_id REFERENCES
+            # departments(id)``), the parent is empty at spec resolution time
+            # because no rows have been inserted yet. Without special handling,
+            # the empty ``_ref_values`` causes the generator to fall back to
+            # a random integer in [1, 999999], producing FK violations.
+            #
+            # Fix: if the column is nullable, force ``null_ratio=1.0`` so all
+            # rows get NULL (valid for nullable self-referencing FKs). This
+            # avoids FK violations while preserving data integrity. A
+            # two-pass approach (insert then update) would produce richer
+            # hierarchies but requires orchestrator-level changes.
+            is_self_ref = fk_info.ref_table == table_name
+            if is_self_ref and not ref_values:
+                if not column_info_map:
+                    column_info_map = {
+                        c.name: c.nullable for c in self._db.get_column_info(table_name)
+                    }
+                col_nullable = column_info_map.get(col_name, True)
+                if col_nullable:
+                    specs[col_name] = GeneratorSpec(
+                        generator_name="foreign_key",
+                        params={
+                            "ref_table": fk_info.ref_table,
+                            "ref_column": fk_info.ref_column,
+                            "strategy": "random",
+                            "_ref_values": ref_values,
+                            "_fallback_min": 1,
+                            "_fallback_max": 1,
+                        },
+                        null_ratio=1.0,
+                        provider=spec.provider,
+                    )
+                    logger.debug(
+                        "Self-referencing FK with empty parent, set null_ratio=1.0",
+                        table_name=table_name,
+                        column_name=col_name,
+                        ref_table=fk_info.ref_table,
+                    )
+                    continue
+                # NOT NULL self-referencing FK with empty parent: fall through
+                # to the default upgrade (will use fallback integers). This is
+                # a known limitation — a two-pass fill would be needed.
             # Preserve the original spec's min_value/max_value so that when the
             # parent table is empty (empty _ref_values), the FK fallback in
             # DataStream._handle_foreign_key can generate values within the

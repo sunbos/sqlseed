@@ -40,7 +40,7 @@ sqlseed/
 | Add new generator | `src/sqlseed/generators/` | Create new provider; base_provider is type-routing only, real data from faker/mimesis |
 | Modify column mapping | `src/sqlseed/core/mapper.py` | 9-level strategy chain |
 | Add CLI command | `plugins/sqlseed-cli/src/sqlseed_cli/main.py` | Core commands (fill, preview, inspect, init, replay) |
-| Add AI CLI command | `plugins/sqlseed-ai/src/sqlseed_ai/cli/ai_commands.py` | AI commands (ai-suggest), injected via entry_points |
+| Add AI CLI command | `plugins/sqlseed-ai/src/sqlseed_ai/cli/ai_commands.py` | 3 AI commands (ai-suggest, ai-analyze, auto-heal), injected via entry_points |
 | Add plugin hook | `src/sqlseed/plugins/hookspecs.py` | pluggy hookspec |
 | Modify schema inference | `src/sqlseed/core/schema.py` | SchemaInferrer class |
 | Change batch insert | `src/sqlseed/database/` | SQLAlchemyAdapter (required), RawSQLiteAdapter (test-only) |
