@@ -809,6 +809,7 @@ def _infer_cross_column_config(
     - ``col >= other AND col <= Y`` (compound — column lower + literal upper)
     - ``col > X AND col < other`` (compound — exclusive literal lower + exclusive column upper)
     - ``col > other AND col < Y`` (compound — exclusive column lower + exclusive literal upper)
+    - ``col != VALUE OR other_col = VALUE2`` (conditional equality — derive col from other_col)
 
     Skipped patterns (not safely inferable from CHECK alone):
     - ``col != other`` for non-integer columns (needs FK pool awareness)
@@ -1099,6 +1100,47 @@ def _infer_cross_column_config(
                     "derive_from": other_col,
                     "expression": "value - 1 if value > 1 else value + 1",
                 }
+
+        # Pattern 18: col != VALUE OR other_col = VALUE2 (conditional equality)
+        # e.g., is_completed != 1 OR watched_percent = 100
+        # Semantics: if col = VALUE, then other_col must = VALUE2.
+        # Solution: derive col from other_col — set col = VALUE when
+        # other_col = VALUE2, else set col to the opposite (1-VALUE for
+        # boolean, 0 for non-boolean). This always satisfies the constraint:
+        #   other_col = VALUE2 → col = VALUE → (VALUE != VALUE) OR (VALUE2 = VALUE2) → True
+        #   other_col != VALUE2 → col = 1-VALUE → (1-VALUE != VALUE) OR (...) → True
+        # Also handles the commutative form: other_col = VALUE2 OR col != VALUE
+        p18_other: str | None = None
+        p18_val: int = 0
+        p18_val2: int = 0
+        m18 = re.match(
+            rf"^\s*{col}\s*!=\s*(\d+)\s+OR\s+(\w+)\s*=\s*(\d+)\s*$",
+            expr,
+            re.IGNORECASE,
+        )
+        if m18:
+            p18_val = int(m18.group(1))
+            p18_other = m18.group(2)
+            p18_val2 = int(m18.group(3))
+        else:
+            # Try commutative form: other_col = VALUE2 OR col != VALUE
+            m18 = re.match(
+                rf"^\s*(\w+)\s*=\s*(\d+)\s+OR\s+{col}\s*!=\s*(\d+)\s*$",
+                expr,
+                re.IGNORECASE,
+            )
+            if m18:
+                p18_other = m18.group(1)
+                p18_val2 = int(m18.group(2))
+                p18_val = int(m18.group(3))
+        if m18 and p18_other and p18_other in col_set and p18_other != col_name:
+            # For boolean columns (val in {0,1}): opposite is 1-val.
+            # For other integer columns: opposite is 0 (safe default).
+            opposite = 1 - p18_val if p18_val in (0, 1) else 0
+            return {
+                "derive_from": p18_other,
+                "expression": f"{p18_val} if value == {p18_val2} else {opposite}",
+            }
 
         # Pattern 7: col >= col1 * col2 (arithmetic comparison)
         # e.g., total_price >= unit_price * quantity
