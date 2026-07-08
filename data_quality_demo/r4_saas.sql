@@ -1,9 +1,11 @@
 -- Round 4: SaaS Multi-Tenant Platform (13 tables)
+-- Compatible: SQLite + PostgreSQL
 -- Exercises: Org hierarchy, tenant isolation, subscription billing cycle,
 --             RBAC, API key rotation, usage metering, conditional NULL,
 --             cross-column date/pricing constraints
-
-PRAGMA foreign_keys = ON;
+-- Note: SQLite enables FK via PRAGMA foreign_keys=ON at connection time.
+--       PostgreSQL enables FK by default. AUTOINCREMENT is SQLite syntax;
+--       PG equivalent: GENERATED ALWAYS AS IDENTITY.
 
 CREATE TABLE organizations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

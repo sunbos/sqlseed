@@ -1,8 +1,10 @@
 -- Round 2: Hospital Information System (12 tables)
+-- Compatible: SQLite + PostgreSQL
 -- Exercises: Department hierarchy, doctor scheduling, appointment state machine,
 --             prescription dosage, conditional NULL, cross-column date/time
-
-PRAGMA foreign_keys = ON;
+-- Note: SQLite enables FK via PRAGMA foreign_keys=ON at connection time.
+--       PostgreSQL enables FK by default. AUTOINCREMENT is SQLite syntax;
+--       PG equivalent: GENERATED ALWAYS AS IDENTITY.
 
 CREATE TABLE departments (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

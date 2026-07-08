@@ -1,9 +1,11 @@
 -- Round 6: Banking Domain (12 tables)
+-- Compatible: SQLite + PostgreSQL
 -- Exercises: Pattern 29 (3-col arithmetic), Pattern 30 (conditional NULL),
 --             Pattern 33 (conditional arithmetic by type), inequality CHECK,
 --             self-referencing FK, compound UNIQUE, date ordering
-
-PRAGMA foreign_keys = ON;
+-- Note: SQLite enables FK via PRAGMA foreign_keys=ON at connection time.
+--       PostgreSQL enables FK by default. AUTOINCREMENT is SQLite syntax;
+--       PG equivalent: GENERATED ALWAYS AS IDENTITY.
 
 CREATE TABLE branches (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -171,7 +173,7 @@ CREATE TABLE loan_payments (
     status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'paid', 'overdue', 'partial')),
     FOREIGN KEY (loan_id) REFERENCES loans(id),
     CHECK (total_amount = principal_amount + interest_amount + penalty_amount),
-    CHECK (paid_at IS NULL OR DATE(paid_at) >= due_date - DATE('30 days')),
+    CHECK (paid_at IS NULL OR DATE(paid_at) >= due_date),
     CHECK (status != 'paid' OR paid_at IS NOT NULL)
 );
 

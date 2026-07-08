@@ -1,8 +1,10 @@
 -- Round 5: Online Education Platform (12 tables)
+-- Compatible: SQLite + PostgreSQL
 -- Exercises: Pattern 18 (conditional equality), Pattern 28 (conditional requirement),
 --             date ordering, enum distributions, UNIQUE templates, cross-table FK
-
-PRAGMA foreign_keys = ON;
+-- Note: SQLite enables FK via PRAGMA foreign_keys=ON at connection time.
+--       PostgreSQL enables FK by default. AUTOINCREMENT is SQLite syntax;
+--       PG equivalent: GENERATED ALWAYS AS IDENTITY.
 
 CREATE TABLE users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

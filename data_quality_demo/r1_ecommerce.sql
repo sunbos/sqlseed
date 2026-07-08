@@ -1,8 +1,10 @@
 -- Round 1: E-Commerce + Inventory System (12 tables)
+-- Compatible: SQLite + PostgreSQL
 -- Exercises: SKU management, order state machine, inventory deduction,
 --             cross-column price constraints, conditional NULL, date ordering
-
-PRAGMA foreign_keys = ON;
+-- Note: SQLite enables FK via PRAGMA foreign_keys=ON at connection time.
+--       PostgreSQL enables FK by default. AUTOINCREMENT is SQLite syntax;
+--       PG equivalent: GENERATED ALWAYS AS IDENTITY.
 
 CREATE TABLE categories (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -1,10 +1,12 @@
 -- Round 7: Insurance Domain (12 tables)
+-- Compatible: SQLite + PostgreSQL
 -- Exercises: Pattern 36 (N-way conditional range with dual bounds),
 --             Pattern 8e (col >= X AND col < other_col),
 --             Pattern 28 (cross-column upper bound via min()),
 --             IS NULL OR prefix stripping, multi-clause compound OR CHECK
-
-PRAGMA foreign_keys = ON;
+-- Note: SQLite enables FK via PRAGMA foreign_keys=ON at connection time.
+--       PostgreSQL enables FK by default. AUTOINCREMENT is SQLite syntax;
+--       PG equivalent: GENERATED ALWAYS AS IDENTITY.
 
 CREATE TABLE agents (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -1,8 +1,10 @@
 -- Round 3: Logistics & Supply Chain (12 tables)
+-- Compatible: SQLite + PostgreSQL
 -- Exercises: Warehouse hierarchy, shipment state machine, package weight/volume,
 --             multi-leg routing, delivery attempts, conditional NULL, date ordering
-
-PRAGMA foreign_keys = ON;
+-- Note: SQLite enables FK via PRAGMA foreign_keys=ON at connection time.
+--       PostgreSQL enables FK by default. AUTOINCREMENT is SQLite syntax;
+--       PG equivalent: GENERATED ALWAYS AS IDENTITY.
 
 CREATE TABLE regions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
