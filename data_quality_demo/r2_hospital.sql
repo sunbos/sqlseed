@@ -65,7 +65,8 @@ CREATE TABLE patients (
     status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'admitted', 'discharged')),
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CHECK (LENGTH(phone) >= 7),
-    CHECK (emergency_phone IS NULL OR LENGTH(emergency_phone) >= 7)
+    CHECK (emergency_phone IS NULL OR LENGTH(emergency_phone) >= 7),
+    CHECK (COALESCE(emergency_phone, phone) IS NOT NULL)
 );
 
 CREATE TABLE shifts (
@@ -126,12 +127,14 @@ CREATE TABLE medical_records (
     temperature REAL CHECK (temperature IS NULL OR (temperature >= 35.0 AND temperature <= 42.0)),
     blood_pressure_high INTEGER CHECK (blood_pressure_high IS NULL OR (blood_pressure_high >= 60 AND blood_pressure_high <= 250)),
     blood_pressure_low INTEGER CHECK (blood_pressure_low IS NULL OR (blood_pressure_low >= 40 AND blood_pressure_low <= 150)),
+    avg_bp REAL,
     heart_rate INTEGER CHECK (heart_rate IS NULL OR (heart_rate >= 30 AND heart_rate <= 220)),
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (patient_id) REFERENCES patients(id),
     FOREIGN KEY (doctor_id) REFERENCES doctors(id),
     FOREIGN KEY (appointment_id) REFERENCES appointments(id),
-    CHECK (blood_pressure_low IS NULL OR blood_pressure_low < blood_pressure_high)
+    CHECK (blood_pressure_low IS NULL OR blood_pressure_low < blood_pressure_high),
+    CHECK (avg_bp IS NULL OR avg_bp = (blood_pressure_high + blood_pressure_low) / 2.0)
 );
 
 CREATE TABLE prescriptions (
@@ -149,7 +152,8 @@ CREATE TABLE prescriptions (
     FOREIGN KEY (doctor_id) REFERENCES doctors(id),
     FOREIGN KEY (pharmacist_id) REFERENCES nurses(id),
     CHECK (status != 'dispensed' OR dispensed_at IS NOT NULL),
-    CHECK (dispensed_at IS NULL OR dispensed_at >= prescribed_at)
+    CHECK (dispensed_at IS NULL OR dispensed_at >= prescribed_at),
+    CHECK (status != 'cancelled' OR dispensed_at IS NULL)
 );
 
 CREATE TABLE prescription_items (
@@ -234,6 +238,6 @@ CREATE TABLE billing (
     FOREIGN KEY (admission_id) REFERENCES admissions(id),
     FOREIGN KEY (appointment_id) REFERENCES appointments(id),
     CHECK (total_price = unit_price * quantity),
-    CHECK (insurance_covered + patient_paid <= total_price),
+    CHECK (insurance_covered + patient_paid = total_price),
     CHECK (status != 'paid' OR paid_at IS NOT NULL)
 );
