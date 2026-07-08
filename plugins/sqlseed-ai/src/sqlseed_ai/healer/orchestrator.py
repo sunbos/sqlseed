@@ -87,11 +87,12 @@ class HealOrchestrator:
         attempts: list[HealAttempt] = []
         current_config = copy.deepcopy(config)
         current_violations = list(violations)
+        table_name = task.tables[0] if task.tables else ""
 
         for round_num in range(1, self._max_rounds + 1):
             if time.monotonic() - start > self._time_budget:
                 logger.warning("HealOrchestrator time budget exhausted", budget=self._time_budget)
-                return self._degrade_and_return(
+                degraded_result = self._degrade_and_return(
                     current_config,
                     current_violations,
                     DegradeReason.TIME_BUDGET_EXHAUSTED,
@@ -99,6 +100,8 @@ class HealOrchestrator:
                     round_num,
                     start,
                 )
+                self._log_heal_complete(table_name, degraded_result, start)
+                return degraded_result
 
             result = self._try_one_round(task, current_violations, current_config, attempts, round_num)
 
@@ -110,7 +113,7 @@ class HealOrchestrator:
                 new_violations = self._extract_violations(val_result)
 
                 if not new_violations:
-                    return HealResult(
+                    heal_result = HealResult(
                         config=current_config,
                         success=True,
                         level_used=result.level,
@@ -118,12 +121,14 @@ class HealOrchestrator:
                         total_attempts=round_num,
                         total_elapsed=time.monotonic() - start,
                     )
+                    self._log_heal_complete(table_name, heal_result, start)
+                    return heal_result
 
                 # New violations — feed back into the loop.
                 current_violations = new_violations
                 if self._oscillation.check_and_record(current_violations):
                     logger.warning("Oscillation detected, degrading", round=round_num)
-                    return self._degrade_and_return(
+                    degraded_result = self._degrade_and_return(
                         current_config,
                         current_violations,
                         DegradeReason.LLM_OSCILLATION,
@@ -131,6 +136,8 @@ class HealOrchestrator:
                         round_num,
                         start,
                     )
+                    self._log_heal_complete(table_name, degraded_result, start)
+                    return degraded_result
                 continue
 
             # Failure — classify and route.
@@ -140,7 +147,7 @@ class HealOrchestrator:
 
             # For non-network failures, the routing is handled inside
             # _try_one_round. If we reach here, all levels failed.
-            return self._degrade_and_return(
+            degraded_result = self._degrade_and_return(
                 current_config,
                 current_violations,
                 DegradeReason.LLM_FAILURE,
@@ -148,14 +155,64 @@ class HealOrchestrator:
                 round_num,
                 start,
             )
+            self._log_heal_complete(table_name, degraded_result, start)
+            return degraded_result
 
-        return self._degrade_and_return(
+        degraded_result = self._degrade_and_return(
             current_config,
             current_violations,
             DegradeReason.MAX_RETRIES_EXCEEDED,
             attempts,
             self._max_rounds,
             start,
+        )
+        self._log_heal_complete(table_name, degraded_result, start)
+        return degraded_result
+
+    @staticmethod
+    def _log_heal_attempt(
+        table_name: str,
+        attempt: HealAttempt,
+        column: str = "",
+        next_level: int = 0,
+    ) -> None:
+        """Log a single heal attempt (Spec 5.5 — heal_attempt event).
+
+        Records level, failure_type, latency, token estimate, and the next
+        level to try (for diagnostics and post-hoc analysis).
+        """
+        logger.info(
+            "heal_attempt",
+            table=table_name,
+            level=attempt.level,
+            column=column or None,
+            failure_type=attempt.failure_type.value if attempt.failure_type else None,
+            latency_ms=attempt.latency_ms,
+            token_estimate=attempt.token_estimate,
+            next_level=next_level or None,
+            error=attempt.error_message,
+        )
+
+    def _log_heal_complete(self, table_name: str, result: HealResult, start: float) -> None:
+        """Log the final heal result (Spec 5.5 — heal_complete event)."""
+        logger.info(
+            "heal_complete",
+            table=table_name,
+            success=result.success,
+            level_used=result.level_used,
+            total_attempts=result.total_attempts,
+            total_elapsed_ms=int((time.monotonic() - start) * 1000),
+            degraded_columns=result.degraded_columns,
+            failure_type=result.failure_type.value if result.failure_type else None,
+            attempts=[
+                {
+                    "level": a.level,
+                    "failure_type": a.failure_type.value if a.failure_type else None,
+                    "latency_ms": a.latency_ms,
+                    "token_estimate": a.token_estimate,
+                }
+                for a in result.attempts
+            ],
         )
 
     def _try_one_round(
@@ -182,15 +239,18 @@ class HealOrchestrator:
                 if l1_result.success
                 else self._failure_classifier.classify(l1_result.error, l1_result.raw_response)
             )
-            attempts.append(
-                HealAttempt(
-                    level=1,
-                    failure_type=l1_ftype,
-                    latency_ms=int(l1_result.elapsed_seconds * 1000),
-                    token_estimate=l1_result.prompt_tokens,
-                    error_message=str(l1_result.error) if l1_result.error else None,
-                )
+            l1_attempt = HealAttempt(
+                level=1,
+                failure_type=l1_ftype,
+                latency_ms=int(l1_result.elapsed_seconds * 1000),
+                token_estimate=l1_result.prompt_tokens,
+                error_message=str(l1_result.error) if l1_result.error else None,
             )
+            attempts.append(l1_attempt)
+            table_name = task.tables[0] if task.tables else ""
+            # Spec 5.5: log heal_attempt with next_level routing hint.
+            next_level = 0 if l1_result.success else self._next_level_after_l1(l1_ftype or FailureType.UNKNOWN)
+            self._log_heal_attempt(table_name, l1_attempt, next_level=next_level)
             if l1_result.success:
                 return _RoundResult(success=True, level=1, config_patch=l1_result.config_patch or {})
 
@@ -243,15 +303,17 @@ class HealOrchestrator:
                     if l2_result.success
                     else self._failure_classifier.classify(l2_result.error, l2_result.raw_response)
                 )
-                attempts.append(
-                    HealAttempt(
-                        level=2,
-                        failure_type=l2_ftype,
-                        latency_ms=int(l2_result.elapsed_seconds * 1000),
-                        token_estimate=l2_result.prompt_tokens,
-                        error_message=str(l2_result.error) if l2_result.error else None,
-                    )
+                l2_attempt = HealAttempt(
+                    level=2,
+                    failure_type=l2_ftype,
+                    latency_ms=int(l2_result.elapsed_seconds * 1000),
+                    token_estimate=l2_result.prompt_tokens,
+                    error_message=str(l2_result.error) if l2_result.error else None,
                 )
+                attempts.append(l2_attempt)
+                # Spec 5.5: log heal_attempt per column with next_level hint.
+                next_level = 0 if l2_result.success else (3 if l2_ftype == FailureType.CONTEXT_OVERFLOW else 4)
+                self._log_heal_attempt(v.table, l2_attempt, column=col, next_level=next_level)
                 if l2_result.success and l2_result.config_patch:
                     # Merge single-column patch into merged_patch.
                     self._merge_column_patch(merged_patch, v.table, l2_result.config_patch)
@@ -285,15 +347,18 @@ class HealOrchestrator:
         l3_ftype = (
             None if l3_result.success else self._failure_classifier.classify(l3_result.error, l3_result.raw_response)
         )
-        attempts.append(
-            HealAttempt(
-                level=3,
-                failure_type=l3_ftype,
-                latency_ms=int(l3_result.elapsed_seconds * 1000),
-                token_estimate=l3_result.prompt_tokens,
-                error_message=str(l3_result.error) if l3_result.error else None,
-            )
+        l3_attempt = HealAttempt(
+            level=3,
+            failure_type=l3_ftype,
+            latency_ms=int(l3_result.elapsed_seconds * 1000),
+            token_estimate=l3_result.prompt_tokens,
+            error_message=str(l3_result.error) if l3_result.error else None,
         )
+        attempts.append(l3_attempt)
+        table_name = task.tables[0] if task.tables else ""
+        # Spec 5.5: log heal_attempt. next_level = 3 if retrying ultra_compact, else 4 (degrade).
+        next_level = 0 if l3_result.success else (3 if mode == "compact" else 4)
+        self._log_heal_attempt(table_name, l3_attempt, next_level=next_level)
         if l3_result.success:
             return _RoundResult(success=True, level=3, config_patch=l3_result.config_patch or {})
 
@@ -303,6 +368,18 @@ class HealOrchestrator:
 
         # ultra_compact also failed → degrade.
         return _RoundResult(success=False, level=3, failure_type=l3_ftype or FailureType.UNKNOWN)
+
+    @staticmethod
+    def _next_level_after_l1(ftype: FailureType) -> int:
+        """Determine next level after Level 1 failure (Spec 2.2 routing)."""
+        if ftype in (FailureType.CONTEXT_OVERFLOW, FailureType.EMPTY_RESPONSE):
+            return 2
+        if ftype == FailureType.JSON_FORMAT:
+            return 3
+        if ftype == FailureType.NETWORK:
+            return 0  # raise, no next level
+        # SEMANTIC or UNKNOWN → degrade
+        return 4
 
     def _degrade_and_return(
         self,
