@@ -468,6 +468,47 @@ def test_pattern_8e_does_not_match_inclusive_upper():
     assert "0.99" not in result["expression"]
 
 
+# --- Pattern 8 standalone: col <= other_col (Round 5 fix) ---
+
+
+def test_pattern_8_integer_uses_random_int_zero_to_value():
+    """Pattern 8 (int): ``col <= other_col`` → ``random_int(0, value)``.
+
+    The previous expression ``value - random_int(0, 100)`` could produce
+    negative values when value < 100, violating companion CHECK ``col >= 0``.
+    The fix uses ``random_int(0, value)`` which guarantees 0 <= result <= value.
+    """
+    constraints = [{"type": "check", "expression": "used_count <= total_count"}]
+    result = _infer_cross_column_config(
+        "used_count", constraints, ["used_count", "total_count"], "INTEGER"
+    )
+    assert result is not None
+    assert result["derive_from"] == "total_count"
+    assert result["expression"] == "random_int(0, value)"
+
+
+def test_pattern_8_float_uses_multiply_factor():
+    """Pattern 8 (float): ``col <= other_col`` → ``value * random_float(0.5, 1.0)``."""
+    constraints = [{"type": "check", "expression": "remaining <= limit"}]
+    result = _infer_cross_column_config(
+        "remaining", constraints, ["remaining", "limit"], "REAL"
+    )
+    assert result is not None
+    assert result["derive_from"] == "limit"
+    assert "random_float(0.5, 1.0)" in result["expression"]
+
+
+def test_pattern_8_date_uses_timedelta_subtract():
+    """Pattern 8 (date): ``col <= other_col`` → ``value - timedelta(days=...)``."""
+    constraints = [{"type": "check", "expression": "end_date <= start_date"}]
+    result = _infer_cross_column_config(
+        "end_date", constraints, ["end_date", "start_date"], "TEXT"
+    )
+    assert result is not None
+    assert result["derive_from"] == "start_date"
+    assert "timedelta" in result["expression"]
+
+
 # --- Pattern 28: cross-column upper bound awareness (Round 7 fix) ---
 
 
@@ -930,3 +971,148 @@ def test_step55_missing_generator_unknown_text_falls_back_to_string(semantic_db:
     config = _run_with_stripped_generators(semantic_db)
     col = _find_column(config, "profiles", "unknown_text_col")
     assert col["generator"] == "string"
+
+
+# ---------------------------------------------------------------------------
+# Step 5.5 — missing template param repair (Round 5 fix)
+# ---------------------------------------------------------------------------
+
+
+def _run_with_missing_template_param(db_path: Path) -> dict:
+    """Run AutoHealOrchestrator simulating LLM providing template generator without template param.
+
+    The mock healer returns a config where ``generator: template`` is set
+    but ``params: {}`` — the ``template`` field is missing. Step 5.5 should
+    fill in a default template using the column name prefix.
+    """
+    mock_healer = MagicMock()
+    mock_healer.heal.return_value = SimpleNamespace(
+        config={
+            "tables": [
+                {
+                    "name": "profiles",
+                    "columns": [
+                        {"name": "id", "generator": "autoincrement", "params": {}},
+                        {"name": "user_code", "generator": "template", "params": {}},
+                        {"name": "order_no", "generator": "template", "params": {}},
+                        {"name": "cert_no", "generator": "template", "params": {}},
+                    ],
+                }
+            ]
+        },
+        level_used=4,
+        success=True,
+        degraded_columns=[],
+    )
+    mock_validator = MagicMock()
+    mock_validator.validate.return_value = [MagicMock()]
+    orch = AutoHealOrchestrator(
+        db_path=str(db_path),
+        heal_orchestrator=mock_healer,
+        validator=mock_validator,
+        total_budget_seconds=10.0,
+    )
+    yaml_str = orch.run()
+    return yaml.safe_load(yaml_str)
+
+
+def test_step55_missing_template_param_gets_default(semantic_db: Path):
+    """Step 5.5: ``generator: template, params: {}`` → default template filled in.
+
+    Without this fix, the template generator raises KeyError at fill time
+    because ``params["template"]`` doesn't exist, causing the entire table
+    to fail (0 rows generated).
+    """
+    config = _run_with_missing_template_param(semantic_db)
+    col = _find_column(config, "profiles", "user_code")
+    assert col["generator"] == "template"
+    assert "template" in col["params"]
+    assert col["params"]["template"] == "USER-{sequence:04d}"
+
+
+def test_step55_missing_template_param_order_no(semantic_db: Path):
+    """Step 5.5: ``order_no`` with missing template → ``ORDER-{sequence:04d}``."""
+    config = _run_with_missing_template_param(semantic_db)
+    col = _find_column(config, "profiles", "order_no")
+    assert col["params"]["template"] == "ORDER-{sequence:04d}"
+
+
+def test_step55_missing_template_param_cert_no(semantic_db: Path):
+    """Step 5.5: ``cert_no`` with missing template → ``CERT-{sequence:04d}``."""
+    config = _run_with_missing_template_param(semantic_db)
+    col = _find_column(config, "profiles", "cert_no")
+    assert col["params"]["template"] == "CERT-{sequence:04d}"
+
+
+# ---------------------------------------------------------------------------
+# Step 0 — self-referencing FK detection (Round 5 fix)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def self_ref_fk_db(tmp_path: Path) -> Path:
+    """DB with a self-referencing FK (categories.parent_id → categories.id)."""
+    path = tmp_path / "self_ref.db"
+    with sqlite3.connect(str(path)) as conn:
+        conn.execute(
+            """
+            CREATE TABLE categories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                parent_id INTEGER,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY (parent_id) REFERENCES categories(id)
+            )
+            """
+        )
+    return path
+
+
+def test_step0_self_ref_fk_gets_null_ratio_1(self_ref_fk_db: Path):
+    """Self-referencing FK column → null_ratio=1.0 (always NULL).
+
+    At fill time, the SharedPool for ``categories`` is empty (no rows
+    inserted yet), so ``foreign_key_or_integer`` would fall back to random
+    integers that don't match any existing PK — causing FK violations.
+    Setting ``null_ratio=1.0`` ensures all values are NULL.
+    """
+    mock_healer = MagicMock()
+    mock_validator = MagicMock()
+    mock_validator.validate.return_value = []  # no violations — accepted as-is
+
+    orch = AutoHealOrchestrator(
+        db_path=str(self_ref_fk_db),
+        heal_orchestrator=mock_healer,
+        validator=mock_validator,
+        total_budget_seconds=10.0,
+    )
+    yaml_str = orch.run()
+    config = yaml.safe_load(yaml_str)
+    parent_id_col = next(
+        c for c in config["tables"][0]["columns"] if c["name"] == "parent_id"
+    )
+    assert parent_id_col.get("null_ratio") == 1.0
+    assert parent_id_col["generator"] == "foreign_key_or_integer"
+
+
+def test_step0_non_self_ref_fk_not_affected(simple_db: Path):
+    """Non-self-referencing FK columns are NOT affected by Step 0.
+
+    The ``simple_db`` fixture has no FK constraints, so no column should
+    get ``null_ratio=1.0`` from the self-ref FK detection.
+    """
+    mock_healer = MagicMock()
+    mock_validator = MagicMock()
+    mock_validator.validate.return_value = []
+
+    orch = AutoHealOrchestrator(
+        db_path=str(simple_db),
+        heal_orchestrator=mock_healer,
+        validator=mock_validator,
+        total_budget_seconds=10.0,
+    )
+    yaml_str = orch.run()
+    config = yaml.safe_load(yaml_str)
+    for col in config["tables"][0]["columns"]:
+        # No self-ref FK in simple_db → no null_ratio=1.0 from Step 0
+        assert col.get("null_ratio") != 1.0 or col["name"] != "id"

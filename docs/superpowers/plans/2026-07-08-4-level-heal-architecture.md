@@ -2975,6 +2975,78 @@ This fix supplements the spec (Section 3.8 + Section 4.1 data flow) as follows:
 
 ---
 
+## Task 23: Round 5 Education Domain — Three Blind Spots Fixed (Pattern 8 + Step 5.5 template + Self-ref FK)
+
+**Goal:** Fix three blind spots discovered during Round 5 (online education platform, 12 tables) convergence testing. All three were found via the Loop Engineering methodology (observe → diagnose → fix CODE → re-validate).
+
+### Background
+
+Round 5 used a 12-table education database (users, categories, courses, lessons, enrollments, lesson_progress, orders, coupons, payments, reviews, certificates, instructor_profiles) with complex CHECK constraints (conditional equality, date ordering, cross-column arithmetic, self-referencing FK). The first ai-analyze + fill run produced 10/12 tables (users + coupons failed), and after fixing those, a third table (categories) had 999 FK violations from a self-referencing FK.
+
+### Blind Spot 1: Pattern 8 INTEGER expression producing negative values
+
+**Root cause:** Pattern 8 (`col <= other_col`) for INTEGER columns used the expression `value - random_int(0, 100)`. When `value` (the derived-from column) was less than 100, this produced negative results, violating companion CHECK constraints like `col >= 0`.
+
+**Example:** `coupons.used_count <= total_count` with `total_count = 7` produced `used_count = 7 - random_int(0, 100) = -93`, violating `CHECK (used_count >= 0)`.
+
+**Fix:** Changed the expression to `random_int(0, value)` which guarantees `0 <= result <= value`, satisfying both `col <= other_col` AND `col >= 0`.
+
+**Location:** `_infer_cross_column_config()` Pattern 8, line ~1411
+
+### Blind Spot 2: Step 5.5 missing template param
+
+**Root cause:** The LLM sometimes returns `generator: template` with `params: {}` (missing the `template` string field). Without a template string, the template generator raises `KeyError` at fill time, causing the entire table to fail (0 rows generated).
+
+**Example:** `users.user_code` had `generator: template, params: {}` → KeyError → 0 rows for users table.
+
+**Fix:** Step 5.5 now detects `generator: template` with missing `template` param and fills in a default template using the column name prefix: `{PREFIX}-{sequence:04d}` (e.g., `USER_COD-{sequence:04d}` for `user_code`).
+
+**Location:** Step 5.5 safety net, line ~244-254
+
+### Blind Spot 3: Self-referencing FK not detected
+
+**Root cause:** `_build_subgraph_config()` did not detect self-referencing FK columns (where `fk.ref_table == current_table`). The `foreign_key_or_integer` generator tried to sample from the parent table's SharedPool, but since the parent table IS the current table (being filled for the first time), the SharedPool was empty — the generator fell back to random integers that don't match any existing PK, causing FK violations.
+
+**Example:** `categories.parent_id → categories.id` produced `parent_id = 665178` (random integer), but valid category IDs are 1-1000 → 999 FK violations.
+
+**Fix:** Added Step 0 in `_build_subgraph_config()`: detect self-referencing FK columns (where `fk.get("ref_table") == table_name`) and set `null_ratio: 1.0` to ensure all values are NULL. This is the only safe option during initial bulk fill because the parent table has no rows at fill time.
+
+**Location:** `_build_subgraph_config()` Step 0, line ~409-439
+
+### Files
+
+- Modify: `plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py` — Pattern 8 fix + Step 5.5 template fix + Step 0 self-ref FK detection
+- Modify: `plugins/sqlseed-ai/tests/test_auto_heal_orchestrator.py` — 8 new tests (3 Pattern 8 + 3 Step 5.5 template + 2 Step 0 self-ref FK)
+
+### Steps
+
+- [x] **Step 1: Fix Pattern 8 INTEGER expression** (`value - random_int(0, 100)` → `random_int(0, value)`)
+- [x] **Step 2: Fix Step 5.5 missing template param** (auto-fill default template from column name prefix)
+- [x] **Step 3: Add Step 0 self-referencing FK detection** (`null_ratio: 1.0` for self-ref FK columns)
+- [x] **Step 4: Add 8 unit tests** (3 Pattern 8 + 3 Step 5.5 template + 2 Step 0 self-ref FK)
+- [x] **Step 5: Run ruff + mypy + full test suite** (97 tests pass: 66 orchestrator + 31 arch/doc_sync)
+- [x] **Step 6: Re-run R5 ai-analyze + fill** (12/12 tables, 12000 rows, 0 violations)
+- [x] **Step 7: Auto-check data quality** (FK/CHECK/UNIQUE all pass, semantic generators verified)
+- [ ] **Step 8: Commit**
+
+### Convergence Curve
+
+| Run | Tables | Rows | FK Violations | CHECK Violations | Issue |
+|-----|--------|------|---------------|------------------|-------|
+| v3 | 10/12 | 10000 | 0 | 0 | users (missing template) + coupons (negative used_count) |
+| v4 | 12/12 | 12000 | 999 | 0 | categories self-ref FK |
+| v5 | 12/12 | 12000 | 0 | 0 | ALL PASSED ✓ |
+
+### Spec Update
+
+| Component | Spec Before | Spec After |
+|-----------|-------------|------------|
+| Pattern 8 INTEGER | `value - random_int(0, 100)` | `random_int(0, value)` — guarantees `0 <= result <= value` |
+| Step 5.5 template | (not documented) | Detects `generator: template` with missing `template` param, fills default `{PREFIX}-{sequence:04d}` from column name |
+| `_build_subgraph_config` Step 0 | (did not exist) | Detects self-referencing FK columns (`fk.ref_table == table_name`), sets `null_ratio: 1.0` to avoid FK violations during initial bulk fill |
+
+---
+
 ## Success Criteria
 
 - [ ] All pure-logic unit tests pass (ContextWindowDetector, FailureClassifier, Level2 context builder)

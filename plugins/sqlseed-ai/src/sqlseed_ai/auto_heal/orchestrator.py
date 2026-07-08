@@ -241,6 +241,17 @@ class AutoHealOrchestrator:
                     continue
 
                 params = c.get("params") or {}
+                # Missing template param repair: LLM provides
+                # ``generator: template`` but forgets the ``template``
+                # param (e.g., ``params: {}``). Without a template string,
+                # the template generator raises KeyError at fill time,
+                # causing the entire table to fail (0 rows generated).
+                # Fill in a default template using the column name prefix.
+                if gen == "template" and not params.get("template"):
+                    col_name = c.get("name", "item")
+                    prefix = col_name.upper().split("_")[0][:10]
+                    params = {"template": f"{prefix}-{{sequence:04d}}"}
+                    c["params"] = params
                 if not gen and not has_derive:
                     col_name = c.get("name", "")
                     # Infer generator from params when possible
@@ -396,12 +407,36 @@ class AutoHealOrchestrator:
             # ``customer_id`` should never receive a literal ``0`` value
             # because auto-increment IDs start from 1.
             fk_cols_set: set[str] = set()
+            # Detect self-referencing FK columns (e.g., categories.parent_id
+            # → categories.id). At fill time, the SharedPool for the current
+            # table is empty (no rows inserted yet), so foreign_key_or_integer
+            # falls back to random integers that don't match any existing PK
+            # — causing FK violations. These columns get null_ratio=1.0 in
+            # Step 0 below to ensure all values are NULL.
+            self_ref_fk_cols: set[str] = set()
             for fk in meta.foreign_keys:
                 for c in fk.get("columns", []):
                     fk_cols_set.add(c)
+                if fk.get("ref_table") == table_name:
+                    for c in fk.get("columns", []):
+                        self_ref_fk_cols.add(c)
             cols: list[dict[str, Any]] = []
             for col_name in meta.columns:
                 col_type = meta.column_types.get(col_name, "TEXT")
+                # Step 0: Self-referencing FK → null_ratio=1.0 (always NULL).
+                # This must run BEFORE all other steps because the parent
+                # table (same as current) has no rows at fill time, making
+                # any non-NULL value an FK violation. Setting null_ratio=1.0
+                # is the only safe option for self-referencing FKs during
+                # initial bulk fill.
+                if col_name in self_ref_fk_cols:
+                    cols.append({
+                        "name": col_name,
+                        "generator": "foreign_key_or_integer",
+                        "params": {},
+                        "null_ratio": 1.0,
+                    })
+                    continue
                 # Step 1: Try cross-column CHECK inference FIRST.
                 # Cross-column constraints (e.g., ``unit_price > cost_price``)
                 # are stronger than single-column constraints (e.g.,
@@ -1369,11 +1404,15 @@ def _infer_cross_column_config(
                 }
 
         # Pattern 8: col <= other_col (standalone — inclusive upper bound)
-        # e.g., remaining_balance <= loan_amount
+        # e.g., remaining_balance <= loan_amount, used_count <= total_count
         # For date columns: subtract a non-negative timedelta (0 days = equality).
         # For float columns (positive values): multiply by factor in [0.5, 1.0]
         #   (factor=1.0 gives equality, satisfying <=).
-        # For int columns: subtract a non-negative offset (0 = equality).
+        # For int columns: generate random_int(0, value) — this guarantees
+        #   0 <= result <= value, satisfying both col <= other_col AND
+        #   col >= 0 (a common companion CHECK). The previous expression
+        #   ``value - random_int(0, 100)`` could produce negative values
+        #   when value < 100, violating col >= 0 constraints.
         # Note: float multiplication assumes positive source values (typical
         # for money/amount columns). For mixed-sign columns, the
         # ConstraintSolver's retry mechanism handles edge cases.
@@ -1393,7 +1432,7 @@ def _infer_cross_column_config(
                     }
                 return {
                     "derive_from": other_col,
-                    "expression": "value - random_int(0, 100)",
+                    "expression": "random_int(0, value)",
                 }
 
         # Pattern 8a: col >= X AND col <= other_col (compound — lower bound literal + upper bound column)
