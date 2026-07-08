@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
@@ -663,3 +664,269 @@ def test_pattern_36_does_not_match_single_bound():
     # Pattern 27 uses _range_expr_for_op which produces random_float(0.01, X)
     assert "random_float(0.01, 10.0)" in result["expression"]
     assert "random_float(0.01, 32.0)" in result["expression"]
+
+
+# ---------------------------------------------------------------------------
+# Step 4 semantic name mapping — Core ColumnMapper delegation
+# (fixes: _placeholder_generator returned "string" for ALL TEXT columns)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def semantic_db(tmp_path: Path) -> Path:
+    """DB with semantically-named TEXT columns but NO CHECK constraints.
+
+    These columns previously got ``generator: string`` (random gibberish)
+    because the dumb ``_placeholder_generator`` only looked at column TYPE.
+    After the fix, Step 4 delegates to Core ``ColumnMapper`` which has 76
+    exact match rules + 29 pattern rules for semantic column name matching.
+    """
+    path = tmp_path / "semantic.db"
+    with sqlite3.connect(str(path)) as conn:
+        conn.execute(
+            """
+            CREATE TABLE profiles (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email TEXT,
+                username TEXT,
+                full_name TEXT,
+                phone TEXT,
+                avatar_url TEXT,
+                bio TEXT,
+                title TEXT,
+                description TEXT,
+                content TEXT,
+                website TEXT,
+                created_at TEXT,
+                unknown_text_col TEXT,
+                random_notes TEXT
+            )
+            """
+        )
+    return path
+
+
+def _run_and_get_config(db_path: Path) -> dict:
+    """Run AutoHealOrchestrator with mock validator (0 violations) and return parsed config."""
+    mock_healer = MagicMock()
+    mock_validator = MagicMock()
+    mock_validator.validate.return_value = []
+    orch = AutoHealOrchestrator(
+        db_path=str(db_path),
+        heal_orchestrator=mock_healer,
+        validator=mock_validator,
+        total_budget_seconds=10.0,
+    )
+    yaml_str = orch.run()
+    return yaml.safe_load(yaml_str)
+
+
+def _find_column(config: dict, table_name: str, col_name: str) -> dict:
+    """Find a column config in the parsed YAML config dict."""
+    for table in config["tables"]:
+        if table["name"] == table_name:
+            for col in table["columns"]:
+                if col["name"] == col_name:
+                    return col
+    raise AssertionError(f"Column {table_name}.{col_name} not found in config")
+
+
+def test_step4_email_column_uses_email_generator(semantic_db: Path):
+    """``email`` column → ``email`` generator (not ``string``)."""
+    config = _run_and_get_config(semantic_db)
+    col = _find_column(config, "profiles", "email")
+    assert col["generator"] == "email"
+
+
+def test_step4_username_column_uses_username_generator(semantic_db: Path):
+    """``username`` column → ``username`` generator (not ``string``)."""
+    config = _run_and_get_config(semantic_db)
+    col = _find_column(config, "profiles", "username")
+    assert col["generator"] == "username"
+
+
+def test_step4_avatar_url_column_uses_url_generator(semantic_db: Path):
+    """``avatar_url`` column → ``url`` generator (not ``string``)."""
+    config = _run_and_get_config(semantic_db)
+    col = _find_column(config, "profiles", "avatar_url")
+    assert col["generator"] == "url"
+
+
+def test_step4_phone_column_uses_phone_generator(semantic_db: Path):
+    """``phone`` column → ``phone`` generator (not ``string``)."""
+    config = _run_and_get_config(semantic_db)
+    col = _find_column(config, "profiles", "phone")
+    assert col["generator"] == "phone"
+
+
+def test_step4_full_name_column_uses_name_generator(semantic_db: Path):
+    """``full_name`` column → ``name`` generator (not ``string``)."""
+    config = _run_and_get_config(semantic_db)
+    col = _find_column(config, "profiles", "full_name")
+    assert col["generator"] == "name"
+
+
+def test_step4_bio_column_uses_text_generator(semantic_db: Path):
+    """``bio`` column → ``text`` generator (not ``string``)."""
+    config = _run_and_get_config(semantic_db)
+    col = _find_column(config, "profiles", "bio")
+    assert col["generator"] == "text"
+
+
+def test_step4_title_column_uses_sentence_generator(semantic_db: Path):
+    """``title`` column → ``sentence`` generator (not ``string``)."""
+    config = _run_and_get_config(semantic_db)
+    col = _find_column(config, "profiles", "title")
+    assert col["generator"] == "sentence"
+
+
+def test_step4_description_column_uses_sentence_generator(semantic_db: Path):
+    """``description`` column → ``sentence`` generator (not ``string``)."""
+    config = _run_and_get_config(semantic_db)
+    col = _find_column(config, "profiles", "description")
+    assert col["generator"] == "sentence"
+
+
+def test_step4_content_column_uses_text_generator(semantic_db: Path):
+    """``content`` column → ``text`` generator (not ``string``)."""
+    config = _run_and_get_config(semantic_db)
+    col = _find_column(config, "profiles", "content")
+    assert col["generator"] == "text"
+
+
+def test_step4_website_column_uses_url_generator(semantic_db: Path):
+    """``website`` column → ``url`` generator (not ``string``)."""
+    config = _run_and_get_config(semantic_db)
+    col = _find_column(config, "profiles", "website")
+    assert col["generator"] == "url"
+
+
+def test_step4_created_at_column_uses_datetime_generator(semantic_db: Path):
+    """``created_at`` column → ``datetime`` generator (not ``string``).
+
+    Either via ColumnMapper pattern rule (``*_at``) or the
+    ``_is_date_column`` fallback.
+    """
+    config = _run_and_get_config(semantic_db)
+    col = _find_column(config, "profiles", "created_at")
+    assert col["generator"] == "datetime"
+
+
+def test_step4_unknown_text_column_falls_back_to_string(semantic_db: Path):
+    """Unknown TEXT columns (no semantic match) still fall back to ``string``."""
+    config = _run_and_get_config(semantic_db)
+    col = _find_column(config, "profiles", "unknown_text_col")
+    assert col["generator"] == "string"
+
+
+def test_step4_random_notes_falls_back_to_string(semantic_db: Path):
+    """``random_notes`` has no semantic match → ``string`` fallback."""
+    config = _run_and_get_config(semantic_db)
+    col = _find_column(config, "profiles", "random_notes")
+    assert col["generator"] == "string"
+
+
+# ---------------------------------------------------------------------------
+# Step 5.5 post-LLM safety net — missing-generator inference via ColumnMapper
+# (fixes: _placeholder_generator used in post-LLM repair path too)
+# ---------------------------------------------------------------------------
+
+
+def _run_with_stripped_generators(db_path: Path) -> dict:
+    """Run AutoHealOrchestrator simulating LLM stripping generator fields.
+
+    The mock validator returns a fake violation (so the heal path is taken),
+    and the mock healer returns a config where ``generator`` fields are
+    missing for semantically-named columns. Step 5.5 should fill them in
+    using ``ColumnMapper`` — the same fix as Step 4 in
+    ``_build_subgraph_config``.
+
+    Before the fix, Step 5.5 used ``_placeholder_generator(col_type)`` which
+    returned ``string`` for ALL TEXT columns, producing random gibberish for
+    email/username/avatar_url even after the LLM was called.
+    """
+    mock_healer = MagicMock()
+    # Simulate LLM returning a config with generators stripped.
+    # Only 'id' retains its generator; all TEXT columns are missing 'generator'.
+    mock_healer.heal.return_value = SimpleNamespace(
+        config={
+            "tables": [
+                {
+                    "name": "profiles",
+                    "columns": [
+                        {"name": "id", "generator": "autoincrement", "params": {}},
+                        {"name": "email", "params": {}},
+                        {"name": "username", "params": {}},
+                        {"name": "avatar_url", "params": {}},
+                        {"name": "title", "params": {}},
+                        {"name": "content", "params": {}},
+                        {"name": "created_at", "params": {}},
+                        {"name": "unknown_text_col", "params": {}},
+                    ],
+                }
+            ]
+        },
+        level_used=4,
+        success=True,
+        degraded_columns=[],
+    )
+    mock_validator = MagicMock()
+    # Return violations so the heal path is taken (not "accepted as-is")
+    mock_validator.validate.return_value = [MagicMock()]
+    orch = AutoHealOrchestrator(
+        db_path=str(db_path),
+        heal_orchestrator=mock_healer,
+        validator=mock_validator,
+        total_budget_seconds=10.0,
+    )
+    yaml_str = orch.run()
+    return yaml.safe_load(yaml_str)
+
+
+def test_step55_missing_generator_email_uses_column_mapper(semantic_db: Path):
+    """Step 5.5: LLM-stripped ``email`` generator → ColumnMapper picks ``email``."""
+    config = _run_with_stripped_generators(semantic_db)
+    col = _find_column(config, "profiles", "email")
+    assert col["generator"] == "email"
+
+
+def test_step55_missing_generator_username_uses_column_mapper(semantic_db: Path):
+    """Step 5.5: LLM-stripped ``username`` generator → ColumnMapper picks ``username``."""
+    config = _run_with_stripped_generators(semantic_db)
+    col = _find_column(config, "profiles", "username")
+    assert col["generator"] == "username"
+
+
+def test_step55_missing_generator_avatar_url_uses_column_mapper(semantic_db: Path):
+    """Step 5.5: LLM-stripped ``avatar_url`` generator → ColumnMapper picks ``url``."""
+    config = _run_with_stripped_generators(semantic_db)
+    col = _find_column(config, "profiles", "avatar_url")
+    assert col["generator"] == "url"
+
+
+def test_step55_missing_generator_title_uses_column_mapper(semantic_db: Path):
+    """Step 5.5: LLM-stripped ``title`` generator → ColumnMapper picks ``sentence``."""
+    config = _run_with_stripped_generators(semantic_db)
+    col = _find_column(config, "profiles", "title")
+    assert col["generator"] == "sentence"
+
+
+def test_step55_missing_generator_content_uses_column_mapper(semantic_db: Path):
+    """Step 5.5: LLM-stripped ``content`` generator → ColumnMapper picks ``text``."""
+    config = _run_with_stripped_generators(semantic_db)
+    col = _find_column(config, "profiles", "content")
+    assert col["generator"] == "text"
+
+
+def test_step55_missing_generator_created_at_uses_column_mapper(semantic_db: Path):
+    """Step 5.5: LLM-stripped ``created_at`` generator → ``datetime`` (via _is_date_column)."""
+    config = _run_with_stripped_generators(semantic_db)
+    col = _find_column(config, "profiles", "created_at")
+    assert col["generator"] == "datetime"
+
+
+def test_step55_missing_generator_unknown_text_falls_back_to_string(semantic_db: Path):
+    """Step 5.5: unknown TEXT column with no semantic match → ``string`` fallback."""
+    config = _run_with_stripped_generators(semantic_db)
+    col = _find_column(config, "profiles", "unknown_text_col")
+    assert col["generator"] == "string"

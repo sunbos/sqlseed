@@ -2731,6 +2731,250 @@ git commit -m "fix(ai/healer): <root cause> (found via large-model validation)"
 
 ---
 
+## Task 21: Deterministic Fallback Semantic Gap Fix (Post-Implementation Blind Spot)
+
+**Goal:** Fix a design blind spot discovered during data quality validation: `_build_subgraph_config()` Step 4 used `_placeholder_generator()` (type-only lookup) instead of the Core `ColumnMapper` (9-level strategy chain with 76 exact match rules + 29 pattern rules), causing all TEXT columns without CHECK constraints to receive `generator: string` (random gibberish) regardless of column name semantics.
+
+### Background
+
+The spec (Section 3.8) states `_build_subgraph_config` retains its "CHECK inference logic". However, the spec did not specify the fallback behavior for columns WITHOUT CHECK/UNIQUE constraints. The implementation used `_placeholder_generator(col_type)` which only checks column TYPE:
+
+```python
+def _placeholder_generator(col_type: str) -> str:
+    t = col_type.upper()
+    if any(k in t for k in ("INT", ...)): return "integer"
+    if any(k in t for k in ("REAL", ...)): return "float"
+    if any(k in t for k in ("DATETIME", ...)): return "datetime"
+    if "BOOLEAN" in t: return "boolean"
+    return "string"  # ALL TEXT columns → string, ignoring name semantics
+```
+
+This meant columns like `email`, `username`, `avatar_url`, `title`, `description`, `content`, `bio`, `phone`, `name` all received `generator: string` (random alphanumeric gibberish), even though the Core `ColumnMapper` has exact match rules mapping these names to semantic generators (`email`→email, `username`→username, `avatar_url`→url, `title`→sentence, etc.).
+
+### Why the LLM Didn't Fix It
+
+The `ProgressiveDegrader` (Layer 4) is designed to "fall back to Core 9-level mapper when LLM fails". However, this only triggers on LLM failure. For 11/12 tables in the R5 education database, the deterministic inference produced 0 violations → "accepted as-is" → **no LLM call** → Core `ColumnMapper` never ran. The LLM was never consulted for these columns, so it never had a chance to correct the generator choice.
+
+### Root Cause
+
+The architectural gap is in the data flow:
+
+```
+_build_subgraph_config()
+  ├─ Step 1: _infer_cross_column_config()  → cross-column CHECK (derive_from)
+  ├─ Step 2: _infer_from_check_constraints() → single-column CHECK (enum/range)
+  ├─ Step 3: _infer_unique_column_config() → UNIQUE columns (template/email)
+  └─ Step 4: _placeholder_generator(col_type) → ❌ type-only, ignores name
+                                            → Core ColumnMapper bypassed
+
+→ validator: 0 violations (string doesn't violate CHECK)
+→ "accepted as-is" → LLM never called
+→ fill uses string → random gibberish for email/url/username/etc.
+```
+
+### Fix
+
+Step 4 now delegates to the Core `ColumnMapper.map_column()` instead of `_placeholder_generator()`:
+
+```python
+from sqlseed.core.mapper import ColumnMapper
+from sqlseed.database._protocol import ColumnInfo
+
+@lru_cache(maxsize=1)
+def _get_column_mapper() -> ColumnMapper:
+    return ColumnMapper()
+
+# Step 4: Delegate to Core ColumnMapper for semantic name matching.
+col_info = ColumnInfo(
+    name=col_name, type=col_type,
+    nullable=True, default=None,
+    is_primary_key=False, is_autoincrement=False,
+)
+spec = _get_column_mapper().map_column(col_info)
+gen_name = spec.generator_name
+gen_params = dict(spec.params)
+if gen_name == "skip":
+    gen_name = _placeholder_generator(col_type)
+    gen_params = {}
+if gen_name == "string" and _is_date_column(col_name):
+    gen_name = "datetime"
+```
+
+This reuses the Core's 76 exact match rules (L3) + 29 pattern rules (L5) for semantic column name matching, correctly mapping `email`→email, `avatar_url`→url, `title`→sentence, `content`→text, etc.
+
+### Files
+
+- Modify: `plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py` — Step 4 delegation
+- Modify: `plugins/sqlseed-ai/tests/test_auto_heal_orchestrator.py` — 13 new tests
+
+### Steps
+
+- [x] **Step 1: Add ColumnMapper import + _get_column_mapper() lazy singleton**
+- [x] **Step 2: Replace Step 4 fallback with ColumnMapper.map_column() delegation**
+- [x] **Step 3: Handle "skip" return (PK autoincrement) → fall back to _placeholder_generator**
+- [x] **Step 4: Preserve _is_date_column() as additional fallback**
+- [x] **Step 5: Add 13 unit tests (email/username/avatar_url/phone/name/bio/title/description/content/website/created_at + 2 string fallbacks)**
+- [x] **Step 6: Run ruff + mypy + full test suite (51 orchestrator tests + 14 architecture + 17 doc_sync = 82 pass)**
+- [ ] **Step 7: Re-run R5 education DB to verify end-to-end data quality improvement**
+- [ ] **Step 8: Commit**
+
+```bash
+git add plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py \
+      plugins/sqlseed-ai/tests/test_auto_heal_orchestrator.py
+git commit -m "fix(ai/auto_heal): Step 4 delegates to Core ColumnMapper for semantic name matching
+
+Design blind spot: _build_subgraph_config Step 4 used _placeholder_generator
+(type-only lookup) for columns without CHECK/UNIQUE constraints, returning
+'string' for ALL TEXT columns. This bypassed the Core ColumnMapper's 76 exact
+match rules + 29 pattern rules, producing random gibberish for email, username,
+avatar_url, title, description, content, bio, phone, name columns.
+
+The LLM was never consulted for these columns because 11/12 tables had 0
+violations and were 'accepted as-is' (no LLM call). The ProgressiveDegrader
+(which uses Core ColumnMapper) only triggers on LLM failure, not on
+'accepted as-is' configs.
+
+Fix: Step 4 now constructs a ColumnInfo and calls ColumnMapper.map_column()
+to get a GeneratorSpec with semantic generator + params. Handles 'skip'
+return (PK autoincrement) and preserves _is_date_column() fallback.
+
+13 new unit tests verify email/username/avatar_url/phone/name/bio/title/
+description/content/website/created_at columns get correct semantic
+generators instead of 'string'."
+```
+
+### Spec Update
+
+This fix supplements the spec (Section 3.8) as follows:
+
+| Component | Spec Before | Spec After |
+|-----------|-------------|------------|
+| `_build_subgraph_config` Step 4 | "type-based placeholder fallback" | "delegates to Core `ColumnMapper.map_column()` for semantic column name matching (76 exact rules + 29 pattern rules); falls back to `_placeholder_generator()` only for 'skip' returns" |
+
+---
+
+## Task 22: Deterministic Fallback Semantic Gap — Comprehensive Blind Spot Audit
+
+**Goal:** Audit ALL deterministic fallback paths in `auto_heal/orchestrator.py` that use `_placeholder_generator()` and ensure they delegate to Core `ColumnMapper` for semantic name matching. Task 21 fixed Step 4 in `_build_subgraph_config()`; this task fixes the remaining instances and documents known limitations.
+
+### Background
+
+The spec (Section 3.8) states `_build_subgraph_config` retains its "CHECK inference logic". Task 21 discovered that Step 4's fallback used `_placeholder_generator()` (type-only), bypassing Core `ColumnMapper`. A comprehensive audit of ALL `_placeholder_generator()` call sites revealed **3 categories** of blind spots:
+
+### Blind Spot Inventory
+
+| # | Location | Code | Status | Severity |
+|---|----------|------|--------|----------|
+| 1 | `_build_subgraph_config` Step 4 (line ~465) | `gen = _placeholder_generator(col_type)` | **Fixed** (Task 21) | High — affects ALL unconstrained columns when LLM not called |
+| 2 | Step 5.5 post-LLM safety net (line ~259) | `gen = _placeholder_generator(col_type)` | **Fixed** (Task 22) | Medium — affects columns where LLM stripped the generator field |
+| 3 | `_infer_cross_column_config` Pattern 4 (line ~1211) | `"generator": _placeholder_generator(col_type)` + `null_ratio: 1.0` | **Known limitation** (documented) | Low — `null_ratio: 1.0` means always NULL, generator is moot |
+| 4 | `_infer_cross_column_config` Pattern 5 (line ~1225) | `"generator": _placeholder_generator(col_type)` + `null_ratio: 1.0` | **Known limitation** (documented) | Low — `null_ratio: 1.0` means always NULL, generator is moot |
+
+### Root Cause Analysis
+
+**Blind Spot 1 (Step 4) + Blind Spot 2 (Step 5.5) — Same root cause:**
+
+Both paths use `_placeholder_generator(col_type)` which only checks column TYPE:
+```python
+def _placeholder_generator(col_type: str) -> str:
+    t = col_type.upper()
+    if any(k in t for k in ("INT", ...)): return "integer"
+    if any(k in t for k in ("REAL", ...)): return "float"
+    ...
+    return "string"  # ALL TEXT columns → string, ignoring name semantics
+```
+
+This bypasses the Core `ColumnMapper`'s 9-level strategy chain (76 exact match rules + 29 pattern rules), producing `generator: string` (random gibberish) for semantically-named TEXT columns like `email`, `username`, `avatar_url`, `title`, `description`, `content`, `bio`, `phone`, `name`.
+
+**Blind Spot 1 (Step 4) is higher severity** because it triggers when the LLM is never consulted (0 violations → "accepted as-is" → no LLM call). The user observed this from generation speed: "if it had gone through LLM analysis it wouldn't be that fast".
+
+**Blind Spot 2 (Step 5.5) is medium severity** because it triggers after the LLM WAS called but stripped the generator field. The LLM had a chance to set the correct generator but failed to do so. The safety net then falls back to `_placeholder_generator()` — same dumb type-only lookup.
+
+**Blind Spots 3 + 4 (Pattern 4/5) are known limitations** because `null_ratio: 1.0` means the column is always NULL. The generator choice is moot — no data is ever generated using it. These patterns handle `col IS NULL OR col = expr` (computed column with NULL escape) and `col IS NULL OR other_col = 'value'` (conditional NULL). A future enhancement could parse the RHS expression for Pattern 4 (computed columns) to produce real values instead of always-NULL, but that is a separate feature, not a semantic-matching blind spot.
+
+### Fix for Blind Spot 2
+
+Step 5.5's missing-generator inference now delegates to `ColumnMapper.map_column()` (same fix as Task 21 Step 4):
+
+```python
+# Before (blind spot):
+elif meta and col_name in meta.columns:
+    col_type = meta.column_types.get(col_name, "TEXT")
+    gen = _placeholder_generator(col_type)
+    if gen == "string" and _is_date_column(col_name):
+        gen = "datetime"
+
+# After (fixed):
+elif meta and col_name in meta.columns:
+    col_type = meta.column_types.get(col_name, "TEXT")
+    col_info = ColumnInfo(
+        name=col_name, type=col_type,
+        nullable=True, default=None,
+        is_primary_key=False, is_autoincrement=False,
+    )
+    spec = _get_column_mapper().map_column(col_info)
+    gen = spec.generator_name
+    if gen == "skip":
+        gen = _placeholder_generator(col_type)
+    if gen == "string" and _is_date_column(col_name):
+        gen = "datetime"
+```
+
+### Files
+
+- Modify: `plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py` — Step 5.5 delegation (line ~257-282)
+- Modify: `plugins/sqlseed-ai/tests/test_auto_heal_orchestrator.py` — 7 new Step 5.5 tests
+
+### Steps
+
+- [x] **Step 1: Audit all `_placeholder_generator()` call sites in orchestrator.py**
+- [x] **Step 2: Fix Blind Spot 2 (Step 5.5 post-LLM safety net) — delegate to ColumnMapper**
+- [x] **Step 3: Add 7 unit tests for Step 5.5 (email/username/avatar_url/title/content/created_at/unknown_text)**
+- [x] **Step 4: Document Blind Spots 3+4 as known limitations (null_ratio: 1.0 makes generator moot)**
+- [x] **Step 5: Run ruff + mypy + full test suite (58 orchestrator + 31 arch/doc_sync = 89 pass)**
+- [ ] **Step 6: Commit**
+
+```bash
+git add plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py \
+      plugins/sqlseed-ai/tests/test_auto_heal_orchestrator.py
+git commit -m "fix(ai/auto_heal): Step 5.5 safety net also delegates to Core ColumnMapper
+
+Comprehensive audit of all _placeholder_generator() call sites revealed
+the same semantic-matching blind spot existed in TWO places, not one:
+
+  1. Step 4 in _build_subgraph_config (fixed in Task 21)
+  2. Step 5.5 post-LLM safety net (fixed in this commit)
+
+Both used _placeholder_generator(col_type) which returns 'string' for ALL
+TEXT columns, ignoring column name semantics. Step 5.5 triggers when the
+LLM strips the generator field — the safety net then fell back to the
+same dumb type-only lookup, producing random gibberish for email,
+username, avatar_url, title, content even after the LLM was called.
+
+Fix: Step 5.5 now constructs a ColumnInfo and calls
+ColumnMapper.map_column() to get a GeneratorSpec with semantic generator
++ params (same pattern as Task 21 Step 4).
+
+Also documents Blind Spots 3+4 (_infer_cross_column_config Pattern 4/5)
+as known limitations: these use _placeholder_generator with
+null_ratio=1.0 (always NULL), so the generator choice is moot.
+
+7 new unit tests verify Step 5.5 fills in correct semantic generators
+(email/username/url/sentence/text/datetime) when the LLM strips them."
+```
+
+### Spec Update
+
+This fix supplements the spec (Section 3.8 + Section 4.1 data flow) as follows:
+
+| Component | Spec Before | Spec After |
+|-----------|-------------|------------|
+| `_build_subgraph_config` Step 4 | "type-based placeholder fallback" | "delegates to Core `ColumnMapper.map_column()` for semantic column name matching (76 exact rules + 29 pattern rules); falls back to `_placeholder_generator()` only for 'skip' returns" |
+| Step 5.5 missing-generator inference | "fall back to type-based placeholder" | "delegates to Core `ColumnMapper.map_column()` for semantic name matching (same as Step 4); falls back to `_placeholder_generator()` only for 'skip' returns" |
+| `_infer_cross_column_config` Pattern 4/5 | (not documented) | "returns `_placeholder_generator(col_type)` with `null_ratio: 1.0` — generator is moot because column is always NULL; future enhancement could parse the RHS expression for Pattern 4 to produce real computed values" |
+
+---
+
 ## Success Criteria
 
 - [ ] All pure-logic unit tests pass (ContextWindowDetector, FailureClassifier, Level2 context builder)

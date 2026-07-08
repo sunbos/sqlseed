@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import re
 import sys
+from functools import lru_cache
 from typing import Any
 
 import yaml
@@ -35,8 +36,22 @@ from sqlseed_ai.healer.subgraph import SubgraphSplitter
 from sqlseed_ai.validator.schema_snapshot import SchemaSnapshot
 
 from sqlseed._utils.logger import get_logger
+from sqlseed.core.mapper import ColumnMapper
+from sqlseed.database._protocol import ColumnInfo
 
 logger = get_logger(__name__)
+
+
+@lru_cache(maxsize=1)
+def _get_column_mapper() -> ColumnMapper:
+    """Return a shared ColumnMapper instance (cached).
+
+    ColumnMapper is stateless after __init__ (custom rules are registered
+    at startup), so a single shared instance is safe for concurrent reads.
+    ``lru_cache(maxsize=1)`` avoids re-creating the mapper (and re-compiling
+    29 regex patterns) on every column lookup.
+    """
+    return ColumnMapper()
 
 
 def _debug(msg: str) -> None:
@@ -240,8 +255,29 @@ class AutoHealOrchestrator:
                         sample = mv if mv is not None else params.get("max_value")
                         gen = "float" if isinstance(sample, float) else "integer"
                     elif meta and col_name in meta.columns:
+                        # Delegate to Core ColumnMapper for semantic name
+                        # matching (same fix as Step 4 in
+                        # _build_subgraph_config). When the LLM strips the
+                        # generator field AND no params are available to
+                        # infer from, the previous code used
+                        # _placeholder_generator(col_type) which returned
+                        # "string" for ALL TEXT columns — producing random
+                        # gibberish for email, username, avatar_url, etc.
+                        # Using ColumnMapper ensures semantic generators are
+                        # picked even in this post-LLM repair path.
                         col_type = meta.column_types.get(col_name, "TEXT")
-                        gen = _placeholder_generator(col_type)
+                        col_info = ColumnInfo(
+                            name=col_name,
+                            type=col_type,
+                            nullable=True,
+                            default=None,
+                            is_primary_key=False,
+                            is_autoincrement=False,
+                        )
+                        spec = _get_column_mapper().map_column(col_info)
+                        gen = spec.generator_name
+                        if gen == "skip":
+                            gen = _placeholder_generator(col_type)
                         if gen == "string" and _is_date_column(col_name):
                             gen = "datetime"
                     if gen:
@@ -340,8 +376,12 @@ class AutoHealOrchestrator:
         columns and ``min_value``/``max_value`` params for range constraints.
         Detects UNIQUE columns and uses ``template`` generators to guarantee
         uniqueness (avoids batch-level UNIQUE violations from random string
-        collisions). Falls back to type-based placeholders for unconstrained
-        columns. FK constraints are still deferred to Layer 3/4.
+        collisions). For unconstrained columns, delegates to the Core
+        ``ColumnMapper`` (9-level strategy chain: 76 exact match rules +
+        29 pattern rules) for semantic column name matching — e.g.,
+        ``email``→email generator, ``avatar_url``→url generator,
+        ``title``→sentence generator. FK constraints are still deferred
+        to Layer 3/4.
         """
         sg_config: dict[str, Any] = {"tables": []}
         for table_name in tables:
@@ -421,21 +461,60 @@ class AutoHealOrchestrator:
                     if unique_config is not None:
                         cols.append({"name": col_name, **unique_config})
                         continue
-                # Step 4: Fallback to type-based placeholder.
-                # For TEXT columns with date-like names (created_at, check_in,
-                # etc.), use ``datetime`` instead of ``string`` so that
-                # date-comparison CHECKs (check_out > check_in) work correctly
-                # and derive_from expressions can use timedelta.
-                placeholder_gen = _placeholder_generator(col_type)
-                if placeholder_gen == "string" and _is_date_column(col_name):
-                    placeholder_gen = "datetime"
-                cols.append(
-                    {
-                        "name": col_name,
-                        "generator": placeholder_gen,
-                        "params": {},
-                    }
+                # Step 4: Delegate to Core ColumnMapper for semantic name
+                # matching. The Core ColumnMapper has 76 exact match rules
+                # (L3) + 29 pattern rules (L5) that map column names to
+                # semantic generators: email→email, username→username,
+                # avatar_url→url, title→sentence, description→sentence,
+                # content→text, bio→text, phone→phone, name→name, etc.
+                #
+                # This replaces the previous dumb type-based fallback
+                # (_placeholder_generator) which returned "string" for ALL
+                # TEXT columns regardless of name — producing random
+                # gibberish for email, url, username, and other
+                # semantically-named columns. The LLM was never consulted
+                # for these columns because 11/12 tables had 0 violations
+                # and were "accepted as-is" (no LLM call).
+                #
+                # ColumnInfo is constructed with safe defaults
+                # (is_primary_key=False, is_autoincrement=False) because:
+                #   1. PK columns are typically handled by Step 2/3 (CHECK/
+                #      UNIQUE constraints) and rarely reach Step 4.
+                #   2. Setting is_autoincrement=False ensures the mapper's
+                #      L1 skip logic does NOT skip any column — we want a
+                #      generator for every column that reaches Step 4.
+                col_info = ColumnInfo(
+                    name=col_name,
+                    type=col_type,
+                    nullable=True,
+                    default=None,
+                    is_primary_key=False,
+                    is_autoincrement=False,
                 )
+                spec = _get_column_mapper().map_column(col_info)
+                gen_name = spec.generator_name
+                gen_params = dict(spec.params)
+                # Handle "skip" (returned for PK autoincrement columns) by
+                # falling back to type-based placeholder.
+                if gen_name == "skip":
+                    gen_name = _placeholder_generator(col_type)
+                    gen_params = {}
+                # Additional date-column fallback: if the mapper still
+                # returns "string" for a date-like column name (e.g., a
+                # name not covered by the mapper's pattern rules), upgrade
+                # to "datetime" so date-comparison CHECKs work correctly.
+                if gen_name == "string" and _is_date_column(col_name):
+                    gen_name = "datetime"
+                col_entry: dict[str, Any] = {
+                    "name": col_name,
+                    "generator": gen_name,
+                    "params": gen_params,
+                }
+                # Preserve null_ratio if the mapper set a non-default value
+                # (e.g., for nullable columns with no default).
+                if spec.null_ratio > 0:
+                    col_entry["null_ratio"] = spec.null_ratio
+                cols.append(col_entry)
             sg_config["tables"].append({"name": table_name, "columns": cols})
         return sg_config
 
