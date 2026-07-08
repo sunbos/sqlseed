@@ -611,7 +611,6 @@ def _run_auto_heal_v4(
     from sqlseed_ai.auto_heal.orchestrator import AutoHealOrchestrator
     from sqlseed_ai.contracts.builtin_violations import BUILTIN_VIOLATIONS
     from sqlseed_ai.contracts.matrix import ContractResolver
-    from sqlseed_ai.healer.llm_healer import LLMHealer
     from sqlseed_ai.validator.main import FastValidator
 
     ai_config = _build_ai_config(
@@ -645,12 +644,24 @@ def _run_auto_heal_v4(
     resolver = ContractResolver(set(BUILTIN_VIOLATIONS), set())
     validator = FastValidator(resolver, db_path=db_path, url=db_url)
     client = _build_llm_client(ai_config)
-    healer = LLMHealer(client=client, model=resolved_model)
+
+    # Build HealOrchestrator (4-level: subgraph → column → compact → degrade).
+    # The snapshot is captured inside AutoHealOrchestrator.run(), but
+    # HealOrchestrator needs it for Level 2 context building. We create a
+    # preliminary snapshot here for construction; AutoHealOrchestrator.run()
+    # will create its own for the optimistic-lock check (Defense 8).
+    from sqlseed_ai.validator.schema_snapshot import SchemaSnapshot
+
+    prelim_snapshot = SchemaSnapshot(db_path=db_path, url=db_url)
+    heal_orch = _build_heal_orchestrator(
+        ai_config, client, prelim_snapshot, validator,
+        schema_hash=prelim_snapshot.schema_hash, max_retries=max_retries,
+    )
 
     orch = AutoHealOrchestrator(
         db_path=db_path,
         url=db_url,
-        healer=healer,
+        heal_orchestrator=heal_orch,
         validator=validator,
         total_budget_seconds=300.0,
         max_retries=max_retries,
@@ -775,18 +786,29 @@ def auto_heal(
     from sqlseed_ai.auto_heal.orchestrator import AutoHealOrchestrator
     from sqlseed_ai.contracts.builtin_violations import BUILTIN_VIOLATIONS
     from sqlseed_ai.contracts.matrix import ContractResolver
-    from sqlseed_ai.healer.llm_healer import LLMHealer
     from sqlseed_ai.validator.main import FastValidator
 
     resolver = ContractResolver(set(BUILTIN_VIOLATIONS), set())
     validator = FastValidator(resolver, db_path=db_path, url=db_url)
     client = _build_llm_client(ai_config)
-    healer = LLMHealer(client=client, model=resolved_model)
+
+    # Build HealOrchestrator (4-level: subgraph → column → compact → degrade).
+    # The snapshot is captured inside AutoHealOrchestrator.run(), but
+    # HealOrchestrator needs it for Level 2 context building. We create a
+    # preliminary snapshot here for construction; AutoHealOrchestrator.run()
+    # will create its own for the optimistic-lock check (Defense 8).
+    from sqlseed_ai.validator.schema_snapshot import SchemaSnapshot
+
+    prelim_snapshot = SchemaSnapshot(db_path=db_path, url=db_url)
+    heal_orch = _build_heal_orchestrator(
+        ai_config, client, prelim_snapshot, validator,
+        schema_hash=prelim_snapshot.schema_hash, max_retries=max_retries,
+    )
 
     orch = AutoHealOrchestrator(
         db_path=db_path,
         url=db_url,
-        healer=healer,
+        heal_orchestrator=heal_orch,
         validator=validator,
         total_budget_seconds=300.0,
         max_retries=max_retries,
