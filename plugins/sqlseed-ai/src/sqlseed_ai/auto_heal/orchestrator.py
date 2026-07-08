@@ -734,7 +734,12 @@ def _parse_single_column_check(
         gen = "integer" if is_int else "float"
         if is_int:
             return (gen, {"min_value": int(val_str) + 1})
-        return (gen, {"min_value": float(val_str)})
+        # For floats, the CHECK is strict (>), but ``min_value`` is inclusive
+        # (>=). If we set ``min_value = X``, the generator can produce X
+        # (e.g., ``random.uniform(0.0, max)`` can return 0.0), which fails
+        # the strict ``> X`` CHECK. Add a small epsilon to ensure all
+        # generated values are strictly greater than X.
+        return (gen, {"min_value": float(val_str) + 0.01})
 
     # Pattern: col <= Y — upper bound only (inclusive)
     m = re.match(
@@ -762,7 +767,9 @@ def _parse_single_column_check(
         gen = "integer" if is_int else "float"
         if is_int:
             return (gen, {"max_value": int(val_str) - 1})
-        return (gen, {"max_value": float(val_str)})
+        # For floats, ``max_value`` is inclusive (<=) but the CHECK is strict
+        # (<). Subtract a small epsilon so the generator never produces Y.
+        return (gen, {"max_value": float(val_str) - 0.01})
 
     # Pattern: col != N — inequality with a literal (excludes a single value)
     # e.g., quantity != 0, status != -1
@@ -826,6 +833,8 @@ def _infer_cross_column_config(
     - ``col != VALUE OR other_col = VALUE2`` (conditional equality — derive col from other_col)
     - ``col1 + col2 = col`` (reverse sum equality — derive addend from total)
     - ``col = VALUE OR other_col < col2 OR other_col > col3`` (range membership — derive col from other_col's range)
+    - ``col = (col1 + col2 [+ col3]) / N`` (average of N columns — derive from col1, reference others)
+    - ``col <= col2 * CONSTANT`` (percentage/scalar upper bound — derive from col2)
 
     Skipped patterns (not safely inferable from CHECK alone):
     - ``col != other`` for non-integer columns (needs FK pool awareness)
@@ -879,26 +888,78 @@ def _infer_cross_column_config(
                 "null_ratio": 1.0,
             }
 
-        # Pattern 1: col IS NULL OR col (>=|>) other_col (date ordering with NULL escape)
+        # Pattern 1: col IS NULL OR col (>=|>|<=|<) other_col (ordering with NULL escape)
         # Also handles: col IS NULL OR other IS NULL OR col >= other
         # e.g., termination_date IS NULL OR termination_date >= hire_date
         # e.g., due_date IS NULL OR start_date IS NULL OR due_date >= start_date
-        # e.g., closed_at IS NULL OR closed_at > opened_at (strict inequality)
-        # Both >= and > are handled: the derived expression adds a positive
-        # timedelta (>= 1 day), which guarantees strict inequality (> source)
-        # in both cases. For >=, equality is also acceptable but the timedelta
-        # still satisfies it.
+        # e.g., assessment_price IS NULL OR assessment_price <= listing_price
+        # e.g., budget_max IS NULL OR budget_min IS NULL OR budget_max >= budget_min
+        # All four comparison operators are handled. For dates, timedelta is
+        # used; for floats, multiplication factors; for ints, additive offsets.
         m = re.search(
-            rf"{col}\s+IS\s+NULL.*OR\s+{col}\s*(>=|>)\s*(\w+)",
+            rf"{col}\s+IS\s+NULL.*OR\s+{col}\s*(>=|>|<=|<)\s*(\w+)",
             expr,
             re.IGNORECASE,
         )
-        if m and is_date_col:
+        if m:
+            op = m.group(1)
             other_col = m.group(2)
             if other_col in col_set and other_col != col_name:
+                if is_date_col or _is_date_column(other_col):
+                    # Date columns: use timedelta
+                    if op in (">=", ">"):
+                        return {
+                            "derive_from": other_col,
+                            "expression": "value + timedelta(days=random_int(1, 365))",
+                        }
+                    # op in ("<=", "<") — subtract timedelta
+                    days = "0" if op == "<=" else "1"
+                    return {
+                        "derive_from": other_col,
+                        "expression": f"value - timedelta(days=random_int({days}, 365))",
+                    }
+                if is_float_type:
+                    # Float columns: use multiplication factors
+                    if op == ">=":
+                        return {
+                            "derive_from": other_col,
+                            "expression": "value + random_float(0, 100)",
+                        }
+                    if op == ">":
+                        return {
+                            "derive_from": other_col,
+                            "expression": "value * random_float(1.01, 2.0)",
+                        }
+                    if op == "<=":
+                        return {
+                            "derive_from": other_col,
+                            "expression": "value * random_float(0.5, 1.0)",
+                        }
+                    # op == "<"
+                    return {
+                        "derive_from": other_col,
+                        "expression": "value * random_float(0.5, 0.99)",
+                    }
+                # Integer columns: use additive offsets
+                if op == ">=":
+                    return {
+                        "derive_from": other_col,
+                        "expression": "value + random_int(0, 100)",
+                    }
+                if op == ">":
+                    return {
+                        "derive_from": other_col,
+                        "expression": "value + random_int(1, 100)",
+                    }
+                if op == "<=":
+                    return {
+                        "derive_from": other_col,
+                        "expression": "value - random_int(0, 100)",
+                    }
+                # op == "<"
                 return {
                     "derive_from": other_col,
-                    "expression": "value + timedelta(days=random_int(1, 365))",
+                    "expression": "value - random_int(1, 100)",
                 }
 
         # Pattern 2: col >= other_col (standalone, no NULL escape)
@@ -1279,6 +1340,118 @@ def _infer_cross_column_config(
                     "expression": (
                         f"{val} if (value >= row['{col2}'] and value <= row['{col3}']) else {opposite}"
                     ),
+                }
+
+        # Pattern 21: col = (col1 + col2 + col3) / N (average of N columns)
+        # e.g., overall_score = (structural_score + electrical_score + plumbing_score) / 3
+        # Derive from col1 (first addend), reference col2 + col3 via row dict.
+        # The expression computes (value + row[col2] + row[col3]) / N, which
+        # satisfies the equality. N must be a positive integer.
+        # Also handles 2-column average: col = (col1 + col2) / 2
+        # IMPORTANT: for INTEGER columns, SQLite uses integer division in
+        # the CHECK constraint, but Python's ``/`` is float division.
+        # Without ``int()`` wrapping, a non-divisible sum (e.g., 226/3=75.33)
+        # would fail the CHECK (75.33 != 75) because SQLite evaluates CHECK
+        # BEFORE applying column affinity. Wrap in ``int()`` to match
+        # SQLite's integer division semantics.
+        m = re.match(
+            rf"^\s*{col}\s*=\s*\(\s*(\w+)\s*\+\s*(\w+)\s*(?:\+\s*(\w+)\s*)?\)\s*/\s*(\d+(?:\.\d+)?)\s*$",
+            expr,
+            re.IGNORECASE,
+        )
+        if m:
+            col1, col2, col3_opt, n_str = m.group(1), m.group(2), m.group(3), m.group(4)
+            if col1 in col_set and col2 in col_set and col1 != col_name:
+                n_val: float | int = float(n_str) if "." in n_str else int(n_str)
+                # Wrap in int() for INTEGER columns to match SQLite's
+                # integer division semantics in CHECK constraints.
+                int_wrap = "int" if is_int_type else ""
+                if col3_opt and col3_opt in col_set:
+                    # Three-column average: (value + row[col2] + row[col3]) / N
+                    inner = f"(value + row['{col2}'] + row['{col3_opt}']) / {n_val}"
+                    return {
+                        "derive_from": col1,
+                        "expression": f"{int_wrap}({inner})" if int_wrap else inner,
+                    }
+                # Two-column average: (value + row[col2]) / N
+                inner = f"(value + row['{col2}']) / {n_val}"
+                return {
+                    "derive_from": col1,
+                    "expression": f"{int_wrap}({inner})" if int_wrap else inner,
+                }
+
+        # Pattern 22: col <= col2 * CONSTANT (percentage/scalar upper bound)
+        # e.g., monthly_payment <= monthly_income * 0.5
+        # e.g., discount_amount <= total_price * 0.3
+        # Derive from col2, multiply by a random factor in [0, CONSTANT] to
+        # guarantee col <= col2 * CONSTANT.
+        m = re.match(
+            rf"^\s*{col}\s*<=\s*(\w+)\s*\*\s*(\d+(?:\.\d+)?)\s*$",
+            expr,
+            re.IGNORECASE,
+        )
+        if m:
+            other_col, c_str = m.group(1), m.group(2)
+            if other_col in col_set and other_col != col_name:
+                c_val = float(c_str)
+                # Generate a random factor in [0, c_val] so the derived
+                # value is always <= other_col * c_val. Using 0 as the
+                # lower bound allows zero (valid for <= constraints).
+                return {
+                    "derive_from": other_col,
+                    "expression": f"value * random_float(0.0, {c_val})",
+                }
+
+        # Pattern 23: col = VALUE OR col1 < X OR col2 < X OR col3 < X
+        # (multi-column threshold — derive col as indicator of any column < X)
+        # e.g., has_issues = 0 OR structural_score < 60 OR electrical_score < 60 OR plumbing_score < 60
+        #
+        # Semantics: the OR-chain ``col1 < X OR col2 < X OR ...`` is the
+        # "escape" clause; ``col = VALUE`` is the "always-pass" case. The
+        # CHECK fails ONLY when col != VALUE AND all columns >= X. Therefore:
+        #   - When ANY column < X: col can be either VALUE or (1-VALUE); we
+        #     choose (1-VALUE) because in the common dual-CHECK pattern
+        #     (CHECK1: col = (1-VALUE) OR (all >= X)) the value is FORCED to
+        #     (1-VALUE) here. Choosing (1-VALUE) satisfies BOTH CHECKs.
+        #   - When ALL columns >= X: col MUST be VALUE (the only way CHECK2
+        #     passes), and CHECK1 also passes (all >= X is true).
+        #
+        # Dual pattern (for reference, not matched here):
+        #   CHECK1: col = (1-VALUE) OR (col1 >= X AND col2 >= X AND col3 >= X)
+        # When both CHECKs are present, they together FORCE col to be:
+        #   (1-VALUE) if (any < X) else VALUE
+        # which is exactly what we produce below.
+        #
+        # Derive from col1 (first threshold column), reference others via row[...].
+        # Also handles 2-column variant: col = VALUE OR col1 < X OR col2 < X
+        m = re.match(
+            rf"^\s*{col}\s*=\s*(\d+)\s+OR\s+(\w+)\s*<\s*(\d+)\s+OR\s+(\w+)\s*<\s*\3\s*(?:OR\s+(\w+)\s*<\s*\3)?\s*$",
+            expr,
+            re.IGNORECASE,
+        )
+        if m:
+            val_str, col1, x_str, col2, col3_opt = (
+                m.group(1), m.group(2), m.group(3), m.group(4), m.group(5),
+            )
+            if col1 in col_set and col2 in col_set and col1 != col_name:
+                val = int(val_str)
+                opposite = 1 - val if val in (0, 1) else 0
+                x_val_p23: int = int(x_str)
+                if col3_opt and col3_opt in col_set:
+                    # Three-column threshold. ``value`` refers to col1 (the
+                    # derive_from source). All three columns must be checked
+                    # against X — omitting ``value < {x_val}`` would silently
+                    # ignore col1's threshold, producing rows that violate the
+                    # CHECK when only col1 is below X.
+                    cond = f"value < {x_val_p23} or row['{col2}'] < {x_val_p23} or row['{col3_opt}'] < {x_val_p23}"
+                    return {
+                        "derive_from": col1,
+                        "expression": f"{opposite} if ({cond}) else {val}",
+                    }
+                # Two-column threshold
+                return {
+                    "derive_from": col1,
+                    "expression": f"{opposite} if (value < {x_val_p23} or row['{col2}'] < {x_val_p23}) else {val}",
                 }
 
         # Pattern 12: col = abs(col1) (*|+|-) col2 (abs() wrapper on first operand)
