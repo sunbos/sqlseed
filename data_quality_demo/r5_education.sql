@@ -36,17 +36,21 @@ CREATE TABLE courses (
     category_id INTEGER NOT NULL,
     instructor_id INTEGER NOT NULL,
     description TEXT,
+    isbn TEXT CHECK (isbn IS NULL OR LENGTH(isbn) >= 10),
+    slug TEXT NOT NULL UNIQUE CHECK (slug LIKE '%-%'),
     price REAL NOT NULL CHECK (price >= 0.0),
     original_price REAL CHECK (original_price >= 0.0),
     difficulty TEXT NOT NULL CHECK (difficulty IN ('beginner', 'intermediate', 'advanced')),
     duration_hours INTEGER NOT NULL CHECK (duration_hours > 0),
     max_students INTEGER CHECK (max_students IS NULL OR max_students > 0),
     status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'published', 'archived')),
+    is_free INTEGER NOT NULL DEFAULT 0 CHECK (is_free IN (0, 1)),
     published_at DATETIME,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (category_id) REFERENCES categories(id),
     FOREIGN KEY (instructor_id) REFERENCES users(id),
-    CHECK (original_price IS NULL OR original_price >= price)
+    CHECK (original_price IS NULL OR original_price >= price),
+    CHECK (is_free = 1 OR price < 100 OR original_price IS NULL OR original_price < 200)
 );
 
 CREATE TABLE lessons (
@@ -74,7 +78,11 @@ CREATE TABLE enrollments (
     FOREIGN KEY (course_id) REFERENCES courses(id),
     FOREIGN KEY (last_lesson_id) REFERENCES lessons(id),
     CHECK (completed_at IS NULL OR completed_at >= enrolled_at),
-    CHECK (status != 'completed' OR progress_percent = 100)
+    CHECK (status != 'completed' OR progress_percent = 100),
+    CHECK (status = 'active' AND progress_percent >= 0
+           OR status = 'completed' AND progress_percent >= 100
+           OR status = 'dropped' AND progress_percent < 100),
+    CHECK (status IN ('dropped', 'refunded') OR completed_at IS NULL)
 );
 
 CREATE TABLE lesson_progress (
@@ -184,3 +192,5 @@ CREATE TABLE instructor_profiles (
     avg_rating REAL NOT NULL DEFAULT 0.0 CHECK (avg_rating >= 0.0 AND avg_rating <= 5.0),
     FOREIGN KEY (instructor_id) REFERENCES users(id)
 );
+
+CREATE UNIQUE INDEX idx_enroll_active ON enrollments(student_id, course_id) WHERE status = 'active';
