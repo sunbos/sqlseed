@@ -522,6 +522,7 @@ def _parse_single_column_check(
     - ``col > X AND col <= Y`` / ``col >= X AND col < Y`` → mixed range
     - ``col >= X`` / ``col > X`` → lower bound only
     - ``col <= Y`` / ``col < Y`` → upper bound only
+    - ``col != 0`` → integer/float with ``min_value=1`` (or ``0.01`` for float)
     """
     col = re.escape(col_name)
 
@@ -749,6 +750,28 @@ def _parse_single_column_check(
             return (gen, {"max_value": int(val_str) - 1})
         return (gen, {"max_value": float(val_str)})
 
+    # Pattern: col != N — inequality with a literal (excludes a single value)
+    # e.g., quantity != 0, status != -1
+    # For ``col != 0`` (the most common case): generate positive non-zero
+    # values by setting min_value=1 (integer) or min_value=0.01 (float).
+    # This is a pragmatic choice — most real-world columns with ``!= 0``
+    # (quantity, count, amount) expect positive values. For ``col != N``
+    # where N != 0: skip (cannot reliably exclude a single value from a
+    # random range without the choice generator, and guessing a safe range
+    # would be arbitrary).
+    m = re.match(
+        rf"^\s*{col}\s*!=\s*(\d+(?:\.\d+)?)\s*$",
+        expr,
+        re.IGNORECASE,
+    )
+    if m:
+        val_str = m.group(1)
+        is_int = "." not in val_str
+        if is_int and int(val_str) == 0:
+            return ("integer", {"min_value": 1})
+        if not is_int and float(val_str) == 0.0:
+            return ("float", {"min_value": 0.01})
+
     return None
 
 
@@ -778,6 +801,10 @@ def _infer_cross_column_config(
     - ``col >= col1 * col2`` (arithmetic — derive_from col1, reference col2)
     - ``col = col1 (+|-|*) col2`` (arithmetic equality — derive_from col1, reference col2)
     - ``col = col1 + col2 + col3`` (three-column addition — derive_from col1, reference col2 + col3)
+    - ``col = abs(col1) (+|-|*) col2`` (abs first operand — derive_from col1, expression uses abs(value))
+    - ``col = col1 (+|-|*) abs(col2)`` (abs second operand — derive_from col1, expression uses abs(row[col2]))
+    - ``col = abs(col1) * abs(col2)`` (abs both operands — derive_from col1, expression uses abs() on both)
+    - ``col = abs(col1)`` (standalone abs — derive_from col1, expression abs(value))
     - ``col >= X AND col <= other`` (compound — literal lower + column upper)
     - ``col >= other AND col <= Y`` (compound — column lower + literal upper)
     - ``col > X AND col < other`` (compound — exclusive literal lower + exclusive column upper)
@@ -1127,6 +1154,73 @@ def _infer_cross_column_config(
                 return {
                     "derive_from": col1,
                     "expression": f"value + row['{col2}'] + row['{col3}']",
+                }
+
+        # Pattern 12: col = abs(col1) (*|+|-) col2 (abs() wrapper on first operand)
+        # e.g., total_value = abs(quantity) * price_per_unit
+        # Derive from col1 (the column inside abs()), reference col2 via row dict.
+        # The expression computes abs(col1) {op} col2, satisfying the equality.
+        # ``abs`` is in SAFE_FUNCTIONS (see core/expression.py line 53).
+        # Supports +, -, * operators (division excluded to avoid zero-division).
+        m = re.match(
+            rf"^\s*{col}\s*=\s*abs\s*\(\s*(\w+)\s*\)\s*([+\-*])\s*(\w+)\s*$",
+            expr,
+            re.IGNORECASE,
+        )
+        if m:
+            col1, op, col2 = m.group(1), m.group(2), m.group(3)
+            if col1 in col_set and col2 in col_set and col1 != col_name:
+                return {
+                    "derive_from": col1,
+                    "expression": f"abs(value) {op} row['{col2}']",
+                }
+
+        # Pattern 13: col = col1 (*|+|-) abs(col2) (abs() wrapper on second operand)
+        # e.g., net_value = price_per_unit * abs(quantity)
+        # Derive from col1, apply abs() to the row-referenced second operand.
+        m = re.match(
+            rf"^\s*{col}\s*=\s*(\w+)\s*([+\-*])\s*abs\s*\(\s*(\w+)\s*\)\s*$",
+            expr,
+            re.IGNORECASE,
+        )
+        if m:
+            col1, op, col2 = m.group(1), m.group(2), m.group(3)
+            if col1 in col_set and col2 in col_set and col1 != col_name:
+                return {
+                    "derive_from": col1,
+                    "expression": f"value {op} abs(row['{col2}'])",
+                }
+
+        # Pattern 14: col = abs(col1) * abs(col2) (abs() wrappers on both operands)
+        # e.g., total = abs(delta_a) * abs(delta_b)
+        # Derive from col1, apply abs() to both operands.
+        m = re.match(
+            rf"^\s*{col}\s*=\s*abs\s*\(\s*(\w+)\s*\)\s*\*\s*abs\s*\(\s*(\w+)\s*\)\s*$",
+            expr,
+            re.IGNORECASE,
+        )
+        if m:
+            col1, col2 = m.group(1), m.group(2)
+            if col1 in col_set and col2 in col_set and col1 != col_name:
+                return {
+                    "derive_from": col1,
+                    "expression": f"abs(value) * abs(row['{col2}'])",
+                }
+
+        # Pattern 15: col = abs(col1) (standalone abs — magnitude)
+        # e.g., magnitude = abs(delta)
+        # Derive from col1, apply abs() to value.
+        m = re.match(
+            rf"^\s*{col}\s*=\s*abs\s*\(\s*(\w+)\s*\)\s*$",
+            expr,
+            re.IGNORECASE,
+        )
+        if m:
+            col1 = m.group(1)
+            if col1 in col_set and col1 != col_name:
+                return {
+                    "derive_from": col1,
+                    "expression": "abs(value)",
                 }
 
     return None
