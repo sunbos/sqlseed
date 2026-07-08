@@ -92,6 +92,24 @@ CREATE TABLE lesson_progress (
     CHECK (is_completed != 1 OR watched_percent = 100)
 );
 
+CREATE TABLE coupons (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    code TEXT NOT NULL UNIQUE,
+    discount_type TEXT NOT NULL CHECK (discount_type IN ('fixed', 'percentage')),
+    discount_value REAL NOT NULL CHECK (discount_value > 0),
+    min_order_amount REAL NOT NULL DEFAULT 0.0 CHECK (min_order_amount >= 0.0),
+    max_discount_amount REAL,
+    total_count INTEGER NOT NULL DEFAULT 100 CHECK (total_count > 0),
+    used_count INTEGER NOT NULL DEFAULT 0 CHECK (used_count >= 0),
+    start_at DATETIME NOT NULL,
+    end_at DATETIME NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'disabled', 'expired')),
+    CHECK (end_at > start_at),
+    CHECK (used_count <= total_count),
+    CHECK (discount_type != 'percentage' OR discount_value <= 100),
+    CHECK (max_discount_amount IS NULL OR max_discount_amount > 0)
+);
+
 CREATE TABLE orders (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     order_no TEXT NOT NULL UNIQUE,
@@ -110,24 +128,6 @@ CREATE TABLE orders (
     CHECK (discount_amount <= amount),
     CHECK (pay_amount = amount - discount_amount),
     CHECK (status != 'paid' OR paid_at IS NOT NULL)
-);
-
-CREATE TABLE coupons (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    code TEXT NOT NULL UNIQUE,
-    discount_type TEXT NOT NULL CHECK (discount_type IN ('fixed', 'percentage')),
-    discount_value REAL NOT NULL CHECK (discount_value > 0),
-    min_order_amount REAL NOT NULL DEFAULT 0.0 CHECK (min_order_amount >= 0.0),
-    max_discount_amount REAL,
-    total_count INTEGER NOT NULL DEFAULT 100 CHECK (total_count > 0),
-    used_count INTEGER NOT NULL DEFAULT 0 CHECK (used_count >= 0),
-    start_at DATETIME NOT NULL,
-    end_at DATETIME NOT NULL,
-    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'disabled', 'expired')),
-    CHECK (end_at > start_at),
-    CHECK (used_count <= total_count),
-    CHECK (discount_type != 'percentage' OR discount_value <= 100),
-    CHECK (max_discount_amount IS NULL OR max_discount_amount > 0)
 );
 
 CREATE TABLE payments (
