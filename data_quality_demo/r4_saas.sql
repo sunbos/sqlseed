@@ -1,4 +1,4 @@
--- Round 4: SaaS Multi-Tenant Platform (12 tables)
+-- Round 4: SaaS Multi-Tenant Platform (13 tables)
 -- Exercises: Org hierarchy, tenant isolation, subscription billing cycle,
 --             RBAC, API key rotation, usage metering, conditional NULL,
 --             cross-column date/pricing constraints
@@ -40,7 +40,6 @@ CREATE TABLE plans (
     is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
     introduced_at DATE NOT NULL,
     deprecated_at DATE,
-    FOREIGN KEY (id) REFERENCES plans(id),
     CHECK (base_price_yearly <= base_price_monthly * 12),
     CHECK (base_price_yearly >= base_price_monthly * 10),
     CHECK (deprecated_at IS NULL OR deprecated_at > introduced_at),
@@ -171,13 +170,11 @@ CREATE TABLE subscriptions (
     FOREIGN KEY (tenant_id) REFERENCES tenants(id),
     FOREIGN KEY (plan_id) REFERENCES plans(id),
     CHECK (current_period_end > current_period_start),
-    CHECK (seat_amount = seat_count * (SELECT seat_price_monthly FROM plans WHERE id = plan_id) OR seat_amount = 0.0),
     CHECK (total_amount = (base_amount + seat_amount) * (1.0 - discount_rate)),
     CHECK (status != 'canceled' OR canceled_at IS NOT NULL),
     CHECK (status != 'expired' OR ended_at IS NOT NULL),
     CHECK (canceled_at IS NULL OR canceled_at >= started_at),
-    CHECK (ended_at IS NULL OR ended_at >= current_period_end),
-    CHECK (billing_cycle != 'yearly' OR base_amount >= (SELECT base_price_yearly FROM plans WHERE id = plan_id))
+    CHECK (ended_at IS NULL OR ended_at >= current_period_end)
 );
 
 CREATE TABLE invoices (
