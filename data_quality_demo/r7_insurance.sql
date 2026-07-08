@@ -76,6 +76,7 @@ CREATE TABLE claims (
     claim_type TEXT NOT NULL CHECK (claim_type IN ('medical', 'accident', 'property_damage', 'death', 'theft')),
     status TEXT NOT NULL DEFAULT 'filed' CHECK (status IN ('filed', 'reviewed', 'approved', 'rejected', 'settled')),
     claim_amount REAL NOT NULL CHECK (claim_amount >= 0.01),
+    max_coverage REAL NOT NULL,
     approved_amount REAL,
     deductible_applied REAL NOT NULL DEFAULT 0.0 CHECK (deductible_applied >= 0.0),
     filed_date DATE NOT NULL,
@@ -87,7 +88,13 @@ CREATE TABLE claims (
     CHECK (approved_amount IS NULL OR approved_amount <= claim_amount),
     CHECK (status != 'approved' OR approved_amount > 0.0),
     CHECK (reviewed_date IS NULL OR reviewed_date >= filed_date),
-    CHECK (settled_date IS NULL OR settled_date >= reviewed_date)
+    CHECK (settled_date IS NULL OR settled_date >= reviewed_date),
+    CHECK (claim_amount >= 0.01 AND claim_amount <= max_coverage),
+    CHECK (
+        (claim_type IN ('medical', 'accident') AND approved_amount IS NULL OR approved_amount = claim_amount - deductible_applied)
+        OR (claim_type IN ('property_damage', 'theft') AND approved_amount IS NULL OR approved_amount = claim_amount - deductible_applied * 0.5)
+    ),
+    CHECK (status IN ('filed', 'reviewed') OR approved_amount IS NULL)
 );
 
 CREATE TABLE claim_documents (
