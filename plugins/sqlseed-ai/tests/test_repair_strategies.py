@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from sqlseed_ai.repair.strategies import REPAIR_STRATEGIES
 from sqlseed_ai.validator.models import ConstraintType, ViolationReport
 
@@ -543,3 +545,61 @@ def test_strip_invalid_date_derive_from_keeps_timedelta_expression():
     result = _strip_invalid_date_derive_from(col, v, {})
     assert result["derive_from"] == "start_date"
     assert result["expression"] == "value + timedelta(days=7)"
+
+
+# === Blind-spot fix (2026-07-09): _semantic_upgrade phone + LENGTH CHECK ===
+
+
+def test_semantic_upgrade_phone_with_length_check_uses_pattern():
+    """_semantic_upgrade: phone column + LENGTH(phone)=11 → pattern [0-9]{11}.
+
+    When the contract matrix flags ``string`` on ``phone`` as a semantic
+    error, ``_semantic_upgrade`` should check for a LENGTH CHECK constraint.
+    If present, upgrade to ``pattern`` with ``[0-9]{N}`` instead of ``phone``
+    (which produces variable-length output that would violate LENGTH).
+    """
+    from sqlseed_ai.repair.strategies import _semantic_upgrade
+
+    col = {"name": "phone", "generator": "string", "params": {"min_length": 11, "max_length": 11}}
+    v = _v("semantic_upgrade")
+    ctx = {
+        "table_schema": SimpleNamespace(
+            constraints=[
+                {"type": "check", "expression": "phone IS NULL OR LENGTH(phone) = 11"},
+            ]
+        )
+    }
+    result = _semantic_upgrade(col, v, ctx)
+    assert result["generator"] == "pattern"
+    assert result["params"]["regex"] == "[0-9]{11}"
+
+
+def test_semantic_upgrade_phone_without_length_check_uses_phone():
+    """_semantic_upgrade: phone column without LENGTH CHECK → phone generator.
+
+    When there's no LENGTH constraint, the ``phone`` generator is safe to use
+    (no length violation risk). The upgrade proceeds normally.
+    """
+    from sqlseed_ai.repair.strategies import _semantic_upgrade
+
+    col = {"name": "phone", "generator": "string", "params": {"max_length": 20}}
+    v = _v("semantic_upgrade")
+    ctx = {"table_schema": SimpleNamespace(constraints=[])}
+    result = _semantic_upgrade(col, v, ctx)
+    assert result["generator"] == "phone"
+    assert "params" not in result
+
+
+def test_semantic_upgrade_email_still_drops_params():
+    """_semantic_upgrade: email column → email generator (params dropped).
+
+    Non-phone columns are unaffected by the LENGTH CHECK fix. The ``email``
+    generator doesn't use length params, so dropping them is correct.
+    """
+    from sqlseed_ai.repair.strategies import _semantic_upgrade
+
+    col = {"name": "user_email", "generator": "string", "params": {"min_length": 5}}
+    v = _v("semantic_upgrade")
+    result = _semantic_upgrade(col, v, {})
+    assert result["generator"] == "email"
+    assert "params" not in result

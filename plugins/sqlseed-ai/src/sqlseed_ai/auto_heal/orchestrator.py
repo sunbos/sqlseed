@@ -33,6 +33,7 @@ import yaml
 from sqlseed_ai.auto_heal.time_budget import TimeBudgetController
 from sqlseed_ai.healer.post_repair import BrokenEdgeAligner
 from sqlseed_ai.healer.subgraph import SubgraphSplitter
+from sqlseed_ai.repair.strategies import _is_phone_like
 from sqlseed_ai.validator.schema_snapshot import SchemaSnapshot
 
 from sqlseed._utils.logger import get_logger
@@ -482,6 +483,33 @@ class AutoHealOrchestrator:
                                 "name": col_name,
                                 "generator": "pattern",
                                 "params": {"regex": f"[A-Za-z0-9]{{{n}}}"},
+                            }
+                        )
+                        continue
+                    # Phone-like column + LENGTH(col) = N → pattern with
+                    # [0-9]{N}. The ``string`` generator produces alphanumeric
+                    # gibberish for phone columns (semantically wrong even
+                    # though it satisfies LENGTH). Using ``pattern`` with
+                    # digits-only regex produces phone-like output AND satisfies
+                    # the LENGTH CHECK. This avoids triggering the contract
+                    # matrix's ``string`` on ``phone`` → ``semantic_upgrade``
+                    # rule, which would drop the length params and cause LLM
+                    # oscillation between ``string`` (satisfies LENGTH but
+                    # semantically wrong) and ``phone`` (semantically correct
+                    # but violates LENGTH).
+                    if (
+                        gen == "string"
+                        and _is_phone_like(col_name)
+                        and "min_length" in params
+                        and "max_length" in params
+                        and params["min_length"] == params["max_length"]
+                    ):
+                        n = params["min_length"]
+                        cols.append(
+                            {
+                                "name": col_name,
+                                "generator": "pattern",
+                                "params": {"regex": f"[0-9]{{{n}}}"},
                             }
                         )
                         continue

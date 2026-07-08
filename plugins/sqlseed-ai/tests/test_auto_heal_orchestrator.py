@@ -1116,3 +1116,210 @@ def test_step0_non_self_ref_fk_not_affected(simple_db: Path):
     for col in config["tables"][0]["columns"]:
         # No self-ref FK in simple_db → no null_ratio=1.0 from Step 0
         assert col.get("null_ratio") != 1.0 or col["name"] != "id"
+
+
+# ---------------------------------------------------------------------------
+# Blind-spot fix (2026-07-09): phone-like + LENGTH CHECK → pattern [0-9]{N}
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def phone_length_db(tmp_path: Path) -> Path:
+    """DB with phone column that has LENGTH(phone) = 11 CHECK constraint."""
+    path = tmp_path / "phone_len.db"
+    with sqlite3.connect(str(path)) as conn:
+        conn.execute(
+            """
+            CREATE TABLE users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                phone TEXT,
+                CHECK (phone IS NULL OR LENGTH(phone) = 11)
+            )
+            """
+        )
+    return path
+
+
+@pytest.fixture
+def phone_length_not_null_db(tmp_path: Path) -> Path:
+    """DB with NOT NULL phone column that has LENGTH(phone) = 11 CHECK."""
+    path = tmp_path / "phone_len_nn.db"
+    with sqlite3.connect(str(path)) as conn:
+        conn.execute(
+            """
+            CREATE TABLE contacts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                mobile TEXT NOT NULL,
+                CHECK (LENGTH(mobile) = 11)
+            )
+            """
+        )
+    return path
+
+
+def test_step2_phone_with_length_check_uses_pattern(phone_length_db: Path):
+    """phone-like column + LENGTH(phone)=11 → pattern with [0-9]{11}.
+
+    Previously, Step 2 returned ``string`` + ``min_length=11, max_length=11``,
+    which triggered the contract matrix's ``string`` on ``phone`` →
+    ``semantic_upgrade`` rule, causing LLM oscillation. Now Step 2 directly
+    returns ``pattern`` with ``[0-9]{11}``, avoiding the contract matrix
+    conflict entirely.
+    """
+    mock_healer = MagicMock()
+    mock_validator = MagicMock()
+    mock_validator.validate.return_value = []  # no violations — accepted as-is
+
+    orch = AutoHealOrchestrator(
+        db_path=str(phone_length_db),
+        heal_orchestrator=mock_healer,
+        validator=mock_validator,
+        total_budget_seconds=10.0,
+    )
+    yaml_str = orch.run()
+    config = yaml.safe_load(yaml_str)
+    phone_col = next(
+        c for c in config["tables"][0]["columns"] if c["name"] == "phone"
+    )
+    assert phone_col["generator"] == "pattern"
+    assert phone_col["params"]["regex"] == "[0-9]{11}"
+
+
+def test_step2_mobile_with_length_check_uses_pattern(phone_length_not_null_db: Path):
+    """mobile column + LENGTH(mobile)=11 → pattern with [0-9]{11}."""
+    mock_healer = MagicMock()
+    mock_validator = MagicMock()
+    mock_validator.validate.return_value = []
+
+    orch = AutoHealOrchestrator(
+        db_path=str(phone_length_not_null_db),
+        heal_orchestrator=mock_healer,
+        validator=mock_validator,
+        total_budget_seconds=10.0,
+    )
+    yaml_str = orch.run()
+    config = yaml.safe_load(yaml_str)
+    mobile_col = next(
+        c for c in config["tables"][0]["columns"] if c["name"] == "mobile"
+    )
+    assert mobile_col["generator"] == "pattern"
+    assert mobile_col["params"]["regex"] == "[0-9]{11}"
+
+
+def test_step2_non_phone_with_length_check_keeps_string(tmp_path: Path):
+    """Non-phone-like column + LENGTH(code)=8 → keeps string + length params.
+
+    Only phone-like columns get the pattern upgrade. Other columns with
+    LENGTH constraints keep the original ``string`` + ``min_length``/
+    ``max_length`` config.
+    """
+    path = tmp_path / "code_len.db"
+    with sqlite3.connect(str(path)) as conn:
+        conn.execute(
+            """
+            CREATE TABLE items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                code TEXT NOT NULL,
+                CHECK (LENGTH(code) = 8)
+            )
+            """
+        )
+    mock_healer = MagicMock()
+    mock_validator = MagicMock()
+    mock_validator.validate.return_value = []
+
+    orch = AutoHealOrchestrator(
+        db_path=str(path),
+        heal_orchestrator=mock_healer,
+        validator=mock_validator,
+        total_budget_seconds=10.0,
+    )
+    yaml_str = orch.run()
+    config = yaml.safe_load(yaml_str)
+    code_col = next(
+        c for c in config["tables"][0]["columns"] if c["name"] == "code"
+    )
+    # Non-phone-like column keeps string + length params
+    assert code_col["generator"] == "string"
+    assert code_col["params"]["min_length"] == 8
+    assert code_col["params"]["max_length"] == 8
+
+
+# ---------------------------------------------------------------------------
+# Blind-spot fix (2026-07-09): ProgressiveDegrader restores original config
+# ---------------------------------------------------------------------------
+
+
+def test_restore_failed_columns_restores_generator_and_params():
+    """_restore_failed_columns: restores generator/params from original config.
+
+    When LLM oscillates, the ``current_config`` may have lost CHECK-constraint
+    params (e.g., ``min_length``/``max_length`` from ``LENGTH(phone)=11``
+    inference). ``_restore_failed_columns`` should restore the original
+    deterministic inference for failed columns.
+    """
+    from sqlseed_ai.healer.orchestrator import HealOrchestrator
+
+    original_config = {
+        "tables": [
+            {
+                "name": "users",
+                "columns": [
+                    {"name": "phone", "generator": "pattern", "params": {"regex": "[0-9]{11}"}},
+                    {"name": "email", "generator": "email", "params": {}},
+                ],
+            }
+        ]
+    }
+    # LLM oscillated: phone lost its params, email was patched successfully
+    current_config = {
+        "tables": [
+            {
+                "name": "users",
+                "columns": [
+                    {"name": "phone", "generator": "phone", "params": {}},  # LLM broke it
+                    {"name": "email", "generator": "email", "params": {"domain": "test.com"}},  # LLM fixed it
+                ],
+            }
+        ]
+    }
+    result = HealOrchestrator._restore_failed_columns(
+        current_config, original_config, failed_cols=["phone"]
+    )
+    phone_col = next(c for c in result["tables"][0]["columns"] if c["name"] == "phone")
+    email_col = next(c for c in result["tables"][0]["columns"] if c["name"] == "email")
+    # Failed column: restored from original
+    assert phone_col["generator"] == "pattern"
+    assert phone_col["params"]["regex"] == "[0-9]{11}"
+    # Non-failed column: LLM patch preserved
+    assert email_col["params"]["domain"] == "test.com"
+
+
+def test_restore_failed_columns_noop_when_no_failed_cols():
+    """_restore_failed_columns: no-op when failed_cols is empty."""
+    from sqlseed_ai.healer.orchestrator import HealOrchestrator
+
+    original_config = {"tables": [{"name": "t", "columns": [{"name": "c", "generator": "string"}]}]}
+    current_config = {"tables": [{"name": "t", "columns": [{"name": "c", "generator": "integer"}]}]}
+    result = HealOrchestrator._restore_failed_columns(current_config, original_config, failed_cols=[])
+    # No failed cols → current_config unchanged
+    col = result["tables"][0]["columns"][0]
+    assert col["generator"] == "integer"
+
+
+def test_restore_failed_columns_handles_missing_original_column():
+    """_restore_failed_columns: gracefully handles missing original column."""
+    from sqlseed_ai.healer.orchestrator import HealOrchestrator
+
+    original_config = {"tables": [{"name": "t", "columns": []}]}
+    current_config = {
+        "tables": [
+            {"name": "t", "columns": [{"name": "phone", "generator": "phone", "params": {}}]}
+        ]
+    }
+    result = HealOrchestrator._restore_failed_columns(
+        current_config, original_config, failed_cols=["phone"]
+    )
+    # Original config has no "phone" column → current config unchanged
+    phone_col = next(c for c in result["tables"][0]["columns"] if c["name"] == "phone")
+    assert phone_col["generator"] == "phone"

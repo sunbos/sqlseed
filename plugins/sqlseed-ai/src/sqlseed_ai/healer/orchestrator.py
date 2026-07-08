@@ -82,9 +82,20 @@ class HealOrchestrator:
 
         Returns HealResult with the final config (repaired or degraded).
         Network errors propagate as RuntimeError (Section 5.3).
+
+        Blind-spot fix (2026-07-09): when LLM oscillates and we need to
+        degrade, restore failed columns from the ORIGINAL deterministic
+        config (``config`` parameter from ``_build_subgraph_config``)
+        instead of using the oscillated ``current_config``. The oscillated
+        config may have lost CHECK-constraint params (e.g.,
+        ``min_length``/``max_length`` from ``LENGTH(phone)=11`` inference)
+        during LLM patching, causing the degraded config to violate CHECK
+        constraints. By restoring from the original, we ensure the degraded
+        config preserves the deterministic inference results.
         """
         start = time.monotonic()
         attempts: list[HealAttempt] = []
+        original_config = copy.deepcopy(config)  # Deterministic inference result
         current_config = copy.deepcopy(config)
         current_violations = list(violations)
         table_name = task.tables[0] if task.tables else ""
@@ -94,6 +105,7 @@ class HealOrchestrator:
                 logger.warning("HealOrchestrator time budget exhausted", budget=self._time_budget)
                 degraded_result = self._degrade_and_return(
                     current_config,
+                    original_config,
                     current_violations,
                     DegradeReason.TIME_BUDGET_EXHAUSTED,
                     attempts,
@@ -130,6 +142,7 @@ class HealOrchestrator:
                     logger.warning("Oscillation detected, degrading", round=round_num)
                     degraded_result = self._degrade_and_return(
                         current_config,
+                        original_config,
                         current_violations,
                         DegradeReason.LLM_OSCILLATION,
                         attempts,
@@ -149,6 +162,7 @@ class HealOrchestrator:
             # _try_one_round. If we reach here, all levels failed.
             degraded_result = self._degrade_and_return(
                 current_config,
+                original_config,
                 current_violations,
                 DegradeReason.LLM_FAILURE,
                 attempts,
@@ -160,6 +174,7 @@ class HealOrchestrator:
 
         degraded_result = self._degrade_and_return(
             current_config,
+            original_config,
             current_violations,
             DegradeReason.MAX_RETRIES_EXCEEDED,
             attempts,
@@ -384,13 +399,24 @@ class HealOrchestrator:
     def _degrade_and_return(
         self,
         config: dict[str, Any],
+        original_config: dict[str, Any],
         violations: list[ViolationReport],
         reason: DegradeReason,
         attempts: list[HealAttempt],
         round_num: int,
         start: float,
     ) -> HealResult:
-        """Invoke ProgressiveDegrader and build the final HealResult."""
+        """Invoke ProgressiveDegrader and build the final HealResult.
+
+        Blind-spot fix (2026-07-09): before degrading, restore failed
+        columns from ``original_config`` (the deterministic inference result
+        from ``_build_subgraph_config``). The ``config`` parameter may
+        contain oscillated LLM output that lost CHECK-constraint params
+        (e.g., ``min_length``/``max_length`` from ``LENGTH(phone)=11``).
+        Restoring from the original ensures the degraded config preserves
+        the deterministic inference, which is structurally correct even if
+        semantically suboptimal.
+        """
         failed_cols = self._collect_failed_columns(violations)
         if not failed_cols:
             return HealResult(
@@ -401,6 +427,8 @@ class HealOrchestrator:
                 total_attempts=round_num,
                 total_elapsed=time.monotonic() - start,
             )
+        # Restore failed columns from original deterministic config.
+        config = self._restore_failed_columns(config, original_config, failed_cols)
         failed_map = {c: reason for c in failed_cols}
         new_config, _ = self._degrader.degrade(config, failed_map, column_groups=[])
         return HealResult(
@@ -413,6 +441,46 @@ class HealOrchestrator:
             total_attempts=round_num,
             total_elapsed=time.monotonic() - start,
         )
+
+    @staticmethod
+    def _restore_failed_columns(
+        config: dict[str, Any],
+        original_config: dict[str, Any],
+        failed_cols: list[str],
+    ) -> dict[str, Any]:
+        """Restore failed columns from the original deterministic config.
+
+        For each failed column, replace its ``generator``/``params``/
+        ``derive_from``/``expression`` with the values from
+        ``original_config`` (the output of ``_build_subgraph_config``).
+        Non-failed columns are left unchanged (preserving any successful
+        LLM patches).
+        """
+        if not failed_cols:
+            return config
+        failed_set = set(failed_cols)
+        new_config = copy.deepcopy(config)
+        orig_tables = {t["name"]: t for t in original_config.get("tables", [])}
+        for table_cfg in new_config.get("tables", []):
+            table_name = table_cfg.get("name", "")
+            orig_table = orig_tables.get(table_name)
+            if not orig_table:
+                continue
+            orig_cols = {c["name"]: c for c in orig_table.get("columns", [])}
+            for col in table_cfg.get("columns", []):
+                col_name = col.get("name", "")
+                if col_name not in failed_set:
+                    continue
+                orig_col = orig_cols.get(col_name)
+                if not orig_col:
+                    continue
+                # Restore deterministic inference fields
+                for field_name in ("generator", "params", "derive_from", "expression"):
+                    if field_name in orig_col:
+                        col[field_name] = copy.deepcopy(orig_col[field_name])
+                    else:
+                        col.pop(field_name, None)
+        return new_config
 
     @staticmethod
     def _extract_violations(val_result: Any) -> list[ViolationReport]:

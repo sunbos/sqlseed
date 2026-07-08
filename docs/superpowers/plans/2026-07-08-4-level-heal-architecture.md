@@ -3047,6 +3047,79 @@ Round 5 used a 12-table education database (users, categories, courses, lessons,
 
 ---
 
+## Task 24: Phone+LENGTH CHECK Architecture Audit — Three Systemic Blind Spots Fixed
+
+**Goal:** Fix three systemic blind spots in the 4-Level Heal architecture that caused `users.phone` (with `CHECK (phone IS NULL OR LENGTH(phone) = 11)`) to generate alphanumeric gibberish instead of phone-like digits. The audit confirmed the architecture design is sound — the issues were in the implementation layer (contract matrix rules, repair strategies, and degrader logic).
+
+### Background
+
+During Round 5 data quality review, `users.phone` was found to generate `string` (alphanumeric gibberish) with `_degraded: true, degrade_reason: llm_oscillation`. The LLM was called but oscillated between two conflicting goals: satisfying `LENGTH(phone) = 11` (needs `string` + length params) vs. semantic quality (needs `phone` or `pattern` generator). The architecture audit traced the complete data flow:
+
+1. Step 2 (`_infer_from_check_constraints`) detected `LENGTH(phone) = 11` → returned `string` + `min_length=11, max_length=11` (structurally correct, semantically poor)
+2. Validator contract matrix matched TWO rules: `semantic_upgrade` (specificity=2) won over `upgrade_phone_to_pattern` (specificity=3)
+3. Layer 3 `_semantic_upgrade` changed `string` → `phone`, **dropped all params** (broke LENGTH CHECK)
+4. Layer 3 `_upgrade_phone_to_pattern` SKIPPED (correctly detected LENGTH CHECK)
+5. Layer 4 LLM oscillated between `string+length` and `phone` (unresolvable conflict)
+6. ProgressiveDegrader kept the oscillated LLM output (did not restore original deterministic config)
+
+### Blind Spot 1: `_semantic_upgrade` unconditionally drops params
+
+**Root cause:** `_semantic_upgrade` in `strategies.py` called `new_col.pop("params", None)` unconditionally, dropping ALL params including `min_length`/`max_length` from CHECK constraint inference. When upgrading `string` → `phone` for a column with `LENGTH(phone) = 11`, the `phone` generator produces variable-length output (NANP format is 14 chars), violating the LENGTH CHECK.
+
+**Fix:** When upgrading `string` → `phone` and the column has a `LENGTH(col) = N` CHECK constraint, upgrade to `pattern` with `[0-9]{N}` instead of `phone`. This satisfies both the semantic requirement (digits-only, phone-like) and the LENGTH CHECK (exact N). Added `_extract_length_check()` helper to detect LENGTH constraints (including `col IS NULL OR` prefix stripping).
+
+**Location:** `plugins/sqlseed-ai/src/sqlseed_ai/repair/strategies.py` — `_semantic_upgrade()` + new `_extract_length_check()` helper
+
+### Blind Spot 2: Step 2 source — phone-like + LENGTH → string (triggers contract matrix conflict)
+
+**Root cause:** Step 2 (`_infer_from_check_constraints`) detected `LENGTH(phone) = 11` and returned `string` + `min_length=11, max_length=11`. This triggered the contract matrix's `string` on `phone` → `semantic_upgrade` rule (specificity=2), which then dropped the length params and caused the LLM oscillation chain.
+
+**Fix:** In `_build_subgraph_config`, after Step 2 returns `string` + `min_length=N, max_length=N` for a phone-like column, override to `pattern` with `[0-9]{N}` regex. This prevents the `string` config from being generated at the source, avoiding the contract matrix conflict entirely. The existing UNIQUE + LENGTH override (line 472-487) served as the template for this fix.
+
+**Location:** `plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py` — `_build_subgraph_config()` Step 2, after UNIQUE+LENGTH check
+
+### Blind Spot 3: ProgressiveDegrader keeps oscillated LLM output
+
+**Root cause:** `HealOrchestrator._degrade_and_return()` passed `current_config` (which may contain oscillated LLM output) to `ProgressiveDegrader.degrade()`. The degrader's comment said "Keep generator/params from `_build_subgraph_config`", but the actual config was the LLM's last oscillated output, not the original deterministic inference. This meant the degraded config could have lost CHECK-constraint params.
+
+**Fix:** Added `original_config` parameter to `_degrade_and_return()`. Before calling `ProgressiveDegrader.degrade()`, the new `_restore_failed_columns()` static method restores failed columns' `generator`/`params`/`derive_from`/`expression` from the original deterministic config. Non-failed columns are left unchanged (preserving any successful LLM patches).
+
+**Location:** `plugins/sqlseed-ai/src/sqlseed_ai/healer/orchestrator.py` — `heal()` + `_degrade_and_return()` + new `_restore_failed_columns()` static method
+
+### Architecture Conclusion
+
+**The 4-Level Heal architecture design itself is sound** — the spec Section 4.1 data flow (deterministic inference → validate → rule repair → LLM 4-level degradation) is correct. The three blind spots were implementation-layer issues:
+
+1. `_semantic_upgrade` had a blanket `pop("params")` that didn't account for CHECK constraints
+2. Step 2 didn't detect phone-like columns, producing `string` configs that triggered contract matrix conflicts
+3. ProgressiveDegrader trusted the `current_config` without verifying it was the original deterministic output
+
+### Files
+
+- Modify: `plugins/sqlseed-ai/src/sqlseed_ai/repair/strategies.py` — `_semantic_upgrade` phone+LENGTH fix + `_extract_length_check` helper
+- Modify: `plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py` — Step 2 phone-like+LENGTH override + `_is_phone_like` import
+- Modify: `plugins/sqlseed-ai/src/sqlseed_ai/healer/orchestrator.py` — `heal()` original_config + `_degrade_and_return` signature + `_restore_failed_columns` static method
+- Modify: `plugins/sqlseed-ai/tests/test_repair_strategies.py` — 3 new tests (phone+LENGTH→pattern, phone without LENGTH→phone, email still drops params)
+- Modify: `plugins/sqlseed-ai/tests/test_auto_heal_orchestrator.py` — 6 new tests (3 Step 2 phone+LENGTH + 3 _restore_failed_columns)
+
+### Steps
+
+- [x] **Step 1: Architecture audit** — traced complete data flow for `users.phone`, confirmed 3 systemic blind spots
+- [x] **Step 2: Fix Blind Spot 1** — `_semantic_upgrade` phone+LENGTH → pattern with `[0-9]{N}`
+- [x] **Step 3: Fix Blind Spot 2** — Step 2 source fix, phone-like + LENGTH → pattern (avoids contract matrix conflict)
+- [x] **Step 4: Fix Blind Spot 3** — ProgressiveDegrader restores original deterministic config for failed columns
+- [x] **Step 5: Add 9 unit tests** (3 repair strategies + 3 Step 2 phone+LENGTH + 3 _restore_failed_columns)
+- [x] **Step 6: Run ruff + mypy + full AI plugin test suite** (598 passed, 3 skipped, 0 failed)
+
+### Validation Results
+
+- **ruff check**: All checks passed
+- **mypy strict**: Success, no issues found in 3 source files
+- **pytest**: 598 passed, 3 skipped (MCP API key tests), 0 failed
+- **New tests**: 9 new tests all pass (3 `_semantic_upgrade` + 3 Step 2 phone+LENGTH + 3 `_restore_failed_columns`)
+
+---
+
 ## Success Criteria
 
 - [ ] All pure-logic unit tests pass (ContextWindowDetector, FailureClassifier, Level2 context builder)

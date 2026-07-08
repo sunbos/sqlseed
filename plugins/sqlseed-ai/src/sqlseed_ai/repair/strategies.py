@@ -95,29 +95,81 @@ def _semantic_upgrade(col: dict[str, Any], v: ViolationReport, ctx: dict[str, An
     ``_semantic_upgrade`` — the second one (which won) defaulted to "word",
     breaking ``test_switch_generator_to_string_keeps_string_when_no_pattern_matches``.
     This unified version keeps the existing generator when no pattern matches.
+
+    Blind-spot fix (2026-07-09): when upgrading ``string`` → ``phone`` for a
+    phone-like column that has a ``LENGTH(col) = N`` CHECK constraint, upgrade
+    to ``pattern`` with ``[0-9]{N}`` instead of ``phone``. The ``phone``
+    generator produces variable-length output (NANP format is 14 chars), which
+    violates ``LENGTH(phone) = 11`` style constraints. Previously,
+    ``_semantic_upgrade`` unconditionally dropped all params (including
+    ``min_length``/``max_length`` from CHECK inference), causing the LENGTH
+    CHECK to be violated and triggering LLM oscillation between ``string``
+    (satisfies LENGTH but semantically wrong) and ``phone`` (semantically
+    correct but violates LENGTH).
     """
-    name = (col.get("name") or "").lower()
+    name = col.get("name", "")
+    name_lower = name.lower()
     new_gen: str | None = None
-    if "email" in name:
+    if "email" in name_lower:
         new_gen = "email"
-    elif name in ("phone", "mobile", "telephone", "tel"):
+    elif name_lower in ("phone", "mobile", "telephone", "tel"):
         new_gen = "phone"
-    elif "url" in name or "website" in name:
+    elif "url" in name_lower or "website" in name_lower:
         new_gen = "url"
-    elif "uuid" in name or "guid" in name:
+    elif "uuid" in name_lower or "guid" in name_lower:
         new_gen = "uuid"
-    elif name in ("description", "desc", "comment", "note"):
+    elif name_lower in ("description", "desc", "comment", "note"):
         new_gen = "sentence"
-    elif name.endswith("_name") or name == "name":
+    elif name_lower.endswith("_name") or name_lower == "name":
         new_gen = "name"
-    elif name in ("merchant", "company") or "company" in name:
+    elif name_lower in ("merchant", "company") or "company" in name_lower:
         new_gen = "company"
     new_col = {**col}
     if new_gen is not None:
+        # Blind-spot fix: phone-like column with LENGTH CHECK → pattern with
+        # [0-9]{N} instead of phone generator. This satisfies both the semantic
+        # requirement (digits-only, phone-like) and the LENGTH CHECK (exact N).
+        if new_gen == "phone":
+            length_n = _extract_length_check(name, ctx)
+            if length_n is not None:
+                new_col["generator"] = "pattern"
+                new_col["params"] = {"regex": f"[0-9]{{{length_n}}}"}
+                new_col.pop("derive_from", None)
+                new_col.pop("expression", None)
+                return new_col
         new_col["generator"] = new_gen
     # else: keep existing generator (e.g., "string")
     new_col.pop("params", None)
     return new_col
+
+
+def _extract_length_check(col_name: str, ctx: dict[str, Any]) -> int | None:
+    """Extract N from a ``LENGTH(col) = N`` CHECK constraint.
+
+    Returns the integer N if the column has an exact-length CHECK constraint,
+    or ``None`` if no such constraint exists.
+    """
+    table_schema = ctx.get("table_schema")
+    if not table_schema or not col_name:
+        return None
+    for c in table_schema.constraints:
+        if c.get("type") != "check":
+            continue
+        expr = c.get("expression", "")
+        if not isinstance(expr, str):
+            continue
+        # Strip "col IS NULL OR " prefix to handle nullable LENGTH constraints
+        # e.g., "phone IS NULL OR LENGTH(phone) = 11" → "LENGTH(phone) = 11"
+        prefix = rf"{re.escape(col_name)}\s+IS\s+NULL\s+OR\s+"
+        expr = re.sub(prefix, "", expr, flags=re.IGNORECASE)
+        m = re.match(
+            rf"^\s*LENGTH\s*\(\s*{re.escape(col_name)}\s*\)\s*=\s*(\d+)\s*$",
+            expr,
+            re.IGNORECASE,
+        )
+        if m:
+            return int(m.group(1))
+    return None
 
 
 def _switch_generator(col: dict[str, Any], v: ViolationReport, ctx: dict[str, Any]) -> dict[str, Any]:
