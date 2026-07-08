@@ -742,8 +742,31 @@ def _parse_single_column_check(
     - ``col >= X`` / ``col > X`` → lower bound only
     - ``col <= Y`` / ``col < Y`` → upper bound only
     - ``col != 0`` → integer/float with ``min_value=1`` (or ``0.01`` for float)
+    - ``col IS NULL OR <inner_expr>`` → strip prefix, parse inner expression
+      (always generating a valid non-NULL value satisfies the CHECK)
     """
     col = re.escape(col_name)
+
+    # Strip "col IS NULL OR ..." prefix (conditional NULL with inner constraint).
+    # e.g., "phone IS NULL OR LENGTH(phone) = 11" → "LENGTH(phone) = 11"
+    # e.g., "health_factor IS NULL OR (health_factor >= 1 AND health_factor <= 10)"
+    #       → "health_factor >= 1 AND health_factor <= 10"
+    # When the column CAN be NULL, always generating a valid non-NULL value
+    # satisfies the CHECK (NULL is allowed but not required). This defers
+    # to the inner expression's pattern matching.
+    m_null_prefix = re.match(
+        rf"^\s*{col}\s+IS\s+NULL\s+OR\s+(.+)$",
+        expr,
+        re.IGNORECASE,
+    )
+    if m_null_prefix:
+        inner = m_null_prefix.group(1).strip()
+        # Strip surrounding parentheses if present (e.g., "(col >= 1 AND col <= 10)")
+        if inner.startswith("(") and inner.endswith(")"):
+            inner = inner[1:-1].strip()
+        result = _parse_single_column_check(col_name, inner)
+        if result is not None:
+            return result
 
     # Pattern: LENGTH(col) >= N — minimum length constraint
     # e.g., LENGTH(name) >= 2
@@ -1393,6 +1416,41 @@ def _infer_cross_column_config(
                     "expression": f"random_int(value + 1, {y_val - 1})",
                 }
 
+        # Pattern 8e: col >= X AND col < other_col (compound — inclusive lower literal + exclusive upper column)
+        # e.g., deductible >= 0.0 AND deductible < coverage_amount
+        # e.g., discount >= 0.0 AND discount < base_price
+        # Derive from other_col, generate a value in [X, other_col) — always
+        # strictly less than other_col to satisfy the exclusive upper bound.
+        # For floats: use value * random_float(0.0, 0.99) when X=0 (common case),
+        # or max(X, value * random_float(0.0, 0.99)) when X > 0. The factor 0.99
+        # guarantees the result is strictly < value (since 0.99 < 1.0).
+        # For integers: use random_int(X, value - 1) — safe when value > X
+        # (guaranteed by well-formed schemas where other_col > X).
+        m = re.match(
+            rf"^\s*{col}\s*>=\s*(-?\d+(?:\.\d+)?)\s+AND\s+{col}\s*<\s*(\w+)\s*$",
+            expr,
+            re.IGNORECASE,
+        )
+        if m:
+            x_str_8e, other_col_8e = m.group(1), m.group(2)
+            if other_col_8e in col_set and other_col_8e != col_name:
+                if is_float_type:
+                    x_val_8e = float(x_str_8e)
+                    if x_val_8e == 0:
+                        return {
+                            "derive_from": other_col_8e,
+                            "expression": "value * random_float(0.0, 0.99)",
+                        }
+                    return {
+                        "derive_from": other_col_8e,
+                        "expression": f"max({x_val_8e}, value * random_float(0.0, 0.99))",
+                    }
+                x_val_8e = int(x_str_8e)
+                return {
+                    "derive_from": other_col_8e,
+                    "expression": f"random_int({x_val_8e}, value - 1)",
+                }
+
         # Pattern 9: col < other_col (standalone — strict upper bound)
         # e.g., transfer_fee < amount
         # For date columns: subtract a positive timedelta (>= 1 day).
@@ -1794,7 +1852,72 @@ def _infer_cross_column_config(
                         "expression": f"{non_val_expr} if value in {py_list} else {val_num_p26}",
                     }
 
-        # Pattern 27: N-way conditional range
+        # Pattern 36: N-way conditional range with dual bounds (both lower AND upper per clause)
+        #   (other_col = 'V1' AND col >= X1 AND col (<|<=) Y1) OR
+        #   (other_col = 'V2' AND col >= X2 AND col (<|<=) Y2) OR [...]
+        # Each clause constrains col to a specific range [X, Y) or [X, Y]
+        # based on other_col's value. Derive col from other_col and emit a
+        # nested ternary that picks the appropriate random range per enum.
+        # e.g., (risk_category = 'low' AND risk_score >= 1 AND risk_score < 25) OR
+        #       (risk_category = 'medium' AND risk_score >= 25 AND risk_score < 50) OR
+        #       (risk_category = 'high' AND risk_score >= 50 AND risk_score < 75) OR
+        #       (risk_category = 'critical' AND risk_score >= 75 AND risk_score <= 100)
+        # For integers: ``random_int(X, Y-1)`` for ``< Y``, ``random_int(X, Y)`` for ``<= Y``.
+        # For floats: ``random_float(X, Y-0.01)`` for ``< Y``, ``random_float(X, Y)`` for ``<= Y``.
+        # Handles newlines/multi-whitespace in CHECK expressions by normalizing
+        # before the guard check (SQLite stores table-level CHECKs with newlines).
+        expr_norm = re.sub(r"\s+", " ", expr).strip()
+        if " OR " in expr_norm and " AND " in expr_norm:
+            clause_re_36 = (
+                rf"\(?\s*(\w+)\s*=\s*'([^']+)'\s+AND\s+{col}\s*"
+                r"(>=|>)\s*(-?[0-9]+(?:\.[0-9]+)?)\s+AND\s+"
+                rf"{col}\s*(<=|<)\s*(-?[0-9]+(?:\.[0-9]+)?)\s*\)?"
+            )
+            clauses_36 = re.findall(clause_re_36, expr)
+            if len(clauses_36) >= 2:
+                other_col_p36 = clauses_36[0][0]
+                if (
+                    other_col_p36 in col_set
+                    and other_col_p36 != col_name
+                    and all(cl[0] == other_col_p36 for cl in clauses_36)
+                ):
+                    parts_p36: list[str] = []
+                    for _oc, vi, lo_op, lo_str, up_op, up_str in clauses_36[:-1]:
+                        lo = float(lo_str)
+                        up = float(up_str)
+                        # Adjust for exclusive bounds
+                        if lo_op == ">":
+                            lo += 0.01 if is_float_type else 1
+                        if up_op == "<":
+                            up -= 0.01 if is_float_type else 1
+                        rand_e = (
+                            f"random_float({lo}, {up})"
+                            if is_float_type
+                            else f"random_int({int(lo)}, {int(up)})"
+                        )
+                        parts_p36.append(f"{rand_e} if value == '{vi}'")
+                    # Last clause is the fallback
+                    _oc, _vi, lo_op, lo_str, up_op, up_str = clauses_36[-1]
+                    lo = float(lo_str)
+                    up = float(up_str)
+                    if lo_op == ">":
+                        lo += 0.01 if is_float_type else 1
+                    if up_op == "<":
+                        up -= 0.01 if is_float_type else 1
+                    last_rand_36 = (
+                        f"random_float({lo}, {up})"
+                        if is_float_type
+                        else f"random_int({int(lo)}, {int(up)})"
+                    )
+                    expr_chain_36 = last_rand_36
+                    for idx in range(len(parts_p36) - 1, -1, -1):
+                        expr_chain_36 = f"{parts_p36[idx]} else ({expr_chain_36})"
+                    return {
+                        "derive_from": other_col_p36,
+                        "expression": expr_chain_36,
+                    }
+
+        # Pattern 27: N-way conditional range (single bound per clause)
         #   other_col = 'V1' AND col OP1 X1 OR other_col = 'V2' AND col OP2 X2 [OR ...]
         # where OPi ∈ {<=, <, >=, >} and each clause constrains col based on
         # other_col's value. Derive col from other_col and emit a nested
@@ -1806,7 +1929,9 @@ def _infer_cross_column_config(
         # ``random_float(0.01, X)``; ``>= X`` produces ``random_float(X, X+100)``;
         # ``> X`` produces ``random_float(X+0.01, X+100)`` (epsilon for strict
         # inequality); ``< X`` produces ``random_float(0.01, X-0.01)``.
-        if " OR " in expr and " AND " in expr:
+        # Uses ``expr_norm`` (whitespace-normalized) for the guard check to
+        # handle SQLite table-level CHECKs stored with newlines.
+        if " OR " in expr_norm and " AND " in expr_norm:
             clause_re = (
                 rf"(\w+)\s*=\s*'([^']+)'\s+AND\s+{col}\s*"
                 r"(>=|<=|>|<)\s*(-?[0-9]+(?:\.[0-9]+)?)"
@@ -1844,9 +1969,18 @@ def _infer_cross_column_config(
         # (conditional requirement — when col1 == VALUE, col2 must be > 0;
         # otherwise col2 can be anything, including 0)
         # e.g., bag_type != 'oversized' OR fee_amount > 0.0
-        # e.g., status != 'completed' OR transaction_ref IS NOT NULL (string form)
+        # e.g., status != 'approved' OR approved_amount > 0.0
         # Derive from col1: when col1 == VALUE, set col2 to a positive random
         # value; otherwise set col2 to 0 (or empty for strings).
+        #
+        # Cross-column upper bound awareness: if another CHECK constrains
+        # ``col <= other_upper_col`` (or ``col < other_upper_col``), the
+        # hardcoded upper bound (threshold + 100.0) may exceed
+        # other_upper_col, causing CHECK violations at fill time. When such
+        # a constraint exists, cap the positive expression with
+        # ``min(random_float(...), row['other_upper_col'])`` to guarantee
+        # the upper bound is respected. The ``min`` function is in
+        # SAFE_FUNCTIONS (see core/expression.py).
         m = re.match(
             rf"^\s*(\w+)\s*!=\s*'([^']+)'\s+OR\s+{col}\s*>\s*(-?[0-9]+(?:\.[0-9]+)?)\s*$",
             expr,
@@ -1859,6 +1993,27 @@ def _infer_cross_column_config(
                 # When col1 == VALUE: col2 must be > threshold. Use
                 # threshold+0.01 as the lower bound (epsilon for strict >).
                 positive_expr = f"random_float({threshold + 0.01}, {threshold + 100.0})"
+                # Check for other CHECKs that constrain col <= other_col
+                # or col < other_col (cross-column upper bound). If found,
+                # cap the positive expression to respect the upper bound.
+                for other_c_p28 in constraints:
+                    if other_c_p28 is c:
+                        continue
+                    if other_c_p28.get("type") != "check":
+                        continue
+                    other_expr_p28 = other_c_p28.get("expression", "")
+                    m_upper_p28 = re.search(
+                        rf"{col}\s*(<=|<)\s*(\w+)",
+                        other_expr_p28,
+                        re.IGNORECASE,
+                    )
+                    if m_upper_p28:
+                        upper_col_p28 = m_upper_p28.group(2)
+                        if upper_col_p28 in col_set and upper_col_p28 != col_name:
+                            positive_expr = (
+                                f"min({positive_expr}, row['{upper_col_p28}'])"
+                            )
+                            break
                 # When col1 != VALUE: col2 can be 0 (or any value >= 0).
                 zero_expr = "0.0"
                 return {
