@@ -181,19 +181,146 @@ class AutoHealOrchestrator:
             )
             raise RuntimeError(f"Schema changed during auto-heal: {original_hash} -> {new_snapshot.schema_hash}")
 
-        # Step 5.5: Final param normalization — strip invalid params from all
-        # columns. This is a safety net: even if the validator didn't report
-        # a violation for an invalid param (e.g., ``unique: true`` on an
+        # Step 5.5: Final param normalization + missing-generator repair.
+        # This is a safety net: even if the validator didn't report a
+        # violation for an invalid param (e.g., ``unique: true`` on an
         # ``integer`` generator), we strip it here to prevent runtime errors
         # during fill (e.g., ``MimesisProvider._gen_integer() got an
         # unexpected keyword argument 'unique'``).
+        #
+        # Additionally, the LLM sometimes returns ``generator: null`` for
+        # columns (especially when it "simplifies" the config). This causes
+        # fill failures because the core mapper treats null generator as
+        # "skip". We repair missing generators by inferring from the params
+        # (e.g., ``min_length`` → ``string``) or falling back to the
+        # type-based placeholder.
         from sqlseed_ai.repair.strategies import _strip_invalid_params
         for tcfg in config.get("tables", []):
+            table_name = tcfg.get("name", "")
+            meta = snapshot.tables.get(table_name)
             for c in tcfg.get("columns", []):
-                gen = c.get("generator", "")
-                params = c.get("params")
-                if isinstance(params, dict) and gen:
+                gen = c.get("generator")
+                # Derived-mode columns (``derive_from`` + ``expression``) are
+                # mutually exclusive with source-mode (``generator`` +
+                # ``params``) per the ``ColumnConfig`` model validator.
+                # Skip generator inference AND param stripping for derived
+                # columns — otherwise we'd add a ``generator`` to a column
+                # that already has ``derive_from`` and trigger a Pydantic
+                # ValidationError when the YAML is loaded downstream.
+                has_derive = bool(c.get("derive_from"))
+
+                # Template-string-in-generator repair: the LLM occasionally
+                # returns the template value directly in the ``generator``
+                # field (e.g., ``generator: 'NAME-{sequence:04d}'``) instead
+                # of the correct ``generator: template, params: {template:
+                # 'NAME-{sequence:04d}'}``. Detect this by checking for
+                # placeholder braces and rewrite to the proper form. Without
+                # this, the dispatch layer raises ``UnknownGeneratorError``
+                # and the entire fill aborts.
+                if (
+                    gen
+                    and isinstance(gen, str)
+                    and "{" in gen
+                    and "}" in gen
+                    and gen not in ("template",)
+                ):
+                    c["generator"] = "template"
+                    c["params"] = {"template": gen}
+                    gen = "template"
+                    params = c["params"]
+                    continue
+
+                params = c.get("params") or {}
+                if not gen and not has_derive:
+                    col_name = c.get("name", "")
+                    # Infer generator from params when possible
+                    if "min_length" in params or "max_length" in params:
+                        gen = "string"
+                    elif "choices" in params:
+                        gen = "choice"
+                    elif "template" in params:
+                        gen = "template"
+                    elif "min_value" in params or "max_value" in params:
+                        mv = params.get("min_value")
+                        sample = mv if mv is not None else params.get("max_value")
+                        gen = "float" if isinstance(sample, float) else "integer"
+                    elif meta and col_name in meta.columns:
+                        col_type = meta.column_types.get(col_name, "TEXT")
+                        gen = _placeholder_generator(col_type)
+                        if gen == "string" and _is_date_column(col_name):
+                            gen = "datetime"
+                    if gen:
+                        c["generator"] = gen
+
+                # Re-infer params from CHECK constraints when the LLM strips
+                # them. The LLM sometimes returns ``params: {}`` for columns
+                # that have range CHECKs (e.g., ``latitude >= -90.0 AND
+                # latitude <= 90.0``), causing fill-time CHECK violations.
+                # Re-run the deterministic single-column inference to recover
+                # the bounds. Applied when:
+                #   - column is in source mode (no ``derive_from``)
+                #   - LLM provided a generator but no params
+                # Two outcomes:
+                #   1. inferred generator matches LLM's → apply inferred params
+                #      (e.g., both agree on ``integer``, recover min/max_value)
+                #   2. inferred generator is ``boolean`` or ``choice`` (from an
+                #      ``IN (...)`` constraint) but LLM picked ``integer`` →
+                #      override BOTH generator and params. The ``IN`` constraint
+                #      is very specific: ``col IN (0, 1)`` MUST use ``boolean``,
+                #      ``col IN ('a', 'b')`` MUST use ``choice``. An ``integer``
+                #      generator would produce values outside the allowed set.
+                if (
+                    not has_derive
+                    and gen
+                    and not params
+                    and meta is not None
+                ):
+                    col_name = c.get("name", "")
+                    if col_name in meta.columns:
+                        inferred = _infer_from_check_constraints(
+                            col_name, meta.constraints, meta.columns
+                        )
+                        if inferred is not None:
+                            inf_gen, inf_params = inferred
+                            if inf_gen == gen and inf_params:
+                                # Case 1: generators agree — apply params
+                                c["params"] = inf_params
+                                params = inf_params
+                            elif inf_gen in ("boolean", "choice") and gen != inf_gen:
+                                # Case 2: LLM picked wrong generator for an
+                                # IN-constrained column. Override with the
+                                # correct boolean/choice generator.
+                                c["generator"] = inf_gen
+                                c["params"] = inf_params
+                                gen = inf_gen
+                                params = inf_params
+
+                # Strip invalid params (only for source-mode columns)
+                if isinstance(params, dict) and gen and not has_derive:
                     c["params"] = _strip_invalid_params(params, gen)
+
+                # UNIQUE + LENGTH(col) = N safety net:
+                # Even if the LLM correctly provided ``string`` with
+                # min_length=N, max_length=N, the unique adjuster will
+                # increase max_length to guarantee uniqueness, breaking the
+                # CHECK constraint. Convert to ``pattern`` with
+                # ``[A-Za-z0-9]{N}`` which the unique adjuster does NOT
+                # touch (uniqueness handled by ConstraintSolver backtracking).
+                if (
+                    not has_derive
+                    and gen == "string"
+                    and meta is not None
+                ):
+                    col_name = c.get("name", "")
+                    if col_name in meta.columns:
+                        unique_cols_set = _get_unique_columns(meta.constraints)
+                        if col_name in unique_cols_set:
+                            exact_n = _get_exact_length_check(col_name, meta.constraints)
+                            if exact_n is not None:
+                                c["generator"] = "pattern"
+                                c["params"] = {"regex": f"[A-Za-z0-9]{{{exact_n}}}"}
+                                gen = "pattern"
+                                params = c["params"]
 
         # Step 6: emit YAML
         if self._verbose:
@@ -262,6 +389,31 @@ class AutoHealOrchestrator:
                         k in col_type.upper() for k in ("REAL", "FLOAT", "DOUBLE", "DECIMAL", "NUMERIC")
                     ):
                         gen = "float"
+                    # UNIQUE + LENGTH(col) = N conflict resolution:
+                    # The ``string`` generator with min_length=N, max_length=N
+                    # would be broken by the unique adjuster, which increases
+                    # max_length to guarantee uniqueness (breaking the CHECK).
+                    # Convert to ``pattern`` with ``[A-Za-z0-9]{N}`` — the
+                    # pattern generator is NOT adjusted by UniqueAdjuster, and
+                    # 62^N combinations (e.g., 3844 for N=2) are sufficient
+                    # for typical test data sizes with ConstraintSolver
+                    # backtracking handling collisions.
+                    if (
+                        gen == "string"
+                        and col_name in unique_cols
+                        and "min_length" in params
+                        and "max_length" in params
+                        and params["min_length"] == params["max_length"]
+                    ):
+                        n = params["min_length"]
+                        cols.append(
+                            {
+                                "name": col_name,
+                                "generator": "pattern",
+                                "params": {"regex": f"[A-Za-z0-9]{{{n}}}"},
+                            }
+                        )
+                        continue
                     cols.append({"name": col_name, "generator": gen, "params": params})
                     continue
                 # Step 3: UNIQUE column detection — use template/email generator
@@ -400,6 +552,34 @@ def _placeholder_generator(col_type: str) -> str:
     return "string"
 
 
+def _range_expr_for_op(op: str, x: float) -> str:
+    """Build a ``random_float(...)`` expression that satisfies ``col OP x``.
+
+    Used by Pattern 27 (N-way conditional range) to emit per-clause random
+    expressions. The lower bound uses 0.01 (not 0) to avoid generating
+    exactly 0 for columns that may have ``col > 0`` constraints elsewhere.
+
+    Args:
+        op: One of ``<=``, ``<``, ``>=``, ``>``.
+        x: The numeric bound from the CHECK clause.
+
+    Returns:
+        A Python expression string like ``"random_float(0.01, 10.0)"``.
+    """
+    if op == "<=":
+        return f"random_float(0.01, {x})"
+    if op == "<":
+        # Strict < — subtract epsilon so the generator never produces x.
+        return f"random_float(0.01, {max(x - 0.01, 0.02)})"
+    if op == ">=":
+        return f"random_float({x}, {x + 100.0})"
+    if op == ">":
+        # Strict > — add epsilon so the generator never produces x.
+        return f"random_float({x + 0.01}, {x + 100.0})"
+    # Fallback (shouldn't happen — Pattern 27 only accepts the 4 ops above).
+    return f"random_float(0.01, {x})"
+
+
 def _is_date_column(col_name: str) -> bool:
     """Check if a column name suggests a date/time value.
 
@@ -437,6 +617,35 @@ def _get_unique_columns(constraints: list[dict[str, Any]]) -> set[str]:
         cols_list = c.get("columns") or []
         unique_cols.update(cols_list)
     return unique_cols
+
+
+def _get_exact_length_check(
+    col_name: str,
+    constraints: list[dict[str, Any]],
+) -> int | None:
+    """Return N if the column has a ``LENGTH(col) = N`` CHECK constraint.
+
+    Returns ``None`` if no such exact-length CHECK exists. Only matches the
+    strict equality form — ``LENGTH(col) >= N`` or ``<= N`` are handled by
+    the ``string`` generator's min_length/max_length and do not conflict
+    with the unique adjuster (only exact length is at risk because the
+    adjuster may increase max_length to guarantee uniqueness).
+    """
+    col = re.escape(col_name)
+    for c in constraints:
+        if c.get("type") != "check":
+            continue
+        expr = c.get("expression", "")
+        if not expr:
+            continue
+        m = re.match(
+            rf"^\s*LENGTH\s*\(\s*{col}\s*\)\s*=\s*(\d+)\s*$",
+            expr,
+            re.IGNORECASE,
+        )
+        if m:
+            return int(m.group(1))
+    return None
 
 
 def _infer_unique_column_config(
@@ -633,7 +842,7 @@ def _parse_single_column_check(
     # Equivalent to col >= X AND col <= Y, but uses the BETWEEN keyword.
     # Common in DDL generated by ORM tools and manual schema definitions.
     m = re.match(
-        rf"^\s*{col}\s+BETWEEN\s+(\d+(?:\.\d+)?)\s+AND\s+(\d+(?:\.\d+)?)\s*$",
+        rf"^\s*{col}\s+BETWEEN\s+(-?\d+(?:\.\d+)?)\s+AND\s+(-?\d+(?:\.\d+)?)\s*$",
         expr,
         re.IGNORECASE,
     )
@@ -647,7 +856,7 @@ def _parse_single_column_check(
 
     # Pattern: col >= X AND col <= Y — inclusive range
     m = re.match(
-        rf"^\s*{col}\s*>=\s*(\d+(?:\.\d+)?)\s+AND\s+{col}\s*<=\s*(\d+(?:\.\d+)?)\s*$",
+        rf"^\s*{col}\s*>=\s*(-?\d+(?:\.\d+)?)\s+AND\s+{col}\s*<=\s*(-?\d+(?:\.\d+)?)\s*$",
         expr,
         re.IGNORECASE,
     )
@@ -661,7 +870,7 @@ def _parse_single_column_check(
 
     # Pattern: col > X AND col < Y — exclusive range
     m = re.match(
-        rf"^\s*{col}\s*>\s*(\d+(?:\.\d+)?)\s+AND\s+{col}\s*<\s*(\d+(?:\.\d+)?)\s*$",
+        rf"^\s*{col}\s*>\s*(-?\d+(?:\.\d+)?)\s+AND\s+{col}\s*<\s*(-?\d+(?:\.\d+)?)\s*$",
         expr,
         re.IGNORECASE,
     )
@@ -680,7 +889,7 @@ def _parse_single_column_check(
     # effectively zero for continuous floats; if it occurs, ConstraintSolver
     # retries handle it).
     m = re.match(
-        rf"^\s*{col}\s*>\s*(\d+(?:\.\d+)?)\s+AND\s+{col}\s*<=\s*(\d+(?:\.\d+)?)\s*$",
+        rf"^\s*{col}\s*>\s*(-?\d+(?:\.\d+)?)\s+AND\s+{col}\s*<=\s*(-?\d+(?:\.\d+)?)\s*$",
         expr,
         re.IGNORECASE,
     )
@@ -696,7 +905,7 @@ def _parse_single_column_check(
     # e.g., score >= 0 AND score < 100
     # For integers: shift max down by 1 (Y-1) to satisfy strict inequality.
     m = re.match(
-        rf"^\s*{col}\s*>=\s*(\d+(?:\.\d+)?)\s+AND\s+{col}\s*<\s*(\d+(?:\.\d+)?)\s*$",
+        rf"^\s*{col}\s*>=\s*(-?\d+(?:\.\d+)?)\s+AND\s+{col}\s*<\s*(-?\d+(?:\.\d+)?)\s*$",
         expr,
         re.IGNORECASE,
     )
@@ -710,7 +919,7 @@ def _parse_single_column_check(
 
     # Pattern: col >= X — lower bound only (inclusive)
     m = re.match(
-        rf"^\s*{col}\s*>=\s*(\d+(?:\.\d+)?)\s*$",
+        rf"^\s*{col}\s*>=\s*(-?\d+(?:\.\d+)?)\s*$",
         expr,
         re.IGNORECASE,
     )
@@ -724,7 +933,7 @@ def _parse_single_column_check(
 
     # Pattern: col > X — lower bound only (exclusive)
     m = re.match(
-        rf"^\s*{col}\s*>\s*(\d+(?:\.\d+)?)\s*$",
+        rf"^\s*{col}\s*>\s*(-?\d+(?:\.\d+)?)\s*$",
         expr,
         re.IGNORECASE,
     )
@@ -743,7 +952,7 @@ def _parse_single_column_check(
 
     # Pattern: col <= Y — upper bound only (inclusive)
     m = re.match(
-        rf"^\s*{col}\s*<=\s*(\d+(?:\.\d+)?)\s*$",
+        rf"^\s*{col}\s*<=\s*(-?\d+(?:\.\d+)?)\s*$",
         expr,
         re.IGNORECASE,
     )
@@ -757,7 +966,7 @@ def _parse_single_column_check(
 
     # Pattern: col < Y — upper bound only (exclusive)
     m = re.match(
-        rf"^\s*{col}\s*<\s*(\d+(?:\.\d+)?)\s*$",
+        rf"^\s*{col}\s*<\s*(-?\d+(?:\.\d+)?)\s*$",
         expr,
         re.IGNORECASE,
     )
@@ -781,7 +990,7 @@ def _parse_single_column_check(
     # random range without the choice generator, and guessing a safe range
     # would be arbitrary).
     m = re.match(
-        rf"^\s*{col}\s*!=\s*(\d+(?:\.\d+)?)\s*$",
+        rf"^\s*{col}\s*!=\s*(-?\d+(?:\.\d+)?)\s*$",
         expr,
         re.IGNORECASE,
     )
@@ -1044,7 +1253,7 @@ def _infer_cross_column_config(
         # when other_col >= X (typically ensured by other CHECK constraints
         # like loan_amount > 0).
         m = re.match(
-            rf"^\s*{col}\s*>=\s*(\d+(?:\.\d+)?)\s+AND\s+{col}\s*<=\s*(\w+)\s*$",
+            rf"^\s*{col}\s*>=\s*(-?\d+(?:\.\d+)?)\s+AND\s+{col}\s*<=\s*(\w+)\s*$",
             expr,
             re.IGNORECASE,
         )
@@ -1068,7 +1277,7 @@ def _infer_cross_column_config(
         # Derive from other_col, generate a value in [other_col, Y] using
         # random_float/random_int with the derived value as min and literal Y as max.
         m = re.match(
-            rf"^\s*{col}\s*>=\s*(\w+)\s+AND\s+{col}\s*<=\s*(\d+(?:\.\d+)?)\s*$",
+            rf"^\s*{col}\s*>=\s*(\w+)\s+AND\s+{col}\s*<=\s*(-?\d+(?:\.\d+)?)\s*$",
             expr,
             re.IGNORECASE,
         )
@@ -1093,7 +1302,7 @@ def _infer_cross_column_config(
         # random_float/random_int. For floats, exclusive bounds are negligible
         # (probability of hitting exact bound is 0). For integers, shift by 1.
         m = re.match(
-            rf"^\s*{col}\s*>\s*(\d+(?:\.\d+)?)\s+AND\s+{col}\s*<\s*(\w+)\s*$",
+            rf"^\s*{col}\s*>\s*(-?\d+(?:\.\d+)?)\s+AND\s+{col}\s*<\s*(\w+)\s*$",
             expr,
             re.IGNORECASE,
         )
@@ -1116,7 +1325,7 @@ def _infer_cross_column_config(
         # e.g., end_time > start_time AND end_time < deadline
         # Derive from other_col, generate a value in (other_col, Y).
         m = re.match(
-            rf"^\s*{col}\s*>\s*(\w+)\s+AND\s+{col}\s*<\s*(\d+(?:\.\d+)?)\s*$",
+            rf"^\s*{col}\s*>\s*(\w+)\s+AND\s+{col}\s*<\s*(-?\d+(?:\.\d+)?)\s*$",
             expr,
             re.IGNORECASE,
         )
@@ -1355,7 +1564,7 @@ def _infer_cross_column_config(
         # BEFORE applying column affinity. Wrap in ``int()`` to match
         # SQLite's integer division semantics.
         m = re.match(
-            rf"^\s*{col}\s*=\s*\(\s*(\w+)\s*\+\s*(\w+)\s*(?:\+\s*(\w+)\s*)?\)\s*/\s*(\d+(?:\.\d+)?)\s*$",
+            rf"^\s*{col}\s*=\s*\(\s*(\w+)\s*\+\s*(\w+)\s*(?:\+\s*(\w+)\s*)?\)\s*/\s*(-?\d+(?:\.\d+)?)\s*$",
             expr,
             re.IGNORECASE,
         )
@@ -1386,7 +1595,7 @@ def _infer_cross_column_config(
         # Derive from col2, multiply by a random factor in [0, CONSTANT] to
         # guarantee col <= col2 * CONSTANT.
         m = re.match(
-            rf"^\s*{col}\s*<=\s*(\w+)\s*\*\s*(\d+(?:\.\d+)?)\s*$",
+            rf"^\s*{col}\s*<=\s*(\w+)\s*\*\s*(-?\d+(?:\.\d+)?)\s*$",
             expr,
             re.IGNORECASE,
         )
@@ -1452,6 +1661,164 @@ def _infer_cross_column_config(
                 return {
                     "derive_from": col1,
                     "expression": f"{opposite} if (value < {x_val_p23} or row['{col2}'] < {x_val_p23}) else {val}",
+                }
+
+        # Pattern 24: col = VALUE OR col (>|>=|<|<=) other_col
+        # (conditional comparison — col can be a fixed VALUE, or must satisfy
+        # a comparison against another column)
+        # e.g., base_price_first = 0.0 OR base_price_first > base_price_business
+        # Semantics: col = VALUE is always allowed; col != VALUE is allowed
+        # only when the comparison holds. We derive col from other_col:
+        # 50% chance of VALUE, 50% chance of a value satisfying the comparison.
+        m = re.match(
+            rf"^\s*{col}\s*=\s*(-?\d+(?:\.\d+)?)\s+OR\s+{col}\s*(>=|>|<=|<)\s*(\w+)\s*$",
+            expr,
+            re.IGNORECASE,
+        )
+        if m:
+            val_str, op, other_col = m.group(1), m.group(2), m.group(3)
+            if other_col in col_set and other_col != col_name:
+                is_float_p24 = "." in val_str
+                val_num_p24: float | int = float(val_str) if is_float_p24 else int(val_str)
+                # Build expression that produces VALUE or a compliant value
+                if op == ">":
+                    comp_expr = "value * random_float(1.01, 2.0)" if is_float_p24 else "value + random_int(1, 100)"
+                elif op == ">=":
+                    comp_expr = "value * random_float(1.0, 2.0)" if is_float_p24 else "value + random_int(0, 100)"
+                elif op == "<":
+                    comp_expr = "value * random_float(0.5, 0.99)" if is_float_p24 else "value - random_int(1, 100)"
+                else:  # <=
+                    comp_expr = "value * random_float(0.5, 1.0)" if is_float_p24 else "value - random_int(0, 100)"
+                return {
+                    "derive_from": other_col,
+                    "expression": f"{val_num_p24} if random_int(0, 1) == 0 else {comp_expr}",
+                }
+
+        # Pattern 25: col = col1 * col2 + col3 (multiplication + addition chain)
+        # e.g., total_amount = unit_price * seat_count + tax_amount
+        # Derive from col1 (first operand), reference col2 and col3 via row dict.
+        # Also handles col = col1 * col2 - col3 (subtraction variant).
+        m = re.match(
+            rf"^\s*{col}\s*=\s*(\w+)\s*\*\s*(\w+)\s*([+\-])\s*(\w+)\s*$",
+            expr,
+            re.IGNORECASE,
+        )
+        if m:
+            col1, col2, sign, col3 = m.group(1), m.group(2), m.group(3), m.group(4)
+            if (col1 in col_set and col2 in col_set and col3 in col_set
+                    and col1 != col_name):
+                return {
+                    "derive_from": col1,
+                    "expression": f"value * row['{col2}'] {sign} row['{col3}']",
+                }
+
+        # Pattern 26: col = VALUE OR other_col IN ('a', 'b', 'c')
+        # (conditional enum — col = VALUE is always allowed; col != VALUE
+        # is allowed only when other_col is in the enum set)
+        # e.g., is_lead = 0 OR role IN ('captain', 'first_officer')
+        # e.g., refund_amount = 0.0 OR booking_status IN ('cancelled', 'refunded')
+        # Derive from other_col: set col to (1-VALUE) when other_col is in
+        # the set, else VALUE. This satisfies the CHECK because:
+        #   - When other_col IN set: col can be anything (CHECK passes)
+        #   - When other_col NOT IN set: col must be VALUE (CHECK passes)
+        m = re.match(
+            rf"^\s*{col}\s*=\s*(-?\d+(?:\.\d+)?)\s+OR\s+(\w+)\s+IN\s*\(([^)]+)\)\s*$",
+            expr,
+            re.IGNORECASE,
+        )
+        if m:
+            val_str, other_col, values_str = m.group(1), m.group(2), m.group(3)
+            if other_col in col_set and other_col != col_name:
+                # Parse the values: 'a', 'b', 'c' → ['a', 'b', 'c']
+                values = re.findall(r"'([^']*)'", values_str)
+                if not values:
+                    values = re.findall(r'"([^"]*)"', values_str)
+                if values:
+                    is_float_p26 = "." in val_str
+                    val_num_p26: float | int = float(val_str) if is_float_p26 else int(val_str)
+                    # Build Python list literal: ['captain', 'first_officer']
+                    py_list = "[" + ", ".join(f"'{v}'" for v in values) + "]"
+                    # For int/boolean columns, use (1-VALUE); for float,
+                    # use a random positive amount when allowed.
+                    if is_float_p26:
+                        non_val_expr = "random_float(0.01, 100.0)"
+                    else:
+                        non_val_expr = str(1 - val_num_p26) if val_num_p26 in (0, 1) else "0"
+                    return {
+                        "derive_from": other_col,
+                        "expression": f"{non_val_expr} if value in {py_list} else {val_num_p26}",
+                    }
+
+        # Pattern 27: N-way conditional range
+        #   other_col = 'V1' AND col OP1 X1 OR other_col = 'V2' AND col OP2 X2 [OR ...]
+        # where OPi ∈ {<=, <, >=, >} and each clause constrains col based on
+        # other_col's value. Derive col from other_col and emit a nested
+        # ternary that picks the appropriate random range for each enum value.
+        # e.g., bag_type = 'carry_on' AND weight_kg <= 10.0
+        #       OR bag_type = 'checked' AND weight_kg <= 32.0
+        #       OR bag_type = 'oversized' AND weight_kg > 32.0
+        # This pattern handles 2-4 clauses. Clauses with ``<= X`` produce
+        # ``random_float(0.01, X)``; ``>= X`` produces ``random_float(X, X+100)``;
+        # ``> X`` produces ``random_float(X+0.01, X+100)`` (epsilon for strict
+        # inequality); ``< X`` produces ``random_float(0.01, X-0.01)``.
+        if " OR " in expr and " AND " in expr:
+            clause_re = (
+                rf"(\w+)\s*=\s*'([^']+)'\s+AND\s+{col}\s*"
+                r"(>=|<=|>|<)\s*(-?[0-9]+(?:\.[0-9]+)?)"
+            )
+            clauses = re.findall(clause_re, expr)
+            # Require at least 2 clauses AND that the whole expr is exactly
+            # the OR-chain (no extra terms). Each clause: (other_col, Vi, OPi, Xi).
+            if len(clauses) >= 2:
+                # Verify all clauses reference the SAME other column
+                other_col_p27 = clauses[0][0]
+                if (
+                    other_col_p27 in col_set
+                    and other_col_p27 != col_name
+                    and all(cl[0] == other_col_p27 for cl in clauses)
+                ):
+                    # Build nested ternary: ``rand_a if value=='V1' else (rand_b if value=='V2' else rand_c)``
+                    # Last clause is the fallback.
+                    parts_p27: list[str] = []
+                    for _other, vi, opi, xi in clauses[:-1]:
+                        xi_num = float(xi)
+                        rand_expr = _range_expr_for_op(opi, xi_num)
+                        parts_p27.append(f"{rand_expr} if value == '{vi}'")
+                    _other, _last_vi, last_op, last_xi = clauses[-1]
+                    last_rand = _range_expr_for_op(last_op, float(last_xi))
+                    # Chain with ``else (next)`` and final ``else <fallback>``
+                    expr_chain = last_rand
+                    for idx in range(len(parts_p27) - 1, -1, -1):
+                        expr_chain = f"{parts_p27[idx]} else ({expr_chain})"
+                    return {
+                        "derive_from": other_col_p27,
+                        "expression": expr_chain,
+                    }
+
+        # Pattern 28: col1 != VALUE OR col2 > 0
+        # (conditional requirement — when col1 == VALUE, col2 must be > 0;
+        # otherwise col2 can be anything, including 0)
+        # e.g., bag_type != 'oversized' OR fee_amount > 0.0
+        # e.g., status != 'completed' OR transaction_ref IS NOT NULL (string form)
+        # Derive from col1: when col1 == VALUE, set col2 to a positive random
+        # value; otherwise set col2 to 0 (or empty for strings).
+        m = re.match(
+            rf"^\s*(\w+)\s*!=\s*'([^']+)'\s+OR\s+{col}\s*>\s*(-?[0-9]+(?:\.[0-9]+)?)\s*$",
+            expr,
+            re.IGNORECASE,
+        )
+        if m:
+            other_col_p28, val_str_p28, threshold_str = m.group(1), m.group(2), m.group(3)
+            if other_col_p28 in col_set and other_col_p28 != col_name:
+                threshold = float(threshold_str)
+                # When col1 == VALUE: col2 must be > threshold. Use
+                # threshold+0.01 as the lower bound (epsilon for strict >).
+                positive_expr = f"random_float({threshold + 0.01}, {threshold + 100.0})"
+                # When col1 != VALUE: col2 can be 0 (or any value >= 0).
+                zero_expr = "0.0"
+                return {
+                    "derive_from": other_col_p28,
+                    "expression": f"{positive_expr} if value == '{val_str_p28}' else {zero_expr}",
                 }
 
         # Pattern 12: col = abs(col1) (*|+|-) col2 (abs() wrapper on first operand)

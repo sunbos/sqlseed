@@ -9,6 +9,7 @@ separate thread with a timeout.
 
 from __future__ import annotations
 
+import ast
 import random
 import re
 import threading
@@ -98,6 +99,23 @@ class ExpressionEngine:
             funcs["lookup"] = self._lookup
         return funcs
 
+    def _configure_evaluator(self, evaluator: simpleeval.SimpleEval) -> None:
+        """Add list/tuple literal support to a simpleeval evaluator.
+
+        The default simpleeval ``nodes`` dict does not include handlers for
+        ``ast.List`` or ``ast.Tuple``, so expressions like
+        ``value in ['captain', 'first_officer']`` raise
+        ``FeatureNotAvailable: List is not available``. This method adds
+        safe handlers that evaluate each element in the sandbox (so nested
+        function calls and names still work) and return a Python list/tuple.
+
+        This enables natural ``in`` membership tests in derived expressions,
+        which both the AI auto-heal pipeline and user-written YAML configs
+        commonly produce.
+        """
+        evaluator.nodes[ast.List] = lambda node: [evaluator._eval(e) for e in node.elts]
+        evaluator.nodes[ast.Tuple] = lambda node: tuple(evaluator._eval(e) for e in node.elts)
+
     def _lookup(self, table: str, column: str, key: Any, key_column: str = "id") -> Any:
         """Look up a single value from another table by a key column.
 
@@ -153,6 +171,7 @@ class ExpressionEngine:
         evaluator = simpleeval.SimpleEval()
         evaluator.functions = self._get_functions()
         evaluator.names = context
+        self._configure_evaluator(evaluator)
         return evaluator.eval(expression)
 
     def evaluate(self, expression: str, context: dict[str, Any]) -> Any:
@@ -176,6 +195,7 @@ class ExpressionEngine:
         evaluator = simpleeval.SimpleEval()
         evaluator.functions = self._get_functions()
         evaluator.names = context
+        self._configure_evaluator(evaluator)
         result_container: list[Any] = [None]
         error_container: list[Exception | None] = [None]
 
