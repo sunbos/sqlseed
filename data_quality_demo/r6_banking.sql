@@ -42,6 +42,8 @@ CREATE TABLE customers (
     customer_code TEXT NOT NULL UNIQUE,
     name TEXT NOT NULL,
     id_card_no TEXT NOT NULL UNIQUE,
+    passport_no TEXT,
+    ssn TEXT,
     phone TEXT NOT NULL,
     email TEXT,
     birth_date DATE,
@@ -57,6 +59,7 @@ CREATE TABLE customers (
 CREATE TABLE accounts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     account_no TEXT NOT NULL UNIQUE,
+    iban TEXT CHECK (iban IS NULL OR LENGTH(iban) >= 15),
     customer_id INTEGER NOT NULL,
     branch_id INTEGER NOT NULL,
     account_type TEXT NOT NULL CHECK (account_type IN ('savings', 'checking', 'credit', 'fixed_deposit')),
@@ -64,6 +67,7 @@ CREATE TABLE accounts (
     balance REAL NOT NULL DEFAULT 0.0 CHECK (balance >= 0.0 OR account_type = 'credit'),
     available_balance REAL NOT NULL DEFAULT 0.0,
     overdraft_limit REAL NOT NULL DEFAULT 0.0 CHECK (overdraft_limit >= 0.0),
+    freeze_amount REAL,
     interest_rate REAL NOT NULL DEFAULT 0.0 CHECK (interest_rate >= 0.0 AND interest_rate <= 0.5),
     opened_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     closed_at DATETIME,
@@ -72,7 +76,10 @@ CREATE TABLE accounts (
     FOREIGN KEY (branch_id) REFERENCES branches(id),
     CHECK (closed_at IS NULL OR closed_at >= opened_at),
     CHECK (available_balance <= balance + overdraft_limit),
-    CHECK (account_type != 'savings' OR overdraft_limit = 0.0)
+    CHECK (account_type != 'savings' OR overdraft_limit = 0.0),
+    CHECK ((status = 'frozen' AND freeze_amount > 0)
+           OR (status IN ('active', 'closed') AND freeze_amount IS NULL)),
+    CHECK (CASE WHEN account_type = 'credit' THEN balance >= -overdraft_limit ELSE balance >= 0 END)
 );
 
 CREATE TABLE cards (
@@ -105,6 +112,9 @@ CREATE TABLE transactions (
     card_id INTEGER,
     txn_type TEXT NOT NULL CHECK (txn_type IN ('deposit', 'withdrawal', 'transfer_in', 'transfer_out', 'payment', 'fee', 'interest')),
     amount REAL NOT NULL CHECK (amount > 0.0),
+    transfer_amount REAL NOT NULL DEFAULT 0.0,
+    fee_rate REAL NOT NULL DEFAULT 0.0 CHECK (fee_rate >= 0.0),
+    fee_amount REAL NOT NULL DEFAULT 0.0 CHECK (fee_amount >= 0.0),
     balance_after REAL NOT NULL,
     direction TEXT NOT NULL CHECK (direction IN ('in', 'out')),
     channel TEXT NOT NULL CHECK (channel IN ('atm', 'counter', 'online', 'mobile', 'pos')),
@@ -113,11 +123,12 @@ CREATE TABLE transactions (
     txn_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     status TEXT NOT NULL DEFAULT 'completed' CHECK (status IN ('pending', 'completed', 'failed', 'reversed')),
     FOREIGN KEY (account_id) REFERENCES accounts(id),
-    FOREIGN KEY (card_id) REFERENCES cards(id),
+    FOREIGN KEY (card_id) REFERENCES cards(id) ON DELETE SET NULL,
     CHECK (txn_type != 'withdrawal' OR direction = 'out'),
     CHECK (txn_type != 'deposit' OR direction = 'in'),
     CHECK (txn_type != 'fee' OR direction = 'out'),
-    CHECK (txn_type != 'interest' OR direction = 'in')
+    CHECK (txn_type != 'interest' OR direction = 'in'),
+    CHECK (fee_amount = abs(transfer_amount) * fee_rate)
 );
 
 CREATE TABLE transfers (
@@ -156,7 +167,9 @@ CREATE TABLE loans (
     FOREIGN KEY (customer_id) REFERENCES customers(id),
     FOREIGN KEY (account_id) REFERENCES accounts(id),
     CHECK (maturity_date > DATE(disbursed_at)),
-    CHECK (total_payable = principal + principal * interest_rate * term_months / 12.0)
+    CHECK (total_payable = principal + principal * interest_rate * term_months / 12.0),
+    CHECK (total_payable >= principal * interest_rate),
+    CHECK (maturity_date - disbursed_at >= 30)
 );
 
 CREATE TABLE loan_payments (
