@@ -28,12 +28,12 @@ class DegradeReason(Enum):
 class FailureType(Enum):
     """Classification of LLM failures for routing decisions."""
 
-    CONTEXT_OVERFLOW = "context_overflow"    # Context window exceeded
-    EMPTY_RESPONSE = "empty_response"        # LLM returned empty string
-    JSON_FORMAT = "json_format"              # JSON parsing failed
-    SEMANTIC = "semantic"                    # Validator rejected config
-    NETWORK = "network"                      # API timeout/connection/rate limit
-    UNKNOWN = "unknown"                      # Unclassified (treated as SEMANTIC)
+    CONTEXT_OVERFLOW = "context_overflow"  # Context window exceeded
+    EMPTY_RESPONSE = "empty_response"  # LLM returned empty string
+    JSON_FORMAT = "json_format"  # JSON parsing failed
+    SEMANTIC = "semantic"  # Validator rejected config
+    NETWORK = "network"  # API timeout/connection/rate limit
+    UNKNOWN = "unknown"  # Unclassified (treated as SEMANTIC)
 
 
 @dataclass
@@ -54,10 +54,10 @@ class HealAttempt:
     failure type (if any), latency, token estimate, and error message.
     """
 
-    level: int                                   # 1, 2, or 3 (which healer was tried)
-    failure_type: FailureType | None = None      # None if success
-    latency_ms: int = 0                          # elapsed time in milliseconds
-    token_estimate: int = 0                      # prompt token estimate
+    level: int  # 1, 2, or 3 (which healer was tried)
+    failure_type: FailureType | None = None  # None if success
+    latency_ms: int = 0  # elapsed time in milliseconds
+    token_estimate: int = 0  # prompt token estimate
     error_message: str | None = None
     applied_fixes: list[AppliedFix] = field(default_factory=list)
 
@@ -80,10 +80,10 @@ class ColumnContext:
     nullable: bool
     default: Any
     is_unique: bool
-    check_constraints: list[dict[str, Any]]     # all CHECKs this column participates in
+    check_constraints: list[dict[str, Any]]  # all CHECKs this column participates in
     derive_from_sources: list[tuple[str, str]]  # (column_name, column_type) pairs
-    derive_from_downstream: list[str]            # downstream column names
-    cross_column_refs: list[tuple[str, str]]     # (column_name, column_type) pairs
+    derive_from_downstream: list[str]  # downstream column names
+    cross_column_refs: list[tuple[str, str]]  # (column_name, column_type) pairs
     fk_info: FKInfo | None
 
 
@@ -137,8 +137,8 @@ class HealResult:
 
     config: dict[str, Any]
     success: bool = False
-    level_used: int = 0                          # 1, 2, 3, or 4
-    failure_type: FailureType | None = None      # set when success=False
+    level_used: int = 0  # 1, 2, 3, or 4
+    failure_type: FailureType | None = None  # set when success=False
     degraded_columns: list[str] = field(default_factory=list)
     degrade_reasons: dict[str, DegradeReason] = field(default_factory=dict)
     applied_fixes: list[AppliedFix] = field(default_factory=list)

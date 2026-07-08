@@ -116,8 +116,8 @@ class ColumnConfig(BaseModel):
         # the auto-heal pipeline and must NOT be merged into params, otherwise
         # they get passed to generators as keyword arguments (e.g.,
         # ``_gen_string(_degraded=True)`` raises TypeError).
-        _INTERNAL_FIELDS = {"_degraded", "degrade_reason"}
-        extra_keys = {k: v for k, v in extra_keys.items() if k not in _INTERNAL_FIELDS}
+        _internal_fields = {"_degraded", "degrade_reason"}
+        extra_keys = {k: v for k, v in extra_keys.items() if k not in _internal_fields}
 
         merged_params: dict[str, Any] = {}
         if isinstance(nested_params, dict):

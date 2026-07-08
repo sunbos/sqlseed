@@ -14,12 +14,12 @@ import re
 import time
 from typing import TYPE_CHECKING, Any, Literal
 
-from sqlseed_ai.healer._client import LLMClient
 from sqlseed_ai.healer.models import Level3Result
 
 from sqlseed._utils.logger import get_logger
 
 if TYPE_CHECKING:
+    from sqlseed_ai.healer._client import LLMClient
     from sqlseed_ai.healer.models import SubgraphTask
     from sqlseed_ai.validator.models import ViolationReport
 
@@ -30,7 +30,9 @@ _COMPACT_SYSTEM_PROMPT = """You are a SQL test-data repair agent. Output JSON on
 Format: {"tables":[{"name":"<t>","columns":[{"name":"<c>","generator":"<g>","params":{}}]}]}
 Fix the violations. No explanation."""
 
-_ULTRA_COMPACT_SYSTEM_PROMPT = """Output JSON only: {"tables":[{"name":"<t>","columns":[{"name":"<c>","generator":"<g>","params":{}}]}]}"""
+_ULTRA_COMPACT_SYSTEM_PROMPT = (
+    'Output JSON only: {"tables":[{"name":"<t>","columns":[{"name":"<c>","generator":"<g>","params":{}}]}]}'
+)
 
 
 def _repair_json(text: str) -> str:
@@ -45,8 +47,7 @@ def _repair_json(text: str) -> str:
         text = re.sub(r"^```(?:json)?\s*\n?", "", text)
         text = re.sub(r"\n?```\s*$", "", text)
     # Remove trailing commas before } or ].
-    text = re.sub(r",\s*([}\]])", r"\1", text)
-    return text
+    return re.sub(r",\s*([}\]])", r"\1", text)
 
 
 class Level3CompactHealer:
@@ -104,9 +105,7 @@ class Level3CompactHealer:
 
         Returns Level3Result. Network errors are re-raised (Section 5.3).
         """
-        system_prompt = (
-            _COMPACT_SYSTEM_PROMPT if mode == "compact" else _ULTRA_COMPACT_SYSTEM_PROMPT
-        )
+        system_prompt = _COMPACT_SYSTEM_PROMPT if mode == "compact" else _ULTRA_COMPACT_SYSTEM_PROMPT
         user_prompt = self._build_user_prompt(task, violations, parent_config, mode)
         estimated = len(system_prompt) // 4 + len(user_prompt) // 4
         start = time.monotonic()
@@ -121,7 +120,7 @@ class Level3CompactHealer:
                 temperature=self._temperature,
                 max_tokens=self._max_response_tokens,
             )
-        except (TimeoutError, ConnectionError, OSError) as exc:
+        except (TimeoutError, ConnectionError, OSError):
             raise
         except (RuntimeError, AttributeError, ValueError) as exc:
             logger.warning("Level 3 LLM call failed", mode=mode, error=str(exc))

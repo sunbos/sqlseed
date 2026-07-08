@@ -215,7 +215,12 @@ class GenerationMixin:
 
                 progress.update(prep_task, description=f"Building data stream for {table_name}...")
                 stream = self._build_stream(
-                    generator_specs, user_configs, unique_columns, transform, seed, table_name=table_name,
+                    generator_specs,
+                    user_configs,
+                    unique_columns,
+                    transform,
+                    seed,
+                    table_name=table_name,
                     composite_unique=composite_unique,
                 )
 
@@ -291,7 +296,12 @@ class GenerationMixin:
             table_name, count, columns, column_configs, enrich
         )
         stream = self._build_stream(
-            generator_specs, user_configs, unique_columns, transform, seed, table_name=table_name,
+            generator_specs,
+            user_configs,
+            unique_columns,
+            transform,
+            seed,
+            table_name=table_name,
             composite_unique=composite_unique,
         )
 

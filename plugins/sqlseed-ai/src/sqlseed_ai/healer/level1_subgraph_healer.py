@@ -15,12 +15,12 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from sqlseed_ai.healer._client import LLMClient
 from sqlseed_ai.healer.models import Level1Result
 
 from sqlseed._utils.logger import get_logger
 
 if TYPE_CHECKING:
+    from sqlseed_ai.healer._client import LLMClient
     from sqlseed_ai.healer.models import SubgraphTask
     from sqlseed_ai.validator.models import ViolationReport
 
@@ -94,8 +94,7 @@ class Level1SubgraphHealer:
         for v in relevant:
             cols = ", ".join(v.columns) if v.columns else "(unknown)"
             lines.append(
-                f"- Table {v.table}, columns [{cols}], "
-                f"constraint={v.constraint_type.value}, severity={v.severity}"
+                f"- Table {v.table}, columns [{cols}], constraint={v.constraint_type.value}, severity={v.severity}"
             )
             if v.message:
                 lines.append(f"  Message: {v.message}")
@@ -110,10 +109,7 @@ class Level1SubgraphHealer:
                 params = col.get("params", {})
                 derive = col.get("derive_from")
                 if derive:
-                    lines.append(
-                        f"  - {col['name']}: derive_from={derive}, "
-                        f"expr={col.get('expression')}"
-                    )
+                    lines.append(f"  - {col['name']}: derive_from={derive}, expr={col.get('expression')}")
                 else:
                     lines.append(f"  - {col['name']}: generator={gen}, params={params}")
 
@@ -151,7 +147,7 @@ class Level1SubgraphHealer:
                 temperature=self._temperature,
                 max_tokens=self._max_response_tokens,
             )
-        except (TimeoutError, ConnectionError, OSError) as exc:
+        except (TimeoutError, ConnectionError, OSError):
             # Network errors propagate (Section 5.3) — do not degrade.
             raise
         except (RuntimeError, AttributeError, ValueError) as exc:

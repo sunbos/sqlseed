@@ -280,9 +280,7 @@ class RelationResolver:
             is_self_ref = fk_info.ref_table == table_name
             if is_self_ref and not ref_values:
                 if not column_info_map:
-                    column_info_map = {
-                        c.name: c.nullable for c in self._db.get_column_info(table_name)
-                    }
+                    column_info_map = {c.name: c.nullable for c in self._db.get_column_info(table_name)}
                 col_nullable = column_info_map.get(col_name, True)
                 if col_nullable:
                     specs[col_name] = GeneratorSpec(

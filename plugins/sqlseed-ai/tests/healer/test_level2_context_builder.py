@@ -5,7 +5,6 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 from sqlseed_ai.healer.level2_column_healer import Level2ColumnHealer
-from sqlseed_ai.healer.models import FKInfo
 
 
 def _make_snapshot(tables: dict):
@@ -88,9 +87,7 @@ def test_build_context_with_fk():
         "orders",
         columns=["id", "user_id"],
         column_types={"id": "INTEGER", "user_id": "INTEGER"},
-        foreign_keys=[
-            {"columns": ["user_id"], "ref_table": "users", "ref_columns": ["id"]}
-        ],
+        foreign_keys=[{"columns": ["user_id"], "ref_table": "users", "ref_columns": ["id"]}],
     )
     snap = _make_snapshot({"orders": table})
     ctx = healer._build_column_context("orders", "user_id", snap)

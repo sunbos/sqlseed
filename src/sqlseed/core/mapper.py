@@ -428,9 +428,7 @@ class ColumnMapper:
         # always infers config for composite PK columns via CHECK constraints
         # or type/name-based placeholders, so this skip only affects the
         # zero-config path where the user relies on SQLite's implicit behavior.
-        if column_info.is_primary_key and (
-            "INTEGER" in column_type or "INT" in column_type
-        ):
+        if column_info.is_primary_key and ("INTEGER" in column_type or "INT" in column_type):
             return GeneratorSpec(generator_name="skip")
 
         exact_match = self._match_exact(column_name)

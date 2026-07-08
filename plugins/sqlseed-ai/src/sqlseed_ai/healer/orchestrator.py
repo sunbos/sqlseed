@@ -17,12 +17,6 @@ import copy
 import time
 from typing import TYPE_CHECKING, Any
 
-from sqlseed_ai.healer.context_detector import ContextWindowDetector
-from sqlseed_ai.healer.degrader import ProgressiveDegrader
-from sqlseed_ai.healer.failure_classifier import FailureClassifier
-from sqlseed_ai.healer.level1_subgraph_healer import Level1SubgraphHealer
-from sqlseed_ai.healer.level2_column_healer import Level2ColumnHealer
-from sqlseed_ai.healer.level3_compact_healer import Level3CompactHealer
 from sqlseed_ai.healer.models import (
     DegradeReason,
     FailureType,
@@ -35,6 +29,12 @@ from sqlseed_ai.healer.oscillation import OscillationDetector
 from sqlseed._utils.logger import get_logger
 
 if TYPE_CHECKING:
+    from sqlseed_ai.healer.context_detector import ContextWindowDetector
+    from sqlseed_ai.healer.degrader import ProgressiveDegrader
+    from sqlseed_ai.healer.failure_classifier import FailureClassifier
+    from sqlseed_ai.healer.level1_subgraph_healer import Level1SubgraphHealer
+    from sqlseed_ai.healer.level2_column_healer import Level2ColumnHealer
+    from sqlseed_ai.healer.level3_compact_healer import Level3CompactHealer
     from sqlseed_ai.validator.models import ViolationReport
     from sqlseed_ai.validator.schema_snapshot import SchemaSnapshot
 
@@ -92,15 +92,20 @@ class HealOrchestrator:
             if time.monotonic() - start > self._time_budget:
                 logger.warning("HealOrchestrator time budget exhausted", budget=self._time_budget)
                 return self._degrade_and_return(
-                    current_config, current_violations, DegradeReason.TIME_BUDGET_EXHAUSTED,
-                    attempts, round_num, start,
+                    current_config,
+                    current_violations,
+                    DegradeReason.TIME_BUDGET_EXHAUSTED,
+                    attempts,
+                    round_num,
+                    start,
                 )
 
             result = self._try_one_round(task, current_violations, current_config, attempts, round_num)
 
             if result.success:
                 # Re-validate the patched config.
-                current_config = self._merge_patch(current_config, result.config_patch)
+                if result.config_patch is not None:
+                    current_config = self._merge_patch(current_config, result.config_patch)
                 val_result = self._validator.validate(current_config, self._snapshot)
                 new_violations = self._extract_violations(val_result)
 
@@ -119,8 +124,12 @@ class HealOrchestrator:
                 if self._oscillation.check_and_record(current_violations):
                     logger.warning("Oscillation detected, degrading", round=round_num)
                     return self._degrade_and_return(
-                        current_config, current_violations, DegradeReason.LLM_OSCILLATION,
-                        attempts, round_num, start,
+                        current_config,
+                        current_violations,
+                        DegradeReason.LLM_OSCILLATION,
+                        attempts,
+                        round_num,
+                        start,
                     )
                 continue
 
@@ -132,13 +141,21 @@ class HealOrchestrator:
             # For non-network failures, the routing is handled inside
             # _try_one_round. If we reach here, all levels failed.
             return self._degrade_and_return(
-                current_config, current_violations, DegradeReason.LLM_FAILURE,
-                attempts, round_num, start,
+                current_config,
+                current_violations,
+                DegradeReason.LLM_FAILURE,
+                attempts,
+                round_num,
+                start,
             )
 
         return self._degrade_and_return(
-            current_config, current_violations, DegradeReason.MAX_RETRIES_EXCEEDED,
-            attempts, self._max_rounds, start,
+            current_config,
+            current_violations,
+            DegradeReason.MAX_RETRIES_EXCEEDED,
+            attempts,
+            self._max_rounds,
+            start,
         )
 
     def _try_one_round(
@@ -155,23 +172,25 @@ class HealOrchestrator:
         """
         # Pre-judgment: skip Level 1 if prompt too large.
         l1_prompt = self._level1.build_prompt(task, violations, config)
-        skip_l1 = self._context_detector.should_skip_level1(
-            l1_prompt.system_prompt + l1_prompt.user_prompt
-        )
+        skip_l1 = self._context_detector.should_skip_level1(l1_prompt.system_prompt + l1_prompt.user_prompt)
 
         if not skip_l1:
             # Level 1: subgraph-level.
             l1_result = self._level1.heal(task, violations, config)
-            l1_ftype = None if l1_result.success else self._failure_classifier.classify(
-                l1_result.error, l1_result.raw_response
+            l1_ftype = (
+                None
+                if l1_result.success
+                else self._failure_classifier.classify(l1_result.error, l1_result.raw_response)
             )
-            attempts.append(HealAttempt(
-                level=1,
-                failure_type=l1_ftype,
-                latency_ms=int(l1_result.elapsed_seconds * 1000),
-                token_estimate=l1_result.prompt_tokens,
-                error_message=str(l1_result.error) if l1_result.error else None,
-            ))
+            attempts.append(
+                HealAttempt(
+                    level=1,
+                    failure_type=l1_ftype,
+                    latency_ms=int(l1_result.elapsed_seconds * 1000),
+                    token_estimate=l1_result.prompt_tokens,
+                    error_message=str(l1_result.error) if l1_result.error else None,
+                )
+            )
             if l1_result.success:
                 return _RoundResult(success=True, level=1, config_patch=l1_result.config_patch or {})
 
@@ -218,19 +237,21 @@ class HealOrchestrator:
 
         for v in violations:
             for col in v.columns:
-                l2_result = self._level2.heal_column(
-                    v.table, col, v, config, self._snapshot
+                l2_result = self._level2.heal_column(v.table, col, v, config, self._snapshot)
+                l2_ftype = (
+                    None
+                    if l2_result.success
+                    else self._failure_classifier.classify(l2_result.error, l2_result.raw_response)
                 )
-                l2_ftype = None if l2_result.success else self._failure_classifier.classify(
-                    l2_result.error, l2_result.raw_response
+                attempts.append(
+                    HealAttempt(
+                        level=2,
+                        failure_type=l2_ftype,
+                        latency_ms=int(l2_result.elapsed_seconds * 1000),
+                        token_estimate=l2_result.prompt_tokens,
+                        error_message=str(l2_result.error) if l2_result.error else None,
+                    )
                 )
-                attempts.append(HealAttempt(
-                    level=2,
-                    failure_type=l2_ftype,
-                    latency_ms=int(l2_result.elapsed_seconds * 1000),
-                    token_estimate=l2_result.prompt_tokens,
-                    error_message=str(l2_result.error) if l2_result.error else None,
-                ))
                 if l2_result.success and l2_result.config_patch:
                     # Merge single-column patch into merged_patch.
                     self._merge_column_patch(merged_patch, v.table, l2_result.config_patch)
@@ -240,9 +261,7 @@ class HealOrchestrator:
                     # Classify failure for routing.
                     if l2_ftype == FailureType.CONTEXT_OVERFLOW:
                         # Single-column prompt overflow → Level 3.
-                        return self._try_level3(
-                            task, violations, config, attempts, round_num, mode="compact"
-                        )
+                        return self._try_level3(task, violations, config, attempts, round_num, mode="compact")
 
         if all_success and any_success:
             return _RoundResult(success=True, level=2, config_patch=merged_patch)
@@ -263,16 +282,18 @@ class HealOrchestrator:
     ) -> _RoundResult:
         """Try Level 3: compact then ultra_compact."""
         l3_result = self._level3.heal_compact(task, violations, config, mode=mode)  # type: ignore[arg-type]
-        l3_ftype = None if l3_result.success else self._failure_classifier.classify(
-            l3_result.error, l3_result.raw_response
+        l3_ftype = (
+            None if l3_result.success else self._failure_classifier.classify(l3_result.error, l3_result.raw_response)
         )
-        attempts.append(HealAttempt(
-            level=3,
-            failure_type=l3_ftype,
-            latency_ms=int(l3_result.elapsed_seconds * 1000),
-            token_estimate=l3_result.prompt_tokens,
-            error_message=str(l3_result.error) if l3_result.error else None,
-        ))
+        attempts.append(
+            HealAttempt(
+                level=3,
+                failure_type=l3_ftype,
+                latency_ms=int(l3_result.elapsed_seconds * 1000),
+                token_estimate=l3_result.prompt_tokens,
+                error_message=str(l3_result.error) if l3_result.error else None,
+            )
+        )
         if l3_result.success:
             return _RoundResult(success=True, level=3, config_patch=l3_result.config_patch or {})
 
@@ -347,9 +368,7 @@ class HealOrchestrator:
         return new_config
 
     @staticmethod
-    def _merge_column_patch(
-        merged: dict[str, Any], table_name: str, col_patch: dict[str, Any]
-    ) -> None:
+    def _merge_column_patch(merged: dict[str, Any], table_name: str, col_patch: dict[str, Any]) -> None:
         """Merge a single-column patch into the merged patch dict."""
         # Find or create the table entry.
         for t in merged.get("tables", []):
@@ -376,7 +395,7 @@ class HealOrchestrator:
 class _RoundResult:
     """Internal result of one round attempt (not exported)."""
 
-    __slots__ = ("success", "level", "config_patch", "failure_type", "error")
+    __slots__ = ("config_patch", "error", "failure_type", "level", "success")
 
     def __init__(
         self,

@@ -10,7 +10,10 @@ Detection priority:
 
 from __future__ import annotations
 
-from sqlseed_ai.config import AIConfig
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from sqlseed_ai.config import AIConfig
 
 # Known model context window sizes (in tokens).
 # Used when AIConfig.max_context_tokens is None.

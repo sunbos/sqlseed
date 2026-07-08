@@ -167,9 +167,11 @@ BUILTIN_VIOLATIONS: set[ContractViolation] = {
         constraints=frozenset(),
         kind=ViolationKind.SEMANTIC_ERROR,
         fix_strategy="upgrade_phone_to_pattern",
-        predicate=lambda cfg: cfg.get("name", "").lower()
-        in ("phone", "mobile", "telephone", "tel", "cell", "cellphone", "contact_number")
-        or cfg.get("name", "").lower().endswith(("_phone", "_mobile", "_tel", "_telephone")),
+        predicate=lambda cfg: (
+            cfg.get("name", "").lower()
+            in ("phone", "mobile", "telephone", "tel", "cell", "cellphone", "contact_number")
+            or cfg.get("name", "").lower().endswith(("_phone", "_mobile", "_tel", "_telephone"))
+        ),
     ),
     ContractViolation(
         generator="string",
@@ -177,9 +179,11 @@ BUILTIN_VIOLATIONS: set[ContractViolation] = {
         constraints=frozenset(),
         kind=ViolationKind.SEMANTIC_ERROR,
         fix_strategy="upgrade_phone_to_pattern",
-        predicate=lambda cfg: cfg.get("name", "").lower()
-        in ("phone", "mobile", "telephone", "tel", "cell", "cellphone", "contact_number")
-        or cfg.get("name", "").lower().endswith(("_phone", "_mobile", "_tel", "_telephone")),
+        predicate=lambda cfg: (
+            cfg.get("name", "").lower()
+            in ("phone", "mobile", "telephone", "tel", "cell", "cellphone", "contact_number")
+            or cfg.get("name", "").lower().endswith(("_phone", "_mobile", "_tel", "_telephone"))
+        ),
     ),
     # === Rule #25: text on UNIQUE code-like column → string ===
     ContractViolation(
@@ -197,8 +201,10 @@ BUILTIN_VIOLATIONS: set[ContractViolation] = {
         constraints=frozenset(),
         kind=ViolationKind.SEMANTIC_ERROR,
         fix_strategy="cap_future_end_year",
-        predicate=lambda cfg: isinstance(cfg.get("params", {}).get("end_year"), int)
-        and cfg["params"]["end_year"] > __import__("datetime").datetime.now().year + 1,
+        predicate=lambda cfg: (
+            isinstance(cfg.get("params", {}).get("end_year"), int)
+            and cfg["params"]["end_year"] > __import__("datetime").datetime.now().year + 1
+        ),
     ),
     ContractViolation(
         generator="datetime",
@@ -206,8 +212,10 @@ BUILTIN_VIOLATIONS: set[ContractViolation] = {
         constraints=frozenset(),
         kind=ViolationKind.SEMANTIC_ERROR,
         fix_strategy="cap_future_end_year",
-        predicate=lambda cfg: isinstance(cfg.get("params", {}).get("end_year"), int)
-        and cfg["params"]["end_year"] > __import__("datetime").datetime.now().year + 1,
+        predicate=lambda cfg: (
+            isinstance(cfg.get("params", {}).get("end_year"), int)
+            and cfg["params"]["end_year"] > __import__("datetime").datetime.now().year + 1
+        ),
     ),
     # === Rule #15: pattern with unbounded regex quantifier {N,} ===
     ContractViolation(
@@ -216,9 +224,8 @@ BUILTIN_VIOLATIONS: set[ContractViolation] = {
         constraints=frozenset(),
         kind=ViolationKind.SEMANTIC_ERROR,
         fix_strategy="bound_regex",
-        predicate=lambda cfg: __import__("re").search(
-            r"\{\d+,\}", str(cfg.get("params", {}).get("regex", ""))
-        )
-        is not None,
+        predicate=lambda cfg: (
+            __import__("re").search(r"\{\d+,\}", str(cfg.get("params", {}).get("regex", ""))) is not None
+        ),
     ),
 }

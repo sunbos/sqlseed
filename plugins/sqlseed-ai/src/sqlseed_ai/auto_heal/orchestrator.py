@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import re
 import sys
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import yaml
 from sqlseed_ai.auto_heal.time_budget import TimeBudgetController
@@ -35,9 +35,6 @@ from sqlseed_ai.healer.subgraph import SubgraphSplitter
 from sqlseed_ai.validator.schema_snapshot import SchemaSnapshot
 
 from sqlseed._utils.logger import get_logger
-
-if TYPE_CHECKING:
-    from sqlseed_ai.healer.orchestrator import HealOrchestrator
 
 logger = get_logger(__name__)
 
@@ -89,10 +86,7 @@ class AutoHealOrchestrator:
         snapshot = SchemaSnapshot(db_path=self._db_path, url=self._url)
         original_hash = snapshot.schema_hash
         if self._verbose:
-            _debug(
-                f"[ai-analyze]   schema_hash={original_hash[:12]}..."
-                f" tables={list(snapshot.tables.keys())}"
-            )
+            _debug(f"[ai-analyze]   schema_hash={original_hash[:12]}... tables={list(snapshot.tables.keys())}")
 
         # Step 2: subgraph splitting (Defenses 2 + 6)
         if self._verbose:
@@ -103,10 +97,7 @@ class AutoHealOrchestrator:
         if broken_edges_inject:
             broken_edges.extend(broken_edges_inject)
         if self._verbose:
-            _debug(
-                f"[ai-analyze]   subgraphs={subgraphs}"
-                f" broken_edges={broken_edges if broken_edges else 'none'}"
-            )
+            _debug(f"[ai-analyze]   subgraphs={subgraphs} broken_edges={broken_edges if broken_edges else 'none'}")
 
         # Time budget
         budget = TimeBudgetController(
@@ -140,21 +131,21 @@ class AutoHealOrchestrator:
             sg_config = self._build_subgraph_config(sg_tables, snapshot)
             violations = self._validate(sg_config, snapshot)
             if self._verbose:
-                _debug(
-                    f"[ai-analyze]   initial violations={len(violations) if violations else 0}"
-                    f" tables={sg_tables}"
-                )
+                _debug(f"[ai-analyze]   initial violations={len(violations) if violations else 0} tables={sg_tables}")
                 if violations:
                     for v in violations[:5]:
-                        _debug(f"[ai-analyze]     - {getattr(v, 'table', '?')}.{getattr(v, 'column', '?')}: {getattr(v, 'message', str(v))}")
+                        _debug(
+                            f"[ai-analyze]     - {getattr(v, 'table', '?')}.{getattr(v, 'column', '?')}: "
+                            f"{getattr(v, 'message', str(v))}"
+                        )
             if not violations:
                 config["tables"].extend(sg_config["tables"])
                 if self._verbose:
-                    _debug(f"[ai-analyze]   no violations — accepted as-is")
+                    _debug("[ai-analyze]   no violations — accepted as-is")
                 continue
             # Layer 3 + Layer 4: repair + heal
             if self._verbose:
-                _debug(f"[ai-analyze]   invoking Layer 3 (repair) + Layer 4 (LLM heal) ...")
+                _debug("[ai-analyze]   invoking Layer 3 (repair) + Layer 4 (LLM heal) ...")
             result = self._heal_subgraph(sg_config, sg_tables, violations, snapshot, original_hash, budget)
             config["tables"].extend(result.get("tables", []))
             if self._verbose:
@@ -167,7 +158,7 @@ class AutoHealOrchestrator:
                 if degraded:
                     _debug(f"[ai-analyze]   degraded columns: {degraded}")
                 else:
-                    _debug(f"[ai-analyze]   no degraded columns")
+                    _debug("[ai-analyze]   no degraded columns")
 
         # Step 4: post-repair broken edges (Section 14)
         if broken_edges:
@@ -176,7 +167,7 @@ class AutoHealOrchestrator:
             aligner = BrokenEdgeAligner()
             config = aligner.align(config, broken_edges)
         elif self._verbose:
-            _debug(f"[ai-analyze] Step 4: no broken FK edges to repair")
+            _debug("[ai-analyze] Step 4: no broken FK edges to repair")
 
         # Step 5: Defense 8 optimistic lock — verify schema unchanged
         if self._verbose:
@@ -242,9 +233,7 @@ class AutoHealOrchestrator:
                 # ``unit_price > 0``) and must take priority: if the column
                 # has both, derive_from captures the cross-column relation
                 # while a bare min_value would silently drop it.
-                cross_config = _infer_cross_column_config(
-                    col_name, meta.constraints, meta.columns, col_type
-                )
+                cross_config = _infer_cross_column_config(col_name, meta.constraints, meta.columns, col_type)
                 if cross_config is not None:
                     cols.append({"name": col_name, **cross_config})
                     continue
@@ -350,13 +339,11 @@ class AutoHealOrchestrator:
             remaining = self._validate(sg_config, snapshot)
             if not remaining:
                 if self._verbose:
-                    _debug(f"[ai-analyze]     Layer 3 (repair) resolved all violations — skipping LLM")
+                    _debug("[ai-analyze]     Layer 3 (repair) resolved all violations — skipping LLM")
                 return sg_config  # Layer 3 fixed everything
             # Carry over remaining violations for Layer 4.
             if self._verbose:
-                _debug(
-                    f"[ai-analyze]     Layer 3 (repair) left {len(remaining)} violations — proceeding to LLM"
-                )
+                _debug(f"[ai-analyze]     Layer 3 (repair) left {len(remaining)} violations — proceeding to LLM")
             violations = remaining
         except ImportError as e:
             logger.warning(
@@ -368,10 +355,7 @@ class AutoHealOrchestrator:
         from sqlseed_ai.healer.models import SubgraphTask
 
         if self._verbose:
-            _debug(
-                f"[ai-analyze]     Layer 4: calling HealOrchestrator "
-                f"(max_rounds={self._max_retries}) ..."
-            )
+            _debug(f"[ai-analyze]     Layer 4: calling HealOrchestrator (max_rounds={self._max_retries}) ...")
         task = SubgraphTask(
             task_id=f"sg_{sg_tables[0] if sg_tables else 'empty'}",
             tables=sg_tables,
@@ -383,11 +367,9 @@ class AutoHealOrchestrator:
             level = getattr(result, "level_used", 0)
             success = getattr(result, "success", False)
             degraded = getattr(result, "degraded_columns", [])
-            _debug(
-                f"[ai-analyze]     Layer 4 done: level={level} "
-                f"success={success} degraded={len(degraded)}"
-            )
-        return result.config
+            _debug(f"[ai-analyze]     Layer 4 done: level={level} success={success} degraded={len(degraded)}")
+        config: dict[str, Any] = result.config
+        return config
 
 
 def _placeholder_generator(col_type: str) -> str:
@@ -424,9 +406,7 @@ def _is_date_column(col_name: str) -> bool:
         return True
     if n in ("created", "updated", "deleted", "dob"):
         return True
-    if n.startswith(("date_", "time_")):
-        return True
-    return False
+    return bool(n.startswith(("date_", "time_")))
 
 
 def _get_unique_columns(constraints: list[dict[str, Any]]) -> set[str]:
@@ -825,9 +805,9 @@ def _infer_cross_column_config(
             continue
         # Check if any other column appears (cross-column)
         other_cols_in_expr = [
-            other for other in all_columns
-            if other != col_name
-            and re.search(rf"\b{re.escape(other)}\b", expr, re.IGNORECASE)
+            other
+            for other in all_columns
+            if other != col_name and re.search(rf"\b{re.escape(other)}\b", expr, re.IGNORECASE)
         ]
         if not other_cols_in_expr:
             continue  # Single-column constraint, handled by _infer_from_check_constraints
@@ -1143,12 +1123,7 @@ def _infer_cross_column_config(
         )
         if m:
             col1, col2, col3 = m.group(1), m.group(2), m.group(3)
-            if (
-                col1 in col_set
-                and col2 in col_set
-                and col3 in col_set
-                and col1 != col_name
-            ):
+            if col1 in col_set and col2 in col_set and col3 in col_set and col1 != col_name:
                 return {
                     "derive_from": col1,
                     "expression": f"value + row['{col2}'] + row['{col3}']",

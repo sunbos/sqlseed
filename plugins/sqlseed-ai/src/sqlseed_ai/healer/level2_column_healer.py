@@ -15,12 +15,12 @@ import re
 import time
 from typing import TYPE_CHECKING, Any
 
-from sqlseed_ai.healer._client import LLMClient
 from sqlseed_ai.healer.models import ColumnContext, FKInfo, Level2Result
 
 from sqlseed._utils.logger import get_logger
 
 if TYPE_CHECKING:
+    from sqlseed_ai.healer._client import LLMClient
     from sqlseed_ai.validator.models import ViolationReport
     from sqlseed_ai.validator.schema_snapshot import SchemaSnapshot
 
@@ -215,9 +215,7 @@ class Level2ColumnHealer:
         lines.append(f"Nullable: {context.nullable}")
         lines.append(f"Unique: {context.is_unique}")
         if context.fk_info:
-            lines.append(
-                f"FK: references {context.fk_info.ref_table}({context.fk_info.ref_column})"
-            )
+            lines.append(f"FK: references {context.fk_info.ref_table}({context.fk_info.ref_column})")
         if context.check_constraints:
             lines.append("CHECK constraints:")
             for c in context.check_constraints:
@@ -267,7 +265,7 @@ class Level2ColumnHealer:
                 temperature=self._temperature,
                 max_tokens=self._max_response_tokens,
             )
-        except (TimeoutError, ConnectionError, OSError) as exc:
+        except (TimeoutError, ConnectionError, OSError):
             raise
         except (RuntimeError, AttributeError, ValueError) as exc:
             logger.warning("Level 2 LLM call failed", column=column_name, error=str(exc))

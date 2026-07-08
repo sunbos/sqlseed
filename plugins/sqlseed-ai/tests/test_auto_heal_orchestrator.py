@@ -27,7 +27,7 @@ def test_run_returns_yaml_string(simple_db: Path):
 
     orch = AutoHealOrchestrator(
         db_path=str(simple_db),
-        healer=mock_healer,
+        heal_orchestrator=mock_healer,
         validator=mock_validator,
         total_budget_seconds=10.0,
     )
@@ -44,7 +44,7 @@ def test_run_invokes_subgraph_splitter(simple_db: Path):
 
     orch = AutoHealOrchestrator(
         db_path=str(simple_db),
-        healer=mock_healer,
+        heal_orchestrator=mock_healer,
         validator=mock_validator,
         total_budget_seconds=10.0,
     )
@@ -60,7 +60,7 @@ def test_run_post_repairs_broken_edges(simple_db: Path):
 
     orch = AutoHealOrchestrator(
         db_path=str(simple_db),
-        healer=mock_healer,
+        heal_orchestrator=mock_healer,
         validator=mock_validator,
         total_budget_seconds=10.0,
     )
@@ -76,7 +76,7 @@ def test_run_verifies_schema_hash_at_write_time(simple_db: Path):
 
     orch = AutoHealOrchestrator(
         db_path=str(simple_db),
-        healer=mock_healer,
+        heal_orchestrator=mock_healer,
         validator=mock_validator,
         total_budget_seconds=10.0,
     )

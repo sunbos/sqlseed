@@ -151,9 +151,7 @@ def _upgrade_to_template(col: dict[str, Any], v: ViolationReport, ctx: dict[str,
     # INTEGER/REAL columns (SQLite raises NOT NULL when string→int conversion
     # fails or produces NULL).
     col_type = (ctx.get("column_type") or "").upper()
-    if col_type and any(
-        k in col_type for k in ("INT", "REAL", "FLOAT", "DOUBLE", "DECIMAL", "NUMERIC")
-    ):
+    if col_type and any(k in col_type for k in ("INT", "REAL", "FLOAT", "DOUBLE", "DECIMAL", "NUMERIC")):
         return col
 
     # Skip columns with CHECK constraints — the template generator would
@@ -386,9 +384,17 @@ def _downgrade_text_to_string(col: dict[str, Any], v: ViolationReport, ctx: dict
 # === Task 2.4: Rule #23 — upgrade_phone_to_pattern ===
 _NANP_PHONE_REGEX = r"^\+1-[2-9]\d{2}-[2-9]\d{2}-\d{4}$"
 
-_PHONE_NAME_KEYWORDS = frozenset({
-    "phone", "mobile", "telephone", "tel", "cell", "cellphone", "contact_number",
-})
+_PHONE_NAME_KEYWORDS = frozenset(
+    {
+        "phone",
+        "mobile",
+        "telephone",
+        "tel",
+        "cell",
+        "cellphone",
+        "contact_number",
+    }
+)
 
 
 def _is_phone_like(name: str) -> bool:

@@ -467,6 +467,54 @@ def _build_llm_client(ai_config: AIConfig) -> Any:
     return _OpenAICompatAdapter(raw_client)
 
 
+def _build_heal_orchestrator(
+    ai_config: AIConfig,
+    client: Any,
+    snapshot: Any,
+    validator: Any,
+    *,
+    schema_hash: str = "",
+    max_retries: int = 3,
+) -> Any:
+    """Construct a :class:`HealOrchestrator` with all 4-level components.
+
+    Builds the 6 sub-components (context detector, failure classifier,
+    Level 1/2/3 healers, degrader) and wires them into a
+    :class:`HealOrchestrator` ready for use by :class:`AutoHealOrchestrator`.
+
+    Uses lazy imports so the healer submodules are only loaded when the
+    ``ai-analyze`` / ``auto-heal`` commands are actually invoked.
+    """
+    from sqlseed_ai.healer.context_detector import ContextWindowDetector
+    from sqlseed_ai.healer.degrader import ProgressiveDegrader
+    from sqlseed_ai.healer.failure_classifier import FailureClassifier
+    from sqlseed_ai.healer.level1_subgraph_healer import Level1SubgraphHealer
+    from sqlseed_ai.healer.level2_column_healer import Level2ColumnHealer
+    from sqlseed_ai.healer.level3_compact_healer import Level3CompactHealer
+    from sqlseed_ai.healer.orchestrator import HealOrchestrator
+
+    model = ai_config.model or ""
+    context_detector = ContextWindowDetector(ai_config, model=model)
+    failure_classifier = FailureClassifier()
+    level1 = Level1SubgraphHealer(client=client, model=model)
+    level2 = Level2ColumnHealer(client=client, model=model)
+    level3 = Level3CompactHealer(client=client, model=model)
+    degrader = ProgressiveDegrader(snapshot=snapshot)
+
+    return HealOrchestrator(
+        snapshot=snapshot,
+        context_detector=context_detector,
+        failure_classifier=failure_classifier,
+        level1=level1,
+        level2=level2,
+        level3=level3,
+        degrader=degrader,
+        validator=validator,
+        schema_hash=schema_hash,
+        max_rounds=max_retries,
+    )
+
+
 def _build_ai_config(
     *,
     api_key: str | None = None,
@@ -638,6 +686,7 @@ def _run_auto_heal_v4(
 
     if log_llm:
         from sqlseed._utils.paths import get_cache_dir
+
         log_dir = get_cache_dir("ai_logs")
         click.echo(f"LLM interaction logging enabled: {log_dir}", err=True)
 
@@ -654,8 +703,12 @@ def _run_auto_heal_v4(
 
     prelim_snapshot = SchemaSnapshot(db_path=db_path, url=db_url)
     heal_orch = _build_heal_orchestrator(
-        ai_config, client, prelim_snapshot, validator,
-        schema_hash=prelim_snapshot.schema_hash, max_retries=max_retries,
+        ai_config,
+        client,
+        prelim_snapshot,
+        validator,
+        schema_hash=prelim_snapshot.schema_hash,
+        max_retries=max_retries,
     )
 
     orch = AutoHealOrchestrator(
@@ -801,8 +854,12 @@ def auto_heal(
 
     prelim_snapshot = SchemaSnapshot(db_path=db_path, url=db_url)
     heal_orch = _build_heal_orchestrator(
-        ai_config, client, prelim_snapshot, validator,
-        schema_hash=prelim_snapshot.schema_hash, max_retries=max_retries,
+        ai_config,
+        client,
+        prelim_snapshot,
+        validator,
+        schema_hash=prelim_snapshot.schema_hash,
+        max_retries=max_retries,
     )
 
     orch = AutoHealOrchestrator(
