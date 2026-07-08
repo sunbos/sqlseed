@@ -197,6 +197,7 @@ class TestExpressionErrorPaths:
             name=name,
             generator_spec=GeneratorSpec(generator_name="__derive__"),
             depends_on=depends_on or [],
+            derive_from_sources=depends_on or [],
             expression=expression,
             is_derived=True,
         )
@@ -341,6 +342,7 @@ class TestAttemptNodeGeneration:
             name="derived",
             generator_spec=GeneratorSpec(generator_name="string", params={"min_length": 3, "max_length": 3}),
             depends_on=["src"],
+            derive_from_sources=["src"],
             expression=None,
             is_derived=True,
             constraints=ColumnConstraints(is_unique=True, max_retries=5),
@@ -680,6 +682,7 @@ class TestGenerateRowBacktracking:
                     name="derived",
                     generator_spec=GeneratorSpec(generator_name="__derive__"),
                     depends_on=["base"],
+                    derive_from_sources=["base"],
                     expression="value + 1",
                     is_derived=True,
                     constraints=ColumnConstraints(is_unique=True, max_retries=10),

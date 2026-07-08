@@ -134,7 +134,12 @@ class DataStream:
             The value generated for the node.
         """
         if node.is_derived and node.expression:
-            deps = node.depends_on
+            # Use derive_from_sources (explicit derive_from only) — NOT
+            # depends_on (which also includes implicit row['col_name']
+            # references for DAG ordering). This ensures a single-source
+            # derive like ``derive_from: registration_fee`` with expression
+            # ``value + row['lab_fee']`` keeps ``value`` as a scalar.
+            deps = node.derive_from_sources
             if len(deps) <= 1:
                 # Single-column derive: value is scalar (backward compatible)
                 ctx = {"row": row, "value": row.get(deps[0]) if deps else None}
@@ -197,7 +202,11 @@ class DataStream:
         col_name = node.name
         max_retries = node.constraints.max_retries if node.constraints else 100
         is_unique = node.constraints.is_unique if node.constraints else False
-        source_columns = node.depends_on if node.is_derived else None
+        # Backtracking rolls back only the EXPLICIT derive_from sources,
+        # not implicit row['col_name'] references (those are independent
+        # columns that should not be regenerated when a derived column
+        # fails constraint registration).
+        source_columns = node.derive_from_sources if node.is_derived else None
 
         for _ in range(max_retries):
             try:

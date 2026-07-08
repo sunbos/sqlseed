@@ -181,6 +181,20 @@ class AutoHealOrchestrator:
             )
             raise RuntimeError(f"Schema changed during auto-heal: {original_hash} -> {new_snapshot.schema_hash}")
 
+        # Step 5.5: Final param normalization — strip invalid params from all
+        # columns. This is a safety net: even if the validator didn't report
+        # a violation for an invalid param (e.g., ``unique: true`` on an
+        # ``integer`` generator), we strip it here to prevent runtime errors
+        # during fill (e.g., ``MimesisProvider._gen_integer() got an
+        # unexpected keyword argument 'unique'``).
+        from sqlseed_ai.repair.strategies import _strip_invalid_params
+        for tcfg in config.get("tables", []):
+            for c in tcfg.get("columns", []):
+                gen = c.get("generator", "")
+                params = c.get("params")
+                if isinstance(params, dict) and gen:
+                    c["params"] = _strip_invalid_params(params, gen)
+
         # Step 6: emit YAML
         if self._verbose:
             table_count = len(config.get("tables", []))
@@ -810,6 +824,8 @@ def _infer_cross_column_config(
     - ``col > X AND col < other`` (compound — exclusive literal lower + exclusive column upper)
     - ``col > other AND col < Y`` (compound — exclusive column lower + exclusive literal upper)
     - ``col != VALUE OR other_col = VALUE2`` (conditional equality — derive col from other_col)
+    - ``col1 + col2 = col`` (reverse sum equality — derive addend from total)
+    - ``col = VALUE OR other_col < col2 OR other_col > col3`` (range membership — derive col from other_col's range)
 
     Skipped patterns (not safely inferable from CHECK alone):
     - ``col != other`` for non-integer columns (needs FK pool awareness)
@@ -1196,6 +1212,73 @@ def _infer_cross_column_config(
                 return {
                     "derive_from": col1,
                     "expression": f"value + row['{col2}'] + row['{col3}']",
+                }
+
+        # Pattern 19: col1 + col2 = col (reverse sum equality — derive one addend from total)
+        # e.g., insurance_covered + self_paid = total_amount
+        # When current column is one of the addends (col1 or col2), derive it
+        # from the total (col): col = total - other_addend.
+        # Supports both orderings: "col + col1 = col2" and "col1 + col = col2".
+        # Also supports subtraction: "col1 - col = col2" → col = col1 - col2.
+        m = re.match(
+            rf"^\s*(\w+)\s*([+\-])\s*{col}\s*=\s*(\w+)\s*$",
+            expr,
+            re.IGNORECASE,
+        )
+        if not m:
+            # Try reverse ordering: col + col1 = col2
+            m = re.match(
+                rf"^\s*{col}\s*([+\-])\s*(\w+)\s*=\s*(\w+)\s*$",
+                expr,
+                re.IGNORECASE,
+            )
+        if m:
+            other_col, op, total_col = m.group(1), m.group(2), m.group(3)
+            if other_col in col_set and total_col in col_set and total_col != col_name:
+                # col1 + col = col2 → col = col2 - col1
+                # col1 - col = col2 → col = col1 - col2
+                # col + col1 = col2 → col = col2 - col1
+                # col - col1 = col2 → col = col2 + col1
+                if op == "+":
+                    return {
+                        "derive_from": total_col,
+                        "expression": f"value - row['{other_col}']",
+                    }
+                # op == "-"
+                return {
+                    "derive_from": total_col,
+                    "expression": f"row['{other_col}'] - value",
+                }
+
+        # Pattern 20: col = VALUE OR other_col < col2 OR other_col > col3 (range membership)
+        # e.g., is_abnormal = 0 OR test_value < ref_lower OR test_value > ref_upper
+        # Semantics: if col = VALUE, other_col must be in [col2, col3].
+        # Solution: derive col from other_col — set col = VALUE when other_col
+        # is in range, else set col to opposite (1-VALUE for boolean).
+        # Expression: VALUE if (value >= row['col2'] and value <= row['col3']) else (1-VALUE)
+        # This satisfies both:
+        #   CHECK1: col = VALUE OR other_col < col2 OR other_col > col3
+        #   CHECK2: col = (1-VALUE) OR (other_col >= col2 AND other_col <= col3)
+        m = re.match(
+            rf"^\s*{col}\s*=\s*(\d+)\s+OR\s+(\w+)\s*<\s*(\w+)\s+OR\s+\2\s*>\s*(\w+)\s*$",
+            expr,
+            re.IGNORECASE,
+        )
+        if m:
+            val_str, other_col, col2, col3 = m.group(1), m.group(2), m.group(3), m.group(4)
+            if (
+                other_col in col_set
+                and col2 in col_set
+                and col3 in col_set
+                and other_col != col_name
+            ):
+                val = int(val_str)
+                opposite = 1 - val if val in (0, 1) else 0
+                return {
+                    "derive_from": other_col,
+                    "expression": (
+                        f"{val} if (value >= row['{col2}'] and value <= row['{col3}']) else {opposite}"
+                    ),
                 }
 
         # Pattern 12: col = abs(col1) (*|+|-) col2 (abs() wrapper on first operand)

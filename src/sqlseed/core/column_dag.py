@@ -3,10 +3,16 @@
 ColumnDAG builds a directed acyclic graph based on column derive_from dependencies
 and performs topological sorting using Kahn's algorithm to ensure derived columns
 are generated after their source columns.
+
+Starting from v4 (2026-07-08), the DAG also tracks ``row['col_name']``
+references inside derive_from expressions. This ensures columns referenced
+via ``row['...']`` are generated before the derived column, preventing
+``KeyError`` at expression evaluation time.
 """
 
 from __future__ import annotations
 
+import re
 from collections import deque
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -15,6 +21,10 @@ from sqlseed.core.mapper import GeneratorSpec
 
 if TYPE_CHECKING:
     from sqlseed.database._protocol import ColumnInfo
+
+# Matches row['col_name'] references in derive_from expressions.
+# Used to extract implicit dependencies that the DAG must track.
+_ROW_REF_RE = re.compile(r"row\[\s*['\"]([^'\"]+)['\"]\s*\]")
 
 
 @dataclass
@@ -34,7 +44,21 @@ class ColumnNode:
 
     name: str
     generator_spec: GeneratorSpec
-    depends_on: list[str] = field(default_factory=list)  # source column names this column depends on
+    # All columns this node depends on — used for topological ordering.
+    # Includes BOTH the explicit ``derive_from`` sources AND any implicit
+    # ``row['col_name']`` references extracted from the expression. Keeping
+    # these combined ensures the DAG schedules referenced columns before the
+    # derived column, preventing ``KeyError`` at evaluation time.
+    depends_on: list[str] = field(default_factory=list)
+    # Only the EXPLICIT ``derive_from`` sources — used by the stream to
+    # construct the ``value`` context variable. When ``derive_from`` is a
+    # single string, ``value`` is a scalar; when it's a list, ``value`` is
+    # a list. Implicit ``row['col_name']`` references MUST NOT be included
+    # here, otherwise a single-source derive like
+    # ``derive_from: registration_fee`` with expression
+    # ``value + row['lab_fee']`` would be misclassified as multi-column
+    # derive (``value`` becoming a list), breaking the expression.
+    derive_from_sources: list[str] = field(default_factory=list)
     expression: str | None = None  # derived expression
     constraints: ColumnConstraints | None = None  # constraints
     is_derived: bool = False  # whether this is a derived column
@@ -112,6 +136,7 @@ class ColumnDAG:
         constraints = None
         expression = None
         depends_on = []
+        derive_from_sources: list[str] = []
         is_derived = False
         final_spec = spec
 
@@ -126,10 +151,25 @@ class ColumnDAG:
                 )
             if hasattr(cc, "derive_from") and cc.derive_from:
                 df = cc.derive_from
-                depends_on = list(df) if isinstance(df, list) else [df]
+                # derive_from_sources holds ONLY the explicit derive_from
+                # sources (single string -> one element, list -> as-is).
+                # The stream uses this to decide whether ``value`` is a
+                # scalar (len <= 1) or a list (len > 1).
+                derive_from_sources = list(df) if isinstance(df, list) else [df]
+                # depends_on starts with the explicit sources, then adds
+                # implicit row['col_name'] references for DAG ordering.
+                depends_on = list(derive_from_sources)
                 expression = cc.expression
                 is_derived = True
                 final_spec = GeneratorSpec(generator_name="__derive__")
+                # Track implicit row['col_name'] dependencies in the
+                # expression. Without this, the DAG may schedule the
+                # derived column before columns it references via row[...],
+                # causing KeyError at expression evaluation time.
+                if expression:
+                    for ref in _ROW_REF_RE.findall(expression):
+                        if ref not in depends_on:
+                            depends_on.append(ref)
 
         if is_unique:
             if constraints is None:
@@ -147,6 +187,7 @@ class ColumnDAG:
             name=col_name,
             generator_spec=final_spec,
             depends_on=depends_on,
+            derive_from_sources=derive_from_sources,
             expression=expression,
             constraints=constraints,
             is_derived=is_derived,
