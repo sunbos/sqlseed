@@ -37,7 +37,7 @@ from sqlseed_ai.validator.schema_snapshot import SchemaSnapshot
 from sqlseed._utils.logger import get_logger
 
 if TYPE_CHECKING:
-    from sqlseed_ai.healer.coordinator import Layer4Coordinator
+    from sqlseed_ai.healer.orchestrator import HealOrchestrator
 
 logger = get_logger(__name__)
 
@@ -61,7 +61,7 @@ class AutoHealOrchestrator:
         *,
         db_path: str | None = None,
         url: str | None = None,
-        heal_orchestrator: Any,  # HealOrchestrator (replaces healer: LLMHealer)
+        heal_orchestrator: Any,  # HealOrchestrator
         validator: Any,  # FastValidator
         total_budget_seconds: float = 300.0,
         max_scc_size: int = 3,
