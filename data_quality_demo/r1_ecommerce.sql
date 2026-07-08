@@ -22,7 +22,8 @@ CREATE TABLE brands (
     country TEXT NOT NULL CHECK (country IN ('CN', 'US', 'JP', 'KR', 'DE', 'UK', 'OTHER')),
     website TEXT,
     status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CHECK (UPPER(country) = country)
 );
 
 CREATE TABLE stores (
@@ -52,9 +53,11 @@ CREATE TABLE products (
     retail_price REAL NOT NULL CHECK (retail_price >= 0.0),
     weight_kg REAL NOT NULL DEFAULT 0.0 CHECK (weight_kg >= 0.0),
     status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'active', 'discontinued', 'recalled')),
+    is_featured INTEGER NOT NULL DEFAULT 0 CHECK (is_featured IN (0, 1)),
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (category_id) REFERENCES categories(id),
-    FOREIGN KEY (brand_id) REFERENCES brands(id),
+    FOREIGN KEY (brand_id) REFERENCES brands(id) ON DELETE SET NULL,
+    CHECK (is_featured = 0 OR status IN ('active', 'discontinued')),
     CHECK (retail_price >= cost_price)
 );
 
@@ -68,6 +71,7 @@ CREATE TABLE product_skus (
     stock_qty INTEGER NOT NULL DEFAULT 0 CHECK (stock_qty >= 0),
     low_stock_threshold INTEGER NOT NULL DEFAULT 10 CHECK (low_stock_threshold >= 0),
     barcode TEXT UNIQUE,
+    color_code TEXT CHECK (color_code IS NULL OR (color_code LIKE '#______' AND LENGTH(color_code) = 7)),
     is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
     FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
     CHECK (low_stock_threshold <= 1000)
@@ -139,6 +143,7 @@ CREATE TABLE orders (
     FOREIGN KEY (address_id) REFERENCES addresses(id),
     FOREIGN KEY (store_id) REFERENCES stores(id),
     CHECK (discount_amount <= total_amount),
+    CHECK (shipping_fee <= total_amount * 0.3),
     CHECK (pay_amount = total_amount - discount_amount + shipping_fee),
     CHECK (status != 'paid' OR paid_at IS NOT NULL),
     CHECK (status != 'shipped' OR shipped_at IS NOT NULL),
@@ -156,10 +161,12 @@ CREATE TABLE order_items (
     unit_price REAL NOT NULL CHECK (unit_price >= 0.0),
     quantity INTEGER NOT NULL CHECK (quantity > 0),
     subtotal REAL NOT NULL CHECK (subtotal >= 0.0),
+    line_total REAL,
     refunded_qty INTEGER NOT NULL DEFAULT 0 CHECK (refunded_qty >= 0),
     FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
     FOREIGN KEY (sku_id) REFERENCES product_skus(id),
     CHECK (subtotal = unit_price * quantity),
+    CHECK (line_total IS NULL OR line_total = unit_price * quantity),
     CHECK (refunded_qty <= quantity)
 );
 
