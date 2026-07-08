@@ -16,6 +16,7 @@ CREATE TABLE organizations (
     industry TEXT CHECK (industry IN ('tech', 'finance', 'healthcare', 'education', 'retail', 'manufacturing', 'other')),
     country TEXT NOT NULL DEFAULT 'CN' CHECK (LENGTH(country) = 2),
     timezone TEXT NOT NULL DEFAULT 'Asia/Shanghai',
+    metadata TEXT,
     max_users INTEGER NOT NULL DEFAULT 50 CHECK (max_users > 0 AND max_users <= 100000),
     max_storage_gb INTEGER NOT NULL DEFAULT 100 CHECK (max_storage_gb > 0),
     status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'suspended', 'terminated')),
@@ -51,6 +52,7 @@ CREATE TABLE plans (
 CREATE TABLE tenants (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     tenant_code TEXT NOT NULL UNIQUE,
+    tenant_uuid TEXT NOT NULL UNIQUE CHECK (LENGTH(tenant_uuid) = 36),
     org_id INTEGER NOT NULL,
     name TEXT NOT NULL,
     plan_id INTEGER,
@@ -92,7 +94,9 @@ CREATE TABLE users (
     CHECK (status != 'active' OR activated_at IS NOT NULL),
     CHECK (status != 'active' OR last_login_at IS NULL OR last_login_at >= activated_at),
     CHECK (phone IS NULL OR LENGTH(phone) >= 7),
-    CHECK (password_changed_at IS NULL OR password_changed_at >= invited_at)
+    CHECK (LOWER(email) = email),
+    CHECK (password_changed_at IS NULL OR password_changed_at >= invited_at),
+    CHECK (status = 'deleted' OR last_login_at IS NULL OR last_login_at >= activated_at)
 );
 
 CREATE TABLE roles (
@@ -176,7 +180,9 @@ CREATE TABLE subscriptions (
     CHECK (status != 'canceled' OR canceled_at IS NOT NULL),
     CHECK (status != 'expired' OR ended_at IS NOT NULL),
     CHECK (canceled_at IS NULL OR canceled_at >= started_at),
-    CHECK (ended_at IS NULL OR ended_at >= current_period_end)
+    CHECK (ended_at IS NULL OR ended_at >= current_period_end),
+    CHECK (status != 'trialing' OR discount_rate = 0.0),
+    CHECK (status != 'suspended' OR seat_count < 1000)
 );
 
 CREATE TABLE invoices (
