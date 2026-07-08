@@ -23,6 +23,8 @@ CREATE TABLE warehouses (
     name TEXT NOT NULL,
     region_id INTEGER NOT NULL,
     address TEXT NOT NULL,
+    latitude REAL CHECK (latitude IS NULL OR (latitude >= -90.0 AND latitude <= 90.0)),
+    longitude REAL CHECK (longitude IS NULL OR (longitude >= -180.0 AND longitude <= 180.0)),
     capacity_cbm REAL NOT NULL CHECK (capacity_cbm > 0.0),
     used_cbm REAL NOT NULL DEFAULT 0.0 CHECK (used_cbm >= 0.0),
     temperature_min REAL CHECK (temperature_min IS NULL OR temperature_min >= -30.0),
@@ -56,6 +58,7 @@ CREATE TABLE carriers (
 CREATE TABLE vehicles (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     plate_no TEXT NOT NULL UNIQUE,
+    vin TEXT CHECK (vin IS NULL OR LENGTH(vin) = 17),
     carrier_id INTEGER NOT NULL,
     vehicle_type TEXT NOT NULL CHECK (vehicle_type IN ('van', 'truck', 'semi', 'container', 'bike', 'drone')),
     capacity_weight_kg REAL NOT NULL CHECK (capacity_weight_kg > 0.0),
@@ -102,7 +105,8 @@ CREATE TABLE routes (
     FOREIGN KEY (dest_wh_id) REFERENCES warehouses(id),
     FOREIGN KEY (carrier_id) REFERENCES carriers(id),
     CHECK (origin_wh_id != dest_wh_id),
-    CHECK (estimated_hours <= distance_km * 0.5 + 24.0)
+    CHECK (estimated_hours <= distance_km * 0.5 + 24.0),
+    UNIQUE (origin_wh_id, dest_wh_id)
 );
 
 CREATE TABLE shipments (
@@ -130,16 +134,23 @@ CREATE TABLE shipments (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     picked_up_at DATETIME,
     delivered_at DATETIME,
+    estimated_delivery DATE,
+    guaranteed_delivery DATE,
+    billed_weight_kg REAL NOT NULL DEFAULT 0.0 CHECK (billed_weight_kg >= 0.0),
+    weight_diff REAL NOT NULL DEFAULT 0.0,
     FOREIGN KEY (origin_wh_id) REFERENCES warehouses(id),
     FOREIGN KEY (dest_wh_id) REFERENCES warehouses(id),
     FOREIGN KEY (carrier_id) REFERENCES carriers(id),
     FOREIGN KEY (route_id) REFERENCES routes(id),
     FOREIGN KEY (vehicle_id) REFERENCES vehicles(id),
     FOREIGN KEY (driver_id) REFERENCES drivers(id),
+    FOREIGN KEY (origin_wh_id, dest_wh_id) REFERENCES routes(origin_wh_id, dest_wh_id),
     CHECK (origin_wh_id != dest_wh_id),
     CHECK (status != 'picked_up' OR picked_up_at IS NOT NULL),
     CHECK (status != 'delivered' OR delivered_at IS NOT NULL),
-    CHECK (delivered_at IS NULL OR delivered_at >= picked_up_at)
+    CHECK (delivered_at IS NULL OR delivered_at >= picked_up_at),
+    CHECK (estimated_delivery IS NULL OR guaranteed_delivery IS NULL OR estimated_delivery < guaranteed_delivery),
+    CHECK (weight_diff = abs(total_weight_kg - billed_weight_kg))
 );
 
 CREATE TABLE packages (
@@ -148,16 +159,18 @@ CREATE TABLE packages (
     shipment_id INTEGER NOT NULL,
     seq_no INTEGER NOT NULL CHECK (seq_no > 0),
     weight_kg REAL NOT NULL CHECK (weight_kg > 0.0),
+    actual_weight REAL NOT NULL CHECK (actual_weight >= 0.1),
+    declared_weight REAL NOT NULL CHECK (declared_weight >= 0.1),
     length_cm REAL NOT NULL CHECK (length_cm > 0.0),
     width_cm REAL NOT NULL CHECK (width_cm > 0.0),
     height_cm REAL NOT NULL CHECK (height_cm > 0.0),
-    volume_cbm REAL NOT NULL,
+    volume_cbm REAL GENERATED ALWAYS AS (length_cm * width_cm * height_cm / 1000000.0) STORED,
     description TEXT,
     is_fragile INTEGER NOT NULL DEFAULT 0 CHECK (is_fragile IN (0, 1)),
     requires_cold_chain INTEGER NOT NULL DEFAULT 0 CHECK (requires_cold_chain IN (0, 1)),
     status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'packed', 'loaded', 'in_transit', 'delivered', 'damaged', 'lost')),
     FOREIGN KEY (shipment_id) REFERENCES shipments(id) ON DELETE CASCADE,
-    CHECK (volume_cbm = length_cm * width_cm * height_cm / 1000000.0),
+    CHECK (actual_weight >= 0.1 AND actual_weight <= declared_weight),
     CHECK (weight_kg <= 1000.0)
 );
 
