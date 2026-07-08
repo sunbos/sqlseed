@@ -195,6 +195,7 @@ class AutoHealOrchestrator:
         # (e.g., ``min_length`` → ``string``) or falling back to the
         # type-based placeholder.
         from sqlseed_ai.repair.strategies import _strip_invalid_params
+
         for tcfg in config.get("tables", []):
             table_name = tcfg.get("name", "")
             meta = snapshot.tables.get(table_name)
@@ -217,13 +218,7 @@ class AutoHealOrchestrator:
                 # placeholder braces and rewrite to the proper form. Without
                 # this, the dispatch layer raises ``UnknownGeneratorError``
                 # and the entire fill aborts.
-                if (
-                    gen
-                    and isinstance(gen, str)
-                    and "{" in gen
-                    and "}" in gen
-                    and gen not in ("template",)
-                ):
+                if gen and isinstance(gen, str) and "{" in gen and "}" in gen and gen not in ("template",):
                     c["generator"] = "template"
                     c["params"] = {"template": gen}
                     gen = "template"
@@ -269,17 +264,10 @@ class AutoHealOrchestrator:
                 #      is very specific: ``col IN (0, 1)`` MUST use ``boolean``,
                 #      ``col IN ('a', 'b')`` MUST use ``choice``. An ``integer``
                 #      generator would produce values outside the allowed set.
-                if (
-                    not has_derive
-                    and gen
-                    and not params
-                    and meta is not None
-                ):
+                if not has_derive and gen and not params and meta is not None:
                     col_name = c.get("name", "")
                     if col_name in meta.columns:
-                        inferred = _infer_from_check_constraints(
-                            col_name, meta.constraints, meta.columns
-                        )
+                        inferred = _infer_from_check_constraints(col_name, meta.constraints, meta.columns)
                         if inferred is not None:
                             inf_gen, inf_params = inferred
                             if inf_gen == gen and inf_params:
@@ -306,11 +294,7 @@ class AutoHealOrchestrator:
                 # CHECK constraint. Convert to ``pattern`` with
                 # ``[A-Za-z0-9]{N}`` which the unique adjuster does NOT
                 # touch (uniqueness handled by ConstraintSolver backtracking).
-                if (
-                    not has_derive
-                    and gen == "string"
-                    and meta is not None
-                ):
+                if not has_derive and gen == "string" and meta is not None:
                     col_name = c.get("name", "")
                     if col_name in meta.columns:
                         unique_cols_set = _get_unique_columns(meta.constraints)
@@ -365,6 +349,16 @@ class AutoHealOrchestrator:
             if meta is None:
                 continue
             unique_cols = _get_unique_columns(meta.constraints)
+            # Extract FK column names for this table. Used by
+            # ``_infer_cross_column_config`` to detect FK columns and return
+            # None (instead of 0) for nullable FK columns in Pattern 30.
+            # FK columns like ``manager_id`` (self-referencing) or
+            # ``customer_id`` should never receive a literal ``0`` value
+            # because auto-increment IDs start from 1.
+            fk_cols_set: set[str] = set()
+            for fk in meta.foreign_keys:
+                for c in fk.get("columns", []):
+                    fk_cols_set.add(c)
             cols: list[dict[str, Any]] = []
             for col_name in meta.columns:
                 col_type = meta.column_types.get(col_name, "TEXT")
@@ -374,7 +368,9 @@ class AutoHealOrchestrator:
                 # ``unit_price > 0``) and must take priority: if the column
                 # has both, derive_from captures the cross-column relation
                 # while a bare min_value would silently drop it.
-                cross_config = _infer_cross_column_config(col_name, meta.constraints, meta.columns, col_type)
+                cross_config = _infer_cross_column_config(
+                    col_name, meta.constraints, meta.columns, col_type, fk_cols_set
+                )
                 if cross_config is not None:
                     cols.append({"name": col_name, **cross_config})
                     continue
@@ -868,7 +864,10 @@ def _parse_single_column_check(
             return (gen, {"min_value": int(min_str), "max_value": int(max_str)})
         return (gen, {"min_value": float(min_str), "max_value": float(max_str)})
 
-    # Pattern: col > X AND col < Y — exclusive range
+    # Pattern: col > X AND col < Y — exclusive range (both bounds strict)
+    # For integers: shift min up by 1, max down by 1.
+    # For floats: add/subtract epsilon (0.01) to both bounds (see comment
+    # in the ``col > X AND col <= Y`` pattern above for rationale).
     m = re.match(
         rf"^\s*{col}\s*>\s*(-?\d+(?:\.\d+)?)\s+AND\s+{col}\s*<\s*(-?\d+(?:\.\d+)?)\s*$",
         expr,
@@ -880,14 +879,18 @@ def _parse_single_column_check(
         gen = "integer" if is_int else "float"
         if is_int:
             return (gen, {"min_value": int(min_str) + 1, "max_value": int(max_str) - 1})
-        return (gen, {"min_value": float(min_str), "max_value": float(max_str)})
+        return (gen, {"min_value": float(min_str) + 0.01, "max_value": float(max_str) - 0.01})
 
     # Pattern: col > X AND col <= Y — mixed range (exclusive lower, inclusive upper)
     # e.g., interest_rate > 0 AND interest_rate <= 0.3
+    # e.g., rate > 0.0 AND rate <= 0.25
     # For integers: shift min up by 1 (X+1) to satisfy strict inequality.
-    # For floats: keep X as min_value (probability of generating exactly X is
-    # effectively zero for continuous floats; if it occurs, ConstraintSolver
-    # retries handle it).
+    # For floats: add epsilon (0.01) to min_value. ``random.uniform(X, Y)``
+    # CAN return X (both endpoints are inclusive in Python), which would
+    # violate the strict ``> X`` CHECK. ConstraintSolver does NOT retry
+    # CHECK violations (only UNIQUE), so a single 0.0 value aborts the
+    # entire fill. Adding 0.01 ensures all generated values are strictly
+    # greater than X.
     m = re.match(
         rf"^\s*{col}\s*>\s*(-?\d+(?:\.\d+)?)\s+AND\s+{col}\s*<=\s*(-?\d+(?:\.\d+)?)\s*$",
         expr,
@@ -899,11 +902,13 @@ def _parse_single_column_check(
         gen = "integer" if is_int else "float"
         if is_int:
             return (gen, {"min_value": int(min_str) + 1, "max_value": int(max_str)})
-        return (gen, {"min_value": float(min_str), "max_value": float(max_str)})
+        return (gen, {"min_value": float(min_str) + 0.01, "max_value": float(max_str)})
 
     # Pattern: col >= X AND col < Y — mixed range (inclusive lower, exclusive upper)
     # e.g., score >= 0 AND score < 100
     # For integers: shift max down by 1 (Y-1) to satisfy strict inequality.
+    # For floats: subtract epsilon (0.01) from max_value for the same reason
+    # as above — ``random.uniform`` can return Y, violating ``< Y``.
     m = re.match(
         rf"^\s*{col}\s*>=\s*(-?\d+(?:\.\d+)?)\s+AND\s+{col}\s*<\s*(-?\d+(?:\.\d+)?)\s*$",
         expr,
@@ -915,7 +920,7 @@ def _parse_single_column_check(
         gen = "integer" if is_int else "float"
         if is_int:
             return (gen, {"min_value": int(min_str), "max_value": int(max_str) - 1})
-        return (gen, {"min_value": float(min_str), "max_value": float(max_str)})
+        return (gen, {"min_value": float(min_str), "max_value": float(max_str) - 0.01})
 
     # Pattern: col >= X — lower bound only (inclusive)
     m = re.match(
@@ -1010,6 +1015,7 @@ def _infer_cross_column_config(
     constraints: list[dict[str, Any]],
     all_columns: list[str],
     col_type: str,
+    fk_columns: set[str] | None = None,
 ) -> dict[str, Any] | None:
     """Infer config from cross-column CHECK constraints.
 
@@ -1018,6 +1024,11 @@ def _infer_cross_column_config(
     - ``generator`` + ``params`` + ``null_ratio`` (for source mode — always NULL)
 
     Or ``None`` if no inference is possible.
+
+    The ``fk_columns`` parameter is a set of column names that are foreign
+    keys. For FK columns, Pattern 30 returns ``None`` for BOTH branches
+    (always NULL) because returning a literal like ``0`` causes FK
+    violations (auto-increment IDs start from 1, so 0 is never valid).
 
     Handled patterns (where ``col`` is ``col_name`` and ``other`` is another column):
     - ``col IS NULL OR col (>=|>) other`` → derive_from other, add timedelta
@@ -1055,8 +1066,46 @@ def _infer_cross_column_config(
     is_date_col = is_date_type or _is_date_column(col_name)
     is_float_type = any(k in col_type.upper() for k in ("REAL", "FLOAT", "DOUBLE", "DECIMAL", "NUMERIC"))
     is_int_type = any(k in col_type.upper() for k in ("INT", "BIGINT", "SMALLINT", "TINYINT"))
+    # FK columns: returning a literal (e.g., 0) for FK columns causes FK
+    # violations because auto-increment IDs start from 1. For nullable FK
+    # columns, None (NULL) is always valid. For NOT NULL FK columns, the
+    # derive_from approach is insufficient — the LLM or BrokenEdgeAligner
+    # must handle FK pool assignment. Here we detect FK columns so Pattern 30
+    # can return None for both branches (always NULL).
+    is_fk_column = fk_columns is not None and col_name in fk_columns
 
-    for c in constraints:
+    # Sort constraints so conditional CHECKs (containing `` OR ``) are
+    # evaluated BEFORE pure range/arithmetic CHECKs (containing only
+    # `` AND ``). Conditional constraints are more restrictive — e.g.,
+    # ``status != 'paid_off' OR remaining = 0.0`` forces remaining=0
+    # for a specific status, while ``remaining >= 0 AND remaining <=
+    # principal`` only sets a range. If the range is matched first, the
+    # conditional is never reached, causing CHECK failures at fill time.
+    # By checking conditional first, the more restrictive pattern wins.
+    #
+    # Secondary sort: within conditional (OR) constraints, patterns with
+    # ``IN (...)`` (Pattern 35: ``col1 IN (...) OR col2 IS NULL``) get
+    # priority over ``IS NULL OR`` patterns (Pattern 1: ``col IS NULL OR
+    # col > other``). This ensures Pattern 35 is matched before Pattern 1,
+    # so ``completed_at`` gets ``null_ratio=1.0`` (always NULL) instead of
+    # ``derive_from: created_at`` (always non-NULL). Without this, Pattern 1
+    # would make completed_at always non-NULL, violating the Pattern 35
+    # CHECK (``status IN ('completed') OR completed_at IS NULL``).
+    def _constraint_sort_key(c: dict[str, Any]) -> tuple[int, int]:
+        if c.get("type") != "check":
+            return (2, 0)
+        expr = c.get("expression", "")
+        # Conditional constraints (with OR) get priority 0
+        if re.search(r"\s+OR\s+", expr, re.IGNORECASE):
+            # Secondary: constraints with ``IN (...)`` are more restrictive
+            # (they force a specific NULL/value for non-matching cases)
+            if re.search(r"\bIN\s*\(", expr, re.IGNORECASE):
+                return (0, 0)
+            return (0, 1)
+        # Compound range constraints (with AND) get priority 1
+        return (1, 0)
+
+    for c in sorted(constraints, key=_constraint_sort_key):
         if c.get("type") != "check":
             continue
         expr = c.get("expression", "")
@@ -1536,19 +1585,12 @@ def _infer_cross_column_config(
         )
         if m:
             val_str, other_col, col2, col3 = m.group(1), m.group(2), m.group(3), m.group(4)
-            if (
-                other_col in col_set
-                and col2 in col_set
-                and col3 in col_set
-                and other_col != col_name
-            ):
+            if other_col in col_set and col2 in col_set and col3 in col_set and other_col != col_name:
                 val = int(val_str)
                 opposite = 1 - val if val in (0, 1) else 0
                 return {
                     "derive_from": other_col,
-                    "expression": (
-                        f"{val} if (value >= row['{col2}'] and value <= row['{col3}']) else {opposite}"
-                    ),
+                    "expression": (f"{val} if (value >= row['{col2}'] and value <= row['{col3}']) else {opposite}"),
                 }
 
         # Pattern 21: col = (col1 + col2 + col3) / N (average of N columns)
@@ -1640,7 +1682,11 @@ def _infer_cross_column_config(
         )
         if m:
             val_str, col1, x_str, col2, col3_opt = (
-                m.group(1), m.group(2), m.group(3), m.group(4), m.group(5),
+                m.group(1),
+                m.group(2),
+                m.group(3),
+                m.group(4),
+                m.group(5),
             )
             if col1 in col_set and col2 in col_set and col1 != col_name:
                 val = int(val_str)
@@ -1705,8 +1751,7 @@ def _infer_cross_column_config(
         )
         if m:
             col1, col2, sign, col3 = m.group(1), m.group(2), m.group(3), m.group(4)
-            if (col1 in col_set and col2 in col_set and col3 in col_set
-                    and col1 != col_name):
+            if col1 in col_set and col2 in col_set and col3 in col_set and col1 != col_name:
                 return {
                     "derive_from": col1,
                     "expression": f"value * row['{col2}'] {sign} row['{col3}']",
@@ -1887,5 +1932,285 @@ def _infer_cross_column_config(
                     "derive_from": col1,
                     "expression": "abs(value)",
                 }
+
+        # Pattern 29: col = col1 (+|-) col2 (+|-) col3 (three-column arithmetic
+        # chain with mixed + and - operators)
+        # e.g., available = balance + credit_limit - held
+        # e.g., net_amount = gross_amount - discount + tax
+        # Derive from col1 (first operand), reference col2 and col3 via row dict.
+        # The expression computes value {op1} row[col2] {op2} row[col3],
+        # satisfying the equality.
+        m = re.match(
+            rf"^\s*{col}\s*=\s*(\w+)\s*([+\-])\s*(\w+)\s*([+\-])\s*(\w+)\s*$",
+            expr,
+            re.IGNORECASE,
+        )
+        if m:
+            col1, op1, col2, op2, col3 = m.group(1), m.group(2), m.group(3), m.group(4), m.group(5)
+            if col1 in col_set and col2 in col_set and col3 in col_set and col1 != col_name:
+                return {
+                    "derive_from": col1,
+                    "expression": f"value {op1} row['{col2}'] {op2} row['{col3}']",
+                }
+
+        # Pattern 30: col1 != VALUE OR col IS NULL (conditional NULL — when
+        # col1 == VALUE, col must be NULL; otherwise col can be anything)
+        # e.g., position != 'ceo' OR manager_id IS NULL
+        # e.g., status != 'closed' OR closed_at IS NULL
+        # Derive from col1: when col1 == VALUE, set col to None; otherwise
+        # set col to a safe value. For FK columns (integer), returning None
+        # is the safest approach — it avoids FK violations while satisfying
+        # the CHECK. For non-FK columns, None is also valid (SQLite allows
+        # NULL unless NOT NULL is specified).
+        # NOTE: the ``None`` literal is supported by the expression engine
+        # (simpleeval evaluates Python None). The orchestrator's derive_from
+        # handler accepts None as a valid value (stored as NULL in the DB).
+        # ADVERSARIAL FIX: for FK columns, the non-null branch previously
+        # returned ``0`` (for int) — but ``0`` is NEVER a valid FK value
+        # (auto-increment IDs start from 1). This caused FK violations at
+        # fill time. Now, FK columns return ``None`` for BOTH branches,
+        # making the column always NULL. This is semantically acceptable
+        # because FK columns in Pattern 30 are nullable (the CHECK requires
+        # IS NULL for some values, so the column must be nullable).
+        m = re.match(
+            rf"^\s*(\w+)\s*!=\s*'([^']+)'\s+OR\s+{col}\s+IS\s+NULL\s*$",
+            expr,
+            re.IGNORECASE,
+        )
+        if m:
+            other_col_p30, val_str_p30 = m.group(1), m.group(2)
+            if other_col_p30 in col_set and other_col_p30 != col_name:
+                # When col1 == VALUE: col = None (NULL)
+                # When col1 != VALUE: col = a safe default (0 for int, 0.0 for float)
+                # For FK columns: always None (0 is never a valid FK id)
+                null_expr = "None"
+                non_null_expr = "None" if is_fk_column else ("0.0" if is_float_type else "0")
+                return {
+                    "derive_from": other_col_p30,
+                    "expression": f"{null_expr} if value == '{val_str_p30}' else {non_null_expr}",
+                }
+
+        # Pattern 31: col1 != VALUE OR col = VALUE2 (conditional equality —
+        # when col1 == VALUE, col must be exactly VALUE2; otherwise col can
+        # be anything)
+        # e.g., status != 'paid_off' OR remaining = 0.0
+        # e.g., type != 'completed' OR fee = 0.0
+        # Derive from col1: when col1 == VALUE, set col to VALUE2; otherwise
+        # set col to a safe random value. The ``else`` branch uses a small
+        # positive range to avoid violating other CHECKs (e.g., remaining
+        # must be <= principal). For integer VALUE2, use int; for float, use float.
+        m = re.match(
+            rf"^\s*(\w+)\s*!=\s*'([^']+)'\s+OR\s+{col}\s*=\s*(-?\d+(?:\.\d+)?)\s*$",
+            expr,
+            re.IGNORECASE,
+        )
+        if m:
+            other_col_p31, val_str_p31, eq_val_str = m.group(1), m.group(2), m.group(3)
+            if other_col_p31 in col_set and other_col_p31 != col_name:
+                is_float_p31 = "." in eq_val_str
+                eq_val: float | int = float(eq_val_str) if is_float_p31 else int(eq_val_str)
+                # When col1 == VALUE: col = VALUE2 (exact)
+                # When col1 != VALUE: col = random value in a safe range.
+                # Using [0.01, 100.0] for floats and [1, 100] for ints to
+                # avoid zero (which might violate ``col > 0`` CHECKs) while
+                # staying small enough to not exceed other columns' values.
+                rand_expr = "random_float(0.01, 100.0)" if is_float_p31 else "random_int(1, 100)"
+                return {
+                    "derive_from": other_col_p31,
+                    "expression": f"{eq_val} if value == '{val_str_p31}' else {rand_expr}",
+                }
+
+        # Pattern 22b: col >= X AND col <= col2 * CONSTANT (compound range
+        # with multiplier upper bound)
+        # e.g., fee >= 0.0 AND fee <= amount * 0.02
+        # e.g., tax >= 0.0 AND tax <= subtotal * 0.08
+        # Derive from col2, multiply by a random factor in [0, CONSTANT] to
+        # guarantee col <= col2 * CONSTANT. The lower bound X is satisfied
+        # by using max(X, ...) in the expression.
+        m = re.match(
+            rf"^\s*{col}\s*>=\s*(-?\d+(?:\.\d+)?)\s+AND\s+{col}\s*<=\s*(\w+)\s*\*\s*(-?\d+(?:\.\d+)?)\s*$",
+            expr,
+            re.IGNORECASE,
+        )
+        if m:
+            x_str_p22b, other_col_p22b, c_str_p22b = m.group(1), m.group(2), m.group(3)
+            if other_col_p22b in col_set and other_col_p22b != col_name:
+                x_val_p22b = float(x_str_p22b) if "." in x_str_p22b else int(x_str_p22b)
+                c_val_p22b = float(c_str_p22b)
+                # Generate value * random_factor where random_factor ∈ [0, c_val]
+                # This guarantees col <= col2 * c_val. The lower bound X is
+                # satisfied because value * 0 = 0 >= X when X <= 0 (common case).
+                # For X > 0, use max(X, ...) to enforce the lower bound.
+                if x_val_p22b <= 0:
+                    return {
+                        "derive_from": other_col_p22b,
+                        "expression": f"value * random_float(0.0, {c_val_p22b})",
+                    }
+                # X > 0: need to ensure col >= X. Use max(X, value * factor).
+                return {
+                    "derive_from": other_col_p22b,
+                    "expression": f"max({x_val_p22b}, value * random_float(0.0, {c_val_p22b}))",
+                }
+
+        # Pattern 32: (col1 = VALUE AND col > X) OR (col1 IN (...) AND col IS NULL)
+        # (conditional value/NULL — col must be > X when col1 == VALUE,
+        # and must be NULL when col1 is in the other set)
+        # e.g., (card_type = 'credit' AND credit_limit > 0.0)
+        #       OR (card_type IN ('debit', 'prepaid') AND credit_limit IS NULL)
+        # Derive from col1: when col1 == VALUE, set col to a positive random;
+        # when col1 IN other set, set col to None.
+        m = re.match(
+            rf"^\s*\(\s*(\w+)\s*=\s*'([^']+)'\s+AND\s+{col}\s*>\s*(-?\d+(?:\.\d+)?)\s*\)\s*OR\s*\(\s*\1\s+IN\s*\(([^)]+)\)\s+AND\s+{col}\s+IS\s+NULL\s*\)\s*$",
+            expr,
+            re.IGNORECASE,
+        )
+        if m:
+            other_col_p32, val_str_p32, threshold_str_p32, values_str_p32 = (
+                m.group(1),
+                m.group(2),
+                m.group(3),
+                m.group(4),
+            )
+            if other_col_p32 in col_set and other_col_p32 != col_name:
+                threshold_p32 = float(threshold_str_p32)
+                values_p32 = re.findall(r"'([^']*)'", values_str_p32)
+                if not values_p32:
+                    values_p32 = re.findall(r'"([^"]*)"', values_str_p32)
+                if values_p32:
+                    py_list_p32 = "[" + ", ".join(f"'{v}'" for v in values_p32) + "]"
+                    # When col1 == VALUE: col = random positive (> threshold)
+                    # When col1 IN other set: col = None (NULL)
+                    positive_expr_p32 = f"random_float({threshold_p32 + 0.01}, {threshold_p32 + 10000.0})"
+                    null_branch = f"None if value in {py_list_p32} else {positive_expr_p32}"
+                    return {
+                        "derive_from": other_col_p32,
+                        "expression": f"({positive_expr_p32}) if value == '{val_str_p32}' else ({null_branch})",
+                    }
+
+        # Pattern 33: (col1 IN (...) AND col = col2 + col3) OR (col1 IN (...) AND col = col2 - col3)
+        # (conditional arithmetic based on type — col is computed differently
+        # depending on col1's value)
+        # e.g., (type IN ('deposit', 'transfer_in', 'interest') AND balance_after = balance_before + amount)
+        #       OR (type IN ('withdrawal', 'transfer_out', 'fee') AND balance_after = balance_before - amount)
+        # Derive from col2 (the base value), reference col1 (type) and col3 (amount) via row dict.
+        m = re.match(
+            rf"^\s*\(\s*(\w+)\s+IN\s*\(([^)]+)\)\s+AND\s+{col}\s*=\s*(\w+)\s*([+\-])\s*(\w+)\s*\)\s*OR\s*\(\s*\1\s+IN\s*\(([^)]+)\)\s+AND\s+{col}\s*=\s*\3\s*([+\-])\s*\5\s*\)\s*$",
+            expr,
+            re.IGNORECASE,
+        )
+        if m:
+            type_col_p33, set1_str, base_col_p33, op1_p33, amt_col_p33, _set2_str, op2_p33 = (
+                m.group(1),
+                m.group(2),
+                m.group(3),
+                m.group(4),
+                m.group(5),
+                m.group(6),
+                m.group(7),
+            )
+            if (
+                type_col_p33 in col_set
+                and base_col_p33 in col_set
+                and amt_col_p33 in col_set
+                and base_col_p33 != col_name
+            ):
+                set1_vals = re.findall(r"'([^']*)'", set1_str)
+                if not set1_vals:
+                    set1_vals = re.findall(r'"([^"]*)"', set1_str)
+                if set1_vals:
+                    py_list1_p33 = "[" + ", ".join(f"'{v}'" for v in set1_vals) + "]"
+                    # When type IN set1: col = base + amount (op1)
+                    # When type IN set2: col = base - amount (op2)
+                    expr_p33 = (
+                        f"(value {op1_p33} row['{amt_col_p33}']) if row['{type_col_p33}'] in {py_list1_p33} "
+                        f"else (value {op2_p33} row['{amt_col_p33}'])"
+                    )
+                    return {
+                        "derive_from": base_col_p33,
+                        "expression": expr_p33,
+                    }
+
+        # Pattern 34: col1 != VALUE OR col2 < X (conditional upper bound)
+        # e.g., status != 'dormant' OR balance < 100.0
+        # When col1 != VALUE: col2 must be < X (exclusive upper bound)
+        # When col1 == VALUE: col2 can be anything (no upper restriction)
+        # Safe approach: set max_value to X - epsilon unconditionally. This is
+        # more restrictive than necessary for the VALUE case (dormant accounts
+        # could have balance >= 100.0), but satisfies ALL CHECKs. The single-
+        # column lower bound (if any) is preserved by calling
+        # ``_infer_from_check_constraints`` to recover min_value (e.g.,
+        # ``balance >= -10000.0``).
+        # Also handles ``col1 != VALUE OR col2 <= X`` (inclusive upper bound).
+        m = re.match(
+            rf"^\s*(\w+)\s*!=\s*'([^']+)'\s+OR\s+{col}\s*(<|<=)\s*(-?\d+(?:\.\d+)?)\s*$",
+            expr,
+            re.IGNORECASE,
+        )
+        if m:
+            other_col_p34, _val_str_p34, op_p34, x_str_p34 = (
+                m.group(1),
+                m.group(2),
+                m.group(3),
+                m.group(4),
+            )
+            if other_col_p34 in col_set and other_col_p34 != col_name:
+                is_float_p34 = "." in x_str_p34
+                x_val_p34 = float(x_str_p34)
+                # Get single-column params (e.g., min_value from `balance >= -10000.0`)
+                # to preserve the lower bound that would otherwise be lost when
+                # cross-column inference overrides single-column inference.
+                single_p34 = _infer_from_check_constraints(col_name, constraints, all_columns)
+                if op_p34 == "<":
+                    # Exclusive: max must be < X, so set max_value = X - epsilon
+                    if is_float_p34:
+                        params_p34: dict[str, Any] = {"max_value": x_val_p34 - 0.01}
+                        gen_p34 = "float"
+                    else:
+                        params_p34 = {"max_value": int(x_val_p34) - 1}
+                        gen_p34 = "integer"
+                elif is_float_p34:
+                    # Inclusive: max can be = X, so set max_value = X
+                    params_p34 = {"max_value": x_val_p34}
+                    gen_p34 = "float"
+                else:
+                    params_p34 = {"max_value": int(x_val_p34)}
+                    gen_p34 = "integer"
+                # Merge single-column lower bound if available
+                if single_p34 and single_p34[1].get("min_value") is not None:
+                    params_p34["min_value"] = single_p34[1]["min_value"]
+                return {"generator": gen_p34, "params": params_p34}
+
+        # Pattern 35: col1 IN (...) OR col IS NULL (conditional NULL with IN set)
+        # e.g., status IN ('completed') OR completed_at IS NULL
+        # When col1 IN set: col can be anything
+        # When col1 NOT IN set: col must be NULL
+        # For date columns: return null_ratio=1.0 (always NULL). This is the
+        # safest approach — it satisfies both this CHECK and any
+        # ``col IS NULL OR col > other`` CHECK that might also exist. The
+        # trade-off is that the column is always NULL (semantically suboptimal
+        # but functionally correct). The LLM can improve this later.
+        # For non-date columns: derive from col1, return None when NOT in set.
+        m = re.match(
+            rf"^\s*(\w+)\s+IN\s*\(([^)]+)\)\s+OR\s+{col}\s+IS\s+NULL\s*$",
+            expr,
+            re.IGNORECASE,
+        )
+        if m:
+            other_col_p35, values_str_p35 = m.group(1), m.group(2)
+            if other_col_p35 in col_set and other_col_p35 != col_name:
+                if is_date_col:
+                    # Always NULL — satisfies both Pattern 35 and Pattern 1
+                    return {"generator": "datetime", "params": {}, "null_ratio": 1.0}
+                # Non-date: derive from col1, None when not in set
+                values_p35 = re.findall(r"'([^']*)'", values_str_p35)
+                if not values_p35:
+                    values_p35 = re.findall(r'"([^"]*)"', values_str_p35)
+                if values_p35:
+                    py_list_p35 = "[" + ", ".join(f"'{v}'" for v in values_p35) + "]"
+                    non_null_expr_p35 = "0.0" if is_float_type else "0"
+                    return {
+                        "derive_from": other_col_p35,
+                        "expression": f"{non_null_expr_p35} if value in {py_list_p35} else None",
+                    }
 
     return None
