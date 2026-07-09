@@ -270,6 +270,24 @@ class AutoHealOrchestrator:
                             c.pop("expression", None)
                             has_derive = False
 
+                # Mutual-exclusivity enforcement: the LLM occasionally emits
+                # BOTH ``derive_from`` AND ``generator`` for the same column
+                # (e.g., ``derive_from: dest_wh_id, expression: value - 1 if
+                # value > 1 else value + 1, generator: integer``). The
+                # ``ColumnConfig`` Pydantic model enforces mutual exclusivity
+                # between source-mode (``generator`` + ``params``) and
+                # derived-mode (``derive_from`` + ``expression``). Without
+                # this cleanup, the YAML triggers ``ValidationError: cannot
+                # use both 'generator' and 'derive_from'`` and the entire
+                # fill aborts. When ``derive_from`` survived the LIKE safety
+                # net above, strip any leftover ``generator``/``params`` to
+                # enforce the contract. This is a generic LLM-output cleanup
+                # — it benefits any database where the LLM emits both modes.
+                if has_derive:
+                    c.pop("generator", None)
+                    c.pop("params", None)
+                    gen = None
+
                 # Template-string-in-generator repair: the LLM occasionally
                 # returns the template value directly in the ``generator``
                 # field (e.g., ``generator: 'NAME-{sequence:04d}'``) instead

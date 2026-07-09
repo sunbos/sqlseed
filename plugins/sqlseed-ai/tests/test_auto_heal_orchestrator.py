@@ -1594,3 +1594,82 @@ def test_step55_preserves_derive_from_for_real_datetime(like_time_db: Path):
     config = yaml.safe_load(yaml_str)
     end_dt_col = next(c for c in config["tables"][0]["columns"] if c["name"] == "end_dt")
     assert "derive_from" in end_dt_col, "Step 5.5 should preserve timedelta for real DATETIME"
+
+
+def test_step55_strips_generator_when_derive_from_present(tmp_path: Path):
+    """Step 5.5 strips ``generator``+``params`` when LLM emits both modes.
+
+    The LLM occasionally emits BOTH ``derive_from`` AND ``generator`` for the
+    same column (e.g., ``derive_from: dest_wh_id, expression: value - 1 if
+    value > 1 else value + 1, generator: integer``). The ``ColumnConfig``
+    Pydantic model enforces mutual exclusivity between source-mode
+    (``generator`` + ``params``) and derived-mode (``derive_from`` +
+    ``expression``). Without this safety net, the YAML loads downstream
+    triggers ``ValidationError: cannot use both 'generator' and
+    'derive_from'`` and the entire fill aborts.
+
+    Fix: when ``derive_from`` is present (and NOT stripped by the LIKE
+    safety net), actively pop ``generator`` and ``params`` to enforce
+    mutual exclusivity. This is a generic LLM-output cleanup — it benefits
+    any database where the LLM emits both modes, not just R3.
+    """
+    path = tmp_path / "mixed_mode.db"
+    with sqlite3.connect(str(path)) as conn:
+        conn.execute(
+            """
+            CREATE TABLE shipments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                dest_wh_id INTEGER NOT NULL,
+                origin_wh_id INTEGER NOT NULL,
+                CHECK (origin_wh_id != dest_wh_id)
+            )
+            """
+        )
+
+    mock_healer = MagicMock()
+    # Simulate LLM emitting BOTH derive_from AND generator for origin_wh_id.
+    # Use heal.return_value (not heal_subgraph) because _heal_subgraph calls
+    # self._heal_orchestrator.heal(task, violations, sg_config).
+    mock_healer.heal.return_value = SimpleNamespace(
+        config={
+            "tables": [
+                {
+                    "name": "shipments",
+                    "columns": [
+                        {"name": "id", "generator": "autoincrement", "params": {}},
+                        {"name": "dest_wh_id", "generator": "foreign_key_or_integer", "params": {}},
+                        {
+                            "name": "origin_wh_id",
+                            "derive_from": "dest_wh_id",
+                            "expression": "value - 1 if value > 1 else value + 1",
+                            "generator": "integer",
+                            "params": {"min_value": 1, "max_value": 100},
+                        },
+                    ],
+                }
+            ]
+        },
+        level_used=4,
+        success=True,
+        degraded_columns=[],
+    )
+    mock_validator = MagicMock()
+    # Return violations so the heal path is taken (not "accepted as-is")
+    mock_validator.validate.return_value = [MagicMock()]
+
+    orch = AutoHealOrchestrator(
+        db_path=str(path),
+        heal_orchestrator=mock_healer,
+        validator=mock_validator,
+        total_budget_seconds=10.0,
+    )
+    yaml_str = orch.run()
+    config = yaml.safe_load(yaml_str)
+    origin_col = next(c for c in config["tables"][0]["columns"] if c["name"] == "origin_wh_id")
+    assert "derive_from" in origin_col, "derive_from should be preserved"
+    assert "generator" not in origin_col, (
+        "Step 5.5 must strip generator when derive_from is present (mutual exclusivity)"
+    )
+    assert "params" not in origin_col, (
+        "Step 5.5 must strip params when derive_from is present (mutual exclusivity)"
+    )
