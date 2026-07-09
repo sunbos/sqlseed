@@ -329,6 +329,82 @@ def test_pattern_35_non_date_column_derive_from():
     assert "None" in result["expression"]
 
 
+def test_pattern_7b_col_geq_col2_times_constant():
+    """Pattern 7b: col >= col2 * CONSTANT (column times literal constant, >=).
+
+    e.g., base_price_yearly >= base_price_monthly * 10
+    Existing Pattern 7 only handles col >= col1 * col2 (two columns).
+    This variant handles col >= col2 * CONSTANT where CONSTANT is a numeric literal.
+    """
+    constraints = [{"type": "check", "expression": "base_price_yearly >= base_price_monthly * 10"}]
+    result = _infer_cross_column_config(
+        "base_price_yearly", constraints, ["base_price_yearly", "base_price_monthly"], "REAL"
+    )
+    assert result is not None
+    assert result["derive_from"] == "base_price_monthly"
+    # Expression must produce a value >= base_price_monthly * 10
+    assert "row['base_price_monthly']" not in result["expression"]  # uses `value` not row ref
+    assert "value" in result["expression"]
+    assert "10" in result["expression"]
+
+
+def test_pattern_28_integer_value_variant():
+    """Pattern 28 variant: col1 != INTEGER_VALUE OR col > X (unquoted integer).
+
+    e.g., is_system != 1 OR priority < 100
+    Existing Pattern 28 only handles col1 != 'STRING' (quoted). This variant
+    handles col1 != INTEGER (unquoted) for integer flag columns.
+    Also tests Pattern 34 integer variant: col1 != INT OR col (<|<=) X.
+    """
+    constraints = [{"type": "check", "expression": "is_system != 1 OR priority < 100"}]
+    result = _infer_cross_column_config(
+        "priority", constraints, ["priority", "is_system"], "INTEGER"
+    )
+    assert result is not None
+    # Pattern 34 returns generator + params (not derive_from)
+    assert result.get("generator") in ("integer", "float")
+    assert result["params"].get("max_value") is not None
+    assert result["params"]["max_value"] <= 100
+
+
+def test_pattern_24_variant_col1_neq_value_or_col_geq_other():
+    """Pattern 24 variant: col1 != VALUE OR col (>=|>) other_col.
+
+    e.g., status != 'paid' OR paid_amount >= total_amount
+    Semantics: when col1 == VALUE, col must be >= other_col.
+    Existing Pattern 24 handles col = VALUE OR col OP other_col (equality first).
+    This variant handles col1 != VALUE OR col OP other_col (inequality first).
+    """
+    constraints = [{"type": "check", "expression": "status != 'paid' OR paid_amount >= total_amount"}]
+    result = _infer_cross_column_config(
+        "paid_amount", constraints, ["paid_amount", "status", "total_amount"], "REAL"
+    )
+    assert result is not None
+    assert result["derive_from"] == "total_amount"
+    # Expression must produce a value >= total_amount when status == 'paid'
+    assert "value" in result["expression"]
+
+
+def test_pattern_26_variant_col1_neq_value_or_col_in_set():
+    """Pattern 26 variant: col1 != VALUE OR col IN ('V1', 'V2').
+
+    e.g., scope != 'global' OR action IN ('admin', 'read')
+    (equivalent to: scope != 'global' OR action = 'admin' OR action = 'read')
+    Semantics: when col1 == VALUE, col must be in the set.
+    Existing Pattern 26 handles col = VALUE OR other_col IN (...) (equality first).
+    This variant handles col1 != VALUE OR col IN (...) (inequality first).
+    """
+    constraints = [{"type": "check", "expression": "scope != 'global' OR action IN ('admin', 'read')"}]
+    result = _infer_cross_column_config(
+        "action", constraints, ["action", "scope"], "TEXT"
+    )
+    assert result is not None
+    assert result["derive_from"] == "scope"
+    # Expression must constrain action to the set when scope == 'global'
+    assert "admin" in result["expression"]
+    assert "read" in result["expression"]
+
+
 def test_exclusive_lower_bound_float_adds_epsilon():
     """col > X AND col <= Y for float → min_value = X + 0.01 (not X)."""
     constraints = [{"type": "check", "expression": "rate > 0.0 AND rate <= 0.25"}]

@@ -1982,7 +1982,7 @@ def _infer_cross_column_config(
                 "expression": f"{p18_val} if value == {p18_val2} else {opposite}",
             }
 
-        # Pattern 7: col >= col1 * col2 (arithmetic comparison)
+        # Pattern 7: col >= col1 * col2 (arithmetic comparison — two columns)
         # e.g., total_price >= unit_price * quantity
         # Derive from the first multiplicand, reference the second via the
         # row dict (ExpressionEngine supports row['col_name'] access).
@@ -1998,6 +1998,24 @@ def _infer_cross_column_config(
                 return {
                     "derive_from": col1,
                     "expression": f"value * row['{col2}']",
+                }
+
+        # Pattern 7b: col >= col2 * CONSTANT (arithmetic comparison — column times literal)
+        # e.g., base_price_yearly >= base_price_monthly * 10
+        # Derive from col2, multiply by CONSTANT to exactly satisfy >= (equality).
+        # The constant is a numeric literal (int or float), NOT a column name.
+        m = re.match(
+            rf"^\s*{col}\s*>=\s*(\w+)\s*\*\s*(-?\d+(?:\.\d+)?)\s*$",
+            expr,
+            re.IGNORECASE,
+        )
+        if m:
+            other_col_p7b, c_str_p7b = m.group(1), m.group(2)
+            if other_col_p7b in col_set and other_col_p7b != col_name:
+                c_val_p7b = float(c_str_p7b) if "." in c_str_p7b else int(c_str_p7b)
+                return {
+                    "derive_from": other_col_p7b,
+                    "expression": f"value * {c_val_p7b}",
                 }
 
         # Pattern 10: col = col1 + col2 (arithmetic equality — sum of two columns)
@@ -2245,6 +2263,58 @@ def _infer_cross_column_config(
                     "expression": f"{val_num_p24} if random_int(0, 1) == 0 else {comp_expr}",
                 }
 
+        # Pattern 24b: col1 != VALUE OR col (>=|>|<=|<) other_col
+        # (inequality-first variant of Pattern 24 — col1 is compared with
+        # inequality rather than equality)
+        # e.g., status != 'paid' OR paid_amount >= total_amount
+        # Semantics: when col1 == VALUE, col must satisfy the comparison
+        # against other_col; otherwise col can be anything (use VALUE or a
+        # safe default). Derive from other_col to ensure the comparison holds
+        # when col1 == VALUE. When col1 != VALUE, use 0 (safe default).
+        # 50% of the time when col1 != VALUE, use a value satisfying the
+        # comparison anyway (more realistic distribution).
+        m = re.match(
+            rf"^\s*(\w+)\s*!=\s*'([^']+)'\s+OR\s+{col}\s*(>=|>|<=|<)\s*(\w+)\s*$",
+            expr,
+            re.IGNORECASE,
+        )
+        if m:
+            cond_col_p24b, val_str_p24b, op_p24b, other_col_p24b = (
+                m.group(1),
+                m.group(2),
+                m.group(3),
+                m.group(4),
+            )
+            if other_col_p24b in col_set and other_col_p24b != col_name and cond_col_p24b in col_set:
+                # Build a comparison-satisfying expression based on op
+                if op_p24b == ">":
+                    comp_expr_p24b = (
+                        "value * random_float(1.01, 2.0)" if is_float_type else "value + random_int(1, 100)"
+                    )
+                elif op_p24b == ">=":
+                    comp_expr_p24b = (
+                        "value * random_float(1.0, 2.0)" if is_float_type else "value + random_int(0, 100)"
+                    )
+                elif op_p24b == "<":
+                    comp_expr_p24b = (
+                        "value * random_float(0.5, 0.99)" if is_float_type else "value - random_int(1, 100)"
+                    )
+                else:  # <=
+                    comp_expr_p24b = (
+                        "value * random_float(0.5, 1.0)" if is_float_type else "value - random_int(0, 100)"
+                    )
+                # Derive from other_col; reference cond_col via row dict.
+                # When cond_col == VALUE: produce compliant value.
+                # When cond_col != VALUE: 50% compliant, 50% safe zero.
+                safe_expr = "0.0" if is_float_type else "0"
+                return {
+                    "derive_from": other_col_p24b,
+                    "expression": (
+                        f"{comp_expr_p24b} if row['{cond_col_p24b}'] == '{val_str_p24b}' "
+                        f"else ({comp_expr_p24b} if random_int(0, 1) == 0 else {safe_expr})"
+                    ),
+                }
+
         # Pattern 25: col = col1 * col2 + col3 (multiplication + addition chain)
         # e.g., total_amount = unit_price * seat_count + tax_amount
         # Derive from col1 (first operand), reference col2 and col3 via row dict.
@@ -2297,6 +2367,44 @@ def _infer_cross_column_config(
                     return {
                         "derive_from": other_col,
                         "expression": f"{non_val_expr} if value in {py_list} else {val_num_p26}",
+                    }
+
+        # Pattern 26b: col1 != VALUE OR col IN ('a', 'b', 'c')
+        # (inequality-first variant of Pattern 26 — col1 is compared with
+        # inequality rather than equality)
+        # e.g., scope != 'global' OR action IN ('admin', 'read')
+        # Semantics: when col1 == VALUE, col must be in the enum set;
+        # otherwise col can be anything. Derive from col1: when col1 == VALUE,
+        # pick a random value from the set; otherwise pick the first set
+        # value (safe default). The expression references the parsed set
+        # via random_choice-style selection.
+        m = re.match(
+            rf"^\s*(\w+)\s*!=\s*'([^']+)'\s+OR\s+{col}\s+IN\s*\(([^)]+)\)\s*$",
+            expr,
+            re.IGNORECASE,
+        )
+        if m:
+            cond_col_p26b, val_str_p26b, values_str_p26b = (
+                m.group(1),
+                m.group(2),
+                m.group(3),
+            )
+            if cond_col_p26b in col_set and cond_col_p26b != col_name:
+                # Parse the values: 'a', 'b', 'c' → ['a', 'b', 'c']
+                values_p26b = re.findall(r"'([^']*)'", values_str_p26b)
+                if not values_p26b:
+                    values_p26b = re.findall(r'"([^"]*)"', values_str_p26b)
+                if values_p26b:
+                    py_list_p26b = "[" + ", ".join(f"'{v}'" for v in values_p26b) + "]"
+                    first_val_p26b = values_p26b[0]
+                    # When cond_col == VALUE: pick from the set (satisfies IN).
+                    # When cond_col != VALUE: use first set value (safe default).
+                    return {
+                        "derive_from": cond_col_p26b,
+                        "expression": (
+                            f"{py_list_p26b}[random_int(0, {len(values_p26b) - 1})] "
+                            f"if value == '{val_str_p26b}' else '{first_val_p26b}'"
+                        ),
                     }
 
         # Pattern 36: N-way conditional range with dual bounds (both lower AND upper per clause)
@@ -2876,6 +2984,73 @@ def _infer_cross_column_config(
                 if single_p34 and single_p34[1].get("min_value") is not None:
                     params_p34["min_value"] = single_p34[1]["min_value"]
                 return {"generator": gen_p34, "params": params_p34}
+
+        # Pattern 34b: col1 != INTEGER_VALUE OR col (<|<=) X
+        # (integer-value variant of Pattern 34 — VALUE is an unquoted integer)
+        # e.g., is_system != 1 OR priority < 100
+        # Same semantics as Pattern 34: set max_value to X - epsilon
+        # (exclusive) or X (inclusive) unconditionally. Preserves single-column
+        # lower bound via _infer_from_check_constraints.
+        m = re.match(
+            rf"^\s*(\w+)\s*!=\s*(-?\d+)\s+OR\s+{col}\s*(<|<=)\s*(-?\d+(?:\.\d+)?)\s*$",
+            expr,
+            re.IGNORECASE,
+        )
+        if m:
+            other_col_p34b, _val_str_p34b, op_p34b, x_str_p34b = (
+                m.group(1),
+                m.group(2),
+                m.group(3),
+                m.group(4),
+            )
+            if other_col_p34b in col_set and other_col_p34b != col_name:
+                is_float_p34b = "." in x_str_p34b
+                x_val_p34b = float(x_str_p34b)
+                single_p34b = _infer_from_check_constraints(col_name, constraints, all_columns)
+                if op_p34b == "<":
+                    if is_float_p34b:
+                        params_p34b: dict[str, Any] = {"max_value": x_val_p34b - 0.01}
+                        gen_p34b = "float"
+                    else:
+                        params_p34b = {"max_value": int(x_val_p34b) - 1}
+                        gen_p34b = "integer"
+                elif is_float_p34b:
+                    params_p34b = {"max_value": x_val_p34b}
+                    gen_p34b = "float"
+                else:
+                    params_p34b = {"max_value": int(x_val_p34b)}
+                    gen_p34b = "integer"
+                if single_p34b and single_p34b[1].get("min_value") is not None:
+                    params_p34b["min_value"] = single_p34b[1]["min_value"]
+                return {"generator": gen_p34b, "params": params_p34b}
+
+        # Pattern 28b: col1 != INTEGER_VALUE OR col > X
+        # (integer-value variant of Pattern 28 — VALUE is an unquoted integer)
+        # e.g., is_approved != 1 OR approved_count > 0
+        # Same semantics as Pattern 28: derive from col1; when col1 == VALUE,
+        # produce a value > threshold; otherwise produce 0.
+        m = re.match(
+            rf"^\s*(\w+)\s*!=\s*(-?\d+)\s+OR\s+{col}\s*>\s*(-?[0-9]+(?:\.[0-9]+)?)\s*$",
+            expr,
+            re.IGNORECASE,
+        )
+        if m:
+            other_col_p28b, val_str_p28b, threshold_str_p28b = (
+                m.group(1),
+                m.group(2),
+                m.group(3),
+            )
+            if other_col_p28b in col_set and other_col_p28b != col_name:
+                threshold_p28b = float(threshold_str_p28b)
+                val_int_p28b = int(val_str_p28b)
+                positive_expr_p28b = f"random_float({threshold_p28b + 0.01}, {threshold_p28b + 100.0})"
+                zero_expr_p28b = "0.0" if is_float_type else "0"
+                return {
+                    "derive_from": other_col_p28b,
+                    "expression": (
+                        f"{positive_expr_p28b} if value == {val_int_p28b} else {zero_expr_p28b}"
+                    ),
+                }
 
         # Pattern 35: col1 IN (...) OR col IS NULL (conditional NULL with IN set)
         # e.g., status IN ('completed') OR completed_at IS NULL
