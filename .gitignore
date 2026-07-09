@@ -98,7 +98,7 @@ codeflow_issues_report.md
 # LLM validation loop engineering (temporary, not committed)
 scripts/_*.py
 data_quality_demo/*.db
-data_quality_demo/*_llm.log
+data_quality_demo/*.log
 data_quality_demo/*_config.yaml
 data_quality_demo/*_config_v*.yaml
 data_quality_demo/_*.json

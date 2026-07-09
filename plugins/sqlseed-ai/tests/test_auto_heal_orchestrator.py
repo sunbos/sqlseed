@@ -10,8 +10,10 @@ import yaml
 from sqlseed_ai.auto_heal.orchestrator import (
     AutoHealOrchestrator,
     _get_exact_length_check,
+    _has_like_constraint,
     _infer_cross_column_config,
     _infer_from_check_constraints,
+    _like_to_regex,
 )
 
 if TYPE_CHECKING:
@@ -1323,3 +1325,272 @@ def test_restore_failed_columns_handles_missing_original_column():
     # Original config has no "phone" column → current config unchanged
     phone_col = next(c for c in result["tables"][0]["columns"] if c["name"] == "phone")
     assert phone_col["generator"] == "phone"
+
+
+# ---------------------------------------------------------------------------
+# Fix 6: _like_to_regex — LIKE pattern to regex conversion (position-preserving)
+# ---------------------------------------------------------------------------
+
+
+def test_like_to_regex_preserves_colon_position():
+    """``__:__`` (HH:MM time format) → colon stays at index 2, not collapsed to start.
+
+    This was the root cause of R2 hospital fill failure: the old code did
+    ``literal_part = like_pattern.replace("_", "")`` which stripped ALL
+    underscores, collapsing ``__:__`` to ``:`` and producing
+    ``^:[A-Za-z0-9]{4}$`` (colon at the WRONG position).
+    """
+    regex = _like_to_regex("__:__")
+    assert regex == "^[A-Za-z0-9]{2}:[A-Za-z0-9]{2}$"
+
+
+def test_like_to_regex_literal_prefix():
+    """``#______`` (color code) → ``^\\#`` prefix preserved (re.escape escapes ``#``)."""
+    regex = _like_to_regex("#______")
+    assert regex == r"^\#[A-Za-z0-9]{6}$"
+
+
+def test_like_to_regex_literal_in_middle():
+    """``PROD-___`` → ``PROD-`` prefix with hyphen preserved at correct position."""
+    regex = _like_to_regex("PROD-___")
+    assert regex == r"^PROD\-[A-Za-z0-9]{3}$"
+
+
+def test_like_to_regex_all_underscores():
+    """``____`` → ``^[A-Za-z0-9]{4}$`` (no literals)."""
+    assert _like_to_regex("____") == "^[A-Za-z0-9]{4}$"
+
+
+def test_like_to_regex_single_underscore():
+    """``_`` → ``^[A-Za-z0-9]$`` (single char, no grouping)."""
+    assert _like_to_regex("_") == "^[A-Za-z0-9]$"
+
+
+# ---------------------------------------------------------------------------
+# Fix 7: _has_like_constraint + timedelta guard for LIKE-constrained columns
+# ---------------------------------------------------------------------------
+
+
+def test_has_like_constraint_detects_like_check():
+    """_has_like_constraint returns True for ``col LIKE 'pattern'`` CHECK."""
+    constraints = [
+        {"type": "check", "expression": "start_time LIKE '__:__'"},
+        {"type": "check", "expression": "end_time > start_time"},
+    ]
+    assert _has_like_constraint("start_time", constraints) is True
+    assert _has_like_constraint("end_time", constraints) is False
+
+
+def test_has_like_constraint_no_match():
+    """_has_like_constraint returns False for columns without LIKE CHECK."""
+    constraints = [
+        {"type": "check", "expression": "floor >= 1 AND floor <= 50"},
+        {"type": "unique", "columns": ["code"]},
+    ]
+    assert _has_like_constraint("floor", constraints) is False
+    assert _has_like_constraint("code", constraints) is False
+
+
+def test_infer_cross_column_skips_timedelta_for_like_constrained_col():
+    """Pattern 3 (col > other) must NOT generate timedelta for LIKE-constrained columns.
+
+    ``end_time`` has ``LIKE '__:__'`` (stores "HH:MM" strings). Even though
+    ``_is_date_column("end_time")`` returns True (``_time`` suffix), the LIKE
+    constraint means it's a formatted string, not a datetime. The timedelta
+    expression ``value + timedelta(...)`` would crash at fill time with
+    ``TypeError: can only concatenate str (not "datetime.timedelta") to str``.
+    """
+    constraints = [
+        {"type": "check", "expression": "start_time LIKE '__:__'"},
+        {"type": "check", "expression": "end_time LIKE '__:__'"},
+        {"type": "check", "expression": "end_time > start_time"},
+    ]
+    result = _infer_cross_column_config(
+        "end_time", constraints, ["start_time", "end_time"], "TEXT"
+    )
+    # Should NOT return a timedelta derive_from — the LIKE guard disables
+    # date inference for formatted-string columns.
+    assert result is None or "timedelta" not in str(result.get("expression", ""))
+
+
+def test_infer_cross_column_skips_timedelta_when_source_has_like():
+    """Pattern 3 must NOT generate timedelta when the SOURCE column has LIKE.
+
+    Even if ``end_time`` itself has no LIKE, if ``start_time`` (the source)
+    has ``LIKE '__:__'``, the source produces strings — timedelta on strings
+    would crash.
+    """
+    constraints = [
+        {"type": "check", "expression": "start_time LIKE '__:__'"},
+        {"type": "check", "expression": "end_time > start_time"},
+    ]
+    result = _infer_cross_column_config(
+        "end_time", constraints, ["start_time", "end_time"], "TEXT"
+    )
+    assert result is None or "timedelta" not in str(result.get("expression", ""))
+
+
+def test_infer_cross_column_timedelta_for_real_datetime():
+    """Pattern 3 STILL generates timedelta for real DATETIME columns (no LIKE).
+
+    Regression guard: the LIKE guard must not break the normal date case.
+    ``consultation_end`` is DATETIME (no LIKE) → timedelta is correct.
+    """
+    constraints = [
+        {"type": "check", "expression": "consultation_end IS NULL OR consultation_end >= consultation_start"},
+    ]
+    result = _infer_cross_column_config(
+        "consultation_end", constraints, ["consultation_start", "consultation_end"], "DATETIME"
+    )
+    assert result is not None
+    assert result["derive_from"] == "consultation_start"
+    assert "timedelta" in result["expression"]
+
+
+# ---------------------------------------------------------------------------
+# Fix 8: Step 5.5 arithmetic-on-string safety net
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def like_time_db(tmp_path: Path) -> Path:
+    """DB with time-string columns (LIKE '__:__') and a cross-column CHECK."""
+    path = tmp_path / "like_time.db"
+    with sqlite3.connect(str(path)) as conn:
+        conn.execute(
+            """
+            CREATE TABLE shifts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                start_time TEXT NOT NULL CHECK (start_time LIKE '__:__'),
+                end_time TEXT NOT NULL CHECK (end_time LIKE '__:__'),
+                CHECK (end_time > start_time)
+            )
+            """
+        )
+    return path
+
+
+def test_step55_strips_timedelta_derive_from_for_like_column(like_time_db: Path):
+    """Step 5.5 strips ``derive_from`` with timedelta for LIKE-constrained columns.
+
+    Simulates the LLM generating ``end_time: derive_from: start_time,
+    expression: value + timedelta(days=...)`` — the safety net detects
+    the LIKE constraint and strips the derive_from, preventing
+    ``TypeError: str + timedelta`` at fill time.
+    """
+    mock_healer = MagicMock()
+    # Simulate LLM returning a broken timedelta derive_from for end_time
+    mock_healer.heal_subgraph.return_value = {
+        "tables": [
+            {
+                "name": "shifts",
+                "columns": [
+                    {"name": "id", "generator": "autoincrement", "params": {}},
+                    {"name": "start_time", "generator": "pattern",
+                     "params": {"regex": "^[A-Za-z0-9]{2}:[A-Za-z0-9]{2}$"}},
+                    {"name": "end_time", "derive_from": "start_time",
+                     "expression": "value + timedelta(days=random_int(1, 30))"},
+                ],
+            }
+        ]
+    }
+    mock_validator = MagicMock()
+    mock_validator.validate.return_value = []
+
+    orch = AutoHealOrchestrator(
+        db_path=str(like_time_db),
+        heal_orchestrator=mock_healer,
+        validator=mock_validator,
+        total_budget_seconds=10.0,
+    )
+    yaml_str = orch.run()
+    config = yaml.safe_load(yaml_str)
+    end_time_col = next(c for c in config["tables"][0]["columns"] if c["name"] == "end_time")
+    assert "derive_from" not in end_time_col, "Step 5.5 should strip timedelta derive_from for LIKE column"
+
+
+def test_step55_strips_arithmetic_derive_from_for_like_column(like_time_db: Path):
+    """Step 5.5 strips ``value + random_int(...)`` for LIKE-constrained columns.
+
+    The LLM may generate non-timedelta arithmetic (e.g., ``value + random_int(1, 100)``)
+    which also fails on string columns. The safety net detects ANY arithmetic
+    on ``value`` for LIKE-constrained columns.
+    """
+    mock_healer = MagicMock()
+    mock_healer.heal_subgraph.return_value = {
+        "tables": [
+            {
+                "name": "shifts",
+                "columns": [
+                    {"name": "id", "generator": "autoincrement", "params": {}},
+                    {"name": "start_time", "generator": "pattern",
+                     "params": {"regex": "^[A-Za-z0-9]{2}:[A-Za-z0-9]{2}$"}},
+                    {"name": "end_time", "derive_from": "start_time",
+                     "expression": "value + random_int(1, 100)"},
+                ],
+            }
+        ]
+    }
+    mock_validator = MagicMock()
+    mock_validator.validate.return_value = []
+
+    orch = AutoHealOrchestrator(
+        db_path=str(like_time_db),
+        heal_orchestrator=mock_healer,
+        validator=mock_validator,
+        total_budget_seconds=10.0,
+    )
+    yaml_str = orch.run()
+    config = yaml.safe_load(yaml_str)
+    end_time_col = next(c for c in config["tables"][0]["columns"] if c["name"] == "end_time")
+    assert "derive_from" not in end_time_col, (
+        "Step 5.5 should strip arithmetic derive_from for LIKE-constrained column"
+    )
+
+
+def test_step55_preserves_derive_from_for_real_datetime(like_time_db: Path):
+    """Step 5.5 does NOT strip timedelta for real DATETIME columns (no LIKE).
+
+    Regression guard: the safety net must only affect LIKE-constrained columns.
+    """
+    # Use a different DB with DATETIME columns (no LIKE)
+    path = like_time_db.parent / "datetime.db"
+    with sqlite3.connect(str(path)) as conn:
+        conn.execute(
+            """
+            CREATE TABLE events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                start_dt DATETIME NOT NULL,
+                end_dt DATETIME,
+                CHECK (end_dt IS NULL OR end_dt >= start_dt)
+            )
+            """
+        )
+
+    mock_healer = MagicMock()
+    mock_healer.heal_subgraph.return_value = {
+        "tables": [
+            {
+                "name": "events",
+                "columns": [
+                    {"name": "id", "generator": "autoincrement", "params": {}},
+                    {"name": "start_dt", "generator": "datetime", "params": {}},
+                    {"name": "end_dt", "derive_from": "start_dt",
+                     "expression": "value + timedelta(days=random_int(1, 30))"},
+                ],
+            }
+        ]
+    }
+    mock_validator = MagicMock()
+    mock_validator.validate.return_value = []
+
+    orch = AutoHealOrchestrator(
+        db_path=str(path),
+        heal_orchestrator=mock_healer,
+        validator=mock_validator,
+        total_budget_seconds=10.0,
+    )
+    yaml_str = orch.run()
+    config = yaml.safe_load(yaml_str)
+    end_dt_col = next(c for c in config["tables"][0]["columns"] if c["name"] == "end_dt")
+    assert "derive_from" in end_dt_col, "Step 5.5 should preserve timedelta for real DATETIME"

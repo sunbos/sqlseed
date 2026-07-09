@@ -240,6 +240,36 @@ class AutoHealOrchestrator:
                 # ValidationError when the YAML is loaded downstream.
                 has_derive = bool(c.get("derive_from"))
 
+                # Arithmetic-on-string safety net: if the column (or its
+                # source column) has a LIKE constraint, it stores formatted
+                # strings (e.g., "HH:MM" time strings), NOT datetime objects
+                # or numbers. ANY ``derive_from`` expression that does
+                # arithmetic on ``value`` (``value + ...``, ``value - ...``,
+                # ``value * ...``, ``timedelta(...)``) would fail at fill
+                # time with ``TypeError: can only concatenate str (not X)
+                # to str``. Strip the derive_from so the missing-generator
+                # repair path picks a safe generator (e.g., ``pattern`` for
+                # the LIKE format). This catches both LLM-generated and
+                # stale deterministic-inference expressions.
+                if has_derive and meta is not None:
+                    expr_str = str(c.get("expression", ""))
+                    # Detect arithmetic on ``value``: ``value +``, ``value -``,
+                    # ``value *``, or ``timedelta`` (which implies date math).
+                    has_arith = any(
+                        pat in expr_str
+                        for pat in ("value +", "value -", "value *", "value/", "timedelta")
+                    )
+                    if has_arith:
+                        col_name_55 = c.get("name", "")
+                        src_col_55 = c.get("derive_from", "")
+                        if (
+                            _has_like_constraint(col_name_55, meta.constraints)
+                            or _has_like_constraint(src_col_55, meta.constraints)
+                        ):
+                            c.pop("derive_from", None)
+                            c.pop("expression", None)
+                            has_derive = False
+
                 # Template-string-in-generator repair: the LLM occasionally
                 # returns the template value directly in the ``generator``
                 # field (e.g., ``generator: 'NAME-{sequence:04d}'``) instead
@@ -340,6 +370,16 @@ class AutoHealOrchestrator:
                                 # Case 2: LLM picked wrong generator for an
                                 # IN-constrained column. Override with the
                                 # correct boolean/choice generator.
+                                c["generator"] = inf_gen
+                                c["params"] = inf_params
+                                gen = inf_gen
+                                params = inf_params
+                            elif inf_gen == "pattern" and _has_like_constraint(col_name, meta.constraints):
+                                # Case 3: column has a LIKE CHECK constraint
+                                # (e.g., ``start_time LIKE '__:__'``). Only a
+                                # ``pattern`` generator can guarantee the
+                                # format — ``datetime``/``string`` generators
+                                # produce values that violate the LIKE CHECK.
                                 c["generator"] = inf_gen
                                 c["params"] = inf_params
                                 gen = inf_gen
@@ -795,6 +835,56 @@ def _is_date_column(col_name: str) -> bool:
     return bool(n.startswith(("date_", "time_")))
 
 
+def _like_to_regex(like_pattern: str) -> str:
+    """Convert a SQL LIKE pattern to an anchored regex, preserving literal positions.
+
+    SQL LIKE wildcards: ``_`` matches any single char, ``%`` matches zero+ chars.
+    Only ``_`` (fixed-length) is supported — ``%`` must be filtered by the caller.
+
+    Each ``_`` becomes ``[A-Za-z0-9]`` (consecutive runs grouped into ``{N}``),
+    and literal characters are escaped with ``re.escape`` IN PLACE. This preserves
+    the position of literals — critical for patterns like ``__:__`` (HH:MM time
+    strings) where the colon must stay at index 2, not collapse to the start.
+
+    Examples:
+        ``__:__``  → ``^[A-Za-z0-9]{2}:[A-Za-z0-9]{2}$``
+        ``#______`` → ``^#[A-Za-z0-9]{6}$``
+        ``PROD-___`` → ``^PROD\\-[A-Za-z0-9]{3}$``
+    """
+    parts: list[str] = []
+    underscore_run = 0
+    for ch in like_pattern:
+        if ch == "_":
+            underscore_run += 1
+        else:
+            if underscore_run > 0:
+                parts.append(f"[A-Za-z0-9]{{{underscore_run}}}" if underscore_run > 1 else "[A-Za-z0-9]")
+                underscore_run = 0
+            parts.append(re.escape(ch))
+    if underscore_run > 0:
+        parts.append(f"[A-Za-z0-9]{{{underscore_run}}}" if underscore_run > 1 else "[A-Za-z0-9]")
+    return "^" + "".join(parts) + "$"
+
+
+def _has_like_constraint(col_name: str, constraints: list[dict[str, Any]]) -> bool:
+    """Check if a column has a LIKE CHECK constraint (formatted string column).
+
+    A column with ``CHECK (col LIKE 'pattern')`` stores formatted strings
+    (e.g., ``start_time LIKE '__:__'`` for "HH:MM" time strings). Such columns
+    are NOT real datetimes — ``timedelta`` arithmetic on their string values
+    fails at fill time with ``TypeError: can only concatenate str (not
+    "datetime.timedelta") to str``.
+    """
+    col_re = re.escape(col_name)
+    for c in constraints:
+        if c.get("type") != "check":
+            continue
+        expr = c.get("expression", "")
+        if re.search(rf"{col_re}\s+LIKE\s+", expr, re.IGNORECASE):
+            return True
+    return False
+
+
 def _get_unique_columns(constraints: list[dict[str, Any]]) -> set[str]:
     """Extract the set of column names that have a UNIQUE constraint.
 
@@ -1110,13 +1200,9 @@ def _parse_single_column_check(
     if m:
         like_pattern = m.group(1)
         total_len = int(m.group(2))
-        if "%" not in like_pattern:
-            underscore_count = like_pattern.count("_")
-            literal_part = like_pattern.replace("_", "")
-            literal_len = len(literal_part)
-            if underscore_count > 0 and total_len == literal_len + underscore_count:
-                regex = f"^{re.escape(literal_part)}[A-Za-z0-9]{{{underscore_count}}}$"
-                return ("pattern", {"regex": regex})
+        if "%" not in like_pattern and like_pattern.count("_") > 0 and len(like_pattern) == total_len:
+            regex = _like_to_regex(like_pattern)
+            return ("pattern", {"regex": regex})
 
     # Pattern: LENGTH(col) = N AND col LIKE '<literal>____' (reversed order)
     m = re.match(
@@ -1127,13 +1213,9 @@ def _parse_single_column_check(
     if m:
         total_len = int(m.group(1))
         like_pattern = m.group(2)
-        if "%" not in like_pattern:
-            underscore_count = like_pattern.count("_")
-            literal_part = like_pattern.replace("_", "")
-            literal_len = len(literal_part)
-            if underscore_count > 0 and total_len == literal_len + underscore_count:
-                regex = f"^{re.escape(literal_part)}[A-Za-z0-9]{{{underscore_count}}}$"
-                return ("pattern", {"regex": regex})
+        if "%" not in like_pattern and like_pattern.count("_") > 0 and len(like_pattern) == total_len:
+            regex = _like_to_regex(like_pattern)
+            return ("pattern", {"regex": regex})
 
     # Pattern: col LIKE '<literal>____' (standalone, no LENGTH)
     # Infer length from underscore count alone. Only handle when all
@@ -1146,12 +1228,9 @@ def _parse_single_column_check(
     )
     if m:
         like_pattern = m.group(1)
-        if "%" not in like_pattern:
-            underscore_count = like_pattern.count("_")
-            literal_part = like_pattern.replace("_", "")
-            if underscore_count > 0:
-                regex = f"^{re.escape(literal_part)}[A-Za-z0-9]{{{underscore_count}}}$"
-                return ("pattern", {"regex": regex})
+        if "%" not in like_pattern and like_pattern.count("_") > 0:
+            regex = _like_to_regex(like_pattern)
+            return ("pattern", {"regex": regex})
 
     # Pattern: col IN ('a', 'b', 'c') — string enum
     m = re.match(
@@ -1416,6 +1495,16 @@ def _infer_cross_column_config(
     is_date_type = any(k in col_type.upper() for k in ("DATE", "TIME", "DATETIME"))
     # SQLite stores dates as TEXT, so also check column name patterns.
     is_date_col = is_date_type or _is_date_column(col_name)
+    # Formatted string columns (with LIKE constraints, e.g., ``start_time LIKE
+    # '__:__'``) are NOT real datetimes or numbers — they store formatted
+    # strings like "HH:MM". ANY ``derive_from`` expression that does
+    # arithmetic on such a column's value (``value + ...``, ``value * ...``,
+    # ``timedelta(...)``) fails at fill time with ``TypeError: can only
+    # concatenate str (not X) to str``. Return None immediately so the
+    # single-column inference path (which handles LIKE → ``pattern``
+    # generator) takes precedence over cross-column derive_from.
+    if _has_like_constraint(col_name, constraints):
+        return None
     is_float_type = any(k in col_type.upper() for k in ("REAL", "FLOAT", "DOUBLE", "DECIMAL", "NUMERIC"))
     is_int_type = any(k in col_type.upper() for k in ("INT", "BIGINT", "SMALLINT", "TINYINT"))
     # FK columns: returning a literal (e.g., 0) for FK columns causes FK
@@ -1474,6 +1563,13 @@ def _infer_cross_column_config(
         ]
         if not other_cols_in_expr:
             continue  # Single-column constraint, handled by _infer_from_check_constraints
+        # Skip constraints where any other column has a LIKE constraint —
+        # arithmetic on a formatted string (e.g., ``start_time`` storing
+        # "HH:MM") fails at fill time. The column should use a ``pattern``
+        # generator (from single-column LIKE inference) instead of a
+        # ``derive_from`` that does arithmetic on the string value.
+        if any(_has_like_constraint(oc, constraints) for oc in other_cols_in_expr):
+            continue
 
         # Pattern 4: col IS NULL OR col = expr (computed column with NULL escape)
         # e.g., line_total IS NULL OR line_total = quantity * unit_price * (1 - discount)
