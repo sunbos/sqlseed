@@ -1564,6 +1564,54 @@ def _infer_cross_column_config(
         # Compound range constraints (with AND) get priority 1
         return (1, 0)
 
+    # Pattern 22c: col >= col2 * CONST1 AND col <= col2 * CONST2 (dual multiplier
+    # bounds — two separate CHECK constraints that together define a range
+    # as a multiple of col2). This must be checked BEFORE the per-constraint
+    # loop because Pattern 7b would match the lower bound alone and return
+    # ``value * CONST1`` (a fixed multiplier), ignoring the upper bound.
+    # e.g., base_price_yearly >= base_price_monthly * 10
+    #       base_price_yearly <= base_price_monthly * 12
+    # Derive from col2, multiply by random_float(CONST1, CONST2).
+    lower_mult: float | None = None
+    upper_mult: float | None = None
+    mult_src_col: str | None = None
+    for c in constraints:
+        if c.get("type") != "check":
+            continue
+        expr_c = c.get("expression", "")
+        # Lower bound: col >= col2 * CONST1
+        m_low = re.match(
+            rf"^\s*{col}\s*>=\s*(\w+)\s*\*\s*(-?\d+(?:\.\d+)?)\s*$",
+            expr_c,
+            re.IGNORECASE,
+        )
+        if m_low and m_low.group(1) in col_set and m_low.group(1) != col_name:
+            lower_mult = float(m_low.group(2))
+            mult_src_col = m_low.group(1)
+        # Upper bound: col <= col2 * CONST2
+        m_up = re.match(
+            rf"^\s*{col}\s*<=\s*(\w+)\s*\*\s*(-?\d+(?:\.\d+)?)\s*$",
+            expr_c,
+            re.IGNORECASE,
+        )
+        if m_up and m_up.group(1) in col_set and m_up.group(1) != col_name:
+            upper_mult = float(m_up.group(2))
+            if mult_src_col is None:
+                mult_src_col = m_up.group(1)
+            elif mult_src_col != m_up.group(1):
+                # Different source columns — not a dual-bound pattern
+                upper_mult = None
+    if (
+        lower_mult is not None
+        and upper_mult is not None
+        and mult_src_col is not None
+        and lower_mult <= upper_mult
+    ):
+        return {
+            "derive_from": mult_src_col,
+            "expression": f"value * random_float({lower_mult}, {upper_mult})",
+        }
+
     for c in sorted(constraints, key=_constraint_sort_key):
         if c.get("type") != "check":
             continue
@@ -1611,6 +1659,77 @@ def _infer_cross_column_config(
                 "params": {},
                 "null_ratio": 1.0,
             }
+
+        # Pattern 1b: 3-way OR — col IS NULL OR other IS NULL OR col (>=|>|<=|<) other
+        # This is Pattern 1 extended with an ``other_col IS NULL`` escape clause.
+        # When other_col is NULL, col can be anything (including NULL). The
+        # expression must guard against ``value is None`` to avoid TypeError
+        # when subtracting timedelta or multiplying None.
+        # e.g., revoked_at IS NULL OR expires_at IS NULL OR revoked_at <= expires_at
+        m = re.search(
+            rf"{col}\s+IS\s+NULL\s+OR\s+(\w+)\s+IS\s+NULL\s+OR\s+{col}\s*(>=|>|<=|<)\s*(\w+)",
+            expr,
+            re.IGNORECASE,
+        )
+        if m:
+            other_col_p1b = m.group(1)
+            op_p1b = m.group(2)
+            other_col_ref_p1b = m.group(3)
+            if (
+                other_col_p1b == other_col_ref_p1b
+                and other_col_p1b in col_set
+                and other_col_p1b != col_name
+            ):
+                if is_date_col or _is_date_column(other_col_p1b):
+                    if op_p1b in (">=", ">"):
+                        return {
+                            "derive_from": other_col_p1b,
+                            "expression": "None if value is None else value + timedelta(days=random_int(1, 365))",
+                        }
+                    days_p1b = "0" if op_p1b == "<=" else "1"
+                    return {
+                        "derive_from": other_col_p1b,
+                        "expression": f"None if value is None else value - timedelta(days=random_int({days_p1b}, 365))",
+                    }
+                if is_float_type:
+                    if op_p1b == ">=":
+                        return {
+                            "derive_from": other_col_p1b,
+                            "expression": "None if value is None else value + random_float(0, 100)",
+                        }
+                    if op_p1b == ">":
+                        return {
+                            "derive_from": other_col_p1b,
+                            "expression": "None if value is None else value * random_float(1.01, 2.0)",
+                        }
+                    if op_p1b == "<=":
+                        return {
+                            "derive_from": other_col_p1b,
+                            "expression": "None if value is None else value * random_float(0.5, 1.0)",
+                        }
+                    return {
+                        "derive_from": other_col_p1b,
+                        "expression": "None if value is None else value * random_float(0.5, 0.99)",
+                    }
+                if op_p1b == ">=":
+                    return {
+                        "derive_from": other_col_p1b,
+                        "expression": "None if value is None else value + random_int(0, 100)",
+                    }
+                if op_p1b == ">":
+                    return {
+                        "derive_from": other_col_p1b,
+                        "expression": "None if value is None else value + random_int(1, 100)",
+                    }
+                if op_p1b == "<=":
+                    return {
+                        "derive_from": other_col_p1b,
+                        "expression": "None if value is None else value - random_int(0, 100)",
+                    }
+                return {
+                    "derive_from": other_col_p1b,
+                    "expression": "None if value is None else value - random_int(1, 100)",
+                }
 
         # Pattern 1: col IS NULL OR col (>=|>|<=|<) other_col (ordering with NULL escape)
         # Also handles: col IS NULL OR other IS NULL OR col >= other
@@ -1684,6 +1803,33 @@ def _infer_cross_column_config(
                 return {
                     "derive_from": other_col,
                     "expression": "value - random_int(1, 100)",
+                }
+
+        # Pattern 39: col1 IS NULL OR col <= col2 + col3 (compound addition upper bound)
+        # e.g., quota_limit IS NULL OR metric_value <= quota_limit + overage_amount
+        # Semantics: when col1 (quota_limit) is NULL, col can be anything;
+        # otherwise col must be <= col2 + col3. Derive from col2 (quota_limit):
+        # when value is None, return a safe random; otherwise return
+        # (value + row['col3']) * random_factor to stay under the bound.
+        m = re.match(
+            rf"^\s*(\w+)\s+IS\s+NULL\s+OR\s+{col}\s*<=\s*(\w+)\s*\+\s*(\w+)\s*$",
+            expr,
+            re.IGNORECASE,
+        )
+        if m:
+            col2_p39 = m.group(2)
+            col3_p39 = m.group(3)
+            if (
+                col2_p39 in col_set
+                and col3_p39 in col_set
+                and col_name not in (col2_p39, col3_p39)
+            ):
+                return {
+                    "derive_from": col2_p39,
+                    "expression": (
+                        f"None if value is None else "
+                        f"(value + row['{col3_p39}']) * random_float(0.0, 1.0)"
+                    ),
                 }
 
         # Pattern 2: col >= other_col (standalone, no NULL escape)
@@ -2286,8 +2432,26 @@ def _infer_cross_column_config(
                 m.group(4),
             )
             if other_col_p24b in col_set and other_col_p24b != col_name and cond_col_p24b in col_set:
-                # Build a comparison-satisfying expression based on op
-                if op_p24b == ">":
+                # Cross-constraint cap: if there's also a ``col <= other_col``
+                # or ``col < other_col`` constraint on the same column referencing
+                # the same other_col, the comparison expression must NOT exceed
+                # other_col. When op is >= or >, use ``value`` (exact equality)
+                # to satisfy both >= and <= simultaneously.
+                # e.g., ``status != 'paid' OR paid_amount >= total_amount`` +
+                #       ``paid_amount <= total_amount`` → paid_amount == total_amount
+                has_upper_cap = any(
+                    re.match(
+                        rf"^\s*{col}\s*(<=|<)\s*{other_col_p24b}\s*$",
+                        c2.get("expression", ""),
+                        re.IGNORECASE,
+                    )
+                    for c2 in constraints
+                    if c2.get("type") == "check"
+                )
+                if has_upper_cap and op_p24b in (">=", ">"):
+                    # Exact equality satisfies both >= and <= constraints
+                    comp_expr_p24b = "value"
+                elif op_p24b == ">":
                     comp_expr_p24b = (
                         "value * random_float(1.01, 2.0)" if is_float_type else "value + random_int(1, 100)"
                     )
@@ -2330,6 +2494,33 @@ def _infer_cross_column_config(
                 return {
                     "derive_from": col1,
                     "expression": f"value * row['{col2}'] {sign} row['{col3}']",
+                }
+
+        # Pattern 38: col = (col1 + col2) * (CONST - col3) (complex arithmetic)
+        # e.g., total_amount = (base_amount + seat_amount) * (1.0 - discount_rate)
+        # Derive from col1 (first operand), reference col2 and col3 via row dict.
+        # The CONST and col3 are in the subtraction term (1.0 - discount_rate).
+        m = re.match(
+            rf"^\s*{col}\s*=\s*\(\s*(\w+)\s*\+\s*(\w+)\s*\)\s*\*\s*\(\s*(-?\d+(?:\.\d+)?)\s*-\s*(\w+)\s*\)\s*$",
+            expr,
+            re.IGNORECASE,
+        )
+        if m:
+            col1_p38, col2_p38, const_p38, col3_p38 = (
+                m.group(1),
+                m.group(2),
+                m.group(3),
+                m.group(4),
+            )
+            if (
+                col1_p38 in col_set
+                and col2_p38 in col_set
+                and col3_p38 in col_set
+                and col1_p38 != col_name
+            ):
+                return {
+                    "derive_from": col1_p38,
+                    "expression": f"(value + row['{col2_p38}']) * ({const_p38} - row['{col3_p38}'])",
                 }
 
         # Pattern 26: col = VALUE OR other_col IN ('a', 'b', 'c')
@@ -2404,6 +2595,35 @@ def _infer_cross_column_config(
                         "expression": (
                             f"{py_list_p26b}[random_int(0, {len(values_p26b) - 1})] "
                             f"if value == '{val_str_p26b}' else '{first_val_p26b}'"
+                        ),
+                    }
+
+        # Pattern 26c: col1 != VALUE OR col = 'V1' OR col = 'V2' [OR col = 'V3' ...]
+        # (explicit OR-equality variant of Pattern 26b — instead of IN(), the
+        # CHECK uses ``col = 'V1' OR col = 'V2'`` syntax)
+        # e.g., scope != 'global' OR action = 'admin' OR action = 'read'
+        # Semantics: when col1 == VALUE, col must be one of V1, V2, ...;
+        # otherwise col can be anything. Derive from col1: when col1 == VALUE,
+        # pick a random value from the set; otherwise pick the first set value.
+        m = re.match(
+            rf"^\s*(\w+)\s*!=\s*'([^']+)'\s+OR\s+{col}\s*=\s*'([^']+)'\s*(?:OR\s+{col}\s*=\s*'([^']+)'\s*)+\s*$",
+            expr,
+            re.IGNORECASE,
+        )
+        if m:
+            cond_col_p26c = m.group(1)
+            val_str_p26c = m.group(2)
+            if cond_col_p26c in col_set and cond_col_p26c != col_name:
+                # Extract all quoted values after the OR keywords
+                all_values_p26c = re.findall(rf"{col}\s*=\s*'([^']+)'", expr, re.IGNORECASE)
+                if all_values_p26c:
+                    py_list_p26c = "[" + ", ".join(f"'{v}'" for v in all_values_p26c) + "]"
+                    first_val_p26c = all_values_p26c[0]
+                    return {
+                        "derive_from": cond_col_p26c,
+                        "expression": (
+                            f"{py_list_p26c}[random_int(0, {len(all_values_p26c) - 1})] "
+                            f"if value == '{val_str_p26c}' else '{first_val_p26c}'"
                         ),
                     }
 
@@ -2793,6 +3013,41 @@ def _infer_cross_column_config(
                 return {
                     "derive_from": other_col_p30,
                     "expression": f"{null_expr} if value == '{val_str_p30}' else {non_null_expr}",
+                }
+
+        # Pattern 30b: col1 = VALUE OR col IS NOT NULL (reverse of Pattern 30 —
+        # when col1 == VALUE, col can be anything including NULL; when col1 !=
+        # VALUE, col must be NOT NULL)
+        # e.g., org_type = 'root' OR parent_id IS NOT NULL
+        # Derive from col1: when col1 == VALUE, set col to None (NULL is allowed);
+        # when col1 != VALUE, set col to a safe non-NULL value. For FK columns,
+        # use ``1`` (the first autoincrement id, valid after the first row is
+        # inserted). For non-FK columns, use ``0`` (int) or ``0.0`` (float).
+        # NOTE: this pattern often coexists with Pattern 30 on the same column
+        # (e.g., ``org_type != 'root' OR parent_id IS NULL`` + ``org_type =
+        # 'root' OR parent_id IS NOT NULL``), which together mean: parent_id is
+        # NULL iff org_type == 'root'. Pattern 30 runs first and returns
+        # ``None if value == 'root' else None`` for FK columns (always NULL).
+        # Pattern 30b overrides this for the non-VALUE branch to be non-NULL.
+        # However, since Pattern 30 already returned, Pattern 30b only fires
+        # when Pattern 30 did NOT match (i.e., the CHECK uses ``= VALUE``
+        # instead of ``!= VALUE``).
+        m = re.match(
+            rf"^\s*(\w+)\s*=\s*'([^']+)'\s+OR\s+{col}\s+IS\s+NOT\s+NULL\s*$",
+            expr,
+            re.IGNORECASE,
+        )
+        if m:
+            other_col_p30b, val_str_p30b = m.group(1), m.group(2)
+            if other_col_p30b in col_set and other_col_p30b != col_name:
+                # When col1 == VALUE: col = None (NULL is allowed)
+                # When col1 != VALUE: col = non-NULL
+                # For FK columns: use 1 (first autoincrement id, valid after first row)
+                # For non-FK columns: use 0 (int) or 0.0 (float)
+                non_null_expr_p30b = "1" if is_fk_column else ("0.0" if is_float_type else "0")
+                return {
+                    "derive_from": other_col_p30b,
+                    "expression": f"None if value == '{val_str_p30b}' else {non_null_expr_p30b}",
                 }
 
         # Pattern 31: col1 != VALUE OR col = VALUE2 (conditional equality —

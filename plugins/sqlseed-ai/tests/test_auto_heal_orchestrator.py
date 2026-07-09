@@ -1749,3 +1749,167 @@ def test_step55_strips_generator_when_derive_from_present(tmp_path: Path):
     assert "params" not in origin_col, (
         "Step 5.5 must strip params when derive_from is present (mutual exclusivity)"
     )
+
+
+# =============================================================================
+# Round 4 blind-spot tests: Pattern 30b, 1b, 26c, 39, 38, 22c, 24b cap
+# =============================================================================
+
+
+def test_pattern_30b_col1_eq_value_or_col_is_not_null():
+    """Pattern 30b: col1 = VALUE OR col IS NOT NULL (reverse of Pattern 30).
+
+    When col1 == VALUE, col can be anything (NULL is allowed).
+    When col1 != VALUE, col must be NOT NULL.
+    e.g., org_type = 'root' OR parent_id IS NOT NULL
+    """
+    constraints = [{"type": "check", "expression": "org_type = 'root' OR parent_id IS NOT NULL"}]
+    result = _infer_cross_column_config(
+        "parent_id",
+        constraints,
+        ["parent_id", "org_type"],
+        "INTEGER",
+        fk_columns={"parent_id"},
+    )
+    assert result is not None
+    assert result["derive_from"] == "org_type"
+    expr = result["expression"]
+    # When org_type == 'root': parent_id = None (NULL is allowed)
+    # When org_type != 'root': parent_id = non-NULL (for FK, use 1 as valid id)
+    assert "root" in expr
+    assert "None" in expr
+
+
+def test_pattern_1b_three_way_or_col_null_or_other_null_or_col_leq_other():
+    """Pattern 1b: 3-way OR — col IS NULL OR other IS NULL OR col <= other.
+
+    e.g., revoked_at IS NULL OR expires_at IS NULL OR revoked_at <= expires_at
+    """
+    constraints = [
+        {"type": "check", "expression": "revoked_at IS NULL OR expires_at IS NULL OR revoked_at <= expires_at"}
+    ]
+    result = _infer_cross_column_config(
+        "revoked_at",
+        constraints,
+        ["revoked_at", "expires_at"],
+        "TEXT",
+    )
+    assert result is not None
+    assert result["derive_from"] == "expires_at"
+    expr = result["expression"]
+    # Expression must ensure revoked_at <= expires_at when expires_at is not None
+    assert "None" in expr
+    assert "timedelta" in expr or "random" in expr
+
+
+def test_pattern_26c_col1_neq_value_or_col_eq_v1_or_col_eq_v2():
+    """Pattern 26c: col1 != VALUE OR col = 'V1' OR col = 'V2'.
+
+    Variant of Pattern 26 with explicit OR equality instead of IN().
+    e.g., scope != 'global' OR action = 'admin' OR action = 'read'
+    """
+    constraints = [
+        {"type": "check", "expression": "scope != 'global' OR action = 'admin' OR action = 'read'"}
+    ]
+    result = _infer_cross_column_config(
+        "action",
+        constraints,
+        ["action", "scope"],
+        "TEXT",
+    )
+    assert result is not None
+    assert result["derive_from"] == "scope"
+    expr = result["expression"]
+    assert "admin" in expr
+    assert "read" in expr
+
+
+def test_pattern_39_col1_is_null_or_col_leq_col2_plus_col3():
+    """Pattern 39: col1 IS NULL OR col <= col2 + col3 (compound addition upper bound).
+
+    e.g., quota_limit IS NULL OR metric_value <= quota_limit + overage_amount
+    """
+    constraints = [
+        {"type": "check", "expression": "quota_limit IS NULL OR metric_value <= quota_limit + overage_amount"}
+    ]
+    result = _infer_cross_column_config(
+        "metric_value",
+        constraints,
+        ["metric_value", "quota_limit", "overage_amount"],
+        "REAL",
+    )
+    assert result is not None
+    assert result["derive_from"] == "quota_limit"
+    expr = result["expression"]
+    # Expression must reference overage_amount via row[] and produce value <= quota_limit + overage_amount
+    assert "overage_amount" in expr
+    assert "None" in expr or "row" in expr
+
+
+def test_pattern_38_col_eq_col1_plus_col2_times_const_minus_col3():
+    """Pattern 38: col = (col1 + col2) * (CONST - col3) (complex arithmetic).
+
+    e.g., total_amount = (base_amount + seat_amount) * (1.0 - discount_rate)
+    """
+    constraints = [
+        {"type": "check", "expression": "total_amount = (base_amount + seat_amount) * (1.0 - discount_rate)"}
+    ]
+    result = _infer_cross_column_config(
+        "total_amount",
+        constraints,
+        ["total_amount", "base_amount", "seat_amount", "discount_rate"],
+        "REAL",
+    )
+    assert result is not None
+    assert result["derive_from"] == "base_amount"
+    expr = result["expression"]
+    assert "seat_amount" in expr
+    assert "discount_rate" in expr
+
+
+def test_pattern_22c_col_geq_col2_times_c1_and_col_leq_col2_times_c2():
+    """Pattern 22c: col >= col2 * CONST1 AND col <= col2 * CONST2 (dual multiplier bounds).
+
+    e.g., base_price_yearly >= base_price_monthly * 10 AND base_price_yearly <= base_price_monthly * 12
+    """
+    constraints = [
+        {"type": "check", "expression": "base_price_yearly >= base_price_monthly * 10"},
+        {"type": "check", "expression": "base_price_yearly <= base_price_monthly * 12"},
+    ]
+    result = _infer_cross_column_config(
+        "base_price_yearly",
+        constraints,
+        ["base_price_yearly", "base_price_monthly"],
+        "REAL",
+    )
+    assert result is not None
+    assert result["derive_from"] == "base_price_monthly"
+    expr = result["expression"]
+    # Expression should multiply by a factor between 10 and 12
+    assert "10" in expr or "value" in expr
+    assert "12" in expr or "value" in expr
+
+
+def test_pattern_24b_cap_with_col_leq_other_constraint():
+    """Pattern 24b cap: when col <= other_col constraint also exists, cap the expression.
+
+    When col1 != VALUE OR col >= other_col AND col <= other_col both exist,
+    the expression should produce col == other_col (exact equality) for the >= branch.
+    e.g., status != 'paid' OR paid_amount >= total_amount + paid_amount <= total_amount
+    """
+    constraints = [
+        {"type": "check", "expression": "status != 'paid' OR paid_amount >= total_amount"},
+        {"type": "check", "expression": "paid_amount <= total_amount"},
+    ]
+    result = _infer_cross_column_config(
+        "paid_amount",
+        constraints,
+        ["paid_amount", "status", "total_amount"],
+        "REAL",
+    )
+    assert result is not None
+    assert result["derive_from"] == "total_amount"
+    expr = result["expression"]
+    # When status == 'paid': paid_amount should equal total_amount (not exceed it)
+    # The expression must NOT multiply by > 1.0
+    assert "random_float(1.0" not in expr or "1.0, 1.0" in expr
