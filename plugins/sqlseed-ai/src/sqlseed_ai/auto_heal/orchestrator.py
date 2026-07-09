@@ -217,6 +217,20 @@ class AutoHealOrchestrator:
             meta = snapshot.tables.get(table_name)
             for c in tcfg.get("columns", []):
                 gen = c.get("generator")
+                # Treat ``?`` placeholder as missing generator. The LLM
+                # sometimes emits ``generator: '?'`` when it cannot decide
+                # (especially for nullable columns like ``closed_at``). The
+                # ProgressiveDegrader also leaves ``?`` as a sentinel for
+                # columns it gave up on. Without this normalization, the
+                # ``?`` leaks to the YAML and causes
+                # ``UnknownGeneratorError: Unknown generator '?'`` at fill
+                # time, aborting the entire table. By clearing it here, the
+                # downstream missing-generator repair path (line 256:
+                # ``if not gen and not has_derive``) kicks in and delegates
+                # to the Core ColumnMapper for semantic name matching.
+                if gen in {"?", ""}:
+                    gen = None
+                    c.pop("generator", None)
                 # Derived-mode columns (``derive_from`` + ``expression``) are
                 # mutually exclusive with source-mode (``generator`` +
                 # ``params``) per the ``ColumnConfig`` model validator.
@@ -330,6 +344,46 @@ class AutoHealOrchestrator:
                                 c["params"] = inf_params
                                 gen = inf_gen
                                 params = inf_params
+
+                # Cross-column derive_from restoration: when the LLM is called
+                # to heal one column, it sometimes rewrites OTHER columns in
+                # the same table — replacing a ``derive_from`` config (correctly
+                # inferred by ``_build_subgraph_config`` Step 1) with a plain
+                # ``generator`` (e.g., ``closed_at`` getting ``generator:
+                # datetime`` instead of ``derive_from: opened_at``). This
+                # causes CHECK violations at fill time because the plain
+                # generator ignores the cross-column ordering constraint
+                # (e.g., ``closed_at IS NULL OR closed_at >= opened_at``
+                # is violated 50% of the time with random datetimes).
+                #
+                # Fix: re-apply ``_infer_cross_column_config`` for columns
+                # that (a) have a cross-column CHECK constraint, (b) do NOT
+                # currently have ``derive_from``, and (c) do NOT have
+                # ``null_ratio=1.0`` (always-NULL is also valid for IS NULL
+                # OR ... CHECKs — don't override). The re-inferred derive_from
+                # takes priority over the LLM's plain generator because it
+                # guarantees CHECK compliance.
+                if not has_derive and meta is not None and c.get("null_ratio", 0) < 1.0:
+                    col_name = c.get("name", "")
+                    if col_name in meta.columns:
+                        col_type = meta.column_types.get(col_name, "TEXT")
+                        # Rebuild fk_cols_set for this table (needed by
+                        # _infer_cross_column_config for Pattern 30).
+                        fk_cols_set_55: set[str] = set()
+                        for fk in meta.foreign_keys:
+                            for fc in fk.get("columns", []):
+                                fk_cols_set_55.add(fc)
+                        cross_result = _infer_cross_column_config(
+                            col_name, meta.constraints, meta.columns, col_type, fk_cols_set_55
+                        )
+                        if cross_result is not None and "derive_from" in cross_result:
+                            # Restore derive_from — remove any source-mode keys
+                            # that the LLM set (generator, params) to avoid
+                            # Pydantic ValidationError (mutual exclusivity).
+                            c.pop("generator", None)
+                            c.pop("params", None)
+                            c.update(cross_result)
+                            has_derive = True
 
                 # Strip invalid params (only for source-mode columns)
                 if isinstance(params, dict) and gen and not has_derive:
@@ -833,7 +887,22 @@ def _infer_from_check_constraints(
 
     Cross-column constraints (involving multiple columns) are skipped —
     those are handled by ``derive_from`` at Layer 4.
+
+    Multi-CHECK merging: when a column has MULTIPLE single-column CHECK
+    constraints (e.g., ``col >= 0`` as one CHECK and ``col <= 1000`` as
+    another), the bounds are MERGED into a single range. Previously, the
+    function returned on the first match, silently dropping the second
+    bound — causing CHECK violations at fill time (e.g., generating
+    ``low_stock_threshold = 5000`` when ``<= 1000`` was also required).
+    Enum/format patterns (choice, boolean, pattern) are returned
+    immediately on first match since they are mutually exclusive with
+    range patterns.
     """
+    # Collect all parsed results from matching single-column CHECKs.
+    # Range/length patterns are merged; enum/format patterns return
+    # immediately (they are mutually exclusive with other patterns).
+    merged_gen: str | None = None
+    merged_params: dict[str, Any] = {}
     for c in constraints:
         if c.get("type") != "check":
             continue
@@ -846,7 +915,7 @@ def _infer_from_check_constraints(
         # If all_columns provided, verify this is NOT a cross-column constraint
         # (no other column name from the table appears in the expression).
         if all_columns:
-            other_cols = [c for c in all_columns if c != col_name]
+            other_cols = [oc for oc in all_columns if oc != col_name]
             is_cross_column = False
             for other in other_cols:
                 if re.search(rf"\b{re.escape(other)}\b", expr, re.IGNORECASE):
@@ -856,8 +925,60 @@ def _infer_from_check_constraints(
                 continue
         # Try to parse as single-column CHECK
         result = _parse_single_column_check(col_name, expr)
-        if result is not None:
+        if result is None:
+            continue
+        gen, params = result
+        # Enum/format patterns are mutually exclusive — return immediately.
+        # These patterns fully constrain the column's value space, so merging
+        # with a subsequent range pattern would be incorrect.
+        if gen in ("choice", "boolean", "pattern"):
             return result
+        # Range patterns (integer/float with min_value/max_value) and
+        # length patterns (string with min_length/max_length) are MERGED
+        # across multiple CHECKs. Take the tighter bound on each side:
+        # - min_value/min_length: take the MAX (higher lower bound)
+        # - max_value/max_length: take the MIN (lower upper bound)
+        if merged_gen is None:
+            merged_gen = gen
+            merged_params = dict(params)
+        else:
+            # Type promotion: if either bound is float, promote to float.
+            if gen == "float" and merged_gen == "integer":
+                merged_gen = "float"
+                # Convert existing int bounds to float
+                for k in ("min_value", "max_value"):
+                    if k in merged_params and isinstance(merged_params[k], int):
+                        merged_params[k] = float(merged_params[k])
+            # Merge min_value (take the higher/larger lower bound)
+            if "min_value" in params:
+                new_min = params["min_value"]
+                if "min_value" in merged_params:
+                    merged_params["min_value"] = max(merged_params["min_value"], new_min)
+                else:
+                    merged_params["min_value"] = new_min
+            # Merge max_value (take the smaller/lower upper bound)
+            if "max_value" in params:
+                new_max = params["max_value"]
+                if "max_value" in merged_params:
+                    merged_params["max_value"] = min(merged_params["max_value"], new_max)
+                else:
+                    merged_params["max_value"] = new_max
+            # Merge min_length (take the larger lower bound)
+            if "min_length" in params:
+                new_min = params["min_length"]
+                if "min_length" in merged_params:
+                    merged_params["min_length"] = max(merged_params["min_length"], new_min)
+                else:
+                    merged_params["min_length"] = new_min
+            # Merge max_length (take the smaller upper bound)
+            if "max_length" in params:
+                new_max = params["max_length"]
+                if "max_length" in merged_params:
+                    merged_params["max_length"] = min(merged_params["max_length"], new_max)
+                else:
+                    merged_params["max_length"] = new_max
+    if merged_gen is not None:
+        return (merged_gen, merged_params)
     return None
 
 
@@ -874,6 +995,10 @@ def _parse_single_column_check(
     - ``LENGTH(col) >= N`` / ``> N`` → string with ``min_length``
     - ``LENGTH(col) = N`` → string with ``min_length`` and ``max_length``
     - ``LENGTH(col) <= N`` / ``< N`` → string with ``max_length``
+    - ``col LIKE '<literal>____' AND LENGTH(col) = N`` → pattern with regex
+      ``^<literal>[A-Za-z0-9]{underscore_count}$`` (fixed-length code format)
+    - ``LENGTH(col) = N AND col LIKE '<literal>____'`` → same as above (reversed)
+    - ``col LIKE '<literal>____'`` → pattern with regex (standalone, no LENGTH)
     - ``col IN ('a', 'b', 'c')`` → choice generator (string enum)
     - ``col IN (0, 1)`` → boolean generator
     - ``col IN (1, 2, 3)`` → choice generator (numeric enum)
@@ -965,6 +1090,68 @@ def _parse_single_column_check(
     if m:
         n = int(m.group(1))
         return ("string", {"max_length": n - 1})
+
+    # Pattern: col LIKE '<literal>____' AND LENGTH(col) = N
+    # e.g., color_code LIKE '#______' AND LENGTH(color_code) = 7
+    # → pattern generator with regex ^<literal>[A-Za-z0-9]{underscore_count}$
+    #
+    # SQL LIKE wildcards: ``_`` matches any single char, ``%`` matches zero
+    # or more chars. We only handle patterns where all wildcards are ``_``
+    # (fixed-length), because ``%`` makes the length variable. Combined
+    # with ``LENGTH(col) = N``, this constrains both the prefix and the
+    # total length. The alphanumeric charset is the safest default for
+    # code-style columns; users can override with a custom config for
+    # specific charsets (e.g., hex for color codes).
+    m = re.match(
+        rf"^\s*{col}\s+LIKE\s+'([^']*)'\s+AND\s+LENGTH\s*\(\s*{col}\s*\)\s*=\s*(\d+)\s*$",
+        expr,
+        re.IGNORECASE,
+    )
+    if m:
+        like_pattern = m.group(1)
+        total_len = int(m.group(2))
+        if "%" not in like_pattern:
+            underscore_count = like_pattern.count("_")
+            literal_part = like_pattern.replace("_", "")
+            literal_len = len(literal_part)
+            if underscore_count > 0 and total_len == literal_len + underscore_count:
+                regex = f"^{re.escape(literal_part)}[A-Za-z0-9]{{{underscore_count}}}$"
+                return ("pattern", {"regex": regex})
+
+    # Pattern: LENGTH(col) = N AND col LIKE '<literal>____' (reversed order)
+    m = re.match(
+        rf"^\s*LENGTH\s*\(\s*{col}\s*\)\s*=\s*(\d+)\s+AND\s+{col}\s+LIKE\s+'([^']*)'\s*$",
+        expr,
+        re.IGNORECASE,
+    )
+    if m:
+        total_len = int(m.group(1))
+        like_pattern = m.group(2)
+        if "%" not in like_pattern:
+            underscore_count = like_pattern.count("_")
+            literal_part = like_pattern.replace("_", "")
+            literal_len = len(literal_part)
+            if underscore_count > 0 and total_len == literal_len + underscore_count:
+                regex = f"^{re.escape(literal_part)}[A-Za-z0-9]{{{underscore_count}}}$"
+                return ("pattern", {"regex": regex})
+
+    # Pattern: col LIKE '<literal>____' (standalone, no LENGTH)
+    # Infer length from underscore count alone. Only handle when all
+    # wildcards are ``_`` (fixed-length); ``%`` is skipped because the
+    # variable length cannot be deterministically generated.
+    m = re.match(
+        rf"^\s*{col}\s+LIKE\s+'([^']*)'\s*$",
+        expr,
+        re.IGNORECASE,
+    )
+    if m:
+        like_pattern = m.group(1)
+        if "%" not in like_pattern:
+            underscore_count = like_pattern.count("_")
+            literal_part = like_pattern.replace("_", "")
+            if underscore_count > 0:
+                regex = f"^{re.escape(literal_part)}[A-Za-z0-9]{{{underscore_count}}}$"
+                return ("pattern", {"regex": regex})
 
     # Pattern: col IN ('a', 'b', 'c') — string enum
     m = re.match(
@@ -2110,6 +2297,101 @@ def _infer_cross_column_config(
                         "derive_from": other_col_p27,
                         "expression": expr_chain,
                     }
+
+        # Pattern 37: multiple ``col1 != VALUE_i OR col OP_i X_i`` on same column
+        # (multi-conditional cross-column — when 2+ separate CHECK constraints
+        # constrain the SAME target column based on the SAME enum column's value)
+        # e.g.:
+        #   CHECK (movement_type != 'inbound' OR quantity > 0)
+        #   CHECK (movement_type != 'outbound' OR quantity < 0)
+        #   CHECK (movement_type != 'adjustment' OR quantity != 0)
+        # Each constraint means: "when col1 == VALUE_i, col must satisfy OP_i X_i".
+        # Derive col from col1 and emit a nested ternary with a branch per VALUE.
+        # Branches:
+        #   ``> X``  → random_int(X+1, X+100) or random_float(X+0.01, X+100.0)
+        #   ``>= X`` → random_int(X, X+100) or random_float(X, X+100.0)
+        #   ``< X``  → random_int(X-100, X-1) or random_float(X-100.0, X-0.01)
+        #   ``<= X`` → random_int(X-100, X) or random_float(X-100.0, X)
+        #   ``!= X`` → random non-X value (pick from positive or negative range)
+        # Default branch (col1 not in any VALUE set): random_int(-100, 100).
+        # This pattern MUST run before Pattern 28 (single-condition case) so
+        # the multi-branch expression wins when 2+ conditions exist.
+        p37_branches: list[tuple[str, str, float, bool]] = []
+        p37_other_col: str | None = None
+        for c_p37 in constraints:
+            if c_p37.get("type") != "check":
+                continue
+            expr_p37 = c_p37.get("expression", "")
+            if not expr_p37:
+                continue
+            m_p37 = re.match(
+                rf"^\s*(\w+)\s*!=\s*'([^']+)'\s+OR\s+{col}\s*(>=|<=|>|<|!=)\s*(-?[0-9]+(?:\.[0-9]+)?)\s*$",
+                expr_p37,
+                re.IGNORECASE,
+            )
+            if not m_p37:
+                continue
+            other_p37, val_p37, op_p37, x_str_p37 = (
+                m_p37.group(1),
+                m_p37.group(2),
+                m_p37.group(3),
+                m_p37.group(4),
+            )
+            # All branches must reference the same enum column
+            if other_p37 not in col_set or other_p37 == col_name:
+                continue
+            if p37_other_col is None:
+                p37_other_col = other_p37
+            elif p37_other_col != other_p37:
+                continue
+            x_val_p37 = float(x_str_p37)
+            is_float_p37 = "." in x_str_p37
+            p37_branches.append((val_p37, op_p37, x_val_p37, is_float_p37))
+        if p37_other_col is not None and len(p37_branches) >= 2:
+            # Build nested ternary: branch1 if value == 'V1' else (branch2 if value == 'V2' else ... else default)
+            use_float = any(b[3] for b in p37_branches)
+            parts_p37: list[str] = []
+            for val_p37, op_p37, x_p37, _ in p37_branches:
+                if use_float:
+                    if op_p37 == ">":
+                        branch = f"random_float({x_p37 + 0.01}, {x_p37 + 100.0})"
+                    elif op_p37 == ">=":
+                        branch = f"random_float({x_p37}, {x_p37 + 100.0})"
+                    elif op_p37 == "<":
+                        branch = f"random_float({x_p37 - 100.0}, {x_p37 - 0.01})"
+                    elif op_p37 == "<=":
+                        branch = f"random_float({x_p37 - 100.0}, {x_p37})"
+                    else:  # !=
+                        # Non-X value: alternate positive and negative ranges
+                        pos = f"random_float({x_p37 + 0.01}, {x_p37 + 100.0})"
+                        neg = f"random_float({x_p37 - 100.0}, {x_p37 - 0.01})"
+                        branch = f"({pos} if random_int(0, 1) == 0 else {neg})"
+                else:
+                    x_int_p37 = int(x_p37)
+                    if op_p37 == ">":
+                        branch = f"random_int({x_int_p37 + 1}, {x_int_p37 + 100})"
+                    elif op_p37 == ">=":
+                        branch = f"random_int({x_int_p37}, {x_int_p37 + 100})"
+                    elif op_p37 == "<":
+                        branch = f"random_int({x_int_p37 - 100}, {x_int_p37 - 1})"
+                    elif op_p37 == "<=":
+                        branch = f"random_int({x_int_p37 - 100}, {x_int_p37})"
+                    else:  # !=
+                        # Non-X value: alternate positive and negative ranges
+                        pos = f"random_int({x_int_p37 + 1}, {x_int_p37 + 100})"
+                        neg = f"random_int({x_int_p37 - 100}, {x_int_p37 - 1})"
+                        branch = f"({pos} if random_int(0, 1) == 0 else {neg})"
+                parts_p37.append(f"{branch} if value == '{val_p37}'")
+            # Default branch: covers enum values not in any VALUE set
+            default_p37 = "random_float(-100.0, 100.0)" if use_float else "random_int(-100, 100)"
+            # Build nested ternary: a if cond1 else (b if cond2 else (... else default))
+            expr_p37_final = default_p37
+            for cond_p37 in reversed(parts_p37):
+                expr_p37_final = f"{cond_p37} else ({expr_p37_final})"
+            return {
+                "derive_from": p37_other_col,
+                "expression": expr_p37_final,
+            }
 
         # Pattern 28: col1 != VALUE OR col2 > 0
         # (conditional requirement — when col1 == VALUE, col2 must be > 0;
