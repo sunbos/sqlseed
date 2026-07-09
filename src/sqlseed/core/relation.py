@@ -116,31 +116,49 @@ class RelationResolver:
     def topological_sort(self, table_names: list[str]) -> list[str]:
         """Return tables in dependency order so that referenced tables precede their dependents.
 
-        Raises ``ValueError`` if a circular dependency is detected.
+        Circular FK dependencies (e.g., A→B→A, common in real-world schemas
+        like ``branches↔employees``) are broken gracefully using Kahn's
+        algorithm: when no table has zero pending dependencies (cycle
+        deadlock), the first table in input order is picked to break the
+        cycle. A warning is logged so the caller can set ``null_ratio=1.0``
+        for the nullable FK in the cycle to avoid fill-time FK violations.
         """
         graph: dict[str, set[str]] = {}
         for table in table_names:
             deps = self.get_dependencies(table)
             graph[table] = deps & set(table_names)
 
-        visited: set[str] = set()
-        temp_visited: set[str] = set()
+        # Kahn's algorithm with cycle-breaking. pending_deps tracks the
+        # set of unprocessed dependencies for each table. A table is
+        # "ready" when its pending_deps is empty (all deps already placed
+        # in the result). When no table is ready (cycle deadlock), the
+        # first table in input order is picked to break the cycle.
+        pending_deps: dict[str, set[str]] = {t: set(graph[t]) for t in table_names}
+        remaining: set[str] = set(table_names)
         result: list[str] = []
 
-        def visit(node: str) -> None:
-            if node in visited:
-                return
-            if node in temp_visited:
-                raise ValueError(f"Circular dependency detected involving table: {node}")
-            temp_visited.add(node)
-            for dep in graph.get(node, set()):
-                visit(dep)
-            temp_visited.discard(node)
-            visited.add(node)
-            result.append(node)
-
-        for table in table_names:
-            visit(table)
+        while remaining:
+            ready = [t for t in table_names if t in remaining and not pending_deps[t]]
+            if not ready:
+                # Cycle deadlock — pick the first table in input order to
+                # break the cycle. This heuristic works well because schema
+                # designers typically list "root" tables (whose circular FK
+                # is nullable) before their dependents.
+                breaker = next(t for t in table_names if t in remaining)
+                logger.warning(
+                    "Circular FK dependency detected, breaking cycle",
+                    table=breaker,
+                    remaining_tables=sorted(remaining),
+                )
+                ready = [breaker]
+            for table in ready:
+                if table not in remaining:
+                    continue
+                result.append(table)
+                remaining.discard(table)
+                # Remove this table from other tables' pending deps
+                for t in remaining:
+                    pending_deps[t].discard(table)
 
         return result
 

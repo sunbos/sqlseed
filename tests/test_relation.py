@@ -3,8 +3,6 @@ from __future__ import annotations
 import sqlite3
 from typing import Any
 
-import pytest
-
 import sqlseed
 from sqlseed.core.mapper import GeneratorSpec
 from sqlseed.core.relation import RelationResolver, SharedPool
@@ -90,7 +88,19 @@ class TestRelationResolver:
         order = resolver.topological_sort(["orders", "users"])
         assert order.index("users") < order.index("orders")
 
-    def test_topological_sort_circular(self, tmp_path: Any) -> None:
+    def test_topological_sort_circular_breaks_gracefully(self, tmp_path: Any) -> None:
+        """Circular FK dependency is broken gracefully (no ValueError).
+
+        Previously, ``topological_sort`` raised ``ValueError`` on circular FK
+        dependencies (e.g., A→B→A), which aborted the entire fill. Real-world
+        schemas commonly have circular FKs (e.g., branches↔employees in
+        banking). The fix uses Kahn's algorithm: when no table has zero
+        pending dependencies (cycle deadlock), the first table in input
+        order is picked to break the cycle. This produces a valid weak
+        topological order — all tables appear in the result, no duplicates.
+        The caller (or AI plugin) should set ``null_ratio=1.0`` for the
+        nullable FK in the cycle to avoid FK violations at fill time.
+        """
         db_path = str(tmp_path / "circular.db")
         conn = sqlite3.connect(db_path)
         conn.execute("PRAGMA foreign_keys = ON")
@@ -115,8 +125,15 @@ class TestRelationResolver:
         adapter.connect(db_path)
         try:
             resolver = RelationResolver(adapter)
-            with pytest.raises(ValueError):
-                resolver.topological_sort(["a", "b"])
+            # Should NOT raise — cycle is broken gracefully
+            order = resolver.topological_sort(["a", "b"])
+            # Both tables must be in the result
+            assert set(order) == {"a", "b"}
+            # No duplicates
+            assert len(order) == len(set(order))
+            # "a" (first in input) should be ordered before "b" (cycle-breaking
+            # heuristic: first-in-input goes first)
+            assert order.index("a") < order.index("b")
         finally:
             adapter.close()
 
