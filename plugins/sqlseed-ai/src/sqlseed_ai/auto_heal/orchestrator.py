@@ -255,16 +255,12 @@ class AutoHealOrchestrator:
                     expr_str = str(c.get("expression", ""))
                     # Detect arithmetic on ``value``: ``value +``, ``value -``,
                     # ``value *``, or ``timedelta`` (which implies date math).
-                    has_arith = any(
-                        pat in expr_str
-                        for pat in ("value +", "value -", "value *", "value/", "timedelta")
-                    )
+                    has_arith = any(pat in expr_str for pat in ("value +", "value -", "value *", "value/", "timedelta"))
                     if has_arith:
                         col_name_55 = c.get("name", "")
                         src_col_55 = c.get("derive_from", "")
-                        if (
-                            _has_like_constraint(col_name_55, meta.constraints)
-                            or _has_like_constraint(src_col_55, meta.constraints)
+                        if _has_like_constraint(col_name_55, meta.constraints) or _has_like_constraint(
+                            src_col_55, meta.constraints
                         ):
                             c.pop("derive_from", None)
                             c.pop("expression", None)
@@ -543,12 +539,14 @@ class AutoHealOrchestrator:
                 # is the only safe option for self-referencing FKs during
                 # initial bulk fill.
                 if col_name in self_ref_fk_cols:
-                    cols.append({
-                        "name": col_name,
-                        "generator": "foreign_key_or_integer",
-                        "params": {},
-                        "null_ratio": 1.0,
-                    })
+                    cols.append(
+                        {
+                            "name": col_name,
+                            "generator": "foreign_key_or_integer",
+                            "params": {},
+                            "null_ratio": 1.0,
+                        }
+                    )
                     continue
                 # Step 1: Try cross-column CHECK inference FIRST.
                 # Cross-column constraints (e.g., ``unit_price > cost_price``)
@@ -557,7 +555,7 @@ class AutoHealOrchestrator:
                 # has both, derive_from captures the cross-column relation
                 # while a bare min_value would silently drop it.
                 cross_config = _infer_cross_column_config(
-                    col_name, meta.constraints, meta.columns, col_type, fk_cols_set
+                    col_name, meta.constraints, meta.columns, col_type, fk_cols_set, self_ref_fk_cols
                 )
                 if cross_config is not None:
                     cols.append({"name": col_name, **cross_config})
@@ -1465,6 +1463,7 @@ def _infer_cross_column_config(
     all_columns: list[str],
     col_type: str,
     fk_columns: set[str] | None = None,
+    self_ref_fk_cols: set[str] | None = None,
 ) -> dict[str, Any] | None:
     """Infer config from cross-column CHECK constraints.
 
@@ -1601,16 +1600,160 @@ def _infer_cross_column_config(
             elif mult_src_col != m_up.group(1):
                 # Different source columns — not a dual-bound pattern
                 upper_mult = None
-    if (
-        lower_mult is not None
-        and upper_mult is not None
-        and mult_src_col is not None
-        and lower_mult <= upper_mult
-    ):
+    if lower_mult is not None and upper_mult is not None and mult_src_col is not None and lower_mult <= upper_mult:
         return {
             "derive_from": mult_src_col,
             "expression": f"value * random_float({lower_mult}, {upper_mult})",
         }
+
+    # Pattern 40: self-ref FK conditional equality — when col2 is a self-ref
+    # FK (always NULL at fill time) and constraint is
+    # ``col1 = VALUE OR col2 IS NOT NULL``, col1 must be VALUE.
+    # Since col2 is always NULL, ``col2 IS NOT NULL`` is always FALSE, so
+    # ``col1 = VALUE`` must be TRUE. Force col1 to a choice with only VALUE.
+    # This must be a PRE-LOOP scan because it applies to col1 (not col2), and
+    # the per-constraint loop might match a less restrictive pattern first.
+    # e.g., org_type = 'root' OR parent_id IS NOT NULL (parent_id is self-ref FK)
+    if self_ref_fk_cols:
+        for c in constraints:
+            if c.get("type") != "check":
+                continue
+            expr_p40 = c.get("expression", "")
+            m_p40 = re.match(
+                rf"^\s*{col}\s*=\s*'([^']+)'\s+OR\s+(\w+)\s+IS\s+NOT\s+NULL\s*$",
+                expr_p40,
+                re.IGNORECASE,
+            )
+            if m_p40:
+                val_p40 = m_p40.group(1)
+                other_col_p40 = m_p40.group(2)
+                if other_col_p40 in self_ref_fk_cols and other_col_p40 != col_name:
+                    return {
+                        "generator": "choice",
+                        "params": {"choices": [val_p40]},
+                    }
+
+    # Pattern 1b pre-loop scan: 3-way OR constraints must be checked BEFORE
+    # the per-constraint loop. Without this, a Pattern 1 (2-way OR) constraint
+    # on the same column would match first and return early, preventing
+    # Pattern 1b from ever being evaluated.
+    # e.g., api_keys.revoked_at has both:
+    #   - revoked_at IS NULL OR revoked_at >= created_at  (Pattern 1, 2-way)
+    #   - revoked_at IS NULL OR expires_at IS NULL OR revoked_at <= expires_at  (Pattern 1b, 3-way)
+    # Pattern 1b is more restrictive (involves 2 other columns), so it wins.
+    #
+    # Lower bound awareness: when the upper-bound branch (<= or <) is taken,
+    # scan all constraints for a sibling lower-bound pattern
+    # ``col IS NULL OR col (>=|>) other_col2``. If found, the subtracted /
+    # decremented expression may produce a value below the lower bound
+    # (e.g., revoked_at derived from expires_at minus up to 365 days can
+    # land before created_at). Wrap with ``max(result, row['other_col2'])``
+    # so the value respects both bounds simultaneously. ``max`` is in
+    # SAFE_FUNCTIONS (see core/expression.py). This is only applied to the
+    # upper-bound branch; the lower-bound branch (>=, >) adds to ``value``
+    # and therefore cannot violate a sibling upper bound that Pattern 1b
+    # already enforces via the derive_from source column.
+    lower_bound_col_p1b: str | None = None
+    for lc_p1b in constraints:
+        if lc_p1b.get("type") != "check":
+            continue
+        lc_expr_p1b = lc_p1b.get("expression", "")
+        m_low_p1b = re.match(
+            rf"^\s*{col}\s+IS\s+NULL\s+OR\s+{col}\s*(>=|>)\s*(\w+)\s*$",
+            lc_expr_p1b,
+            re.IGNORECASE,
+        )
+        if m_low_p1b:
+            lb_col_p1b = m_low_p1b.group(2)
+            if lb_col_p1b in col_set and lb_col_p1b != col_name:
+                lower_bound_col_p1b = lb_col_p1b
+                break
+
+    for c in constraints:
+        if c.get("type") != "check":
+            continue
+        expr_p1b = c.get("expression", "")
+        if not re.search(rf"\b{col}\b", expr_p1b, re.IGNORECASE):
+            continue
+        m_p1b = re.search(
+            rf"{col}\s+IS\s+NULL\s+OR\s+(\w+)\s+IS\s+NULL\s+OR\s+{col}\s*(>=|>|<=|<)\s*(\w+)",
+            expr_p1b,
+            re.IGNORECASE,
+        )
+        if m_p1b:
+            other_col_p1b_pre = m_p1b.group(1)
+            op_p1b_pre = m_p1b.group(2)
+            other_col_ref_p1b_pre = m_p1b.group(3)
+            if (
+                other_col_p1b_pre == other_col_ref_p1b_pre
+                and other_col_p1b_pre in col_set
+                and other_col_p1b_pre != col_name
+            ):
+                if is_date_col or _is_date_column(other_col_p1b_pre):
+                    if op_p1b_pre in (">=", ">"):
+                        return {
+                            "derive_from": other_col_p1b_pre,
+                            "expression": "None if value is None else value + timedelta(days=random_int(1, 365))",
+                        }
+                    days_p1b_pre = "0" if op_p1b_pre == "<=" else "1"
+                    inner_p1b = f"value - timedelta(days=random_int({days_p1b_pre}, 365))"
+                    if lower_bound_col_p1b:
+                        inner_p1b = f"max({inner_p1b}, row['{lower_bound_col_p1b}'])"
+                    return {
+                        "derive_from": other_col_p1b_pre,
+                        "expression": f"None if value is None else {inner_p1b}",
+                    }
+                if is_float_type:
+                    if op_p1b_pre == ">=":
+                        return {
+                            "derive_from": other_col_p1b_pre,
+                            "expression": "None if value is None else value + random_float(0, 100)",
+                        }
+                    if op_p1b_pre == ">":
+                        return {
+                            "derive_from": other_col_p1b_pre,
+                            "expression": "None if value is None else value * random_float(1.01, 2.0)",
+                        }
+                    if op_p1b_pre == "<=":
+                        inner_p1b_f = "value * random_float(0.5, 1.0)"
+                        if lower_bound_col_p1b:
+                            inner_p1b_f = f"max({inner_p1b_f}, row['{lower_bound_col_p1b}'])"
+                        return {
+                            "derive_from": other_col_p1b_pre,
+                            "expression": f"None if value is None else {inner_p1b_f}",
+                        }
+                    inner_p1b_f_lt = "value * random_float(0.5, 0.99)"
+                    if lower_bound_col_p1b:
+                        inner_p1b_f_lt = f"max({inner_p1b_f_lt}, row['{lower_bound_col_p1b}'])"
+                    return {
+                        "derive_from": other_col_p1b_pre,
+                        "expression": f"None if value is None else {inner_p1b_f_lt}",
+                    }
+                if op_p1b_pre == ">=":
+                    return {
+                        "derive_from": other_col_p1b_pre,
+                        "expression": "None if value is None else value + random_int(0, 100)",
+                    }
+                if op_p1b_pre == ">":
+                    return {
+                        "derive_from": other_col_p1b_pre,
+                        "expression": "None if value is None else value + random_int(1, 100)",
+                    }
+                if op_p1b_pre == "<=":
+                    inner_p1b_i = "value - random_int(0, 100)"
+                    if lower_bound_col_p1b:
+                        inner_p1b_i = f"max({inner_p1b_i}, row['{lower_bound_col_p1b}'])"
+                    return {
+                        "derive_from": other_col_p1b_pre,
+                        "expression": f"None if value is None else {inner_p1b_i}",
+                    }
+                inner_p1b_i_lt = "value - random_int(1, 100)"
+                if lower_bound_col_p1b:
+                    inner_p1b_i_lt = f"max({inner_p1b_i_lt}, row['{lower_bound_col_p1b}'])"
+                return {
+                    "derive_from": other_col_p1b_pre,
+                    "expression": f"None if value is None else {inner_p1b_i_lt}",
+                }
 
     for c in sorted(constraints, key=_constraint_sort_key):
         if c.get("type") != "check":
@@ -1675,11 +1818,7 @@ def _infer_cross_column_config(
             other_col_p1b = m.group(1)
             op_p1b = m.group(2)
             other_col_ref_p1b = m.group(3)
-            if (
-                other_col_p1b == other_col_ref_p1b
-                and other_col_p1b in col_set
-                and other_col_p1b != col_name
-            ):
+            if other_col_p1b == other_col_ref_p1b and other_col_p1b in col_set and other_col_p1b != col_name:
                 if is_date_col or _is_date_column(other_col_p1b):
                     if op_p1b in (">=", ">"):
                         return {
@@ -1819,17 +1958,77 @@ def _infer_cross_column_config(
         if m:
             col2_p39 = m.group(2)
             col3_p39 = m.group(3)
-            if (
-                col2_p39 in col_set
-                and col3_p39 in col_set
-                and col_name not in (col2_p39, col3_p39)
-            ):
+            if col2_p39 in col_set and col3_p39 in col_set and col_name not in (col2_p39, col3_p39):
                 return {
                     "derive_from": col2_p39,
-                    "expression": (
-                        f"None if value is None else "
-                        f"(value + row['{col3_p39}']) * random_float(0.0, 1.0)"
-                    ),
+                    "expression": (f"None if value is None else (value + row['{col3_p39}']) * random_float(0.0, 1.0)"),
+                }
+
+        # Pattern 41: col (>=|>|<=|<) DATE(other_col) — standalone comparison
+        # with DATE() function wrapper. SQLite and PostgreSQL both support
+        # ``DATE(col)`` to coerce a datetime/text to a date. The wrapper must
+        # be stripped to extract the column name, then the comparison is
+        # treated like Pattern 2/3/8 (standalone col vs other_col).
+        # e.g., due_date >= DATE(period_start)
+        # e.g., end_date <= DATE(start_date)  (unusual but valid)
+        m = re.match(
+            rf"^\s*{col}\s*(>=|>|<=|<)\s*DATE\s*\(\s*(\w+)\s*\)\s*$",
+            expr,
+            re.IGNORECASE,
+        )
+        if m:
+            op_p41 = m.group(1)
+            other_col_p41 = m.group(2)
+            if other_col_p41 in col_set and other_col_p41 != col_name:
+                if is_date_col or _is_date_column(other_col_p41):
+                    if op_p41 in (">=", ">"):
+                        return {
+                            "derive_from": other_col_p41,
+                            "expression": "value + timedelta(days=random_int(1, 30))",
+                        }
+                    days_p41 = "0" if op_p41 == "<=" else "1"
+                    return {
+                        "derive_from": other_col_p41,
+                        "expression": f"value - timedelta(days=random_int({days_p41}, 365))",
+                    }
+                if is_float_type:
+                    if op_p41 == ">=":
+                        return {
+                            "derive_from": other_col_p41,
+                            "expression": "value + random_float(1, 100)",
+                        }
+                    if op_p41 == ">":
+                        return {
+                            "derive_from": other_col_p41,
+                            "expression": "value * random_float(1.1, 2.0)",
+                        }
+                    if op_p41 == "<=":
+                        return {
+                            "derive_from": other_col_p41,
+                            "expression": "value * random_float(0.5, 1.0)",
+                        }
+                    return {
+                        "derive_from": other_col_p41,
+                        "expression": "value * random_float(0.5, 0.99)",
+                    }
+                if op_p41 == ">=":
+                    return {
+                        "derive_from": other_col_p41,
+                        "expression": "value + random_int(1, 100)",
+                    }
+                if op_p41 == ">":
+                    return {
+                        "derive_from": other_col_p41,
+                        "expression": "value + random_int(1, 100)",
+                    }
+                if op_p41 == "<=":
+                    return {
+                        "derive_from": other_col_p41,
+                        "expression": "value - random_int(0, 100)",
+                    }
+                return {
+                    "derive_from": other_col_p41,
+                    "expression": "value - random_int(1, 100)",
                 }
 
         # Pattern 2: col >= other_col (standalone, no NULL escape)
@@ -2456,17 +2655,13 @@ def _infer_cross_column_config(
                         "value * random_float(1.01, 2.0)" if is_float_type else "value + random_int(1, 100)"
                     )
                 elif op_p24b == ">=":
-                    comp_expr_p24b = (
-                        "value * random_float(1.0, 2.0)" if is_float_type else "value + random_int(0, 100)"
-                    )
+                    comp_expr_p24b = "value * random_float(1.0, 2.0)" if is_float_type else "value + random_int(0, 100)"
                 elif op_p24b == "<":
                     comp_expr_p24b = (
                         "value * random_float(0.5, 0.99)" if is_float_type else "value - random_int(1, 100)"
                     )
                 else:  # <=
-                    comp_expr_p24b = (
-                        "value * random_float(0.5, 1.0)" if is_float_type else "value - random_int(0, 100)"
-                    )
+                    comp_expr_p24b = "value * random_float(0.5, 1.0)" if is_float_type else "value - random_int(0, 100)"
                 # Derive from other_col; reference cond_col via row dict.
                 # When cond_col == VALUE: produce compliant value.
                 # When cond_col != VALUE: 50% compliant, 50% safe zero.
@@ -2512,12 +2707,7 @@ def _infer_cross_column_config(
                 m.group(3),
                 m.group(4),
             )
-            if (
-                col1_p38 in col_set
-                and col2_p38 in col_set
-                and col3_p38 in col_set
-                and col1_p38 != col_name
-            ):
+            if col1_p38 in col_set and col2_p38 in col_set and col3_p38 in col_set and col1_p38 != col_name:
                 return {
                     "derive_from": col1_p38,
                     "expression": f"(value + row['{col2_p38}']) * ({const_p38} - row['{col3_p38}'])",
@@ -2665,11 +2855,7 @@ def _infer_cross_column_config(
                             lo += 0.01 if is_float_type else 1
                         if up_op == "<":
                             up -= 0.01 if is_float_type else 1
-                        rand_e = (
-                            f"random_float({lo}, {up})"
-                            if is_float_type
-                            else f"random_int({int(lo)}, {int(up)})"
-                        )
+                        rand_e = f"random_float({lo}, {up})" if is_float_type else f"random_int({int(lo)}, {int(up)})"
                         parts_p36.append(f"{rand_e} if value == '{vi}'")
                     # Last clause is the fallback
                     _oc, _vi, lo_op, lo_str, up_op, up_str = clauses_36[-1]
@@ -2679,11 +2865,7 @@ def _infer_cross_column_config(
                         lo += 0.01 if is_float_type else 1
                     if up_op == "<":
                         up -= 0.01 if is_float_type else 1
-                    last_rand_36 = (
-                        f"random_float({lo}, {up})"
-                        if is_float_type
-                        else f"random_int({int(lo)}, {int(up)})"
-                    )
+                    last_rand_36 = f"random_float({lo}, {up})" if is_float_type else f"random_int({int(lo)}, {int(up)})"
                     expr_chain_36 = last_rand_36
                     for idx in range(len(parts_p36) - 1, -1, -1):
                         expr_chain_36 = f"{parts_p36[idx]} else ({expr_chain_36})"
@@ -2880,9 +3062,7 @@ def _infer_cross_column_config(
                     if m_upper_p28:
                         upper_col_p28 = m_upper_p28.group(2)
                         if upper_col_p28 in col_set and upper_col_p28 != col_name:
-                            positive_expr = (
-                                f"min({positive_expr}, row['{upper_col_p28}'])"
-                            )
+                            positive_expr = f"min({positive_expr}, row['{upper_col_p28}'])"
                             break
                 # When col1 != VALUE: col2 can be 0 (or any value >= 0).
                 zero_expr = "0.0"
@@ -3059,6 +3239,13 @@ def _infer_cross_column_config(
         # set col to a safe random value. The ``else`` branch uses a small
         # positive range to avoid violating other CHECKs (e.g., remaining
         # must be <= principal). For integer VALUE2, use int; for float, use float.
+        # RANGE AWARENESS: if the column also has a range CHECK constraint
+        # (e.g., ``col >= 0.0 AND col <= 1.0``), the random branch must
+        # respect those bounds instead of the hardcoded [0.01, 100.0].
+        # This prevents CHECK violations when the column's allowed range is
+        # narrower than the default. e.g., discount_rate has range [0.0, 1.0]
+        # and Pattern 31 constraint ``status != 'trialing' OR discount_rate = 0.0``;
+        # the else branch must use random_float(0.01, 1.0), not 100.0.
         m = re.match(
             rf"^\s*(\w+)\s*!=\s*'([^']+)'\s+OR\s+{col}\s*=\s*(-?\d+(?:\.\d+)?)\s*$",
             expr,
@@ -3069,12 +3256,45 @@ def _infer_cross_column_config(
             if other_col_p31 in col_set and other_col_p31 != col_name:
                 is_float_p31 = "." in eq_val_str
                 eq_val: float | int = float(eq_val_str) if is_float_p31 else int(eq_val_str)
-                # When col1 == VALUE: col = VALUE2 (exact)
-                # When col1 != VALUE: col = random value in a safe range.
-                # Using [0.01, 100.0] for floats and [1, 100] for ints to
-                # avoid zero (which might violate ``col > 0`` CHECKs) while
-                # staying small enough to not exceed other columns' values.
-                rand_expr = "random_float(0.01, 100.0)" if is_float_p31 else "random_int(1, 100)"
+                # Scan all constraints for a range CHECK on this column:
+                # ``col >= X AND col <= Y`` or ``col >= X`` / ``col <= Y`` (separate)
+                range_min: float | None = None
+                range_max: float | None = None
+                for rc in constraints:
+                    if rc.get("type") != "check":
+                        continue
+                    rc_expr = rc.get("expression", "")
+                    # Combined: col >= X AND col <= Y
+                    m_combined = re.match(
+                        rf"^\s*{col}\s*>=\s*(-?\d+(?:\.\d+)?)\s+AND\s+{col}\s*<=\s*(-?\d+(?:\.\d+)?)\s*$",
+                        rc_expr,
+                        re.IGNORECASE,
+                    )
+                    if m_combined:
+                        range_min = float(m_combined.group(1))
+                        range_max = float(m_combined.group(2))
+                        break
+                    # Separate lower: col >= X
+                    m_low = re.match(rf"^\s*{col}\s*>=\s*(-?\d+(?:\.\d+)?)\s*$", rc_expr, re.IGNORECASE)
+                    if m_low:
+                        range_min = float(m_low.group(1))
+                    # Separate upper: col <= Y
+                    m_up = re.match(rf"^\s*{col}\s*<=\s*(-?\d+(?:\.\d+)?)\s*$", rc_expr, re.IGNORECASE)
+                    if m_up:
+                        range_max = float(m_up.group(1))
+                # Build rand_expr using range bounds if available
+                if is_float_p31:
+                    lo = max(0.01, range_min) if range_min is not None else 0.01
+                    hi = min(100.0, range_max) if range_max is not None else 100.0
+                    if lo > hi:
+                        lo, hi = hi, lo
+                    rand_expr = f"random_float({lo}, {hi})"
+                else:
+                    lo_i = max(1, int(range_min)) if range_min is not None else 1
+                    hi_i = min(100, int(range_max)) if range_max is not None else 100
+                    if lo_i > hi_i:
+                        lo_i, hi_i = hi_i, lo_i
+                    rand_expr = f"random_int({lo_i}, {hi_i})"
                 return {
                     "derive_from": other_col_p31,
                     "expression": f"{eq_val} if value == '{val_str_p31}' else {rand_expr}",
@@ -3302,9 +3522,7 @@ def _infer_cross_column_config(
                 zero_expr_p28b = "0.0" if is_float_type else "0"
                 return {
                     "derive_from": other_col_p28b,
-                    "expression": (
-                        f"{positive_expr_p28b} if value == {val_int_p28b} else {zero_expr_p28b}"
-                    ),
+                    "expression": (f"{positive_expr_p28b} if value == {val_int_p28b} else {zero_expr_p28b}"),
                 }
 
         # Pattern 35: col1 IN (...) OR col IS NULL (conditional NULL with IN set)
