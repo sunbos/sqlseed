@@ -2840,3 +2840,53 @@ def test_pattern_1_no_range_bound_when_absent():
     assert "max(" not in expr
     assert "min(" not in expr
 
+
+def test_pattern_4a_is_null_or_col_equals_col1_times_col2():
+    """Pattern 4a: ``col IS NULL OR col = col1 * col2`` → derive_from + null_ratio=0.3.
+
+    Previously this fell through to the generic Pattern 4 handler which
+    returned null_ratio=1.0 (all NULLs). Now it returns a derive_from
+    config so 70% of rows are computed from the multiplicands and 30%
+    are NULL (satisfying the IS NULL branch).
+
+    Real-world example: ``line_total IS NULL OR line_total = unit_price * quantity``
+    """
+    constraints = [
+        {"type": "check", "expression": "line_total IS NULL OR line_total = unit_price * quantity"},
+    ]
+    result = _infer_cross_column_config(
+        "line_total",
+        constraints,
+        ["line_total", "unit_price", "quantity"],
+        "REAL",
+    )
+    assert result is not None
+    assert result["derive_from"] == "unit_price"
+    assert "row['quantity']" in result["expression"]
+    assert "value *" in result["expression"]
+    # null_ratio=0.3 so 30% of rows are NULL (IS NULL branch) and 70% computed
+    assert result["null_ratio"] == 0.3
+
+
+def test_pattern_7a_col_equals_col1_times_col2():
+    """Pattern 7a: ``col = col1 * col2`` (arithmetic equality, two columns).
+
+    Previously only Pattern 7 (``col >= col1 * col2``) was matched by
+    the deterministic code. Without Pattern 7a, ``subtotal = unit_price
+    * quantity`` would only be detected by the LLM. Now returns
+    derive_from col1 with expression ``value * row['col2']``.
+    """
+    constraints = [
+        {"type": "check", "expression": "subtotal = unit_price * quantity"},
+    ]
+    result = _infer_cross_column_config(
+        "subtotal",
+        constraints,
+        ["subtotal", "unit_price", "quantity"],
+        "REAL",
+    )
+    assert result is not None
+    assert result["derive_from"] == "unit_price"
+    assert "row['quantity']" in result["expression"]
+    assert "value *" in result["expression"]
+
