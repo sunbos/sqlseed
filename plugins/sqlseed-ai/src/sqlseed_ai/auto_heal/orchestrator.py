@@ -361,6 +361,54 @@ class AutoHealOrchestrator:
                     c.pop("params", None)
                     params = {}
 
+                # PostgreSQL-specific type enforcement: the LLM doesn't
+                # understand PG-specific types (INTERVAL, TSVECTOR, TSTZRANGE,
+                # ARRAY) and picks generic generators that produce values
+                # incompatible with the column type. For example:
+                #   - INTERVAL needs a PG interval literal like "0 seconds",
+                #     not an integer or datetime
+                #   - TSVECTOR needs a tsvector literal, not a random string
+                #   - TSTZRANGE needs a range literal like "empty", not a
+                #     datetime
+                #   - ARRAY (TEXT[], INTEGER[]) needs an array literal like
+                #     "{}", not a string/integer
+                # The LLM sees ``duration`` and picks ``integer`` (thinking
+                # it's seconds); sees ``labor_time`` and picks ``datetime``
+                # (because of the ``_time`` suffix); sees ``member_ids`` and
+                # the L5 pattern ``.*_ids$`` picks ``json``. All produce
+                # values that cause ``DataError`` at fill time.
+                # We bypass ``map_column`` entirely and call
+                # ``_type_faithful_fallback`` directly because ``map_column``
+                # runs L5 (pattern match) before L9 (type fallback), and L5
+                # would return ``json`` for ``*_ids`` or ``datetime`` for
+                # ``*_time`` — both wrong for PG-specific types. The type
+                # constraint is a hard physical constraint: you cannot
+                # insert a string into an INTEGER[] column, so type-based
+                # fallback must take priority over name-based matching.
+                # This is conservative: it only fires for source-mode columns
+                # (no ``derive_from``) and only for the known PG-specific
+                # types.
+                if not has_derive and gen is not None and meta is not None:
+                    col_name_pg = c.get("name", "")
+                    if col_name_pg in meta.column_types:
+                        col_type_pg = meta.column_types.get(col_name_pg, "")
+                        base_type_pg = re.sub(r"\(.*\)", "", col_type_pg.upper()).strip()
+                        is_pg_array = base_type_pg.endswith("[]") or base_type_pg == "ARRAY"
+                        is_pg_specific = base_type_pg in ("INTERVAL", "TSVECTOR", "TSTZRANGE")
+                        # ARRAY types: always override (the string '{}' from
+                        # choice generator doesn't work with PG parameterized
+                        # queries; null_ratio=1.0 is the safe fallback).
+                        # PG-specific types: override only when the LLM picked
+                        # a wrong generator (not already ``choice``).
+                        if is_pg_array or (is_pg_specific and gen != "choice"):
+                            spec = _get_column_mapper()._type_faithful_fallback(col_type_pg.upper())
+                            c["generator"] = spec.generator_name
+                            c["params"] = dict(spec.params)
+                            if spec.null_ratio > 0:
+                                c["null_ratio"] = spec.null_ratio
+                            gen = spec.generator_name
+                            params = c["params"]
+
                 params = c.get("params") or {}
                 # Missing template param repair: LLM provides
                 # ``generator: template`` but forgets the ``template``
@@ -422,24 +470,45 @@ class AutoHealOrchestrator:
                 # Re-run the deterministic single-column inference to recover
                 # the bounds. Applied when:
                 #   - column is in source mode (no ``derive_from``)
-                #   - LLM provided a generator but no params
-                # Two outcomes:
-                #   1. inferred generator matches LLM's → apply inferred params
+                #   - LLM provided a generator (with or without params)
+                # Outcomes:
+                #   1. inferred generator matches current → apply inferred params
                 #      (e.g., both agree on ``integer``, recover min/max_value)
                 #   2. inferred generator is ``boolean`` or ``choice`` (from an
-                #      ``IN (...)`` constraint) but LLM picked ``integer`` →
+                #      ``IN (...)`` constraint) but current is different →
                 #      override BOTH generator and params. The ``IN`` constraint
                 #      is very specific: ``col IN (0, 1)`` MUST use ``boolean``,
                 #      ``col IN ('a', 'b')`` MUST use ``choice``. An ``integer``
                 #      generator would produce values outside the allowed set.
-                if not has_derive and gen and not params and meta is not None:
+                #   3. column has a LIKE CHECK constraint → override with
+                #      ``pattern`` generator (only ``pattern`` can guarantee
+                #      the format).
+                #   4. IN-constraint override: when both current and inferred
+                #      generators are ``choice`` but the current choices don't
+                #      match the IN-constraint values (e.g., L3 exact match
+                #      gave ``choices: [0, 1]`` but CHECK says
+                #      ``status IN ('active', 'inactive', ...)``), the IN
+                #      constraint takes priority — it's a hard database
+                #      constraint, not a heuristic. Without this override,
+                #      every ``status`` column in PostgreSQL tables with
+                #      string IN constraints would fail at fill time because
+                #      the L3 exact match ``choices: [0, 1]`` produces integers
+                #      that violate ``CHECK (status IN ('active', ...))``.
+                if not has_derive and gen and meta is not None:
                     col_name = c.get("name", "")
                     if col_name in meta.columns:
                         inferred = _infer_from_check_constraints(col_name, meta.constraints, meta.columns)
                         if inferred is not None:
                             inf_gen, inf_params = inferred
-                            if inf_gen == gen and inf_params:
-                                # Case 1: generators agree — apply params
+                            if inf_gen == gen and inf_params and not params:
+                                # Case 1: generators agree AND current params
+                                # are empty — apply inferred params. Only
+                                # fires when params is empty to avoid
+                                # replacing L3 exact match params (e.g.,
+                                # ``quantity`` has ``min_value: 1,
+                                # max_value: 100`` from L3; CHECK
+                                # ``quantity > 0`` would infer only
+                                # ``min_value: 1``, losing ``max_value``).
                                 c["params"] = inf_params
                                 params = inf_params
                             elif inf_gen in ("boolean", "choice") and gen != inf_gen:
@@ -459,6 +528,21 @@ class AutoHealOrchestrator:
                                 c["generator"] = inf_gen
                                 c["params"] = inf_params
                                 gen = inf_gen
+                                params = inf_params
+                            elif (
+                                inf_gen == "choice"
+                                and gen == "choice"
+                                and inf_params
+                                and "choices" in inf_params
+                            ):
+                                # Case 4: IN-constraint override. Both
+                                # generators are ``choice`` but the current
+                                # choices (from L3 exact match or LLM) don't
+                                # match the IN-constraint values. The IN
+                                # constraint is authoritative — override.
+                                # Example: L3 gives ``choices: [0, 1]`` but
+                                # CHECK says ``status IN ('active', ...)``.
+                                c["params"] = inf_params
                                 params = inf_params
 
                 # Cross-column derive_from restoration: when the LLM is called
@@ -565,6 +649,185 @@ class AutoHealOrchestrator:
                         new_choices = [v for v in old_choices if v in allowed_values]
                         if new_choices and len(new_choices) < len(old_choices):
                             col_cfg["params"]["choices"] = new_choices
+
+        # REAL precision safety net: PostgreSQL REAL (32-bit float) columns
+        # with arithmetic equality CHECK constraints (e.g.,
+        # ``delta = version_from * version_to``) fail when source columns
+        # use float generators with fractional precision. Python computes
+        # expressions in 64-bit float, but PostgreSQL stores and validates
+        # CHECK constraints in 32-bit REAL — the arithmetic results diverge
+        # due to rounding (e.g., 0.1 + 0.2 != 0.3 in 32-bit float). Using
+        # integer source values (which are exactly representable in 32-bit
+        # float when < 2^24 = 16777216) ensures the equality CHECK holds
+        # exactly.
+        #
+        # This safety net scans for REAL columns with derive_from +
+        # arithmetic expressions and converts their source columns from
+        # ``float`` (with precision) to ``integer``. The max_value is
+        # capped at 4000 to ensure products stay within the 32-bit exact
+        # range (4000 * 4000 = 16M < 2^24).
+        #
+        # Decision test: any PostgreSQL database with REAL columns
+        # participating in arithmetic equality CHECKs benefits. SQLite
+        # uses 64-bit float for all floating-point types, so this safety
+        # net is a no-op there (no REAL columns).
+        for tcfg in config.get("tables", []):
+            table_name_r = tcfg.get("name", "")
+            meta_r = snapshot.tables.get(table_name_r)
+            if meta_r is None:
+                continue
+            columns_r = tcfg.get("columns", [])
+            col_map_r: dict[str, dict] = {c.get("name", ""): c for c in columns_r}
+            # Collect REAL columns with arithmetic derive_from expressions
+            real_derived_cols_r: list[dict] = []
+            for c_r in columns_r:
+                col_name_r = c_r.get("name", "")
+                if "derive_from" not in c_r:
+                    continue
+                if col_name_r not in meta_r.column_types:
+                    continue
+                col_type_r = meta_r.column_types.get(col_name_r, "")
+                base_type_r = re.sub(r"\(.*\)", "", col_type_r.upper()).strip()
+                if base_type_r != "REAL":
+                    continue
+                expr_r = str(c_r.get("expression", ""))
+                # Detect arithmetic on value or row[] refs (but not in
+                # function names like abs(), random_float())
+                if re.search(r"\bvalue\s*[\*\+\-]|[\*\+\-]\s*row\[|[\*\+\-]\s*abs\(", expr_r):
+                    real_derived_cols_r.append(c_r)
+            # Convert source columns from float to integer
+            for derived_col_r in real_derived_cols_r:
+                source_cols_r: list[str] = []
+                derive_from_r = derived_col_r.get("derive_from", "")
+                if derive_from_r:
+                    source_cols_r.append(derive_from_r)
+                expr_r = derived_col_r.get("expression", "")
+                for m_r in re.finditer(r"row\['([^']+)'\]", expr_r):
+                    source_cols_r.append(m_r.group(1))
+                # Dedupe preserving order
+                seen_r: set[str] = set()
+                source_cols_r = [s for s in source_cols_r if not (s in seen_r or seen_r.add(s))]
+                for src_name_r in source_cols_r:
+                    src_col_r = col_map_r.get(src_name_r)
+                    if src_col_r is None:
+                        continue
+                    src_gen_r = src_col_r.get("generator")
+                    src_params_r = src_col_r.get("params") or {}
+                    # Only convert float generators with precision (fractional values)
+                    if src_gen_r == "float" and "precision" in src_params_r:
+                        new_min = int(src_params_r.get("min_value", 0))
+                        new_max = int(src_params_r.get("max_value", 999))
+                        if new_max <= new_min:
+                            new_max = new_min + 100
+                        # Cap max to ensure products stay within 32-bit exact range
+                        # 2^24 = 16777216; sqrt(16777216) ≈ 4096, so cap at 4000 for safety
+                        if new_max > 4000:
+                            new_max = 4000
+                        src_col_r["generator"] = "integer"
+                        src_col_r["params"] = {"min_value": new_min, "max_value": new_max}
+
+        # Complex CHECK null_ratio safety net: for nullable columns with
+        # cross-column CHECK constraints that no Pattern (1-41) matched,
+        # set null_ratio=1.0. These are typically complex multi-clause
+        # conditional CHECKs like:
+        #   ``is_normal = 0 OR test_value IS NULL OR
+        #      (test_value >= ref_low AND test_value <= ref_high AND ...)``
+        # where the ``IS NULL`` branch is the only safe fallback. The
+        # existing ``_infer_cross_column_config`` handles 41 patterns but
+        # can't match every possible complex CHECK — this safety net
+        # catches the remainder by forcing NULL (which always satisfies
+        # the ``IS NULL`` branch).
+        #
+        # IMPORTANT: this safety net is skipped when ANY CHECK constraint
+        # requires the column to be NOT NULL (e.g.,
+        # ``status = 'completed' AND completed_at IS NOT NULL``). Setting
+        # null_ratio=1.0 in that case would violate the NOT NULL branch.
+        #
+        # Also overrides incorrect derive_from expressions that can't
+        # satisfy the complex CHECK (e.g., LLM-set derive_from with a
+        # simple expression that doesn't handle all conditional branches).
+        #
+        # Decision test: any database with complex conditional CHECKs
+        # that weren't matched by the pattern engine benefits.
+        for tcfg in config.get("tables", []):
+            table_name_c = tcfg.get("name", "")
+            meta_c = snapshot.tables.get(table_name_c)
+            if meta_c is None:
+                continue
+            for c_c in tcfg.get("columns", []):
+                col_name_c = c_c.get("name", "")
+                # Skip already-NULL columns
+                if c_c.get("null_ratio", 0) >= 1.0:
+                    continue
+                # Skip autoincrement and FK columns
+                gen_c = c_c.get("generator")
+                if gen_c in ("autoincrement", "foreign_key_or_integer"):
+                    continue
+                if col_name_c not in meta_c.columns:
+                    continue
+                col_name_upper_c = col_name_c.upper()
+                # Skip if ANY CHECK requires this column to be NOT NULL
+                # (setting null_ratio=1.0 would violate those CHECKs)
+                requires_not_null_c = False
+                for constraint_c in meta_c.constraints:
+                    if constraint_c.get("type") != "check":
+                        continue
+                    expr_c_norm = _normalize_pg_check_expr(constraint_c.get("expression", ""))
+                    if f"{col_name_upper_c} IS NOT NULL" in expr_c_norm.upper():
+                        requires_not_null_c = True
+                        break
+                if requires_not_null_c:
+                    continue
+                # Check for complex conditional CHECK (OR + IS NULL + cross-column)
+                # that no pattern matched
+                has_complex_check_c = False
+                for constraint_c in meta_c.constraints:
+                    if constraint_c.get("type") != "check":
+                        continue
+                    expr_c = constraint_c.get("expression", "")
+                    if not expr_c:
+                        continue
+                    expr_c_norm = _normalize_pg_check_expr(expr_c)
+                    expr_c_upper = expr_c_norm.upper()
+                    if col_name_upper_c not in expr_c_upper:
+                        continue
+                    # Complex conditional: has OR with IS NULL for this column
+                    # AND references other columns
+                    if (
+                        " OR " in expr_c_upper
+                        and f"{col_name_upper_c} IS NULL" in expr_c_upper
+                        and _has_cross_column_check(col_name_c, meta_c.constraints)
+                    ):
+                        has_complex_check_c = True
+                        break
+                if has_complex_check_c:
+                    # Before forcing null_ratio=1.0, check if the pattern
+                    # engine (_infer_cross_column_config) can match this
+                    # column's CHECK. If it can, the pattern already
+                    # handled it (either via LLM-set derive_from or via the
+                    # cross-column restoration in the main loop) — don't
+                    # override. Only force null_ratio=1.0 when NO pattern
+                    # matched (the complex CHECK is truly unhandled).
+                    col_type_c = meta_c.column_types.get(col_name_c, "TEXT")
+                    fk_cols_set_c: set[str] = set()
+                    for fk_c in meta_c.foreign_keys:
+                        for fc_c in fk_c.get("columns", []):
+                            fk_cols_set_c.add(fc_c)
+                    cross_result_c = _infer_cross_column_config(
+                        col_name_c, meta_c.constraints, meta_c.columns,
+                        col_type_c, fk_cols_set_c,
+                        column_types=meta_c.column_types,
+                    )
+                    if cross_result_c is not None and "derive_from" in cross_result_c:
+                        # Pattern matched — skip null_ratio override
+                        continue
+                    c_c["null_ratio"] = 1.0
+                    # Remove generator/params/derive_from since null_ratio=1.0
+                    # means all NULL
+                    c_c.pop("generator", None)
+                    c_c.pop("params", None)
+                    c_c.pop("derive_from", None)
+                    c_c.pop("expression", None)
 
         # Step 6: emit YAML
         if self._verbose:
@@ -814,7 +1077,17 @@ class AutoHealOrchestrator:
                     is_primary_key=False,
                     is_autoincrement=False,
                 )
-                spec = _get_column_mapper().map_column(col_info)
+                # force_type_infer=True so that nullable columns (which is
+                # every column here, since nullable=True is hardcoded above)
+                # fall through to L9 type-faithful fallback instead of
+                # returning "skip" at L8. This is critical for PostgreSQL-
+                # specific types (UUID, JSONB, INET, CIDR, MACADDR, INTERVAL,
+                # TSVECTOR, TSTZRANGE, TEXT[], INTEGER[]) which have
+                # specialized generators in TYPE_FALLBACK_RULES — without
+                # this, L8 would return "skip" and _placeholder_generator
+                # would fall back to "string" for all of them, producing
+                # invalid values that cause DataError at fill time.
+                spec = _get_column_mapper().map_column(col_info, force_type_infer=True)
                 gen_name = spec.generator_name
                 gen_params = dict(spec.params)
                 # Handle "skip" (returned for PK autoincrement columns) by
@@ -1078,6 +1351,46 @@ def _has_like_constraint(col_name: str, constraints: list[dict[str, Any]]) -> bo
     return False
 
 
+def _has_cross_column_check(col_name: str, constraints: list[dict[str, Any]]) -> bool:
+    """Check if a column has a CHECK constraint referencing other columns.
+
+    Used by the complex CHECK null_ratio safety net (Step 5.5) to detect
+    columns that participate in cross-column conditional CHECKs (e.g.,
+    ``is_normal = 0 OR test_value IS NULL OR (test_value >= ref_low AND ...)``).
+    Such columns are candidates for null_ratio=1.0 when no Pattern (1-41)
+    matched the complex CHECK — the ``IS NULL`` branch is the only safe
+    fallback.
+
+    Normalizes PostgreSQL CHECK expressions (strips ``::type`` casts) before
+    tokenizing. SQL keywords (AND, OR, NOT, NULL, IS, IN, etc.) and numeric
+    literals are excluded from the "other column" check.
+    """
+    for c in constraints:
+        if c.get("type") != "check":
+            continue
+        expr = c.get("expression", "")
+        if not expr:
+            continue
+        # Normalize PG expression (strip ::type casts)
+        expr = _normalize_pg_check_expr(expr)
+        # Check if this column is referenced
+        if col_name not in expr:
+            continue
+        # Check if ANY other column is referenced (look for word tokens
+        # that aren't SQL keywords or numeric literals)
+        tokens = set(re.findall(r"\b[a-z_]\w*\b", expr.lower()))
+        sql_keywords = {
+            "and", "or", "not", "null", "is", "in", "between", "like",
+            "case", "when", "then", "else", "end", "abs", "length",
+            "date", "time", "timestamp", "true", "false",
+        }
+        col_refs = tokens - sql_keywords - {col_name.lower()}
+        col_refs = {t for t in col_refs if not t.isdigit()}
+        if col_refs:
+            return True
+    return False
+
+
 def _get_unique_columns(constraints: list[dict[str, Any]]) -> set[str]:
     """Extract the set of column names that have a UNIQUE constraint.
 
@@ -1151,6 +1464,71 @@ def _infer_unique_column_config(
     }
 
 
+def _normalize_pg_check_expr(expr: str) -> str:
+    """Normalize PostgreSQL CHECK expression for regex pattern matching.
+
+    PostgreSQL normalizes CHECK expressions in ``information_schema`` by:
+    1. Adding ``::type`` casts (e.g., ``::double precision``, ``::text``)
+    2. Wrapping RHS of ``=`` in outer parentheses
+       (e.g., ``col = (unit_price * quantity + shipping_cost)``)
+    3. Wrapping sub-expressions in comparison operators
+       (e.g., ``col <= (max_size * 1.5)``)
+
+    These transformations break the regex patterns in
+    ``_infer_cross_column_config`` and ``_parse_single_column_check``.
+    This function strips casts and outer parentheses to restore the
+    original author-intended form.
+    """
+    # 1. Strip ::type casts (e.g., ::double precision, ::text, ::integer)
+    #    Match :: followed by 1-2 word type name.
+    expr = re.sub(r"::\w+(?:\s+\w+)?", "", expr)
+
+    # 2. Strip outer parentheses around RHS of = comparison
+    #    e.g., "delta = (abs(version_from) * abs(version_to))"
+    #    → "delta = abs(version_from) * abs(version_to)"
+    #    Uses balanced-paren check to avoid stripping function-call parens.
+    m_eq = re.match(r"^(\s*\w+\s*=\s*)\((.+)\)\s*$", expr)
+    if m_eq:
+        prefix = m_eq.group(1)
+        inner = m_eq.group(2)
+        depth = 0
+        balanced = True
+        for ch in inner:
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+                if depth < 0:
+                    balanced = False
+                    break
+        if balanced and depth == 0:
+            expr = prefix + inner
+
+    # 3. Strip parentheses around comparison RHS in compound expressions
+    #    e.g., "size_mb <= (max_size * 1.5)" → "size_mb <= max_size * 1.5"
+    #    Only strips one level; inner expression must have no parens.
+    expr = re.sub(r"((?:>=|<=|!=|>|<)\s*)\(([^()]+)\)", r"\1\2", expr)
+
+    return expr
+
+
+def _normalize_constraints(constraints: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Return a copy of constraints with PostgreSQL-normalized expressions.
+
+    Creates shallow copies of constraint dicts with normalized ``expression``
+    fields, so the original list is not mutated.
+    """
+    result: list[dict[str, Any]] = []
+    for c in constraints:
+        if c.get("type") == "check" and c.get("expression"):
+            nc = dict(c)
+            nc["expression"] = _normalize_pg_check_expr(c["expression"])
+            result.append(nc)
+        else:
+            result.append(c)
+    return result
+
+
 def _infer_from_check_constraints(
     col_name: str,
     constraints: list[dict[str, Any]],
@@ -1181,6 +1559,8 @@ def _infer_from_check_constraints(
     immediately on first match since they are mutually exclusive with
     range patterns.
     """
+    # Normalize constraints (strip PG ::type casts and outer parens).
+    constraints = _normalize_constraints(constraints)
     # Collect all parsed results from matching single-column CHECKs.
     # Range/length patterns are merged; enum/format patterns return
     # immediately (they are mutually exclusive with other patterns).
@@ -1295,6 +1675,8 @@ def _parse_single_column_check(
     - ``col IS NULL OR <inner_expr>`` → strip prefix, parse inner expression
       (always generating a valid non-NULL value satisfies the CHECK)
     """
+    # Normalize PG expression (strip ::type casts and outer parens).
+    expr = _normalize_pg_check_expr(expr)
     col = re.escape(col_name)
 
     # Strip "col IS NULL OR ..." prefix (conditional NULL with inner constraint).
@@ -1436,6 +1818,32 @@ def _parse_single_column_check(
         choices = re.findall(r"'([^']*)'", choices_str)
         if choices:
             return ("choice", {"choices": choices})
+
+    # Pattern: col = ANY (ARRAY['a'::text, 'b'::text, ...]) — PostgreSQL
+    # normalizes ``col IN ('a', 'b')`` to this form in information_schema.
+    # The ``::type`` casts are stripped from each value. Example:
+    #   status = ANY (ARRAY['active'::text, 'inactive'::text, ...])
+    # Without this pattern, all PostgreSQL IN-constrained columns would miss
+    # CHECK inference, causing the L3 exact match ``choices: [0, 1]`` to leak
+    # through for every ``status`` column.
+    m = re.match(
+        rf"^\s*{col}\s*=\s*ANY\s*\(\s*ARRAY\s*\[\s*(.+?)\s*\]\s*\)\s*$",
+        expr,
+        re.IGNORECASE,
+    )
+    if m:
+        inner = m.group(1)
+        # Extract quoted string values (strip ::type casts)
+        choices = re.findall(r"'([^']*)'", inner)
+        if choices:
+            return ("choice", {"choices": choices})
+        # Try numeric values
+        nums = re.findall(r"\b(-?\d+)\b", inner)
+        if nums:
+            nums_int = [int(n) for n in nums]
+            if len(nums_int) == 2 and set(nums_int) == {0, 1}:
+                return ("boolean", {})
+            return ("choice", {"choices": nums_int})
 
     # Pattern: col IN (0, 1) or col IN (1, 0) — boolean
     m = re.match(
@@ -1685,6 +2093,9 @@ def _infer_cross_column_config(
     Skipped patterns (not safely inferable from CHECK alone):
     - ``col != other`` for non-integer columns (needs FK pool awareness)
     """
+    # Normalize constraints (strip PG ::type casts and outer parens) so
+    # regex patterns can match PostgreSQL-normalized CHECK expressions.
+    constraints = _normalize_constraints(constraints)
     col = re.escape(col_name)
     col_set = set(all_columns)
     is_date_type = any(k in col_type.upper() for k in ("DATE", "TIME", "DATETIME"))

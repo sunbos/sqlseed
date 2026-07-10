@@ -48,7 +48,7 @@ class UniqueAdjuster:
             if col_name not in specs:
                 continue
             spec = specs[col_name]
-            if spec.generator_name == "skip":
+            if spec.generator_name in {"skip", "autoincrement"}:
                 continue
 
             if spec.generator_name == "string":

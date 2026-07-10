@@ -738,7 +738,7 @@ class RelationResolver:
             values = [row[col_name] for row in sample_rows if col_name in row]
             if values:
                 self._shared_pool.merge(col_name, values)
-                if spec.generator_name == "skip" and col_name in pk_columns:
+                if spec.generator_name in {"skip", "autoincrement"} and col_name in pk_columns:
                     logger.debug(
                         "Registered auto-increment PK values to SharedPool",
                         table_name=table_name,

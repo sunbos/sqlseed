@@ -234,8 +234,26 @@ class ColumnMapper:
         "DATE": ("date", {}),
         "DATETIME": ("datetime", {}),
         "TIMESTAMP": ("timestamp", {}),
+        "TIMESTAMPTZ": ("datetime", {}),
         "VARCHAR": ("string", {}),
         "CHAR": ("string", {}),
+        # PostgreSQL-specific types
+        "UUID": ("uuid", {}),
+        "JSONB": ("json", {}),
+        "JSON": ("json", {}),
+        "INET": ("ipv4", {}),
+        "CIDR": ("choice", {"choices": [
+            "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",
+            "10.0.0.0/24", "172.16.0.0/24", "192.168.1.0/24",
+        ]}),
+        "MACADDR": ("pattern", {"pattern": (
+            r"[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:"
+            r"[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}"
+        )}),
+        # PostgreSQL rare types — produce minimal valid literals via choice generator
+        "INTERVAL": ("choice", {"choices": ["0 seconds"]}),
+        "TSVECTOR": ("choice", {"choices": [""]}),
+        "TSTZRANGE": ("choice", {"choices": ["empty"]}),
     }
 
     def __init__(self) -> None:
@@ -492,6 +510,36 @@ class ColumnMapper:
 
         base_type = re.sub(r"\(.*\)", "", column_type).strip()
 
+        # PostgreSQL array types — always generate NULL.
+        # The string '{}' doesn't work with PostgreSQL parameterized queries
+        # (psycopg sends it as a string, but PG expects a Python list for
+        # ARRAY columns). Since ARRAY columns are typically nullable (they
+        # have DEFAULT '{}'), null_ratio=1.0 is the safest fallback.
+        # Handle both forms:
+        #   - pg_catalog format_type: "TEXT[]", "INTEGER[]", "UUID[]"
+        #   - SQLAlchemy inspect(): "ARRAY" (repr ARRAY(TEXT()) / ARRAY(INTEGER()))
+        if base_type.endswith("[]") or base_type == "ARRAY":
+            return GeneratorSpec(generator_name="string", params={}, null_ratio=1.0)
+
+        # Exact match first: prevents ``INTERVAL`` from matching the ``INT``
+        # prefix rule (which would produce ``integer`` instead of ``choice``
+        # with ``["0 seconds"]``). Also prevents ``JSONB`` from matching
+        # ``JSON`` (though JSONB is ordered before JSON in the dict, exact
+        # match is still safer).
+        if base_type in self.TYPE_FALLBACK_RULES:
+            gen, default_params = self.TYPE_FALLBACK_RULES[base_type]
+            params = dict(default_params)
+            if max_length is not None:
+                if gen == "string":
+                    params["min_length"] = 1
+                    params["max_length"] = max_length
+                elif gen == "bytes":
+                    params["length"] = max_length
+            return GeneratorSpec(generator_name=gen, params=params)
+
+        # Prefix match fallback: handles parameterized types like
+        # ``VARCHAR(255)`` (base_type ``VARCHAR`` matches rule ``VARCHAR``)
+        # and dialect variants like ``INTEGER`` matching ``INT``.
         for type_prefix, (gen, default_params) in self.TYPE_FALLBACK_RULES.items():
             if base_type.startswith(type_prefix):
                 params = dict(default_params)

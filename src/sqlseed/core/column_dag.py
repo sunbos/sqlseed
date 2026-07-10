@@ -66,8 +66,20 @@ class ColumnNode:
 
     @property
     def is_skip(self) -> bool:
-        """Return True if the column's generator is the skip generator (no value produced)."""
-        return self.generator_spec.generator_name == "skip"
+        """Return True if the column's generator is a skip marker (no value produced).
+
+        Two sentinel generator names are treated as skip markers:
+        - ``"skip"``: returned by ColumnMapper L1 for autoincrement PK columns
+          (detected via ``is_autoincrement`` flag from the schema inferrer).
+        - ``"autoincrement"``: returned by ColumnMapper L5 pattern match
+          (``r"^id$"`` rule) when L1 doesn't fire — e.g., PostgreSQL SERIAL
+          columns where the schema inferrer doesn't set ``is_autoincrement=True``,
+          or config-driven fills where the YAML explicitly sets
+          ``generator: autoincrement`` (from ai-analyze output). Without this,
+          the stream would try to call ``provider.generate("autoincrement", ...)``
+          and raise ``UnknownGeneratorError``.
+        """
+        return self.generator_spec.generator_name in {"skip", "autoincrement"}
 
 
 class ColumnDAG:

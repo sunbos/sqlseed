@@ -75,9 +75,9 @@ _PG_TYPE_MAP: dict[str, str] = {
     "time with time zone": "TIMETZ",
     "interval": "INTERVAL",
     "money": "DECIMAL",
-    "inet": "TEXT",
-    "cidr": "TEXT",
-    "macaddr": "TEXT",
+    "inet": "INET",
+    "cidr": "CIDR",
+    "macaddr": "MACADDR",
     "bit varying": "BLOB",
     "bit": "BLOB",
 }

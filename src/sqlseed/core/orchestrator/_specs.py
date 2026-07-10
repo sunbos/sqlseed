@@ -280,7 +280,9 @@ class SpecResolverMixin:
             )
         logger.debug("resolve_specs", table_name=table_name, elapsed=f"{time.monotonic() - t_resolve:.3f}s")
         builtin_count = sum(
-            1 for s in specs.values() if s.generator_name not in {"string", "skip", "__enrich__", "__derive__"}
+            1
+            for s in specs.values()
+            if s.generator_name not in {"string", "skip", "autoincrement", "__enrich__", "__derive__"}
         )
         string_count = sum(1 for s in specs.values() if s.generator_name == "string")
         logger.info(
