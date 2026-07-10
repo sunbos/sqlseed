@@ -137,6 +137,59 @@ class TestRelationResolver:
         finally:
             adapter.close()
 
+    def test_topological_sort_prefers_nullable_fk_as_cycle_breaker(self, tmp_path: Any) -> None:
+        """Cycle breaker prefers the table whose FK to the other cycle table is nullable.
+
+        When two tables reference each other (e.g., branches↔employees) and
+        one side's FK is NOT NULL while the other is nullable, the nullable
+        side should be filled first (so its FK can be set to NULL via
+        ``null_ratio=1.0``), and the NOT NULL side should be filled second
+        (so its FK shared pool is populated). Filling the NOT NULL side first
+        would leave its FK shared pool empty, forcing ``foreign_key_or_integer``
+        to fall back to a random integer — causing FK violations.
+
+        This test uses the R6 banking schema shape:
+        - employees.branch_id INTEGER NOT NULL → branches.id
+        - branches.manager_id INTEGER (nullable) → employees.id
+
+        Input order is [employees, branches] but the expected output is
+        [branches, employees] because branches.manager_id is nullable.
+        """
+        db_path = str(tmp_path / "circular_notnull.db")
+        conn = sqlite3.connect(db_path)
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("""
+            CREATE TABLE employees (
+                id INTEGER PRIMARY KEY,
+                branch_id INTEGER NOT NULL,
+                manager_id INTEGER,
+                FOREIGN KEY (branch_id) REFERENCES branches(id),
+                FOREIGN KEY (manager_id) REFERENCES employees(id)
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE branches (
+                id INTEGER PRIMARY KEY,
+                manager_id INTEGER,
+                FOREIGN KEY (manager_id) REFERENCES employees(id)
+            )
+        """)
+        conn.commit()
+        conn.close()
+
+        adapter = RawSQLiteAdapter()
+        adapter.connect(db_path)
+        try:
+            resolver = RelationResolver(adapter)
+            order = resolver.topological_sort(["employees", "branches"])
+            assert set(order) == {"employees", "branches"}
+            # branches must come first — its manager_id FK is nullable and
+            # can be set to NULL, while employees.branch_id is NOT NULL and
+            # needs the branches shared pool populated.
+            assert order.index("branches") < order.index("employees")
+        finally:
+            adapter.close()
+
     def test_resolve_foreign_key_values_no_match(self, raw_adapter) -> None:
         resolver = RelationResolver(raw_adapter)
         values = resolver.resolve_foreign_key_values("orders", "nonexistent_col")

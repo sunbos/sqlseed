@@ -119,9 +119,12 @@ class RelationResolver:
         Circular FK dependencies (e.g., A→B→A, common in real-world schemas
         like ``branches↔employees``) are broken gracefully using Kahn's
         algorithm: when no table has zero pending dependencies (cycle
-        deadlock), the first table in input order is picked to break the
-        cycle. A warning is logged so the caller can set ``null_ratio=1.0``
-        for the nullable FK in the cycle to avoid fill-time FK violations.
+        deadlock), a table is picked to break the cycle. The picker prefers
+        tables whose FK to another remaining table is nullable — this allows
+        ``null_ratio=1.0`` to be applied to the nullable side, avoiding FK
+        violations when the NOT NULL side is filled later (with a populated
+        shared pool). If no nullable FK is found, the first table in input
+        order is used as fallback.
         """
         graph: dict[str, set[str]] = {}
         for table in table_names:
@@ -132,7 +135,8 @@ class RelationResolver:
         # set of unprocessed dependencies for each table. A table is
         # "ready" when its pending_deps is empty (all deps already placed
         # in the result). When no table is ready (cycle deadlock), the
-        # first table in input order is picked to break the cycle.
+        # cycle breaker picks a table whose FK to another remaining table
+        # is nullable (so null_ratio=1.0 can be applied to that side).
         pending_deps: dict[str, set[str]] = {t: set(graph[t]) for t in table_names}
         remaining: set[str] = set(table_names)
         result: list[str] = []
@@ -140,11 +144,7 @@ class RelationResolver:
         while remaining:
             ready = [t for t in table_names if t in remaining and not pending_deps[t]]
             if not ready:
-                # Cycle deadlock — pick the first table in input order to
-                # break the cycle. This heuristic works well because schema
-                # designers typically list "root" tables (whose circular FK
-                # is nullable) before their dependents.
-                breaker = next(t for t in table_names if t in remaining)
+                breaker = self._pick_cycle_breaker(table_names, remaining)
                 logger.warning(
                     "Circular FK dependency detected, breaking cycle",
                     table=breaker,
@@ -161,6 +161,39 @@ class RelationResolver:
                     pending_deps[t].discard(table)
 
         return result
+
+    def _pick_cycle_breaker(self, table_names: list[str], remaining: set[str]) -> str:
+        """Pick a table to break a circular FK dependency.
+
+        Prefers tables whose FK column to another remaining table is
+        nullable — this allows ``null_ratio=1.0`` to be applied to the
+        nullable side, avoiding FK violations when the NOT NULL side is
+        filled later with a populated shared pool.
+
+        Falls back to the first table in input order if no nullable FK
+        is found (or if column info cannot be loaded).
+        """
+        for table in table_names:
+            if table not in remaining:
+                continue
+            fks = self.get_foreign_keys(table)
+            if not fks:
+                continue
+            # Check if any FK points to another remaining table and the
+            # FK column is nullable. Self-referencing FKs are skipped
+            # (they don't participate in the inter-table cycle).
+            try:
+                col_info = self._db.get_column_info(table)
+            except Exception:
+                continue
+            nullable_map = {c.name: c.nullable for c in col_info}
+            for fk in fks:
+                if fk.ref_table == table or fk.ref_table not in remaining:
+                    continue
+                if nullable_map.get(fk.column, False):
+                    return table
+        # Fallback: first table in input order
+        return next(t for t in table_names if t in remaining)
 
     def resolve_foreign_key_values(
         self,
