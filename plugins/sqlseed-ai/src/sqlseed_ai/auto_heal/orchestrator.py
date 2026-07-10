@@ -2975,6 +2975,28 @@ def _infer_cross_column_config(
         # ``approved_amount IS NULL OR approved_amount <= claim_amount``
         # before Pattern 30b NOT IN could match
         # ``status NOT IN ('approved','settled') OR approved_amount IS NOT NULL``.
+        #
+        # Pattern 4a: when the expression after ``=`` is a simple 2-column
+        # multiplication (``col = col1 * col2``), convert to derive_from
+        # instead of returning null_ratio=1.0. This produces realistic
+        # business data (e.g., line_total = unit_price * quantity) instead
+        # of all-NULLs. Uses null_ratio=0.3 so 30% of values are NULL
+        # (satisfying the IS NULL branch) and 70% are computed (satisfying
+        # the equality branch).
+        m_p4_mul = re.search(
+            rf"{col}\s+IS\s+NULL\s+OR\s+{col}\s*(?<![<>])=\s*(\w+)\s*\*\s*(\w+)\s*$",
+            expr,
+            re.IGNORECASE,
+        )
+        if m_p4_mul:
+            col1_p4, col2_p4 = m_p4_mul.group(1), m_p4_mul.group(2)
+            if col1_p4 in col_set and col2_p4 in col_set and col1_p4 != col_name:
+                return {
+                    "derive_from": col1_p4,
+                    "expression": f"value * row['{col2_p4}']",
+                    "null_ratio": 0.3,
+                }
+
         if re.search(rf"{col}\s+IS\s+NULL\s+OR\s+{col}\s*(?<![<>])=", expr, re.IGNORECASE):
             return {
                 "generator": _placeholder_generator(col_type),
@@ -3755,6 +3777,25 @@ def _infer_cross_column_config(
                 return {
                     "derive_from": col1,
                     "expression": f"value * row['{col2}']",
+                }
+
+        # Pattern 7a: col = col1 * col2 (arithmetic equality — two columns)
+        # e.g., subtotal = unit_price * quantity
+        # Derive from the first multiplicand, reference the second via the
+        # row dict. Same logic as Pattern 7 but for ``=`` (equality) instead
+        # of ``>=``. Without this, ``subtotal = unit_price * quantity`` would
+        # not be matched by the deterministic code (only by the LLM).
+        m = re.match(
+            rf"^\s*{col}\s*(?<![<>])=\s*(\w+)\s*\*\s*(\w+)\s*$",
+            expr,
+            re.IGNORECASE,
+        )
+        if m:
+            col1_p7a, col2_p7a = m.group(1), m.group(2)
+            if col1_p7a in col_set and col2_p7a in col_set and col1_p7a != col_name:
+                return {
+                    "derive_from": col1_p7a,
+                    "expression": f"value * row['{col2_p7a}']",
                 }
 
         # Pattern 7b: col >= col2 * CONSTANT (arithmetic comparison — column times literal)
