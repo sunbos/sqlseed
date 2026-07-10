@@ -811,7 +811,7 @@ Level 2 │ 用户配置          columns={"email": "email"} 最高优先级
         ▼
 Level 3 │ 自定义精确匹配    通过插件 Hook 注册的规则
         ▼
-Level 4 │ 内置精确匹配      <!-- BEGIN:AUTO-GENERATED:exact-match-rule-count -->76<!-- END:AUTO-GENERATED:exact-match-rule-count --> 条规则：email→email, phone→phone, age→integer...
+Level 4 │ 内置精确匹配      <!-- BEGIN:AUTO-GENERATED:exact-match-rule-count -->75<!-- END:AUTO-GENERATED:exact-match-rule-count --> 条规则：email→email, phone→phone, age→integer...
         ▼
 Level 5 │ DEFAULT 检查      有默认值 → skip / __enrich__（enrich=True 时生成数据）
         ▼

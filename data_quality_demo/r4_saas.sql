@@ -14,7 +14,7 @@ CREATE TABLE organizations (
     parent_id INTEGER,
     org_type TEXT NOT NULL CHECK (org_type IN ('root', 'division', 'team', 'project')),
     industry TEXT CHECK (industry IN ('tech', 'finance', 'healthcare', 'education', 'retail', 'manufacturing', 'other')),
-    country TEXT NOT NULL DEFAULT 'CN' CHECK (LENGTH(country) = 2),
+    country_code TEXT NOT NULL DEFAULT 'CN' CHECK (LENGTH(country_code) = 2),
     timezone TEXT NOT NULL DEFAULT 'Asia/Shanghai',
     metadata TEXT,
     max_users INTEGER NOT NULL DEFAULT 50 CHECK (max_users > 0 AND max_users <= 100000),

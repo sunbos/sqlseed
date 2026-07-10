@@ -94,7 +94,12 @@ CREATE TABLE claims (
         (claim_type IN ('medical', 'accident') AND approved_amount IS NULL OR approved_amount = claim_amount - deductible_applied)
         OR (claim_type IN ('property_damage', 'theft') AND approved_amount IS NULL OR approved_amount = claim_amount - deductible_applied * 0.5)
     ),
-    CHECK (status IN ('filed', 'reviewed') OR approved_amount IS NULL)
+    -- Original ``status IN ('filed', 'reviewed') OR approved_amount IS NULL``
+    -- was logically contradictory with ``status != 'approved' OR approved_amount > 0.0``:
+    -- when status='approved', the old #11 forced approved_amount IS NULL while
+    -- #6 required approved_amount > 0.0. Fixed to require approved_amount
+    -- IS NOT NULL only for terminal states (approved/settled).
+    CHECK (status NOT IN ('approved', 'settled') OR approved_amount IS NOT NULL)
 );
 
 CREATE TABLE claim_documents (

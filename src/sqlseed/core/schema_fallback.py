@@ -140,11 +140,21 @@ class SchemaFallbackGenerator:
 
             if parsed.kind == "range":
                 params: dict[str, Any] = {}
-                if parsed.min_value is not None:
-                    params["min_value"] = parsed.min_value
-                if parsed.max_value is not None:
-                    params["max_value"] = parsed.max_value
                 gen_name = "integer" if self._is_integer_range(parsed) else "float"
+                if gen_name == "integer":
+                    # Coerce float bounds (e.g., 1.0 from CHECK ``>= 1``) to
+                    # int — ``random.randint`` rejects float arguments with
+                    # ``TypeError: 'float' object cannot be interpreted as
+                    # an integer``.
+                    if parsed.min_value is not None:
+                        params["min_value"] = int(parsed.min_value)
+                    if parsed.max_value is not None:
+                        params["max_value"] = int(parsed.max_value)
+                else:
+                    if parsed.min_value is not None:
+                        params["min_value"] = parsed.min_value
+                    if parsed.max_value is not None:
+                        params["max_value"] = parsed.max_value
                 return GeneratorSpec(generator_name=gen_name, params=params)
 
             if parsed.kind == "length_range":

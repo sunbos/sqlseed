@@ -829,6 +829,259 @@ class AutoHealOrchestrator:
                     c_c.pop("derive_from", None)
                     c_c.pop("expression", None)
 
+        # Safety net 7: Clear ``null_ratio: 1.0`` on columns that:
+        # (a) have ``IS NOT NULL`` in their CHECK constraints, OR
+        # (b) have other columns deriving from them via ``derive_from`` that
+        #     are expected to produce non-NULL values (no null_ratio on the
+        #     dependent).
+        #
+        # This handles three cases:
+        # - R7 claims.approved_amount: LLM set null_ratio=1.0, but CHECK
+        #   requires non-NULL when status IN ('approved','settled') — case (a)
+        # - R4 usage_records.quota_limit: complex CHECK safety net set
+        #   null_ratio=1.0, but metric_value (NOT NULL) derives from it —
+        #   case (b)
+        # - R4 organizations.parent_id: Step 0 (self-ref FK) set
+        #   null_ratio=1.0, but CHECK requires non-NULL when
+        #   org_type != 'root' — special case (c)
+        #
+        # For self-ref FK columns (case c), we CANNOT simply clear null_ratio
+        # because the FK has no target rows during initial bulk fill (the
+        # parent table is the same table, which is being filled for the first
+        # time, so the shared pool is empty). Instead, we keep null_ratio=1.0
+        # and restrict the conditional column's choices to only the
+        # NULL-allowing value (e.g., org_type='root'), so both the FK
+        # constraint and the CHECK constraint are satisfied:
+        # - ``org_type = 'root' OR parent_id IS NOT NULL`` → 'root'='root' is
+        #   TRUE, so the CHECK passes regardless of parent_id
+        # - ``org_type != 'root' OR parent_id IS NULL`` → 'root'!='root' is
+        #   FALSE, so parent_id must be NULL (satisfied by null_ratio=1.0)
+        for tcfg_sn7 in config.get("tables", []):
+            table_name_sn7 = tcfg_sn7.get("name", "")
+            meta_sn7 = snapshot.tables.get(table_name_sn7)
+            if meta_sn7 is None:
+                continue
+            # Compute self-ref FK columns for this table (Step 0 logic mirror)
+            self_ref_fk_cols_sn7: set[str] = set()
+            for fk_sn7 in meta_sn7.foreign_keys:
+                if fk_sn7.get("ref_table") == table_name_sn7:
+                    for fc_sn7 in fk_sn7.get("columns", []):
+                        self_ref_fk_cols_sn7.add(fc_sn7)
+            fk_cols_set_sn7: set[str] = set()
+            for fk_sn7 in meta_sn7.foreign_keys:
+                for fc_sn7 in fk_sn7.get("columns", []):
+                    fk_cols_set_sn7.add(fc_sn7)
+            # Build derive_from dependency map: source_col -> [dependent_cols]
+            derive_dependents_sn7: dict[str, list[str]] = {}
+            for c_dep in tcfg_sn7.get("columns", []):
+                dep_name = c_dep.get("derive_from")
+                if isinstance(dep_name, str):
+                    derive_dependents_sn7.setdefault(dep_name, []).append(c_dep.get("name", ""))
+            for c_sn7 in tcfg_sn7.get("columns", []):
+                if c_sn7.get("null_ratio", 0) < 1.0:
+                    continue
+                col_name_sn7 = c_sn7.get("name", "")
+                if col_name_sn7 not in meta_sn7.columns:
+                    continue
+                col_name_upper_sn7 = col_name_sn7.upper()
+                is_self_ref_fk_sn7 = col_name_sn7 in self_ref_fk_cols_sn7
+                # Check if any CHECK constraint requires this column to be
+                # NOT NULL (contains ``IS NOT NULL`` for this column).
+                requires_not_null_sn7 = False
+                for constraint_sn7 in meta_sn7.constraints:
+                    if constraint_sn7.get("type") != "check":
+                        continue
+                    expr_sn7_norm = _normalize_pg_check_expr(constraint_sn7.get("expression", ""))
+                    if f"{col_name_upper_sn7} IS NOT NULL" in expr_sn7_norm.upper():
+                        requires_not_null_sn7 = True
+                        break
+                # Check if any non-null_ratio column derives from this column
+                # (case b). If a dependent column has no null_ratio and
+                # derives_from this null_ratio=1.0 column, the dependent will
+                # likely produce NULL values when the source is NULL, causing
+                # NOT NULL constraint failures if the dependent is NOT NULL.
+                has_non_null_dependent_sn7 = False
+                for dep_col_name in derive_dependents_sn7.get(col_name_sn7, []):
+                    for dep_c in tcfg_sn7.get("columns", []):
+                        if dep_c.get("name") == dep_col_name and dep_c.get("null_ratio", 0) < 1.0:
+                            has_non_null_dependent_sn7 = True
+                            break
+                    if has_non_null_dependent_sn7:
+                        break
+                if not requires_not_null_sn7 and not has_non_null_dependent_sn7:
+                    continue
+                # Case (c): self-ref FK with IS NOT NULL CHECK — keep
+                # null_ratio, restrict the conditional column's choices to
+                # the NULL-allowing value. This avoids the chicken-and-egg
+                # problem of self-ref FK during initial bulk fill.
+                if is_self_ref_fk_sn7 and requires_not_null_sn7:
+                    # Find Pattern 30b matching: ``col1 = 'VALUE' OR col IS NOT NULL``
+                    # to identify the NULL-allowing value for the conditional column.
+                    for constraint_sn7 in meta_sn7.constraints:
+                        if constraint_sn7.get("type") != "check":
+                            continue
+                        expr_sn7_norm = _normalize_pg_check_expr(constraint_sn7.get("expression", ""))
+                        m_p30b_sn7 = re.match(
+                            rf"^\s*(\w+)\s*=\s*'([^']+)'\s+OR\s+{col_name_upper_sn7}\s+IS\s+NOT\s+NULL\s*$",
+                            expr_sn7_norm,
+                            re.IGNORECASE,
+                        )
+                        if m_p30b_sn7:
+                            cond_col_sn7 = m_p30b_sn7.group(1)
+                            null_val_sn7 = m_p30b_sn7.group(2)
+                            # Restrict the conditional column's choices to
+                            # just [null_val] so the CHECK is always satisfied
+                            # via the ``col1 = 'VALUE'`` branch.
+                            for c_cond in tcfg_sn7.get("columns", []):
+                                if c_cond.get("name") == cond_col_sn7:
+                                    c_cond["generator"] = "choice"
+                                    c_cond["params"] = {"choices": [null_val_sn7]}
+                                    c_cond.pop("derive_from", None)
+                                    c_cond.pop("expression", None)
+                                    break
+                            break  # Only need to match one Pattern 30b
+                    continue  # Keep null_ratio=1.0 for self-ref FK
+                # Cases (a) and (b): clear null_ratio and set a non-NULL generator
+                c_sn7.pop("null_ratio", None)
+                col_type_sn7 = meta_sn7.column_types.get(col_name_sn7, "TEXT")
+                # Try to apply a cross-column pattern (Pattern 30b, 30b NOT IN, etc.)
+                cross_result_sn7 = _infer_cross_column_config(
+                    col_name_sn7, meta_sn7.constraints, meta_sn7.columns,
+                    col_type_sn7, fk_cols_set_sn7,
+                    self_ref_fk_cols=self_ref_fk_cols_sn7,
+                    column_types=meta_sn7.column_types,
+                )
+                # Ignore results that re-introduce null_ratio=1.0 — Safety
+                # net 7's purpose is to CLEAR null_ratio so the column
+                # produces non-NULL values. Some patterns (e.g., Pattern 4:
+                # ``col IS NULL OR col = expr``) return null_ratio=1.0 as a
+                # safe fallback, but that defeats Safety net 7's goal. Only
+                # accept results that have ``derive_from`` (useful) and do
+                # NOT have ``null_ratio: 1.0``.
+                if cross_result_sn7 is not None and cross_result_sn7.get("null_ratio", 0) >= 1.0:
+                    cross_result_sn7 = None
+                if cross_result_sn7 is not None:
+                    # Pattern matched — use the derive_from config.
+                    c_sn7.pop("generator", None)
+                    c_sn7.pop("params", None)
+                    c_sn7.update(cross_result_sn7)
+                else:
+                    # No usable cross-column pattern matched. Before
+                    # falling back to a default non-NULL value, check if
+                    # there is a Pattern 30b NOT IN constraint
+                    # (``col1 NOT IN (...) OR col IS NOT NULL``). If so,
+                    # the column CAN be NULL — we just need to ensure
+                    # ``col1`` never takes a value in the NOT IN set.
+                    # This is necessary when the column also has complex
+                    # multi-clause CHECKs that require specific computed
+                    # values (which a random default cannot satisfy). By
+                    # keeping null_ratio=1.0 and restricting conditional
+                    # columns' choices, both the NOT NULL CHECK and the
+                    # complex CHECK are satisfied (each branch allows
+                    # ``col IS NULL``).
+                    # e.g., R7 claims.approved_amount:
+                    #   CHECK (status NOT IN ('approved','settled')
+                    #         OR approved_amount IS NOT NULL)
+                    #   CHECK ((claim_type IN ('medical','accident')
+                    #          AND approved_amount IS NULL OR ...)
+                    #         OR (claim_type IN ('property_damage','theft')
+                    #          AND approved_amount IS NULL OR ...))
+                    # Solution: keep approved_amount = NULL, restrict
+                    # status to exclude {'approved','settled'}, restrict
+                    # claim_type to {'medical','accident',
+                    # 'property_damage','theft'} (exclude 'death').
+                    p30b_notin_matched_sn7 = False
+                    for constraint_sn7 in meta_sn7.constraints:
+                        if constraint_sn7.get("type") != "check":
+                            continue
+                        expr_sn7_norm = _normalize_pg_check_expr(constraint_sn7.get("expression", ""))
+                        m_p30b_notin_sn7 = re.match(
+                            rf"^\s*(\w+)\s+NOT\s+IN\s*\(([^)]+)\)\s+OR\s+{col_name_upper_sn7}\s+IS\s+NOT\s+NULL\s*$",
+                            expr_sn7_norm,
+                            re.IGNORECASE,
+                        )
+                        if not m_p30b_notin_sn7:
+                            continue
+                        cond_col_sn7 = m_p30b_notin_sn7.group(1)
+                        values_str_sn7 = m_p30b_notin_sn7.group(2)
+                        not_in_values_sn7 = re.findall(r"'([^']*)'", values_str_sn7)
+                        if cond_col_sn7 not in meta_sn7.columns:
+                            continue
+                        # Restore null_ratio=1.0 for the target column
+                        c_sn7["null_ratio"] = 1.0
+                        c_sn7.pop("generator", None)
+                        c_sn7.pop("params", None)
+                        c_sn7.pop("derive_from", None)
+                        c_sn7.pop("expression", None)
+                        # Step 1: restrict the Pattern 30b NOT IN
+                        # conditional column's choices to EXCLUDE the
+                        # NOT IN set values.
+                        for c_cond in tcfg_sn7.get("columns", []):
+                            if c_cond.get("name") != cond_col_sn7:
+                                continue
+                            cur_choices = c_cond.get("params", {}).get("choices")
+                            if isinstance(cur_choices, list):
+                                filtered = [v for v in cur_choices if v not in not_in_values_sn7]
+                                if filtered:
+                                    c_cond["params"]["choices"] = filtered
+                            break
+                        # Step 2: scan ALL CHECK constraints for
+                        # conditional NULL patterns:
+                        # ``col_X IN (...) AND {col} IS NULL``. The
+                        # column ``col_X`` must be in the union of all
+                        # such IN sets for ``{col} = NULL`` to satisfy
+                        # the CHECK. If ``col_X`` has a choice
+                        # generator, restrict its choices to that union.
+                        # e.g., the complex multi-clause CHECK requires
+                        # claim_type IN ('medical','accident',
+                        # 'property_damage','theft') for
+                        # approved_amount = NULL (excluding 'death').
+                        allowed_values_per_col_sn7: dict[str, set[str]] = {}
+                        for constraint_cn in meta_sn7.constraints:
+                            if constraint_cn.get("type") != "check":
+                                continue
+                            expr_cn_norm = _normalize_pg_check_expr(constraint_cn.get("expression", ""))
+                            for m_in_null in re.finditer(
+                                rf"(\w+)\s+IN\s*\(([^)]+)\)\s+AND\s+{col_name_upper_sn7}\s+IS\s+NULL",
+                                expr_cn_norm,
+                                re.IGNORECASE,
+                            ):
+                                cond_col_cn = m_in_null.group(1)
+                                values_str_cn = m_in_null.group(2)
+                                values_cn = re.findall(r"'([^']*)'", values_str_cn)
+                                if not values_cn:
+                                    values_cn = [v.strip() for v in values_str_cn.split(",")]
+                                allowed_values_per_col_sn7.setdefault(cond_col_cn, set()).update(values_cn)
+                        for cond_col_cn, allowed_cn in allowed_values_per_col_sn7.items():
+                            for c_cond in tcfg_sn7.get("columns", []):
+                                if c_cond.get("name") != cond_col_cn:
+                                    continue
+                                cur_choices = c_cond.get("params", {}).get("choices")
+                                if isinstance(cur_choices, list):
+                                    filtered = [v for v in cur_choices if v in allowed_cn]
+                                    if filtered:
+                                        c_cond["params"]["choices"] = filtered
+                                break
+                        p30b_notin_matched_sn7 = True
+                        break
+                    if not p30b_notin_matched_sn7:
+                        # No Pattern 30b NOT IN matched — set a safe
+                        # non-NULL default.
+                        is_fk_sn7 = col_name_sn7 in fk_cols_set_sn7
+                        if is_fk_sn7:
+                            c_sn7["generator"] = "foreign_key_or_integer"
+                            c_sn7["params"] = {}
+                        elif "INT" in col_type_sn7.upper():
+                            c_sn7["generator"] = "integer"
+                            c_sn7["params"] = {"min_value": 0}
+                        elif any(k in col_type_sn7.upper() for k in ("REAL", "FLOAT", "DOUBLE", "DECIMAL", "NUMERIC")):
+                            c_sn7["generator"] = "float"
+                            # Use 0.01 (not 0.0) to satisfy ``> 0.0`` CHECKs
+                            c_sn7["params"] = {"min_value": 0.01}
+                        else:
+                            c_sn7["generator"] = "string"
+                            c_sn7["params"] = {"min_length": 1, "max_length": 50}
+
         # Step 6: emit YAML
         if self._verbose:
             table_count = len(config.get("tables", []))
@@ -1033,6 +1286,30 @@ class AutoHealOrchestrator:
                                 "name": col_name,
                                 "generator": "pattern",
                                 "params": {"regex": f"[0-9]{{{n}}}"},
+                            }
+                        )
+                        continue
+                    # Phone-like column + LENGTH(col) >= N (minimum only,
+                    # no exact length) → use ``phone`` generator directly.
+                    # Faker's phone generator produces numbers like
+                    # "+1(555)123-4567" (16 chars) or "555-123-4567"
+                    # (12 chars), all naturally >= 7 chars. This satisfies
+                    # minimum-length CHECKs while producing semantically
+                    # correct phone numbers instead of random alphanumeric
+                    # strings. The previous code fell through to ``string``
+                    # with ``min_length`` for these columns, producing
+                    # gibberish like "Q-zGSPL_DCUrTZCNi" for phone fields.
+                    if (
+                        gen == "string"
+                        and _is_phone_like(col_name)
+                        and "min_length" in params
+                        and ("max_length" not in params or params["min_length"] != params["max_length"])
+                    ):
+                        cols.append(
+                            {
+                                "name": col_name,
+                                "generator": "phone",
+                                "params": {},
                             }
                         )
                         continue
@@ -2631,7 +2908,15 @@ def _infer_cross_column_config(
 
         # Pattern 4: col IS NULL OR col = expr (computed column with NULL escape)
         # e.g., line_total IS NULL OR line_total = quantity * unit_price * (1 - discount)
-        if re.search(rf"{col}\s+IS\s+NULL\s+OR\s+{col}\s*=", expr, re.IGNORECASE):
+        # IMPORTANT: the negative lookbehind ``(?<![<>])`` ensures ``=`` is not
+        # part of ``<=`` or ``>=``. Without this, the regex would match
+        # ``col IS NULL OR col <= expr`` (a comparison, not an equality),
+        # incorrectly returning null_ratio=1.0. This caused R7
+        # claims.approved_amount to be all-NULL because Pattern 4 matched
+        # ``approved_amount IS NULL OR approved_amount <= claim_amount``
+        # before Pattern 30b NOT IN could match
+        # ``status NOT IN ('approved','settled') OR approved_amount IS NOT NULL``.
+        if re.search(rf"{col}\s+IS\s+NULL\s+OR\s+{col}\s*(?<![<>])=", expr, re.IGNORECASE):
             return {
                 "generator": _placeholder_generator(col_type),
                 "params": {},
@@ -4512,6 +4797,41 @@ def _infer_cross_column_config(
                 return {
                     "derive_from": other_col_p30b_int,
                     "expression": f"None if value == {val_int_p30b} else {non_null_expr_p30b_int}",
+                }
+
+        # Pattern 30b (NOT IN variant): col1 NOT IN ('v1','v2',...) OR col IS NOT NULL
+        # (when col1 IS in the set, col must be NOT NULL; when col1 is NOT in
+        # the set, col can be NULL). This is the multi-value variant of
+        # Pattern 30b (which handles ``col1 = 'VALUE' OR col IS NOT NULL``).
+        # e.g., status NOT IN ('approved', 'settled') OR approved_amount IS NOT NULL
+        # Derive from col1: when col1 NOT IN the set, set col to None (NULL
+        # allowed); when col1 IN the set, set col to a safe non-NULL value.
+        # For FK columns, use ``1`` (first autoincrement id). For float
+        # columns, use ``random_float(0.01, 1000.0)`` (positive, satisfies
+        # ``> 0.0`` CHECKs). For int columns, use ``random_int(1, 1000)``.
+        m_notin_p30b = re.match(
+            rf"^\s*(\w+)\s+NOT\s+IN\s*\(([^)]+)\)\s+OR\s+{col}\s+IS\s+NOT\s+NULL\s*$",
+            expr,
+            re.IGNORECASE,
+        )
+        if m_notin_p30b:
+            other_col_p30b_notin = m_notin_p30b.group(1)
+            values_str_p30b_notin = m_notin_p30b.group(2)
+            if other_col_p30b_notin in col_set and other_col_p30b_notin != col_name:
+                # Parse the value list: 'v1', 'v2', ...
+                values_p30b_notin = re.findall(r"'([^']*)'", values_str_p30b_notin)
+                values_repr_p30b_notin = ", ".join(f"'{v}'" for v in values_p30b_notin)
+                if is_fk_column:
+                    non_null_expr_p30b_notin = "1"
+                elif is_float_type:
+                    non_null_expr_p30b_notin = "random_float(0.01, 1000.0)"
+                elif "INT" in col_type.upper():
+                    non_null_expr_p30b_notin = "random_int(1, 1000)"
+                else:
+                    non_null_expr_p30b_notin = "'0'"
+                return {
+                    "derive_from": other_col_p30b_notin,
+                    "expression": f"None if value not in ({values_repr_p30b_notin}) else {non_null_expr_p30b_notin}",
                 }
 
         # Pattern 31: col1 != VALUE OR col = VALUE2 (conditional equality —

@@ -7,7 +7,7 @@ multi-level strategy chain considering column name, type, default value, user co
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, ClassVar
 
 if TYPE_CHECKING:
@@ -75,7 +75,12 @@ class ColumnMapper:
         "password": "password",
         "passwd": "password",
         "secret": "password",
-        "status": "choice",
+        # ``status`` removed from EXACT_MATCH_RULES: ``status`` columns almost
+        # always have CHECK constraints with domain-specific enums. The generic
+        # ``choice`` mapping left ``params`` empty (no ``choices`` key in
+        # EXACT_MATCH_PARAMS), causing ``_gen_choice()`` to crash. Letting
+        # ``status`` fall through to L4 (DEFAULT skip) or L9 (type fallback →
+        # SchemaFallbackGenerator) ensures CHECK-derived ``choices`` are used.
         "state": "state",
         "gender": "choice",
         "sex": "choice",
@@ -146,7 +151,13 @@ class ColumnMapper:
         "longitude": {"min_value": -180.0, "max_value": 180.0, "precision": 6},
         "lat": {"min_value": -90.0, "max_value": 90.0, "precision": 6},
         "lng": {"min_value": -180.0, "max_value": 180.0, "precision": 6},
-        "status": {"choices": [0, 1]},
+        # ``status`` removed from EXACT_MATCH_PARAMS: in real-world schemas,
+        # ``status`` columns almost always have CHECK constraints with
+        # domain-specific enums (e.g., ``status IN ('active','suspended')``).
+        # The hardcoded ``[0, 1]`` conflicted with these CHECK constraints,
+        # causing IntegrityError at fill time. Letting ``status`` fall through
+        # to L9 type-fallback → SchemaFallbackGenerator allows the CHECK
+        # constraint's ``IN (...)`` list to be picked up automatically.
         "gender": {"choices": ["male", "female", "other"]},
         "sex": {"choices": ["male", "female"]},
         "type": {"choices": [1, 2, 3]},
@@ -431,6 +442,34 @@ class ColumnMapper:
                     user_spec.params = merged_params
             return user_spec
 
+        # Preserve null_ratio from user config even when no generator is
+        # provided. Without this, a YAML config like
+        # ``approved_amount: {null_ratio: 1.0}`` (no generator) would
+        # lose the null_ratio because _map_from_user_config returns None
+        # when generator is not set. The null_ratio must be applied to
+        # whatever spec the L1b-L9 fallback chain produces, so the
+        # DataStream generates NULL values for the column.
+        user_null_ratio = (
+            user_config.null_ratio
+            if user_config and hasattr(user_config, "null_ratio")
+            else 0.0
+        )
+
+        spec = self._map_fallback(column_info, column_name, column_type, enrich, force_type_infer)
+
+        if user_null_ratio > 0:
+            return replace(spec, null_ratio=user_null_ratio)
+        return spec
+
+    def _map_fallback(
+        self,
+        column_info: ColumnInfo,
+        column_name: str,
+        column_type: str,
+        enrich: bool,
+        force_type_infer: bool,
+    ) -> GeneratorSpec:
+        """L1b-L9 fallback chain (when no user config with generator is provided)."""
         # L1b: Implicit INTEGER PRIMARY KEY skip (no user config provided).
         # SQLite treats single-column ``INTEGER PRIMARY KEY`` (without the
         # explicit ``AUTOINCREMENT`` keyword) as an alias for ROWID — SQLite

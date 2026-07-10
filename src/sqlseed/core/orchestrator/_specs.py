@@ -128,11 +128,18 @@ class SpecResolverMixin:
             generator_specs = self._enrichment.apply(table_name, generator_specs, column_infos, unique_columns)
         # L9+ enhancement: SchemaFallbackGenerator adds CHECK-constraint and
         # UNIQUE-aware params to columns that fell through to L9 type-fallback
-        # (generator_name == "string"). Skips columns with user_config (user
-        # intent wins) and L1-L8 name-matched columns (business hints win).
+        # (generator_name in _TYPE_FALLBACK_GENERATORS). Skips columns with
+        # user_config (user intent wins) and L1-L8 name-matched columns
+        # (business hints win). Also applies to "choice" columns whose params
+        # are empty (e.g., when EXACT_MATCH_RULES mapped to "choice" but no
+        # choices were provided in EXACT_MATCH_PARAMS) so CHECK-derived enums
+        # can fill the gap.
         if self._schema_fallback is not None:
             check_constraints = self._db.get_check_constraints(table_name)
             unique_list = list(unique_columns)
+            # Generators produced by L9 type-fallback that may benefit from
+            # CHECK constraint inference (range, length, choices).
+            _fallback_generators = {"string", "integer", "float", "boolean", "choice"}
             for col_info in column_infos:
                 col_name = col_info.name
                 if col_name in user_configs:
@@ -140,7 +147,13 @@ class SpecResolverMixin:
                 current_spec = generator_specs.get(col_name)
                 if current_spec is None:
                     continue
-                if current_spec.generator_name != "string":
+                if current_spec.generator_name not in _fallback_generators:
+                    continue
+                # For "choice" with non-empty choices, skip (already configured).
+                if (
+                    current_spec.generator_name == "choice"
+                    and current_spec.params.get("choices")
+                ):
                     continue
                 enhanced = self._schema_fallback.fallback_for_column(col_info, check_constraints, unique_list)
                 if enhanced is not None:
