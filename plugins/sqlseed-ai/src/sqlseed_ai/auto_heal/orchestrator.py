@@ -618,12 +618,21 @@ class AutoHealOrchestrator:
                 #
                 # Fix: re-apply ``_infer_cross_column_config`` for columns
                 # that (a) have a cross-column CHECK constraint, (b) do NOT
-                # currently have ``derive_from``, and (c) do NOT have
-                # ``null_ratio=1.0`` (always-NULL is also valid for IS NULL
-                # OR ... CHECKs — don't override). The re-inferred derive_from
+                # currently have ``derive_from``. The re-inferred derive_from
                 # takes priority over the LLM's plain generator because it
                 # guarantees CHECK compliance.
-                if not has_derive and meta is not None and c.get("null_ratio", 0) < 1.0:
+                #
+                # The old guard ``c.get("null_ratio", 0) < 1.0`` was removed
+                # because it prevented Pattern 4a (``col IS NULL OR col =
+                # col1 * col2``) from overriding an LLM-set ``null_ratio=1.0``.
+                # Pattern 4a returns ``derive_from`` + ``null_ratio=0.3``,
+                # which produces realistic data (70% computed, 30% NULL)
+                # instead of all-NULLs. To still respect columns that SHOULD
+                # be all-NULL (e.g., Pattern 35 date columns), we check
+                # ``cross_result.get("null_ratio", 0.0) < 1.0`` AFTER
+                # inference — if the deterministic code also wants
+                # ``null_ratio=1.0``, we don't override.
+                if not has_derive and meta is not None:
                     col_name = c.get("name", "")
                     if col_name in meta.columns:
                         col_type = meta.column_types.get(col_name, "TEXT")
@@ -637,12 +646,23 @@ class AutoHealOrchestrator:
                             col_name, meta.constraints, meta.columns, col_type, fk_cols_set_55,
                             column_types=meta.column_types,
                         )
-                        if cross_result is not None and "derive_from" in cross_result:
+                        if (
+                            cross_result is not None
+                            and "derive_from" in cross_result
+                            and cross_result.get("null_ratio", 0.0) < 1.0
+                        ):
                             # Restore derive_from — remove any source-mode keys
-                            # that the LLM set (generator, params) to avoid
-                            # Pydantic ValidationError (mutual exclusivity).
+                            # that the LLM set (generator, params, null_ratio,
+                            # provider) to avoid Pydantic ValidationError
+                            # (mutual exclusivity: derive_from + null_ratio is
+                            # invalid). ``null_ratio`` MUST be popped because
+                            # the LLM may have set it to 1.0, and leaving it
+                            # alongside ``derive_from`` would cause a
+                            # ValidationError at config load time.
                             c.pop("generator", None)
                             c.pop("params", None)
+                            c.pop("null_ratio", None)
+                            c.pop("provider", None)
                             c.update(cross_result)
                             has_derive = True
 
