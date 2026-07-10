@@ -47,6 +47,7 @@ class DataStream:
         transform_fn: RowTransformFn | None = None,
         seed: int | None = None,
         composite_unique_constraints: list[list[str]] | None = None,
+        inequality_constraints: list[tuple[str, str, str]] | list[tuple[str, str]] | None = None,
     ) -> None:
         """Initialize the data stream.
 
@@ -62,6 +63,15 @@ class DataStream:
                 ``UNIQUE(a, b)`` → ``[['a', 'b']]``). After each row is generated,
                 the composite tuple is checked against the constraint solver and
                 registered. Collisions trigger row-level backtracking.
+            inequality_constraints: Optional list of (col1, col2, op) tuples
+                extracted from CHECK constraints of the form ``col1 OP col2``
+                where OP is one of ``!=``, ``>``, ``<``, ``>=``, ``<=``.
+                After each row is generated, if the comparison is violated,
+                the row is rolled back and retried. This prevents batch-level
+                CHECK constraint failures when both columns are independently
+                sampled (e.g., start_time and end_time with LIKE constraints
+                that block derive_from, or origin_wh_id and dest_wh_id both
+                referencing warehouses with ``CHECK(origin_wh_id != dest_wh_id)``).
         """
         self._nodes = dag_nodes
         self._provider = provider
@@ -83,6 +93,22 @@ class DataStream:
                 if all(c in node_names for c in cols):
                     key_name = "__composite__" + "_".join(cols)
                     self._composite_unique.append((key_name, cols))
+
+        # Normalize inequality constraints: only keep tuples where both columns
+        # are in the DAG. When violated, the row is retried.
+        # Each tuple is (col1, col2, op) where op is !=, >, <, >=, <=.
+        self._inequality: list[tuple[str, str, str]] = []
+        if inequality_constraints:
+            for item in inequality_constraints:
+                if len(item) == 3:
+                    col1, col2, op = item
+                elif len(item) == 2:
+                    # Backwards-compatible: 2-tuple defaults to != operator
+                    col1, col2, op = item[0], item[1], "!="
+                else:
+                    continue
+                if col1 in node_names and col2 in node_names:
+                    self._inequality.append((col1, col2, op))
 
         self._rng = random.Random(seed)
         if seed is not None:
@@ -347,6 +373,38 @@ class DataStream:
                     generated_values.clear()
                     row.clear()
                     bt_idx = self._find_node_index(cols[0])
+                    return False, bt_idx
+
+        # Inequality CHECK enforcement: after all columns are generated, check
+        # each ``col1 OP col2`` constraint. If violated, roll back and retry.
+        # This handles the case where both columns are independently-sampled
+        # (e.g., origin_wh_id and dest_wh_id both referencing warehouses with
+        # ``CHECK(origin_wh_id != dest_wh_id)``, or start_time and end_time
+        # with LIKE constraints that block derive_from and
+        # ``CHECK(end_time > start_time)``).
+        if self._inequality:
+            for col1, col2, op in self._inequality:
+                v1 = row.get(col1)
+                v2 = row.get(col2)
+                if v1 is None or v2 is None:
+                    continue
+                violated = False
+                if op == "!=":
+                    violated = v1 == v2
+                elif op == ">":
+                    violated = not (v1 > v2)
+                elif op == "<":
+                    violated = not (v1 < v2)
+                elif op == ">=":
+                    violated = not (v1 >= v2)
+                elif op == "<=":
+                    violated = not (v1 <= v2)
+                if violated:
+                    for col, val in generated_values.items():
+                        self._constraint_solver.unregister(col, val)
+                    generated_values.clear()
+                    row.clear()
+                    bt_idx = self._find_node_index(col2)
                     return False, bt_idx
 
         return True, backtrack_to

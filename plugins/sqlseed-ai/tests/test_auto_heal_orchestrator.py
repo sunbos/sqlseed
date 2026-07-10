@@ -2190,3 +2190,653 @@ def test_pattern_1_float_less_equal_uses_subtraction():
     expr = result["expression"]
     assert "value - random_float" in expr
     assert "value * random_float" not in expr
+
+
+# ---------------------------------------------------------------------------
+# Round 7 — Batch 1 pattern variant tests
+# ---------------------------------------------------------------------------
+
+
+def test_pattern_30b_integer_value_variant():
+    """Pattern 30b (int variant): ``col1 = INT_VALUE OR col IS NOT NULL``.
+
+    e.g., R3.regions: ``level = 1 OR parent_id IS NOT NULL``
+    When level == 1, parent_id can be NULL; when level != 1, parent_id must
+    be NOT NULL. For FK columns, the non-NULL branch uses ``1`` (first
+    autoincrement id). The existing Pattern 30b only handles string VALUE
+    (``col1 = 'root'``); this variant handles unquoted integer VALUE.
+    """
+    constraints = [{"type": "check", "expression": "level = 1 OR parent_id IS NOT NULL"}]
+    result = _infer_cross_column_config(
+        "parent_id",
+        constraints,
+        ["parent_id", "level"],
+        "INTEGER",
+        fk_columns={"parent_id"},
+    )
+    assert result is not None
+    assert result["derive_from"] == "level"
+    # Expression must use integer comparison (no quotes around 1)
+    assert "value == 1" in result["expression"]
+    assert "value == '1'" not in result["expression"]
+    # FK column → non-NULL branch uses 1
+    assert "1" in result["expression"]
+
+
+def test_pattern_6_text_inequality_with_in_set():
+    """Pattern 6 (TEXT variant): ``col != other_col`` for TEXT columns.
+
+    e.g., R6.exchange_rates: ``base_currency != quote_currency`` where both
+    have CHECK IN ('CNY','USD','EUR','HKD'). Builds a rotation ternary that
+    cycles through the IN set, guaranteeing result != value.
+
+    Cycle prevention: Pattern 6 only applies to the LATER column in the
+    column list. ``quote_currency`` (index 1) derives from ``base_currency``
+    (index 0), not vice versa.
+    """
+    constraints = [
+        {"type": "check", "expression": "base_currency != quote_currency"},
+        {"type": "check", "expression": "quote_currency IN ('CNY', 'USD', 'EUR', 'HKD')"},
+    ]
+    result = _infer_cross_column_config(
+        "quote_currency",
+        constraints,
+        ["base_currency", "quote_currency"],
+        "TEXT",
+    )
+    assert result is not None
+    assert result["derive_from"] == "base_currency"
+    expr = result["expression"]
+    # Must produce a value from the IN set that is != base_currency
+    assert "'CNY'" in expr
+    assert "'USD'" in expr
+    # Must be a chained ternary (not just a single value)
+    assert "if value == " in expr
+    assert "else" in expr
+
+
+def test_pattern_6_cycle_prevention_earlier_column_skipped():
+    """Pattern 6 cycle prevention: the EARLIER column must NOT get Pattern 6.
+
+    Without this check, both ``base_currency`` and ``quote_currency`` would
+    derive_from each other, creating a circular dependency.
+    """
+    constraints = [
+        {"type": "check", "expression": "base_currency != quote_currency"},
+        {"type": "check", "expression": "base_currency IN ('CNY', 'USD', 'EUR', 'HKD')"},
+    ]
+    # base_currency is at index 0 (earlier) — should NOT get Pattern 6
+    result = _infer_cross_column_config(
+        "base_currency",
+        constraints,
+        ["base_currency", "quote_currency"],
+        "TEXT",
+    )
+    assert result is None
+
+
+def test_pattern_40_int_variant_self_ref_fk():
+    """Pattern 40 (int variant): ``col = INT_VALUE OR other_col IS NOT NULL``.
+
+    e.g., R3.regions: ``level = 1 OR parent_id IS NOT NULL`` where parent_id
+    is a self-referencing FK. Since parent_id is always NULL (self-ref FK
+    at fill time), level must always be 1 to satisfy the CHECK.
+    """
+    constraints = [{"type": "check", "expression": "level = 1 OR parent_id IS NOT NULL"}]
+    result = _infer_cross_column_config(
+        "level",
+        constraints,
+        ["level", "parent_id"],
+        "INTEGER",
+        self_ref_fk_cols={"parent_id"},
+    )
+    assert result is not None
+    assert result["generator"] == "choice"
+    assert result["params"]["choices"] == [1]
+
+
+def test_pattern_39_no_null_variant():
+    """Pattern 39 (no-NULL variant): ``col <= col2 + col3`` without NULL escape.
+
+    e.g., R6.accounts: ``available_balance <= balance + overdraft_limit``
+    No ``col1 IS NULL OR`` prefix — col must ALWAYS satisfy the compound
+    upper bound. Derives from col2 and uses ``(value + row['col3']) * factor``.
+    """
+    constraints = [
+        {"type": "check", "expression": "available_balance <= balance + overdraft_limit"},
+    ]
+    result = _infer_cross_column_config(
+        "available_balance",
+        constraints,
+        ["available_balance", "balance", "overdraft_limit"],
+        "REAL",
+    )
+    assert result is not None
+    assert result["derive_from"] == "balance"
+    expr = result["expression"]
+    assert "row['overdraft_limit']" in expr
+    assert "random_float(0.0, 1.0)" in expr
+    # Must NOT have None guard (no NULL escape)
+    assert "None if value is None" not in expr
+
+
+def test_pattern_1_date_on_left_variant():
+    """Pattern 1 (DATE-on-left variant): ``col IS NULL OR DATE(col) OP other_col``.
+
+    e.g., R6.loan_payments: ``paid_at IS NULL OR DATE(paid_at) >= due_date``
+    Same semantics as Pattern 1 but with DATE() wrapper on the left column.
+    Derives from other_col and uses timedelta to ensure the comparison holds.
+    """
+    constraints = [
+        {"type": "check", "expression": "paid_at IS NULL OR DATE(paid_at) >= due_date"},
+    ]
+    result = _infer_cross_column_config(
+        "paid_at",
+        constraints,
+        ["paid_at", "due_date"],
+        "TEXT",
+    )
+    assert result is not None
+    assert result["derive_from"] == "due_date"
+    expr = result["expression"]
+    # Must use timedelta for date comparison
+    assert "timedelta" in expr
+    assert "random_int" in expr
+
+
+# ---------------------------------------------------------------------------
+# Round 8 Batch 2 — Pattern 11 (N-column), 42, 43, 44, 45, 46 unit tests
+# ---------------------------------------------------------------------------
+
+
+def test_pattern_11_n_column_addition_equality():
+    """Pattern 11 (N-column): ``col = col1 + col2 + col3 + ... + colN`` (N >= 3).
+
+    e.g., R3.freight_invoices:
+    ``total_amount = base_charge + weight_charge + distance_charge
+                      + fuel_surcharge + insurance_charge + tax``
+    Derives from col1 (first operand), references remaining cols via row dict.
+    """
+    constraints = [
+        {
+            "type": "check",
+            "expression": (
+                "total_amount = base_charge + weight_charge + distance_charge "
+                "+ fuel_surcharge + insurance_charge + tax"
+            ),
+        }
+    ]
+    result = _infer_cross_column_config(
+        "total_amount",
+        constraints,
+        [
+            "total_amount",
+            "base_charge",
+            "weight_charge",
+            "distance_charge",
+            "fuel_surcharge",
+            "insurance_charge",
+            "tax",
+        ],
+        "REAL",
+    )
+    assert result is not None
+    assert result["derive_from"] == "base_charge"
+    expr = result["expression"]
+    assert "row['weight_charge']" in expr
+    assert "row['distance_charge']" in expr
+    assert "row['fuel_surcharge']" in expr
+    assert "row['insurance_charge']" in expr
+    assert "row['tax']" in expr
+
+
+def test_pattern_42_abs_subtraction_equality():
+    """Pattern 42: ``col = abs(col1 - col2)`` (abs subtraction equality).
+
+    e.g., R3.shipments: ``weight_diff = abs(total_weight_kg - billed_weight_kg)``
+    Derives from col1, references col2 via row dict.
+    """
+    constraints = [
+        {"type": "check", "expression": "weight_diff = abs(total_weight_kg - billed_weight_kg)"}
+    ]
+    result = _infer_cross_column_config(
+        "weight_diff",
+        constraints,
+        ["weight_diff", "total_weight_kg", "billed_weight_kg"],
+        "REAL",
+    )
+    assert result is not None
+    assert result["derive_from"] == "total_weight_kg"
+    assert result["expression"] == "abs(value - row['billed_weight_kg'])"
+
+
+def test_pattern_43_compound_arithmetic_upper_bound():
+    """Pattern 43: ``col <= col2 * CONST1 + CONST2`` (compound arithmetic upper bound).
+
+    e.g., R3.routes: ``estimated_hours <= distance_km * 0.5 + 24.0``
+    Derives from col2, expression: ``value * CONST1 + random_float(0, CONST2)``.
+    """
+    constraints = [
+        {"type": "check", "expression": "estimated_hours <= distance_km * 0.5 + 24.0"}
+    ]
+    result = _infer_cross_column_config(
+        "estimated_hours",
+        constraints,
+        ["estimated_hours", "distance_km"],
+        "REAL",
+    )
+    assert result is not None
+    assert result["derive_from"] == "distance_km"
+    expr = result["expression"]
+    assert "value * 0.5" in expr
+    assert "random_float(0.0, 24.0)" in expr
+
+
+def test_pattern_44_three_column_multiplication_division():
+    """Pattern 44: ``col = col1 * col2 * col3 / CONST`` (3-col multiplication+division).
+
+    e.g., R6.deposits: ``expected_interest = principal * interest_rate * term_months / 12.0``
+    Derives from col1, references col2 and col3 via row dict.
+    """
+    constraints = [
+        {"type": "check", "expression": "expected_interest = principal * interest_rate * term_months / 12.0"}
+    ]
+    result = _infer_cross_column_config(
+        "expected_interest",
+        constraints,
+        ["expected_interest", "principal", "interest_rate", "term_months"],
+        "REAL",
+    )
+    assert result is not None
+    assert result["derive_from"] == "principal"
+    expr = result["expression"]
+    assert "row['interest_rate']" in expr
+    assert "row['term_months']" in expr
+    assert "/ 12.0" in expr
+
+
+def test_pattern_45_compound_arithmetic_repeated_column():
+    """Pattern 45: ``col = col1 + col1 * col2 * col3 / CONST`` (repeated column).
+
+    e.g., R6.loans: ``total_payable = principal + principal * interest_rate * term_months / 12.0``
+    Derives from col1 (repeated), references col2 and col3 via row dict.
+    """
+    constraints = [
+        {
+            "type": "check",
+            "expression": (
+                "total_payable = principal + principal * interest_rate * term_months / 12.0"
+            ),
+        }
+    ]
+    result = _infer_cross_column_config(
+        "total_payable",
+        constraints,
+        ["total_payable", "principal", "interest_rate", "term_months"],
+        "REAL",
+    )
+    assert result is not None
+    assert result["derive_from"] == "principal"
+    expr = result["expression"]
+    assert "value + value * row['interest_rate']" in expr
+    assert "row['term_months']" in expr
+    assert "/ 12.0" in expr
+
+
+def test_pattern_46_multi_clause_disjunction_with_int_equality():
+    """Pattern 46: ``col = INT_VALUE OR other_col < CONST [OR ...]``.
+
+    e.g., R5.courses:
+    ``is_free = 1 OR price < 100 OR original_price IS NULL OR original_price < 200``
+    Derives from other_col (price): when price >= 100, is_free must be 1.
+    """
+    constraints = [
+        {
+            "type": "check",
+            "expression": (
+                "is_free = 1 OR price < 100 OR original_price IS NULL OR original_price < 200"
+            ),
+        }
+    ]
+    result = _infer_cross_column_config(
+        "is_free",
+        constraints,
+        ["is_free", "price", "original_price"],
+        "INTEGER",
+    )
+    assert result is not None
+    assert result["derive_from"] == "price"
+    expr = result["expression"]
+    # When price >= 100, is_free = 1; else random_int(0, 1)
+    assert "1 if value >= 100" in expr
+    assert "random_int(0, 1)" in expr
+
+
+def test_pattern_46_inclusive_inequality():
+    """Pattern 46 with <= operator: ``col = INT_VALUE OR other_col <= CONST``."""
+    constraints = [
+        {"type": "check", "expression": "flag = 1 OR amount <= 50.0"},
+    ]
+    result = _infer_cross_column_config(
+        "flag",
+        constraints,
+        ["flag", "amount"],
+        "INTEGER",
+    )
+    assert result is not None
+    assert result["derive_from"] == "amount"
+    expr = result["expression"]
+    # When amount > 50, flag = 1; else random_int(0, 1)
+    assert "1 if value > 50.0" in expr
+    assert "random_int(0, 1)" in expr
+
+
+def test_pattern_46_two_clause_only():
+    """Pattern 46 with only two clauses (no trailing OR ...)."""
+    constraints = [
+        {"type": "check", "expression": "is_free = 1 OR price < 100"},
+    ]
+    result = _infer_cross_column_config(
+        "is_free",
+        constraints,
+        ["is_free", "price"],
+        "INTEGER",
+    )
+    assert result is not None
+    assert result["derive_from"] == "price"
+    assert "1 if value >= 100" in result["expression"]
+
+
+# ---------------------------------------------------------------------------
+# Round 8c — Pattern 27 pre-loop scan, Pattern 41 date-diff, source choices
+# ---------------------------------------------------------------------------
+
+
+def test_pattern_27_pre_loop_takes_precedence_over_pattern_18():
+    """Pattern 27 pre-loop scan: multi-clause constraint wins over Pattern 18.
+
+    e.g., R5.enrollments.progress_percent has both:
+      - status != 'completed' OR progress_percent = 100  (Pattern 18)
+      - status = 'active' AND progress_percent >= 0 OR status = 'completed'
+        AND progress_percent >= 100 OR status = 'dropped' AND progress_percent < 100
+        (Pattern 27, multi-clause)
+
+    Without the pre-loop scan, Pattern 18 would match first and generate
+    ``100 if value == 'completed' else random_int(1, 100)``, which violates
+    the ``status = 'dropped' AND progress_percent < 100`` clause.
+    The pre-loop scan ensures Pattern 27's per-status ranges win.
+
+    The last clause ('dropped') is the else branch (no explicit ``value ==
+    'dropped'`` check). Column-level CHECK bounds (``>= 0 AND <= 100``) are
+    applied as ``min``/``max`` wrappers to cap ranges that exceed the bounds.
+    """
+    constraints = [
+        {"type": "check", "expression": "progress_percent >= 0 AND progress_percent <= 100"},
+        {"type": "check", "expression": "status != 'completed' OR progress_percent = 100"},
+        {
+            "type": "check",
+            "expression": (
+                "status = 'active' AND progress_percent >= 0 "
+                "OR status = 'completed' AND progress_percent >= 100 "
+                "OR status = 'dropped' AND progress_percent < 100"
+            ),
+        },
+    ]
+    result = _infer_cross_column_config(
+        "progress_percent",
+        constraints,
+        ["progress_percent", "status"],
+        "INTEGER",
+    )
+    assert result is not None
+    assert result["derive_from"] == "status"
+    expr = result["expression"]
+    # Must have per-status ranges (not the Pattern 18 single ternary)
+    assert "value == 'active'" in expr
+    assert "value == 'completed'" in expr
+    # 'dropped' is the else branch (last clause) — no explicit check
+    # Column-level CHECK bounds applied as min/max wrappers
+    assert "min(" in expr
+    assert "max(" in expr
+    assert ", 100)" in expr  # max_value from column CHECK
+    assert ", 0)" in expr  # min_value from column CHECK
+
+
+def test_pattern_27_pre_loop_skips_pattern_36_dual_bounds():
+    """Pattern 27 pre-loop scan must NOT match Pattern 36 (dual bounds per clause).
+
+    Pattern 36 clauses have both lower AND upper bounds:
+    ``col >= X AND col < Y``. The Pattern 27 guard detects this by comparing
+    the number of col comparisons vs enum assignments.
+    """
+    expr = (
+        "(risk_category = 'low' AND risk_score >= 1 AND risk_score < 25) OR "
+        "(risk_category = 'medium' AND risk_score >= 25 AND risk_score < 50)"
+    )
+    constraints = [{"type": "check", "expression": expr}]
+    result = _infer_cross_column_config(
+        "risk_score",
+        constraints,
+        ["risk_score", "risk_category"],
+        "INTEGER",
+    )
+    assert result is not None
+    # Should be handled by Pattern 36, not Pattern 27
+    # Pattern 36 uses random_int with both lower and upper bounds
+    assert "random_int(1, 24)" in result["expression"]
+
+
+def test_pattern_41_date_difference_awareness():
+    """Pattern 41: date-difference constraint ``col - other_col >= N`` sets min days.
+
+    e.g., R6.loans: ``maturity_date > DATE(disbursed_at)`` + ``maturity_date - disbursed_at >= 30``
+    Without date-difference awareness, Pattern 41 generates ``random_int(1, 30)``
+    which can violate the >= 30 days constraint. With awareness, it uses
+    ``random_int(30, 365)``.
+    """
+    constraints = [
+        {"type": "check", "expression": "maturity_date > DATE(disbursed_at)"},
+        {"type": "check", "expression": "maturity_date - disbursed_at >= 30"},
+    ]
+    result = _infer_cross_column_config(
+        "maturity_date",
+        constraints,
+        ["maturity_date", "disbursed_at"],
+        "TEXT",
+    )
+    assert result is not None
+    assert result["derive_from"] == "disbursed_at"
+    expr = result["expression"]
+    # Must use 30 as the minimum (not 1)
+    assert "random_int(30, 365)" in expr
+    assert "random_int(1, 30)" not in expr
+
+
+def test_pattern_41_date_vs_datetime_compensation():
+    """Pattern 41: DATE target + DATETIME source → +1 day compensation.
+
+    When the target column is DATE (no time component) and the source
+    column is DATETIME (has time component), the stored target value
+    loses its time component (set to midnight), while the source retains
+    its time. This causes the julianday diff to be ``N - time_fraction``,
+    which can drop below the threshold ``N`` when random_int returns
+    exactly N. The fix adds 1 extra day to the minimum.
+
+    e.g., R6.loans: maturity_date (DATE) derives from disbursed_at (DATETIME):
+        ``julianday(maturity_date) - julianday(disbursed_at) >= 30``
+    Without compensation: ``random_int(30, 365)`` → diff can be 29.234 < 30
+    With compensation: ``random_int(31, 365)`` → diff is always >= 30.234
+    """
+    constraints = [
+        {"type": "check", "expression": "maturity_date > DATE(disbursed_at)"},
+        {"type": "check", "expression": "julianday(maturity_date) - julianday(disbursed_at) >= 30"},
+    ]
+    # Target is DATE, source is DATETIME → +1 day compensation
+    result = _infer_cross_column_config(
+        "maturity_date",
+        constraints,
+        ["maturity_date", "disbursed_at"],
+        "DATE",
+        column_types={"maturity_date": "DATE", "disbursed_at": "DATETIME"},
+    )
+    assert result is not None
+    assert result["derive_from"] == "disbursed_at"
+    expr = result["expression"]
+    # Must use 31 (30 + 1 compensation) as the minimum
+    assert "random_int(31, 365)" in expr
+    assert "random_int(30, 365)" not in expr
+
+
+def test_pattern_41_no_compensation_when_both_date():
+    """Pattern 41: both DATE → no compensation needed.
+
+    When both target and source are DATE (no time component), there's no
+    time-stripping issue, so no +1 compensation is applied.
+    """
+    constraints = [
+        {"type": "check", "expression": "end_date > DATE(start_date)"},
+        {"type": "check", "expression": "julianday(end_date) - julianday(start_date) >= 7"},
+    ]
+    result = _infer_cross_column_config(
+        "end_date",
+        constraints,
+        ["end_date", "start_date"],
+        "DATE",
+        column_types={"end_date": "DATE", "start_date": "DATE"},
+    )
+    assert result is not None
+    expr = result["expression"]
+    # No compensation — uses 7 directly
+    assert "random_int(7, 365)" in expr
+    assert "random_int(8, 365)" not in expr
+
+
+def test_pattern_41_no_compensation_when_both_datetime():
+    """Pattern 41: both DATETIME → no compensation needed.
+
+    When both target and source are DATETIME, the time component is
+    preserved in both, so the julianday diff is exactly N days.
+    """
+    constraints = [
+        {"type": "check", "expression": "ended_at > DATE(started_at)"},
+        {"type": "check", "expression": "julianday(ended_at) - julianday(started_at) >= 7"},
+    ]
+    result = _infer_cross_column_config(
+        "ended_at",
+        constraints,
+        ["ended_at", "started_at"],
+        "DATETIME",
+        column_types={"ended_at": "DATETIME", "started_at": "DATETIME"},
+    )
+    assert result is not None
+    expr = result["expression"]
+    # No compensation — uses 7 directly
+    assert "random_int(7, 365)" in expr
+    assert "random_int(8, 365)" not in expr
+
+
+def test_pattern_19_reverse_ordering_group_swap_fix():
+    """Pattern 19: reverse ordering ``col + other = total`` must correctly
+    extract other_col (not the operator).
+
+    Regression test: the second regex's groups are (op, other_col, total),
+    but the code previously unpacked them as (other_col, op, total) —
+    causing ``other_col`` to be ``'+'`` (the operator), which failed the
+    ``other_col in col_set`` guard. The fix swaps the group assignment for
+    the reverse ordering.
+    """
+    constraints = [{"type": "check", "expression": "insurance_covered + patient_paid = total_price"}]
+    result = _infer_cross_column_config(
+        "insurance_covered",
+        constraints,
+        ["insurance_covered", "patient_paid", "total_price"],
+        "REAL",
+    )
+    assert result is not None
+    assert result["derive_from"] == "total_price"
+
+
+def test_pattern_19_cycle_prevention_earlier_column_fraction():
+    """Pattern 19: when col is the EARLIER addend in ``col + other = total``,
+    derive from total as an integer fraction (``random_int(0, max(0, int(value)))``)
+    to avoid circular dependency with the LATER addend. Uses ``random_int`` (not
+    ``random_float``) to guarantee the CHECK ``col1 + col2 = total`` holds
+    EXACTLY in IEEE 754 floating point.
+    """
+    constraints = [
+        {"type": "check", "expression": "insurance_covered + patient_paid = total_price"},
+        {"type": "check", "expression": "insurance_covered >= 0.0"},
+        {"type": "check", "expression": "patient_paid >= 0.0"},
+    ]
+    # insurance_covered (index 0) is EARLIER than patient_paid (index 1)
+    result = _infer_cross_column_config(
+        "insurance_covered",
+        constraints,
+        ["insurance_covered", "patient_paid", "total_price"],
+        "REAL",
+    )
+    assert result is not None
+    assert result["derive_from"] == "total_price"
+    assert "random_int(0, max(0, int(value)))" in result["expression"]
+
+
+def test_pattern_19_cycle_prevention_later_column_subtraction():
+    """Pattern 19: when col is the LATER addend in ``other + col = total``,
+    derive from total as ``value - row[other]`` (the original behavior).
+    """
+    constraints = [
+        {"type": "check", "expression": "insurance_covered + patient_paid = total_price"},
+        {"type": "check", "expression": "insurance_covered >= 0.0"},
+        {"type": "check", "expression": "patient_paid >= 0.0"},
+    ]
+    # patient_paid (index 1) is LATER than insurance_covered (index 0)
+    result = _infer_cross_column_config(
+        "patient_paid",
+        constraints,
+        ["insurance_covered", "patient_paid", "total_price"],
+        "REAL",
+    )
+    assert result is not None
+    assert result["derive_from"] == "total_price"
+    assert "row['insurance_covered']" in result["expression"]
+
+
+def test_pattern_1_range_bound_wrapping():
+    """Pattern 1: when col has both a cross-column ordering CHECK (``col < other``)
+    and a single-column range CHECK (``col >= X AND col <= Y``), the expression
+    is wrapped with ``max(X, min(Y, expr))`` to enforce both simultaneously.
+    """
+    constraints = [
+        {"type": "check", "expression": "blood_pressure_low IS NULL OR (blood_pressure_low >= 40 AND blood_pressure_low <= 150)"},
+        {"type": "check", "expression": "blood_pressure_low IS NULL OR blood_pressure_low < blood_pressure_high"},
+    ]
+    result = _infer_cross_column_config(
+        "blood_pressure_low",
+        constraints,
+        ["blood_pressure_low", "blood_pressure_high"],
+        "INTEGER",
+    )
+    assert result is not None
+    assert result["derive_from"] == "blood_pressure_high"
+    expr = result["expression"]
+    assert "max(40" in expr
+    assert "min(150" in expr
+    assert "value - random_int(1, 100)" in expr
+
+
+def test_pattern_1_no_range_bound_when_absent():
+    """Pattern 1: no range wrapping when there's no single-column range CHECK."""
+    constraints = [
+        {"type": "check", "expression": "col_a IS NULL OR col_a < col_b"},
+    ]
+    result = _infer_cross_column_config(
+        "col_a",
+        constraints,
+        ["col_a", "col_b"],
+        "INTEGER",
+    )
+    assert result is not None
+    expr = result["expression"]
+    assert "max(" not in expr
+    assert "min(" not in expr
+

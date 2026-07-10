@@ -428,7 +428,8 @@ class AutoHealOrchestrator:
                             for fc in fk.get("columns", []):
                                 fk_cols_set_55.add(fc)
                         cross_result = _infer_cross_column_config(
-                            col_name, meta.constraints, meta.columns, col_type, fk_cols_set_55
+                            col_name, meta.constraints, meta.columns, col_type, fk_cols_set_55,
+                            column_types=meta.column_types,
                         )
                         if cross_result is not None and "derive_from" in cross_result:
                             # Restore derive_from — remove any source-mode keys
@@ -461,6 +462,47 @@ class AutoHealOrchestrator:
                                 c["params"] = {"regex": f"[A-Za-z0-9]{{{exact_n}}}"}
                                 gen = "pattern"
                                 params = c["params"]
+
+        # Pattern 27 source-column choices constraint: when a multi-clause
+        # CHECK like ``status = 'active' AND col >= 0 OR status = 'completed'
+        # AND col >= 100 OR status = 'dropped' AND col < 100`` exists, the
+        # source column (status) can ONLY take values mentioned in the clauses
+        # ('active', 'completed', 'dropped'). Any other value (e.g.,
+        # 'refunded') causes the CHECK to fail because no clause matches.
+        # This safety net scans for Pattern 27 constraints and constrains the
+        # source column's choice generator to only include allowed values.
+        for tcfg in config.get("tables", []):
+            table_name = tcfg.get("name", "")
+            meta = snapshot.tables.get(table_name)
+            if meta is None:
+                continue
+            for c_p27_src in meta.constraints:
+                if c_p27_src.get("type") != "check":
+                    continue
+                expr_p27_src = c_p27_src.get("expression", "")
+                if " OR " not in expr_p27_src or " AND " not in expr_p27_src:
+                    continue
+                # Find all clauses: other_col = 'Vi' AND target_col OP Xi
+                clause_re_src = (
+                    r"(\w+)\s*=\s*'([^']+)'\s+AND\s+(\w+)\s*"
+                    r"(>=|<=|>|<)\s*(-?[0-9]+(?:\.[0-9]+)?)"
+                )
+                clauses_src = re.findall(clause_re_src, expr_p27_src)
+                if len(clauses_src) < 2:
+                    continue
+                src_col_p27 = clauses_src[0][0]
+                # All clauses must reference the same source column
+                if not all(cl[0] == src_col_p27 for cl in clauses_src):
+                    continue
+                allowed_values = [cl[1] for cl in clauses_src]
+                # Find the source column in the config and constrain its choices
+                for col_cfg in tcfg.get("columns", []):
+                    if col_cfg.get("name") == src_col_p27 and col_cfg.get("generator") == "choice":
+                        old_choices = col_cfg.get("params", {}).get("choices", [])
+                        # Only keep choices that are in the allowed values
+                        new_choices = [v for v in old_choices if v in allowed_values]
+                        if new_choices and len(new_choices) < len(old_choices):
+                            col_cfg["params"]["choices"] = new_choices
 
         # Step 6: emit YAML
         if self._verbose:
@@ -555,7 +597,8 @@ class AutoHealOrchestrator:
                 # has both, derive_from captures the cross-column relation
                 # while a bare min_value would silently drop it.
                 cross_config = _infer_cross_column_config(
-                    col_name, meta.constraints, meta.columns, col_type, fk_cols_set, self_ref_fk_cols
+                    col_name, meta.constraints, meta.columns, col_type, fk_cols_set, self_ref_fk_cols,
+                    column_types=meta.column_types,
                 )
                 if cross_config is not None:
                     cols.append({"name": col_name, **cross_config})
@@ -849,6 +892,33 @@ def _is_date_column(col_name: str) -> bool:
     if n in ("created", "updated", "deleted", "dob"):
         return True
     return bool(n.startswith(("date_", "time_")))
+
+
+def _is_date_only_type(col_type: str) -> bool:
+    """Check if a column type is DATE-only (no time component).
+
+    SQLite stores DATE and DATETIME both as TEXT, but the semantic
+    distinction matters for derive_from expressions: when a DATE column
+    derives from a DATETIME column, the time component is stripped at
+    storage time, which can cause julianday diff constraints to fail
+    (the diff becomes ``N - time_fraction``, dropping below the
+    threshold ``N``).
+
+    Returns True for ``DATE`` but False for ``DATETIME``, ``TIMESTAMP``,
+    and ``TIME``.
+    """
+    t = col_type.upper()
+    if "DATETIME" in t or "TIMESTAMP" in t:
+        return False
+    if "TIME" in t:
+        return False  # TIME-only column
+    return "DATE" in t
+
+
+def _is_datetime_type(col_type: str) -> bool:
+    """Check if a column type has a time component (DATETIME or TIMESTAMP)."""
+    t = col_type.upper()
+    return "DATETIME" in t or "TIMESTAMP" in t
 
 
 def _like_to_regex(like_pattern: str) -> str:
@@ -1464,6 +1534,7 @@ def _infer_cross_column_config(
     col_type: str,
     fk_columns: set[str] | None = None,
     self_ref_fk_cols: set[str] | None = None,
+    column_types: dict[str, str] | None = None,
 ) -> dict[str, Any] | None:
     """Infer config from cross-column CHECK constraints.
 
@@ -1631,6 +1702,22 @@ def _infer_cross_column_config(
                     return {
                         "generator": "choice",
                         "params": {"choices": [val_p40]},
+                    }
+            # Pattern 40 (int variant): col = INT_VALUE OR other_col IS NOT NULL
+            # e.g., level = 1 OR parent_id IS NOT NULL (parent_id is self-ref FK)
+            # Same semantics as the string variant but with an unquoted integer.
+            m_p40_int = re.match(
+                rf"^\s*{col}\s*=\s*(\d+)\s+OR\s+(\w+)\s+IS\s+NOT\s+NULL\s*$",
+                expr_p40,
+                re.IGNORECASE,
+            )
+            if m_p40_int:
+                val_p40_int = int(m_p40_int.group(1))
+                other_col_p40_int = m_p40_int.group(2)
+                if other_col_p40_int in self_ref_fk_cols and other_col_p40_int != col_name:
+                    return {
+                        "generator": "choice",
+                        "params": {"choices": [val_p40_int]},
                     }
 
     # Pattern 1b pre-loop scan: 3-way OR constraints must be checked BEFORE
@@ -1924,6 +2011,81 @@ def _infer_cross_column_config(
                 "expression": f"None if value == '{p30_val_str}' else None",
             }
 
+    # Pattern 27 pre-loop scan: N-way conditional range must be checked BEFORE
+    # the per-constraint loop. Without this, a Pattern 18 constraint
+    # (``other_col != 'VALUE' OR col = X``) on the same column would match
+    # first and return early, preventing Pattern 27 from ever being evaluated.
+    # e.g., R5.enrollments.progress_percent has both:
+    #   - status != 'completed' OR progress_percent = 100  (Pattern 18)
+    #   - status = 'active' AND progress_percent >= 0 OR status = 'completed'
+    #     AND progress_percent >= 100 OR status = 'dropped' AND progress_percent < 100
+    #     (Pattern 27, multi-clause)
+    # Pattern 27 is more specific (per-status ranges), so it wins.
+    # Guard: skip if the constraint has dual bounds per clause (Pattern 36).
+    # Pattern 36 clauses look like ``col >= X AND col < Y`` (two comparisons
+    # on col per clause). If the number of ``col OP`` occurrences is more than
+    # the number of enum assignments, it's Pattern 36, not Pattern 27.
+    for c_p27_pre in constraints:
+        if c_p27_pre.get("type") != "check":
+            continue
+        expr_p27_pre = c_p27_pre.get("expression", "")
+        if " OR " not in expr_p27_pre or " AND " not in expr_p27_pre:
+            continue
+        if not re.search(rf"\b{col}\b", expr_p27_pre, re.IGNORECASE):
+            continue
+        clause_re_p27_pre = (
+            rf"(\w+)\s*=\s*'([^']+)'\s+AND\s+{col}\s*"
+            r"(>=|<=|>|<)\s*(-?[0-9]+(?:\.[0-9]+)?)"
+        )
+        clauses_p27_pre = re.findall(clause_re_p27_pre, expr_p27_pre)
+        if len(clauses_p27_pre) >= 2:
+            other_col_p27_pre = clauses_p27_pre[0][0]
+            if (
+                other_col_p27_pre in col_set
+                and other_col_p27_pre != col_name
+                and all(cl[0] == other_col_p27_pre for cl in clauses_p27_pre)
+            ):
+                # Guard: count enum assignments vs col comparisons. If
+                # comparisons > assignments, it's Pattern 36 (dual bounds).
+                enum_count = len(re.findall(
+                    rf"{other_col_p27_pre}\s*=\s*'[^']+'", expr_p27_pre, re.IGNORECASE
+                ))
+                col_cmp_count = len(re.findall(
+                    rf"\b{col}\s*(>=|<=|>|<)\s*", expr_p27_pre, re.IGNORECASE
+                ))
+                if col_cmp_count > enum_count:
+                    continue  # Pattern 36 — skip, let per-loop Pattern 36 handle it
+                parts_p27_pre: list[str] = []
+                for _other, vi, opi, xi in clauses_p27_pre[:-1]:
+                    xi_num = float(xi)
+                    rand_expr = _range_expr_for_op(opi, xi_num)
+                    parts_p27_pre.append(f"{rand_expr} if value == '{vi}'")
+                _other, _last_vi, last_op, last_xi = clauses_p27_pre[-1]
+                last_rand = _range_expr_for_op(last_op, float(last_xi))
+                expr_chain = last_rand
+                for idx in range(len(parts_p27_pre) - 1, -1, -1):
+                    expr_chain = f"{parts_p27_pre[idx]} else ({expr_chain})"
+                # Apply column-level CHECK bounds (min/max) as wrappers.
+                # Pattern 27 clause ranges (e.g., ``>= 100`` →
+                # ``random_float(100, 200)``) may exceed the column's
+                # single-column CHECK (e.g., ``<= 100``). Wrap with
+                # ``min(result, max_val)`` / ``max(result, min_val)`` to
+                # enforce both Pattern 27 clause ranges AND column-level
+                # bounds simultaneously. ``min``/``max`` are in SAFE_FUNCTIONS.
+                col_check = _infer_from_check_constraints(col_name, constraints, all_columns)
+                if col_check is not None:
+                    _ck_gen, ck_params = col_check
+                    max_val = ck_params.get("max_value")
+                    min_val = ck_params.get("min_value")
+                    if max_val is not None:
+                        expr_chain = f"min({expr_chain}, {max_val})"
+                    if min_val is not None:
+                        expr_chain = f"max({expr_chain}, {min_val})"
+                return {
+                    "derive_from": other_col_p27_pre,
+                    "expression": expr_chain,
+                }
+
     for c in sorted(constraints, key=_constraint_sort_key):
         if c.get("type") != "check":
             continue
@@ -2055,6 +2217,44 @@ def _infer_cross_column_config(
         # e.g., termination_date IS NULL OR termination_date >= hire_date
         # e.g., due_date IS NULL OR start_date IS NULL OR due_date >= start_date
         # e.g., assessment_price IS NULL OR assessment_price <= listing_price
+        #
+        # Single-column range-bound awareness: before applying Pattern 1,
+        # scan all constraints for a single-column range CHECK on this column
+        # (e.g., ``col IS NULL OR (col >= 40 AND col <= 150)``). When found,
+        # the Pattern 1 expression (e.g., ``value - random_int(1, 100)``) is
+        # wrapped with ``max(LOWER, min(UPPER, expr))`` to enforce both the
+        # cross-column ordering AND the single-column range simultaneously.
+        # Without this, ``value - random_int(1, 100)`` can produce values
+        # outside [LOWER, UPPER] (e.g., high=60 → low=-40, violating >= 40).
+        p1_lower: float | int | None = None
+        p1_upper: float | int | None = None
+        for rc_p1 in constraints:
+            if rc_p1.get("type") != "check":
+                continue
+            rc_expr_p1 = rc_p1.get("expression", "")
+            # Match: col IS NULL OR (col >= X AND col <= Y)
+            m_range_p1 = re.match(
+                rf"^\s*{col}\s+IS\s+NULL\s+OR\s*\(\s*{col}\s*>=\s*(-?\d+(?:\.\d+)?)\s+AND\s+{col}\s*<=\s*(-?\d+(?:\.\d+)?)\s*\)\s*$",
+                rc_expr_p1,
+                re.IGNORECASE,
+            )
+            if not m_range_p1:
+                # Also match: col >= X AND col <= Y (without IS NULL prefix)
+                m_range_p1 = re.match(
+                    rf"^\s*{col}\s*>=\s*(-?\d+(?:\.\d+)?)\s+AND\s+{col}\s*<=\s*(-?\d+(?:\.\d+)?)\s*$",
+                    rc_expr_p1,
+                    re.IGNORECASE,
+                )
+            if m_range_p1:
+                low_str_p1 = m_range_p1.group(1)
+                high_str_p1 = m_range_p1.group(2)
+                if "." in low_str_p1 or "." in high_str_p1:
+                    p1_lower = float(low_str_p1)
+                    p1_upper = float(high_str_p1)
+                else:
+                    p1_lower = int(low_str_p1)
+                    p1_upper = int(high_str_p1)
+                break
         # e.g., budget_max IS NULL OR budget_min IS NULL OR budget_max >= budget_min
         # All four comparison operators are handled. For dates, timedelta is
         # used; for floats, multiplication factors; for ints, additive offsets.
@@ -2067,6 +2267,15 @@ def _infer_cross_column_config(
             op = m.group(1)
             other_col = m.group(2)
             if other_col in col_set and other_col != col_name:
+                # Helper: wrap expression with single-column range bounds
+                # (p1_lower, p1_upper) if they exist. This ensures the
+                # cross-column expression respects the single-column CHECK
+                # range simultaneously.
+                def _wrap_p1_bounds(inner_expr: str) -> str:
+                    if p1_lower is not None and p1_upper is not None:
+                        return f"max({p1_lower}, min({p1_upper}, {inner_expr}))"
+                    return inner_expr
+
                 if is_date_col or _is_date_column(other_col):
                     # Date columns: use timedelta
                     if op in (">=", ">"):
@@ -2088,43 +2297,70 @@ def _infer_cross_column_config(
                     if op == ">=":
                         return {
                             "derive_from": other_col,
-                            "expression": "value + random_float(0, 100)",
+                            "expression": _wrap_p1_bounds("value + random_float(0, 100)"),
                         }
                     if op == ">":
                         return {
                             "derive_from": other_col,
-                            "expression": "value + random_float(0.01, 100.0)",
+                            "expression": _wrap_p1_bounds("value + random_float(0.01, 100.0)"),
                         }
                     if op == "<=":
                         return {
                             "derive_from": other_col,
-                            "expression": "value - random_float(0, 100)",
+                            "expression": _wrap_p1_bounds("value - random_float(0, 100)"),
                         }
                     # op == "<"
                     return {
                         "derive_from": other_col,
-                        "expression": "value - random_float(0.01, 100.0)",
+                        "expression": _wrap_p1_bounds("value - random_float(0.01, 100.0)"),
                     }
                 # Integer columns: use additive offsets
                 if op == ">=":
                     return {
                         "derive_from": other_col,
-                        "expression": "value + random_int(0, 100)",
+                        "expression": _wrap_p1_bounds("value + random_int(0, 100)"),
                     }
                 if op == ">":
                     return {
                         "derive_from": other_col,
-                        "expression": "value + random_int(1, 100)",
+                        "expression": _wrap_p1_bounds("value + random_int(1, 100)"),
                     }
                 if op == "<=":
                     return {
                         "derive_from": other_col,
-                        "expression": "value - random_int(0, 100)",
+                        "expression": _wrap_p1_bounds("value - random_int(0, 100)"),
                     }
                 # op == "<"
                 return {
                     "derive_from": other_col,
-                    "expression": "value - random_int(1, 100)",
+                    "expression": _wrap_p1_bounds("value - random_int(1, 100)"),
+                }
+
+        # Pattern 1 (DATE-on-left variant): col IS NULL OR DATE(col) OP other_col
+        # e.g., paid_at IS NULL OR DATE(paid_at) >= due_date
+        # Same semantics as Pattern 1 but with a DATE() wrapper on the left
+        # column. When col is not NULL, DATE(col) must satisfy the comparison
+        # with other_col. The expression generates col = other_col + positive
+        # timedelta (for >=, >) or other_col - timedelta (for <=, <).
+        m_date_left = re.search(
+            rf"{col}\s+IS\s+NULL\s+OR\s+DATE\s*\(\s*{col}\s*\)\s*(>=|>|<=|<)\s*(\w+)",
+            expr,
+            re.IGNORECASE,
+        )
+        if m_date_left:
+            op_dl = m_date_left.group(1)
+            other_col_dl = m_date_left.group(2)
+            if (other_col_dl in col_set and other_col_dl != col_name
+                    and (is_date_col or _is_date_column(other_col_dl))):
+                if op_dl in (">=", ">"):
+                    return {
+                        "derive_from": other_col_dl,
+                        "expression": "value + timedelta(days=random_int(1, 365))",
+                    }
+                days_dl = "0" if op_dl == "<=" else "1"
+                return {
+                    "derive_from": other_col_dl,
+                    "expression": f"value - timedelta(days=random_int({days_dl}, 365))",
                 }
 
         # Pattern 39: col1 IS NULL OR col <= col2 + col3 (compound addition upper bound)
@@ -2147,6 +2383,26 @@ def _infer_cross_column_config(
                     "expression": (f"None if value is None else (value + row['{col3_p39}']) * random_float(0.0, 1.0)"),
                 }
 
+        # Pattern 39 (no-NULL variant): col <= col2 + col3 (compound addition
+        # upper bound without NULL escape).
+        # e.g., available_balance <= balance + overdraft_limit
+        # Same arithmetic as Pattern 39 but without the ``col1 IS NULL OR``
+        # prefix — col must ALWAYS satisfy ``col <= col2 + col3``.
+        m_nn_p39 = re.match(
+            rf"^\s*{col}\s*<=\s*(\w+)\s*\+\s*(\w+)\s*$",
+            expr,
+            re.IGNORECASE,
+        )
+        if m_nn_p39:
+            col2_p39nn = m_nn_p39.group(1)
+            col3_p39nn = m_nn_p39.group(2)
+            if (col2_p39nn in col_set and col3_p39nn in col_set
+                    and col_name not in (col2_p39nn, col3_p39nn)):
+                return {
+                    "derive_from": col2_p39nn,
+                    "expression": f"(value + row['{col3_p39nn}']) * random_float(0.0, 1.0)",
+                }
+
         # Pattern 41: col (>=|>|<=|<) DATE(other_col) — standalone comparison
         # with DATE() function wrapper. SQLite and PostgreSQL both support
         # ``DATE(col)`` to coerce a datetime/text to a date. The wrapper must
@@ -2165,9 +2421,56 @@ def _infer_cross_column_config(
             if other_col_p41 in col_set and other_col_p41 != col_name:
                 if is_date_col or _is_date_column(other_col_p41):
                     if op_p41 in (">=", ">"):
+                        # Scan for date-difference constraints like
+                        # ``col - other_col >= N`` or ``col - other_col > N``
+                        # which require a minimum day offset. Use the max N
+                        # found as the lower bound (N+1 for strict >).
+                        # e.g., ``maturity_date - disbursed_at >= 30`` →
+                        # lower bound 30 days.
+                        # Also matches the SQLite-compatible julianday() form:
+                        # ``julianday(col) - julianday(other_col) >= N``
+                        # (standard ISO date subtraction returns 0 in SQLite,
+                        # so schemas targeting SQLite should use julianday()).
+                        min_days_p41 = 1
+                        for c_p41 in constraints:
+                            if c_p41 is c or c_p41.get("type") != "check":
+                                continue
+                            expr_p41_diff = c_p41.get("expression", "")
+                            m_p41_diff = re.search(
+                                rf"(?:julianday\()?{col}\)?\s*-\s*(?:julianday\()?{other_col_p41}\)?\s*(>=|>)\s*(\d+)",
+                                expr_p41_diff,
+                                re.IGNORECASE,
+                            )
+                            if m_p41_diff:
+                                diff_op = m_p41_diff.group(1)
+                                diff_n = int(m_p41_diff.group(2))
+                                bound = diff_n if diff_op == ">=" else diff_n + 1
+                                if bound > min_days_p41:
+                                    min_days_p41 = bound
+                        # DATE-vs-DATETIME compensation: when the target column
+                        # is DATE-only (no time component) and the source column
+                        # is DATETIME (has time component), the stored target
+                        # value loses its time component (set to midnight),
+                        # while the source retains its time. This causes the
+                        # julianday diff to be ``N - time_fraction``, which can
+                        # drop below the threshold ``N`` when random_int returns
+                        # exactly N. Add 1 extra day to guarantee the constraint
+                        # is always satisfied.
+                        # e.g., maturity_date (DATE) derives from disbursed_at
+                        # (DATETIME): ``julianday(maturity_date) -
+                        # julianday(disbursed_at) >= 30`` — without +1, when
+                        # random_int(30, 365) returns 30, the diff is
+                        # ``30 - 0.766 = 29.234 < 30`` → CHECK fails.
+                        target_is_date_only = _is_date_only_type(col_type)
+                        source_is_datetime = (
+                            column_types is not None
+                            and _is_datetime_type(column_types.get(other_col_p41, ""))
+                        )
+                        if target_is_date_only and source_is_datetime:
+                            min_days_p41 += 1
                         return {
                             "derive_from": other_col_p41,
-                            "expression": "value + timedelta(days=random_int(1, 30))",
+                            "expression": f"value + timedelta(days=random_int({min_days_p41}, 365))",
                         }
                     days_p41 = "0" if op_p41 == "<=" else "1"
                     return {
@@ -2451,23 +2754,87 @@ def _infer_cross_column_config(
                     "expression": "value - random_int(1, 100)",
                 }
 
-        # Pattern 6: col != other_col (inequality between two integer/FK columns)
-        # e.g., debit_account_id != credit_account_id
-        # Uses a ternary expression that guarantees inequality while staying
-        # within the valid FK range (assumes sequential IDs starting from 1):
-        #   value=1 → 2 (boundary: use +1)
-        #   value>1 → value-1 (always different, always in [1, value-1] ⊂ [1, N])
-        # This is safe for any N >= 2 and avoids the batch-level CHECK failure
-        # that would occur with independent random FK selection (~3.3%
-        # collision rate per row, ~97% batch failure rate for batches of 100).
-        m = re.match(rf"^\s*{col}\s*!=\s*(\w+)\s*$", expr, re.IGNORECASE)
-        if m:
-            other_col = m.group(1)
-            if other_col in col_set and other_col != col_name and is_int_type:
+        # Pattern 6: col != other_col (inequality between two columns)
+        # Handles both ``col != other_col`` and ``other_col != col`` (reversed).
+        # Integer/FK variant: uses ``value - 1 if value > 1 else value + 1``
+        # to guarantee inequality while staying within the valid FK range
+        # (assumes sequential IDs starting from 1).
+        # TEXT variant: when the column has a CHECK IN (...) constraint, builds
+        # a rotation ternary that cycles through the IN set, guaranteeing the
+        # result is always a different value from the set.
+        # e.g., base_currency != quote_currency (both IN ('CNY','USD','EUR','HKD'))
+        #   → 'USD' if value == 'CNY' else 'EUR' if value == 'USD' else ...
+        other_col_p6: str | None = None
+        m_p6 = re.match(rf"^\s*{col}\s*!=\s*(\w+)\s*$", expr, re.IGNORECASE)
+        if m_p6:
+            other_col_p6 = m_p6.group(1)
+        else:
+            # Reversed form: other_col != col
+            m_p6_rev = re.match(rf"^\s*(\w+)\s*!=\s*{col}\s*$", expr, re.IGNORECASE)
+            if m_p6_rev:
+                other_col_p6 = m_p6_rev.group(1)
+        if other_col_p6 and other_col_p6 in col_set and other_col_p6 != col_name:
+            # Cycle prevention: only apply Pattern 6 to the column that comes
+            # LATER in the column list. The constraint ``col != other_col`` is
+            # symmetric — both columns match (one via direct form, the other via
+            # reversed form). Without this check, both columns would derive_from
+            # each other, creating a circular dependency that crashes the DAG.
+            # By only applying to the later column, the earlier column is the
+            # source (generated first), and the later column derives from it.
+            col_idx_p6 = all_columns.index(col_name) if col_name in all_columns else -1
+            other_idx_p6 = all_columns.index(other_col_p6) if other_col_p6 in all_columns else -1
+            # UNIQUE-constraint guard: when col and other_col are BOTH part of
+            # the same UNIQUE constraint, the deterministic expression
+            # ``value - 1 if value > 1 else value + 1`` maps each other_col
+            # value to exactly one col value. This limits the number of unique
+            # (other_col, col) pairs to the number of distinct other_col values,
+            # making large fills impossible (e.g., 1000 routes with 1000
+            # warehouses — after 500 rows, collision probability is 50%).
+            # Skip Pattern 6 and let the ConstraintSolver handle the ``!=``
+            # constraint via retry logic with independent random FK sampling.
+            p6_unique_conflict = any(
+                uc.get("type") == "unique"
+                and col_name in uc.get("columns", [])
+                and other_col_p6 in uc.get("columns", [])
+                for uc in constraints
+            )
+            should_apply_p6 = col_idx_p6 > other_idx_p6 and not p6_unique_conflict
+            if should_apply_p6 and is_int_type:
                 return {
-                    "derive_from": other_col,
+                    "derive_from": other_col_p6,
                     "expression": "value - 1 if value > 1 else value + 1",
                 }
+            # TEXT columns: build a rotation ternary from the IN set.
+            # Scan constraints for ``col IN ('v1', 'v2', ...)`` to extract
+            # valid values, then cycle: each value maps to the next, last
+            # maps to first. This guarantees result != value for any value
+            # in the set.
+            if should_apply_p6 and col_type.upper() in ("TEXT", "VARCHAR", "CHAR"):
+                for ic in constraints:
+                    if ic.get("type") != "check":
+                        continue
+                    ic_expr = ic.get("expression", "")
+                    m_in_p6 = re.match(
+                        rf"^\s*{col}\s+IN\s*\(([^)]+)\)\s*$",
+                        ic_expr,
+                        re.IGNORECASE,
+                    )
+                    if m_in_p6:
+                        in_values_p6 = re.findall(r"'([^']+)'", m_in_p6.group(1))
+                        if len(in_values_p6) >= 2:
+                            # Build chained ternary: v1→v2, v2→v3, ..., vN→v1
+                            parts_p6 = []
+                            for i_p6 in range(len(in_values_p6) - 1):
+                                parts_p6.append(
+                                    f"'{in_values_p6[i_p6 + 1]}' if value == '{in_values_p6[i_p6]}'"
+                                )
+                            expr_p6 = " else ".join(parts_p6)
+                            expr_p6 += f" else '{in_values_p6[0]}'"
+                            return {
+                                "derive_from": other_col_p6,
+                                "expression": expr_p6,
+                            }
+                        break
 
         # Pattern 18: col != VALUE OR other_col = VALUE2 (conditional equality)
         # e.g., is_completed != 1 OR watched_percent = 100
@@ -2565,23 +2932,97 @@ def _infer_cross_column_config(
                     "expression": f"value {op} row['{col2}']",
                 }
 
-        # Pattern 11: col = col1 + col2 + col3 (three-column addition equality)
-        # e.g., total_amount = consultation_fee + medication_fee + test_fee
-        # Derive from col1 (first operand), reference col2 and col3 via row dict.
-        # The expression computes exactly col1 + col2 + col3, satisfying the
+        # Pattern 11: col = col1 + col2 + col3 [+ col4 [+ ...]] (N-column addition equality, N >= 3)
+        # e.g., total_amount = base_charge + weight_charge + distance_charge + fuel_surcharge + insurance_charge + tax
+        # Derive from col1 (first operand), reference remaining cols via row dict.
+        # The expression computes exactly col1 + col2 + ... + colN, satisfying the
         # equality constraint. Only supports + operator (most common case for
-        # three-column sums like bills, invoices, totals).
+        # multi-column sums like invoices, totals, bills).
         m = re.match(
-            rf"^\s*{col}\s*=\s*(\w+)\s*\+\s*(\w+)\s*\+\s*(\w+)\s*$",
+            rf"^\s*{col}\s*=\s*(\w+(?:\s*\+\s*\w+)+)\s*$",
             expr,
             re.IGNORECASE,
         )
         if m:
-            col1, col2, col3 = m.group(1), m.group(2), m.group(3)
-            if col1 in col_set and col2 in col_set and col3 in col_set and col1 != col_name:
+            rhs = m.group(1)
+            sum_cols = [c.strip() for c in rhs.split("+")]
+            # Need at least 3 columns (2-column sums are handled by Pattern 10)
+            if len(sum_cols) >= 3 and all(c in col_set for c in sum_cols) and sum_cols[0] != col_name:
+                derive_col = sum_cols[0]
+                ref_cols = sum_cols[1:]
+                expr_parts = "value" + "".join(f" + row['{c}']" for c in ref_cols)
                 return {
-                    "derive_from": col1,
-                    "expression": f"value + row['{col2}'] + row['{col3}']",
+                    "derive_from": derive_col,
+                    "expression": expr_parts,
+                }
+
+        # Pattern 42: col = abs(col1 - col2) (abs subtraction equality)
+        # e.g., weight_diff = abs(total_weight_kg - billed_weight_kg)
+        # Derive from col1, reference col2 via row dict. The expression computes
+        # abs(value - row[col2]), satisfying the equality constraint.
+        m = re.match(
+            rf"^\s*{col}\s*=\s*abs\s*\(\s*(\w+)\s*-\s*(\w+)\s*\)\s*$",
+            expr,
+            re.IGNORECASE,
+        )
+        if m:
+            col1_p42, col2_p42 = m.group(1), m.group(2)
+            if (col1_p42 in col_set and col2_p42 in col_set
+                    and col1_p42 != col_name):
+                return {
+                    "derive_from": col1_p42,
+                    "expression": f"abs(value - row['{col2_p42}'])",
+                }
+
+        # Pattern 43: col <= col2 * CONST1 + CONST2 (compound arithmetic upper bound)
+        # e.g., estimated_hours <= distance_km * 0.5 + 24.0
+        # Derive from col2, expression: value * CONST1 + random_float(0, CONST2)
+        # (random offset 0..CONST2 ensures col <= col2 * CONST1 + CONST2).
+        m = re.match(
+            rf"^\s*{col}\s*<=\s*(\w+)\s*\*\s*(-?\d+(?:\.\d+)?)\s*\+\s*(-?\d+(?:\.\d+)?)\s*$",
+            expr,
+            re.IGNORECASE,
+        )
+        if m:
+            col2_p43, const1_p43, const2_p43 = m.group(1), m.group(2), m.group(3)
+            if col2_p43 in col_set and col2_p43 != col_name:
+                return {
+                    "derive_from": col2_p43,
+                    "expression": f"value * {const1_p43} + random_float(0.0, {const2_p43})",
+                }
+
+        # Pattern 44: col = col1 * col2 * col3 / CONST (3-column multiplication+division)
+        # e.g., expected_interest = principal * interest_rate * term_months / 12.0
+        # Derive from col1, reference col2 and col3 via row dict.
+        m = re.match(
+            rf"^\s*{col}\s*=\s*(\w+)\s*\*\s*(\w+)\s*\*\s*(\w+)\s*/\s*(-?\d+(?:\.\d+)?)\s*$",
+            expr,
+            re.IGNORECASE,
+        )
+        if m:
+            col1_p44, col2_p44, col3_p44, divisor_p44 = m.group(1), m.group(2), m.group(3), m.group(4)
+            if (col1_p44 in col_set and col2_p44 in col_set and col3_p44 in col_set
+                    and col1_p44 != col_name):
+                return {
+                    "derive_from": col1_p44,
+                    "expression": f"value * row['{col2_p44}'] * row['{col3_p44}'] / {divisor_p44}",
+                }
+
+        # Pattern 45: col = col1 + col1 * col2 * col3 / CONST (compound arithmetic with repeated column)
+        # e.g., total_payable = principal + principal * interest_rate * term_months / 12.0
+        # Derive from col1 (repeated), reference col2 and col3 via row dict.
+        m = re.match(
+            rf"^\s*{col}\s*=\s*(\w+)\s*\+\s*\1\s*\*\s*(\w+)\s*\*\s*(\w+)\s*/\s*(-?\d+(?:\.\d+)?)\s*$",
+            expr,
+            re.IGNORECASE,
+        )
+        if m:
+            col1_p45, col2_p45, col3_p45, divisor_p45 = m.group(1), m.group(2), m.group(3), m.group(4)
+            if (col1_p45 in col_set and col2_p45 in col_set and col3_p45 in col_set
+                    and col1_p45 != col_name):
+                return {
+                    "derive_from": col1_p45,
+                    "expression": f"value + value * row['{col2_p45}'] * row['{col3_p45}'] / {divisor_p45}",
                 }
 
         # Pattern 19: col1 + col2 = col (reverse sum equality — derive one addend from total)
@@ -2595,30 +3036,69 @@ def _infer_cross_column_config(
             expr,
             re.IGNORECASE,
         )
-        if not m:
-            # Try reverse ordering: col + col1 = col2
+        if m:
+            # First ordering: "col1 <op> col = total" → groups: (col1, op, total)
+            other_col, op, total_col = m.group(1), m.group(2), m.group(3)
+        else:
+            # Try reverse ordering: "col <op> col1 = total"
             m = re.match(
                 rf"^\s*{col}\s*([+\-])\s*(\w+)\s*=\s*(\w+)\s*$",
                 expr,
                 re.IGNORECASE,
             )
+            if m:
+                # Reverse ordering groups: (op, col1, total) — note the swap!
+                op, other_col, total_col = m.group(1), m.group(2), m.group(3)
         if m:
-            other_col, op, total_col = m.group(1), m.group(2), m.group(3)
             if other_col in col_set and total_col in col_set and total_col != col_name:
-                # col1 + col = col2 → col = col2 - col1
-                # col1 - col = col2 → col = col1 - col2
-                # col + col1 = col2 → col = col2 - col1
-                # col - col1 = col2 → col = col2 + col1
+                # Cycle prevention: the constraint ``col1 + col2 = total`` is
+                # symmetric — both addends match Pattern 19 (one via first
+                # ordering, the other via reverse). Without this check, both
+                # would derive_from total and reference each other, creating a
+                # circular dependency that crashes the DAG. By only applying
+                # the ``total - other`` expression to the LATER column, the
+                # earlier column becomes the source (generated first).
+                col_idx_p19 = all_columns.index(col_name) if col_name in all_columns else -1
+                other_idx_p19 = all_columns.index(other_col) if other_col in all_columns else -1
+                if col_idx_p19 > other_idx_p19:
+                    # col1 + col = col2 → col = col2 - col1
+                    # col1 - col = col2 → col = col1 - col2
+                    # col + col1 = col2 → col = col2 - col1
+                    # col - col1 = col2 → col = col2 + col1
+                    if op == "+":
+                        return {
+                            "derive_from": total_col,
+                            "expression": f"value - row['{other_col}']",
+                        }
+                    # op == "-"
+                    return {
+                        "derive_from": total_col,
+                        "expression": f"row['{other_col}'] - value",
+                    }
+                # col is the EARLIER addend. Derive it from total as an
+                # integer fraction so that col ∈ [0, total] (when total >= 0).
+                # This guarantees the LATER addend (total - col) is also in
+                # [0, total], satisfying both ``col >= 0`` and
+                # ``other_col >= 0`` CHECK constraints. Only applies to
+                # addition (``col + other = total``); subtraction variants
+                # (``col - other = total``) don't have the same non-negativity
+                # guarantee, so we skip and let other patterns handle them.
+                #
+                # Uses ``random_int`` (not ``random_float``) to guarantee the
+                # CHECK ``col1 + col2 = total`` holds EXACTLY in IEEE 754
+                # floating point. Integers up to 2^53 are exactly representable
+                # in double precision, and ``int + (float - int) = float`` is
+                # exact for normal-range floats (the integer only affects the
+                # integer part, leaving the fractional bits untouched). With
+                # ``random_float``, the multiplication ``total * frac``
+                # introduces rounding, and ``frac*total + (total - frac*total)``
+                # may differ from ``total`` by 1 ULP, failing the ``=``
+                # CHECK on REAL columns.
                 if op == "+":
                     return {
                         "derive_from": total_col,
-                        "expression": f"value - row['{other_col}']",
+                        "expression": "random_int(0, max(0, int(value)))",
                     }
-                # op == "-"
-                return {
-                    "derive_from": total_col,
-                    "expression": f"row['{other_col}'] - value",
-                }
 
         # Pattern 20: col = VALUE OR other_col < col2 OR other_col > col3 (range membership)
         # e.g., is_abnormal = 0 OR test_value < ref_lower OR test_value > ref_upper
@@ -3255,6 +3735,35 @@ def _infer_cross_column_config(
                 "expression": expr_p37_final,
             }
 
+        # Pattern 46: col = INT_VALUE OR other_col (<|<=) CONST [OR ...]
+        # (multi-clause disjunction with integer equality as first clause)
+        # e.g., is_free = 1 OR price < 100 OR original_price IS NULL OR original_price < 200
+        # Semantics: the CHECK is satisfied if ANY clause is true. When
+        # other_col violates the inequality (>= CONST for <, > CONST for <=),
+        # col MUST be INT_VALUE to satisfy the first clause. When other_col
+        # satisfies the inequality, col can be any valid value (the second
+        # clause is already true). Derive from other_col: set col to INT_VALUE
+        # when the inequality would fail, else random_int(0, INT_VALUE).
+        # This is a conservative approach — setting col = INT_VALUE is always
+        # safe because it satisfies the first clause regardless of other cols.
+        m = re.match(
+            rf"^\s*{col}\s*=\s*(\d+)\s+OR\s+(\w+)\s*(<|<=)\s*(-?\d+(?:\.\d+)?)\s*(?:OR\s+.*)?$",
+            expr,
+            re.IGNORECASE,
+        )
+        if m:
+            val_p46 = int(m.group(1))
+            other_col_p46 = m.group(2)
+            op_p46 = m.group(3)
+            threshold_p46 = float(m.group(4))
+            if other_col_p46 in col_set and other_col_p46 != col_name:
+                # When other_col violates the inequality, col MUST be INT_VALUE.
+                violate_expr = f"value >= {threshold_p46}" if op_p46 == "<" else f"value > {threshold_p46}"
+                return {
+                    "derive_from": other_col_p46,
+                    "expression": f"{val_p46} if {violate_expr} else random_int(0, {val_p46})",
+                }
+
         # Pattern 28: col1 != VALUE OR col2 > 0
         # (conditional requirement — when col1 == VALUE, col2 must be > 0;
         # otherwise col2 can be anything, including 0)
@@ -3466,6 +3975,25 @@ def _infer_cross_column_config(
                 return {
                     "derive_from": other_col_p30b,
                     "expression": f"None if value == '{val_str_p30b}' else {non_null_expr_p30b}",
+                }
+
+        # Pattern 30b (int variant): col1 = INTEGER_VALUE OR col IS NOT NULL
+        # e.g., level = 1 OR parent_id IS NOT NULL
+        # Same semantics as the string variant but with an unquoted integer VALUE.
+        # When col1 == INT_VALUE: col = None (NULL is allowed);
+        # when col1 != INT_VALUE: col = non-NULL (1 for FK, 0/0.0 for others).
+        m_int_p30b = re.match(
+            rf"^\s*(\w+)\s*=\s*(\d+)\s+OR\s+{col}\s+IS\s+NOT\s+NULL\s*$",
+            expr,
+            re.IGNORECASE,
+        )
+        if m_int_p30b:
+            other_col_p30b_int, val_int_p30b = m_int_p30b.group(1), m_int_p30b.group(2)
+            if other_col_p30b_int in col_set and other_col_p30b_int != col_name:
+                non_null_expr_p30b_int = "1" if is_fk_column else ("0.0" if is_float_type else "0")
+                return {
+                    "derive_from": other_col_p30b_int,
+                    "expression": f"None if value == {val_int_p30b} else {non_null_expr_p30b_int}",
                 }
 
         # Pattern 31: col1 != VALUE OR col = VALUE2 (conditional equality —

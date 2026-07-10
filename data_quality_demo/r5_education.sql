@@ -81,7 +81,8 @@ CREATE TABLE enrollments (
     CHECK (status != 'completed' OR progress_percent = 100),
     CHECK (status = 'active' AND progress_percent >= 0
            OR status = 'completed' AND progress_percent >= 100
-           OR status = 'dropped' AND progress_percent < 100),
+           OR status = 'dropped' AND progress_percent < 100
+           OR status = 'refunded'),
     CHECK (status IN ('dropped', 'refunded') OR completed_at IS NULL)
 );
 

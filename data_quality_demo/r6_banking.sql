@@ -169,7 +169,7 @@ CREATE TABLE loans (
     CHECK (maturity_date > DATE(disbursed_at)),
     CHECK (total_payable = principal + principal * interest_rate * term_months / 12.0),
     CHECK (total_payable >= principal * interest_rate),
-    CHECK (maturity_date - disbursed_at >= 30)
+    CHECK (julianday(maturity_date) - julianday(disbursed_at) >= 30)
 );
 
 CREATE TABLE loan_payments (

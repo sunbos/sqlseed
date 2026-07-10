@@ -8,6 +8,7 @@ and AI suggestion / template pool application.
 
 from __future__ import annotations
 
+import re
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -186,6 +187,29 @@ class SpecResolverMixin:
 
         provider = self._registry.get(self._provider_name)
 
+        # Extract cross-column comparison CHECK constraints so the DataStream
+        # can enforce them at row-generation time (retry when violated).
+        # Supports ``col1 != col2``, ``col1 > col2``, ``col1 < col2``,
+        # ``col1 >= col2``, ``col1 <= col2``.
+        # Without this, independently-sampled columns (e.g., start_time and
+        # end_time with LIKE constraints that block derive_from) can violate
+        # ordering CHECKs, causing batch-level IntegrityError.
+        inequality_constraints: list[tuple[str, str, str]] = []
+        if table_name is not None:
+            try:
+                check_constraints = self._db.get_check_constraints(table_name)
+                for ck in check_constraints:
+                    expr_ck = ck.expression.strip()
+                    # Match ``col1 (op) col2`` for cross-column comparisons
+                    m_ck = re.match(r"^(\w+)\s*(!=|>=|<=|>|<)\s*(\w+)\s*$", expr_ck, re.IGNORECASE)
+                    if m_ck:
+                        col1_ck, op_ck, col2_ck = m_ck.group(1), m_ck.group(2), m_ck.group(3)
+                        inequality_constraints.append((col1_ck, col2_ck, op_ck))
+            except Exception:
+                # Non-critical: if CHECK constraint extraction fails, proceed
+                # without inequality enforcement (INSERT-time error will surface).
+                pass
+
         return DataStream(
             dag_nodes=dag_nodes,
             provider=provider,
@@ -194,6 +218,7 @@ class SpecResolverMixin:
             transform_fn=transform_fn,
             seed=seed,
             composite_unique_constraints=composite_unique,
+            inequality_constraints=inequality_constraints,
         )
 
     def _prepare_specs(
