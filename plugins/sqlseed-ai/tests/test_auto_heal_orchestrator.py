@@ -209,13 +209,16 @@ def test_pattern_30_fk_column_returns_none():
     assert " 0" not in expr.replace("None", "")
 
 
-def test_pattern_30_non_fk_column_returns_zero():
-    """Pattern 30: Non-FK column → 0 for non-null branch."""
-    constraints = [{"type": "check", "expression": "status != 'closed' OR closed_at IS NULL"}]
+def test_pattern_30_non_fk_non_datetime_column_returns_zero():
+    """Pattern 30: Non-FK, non-datetime column → 0 for non-null branch.
+    Note: datetime columns (e.g., ``closed_at``) now return None for both
+    branches (0 is invalid for datetime). This test uses a non-datetime
+    column name to verify the 0-return behavior still works for int/float."""
+    constraints = [{"type": "check", "expression": "status != 'closed' OR retry_count IS NULL"}]
     result = _infer_cross_column_config(
-        "closed_at",
+        "retry_count",
         constraints,
-        ["closed_at", "status"],
+        ["retry_count", "status"],
         "INTEGER",
         fk_columns=set(),
     )
@@ -2010,3 +2013,180 @@ def test_pattern_1b_lower_bound_awareness():
     # Expression must include max() with created_at to enforce lower bound
     assert "max(" in expr
     assert "created_at" in expr
+
+
+def test_pattern_37_string_equality_variant():
+    """Pattern 37 string variant: multiple ``col1 != VALUE OR col = 'VALUE2'``
+    constraints on the same column.
+
+    e.g., R6.transactions.direction has:
+      - txn_type != 'withdrawal' OR direction = 'out'
+      - txn_type != 'deposit' OR direction = 'in'
+      - txn_type != 'fee' OR direction = 'out'
+      - txn_type != 'interest' OR direction = 'in'
+    Derive from txn_type with a nested ternary mapping each enum value to
+    its required string.
+    """
+    constraints = [
+        {"type": "check", "expression": "txn_type != 'withdrawal' OR direction = 'out'"},
+        {"type": "check", "expression": "txn_type != 'deposit' OR direction = 'in'"},
+        {"type": "check", "expression": "txn_type != 'fee' OR direction = 'out'"},
+        {"type": "check", "expression": "txn_type != 'interest' OR direction = 'in'"},
+    ]
+    result = _infer_cross_column_config(
+        "direction", constraints, ["direction", "txn_type"], "TEXT"
+    )
+    assert result is not None
+    assert result["derive_from"] == "txn_type"
+    expr = result["expression"]
+    # Must map withdrawal→out, deposit→in, fee→out, interest→in
+    assert "'out'" in expr
+    assert "'in'" in expr
+    assert "withdrawal" in expr
+    assert "deposit" in expr
+    # Must be a nested ternary (multiple if/else)
+    assert expr.count("if value == '") >= 4
+
+
+def test_pattern_30_pre_loop_scan_with_sibling_pattern_1():
+    """Pattern 30 pre-loop scan: when both Pattern 30 (col1 != VALUE OR col
+    IS NULL) and Pattern 1 (col IS NULL OR col >= other_col) exist on the
+    same column, Pattern 30 must win and derive from other_col with a
+    conditional NULL.
+
+    e.g., R2.prescriptions.dispensed_at has:
+      - status != 'cancelled' OR dispensed_at IS NULL  (Pattern 30)
+      - dispensed_at IS NULL OR dispensed_at >= prescribed_at  (Pattern 1)
+    Without pre-loop scan, Pattern 1 matches first and returns early,
+    making dispensed_at always non-NULL — violating Pattern 30 when
+    status == 'cancelled'.
+    """
+    constraints = [
+        {"type": "check", "expression": "status != 'cancelled' OR dispensed_at IS NULL"},
+        {"type": "check", "expression": "dispensed_at IS NULL OR dispensed_at >= prescribed_at"},
+    ]
+    result = _infer_cross_column_config(
+        "dispensed_at",
+        constraints,
+        ["dispensed_at", "status", "prescribed_at"],
+        "TEXT",
+    )
+    assert result is not None
+    # Must derive from prescribed_at (Pattern 1's source) with conditional NULL
+    assert result["derive_from"] == "prescribed_at"
+    expr = result["expression"]
+    # When status == 'cancelled', dispensed_at must be None
+    assert "row['status']" in expr
+    assert "'cancelled'" in expr
+    assert "None" in expr
+    # When status != 'cancelled', dispensed_at = prescribed_at + timedelta (>=)
+    assert "timedelta" in expr
+
+
+def test_pattern_30_datetime_non_null_branch_returns_none():
+    """Pattern 30: datetime column without a sibling Pattern 1 should return
+    None for the non-null branch (not 0, which is invalid for datetime)."""
+    constraints = [{"type": "check", "expression": "status != 'cancelled' OR closed_at IS NULL"}]
+    result = _infer_cross_column_config(
+        "closed_at",
+        constraints,
+        ["closed_at", "status"],
+        "TEXT",
+    )
+    assert result is not None
+    expr = result["expression"]
+    # Both branches should be None — 0 is not a valid datetime
+    assert "None" in expr
+    assert " 0" not in expr.replace("None", "")
+
+
+def test_pattern_1b_literal_upper_bound_awareness():
+    """Pattern 1b: when a literal upper bound constraint exists
+    (``col IS NULL OR col <= Y``), the expression must respect it.
+
+    e.g., R3.warehouses.temperature_max has:
+      - temperature_max IS NULL OR temperature_max <= 40.0  (literal upper)
+      - temperature_min IS NULL OR temperature_max IS NULL OR temperature_max > temperature_min  (Pattern 1b)
+    Pattern 1b derives from temperature_min and adds a positive delta,
+    which can exceed 40.0. Expression must include min() with 40.0 and
+    return None when value >= 40.0 (unsolvable: col > value AND col <= 40.0).
+    """
+    constraints = [
+        {"type": "check", "expression": "temperature_max IS NULL OR temperature_max <= 40.0"},
+        {
+            "type": "check",
+            "expression": "temperature_min IS NULL OR temperature_max IS NULL OR temperature_max > temperature_min",
+        },
+    ]
+    result = _infer_cross_column_config(
+        "temperature_max",
+        constraints,
+        ["temperature_max", "temperature_min"],
+        "REAL",
+    )
+    assert result is not None
+    assert result["derive_from"] == "temperature_min"
+    expr = result["expression"]
+    # Must include min() with 40.0 to enforce the literal upper bound
+    assert "min(" in expr
+    assert "40.0" in expr
+    # Must include None fallback for the unsolvable case (value >= 40.0)
+    assert "value >= 40.0" in expr
+
+
+def test_pattern_1b_negative_value_uses_addition_not_multiplication():
+    """Pattern 1b ``>``: for negative source values, addition (not multiplication)
+    must be used.
+
+    ``value * random_float(1.01, 2.0)`` makes negative values MORE negative
+    (e.g., -20.0 * 1.01 = -20.2 < -20.0), violating ``col > other_col``.
+    ``value + random_float(0.01, 100.0)`` is sign-agnostic and always
+    satisfies the strict inequality.
+
+    e.g., R3.warehouses.temperature_min can be -30.0 (from ``temperature_min >= -30.0``).
+    temperature_max > temperature_min must produce a value > -30.0,
+    which multiplication fails to guarantee.
+    """
+    constraints = [
+        {
+            "type": "check",
+            "expression": (
+                "temperature_min IS NULL OR temperature_max IS NULL "
+                "OR temperature_max > temperature_min"
+            ),
+        },
+    ]
+    result = _infer_cross_column_config(
+        "temperature_max",
+        constraints,
+        ["temperature_max", "temperature_min"],
+        "REAL",
+    )
+    assert result is not None
+    assert result["derive_from"] == "temperature_min"
+    expr = result["expression"]
+    # Must use addition, NOT multiplication
+    assert "value + random_float" in expr
+    assert "value * random_float" not in expr
+
+
+def test_pattern_1_float_greater_than_uses_addition():
+    """Pattern 1 ``col IS NULL OR col > other_col`` (float): uses addition,
+    not multiplication, to support negative source values."""
+    constraints = [{"type": "check", "expression": "high IS NULL OR high > low"}]
+    result = _infer_cross_column_config("high", constraints, ["high", "low"], "REAL")
+    assert result is not None
+    expr = result["expression"]
+    assert "value + random_float" in expr
+    assert "value * random_float" not in expr
+
+
+def test_pattern_1_float_less_equal_uses_subtraction():
+    """Pattern 1 ``col IS NULL OR col <= other_col`` (float): uses subtraction,
+    not multiplication, to support negative source values."""
+    constraints = [{"type": "check", "expression": "low IS NULL OR low <= high"}]
+    result = _infer_cross_column_config("low", constraints, ["low", "high"], "REAL")
+    assert result is not None
+    expr = result["expression"]
+    assert "value - random_float" in expr
+    assert "value * random_float" not in expr
