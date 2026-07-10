@@ -4,6 +4,7 @@ import sqlite3
 from typing import Any
 
 import sqlseed
+from sqlseed.config.models import ColumnConfig
 from sqlseed.core.mapper import GeneratorSpec
 from sqlseed.core.relation import RelationResolver, SharedPool
 from sqlseed.database._protocol import ForeignKeyInfo
@@ -217,6 +218,258 @@ class TestRelationResolver:
         assert len(resolver._fk_cache) > 0
         resolver.clear_cache()
         assert len(resolver._fk_cache) == 0
+
+    def test_self_ref_fk_or_integer_sets_null_ratio(self, tmp_path: Any) -> None:
+        """Self-ref FK with generator=foreign_key_or_integer gets null_ratio=1.0.
+
+        When the LLM picks ``foreign_key_or_integer`` for a nullable self-ref
+        FK column (e.g., departments.parent_id -> departments.id), and the
+        parent table is empty at spec resolution time, the column must be
+        upgraded to ``foreign_key`` with ``null_ratio=1.0`` to avoid FK
+        violations. ``_resolve_fk_or_integer_spec`` handles this by checking
+        if the FK is self-referencing with empty ref_values and the column
+        is nullable.
+        """
+        db_path = str(tmp_path / "selfref.db")
+        conn = sqlite3.connect(db_path)
+        conn.execute("""
+            CREATE TABLE departments (
+                id INTEGER PRIMARY KEY,
+                name TEXT NOT NULL,
+                parent_id INTEGER,
+                FOREIGN KEY (parent_id) REFERENCES departments(id)
+            )
+        """)
+        conn.commit()
+        conn.close()
+
+        adapter = RawSQLiteAdapter()
+        adapter.connect(db_path)
+        try:
+            resolver = RelationResolver(adapter)
+            spec = GeneratorSpec(generator_name="foreign_key_or_integer", params={})
+            resolved = resolver._resolve_fk_or_integer_spec("departments", "parent_id", spec)
+            assert resolved.generator_name == "foreign_key"
+            assert resolved.null_ratio == 1.0
+        finally:
+            adapter.close()
+
+    def test_get_composite_fk_targets_detects_composite_fk(self, tmp_path: Any) -> None:
+        """_get_composite_fk_targets returns column->(ref_table, ref_col) for composite FKs.
+
+        When a table has both single-column FKs and a composite FK (e.g.,
+        shipments with FK(origin_wh_id)->warehouses(id), FK(dest_wh_id)->warehouses(id),
+        and FK(origin_wh_id,dest_wh_id)->routes(origin_wh_id,dest_wh_id)), only the
+        composite FK columns should be returned, mapped to the composite FK's
+        parent table and column.
+        """
+        db_path = str(tmp_path / "composite_fk.db")
+        conn = sqlite3.connect(db_path)
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("CREATE TABLE warehouses (id INTEGER PRIMARY KEY, name TEXT NOT NULL)")
+        conn.execute("""
+            CREATE TABLE routes (
+                id INTEGER PRIMARY KEY,
+                origin_wh_id INTEGER NOT NULL,
+                dest_wh_id INTEGER NOT NULL,
+                FOREIGN KEY (origin_wh_id) REFERENCES warehouses(id),
+                FOREIGN KEY (dest_wh_id) REFERENCES warehouses(id),
+                UNIQUE (origin_wh_id, dest_wh_id)
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE shipments (
+                id INTEGER PRIMARY KEY,
+                origin_wh_id INTEGER NOT NULL,
+                dest_wh_id INTEGER NOT NULL,
+                FOREIGN KEY (origin_wh_id) REFERENCES warehouses(id),
+                FOREIGN KEY (dest_wh_id) REFERENCES warehouses(id),
+                FOREIGN KEY (origin_wh_id, dest_wh_id) REFERENCES routes(origin_wh_id, dest_wh_id)
+            )
+        """)
+        conn.commit()
+        conn.close()
+
+        adapter = RawSQLiteAdapter()
+        adapter.connect(db_path)
+        try:
+            resolver = RelationResolver(adapter)
+            targets = resolver._get_composite_fk_targets("shipments")
+            assert "origin_wh_id" in targets
+            assert "dest_wh_id" in targets
+            assert targets["origin_wh_id"] == ("routes", "origin_wh_id")
+            assert targets["dest_wh_id"] == ("routes", "dest_wh_id")
+        finally:
+            adapter.close()
+
+    def test_get_composite_fk_targets_no_composite_fk(self, tmp_path: Any) -> None:
+        """_get_composite_fk_targets returns empty dict when no composite FKs exist."""
+        db_path = str(tmp_path / "simple_fk.db")
+        conn = sqlite3.connect(db_path)
+        conn.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
+        conn.execute("""
+            CREATE TABLE orders (
+                id INTEGER PRIMARY KEY,
+                user_id INTEGER,
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            )
+        """)
+        conn.commit()
+        conn.close()
+
+        adapter = RawSQLiteAdapter()
+        adapter.connect(db_path)
+        try:
+            resolver = RelationResolver(adapter)
+            targets = resolver._get_composite_fk_targets("orders")
+            assert targets == {}
+        finally:
+            adapter.close()
+
+    def test_resolve_composite_fks_overrides_single_col_fk(self, tmp_path: Any) -> None:
+        """resolve_composite_fks overrides single-column FK with composite FK parent.
+
+        When origin_wh_id has been upgraded to foreign_key from warehouses(id)
+        (the single-column FK) by resolve_foreign_keys, resolve_composite_fks
+        must override it to sample from routes.origin_wh_id (the composite FK
+        parent table column).
+        """
+        db_path = str(tmp_path / "composite_fk.db")
+        conn = sqlite3.connect(db_path)
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("CREATE TABLE warehouses (id INTEGER PRIMARY KEY, name TEXT NOT NULL)")
+        conn.execute("""
+            CREATE TABLE routes (
+                id INTEGER PRIMARY KEY,
+                origin_wh_id INTEGER NOT NULL,
+                dest_wh_id INTEGER NOT NULL,
+                FOREIGN KEY (origin_wh_id) REFERENCES warehouses(id),
+                FOREIGN KEY (dest_wh_id) REFERENCES warehouses(id),
+                UNIQUE (origin_wh_id, dest_wh_id)
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE shipments (
+                id INTEGER PRIMARY KEY,
+                origin_wh_id INTEGER NOT NULL,
+                dest_wh_id INTEGER NOT NULL,
+                FOREIGN KEY (origin_wh_id) REFERENCES warehouses(id),
+                FOREIGN KEY (dest_wh_id) REFERENCES warehouses(id),
+                FOREIGN KEY (origin_wh_id, dest_wh_id) REFERENCES routes(origin_wh_id, dest_wh_id)
+            )
+        """)
+        # Insert data: warehouses has ids 1-10, routes has only a subset of pairs
+        conn.execute("INSERT INTO warehouses (id, name) VALUES (1, 'W1'), (2, 'W2'), (3, 'W3')")
+        conn.execute("INSERT INTO routes (id, origin_wh_id, dest_wh_id) VALUES (1, 1, 2), (2, 2, 3), (3, 3, 1)")
+        conn.commit()
+        conn.close()
+
+        adapter = RawSQLiteAdapter()
+        adapter.connect(db_path)
+        try:
+            resolver = RelationResolver(adapter)
+            # Simulate resolve_foreign_keys having upgraded origin_wh_id to
+            # foreign_key from warehouses(id) (the first matching single-col FK)
+            specs: dict[str, GeneratorSpec] = {
+                "origin_wh_id": GeneratorSpec(
+                    generator_name="foreign_key",
+                    params={
+                        "ref_table": "warehouses",
+                        "ref_column": "id",
+                        "strategy": "random",
+                        "_ref_values": [1, 2, 3],
+                    },
+                ),
+                "dest_wh_id": GeneratorSpec(
+                    generator_name="foreign_key",
+                    params={
+                        "ref_table": "warehouses",
+                        "ref_column": "id",
+                        "strategy": "random",
+                        "_ref_values": [1, 2, 3],
+                    },
+                ),
+            }
+            resolved = resolver.resolve_composite_fks("shipments", specs)
+
+            # origin_wh_id should now sample from routes.origin_wh_id
+            assert resolved["origin_wh_id"].generator_name == "foreign_key"
+            assert resolved["origin_wh_id"].params["ref_table"] == "routes"
+            assert resolved["origin_wh_id"].params["ref_column"] == "origin_wh_id"
+            assert sorted(resolved["origin_wh_id"].params["_ref_values"]) == [1, 2, 3]
+
+            # dest_wh_id should now sample from routes.dest_wh_id
+            assert resolved["dest_wh_id"].generator_name == "foreign_key"
+            assert resolved["dest_wh_id"].params["ref_table"] == "routes"
+            assert resolved["dest_wh_id"].params["ref_column"] == "dest_wh_id"
+            assert sorted(resolved["dest_wh_id"].params["_ref_values"]) == [1, 2, 3]
+        finally:
+            adapter.close()
+
+    def test_resolve_composite_fks_clears_derive_from(self, tmp_path: Any) -> None:
+        """resolve_composite_fks clears derive_from in user_configs for composite FK columns.
+
+        The LLM may set derive_from on a composite FK column (e.g., dest_wh_id
+        derives from origin_wh_id), which would override the foreign_key spec
+        in the DAG builder. resolve_composite_fks must clear derive_from so the
+        foreign_key spec takes effect.
+        """
+        db_path = str(tmp_path / "composite_fk.db")
+        conn = sqlite3.connect(db_path)
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("CREATE TABLE warehouses (id INTEGER PRIMARY KEY, name TEXT NOT NULL)")
+        conn.execute("""
+            CREATE TABLE routes (
+                id INTEGER PRIMARY KEY,
+                origin_wh_id INTEGER NOT NULL,
+                dest_wh_id INTEGER NOT NULL,
+                FOREIGN KEY (origin_wh_id) REFERENCES warehouses(id),
+                FOREIGN KEY (dest_wh_id) REFERENCES warehouses(id),
+                UNIQUE (origin_wh_id, dest_wh_id)
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE shipments (
+                id INTEGER PRIMARY KEY,
+                origin_wh_id INTEGER NOT NULL,
+                dest_wh_id INTEGER NOT NULL,
+                FOREIGN KEY (origin_wh_id) REFERENCES warehouses(id),
+                FOREIGN KEY (dest_wh_id) REFERENCES warehouses(id),
+                FOREIGN KEY (origin_wh_id, dest_wh_id) REFERENCES routes(origin_wh_id, dest_wh_id)
+            )
+        """)
+        conn.execute("INSERT INTO warehouses (id, name) VALUES (1, 'W1'), (2, 'W2')")
+        conn.execute("INSERT INTO routes (id, origin_wh_id, dest_wh_id) VALUES (1, 1, 2), (2, 2, 1)")
+        conn.commit()
+        conn.close()
+
+        adapter = RawSQLiteAdapter()
+        adapter.connect(db_path)
+        try:
+            resolver = RelationResolver(adapter)
+            specs: dict[str, GeneratorSpec] = {
+                "origin_wh_id": GeneratorSpec(generator_name="integer", params={}),
+                "dest_wh_id": GeneratorSpec(generator_name="integer", params={}),
+            }
+            # Simulate LLM setting derive_from on dest_wh_id
+            user_configs: dict[str, Any] = {
+                "dest_wh_id": ColumnConfig(
+                    name="dest_wh_id",
+                    derive_from="origin_wh_id",
+                    expression="value - 1 if value > 1 else value + 1",
+                ),
+            }
+            resolved = resolver.resolve_composite_fks("shipments", specs, user_configs=user_configs)
+
+            # dest_wh_id should be upgraded to foreign_key from routes.dest_wh_id
+            assert resolved["dest_wh_id"].generator_name == "foreign_key"
+            assert resolved["dest_wh_id"].params["ref_table"] == "routes"
+
+            # derive_from should be cleared
+            assert user_configs["dest_wh_id"].derive_from is None
+            assert user_configs["dest_wh_id"].expression is None
+        finally:
+            adapter.close()
 
 
 class TestSharedPool:

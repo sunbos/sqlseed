@@ -151,6 +151,19 @@ class SpecResolverMixin:
             generator_specs,
             unique_columns=unique_columns,
         )
+        # Composite FK resolution: override single-column FK upgrades with
+        # composite FK parent table columns. For columns that are part of both
+        # a single-column FK and a composite FK (e.g., shipments.origin_wh_id
+        # has FK to warehouses(id) AND composite FK to routes(origin_wh_id)),
+        # the composite FK's parent table is the stricter constraint and must
+        # be used as the sampling source. Also clears derive_from in
+        # user_configs for composite FK columns (LLM may have set derive_from
+        # that overrides the FK spec in the DAG builder).
+        generator_specs = self._relation.resolve_composite_fks(
+            table_name,
+            generator_specs,
+            user_configs=user_configs,
+        )
         return generator_specs, user_configs, unique_columns, composite_unique
 
     def _build_stream(
