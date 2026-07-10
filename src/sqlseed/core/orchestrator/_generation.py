@@ -9,6 +9,8 @@ registration, hook notification), and the ``preview_table`` flow.
 from __future__ import annotations
 
 import contextlib
+import random
+import re
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -17,13 +19,14 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from sqlseed._utils.logger import get_logger
 from sqlseed._utils.progress import ProgressBackend, create_progress
-from sqlseed._utils.sql_safe import validate_table_name
+from sqlseed._utils.sql_safe import quote_identifier, validate_table_name
 from sqlseed.core.result import GenerationResult
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from sqlseed._utils.metrics import MetricsCollector
+    from sqlseed.core.mapper import GeneratorSpec
     from sqlseed.core.plugin_mediator import PluginMediator
     from sqlseed.core.relation import RelationResolver, SharedPool
     from sqlseed.core.stream import DataStream
@@ -31,6 +34,60 @@ if TYPE_CHECKING:
     from sqlseed.plugins.manager import PluginManager
 
 logger = get_logger(__name__)
+
+
+def _detect_cond_column(
+    fk_col: str,
+    checks: list[Any],
+) -> tuple[str | None, str | None]:
+    """Detect conditional column linked to self-ref FK via bidirectional CHECK.
+
+    Looks for patterns like:
+        cond_col = 'VALUE' OR fk_col IS NOT NULL
+        fk_col IS NOT NULL OR cond_col = 'VALUE'
+
+    Returns (cond_col, null_val) where null_val is the value cond_col must
+    have when fk_col is NULL. Returns (None, None) if no pattern matches.
+    """
+    for check in checks:
+        expr = check.expression
+        m = re.search(
+            rf"(\w+)\s*=\s*'([^']+)'\s+OR\s+{re.escape(fk_col)}\s+IS\s+NOT\s+NULL",
+            expr,
+            re.IGNORECASE,
+        )
+        if m:
+            return m.group(1), m.group(2)
+        m = re.search(
+            rf"{re.escape(fk_col)}\s+IS\s+NOT\s+NULL\s+OR\s+(\w+)\s*=\s*'([^']+)'",
+            expr,
+            re.IGNORECASE,
+        )
+        if m:
+            return m.group(1), m.group(2)
+    return None, None
+
+
+def _extract_non_null_values(
+    cond_col: str,
+    null_val: str,
+    checks: list[Any],
+) -> list[str]:
+    """Extract valid non-null values for cond_col from IN constraint.
+
+    Looks for ``cond_col IN ('V1', 'V2', ...)`` and returns the values
+    excluding ``null_val``.
+    """
+    for check in checks:
+        m = re.search(
+            rf"{re.escape(cond_col)}\s+IN\s*\(([^)]+)\)",
+            check.expression,
+            re.IGNORECASE,
+        )
+        if m:
+            values = re.findall(r"'([^']+)'", m.group(1))
+            return [v for v in values if v != null_val]
+    return []
 
 
 class GenerationMixin:
@@ -82,6 +139,9 @@ class GenerationMixin:
         _prepare_specs: Callable[..., tuple[dict[str, Any], dict[str, Any], set[str], list[list[str]]]]
         _build_stream: Callable[..., DataStream]
         _resolve_specs: Callable[..., tuple[dict[str, Any], dict[str, Any], set[str], list[list[str]]]]
+        # Cross-mixin methods — actual implementations in QueryMixin.
+        query: Callable[..., list[dict[str, Any]]]
+        execute: Callable[..., Any]
 
     def _generate_and_insert_batches(
         self,
@@ -266,12 +326,127 @@ class GenerationMixin:
         self._relation.register_shared_pool(table_name, generator_specs)
         self._plugins.hook.sqlseed_shared_pool_loaded(table_name=table_name, shared_pool=self._shared_pool)
 
+        # Post-fill: update self-referencing FK columns to reference existing
+        # rows, producing realistic hierarchical data (e.g., child orgs
+        # referencing parent orgs). During initial bulk fill, self-ref FKs
+        # are forced to null_ratio=1.0 (all NULL) because the table is empty.
+        # This second pass updates ~70% of rows to reference already-generated
+        # PK values, and adjusts conditional columns (e.g., org_type) to
+        # satisfy bidirectional CHECK constraints.
+        self._post_fill_self_ref_fks(table_name, generator_specs)
+
         return GenerationResult(
             table_name=table_name,
             count=total_inserted,
             elapsed=elapsed,
             batch_count=batch_count,
         )
+
+    def _post_fill_self_ref_fks(
+        self,
+        table_name: str,
+        generator_specs: dict[str, GeneratorSpec],
+    ) -> None:
+        """Post-fill: update self-referencing FK columns to reference existing rows.
+
+        During initial bulk fill, self-referencing FK columns are forced to
+        ``null_ratio=1.0`` (all NULL) because the table is empty. This second
+        pass updates ~70% of rows to reference already-generated PK values,
+        producing realistic hierarchical data (e.g., child orgs referencing
+        parent orgs). For tables with bidirectional CHECK constraints linking
+        the self-ref FK to a conditional column (e.g.,
+        ``org_type = 'root' OR parent_id IS NOT NULL``), the conditional
+        column is also updated to satisfy the CHECK constraint.
+
+        This is a generic improvement for self-referencing FKs — a common
+        pattern in real schemas (org hierarchies, category trees,
+        manager-employee relationships). Without this pass, all self-ref FK
+        values are NULL, producing unrealistic flat data.
+        """
+        fks = self._relation.get_foreign_keys(table_name)
+        self_ref_fks = [fk for fk in fks if fk.ref_table == table_name]
+        if not self_ref_fks:
+            return
+
+        pk_cols = self._db.get_primary_keys(table_name)
+        if not pk_cols:
+            return
+        pk_col = pk_cols[0]
+
+        pk_rows = self.query(
+            f"SELECT {quote_identifier(pk_col)} AS pk "
+            f"FROM {quote_identifier(table_name)} "
+            f"ORDER BY {quote_identifier(pk_col)}"
+        )
+        if len(pk_rows) < 2:
+            return
+        pk_values = [r["pk"] for r in pk_rows]
+
+        checks = self._db.get_check_constraints(table_name)
+        # DBAPI placeholder: SQLite uses ?, PostgreSQL uses %s
+        dialect = getattr(self._db, "dialect", None)
+        ph = "%s" if dialect is not None and getattr(dialect, "name", "") == "postgresql" else "?"
+        update_ratio = 0.7
+
+        for fk in self_ref_fks:
+            fk_col = fk.column
+            spec = generator_specs.get(fk_col)
+            if spec is None or spec.null_ratio < 1.0:
+                continue
+
+            cond_col, null_val = _detect_cond_column(fk_col, checks)
+            non_null_values: list[str] = []
+            if cond_col and null_val:
+                non_null_values = _extract_non_null_values(cond_col, null_val, checks)
+                if not non_null_values:
+                    existing = self.query(
+                        f"SELECT DISTINCT {quote_identifier(cond_col)} AS v "
+                        f"FROM {quote_identifier(table_name)} "
+                        f"WHERE {quote_identifier(cond_col)} IS NOT NULL "
+                        f"AND {quote_identifier(cond_col)} != {ph}",
+                        (null_val,),
+                    )
+                    non_null_values = [str(r["v"]) for r in existing]
+
+            updated = 0
+            for i, pk_val in enumerate(pk_values):
+                if i == 0 or random.random() > update_ratio:
+                    continue
+                ref_pk = pk_values[random.randint(0, i - 1)]
+
+                if cond_col and non_null_values:
+                    new_cond = random.choice(non_null_values)
+                    sql = (
+                        f"UPDATE {quote_identifier(table_name)} "
+                        f"SET {quote_identifier(fk_col)} = {ph}, "
+                        f"{quote_identifier(cond_col)} = {ph} "
+                        f"WHERE {quote_identifier(pk_col)} = {ph}"
+                    )
+                    try:
+                        self.execute(sql, (ref_pk, new_cond, pk_val))
+                        updated += 1
+                    except SQLAlchemyError:
+                        pass
+                else:
+                    sql = (
+                        f"UPDATE {quote_identifier(table_name)} "
+                        f"SET {quote_identifier(fk_col)} = {ph} "
+                        f"WHERE {quote_identifier(pk_col)} = {ph}"
+                    )
+                    try:
+                        self.execute(sql, (ref_pk, pk_val))
+                        updated += 1
+                    except SQLAlchemyError:
+                        pass
+
+            if updated:
+                logger.info(
+                    "Post-fill self-ref FK update",
+                    table_name=table_name,
+                    fk_col=fk_col,
+                    updated=updated,
+                    total=len(pk_values),
+                )
 
     def preview_table(
         self,
