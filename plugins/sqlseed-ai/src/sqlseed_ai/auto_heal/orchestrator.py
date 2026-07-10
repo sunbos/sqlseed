@@ -332,6 +332,35 @@ class AutoHealOrchestrator:
                     gen = None
                     c.pop("generator", None)
 
+                # UUID column semantic upgrade: when the column name contains
+                # ``uuid`` (e.g., ``tenant_uuid``, ``org_uuid``, ``api_key_uuid``)
+                # and the LLM picked a non-UUID generator (e.g., ``pattern``
+                # with ``[A-Za-z0-9]{36}`` or ``string``), upgrade to the
+                # ``uuid`` generator. The ``pattern`` generator with a 36-char
+                # regex satisfies ``CHECK (LENGTH(col) = 36)`` but produces
+                # non-standard UUID strings (missing dashes), which fail D2
+                # semantic verification. The Core ColumnMapper already maps
+                # ``uuid``/``guid``/``token`` column names to the ``uuid``
+                # generator, but only when ``generator`` is empty — when the
+                # LLM explicitly picked ``pattern``, the semantic match is
+                # skipped. This upgrade is conservative: it only fires when
+                # the column has no LIKE constraint (LIKE-constrained columns
+                # have a specific format that ``uuid`` cannot satisfy) and
+                # the column is in source mode (no ``derive_from``).
+                # Decision test: any database with a ``*_uuid`` column benefits.
+                if (
+                    not has_derive
+                    and gen is not None
+                    and gen != "uuid"
+                    and meta is not None
+                    and "uuid" in c.get("name", "").lower()
+                    and not _has_like_constraint(c.get("name", ""), meta.constraints)
+                ):
+                    gen = "uuid"
+                    c["generator"] = "uuid"
+                    c.pop("params", None)
+                    params = {}
+
                 params = c.get("params") or {}
                 # Missing template param repair: LLM provides
                 # ``generator: template`` but forgets the ``template``
@@ -598,12 +627,35 @@ class AutoHealOrchestrator:
             # — causing FK violations. These columns get null_ratio=1.0 in
             # Step 0 below to ensure all values are NULL.
             self_ref_fk_cols: set[str] = set()
+            # Detect 2-table circular FK columns (e.g., branches↔employees:
+            # branches.manager_id→employees.id AND employees.branch_id→branches.id).
+            # topological_sort breaks the cycle by picking one table to fill
+            # first, but the first-filled table's FK shared pool is empty,
+            # causing foreign_key_or_integer to fall back to random integers
+            # — producing FK violations. Marking these columns as
+            # ``circular_fk_cols`` sets null_ratio=1.0 in Step 0c below so
+            # both sides of the cycle emit NULL, avoiding FK violations.
+            # This is a generic fix: any database with a 2-table FK cycle
+            # (e.g., branches↔employees, departments↔managers) benefits.
+            circular_fk_cols: set[str] = set()
             for fk in meta.foreign_keys:
                 for c in fk.get("columns", []):
                     fk_cols_set.add(c)
                 if fk.get("ref_table") == table_name:
                     for c in fk.get("columns", []):
                         self_ref_fk_cols.add(c)
+                else:
+                    # Check for 2-table cycle: current table → ref_table,
+                    # and ref_table → current table. If both exist, the FK
+                    # column on current table is part of a circular dependency.
+                    ref_table_name = fk.get("ref_table")
+                    if ref_table_name and ref_table_name in snapshot.tables:
+                        ref_meta = snapshot.tables[ref_table_name]
+                        for ref_fk in ref_meta.foreign_keys:
+                            if ref_fk.get("ref_table") == table_name:
+                                for c in fk.get("columns", []):
+                                    circular_fk_cols.add(c)
+                                break
             cols: list[dict[str, Any]] = []
             for col_name in meta.columns:
                 col_type = meta.column_types.get(col_name, "TEXT")
@@ -614,6 +666,28 @@ class AutoHealOrchestrator:
                 # is the only safe option for self-referencing FKs during
                 # initial bulk fill.
                 if col_name in self_ref_fk_cols:
+                    cols.append(
+                        {
+                            "name": col_name,
+                            "generator": "foreign_key_or_integer",
+                            "params": {},
+                            "null_ratio": 1.0,
+                        }
+                    )
+                    continue
+                # Step 0c: 2-table circular FK → null_ratio=1.0 (always NULL).
+                # When two tables reference each other (e.g.,
+                # branches.manager_id→employees.id AND
+                # employees.branch_id→branches.id), topological_sort breaks
+                # the cycle by filling one table first. The first-filled
+                # table's FK shared pool is empty, so foreign_key_or_integer
+                # falls back to random integers — causing FK violations.
+                # Setting null_ratio=1.0 for BOTH sides of the cycle is the
+                # safest approach: it avoids FK violations at the cost of
+                # nullable FK columns being NULL. This is acceptable for test
+                # data generation (the cycle can be resolved later via UPDATE
+                # statements if needed).
+                if col_name in circular_fk_cols:
                     cols.append(
                         {
                             "name": col_name,
