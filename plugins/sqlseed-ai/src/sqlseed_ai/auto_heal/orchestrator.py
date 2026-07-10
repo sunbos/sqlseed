@@ -361,6 +361,66 @@ class AutoHealOrchestrator:
                     c.pop("params", None)
                     params = {}
 
+                # Semantic downgrade detection: the LLM sometimes picks a
+                # generic generator (``string``, ``catch_phrase``) for a
+                # column whose name matches a Core ColumnMapper
+                # EXACT_MATCH_RULES key that maps to a more specific
+                # semantic generator. For example:
+                #   - ``country_code`` → LLM picks ``string`` with
+                #     min_length=2, max_length=2 → produces random 2-char
+                #     strings like 'le', 'yb', 'OQ' instead of real ISO
+                #     country codes like 'US', 'CN', 'GB'.
+                #   - ``email`` → LLM picks ``string`` → produces gibberish
+                #     instead of valid email addresses.
+                #   - ``url`` → LLM picks ``string`` → produces random text
+                #     instead of valid URLs.
+                #
+                # This safety net detects such downgrades and upgrades the
+                # generator to the semantic one from EXACT_MATCH_RULES. It
+                # only fires when:
+                #   - column is in source mode (no ``derive_from``)
+                #   - LLM picked a generic text generator (``string``,
+                #     ``catch_phrase``)
+                #   - column name matches an EXACT_MATCH_RULES key
+                #   - the matched generator is NOT also generic (i.e., more
+                #     specific than ``string``/``catch_phrase``/``sentence``/
+                #     ``text``)
+                #   - column has no LIKE constraint (LIKE-constrained columns
+                #     need a ``pattern`` generator)
+                #
+                # CHECK-constrained columns (e.g., ``country_code IN
+                # ('US','CN')``) are handled by the re-infer params path
+                # below, which fires AFTER this safety net and overrides
+                # with a ``choice`` generator if an IN constraint exists.
+                # So the order is: semantic upgrade first, then CHECK
+                # constraint inference can override if needed.
+                #
+                # Decision test: any database with semantic column names
+                # (country_code, email, url, phone, etc.) where the LLM
+                # downgraded them to generic strings benefits.
+                if not has_derive and gen in ("string", "catch_phrase") and meta is not None:
+                    col_name_sd = c.get("name", "").lower()
+                    if col_name_sd and not _has_like_constraint(c.get("name", ""), meta.constraints):
+                        mapper_sd = _get_column_mapper()
+                        semantic_gen = mapper_sd.EXACT_MATCH_RULES.get(col_name_sd)
+                        # Only upgrade if the semantic generator is more
+                        # specific than the current generic one. Generic
+                        # text generators produce random text that doesn't
+                        # match the column's semantic intent.
+                        _GENERIC_TEXT_GENS = {"string", "catch_phrase", "sentence", "text"}
+                        if semantic_gen and semantic_gen not in _GENERIC_TEXT_GENS:
+                            c["generator"] = semantic_gen
+                            # Apply EXACT_MATCH_PARAMS if available (e.g.,
+                            # ``latitude`` has min/max_value from
+                            # EXACT_MATCH_PARAMS).
+                            semantic_params = mapper_sd.EXACT_MATCH_PARAMS.get(col_name_sd, {})
+                            if semantic_params:
+                                c["params"] = dict(semantic_params)
+                            else:
+                                c["params"] = {}
+                            gen = semantic_gen
+                            params = c["params"]
+
                 # PostgreSQL-specific type enforcement: the LLM doesn't
                 # understand PG-specific types (INTERVAL, TSVECTOR, TSTZRANGE,
                 # ARRAY) and picks generic generators that produce values
@@ -677,9 +737,9 @@ class AutoHealOrchestrator:
             if meta_r is None:
                 continue
             columns_r = tcfg.get("columns", [])
-            col_map_r: dict[str, dict] = {c.get("name", ""): c for c in columns_r}
+            col_map_r: dict[str, dict[str, Any]] = {c.get("name", ""): c for c in columns_r}
             # Collect REAL columns with arithmetic derive_from expressions
-            real_derived_cols_r: list[dict] = []
+            real_derived_cols_r: list[dict[str, Any]] = []
             for c_r in columns_r:
                 col_name_r = c_r.get("name", "")
                 if "derive_from" not in c_r:
@@ -705,8 +765,7 @@ class AutoHealOrchestrator:
                 for m_r in re.finditer(r"row\['([^']+)'\]", expr_r):
                     source_cols_r.append(m_r.group(1))
                 # Dedupe preserving order
-                seen_r: set[str] = set()
-                source_cols_r = [s for s in source_cols_r if not (s in seen_r or seen_r.add(s))]
+                source_cols_r = list(dict.fromkeys(source_cols_r))
                 for src_name_r in source_cols_r:
                     src_col_r = col_map_r.get(src_name_r)
                     if src_col_r is None:
