@@ -39,8 +39,24 @@ from sqlseed_ai.validator.schema_snapshot import SchemaSnapshot
 from sqlseed._utils.logger import get_logger
 from sqlseed.core.mapper import ColumnMapper
 from sqlseed.database._protocol import ColumnInfo
+from sqlseed.generators._dispatch import GeneratorDispatchMixin
 
 logger = get_logger(__name__)
+
+# Valid generator names accepted by the orchestrator's safety net. Includes:
+# - All 35 generators in ``GeneratorDispatchMixin.GENERATOR_MAP`` (the
+#   dispatch table that raises ``UnknownGeneratorError`` for unregistered
+#   names at fill time).
+# - Special generators handled by the orchestrator (not in GENERATOR_MAP):
+#   ``autoincrement`` (PK autoincrement), ``foreign_key`` and
+#   ``foreign_key_or_integer`` (FK columns), ``skip`` (ColumnMapper sentinel
+#   for autoincrement PKs), ``__enrich__`` (enrichment marker).
+# Used by Step 5.5 to detect LLM-hallucinated generator names (e.g.,
+# ``sequence`` instead of ``template``/``autoincrement``) that would
+# otherwise leak to the YAML and abort the entire fill.
+_VALID_GENERATORS: frozenset[str] = frozenset(GeneratorDispatchMixin.GENERATOR_MAP.keys()) | frozenset(
+    {"autoincrement", "foreign_key", "foreign_key_or_integer", "skip", "__enrich__"}
+)
 
 
 @lru_cache(maxsize=1)
@@ -298,6 +314,23 @@ class AutoHealOrchestrator:
                     gen = "template"
                     params = c["params"]
                     continue
+
+                # Invalid generator detection: the LLM may emit generator
+                # names that don't exist in the dispatch table (e.g.,
+                # ``sequence`` instead of ``template``/``autoincrement``,
+                # ``increment`` instead of ``autoincrement``). The ``?``
+                # normalization above only catches the explicit ``?``
+                # sentinel and empty strings — other invalid names leak to
+                # the YAML and cause ``UnknownGeneratorError`` at fill time,
+                # aborting the entire table. Clearing the generator here
+                # lets the downstream missing-generator repair path delegate
+                # to the Core ColumnMapper for semantic name matching or
+                # param-based inference. This is a generic LLM-output
+                # cleanup that benefits any database where the LLM
+                # hallucinates a non-existent generator name.
+                if gen is not None and gen not in _VALID_GENERATORS:
+                    gen = None
+                    c.pop("generator", None)
 
                 params = c.get("params") or {}
                 # Missing template param repair: LLM provides
