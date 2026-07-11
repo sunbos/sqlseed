@@ -394,14 +394,16 @@ class RelationResolver:
         fk_info = self.get_fk_info(table_name, col_name)
         if fk_info:
             ref_values = self.resolve_foreign_key_values(table_name, col_name)
-            # Self-referencing FK with empty parent: when the FK target is
-            # the same table (e.g., departments.parent_id -> departments.id)
-            # and no rows have been inserted yet, ref_values is empty. If the
-            # column is nullable, force null_ratio=1.0 to avoid FK violations
-            # (all rows get NULL). If NOT NULL, fall through with empty
-            # ref_values — the generator will use the fallback integer range.
+            # Empty parent + nullable column: when the FK target table has no
+            # rows yet (either because it's a self-referencing FK and the table
+            # is being filled for the first time, or because a cyclic FK
+            # dependency means the parent table hasn't been filled yet), and
+            # the column is nullable, force null_ratio=1.0 to avoid FK
+            # violations (all rows get NULL). If NOT NULL, fall through with
+            # empty ref_values — the generator will use the fallback integer
+            # range.
             null_ratio = spec.null_ratio
-            if not ref_values and fk_info.ref_table == table_name:
+            if not ref_values:
                 col_nullable = True
                 try:
                     col_info = self._db.get_column_info(table_name)
@@ -483,20 +485,21 @@ class RelationResolver:
             if fk_info is None:
                 continue
             ref_values = self.resolve_foreign_key_values(table_name, col_name)
-            # Self-referencing FK handling: when the parent table is the same
-            # as the current table (e.g., ``departments.parent_id REFERENCES
-            # departments(id)``), the parent is empty at spec resolution time
-            # because no rows have been inserted yet. Without special handling,
-            # the empty ``_ref_values`` causes the generator to fall back to
-            # a random integer in [1, 999999], producing FK violations.
+            # Empty parent handling: when the parent table is the same as the
+            # current table (self-referencing FK, e.g.,
+            # ``departments.parent_id REFERENCES departments(id)``), or when a
+            # cyclic FK dependency means the parent table hasn't been filled
+            # yet, the parent is empty at spec resolution time. Without
+            # special handling, the empty ``_ref_values`` causes the generator
+            # to fall back to a random integer in [1, 999999], producing FK
+            # violations.
             #
             # Fix: if the column is nullable, force ``null_ratio=1.0`` so all
-            # rows get NULL (valid for nullable self-referencing FKs). This
-            # avoids FK violations while preserving data integrity. A
-            # two-pass approach (insert then update) would produce richer
-            # hierarchies but requires orchestrator-level changes.
-            is_self_ref = fk_info.ref_table == table_name
-            if is_self_ref and not ref_values:
+            # rows get NULL (valid for nullable FKs). This avoids FK
+            # violations while preserving data integrity. A two-pass approach
+            # (insert then update) would produce richer hierarchies but
+            # requires orchestrator-level changes.
+            if not ref_values:
                 if not column_info_map:
                     column_info_map = {c.name: c.nullable for c in self._db.get_column_info(table_name)}
                 col_nullable = column_info_map.get(col_name, True)
@@ -515,7 +518,7 @@ class RelationResolver:
                         provider=spec.provider,
                     )
                     logger.debug(
-                        "Self-referencing FK with empty parent, set null_ratio=1.0",
+                        "FK with empty parent, set null_ratio=1.0",
                         table_name=table_name,
                         column_name=col_name,
                         ref_table=fk_info.ref_table,
