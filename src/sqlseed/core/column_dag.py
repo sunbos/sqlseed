@@ -162,26 +162,39 @@ class ColumnDAG:
                     max_retries=cc.constraints.max_retries,
                 )
             if hasattr(cc, "derive_from") and cc.derive_from:
-                df = cc.derive_from
-                # derive_from_sources holds ONLY the explicit derive_from
-                # sources (single string -> one element, list -> as-is).
-                # The stream uses this to decide whether ``value`` is a
-                # scalar (len <= 1) or a list (len > 1).
-                derive_from_sources = list(df) if isinstance(df, list) else [df]
-                # depends_on starts with the explicit sources, then adds
-                # implicit row['col_name'] references for DAG ordering.
-                depends_on = list(derive_from_sources)
-                expression = cc.expression
-                is_derived = True
-                final_spec = GeneratorSpec(generator_name="__derive__")
-                # Track implicit row['col_name'] dependencies in the
-                # expression. Without this, the DAG may schedule the
-                # derived column before columns it references via row[...],
-                # causing KeyError at expression evaluation time.
-                if expression:
-                    for ref in _ROW_REF_RE.findall(expression):
-                        if ref not in depends_on:
-                            depends_on.append(ref)
+                # Don't override foreign_key specs — relation.py sets these
+                # for FK columns (including self-referencing FKs with empty
+                # parent, where null_ratio=1.0 is critical for avoiding FK
+                # violations). If the LLM also set derive_from for the same
+                # column, the foreign_key spec takes precedence (FK integrity
+                # is more important than the LLM's derive_from expression).
+                # This mirrors the composite FK handling in
+                # RelationResolver.resolve_composite_fks which clears
+                # derive_from for composite FK columns.
+                if spec.generator_name == "foreign_key":
+                    # Keep the foreign_key spec, ignore derive_from
+                    pass
+                else:
+                    df = cc.derive_from
+                    # derive_from_sources holds ONLY the explicit derive_from
+                    # sources (single string -> one element, list -> as-is).
+                    # The stream uses this to decide whether ``value`` is a
+                    # scalar (len <= 1) or a list (len > 1).
+                    derive_from_sources = list(df) if isinstance(df, list) else [df]
+                    # depends_on starts with the explicit sources, then adds
+                    # implicit row['col_name'] references for DAG ordering.
+                    depends_on = list(derive_from_sources)
+                    expression = cc.expression
+                    is_derived = True
+                    final_spec = GeneratorSpec(generator_name="__derive__")
+                    # Track implicit row['col_name'] dependencies in the
+                    # expression. Without this, the DAG may schedule the
+                    # derived column before columns it references via row[...],
+                    # causing KeyError at expression evaluation time.
+                    if expression:
+                        for ref in _ROW_REF_RE.findall(expression):
+                            if ref not in depends_on:
+                                depends_on.append(ref)
 
         if is_unique:
             if constraints is None:

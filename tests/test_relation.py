@@ -406,13 +406,24 @@ class TestRelationResolver:
         finally:
             adapter.close()
 
-    def test_resolve_composite_fks_clears_derive_from(self, tmp_path: Any) -> None:
-        """resolve_composite_fks clears derive_from in user_configs for composite FK columns.
+    def test_resolve_composite_fks_pair_coordination(self, tmp_path: Any) -> None:
+        """resolve_composite_fks implements pair-level coordination for 2-column composite FKs.
 
-        The LLM may set derive_from on a composite FK column (e.g., dest_wh_id
-        derives from origin_wh_id), which would override the foreign_key spec
-        in the DAG builder. resolve_composite_fks must clear derive_from so the
-        foreign_key spec takes effect.
+        When user_configs is provided, the second column of a 2-column composite
+        FK is set up with ``derive_from`` + a ``lookup()`` expression that
+        queries the parent table for the matching value. This guarantees the
+        (col_a, col_b) pair always exists in the parent table.
+
+        For R3 logistics ``shipments`` with
+        ``FOREIGN KEY (origin_wh_id, dest_wh_id) REFERENCES routes(origin_wh_id, dest_wh_id)``:
+        - origin_wh_id (col_a): set to ``foreign_key`` sampling from routes.origin_wh_id
+        - dest_wh_id (col_b): set to ``integer`` placeholder with
+          ``derive_from: origin_wh_id`` and
+          ``expression: lookup('routes', 'dest_wh_id', value, 'origin_wh_id')``
+
+        The LLM's original derive_from on dest_wh_id is overwritten with the
+        lookup expression (not cleared to None), because the lookup expression
+        is what enables pair coordination.
         """
         db_path = str(tmp_path / "composite_fk.db")
         conn = sqlite3.connect(db_path)
@@ -451,7 +462,7 @@ class TestRelationResolver:
                 "origin_wh_id": GeneratorSpec(generator_name="integer", params={}),
                 "dest_wh_id": GeneratorSpec(generator_name="integer", params={}),
             }
-            # Simulate LLM setting derive_from on dest_wh_id
+            # Simulate LLM setting derive_from on dest_wh_id (will be overwritten)
             user_configs: dict[str, Any] = {
                 "dest_wh_id": ColumnConfig(
                     name="dest_wh_id",
@@ -461,13 +472,25 @@ class TestRelationResolver:
             }
             resolved = resolver.resolve_composite_fks("shipments", specs, user_configs=user_configs)
 
-            # dest_wh_id should be upgraded to foreign_key from routes.dest_wh_id
-            assert resolved["dest_wh_id"].generator_name == "foreign_key"
-            assert resolved["dest_wh_id"].params["ref_table"] == "routes"
+            # origin_wh_id (col_a): foreign_key sampling from routes.origin_wh_id
+            assert resolved["origin_wh_id"].generator_name == "foreign_key"
+            assert resolved["origin_wh_id"].params["ref_table"] == "routes"
+            assert resolved["origin_wh_id"].params["ref_column"] == "origin_wh_id"
 
-            # derive_from should be cleared
-            assert user_configs["dest_wh_id"].derive_from is None
-            assert user_configs["dest_wh_id"].expression is None
+            # dest_wh_id (col_b): integer placeholder (derive_from handles value)
+            assert resolved["dest_wh_id"].generator_name == "integer"
+
+            # derive_from + lookup expression enables pair coordination
+            assert user_configs["dest_wh_id"].derive_from == "origin_wh_id"
+            expr = user_configs["dest_wh_id"].expression
+            assert expr is not None
+            assert "lookup" in expr
+            assert "routes" in expr
+            assert "dest_wh_id" in expr
+            assert "origin_wh_id" in expr
+
+            # generator must be cleared to avoid "cannot use both generator and derive_from"
+            assert user_configs["dest_wh_id"].generator is None
         finally:
             adapter.close()
 

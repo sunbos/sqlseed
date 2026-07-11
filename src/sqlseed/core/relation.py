@@ -8,6 +8,7 @@ rewriting for FK / association / shared-pool columns).
 from __future__ import annotations
 
 import contextlib
+import re
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.exc import OperationalError as SAOperationalError
@@ -269,13 +270,36 @@ class RelationResolver:
             columns. Empty dict if no composite FKs exist or the PRAGMA query
             fails (e.g., on non-SQLite backends).
         """
-        if table_name in self._composite_fk_cache:
-            return self._composite_fk_cache[table_name]
-
+        groups = self._get_composite_fk_groups(table_name)
         result: dict[str, tuple[str, str]] = {}
-        # PRAGMA foreign_key_list returns rows: (id, seq, table, from, to, ...)
-        # The ``id`` field groups rows belonging to the same FK constraint.
-        # On non-SQLite backends, this PRAGMA will fail and we return {}.
+        for cols in groups.values():
+            for from_col, ref_table, to_col in cols:
+                result[from_col] = (ref_table, to_col)
+        return result
+
+    def _get_composite_fk_groups(
+        self, table_name: str
+    ) -> dict[int, list[tuple[str, str, str]]]:
+        """Detect composite FK groups and return them keyed by FK constraint id.
+
+        Uses ``PRAGMA foreign_key_list`` and groups rows by the ``id`` field.
+        Only groups with 2+ columns (composite FKs) are returned.
+
+        Returns:
+            Dict mapping fk_id -> list of (from_col, ref_table, to_col) tuples.
+            The list preserves the ``seq`` order (column order within the FK).
+            Empty dict if no composite FKs exist or the PRAGMA query fails.
+        """
+        # Cache key includes both the flat mapping and the grouped structure.
+        # We store the groups in _composite_fk_cache under a sentinel key to
+        # avoid a second cache dict, but keep the API clean by exposing only
+        # the flat mapping via _get_composite_fk_targets.
+        cache_key = f"__groups__:{table_name}"
+        cached = self._composite_fk_cache.get(cache_key)
+        if cached is not None:
+            return cached  # type: ignore[return-value]
+
+        result: dict[int, list[tuple[str, str, str]]] = {}
         with contextlib.suppress(Exception):
             cursor = self._db.execute(f"PRAGMA foreign_key_list({quote_identifier(table_name)})")
             try:
@@ -283,18 +307,19 @@ class RelationResolver:
             finally:
                 cursor.close()
 
-            fk_groups: dict[int, list[tuple[str, str, str]]] = {}
+            fk_groups: dict[int, list[tuple[Any, Any, Any, Any]]] = {}
             for row in rows:
-                fk_id, _seq, ref_table, from_col, to_col, *_ = row
-                fk_groups.setdefault(fk_id, []).append((from_col, ref_table, to_col))
+                fk_id, seq, ref_table, from_col, to_col, *_ = row
+                fk_groups.setdefault(fk_id, []).append((seq, from_col, ref_table, to_col))
 
-            for cols in fk_groups.values():
-                if len(cols) < 2:
+            for fk_id, entries in fk_groups.items():
+                if len(entries) < 2:
                     continue  # Single-column FK, skip
-                for from_col, ref_table, to_col in cols:
-                    result[from_col] = (ref_table, to_col)
+                # Sort by seq to preserve column order within the FK
+                entries.sort(key=lambda e: e[0])
+                result[fk_id] = [(e[1], e[2], e[3]) for e in entries]
 
-        self._composite_fk_cache[table_name] = result
+        self._composite_fk_cache[cache_key] = result  # type: ignore[assignment]
         return result
 
     def resolve_composite_fks(
@@ -308,45 +333,199 @@ class RelationResolver:
         For columns that are part of a composite FK (e.g.,
         ``FOREIGN KEY (a, b) REFERENCES routes(a, b)``), this method:
 
-        1. Clears any ``derive_from`` in user_configs for these columns. The LLM
-           may have set ``derive_from`` (e.g., ``dest_wh_id`` deriving from
-           ``origin_wh_id``) which overrides the GeneratorSpec in the DAG builder.
-           But composite FK columns must sample from their respective parent table
-           columns, not derive from sibling columns — otherwise the pair (a, b)
-           is unlikely to match any row in the parent table.
+        1. Clears any ``derive_from`` in user_configs for the FIRST column of
+           each composite FK group. The LLM may have set ``derive_from``
+           (e.g., ``dest_wh_id`` deriving from ``origin_wh_id``) which overrides
+           the GeneratorSpec in the DAG builder. But the first column must
+           sample from its parent table column to get a valid starting value.
 
-        2. Updates the GeneratorSpec to ``foreign_key`` with ``_ref_values`` sampled
-           from the composite FK's parent table column (not the single-column FK's
-           parent table, which ``resolve_foreign_keys`` would have used via
-           ``get_fk_info`` — ``get_fk_info`` returns the first matching FK, usually
-           the single-column one).
+        2. For 2-column composite FKs, implements PAIR-LEVEL COORDINATION:
+           - First column (col_a): set spec to ``foreign_key`` sampling from
+             parent's first column (ref_a).
+           - Second column (col_b): set user_config ``derive_from: col_a`` with
+             expression ``lookup('parent', 'ref_b', value, 'ref_a')``. This
+             guarantees the (col_a, col_b) pair always exists in the parent
+             table, because col_b is looked up from the parent for the given
+             col_a value. The ``lookup`` function is available in the
+             ExpressionEngine when a db_adapter is supplied (which the
+             orchestrator always does).
+
+        3. For composite FKs with 3+ columns (rare), falls back to independent
+           per-column sampling (known limitation — pair coordination is only
+           implemented for 2-column composite FKs).
 
         The CHECK constraint (e.g., ``origin_wh_id != dest_wh_id``) is enforced
         separately by ``inequality_constraints`` in the DataStream, which retries
-        rows that violate cross-column comparison constraints.
-
-        Note: This method does NOT coordinate pair-level sampling (i.e., it does
-        not guarantee that the (origin_wh_id, dest_wh_id) pair exists in routes).
-        It ensures each column individually references valid values in the composite
-        FK's parent table column. The validation script checks FK integrity
-        per-column, so this is sufficient to pass validation. Full pair-level
-        coordination would require architectural changes (e.g., derive_from with
-        ``lookup()`` expressions) and is a known limitation.
+        rows that violate cross-column comparison constraints. When pair-level
+        coordination is active, the CHECK is naturally satisfied because the
+        pair comes from a real row in the parent table (which already satisfies
+        its own CHECK constraints).
         """
-        composite_targets = self._get_composite_fk_targets(table_name)
-        if not composite_targets:
+        composite_groups = self._get_composite_fk_groups(table_name)
+        if not composite_groups:
             return specs
 
-        for col_name, (ref_table, ref_col) in composite_targets.items():
+        # Build a flat set of all composite FK columns for quick lookup.
+        all_composite_cols: set[str] = set()
+        for cols in composite_groups.values():
+            for from_col, _ref_table, _to_col in cols:
+                all_composite_cols.add(from_col)
+
+        for _fk_id, cols in composite_groups.items():
+            if len(cols) == 2:
+                self._resolve_two_column_composite_fk(
+                    table_name, cols, specs, user_configs
+                )
+            else:
+                # 3+ column composite FK: fall back to independent per-column
+                # sampling. Pair coordination for N>2 would require a chain of
+                # derive_from expressions, which is complex and rare.
+                self._resolve_multi_column_composite_fk(
+                    table_name, cols, specs, user_configs
+                )
+
+        return specs
+
+    def _resolve_two_column_composite_fk(
+        self,
+        table_name: str,
+        cols: list[tuple[str, str, str]],
+        specs: dict[str, GeneratorSpec],
+        user_configs: dict[str, Any] | None,
+    ) -> None:
+        """Resolve a 2-column composite FK with pair-level coordination.
+
+        ``cols`` is ``[(col_a, ref_table, ref_a), (col_b, ref_table, ref_b)]``.
+        Sets col_a to ``foreign_key`` sampling from parent.ref_a, and col_b
+        to ``derive_from: col_a`` with a ``lookup()`` expression that queries
+        parent.ref_b for the given col_a value.
+        """
+        col_a, ref_table, ref_a = cols[0]
+        col_b, _ref_table_b, ref_b = cols[1]
+
+        # --- Column A: foreign_key spec sampling from parent.ref_a ---
+        if col_a in specs:
+            spec_a = specs[col_a]
+            ref_values_a = self._db.get_column_values(ref_table, ref_a, limit=100000)
+            specs[col_a] = GeneratorSpec(
+                generator_name="foreign_key",
+                params={
+                    "ref_table": ref_table,
+                    "ref_column": ref_a,
+                    "strategy": "random",
+                    "_ref_values": ref_values_a,
+                },
+                null_ratio=spec_a.null_ratio,
+                provider=spec_a.provider,
+            )
+            # Clear any LLM-set derive_from on col_a so the foreign_key spec
+            # takes effect in the DAG builder.
+            if user_configs is not None:
+                uc_a = user_configs.get(col_a)
+                if uc_a is not None and hasattr(uc_a, "derive_from") and uc_a.derive_from:
+                    uc_a.derive_from = None
+                    uc_a.expression = None
+            logger.debug(
+                "Resolved composite FK first column (pair coordination)",
+                table_name=table_name,
+                column_name=col_a,
+                ref_table=ref_table,
+                ref_column=ref_a,
+                values_count=len(ref_values_a),
+            )
+
+        # --- Column B: derive_from col_a via lookup expression ---
+        # This guarantees (col_a, col_b) pair exists in parent table.
+        if col_b not in specs:
+            return
+        spec_b = specs[col_b]
+
+        # The DAG builder has a guard: if spec.generator_name == "foreign_key",
+        # it keeps the foreign_key spec and ignores derive_from in user_configs.
+        # So for col_b, we have two cases:
+        #
+        # 1. user_configs IS available (normal path): set col_b's spec to a
+        #    neutral "integer" placeholder and set derive_from + expression in
+        #    user_configs. The DAG will create a __derive__ node that evaluates
+        #    the lookup expression, guaranteeing pair coordination.
+        #
+        # 2. user_configs is None (defensive fallback): set col_b's spec to
+        #    foreign_key sampling from parent.ref_b. This does NOT guarantee
+        #    pair coordination, but at least produces valid individual values.
+        if user_configs is not None:
+            # Case 1: use derive_from + lookup expression for pair coordination.
+            specs[col_b] = GeneratorSpec(
+                generator_name="integer",
+                params={"min_value": 1, "max_value": 999999},
+                null_ratio=spec_b.null_ratio,
+                provider=spec_b.provider,
+            )
+
+            uc_b = user_configs.get(col_b)
+            if uc_b is None:
+                from sqlseed.config.models import ColumnConfig
+
+                uc_b = ColumnConfig(name=col_b)
+                user_configs[col_b] = uc_b
+
+            # Set derive_from + expression. Clear generator to avoid the
+            # "cannot use both generator and derive_from" validation error.
+            uc_b.generator = None
+            uc_b.params = {}
+            uc_b.derive_from = col_a
+            uc_b.expression = (
+                f"lookup('{ref_table}', '{ref_b}', value, '{ref_a}')"
+            )
+            logger.debug(
+                "Resolved composite FK second column (pair coordination via lookup)",
+                table_name=table_name,
+                column_name=col_b,
+                derive_from=col_a,
+                ref_table=ref_table,
+                ref_column=ref_b,
+            )
+        else:
+            # Case 2: defensive fallback — independent sampling (no pair coordination).
+            ref_values_b = self._db.get_column_values(ref_table, ref_b, limit=100000)
+            specs[col_b] = GeneratorSpec(
+                generator_name="foreign_key",
+                params={
+                    "ref_table": ref_table,
+                    "ref_column": ref_b,
+                    "strategy": "random",
+                    "_ref_values": ref_values_b,
+                },
+                null_ratio=spec_b.null_ratio,
+                provider=spec_b.provider,
+            )
+            logger.warning(
+                "Composite FK pair coordination unavailable (user_configs is None); "
+                "falling back to independent sampling",
+                table_name=table_name,
+                column_name=col_b,
+            )
+
+    def _resolve_multi_column_composite_fk(
+        self,
+        table_name: str,
+        cols: list[tuple[str, str, str]],
+        specs: dict[str, GeneratorSpec],
+        user_configs: dict[str, Any] | None,
+    ) -> None:
+        """Resolve a 3+ column composite FK with independent per-column sampling.
+
+        This is a fallback for composite FKs with more than 2 columns. Each
+        column samples independently from its parent table column. This does
+        NOT guarantee the column tuple exists in the parent table — it's a
+        known limitation. Pair coordination for N>2 columns would require a
+        chain of derive_from expressions.
+        """
+        for col_name, ref_table, ref_col in cols:
             if col_name not in specs:
                 continue
             spec = specs[col_name]
 
-            # Clear derive_from in user_configs if present — composite FK columns
-            # must sample from their parent table, not derive from sibling columns.
-            # The DAG builder uses derive_from from user_configs to override
-            # GeneratorSpec, so we must clear it to let the foreign_key spec
-            # take effect.
+            # Clear derive_from in user_configs if present.
             if user_configs is not None:
                 uc = user_configs.get(col_name)
                 if uc is not None and hasattr(uc, "derive_from") and uc.derive_from:
@@ -358,9 +537,7 @@ class RelationResolver:
                         column_name=col_name,
                     )
 
-            # Sample from the composite FK's parent table column
             ref_values = self._db.get_column_values(ref_table, ref_col, limit=100000)
-
             specs[col_name] = GeneratorSpec(
                 generator_name="foreign_key",
                 params={
@@ -373,15 +550,13 @@ class RelationResolver:
                 provider=spec.provider,
             )
             logger.debug(
-                "Resolved composite FK column",
+                "Resolved composite FK column (independent, N>2)",
                 table_name=table_name,
                 column_name=col_name,
                 ref_table=ref_table,
                 ref_column=ref_col,
                 values_count=len(ref_values),
             )
-
-        return specs
 
     def _resolve_fk_or_integer_spec(
         self,
@@ -472,6 +647,19 @@ class RelationResolver:
                 continue
             spec = specs[col_name]
             if spec.generator_name == "foreign_key":
+                # If _resolve_fk_or_integer_spec already upgraded this to
+                # foreign_key with null_ratio=1.0 (empty parent + nullable),
+                # we still need to fix any conditional column linked via
+                # bidirectional CHECK (e.g., org_type='root' OR parent_id IS
+                # NOT NULL). Without this, the conditional column gets random
+                # values that violate the CHECK when the FK is NULL.
+                if (
+                    spec.null_ratio == 1.0
+                    and not spec.params.get("_ref_values")
+                ):
+                    self._fix_conditional_column_for_null_fk(
+                        table_name, col_name, specs
+                    )
                 continue
             if spec.generator_name == "foreign_key_or_integer":
                 # Only process foreign_key_or_integer for self-ref FK
@@ -523,6 +711,20 @@ class RelationResolver:
                         column_name=col_name,
                         ref_table=fk_info.ref_table,
                     )
+                    # Bidirectional CHECK constraint handling: when a self-ref
+                    # FK column is forced to NULL (null_ratio=1.0), any
+                    # conditional column linked via a bidirectional CHECK
+                    # (e.g., ``org_type = 'root' OR parent_id IS NOT NULL``)
+                    # must be set to its null_val ('root' in this example) to
+                    # satisfy the CHECK during initial fill. Without this,
+                    # 75% of rows violate the CHECK when the conditional
+                    # column has multiple choices (e.g., root/division/team).
+                    # The _post_fill_self_ref_fks pass later updates ~70% of
+                    # rows to reference existing PKs and adjusts the
+                    # conditional column accordingly.
+                    self._fix_conditional_column_for_null_fk(
+                        table_name, col_name, specs
+                    )
                     continue
                 # NOT NULL self-referencing FK with empty parent: fall through
                 # to the default upgrade (will use fallback integers). This is
@@ -553,6 +755,101 @@ class RelationResolver:
                 ref_table=fk_info.ref_table,
                 ref_column=fk_info.ref_column,
             )
+
+    def _fix_conditional_column_for_null_fk(
+        self,
+        table_name: str,
+        fk_col: str,
+        specs: dict[str, GeneratorSpec],
+    ) -> None:
+        """Fix conditional column linked to a NULL FK via bidirectional CHECK.
+
+        When a self-referencing FK column is forced to NULL (null_ratio=1.0)
+        because the parent table is empty, any conditional column linked via
+        a bidirectional CHECK constraint must be set to its null_val to
+        satisfy the CHECK during initial fill.
+
+        Examples:
+            CHECK (org_type = 'root' OR parent_id IS NOT NULL)  -- string
+            CHECK (level = 1 OR parent_id IS NOT NULL)           -- integer
+
+        When parent_id is NULL, org_type MUST be 'root' (or level MUST be 1)
+        to satisfy the CHECK. This method detects such patterns and overrides
+        the conditional column's spec to a choice generator with only
+        [null_val], ensuring all initial rows satisfy the CHECK. The
+        _post_fill_self_ref_fks pass later updates ~70% of rows to
+        reference existing PKs and adjusts the conditional column to
+        non-null_val values.
+        """
+        try:
+            checks = self._db.get_check_constraints(table_name)
+        except Exception:
+            return
+
+        # Detect bidirectional CHECK: cond_col = VALUE OR fk_col IS NOT NULL
+        # (or reversed: fk_col IS NOT NULL OR cond_col = VALUE)
+        # VALUE can be a string ('root') or an integer (1).
+        cond_col: str | None = None
+        null_val: str | int | None = None
+        for check in checks:
+            expr = check.expression if hasattr(check, "expression") else str(check)
+            # Pattern: cond_col = 'VALUE' OR fk_col IS NOT NULL (string)
+            m = re.search(
+                rf"(\w+)\s*=\s*'([^']+)'\s+OR\s+{re.escape(fk_col)}\s+IS\s+NOT\s+NULL",
+                expr,
+                re.IGNORECASE,
+            )
+            if m:
+                cond_col, null_val = m.group(1), m.group(2)
+                break
+            # Pattern: cond_col = NUMBER OR fk_col IS NOT NULL (integer)
+            m = re.search(
+                rf"(\w+)\s*=\s*(\d+)\s+OR\s+{re.escape(fk_col)}\s+IS\s+NOT\s+NULL",
+                expr,
+                re.IGNORECASE,
+            )
+            if m:
+                cond_col, null_val = m.group(1), int(m.group(2))
+                break
+            # Pattern: fk_col IS NOT NULL OR cond_col = 'VALUE' (string)
+            m = re.search(
+                rf"{re.escape(fk_col)}\s+IS\s+NOT\s+NULL\s+OR\s+(\w+)\s*=\s*'([^']+)'",
+                expr,
+                re.IGNORECASE,
+            )
+            if m:
+                cond_col, null_val = m.group(1), m.group(2)
+                break
+            # Pattern: fk_col IS NOT NULL OR cond_col = NUMBER (integer)
+            m = re.search(
+                rf"{re.escape(fk_col)}\s+IS\s+NOT\s+NULL\s+OR\s+(\w+)\s*=\s*(\d+)",
+                expr,
+                re.IGNORECASE,
+            )
+            if m:
+                cond_col, null_val = m.group(1), int(m.group(2))
+                break
+
+        if cond_col is None or null_val is None:
+            return
+        if cond_col not in specs:
+            return
+
+        # Override the conditional column's spec to a choice with only [null_val]
+        old_spec = specs[cond_col]
+        specs[cond_col] = GeneratorSpec(
+            generator_name="choice",
+            params={"choices": [null_val]},
+            null_ratio=0.0,
+            provider=old_spec.provider,
+        )
+        logger.debug(
+            "Fixed conditional column for NULL FK",
+            table_name=table_name,
+            fk_col=fk_col,
+            cond_col=cond_col,
+            null_val=null_val,
+        )
 
     def resolve_foreign_keys(
         self,

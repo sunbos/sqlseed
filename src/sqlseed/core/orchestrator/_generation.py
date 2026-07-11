@@ -39,18 +39,21 @@ logger = get_logger(__name__)
 def _detect_cond_column(
     fk_col: str,
     checks: list[Any],
-) -> tuple[str | None, str | None]:
+) -> tuple[str | None, str | int | None]:
     """Detect conditional column linked to self-ref FK via bidirectional CHECK.
 
     Looks for patterns like:
-        cond_col = 'VALUE' OR fk_col IS NOT NULL
-        fk_col IS NOT NULL OR cond_col = 'VALUE'
+        cond_col = 'VALUE' OR fk_col IS NOT NULL  (string value)
+        cond_col = NUMBER OR fk_col IS NOT NULL    (integer value)
+        fk_col IS NOT NULL OR cond_col = 'VALUE'  (reversed, string)
+        fk_col IS NOT NULL OR cond_col = NUMBER   (reversed, integer)
 
     Returns (cond_col, null_val) where null_val is the value cond_col must
     have when fk_col is NULL. Returns (None, None) if no pattern matches.
     """
     for check in checks:
         expr = check.expression
+        # String: cond_col = 'VALUE' OR fk_col IS NOT NULL
         m = re.search(
             rf"(\w+)\s*=\s*'([^']+)'\s+OR\s+{re.escape(fk_col)}\s+IS\s+NOT\s+NULL",
             expr,
@@ -58,6 +61,15 @@ def _detect_cond_column(
         )
         if m:
             return m.group(1), m.group(2)
+        # Integer: cond_col = NUMBER OR fk_col IS NOT NULL
+        m = re.search(
+            rf"(\w+)\s*=\s*(\d+)\s+OR\s+{re.escape(fk_col)}\s+IS\s+NOT\s+NULL",
+            expr,
+            re.IGNORECASE,
+        )
+        if m:
+            return m.group(1), int(m.group(2))
+        # String: fk_col IS NOT NULL OR cond_col = 'VALUE'
         m = re.search(
             rf"{re.escape(fk_col)}\s+IS\s+NOT\s+NULL\s+OR\s+(\w+)\s*=\s*'([^']+)'",
             expr,
@@ -65,17 +77,26 @@ def _detect_cond_column(
         )
         if m:
             return m.group(1), m.group(2)
+        # Integer: fk_col IS NOT NULL OR cond_col = NUMBER
+        m = re.search(
+            rf"{re.escape(fk_col)}\s+IS\s+NOT\s+NULL\s+OR\s+(\w+)\s*=\s*(\d+)",
+            expr,
+            re.IGNORECASE,
+        )
+        if m:
+            return m.group(1), int(m.group(2))
     return None, None
 
 
 def _extract_non_null_values(
     cond_col: str,
-    null_val: str,
+    null_val: str | int,
     checks: list[Any],
-) -> list[str]:
+) -> list[str | int]:
     """Extract valid non-null values for cond_col from IN constraint.
 
-    Looks for ``cond_col IN ('V1', 'V2', ...)`` and returns the values
+    Looks for ``cond_col IN ('V1', 'V2', ...)`` (string) or
+    ``cond_col IN (1, 2, 3, ...)`` (integer) and returns the values
     excluding ``null_val``.
     """
     for check in checks:
@@ -85,7 +106,12 @@ def _extract_non_null_values(
             re.IGNORECASE,
         )
         if m:
-            values = re.findall(r"'([^']+)'", m.group(1))
+            raw = m.group(1)
+            # Try string values first: 'V1', 'V2', ...
+            values: list[str | int] = re.findall(r"'([^']+)'", raw)
+            if not values:
+                # No string values found — try integer values: 1, 2, 3, ...
+                values = [int(v) for v in re.findall(r"\b(\d+)\b", raw)]
             return [v for v in values if v != null_val]
     return []
 
@@ -395,7 +421,7 @@ class GenerationMixin:
                 continue
 
             cond_col, null_val = _detect_cond_column(fk_col, checks)
-            non_null_values: list[str] = []
+            non_null_values: list[str | int] = []
             if cond_col and null_val:
                 non_null_values = _extract_non_null_values(cond_col, null_val, checks)
                 if not non_null_values:
@@ -406,7 +432,12 @@ class GenerationMixin:
                         f"AND {quote_identifier(cond_col)} != {ph}",
                         (null_val,),
                     )
-                    non_null_values = [str(r["v"]) for r in existing]
+                    # Preserve original type: if null_val is int, convert
+                    # query results to int; otherwise keep as-is.
+                    if isinstance(null_val, int):
+                        non_null_values = [int(r["v"]) for r in existing]
+                    else:
+                        non_null_values = [str(r["v"]) for r in existing]
 
             updated = 0
             for i, pk_val in enumerate(pk_values):
