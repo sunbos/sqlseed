@@ -399,6 +399,26 @@ class AutoHealOrchestrator:
                     c.pop("params", None)
                     params = {}
 
+                # UUID type + autoincrement mismatch: when the column's SQL type
+                # is UUID (e.g., PostgreSQL ``id UUID DEFAULT gen_random_uuid()``)
+                # and the LLM picked ``autoincrement`` (which produces integers),
+                # the fill crashes with ``cannot cast type integer to uuid``.
+                # The LLM picks ``autoincrement`` because the column is a PK, but
+                # UUID PKs with DEFAULT gen_random_uuid() are not autoincrement in
+                # the traditional SERIAL sense. Fix by upgrading to ``uuid``
+                # generator, which produces valid UUID v4 strings.
+                # Decision test: any PostgreSQL database with UUID PK columns.
+                if (
+                    not has_derive
+                    and gen == "autoincrement"
+                    and meta is not None
+                    and meta.column_types.get(c.get("name", ""), "").upper() == "UUID"
+                ):
+                    gen = "uuid"
+                    c["generator"] = "uuid"
+                    c.pop("params", None)
+                    params = {}
+
                 # Semantic downgrade detection: the LLM sometimes picks a
                 # generic generator (``string``, ``catch_phrase``) for a
                 # column whose name matches a Core ColumnMapper
@@ -627,12 +647,7 @@ class AutoHealOrchestrator:
                                 c["params"] = inf_params
                                 gen = inf_gen
                                 params = inf_params
-                            elif (
-                                inf_gen == "choice"
-                                and gen == "choice"
-                                and inf_params
-                                and "choices" in inf_params
-                            ):
+                            elif inf_gen == "choice" and gen == "choice" and inf_params and "choices" in inf_params:
                                 # Case 4: IN-constraint override. Both
                                 # generators are ``choice`` but the current
                                 # choices (from L3 exact match or LLM) don't
@@ -708,7 +723,11 @@ class AutoHealOrchestrator:
                             for fc in fk.get("columns", []):
                                 fk_cols_set_55.add(fc)
                         cross_result = _infer_cross_column_config(
-                            col_name, meta.constraints, meta.columns, col_type, fk_cols_set_55,
+                            col_name,
+                            meta.constraints,
+                            meta.columns,
+                            col_type,
+                            fk_cols_set_55,
                             column_types=meta.column_types,
                         )
                         if (
@@ -857,10 +876,23 @@ class AutoHealOrchestrator:
                         continue
                     src_gen_r = src_col_r.get("generator")
                     src_params_r = src_col_r.get("params") or {}
-                    # Only convert float generators with precision (fractional values)
-                    if src_gen_r == "float" and "precision" in src_params_r:
+                    # Convert ALL float generators (with or without precision)
+                    # to integer. Fractional float values cause REAL (32-bit)
+                    # precision mismatches in arithmetic equality CHECKs:
+                    # Python computes in 64-bit float, PostgreSQL validates in
+                    # 32-bit REAL, and the arithmetic results diverge due to
+                    # rounding. Integer values (< 2^24) are exactly representable
+                    # in 32-bit REAL, so the CHECK holds exactly.
+                    if src_gen_r == "float":
                         new_min = int(src_params_r.get("min_value", 0))
                         new_max = int(src_params_r.get("max_value", 999))
+                        # Ensure min_value is at least 1 when original min_value
+                        # was > 0 (e.g., min_value=0.01 → int(0.01)=0, but
+                        # CHECK constraint requires > 0). Integer 0 would
+                        # violate ``col > 0.0`` CHECKs.
+                        orig_min_r = float(src_params_r.get("min_value", 0))
+                        if orig_min_r > 0 and new_min < 1:
+                            new_min = 1
                         if new_max <= new_min:
                             new_max = new_min + 100
                         # Cap max to ensure products stay within 32-bit exact range
@@ -869,6 +901,42 @@ class AutoHealOrchestrator:
                             new_max = 4000
                         src_col_r["generator"] = "integer"
                         src_col_r["params"] = {"min_value": new_min, "max_value": new_max}
+
+        # Derive_from random_float range cap: when a column has
+        # ``derive_from`` with an expression like
+        # ``random_float(value, 100.0)`` and the source column's
+        # ``max_value`` exceeds the literal upper bound (100.0), the
+        # expression produces invalid values (min > max) when the source
+        # value exceeds the literal. Cap the source column's ``max_value``
+        # to the literal to ensure the expression is always valid.
+        #
+        # Example: ``calibration >= min_threshold AND calibration <= 100.0``
+        # — the LLM sets ``calibration`` to
+        # ``derive_from: min_threshold, expression: random_float(value, 100.0)``
+        # but leaves ``min_threshold`` with ``max_value: 999999.0``. When
+        # ``min_threshold > 100.0``, ``random_float(value, 100.0)`` fails.
+        # Capping ``min_threshold``'s ``max_value`` to ``100.0`` fixes this.
+        for tcfg in config.get("tables", []):
+            columns_rc = tcfg.get("columns", [])
+            col_map_rc: dict[str, dict[str, Any]] = {c.get("name", ""): c for c in columns_rc}
+            for c_rc in columns_rc:
+                expr_rc = str(c_rc.get("expression", ""))
+                derive_from_rc = c_rc.get("derive_from", "")
+                if not derive_from_rc or not expr_rc:
+                    continue
+                # Match ``random_float(value, LITERAL)`` where LITERAL is a number
+                m_rc = re.search(r"random_float\(value,\s*([\d.]+)\)", expr_rc)
+                if m_rc is None:
+                    continue
+                literal_max_rc = float(m_rc.group(1))
+                src_col_rc = col_map_rc.get(derive_from_rc)
+                if src_col_rc is None:
+                    continue
+                src_params_rc = src_col_rc.get("params") or {}
+                src_max_rc = src_params_rc.get("max_value")
+                if src_max_rc is not None and float(src_max_rc) > literal_max_rc:
+                    src_params_rc["max_value"] = literal_max_rc
+                    src_col_rc["params"] = src_params_rc
 
         # Complex CHECK null_ratio safety net: for nullable columns with
         # cross-column CHECK constraints that no Pattern (1-41) matched,
@@ -958,8 +1026,11 @@ class AutoHealOrchestrator:
                         for fc_c in fk_c.get("columns", []):
                             fk_cols_set_c.add(fc_c)
                     cross_result_c = _infer_cross_column_config(
-                        col_name_c, meta_c.constraints, meta_c.columns,
-                        col_type_c, fk_cols_set_c,
+                        col_name_c,
+                        meta_c.constraints,
+                        meta_c.columns,
+                        col_type_c,
+                        fk_cols_set_c,
                         column_types=meta_c.column_types,
                     )
                     if cross_result_c is not None and "derive_from" in cross_result_c:
@@ -972,6 +1043,140 @@ class AutoHealOrchestrator:
                     c_c.pop("params", None)
                     c_c.pop("derive_from", None)
                     c_c.pop("expression", None)
+
+        # Multi-clause conditional CHECK status-NULL safety net: for columns
+        # referenced in multi-clause OR CHECKs like:
+        #   ``((status = 'scheduled') AND (started_at IS NULL) AND (completed_at IS NULL))
+        #    OR ((status = 'in_progress') AND (started_at IS NOT NULL) AND (completed_at IS NULL))
+        #    OR ((status = 'completed') AND (cost > 0) AND (labor_time IS NOT NULL))
+        #    OR (status = 'cancelled')``
+        # extract the ``cond_col = 'V' AND col IS NULL`` patterns and modify
+        # ``col`` to return None when ``cond_col`` matches the NULL-triggering
+        # values. This handles 4-way conditional CHECKs that no Pattern (1-41)
+        # matched because Pattern 30 only handles single-clause
+        # ``col1 != VALUE OR col IS NULL`` (not multi-clause OR).
+        #
+        # Two cases:
+        # 1. ``col`` already has ``derive_from``: wrap the existing expression
+        #    with ``None if row.get('cond_col') in (V1, V2, ...) else <orig>``
+        # 2. ``col`` has no ``derive_from`` (independent generator): find an
+        #    anchor datetime column (same table, non-NULL datetime type) and
+        #    set ``derive_from: cond_col`` with expression
+        #    ``None if value in (V1, ...) else row['anchor'] + timedelta(...)``
+        #
+        # Decision test: R8 maintenance_logs_check3 (4-way conditional CHECK
+        # on status + started_at + completed_at).
+        for tcfg_sn in config.get("tables", []):
+            table_name_sn = tcfg_sn.get("name", "")
+            meta_sn = snapshot.tables.get(table_name_sn)
+            if meta_sn is None:
+                continue
+            columns_sn = tcfg_sn.get("columns", [])
+            col_map_sn: dict[str, dict[str, Any]] = {c.get("name", ""): c for c in columns_sn}
+            # Collect NULL-triggering values per (col, cond_col)
+            # null_triggers[col][cond_col] = set of values that require col IS NULL
+            null_triggers: dict[str, dict[str, set[str]]] = {}
+            for constraint_sn in meta_sn.constraints:
+                if constraint_sn.get("type") != "check":
+                    continue
+                expr_sn = _normalize_pg_check_expr(constraint_sn.get("expression", ""))
+                if not expr_sn or " OR " not in expr_sn.upper():
+                    continue
+                # Split by OR (case-insensitive) — each clause may contain
+                # ``cond_col = 'V' AND ... AND col IS NULL``
+                # Use regex to split on top-level OR (not inside parens)
+                clauses_sn = re.split(r"\bOR\b", expr_sn, flags=re.IGNORECASE)
+                for clause_sn in clauses_sn:
+                    clause_sn = clause_sn.strip().strip("()")
+                    # Find cond_col = 'V' patterns
+                    cond_matches = re.findall(r"(\w+)\s*=\s*'([^']+)'", clause_sn)
+                    if not cond_matches:
+                        continue
+                    # Find col IS NULL patterns
+                    null_matches = re.findall(r"(\w+)\s+IS\s+NULL", clause_sn, re.IGNORECASE)
+                    if not null_matches:
+                        continue
+                    for cond_col_sn, cond_val_sn in cond_matches:
+                        for null_col_sn in null_matches:
+                            if null_col_sn.upper() == cond_col_sn.upper():
+                                continue
+                            null_triggers.setdefault(null_col_sn, {}).setdefault(cond_col_sn, set()).add(cond_val_sn)
+            # Apply null_triggers to each affected column
+            for col_sn, triggers_sn in null_triggers.items():
+                c_sn = col_map_sn.get(col_sn)
+                if c_sn is None:
+                    continue
+                # Skip if column already has null_ratio=1.0
+                if c_sn.get("null_ratio", 0) >= 1.0:
+                    continue
+                # Skip autoincrement and FK columns
+                gen_sn = c_sn.get("generator")
+                if gen_sn in ("autoincrement", "foreign_key_or_integer"):
+                    continue
+                # Only one cond_col supported (multiple cond_cols on same col
+                # would require nested ternary — rare and complex)
+                if len(triggers_sn) != 1:
+                    continue
+                cond_col_sn = next(iter(triggers_sn))
+                null_vals_sn = triggers_sn[cond_col_sn]
+                # Build the tuple of NULL-triggering values
+                vals_tuple_str = ", ".join(f"'{v}'" for v in sorted(null_vals_sn))
+                vals_in_expr = f"row.get('{cond_col_sn}') in ({vals_tuple_str})"
+                # Check if cond_col exists in the table
+                if cond_col_sn not in col_map_sn:
+                    continue
+                existing_derive_sn = c_sn.get("derive_from", "")
+                existing_expr_sn = str(c_sn.get("expression", ""))
+                if existing_derive_sn:
+                    # Case 1: col already has derive_from — wrap existing expr
+                    # Only wrap if not already wrapped (idempotent)
+                    if vals_in_expr not in existing_expr_sn:
+                        new_expr_sn = f"None if {vals_in_expr} else ({existing_expr_sn})"
+                        c_sn["expression"] = new_expr_sn
+                else:
+                    # Case 2: col has no derive_from — find anchor datetime column
+                    col_type_sn = meta_sn.column_types.get(col_sn, "")
+                    anchor_col_sn = None
+                    for ac_sn in columns_sn:
+                        ac_name_sn = ac_sn.get("name", "")
+                        if ac_name_sn == col_sn or ac_name_sn == cond_col_sn:
+                            continue
+                        ac_type_sn = meta_sn.column_types.get(ac_name_sn, "")
+                        ac_gen_sn = ac_sn.get("generator")
+                        # Anchor must be datetime/date type, non-NULL, no derive_from
+                        if (
+                            ac_type_sn.upper()
+                            in (
+                                "TIMESTAMP",
+                                "TIMESTAMPTZ",
+                                "DATETIME",
+                                "DATE",
+                                "TIMESTAMP WITHOUT TIME ZONE",
+                                "TIMESTAMP WITH TIME ZONE",
+                            )
+                            and ac_gen_sn in ("datetime", "date")
+                            and ac_sn.get("null_ratio", 0) < 1.0
+                        ):
+                            anchor_col_sn = ac_name_sn
+                            break
+                    if anchor_col_sn is None:
+                        continue
+                    # Set derive_from: cond_col, expression returns None for
+                    # trigger values, else anchor + random timedelta
+                    c_sn["derive_from"] = cond_col_sn
+                    c_sn["generator"] = None
+                    c_sn.pop("params", None)
+                    c_sn.pop("null_ratio", None)
+                    if col_type_sn.upper() == "DATE":
+                        c_sn["expression"] = (
+                            f"None if value in ({vals_tuple_str}) else "
+                            f"row['{anchor_col_sn}'] + timedelta(days=random_int(0, 30))"
+                        )
+                    else:
+                        c_sn["expression"] = (
+                            f"None if value in ({vals_tuple_str}) else "
+                            f"row['{anchor_col_sn}'] + timedelta(days=random_int(0, 30))"
+                        )
 
         # Safety net 7: Clear ``null_ratio: 1.0`` on columns that:
         # (a) have ``IS NOT NULL`` in their CHECK constraints, OR
@@ -1090,8 +1295,11 @@ class AutoHealOrchestrator:
                 col_type_sn7 = meta_sn7.column_types.get(col_name_sn7, "TEXT")
                 # Try to apply a cross-column pattern (Pattern 30b, 30b NOT IN, etc.)
                 cross_result_sn7 = _infer_cross_column_config(
-                    col_name_sn7, meta_sn7.constraints, meta_sn7.columns,
-                    col_type_sn7, fk_cols_set_sn7,
+                    col_name_sn7,
+                    meta_sn7.constraints,
+                    meta_sn7.columns,
+                    col_type_sn7,
+                    fk_cols_set_sn7,
                     self_ref_fk_cols=self_ref_fk_cols_sn7,
                     column_types=meta_sn7.column_types,
                 )
@@ -1364,7 +1572,12 @@ class AutoHealOrchestrator:
                 # has both, derive_from captures the cross-column relation
                 # while a bare min_value would silently drop it.
                 cross_config = _infer_cross_column_config(
-                    col_name, meta.constraints, meta.columns, col_type, fk_cols_set, self_ref_fk_cols,
+                    col_name,
+                    meta.constraints,
+                    meta.columns,
+                    col_type,
+                    fk_cols_set,
+                    self_ref_fk_cols,
                     column_types=meta.column_types,
                 )
                 if cross_config is not None:
@@ -1801,9 +2014,26 @@ def _has_cross_column_check(col_name: str, constraints: list[dict[str, Any]]) ->
         # that aren't SQL keywords or numeric literals)
         tokens = set(re.findall(r"\b[a-z_]\w*\b", expr.lower()))
         sql_keywords = {
-            "and", "or", "not", "null", "is", "in", "between", "like",
-            "case", "when", "then", "else", "end", "abs", "length",
-            "date", "time", "timestamp", "true", "false",
+            "and",
+            "or",
+            "not",
+            "null",
+            "is",
+            "in",
+            "between",
+            "like",
+            "case",
+            "when",
+            "then",
+            "else",
+            "end",
+            "abs",
+            "length",
+            "date",
+            "time",
+            "timestamp",
+            "true",
+            "false",
         }
         col_refs = tokens - sql_keywords - {col_name.lower()}
         col_refs = {t for t in col_refs if not t.isdigit()}
@@ -2986,12 +3216,8 @@ def _infer_cross_column_config(
             ):
                 # Guard: count enum assignments vs col comparisons. If
                 # comparisons > assignments, it's Pattern 36 (dual bounds).
-                enum_count = len(re.findall(
-                    rf"{other_col_p27_pre}\s*=\s*'[^']+'", expr_p27_pre, re.IGNORECASE
-                ))
-                col_cmp_count = len(re.findall(
-                    rf"\b{col}\s*(>=|<=|>|<)\s*", expr_p27_pre, re.IGNORECASE
-                ))
+                enum_count = len(re.findall(rf"{other_col_p27_pre}\s*=\s*'[^']+'", expr_p27_pre, re.IGNORECASE))
+                col_cmp_count = len(re.findall(rf"\b{col}\s*(>=|<=|>|<)\s*", expr_p27_pre, re.IGNORECASE))
                 if col_cmp_count > enum_count:
                     continue  # Pattern 36 — skip, let per-loop Pattern 36 handle it
                 parts_p27_pre: list[str] = []
@@ -3319,8 +3545,7 @@ def _infer_cross_column_config(
         if m_date_left:
             op_dl = m_date_left.group(1)
             other_col_dl = m_date_left.group(2)
-            if (other_col_dl in col_set and other_col_dl != col_name
-                    and (is_date_col or _is_date_column(other_col_dl))):
+            if other_col_dl in col_set and other_col_dl != col_name and (is_date_col or _is_date_column(other_col_dl)):
                 if op_dl in (">=", ">"):
                     return {
                         "derive_from": other_col_dl,
@@ -3365,8 +3590,7 @@ def _infer_cross_column_config(
         if m_nn_p39:
             col2_p39nn = m_nn_p39.group(1)
             col3_p39nn = m_nn_p39.group(2)
-            if (col2_p39nn in col_set and col3_p39nn in col_set
-                    and col_name not in (col2_p39nn, col3_p39nn)):
+            if col2_p39nn in col_set and col3_p39nn in col_set and col_name not in (col2_p39nn, col3_p39nn):
                 return {
                     "derive_from": col2_p39nn,
                     "expression": f"(value + row['{col3_p39nn}']) * random_float(0.0, 1.0)",
@@ -3431,9 +3655,8 @@ def _infer_cross_column_config(
                         # random_int(30, 365) returns 30, the diff is
                         # ``30 - 0.766 = 29.234 < 30`` → CHECK fails.
                         target_is_date_only = _is_date_only_type(col_type)
-                        source_is_datetime = (
-                            column_types is not None
-                            and _is_datetime_type(column_types.get(other_col_p41, ""))
+                        source_is_datetime = column_types is not None and _is_datetime_type(
+                            column_types.get(other_col_p41, "")
                         )
                         if target_is_date_only and source_is_datetime:
                             min_days_p41 += 1
@@ -3794,9 +4017,7 @@ def _infer_cross_column_config(
                             # Build chained ternary: v1→v2, v2→v3, ..., vN→v1
                             parts_p6 = []
                             for i_p6 in range(len(in_values_p6) - 1):
-                                parts_p6.append(
-                                    f"'{in_values_p6[i_p6 + 1]}' if value == '{in_values_p6[i_p6]}'"
-                                )
+                                parts_p6.append(f"'{in_values_p6[i_p6 + 1]}' if value == '{in_values_p6[i_p6]}'")
                             expr_p6 = " else ".join(parts_p6)
                             expr_p6 += f" else '{in_values_p6[0]}'"
                             return {
@@ -3955,8 +4176,7 @@ def _infer_cross_column_config(
         )
         if m:
             col1_p42, col2_p42 = m.group(1), m.group(2)
-            if (col1_p42 in col_set and col2_p42 in col_set
-                    and col1_p42 != col_name):
+            if col1_p42 in col_set and col2_p42 in col_set and col1_p42 != col_name:
                 return {
                     "derive_from": col1_p42,
                     "expression": f"abs(value - row['{col2_p42}'])",
@@ -3989,8 +4209,7 @@ def _infer_cross_column_config(
         )
         if m:
             col1_p44, col2_p44, col3_p44, divisor_p44 = m.group(1), m.group(2), m.group(3), m.group(4)
-            if (col1_p44 in col_set and col2_p44 in col_set and col3_p44 in col_set
-                    and col1_p44 != col_name):
+            if col1_p44 in col_set and col2_p44 in col_set and col3_p44 in col_set and col1_p44 != col_name:
                 return {
                     "derive_from": col1_p44,
                     "expression": f"value * row['{col2_p44}'] * row['{col3_p44}'] / {divisor_p44}",
@@ -4006,8 +4225,7 @@ def _infer_cross_column_config(
         )
         if m:
             col1_p45, col2_p45, col3_p45, divisor_p45 = m.group(1), m.group(2), m.group(3), m.group(4)
-            if (col1_p45 in col_set and col2_p45 in col_set and col3_p45 in col_set
-                    and col1_p45 != col_name):
+            if col1_p45 in col_set and col2_p45 in col_set and col3_p45 in col_set and col1_p45 != col_name:
                 return {
                     "derive_from": col1_p45,
                     "expression": f"value + value * row['{col2_p45}'] * row['{col3_p45}'] / {divisor_p45}",
