@@ -231,6 +231,28 @@ class AutoHealOrchestrator:
         for tcfg in config.get("tables", []):
             table_name = tcfg.get("name", "")
             meta = snapshot.tables.get(table_name)
+            # Pre-scan: detect source columns of derive_from+timedelta
+            # expressions. When a column derives from another column using
+            # ``timedelta(...)`` arithmetic (e.g.,
+            # ``value - timedelta(days=random_int(1, 365))``), the source
+            # column MUST be a date/datetime generator. If the LLM set it
+            # to ``string`` (common for SQLite DATE columns stored as TEXT),
+            # the fill crashes with
+            # ``TypeError: unsupported operand type(s) for -: 'str' and
+            # 'datetime.timedelta'``. Collect these source columns here so
+            # the main loop can upgrade them from ``string`` to
+            # ``datetime``/``date`` before the derive_from expression is
+            # evaluated at fill time.
+            timedelta_sources: dict[str, str] = {}  # col_name -> "date"|"datetime"
+            for _c in tcfg.get("columns", []):
+                if _c.get("derive_from") and "timedelta" in str(_c.get("expression", "")):
+                    src = _c["derive_from"]
+                    if isinstance(src, str) and src not in timedelta_sources:
+                        src_type = (meta.column_types.get(src, "") if meta else "") or ""
+                        if _is_date_only_type(src_type):
+                            timedelta_sources[src] = "date"
+                        else:
+                            timedelta_sources[src] = "datetime"
             for c in tcfg.get("columns", []):
                 gen = c.get("generator")
                 # Treat ``?`` placeholder as missing generator. The LLM
@@ -247,6 +269,22 @@ class AutoHealOrchestrator:
                 if gen in {"?", ""}:
                     gen = None
                     c.pop("generator", None)
+                # Timedelta source upgrade: if this column is a source for a
+                # derive_from+timedelta expression (detected in the pre-scan
+                # above) and its generator is ``string`` or missing, upgrade
+                # it to ``date``/``datetime``. Without this, the derive_from
+                # expression (e.g., ``value - timedelta(days=...)``) crashes
+                # at fill time with ``TypeError: unsupported operand type(s)
+                # for -: 'str' and 'datetime.timedelta'`` because the string
+                # generator produces ``str`` values, not date objects.
+                col_name_55 = c.get("name", "")
+                if col_name_55 in timedelta_sources:
+                    target_gen = timedelta_sources[col_name_55]
+                    if gen in (None, "string"):
+                        gen = target_gen
+                        c["generator"] = target_gen
+                        c.pop("params", None)
+                        params = {}
                 # Derived-mode columns (``derive_from`` + ``expression``) are
                 # mutually exclusive with source-mode (``generator`` +
                 # ``params``) per the ``ColumnConfig`` model validator.
@@ -604,6 +642,33 @@ class AutoHealOrchestrator:
                                 # CHECK says ``status IN ('active', ...)``.
                                 c["params"] = inf_params
                                 params = inf_params
+                            elif inf_gen == gen and inf_params and params:
+                                # Case 5: LLM provided params that CONFLICT
+                                # with CHECK constraints. The LLM may set
+                                # min_value/max_value that violate the CHECK
+                                # (e.g., ``min_value: 0`` when CHECK requires
+                                # ``>= 60 AND <= 250``). The CHECK constraint
+                                # is authoritative — override conflicting
+                                # bounds with the CHECK-inferred values.
+                                # Non-conflicting bounds are preserved (e.g.,
+                                # if LLM set ``max_value: 200`` and CHECK
+                                # allows ``<= 250``, keep 200).
+                                if "min_value" in inf_params or "max_value" in inf_params:
+                                    inf_min = inf_params.get("min_value")
+                                    inf_max = inf_params.get("max_value")
+                                    llm_min = params.get("min_value")
+                                    llm_max = params.get("max_value")
+                                    conflict = False
+                                    new_params = dict(params)
+                                    if inf_min is not None and (llm_min is None or llm_min < inf_min):
+                                        new_params["min_value"] = inf_min
+                                        conflict = True
+                                    if inf_max is not None and (llm_max is None or llm_max > inf_max):
+                                        new_params["max_value"] = inf_max
+                                        conflict = True
+                                    if conflict:
+                                        c["params"] = new_params
+                                        params = new_params
 
                 # Cross-column derive_from restoration: when the LLM is called
                 # to heal one column, it sometimes rewrites OTHER columns in
