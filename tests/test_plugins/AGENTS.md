@@ -1,5 +1,5 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-04-29 | Updated: 2026-06-21 -->
+<!-- Last updated: 2026-07-12 -->
 
 # test_plugins
 
@@ -18,9 +18,8 @@ Plugin system tests. Covers hook specification definitions and plugin manager li
 
 ### Working In This Directory
 
-- Test plugin registration, discovery, and unloading
+- Test plugin registration and unloading
 - Verify correct hook call dispatch
-- Test entry_points auto-discovery mechanism
 
 ### Testing Requirements
 
@@ -30,7 +29,7 @@ pytest tests/test_plugins/
 
 ### Common Patterns
 
-- Use `unittest.mock.patch` to mock entry_points
+- Use real `PluginManager` instances with inline dummy plugin classes (no mocking)
 
 ## Dependencies
 

@@ -8,7 +8,7 @@ pytest suite. Tests mirror `src/sqlseed/` structure. conftest.py provides fixtur
 
 ```
 tests/
-├── conftest.py              # Fixtures: tmp_db, tmp_db_with_data, unique_test_db
+├── conftest.py              # Test helpers; fixtures moved to rootdir conftest.py
 ├── _helpers.py              # Test utilities
 ├── test_public_api.py       # Public API tests (fill, connect, preview)
 ├── test_orchestrator.py     # DataOrchestrator tests
@@ -53,4 +53,4 @@ tests/
 - **NEVER** hardcode DB paths → use `tmp_path` fixture
 - **NEVER** skip cleanup → use context managers or fixtures
 - **ALWAYS** use `provider="base"` in tests (no external deps)
-- **ALWAYS** use `gc.collect()` between tests (autouse fixture)
+- Use the opt-in `gc_between_tests` fixture for memory-sensitive tests (not autouse)

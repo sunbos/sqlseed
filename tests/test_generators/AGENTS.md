@@ -1,5 +1,5 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-04-29 | Updated: 2026-06-21 -->
+<!-- Last updated: 2026-07-12 -->
 
 # test_generators
 
@@ -13,8 +13,8 @@ Data generator correctness and consistency tests. Covers Base/Faker/Mimesis prov
 |------|-------------|
 | `_mixin.py` | Shared test mixin, extracts common Provider test logic |
 | `test_base_provider.py` | BaseProvider built-in generator tests |
-| `test_faker_provider.py` | FakerProvider tests (importorskip) |
-| `test_mimesis_provider.py` | MimesisProvider tests (importorskip) |
+| `test_faker_provider.py` | FakerProvider tests (faker is a required dep; no importorskip) |
+| `test_mimesis_provider.py` | MimesisProvider tests (direct import; mimesis optional at runtime) |
 | `test_registry.py` | ProviderRegistry registration and discovery tests |
 | `test_dispatch_sync.py` | `verify_dispatch_sync()` mapping consistency tests |
 | `test_json_helpers.py` | JSON schema-based generation helper tests |
@@ -25,7 +25,7 @@ Data generator correctness and consistency tests. Covers Base/Faker/Mimesis prov
 ### Working In This Directory
 
 - `_mixin.py` provides shared Provider test methods to avoid duplication
-- Faker/Mimesis tests must use `pytest.importorskip` to handle missing optional dependencies
+- `test_registry.py` uses `pytest.importorskip("faker")` / `pytest.importorskip("mimesis")` to guard optional-dep provider discovery; the dedicated provider test files import directly
 - Generator tests must verify seed reproducibility
 - Dispatch sync tests ensure `GENERATOR_MAP` consistency across providers
 
@@ -38,7 +38,7 @@ pytest tests/test_generators/
 ### Common Patterns
 
 - Use `_mixin.py` mixin to avoid duplicating test logic
-- Optional dependency tests use `pytest.importorskip("faker")` / `pytest.importorskip("mimesis")`
+- `test_registry.py` guards optional deps with `pytest.importorskip("faker")` / `pytest.importorskip("mimesis")`; provider test files import directly (faker is required, mimesis is optional)
 
 ## Dependencies
 

@@ -1,6 +1,6 @@
 # sqlseed_cli
 
-**Generated:** 2026-06-26
+**Last updated:** 2026-07-12
 
 ## Purpose
 
@@ -38,7 +38,7 @@ pytest plugins/sqlseed-cli/tests/
 
 ### Common Patterns
 
-- Command structure: `cli` (group) -> `fill` / `preview` / `init` / `replay`
+- Command structure: `cli` (group) -> `fill` / `preview` / `inspect` / `init` / `replay`
   subcommands (main.py). Plugin subcommands (e.g. `ai-suggest`) are attached
   via entry-points.
 - Output is beautified with the rich library (progress bars, tables, highlighting).

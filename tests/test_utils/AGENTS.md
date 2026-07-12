@@ -1,5 +1,5 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-04-29 | Updated: 2026-06-21 -->
+<!-- Last updated: 2026-07-12 -->
 
 # test_utils
 

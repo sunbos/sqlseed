@@ -1,12 +1,12 @@
 # SQLSEED-AI PLUGIN
 
-**Last updated:** 2026-07-11
+**Last updated:** 2026-07-12
 
 ## OVERVIEW
 
 LLM-powered schema analysis, contract-driven self-healing, and template generation. Separate package with own pyproject.toml. Supports 4 backends (Google AI Studio, LM Studio, Ollama, OpenAI-compatible) and 5 Gemma 4 model variants.
 
-The default schema-analysis path is the **v4 contract-driven self-healing architecture** (Layers 1–5 below). The legacy `Stage3Validator` (36 numbered rules), `SchemaSemanticAnalyzer`, and `StagedSchemaAnalyzer` were **deleted** in Phase 4 zero-rot cleanup — there is no dual-track system and no deprecated flags. See [CLAUDE.md → "v4 Contract-Driven Self-Healing"](../../CLAUDE.md) for the authoritative, exhaustive reference (including all 41 cross-column patterns).
+The default schema-analysis path is the **v4 contract-driven self-healing architecture** (Layers 1–5 below). The legacy `Stage3Validator` (36 numbered rules), `SchemaSemanticAnalyzer`, and `StagedSchemaAnalyzer` were **deleted** in Phase 4 zero-rot cleanup — there is no dual-track system and no deprecated flags. See [CLAUDE.md → "v4 Contract-Driven Self-Healing"](../../CLAUDE.md) for the authoritative, exhaustive reference (including all 62 cross-column patterns).
 
 ## STRUCTURE
 
@@ -23,9 +23,9 @@ sqlseed-ai/
     │   ├── _context.py   # ContextBuilderMixin — chat message and schema context construction
     │   └── _json_parser.py # JsonParserMixin — JSON response parsing and analysis entry points
     ├── contracts/        # Layer 1 — sparse contract matrix + resolver (known-bad generator/type/constraint combos)
-    │   ├── registry.py   # ContractViolation, ContractResolver (builtin + learned, specificity-priority)
+    │   ├── registry.py   # LearnedContractsRegistry (JSON-persisted learned contracts, schema_hash filtered)
     │   ├── builtin_violations.py  # seed violations; matrix is a CLOSED SET (unlisted → COMPATIBLE)
-    │   └── matrix.py     # lookup API
+    │   └── matrix.py     # ContractViolation, ContractResolver, ViolationKind (specificity-priority matching)
     ├── validator/        # Layer 2 — FastValidator orchestrating 5 components
     │   ├── main.py       # FastValidator: SingleColumnValidator(2a), CrossColumnValidator(2b), DialectErrorParser, ShadowFKScanner, CompositeFKCoordinator
     │   ├── single_column.py   # per-column contract + cardinality
@@ -36,7 +36,7 @@ sqlseed-ai/
     │   ├── schema_snapshot.py # schema_hash for optimistic-lock re-check at write time (Defense 8)
     │   └── models.py    # ConstraintType, ViolationReport, ValidationResult
     ├── repair/           # Layer 3 — stateless repair engine (pure functions registered in REPAIR_STRATEGIES)
-    │   ├── strategies.py # normalize_params (Rule #14), coerce_int_float (Rule #26), derive_from cleanup, CHECK-chain mirroring
+    │   ├── strategies.py # normalize_params (Rule #14), coerce_float_to_int (Rule #26), derive_from cleanup, CHECK-chain mirroring
     │   ├── executor.py   # applies strategies by fix_hint dispatch
     │   └── pipeline.py   # chains strategies
     ├── healer/           # Layer 4 — 4-level LLM heal with failure-type-aware routing
@@ -60,7 +60,7 @@ sqlseed-ai/
     ├── _client.py        # OpenAI client wrapper, httpx timeout config
     ├── _hardware.py      # Cross-platform hardware detection (RAM, GPU/VRAM) for model selection
     ├── _model_selector.py # Gemma 4 model selection and fallback chain
-    ├── _json_utils.py    # JSON parsing utilities (3-strategy fallback)
+    ├── _json_utils.py    # JSON parsing utilities (4-strategy fallback)
     ├── _prompts.py       # LLM prompt templates (full, compact, ultra-compact, template)
     ├── _tools.py         # Gemma 4 native function calling tool definitions (GEMMA_TOOLS)
     ├── examples.py       # Few-shot examples for prompts
@@ -79,7 +79,7 @@ sqlseed-ai/
 | Modify prompt templates | `_prompts.py` | `SYSTEM_PROMPT`, `_COMPACT_SYSTEM_PROMPT`, `_ULTRA_COMPACT_SYSTEM_PROMPT` |
 | Modify Gemma tools | `_tools.py` | `GEMMA_TOOLS` function declarations |
 | Change error handling | `errors.py` | `summarize_error()` with 7 processors |
-| Add/edit a cross-column CHECK pattern | `auto_heal/orchestrator.py` `_infer_cross_column_config()` | Patterns 1–41; read CLAUDE.md first — many are interdependent (pre-loop scans, ordering rules) |
+| Add/edit a cross-column CHECK pattern | `auto_heal/orchestrator.py` `_infer_cross_column_config()` | Patterns 1–46 (62 total, incl. letter-suffix variants 1b/4a/7a/7b/8a–8e/22b/22c/24b/26b/26c/28b/28c/30b/34b); read CLAUDE.md first — many are interdependent (pre-loop scans, ordering rules) |
 | Add a known-bad generator/type combo | `contracts/builtin_violations.py` | Matrix is a CLOSED SET; unlisted → COMPATIBLE |
 | Add a repair strategy | `repair/strategies.py` | Register pure fn in `REPAIR_STRATEGIES` keyed by `fix_hint` |
 | Change LLM heal routing | `healer/failure_classifier.py` + `healer/orchestrator.py` | 6 failure types route to Levels 2/3/4 or raise |

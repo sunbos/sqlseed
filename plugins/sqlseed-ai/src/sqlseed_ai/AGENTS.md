@@ -2,7 +2,7 @@
 
 # sqlseed_ai
 
-**Generated:** 2026-06-21
+**Last updated:** 2026-07-12
 
 ## Purpose
 
@@ -33,7 +33,7 @@ model fallback on timeout/connection errors.
 | `exceptions.py` | Structured exception types (`ContextOverflowError`, `ToolCallError`, `ModelFallbackError`, `classify_api_error()`) |
 | `_client.py` | OpenAI client factory with unified httpx timeout |
 | `_hardware.py` | Cross-platform hardware detection (RAM, GPU/VRAM) |
-| `_json_utils.py` | LLM JSON response parsing (3-strategy fallback) |
+| `_json_utils.py` | LLM JSON response parsing (4-strategy fallback) |
 | `_model_selector.py` | Gemma model selection and fallback chain |
 | `examples.py` | Few-shot examples for LLM schema-analysis prompts |
 | `cli/ai_commands.py` | 3 CLI commands injected into sqlseed CLI via entry_points: `ai-suggest` (per-table LLM analysis with `--auto-heal` flag), `ai-analyze` (default v4 AutoHealOrchestrator path for full/partial DB), `auto-heal` (standalone repair of existing YAML configs) |
@@ -147,7 +147,7 @@ first non-None result wins:
 - **NEVER** import `openai` at module top in `analyzer/` → use lazy init via `_client.py` (`get_openai_client()`). The top-level `from openai import OpenAI` lives only in `_client.py`, which is itself lazily imported.
 - **NEVER** use `assert` for runtime validation → use `RuntimeError`/`ValueError`.
 - **NEVER** suppress type errors with `# type: ignore` or `Any` where a concrete type is available.
-- **NEVER** call `json.loads()` directly on LLM output → use `parse_json_response()` from `_json_utils.py` (3-strategy fallback).
+- **NEVER** call `json.loads()` directly on LLM output → use `parse_json_response()` from `_json_utils.py` (4-strategy fallback).
 - **NEVER** mutate `self` in `AIConfig.resolve_*()` methods — they are pure functions.
 - **NEVER** validate AI configs with `GeneratorConfig` → use `TableConfig` (the refiner validates whole-table configs).
 
@@ -158,7 +158,7 @@ first non-None result wins:
 - `AISqlseedPlugin` implements `hookimpl` for `sqlseed_ai_analyze_table` (full-table analysis) and `sqlseed_pre_generate_templates` (per-column value generation for non-simple columns). The `sqlseed_apply_ai_suggestions` hook (high-level AI mediation) is implemented in `ai_mediator.py` (Phase C, moved from core). It does NOT implement `sqlseed_register_providers` or `sqlseed_register_column_mappers`.
 - Simple columns (name, email, phone, etc.) are skipped via the `_SIMPLE_COL_RE` regex — do not waste LLM tokens on them.
 - `_model_selector.py` maintains the Gemma 4 model list: `select_gemma_model()` for initial selection, `select_next_gemma_model()` for fallback.
-- JSON parsing must go through `_json_utils.parse_json_response()` (3 strategies: direct → fence-strip → `raw_decode`). Never call `json.loads()` directly on LLM output.
+- JSON parsing must go through `_json_utils.parse_json_response()` (4 strategies: channel-strip → direct → fence-strip → `raw_decode`). Never call `json.loads()` directly on LLM output.
 - All AI calls must handle `APIConnectionError` / `APITimeoutError` / `APIError`.
 - `refiner.py` self-correction flow: generate → validate (`TableConfig`) → fix, up to `max_retries` times.
 - `config.py` `AIConfig` supports multi-backend auto-detection. Key methods: `resolve_model()`, `resolve_base_url()`, `resolve_api_key()`, `resolve_max_tokens()`, `resolve_timeout()`, `resolve_tool_calling_protocol()`, `should_use_streaming()`, `should_use_ultra_compact()`, `detect_all_local_models()`. The `tool_calling_protocol` field (Phase E) selects between `gemma4` / `openai` / `none` native function calling protocols.
