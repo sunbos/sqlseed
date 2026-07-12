@@ -71,10 +71,13 @@ class ExpressionEngine:
         "random_choice": lambda seq: random.choice(list(seq)),
         # timedelta enables date arithmetic in derived expressions, e.g.
         # ``value + timedelta(days=7)`` to add a week to a date source column.
-        # Only days/seconds are exposed (the most common units) to keep the
-        # sandbox minimal — microseconds/milliseconds are rarely needed for
-        # test data generation and can be added later if required.
-        "timedelta": lambda days=0, seconds=0: timedelta(days=int(days), seconds=int(seconds)),
+        # Supports days/seconds/hours/minutes/weeks — the common units LLMs
+        # naturally emit (hours is especially common for state-machine date
+        # constraints like paid_at = created_at + timedelta(hours=N)).
+        # Microseconds/milliseconds are omitted (rarely needed for test data).
+        "timedelta": lambda days=0, seconds=0, hours=0, minutes=0, weeks=0: timedelta(
+            days=int(days), seconds=int(seconds), hours=int(hours), minutes=int(minutes), weeks=int(weeks)
+        ),
     }
 
     _SIMPLE_EXPR_RE: ClassVar[re.Pattern[str]] = re.compile(r"^[a-zA-Z_]\w*\s*(\.\s*[a-zA-Z_]\w*\s*\([^)]*\)\s*)+$")

@@ -71,6 +71,36 @@ def _get_column_mapper() -> ColumnMapper:
     return ColumnMapper()
 
 
+def _infer_locale(snapshot: SchemaSnapshot) -> str:
+    """Infer the best locale from schema CHECK constraints.
+
+    Scans all phone-like columns for ``LENGTH(col) = N`` CHECK constraints.
+    ``LENGTH = 11`` uniquely identifies Chinese mobile numbers (e.g.,
+    ``13800138000``), so ``zh_CN`` is returned to make Faker's ``phone``
+    generator produce 11-digit Chinese mobiles. Without this inference,
+    the default ``en_US`` locale produces NANP-format phones (``+1 NPA-NXX-XXXX``,
+    16 chars) that violate the ``CHECK LENGTH = 11`` constraint at fill time.
+
+    For databases without phone LENGTH constraints, ``en_US`` is returned
+    as the safe default.
+    """
+    _phone_length_re = re.compile(r"LENGTH\s*\(\s*(\w+)\s*\)\s*=\s*(\d+)")
+    for table_meta in snapshot.tables.values():
+        for constraint in table_meta.constraints:
+            if constraint.get("type") != "check":
+                continue
+            expr = constraint.get("expression", "")
+            if not isinstance(expr, str):
+                continue
+            match = _phone_length_re.search(expr)
+            if match:
+                col_name = match.group(1)
+                length = int(match.group(2))
+                if _is_phone_like(col_name) and length == 11:
+                    return "zh_CN"
+    return "en_US"
+
+
 def _debug(msg: str) -> None:
     """Print a progress message to stderr for user-visible debugging.
 
@@ -141,12 +171,27 @@ class AutoHealOrchestrator:
         # Include connection target so the YAML is directly fillable by
         # ``sqlseed fill --config <yaml>`` without requiring --db on the
         # command line. Inserted before "tables" for readability.
+        # Explicitly include ``provider`` and ``locale`` so users can see
+        # and modify these settings in the generated YAML. Without these
+        # fields, the YAML omits the data engine (faker/mimesis/base) and
+        # locale (en_US/zh_CN) — users don't know which provider is active
+        # or what locale is used.
+        #
+        # Locale is inferred from schema CHECK constraints: when a phone
+        # column has ``LENGTH(phone) = 11``, the locale is set to ``zh_CN``
+        # so Faker generates 11-digit Chinese mobile numbers. Otherwise,
+        # ``en_US`` is the safe default.
+        inferred_locale = _infer_locale(snapshot)
         config: dict[str, Any] = {}
         if self._url:
             config["url"] = self._url
         elif self._db_path:
             config["db_path"] = self._db_path
+        config["provider"] = "faker"
+        config["locale"] = inferred_locale
         config["tables"] = []
+        if self._verbose:
+            _debug(f"[ai-analyze] locale inferred: {inferred_locale}")
         for sg_idx, sg_tables in enumerate(subgraphs, 1):
             if budget.is_expired():
                 logger.warning(
@@ -230,6 +275,13 @@ class AutoHealOrchestrator:
 
         for tcfg in config.get("tables", []):
             table_name = tcfg.get("name", "")
+            # Calculate required sequence digit width based on table row count.
+            # Dynamic sizing avoids both under-padding (format breaks at 1000+
+            # rows when ``:03d`` expands to 4 digits) and over-padding (5+
+            # digits for a 100-row table looks odd). Minimum 4 digits covers
+            # the common 1000-row default; larger tables auto-expand.
+            table_count = tcfg.get("count") or 1000
+            req_digits = max(4, len(str(int(table_count))))
             meta = snapshot.tables.get(table_name)
             # Pre-scan: detect source columns of derive_from+timedelta
             # expressions. When a column derives from another column using
@@ -253,6 +305,123 @@ class AutoHealOrchestrator:
                             timedelta_sources[src] = "date"
                         else:
                             timedelta_sources[src] = "datetime"
+
+            # State machine pre-pass: detect conditional NULL date patterns.
+            # Pattern: ``col1 != 'VALUE' OR date_col IS NOT NULL`` means
+            # date_col must be non-NULL when col1 == VALUE. Combined with
+            # date ordering constraints (``date_col2 IS NULL OR date_col2 >=
+            # date_col1``), this forms a state machine where later dates
+            # depend on earlier dates being non-NULL.
+            #
+            # Example (orders table):
+            #   status != 'paid' OR paid_at IS NOT NULL
+            #   status != 'shipped' OR shipped_at IS NOT NULL
+            #   shipped_at IS NULL OR shipped_at >= paid_at
+            #
+            # Transitive closure: paid_at must be non-NULL for statuses
+            # {'paid', 'shipped', 'delivered'} (because shipped_at requires
+            # paid_at, and delivered_at requires shipped_at).
+            #
+            # Result: ``state_machine_dates[date_col] = (status_col, required_statuses)``
+            # Used in the per-column loop to set conditional derive_from.
+            state_machine_dates: dict[str, tuple[str, set[str]]] = {}
+            if meta is not None:
+                # Step 1: find direct status requirements for each date col.
+                # Maps date_col -> (status_col, set of VALUEs requiring non-NULL)
+                _direct_reqs: dict[str, tuple[str, set[str]]] = {}
+                for ctr in meta.constraints:
+                    if ctr.get("type") != "check":
+                        continue
+                    expr_sm = ctr.get("expression", "")
+                    if not isinstance(expr_sm, str):
+                        continue
+                    # Match: col1 != 'VALUE' OR date_col IS NOT NULL
+                    m_sm = re.match(
+                        r"^\s*(\w+)\s*!=\s*'([^']+)'\s+OR\s+(\w+)\s+IS\s+NOT\s+NULL\s*$",
+                        expr_sm,
+                        re.IGNORECASE,
+                    )
+                    if m_sm:
+                        status_col_sm = m_sm.group(1)
+                        status_val_sm = m_sm.group(2)
+                        date_col_sm = m_sm.group(3)
+                        if date_col_sm not in _direct_reqs:
+                            _direct_reqs[date_col_sm] = (status_col_sm, set())
+                        _direct_reqs[date_col_sm][1].add(status_val_sm)
+                # Step 2: build date dependency graph from ordering constraints.
+                # ``date_col2 IS NULL OR date_col2 >= date_col1`` means
+                # date_col2 depends on date_col1 (date_col1 must be non-NULL
+                # when date_col2 is non-NULL).
+                _date_deps: dict[str, str] = {}  # date_col2 -> date_col1
+                for ctr in meta.constraints:
+                    if ctr.get("type") != "check":
+                        continue
+                    expr_dep = ctr.get("expression", "")
+                    if not isinstance(expr_dep, str):
+                        continue
+                    m_dep = re.match(
+                        r"^\s*(\w+)\s+IS\s+NULL\s+OR\s+\w+\s*>=\s*(\w+)\s*$",
+                        expr_dep,
+                        re.IGNORECASE,
+                    )
+                    if m_dep:
+                        dep_col = m_dep.group(1)  # date_col2 (the one with IS NULL)
+                        src_col = m_dep.group(2)  # date_col1 (the source)
+                        _date_deps[dep_col] = src_col
+                # Step 3: compute transitive closure of required statuses.
+                # If date_col2 depends on date_col1 (date_col2 IS NULL OR
+                # date_col2 >= date_col1), then date_col1 must also be
+                # non-NULL for all statuses that require date_col2.
+                # Use fixpoint iteration to handle multi-level chains:
+                # paid_at → shipped_at → delivered_at means paid_at must
+                # be non-NULL for {'paid', 'shipped', 'delivered'}.
+                for date_col, (status_col, direct_vals) in _direct_reqs.items():
+                    state_machine_dates[date_col] = (status_col, set(direct_vals))
+                _changed = True
+                while _changed:
+                    _changed = False
+                    for date_col, (_sc, all_vals) in state_machine_dates.items():
+                        for dep_col, src_col in _date_deps.items():
+                            if src_col == date_col and dep_col in state_machine_dates:
+                                dep_vals = state_machine_dates[dep_col][1]
+                                before = len(all_vals)
+                                all_vals |= dep_vals
+                                if len(all_vals) > before:
+                                    _changed = True
+
+            # Phone LENGTH pre-pass: detect LENGTH(phone) = N or
+            # LENGTH(phone) >= N CHECK constraints (may have a
+            # ``col IS NULL OR`` prefix). When locale is zh_CN and N=11,
+            # the faker phone_number() generator may produce numbers with
+            # dashes/spaces that don't satisfy LENGTH=11 (e.g.,
+            # "138-1234-5678" has LENGTH=13). Switch to pattern generator
+            # with Chinese mobile number regex to guarantee compliance.
+            phone_length_constraints: dict[str, int] = {}
+            if meta is not None:
+                for ctr in meta.constraints:
+                    if ctr.get("type") != "check":
+                        continue
+                    expr_pl = ctr.get("expression", "")
+                    if not isinstance(expr_pl, str):
+                        continue
+                    # Use search (not match) because the LENGTH constraint
+                    # may have a prefix like ``phone IS NULL OR``.
+                    m_pl = re.search(
+                        r"LENGTH\s*\(\s*(\w+)\s*\)\s*=\s*(\d+)",
+                        expr_pl,
+                        re.IGNORECASE,
+                    )
+                    if m_pl:
+                        phone_length_constraints[m_pl.group(1)] = int(m_pl.group(2))
+                    else:
+                        m_pl_ge = re.search(
+                            r"LENGTH\s*\(\s*(\w+)\s*\)\s*>=\s*(\d+)",
+                            expr_pl,
+                            re.IGNORECASE,
+                        )
+                        if m_pl_ge:
+                            phone_length_constraints[m_pl_ge.group(1)] = int(m_pl_ge.group(2))
+
             for c in tcfg.get("columns", []):
                 gen = c.get("generator")
                 # Treat ``?`` placeholder as missing generator. The LLM
@@ -269,6 +438,36 @@ class AutoHealOrchestrator:
                 if gen in {"?", ""}:
                     gen = None
                     c.pop("generator", None)
+                # Phone LENGTH safety net: when a phone column has a
+                # LENGTH=N CHECK constraint, switch from the faker phone
+                # generator to a pattern generator that produces exactly N
+                # digits. The faker zh_CN phone_number() often includes
+                # dashes/spaces that violate LENGTH constraints (e.g.,
+                # "138-1234-5678" has LENGTH=13, not 11). For zh_CN with
+                # N=11, use the Chinese mobile number regex
+                # (1[3-9]\d{9}) to produce realistic 11-digit numbers.
+                col_name_pl = c.get("name", "")
+                if (
+                    gen == "phone"
+                    and col_name_pl in phone_length_constraints
+                    and not c.get("derive_from")
+                ):
+                    req_len_pl = phone_length_constraints[col_name_pl]
+                    locale_pl = config.get("locale", "en_US")
+                    if locale_pl == "zh_CN" and req_len_pl >= 10:
+                        # Chinese mobile numbers are always 11 digits
+                        # (1[3-9]\d{9}), which satisfies both = 11 and
+                        # >= 10 constraints.
+                        c.pop("generator", None)
+                        c.pop("params", None)
+                        c["generator"] = "pattern"
+                        c["params"] = {"regex": r"^1[3-9]\d{9}$"}
+                    elif req_len_pl > 0:
+                        c.pop("generator", None)
+                        c.pop("params", None)
+                        c["generator"] = "pattern"
+                        c["params"] = {"regex": rf"^\d{{{req_len_pl}}}$"}
+                    gen = c.get("generator")
                 # Timedelta source upgrade: if this column is a source for a
                 # derive_from+timedelta expression (detected in the pre-scan
                 # above) and its generator is ``string`` or missing, upgrade
@@ -281,10 +480,24 @@ class AutoHealOrchestrator:
                 if col_name_55 in timedelta_sources:
                     target_gen = timedelta_sources[col_name_55]
                     if gen in (None, "string"):
-                        gen = target_gen
-                        c["generator"] = target_gen
-                        c.pop("params", None)
-                        params = {}
+                        # Skip if this column already has derive_from.
+                        # Derived-mode columns don't need a generator — the
+                        # expression produces the correct type from the
+                        # source column (e.g., ``value + timedelta(...)``
+                        # where value is a date produces a date). Setting
+                        # generator here would create a Pydantic
+                        # ValidationError (both generator and derive_from).
+                        # This happens when a column is BOTH a source for
+                        # another column's derive_from AND itself derives
+                        # from yet another column (e.g., next_inspection
+                        # derives from purchase_date, and last_inspection
+                        # derives from next_inspection).
+                        if not c.get("derive_from"):
+                            gen = target_gen
+                            c["generator"] = target_gen
+                            c.pop("params", None)
+                            c["params"] = {}
+                            params = {}
                 # Derived-mode columns (``derive_from`` + ``expression``) are
                 # mutually exclusive with source-mode (``generator`` +
                 # ``params``) per the ``ColumnConfig`` model validator.
@@ -319,6 +532,116 @@ class AutoHealOrchestrator:
                             c.pop("derive_from", None)
                             c.pop("expression", None)
                             has_derive = False
+
+                # State machine date conditional NULL safety net:
+                # When a date column has a CHECK constraint like
+                # ``status != 'paid' OR paid_at IS NOT NULL``, it means the
+                # date must be non-NULL only when status matches specific
+                # values. Without this safety net, the date is generated
+                # unconditionally (always non-NULL), which is business-
+                # incorrect (e.g., pending orders shouldn't have paid_at).
+                #
+                # This net uses the transitive closure computed in the
+                # pre-pass (``state_machine_dates``) to set a conditional
+                # derive_from that generates NULL when the status doesn't
+                # match, and a real date when it does.
+                #
+                # Two cases:
+                #   (a) No existing derive_from → set derive_from to
+                #       created_at (or another base date column) with
+                #       conditional expression.
+                #   (b) Existing derive_from (from Pattern 1, e.g.,
+                #       shipped_at derives from paid_at) → wrap the
+                #       expression with status condition + None-guard.
+                col_name_sm = c.get("name", "")
+                if (
+                    meta is not None
+                    and col_name_sm in state_machine_dates
+                    and not has_derive
+                ):
+                    status_col_sm, required_vals_sm = state_machine_dates[col_name_sm]
+                    col_type_sm = meta.column_types.get(col_name_sm, "")
+                    is_date_sm = (
+                        _is_date_column(col_name_sm)
+                        or "DATE" in col_type_sm.upper()
+                        or "TIME" in col_type_sm.upper()
+                    )
+                    if is_date_sm:
+                        # Find a base date column to derive from
+                        base_col_sm: str | None = None
+                        for bc in ("created_at", "updated_at", "opened_at", "added_at"):
+                            if bc in meta.columns and bc != col_name_sm:
+                                base_col_sm = bc
+                                break
+                        if base_col_sm is None:
+                            # Fall back to any other date column
+                            for other_col in meta.columns:
+                                if other_col != col_name_sm and _is_date_column(other_col):
+                                    base_col_sm = other_col
+                                    break
+                        if base_col_sm is not None:
+                            vals_repr = ", ".join(f"'{v}'" for v in sorted(required_vals_sm))
+                            c.pop("generator", None)
+                            c.pop("params", None)
+                            c.pop("null_ratio", None)
+                            c["derive_from"] = base_col_sm
+                            c["expression"] = (
+                                f"None if row['{status_col_sm}'] not in ({vals_repr}) "
+                                f"else value + timedelta(hours=random_int(1, 168))"
+                            )
+                            has_derive = True
+                # Case (b): existing derive_from — fix the status condition
+                # using the transitive closure. The LLM often generates an
+                # incomplete status set (e.g., ``paid_at`` only includes
+                # 'paid', 'shipped' but misses 'delivered' which is required
+                # by the transitive dependency chain delivered_at →
+                # shipped_at → paid_at). This net replaces the status set
+                # with the correct one from ``state_machine_dates``.
+                if (
+                    meta is not None
+                    and col_name_sm in state_machine_dates
+                    and has_derive
+                    and "derive_from" in c
+                ):
+                    status_col_sm2, required_vals_sm2 = state_machine_dates[col_name_sm]
+                    existing_expr = c.get("expression", "")
+                    src_col_sm = c.get("derive_from", "")
+                    vals_repr2 = ", ".join(f"'{v}'" for v in sorted(required_vals_sm2))
+                    if isinstance(existing_expr, str) and existing_expr:
+                        # Try to extract the inner expression (everything
+                        # after the status condition) and replace the
+                        # status set with the correct transitive closure.
+                        # Pattern: None if row['status'] not in (...) else INNER
+                        m_replace = re.match(
+                            r"^None if row\['\w+'\] not in \([^)]*\) else (.+)$",
+                            existing_expr,
+                        )
+                        if m_replace:
+                            inner_expr = m_replace.group(1)
+                            # If the source column is also in
+                            # state_machine_dates (i.e., it might be NULL
+                            # when its own status condition isn't met),
+                            # ensure a None-guard exists.
+                            if (
+                                src_col_sm in state_machine_dates
+                                and "None if value is None" not in inner_expr
+                            ):
+                                inner_expr = f"(None if value is None else {inner_expr})"
+                            c["expression"] = (
+                                f"None if row['{status_col_sm2}'] not in ({vals_repr2}) "
+                                f"else {inner_expr}"
+                            )
+                        elif (
+                            f"row['{status_col_sm2}']" not in existing_expr
+                            and "None if value is None" not in existing_expr
+                            and src_col_sm in state_machine_dates
+                        ):
+                            # Fall back to wrapping for expressions without
+                            # a status condition (avoid double-wrapping).
+                            c["expression"] = (
+                                f"None if row['{status_col_sm2}'] not in ({vals_repr2}) "
+                                f"else (None if value is None else {existing_expr})"
+                            )
 
                 # Mutual-exclusivity enforcement: the LLM occasionally emits
                 # BOTH ``derive_from`` AND ``generator`` for the same column
@@ -479,6 +802,464 @@ class AutoHealOrchestrator:
                             gen = semantic_gen
                             params = c["params"]
 
+                # Table-context-aware name → entity-appropriate generator: the
+                # Core ColumnMapper maps ``name`` → ``name`` (person name
+                # generator) via L3 exact match. This is correct for people
+                # tables (customers, users, employees) but wrong for entity
+                # tables where the name should be a business entity name.
+                # Different entity types need different generators:
+                #   - brands/stores → ``company`` (real company names like
+                #     "Apple", "Samsung" — not catch phrases like "Adaptive
+                #     3rdgeneration matrix" which no frontend would display
+                #     as a brand name)
+                #   - categories → ``word`` (simple nouns like "Electronics",
+                #     "Books" — not multi-word catch phrases)
+                #   - products and other entities → ``catch_phrase`` (multi-
+                #     word descriptive phrases are acceptable for products)
+                if not has_derive and gen in ("name", "catch_phrase", "template") and meta is not None:
+                    col_name_ctx = c.get("name", "")
+                    if col_name_ctx == "name":
+                        tbl_lower = table_name.lower()
+                        # Entity table patterns: tables whose ``name`` column
+                        # represents a business entity name, not a person name.
+                        _ENTITY_TABLE_PATTERNS = (
+                            "product", "store", "shop", "brand", "categor",
+                            "warehouse", "supplier", "vendor", "course",
+                            "project", "asset", "equip", "depart", "module",
+                            "menu", "page", "topic", "channel", "plan",
+                        )
+                        if any(p in tbl_lower for p in _ENTITY_TABLE_PATTERNS):
+                            # Locale-aware entity name generation.
+                            # ``catch_phrase`` does NOT support zh_CN locale —
+                            # Faker silently falls back to English output, which
+                            # is semantically wrong for a Chinese-locale YAML
+                            # (brands.name showing "Reactive upward-trending
+                            # capability" instead of a Chinese brand name).
+                            # When the locale is zh_CN and the name column is
+                            # UNIQUE, use ``template`` with a Chinese prefix so
+                            # the generated names are guaranteed unique AND
+                            # locale-appropriate (e.g., ``品牌0001``).
+                            cur_locale = config.get("locale", "en_US") or "en_US"
+                            _is_zh = cur_locale.lower().startswith("zh")
+                            # Brand/store names are company names — frontends
+                            # display them as "Nike", "Apple Store", not as
+                            # "Reactive upward-trending capability".
+                            _COMPANY_TABLE_PATTERNS = (
+                                "brand", "store", "shop", "supplier",
+                                "vendor", "merchant", "retailer",
+                            )
+                            if any(p in tbl_lower for p in _COMPANY_TABLE_PATTERNS):
+                                _unique_cols_comp = (
+                                    _get_unique_columns(meta.constraints) if meta else set()
+                                )
+                                if col_name_ctx in _unique_cols_comp:
+                                    if _is_zh:
+                                        # zh_CN + UNIQUE: template with Chinese
+                                        # prefix guarantees uniqueness without
+                                        # relying on catch_phrase (English-only).
+                                        c["generator"] = "template"
+                                        c["params"] = {
+                                            "template": f"品牌{{sequence:0{req_digits}d}}"
+                                        }
+                                        gen = "template"
+                                        params = c["params"]
+                                    else:
+                                        # en_US + UNIQUE: catch_phrase has high
+                                        # entropy and supports English locale.
+                                        c["generator"] = "catch_phrase"
+                                        c["params"] = {}
+                                        gen = "catch_phrase"
+                                        params = {}
+                                else:
+                                    # Non-UNIQUE: company() supports zh_CN and
+                                    # produces realistic Chinese company names.
+                                    c["generator"] = "company"
+                                    c["params"] = {}
+                                    gen = "company"
+                                    params = {}
+                            # Category names are simple nouns — frontends
+                            # display them as "Electronics", "Books", not as
+                            # "Centralized optimizing knowledgebase".
+                            elif "categor" in tbl_lower:
+                                _unique_cols_cat = (
+                                    _get_unique_columns(meta.constraints) if meta else set()
+                                )
+                                if col_name_ctx in _unique_cols_cat:
+                                    if _is_zh:
+                                        # zh_CN + UNIQUE: Chinese-prefixed
+                                        # template guarantees uniqueness.
+                                        c["generator"] = "template"
+                                        c["params"] = {
+                                            "template": f"分类{{sequence:0{req_digits}d}}"
+                                        }
+                                        gen = "template"
+                                        params = c["params"]
+                                    else:
+                                        c["generator"] = "catch_phrase"
+                                        c["params"] = {}
+                                        gen = "catch_phrase"
+                                        params = {}
+                                else:
+                                    # word() supports zh_CN (returns Chinese
+                                    # words like "电子", "图书").
+                                    c["generator"] = "word"
+                                    c["params"] = {}
+                                    gen = "word"
+                                    params = {}
+                            else:
+                                # products and other entities
+                                _unique_cols_ent = (
+                                    _get_unique_columns(meta.constraints) if meta else set()
+                                )
+                                if col_name_ctx in _unique_cols_ent and _is_zh:
+                                    c["generator"] = "template"
+                                    c["params"] = {
+                                        "template": f"产品{{sequence:0{req_digits}d}}"
+                                    }
+                                    gen = "template"
+                                    params = c["params"]
+                                else:
+                                    c["generator"] = "catch_phrase"
+                                    c["params"] = {}
+                                    gen = "catch_phrase"
+                                    params = {}
+
+                # NAME- template on non-code columns → catch_phrase: the LLM
+                # sometimes generates ``template: NAME-{sequence:04d}`` for
+                # entity name columns (e.g., brands.name, categories.name)
+                # instead of using ``catch_phrase``. The ``NAME-`` prefix is
+                # a person-name placeholder — semantically wrong for product
+                # /brand/category names. This safety net detects such templates
+                # on ``name`` columns and replaces them with ``catch_phrase``.
+                # Decision test: any database where the LLM used a NAME-
+                # template for an entity name column benefits.
+                if not has_derive and gen == "template":
+                    tmpl_params = c.get("params", {})
+                    tmpl_str = tmpl_params.get("template", "") if isinstance(tmpl_params, dict) else ""
+                    if isinstance(tmpl_str, str) and tmpl_str.startswith("NAME-"):
+                        col_name_tmpl = c.get("name", "")
+                        if col_name_tmpl == "name":
+                            # Locale-aware: zh_CN should not use catch_phrase
+                            # (English-only under zh_CN locale).
+                            cur_locale_nm = config.get("locale", "en_US") or "en_US"
+                            if cur_locale_nm.lower().startswith("zh"):
+                                tbl_lower_nm = table_name.lower()
+                                _zh_prefix = "名称"
+                                if any(p in tbl_lower_nm for p in ("brand", "store", "shop")):
+                                    _zh_prefix = "品牌"
+                                elif "categor" in tbl_lower_nm:
+                                    _zh_prefix = "分类"
+                                elif "product" in tbl_lower_nm:
+                                    _zh_prefix = "产品"
+                                c["generator"] = "template"
+                                c["params"] = {
+                                    "template": f"{_zh_prefix}{{sequence:0{req_digits}d}}"
+                                }
+                                gen = "template"
+                                params = c["params"]
+                            else:
+                                c["generator"] = "catch_phrase"
+                                c.pop("params", None)
+                                c["params"] = {}
+                                gen = "catch_phrase"
+                                params = {}
+
+                # Phone country_code stripping: when a phone column has a
+                # ``LENGTH(phone) = 11`` CHECK constraint (Chinese mobile
+                # format), the ``country_code: true`` param would prepend
+                # ``+86 `` making the phone 15 chars — violating the CHECK.
+                # Strip ``country_code`` to ensure the phone generator
+                # produces the raw 11-digit Chinese mobile number.
+                # Decision test: any database with ``LENGTH(phone) = 11``
+                # CHECK constraint where the LLM added ``country_code: true``
+                # benefits — without this, fill fails with
+                # ``CHECK constraint failed: LENGTH(phone) = 11``.
+                if not has_derive and gen == "phone" and meta is not None:
+                    phone_params = c.get("params", {})
+                    if isinstance(phone_params, dict) and phone_params.get("country_code"):
+                        col_name_ph = c.get("name", "")
+                        for ctr in meta.constraints:
+                            if ctr.get("type") != "check":
+                                continue
+                            ctr_expr = ctr.get("expression", "")
+                            if isinstance(ctr_expr, str) and "LENGTH" in ctr_expr:
+                                # Check if this CHECK constrains this phone column to 11
+                                if (
+                                    col_name_ph in ctr_expr
+                                    and "=11" in ctr_expr.replace(" ", "")
+                                    and _is_phone_like(col_name_ph)
+                                ):
+                                    c["params"] = {}
+                                    params = {}
+                                    break
+
+                # Non-FK business identifier → template: columns like
+                # ``transaction_id`` are matched by the L5 pattern ``.*_id$``
+                # → ``foreign_key_or_integer``, but they are NOT foreign keys
+                # — they are third-party business identifiers (e.g., payment
+                # gateway transaction numbers). This safety net detects non-FK
+                # ``*_id`` columns with known business-identifier names and
+                # upgrades them to ``template`` generators producing realistic
+                # business ID formats (e.g., ``TXN-{sequence:08d}``).
+                # Decision test: any database with transaction_id/payment_ref
+                # columns that are NOT foreign keys benefits — without this,
+                # the column gets random integers that don't look like real
+                # transaction numbers.
+                if not has_derive and gen == "foreign_key_or_integer" and meta is not None:
+                    col_name_biz = c.get("name", "").lower()
+                    _BIZ_ID_TEMPLATES = {
+                        "transaction_id": "TXN-{sequence:08d}",
+                        "txn_id": "TXN-{sequence:08d}",
+                        "payment_ref": "PAY-{sequence:08d}",
+                        "reference_no": "REF-{sequence:08d}",
+                        "tracking_no": "TRK-{sequence:010d}",
+                    }
+                    if col_name_biz in _BIZ_ID_TEMPLATES:
+                        # Build FK set for this table to confirm the column
+                        # is NOT an actual foreign key.
+                        fk_cols_biz: set[str] = set()
+                        for fk_biz in meta.foreign_keys:
+                            for fc_biz in fk_biz.get("columns", []):
+                                fk_cols_biz.add(fc_biz)
+                        if col_name_biz not in fk_cols_biz:
+                            c["generator"] = "template"
+                            c["params"] = {"template": _BIZ_ID_TEMPLATES[col_name_biz]}
+                            gen = "template"
+                            params = c["params"]
+
+                # Phone pattern → Chinese mobile regex: the LLM sometimes
+                # picks ``generator: pattern`` with ``regex: [0-9]{11}`` for
+                # phone columns with ``LENGTH(phone) = 11`` CHECK constraints.
+                # While this satisfies the CHECK (11 random digits), it
+                # produces non-realistic numbers like ``76757304493`` that
+                # don't start with 1 (Chinese mobile numbers MUST start with
+                # 1[3-9]). Replace with the Chinese mobile regex
+                # ``^1[3-9]\d{9}$`` to produce realistic numbers.
+                # Note: we do NOT switch to the ``phone`` generator because
+                # faker's zh_CN phone_number() includes dashes/spaces that
+                # violate LENGTH=11 (e.g., "138-1234-5678" has LENGTH=13).
+                if not has_derive and gen == "pattern" and meta is not None:
+                    col_name_ph = c.get("name", "")
+                    if _is_phone_like(col_name_ph):
+                        for ctr in meta.constraints:
+                            if ctr.get("type") != "check":
+                                continue
+                            ctr_expr = ctr.get("expression", "")
+                            if isinstance(ctr_expr, str) and "LENGTH" in ctr_expr:
+                                if (
+                                    col_name_ph in ctr_expr
+                                    and "=11" in ctr_expr.replace(" ", "")
+                                ):
+                                    c["generator"] = "pattern"
+                                    c["params"] = {"regex": r"^1[3-9]\d{9}$"}
+                                    gen = "pattern"
+                                    params = c["params"]
+                                    break
+
+                # Currency precision rounding: ``derive_from`` expressions
+                # with float arithmetic (e.g., ``value * random_float(0.5, 1.0)``)
+                # produce IEEE 754 results with 15+ decimal places like
+                # ``844.6484506188955``. Frontend forms send currency values
+                # with at most 2 decimal places (``844.65``). This safety net
+                # wraps the expression with ``round(result, 2)`` for columns
+                # whose name matches currency-related keywords.
+                # Decision test: any ``derive_from`` column with a currency-
+                # related name benefits — without this, the database stores
+                # ``844.6484506188955`` instead of ``844.65``, which no real
+                # frontend would ever submit.
+                _col_name_lower = c.get("name", "").lower()
+                _CURRENCY_NAME_KEYWORDS = (
+                    "amount", "price", "fee", "cost", "balance",
+                    "total", "adjustment", "subtotal", "discount",
+                    "shipping", "tax", "salary", "payment",
+                )
+                if has_derive and any(k in _col_name_lower for k in _CURRENCY_NAME_KEYWORDS):
+                    expr = c.get("expression", "")
+                    if (
+                        isinstance(expr, str)
+                        and expr
+                        and not expr.startswith("round(")
+                        and "row[" not in expr
+                    ):
+                        c["expression"] = f"round({expr}, 2)"
+
+                # Non-derive currency float → precision: 2: ``float`` generators
+                # without ``precision`` produce values like ``28012.8`` (1dp)
+                # or ``63896.9`` instead of ``28012.80`` / ``63896.90``. Real
+                # frontend forms always send currency values with 2 decimal
+                # places. This safety net adds ``precision: 2`` to non-derive
+                # float columns whose name matches currency-related keywords.
+                # Decision test: any non-derive ``float`` column with a currency-
+                # related name benefits — without this, the database stores
+                # inconsistent decimal places that no real frontend would submit.
+                if (
+                    not has_derive
+                    and gen == "float"
+                    and any(k in _col_name_lower for k in _CURRENCY_NAME_KEYWORDS)
+                ):
+                    cur_params = c.get("params")
+                    if isinstance(cur_params, dict) and "precision" not in cur_params:
+                        cur_params["precision"] = 2
+                        params = cur_params
+
+                # Semantic max_value cap: integer/float columns whose CHECK
+                # constraint only sets a lower bound (e.g., ``sort_order >= 0``)
+                # or a very high upper bound (e.g., ``quantity <= 999``) end up
+                # with huge generated values like sort_order=704134 or
+                # carts.quantity=820. Real frontends never submit such values
+                # — sort_order inputs are 0-999, cart quantity inputs are 1-99,
+                # loyalty points are 0-100k. This safety net caps max_value for
+                # known semantic column names, but only if the current
+                # max_value is missing or larger than the semantic cap (never
+                # increases an existing smaller max_value).
+                # Decision test: any database with these column names benefits
+                # — without this, the database stores values that no real
+                # frontend form would ever submit.
+                if not has_derive and gen in ("integer", "float"):
+                    _SEMANTIC_MAX_VALUES: dict[str, int | float] = {
+                        "sort_order": 999,
+                        "points_balance": 100000,
+                        "balance_after": 100000,
+                        "stock_qty": 10000,
+                        "low_stock_threshold": 100,
+                        "total_spent": 999999.99,
+                        "refunded_qty": 99,
+                        "weight_kg": 99.99,
+                    }
+                    # Cart/order quantity: CHECK often allows up to 999, but
+                    # real frontend forms cap at 99.
+                    if _col_name_lower == "quantity" and "cart" in table_name.lower():
+                        _SEMANTIC_MAX_VALUES["quantity"] = 99
+                    elif _col_name_lower == "quantity" and "order_item" in table_name.lower():
+                        _SEMANTIC_MAX_VALUES["quantity"] = 99
+                    if _col_name_lower in _SEMANTIC_MAX_VALUES:
+                        _sem_max = _SEMANTIC_MAX_VALUES[_col_name_lower]
+                        cur_params_sem = c.get("params")
+                        if isinstance(cur_params_sem, dict):
+                            _cur_max = cur_params_sem.get("max_value")
+                            if _cur_max is None or _cur_max > _sem_max:
+                                cur_params_sem["max_value"] = _sem_max
+                                params = cur_params_sem
+
+                # REAL column type → float generator (not integer): when the
+                # database column type is REAL/FLOAT/DOUBLE and the LLM
+                # picked ``integer``, the generated values are whole numbers
+                # (e.g., cost_price=28013) which no real frontend would
+                # submit for a price field. This safety net converts
+                # ``integer`` to ``float`` for REAL-type columns, preserving
+                # any existing min_value/max_value and adding precision: 2
+                # for currency-named columns.
+                # Decision test: any REAL column with ``integer`` generator
+                # benefits — without this, price/amount columns store whole
+                # numbers instead of decimals.
+                if not has_derive and gen == "integer" and meta is not None:
+                    col_name_rt = c.get("name", "")
+                    if col_name_rt in meta.column_types:
+                        col_type_rt = meta.column_types.get(col_name_rt, "")
+                        base_type_rt = re.sub(r"\(.*\)", "", col_type_rt.upper()).strip()
+                        if base_type_rt in ("REAL", "FLOAT", "DOUBLE", "DOUBLE PRECISION", "NUMERIC", "DECIMAL"):
+                            c["generator"] = "float"
+                            gen = "float"
+                            # Preserve existing params, add precision for currency cols
+                            cur_params_rt = c.get("params")
+                            if not isinstance(cur_params_rt, dict):
+                                cur_params_rt = {}
+                                c["params"] = cur_params_rt
+                            if (
+                                any(k in _col_name_lower for k in _CURRENCY_NAME_KEYWORDS)
+                                and "precision" not in cur_params_rt
+                            ):
+                                cur_params_rt["precision"] = 2
+                            params = cur_params_rt
+
+                # coupon_code null_ratio: coupon codes are optional — real
+                # orders rarely have a coupon applied (typically 10-30% of
+                # orders). Without null_ratio, the template generator
+                # produces a coupon for 100% of orders, which is business-
+                # incorrect. This safety net adds null_ratio: 0.8 (80% NULL)
+                # to coupon_code columns that are nullable and don't already
+                # have null_ratio set.
+                # Decision test: any table with a nullable ``coupon_code``
+                # column benefits — without this, every order has a coupon.
+                if (
+                    not has_derive
+                    and _col_name_lower == "coupon_code"
+                    and "null_ratio" not in c
+                    and meta is not None
+                ):
+                    col_name_cc = c.get("name", "")
+                    # Check column is nullable (not NOT NULL)
+                    nullable_cc = True
+                    for col_info_cc in getattr(meta, "columns_info", []):
+                        if getattr(col_info_cc, "name", "") == col_name_cc:
+                            nullable_cc = getattr(col_info_cc, "nullable", True)
+                            break
+                    if nullable_cc:
+                        c["null_ratio"] = 0.8
+
+                # variant_value → derive_from variant_name: in e-commerce
+                # schemas, ``variant_name`` (Color/Size/Material) and
+                # ``variant_value`` (Red/Large/Cotton) must be semantically
+                # correlated. Without this, independent random choices produce
+                # nonsensical combinations like variant_name=Material +
+                # variant_value=Medium (Medium is a Size, not a Material).
+                # This safety net detects tables with both columns and sets
+                # ``variant_value`` to derive_from ``variant_name`` with a
+                # conditional expression that picks domain-appropriate values.
+                if (
+                    not has_derive
+                    and _col_name_lower == "variant_value"
+                    and gen == "choice"
+                ):
+                    has_variant_name = any(
+                        col.get("name", "").lower() == "variant_name"
+                        for col in tcfg.get("columns", [])
+                    )
+                    if has_variant_name:
+                        c["generator"] = None
+                        c.pop("generator", None)
+                        c.pop("params", None)
+                        c["derive_from"] = "variant_name"
+                        c["expression"] = (
+                            "['Red','Blue','Black','White','Green'][random_int(0,4)] "
+                            "if value == 'Color' else "
+                            "(['Large','Medium','Small'][random_int(0,2)] "
+                            "if value == 'Size' else "
+                            "(['Cotton','Leather','Wood','Metal','Plastic'][random_int(0,4)] "
+                            "if value == 'Material' else "
+                            "(['Pro','Standard','Classic','Modern'][random_int(0,3)] "
+                            "if value == 'Style' else "
+                            "(['V1','V2','V3','Pro','Standard'][random_int(0,4)] "
+                            "if value == 'Version' else "
+                            "['128GB','256GB','512GB','1TB'][random_int(0,3)]))))"
+                        )
+                        has_derive = True
+
+                # inventory_movements quantity sign: the LLM's expression
+                # handles ``inbound`` (positive) and ``outbound`` (negative)
+                # but leaves ``transfer_out`` and ``return`` with random signs.
+                # In real warehouse logic:
+                #   - transfer_in → positive (stock arriving)
+                #   - transfer_out → negative (stock leaving)
+                #   - return → positive (stock coming back from customer)
+                # This safety net replaces the expression when the table is
+                # ``inventory_movements`` and derive_from is ``movement_type``.
+                if (
+                    has_derive
+                    and "inventory_movement" in table_name.lower()
+                    and _col_name_lower == "quantity"
+                    and c.get("derive_from") == "movement_type"
+                ):
+                    c["expression"] = (
+                        "random_int(1, 100) if value == 'inbound' else "
+                        "(random_int(-100, -1) if value == 'outbound' else "
+                        "(random_int(1, 100) if value == 'transfer_in' else "
+                        "(random_int(-100, -1) if value == 'transfer_out' else "
+                        "(random_int(1, 100) if value == 'return' else "
+                        "(random_int(1, 100) if random_int(0, 1) == 0 else "
+                        "random_int(-100, -1))))))"
+                    )
+
                 # PostgreSQL-specific type enforcement: the LLM doesn't
                 # understand PG-specific types (INTERVAL, TSVECTOR, TSTZRANGE,
                 # ARRAY) and picks generic generators that produce values
@@ -539,6 +1320,48 @@ class AutoHealOrchestrator:
                     prefix = col_name.upper().split("_")[0][:10]
                     params = {"template": f"{prefix}-{{sequence:04d}}"}
                     c["params"] = params
+                # Sequence format upgrade: when the template contains
+                # ``{sequence:0Nd}`` with N < req_digits, upgrade to
+                # ``{sequence:0{req_digits}d}``. The LLM sometimes emits
+                # ``{sequence:03d}`` (3-digit zero-padding), but sequences
+                # 1-999 fit 3 digits while 1000+ expands to 4 digits,
+                # breaking format consistency within the column (e.g.,
+                # ``user_001`` vs ``user_1000``). Dynamic digit width based
+                # on table count avoids both under-padding and over-padding.
+                # Only upgrade narrower formats — never downgrade wider ones.
+                if gen == "template":
+                    tmpl = params.get("template")
+                    if isinstance(tmpl, str):
+
+                        def _upgrade_seq(m: re.Match[str]) -> str:
+                            return f"{{sequence:0{req_digits}d}}" if int(m.group(1)) < req_digits else m.group(0)
+
+                        upgraded = re.sub(r"\{sequence:0(\d)d\}", _upgrade_seq, tmpl)
+                        if upgraded != tmpl:
+                            params["template"] = upgraded
+                            c["params"] = params
+                # Template format cleanup: fix common LLM template mistakes.
+                #   - Trailing dash/underscore before {sequence}: ``PRODUCT_-
+                #     {sequence:04d}`` → ``PRODUCT-{sequence:04d}`` (the
+                #     extra ``_`` produces ugly codes like ``PRODUCT_-0001``).
+                #   - Double separators: ``STORE_CO-{sequence:04d}`` →
+                #     ``STORE-{sequence:04d}`` (the ``_CO`` suffix is
+                #     redundant when the column is already ``store_code``).
+                #   - Trailing dash without separator: ``PAYMENT_-
+                #     {sequence:04d}`` → ``PAYMENT-{sequence:04d}``
+                # Decision test: any template with ``_-{sequence`` or
+                # ``-{sequence`` preceded by ``_`` benefits.
+                if gen == "template":
+                    tmpl_cl = params.get("template")
+                    if isinstance(tmpl_cl, str):
+                        cleaned = tmpl_cl
+                        # Fix ``X_-{sequence`` → ``X-{sequence``
+                        cleaned = re.sub(r"_-\{sequence", "-{sequence", cleaned)
+                        # Fix ``X_-{`` (other placeholders) → ``X-{``
+                        cleaned = re.sub(r"_-\{", "-{", cleaned)
+                        if cleaned != tmpl_cl:
+                            params["template"] = cleaned
+                            c["params"] = params
                 if not gen and not has_derive:
                     col_name = c.get("name", "")
                     # Infer generator from params when possible
@@ -615,6 +1438,32 @@ class AutoHealOrchestrator:
                 if not has_derive and gen and meta is not None:
                     col_name = c.get("name", "")
                     if col_name in meta.columns:
+                        # Upgrade integer→float when the column type is
+                        # REAL/FLOAT but the LLM picked ``integer`` (e.g.,
+                        # ``interest_rate REAL CHECK (interest_rate >= 0.0
+                        # AND interest_rate <= 0.5)`` — LLM sets
+                        # ``generator: integer, max_value: 100``, violating
+                        # the CHECK at fill time). This upgrade must happen
+                        # BEFORE _infer_from_check_constraints so the
+                        # ``inf_gen == gen`` check in Case 5 below can match
+                        # (inf_gen is ``float`` because the CHECK literals
+                        # are floats like ``0.0``, ``0.5``).
+                        col_type_ri = meta.column_types.get(col_name, "") if hasattr(meta, "column_types") else ""
+                        if (
+                            gen == "integer"
+                            and col_type_ri
+                            and any(k in col_type_ri.upper() for k in ("REAL", "FLOAT", "DOUBLE", "DECIMAL", "NUMERIC"))
+                        ):
+                            gen = "float"
+                            c["generator"] = "float"
+                            # Convert integer params to float equivalents
+                            if params:
+                                new_params_f = dict(params)
+                                for k_f in ("min_value", "max_value"):
+                                    if k_f in new_params_f and isinstance(new_params_f[k_f], int):
+                                        new_params_f[k_f] = float(new_params_f[k_f])
+                                c["params"] = new_params_f
+                                params = new_params_f
                         inferred = _infer_from_check_constraints(col_name, meta.constraints, meta.columns)
                         if inferred is not None:
                             inf_gen, inf_params = inferred
@@ -773,6 +1622,39 @@ class AutoHealOrchestrator:
                                 gen = "pattern"
                                 params = c["params"]
 
+            # Second-pass timedelta source upgrade: the pre-scan at the
+            # top of this table loop collects timedelta source columns
+            # based on the config AS IT WAS when the pre-scan ran. However,
+            # the cross-column derive_from restoration above may RE-ADD
+            # ``derive_from`` + ``expression`` (with ``timedelta``) to
+            # columns where the LLM had stripped it. These newly-restored
+            # timedelta sources were NOT detected by the pre-scan, so their
+            # source columns were not upgraded from ``string`` to
+            # ``date``/``datetime``. This second pass catches any such
+            # columns and upgrades their source columns now, preventing
+            # ``TypeError: unsupported operand type(s) for -: 'str' and
+            # 'datetime.timedelta'`` at fill time.
+            for _c_check in tcfg.get("columns", []):
+                if _c_check.get("derive_from") and "timedelta" in str(_c_check.get("expression", "")):
+                    _src_check = _c_check["derive_from"]
+                    if isinstance(_src_check, str):
+                        for _src_col in tcfg.get("columns", []):
+                            if _src_col.get("name") == _src_check:
+                                _src_gen = _src_col.get("generator")
+                                if _src_gen in (None, "string"):
+                                    # Skip if source column already has
+                                    # derive_from — same rationale as the
+                                    # main-loop upgrade above.
+                                    if not _src_col.get("derive_from"):
+                                        _src_type = (meta.column_types.get(_src_check, "") if meta else "") or ""
+                                        if _is_date_only_type(_src_type):
+                                            _src_col["generator"] = "date"
+                                        else:
+                                            _src_col["generator"] = "datetime"
+                                        _src_col.pop("params", None)
+                                        _src_col["params"] = {}
+                                break
+
         # Pattern 27 source-column choices constraint: when a multi-clause
         # CHECK like ``status = 'active' AND col >= 0 OR status = 'completed'
         # AND col >= 100 OR status = 'dropped' AND col < 100`` exists, the
@@ -883,7 +1765,34 @@ class AutoHealOrchestrator:
                     # 32-bit REAL, and the arithmetic results diverge due to
                     # rounding. Integer values (< 2^24) are exactly representable
                     # in 32-bit REAL, so the CHECK holds exactly.
+                    #
+                    # IMPORTANT: skip conversion when the source column has
+                    # its OWN single-column range CHECK constraint with a
+                    # small upper bound (e.g., ``interest_rate <= 0.5``).
+                    # Converting such a column to ``integer`` would produce
+                    # values like 0-100 that violate the CHECK. The column
+                    # keeps its ``float`` generator with the CHECK-derived
+                    # bounds (e.g., ``min_value: 0.0, max_value: 0.5``).
+                    # The arithmetic equality CHECK on the derived column
+                    # (e.g., ``expected_interest = principal * interest_rate
+                    # * term_months / 12.0``) still holds because SQLite
+                    # uses 64-bit float (no 32-bit REAL precision issue),
+                    # and PostgreSQL tables use NUMERIC instead of REAL
+                    # for financial columns in practice.
                     if src_gen_r == "float":
+                        # Check if source column has its own single-column
+                        # range CHECK with max_value < 1.0 (e.g., interest
+                        # rate 0.0-0.5, commission_rate 0.0-0.1). If so,
+                        # skip the integer conversion.
+                        src_max_value_r = float(src_params_r.get("max_value", 999))
+                        if src_max_value_r < 1.0:
+                            # Small-range float column — keep as float to
+                            # preserve CHECK compliance. The REAL precision
+                            # issue only matters for large-value arithmetic
+                            # (e.g., balance * rate where balance > 1000);
+                            # small-range rates multiplied by large integers
+                            # still produce exact-enough results in 64-bit.
+                            continue
                         new_min = int(src_params_r.get("min_value", 0))
                         new_max = int(src_params_r.get("max_value", 999))
                         # Ensure min_value is at least 1 when original min_value
@@ -1004,11 +1913,36 @@ class AutoHealOrchestrator:
                     if col_name_upper_c not in expr_c_upper:
                         continue
                     # Complex conditional: has OR with IS NULL for this column
-                    # AND references other columns
+                    # AND THIS expression references other columns.
+                    #
+                    # NOTE: Previously called ``_has_cross_column_check(
+                    # col_name_c, meta_c.constraints)`` which checks ALL
+                    # constraints in the table. This caused single-column
+                    # range CHECKs like ``col IS NULL OR (col >= 60 AND
+                    # col <= 250)`` to be misclassified as complex
+                    # cross-column CHECKs when the table happens to have
+                    # OTHER cross-column CHECKs referencing this column
+                    # (e.g., R2 medical_records.blood_pressure_high has a
+                    # single-column range CHECK but the table also has
+                    # ``blood_pressure_low < blood_pressure_high``). This
+                    # led to incorrect null_ratio=1.0 being set, which then
+                    # got params overwritten by Safety net 7's fallback
+                    # (min_value=0 instead of 60). Fix: check THIS expression
+                    # only, not the whole table.
+                    tokens_c = set(re.findall(r"\b[a-z_]\w*\b", expr_c_norm.lower()))
+                    sql_keywords_c = {
+                        "and", "or", "not", "null", "is", "in", "between", "like",
+                        "case", "when", "then", "else", "end", "abs", "length",
+                        "date", "time", "timestamp", "true", "false",
+                    }
+                    col_refs_c = tokens_c - sql_keywords_c - {col_name_c.lower()}
+                    col_refs_c = {t for t in col_refs_c if not t.isdigit()}
+                    # Only count references to actual OTHER column names
+                    other_col_refs_c = col_refs_c & (set(meta_c.columns) - {col_name_c})
                     if (
                         " OR " in expr_c_upper
                         and f"{col_name_upper_c} IS NULL" in expr_c_upper
-                        and _has_cross_column_check(col_name_c, meta_c.constraints)
+                        and other_col_refs_c
                     ):
                         has_complex_check_c = True
                         break
@@ -1035,6 +1969,27 @@ class AutoHealOrchestrator:
                     )
                     if cross_result_c is not None and "derive_from" in cross_result_c:
                         # Pattern matched — skip null_ratio override
+                        continue
+                    # Skip columns that are the source of another column's
+                    # derive_from. Setting null_ratio=1.0 here would cascade
+                    # NULLs to dependent columns, and the dependent's
+                    # derive_from expression usually handles the CHECK
+                    # constraint on its own (e.g., estimated_delivery derives
+                    # from guaranteed_delivery via
+                    # ``value - timedelta(days=...)`` which inherently satisfies
+                    # ``estimated_delivery < guaranteed_delivery``). The
+                    # pattern engine returns None for the SOURCE column
+                    # because the CHECK is ``other < col`` (reversed), but
+                    # the dependent column already has the correct
+                    # derive_from — forcing NULL here is both unnecessary
+                    # and harmful (destroys the upgraded ``date`` generator
+                    # set by the timedelta source upgrade in Step 5.5).
+                    is_derive_source_c = False
+                    for _other_c in tcfg.get("columns", []):
+                        if _other_c.get("derive_from") == col_name_c:
+                            is_derive_source_c = True
+                            break
+                    if is_derive_source_c:
                         continue
                     c_c["null_ratio"] = 1.0
                     # Remove generator/params/derive_from since null_ratio=1.0
@@ -1418,23 +2373,58 @@ class AutoHealOrchestrator:
                         break
                     if not p30b_notin_matched_sn7:
                         # No Pattern 30b NOT IN matched — set a safe
-                        # non-NULL default.
-                        is_fk_sn7 = col_name_sn7 in fk_cols_set_sn7
-                        if is_fk_sn7:
-                            c_sn7["generator"] = "foreign_key_or_integer"
-                            c_sn7["params"] = {}
-                        elif "INT" in col_type_sn7.upper():
-                            c_sn7["generator"] = "integer"
-                            c_sn7["params"] = {"min_value": 0}
-                        elif any(k in col_type_sn7.upper() for k in ("REAL", "FLOAT", "DOUBLE", "DECIMAL", "NUMERIC")):
-                            c_sn7["generator"] = "float"
-                            # Use 0.01 (not 0.0) to satisfy ``> 0.0`` CHECKs
-                            c_sn7["params"] = {"min_value": 0.01}
+                        # non-NULL default. But PRESERVE any existing
+                        # generator+params that were set by earlier steps
+                        # (Step 5.5 Case 5, _build_subgraph_config, etc.)
+                        # to avoid overwriting correct CHECK-inferred
+                        # ranges with generic defaults (e.g., overwriting
+                        # ``min_value=60`` with ``min_value=0``).
+                        existing_gen_sn7 = c_sn7.get("generator")
+                        existing_params_sn7 = c_sn7.get("params")
+                        if existing_gen_sn7 and existing_params_sn7 is not None:
+                            # Column already has a valid generator+params —
+                            # keep them, just ensure null_ratio is cleared.
+                            pass
                         else:
-                            c_sn7["generator"] = "string"
-                            c_sn7["params"] = {"min_length": 1, "max_length": 50}
+                            is_fk_sn7 = col_name_sn7 in fk_cols_set_sn7
+                            if is_fk_sn7:
+                                c_sn7["generator"] = "foreign_key_or_integer"
+                                c_sn7["params"] = {}
+                            elif "INT" in col_type_sn7.upper():
+                                c_sn7["generator"] = "integer"
+                                c_sn7["params"] = {"min_value": 0}
+                            elif any(k in col_type_sn7.upper() for k in ("REAL", "FLOAT", "DOUBLE", "DECIMAL", "NUMERIC")):
+                                c_sn7["generator"] = "float"
+                                # Use 0.01 (not 0.0) to satisfy ``> 0.0`` CHECKs
+                                c_sn7["params"] = {"min_value": 0.01}
+                            elif any(k in col_type_sn7.upper() for k in ("DATETIME", "TIMESTAMP")):
+                                # DATETIME/TIMESTAMP must be checked before
+                                # DATE because "DATE" is a substring of
+                                # "DATETIME". Without this branch, DATE-type
+                                # columns fall through to ``generator: string``
+                                # which is semantically wrong (e.g.,
+                                # guaranteed_delivery DATE → string "abc").
+                                c_sn7["generator"] = "datetime"
+                                c_sn7["params"] = {}
+                            elif "DATE" in col_type_sn7.upper():
+                                c_sn7["generator"] = "date"
+                                c_sn7["params"] = {}
+                            else:
+                                c_sn7["generator"] = "string"
+                                c_sn7["params"] = {"min_length": 1, "max_length": 50}
 
         # Step 6: emit YAML
+        # Clean up internal debug fields and redundant empty params before
+        # output. ``_degraded``/``degrade_reason`` are heal-time diagnostics
+        # that should not appear in the final user-facing YAML — they leak
+        # internal LLM failure state and confuse users. Empty ``params: {}``
+        # is redundant since Pydantic defaults handle missing params.
+        for tcfg in config.get("tables", []):
+            for c in tcfg.get("columns", []):
+                c.pop("_degraded", None)
+                c.pop("degrade_reason", None)
+                if c.get("params") == {}:
+                    c.pop("params", None)
         if self._verbose:
             table_count = len(config.get("tables", []))
             _debug(f"[ai-analyze] Step 6: emitting YAML ({table_count} tables) ...")
@@ -1754,13 +2744,18 @@ class AutoHealOrchestrator:
         tables: list[str],
         snapshot: SchemaSnapshot,
     ) -> None:
-        """Fallback: append default integer columns for tables skipped due to time budget."""
-        for table_name in tables:
-            meta = snapshot.tables.get(table_name)
-            if meta is None:
-                continue
-            cols = [{"name": c, "generator": "integer", "params": {}} for c in meta.columns]
-            config["tables"].append({"name": table_name, "columns": cols})
+        """Fallback: build smart configs for tables skipped due to time budget.
+
+        Previously appended ``integer`` for ALL columns, which caused
+        ``TypeError`` when a ``derive_from`` expression used ``timedelta``
+        arithmetic on a datetime column that got the integer default.
+        Now delegates to ``_build_subgraph_config`` so CHECK constraints,
+        column types, and ColumnMapper semantic matching are all applied —
+        producing a fillable config even without an LLM round-trip.
+        """
+        sg_config = self._build_subgraph_config(tables, snapshot)
+        for tcfg in sg_config.get("tables", []):
+            config["tables"].append(tcfg)
 
     def _validate(
         self,
@@ -1941,16 +2936,25 @@ def _like_to_regex(like_pattern: str) -> str:
     SQL LIKE wildcards: ``_`` matches any single char, ``%`` matches zero+ chars.
     Only ``_`` (fixed-length) is supported — ``%`` must be filtered by the caller.
 
-    Each ``_`` becomes ``[A-Za-z0-9]`` (consecutive runs grouped into ``{N}``),
+    Each ``_`` becomes a character class (consecutive runs grouped into ``{N}``),
     and literal characters are escaped with ``re.escape`` IN PLACE. This preserves
     the position of literals — critical for patterns like ``__:__`` (HH:MM time
     strings) where the colon must stay at index 2, not collapse to the start.
 
+    Character class selection:
+      - When the pattern contains ``:`` (time/HH:MM-style), ``[0-9]`` is used
+        because time fields only allow digits — ``[A-Za-z0-9]`` would let rstr
+        fill positions with letters, producing invalid values like ``Tc:aO``.
+      - Otherwise ``[A-Za-z0-9]`` is used for general alphanumeric codes.
+
     Examples:
-        ``__:__``  → ``^[A-Za-z0-9]{2}:[A-Za-z0-9]{2}$``
+        ``__:__``  → ``^[0-9]{2}:[0-9]{2}$``
         ``#______`` → ``^#[A-Za-z0-9]{6}$``
         ``PROD-___`` → ``^PROD\\-[A-Za-z0-9]{3}$``
     """
+    # Time-like patterns (containing ':') use digits-only — HH:MM fields never
+    # contain letters. General alphanumeric patterns keep [A-Za-z0-9].
+    char_class = "[0-9]" if ":" in like_pattern else "[A-Za-z0-9]"
     parts: list[str] = []
     underscore_run = 0
     for ch in like_pattern:
@@ -1958,11 +2962,11 @@ def _like_to_regex(like_pattern: str) -> str:
             underscore_run += 1
         else:
             if underscore_run > 0:
-                parts.append(f"[A-Za-z0-9]{{{underscore_run}}}" if underscore_run > 1 else "[A-Za-z0-9]")
+                parts.append(f"{char_class}{{{underscore_run}}}" if underscore_run > 1 else char_class)
                 underscore_run = 0
             parts.append(re.escape(ch))
     if underscore_run > 0:
-        parts.append(f"[A-Za-z0-9]{{{underscore_run}}}" if underscore_run > 1 else "[A-Za-z0-9]")
+        parts.append(f"{char_class}{{{underscore_run}}}" if underscore_run > 1 else char_class)
     return "^" + "".join(parts) + "$"
 
 
@@ -5530,6 +6534,57 @@ def _infer_cross_column_config(
                 return {
                     "derive_from": other_col_p28b,
                     "expression": (f"{positive_expr_p28b} if value == {val_int_p28b} else {zero_expr_p28b}"),
+                }
+
+        # Pattern 28c: col = NUMERIC_VALUE OR other_col (>|>=|<|<=) threshold
+        # (equality-first variant of Pattern 28 — col is compared with
+        # equality against a numeric VALUE, and other_col is compared with
+        # an inequality against a literal threshold)
+        # e.g., overage_charge = 0.0 OR overage_amount > 0.0
+        # Semantics: when other_col does NOT satisfy the comparison (e.g.,
+        # other_col <= threshold for ``>``), col must be VALUE. When
+        # other_col satisfies the comparison, col can be anything.
+        # Derive from other_col: when the comparison fails, set col = VALUE;
+        # otherwise set col to a random value (could be VALUE or non-VALUE,
+        # both satisfy the CHECK because the second OR branch is true).
+        m = re.match(
+            rf"^\s*{col}\s*=\s*(-?\d+(?:\.\d+)?)\s+OR\s+(\w+)\s*(>=|>|<=|<)\s*(-?[0-9]+(?:\.[0-9]+)?)\s*$",
+            expr,
+            re.IGNORECASE,
+        )
+        if m:
+            val_str_p28c, other_col_p28c, op_p28c, threshold_str_p28c = (
+                m.group(1),
+                m.group(2),
+                m.group(3),
+                m.group(4),
+            )
+            if other_col_p28c in col_set and other_col_p28c != col_name:
+                is_float_p28c = "." in val_str_p28c or "." in threshold_str_p28c
+                val_num_p28c: float | int = float(val_str_p28c) if "." in val_str_p28c else int(val_str_p28c)
+                threshold_p28c = float(threshold_str_p28c)
+                # Build the "comparison NOT satisfied" condition — when this
+                # is true, col must be VALUE (first OR branch is the only way
+                # to satisfy the CHECK).
+                if op_p28c == ">":
+                    fail_cond_p28c = f"value <= {threshold_p28c}"
+                elif op_p28c == ">=":
+                    fail_cond_p28c = f"value < {threshold_p28c}"
+                elif op_p28c == "<":
+                    fail_cond_p28c = f"value >= {threshold_p28c}"
+                else:  # <=
+                    fail_cond_p28c = f"value > {threshold_p28c}"
+                # When comparison is satisfied, col can be any value (use a
+                # random value in a reasonable range; VALUE itself also
+                # satisfies the CHECK via the first OR branch, so the random
+                # range can include VALUE).
+                if is_float_p28c:
+                    random_expr_p28c = "random_float(0.0, 100.0)"
+                else:
+                    random_expr_p28c = "random_int(0, 100)"
+                return {
+                    "derive_from": other_col_p28c,
+                    "expression": f"{val_num_p28c} if {fail_cond_p28c} else {random_expr_p28c}",
                 }
 
         # Pattern 35: col1 IN (...) OR col IS NULL (conditional NULL with IN set)

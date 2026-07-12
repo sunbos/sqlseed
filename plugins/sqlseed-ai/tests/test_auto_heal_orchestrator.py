@@ -1215,13 +1215,15 @@ def phone_length_not_null_db(tmp_path: Path) -> Path:
 
 
 def test_step2_phone_with_length_check_uses_pattern(phone_length_db: Path):
-    """phone-like column + LENGTH(phone)=11 → pattern with [0-9]{11}.
+    """phone-like column + LENGTH(phone)=11 → phone generator (realistic).
 
-    Previously, Step 2 returned ``string`` + ``min_length=11, max_length=11``,
-    which triggered the contract matrix's ``string`` on ``phone`` →
-    ``semantic_upgrade`` rule, causing LLM oscillation. Now Step 2 directly
-    returns ``pattern`` with ``[0-9]{11}``, avoiding the contract matrix
-    conflict entirely.
+    Step 2 initially returns ``pattern`` with ``[0-9]{11}`` (avoiding the
+    contract matrix ``string`` on ``phone`` → ``semantic_upgrade`` conflict).
+    Then the Step 5.5 safety net keeps ``pattern`` but replaces the regex
+    with ``^1[3-9]\\d{9}$`` to produce realistic Chinese mobile numbers
+    (e.g., ``18951140369``) rather than random 11-digit strings (e.g.,
+    ``76757304493``). The ``phone`` generator is NOT used because faker's
+    zh_CN phone_number() includes dashes/spaces that violate LENGTH=11.
     """
     mock_healer = MagicMock()
     mock_validator = MagicMock()
@@ -1237,11 +1239,16 @@ def test_step2_phone_with_length_check_uses_pattern(phone_length_db: Path):
     config = yaml.safe_load(yaml_str)
     phone_col = next(c for c in config["tables"][0]["columns"] if c["name"] == "phone")
     assert phone_col["generator"] == "pattern"
-    assert phone_col["params"]["regex"] == "[0-9]{11}"
+    assert phone_col["params"]["regex"] == r"^1[3-9]\d{9}$"
 
 
 def test_step2_mobile_with_length_check_uses_pattern(phone_length_not_null_db: Path):
-    """mobile column + LENGTH(mobile)=11 → pattern with [0-9]{11}."""
+    """mobile column + LENGTH(mobile)=11 → pattern with Chinese mobile regex.
+
+    Same as ``test_step2_phone_with_length_check_uses_pattern`` but for the
+    ``mobile`` column name — Step 5.5 safety net keeps ``pattern`` with
+    ``^1[3-9]\\d{9}$`` for all phone-like column names.
+    """
     mock_healer = MagicMock()
     mock_validator = MagicMock()
     mock_validator.validate.return_value = []
@@ -1256,7 +1263,7 @@ def test_step2_mobile_with_length_check_uses_pattern(phone_length_not_null_db: P
     config = yaml.safe_load(yaml_str)
     mobile_col = next(c for c in config["tables"][0]["columns"] if c["name"] == "mobile")
     assert mobile_col["generator"] == "pattern"
-    assert mobile_col["params"]["regex"] == "[0-9]{11}"
+    assert mobile_col["params"]["regex"] == r"^1[3-9]\d{9}$"
 
 
 def test_step2_non_phone_with_length_check_keeps_string(tmp_path: Path):
@@ -1374,15 +1381,19 @@ def test_restore_failed_columns_handles_missing_original_column():
 
 
 def test_like_to_regex_preserves_colon_position():
-    """``__:__`` (HH:MM time format) → colon stays at index 2, not collapsed to start.
+    """``__:__`` (HH:MM time format) → colon stays at index 2, digits-only.
 
     This was the root cause of R2 hospital fill failure: the old code did
     ``literal_part = like_pattern.replace("_", "")`` which stripped ALL
     underscores, collapsing ``__:__`` to ``:`` and producing
     ``^:[A-Za-z0-9]{4}$`` (colon at the WRONG position).
+
+    Time-like patterns (containing ``:``) now use ``[0-9]`` instead of
+    ``[A-Za-z0-9]`` — HH:MM fields never contain letters, and the wider
+    charset let rstr produce invalid values like ``Tc:aO``.
     """
     regex = _like_to_regex("__:__")
-    assert regex == "^[A-Za-z0-9]{2}:[A-Za-z0-9]{2}$"
+    assert regex == "^[0-9]{2}:[0-9]{2}$"
 
 
 def test_like_to_regex_literal_prefix():
