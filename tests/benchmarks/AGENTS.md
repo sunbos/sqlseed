@@ -11,7 +11,7 @@
 
 | File | Description |
 |------|-------------|
-| `bench_fill.py` | fill 函数的基准测试 |
+| `bench_fill.py` | fill/preview 函数的基准测试 |
 
 ## For AI Agents
 
@@ -30,7 +30,7 @@ pytest tests/benchmarks/ --benchmark-only --benchmark-compare
 ### Common Patterns
 
 - 使用 `pytest-benchmark` 的 `benchmark` fixture 包装被测函数
-- 测试场景：1K 行、10K 行、不同 provider 对比
+- 测试场景：fill 1K 行、fill 10K 行、preview 5 行（均使用 `provider="base"`）
 
 ## Dependencies
 

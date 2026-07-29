@@ -13,8 +13,8 @@
 |------|-------------|
 | `_mixin.py` | 共享测试混入，提取 Provider 通用测试逻辑 |
 | `test_base_provider.py` | BaseProvider 内置生成器测试 |
-| `test_faker_provider.py` | FakerProvider 测试（importorskip） |
-| `test_mimesis_provider.py` | MimesisProvider 测试（importorskip） |
+| `test_faker_provider.py` | FakerProvider 测试（继承 _mixin 共享用例） |
+| `test_mimesis_provider.py` | MimesisProvider 测试（继承 _mixin 共享用例） |
 | `test_registry.py` | ProviderRegistry 注册和发现测试 |
 | `test_stream.py` | DataStream 批量生成测试 |
 | `test_dispatch_sync.py` | verify_dispatch_sync() 映射一致性测试 |
@@ -23,8 +23,8 @@
 
 ### Working In This Directory
 
-- `_mixin.py` 提供共享的 Provider 测试方法，避免重复
-- Faker/Mimesis 测试需使用 `pytest.importorskip` 处理可选依赖缺失
+- `_mixin.py` 提供共享的 Provider 测试方法（Core/Identity/Temporal/JsonSchema 四组混入），避免重复
+- Faker/Mimesis 为可选依赖，dev 环境已安装，测试直接导入对应 Provider
 - 生成器测试需验证 seed 可重现性
 
 ### Testing Requirements
@@ -36,7 +36,7 @@ pytest tests/test_generators/
 ### Common Patterns
 
 - 使用 `_mixin.py` 混入避免重复测试逻辑
-- 可选依赖测试使用 `pytest.importorskip("faker")` / `pytest.importorskip("mimesis")`
+- 各 Provider 测试类在 `setup_method` 中实例化对应 Provider
 
 ## Dependencies
 

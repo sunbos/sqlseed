@@ -27,8 +27,9 @@ sqlseed ai-suggest app.db --table users --output users.yaml --verify
 # 指定模型（默认使用 Gemma 4 26B via Google AI Studio）
 sqlseed ai-suggest app.db --table users -o users.yaml --model gemma-4-26b-a4b-it
 
-# 使用本地 LM Studio
-sqlseed ai-suggest app.db --table users -o users.yaml --backend lm_studio --model google/gemma-4-e4b
+# 使用本地 LM Studio（通过环境变量选择后端）
+export SQLSEED_AI_BACKEND=lm_studio
+sqlseed ai-suggest app.db --table users -o users.yaml --model google/gemma-4-e4b
 
 # 跳过缓存
 sqlseed ai-suggest app.db --table users -o users.yaml --no-cache
@@ -80,7 +81,7 @@ export SQLSEED_AI_MODEL=<免费模型名>
 | 枚举值 | 后端 | 默认 Base URL |
 |:-------|:-----|:--------------|
 | `AIBackend.GOOGLE_AI_STUDIO` | Google AI Studio | `https://generativelanguage.googleapis.com/v1beta/openai/` |
-| `AIBackend.LM_STUDIO` | LM Studio | `http://localhost:1234/v1` |
+| `AIBackend.LM_STUDIO` | LM Studio | `http://127.0.0.1:1234/v1` |
 | `AIBackend.OLLAMA` | Ollama | `http://localhost:11434/v1` |
 | `AIBackend.OPENAI_COMPAT` | OpenAI 兼容端点 | （需设置 `SQLSEED_AI_BASE_URL`） |
 
@@ -101,7 +102,7 @@ AI 配置缓存在平台标准缓存目录（macOS: `~/Library/Caches/sqlseed/ai
 | `SQLSEED_AI_API_KEY` | `OPENAI_API_KEY` | — | API Key（必填） |
 | `SQLSEED_AI_BASE_URL` | `OPENAI_BASE_URL` | （按后端自动设置） | API 端点 |
 | `SQLSEED_AI_MODEL` | — | `gemma-4-26b-a4b-it` | 模型名称 |
-| `SQLSEED_AI_TIMEOUT` | — | `60` | API 超时（秒） |
+| `SQLSEED_AI_TIMEOUT` | — | `0`（自动） | API 超时（秒，0 = 按后端自动解析） |
 | `SQLSEED_AI_BACKEND` | — | `google_ai_studio` | AI 后端：`google_ai_studio`、`lm_studio`、`ollama`、`openai_compat` |
 | `GOOGLE_API_KEY` | — | — | Google AI Studio API Key（后端为 `google_ai_studio` 时必填） |
 
@@ -114,7 +115,7 @@ AI 配置缓存在平台标准缓存目录（macOS: `~/Library/Caches/sqlseed/ai
 --max-retries     自纠正轮数（默认: 3，0=禁用）
 --verify/--no-verify  切换自纠正（默认: verify）
 --no-cache        跳过文件缓存
---timeout         API 超时秒数（默认: 120）
+--timeout         API 超时秒数（默认: 0 = 自动）
 ```
 
 ## 插件 Hooks
@@ -125,14 +126,13 @@ AI 配置缓存在平台标准缓存目录（macOS: `~/Library/Caches/sqlseed/ai
 |:-----|:-----|
 | `sqlseed_ai_analyze_table` | LLM 驱动的表分析，返回列配置 |
 | `sqlseed_pre_generate_templates` | 为复杂列预生成候选值 |
-| `sqlseed_register_providers` | 占位（无操作，entry-point 注册） |
-| `sqlseed_register_column_mappers` | 占位（无操作，entry-point 注册） |
 
 ## 依赖
 
 - Python >= 3.10
 - `sqlseed >= 0.1.0`
 - `openai >= 1.0`
+- `httpx >= 0.24.0`
 - OpenAI 兼容 API Key 或 Google AI Studio API Key
 
 ## Gemma 4 集成
@@ -141,13 +141,13 @@ AI 配置缓存在平台标准缓存目录（macOS: `~/Library/Caches/sqlseed/ai
 
 ### GEMMA_TOOLS
 
-插件定义了 `GEMMA_TOOLS` 函数声明，指示 Gemma 4 以结构化列配置响应。模型被要求调用 `generate_column_config` 函数并传入类型化参数（列名、生成器、参数等），而非输出自由文本，从而确保输出符合预期的 Schema。
+插件定义了 `GEMMA_TOOLS` 函数声明，指示 Gemma 4 以结构化方式响应 Schema 分析结果。模型被要求调用 `analyze_schema` 函数并传入类型化参数（表名、列、外键、索引），而非输出自由文本，从而确保输出符合预期的 Schema。
 
 ### 原生函数调用机制
 
-1. **工具定义**：`GEMMA_TOOLS` 声明 `generate_column_config` 函数，使用严格的 JSON Schema 描述每个参数（column_name、generator_name、parameters、nullable 等）。
-2. **请求发送**：将 Schema 上下文和分析 Prompt 发送给 Gemma 4 模型，附带 `tools=[GEMMA_TOOLS]` 和 `tool_config` 设置为强制函数调用。
-3. **响应解析**：模型返回 `FunctionCall` 对象而非纯文本。插件直接提取结构化参数，无需正则匹配或脆弱的文本解析。
+1. **工具定义**：`GEMMA_TOOLS` 声明 `analyze_schema` 函数，使用严格的 JSON Schema 描述每个参数（table_name、columns——每列含 name/type/is_primary_key/is_autoincrement/nullable/default——foreign_keys、indexes）。
+2. **请求发送**：将 Schema 上下文和分析 Prompt 发送给 Gemma 4 模型，附带 `tools=GEMMA_TOOLS` 和 `tool_choice="auto"`。若端点不支持工具调用，插件自动回退到 JSON mode（`response_format: {"type": "json_object"}`）。
+3. **响应解析**：当模型调用工具时，插件直接从 `analyze_schema` 工具调用中提取结构化参数，无需正则匹配或脆弱的文本解析。
 4. **验证**：提取的参数通过相同的 `AiConfigRefiner` 管道进行自纠正验证。
 
 此方法显著提高了输出可靠性，因为模型被约束为生成格式良好、符合 Schema 的响应，避免了基于文本的 LLM 输出解析的不确定性。

@@ -248,6 +248,8 @@ flowchart TD
     style L10 fill:#9E9E9E,color:#fff
 ```
 
+> 注：自 v0.1.19 起，Level 7 未匹配时还会先将 camelCase 列名规范化为 snake_case（`_to_snake_case`），再用规范化后的名称重试内置精确匹配与模式匹配，全部未命中才进入 Level 8。
+
 ---
 
 ## 4. 数据生成层架构

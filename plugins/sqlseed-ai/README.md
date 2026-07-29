@@ -27,8 +27,9 @@ sqlseed ai-suggest app.db --table users --output users.yaml --verify
 # Specify model (defaults to Gemma 4 26B via Google AI Studio)
 sqlseed ai-suggest app.db --table users -o users.yaml --model gemma-4-26b-a4b-it
 
-# Use local LM Studio
-sqlseed ai-suggest app.db --table users -o users.yaml --backend lm_studio --model google/gemma-4-e4b
+# Use local LM Studio (backend is selected via env var)
+export SQLSEED_AI_BACKEND=lm_studio
+sqlseed ai-suggest app.db --table users -o users.yaml --model google/gemma-4-e4b
 
 # Skip cache
 sqlseed ai-suggest app.db --table users -o users.yaml --no-cache
@@ -80,7 +81,7 @@ The `AIBackend` enum selects the API backend:
 | Enum Value | Backend | Default Base URL |
 |:-----------|:--------|:-----------------|
 | `AIBackend.GOOGLE_AI_STUDIO` | Google AI Studio | `https://generativelanguage.googleapis.com/v1beta/openai/` |
-| `AIBackend.LM_STUDIO` | LM Studio | `http://localhost:1234/v1` |
+| `AIBackend.LM_STUDIO` | LM Studio | `http://127.0.0.1:1234/v1` |
 | `AIBackend.OLLAMA` | Ollama | `http://localhost:11434/v1` |
 | `AIBackend.OPENAI_COMPAT` | OpenAI-compatible | (must set `SQLSEED_AI_BASE_URL`) |
 
@@ -101,7 +102,7 @@ AI configs cached in platform-specific cache directory (`~/Library/Caches/sqlsee
 | `SQLSEED_AI_API_KEY` | `OPENAI_API_KEY` | — | API key (required) |
 | `SQLSEED_AI_BASE_URL` | `OPENAI_BASE_URL` | (auto by backend) | API endpoint |
 | `SQLSEED_AI_MODEL` | — | `gemma-4-26b-a4b-it` | Model name |
-| `SQLSEED_AI_TIMEOUT` | — | `60` | API timeout (seconds) |
+| `SQLSEED_AI_TIMEOUT` | — | `0` (auto) | API timeout in seconds (0 = auto-resolve per backend) |
 | `SQLSEED_AI_BACKEND` | — | `google_ai_studio` | AI backend: `google_ai_studio`, `lm_studio`, `ollama`, `openai_compat` |
 | `GOOGLE_API_KEY` | — | — | Google AI Studio API key (required when backend is `google_ai_studio`) |
 
@@ -114,7 +115,7 @@ AI configs cached in platform-specific cache directory (`~/Library/Caches/sqlsee
 --max-retries     Self-correction rounds (default: 3, 0=disable)
 --verify/--no-verify  Toggle self-correction (default: verify)
 --no-cache        Skip file cache
---timeout         API timeout in seconds (default: 120)
+--timeout         API timeout in seconds (default: 0 = auto)
 ```
 
 ## Plugin Hooks
@@ -125,14 +126,13 @@ This plugin registers via `[project.entry-points."sqlseed"]` and implements:
 |:-----|:--------|
 | `sqlseed_ai_analyze_table` | LLM-driven table analysis, returns column configs |
 | `sqlseed_pre_generate_templates` | Pre-generate candidate values for complex columns |
-| `sqlseed_register_providers` | Placeholder (no-op, entry-point registration) |
-| `sqlseed_register_column_mappers` | Placeholder (no-op, entry-point registration) |
 
 ## Requirements
 
 - Python >= 3.10
 - `sqlseed >= 0.1.0`
 - `openai >= 1.0`
+- `httpx >= 0.24.0`
 - An OpenAI-compatible API key or Google AI Studio API key
 
 ## Gemma 4 Integration
@@ -141,13 +141,13 @@ When using the `google_ai_studio` backend, sqlseed-ai leverages **Gemma 4 Native
 
 ### GEMMA_TOOLS
 
-The plugin defines a `GEMMA_TOOLS` function declaration that tells Gemma 4 how to respond with structured column configs. Instead of parsing free-form text, the model is instructed to call a `generate_column_config` function with typed parameters (column name, generator, parameters, etc.), ensuring output conforms to the expected schema.
+The plugin defines a `GEMMA_TOOLS` function declaration that tells Gemma 4 how to respond with structured schema analysis. Instead of parsing free-form text, the model is instructed to call an `analyze_schema` function with typed parameters (table name, columns, foreign keys, indexes), ensuring output conforms to the expected schema.
 
 ### Native Function Calling Mechanism
 
-1. **Tool Definition**: `GEMMA_TOOLS` declares a `generate_column_config` function with a strict JSON Schema describing each parameter (column_name, generator_name, parameters, nullable, etc.).
-2. **Request**: The schema context and analysis prompt are sent to the Gemma 4 model with `tools=[GEMMA_TOOLS]` and `tool_config` set to force a function call.
-3. **Response Parsing**: The model returns a `FunctionCall` object instead of plain text. The plugin extracts the structured args directly — no regex or fragile parsing needed.
+1. **Tool Definition**: `GEMMA_TOOLS` declares an `analyze_schema` function with a strict JSON Schema describing each parameter (table_name, columns — each with name/type/is_primary_key/is_autoincrement/nullable/default — foreign_keys, indexes).
+2. **Request**: The schema context and analysis prompt are sent to the Gemma 4 model with `tools=GEMMA_TOOLS` and `tool_choice="auto"`. If the endpoint does not support tool calling, the plugin automatically falls back to JSON mode (`response_format: {"type": "json_object"}`).
+3. **Response Parsing**: When the model invokes the tool, the plugin extracts the structured args directly from the `analyze_schema` tool call — no regex or fragile parsing needed.
 4. **Validation**: The extracted args are passed through the same `AiConfigRefiner` pipeline for self-correction.
 
 This approach significantly improves reliability over text-based LLM output parsing, as the model is constrained to produce well-formed, schema-compliant responses.

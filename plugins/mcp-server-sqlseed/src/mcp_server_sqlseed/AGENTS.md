@@ -38,7 +38,7 @@ FastMCP 服务器实现。为 AI 助手提供 sqlseed 的数据生成工具。
 - `_validate_db_path()` 验证扩展名必须为 `.db`、`.sqlite` 或 `.sqlite3`
 - `_MAX_YAML_CONFIG_SIZE = 256 * 1024`（256KB）限制 YAML 配置大小
 - `MCPServerConfig` 定义了 `host`/`port` 字段，`server.py` 中 `FastMCP()` 初始化时使用 `config.host`/`config.port`
-- MCP 的 `_compute_schema_hash()` 使用 SHA256 前 16 字符，AI 插件的 `_compute_schema_hash()` 使用前 12 字符，两者是不同模块中的不同函数
+- MCP 的 `_compute_schema_hash()` 与 AI 插件的 `_compute_schema_hash()` 均使用 SHA256 前 16 字符，但两者是不同模块中的不同函数（输入构造方式不同，hash 值不可互换）
 
 ## For AI Agents
 

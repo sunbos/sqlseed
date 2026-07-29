@@ -22,7 +22,7 @@
 
 - 适配器测试需要真实 SQLite 数据库，使用 `tmp_db` fixture
 - SQL 安全测试需覆盖各种注入攻击向量
-- 优化器测试需验证 PRAGMA 设置的恢复逻辑（包括异常时恢复）
+- 优化器测试需验证 PRAGMA 设置的保存（preserve）与恢复（restore）逻辑
 
 ### Testing Requirements
 
@@ -32,8 +32,9 @@ pytest tests/test_database/
 
 ### Common Patterns
 
-- 使用全局 `conftest.py` 中的 `tmp_db` / `raw_adapter` fixture
-- SQLiteUtils 测试使用 `pytest.importorskip("sqlite_utils")`
+- Raw 适配器测试使用全局 `conftest.py` 中的 `tmp_db` / `raw_adapter` fixture
+- SQLiteUtils 适配器测试使用模块内局部 fixture（`_sqlite_test_db` / `_adapter`）直接实例化适配器
+- 优化器测试通过注入 `execute_fn` / `fetch_fn` 验证 PRAGMA，无需真实数据库
 
 ## Dependencies
 

@@ -13,7 +13,7 @@
 |------|-------------|
 | `test_metrics.py` | MetricsCollector 指标收集测试 |
 | `test_paths.py` | 缓存路径解析测试 |
-| `test_progress.py` | 进度条显示测试 |
+| `test_progress.py` | 进度条后端选择与环境检测测试 |
 
 ## For AI Agents
 

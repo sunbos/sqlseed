@@ -29,13 +29,13 @@ AI 数据生成插件的实现。通过 OpenAI 兼容 API 分析数据库模式�
 | `SQLSEED_AI_API_KEY` | `api_key` | `GOOGLE_API_KEY` → `OPENAI_API_KEY` |
 | `SQLSEED_AI_BASE_URL` | `base_url` | `OPENAI_BASE_URL`（按后端自动设置） |
 | `SQLSEED_AI_MODEL` | `model` | 无（自动检测本地模型） |
-| `SQLSEED_AI_TIMEOUT` | `timeout` | 默认 60.0 |
+| `SQLSEED_AI_TIMEOUT` | `timeout` | 默认 0（auto，按后端自动解析） |
 | `SQLSEED_AI_BACKEND` | `backend` | 自动检测（`google_ai_studio`, `lm_studio`, `ollama`, `openai_compat`） |
 
 ## LLM 调用与回退机制
 
-1. `call_llm()` 尝试使用 `response_format={"type": "json_object"}`（JSON mode）
-2. 若 API 不支持 JSON mode（错误含 "json"/"response_format"/"400"），回退到普通模式
+1. Google AI Studio 后端先尝试 Gemma 4 Native Function Calling（`GEMMA_TOOLS` 的 `analyze_schema` 工具），不支持则回退 JSON mode
+2. 云端后端使用 `response_format={"type": "json_object"}`（JSON mode）；若 API 不支持（错误含 "json"/"response_format"/"400"），回退到普通文本模式；本地后端（LM Studio/Ollama）直接使用文本模式
 3. 遇到 `APITimeoutError`/`APIConnectionError` 时，调用 `select_next_gemma_model()` 切换到下一个 Gemma 模型
 4. 最多尝试 `_MAX_FALLBACK_ATTEMPTS = 3` 次模型降级
 5. 所有模型均失败则抛出最后一个异常
@@ -43,7 +43,7 @@ AI 数据生成插件的实现。通过 OpenAI 兼容 API 分析数据库模式�
 ## 自纠正流程（AiConfigRefiner）
 
 1. `generate_and_refine()` 调用 LLM 生成 YAML 配置
-2. 验证生成的配置是否能通过 `GeneratorConfig` 模型校验
+2. 验证生成的配置是否能通过 `TableConfig` 模型校验（含列存在性检查与 `preview_table` 试生成）
 3. 若校验失败，将错误信息反馈给 LLM 请求修正
 4. 最多重试 `max_retries=3` 次
 5. 包含重复错误检测：若连续两次错误相同则提前终止
@@ -73,7 +73,7 @@ AI 数据生成插件的实现。通过 OpenAI 兼容 API 分析数据库模式�
 - JSON 解析必须使用 `_json_utils.py` 的容错逻辑（3 策略：直接解析 → 围栏清理 → raw_decode），不要直接 `json.loads`
 - 所有 AI 调用需处理 `APIConnectionError`/`APITimeoutError`/`APIError`
 - `refiner.py` 的自纠正流程：生成 → 验证 → 修正，最多重试若干次
-- `config.py` 的 `AIConfig` 支持多后端自动检测，关键方法：`resolve_model()`, `resolve_base_url()`, `resolve_api_key()`, `resolve_max_tokens()`, `should_use_streaming()`, `should_use_ultra_compact()`
+- `config.py` 的 `AIConfig` 支持多后端自动检测，关键方法：`resolve_model()`, `resolve_base_url()`, `resolve_api_key()`, `resolve_max_tokens()`, `resolve_timeout()`, `should_use_streaming()`, `should_use_ultra_compact()`
 - 流式调用：`call_llm_streaming()` + `generate_and_refine_streaming()`，E2B/E4B 模型自动禁用流式
 - Prompt 降级：normal → compact → ultra-compact，小模型（E2B/E4B）自动启用 ultra-compact
 

@@ -8,21 +8,23 @@ Main package. Public API in `__init__.py`. Core orchestration in `core/`. Data g
 
 ```
 src/sqlseed/
-├── __init__.py       # Public API: fill, connect, fill_from_config, preview
-├── core/             # Orchestrator, mapper, schema, constraints, DAG, enrichment, transform (14 files)
+├── __init__.py       # Public API: fill, connect, fill_from_config, preview, load_config
+├── _version.py       # __version__
+├── py.typed          # PEP 561 typed marker
+├── core/             # Orchestrator, mapper, schema, constraints, DAG, enrichment, transform (13 files)
 ├── generators/       # Data providers: base, faker, mimesis (10 files)
-├── database/         # SQLite adapters: raw, sqlite-utils + optimizer, helpers (9 files)
-├── plugins/          # Plugin system: hookspecs, manager (2 files)
-├── config/           # Pydantic models, YAML loader, snapshots (5 files)
+├── database/         # SQLite adapters: raw, sqlite-utils + optimizer, helpers (8 files)
+├── plugins/          # Plugin system: hookspecs, manager (3 files)
+├── config/           # Pydantic models, YAML loader, snapshots (4 files)
 ├── cli/              # Click commands: main.py (fill, preview, inspect, init, replay) + ai_commands.py (ai-suggest)
-└── _utils/           # Internal: sql_safe, metrics, progress, logger, schema_helpers (7 files)
+└── _utils/           # Internal: sql_safe, metrics, progress, logger, schema_helpers, paths (7 files)
 ```
 
 ## WHERE TO LOOK
 
 | Task | Location | Notes |
 |------|----------|-------|
-| Public API | `__init__.py` | fill, connect, fill_from_config, preview |
+| Public API | `__init__.py` | fill, connect, fill_from_config, preview, load_config |
 | Orchestrator | `core/orchestrator.py` | DataOrchestrator main engine |
 | Column mapping | `core/mapper.py` | 9-level strategy chain |
 | Schema inference | `core/schema.py` | SchemaInferrer class |

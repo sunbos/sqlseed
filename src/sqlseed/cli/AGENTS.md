@@ -5,7 +5,7 @@
 
 ## Purpose
 
-基于 Click 的命令行工具。提供 fill、preview、init、snapshot 等子命令。
+基于 Click 的命令行工具。提供 fill、preview、inspect、init、replay 子命令，以及 AI 子命令 ai-suggest。
 
 ## Key Files
 
@@ -32,7 +32,7 @@ pytest tests/test_cli.py
 
 ### Common Patterns
 
-- 命令结构：`cli` (group) → `fill` / `preview` / `init` / `replay` 子命令（main.py）+ `ai-suggest` 子命令（ai_commands.py）
+- 命令结构：`cli` (group) → `fill` / `preview` / `inspect` / `init` / `replay` 子命令（main.py）+ `ai-suggest` 子命令（ai_commands.py）
 - 输出使用 rich 库美化（进度条、表格、高亮）
 - AI 功能降级模式：`try: from sqlseed_ai import ... except ImportError: HAS_AI_PLUGIN = False`
 
@@ -40,11 +40,12 @@ pytest tests/test_cli.py
 
 ### Internal
 
+- `sqlseed` 顶层 API（fill, fill_from_config, preview）
 - `core`（DataOrchestrator）
-- `config`（load_config, GeneratorConfig）
-- `database`（connect adapter）
-- `plugins`（PluginManager）
-- `_utils`（logger, progress）
+- `config`（load_config, save_config, generate_template, GeneratorConfig, SnapshotManager）
+- `_utils`（logger）
+- `_version`（__version__）
+- `sqlseed-ai`（可选，ai-suggest）
 
 ### External
 

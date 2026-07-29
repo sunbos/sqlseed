@@ -30,7 +30,7 @@ sqlseed-ai/
 | Modify LLM calls | `analyzer.py` | `call_llm()`, `call_llm_streaming()`, `_call_llm_once()` |
 | Change model selection | `_model_selector.py` | `select_gemma_model()`, `select_next_gemma_model()` |
 | Add config option | `config.py` | `AIConfig.from_env()`, `GemmaModel`, `AIBackend` |
-| Modify prompt templates | `analyzer.py` | `_SYSTEM_PROMPT`, `_COMPACT_SYSTEM_PROMPT`, `_ULTRA_COMPACT_SYSTEM_PROMPT` |
+| Modify prompt templates | `analyzer.py` | `SYSTEM_PROMPT`, `_COMPACT_SYSTEM_PROMPT` (ultra-compact reuses compact prompt with fewer few-shot examples) |
 | Change error handling | `errors.py` | `summarize_error()` with 7 processors |
 
 ## CONVENTIONS

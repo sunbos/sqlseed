@@ -30,7 +30,8 @@ pytest tests/test_plugins/
 
 ### Common Patterns
 
-- 使用 `unittest.mock.patch` 模拟 entry_points
+- 直接实例化 `PluginManager`，注册 dummy 插件类验证 hook 分派
+- 通过 `hookspec` 属性逐项验证 hook 规范定义
 
 ## Dependencies
 

@@ -14,7 +14,7 @@ pip install sqlseed[mimesis]
 ```python
 from sqlseed import fill
 
-fill("app.db", tables={"users": {"count": 100}})
+fill("app.db", table="users", count=100)
 ```
 
 ## CLI
@@ -30,7 +30,7 @@ sqlseed inspect app.db --show-mapping
 - **9-level column mapping strategy** — auto-infers generators from column names
 - **31 built-in generators** — names, emails, phones, dates, UUIDs, and more
 - **Plugin system** — extend via pluggy hooks
-- **Expression engine** — derive columns from other columns (`{{ email.split('@')[1] }}`)
+- **Expression engine** — derive columns from other columns (`derive_from` + `expression: "value[-8:]"`)
 - **AI-powered schema analysis** — Gemma 4 Native Function Calling (optional)
 
 ## Documentation

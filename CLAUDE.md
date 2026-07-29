@@ -70,11 +70,11 @@ _utils/ → (no internal deps, used by all layers)
 - **`core/column_dag.py`** — Topological sort for `derive_from` column dependencies.
 - **`core/expression.py`** — `ExpressionEngine` using `simpleeval`. Timeout via thread (5s default). `ExpressionTimeoutError` on timeout. 21 whitelisted functions in `SAFE_FUNCTIONS`.
 - **`core/constraints.py`** — `ConstraintSolver` for UNIQUE enforcement with backtracking. Supports probabilistic mode (SHA256 hash-based) for >100K rows.
-- **`core/enrichment.py`** — AI enrichment integration, applies AI-suggested column mappings.
+- **`core/enrichment.py`** — `EnrichmentEngine` infers value distributions from existing table data (enum detection via 19 `ENUM_NAME_PATTERNS`, range inference) when `enrich=True`.
 - **`core/unique_adjuster.py`** — Post-generation UNIQUE constraint adjustment.
 - **`core/plugin_mediator.py`** — Bridges plugins and core (not direct calls).
 - **`core/transform.py`** — Row/batch transform pipeline.
-- **`core/result.py`** — `FillResult` dataclass for generation results.
+- **`core/result.py`** — `GenerationResult` dataclass for generation results.
 - **`generators/`** — `DataProvider` protocol: `name`, `set_locale`, `set_seed`, `generate(type_name, **params)`. 31 generator types dispatched via `GeneratorDispatchMixin._GENERATOR_MAP`. Three providers: `BaseProvider` (always available), `FakerProvider`, `MimesisProvider`.
 - **`database/`** — `DatabaseAdapter` protocol with two implementations: `SQLiteUtilsAdapter` (default, requires `sqlite-utils`) and `RawSQLiteAdapter` (fallback). `_compat.py` controls `HAS_SQLITE_UTILS` flag. Additional: `_base_adapter.py` (shared base), `_helpers.py` (batch insert helpers), `optimizer.py` (PRAGMA optimization).
 - **`plugins/`** — 11 pluggy hooks. `PluginManager` + `PluginMediator` bridge plugins and core.
