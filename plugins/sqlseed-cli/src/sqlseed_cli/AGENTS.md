@@ -5,7 +5,8 @@
 ## Purpose
 
 Click-based command-line tool. Provides subcommands such as fill, preview, inspect, init, replay.
-AI-related subcommands (ai-suggest) are discovered via the `sqlseed.cli_commands`
+AI-related subcommands (ai-suggest, ai-analyze, auto-heal, registered by sqlseed-ai's
+`ai_commands.register()`) are discovered via the `sqlseed.cli_commands`
 entry-point group and registered by `__init__.py` at startup.
 
 ## Key Files
@@ -21,8 +22,9 @@ entry-point group and registered by `__init__.py` at startup.
 ### Working In This Directory
 
 - New core subcommands must be registered with the `cli` group in `main.py`.
-- Third-party subcommands (e.g. ai-suggest from sqlseed-ai) are registered
-  via the `sqlseed.cli_commands` entry-point group, NOT by direct import.
+- Third-party subcommands (e.g. ai-suggest, ai-analyze, auto-heal from
+  sqlseed-ai) are registered via the `sqlseed.cli_commands` entry-point
+  group, NOT by direct import.
   This decouples sqlseed-cli from any specific plugin package.
 - User-facing output uses click.echo / rich; internal logging uses structlog
   (via `sqlseed._utils.logger`).
@@ -39,8 +41,8 @@ pytest plugins/sqlseed-cli/tests/
 ### Common Patterns
 
 - Command structure: `cli` (group) -> `fill` / `preview` / `inspect` / `init` / `replay`
-  subcommands (main.py). Plugin subcommands (e.g. `ai-suggest`) are attached
-  via entry-points.
+  subcommands (main.py). Plugin subcommands (e.g. `ai-suggest`, `ai-analyze`,
+  `auto-heal`) are attached via entry-points.
 - Output is beautified with the rich library (progress bars, tables, highlighting).
 - `--url` multi-database support (mutually exclusive with db_path): the
   fill/preview/inspect commands all accept `--url` as an alternative to the

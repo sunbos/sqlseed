@@ -17,6 +17,7 @@ Data generator correctness and consistency tests. Covers Base/Faker/Mimesis prov
 | `test_mimesis_provider.py` | MimesisProvider tests (direct import; mimesis optional at runtime) |
 | `test_registry.py` | ProviderRegistry registration and discovery tests |
 | `test_dispatch_sync.py` | `verify_dispatch_sync()` mapping consistency tests |
+| `test_dispatch_exclude.py` | `exclude_values` support in `GeneratorDispatchMixin.generate` tests |
 | `test_json_helpers.py` | JSON schema-based generation helper tests |
 | `test_string_helpers.py` | Random string utility tests |
 

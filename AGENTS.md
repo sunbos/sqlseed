@@ -1,6 +1,6 @@
 # PROJECT KNOWLEDGE BASE
 
-**Last updated:** 2026-07-12
+**Last updated:** 2026-07-29
 **Branch:** `feat/contract-driven-self-healing`
 
 ## OVERVIEW
@@ -11,7 +11,7 @@ Declarative Multi-Database test data generation toolkit. YAML/JSON config or Pyt
 
 **Architecture**: 4 independent packages — `sqlseed` (core, offline), `sqlseed-cli` (CLI plugin), `sqlseed-ai` (AI plugin), `mcp-server-sqlseed` (MCP plugin; module path is `mcp_server_sqlseed`, note the underscore). See [ARCHITECTURE.md](./ARCHITECTURE.md) for the authoritative architecture reference; [CLAUDE.md](./CLAUDE.md) has the canonical "Never/Always" rules.
 
-**Current work**: the `sqlseed-ai` self-healing subsystem (`auto_heal/`, `healer/`, `validator/`, `repair/`, `contracts/`) — contract-driven, multi-level repair pipeline. Regression reports live in `data_quality_demo/` (r1–r7 scenarios). Do not delete these without checking.
+**Current work**: the `sqlseed-ai` self-healing subsystem (`auto_heal/`, `healer/`, `validator/`, `repair/`, `contracts/`) — contract-driven, multi-level repair pipeline. Regression reports live in `data_quality_demo/` (r1–r8 scenarios). Do not delete these without checking.
 
 ## STRUCTURE
 
@@ -30,7 +30,7 @@ sqlseed/
 │   ├── sqlseed-cli/      # CLI plugin: fill, preview, inspect, init, replay (separate package)
 │   ├── sqlseed-ai/       # AI plugin: LLM schema analysis + self-healing (healer/, validator/, repair/, contracts/)
 │   └── mcp-server-sqlseed/  # MCP server: rule-driven YAML gen + execute_fill (no LLM)
-├── data_quality_demo/    # Regression scenarios (r1–r7) + reports; scratch space, not shipped
+├── data_quality_demo/    # Regression scenarios (r1–r8) + reports; scratch space, not shipped
 ├── scripts/              # Helper scripts (run scripts, validation harnesses)
 ├── docs/                 # mkdocs-material site
 └── examples/             # Usage examples
@@ -157,7 +157,7 @@ Defined in `src/sqlseed/plugins/hookspecs.py`. `firstresult=✓` means pluggy re
 - `mypy src/sqlseed/ plugins/` (strict on source; tests excluded)
 - `pytest`
 - `lint-imports` — enforces the 3 forbidden layer contracts in `pyproject.toml` `[tool.importlinter]`: generators/database must not import core; `_utils` must not import upper layers. Violations fail CI automatically instead of relying on agents reading docs.
-- `tests/test_architecture.py` — 13 invariant tests complementing `lint-imports`: module location, count contracts (generator/hook/exact-rule counts), public API surface, production isolation. All must pass before merge.
+- `tests/test_architecture.py` — 14 invariant tests complementing `lint-imports`: module location, count contracts (generator/hook/exact-rule counts), public API surface, production isolation. All must pass before merge.
 - `pytest tests/test_doc_sync.py` — verifies AUTO-GENERATED count markers in docs match the code. Run after editing `mapper.py` / `_dispatch.py` / `hookspecs.py` / `models.py` / `__init__.py` (see DOC SYNC RULES below).
 - `mutmut` — mutation testing to catch self-proving mock-based tests. **Windows gotcha**: mutmut 3.x is not Windows-native; use `mutmut<3` and set `PYTHONUTF8=1` (see `Makefile` `mutmut` target). Default high-risk module is `unique_adjuster`; override with `--paths-to-mutate`. Baseline: 49.2% survival on 2026-06-25 — surviving mutants indicate self-proving tests. `make mutmut-report` shows survivor IDs (`python -m mutmut show <id>` to inspect); `make mutmut-clean` resets the cache.
 
@@ -188,7 +188,7 @@ Battle scars — read before touching the relevant areas:
 11. **db_path vs url**: Mutually exclusive on both public API and CLI. Never pass both.
 12. **AUTO-GENERATED markers**: Doc files use `<!-- BEGIN:AUTO-GENERATED:name -->value<!-- END:AUTO-GENERATED:name -->`. Don't manually edit values inside markers — run `scripts/sync_docs.py` and `pytest tests/test_doc_sync.py`.
 13. **Mock self-proving trap**: Tests that mock `sqlseed.core.*` / `generators.*` / `database.*` classes (e.g., `mapper.map_column = MagicMock(return_value=...)` then `assert_called_once_with(...)`) are self-proving — the assertion echoes the mock setup and never verifies the computed `GeneratorSpec.params`. Use a real `ColumnMapper` + real `ColumnInfo` with non-None `default` and a non-exact-match column name (e.g., `"category"`/`"rank"`) to exercise `_type_faithful_fallback` and downstream `_adjust_*` math. See `tests/test_core/test_unique_adjuster.py::TestAdjustChoiceFallback` for the recommended pattern. Run `make mutmut` to detect self-proving tests.
-14. **Architecture enforcement is multi-layer**: 4 complementary mechanisms — (a) `lint-imports` (CI gate, fails fast on forbidden layer crossings), (b) `tests/test_architecture.py` (13 invariant tests), (c) `make mutmut` (mutation testing), (d) `tests/test_doc_sync.py` (count markers match code). All 4 must pass before merge.
+14. **Architecture enforcement is multi-layer**: 4 complementary mechanisms — (a) `lint-imports` (CI gate, fails fast on forbidden layer crossings), (b) `tests/test_architecture.py` (14 invariant tests), (c) `make mutmut` (mutation testing), (d) `tests/test_doc_sync.py` (count markers match code). All 4 must pass before merge.
 
 ## AI SELF-HEALING SUBSYSTEM (`sqlseed-ai`, current branch focus)
 

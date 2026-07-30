@@ -15,12 +15,13 @@ pip install sqlseed[mimesis]
 from sqlseed import fill
 
 # SQLite (default)
-fill("app.db", tables={"users": {"count": 100}})
+fill("app.db", table="users", count=100)
 
 # PostgreSQL (requires: pip install "sqlseed[postgres]")
 fill(
-    "postgresql+psycopg://user:password@localhost:5432/mydb",
-    tables={"users": {"count": 100}},
+    url="postgresql+psycopg://user:password@localhost:5432/mydb",
+    table="users",
+    count=100,
 )
 ```
 
@@ -37,9 +38,9 @@ sqlseed inspect app.db --show-mapping
 ## Features
 
 - **9-level column mapping strategy** — auto-infers generators from column names
-- **32 built-in generators** — names, emails, phones, dates, UUIDs, and more
+- **35 built-in generators** — names, emails, phones, dates, UUIDs, and more
 - **Plugin system** — extend via pluggy hooks
-- **Expression engine** — derive columns from other columns (`{{ email.split('@')[1] }}`)
+- **Expression engine** — derive columns from other columns (`value.split('@')[1]`)
 - **AI-powered schema analysis** — Gemma 4 Native Function Calling (optional)
 
 ## Documentation
@@ -53,7 +54,6 @@ sqlseed inspect app.db --show-mapping
 |---------|-------------|
 | `pip install sqlseed` | Base package (SQLite only) |
 | `pip install sqlseed[mimesis]` | + Mimesis data engine (recommended) |
-| `pip install sqlseed[faker]` | + Faker data engine |
 | `pip install "sqlseed[postgres]"` | + PostgreSQL driver (psycopg) |
-| `pip install sqlseed[all]` | All data engines + all DB drivers (faker, mimesis, psycopg) + tqdm |
+| `pip install sqlseed[all]` | All data engines + all DB drivers (mimesis, psycopg) + tqdm + sqlseed-cli |
 | `pip install sqlseed[docs]` | mkdocs-material + mkdocstrings (this site) |

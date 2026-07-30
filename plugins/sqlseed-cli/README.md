@@ -16,8 +16,8 @@ This package provides the `sqlseed` console command with subcommands:
 pip install sqlseed-cli
 ```
 
-This auto-pulls the `sqlseed` core package. To enable the `ai-suggest` subcommand,
-also install `sqlseed-ai`:
+This auto-pulls the `sqlseed` core package. To enable the AI subcommands
+(`ai-suggest`, `ai-analyze`, `auto-heal`), also install `sqlseed-ai`:
 
 ```bash
 pip install sqlseed-ai
@@ -47,8 +47,8 @@ This is a standalone package (separate `pyproject.toml`, VCS-shared version
 via `hatch-vcs` with `root = "../.."`). Per ARCHITECTURE.md Section 3.2:
 
 - Console entry point: `sqlseed = "sqlseed_cli:main"`
-- AI subcommand injection: `sqlseed-ai` registers `ai-suggest` via the
-  `sqlseed.cli_commands` entry-point group; `sqlseed_cli/__init__.py`
-  iterates this group at startup to attach subcommands.
+- AI subcommand injection: `sqlseed-ai` registers `ai-suggest`, `ai-analyze`,
+  and `auto-heal` via the `sqlseed.cli_commands` entry-point group;
+  `sqlseed_cli/__init__.py` iterates this group at startup to attach subcommands.
 
 See the root [ARCHITECTURE.md](../../ARCHITECTURE.md) for the full design.

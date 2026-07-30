@@ -39,8 +39,9 @@ sqlseed ai-suggest app.db --table users --output users.yaml --verify
 # Specify model (defaults to Gemma 4 26B via Google AI Studio)
 sqlseed ai-suggest app.db --table users -o users.yaml --model gemma-4-26b-a4b-it
 
-# Use local LM Studio
-sqlseed ai-suggest app.db --table users -o users.yaml --backend lm_studio --model google/gemma-4-e4b
+# Use local LM Studio (backend selected via env var)
+export SQLSEED_AI_BACKEND=lm_studio
+sqlseed ai-suggest app.db --table users -o users.yaml --model google/gemma-4-e4b
 
 # Skip cache
 sqlseed ai-suggest app.db --table users -o users.yaml --no-cache
@@ -115,7 +116,7 @@ The `AIBackend` enum selects the API backend:
 | Enum Value | Backend | Default Base URL |
 |:-----------|:--------|:-----------------|
 | `AIBackend.GOOGLE_AI_STUDIO` | Google AI Studio | `https://generativelanguage.googleapis.com/v1beta/openai/` |
-| `AIBackend.LM_STUDIO` | LM Studio | `http://localhost:1234/v1` |
+| `AIBackend.LM_STUDIO` | LM Studio | `http://127.0.0.1:1234/v1` |
 | `AIBackend.OLLAMA` | Ollama | `http://localhost:11434/v1` |
 | `AIBackend.OPENAI_COMPAT` | OpenAI-compatible | (must set `SQLSEED_AI_BASE_URL`) |
 
@@ -159,6 +160,8 @@ This plugin registers via `[project.entry-points."sqlseed"]` and implements:
 | Hook | Purpose |
 |:-----|:--------|
 | `sqlseed_ai_analyze_table` | LLM-driven table analysis, returns column configs |
+| `sqlseed_apply_ai_suggestions` | High-level AI mediation entry invoked by the orchestrator (decides whether AI is needed, merges results into column specs) |
+| `sqlseed_transform_row` | Defensive fallback: converts ISO date strings to `datetime.date` for mis-configured DATE columns |
 | `sqlseed_pre_generate_templates` | Pre-generate candidate values for complex columns |
 
 > **Note**: This plugin does NOT implement `sqlseed_register_providers` or `sqlseed_register_column_mappers` — registration is handled via the `pyproject.toml` entry point.

@@ -11,9 +11,9 @@ DB adapters: SQLAlchemy (required core dependency, multi-DB) and raw sqlite3 (te
 ```
 database/
 ├── __init__.py            # Public API exports
-├── _protocol.py           # DatabaseAdapter protocol, ColumnInfo, ForeignKeyInfo, IndexInfo
+├── _protocol.py           # DatabaseAdapter protocol, ColumnInfo, ForeignKeyInfo, IndexInfo, CheckConstraintInfo
 ├── _base_adapter.py       # BaseRawSQLiteAdapter — shared native sqlite3 logic (context manager, PRAGMA)
-├── _helpers.py            # fetch_index_info, fetch_sample_rows, apply_bulk_optimize/restore
+├── _helpers.py            # fetch_index_info, fetch_sample_rows, batch_insert_rows, apply_bulk_optimize/restore
 ├── _bulk_optimizer.py     # BulkWriteOptimizer protocol, SQLiteBulkOptimizer, PostgresBulkOptimizer
 ├── _dialect.py            # Dialect protocol, SQLiteDialect, PostgresDialect
 ├── _sqlite_schema.py      # SQLite-specific schema introspection (AUTOINCREMENT detection via sqlite_master)

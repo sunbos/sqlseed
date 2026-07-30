@@ -24,15 +24,26 @@ drivers are required for SQLite.
 sqlseed supports three data engines. Mimesis is recommended for performance and
 locale coverage; Faker is a popular alternative with a rich ecosystem.
 
+Faker is a **required** core dependency and is installed automatically with
+`pip install sqlseed`. Mimesis is optional.
+
 ```bash
 # Recommended: Mimesis (high performance, great locale support)
 pip install sqlseed[mimesis]
 
-# Optional: Faker (rich ecosystem)
-pip install sqlseed[faker]
-
-# Install all data engines + all database drivers + tqdm
+# Install all data engines + all database drivers + tqdm + CLI
 pip install sqlseed[all]
+```
+
+### CLI Installation
+
+The `sqlseed` console command lives in the separate `sqlseed-cli` package (the
+core package has no CLI). Install it with:
+
+```bash
+pip install sqlseed-cli        # auto-pulls sqlseed core
+# or, as a convenience alias:
+pip install "sqlseed[cli]"
 ```
 
 ### Database Backend Installation
@@ -69,11 +80,11 @@ The `mcp-server-sqlseed` package exposes sqlseed to AI assistants (Claude,
 Cursor, etc.) via the Model Context Protocol.
 
 ```bash
-# MCP server (requires mcp SDK)
+# MCP server (requires mcp SDK; rule-driven, no LLM)
 pip install mcp-server-sqlseed
 
-# MCP server + AI support (all-in-one)
-pip install mcp-server-sqlseed[ai]
+# AI MCP server (LLM-driven tools; requires mcp SDK)
+pip install "sqlseed-ai[mcp]"
 ```
 
 ### Docs Build (Developers)
@@ -453,7 +464,7 @@ and regenerates the source column.
 
 ### Generators
 
-sqlseed ships with 32 built-in generators. The most common ones:
+sqlseed ships with 35 built-in generators. The most common ones:
 
 | Generator | Description | Example Parameters |
 |-----------|-------------|-------------------|
@@ -545,6 +556,7 @@ arithmetic. Expressions are sandboxed via `simpleeval` with a 5-second timeout.
 | `random_float(min, max)` | `random_float(0, value)` | Random float in range |
 | `random_int(min, max)` | `random_int(1, 100)` | Random integer in range |
 | `random_choice(seq)` | `random_choice([1,2,3])` | Random element from sequence |
+| `timedelta(...)` | `value + timedelta(days=7)` | Date arithmetic (`days`/`seconds`/`hours`/`minutes`/`weeks`) |
 | Slicing | `value[-8:]` | Python slice syntax |
 | Math | `value * 2 + 1` | Basic arithmetic |
 

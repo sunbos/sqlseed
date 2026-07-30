@@ -28,6 +28,9 @@ graph TB
         Constraint["ConstraintSolver<br/>约束回溯"]
         Transform["TransformLoader<br/>脚本加载"]
         Result["GenerationResult<br/>结果统计"]
+        CheckParser["check_parser.py<br/>CHECK 约束解析"]
+        SchemaFallback["schema_fallback.py<br/>纯 schema 回退生成器"]
+        Features["features.py<br/>规范化结构特征"]
     end
 
     subgraph Gen["⚡ 数据生成层 (generators/)"]
@@ -41,7 +44,7 @@ graph TB
 
     subgraph DB["💾 数据库层 (database/)"]
         DBProto["DatabaseAdapter<br/>Protocol"]
-        SU["SQLAlchemyAdapter<br/>必选"]
+        SU["SQLAlchemyAdapter<br/>必选（SQLite/PostgreSQL）"]
         Raw["RawSQLiteAdapter<br/>仅测试"]
         Pragma["PragmaOptimizer<br/>三级优化"]
         Dialect["_dialect.py<br/>方言抽象"]
@@ -74,7 +77,6 @@ graph TB
 
     subgraph Utils["🔧 工具层 (_utils/)"]
         SQL["sql_safe<br/>SQL 注入防护"]
-        Helpers["schema_helpers<br/>AUTOINCREMENT"]
         Metrics["MetricsCollector<br/>性能度量"]
         Progress["Progress<br/>多后端：Rich/tqdm/Null"]
         Paths["Paths<br/>平台缓存路径"]
@@ -272,7 +274,7 @@ classDiagram
         +set_locale(locale: str)
         +set_seed(seed: int)
         +generate(type_name: str, **params) Any
-        ... 通过 GENERATOR_MAP 分派到 31 种内部方法
+        ... 通过 GENERATOR_MAP 分派到 35 种内部方法
     }
 
     class BaseProvider {
@@ -340,6 +342,8 @@ classDiagram
         +get_row_count(table) int
         +get_column_values(table, col, limit) list
         +get_index_info(table) list~IndexInfo~
+        +get_unique_constraints(table) list~IndexInfo~
+        +get_check_constraints(table) list~CheckConstraintInfo~
         +get_sample_rows(table, limit) list~dict~
         +batch_insert(table, data, batch_size) int
         +clear_table(table)
@@ -356,6 +360,7 @@ classDiagram
         +default: Any
         +is_primary_key: bool
         +is_autoincrement: bool
+        +is_computed: bool
     }
 
     class ForeignKeyInfo {
@@ -371,6 +376,14 @@ classDiagram
         +table: str
         +columns: tuple~str~
         +unique: bool
+    }
+
+    class CheckConstraintInfo {
+        <<frozen dataclass>>
+        +name: str
+        +table: str
+        +columns: tuple~str~
+        +expression: str
     }
 
     class SQLAlchemyAdapter {
@@ -404,6 +417,7 @@ classDiagram
     DatabaseAdapter --> ColumnInfo
     DatabaseAdapter --> ForeignKeyInfo
     DatabaseAdapter --> IndexInfo
+    DatabaseAdapter --> CheckConstraintInfo
 ```
 
 ***
@@ -446,7 +460,7 @@ flowchart TB
     subgraph CLI_Trigger["触发入口"]
         CLICmd["sqlseed ai-suggest / ai-analyze / auto-heal"]
         HookCall["sqlseed_ai_analyze_table Hook"]
-        MCPTool["MCP: sqlseed_generate_yaml"]
+        MCPTool["MCP: sqlseed_ai_generate_yaml"]
         MCPGemma4Analyze["MCP: sqlseed_gemma4_analyze"]
         MCPGemma4AgentFill["MCP: sqlseed_gemma4_agent_fill"]
     end
@@ -643,11 +657,13 @@ flowchart LR
         Request["MCP 请求"]
     end
 
-    subgraph MCPServer["mcp-server-sqlseed (FastMCP)"]
-        Resource["📖 Resource<br/>sqlseed://schema/{db}/{table}"]
-        Tool1["🔍 sqlseed_inspect_schema<br/>返回: 列 + FK + 索引 + 样本 + hash"]
-        Tool2["🤖 sqlseed_generate_yaml<br/>AI 分析 → 自纠正 → YAML"]
+    subgraph MCPServer["mcp-server-sqlseed (FastMCP)——核心，规则驱动，无 LLM"]
+        Tool2["🤖 sqlseed_generate_yaml<br/>规则驱动（ColumnMapper）→ YAML"]
         Tool3["⚡ sqlseed_execute_fill<br/>执行数据生成"]
+    end
+
+    subgraph AIMCP["sqlseed-ai[mcp] (FastMCP)——AI，LLM 驱动"]
+        ToolAI["🤖 sqlseed_ai_generate_yaml<br/>AI 分析 → 自纠正 → YAML"]
         Tool4["💎 sqlseed_gemma4_analyze<br/>Gemma 4 原生函数调用分析"]
         Tool5["💎 sqlseed_gemma4_agent_fill<br/>Gemma 4 Agent 驱动数据填充"]
         Tool6["💎 sqlseed_list_gemma_models<br/>列出可用 Gemma 4 模型"]
@@ -656,6 +672,7 @@ flowchart LR
     subgraph SQLSeed["sqlseed 核心"]
         Orchestrator["DataOrchestrator"]
         SchemaCtx["get_schema_context()"]
+        Mapper["ColumnMapper"]
     end
 
     subgraph AIPlugin["sqlseed-ai"]
@@ -663,18 +680,16 @@ flowchart LR
         ACR["AiConfigRefiner"]
     end
 
-    Request --> Resource
-    Request --> Tool1
     Request --> Tool2
     Request --> Tool3
+    Request --> ToolAI
     Request --> Tool4
     Request --> Tool5
     Request --> Tool6
 
-    Resource --> SchemaCtx
-    Tool1 --> SchemaCtx
-    Tool2 --> SA --> ACR
+    Tool2 --> Mapper
     Tool3 --> Orchestrator
+    ToolAI --> SA --> ACR
     Tool4 --> SA
     Tool5 --> Orchestrator
     Tool6 --> SA

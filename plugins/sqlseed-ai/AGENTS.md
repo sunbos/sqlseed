@@ -38,6 +38,7 @@ sqlseed-ai/
     ├── repair/           # Layer 3 — stateless repair engine (pure functions registered in REPAIR_STRATEGIES)
     │   ├── strategies.py # normalize_params (Rule #14), coerce_float_to_int (Rule #26), derive_from cleanup, CHECK-chain mirroring
     │   ├── executor.py   # applies strategies by fix_hint dispatch
+    │   ├── models.py     # AppliedFix, RepairResult
     │   └── pipeline.py   # chains strategies
     ├── healer/           # Layer 4 — 4-level LLM heal with failure-type-aware routing
     │   ├── orchestrator.py        # HealOrchestrator: Level1(subgraph)→Level2(column)→Level3(compact)→Level4(degrade)

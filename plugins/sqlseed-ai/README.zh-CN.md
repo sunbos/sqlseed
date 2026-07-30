@@ -39,8 +39,9 @@ sqlseed ai-suggest app.db --table users --output users.yaml --verify
 # 指定模型（默认使用 Gemma 4 26B via Google AI Studio）
 sqlseed ai-suggest app.db --table users -o users.yaml --model gemma-4-26b-a4b-it
 
-# 使用本地 LM Studio
-sqlseed ai-suggest app.db --table users -o users.yaml --backend lm_studio --model google/gemma-4-e4b
+# 使用本地 LM Studio（通过环境变量选择后端）
+export SQLSEED_AI_BACKEND=lm_studio
+sqlseed ai-suggest app.db --table users -o users.yaml --model google/gemma-4-e4b
 
 # 跳过缓存
 sqlseed ai-suggest app.db --table users -o users.yaml --no-cache
@@ -115,7 +116,7 @@ export SQLSEED_AI_MODEL=<免费模型名>
 | 枚举值 | 后端 | 默认 Base URL |
 |:-------|:-----|:--------------|
 | `AIBackend.GOOGLE_AI_STUDIO` | Google AI Studio | `https://generativelanguage.googleapis.com/v1beta/openai/` |
-| `AIBackend.LM_STUDIO` | LM Studio | `http://localhost:1234/v1` |
+| `AIBackend.LM_STUDIO` | LM Studio | `http://127.0.0.1:1234/v1` |
 | `AIBackend.OLLAMA` | Ollama | `http://localhost:11434/v1` |
 | `AIBackend.OPENAI_COMPAT` | OpenAI 兼容端点 | （需设置 `SQLSEED_AI_BASE_URL`） |
 
@@ -159,6 +160,8 @@ AI 配置缓存在平台标准缓存目录（macOS: `~/Library/Caches/sqlseed/ai
 | Hook | 用途 |
 |:-----|:-----|
 | `sqlseed_ai_analyze_table` | LLM 驱动的表分析，返回列配置 |
+| `sqlseed_apply_ai_suggestions` | 编排器调用的高层 AI 中介入口（判断是否需要 AI，并将结果合并到列配置） |
+| `sqlseed_transform_row` | 防御性回退：为配置错误的 DATE 列将 ISO 日期字符串转换为 `datetime.date` |
 | `sqlseed_pre_generate_templates` | 为复杂列预生成候选值 |
 
 > **注**：本插件**未实现** `sqlseed_register_providers` 和 `sqlseed_register_column_mappers` —— 注册通过 `pyproject.toml` entry point 处理。

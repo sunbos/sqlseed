@@ -4,7 +4,7 @@
 
 ## OVERVIEW
 
-35 generators across 3 providers: base (type-routing only, no real data), faker (required), mimesis (optional).
+35 generators across 3 providers: base (zero-dep fallback, synthesizes values via counter + seeded RNG), faker (required), mimesis (optional).
 
 ## STRUCTURE
 
@@ -16,7 +16,7 @@ generators/
 ├── _json_helpers.py     # JSON schema-based generation
 ├── _string_helpers.py   # Random string utilities
 ├── registry.py          # ProviderRegistry — entry-point discovery
-├── base_provider.py     # BaseProvider — type-routing only (no real data generation); delegates to faker/mimesis
+├── base_provider.py     # BaseProvider — zero-dep fallback; synthesizes placeholder data via counter + seeded RNG (no hardcoded lists)
 ├── faker_provider.py    # FakerProvider — faker adapter
 └── mimesis_provider.py  # MimesisProvider — mimesis adapter
 ```

@@ -152,9 +152,17 @@ sqlseed is a **declarative multi-database test data generation toolkit**. It foc
 | Component | Responsibility |
 |-----------|---------------|
 | `analyzer/` | LLM table-level analysis (streaming, tool-calling). Contains `_tool_calling.py` with pluggable protocol implementations. |
+| `contracts/` | v4 Layer 1: sparse contract matrix + resolver (`ContractViolation`, `ContractResolver`; builtin + learned violations) |
+| `validator/` | v4 Layer 2: `FastValidator` — single/cross-column validators, composite FK, shadow-FK scan, dialect parser, schema snapshot |
+| `repair/` | v4 Layer 3: stateless repair engine (`REPAIR_STRATEGIES` pure functions, `executor.py`, `pipeline.py`) |
+| `healer/` | v4 Layer 4: 4-level LLM heal architecture with failure-type-aware routing (subgraph → column → compact → degrade) |
+| `auto_heal/` | v4 Layer 5: `AutoHealOrchestrator` top-level entry (ai-analyze default path, `auto-heal` command) + `TimeBudgetController` |
 | `refiner.py` | Self-correction loop (normal → compact → ultra-compact) |
-| `config.py` | `AIConfig` model. `backend: AIBackend` enum (values: `google_ai_studio`, `lm_studio`, `ollama`, `openai_compat`; **NO `gemma4` backend**). **Target (Phase E)**: add `tool_calling_protocol: Literal["gemma4", "openai", "none"]` field for native function calling (currently does not exist — tool calling is implicit via `_tool_calling.py` auto-fallback). |
-| `mcp/` (optional) | MCP interface for AI YAML generation (`pip install sqlseed-ai[mcp]`) |
+| `ai_mediator.py` | AI-specific mediation (`apply_ai_suggestions()` hook impl, `AI_APPLICABLE_GENERATORS`) |
+| `config.py` | `AIConfig` model. `backend: AIBackend` enum (values: `google_ai_studio`, `lm_studio`, `ollama`, `openai_compat`; **NO `gemma4` backend**). `tool_calling_protocol: Literal["gemma4", "openai", "none"]` field (Phase E) selects the native function calling protocol; `resolve_tool_calling_protocol()` narrows based on backend support. |
+| `_hardware.py` | Cross-platform RAM/GPU detection + Gemma model hardware requirements |
+| `cli/ai_commands.py` | 3 AI CLI commands (`ai-suggest`, `ai-analyze`, `auto-heal`), injected via `register()` entry point |
+| `mcp.py` (optional) | AI MCP server — 4 tools (`sqlseed_ai_generate_yaml`, `sqlseed_gemma4_analyze`, `sqlseed_gemma4_agent_fill`, `sqlseed_list_gemma_models`); `pip install sqlseed-ai[mcp]` |
 | Entry point | CLI: 3 commands injected into `sqlseed` CLI via entry_points: `ai-suggest` (per-table LLM analysis), `ai-analyze` (default v4 AutoHealOrchestrator path), `auto-heal` (standalone YAML repair) |
 
 **Install**: `pip install sqlseed-ai` (completely independent package)
@@ -180,7 +188,7 @@ sqlseed is a **declarative multi-database test data generation toolkit**. It foc
 **Design principle**: mcp-server-sqlseed exposes **core capabilities** (rule-based YAML template generation + execute fill) via MCP. It does **NOT** depend on any LLM. Whether deployed as local stdio MCP server (offline) or remote HTTP MCP server (online), its functionality is identical and never fails due to network issues.
 
 **YAML generation is a core capability** (revised 2026-06-26):
-- `sqlseed_generate_yaml` calls core `ColumnMapper` (74 exact rules + 27 patterns) — rule-driven, offline, deterministic.
+- `sqlseed_generate_yaml` calls core `ColumnMapper` (75 exact rules + 29 patterns) — rule-driven, offline, deterministic.
 - `sqlseed-ai[mcp]` provides `sqlseed_ai_generate_yaml` — LLM-driven, requires LLM runtime.
 - **Boundary**: The dividing line between the two MCPs is "whether LLM runtime is required", NOT "online/offline".
 - **Intersection definition** (both generate YAML):
@@ -315,7 +323,7 @@ With 4 independent packages (`sqlseed`, `sqlseed-cli`, `sqlseed-ai`, `mcp-server
 - `sqlseed-ai[mcp]`: `sqlseed_ai_generate_yaml` (LLM-driven). Exposes **AI plugin capabilities**.
 
 **Rationale**:
-- YAML template generation is a **core capability** (uses `ColumnMapper` with 74 exact rules + 27 patterns), not an AI feature
+- YAML template generation is a **core capability** (uses `ColumnMapper` with 75 exact rules + 29 patterns), not an AI feature
 - AI YAML generation is an **enhancement** for complex schemas requiring semantic inference
 - The dividing line is "whether LLM runtime is required", NOT "online/offline" (MCP protocol is neutral to deployment mode)
 - **Intersection definition** (both generate YAML): mcp-server-sqlseed = rule-driven (offline-capable, deterministic); sqlseed-ai[mcp] = LLM-driven (requires LLM runtime, semantic inference)

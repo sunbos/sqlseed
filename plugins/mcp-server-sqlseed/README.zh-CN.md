@@ -40,7 +40,7 @@ pip install "sqlseed-ai[mcp]"   # 提供 sqlseed_ai_generate_yaml + Gemma 4 工�
 
 | Tool | 说明 |
 |:-----|:-----|
-| `sqlseed_generate_yaml` | 基于 sqlseed `ColumnMapper`（74 条精确规则 + 27 个正则模式）的规则驱动 YAML 配置模板。离线、确定性、无需 LLM。 |
+| `sqlseed_generate_yaml` | 基于 sqlseed `ColumnMapper`（75 条精确规则 + 29 个正则模式）的规则驱动 YAML 配置模板。离线、确定性、无需 LLM。 |
 | `sqlseed_execute_fill` | 执行数据生成。可选 `yaml_config` 字符串、`count` 和 `enrich` 标志。YAML 配置最大 256KB。 |
 
 ### 不包含的内容

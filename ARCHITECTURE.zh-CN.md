@@ -148,10 +148,18 @@ sqlseed 是一个**声明式多数据库测试数据生成工具包**。它专�
 | 组件 | 职责 |
 |------|------|
 | `analyzer/` | LLM 表级分析（流式、工具调用）。包含 `_tool_calling.py`，实现可插拔协议。 |
+| `contracts/` | v4 Layer 1：稀疏契约矩阵 + 解析器（`ContractViolation`、`ContractResolver`；内置 + 学习到的违规） |
+| `validator/` | v4 Layer 2：`FastValidator`——单列/跨列校验器、复合 FK、shadow-FK 扫描、方言解析器、schema 快照 |
+| `repair/` | v4 Layer 3：无状态修复引擎（`REPAIR_STRATEGIES` 纯函数、`executor.py`、`pipeline.py`） |
+| `healer/` | v4 Layer 4：4 级 LLM 修复架构，按失败类型路由（subgraph → column → compact → degrade） |
+| `auto_heal/` | v4 Layer 5：`AutoHealOrchestrator` 顶层入口（ai-analyze 默认路径、`auto-heal` 命令）+ `TimeBudgetController` |
 | `refiner.py` | 自我纠错循环（normal → compact → ultra-compact） |
-| `config.py` | `AIConfig` 模型。`backend: AIBackend` 枚举（值：`google_ai_studio`、`lm_studio`、`ollama`、`openai_compat`；**无 `gemma4` backend**）。**目标（Phase E）**：添加 `tool_calling_protocol: Literal["gemma4", "openai", "none"]` 字段用于原生函数调用（当前不存在——工具调用通过 `_tool_calling.py` 自动回退隐式处理）。 |
-| `mcp/`（可选） | AI YAML 生成的 MCP 接口（`pip install sqlseed-ai[mcp]`） |
-| Entry point | CLI：`ai-suggest` 命令（通过 entry_points 注入 `sqlseed` CLI） |
+| `ai_mediator.py` | AI 专属中介（`apply_ai_suggestions()` hook 实现、`AI_APPLICABLE_GENERATORS`） |
+| `config.py` | `AIConfig` 模型。`backend: AIBackend` 枚举（值：`google_ai_studio`、`lm_studio`、`ollama`、`openai_compat`；**无 `gemma4` backend**）。`tool_calling_protocol: Literal["gemma4", "openai", "none"]` 字段（Phase E）选择原生函数调用协议；`resolve_tool_calling_protocol()` 按后端支持收窄。 |
+| `_hardware.py` | 跨平台 RAM/GPU 检测 + Gemma 模型硬件需求 |
+| `cli/ai_commands.py` | 3 个 AI CLI 命令（`ai-suggest`、`ai-analyze`、`auto-heal`），通过 `register()` entry point 注入 |
+| `mcp.py`（可选） | AI MCP 服务器——4 个工具（`sqlseed_ai_generate_yaml`、`sqlseed_gemma4_analyze`、`sqlseed_gemma4_agent_fill`、`sqlseed_list_gemma_models`）；`pip install sqlseed-ai[mcp]` |
+| Entry point | CLI：3 个命令（`ai-suggest`、`ai-analyze`、`auto-heal`）通过 entry_points 注入 `sqlseed` CLI |
 
 **安装**：`pip install sqlseed-ai`（完全独立的包）
 
@@ -176,7 +184,7 @@ sqlseed 是一个**声明式多数据库测试数据生成工具包**。它专�
 **设计原则**：mcp-server-sqlseed 通过 MCP 暴露**核心能力**（基于规则的 YAML 模板生成 + 执行填充）。它**不依赖**任何 LLM。无论是作为本地 stdio MCP 服务器（离线）部署，还是作为远程 HTTP MCP 服务器（在线）部署，其功能完全相同，不会因网络问题失败。
 
 **YAML 生成是核心能力**（2026-06-26 修订）：
-- `sqlseed_generate_yaml` 调用核心 `ColumnMapper`（74 条精确规则 + 27 个模式）——规则驱动、离线、确定性。
+- `sqlseed_generate_yaml` 调用核心 `ColumnMapper`（75 条精确规则 + 29 个模式）——规则驱动、离线、确定性。
 - `sqlseed-ai[mcp]` 提供 `sqlseed_ai_generate_yaml`——LLM 驱动，需要 LLM 运行时。
 - **边界**：两个 MCP 的分界线是"是否需要 LLM 运行时"，**不是**"在线/离线"。
 - **交集定义**（两者都生成 YAML）：
@@ -311,7 +319,7 @@ sqlseed._utils（无内部依赖，被所有层使用）
 - `sqlseed-ai[mcp]`：`sqlseed_ai_generate_yaml`（LLM 驱动）。暴露**AI 插件能力**。
 
 **理由**：
-- YAML 模板生成是**核心能力**（使用 `ColumnMapper` 的 74 条精确规则 + 27 个模式），不是 AI 功能
+- YAML 模板生成是**核心能力**（使用 `ColumnMapper` 的 75 条精确规则 + 29 个模式），不是 AI 功能
 - AI YAML 生成是对需要语义推断的复杂 schema 的**增强**
 - 分界线是"是否需要 LLM 运行时"，**不是**"在线/离线"（MCP 协议对部署模式中立）
 - **交集定义**（两者都生成 YAML）：mcp-server-sqlseed = 规则驱动（离线可用、确定性）；sqlseed-ai[mcp] = LLM 驱动（需要 LLM 运行时、语义推断）

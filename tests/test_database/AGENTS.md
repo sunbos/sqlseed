@@ -11,6 +11,7 @@ Database adapter layer tests. Covers dual-adapter functionality, PRAGMA optimiza
 
 | File | Description |
 |------|-------------|
+| `conftest.py` | Local fixtures: `sa_adapter` (tmp_db-backed SQLAlchemyAdapter), `empty_sa_adapter` (empty tmp_path DB) |
 | `test_raw_sqlite_adapter.py` | RawSQLiteAdapter functional tests |
 | `test_sqlalchemy_adapter.py` | SQLAlchemyAdapter contract tests (default adapter) |
 | `test_sqlalchemy_adapter_boundary.py` | SQLAlchemyAdapter boundary condition tests |

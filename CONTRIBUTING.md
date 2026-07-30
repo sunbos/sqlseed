@@ -101,11 +101,11 @@ Types:
 
 Example:
 ```
-feat(database): add MySQL support via SQLAlchemyAdapter
+feat(database): add PostgreSQL support via SQLAlchemyAdapter
 
-- Add pymysql as optional dependency
-- Update TypeNormalizer for MySQL types
-- Add integration tests for MySQL
+- Add psycopg as optional dependency
+- Update TypeNormalizer for PostgreSQL types
+- Add integration tests for PostgreSQL
 ```
 
 ## Pull Request Process

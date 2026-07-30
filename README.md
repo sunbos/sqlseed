@@ -151,6 +151,9 @@ pip install "sqlseed[all]"
 ### Optional Plugins
 
 ```bash
+# CLI plugin (provides the `sqlseed` command; auto-pulls sqlseed core)
+pip install sqlseed-cli
+
 # AI analysis plugin (requires openai SDK)
 pip install sqlseed-ai
 
@@ -718,8 +721,8 @@ sqlseed ai-suggest app.db --table projects --output projects.yaml --verify
 # Specify model (defaults to Gemma 4 26B via Google AI Studio)
 sqlseed ai-suggest app.db --table projects --output projects.yaml --model gemma-4-26b-a4b-it
 
-# Use local LM Studio / Ollama
-sqlseed ai-suggest app.db --table projects --output projects.yaml --backend lm_studio --model google/gemma-4-e4b
+# Use local LM Studio / Ollama (backend selected via env var; ai-suggest has no --backend flag)
+SQLSEED_AI_BACKEND=lm_studio sqlseed ai-suggest app.db --table projects --output projects.yaml --model google/gemma-4-e4b
 
 # ─────────────────────────────────────────────
 # ai-analyze: Full DB analysis via v4 architecture (default)
@@ -754,10 +757,10 @@ sqlseed-ai supports Gemma 4 model family (2B/4B/12B/26B/31B) with Native Functio
 
 | Backend | Description | Configuration |
 | :------ | :---------- | :------------ |
-| **Google AI Studio** | Official API, recommended for Gemma 4 26B/31B | `--backend google_ai_studio` or `SQLSEED_AI_BACKEND=google_ai_studio` |
-| **LM Studio** | Local inference, suitable for Gemma 4 2B/4B | `--backend lm_studio` or `SQLSEED_AI_BACKEND=lm_studio` |
-| **Ollama** | Local inference, suitable for Gemma 4 2B/4B/26B | `--backend ollama` or `SQLSEED_AI_BACKEND=ollama` |
-| **OpenAI-compatible** | Generic OpenAI-compatible endpoint (e.g., OpenRouter, DeepSeek) | `--backend openai_compat` or `SQLSEED_AI_BACKEND=openai_compat` |
+| **Google AI Studio** | Official API, recommended for Gemma 4 26B/31B | `SQLSEED_AI_BACKEND=google_ai_studio` |
+| **LM Studio** | Local inference, suitable for Gemma 4 2B/4B | `SQLSEED_AI_BACKEND=lm_studio` (default URL `http://127.0.0.1:1234/v1`) |
+| **Ollama** | Local inference, suitable for Gemma 4 2B/4B/26B | `SQLSEED_AI_BACKEND=ollama` |
+| **OpenAI-compatible** | Generic OpenAI-compatible endpoint (e.g., OpenRouter, DeepSeek) | `SQLSEED_AI_BACKEND=openai_compat` |
 
 > **💡 OpenRouter (Free)**: For users without a paid API key, OpenRouter provides free models. Set `SQLSEED_AI_BACKEND=openai_compat`, `SQLSEED_AI_BASE_URL=https://openrouter.ai/api/v1`, and `SQLSEED_AI_MODEL=<free-model-name>`.
 
@@ -1062,6 +1065,8 @@ src/sqlseed/
 │   ├── column_dag.py        # ColumnDAG — column dependency graph + topological sort
 │   ├── expression.py        # ExpressionEngine — safe expressions (simpleeval + timeout)
 │   ├── constraints.py       # ConstraintSolver — unique backtracking
+│   ├── enrichment.py        # EnrichmentEngine — infer distribution from existing data
+│   ├── stream.py            # DataStream — streaming generation + constraint backtracking
 │   ├── transform.py         # TransformLoader — dynamic user script loading
 │   └── result.py            # GenerationResult dataclass
 ├── generators/              # ===== Generator Layer =====
@@ -1069,8 +1074,7 @@ src/sqlseed/
 │   ├── registry.py          # ProviderRegistry (entry-point auto-discovery)
 │   ├── base_provider.py     # Built-in base generators (zero dependencies)
 │   ├── faker_provider.py    # Faker adapter
-│   ├── mimesis_provider.py  # Mimesis adapter
-│   └── stream.py            # DataStream streaming + constraint backtracking
+│   └── mimesis_provider.py  # Mimesis adapter
 ├── database/                # ===== Database Layer =====
 │   ├── _protocol.py         # DatabaseAdapter Protocol (ColumnInfo, ForeignKeyInfo, IndexInfo)
 │   ├── sqlalchemy_adapter.py    # Default adapter (SQLite/PostgreSQL)
@@ -1128,6 +1132,7 @@ Tests cover all core modules, with path structure mirroring `src/`: `test_core/`
 | `sqlseed[mimesis]` | + mimesis>=18.0 | Mimesis data engine (recommended) |
 | `sqlseed[postgres]` | + psycopg | PostgreSQL driver for SQLAlchemy |
 | `sqlseed[docs]` | + mkdocs-material, mkdocstrings | Documentation build |
+| `sqlseed-cli` | sqlseed, **click**, **rich** | CLI plugin — provides the `sqlseed` command (fill/preview/inspect/init/replay), auto-pulls sqlseed core |
 | `sqlseed-ai` | sqlseed, **openai>=1.0** | AI plugin (Gemma 4 Native Function Calling), auto-registered via entry-point |
 | `sqlseed-ai[mcp]` | + sqlseed-ai, **mcp>=1.0** | AI MCP server (4 LLM tools); install with `pip install "sqlseed-ai[mcp]"` |
 | `mcp-server-sqlseed` | sqlseed, **mcp>=1.0** | MCP server (2 core tools, no LLM), standalone CLI tool |

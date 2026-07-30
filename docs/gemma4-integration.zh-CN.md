@@ -33,13 +33,13 @@ export SQLSEED_AI_MODEL=google/gemma-4-e4b
 
 ```bash
 export SQLSEED_AI_BACKEND=ollama
-export SQLSEED_AI_MODEL=gemma-4-e4b-it
-# 确保 Ollama 已运行：ollama pull gemma4:4b
+export SQLSEED_AI_MODEL=gemma4:e4b
+# 确保 Ollama 已运行：ollama pull gemma4:e4b
 ```
 
 ## 原生函数调用（Native Function Calling）
 
-GemmaSQLSeed 通过 `GEMMA_TOOLS` 定义了两个函数接口：
+GemmaSQLSeed 通过 `GEMMA_TOOLS` 定义了一个函数接口（唯一的工具：`analyze_schema`）：
 
 ### analyze_schema
 
@@ -58,6 +58,7 @@ GEMMA_TOOLS = [
                     "table_name": {"type": "string"},
                     "columns": {"type": "array", "items": {...}},
                     "foreign_keys": {"type": "array", "items": {...}},
+                    "indexes": {"type": "array", "items": {...}},
                 },
                 "required": ["table_name", "columns"],
             },
@@ -66,17 +67,19 @@ GEMMA_TOOLS = [
 ]
 ```
 
-### generate_column_values
-
-为特定数据库列生成真实的样本值。
-
 ### 调用流程
 
+实际策略由 `AIConfig.resolve_tool_calling_protocol()` 按后端解析：
+
 ```
-1. 发送 tools=GEMMA_TOOLS, tool_choice="auto" 给 Gemma 4
+1. 仅当解析协议为 "gemma4"（仅 Google AI Studio）或 "openai"
+   （Google AI Studio / OpenAI 兼容）时，才尝试原生函数调用
+   （tools=GEMMA_TOOLS, tool_choice="auto"）
 2. Gemma 4 选择 analyze_schema 函数，返回结构化参数
 3. 从 tool_call.function.arguments 中提取 JSON
-4. 降级链：Tool Calling -> JSON mode -> 纯文本
+4. 降级：云端后端（Google AI Studio / OpenAI 兼容）使用 JSON mode
+   （response_format: json_object）；本地后端（LM Studio、Ollama）
+   直接使用纯文本模式。
 ```
 
 ## Agent 记忆（自纠正机制）
@@ -115,10 +118,14 @@ sqlseed ai-suggest app.db -t users -o config.yaml
 # Python API
 from sqlseed_ai import SchemaAnalyzer
 from sqlseed_ai.config import AIConfig
+from sqlseed.core.orchestrator import DataOrchestrator
 
 config = AIConfig.from_env()  # 读取 SQLSEED_AI_BACKEND, SQLSEED_AI_MODEL
 analyzer = SchemaAnalyzer(config=config)
-result = analyzer.analyze_table_from_ctx(db_path="app.db", table_name="users")
+
+with DataOrchestrator("app.db") as orch:
+    schema_ctx = orch.get_schema_context("users")
+result = analyzer.analyze_table_from_ctx(**schema_ctx)
 ```
 
 ## 性能参考

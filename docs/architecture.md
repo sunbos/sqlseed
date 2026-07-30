@@ -28,6 +28,9 @@ graph TB
         Constraint["ConstraintSolver<br/>constraint backtracking"]
         Transform["TransformLoader<br/>script loading"]
         Result["GenerationResult<br/>result statistics"]
+        CheckParser["check_parser.py<br/>CHECK constraint parsing"]
+        SchemaFallback["schema_fallback.py<br/>schema-only fallback generator"]
+        Features["features.py<br/>normalized structural features"]
     end
 
     subgraph Gen["⚡ Generator Layer (generators/)"]
@@ -41,7 +44,7 @@ graph TB
 
     subgraph DB["💾 Database Layer (database/)"]
         DBProto["DatabaseAdapter<br/>Protocol"]
-        SU["SQLAlchemyAdapter<br/>required"]
+        SU["SQLAlchemyAdapter<br/>required (SQLite/PostgreSQL)"]
         Raw["RawSQLiteAdapter<br/>test-only"]
         Pragma["PragmaOptimizer<br/>3-tier optimization"]
         Dialect["_dialect.py<br/>dialect abstraction"]
@@ -74,7 +77,6 @@ graph TB
 
     subgraph Utils["🔧 Utilities (_utils/)"]
         SQL["sql_safe<br/>SQL injection protection"]
-        Helpers["schema_helpers<br/>AUTOINCREMENT"]
         Metrics["MetricsCollector<br/>performance metrics"]
         Progress["Progress<br/>multi-backend: Rich/tqdm/Null"]
         Paths["Paths<br/>platform cache dirs"]
@@ -272,7 +274,7 @@ classDiagram
         +set_locale(locale: str)
         +set_seed(seed: int)
         +generate(type_name: str, **params) Any
-        ... dispatches via GENERATOR_MAP to 31 internal methods
+        ... dispatches via GENERATOR_MAP to 35 internal methods
     }
 
     class BaseProvider {
@@ -340,6 +342,8 @@ classDiagram
         +get_row_count(table) int
         +get_column_values(table, col, limit) list
         +get_index_info(table) list~IndexInfo~
+        +get_unique_constraints(table) list~IndexInfo~
+        +get_check_constraints(table) list~CheckConstraintInfo~
         +get_sample_rows(table, limit) list~dict~
         +batch_insert(table, data, batch_size) int
         +clear_table(table)
@@ -356,6 +360,7 @@ classDiagram
         +default: Any
         +is_primary_key: bool
         +is_autoincrement: bool
+        +is_computed: bool
     }
 
     class ForeignKeyInfo {
@@ -371,6 +376,14 @@ classDiagram
         +table: str
         +columns: tuple~str~
         +unique: bool
+    }
+
+    class CheckConstraintInfo {
+        <<frozen dataclass>>
+        +name: str
+        +table: str
+        +columns: tuple~str~
+        +expression: str
     }
 
     class SQLAlchemyAdapter {
@@ -404,6 +417,7 @@ classDiagram
     DatabaseAdapter --> ColumnInfo
     DatabaseAdapter --> ForeignKeyInfo
     DatabaseAdapter --> IndexInfo
+    DatabaseAdapter --> CheckConstraintInfo
 ```
 
 ---
@@ -446,7 +460,7 @@ flowchart TB
     subgraph CLI_Trigger["Entry Points"]
         CLICmd["sqlseed ai-suggest / ai-analyze / auto-heal"]
         HookCall["sqlseed_ai_analyze_table Hook"]
-        MCPTool["MCP: sqlseed_generate_yaml"]
+        MCPTool["MCP: sqlseed_ai_generate_yaml"]
         MCPGemma4Analyze["MCP: sqlseed_gemma4_analyze"]
         MCPGemma4AgentFill["MCP: sqlseed_gemma4_agent_fill"]
     end
@@ -643,11 +657,13 @@ flowchart LR
         Request["MCP Request"]
     end
 
-    subgraph MCPServer["mcp-server-sqlseed (FastMCP)"]
-        Resource["📖 Resource<br/>sqlseed://schema/{db}/{table}"]
-        Tool1["🔍 sqlseed_inspect_schema<br/>Returns: columns + FK + indexes + samples + hash"]
-        Tool2["🤖 sqlseed_generate_yaml<br/>AI analysis → self-correction → YAML"]
+    subgraph MCPServer["mcp-server-sqlseed (FastMCP) — core, rule-driven, no LLM"]
+        Tool2["🤖 sqlseed_generate_yaml<br/>Rule-driven via ColumnMapper → YAML"]
         Tool3["⚡ sqlseed_execute_fill<br/>Execute data generation"]
+    end
+
+    subgraph AIMCP["sqlseed-ai[mcp] (FastMCP) — AI, LLM-driven"]
+        ToolAI["🤖 sqlseed_ai_generate_yaml<br/>AI analysis → self-correction → YAML"]
         Tool4["💎 sqlseed_gemma4_analyze<br/>Gemma 4 native function calling analysis"]
         Tool5["💎 sqlseed_gemma4_agent_fill<br/>Gemma 4 agent-driven data fill"]
         Tool6["💎 sqlseed_list_gemma_models<br/>List available Gemma 4 models"]
@@ -656,6 +672,7 @@ flowchart LR
     subgraph SQLSeed["sqlseed Core"]
         Orchestrator["DataOrchestrator"]
         SchemaCtx["get_schema_context()"]
+        Mapper["ColumnMapper"]
     end
 
     subgraph AIPlugin["sqlseed-ai"]
@@ -663,18 +680,16 @@ flowchart LR
         ACR["AiConfigRefiner"]
     end
 
-    Request --> Resource
-    Request --> Tool1
     Request --> Tool2
     Request --> Tool3
+    Request --> ToolAI
     Request --> Tool4
     Request --> Tool5
     Request --> Tool6
 
-    Resource --> SchemaCtx
-    Tool1 --> SchemaCtx
-    Tool2 --> SA --> ACR
+    Tool2 --> Mapper
     Tool3 --> Orchestrator
+    ToolAI --> SA --> ACR
     Tool4 --> SA
     Tool5 --> Orchestrator
     Tool6 --> SA

@@ -24,6 +24,11 @@ model fallback on timeout/connection errors.
 | `analyzer/_tool_calling.py` | `ToolCallingMixin` — native function calling (gemma4 / openai protocols) |
 | `analyzer/_context.py` | `ContextBuilderMixin` — chat message and schema context construction |
 | `analyzer/_json_parser.py` | `JsonParserMixin` — JSON response parsing and analysis entry points |
+| `contracts/` | v4 Layer 1 — sparse contract matrix + resolver (known-bad generator/type/constraint combos, closed set) |
+| `validator/` | v4 Layer 2 — `FastValidator` (single-column + cross-column validators, dialect error parsing) |
+| `repair/` | v4 Layer 3 — stateless repair engine (pure functions in `REPAIR_STRATEGIES`, open for extension) |
+| `healer/` | v4 Layer 4 — 4-level LLM heal architecture (subgraph → column → compact → degrade) |
+| `auto_heal/` | v4 Layer 5 — `AutoHealOrchestrator` top-level entry (ai-analyze default path) |
 | `_prompts.py` | LLM prompt templates (`SYSTEM_PROMPT`, `_COMPACT_SYSTEM_PROMPT`, `_ULTRA_COMPACT_SYSTEM_PROMPT`, `TEMPLATE_SYSTEM_PROMPT`) |
 | `_tools.py` | Gemma 4 native function calling tool definitions (`GEMMA_TOOLS`) |
 | `config.py` | `AIConfig`, `GemmaModel`, `AIBackend`, `ToolCallingProtocol` and resolution logic |
@@ -52,7 +57,7 @@ model fallback on timeout/connection errors.
 | Add structured exception type | `exceptions.py` | Subclass `SqlseedAIError`, add classifier logic to `classify_api_error()` |
 | Change httpx timeout profile | `_client.py` | `httpx_timeout()` |
 | Add few-shot examples | `examples.py` | Append to `FEW_SHOT_EXAMPLES` |
-| Modify hook implementations | `__init__.py` | `sqlseed_ai_analyze_table`, `sqlseed_pre_generate_templates` |
+| Modify hook implementations | `__init__.py` | `sqlseed_ai_analyze_table`, `sqlseed_apply_ai_suggestions`, `sqlseed_transform_row`, `sqlseed_pre_generate_templates` |
 | Modify AI mediation hook | `ai_mediator.py` | `sqlseed_apply_ai_suggestions` (high-level AI mediation, Phase C) |
 
 ## AIConfig Environment Variables
@@ -62,7 +67,7 @@ model fallback on timeout/connection errors.
 | `SQLSEED_AI_API_KEY` | `api_key` | `GOOGLE_API_KEY` → `OPENAI_API_KEY` |
 | `SQLSEED_AI_BASE_URL` | `base_url` | `OPENAI_BASE_URL` (auto-set per backend) |
 | `SQLSEED_AI_MODEL` | `model` | None (auto-detect local models) |
-| `SQLSEED_AI_TIMEOUT` | `timeout` | Default 60.0 |
+| `SQLSEED_AI_TIMEOUT` | `timeout` | Default 0 (auto-resolve via `resolve_timeout()` per backend) |
 | `SQLSEED_AI_BACKEND` | `backend` | Auto-detect (`google_ai_studio`, `lm_studio`, `ollama`, `openai_compat`) |
 | `SQLSEED_AI_TOOL_CALLING_PROTOCOL` | `tool_calling_protocol` | `gemma4` (options: `gemma4`, `openai`, `none`) |
 
@@ -155,7 +160,7 @@ first non-None result wins:
 
 ### Working In This Directory
 
-- `AISqlseedPlugin` implements `hookimpl` for `sqlseed_ai_analyze_table` (full-table analysis) and `sqlseed_pre_generate_templates` (per-column value generation for non-simple columns). The `sqlseed_apply_ai_suggestions` hook (high-level AI mediation) is implemented in `ai_mediator.py` (Phase C, moved from core). It does NOT implement `sqlseed_register_providers` or `sqlseed_register_column_mappers`.
+- `AISqlseedPlugin` implements 4 `hookimpl`s in `__init__.py`: `sqlseed_ai_analyze_table` (full-table analysis), `sqlseed_apply_ai_suggestions` (high-level AI mediation — delegates to `ai_mediator.apply_ai_suggestions`, Phase C moved from core), `sqlseed_transform_row` (defensive ISO-date-string → `datetime.date` fallback for mis-configured DATE columns), and `sqlseed_pre_generate_templates` (per-column value generation for non-simple columns). It does NOT implement `sqlseed_register_providers` or `sqlseed_register_column_mappers`.
 - Simple columns (name, email, phone, etc.) are skipped via the `_SIMPLE_COL_RE` regex — do not waste LLM tokens on them.
 - `_model_selector.py` maintains the Gemma 4 model list: `select_gemma_model()` for initial selection, `select_next_gemma_model()` for fallback.
 - JSON parsing must go through `_json_utils.parse_json_response()` (4 strategies: channel-strip → direct → fence-strip → `raw_decode`). Never call `json.loads()` directly on LLM output.

@@ -11,7 +11,7 @@ Performance benchmarks. Uses pytest-benchmark for data generation performance me
 
 | File | Description |
 |------|-------------|
-| `bench_fill.py` | Benchmark tests for the `fill` function |
+| `bench_fill.py` | Benchmark tests for the `fill` and `preview` functions |
 
 ## For AI Agents
 
@@ -30,7 +30,7 @@ pytest tests/benchmarks/ --benchmark-only --benchmark-compare
 ### Common Patterns
 
 - Use the `benchmark` fixture from `pytest-benchmark` to wrap the function under test
-- Test scenarios: 1K rows, 10K rows, provider comparison
+- Test scenarios: 1K/10K row fill + 5-row preview (all `provider="base"`)
 
 ## Dependencies
 

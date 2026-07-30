@@ -13,7 +13,7 @@ src/sqlseed/
 ├── __init__.py       # Public API: fill, connect, fill_from_config, preview
 ├── _version.py       # Version info (importlib.metadata dynamic detection)
 ├── py.typed          # PEP 561 type marker
-├── core/             # Orchestration engine: orchestrator, mapper, schema, constraints, DAG, enrichment, transform, stream (19 files)
+├── core/             # Orchestration engine: orchestrator, mapper, schema, constraints, DAG, enrichment, transform, stream (22 files)
 ├── generators/       # Data providers: base, faker, mimesis + dispatch, registry (9 files)
 ├── database/         # Database adapters: SQLAlchemy (production), raw sqlite3 (testing) + dialect, optimizer, helpers (11 files)
 ├── plugins/          # Plugin system: hookspecs (12 hooks), manager (3 files)

@@ -126,8 +126,7 @@ pip install sqlseed
 # 推荐：Mimesis（高性能，本地化支持好）
 pip install sqlseed[mimesis]
 
-# 可选：Faker（生态丰富）
-pip install sqlseed[faker]
+# 注意：Faker 是必需的核心依赖，已包含在 `pip install sqlseed` 中
 
 # 全部安装
 pip install sqlseed[all]
@@ -135,32 +134,32 @@ pip install sqlseed[all]
 
 ### 选择数据库后端
 
-sqlseed 通过 SQLAlchemy 支持 SQLite（默认）、PostgreSQL 和 MySQL。
+sqlseed 通过 SQLAlchemy 支持 SQLite（默认）和 PostgreSQL。
 
 ```bash
 # PostgreSQL 支持（psycopg 驱动）
 pip install "sqlseed[postgres]"
 
-# MySQL 支持（mysqlclient 驱动）
-pip install "sqlseed[mysql]"
-
 # 所有数据库后端 + 所有数据引擎
 pip install "sqlseed[all]"
 ```
 
-> **💡 提示**：SQLite 开箱即用，无需额外依赖。PostgreSQL/MySQL 驱动仅在连接对应数据库时需要安装。
+> **💡 提示**：SQLite 开箱即用，无需额外依赖。PostgreSQL 驱动仅在连接对应数据库时需要安装。
 
 ### 可选插件
 
 ```bash
+# CLI 插件（提供 `sqlseed` 命令；自动拉取 sqlseed 核心）
+pip install sqlseed-cli
+
 # AI 智能分析插件（依赖 openai SDK）
 pip install sqlseed-ai
 
 # MCP 服务器（依赖 mcp SDK，让 AI 助手直接操作 sqlseed）
 pip install mcp-server-sqlseed
 
-# MCP 服务器 + AI 支持（一步到位）
-pip install mcp-server-sqlseed[ai]
+# AI MCP 服务器（4 个 LLM 工具，依赖 sqlseed-ai）
+pip install "sqlseed-ai[mcp]"
 ```
 
 ### 文档构建（开发者）
@@ -259,9 +258,9 @@ sqlseed 会自动：
 
 **完全零配置，智能推断一切。**
 
-### 连接 PostgreSQL / MySQL
+### 连接 PostgreSQL
 
-sqlseed 除 SQLite 外，还支持 PostgreSQL 和 MySQL。传入 SQLAlchemy URL 替代文件路径即可：
+sqlseed 除 SQLite 外还支持 PostgreSQL。传入 SQLAlchemy URL 替代文件路径即可：
 
 ```python
 import sqlseed
@@ -273,17 +272,9 @@ result = sqlseed.fill(
     count=10_000,
 )
 print(result)
-
-# MySQL（需安装：pip install "sqlseed[mysql]"）
-result = sqlseed.fill(
-    "mysql+mysqldb://user:password@localhost:3306/mydb",
-    table="users",
-    count=10_000,
-)
-print(result)
 ```
 
-三种数据库使用相同的 API —— Schema 推断、外键解析、表达式引擎和插件 Hook 在 SQLite、PostgreSQL 和 MySQL 上行为完全一致。
+两种数据库使用相同的 API —— Schema 推断、外键解析、表达式引擎和插件 Hook 在 SQLite 和 PostgreSQL 上行为完全一致。
 
 ***
 
@@ -625,11 +616,11 @@ sqlseed ai-suggest app.db --table projects --output projects.yaml
 # 带自纠正的 AI 建议（默认 3 轮修正）
 sqlseed ai-suggest app.db --table projects --output projects.yaml --verify
 
-# 指定模型（支持多后端：Google AI Studio、LM Studio、Ollama、OpenAI-compatible）
-sqlseed ai-suggest app.db --table projects -o projects.yaml --model gemma-4-26b-a4b-it --backend google_ai_studio
-sqlseed ai-suggest app.db --table projects -o projects.yaml --model gemma-4-31b-it --backend google_ai_studio
-sqlseed ai-suggest app.db --table projects -o projects.yaml --model google/gemma-4-e4b --backend lm_studio
-sqlseed ai-suggest app.db --table projects -o projects.yaml --model gemma-4-e4b-it --backend ollama
+# 指定模型（后端通过 SQLSEED_AI_BACKEND 环境变量选择，无 --backend 选项）
+sqlseed ai-suggest app.db --table projects -o projects.yaml --model gemma-4-26b-a4b-it
+sqlseed ai-suggest app.db --table projects -o projects.yaml --model gemma-4-31b-it
+SQLSEED_AI_BACKEND=lm_studio sqlseed ai-suggest app.db --table projects -o projects.yaml --model google/gemma-4-e4b
+SQLSEED_AI_BACKEND=ollama sqlseed ai-suggest app.db --table projects -o projects.yaml --model gemma4:e4b
 
 # ─────────────────────────────────────────────
 # ai-analyze: 全库分析（v4 架构默认路径）
@@ -664,10 +655,10 @@ sqlseed-ai 支持 Gemma 4 系列模型（2B/4B/12B/26B/31B）通过 GEMMA_TOOLS 
 
 | 后端 | 说明 | 配置方式 |
 | :--- | :--- | :--- |
-| **Google AI Studio** | 官方 API，推荐 Gemma 4 26B/31B | `--backend google_ai_studio` 或 `SQLSEED_AI_BACKEND=google_ai_studio` |
-| **LM Studio** | 本地推理，适合 Gemma 4 2B/4B | `--backend lm_studio` 或 `SQLSEED_AI_BACKEND=lm_studio` |
-| **Ollama** | 本地推理，适合 Gemma 4 2B/4B/26B | `--backend ollama` 或 `SQLSEED_AI_BACKEND=ollama` |
-| **OpenAI-compatible** | 通用 OpenAI 兼容端点（如 OpenRouter、DeepSeek） | `--backend openai_compat` 或 `SQLSEED_AI_BACKEND=openai_compat` |
+| **Google AI Studio** | 官方 API，推荐 Gemma 4 26B/31B | `SQLSEED_AI_BACKEND=google_ai_studio` |
+| **LM Studio** | 本地推理，适合 Gemma 4 2B/4B | `SQLSEED_AI_BACKEND=lm_studio`（默认 URL `http://127.0.0.1:1234/v1`） |
+| **Ollama** | 本地推理，适合 Gemma 4 2B/4B/26B | `SQLSEED_AI_BACKEND=ollama` |
+| **OpenAI-compatible** | 通用 OpenAI 兼容端点（如 OpenRouter、DeepSeek） | `SQLSEED_AI_BACKEND=openai_compat` |
 
 > **💡 OpenRouter（免费方案）**：没有付费 API Key 的用户，可以使用 OpenRouter 的免费模型。设置 `SQLSEED_AI_BACKEND=openai_compat`、`SQLSEED_AI_BASE_URL=https://openrouter.ai/api/v1`、`SQLSEED_AI_MODEL=<免费模型名>`。
 
@@ -678,7 +669,11 @@ sqlseed-ai 支持 Gemma 4 系列模型（2B/4B/12B/26B/31B）通过 GEMMA_TOOLS 
 ### 教程 9：MCP 服务器集成
 
 ```bash
-pip install mcp-server-sqlseed[ai]
+# 安装核心 MCP 服务器（无 LLM 依赖）
+pip install mcp-server-sqlseed
+
+# 安装 AI MCP 服务器（LLM 驱动，依赖 sqlseed-ai）
+pip install "sqlseed-ai[mcp]"
 
 # 配置 Claude Desktop
 ```
@@ -695,15 +690,21 @@ pip install mcp-server-sqlseed[ai]
 
 **MCP 提供的能力**：
 
+**mcp-server-sqlseed**（2 个工具，0 个资源 —— 核心，无 LLM 依赖）：
+
 | 类型 | 名称 | 说明 |
 | :--- | :--- | :--- |
-| 📖 Resource | `sqlseed://schema/{db_path}/{table_name}` | 获取表 Schema 的 JSON 表示 |
-| 🔍 Tool | `sqlseed_inspect_schema` | 检查 Schema（列、外键、索引、样本数据、schema_hash） |
-| 🤖 Tool | `sqlseed_generate_yaml` | AI 驱动的 YAML 配置生成（含自纠正） |
+| 🤖 Tool | `sqlseed_generate_yaml` | 规则驱动的 YAML 配置生成（经由 `ColumnMapper`） |
 | ⚡ Tool | `sqlseed_execute_fill` | 执行数据生成（支持 YAML 配置字符串，含 `enrich` 选项） |
-| 🤖 Tool | `sqlseed_gemma4_analyze` | Gemma 4 原生函数调用分析 Schema（GEMMA_TOOLS 协议） |
-| 🤖 Tool | `sqlseed_gemma4_agent_fill` | Gemma 4 Agent 模式端到端数据生成（分析→配置→填充） |
-| 📋 Tool | `sqlseed_list_gemma_models` | 列出可用的 Gemma 4 模型及后端支持情况 |
+
+**sqlseed-ai[mcp]**（4 个工具，0 个资源 —— LLM 驱动，通过 `pip install "sqlseed-ai[mcp]"` 安装）：
+
+| 类型 | 名称 | 说明 |
+| :--- | :--- | :--- |
+| 🧠 Tool | `sqlseed_ai_generate_yaml` | AI 驱动的 YAML 配置生成（含自纠正） |
+| 🧠 Tool | `sqlseed_gemma4_analyze` | Gemma 4 原生函数调用分析 Schema（GEMMA_TOOLS 协议） |
+| 🧠 Tool | `sqlseed_gemma4_agent_fill` | Gemma 4 Agent 模式端到端数据生成（分析→配置→填充） |
+| 🧠 Tool | `sqlseed_list_gemma_models` | 列出可用的 Gemma 4 模型及后端支持情况 |
 
 ***
 
@@ -786,11 +787,11 @@ sqlseed ai-suggest app.db -t users -o users.yaml --api-key sk-xxx --base-url htt
 sqlseed ai-suggest app.db -t users -o users.yaml --max-retries 0
 sqlseed ai-suggest app.db -t users -o users.yaml --no-cache
 
-# ═══ AI 后端选择 ═══
-sqlseed ai-suggest app.db -t users -o users.yaml --backend google_ai_studio --model gemma-4-26b-a4b-it
-sqlseed ai-suggest app.db -t users -o users.yaml --backend ollama --model gemma-4-e4b-it
-sqlseed ai-suggest app.db -t users -o users.yaml --backend lm_studio --model google/gemma-4-e4b
-sqlseed ai-suggest app.db -t users -o users.yaml --backend openai_compat --model your-model --base-url https://your-api-endpoint
+# ═══ AI 后端选择（通过环境变量，无 --backend 选项）═══
+SQLSEED_AI_BACKEND=google_ai_studio sqlseed ai-suggest app.db -t users -o users.yaml --model gemma-4-26b-a4b-it
+SQLSEED_AI_BACKEND=ollama sqlseed ai-suggest app.db -t users -o users.yaml --model gemma4:e4b
+SQLSEED_AI_BACKEND=lm_studio sqlseed ai-suggest app.db -t users -o users.yaml --model google/gemma-4-e4b
+SQLSEED_AI_BACKEND=openai_compat sqlseed ai-suggest app.db -t users -o users.yaml --model your-model --base-url https://your-api-endpoint
 
 # ═══ 全库分析与自愈（v4 默认路径）═══
 sqlseed ai-analyze --db app.db -o config.yaml
@@ -861,13 +862,21 @@ sqlseed 通过 [pluggy](https://pluggy.readthedocs.io/) 提供 12 个 Hook 点�
 src/sqlseed/
 ├── __init__.py              # 公共 API (fill, connect, fill_from_config, preview)
 ├── core/                    # ===== 核心编排层 =====
-│   ├── orchestrator.py      # DataOrchestrator 主引擎
+│   ├── orchestrator/        # DataOrchestrator 包（4 个 mixin + 1 个共享数据模块）
+│   │   ├── __init__.py
+│   │   ├── _common.py
+│   │   ├── _connection.py
+│   │   ├── _specs.py
+│   │   ├── _generation.py
+│   │   └── _query.py
 │   ├── mapper.py            # ColumnMapper 9 级策略链
 │   ├── schema.py            # SchemaInferrer — 推断列、索引、数据分布
 │   ├── relation.py          # RelationResolver + SharedPool — FK 与跨表共享
 │   ├── column_dag.py        # ColumnDAG — 列依赖图 + 拓扑排序
 │   ├── expression.py        # ExpressionEngine — 安全表达式 (simpleeval + 超时)
 │   ├── constraints.py       # ConstraintSolver — 唯一性回溯求解
+│   ├── enrichment.py        # EnrichmentEngine — 从既有数据推断分布
+│   ├── stream.py            # DataStream — 流式生成 + 约束回溯
 │   ├── transform.py         # TransformLoader — 用户脚本动态加载
 │   └── result.py            # GenerationResult 数据类
 ├── generators/              # ===== 数据生成层 =====
@@ -875,11 +884,10 @@ src/sqlseed/
 │   ├── registry.py          # ProviderRegistry (entry-point 自动发现)
 │   ├── base_provider.py     # 内置基础生成器（零依赖）
 │   ├── faker_provider.py    # Faker 适配器
-│   ├── mimesis_provider.py  # Mimesis 适配器
-│   └── stream.py            # DataStream 流式生成 + 约束回溯
+│   └── mimesis_provider.py  # Mimesis 适配器
 ├── database/                # ===== 数据库层 =====
 │   ├── _protocol.py         # DatabaseAdapter Protocol (ColumnInfo, ForeignKeyInfo, IndexInfo)
-│   ├── sqlalchemy_adapter.py    # 默认适配器（SQLite/PostgreSQL/MySQL）
+│   ├── sqlalchemy_adapter.py    # 默认适配器（SQLite/PostgreSQL）
 │   ├── raw_sqlite_adapter.py     # sqlite3 回退适配器
 │   └── optimizer.py         # PragmaOptimizer 三级优化
 ├── plugins/                 # ===== 插件层 =====
@@ -889,8 +897,6 @@ src/sqlseed/
 │   ├── models.py            # Pydantic 模型 (GeneratorConfig/TableConfig/ColumnConfig)
 │   ├── loader.py            # YAML/JSON 加载与保存
 │   └── snapshot.py          # 快照保存与加载
-├── cli/                     # ===== CLI =====
-│   └── main.py              # click 命令 (fill/preview/inspect/init/replay)
 └── _utils/                  # ===== 内部工具 =====
     ├── sql_safe.py          # quote_identifier — SQL 注入防护
     ├── schema_helpers.py    # AUTOINCREMENT 检测
@@ -900,10 +906,12 @@ src/sqlseed/
     └── logger.py            # structlog 日志
 
 plugins/
+├── sqlseed-cli/             # CLI 插件 — click 命令 (fill/preview/inspect/init/replay)
+│   └── src/sqlseed_cli/     # 独立包，单独 pyproject.toml
 ├── sqlseed-ai/              # AI 插件 — LLM 驱动的智能配置
 │   └── src/sqlseed_ai/      # SchemaAnalyzer, AiConfigRefiner, Few-shot 示例...
 └── mcp-server-sqlseed/      # MCP 服务器 — AI 助手交互
-    └── src/mcp_server_sqlseed/   # FastMCP 工具
+    └── src/mcp_server_sqlseed/   # FastMCP 工具 (sqlseed_generate_yaml/sqlseed_execute_fill)
 ```
 
 ***
@@ -921,15 +929,14 @@ mypy src/sqlseed/                   # 类型检查
 
 | 包 | 核心依赖 | 说明 |
 |:--|:--------|:-----|
-| `sqlseed` | sqlalchemy, pydantic, pluggy, structlog, pyyaml, click, rich, typing_extensions, simpleeval, **rstr** | rstr 用于 `pattern` 生成器的正则匹配 |
-| `sqlseed[faker]` | + faker>=30.0 | Faker 数据引擎 |
+| `sqlseed` | sqlalchemy, pydantic, pluggy, structlog, pyyaml, faker, typing_extensions, simpleeval, **rstr** | faker 为必需核心依赖；rstr 用于 `pattern` 生成器的正则匹配 |
 | `sqlseed[mimesis]` | + mimesis>=18.0 | Mimesis 数据引擎（推荐） |
 | `sqlseed[postgres]` | + psycopg | PostgreSQL SQLAlchemy 驱动 |
-| `sqlseed[mysql]` | + mysqlclient | MySQL SQLAlchemy 驱动 |
 | `sqlseed[docs]` | + mkdocs-material, mkdocstrings | 文档构建 |
-| `sqlseed-ai` | sqlseed, **openai>=1.0** | AI 插件，通过 entry-point 自动注册，支持 Gemma 4 GEMMA_TOOLS |
-| `mcp-server-sqlseed` | sqlseed, **mcp>=1.0** | MCP 服务器，独立 CLI 工具 |
-| `mcp-server-sqlseed[ai]` | + sqlseed-ai | MCP 服务器含 AI 支持 |
+| `sqlseed-cli` | sqlseed, **click**, **rich** | CLI 插件 —— 提供 `sqlseed` 命令 (fill/preview/inspect/init/replay)，自动拉取 sqlseed 核心 |
+| `sqlseed-ai` | sqlseed, **openai>=1.0** | AI 插件（Gemma 4 原生函数调用），通过 entry-point 自动注册 |
+| `sqlseed-ai[mcp]` | + sqlseed-ai, **mcp>=1.0** | AI MCP 服务器（4 个 LLM 工具）；通过 `pip install "sqlseed-ai[mcp]"` 安装 |
+| `mcp-server-sqlseed` | sqlseed, **mcp>=1.0** | MCP 服务器（2 个核心工具，无 LLM），独立 CLI 工具 |
 
 ***
 

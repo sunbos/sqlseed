@@ -20,6 +20,9 @@ core/
 │   └── _query.py        # QueryMixin — schema context, SQL execute/query, table info
 ├── mapper.py            # ColumnMapper 9-level strategy chain
 ├── schema.py            # SchemaInferrer — column info, indexes, distribution
+├── check_parser.py      # CheckConstraintParser + ParsedCheck — single-column CHECK → generator hints
+├── schema_fallback.py   # SchemaFallbackGenerator — pure schema-semantics fallback, zero business logic
+├── features.py          # Normalized structural features for cross-DB schema analysis
 ├── relation.py          # RelationResolver + SharedPool — FK resolution
 ├── column_dag.py        # ColumnDAG — derive_from dependency graph
 ├── expression.py        # ExpressionEngine — simpleeval sandbox
@@ -36,10 +39,12 @@ core/
 
 | Task | Location | Notes |
 |------|----------|-------|
-| Public API exports | `__init__.py` | Exports DataOrchestrator, ColumnMapper, GeneratorSpec, DataStream, RelationResolver, GenerationResult, SchemaInferrer |
+| Public API exports | `__init__.py` | Exports DataOrchestrator, ColumnMapper, GeneratorSpec, DataStream, RelationResolver, GenerationResult, SchemaInferrer, CheckConstraintParser, ParsedCheck, SchemaFallbackGenerator |
 | Add fill logic | `orchestrator/_generation.py` | DataOrchestrator.fill_table() |
 | Modify mapping | `mapper.py` | ColumnMapper.map_columns() — 9-level chain |
 | Add schema info | `schema.py` | SchemaInferrer.get_column_info() |
+| Parse CHECK constraints | `check_parser.py` | CheckConstraintParser, ParsedCheck |
+| Schema-only fallback | `schema_fallback.py` | SchemaFallbackGenerator — called when mapping yields nothing |
 | Handle FK | `relation.py` | RelationResolver.resolve_foreign_keys() |
 | Add derive_from | `column_dag.py` | ColumnDAG.build() — topological sort |
 | Modify expressions | `expression.py` | ExpressionEngine — 26 safe functions |

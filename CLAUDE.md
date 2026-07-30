@@ -78,7 +78,7 @@ Core (`sqlseed`) has **no CLI, no AI, no MCP code** — these are all plugins. C
 ### Key Modules
 
 - **`core/orchestrator/`** — Package (refactored from single file). `DataOrchestrator` is the central coordinator, composed via multiple inheritance from 4 mixins + 1 shared data module:
-  - `_common.py` — Shared dataclasses (not a mixin): `CoreCtx` (db, schema, mapper, relation, shared_pool), `ExtCtx` (registry, plugins, mediator, enrichment, unique_adjuster, metrics). Helper: `_is_db_url()`.
+  - `_common.py` — Shared dataclasses (not a mixin): `CoreCtx` (db, schema, mapper, relation, shared_pool), `ExtCtx` (registry, plugins, plugin_mediator, enrichment, unique_adjuster, schema_fallback, metrics). Helper: `_is_db_url()`.
   - `_connection.py` — `ConnectionMixin`: lifecycle (`__init__`, `_ensure_connected`, `close`), adapter creation, property accessors for all `_core`/`_ext` fields, context manager protocol, `from_config()` classmethod.
   - `_specs.py` — `SpecResolverMixin`: `_resolve_specs()` (schema inference → column mapping → enrichment → unique adjustment → FK resolution), `_build_stream()` (also extracts cross-column comparison CHECK constraints `col1 OP col2` into `inequality_constraints` for row-level enforcement), `_prepare_specs()` (AI suggestion/template pool application), `_resolve_user_configs()`.
   - `_generation.py` — `GenerationMixin`: `_generate_and_insert_batches()`, `fill_table()` (main entry point), `preview_table()`. `fill = fill_table` alias.
@@ -235,7 +235,7 @@ Run `pytest tests/test_doc_sync.py` to verify doc sync after changes. Uses AUTO-
 - Integration tests: `tests/integration/` directory with `test_pg_integration.py` (requires Docker + testcontainers) and `test_url_e2e.py`
 - Benchmarks: `tests/benchmarks/` with `pytest-benchmark`
 - Integration test marker: `@pytest.mark.integration`
-- Architecture guard tests: `tests/test_architecture.py` (13 tests verifying module boundaries, production isolation, count contracts, public API surface) — complement `lint-imports` and the `[tool.importlinter]` contracts in `pyproject.toml`.
+- Architecture guard tests: `tests/test_architecture.py` (14 tests verifying module boundaries, production isolation, count contracts, public API surface) — complement `lint-imports` and the `[tool.importlinter]` contracts in `pyproject.toml`.
 - Mutation testing (mutmut): `make mutmut` runs mutation tests on `src/sqlseed/core/unique_adjuster.py` by default. Override with `--paths-to-mutate` and `--runner` CLI flags to test other modules. See `pyproject.toml` `[tool.mutmut]` for the baseline (49.2% survival on 2026-06-25) and `make mutmut-report` to inspect surviving mutants. **Surviving mutants indicate self-proving tests** — tests that pass because mocks returned what the author expected, not because the production code actually computes the right thing. When adding new core code or strengthening tests, run `make mutmut` and check that the survival rate does not increase.
 
 ## Critical Pitfalls
@@ -253,7 +253,7 @@ Run `pytest tests/test_doc_sync.py` to verify doc sync after changes. Uses AUTO-
 11. **db_path vs url**: Public API and CLI both support `db_path` (SQLite) and `url` (database URL) as mutually exclusive connection modes. Never pass both.
 12. **AUTO-GENERATED markers**: Doc files use `<!-- BEGIN:AUTO-GENERATED:marker-name -->...<!-- END:AUTO-GENERATED:marker-name -->` markers for automated sync verification. Don't manually edit values inside markers — run `scripts/sync_docs.py` instead.
 13. **Mock self-proving trap**: Tests that mock `sqlseed.core.*` / `sqlseed.generators.*` / `sqlseed.database.*` classes (e.g., `mapper.map_column = MagicMock(return_value=...)` then `assert_called_once_with(...)`) are self-proving — the assertion merely echoes the mock setup and never verifies the actual computed `GeneratorSpec.params`. Use a real `ColumnMapper` + real `ColumnInfo` with non-None `default` (and a non-exact-match column name like `"category"`/`"rank"`) to exercise `_type_faithful_fallback` and the downstream `_adjust_*` math. Run `make mutmut` to detect self-proving tests — surviving mutants indicate the test fails to catch real behavior changes. See `tests/test_core/test_unique_adjuster.py::TestAdjustChoiceFallback` for the recommended real-schema pattern.
-14. **Architecture enforcement is multi-layer**: Defense against core code corruption/drift is provided by 4 complementary mechanisms — (a) `lint-imports` (CI gate, fails fast on forbidden layer crossings), (b) `tests/test_architecture.py` (13 invariant tests for module location, count contracts, public API), (c) `make mutmut` (mutation testing for self-proving mock detection), (d) `tests/test_doc_sync.py` (count markers in docs match code). All 4 must pass before merge.
+14. **Architecture enforcement is multi-layer**: Defense against core code corruption/drift is provided by 4 complementary mechanisms — (a) `lint-imports` (CI gate, fails fast on forbidden layer crossings), (b) `tests/test_architecture.py` (14 invariant tests for module location, count contracts, public API), (c) `make mutmut` (mutation testing for self-proving mock detection), (d) `tests/test_doc_sync.py` (count markers in docs match code). All 4 must pass before merge.
 
 ## Release Checklist
 

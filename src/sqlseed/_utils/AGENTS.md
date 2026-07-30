@@ -14,7 +14,7 @@ Cross-module shared low-level utility functions. Includes logging, metrics, prog
 |------|-------------|
 | `logger.py` | structlog configuration, `configure_logging()` and `get_logger()` functions; auto-configures on module import, outputs to stderr |
 | `metrics.py` | `MetricsCollector` performance metrics collection and aggregate statistics (count/total/min/max/avg), single-pass traversal |
-| `paths.py` | `get_cache_dir(subdir)` platform-standard cache directory (macOS/Linux/Windows), `SQLSEED_CACHE_DIR` environment variable takes highest priority, shared by SnapshotManager and AiConfigRefiner |
+| `paths.py` | `get_cache_dir(subdir)` platform-standard cache directory (macOS/Linux/Windows), `SQLSEED_CACHE_DIR` environment variable takes highest priority, shared by SnapshotManager and AiConfigRefiner; `validate_db_target()` (extension/existence check for file paths, URL pass-through) and `validate_table_name()` (membership check against existing tables) — shared by both MCP server packages (`mcp-server-sqlseed` and `sqlseed-ai[mcp]`) |
 | `progress.py` | `create_progress()` three-backend progress bar factory: Null (disabled) / Rich (terminal, with ASCII fallback) / tqdm (Jupyter), auto-selected by runtime environment |
 | `sql_safe.py` | SQL injection protection three layers: `validate_table_name()` / `quote_identifier()` / `build_insert_sql()`; double-quote escaping, rejects `; \n \r '` but allows `-` |
 

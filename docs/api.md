@@ -538,6 +538,8 @@ from sqlseed.database import DatabaseAdapter
 | `get_row_count` | `(table_name: str) -> int` | Current row count. |
 | `get_column_values` | `(table_name, column_name, limit=1000) -> list[Any]` | Sample column values. |
 | `get_index_info` | `(table_name: str) -> list[IndexInfo]` | Index metadata. |
+| `get_unique_constraints` | `(table_name: str) -> list[IndexInfo]` | UNIQUE constraint metadata (single- and multi-column). |
+| `get_check_constraints` | `(table_name: str) -> list[CheckConstraintInfo]` | CHECK constraint metadata (raw SQL expression + referenced columns). |
 | `get_sample_rows` | `(table_name, limit=5) -> list[dict]` | Sample rows. |
 | `batch_insert` | `(table_name, data, batch_size=5000) -> int` | Bulk insert from an iterator. |
 | `clear_table` | `(table_name: str) -> None` | Delete all rows. |
@@ -557,6 +559,7 @@ class ColumnInfo:
     default: Any
     is_primary_key: bool
     is_autoincrement: bool
+    is_computed: bool = False
 
 @dataclass(frozen=True)
 class ForeignKeyInfo:
@@ -570,6 +573,13 @@ class IndexInfo:
     table: str
     columns: tuple[str, ...]
     unique: bool
+
+@dataclass(frozen=True)
+class CheckConstraintInfo:
+    name: str
+    table: str
+    columns: tuple[str, ...]
+    expression: str
 ```
 
 ---
@@ -663,6 +673,7 @@ The `sqlseed.database` subpackage additionally exports:
 ```python
 __all__ = [
     "BulkWriteOptimizer",
+    "CheckConstraintInfo",
     "ColumnInfo",
     "DatabaseAdapter",
     "Dialect",
