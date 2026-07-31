@@ -84,9 +84,7 @@ sqlseed 是一个**声明式多数据库测试数据生成工具包**。它专�
 ## 3. 模块职责
 
 > [!IMPORTANT]
-> 以下描述的是重构后（Phase A-G）的**目标架构**。
-> 当前代码与目标有差异——参见第 8 节"重构清单"了解差距和执行步骤。
-> 此处显示的方法/函数名是**目标名称**；当前代码不同时，在括号中标注当前名称。
+> 此架构已完全实现（Phase A–G 全部完成）；第 8 节保留为历史记录。
 
 ### 3.1 核心包（`src/sqlseed/`）
 
@@ -116,13 +114,13 @@ sqlseed 是一个**声明式多数据库测试数据生成工具包**。它专�
 
 **移出核心**（到插件）：
 
-| 当前位置 | 目标位置 | 原因 |
+| 原始位置（重构前） | 目标位置 | 原因 |
 |---------|---------|------|
 | `cli/`（整个目录） | `plugins/sqlseed-cli/` | CLI 是可选的，依赖 click/rich |
 | `cli/ai_commands.py` | `plugins/sqlseed-ai/` | AI CLI 命令，需要网络 |
 | `core/plugin_mediator.py` `apply_ai_suggestions()` | `plugins/sqlseed-ai/` | AI 专用中介 |
 
-**删除**（MySQL 支持）：
+**删除**（MySQL 支持）——所有项均已执行（Phase A 完成）：
 
 | 位置 | 操作 |
 |------|------|
@@ -236,7 +234,7 @@ sqlseed._utils（无内部依赖，被所有层使用）
 |---------|---------|-----------|
 | 仅 Python API（离线） | `pip install sqlseed` | `from sqlseed import fill` |
 | + CLI | `pip install sqlseed-cli` | `sqlseed` 命令 |
-| + AI YAML 生成 | `pip install sqlseed-ai` | `sqlseed ai-suggest` + Gemma4 支持 |
+| + AI YAML 生成 | `pip install sqlseed-ai` | `sqlseed ai-suggest` / `ai-analyze` / `auto-heal` + Gemma4 支持 |
 | + PostgreSQL | `pip install sqlseed[postgres]` | PostgreSQL 支持 |
 | + mimesis（高性能） | `pip install sqlseed[mimesis]` | MimesisProvider |
 | + MCP 服务器（核心能力） | `pip install mcp-server-sqlseed` | 基于规则的 YAML + 填充的 MCP 工具 |
@@ -244,7 +242,7 @@ sqlseed._utils（无内部依赖，被所有层使用）
 | 全部功能 | 安装以上所有 | 所有可选功能 |
 
 > [!NOTE]
-> **依赖链**：`sqlseed-ai` 依赖 `sqlseed-cli`（`ai-suggest` 命令通过 `entry_points` 注入 `sqlseed` CLI）。安装 `sqlseed-ai` 会自动拉取 `sqlseed-cli` 作为依赖。仅安装 `sqlseed-ai` 而不安装 `sqlseed-cli` **不是**受支持的配置。
+> **依赖链**：`sqlseed-ai` 依赖 `sqlseed-cli`（`ai-suggest`、`ai-analyze`、`auto-heal` 3 个命令通过 `entry_points` 注入 `sqlseed` CLI）。安装 `sqlseed-ai` 会自动拉取 `sqlseed-cli` 作为依赖。仅安装 `sqlseed-ai` 而不安装 `sqlseed-cli` **不是**受支持的配置。
 
 ### 6.1 版本兼容性策略
 
@@ -346,52 +344,52 @@ sqlseed._utils（无内部依赖，被所有层使用）
 将代码与本文档对齐的工作项（在独立分支中执行）：
 
 ### Phase A：MySQL 移除
-- [ ] 清理 `database/_dialect.py` 中的 MySQL 提及（仅注释/文档字符串，无 `MySQLDialect` 类）
-- [ ] 删除 `database/_type_normalizer.py` 中的 `_MYSQL_TYPE_MAP` + `dialect_name == "mysql"` 分支
-- [ ] 删除 `database/sqlalchemy_adapter.py` 中的 `if "mysql" in db_url` + `if dialect_name == "mysql"` 分支
-- [ ] 删除 `pyproject.toml` 中的 `mysql` 可选依赖
-- [ ] 删除测试和文档中的 MySQL 引用
+- [x] 清理 `database/_dialect.py` 中的 MySQL 提及（仅注释/文档字符串，无 `MySQLDialect` 类）
+- [x] 删除 `database/_type_normalizer.py` 中的 `_MYSQL_TYPE_MAP` + `dialect_name == "mysql"` 分支
+- [x] 删除 `database/sqlalchemy_adapter.py` 中的 `if "mysql" in db_url` + `if dialect_name == "mysql"` 分支
+- [x] 删除 `pyproject.toml` 中的 `mysql` 可选依赖
+- [x] 删除测试和文档中的 MySQL 引用
 
 ### Phase B：CLI 提取
-- [ ] 创建 `plugins/sqlseed-cli/` 包，拥有独立 `pyproject.toml`
-- [ ] 移动 `src/sqlseed/cli/` → `plugins/sqlseed-cli/src/sqlseed_cli/`
-- [ ] 移动 `ai_commands.py` → `plugins/sqlseed-ai/src/sqlseed_ai/cli/`
-- [ ] 从核心 `pyproject.toml` 移除 `[project.scripts]`
-- [ ] 添加 `cli` 可选依赖指向 `sqlseed-cli`
-- [ ] 移动 CLI 测试到 `plugins/sqlseed-cli/tests/`
+- [x] 创建 `plugins/sqlseed-cli/` 包，拥有独立 `pyproject.toml`
+- [x] 移动 `src/sqlseed/cli/` → `plugins/sqlseed-cli/src/sqlseed_cli/`
+- [x] 移动 `ai_commands.py` → `plugins/sqlseed-ai/src/sqlseed_ai/cli/`
+- [x] 从核心 `pyproject.toml` 移除 `[project.scripts]`
+- [x] 添加 `cli` 可选依赖指向 `sqlseed-cli`
+- [x] 移动 CLI 测试到 `plugins/sqlseed-cli/tests/`
 
 ### Phase C：AI 代码提取
-- [ ] `core/enrichment.py` **整体**保留在核心（`EnrichmentEngine` 是本地计算，无 AI 逻辑需移出）
-- [ ] 移动 `core/plugin_mediator.py` 的 `apply_ai_suggestions()` → `plugins/sqlseed-ai/`
-- [ ] 保留 `apply_batch_transforms()` + `apply_template_pool()` 在核心 `plugin_mediator.py`
-- [ ] Orchestrator 通过 pluggy hook 调用 AI（`plugins.hook.sqlseed_ai_analyze_table()`）
+- [x] `core/enrichment.py` **整体**保留在核心（`EnrichmentEngine` 是本地计算，无 AI 逻辑需移出）
+- [x] 移动 `core/plugin_mediator.py` 的 `apply_ai_suggestions()` → `plugins/sqlseed-ai/`
+- [x] 保留 `apply_batch_transforms()` + `apply_template_pool()` 在核心 `plugin_mediator.py`
+- [x] Orchestrator 通过 pluggy hook 调用 AI（`plugins.hook.sqlseed_ai_analyze_table()`）
 
 ### Phase D：MCP 范围收窄
-- [ ] 从 mcp-server-sqlseed 移除 `sqlseed_inspect_schema` 工具
-- [ ] 移除 `sqlseed_gemma4_analyze`, `sqlseed_gemma4_agent_fill`, `sqlseed_list_gemma_models` 工具
-- [ ] 移除 `sqlseed://schema` Resource
-- [ ] 仅保留 `sqlseed_generate_yaml`（规则驱动）+ `sqlseed_execute_fill`
-- [ ] 将 AI MCP 工具移至 `sqlseed-ai[mcp]`
+- [x] 从 mcp-server-sqlseed 移除 `sqlseed_inspect_schema` 工具
+- [x] 移除 `sqlseed_gemma4_analyze`, `sqlseed_gemma4_agent_fill`, `sqlseed_list_gemma_models` 工具
+- [x] 移除 `sqlseed://schema` Resource
+- [x] 仅保留 `sqlseed_generate_yaml`（规则驱动）+ `sqlseed_execute_fill`
+- [x] 将 AI MCP 工具移至 `sqlseed-ai[mcp]`
 
 ### Phase E：Gemma4 协议抽象
-- [ ] 确保 Gemma4 原生函数调用在 `analyzer/_tool_calling.py` 中作为协议实现
-- [ ] 确保 `AIConfig.backend` 使用标准后端（无 `gemma4`）
-- [ ] 确保 `AIConfig.tool_calling_protocol: Literal["gemma4", "openai", "none"]`
-- [ ] 无 `gemma4/` 子目录
-- [ ] 无需赛后清理（Gemma4 是长期后端）
+- [x] 确保 Gemma4 原生函数调用在 `analyzer/_tool_calling.py` 中作为协议实现
+- [x] 确保 `AIConfig.backend` 使用标准后端（无 `gemma4`）
+- [x] 确保 `AIConfig.tool_calling_protocol: Literal["gemma4", "openai", "none"]`
+- [x] 无 `gemma4/` 子目录
+- [x] 无需赛后清理（Gemma4 是长期后端）
 
 ### Phase F：测试重组
-- [ ] 核心测试保留在 `tests/`
-- [ ] 创建 `plugins/sqlseed-cli/tests/`
-- [ ] 移动 AI 测试到 `plugins/sqlseed-ai/tests/`
-- [ ] 移动 MCP 测试到 `plugins/mcp-server-sqlseed/tests/`
-- [ ] 更新 CI 按包运行测试
+- [x] 核心测试保留在 `tests/`
+- [x] 创建 `plugins/sqlseed-cli/tests/`
+- [x] 移动 AI 测试到 `plugins/sqlseed-ai/tests/`
+- [x] 移动 MCP 测试到 `plugins/mcp-server-sqlseed/tests/`
+- [x] 更新 CI 按包运行测试
 
 ### Phase G：文档同步（最终步骤）
-- [ ] 用所有对齐决策更新 `CLAUDE.md`
-- [ ] 用对应章节更新 `AGENTS.md`
-- [ ] `GEMINI.md` 保持指向 `CLAUDE.md` 的指针
-- [ ] 运行 `pytest tests/test_doc_sync.py` 验证一致性
+- [x] 用所有对齐决策更新 `CLAUDE.md`
+- [x] 用对应章节更新 `AGENTS.md`
+- [x] `GEMINI.md` 保持指向 `CLAUDE.md` 的指针
+- [x] 运行 `pytest tests/test_doc_sync.py` 验证一致性
 
 ---
 
@@ -402,7 +400,7 @@ sqlseed._utils（无内部依赖，被所有层使用）
 | 层 | 工具 | 防止什么 |
 |---|------|---------|
 | (a) 架构契约 | `lint-imports`（3 个契约） | 跨层依赖违规 |
-| (b) 架构守护测试 | `tests/test_architecture.py`（13 个测试） | 模块边界/数量契约漂移 |
+| (b) 架构守护测试 | `tests/test_architecture.py`（14 个测试） | 模块边界/数量契约漂移 |
 | (c) 变异测试 | `make mutmut` | 自证 mock 测试（量化基线） |
 | (d) 文档同步 | `tests/test_doc_sync.py` | 文档与代码数量不匹配 |
 

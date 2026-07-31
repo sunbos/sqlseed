@@ -15,7 +15,7 @@ mcp-server-sqlseed/
 │   ├── __main__.py                   # python -m support
 │   ├── config.py                     # MCPServerConfig (Pydantic)
 │   └── server.py                     # FastMCP server, 2 tools (no resources)
-├── tests/                            # pytest suite (test_server.py, test_validate_db_path.py)
+├── tests/                            # pytest suite (test_server.py, test_validate_db_path.py, test_config.py)
 ├── README.md                         # English documentation
 ├── README.zh-CN.md                   # Chinese documentation
 ├── AGENTS.md                         # This file

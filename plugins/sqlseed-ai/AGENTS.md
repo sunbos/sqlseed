@@ -12,7 +12,7 @@ The default schema-analysis path is the **v4 contract-driven self-healing archit
 
 ```
 sqlseed-ai/
-├── pyproject.toml        # Separate package: sqlseed>=0.1.0, openai>=1.0, httpx>=0.24.0
+├── pyproject.toml        # Separate package: sqlseed>=0.1.0, sqlseed-cli>=0.1.0, openai>=1.0, httpx>=0.24.0, networkx>=3.0
 └── src/sqlseed_ai/
     ├── __init__.py       # AISqlseedPlugin, plugin instance, hookimpl registration
     ├── analyzer/         # Layer 6 — SchemaAnalyzer (table-level LLM analysis), split into 5 mixin modules

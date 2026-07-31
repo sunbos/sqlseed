@@ -181,6 +181,7 @@ cd sqlseed
 pip install -e ".[dev,all]"
 
 # Optional plugins
+pip install -e "./plugins/sqlseed-cli"
 pip install -e "./plugins/sqlseed-ai"
 pip install -e "./plugins/mcp-server-sqlseed"
 
@@ -1071,14 +1072,21 @@ src/sqlseed/
 │   └── result.py            # GenerationResult dataclass
 ├── generators/              # ===== Generator Layer =====
 │   ├── _protocol.py         # DataProvider Protocol + UnknownGeneratorError
+│   ├── _dispatch.py         # GeneratorDispatchMixin.GENERATOR_MAP (35 types)
 │   ├── registry.py          # ProviderRegistry (entry-point auto-discovery)
 │   ├── base_provider.py     # Built-in base generators (zero dependencies)
 │   ├── faker_provider.py    # Faker adapter
 │   └── mimesis_provider.py  # Mimesis adapter
 ├── database/                # ===== Database Layer =====
 │   ├── _protocol.py         # DatabaseAdapter Protocol (ColumnInfo, ForeignKeyInfo, IndexInfo)
+│   ├── _base_adapter.py     # BaseRawSQLiteAdapter shared base
+│   ├── _dialect.py          # Dialect abstraction (SQLiteDialect/PostgresDialect)
+│   ├── _type_normalizer.py  # Cross-dialect type normalization
+│   ├── _bulk_optimizer.py   # Bulk write optimization (SQLite/Postgres)
+│   ├── _helpers.py          # Batch insert helpers
+│   ├── _sqlite_schema.py    # SQLite autoincrement detection (sqlite_master)
 │   ├── sqlalchemy_adapter.py    # Default adapter (SQLite/PostgreSQL)
-│   ├── raw_sqlite_adapter.py     # sqlite3 fallback adapter
+│   ├── raw_sqlite_adapter.py    # sqlite3 fallback adapter (test-only)
 │   └── optimizer.py         # PragmaOptimizer 3-tier optimization
 ├── plugins/                 # ===== Plugin Layer =====
 │   ├── hookspecs.py         # 12 pluggy hook definitions
@@ -1113,13 +1121,13 @@ plugins/
 pytest
 
 # Lint
-ruff check src/ tests/
+ruff check src/ tests/ plugins/
 
 # Auto-fix
-ruff check --fix src/ tests/
+ruff check --fix src/ tests/ plugins/
 
-# Type check
-mypy src/sqlseed/
+# Type check (strict on src/ and plugins/ per pyproject.toml)
+mypy
 ```
 
 Tests cover all core modules, with path structure mirroring `src/`: `test_core/`, `test_database/`, `test_generators/`, `test_plugins/`, `test_config/`, `test_utils/`.

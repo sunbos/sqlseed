@@ -29,6 +29,7 @@ First off, thank you for considering contributing to sqlseed! This document outl
 3. Install development dependencies:
    ```bash
    pip install -e ".[dev,all]"
+   pip install -e "./plugins/sqlseed-cli"
    pip install -e "./plugins/sqlseed-ai"
    pip install -e "./plugins/mcp-server-sqlseed"
    ```
@@ -142,7 +143,7 @@ Never commit directly to `main`. Always use a feature branch and create a PR.
 
 - Write tests for all new features
 - Follow the existing test naming convention: `test_<module>.py`
-- Use fixtures from `tests/conftest.py`
+- Use fixtures from the root `conftest.py`
 - Integration tests should use `testcontainers` for database tests
 - Aim for at least 80% coverage on new code
 

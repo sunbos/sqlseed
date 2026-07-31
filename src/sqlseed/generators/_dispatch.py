@@ -1,4 +1,4 @@
-"""Generator dispatch mixin. Maps 34 generator types to methods and dispatches calls."""
+"""Generator dispatch mixin. Maps 35 generator types to methods and dispatches calls."""
 
 from __future__ import annotations
 

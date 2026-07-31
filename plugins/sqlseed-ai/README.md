@@ -19,7 +19,7 @@ The sqlseed-ai plugin provides **3 CLI commands**:
 | Command | Purpose | When to Use |
 | :------ | :------ | :---------- |
 | `ai-suggest` | Per-table LLM analysis with self-correction | Single-table analysis with `--verify` validation |
-| `ai-analyze` | Full/partial DB analysis via v4 AutoHealOrchestrator (default) | Multi-table YAML generation with contract-driven self-healing |
+| `ai-analyze` | Full DB analysis via v4 AutoHealOrchestrator (default); filter options like `--tables` are accepted but not yet effective on the v4 path | Multi-table YAML generation with contract-driven self-healing |
 | `auto-heal` | Repair broken YAML configs via LLM + rule-based pipeline | Fix YAML files that fail `sqlseed fill` |
 
 ```bash
@@ -170,7 +170,10 @@ This plugin registers via `[project.entry-points."sqlseed"]` and implements:
 
 - Python >= 3.10
 - `sqlseed >= 0.1.0`
+- `sqlseed-cli >= 0.1.0`
 - `openai >= 1.0`
+- `httpx >= 0.24.0`
+- `networkx >= 3.0`
 - An OpenAI-compatible API key or Google AI Studio API key
 
 ## Gemma 4 Integration

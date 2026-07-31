@@ -31,7 +31,7 @@ sqlseed preview app.db -t users -n 5
 sqlseed inspect app.db --table users --show-mapping
 sqlseed init generate.yaml --db app.db
 sqlseed fill app.db -t users -n 100 --snapshot
-sqlseed replay <cache_dir>/snapshots/YYYY-MM-DD_users.yaml
+sqlseed replay <cache_dir>/snapshots/YYYY-MM-DD_HHMMSS_ffffff_users.yaml
 ```
 
 Multi-database connections via `--url`:

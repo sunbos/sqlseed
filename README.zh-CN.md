@@ -920,9 +920,9 @@ plugins/
 
 ```bash
 pytest                              # 运行测试
-ruff check src/ tests/              # 代码检查
-ruff check --fix src/ tests/        # 自动修复
-mypy src/sqlseed/                   # 类型检查
+ruff check src/ tests/ plugins/     # 代码检查
+ruff check --fix src/ tests/ plugins/  # 自动修复
+mypy                                # 类型检查（按 pyproject.toml 配置，src/ 与 plugins/ 严格模式）
 ```
 
 ### 依赖关系

@@ -19,7 +19,7 @@ sqlseed-ai 插件提供 **3 个 CLI 命令**：
 | 命令 | 用途 | 适用场景 |
 | :--- | :--- | :--- |
 | `ai-suggest` | 单表 LLM 分析 + 自纠正 | 单表分析，支持 `--verify` 校验 |
-| `ai-analyze` | 全库/部分表分析，走 v4 AutoHealOrchestrator（默认路径） | 多表 YAML 生成，含契约驱动自愈 |
+| `ai-analyze` | 全库分析，走 v4 AutoHealOrchestrator（默认路径）；`--tables` 等筛选参数已接受但 v4 路径暂未生效 | 多表 YAML 生成，含契约驱动自愈 |
 | `auto-heal` | 通过 LLM + 规则管道修复损坏的 YAML 配置 | 修复 `sqlseed fill` 失败的 YAML 文件 |
 
 ```bash
@@ -170,7 +170,10 @@ AI 配置缓存在平台标准缓存目录（macOS: `~/Library/Caches/sqlseed/ai
 
 - Python >= 3.10
 - `sqlseed >= 0.1.0`
+- `sqlseed-cli >= 0.1.0`
 - `openai >= 1.0`
+- `httpx >= 0.24.0`
+- `networkx >= 3.0`
 - OpenAI 兼容 API Key 或 Google AI Studio API Key
 
 ## Gemma 4 集成

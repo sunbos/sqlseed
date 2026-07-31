@@ -87,10 +87,7 @@ sqlseed is a **declarative multi-database test data generation toolkit**. It foc
 ## 3. Module Responsibilities
 
 > [!IMPORTANT]
-> The following describes the **target architecture** after refactoring (Phase A-G).
-> Current code differs — see Section 8 "Refactoring Checklist" for the gap and execution steps.
-> Method/function names shown here are the **target names**; where current code differs, the
-> current name is noted in parentheses.
+> This architecture has been fully implemented (Phases A–G complete); Section 8 retained as historical record.
 
 ### 3.1 Core Package (`src/sqlseed/`)
 
@@ -120,13 +117,13 @@ sqlseed is a **declarative multi-database test data generation toolkit**. It foc
 
 **Moves OUT of core** (to plugins):
 
-| Current Location | Destination | Reason |
+| Original Location (pre-refactor) | Destination | Reason |
 |-----------------|-------------|--------|
 | `cli/` (entire directory) | `plugins/sqlseed-cli/` | CLI is optional, depends on click/rich |
 | `cli/ai_commands.py` | `plugins/sqlseed-ai/` | AI CLI command, needs network |
 | `core/plugin_mediator.py` `apply_ai_suggestions()` | `plugins/sqlseed-ai/` | AI-specific mediation |
 
-**Deleted** (MySQL support):
+**Deleted** (MySQL support) — all items executed (Phase A complete):
 
 | Location | Action |
 |----------|--------|
@@ -350,52 +347,52 @@ With 4 independent packages (`sqlseed`, `sqlseed-cli`, `sqlseed-ai`, `mcp-server
 Work items to align code with this document (to be executed in separate branches):
 
 ### Phase A: MySQL Removal
-- [ ] Clean MySQL mentions in `database/_dialect.py` (comments/docstrings only, no `MySQLDialect` class)
-- [ ] Delete `_MYSQL_TYPE_MAP` + `dialect_name == "mysql"` branch in `database/_type_normalizer.py`
-- [ ] Delete `if "mysql" in db_url` + `if dialect_name == "mysql"` branches in `database/sqlalchemy_adapter.py`
-- [ ] Delete `mysql` optional dep in `pyproject.toml`
-- [ ] Delete MySQL references in tests and docs
+- [x] Clean MySQL mentions in `database/_dialect.py` (comments/docstrings only, no `MySQLDialect` class)
+- [x] Delete `_MYSQL_TYPE_MAP` + `dialect_name == "mysql"` branch in `database/_type_normalizer.py`
+- [x] Delete `if "mysql" in db_url` + `if dialect_name == "mysql"` branches in `database/sqlalchemy_adapter.py`
+- [x] Delete `mysql` optional dep in `pyproject.toml`
+- [x] Delete MySQL references in tests and docs
 
 ### Phase B: CLI Extraction
-- [ ] Create `plugins/sqlseed-cli/` package with own `pyproject.toml`
-- [ ] Move `src/sqlseed/cli/` → `plugins/sqlseed-cli/src/sqlseed_cli/`
-- [ ] Move `ai_commands.py` → `plugins/sqlseed-ai/src/sqlseed_ai/cli/`
-- [ ] Remove `[project.scripts]` from core `pyproject.toml`
-- [ ] Add `cli` optional dep pointing to `sqlseed-cli`
-- [ ] Move CLI tests to `plugins/sqlseed-cli/tests/`
+- [x] Create `plugins/sqlseed-cli/` package with own `pyproject.toml`
+- [x] Move `src/sqlseed/cli/` → `plugins/sqlseed-cli/src/sqlseed_cli/`
+- [x] Move `ai_commands.py` → `plugins/sqlseed-ai/src/sqlseed_ai/cli/`
+- [x] Remove `[project.scripts]` from core `pyproject.toml`
+- [x] Add `cli` optional dep pointing to `sqlseed-cli`
+- [x] Move CLI tests to `plugins/sqlseed-cli/tests/`
 
 ### Phase C: AI Code Extraction
-- [ ] `core/enrichment.py` stays **entirely** in core (`EnrichmentEngine` is local computation, no AI logic to move)
-- [ ] Move `core/plugin_mediator.py` `apply_ai_suggestions()` → `plugins/sqlseed-ai/`
-- [ ] Keep `apply_batch_transforms()` + `apply_template_pool()` in core `plugin_mediator.py`
-- [ ] Orchestrator calls AI via pluggy hook (`plugins.hook.sqlseed_ai_analyze_table()`)
+- [x] `core/enrichment.py` stays **entirely** in core (`EnrichmentEngine` is local computation, no AI logic to move)
+- [x] Move `core/plugin_mediator.py` `apply_ai_suggestions()` → `plugins/sqlseed-ai/`
+- [x] Keep `apply_batch_transforms()` + `apply_template_pool()` in core `plugin_mediator.py`
+- [x] Orchestrator calls AI via pluggy hook (`plugins.hook.sqlseed_ai_analyze_table()`)
 
 ### Phase D: MCP Scope Narrowing
-- [ ] Remove `sqlseed_inspect_schema` tool from mcp-server-sqlseed
-- [ ] Remove `sqlseed_gemma4_analyze`, `sqlseed_gemma4_agent_fill`, `sqlseed_list_gemma_models` tools
-- [ ] Remove `sqlseed://schema` Resource
-- [ ] Keep only `sqlseed_generate_yaml` (rule-driven) + `sqlseed_execute_fill`
-- [ ] Move AI MCP tools to `sqlseed-ai[mcp]`
+- [x] Remove `sqlseed_inspect_schema` tool from mcp-server-sqlseed
+- [x] Remove `sqlseed_gemma4_analyze`, `sqlseed_gemma4_agent_fill`, `sqlseed_list_gemma_models` tools
+- [x] Remove `sqlseed://schema` Resource
+- [x] Keep only `sqlseed_generate_yaml` (rule-driven) + `sqlseed_execute_fill`
+- [x] Move AI MCP tools to `sqlseed-ai[mcp]`
 
 ### Phase E: Gemma4 Protocol Abstraction
-- [ ] Ensure Gemma4 native function calling is in `analyzer/_tool_calling.py` as protocol implementation
-- [ ] Ensure `AIConfig.backend` uses standard backends (no `gemma4`)
-- [ ] Ensure `AIConfig.tool_calling_protocol: Literal["gemma4", "openai", "none"]`
-- [ ] NO `gemma4/` subdirectory
-- [ ] NO post-competition cleanup needed (Gemma4 is long-term backend)
+- [x] Ensure Gemma4 native function calling is in `analyzer/_tool_calling.py` as protocol implementation
+- [x] Ensure `AIConfig.backend` uses standard backends (no `gemma4`)
+- [x] Ensure `AIConfig.tool_calling_protocol: Literal["gemma4", "openai", "none"]`
+- [x] NO `gemma4/` subdirectory
+- [x] NO post-competition cleanup needed (Gemma4 is long-term backend)
 
 ### Phase F: Test Reorganization
-- [ ] Core tests stay in `tests/`
-- [ ] Create `plugins/sqlseed-cli/tests/`
-- [ ] Move AI tests to `plugins/sqlseed-ai/tests/`
-- [ ] Move MCP tests to `plugins/mcp-server-sqlseed/tests/`
-- [ ] Update CI to run tests per-package
+- [x] Core tests stay in `tests/`
+- [x] Create `plugins/sqlseed-cli/tests/`
+- [x] Move AI tests to `plugins/sqlseed-ai/tests/`
+- [x] Move MCP tests to `plugins/mcp-server-sqlseed/tests/`
+- [x] Update CI to run tests per-package
 
 ### Phase G: Documentation Sync (Final Step)
-- [ ] Update `CLAUDE.md` with all alignment decisions
-- [ ] Update `AGENTS.md` with corresponding sections
-- [ ] `GEMINI.md` remains pointer to `CLAUDE.md`
-- [ ] Run `pytest tests/test_doc_sync.py` to verify consistency
+- [x] Update `CLAUDE.md` with all alignment decisions
+- [x] Update `AGENTS.md` with corresponding sections
+- [x] `GEMINI.md` remains pointer to `CLAUDE.md`
+- [x] Run `pytest tests/test_doc_sync.py` to verify consistency
 
 ---
 
@@ -406,7 +403,7 @@ Four complementary layers prevent core code corruption and mock self-proving tra
 | Layer | Tool | What It Prevents |
 |-------|------|-----------------|
 | (a) Architecture contracts | `lint-imports` (3 contracts) | Cross-layer dependency violations |
-| (b) Architecture guard tests | `tests/test_architecture.py` (13 tests) | Module boundary / count contract drift |
+| (b) Architecture guard tests | `tests/test_architecture.py` (14 tests) | Module boundary / count contract drift |
 | (c) Mutation testing | `make mutmut` | Self-proving mock tests (quantified baseline) |
 | (d) Doc sync | `tests/test_doc_sync.py` | Documentation vs code count mismatches |
 

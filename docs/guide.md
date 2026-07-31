@@ -353,9 +353,9 @@ sqlseed ai-suggest app.db --table projects --output projects.yaml --verify
 sqlseed ai-suggest app.db --table projects --output projects.yaml \
     --model gemma-4-26b-a4b-it
 
-# Use local LM Studio / Ollama
-sqlseed ai-suggest app.db --table projects --output projects.yaml \
-    --backend lm_studio --model google/gemma-4-e4b
+# Use local LM Studio / Ollama (backend selected via environment variable)
+SQLSEED_AI_BACKEND=lm_studio sqlseed ai-suggest app.db --table projects --output projects.yaml \
+    --model google/gemma-4-e4b
 
 # Skip cache
 sqlseed ai-suggest app.db --table projects --output projects.yaml --no-cache
@@ -500,8 +500,15 @@ sqlseed ships with 35 built-in generators. The most common ones:
 | `zip_code` | Zip/Postal code | — |
 | `job_title` | Job title | — |
 | `country_code` | Country code | — |
+| `catch_phrase` | Business catch phrase (multi-word) | — |
+| `template` | Formatted string with placeholders | `template`, `sequence_start`, `sequence_step` |
+| `weighted_choice` | Weighted random pick | `choices` (list of `{value, weight}`) or `weighted_choices` (dict) |
 | `foreign_key` | FK reference | `ref_table`, `ref_column`, `strategy` |
 | `skip` | Skip (use default/NULL) | — |
+
+`foreign_key` and `skip` are special pseudo-generators: they are handled
+directly by the `RelationResolver` / `DataStream` and are not registered in
+`GENERATOR_MAP`.
 
 ### Constraints
 
@@ -720,8 +727,8 @@ Cursor, etc.) via the [Model Context Protocol](https://modelcontextprotocol.io/)
 # Install MCP server
 pip install mcp-server-sqlseed
 
-# All-in-one: MCP server + AI support
-pip install mcp-server-sqlseed[ai]
+# All-in-one: MCP server + AI support (4 Gemma 4 tools)
+pip install "sqlseed-ai[mcp]"
 
 # Manual start (usually managed by MCP client)
 python -m mcp_server_sqlseed
@@ -743,12 +750,18 @@ Claude Desktop example (`claude_desktop_config.json`):
 
 ### Tools
 
+The base `mcp-server-sqlseed` package ships two rule-driven tools (no LLM):
+
 | Type | Name | Description |
 |------|------|-------------|
-| 📖 Resource | `sqlseed://schema/{db_path}/{table_name}` | Get table schema as JSON |
-| 🔍 Tool | `sqlseed_inspect_schema` | Inspect schema (columns, FK, indexes, samples, schema_hash) |
-| 🤖 Tool | `sqlseed_generate_yaml` | AI-driven YAML config generation with self-correction |
+| 🤖 Tool | `sqlseed_generate_yaml` | Rule-driven YAML config generation via `ColumnMapper` (offline, deterministic, no LLM) |
 | ⚡ Tool | `sqlseed_execute_fill` | Execute data generation (supports YAML config string, includes `enrich`) |
+
+Installing `sqlseed-ai[mcp]` adds four LLM-driven tools:
+
+| Type | Name | Description |
+|------|------|-------------|
+| 🤖 Tool | `sqlseed_ai_generate_yaml` | LLM-driven YAML config generation (semantic schema analysis) |
 | 🧠 Tool | `sqlseed_gemma4_analyze` | Analyze schema using Gemma 4 with Native Function Calling |
 | 🧠 Tool | `sqlseed_gemma4_agent_fill` | End-to-end Agent workflow (analyze → config → fill) |
 | 🧠 Tool | `sqlseed_list_gemma_models` | List available Gemma 4 models and backend status |
@@ -760,9 +773,8 @@ Once configured, you can tell your AI assistant:
 > "Analyze the structure of the `projects` table in `app.db`, generate a YAML
 > config, then fill 5000 rows."
 
-The AI assistant will call `sqlseed_inspect_schema` →
-`sqlseed_generate_yaml` → `sqlseed_execute_fill` in sequence, without you
-writing any code.
+The AI assistant will call `sqlseed_ai_generate_yaml` →
+`sqlseed_execute_fill` in sequence, without you writing any code.
 
 ---
 
@@ -778,13 +790,13 @@ Level 2 │ User config         columns={"email": "email"} highest priority
         ▼
 Level 3 │ Custom exact match  Rules registered via plugin hooks
         ▼
-Level 4 │ Built-in exact      74 rules: email→email, phone→phone, age→integer...
+Level 4 │ Built-in exact      75 rules: email→email, phone→phone, age→integer...
         ▼
 Level 5 │ DEFAULT check        Has default → skip / __enrich__ (when enrich=True)
         ▼
 Level 6 │ Custom pattern       Regex rules registered via plugin hooks
         ▼
-Level 7 │ Built-in pattern     27 regexes: *_at→datetime, *_id→foreign_key, is_*→boolean...
+Level 7 │ Built-in pattern     29 regexes: *_at→datetime, *_id→foreign_key, is_*→boolean...
         ▼
 Level 8 │ NULLABLE fallback    Nullable → skip / __enrich__
         ▼
@@ -912,8 +924,9 @@ Install the AI plugin separately:
 pip install sqlseed-ai
 ```
 
-The CLI silently degrades when `sqlseed-ai` is missing — `ai-suggest` will
-report that the plugin is required.
+When `sqlseed-ai` is not installed, `sqlseed ai-suggest` fails with click's
+`No such command` error. If the plugin is installed but fails to load, the
+CLI emits a `WARNING` log instead.
 
 ---
 

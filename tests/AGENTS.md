@@ -39,7 +39,7 @@ tests/
 
 | Task | Location | Notes |
 |------|----------|-------|
-| Add fixture | `conftest.py` | tmp_db, tmp_db_with_data, unique_test_db |
+| Add fixture | root `conftest.py` (not tests/) | tmp_db, tmp_db_with_data, unique_test_db |
 | Test new generator | `test_generators/` | Mirror generators/ structure |
 | Test core logic | `test_core/` | Mirror core/ structure |
 | Test CLI | `plugins/sqlseed-cli/tests/` | Click CliRunner |

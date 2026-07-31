@@ -265,14 +265,14 @@ detected from the file extension (`.yaml`/`.yml` or `.json`).
 ```python
 from sqlseed import load_config
 
-config = load_config(config_path: str) -> GeneratorConfig
+config = load_config(path: str) -> GeneratorConfig
 ```
 
 **Parameters**
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `config_path` | `str` | — | Path to a YAML or JSON config file. **Required.** |
+| `path` | `str` | — | Path to a YAML or JSON config file. **Required.** |
 
 **Returns**
 
@@ -313,8 +313,10 @@ class GeneratorConfig(BaseModel):
     locale: str = "en_US"
     tables: list[TableConfig] = []
     associations: list[ColumnAssociation] = []
+    custom_column_mappings: CustomColumnMappings | None = None
     optimize_pragma: bool = True
     snapshot_dir: str | None = None
+    log_level: str | None = None  # deprecated
 ```
 
 **Properties**
@@ -367,7 +369,7 @@ class ColumnConfig(BaseModel):
     null_ratio: float = 0.0     # 0.0–1.0
 
     # Derived-column mode
-    derive_from: str | None = None
+    derive_from: str | list[str] | None = None  # source column name(s)
     expression: str | None = None
 
     # Constraints

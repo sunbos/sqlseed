@@ -230,13 +230,13 @@ flowchart TD
     L6{"Level 6<br/>Custom pattern match?"} -->|Match| R6["Use plugin-registered regex rules"]
     L6 -->|No match| L7
 
-    L7{"Level 7<br/>Built-in pattern match?<br/>(<!-- BEGIN:AUTO-GENERATED:pattern-match-rule-count -->29<!-- END:AUTO-GENERATED:pattern-match-rule-count --> regexes)"} -->|Match| R7["*_at→datetime<br/>*_id / *_no→foreign_key_or_integer<br/>is_*→boolean<br/>..."]
+    L7{"Level 7<br/>Built-in pattern match?<br/>(<!-- BEGIN:AUTO-GENERATED:pattern-match-rule-count -->29<!-- END:AUTO-GENERATED:pattern-match-rule-count --> regexes)"} -->|Match| R7["*_at→datetime<br/>*_id→foreign_key_or_integer, *_no→string(alnum)<br/>is_*→boolean<br/>..."]
     L7 -->|No match| L8
 
     L8{"Level 8<br/>Nullable?"} -->|Yes| R8["skip (skip generation)<br/>or __enrich__"]
     L8 -->|No| L9
 
-    L9{"Level 9<br/>Type-faithful fallback<br/>(22 SQL types)"} -->|Match| R9["VARCHAR(32)→max 32 chars<br/>INT8→0~255<br/>BLOB(1024)→1024 bytes"]
+    L9{"Level 9<br/>Type-faithful fallback<br/>(32 SQL types)"} -->|Match| R9["VARCHAR(32)→max 32 chars<br/>INT8→0~255<br/>BLOB(1024)→1024 bytes"]
     L9 -->|No match| L10
 
     L10["Default"] --> R10["string<br/>(min=5, max=50)"]
@@ -467,7 +467,7 @@ flowchart TB
 
     subgraph Analyzer["SchemaAnalyzer"]
         Context["Build context<br/>columns + indexes + FK + samples + distribution"]
-        FewShot["Inject few-shot examples<br/>(4 typical scenarios)"]
+        FewShot["Inject few-shot examples<br/>(6 typical scenarios)"]
         SysPrompt["System Prompt<br/>generator list + output format"]
         LLM["Call LLM<br/>AIBackend multi-backend<br/>OpenAI API / Gemma 4 GEMMA_TOOLS<br/>response_format: json_object"]
     end
@@ -506,6 +506,7 @@ flowchart TB
         E5["column_mismatch"]
         E6["empty_config"]
         E7["fatal (non-retryable)"]
+        E8["runtime_error (catch-all)"]
     end
 
     CLICmd --> Analyzer
@@ -580,13 +581,16 @@ flowchart TB
 ```mermaid
 classDiagram
     class GeneratorConfig {
-        +db_path: str
+        +db_path: str | None
+        +url: str | None
         +provider: ProviderType = MIMESIS
         +locale: str = "en_US"
         +tables: list~TableConfig~
         +associations: list~ColumnAssociation~
+        +custom_column_mappings: CustomColumnMappings | None
         +optimize_pragma: bool = True
         +snapshot_dir: str | None
+        +log_level: str | None (deprecated)
     }
 
     class TableConfig {
@@ -612,6 +616,10 @@ classDiagram
         +expression: str | None
         --- Constraints ---
         +constraints: ColumnConstraintsConfig | None
+        --- Native method overrides ---
+        +faker_method: str | None
+        +mimesis_method: str | None
+        +native_params: dict
         +validate_column_mode() ⚠️ mutually exclusive
     }
 

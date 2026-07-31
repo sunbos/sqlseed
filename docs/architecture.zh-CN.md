@@ -230,13 +230,13 @@ flowchart TD
     L6{"Level 6<br/>自定义模式匹配？"} -->|匹配| R6["使用插件注册的正则规则"]
     L6 -->|未匹配| L7
 
-    L7{"Level 7<br/>内置模式匹配？<br/>(<!-- BEGIN:AUTO-GENERATED:pattern-match-rule-count -->29<!-- END:AUTO-GENERATED:pattern-match-rule-count --> 条正则)"} -->|匹配| R7["*_at→datetime<br/>*_id / *_no→foreign_key_or_integer<br/>is_*→boolean<br/>..."]
+    L7{"Level 7<br/>内置模式匹配？<br/>(<!-- BEGIN:AUTO-GENERATED:pattern-match-rule-count -->29<!-- END:AUTO-GENERATED:pattern-match-rule-count --> 条正则)"} -->|匹配| R7["*_at→datetime<br/>*_id→foreign_key_or_integer, *_no→string(alnum)<br/>is_*→boolean<br/>..."]
     L7 -->|未匹配| L8
 
     L8{"Level 8<br/>可 NULL？"} -->|是| R8["skip (跳过生成)<br/>或 __enrich__"]
     L8 -->|否| L9
 
-    L9{"Level 9<br/>类型忠实回退<br/>(22 种 SQL 类型)"} -->|匹配| R9["VARCHAR(32)→max 32 字符<br/>INT8→0~255<br/>BLOB(1024)→1024 字节"]
+    L9{"Level 9<br/>类型忠实回退<br/>(32 种 SQL 类型)"} -->|匹配| R9["VARCHAR(32)→max 32 字符<br/>INT8→0~255<br/>BLOB(1024)→1024 字节"]
     L9 -->|未匹配| L10
 
     L10["默认"] --> R10["string<br/>(min=5, max=50)"]
@@ -467,7 +467,7 @@ flowchart TB
 
     subgraph Analyzer["SchemaAnalyzer"]
         Context["构建上下文<br/>列 + 索引 + FK + 样本 + 分布"]
-        FewShot["注入 Few-shot 示例<br/>(4 个典型场景)"]
+        FewShot["注入 Few-shot 示例<br/>(6 个典型场景)"]
         SysPrompt["System Prompt<br/>生成器列表 + 输出格式"]
         LLM["调用 LLM<br/>AIBackend 多后端路由<br/>OpenAI API / Gemma 4 GEMMA_TOOLS<br/>response_format: json_object"]
     end
@@ -506,6 +506,7 @@ flowchart TB
         E5["column_mismatch"]
         E6["empty_config"]
         E7["fatal (不可重试)"]
+        E8["runtime_error (兜底)"]
     end
 
     CLICmd --> Analyzer
@@ -580,13 +581,16 @@ flowchart TB
 ```mermaid
 classDiagram
     class GeneratorConfig {
-        +db_path: str
+        +db_path: str | None
+        +url: str | None
         +provider: ProviderType = MIMESIS
         +locale: str = "en_US"
         +tables: list~TableConfig~
         +associations: list~ColumnAssociation~
+        +custom_column_mappings: CustomColumnMappings | None
         +optimize_pragma: bool = True
         +snapshot_dir: str | None
+        +log_level: str | None (已废弃)
     }
 
     class TableConfig {
@@ -612,6 +616,10 @@ classDiagram
         +expression: str | None
         --- 约束 ---
         +constraints: ColumnConstraintsConfig | None
+        --- 原生方法覆盖 ---
+        +faker_method: str | None
+        +mimesis_method: str | None
+        +native_params: dict
         +validate_column_mode() ⚠️ 互斥
     }
 

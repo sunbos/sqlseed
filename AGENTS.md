@@ -11,7 +11,7 @@ Declarative Multi-Database test data generation toolkit. YAML/JSON config or Pyt
 
 **Architecture**: 4 independent packages — `sqlseed` (core, offline), `sqlseed-cli` (CLI plugin), `sqlseed-ai` (AI plugin), `mcp-server-sqlseed` (MCP plugin; module path is `mcp_server_sqlseed`, note the underscore). See [ARCHITECTURE.md](./ARCHITECTURE.md) for the authoritative architecture reference; [CLAUDE.md](./CLAUDE.md) has the canonical "Never/Always" rules.
 
-**Current work**: the `sqlseed-ai` self-healing subsystem (`auto_heal/`, `healer/`, `validator/`, `repair/`, `contracts/`) — contract-driven, multi-level repair pipeline. Regression reports live in `data_quality_demo/` (r1–r8 scenarios). Do not delete these without checking.
+**Current work**: the `sqlseed-ai` self-healing subsystem (`auto_heal/`, `healer/`, `validator/`, `repair/`, `contracts/`) — contract-driven, multi-level repair pipeline.
 
 ## STRUCTURE
 
@@ -30,7 +30,6 @@ sqlseed/
 │   ├── sqlseed-cli/      # CLI plugin: fill, preview, inspect, init, replay (separate package)
 │   ├── sqlseed-ai/       # AI plugin: LLM schema analysis + self-healing (healer/, validator/, repair/, contracts/)
 │   └── mcp-server-sqlseed/  # MCP server: rule-driven YAML gen + execute_fill (no LLM)
-├── data_quality_demo/    # Regression scenarios (r1–r8) + reports; scratch space, not shipped
 ├── scripts/              # Helper scripts (run scripts, validation harnesses)
 ├── docs/                 # mkdocs-material site
 └── examples/             # Usage examples
@@ -38,7 +37,7 @@ sqlseed/
 
 ## MODULE-LEVEL AGENTS.md
 
-The repo ships 22 nested `AGENTS.md` files, one per package/test subdir. **Before editing a module, read the nearest `AGENTS.md`** for that area's local conventions and gotchas:
+The repo ships 22 `AGENTS.md` files (1 root + 21 nested), one per package/test subdir. **Before editing a module, read the nearest `AGENTS.md`** for that area's local conventions and gotchas:
 
 ```
 src/sqlseed/AGENTS.md                      (core package root)
@@ -71,7 +70,7 @@ This root file is the index; module-level files carry the detail. When adding a 
 | Add plugin hook | `src/sqlseed/plugins/hookspecs.py` | pluggy hookspec |
 | Modify schema inference | `src/sqlseed/core/schema.py` | SchemaInferrer class |
 | Change batch insert | `src/sqlseed/database/` | SQLAlchemyAdapter (required), RawSQLiteAdapter (test-only) |
-| Add test fixture | `tests/conftest.py` | tmp_db, tmp_db_with_data, unique_test_db (plugin tests re-export from here) |
+| Add test fixture | `conftest.py` (repo root) | tmp_db, tmp_db_with_data, unique_test_db (auto-discovered by all tests) |
 | Configure AI plugin | `plugins/sqlseed-ai/` | Separate pyproject.toml, Gemma 4 multi-backend, `tool_calling_protocol` field |
 | Add MCP tool | `plugins/mcp-server-sqlseed/` | FastMCP, 2 tools (generate_yaml rule-driven, execute_fill). AI tools in sqlseed-ai[mcp] |
 
@@ -196,7 +195,7 @@ The `feat/contract-driven-self-healing` branch adds a contract-driven, multi-lev
 
 - **Layer 1 — `contracts/`** — Sparse contract matrix + resolver. `ContractViolation` defines a single bad generator/type/constraints combination; `ContractResolver` merges builtin + learned violations with specificity-priority matching. The matrix is a *closed set* — only known-bad combinations are listed; unlisted combinations default to COMPATIBLE. `builtin_violations.py` ships the seed violations; `registry.py` exposes the lookup API.
 - **Layer 2 — `validator/`** — `FastValidator` orchestrates five components: `single_column` (per-column contract + cardinality), `cross_column` (FK integrity + derive_from DAG cycle detection), `composite_fk`, `shadow_fk_scan` (localize SQLite FK violation column), `dialect_parser` (normalize DBAPI exceptions to `ViolationReport`). `schema_snapshot.py` records `schema_hash` at startup for optimistic-lock re-check at write time.
-- **Layer 3 — `repair/`** — Stateless repair engine. Each strategy is a pure function `RepairFn = Callable[[dict, ViolationReport, dict], dict]` registered in `REPAIR_STRATEGIES`. `strategies.py` ships canonical strategies — notably `normalize_params` (strips params not in `_GENERATOR_PARAM_WHITELIST` for ALL generators), `coerce_int_float` (`random_float` → `random_int` for INTEGER columns), plus derive_from cleanup, date-column generator fixes, CHECK-chain mirroring. `executor.py` applies strategies by `fix_hint` dispatch; `pipeline.py` chains them.
+- **Layer 3 — `repair/`** — Stateless repair engine. Each strategy is a pure function `RepairFn = Callable[[dict, ViolationReport, dict], dict]` registered in `REPAIR_STRATEGIES`. `strategies.py` ships canonical strategies — notably `normalize_params` (strips params not in `_GENERATOR_PARAM_WHITELIST` for ALL generators), `coerce_float_to_int` (`random_float` → `random_int` for INTEGER columns), plus derive_from cleanup, date-column generator fixes, CHECK-chain mirroring. `executor.py` applies strategies by `fix_hint` dispatch; `pipeline.py` chains them.
 - **Layer 4 — `healer/`** — 4-level LLM heal architecture with failure-type-aware routing. `orchestrator.py` (`HealOrchestrator`) coordinates: Level 1 (subgraph) → Level 2 (column) → Level 3 (compact) → Level 4 (deterministic degrade). Supporting: `failure_classifier` (6 types: `CONTEXT_OVERFLOW`/`EMPTY_RESPONSE`/`JSON_FORMAT`/`SEMANTIC`/`NETWORK`/`UNKNOWN`), `oscillation`, `degrader` (semantic downgrade safety net), `post_repair` (broken FK edge aligner), `diff_learner` (persists learned violations back to Layer 1), `subgraph` (Tarjan SCC + megacluster breaking), `context_detector` (dynamic context-window detection, skips Level 1 if token estimate > 60% of window). Routing: `CONTEXT_OVERFLOW`/`EMPTY_RESPONSE` → Level 2; `JSON_FORMAT` → Level 3; `SEMANTIC` → Level 4; `NETWORK` → raise.
 - **Layer 5 — `auto_heal/`** — `AutoHealOrchestrator` (`orchestrator.py`) is the top-level entry point for `ai-analyze` (default v4 path), `ai-suggest --auto-heal`, and the standalone `auto-heal` command. Pipeline: SchemaSnapshot → SubgraphSplitter → per-subgraph (Layer 2 validate → Layer 3 repair → Layer 4 heal) → BrokenEdgeAligner → optimistic-lock schema_hash re-check → emit YAML. `time_budget.py` (`TimeBudgetController`) enforces wall-clock budget. `_build_subgraph_config()` performs deterministic CHECK-constraint inference before any LLM call (see gotchas below).
 - **Layer 6 — `analyzer/`** — LLM table-level analysis with streaming/tool-calling submodules (`_caller`, `_streaming`, `_tool_calling` [protocol-based: `gemma4`/`openai`/`none`], `_context`, `_json_parser`). Used by the non-auto-heal `ai-suggest` path.
@@ -206,7 +205,7 @@ The `feat/contract-driven-self-healing` branch adds a contract-driven, multi-lev
 - `degrader.py` is the "semantic downgrade safety net" — stripping generator/params when `derive_from` is present is intentional (see commit `78d15f9`).
 - Self-referencing and composite FK resolution has many edge-case fixes (two-pass fill, `null_ratio=1.0` for empty-parent FK). See recent commits before changing `relation.py` / `_generation.py`.
 - `refiner.py` delegates Rule #14 param stripping to v4 `REPAIR_STRATEGIES["normalize_params"]` — don't re-implement there.
-- The legacy `Stage3Validator` (36 numbered rules), `SchemaSemanticAnalyzer`, and `StagedSchemaAnalyzer` were deleted in Phase 4 zero-rot cleanup — no dual-track system. Migration: Rule #14 → `normalize_params`; Rule #26 → `coerce_int_float`; Rule #35 → derive_from cleanup; Rule #36 → date-column generator coercion. Full matrix in `docs/superpowers/plans/v4_coverage_matrix.md`.
+- The legacy `Stage3Validator` (36 numbered rules), `SchemaSemanticAnalyzer`, and `StagedSchemaAnalyzer` were deleted in Phase 4 zero-rot cleanup — no dual-track system. Migration: Rule #14 → `normalize_params`; Rule #26 → `coerce_float_to_int`; Rule #35 → derive_from cleanup; Rule #36 → date-column generator coercion. Full matrix in `docs/superpowers/plans/v4_coverage_matrix.md`.
 
 ## DOCS TO READ BEFORE SENSITIVE EDITS
 
@@ -271,9 +270,9 @@ sqlseed preview app.db -t users -n 5
 sqlseed inspect app.db --show-mapping
 ```
 
-## TEST FIXTURES (`tests/conftest.py`)
+## TEST FIXTURES (root `conftest.py`)
 
-Core fixtures (plugin conftests re-export these via `from tests.conftest import ...`):
+Core fixtures (auto-discovered from the root `conftest.py`; plugin conftests only reuse helper functions from `tests/conftest.py` via importlib):
 
 - `tmp_db_simple` — simple single-table DB (id + name)
 - `tmp_db_full` — full multi-table DB (users + orders with FK)
@@ -321,7 +320,7 @@ When preparing a new version release:
 - **Plugin isolation**: sqlseed-cli, sqlseed-ai, mcp-server-sqlseed each have separate pyproject.toml, install separately. `mcp-server-sqlseed` installs as package `mcp-server-sqlseed` but its import module is **`mcp_server_sqlseed`** (hyphens → underscores); `server.py` exposes the FastMCP server, `__main__` is the entrypoint.
 - **Core has no CLI**: `src/sqlseed/` has no `cli/` directory. Install `sqlseed-cli` to get the `sqlseed` command. Core has no `[project.scripts]`.
 - **mypy strict**: Strict on `src/` and `plugins/` source code; test directories (`tests/`, `plugins/*/tests/`) excluded.
-- **ruff config**: Line length 120, isort known-first-party=["sqlseed"], known-third-party=["sqlseed_ai", "sqlseed_cli"].
-- **Test layout**: Core tests in `tests/`; plugin tests co-located with plugins (`plugins/*/tests/`). Plugin conftest re-exports root fixtures from `tests/conftest.py`.
-- **`data_quality_demo/` and `scripts/` are scratch**: regression logs, generated `.db`/`.sql`/`.yaml` files, and ad-hoc harnesses. Useful as references for the self-healing scenarios but not shipped artifacts — don't rely on their contents being stable.
+- **ruff config**: Line length 120, isort known-first-party=["sqlseed"], known-third-party=["sqlseed_ai", "sqlseed_cli", "mcp_server_sqlseed"].
+- **Test layout**: Core tests in `tests/`; plugin tests co-located with plugins (`plugins/*/tests/`). Fixtures live in the root `conftest.py` (auto-discovered); plugin conftests only reuse helper functions from `tests/conftest.py` via importlib.
+- **`scripts/` is scratch**: regression logs, generated `.db`/`.sql`/`.yaml` files, and ad-hoc harnesses. Useful as references for the self-healing scenarios but not shipped artifacts — don't rely on their contents being stable.
 - **Sibling agent files**: `CLAUDE.md` is the canonical rules source (Never/Always + Critical Pitfalls + Key Modules detail); `GEMINI.md` is a pointer to `CLAUDE.md` (single source of truth — don't reconcile them as divergent copies). `AGENTS.md` (this file) is the project knowledge base index. All three are kept in sync; when in doubt, `CLAUDE.md` wins on rules, `ARCHITECTURE.md` wins on architecture decisions.

@@ -46,7 +46,7 @@ def _convert_spec_to_column_entry(col_name: str, spec: GeneratorSpec) -> dict[st
 def sqlseed_generate_yaml(db_path: str, table_name: str) -> str:
     """Generate a YAML config template for a table using rule-driven column mapping.
 
-    Uses sqlseed's core ``ColumnMapper`` (76 exact rules + 29 regex patterns)
+    Uses sqlseed's core ``ColumnMapper`` (75 exact rules + 29 regex patterns)
     to infer a generator for each column. Offline, deterministic, no LLM
     required. For LLM-driven semantic inference, use the
     ``sqlseed_ai_generate_yaml`` tool from the ``sqlseed-ai[mcp]`` package.

@@ -41,7 +41,7 @@ generators/
 
 ## ANTI-PATTERNS
 
-- **NEVER** import mimesis at module top → use try/except (lazy import). faker and rstr are required deps, import at module top.
+- **NEVER** import optional third-party libs without a guard → rstr is imported unconditionally at module top; faker is imported at module top via ``importlib.import_module("faker")`` + try/except (``HAS_FAKER`` guard); only mimesis may use function-level lazy import.
 - **NEVER** raise in generate() without UnknownGeneratorError
 - **ALWAYS** implement all 35 generators or handle gracefully
 - **ALWAYS** use `self._rng` for random (seed support)

@@ -10,7 +10,7 @@ Main package. Public API in `__init__.py`. Core orchestration in `core/`. Data g
 
 ```
 src/sqlseed/
-├── __init__.py       # Public API: fill, connect, fill_from_config, preview
+├── __init__.py       # Public API: fill, connect, fill_from_config, preview, load_config
 ├── _version.py       # Version info (importlib.metadata dynamic detection)
 ├── py.typed          # PEP 561 type marker
 ├── core/             # Orchestration engine: orchestrator, mapper, schema, constraints, DAG, enrichment, transform, stream (22 files)

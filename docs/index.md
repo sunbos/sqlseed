@@ -55,5 +55,5 @@ sqlseed inspect app.db --show-mapping
 | `pip install sqlseed` | Base package (SQLite only) |
 | `pip install sqlseed[mimesis]` | + Mimesis data engine (recommended) |
 | `pip install "sqlseed[postgres]"` | + PostgreSQL driver (psycopg) |
-| `pip install sqlseed[all]` | All data engines + all DB drivers (mimesis, psycopg) + tqdm + sqlseed-cli |
+| `pip install sqlseed[all]` | All data engines + all DB drivers (mimesis, psycopg) + tqdm + sqlseed-cli + testcontainers |
 | `pip install sqlseed[docs]` | mkdocs-material + mkdocstrings (this site) |
