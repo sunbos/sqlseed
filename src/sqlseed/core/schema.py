@@ -81,7 +81,10 @@ class SchemaInferrer:
            way to detect inline column-level ``UNIQUE`` (e.g.,
            ``reservation_id INTEGER NOT NULL UNIQUE``), because
            ``inspector.get_indexes`` excludes the auto-indexes they create.
-        3. Non-autoincrement primary keys (covered by ``get_primary_keys``).
+        3. Non-autoincrement single-column primary keys (covered by
+           ``get_primary_keys``). Composite primary keys are NOT single-column
+           unique — they are reported by ``detect_composite_unique_constraints``
+           instead, since only the column *combination* is unique.
         """
         unique_cols: set[str] = set()
         try:
@@ -102,11 +105,13 @@ class SchemaInferrer:
 
         try:
             pks = self._db.get_primary_keys(table_name)
-            column_infos = self.get_column_info(table_name)
-            autoincrement_pks = {c.name for c in column_infos if c.is_primary_key and c.is_autoincrement}
-            for pk in pks:
-                if pk not in autoincrement_pks:
-                    unique_cols.add(pk)
+            # 仅单列主键才构成单列 UNIQUE；复合主键的唯一性体现在列组合上，
+            # 交给 detect_composite_unique_constraints 上报。
+            if len(pks) == 1:
+                column_infos = self.get_column_info(table_name)
+                autoincrement_pks = {c.name for c in column_infos if c.is_primary_key and c.is_autoincrement}
+                if pks[0] not in autoincrement_pks:
+                    unique_cols.add(pks[0])
         except (ValueError, RuntimeError, OSError, SAOperationalError):
             logger.debug("Failed to detect PK unique constraints", table_name=table_name)
 
@@ -129,6 +134,10 @@ class SchemaInferrer:
         2. ``get_unique_constraints`` — returns table-level ``UNIQUE(...)``
            constraints. On SQLAlchemy adapters, this is the ONLY way to detect
            them, because ``inspector.get_indexes`` excludes auto-indexes.
+        3. Composite primary keys — ``PRIMARY KEY (a, b)`` guarantees the
+           column combination is unique. This is the ONLY source that catches
+           them on SQLAlchemy adapters, since PK auto-indexes are excluded
+           from ``inspector.get_indexes`` for SQLite.
 
         Any query failure only logs without raising an exception.
         """
@@ -158,6 +167,20 @@ class SchemaInferrer:
         except (ValueError, RuntimeError, OSError, SAOperationalError):
             logger.debug(
                 "Failed to detect composite UNIQUE constraints from unique_constraints",
+                table_name=table_name,
+            )
+        try:
+            # 复合主键：列组合唯一。RawSQLite 适配器经 PK 自动索引在来源 1
+            # 已覆盖；SQLAlchemy 适配器对 SQLite 不上报 PK 索引，必须在此补充。
+            pks = self._db.get_primary_keys(table_name)
+            if len(pks) > 1:
+                key = tuple(pks)
+                if key not in seen:
+                    seen.add(key)
+                    composite.append(list(pks))
+        except (ValueError, RuntimeError, OSError, SAOperationalError):
+            logger.debug(
+                "Failed to detect composite UNIQUE constraints from primary keys",
                 table_name=table_name,
             )
         return composite
