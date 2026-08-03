@@ -95,6 +95,10 @@ site/
 codeflow-warnings*.md
 codeflow_issues_report.md
 
+# Temporary tool outputs (not for repo)
+test.log
+.understand-anything/
+
 # LLM validation loop engineering (temporary, not committed)
 scripts/_*.py
 data_quality_demo/*.db
