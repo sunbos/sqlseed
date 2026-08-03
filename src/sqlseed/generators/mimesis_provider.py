@@ -119,9 +119,16 @@ class MimesisProvider(BaseProvider):
         """Generate an email address."""
         return self._generic.person.email()
 
-    def _gen_phone(self) -> str:
-        """Generate a phone number."""
-        return self._generic.person.phone_number()
+    def _gen_phone(self, *, mask: str | None = None) -> str:
+        """Generate a phone number.
+
+        默认（``mask=None``）按当前 locale 生成真实国家格式的号码，
+        保证业务数据真实性；显式传 ``mask`` 时按 mask 生成（``#`` 替换为
+        随机数字），用于需要统一格式的测试场景。
+        """
+        if mask is None:
+            return self._generic.person.phone_number()
+        return self._generic.person.phone_number(mask=mask)
 
     def _gen_address(self) -> str:
         """Generate an address."""

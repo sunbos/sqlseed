@@ -121,8 +121,13 @@ class BaseProvider(GeneratorDispatchMixin):
         s = self._seeded_id()
         return f"user_{n:03d}_{s:04d}@placeholder.com"
 
-    def _gen_phone(self) -> str:
-        """Generate a phone number."""
+    def _gen_phone(self, *, mask: str | None = None) -> str:
+        """Generate a phone number.
+
+        base provider 仅作类型路由兜底（无真实数据），接受并忽略 ``mask``
+        以保持与 faker/mimesis provider 的接口一致（dispatch 以
+        ``method(**params)`` 透传，缺省形参会致 TypeError）。
+        """
         n = self._next_id()
         return f"000-0000-{n:04d}"
 

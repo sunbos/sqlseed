@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import datetime
 import importlib
-from typing import Any
+from typing import Any, ClassVar
 
 from sqlseed._utils.logger import get_logger
 from sqlseed.generators.base_provider import BaseProvider
@@ -27,6 +27,45 @@ logger = get_logger(__name__)
 class FakerProvider(BaseProvider):
     """Faker-based data generator adapter."""
 
+    # generator 类型 -> 其 _gen_* 实现依赖的 faker 方法名。faker 的部分方法
+    # 仅特定 locale 实现（实证：zh_CN 缺 state/zipcode，ja_JP 缺 state），
+    # 缺失时在 _init_faker 阶段把该 generator 实例级遮蔽为 base 的类型路由
+    # 实现 —— 按 mimesis → faker → base 的既有兜底链降级，而不是让生成在
+    # AttributeError 中崩溃（生成中途崩溃 = 整批失败）。仅含本类覆写了
+    # _gen_* 且调用 faker 方法的条目；基类纯 Python 实现的不涉及。
+    _FAKER_ATTR_PROBES: ClassVar[dict[str, str]] = {
+        "integer": "random_int",
+        "float": "pyfloat",
+        "boolean": "boolean",
+        "bytes": "binary",
+        "name": "name",
+        "first_name": "first_name",
+        "last_name": "last_name",
+        "email": "email",
+        "phone": "phone_number",
+        "address": "address",
+        "company": "company",
+        "url": "url",
+        "ipv4": "ipv4",
+        "uuid": "uuid4",
+        "date": "date_between_dates",
+        "datetime": "date_time_between_dates",
+        "timestamp": "date_time_between_dates",
+        "text": "text",
+        "sentence": "sentence",
+        "password": "password",
+        "choice": "random_element",
+        "json": "json",
+        "city": "city",
+        "country": "country",
+        "state": "state",
+        "zip_code": "zipcode",
+        "job_title": "job",
+        "country_code": "country_code",
+        "word": "word",
+        "catch_phrase": "catch_phrase",
+    }
+
     def __init__(self) -> None:
         super().__init__()
         self._faker: Any = None
@@ -38,6 +77,31 @@ class FakerProvider(BaseProvider):
         if _FAKER_CLASS is None:
             raise ImportError("Faker is not installed. Install it with: pip install sqlseed[faker]")
         self._faker = _FAKER_CLASS(self._locale)
+        self._install_locale_fallbacks()
+
+    def _install_locale_fallbacks(self) -> None:
+        """按当前 locale 能力探测，缺失方法的 generator 降级为 base 实现。
+
+        探测在 locale 切换时执行一次（生成热路径零开销）：dispatch 经
+        ``getattr(self, "_gen_<type>")`` 解析方法，实例 ``__dict__`` 中的
+        绑定实现优先于类方法，从而只对缺失项遮蔽为 ``BaseProvider`` 的类型
+        路由实现。降级走 base 的 ``_rng``（``set_seed`` 已播种），确定性
+        不受影响。set_locale 重建 faker 实例时先清除旧遮蔽，保证切回
+        支持的 locale 后恢复真实数据。
+        """
+        for gen_type in self._FAKER_ATTR_PROBES:
+            self.__dict__.pop(f"_gen_{gen_type}", None)
+        missing: list[str] = []
+        for gen_type, attr in self._FAKER_ATTR_PROBES.items():
+            if hasattr(self._faker, attr):
+                continue
+            base_impl = getattr(BaseProvider, f"_gen_{gen_type}", None)
+            if base_impl is None:
+                continue
+            self.__dict__[f"_gen_{gen_type}"] = base_impl.__get__(self)
+            missing.append(gen_type)
+        if missing:
+            logger.warning("faker_locale_fallback", locale=self._locale, generators=missing)
 
     @property
     def name(self) -> str:
@@ -93,9 +157,16 @@ class FakerProvider(BaseProvider):
         """Generate an email address."""
         return self._faker.email()
 
-    def _gen_phone(self) -> str:
-        """Generate a phone number."""
-        return self._faker.phone_number()
+    def _gen_phone(self, *, mask: str | None = None) -> str:
+        """Generate a phone number.
+
+        默认（``mask=None``）按当前 locale 生成真实国家格式的号码，
+        保证业务数据真实性；显式传 ``mask`` 时按 mask 生成（``#`` 替换为
+        随机数字），用于需要统一格式的测试场景。
+        """
+        if mask is None:
+            return self._faker.phone_number()
+        return self._faker.numerify(mask)
 
     def _gen_address(self) -> str:
         """Generate an address."""
