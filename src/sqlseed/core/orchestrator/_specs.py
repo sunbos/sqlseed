@@ -15,9 +15,11 @@ from typing import TYPE_CHECKING, Any
 from sqlseed._utils.logger import get_logger
 from sqlseed.config.models import ColumnConfig
 from sqlseed.core.check_adapt import CheckAdapter
+from sqlseed.core.check_parser import CheckConstraintParser
 from sqlseed.core.column_dag import ColumnDAG
 from sqlseed.core.constraints import ConstraintSolver
 from sqlseed.core.expression import ExpressionEngine
+from sqlseed.core.mapper import GeneratorSpec
 from sqlseed.core.stream import DataStream
 from sqlseed.core.transform import load_transform
 
@@ -175,8 +177,20 @@ class SpecResolverMixin:
                     continue
                 if current_spec.generator_name not in _fallback_generators:
                     continue
-                # For "choice" with non-empty choices, skip (already configured).
+                # For "choice" with non-empty choices, reconcile against the
+                # column's CHECK IN (...) enum when one exists: the database
+                # constraint is the hard truth and must win over name-rule
+                # guesses (e.g., EXACT_MATCH_RULES maps ``gender`` to
+                # ['male', 'female', 'other'] but CHECK says IN ('M', 'F')).
+                # Without this, zero-config fill crashes on IntegrityError.
                 if current_spec.generator_name == "choice" and current_spec.params.get("choices"):
+                    enum_choices = self._check_enum_choices(col_info.name, check_constraints)
+                    if enum_choices is not None:
+                        generator_specs[col_name] = GeneratorSpec(
+                            generator_name="choice",
+                            params={"choices": enum_choices},
+                            null_ratio=current_spec.null_ratio,
+                        )
                     continue
                 enhanced = self._schema_fallback.fallback_for_column(col_info, check_constraints, unique_list)
                 if enhanced is not None:
@@ -200,7 +214,54 @@ class SpecResolverMixin:
             generator_specs,
             user_configs=user_configs,
         )
+        generator_specs = self._fill_composite_pk_integer_columns(column_infos, generator_specs)
         return generator_specs, user_configs, unique_columns, composite_unique
+
+    @staticmethod
+    def _check_enum_choices(col_name: str, check_constraints: list[Any]) -> list[Any] | None:
+        """Return the literal choices of a single-column CHECK IN (...) enum, or None.
+
+        Only deterministic single-column enums are resolved; cross-column or
+        unparseable CHECKs stay in the AI/manual domain and return None.
+        """
+        for chk in check_constraints:
+            parsed = CheckConstraintParser.parse(col_name, chk.expression)
+            if parsed is not None and parsed.kind == "choice" and parsed.choices:
+                return list(parsed.choices)
+        return None
+
+    @staticmethod
+    def _fill_composite_pk_integer_columns(
+        column_infos: list[Any],
+        generator_specs: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Give composite-PK INTEGER columns an integer generator instead of "skip".
+
+        SQLite auto-generates a rowid only for a *single-column* ``INTEGER
+        PRIMARY KEY``. An INTEGER column inside a composite PK (e.g., ``seq``
+        in ``PRIMARY KEY (shipment_id, seq)``) has NO implicit default, so the
+        mapper's L1b implicit-INTEGER-PK skip yields a NULL insert and crashes
+        on NOT NULL. FK columns are untouched — they were already upgraded to
+        ``foreign_key`` specs by ``resolve_foreign_keys``. Composite-PK
+        uniqueness across the remaining columns is enforced by DataStream via
+        ``composite_unique_constraints``.
+        """
+        pk_cols = [c for c in column_infos if c.is_primary_key]
+        if len(pk_cols) <= 1:
+            return generator_specs
+        for col in pk_cols:
+            if col.is_autoincrement:
+                continue
+            spec = generator_specs.get(col.name)
+            if spec is None or spec.generator_name != "skip":
+                continue
+            if "INT" not in (col.type or "").upper():
+                continue
+            generator_specs[col.name] = GeneratorSpec(
+                generator_name="integer",
+                params={"min_value": 1, "max_value": 999999},
+            )
+        return generator_specs
 
     def _declare_zero_config_check_boundary(
         self,
@@ -295,6 +356,18 @@ class SpecResolverMixin:
                     expr_ck = ck.expression.strip()
                     # Match ``col1 (op) col2`` for cross-column comparisons
                     m_ck = re.match(r"^(\w+)\s*(!=|>=|<=|>|<)\s*(\w+)\s*$", expr_ck, re.IGNORECASE)
+                    if not m_ck:
+                        # ``col1 IS NULL OR col1 OP col2`` — nullable ordered
+                        # comparison, very common in real schemas (shipped_date,
+                        # return_date, discharge_date, to_date, ...). NULL passes
+                        # the CHECK; non-NULL values must satisfy the comparison.
+                        # DataStream skips the check when either side is NULL,
+                        # which matches this semantics exactly.
+                        m_ck = re.match(
+                            r"^(\w+)\s+IS\s+NULL\s+OR\s+\1\s*(!=|>=|<=|>|<)\s*(\w+)\s*$",
+                            expr_ck,
+                            re.IGNORECASE,
+                        )
                     if m_ck:
                         col1_ck, op_ck, col2_ck = m_ck.group(1), m_ck.group(2), m_ck.group(3)
                         inequality_constraints.append((col1_ck, col2_ck, op_ck))

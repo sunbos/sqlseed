@@ -467,6 +467,14 @@ class ColumnMapper:
 
         spec = self._map_fallback(column_info, column_name, column_type, enrich, force_type_infer)
 
+        # Type-fidelity guard: a BLOB column must produce bytes, not str.
+        # Name-based rules (exact/pattern/snake) run before type fallback and
+        # may map a BLOB column (e.g., "content") to a text generator, which
+        # crashes at insert with "a bytes-like object is required". "skip"
+        # specs (nullable columns) are left alone — NULL is valid for BLOB.
+        if re.sub(r"\(.*\)", "", column_type).strip() == "BLOB" and spec.generator_name not in ("bytes", "skip"):
+            spec = self._type_faithful_fallback(column_type)
+
         if user_null_ratio > 0:
             return replace(spec, null_ratio=user_null_ratio)
         return spec
