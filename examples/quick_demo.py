@@ -27,6 +27,7 @@ from sqlseed import fill
 
 
 def main():
+    """快速上手演示：建库 → 填充 → 展示生成数据。"""
     console = Console()
 
     # Step 1: Create the database
