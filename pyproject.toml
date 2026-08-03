@@ -36,6 +36,11 @@ dependencies = [
     "rstr>=3.2",
     "sqlalchemy>=2.0",
     "faker>=30.0",
+    # sqlglot: pure-Python SQL parser (zero transitive deps), used by
+    # core/check_parser to deterministically parse CHECK constraints via AST
+    # instead of regex. Parses any SQL; we only extract single-column literal
+    # bounds/enums/lengths and explicitly decline cross-column/OR/references.
+    "sqlglot>=25.0",
 ]
 
 [project.urls]
@@ -154,7 +159,7 @@ ignore = [
     # docstring documents constructor parameters by convention.
     "D105", "D107",
 ]
-allowed-confusables = ["：", "（", "）"]
+allowed-confusables = ["：", "（", "）", "，", "。"]
 
 [tool.ruff.lint.per-file-ignores]
 # Test code is exempt from docstring (D) rules: test functions use `test_`
@@ -358,7 +363,7 @@ files = ["src", "plugins"]
 exclude = ["tests/", "plugins/.*/tests/"]
 
 [[tool.mypy.overrides]]
-module = ["mimesis.*", "faker.*", "yaml", "simpleeval", "sqlseed_ai.*", "sqlseed_cli.*", "mcp.*", "mcp_server_sqlseed.*", "tqdm", "tqdm.*", "rich.*", "click.*"]
+module = ["mimesis.*", "faker.*", "yaml", "simpleeval", "sqlglot", "sqlglot.*", "sqlseed_ai.*", "sqlseed_cli.*", "mcp.*", "mcp_server_sqlseed.*", "tqdm", "tqdm.*", "rich.*", "click.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

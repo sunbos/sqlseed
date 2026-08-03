@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any
 
 from sqlseed._utils.logger import get_logger
 from sqlseed.config.models import ColumnConfig
+from sqlseed.core.check_adapt import CheckAdapter
 from sqlseed.core.column_dag import ColumnDAG
 from sqlseed.core.constraints import ConstraintSolver
 from sqlseed.core.expression import ExpressionEngine
@@ -47,6 +48,7 @@ class SpecResolverMixin:
 
     # Instance attribute provided by ConnectionMixin.
     _provider_name: str
+    _locale: str
 
     if TYPE_CHECKING:
         # Provided by ConnectionMixin as read-only properties. Split into two
@@ -121,6 +123,30 @@ class SpecResolverMixin:
         """
         column_infos = self._schema.get_column_info(table_name)
         user_configs = self._resolve_user_configs(columns, column_configs)
+        check_constraints = self._db.get_check_constraints(table_name)
+        # CHECK-constraint adaptation: deterministically clamp user-supplied YAML
+        # value domains (params.min_value/max_value/choices/min_length/max_length)
+        # against the column's CHECK constraint so generated data always satisfies
+        # it. Overlapping domains are clamped (with a notice); disjoint domains
+        # raise ConfigurationError. Skipped for derived columns and for CHECKs the
+        # parser cannot deterministically resolve (cross-column/OR/column refs —
+        # those stay the AI/manual domain). Runs before map_columns so the clamped
+        # params flow into the GeneratorSpec.
+        if user_configs:
+            if check_constraints:
+                adapter = CheckAdapter(locale=self._locale)
+                adapter.adapt_user_configs(
+                    user_configs,
+                    [ck.expression for ck in check_constraints],
+                )
+        elif check_constraints:
+            # Zero-config path (no columns/column_configs): type-driven mapping only.
+            # Honestly declare that this mode does NOT guarantee CHECK-constraint
+            # compliance — generated values follow column types, not business rules.
+            # Point the user to the layered workflow: AI analysis (ai-analyze) or
+            # hand-written YAML for business-compliant data. This is a capability
+            # boundary declaration, not a fix attempt.
+            self._declare_zero_config_check_boundary(table_name, check_constraints)
         generator_specs = self._mapper.map_columns(column_infos, user_configs, enrich=enrich)
         unique_columns = self._schema.detect_unique_columns(table_name)
         composite_unique = self._schema.detect_composite_unique_constraints(table_name)
@@ -150,10 +176,7 @@ class SpecResolverMixin:
                 if current_spec.generator_name not in _fallback_generators:
                     continue
                 # For "choice" with non-empty choices, skip (already configured).
-                if (
-                    current_spec.generator_name == "choice"
-                    and current_spec.params.get("choices")
-                ):
+                if current_spec.generator_name == "choice" and current_spec.params.get("choices"):
                     continue
                 enhanced = self._schema_fallback.fallback_for_column(col_info, check_constraints, unique_list)
                 if enhanced is not None:
@@ -178,6 +201,50 @@ class SpecResolverMixin:
             user_configs=user_configs,
         )
         return generator_specs, user_configs, unique_columns, composite_unique
+
+    def _declare_zero_config_check_boundary(
+        self,
+        table_name: str,
+        check_constraints: list[Any],
+    ) -> None:
+        """Emit an honest capability-boundary notice for zero-config generation.
+
+        Zero-config mode maps columns purely by type and does NOT guarantee
+        CHECK-constraint compliance. When the table has at least one single-column
+        CHECK that the deterministic parser CAN resolve (i.e. a column whose value
+        domain the CHECK actually constrains), warn the user and point them to the
+        layered workflow: AI analysis (``ai-analyze``) or hand-written YAML for
+        business-compliant data.
+
+        Only columns with a resolvable CHECK are listed; cross-column / OR /
+        column-reference CHECKs are intentionally left to the AI/manual domain and
+        are not enumerated here. Message language follows ``self._locale``.
+        """
+        from sqlseed.core.check_parser import CheckConstraintParser
+
+        expressions = [ck.expression for ck in check_constraints]
+        constrained_columns = [
+            col.name
+            for col in self._schema.get_column_info(table_name)
+            if CheckConstraintParser.parse_all(col.name, expressions) is not None
+        ]
+        if not constrained_columns:
+            return
+        zh = self._locale.lower().replace("-", "_").startswith("zh")
+        cols = ", ".join(constrained_columns)
+        if zh:
+            msg = (
+                f"表 '{table_name}' 的零配置模式仅按列类型生成数据，"
+                f"不保证满足 CHECK 约束（涉及列: {cols}）。"
+                f"若需业务合规数据，请改用 AI 分析（ai-analyze）或手写 YAML 配置。"
+            )
+        else:
+            msg = (
+                f"Zero-config mode for table '{table_name}' generates data by column type "
+                f"only and does NOT guarantee CHECK-constraint compliance (columns: {cols}). "
+                f"For business-compliant data, use AI analysis (ai-analyze) or a hand-written YAML config."
+            )
+        logger.warning(msg)
 
     def _build_stream(
         self,

@@ -129,3 +129,83 @@ class TestCheckParserCrossColumn:
         result = CheckConstraintParser.parse("price", "price >= 0")
         assert result is not None
         assert result.min_value == 0.0
+
+
+class TestCheckParserCompoundAnd:
+    """sqlglot AST 重写后：AND 连接的复合条件必须完整合并（修复 age>=18 AND age<=120 丢一半）。"""
+
+    def test_and_merges_min_and_max(self) -> None:
+        result = CheckConstraintParser.parse("age", "age >= 18 AND age <= 120")
+        assert result is not None
+        assert result.kind == "range"
+        assert result.min_value == 18.0
+        assert result.max_value == 120.0
+
+    def test_strict_inequality_int_tightened(self) -> None:
+        """整数严格不等式收一为含边界：age > 17 AND age < 121 → [18, 120]。"""
+        result = CheckConstraintParser.parse("age", "age > 17 AND age < 121")
+        assert result is not None
+        assert result.min_value == 18.0
+        assert result.max_value == 120.0
+
+    def test_length_and_merged(self) -> None:
+        result = CheckConstraintParser.parse("code", "length(code) >= 3 AND length(code) <= 10")
+        assert result is not None
+        assert result.kind == "length_range"
+        assert result.min_length == 3
+        assert result.max_length == 10
+
+    def test_multi_column_only_target_extracted(self) -> None:
+        """多列 CHECK 只提取目标列的边界，其余合取项跳过。"""
+        result = CheckConstraintParser.parse("price", "price >= 0 AND stock >= 0")
+        assert result is not None
+        assert result.min_value == 0.0
+        assert result.max_value is None
+
+    def test_constraint_prefix_stripped(self) -> None:
+        result = CheckConstraintParser.parse("age", "CONSTRAINT ck_age CHECK (age >= 18 AND age <= 120)")
+        assert result is not None
+        assert result.min_value == 18.0
+        assert result.max_value == 120.0
+
+
+class TestCheckParserOrChoice:
+    """OR 连接的确定性形态（同列等值析取）合并为 choice；非等值 OR 降级。"""
+
+    def test_or_equal_values_become_choices(self) -> None:
+        result = CheckConstraintParser.parse("status", "status = 'a' OR status = 'b'")
+        assert result is not None
+        assert result.kind == "choice"
+        assert set(result.choices) == {"a", "b"}
+
+    def test_or_non_equal_returns_none(self) -> None:
+        """age >= 18 OR age IS NULL：OR 语义无法确定合并，明确降级。"""
+        result = CheckConstraintParser.parse("age", "age >= 18 OR age IS NULL")
+        assert result is None
+
+
+class TestCheckParserDecline:
+    """无法确定性映射的形态必须明确降级返回 None（绝不硬猜）。"""
+
+    def test_cross_column_reference_bound(self) -> None:
+        """discount <= subtotal：max 是列引用，只能确定 min=0。"""
+        result = CheckConstraintParser.parse("discount", "discount >= 0 AND discount <= subtotal")
+        assert result is not None
+        assert result.min_value == 0.0
+        assert result.max_value is None
+
+    def test_cross_column_arithmetic_returns_none(self) -> None:
+        result = CheckConstraintParser.parse("x", "price * quantity <= 10000")
+        assert result is None
+
+    def test_like_returns_none(self) -> None:
+        result = CheckConstraintParser.parse("name", "name LIKE 'A%'")
+        assert result is None
+
+    def test_column_comparison_returns_none(self) -> None:
+        result = CheckConstraintParser.parse("created_at", "created_at < updated_at")
+        assert result is None
+
+    def test_garbage_returns_none(self) -> None:
+        result = CheckConstraintParser.parse("age", "not a valid sql !!!")
+        assert result is None
