@@ -29,9 +29,16 @@ def test_ai_suggest_has_auto_heal_flag(simple_db: Path):
     assert "--auto-heal" in result.output
 
 
-def test_ai_suggest_auto_heal_invokes_orchestrator(simple_db: Path):
+def test_ai_suggest_auto_heal_invokes_orchestrator(simple_db: Path, monkeypatch: pytest.MonkeyPatch):
     """`ai-suggest --auto-heal` calls AutoHealOrchestrator.run()."""
     from sqlseed_ai.cli.ai_commands import ai_suggest
+
+    # The orchestrator is mocked, but the CLI validates that an API key is
+    # configured before constructing it — provide a dummy key so the test is
+    # hermetic (no network call is ever made). OPENAI_COMPAT (the default
+    # fallback backend) also requires a base URL.
+    monkeypatch.setenv("SQLSEED_AI_API_KEY", "test-key")
+    monkeypatch.setenv("SQLSEED_AI_BASE_URL", "https://example.invalid/v1")
 
     runner = CliRunner()
     with patch("sqlseed_ai.auto_heal.orchestrator.AutoHealOrchestrator") as mock_orch_class:

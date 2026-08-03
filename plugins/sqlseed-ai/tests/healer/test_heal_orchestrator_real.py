@@ -88,9 +88,7 @@ def snapshot_with_products(tmp_path):
     """Build a real SQLite DB with a products table (CHECK price > 0)."""
     db_path = str(tmp_path / "test_orch.db")
     conn = sqlite3.connect(db_path)
-    conn.execute(
-        "CREATE TABLE products (id INTEGER PRIMARY KEY, price REAL CHECK(price > 0))"
-    )
+    conn.execute("CREATE TABLE products (id INTEGER PRIMARY KEY, price REAL CHECK(price > 0))")
     conn.commit()
     conn.close()
     return SchemaSnapshot(db_path=db_path)
@@ -124,9 +122,7 @@ def test_orchestrator_heal_flow_real(llm_client, llm_model, snapshot_with_produc
     Exercises the real 4-level flow. LLM output is non-deterministic —
     assert on structure, not on exact success/failure.
     """
-    orch = _build_orchestrator(
-        llm_client, llm_model, snapshot_with_products, always_violate=False
-    )
+    orch = _build_orchestrator(llm_client, llm_model, snapshot_with_products, always_violate=False)
     result = orch.heal(_make_task(), [_make_violation()], _make_config())
 
     assert isinstance(result.success, bool)
@@ -136,17 +132,13 @@ def test_orchestrator_heal_flow_real(llm_client, llm_model, snapshot_with_produc
     assert result.total_elapsed >= 0
 
 
-def test_orchestrator_degrade_on_persistent_violations_real(
-    llm_client, llm_model, snapshot_with_products
-):
+def test_orchestrator_degrade_on_persistent_violations_real(llm_client, llm_model, snapshot_with_products):
     """HealOrchestrator degrades to Level 4 when violations persist.
 
     With ``always_violate=True`` and ``max_rounds=1``, the orchestrator
     must exhaust its retry budget and degrade via ProgressiveDegrader.
     """
-    orch = _build_orchestrator(
-        llm_client, llm_model, snapshot_with_products, always_violate=True
-    )
+    orch = _build_orchestrator(llm_client, llm_model, snapshot_with_products, always_violate=True)
     result = orch.heal(_make_task(), [_make_violation()], _make_config())
 
     assert result.success is False

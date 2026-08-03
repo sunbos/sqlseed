@@ -13,14 +13,81 @@ import pytest
 
 try:
     from sqlseed_ai.config import (
+        BACKEND_DISPLAY_NAMES,
         GOOGLE_AI_STUDIO_BASE_URL,
         LM_STUDIO_BASE_URL,
         OLLAMA_BASE_URL,
         AIBackend,
         AIConfig,
+        _resolve_backend,
     )
 except ImportError:
     pytest.skip("sqlseed-ai plugin not installed", allow_module_level=True)
+
+
+class TestResolveBackend:
+    """Tests for :func:`_resolve_backend` inference logic.
+
+    Covers the three-tier resolution: explicit string → URL pattern → fallback.
+    The fallback was changed from ``GOOGLE_AI_STUDIO`` to ``OPENAI_COMPAT``
+    so that unknown base URLs (e.g. OpenRouter) are no longer misidentified
+    as Google AI Studio — which previously caused incorrect
+    ``tool_calling_protocol`` resolution and misleading CLI display text.
+    """
+
+    def test_explicit_backend_string_takes_precedence(self) -> None:
+        """Explicit SQLSEED_AI_BACKEND string overrides URL inference."""
+        assert _resolve_backend("ollama", "https://generativelanguage.googleapis.com/v1") == AIBackend.OLLAMA
+
+    def test_google_ai_studio_url_pattern(self) -> None:
+        """Google AI Studio URL is recognised by pattern match."""
+        url = "https://generativelanguage.googleapis.com/v1beta/openai/"
+        assert _resolve_backend("", url) == AIBackend.GOOGLE_AI_STUDIO
+
+    def test_lm_studio_url_patterns(self) -> None:
+        """LM Studio URLs (127.0.0.1 and localhost) are recognised."""
+        assert _resolve_backend("", "http://127.0.0.1:1234/v1") == AIBackend.LM_STUDIO
+        assert _resolve_backend("", "http://localhost:1234/v1") == AIBackend.LM_STUDIO
+
+    def test_ollama_url_patterns(self) -> None:
+        """Ollama URLs (127.0.0.1 and localhost) are recognised."""
+        assert _resolve_backend("", "http://127.0.0.1:11434/v1") == AIBackend.OLLAMA
+        assert _resolve_backend("", "http://localhost:11434/v1") == AIBackend.OLLAMA
+
+    def test_openrouter_url_falls_back_to_openai_compat(self) -> None:
+        """OpenRouter URL is not a known pattern → OPENAI_COMPAT fallback.
+
+        This is the regression test for the bug that previously misidentified
+        OpenRouter as Google AI Studio.
+        """
+        assert _resolve_backend("", "https://openrouter.ai/api/v1") == AIBackend.OPENAI_COMPAT
+
+    def test_unknown_url_falls_back_to_openai_compat(self) -> None:
+        """Unknown cloud URLs default to OPENAI_COMPAT (not GOOGLE_AI_STUDIO)."""
+        assert _resolve_backend("", "https://api.example.com/v1") == AIBackend.OPENAI_COMPAT
+
+    def test_no_base_url_falls_back_to_openai_compat(self) -> None:
+        """When no base_url is provided, fallback is OPENAI_COMPAT."""
+        assert _resolve_backend("", None) == AIBackend.OPENAI_COMPAT
+
+    def test_default_backend_field_is_openai_compat(self) -> None:
+        """AIConfig() without explicit backend defaults to OPENAI_COMPAT."""
+        config = AIConfig()
+        assert config.backend == AIBackend.OPENAI_COMPAT
+
+    def test_from_env_openrouter_resolves_to_openai_compat(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """End-to-end: from_env() with OpenRouter env vars → OPENAI_COMPAT."""
+        monkeypatch.setenv("SQLSEED_AI_API_KEY", "sk-test")
+        monkeypatch.setenv("SQLSEED_AI_BASE_URL", "https://openrouter.ai/api/v1")
+        monkeypatch.setenv("SQLSEED_AI_MODEL", "inclusionai/ling-3.0-flash:free")
+        monkeypatch.delenv("SQLSEED_AI_BACKEND", raising=False)
+        config = AIConfig.from_env()
+        assert config.backend == AIBackend.OPENAI_COMPAT
+
+    def test_backend_display_names_cover_all_backends(self) -> None:
+        """BACKEND_DISPLAY_NAMES must have an entry for every AIBackend member."""
+        for backend in AIBackend:
+            assert backend in BACKEND_DISPLAY_NAMES, f"Missing display name for {backend}"
 
 
 class TestResolveBaseUrl:

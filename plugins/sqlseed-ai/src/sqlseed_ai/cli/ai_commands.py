@@ -21,13 +21,15 @@ from rich.console import Console
 from rich.live import Live
 from rich.text import Text
 from sqlseed_ai import AIBackend, AIConfig, AiConfigRefiner, SchemaAnalyzer
+from sqlseed_ai.config import BACKEND_DISPLAY_NAMES
 
 # sanitize_table_config lives in the sqlseed-cli package; this is the only
 # cross-plugin import permitted per ARCHITECTURE.md Section 4 (sqlseed-ai
 # may import sqlseed-cli for CLI entry-point integration). Installing
 # sqlseed-ai auto-pulls sqlseed-cli as a dependency.
-from sqlseed_cli._utils import sanitize_table_config
-
+# NOTE: imported lazily inside _write_ai_output — a module-level import would
+# create a circular import: sqlseed_cli/__init__ loads this module via the
+# ``sqlseed.cli_commands`` entry point while this module is still initializing.
 from sqlseed._utils.logger import get_logger
 from sqlseed.core.orchestrator import DataOrchestrator
 
@@ -289,6 +291,11 @@ def _handle_ai_verification_streaming(
 
 
 def _write_ai_output(output: str, db_path: str, result: Any) -> None:
+    # Lazy import: see the NOTE at the top of this module. Importing
+    # sqlseed_cli at module level creates a circular import when this module
+    # is itself loaded through the ``sqlseed.cli_commands`` entry point.
+    from sqlseed_cli._utils import sanitize_table_config
+
     sanitize_table_config(result)
     output_data = {
         "db_path": db_path,
@@ -391,7 +398,7 @@ def ai_suggest(
     resolved_model = ai_config.resolve_model()
     ai_config.model = resolved_model  # Persist so _resolve_max_tokens_for_model
     # detects E2B/E4B and returns 4096 (not 2048 default).
-    backend_name = ai_config.backend.value.replace("_", " ").title()
+    backend_name = BACKEND_DISPLAY_NAMES.get(ai_config.backend, ai_config.backend.value)
     click.echo(f"Using AI model: {resolved_model} (via {backend_name})")
 
     analyzer = SchemaAnalyzer(config=ai_config)
@@ -681,7 +688,7 @@ def _run_auto_heal_v4(
 
     resolved_model = ai_config.resolve_model()
     ai_config.model = resolved_model
-    backend_name = ai_config.backend.value.replace("_", " ").title()
+    backend_name = BACKEND_DISPLAY_NAMES.get(ai_config.backend, ai_config.backend.value)
     click.echo(f"Using AI model: {resolved_model} (via {backend_name})", err=True)
 
     if log_llm:
@@ -825,7 +832,7 @@ def auto_heal(
 
     resolved_model = ai_config.resolve_model()
     ai_config.model = resolved_model
-    backend_name = ai_config.backend.value.replace("_", " ").title()
+    backend_name = BACKEND_DISPLAY_NAMES.get(ai_config.backend, ai_config.backend.value)
     click.echo(f"Using AI model: {resolved_model} (via {backend_name})")
 
     if log_llm:

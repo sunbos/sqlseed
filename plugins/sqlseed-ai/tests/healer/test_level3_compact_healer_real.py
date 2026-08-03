@@ -46,9 +46,7 @@ def _make_config() -> dict:
 def test_level3_compact_real(llm_client, llm_model):
     """Level3CompactHealer in compact mode returns a structured Level3Result."""
     healer = Level3CompactHealer(client=llm_client, model=llm_model)
-    result = healer.heal_compact(
-        _make_task(), [_make_violation()], _make_config(), mode="compact"
-    )
+    result = healer.heal_compact(_make_task(), [_make_violation()], _make_config(), mode="compact")
 
     assert result.mode == "compact"
     assert result.success in (True, False)
@@ -62,9 +60,7 @@ def test_level3_compact_real(llm_client, llm_model):
 def test_level3_ultra_compact_real(llm_client, llm_model):
     """Level3CompactHealer in ultra_compact mode returns a structured Level3Result."""
     healer = Level3CompactHealer(client=llm_client, model=llm_model)
-    result = healer.heal_compact(
-        _make_task(), [_make_violation()], _make_config(), mode="ultra_compact"
-    )
+    result = healer.heal_compact(_make_task(), [_make_violation()], _make_config(), mode="ultra_compact")
 
     assert result.mode == "ultra_compact"
     assert result.success in (True, False)

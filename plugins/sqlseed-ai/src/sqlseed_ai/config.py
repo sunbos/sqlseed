@@ -118,6 +118,14 @@ _GEMMA_DISPLAY_NAMES: dict[str, str] = {
     "gemma-4-31b-it": "Gemma 4 31B Dense",
 }
 
+# Backend 人类可读名称映射（避免 .title() 把 "openai_compat" 显示为 "Openai Compat"）
+BACKEND_DISPLAY_NAMES: dict[AIBackend, str] = {
+    AIBackend.GOOGLE_AI_STUDIO: "Google AI Studio",
+    AIBackend.LM_STUDIO: "LM Studio",
+    AIBackend.OLLAMA: "Ollama",
+    AIBackend.OPENAI_COMPAT: "OpenAI-compatible",
+}
+
 DEFAULT_GEMMA_MODEL = GemmaModel.GEMMA_4_26B_A4B
 
 _BACKEND_MAP: dict[str, AIBackend] = {
@@ -137,14 +145,26 @@ _URL_PATTERNS: tuple[tuple[str, AIBackend], ...] = (
 
 
 def _resolve_backend(backend_str: str, base_url: str | None) -> AIBackend:
-    """Resolve AI backend from explicit string or base_url inference."""
+    """Resolve AI backend from explicit string or base_url inference.
+
+    Resolution priority:
+      1. Explicit ``SQLSEED_AI_BACKEND`` env var (highest priority).
+      2. URL pattern match for known local/special backends (Google AI Studio,
+         LM Studio, Ollama).
+      3. Fallback to :attr:`AIBackend.OPENAI_COMPAT` — the OpenAI API protocol
+         is the de-facto industry standard; most third-party LLM services
+         (OpenRouter, Together, Anyscale, self-hosted vLLM, etc.) implement
+         it. Defaulting to ``OPENAI_COMPAT`` rather than a specific vendor
+         (Google AI Studio) avoids misidentification and incorrect
+         ``tool_calling_protocol`` / display-name inference for unknown URLs.
+    """
     if backend_str in _BACKEND_MAP:
         return _BACKEND_MAP[backend_str]
     if base_url:
         for pattern, backend in _URL_PATTERNS:
             if pattern in base_url:
                 return backend
-    return AIBackend.GOOGLE_AI_STUDIO
+    return AIBackend.OPENAI_COMPAT
 
 
 class AIConfig(BaseModel):
@@ -169,7 +189,7 @@ class AIConfig(BaseModel):
     api_key: str | None = None
     model: str | None = None
     base_url: str | None = None
-    backend: AIBackend = AIBackend.GOOGLE_AI_STUDIO
+    backend: AIBackend = AIBackend.OPENAI_COMPAT
     tool_calling_protocol: ToolCallingProtocol = "gemma4"
     temperature: float = Field(default=0.3, ge=0.0, le=2.0)
     max_tokens: int = Field(default=0, ge=0)  # 0 means auto-resolve based on backend

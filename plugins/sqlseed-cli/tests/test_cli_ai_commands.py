@@ -776,7 +776,10 @@ class TestWriteAIOutput:
         """sanitize_table_config is called on the result before writing."""
         output = str(tmp_path / "out.yaml")
         result = {"name": "...users", "count": 10, "columns": []}
-        with patch.object(ai_commands, "sanitize_table_config") as mock_sanitize:
+        # sanitize_table_config is imported lazily inside _write_ai_output
+        # (module-level import would create a circular import via the
+        # sqlseed.cli_commands entry point), so patch it at its source module.
+        with patch("sqlseed_cli._utils.sanitize_table_config") as mock_sanitize:
             _write_ai_output(output, "test.db", result)
             mock_sanitize.assert_called_once_with(result)
 
@@ -893,8 +896,8 @@ class TestAISuggestCommand:
             )
         assert result.exit_code == 0
         assert "Using AI model:" in result.output
-        # Backend name should be displayed (Lm Studio)
-        assert "Lm Studio" in result.output
+        # Backend name should be displayed (LM Studio, via BACKEND_DISPLAY_NAMES)
+        assert "LM Studio" in result.output
 
     def test_writes_output_file_on_success(
         self, unique_test_db: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

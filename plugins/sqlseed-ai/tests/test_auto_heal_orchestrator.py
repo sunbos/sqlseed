@@ -2044,9 +2044,7 @@ def test_pattern_37_string_equality_variant():
         {"type": "check", "expression": "txn_type != 'fee' OR direction = 'out'"},
         {"type": "check", "expression": "txn_type != 'interest' OR direction = 'in'"},
     ]
-    result = _infer_cross_column_config(
-        "direction", constraints, ["direction", "txn_type"], "TEXT"
-    )
+    result = _infer_cross_column_config("direction", constraints, ["direction", "txn_type"], "TEXT")
     assert result is not None
     assert result["derive_from"] == "txn_type"
     expr = result["expression"]
@@ -2161,10 +2159,7 @@ def test_pattern_1b_negative_value_uses_addition_not_multiplication():
     constraints = [
         {
             "type": "check",
-            "expression": (
-                "temperature_min IS NULL OR temperature_max IS NULL "
-                "OR temperature_max > temperature_min"
-            ),
+            "expression": ("temperature_min IS NULL OR temperature_max IS NULL OR temperature_max > temperature_min"),
         },
     ]
     result = _infer_cross_column_config(
@@ -2372,8 +2367,7 @@ def test_pattern_11_n_column_addition_equality():
         {
             "type": "check",
             "expression": (
-                "total_amount = base_charge + weight_charge + distance_charge "
-                "+ fuel_surcharge + insurance_charge + tax"
+                "total_amount = base_charge + weight_charge + distance_charge + fuel_surcharge + insurance_charge + tax"
             ),
         }
     ]
@@ -2407,9 +2401,7 @@ def test_pattern_42_abs_subtraction_equality():
     e.g., R3.shipments: ``weight_diff = abs(total_weight_kg - billed_weight_kg)``
     Derives from col1, references col2 via row dict.
     """
-    constraints = [
-        {"type": "check", "expression": "weight_diff = abs(total_weight_kg - billed_weight_kg)"}
-    ]
+    constraints = [{"type": "check", "expression": "weight_diff = abs(total_weight_kg - billed_weight_kg)"}]
     result = _infer_cross_column_config(
         "weight_diff",
         constraints,
@@ -2427,9 +2419,7 @@ def test_pattern_43_compound_arithmetic_upper_bound():
     e.g., R3.routes: ``estimated_hours <= distance_km * 0.5 + 24.0``
     Derives from col2, expression: ``value * CONST1 + random_float(0, CONST2)``.
     """
-    constraints = [
-        {"type": "check", "expression": "estimated_hours <= distance_km * 0.5 + 24.0"}
-    ]
+    constraints = [{"type": "check", "expression": "estimated_hours <= distance_km * 0.5 + 24.0"}]
     result = _infer_cross_column_config(
         "estimated_hours",
         constraints,
@@ -2475,9 +2465,7 @@ def test_pattern_45_compound_arithmetic_repeated_column():
     constraints = [
         {
             "type": "check",
-            "expression": (
-                "total_payable = principal + principal * interest_rate * term_months / 12.0"
-            ),
+            "expression": ("total_payable = principal + principal * interest_rate * term_months / 12.0"),
         }
     ]
     result = _infer_cross_column_config(
@@ -2504,9 +2492,7 @@ def test_pattern_46_multi_clause_disjunction_with_int_equality():
     constraints = [
         {
             "type": "check",
-            "expression": (
-                "is_free = 1 OR price < 100 OR original_price IS NULL OR original_price < 200"
-            ),
+            "expression": ("is_free = 1 OR price < 100 OR original_price IS NULL OR original_price < 200"),
         }
     ]
     result = _infer_cross_column_config(
@@ -2818,7 +2804,10 @@ def test_pattern_1_range_bound_wrapping():
     is wrapped with ``max(X, min(Y, expr))`` to enforce both simultaneously.
     """
     constraints = [
-        {"type": "check", "expression": "blood_pressure_low IS NULL OR (blood_pressure_low >= 40 AND blood_pressure_low <= 150)"},
+        {
+            "type": "check",
+            "expression": "blood_pressure_low IS NULL OR (blood_pressure_low >= 40 AND blood_pressure_low <= 150)",
+        },
         {"type": "check", "expression": "blood_pressure_low IS NULL OR blood_pressure_low < blood_pressure_high"},
     ]
     result = _infer_cross_column_config(
@@ -2900,4 +2889,3 @@ def test_pattern_7a_col_equals_col1_times_col2():
     assert result["derive_from"] == "unit_price"
     assert "row['quantity']" in result["expression"]
     assert "value *" in result["expression"]
-

@@ -84,6 +84,18 @@ In the expression, value[0] is the first source, value[1] the second.
 Use this when a derived column needs multiple inputs (e.g., volume discount
 from price + quantity).
 
+## Expression Functions (derive_from expressions ONLY)
+Expressions run in a sandbox — ONLY these functions exist. Any other name
+(e.g., random_uniform, numpy/math/random-module functions) raises an error
+and aborts the entire generation run:
+- Random: random_float(min,max), random_int(min,max), random_choice(seq)
+  — for a random float ALWAYS use random_float; "random_uniform" does NOT exist.
+- Math: int(x), float(x), str(x), abs(x), min(a,b,...), max(a,b,...), round(x[,n])
+- String: len(s), upper(s), lower(s), strip(s), zfill(s,w), replace(s,old,new),
+  substr(s,start[,end]), lpad(s,w[,c]), rpad(s,w[,c]), concat(a,b,...)
+- Dates: timedelta(days=, hours=, minutes=, seconds=, weeks=)
+- Cross-table: lookup(table, column, key)
+
 ## Key Rules
 1. Auto-incrementing primary key columns → do NOT include (auto-skip)
 2. Columns with DEFAULT values → do NOT include (auto-skip)
@@ -239,6 +251,9 @@ Rules:
 15. NEVER use "word" for UNIQUE username (too few words). Use template with {sequence}.
 16. Skip DEFAULT columns (e.g., created_at DEFAULT). string params: min_length+max_length (NOT length).
 17. lookup(table, column, key) — returns column value from row with id=key in table.
+18. Expression funcs ONLY: random_float(min,max), random_int(min,max), random_choice(seq),
+    timedelta(days=/hours=), lookup(t,c,k), int/float/str/abs/min/max/round/len/upper/lower/
+    substr/concat/replace/zfill/lpad/rpad. "random_uniform" does NOT exist — use random_float.
 
 Format: {"name":"t","count":1000,"columns":[
   {"name":"code","generator":"template","params":{"template":"X-{sequence:04d}"},"constraints":{"unique":true}},
@@ -273,6 +288,8 @@ Params: string(min_length,max_length,charset),integer/float(min_value,max_value)
 date/datetime(start_year,end_year),choice(choices),weighted_choice(choices/weighted_choices),
 template(template,sequence_start,sequence_step),pattern(regex),text(min_length,max_length).
 lookup(table,column,key) — cross-table value fetch for derive_from expressions.
+Expr funcs ONLY: random_float/random_int/random_choice/timedelta/lookup/int/float/str/abs/min/max/round/len/
+upper/lower/substr/concat/replace/zfill/lpad/rpad. NO random_uniform (use random_float).
 Output ONLY raw JSON. No markdown, no explanation."""
 
 TEMPLATE_SYSTEM_PROMPT = (

@@ -20,9 +20,7 @@ def snapshot_with_products(tmp_path):
     """Build a real SQLite DB with a products table (CHECK price > 0)."""
     db_path = str(tmp_path / "test_l2.db")
     conn = sqlite3.connect(db_path)
-    conn.execute(
-        "CREATE TABLE products (id INTEGER PRIMARY KEY, price REAL CHECK(price > 0))"
-    )
+    conn.execute("CREATE TABLE products (id INTEGER PRIMARY KEY, price REAL CHECK(price > 0))")
     conn.commit()
     conn.close()
     return SchemaSnapshot(db_path=db_path)
