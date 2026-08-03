@@ -381,12 +381,15 @@ class AutoHealOrchestrator:
                 while _changed:
                     _changed = False
                     for date_col, (_sc, all_vals) in state_machine_dates.items():
+                        # set 是可变对象：用别名做 |= 原地合并即写回字典中的集合，
+                        # 避免直接改写 for 循环变量（PLW2901）。
+                        merged_vals = all_vals
                         for dep_col, src_col in _date_deps.items():
                             if src_col == date_col and dep_col in state_machine_dates:
                                 dep_vals = state_machine_dates[dep_col][1]
-                                before = len(all_vals)
-                                all_vals |= dep_vals
-                                if len(all_vals) > before:
+                                before = len(merged_vals)
+                                merged_vals |= dep_vals
+                                if len(merged_vals) > before:
                                     _changed = True
 
             # Phone LENGTH pre-pass: detect LENGTH(phone) = N or
@@ -447,11 +450,7 @@ class AutoHealOrchestrator:
                 # N=11, use the Chinese mobile number regex
                 # (1[3-9]\d{9}) to produce realistic 11-digit numbers.
                 col_name_pl = c.get("name", "")
-                if (
-                    gen == "phone"
-                    and col_name_pl in phone_length_constraints
-                    and not c.get("derive_from")
-                ):
+                if gen == "phone" and col_name_pl in phone_length_constraints and not c.get("derive_from"):
                     req_len_pl = phone_length_constraints[col_name_pl]
                     locale_pl = config.get("locale", "en_US")
                     if locale_pl == "zh_CN" and req_len_pl >= 10:
@@ -477,27 +476,26 @@ class AutoHealOrchestrator:
                 # for -: 'str' and 'datetime.timedelta'`` because the string
                 # generator produces ``str`` values, not date objects.
                 col_name_55 = c.get("name", "")
-                if col_name_55 in timedelta_sources:
+                if col_name_55 in timedelta_sources and gen in (None, "string"):
                     target_gen = timedelta_sources[col_name_55]
-                    if gen in (None, "string"):
-                        # Skip if this column already has derive_from.
-                        # Derived-mode columns don't need a generator — the
-                        # expression produces the correct type from the
-                        # source column (e.g., ``value + timedelta(...)``
-                        # where value is a date produces a date). Setting
-                        # generator here would create a Pydantic
-                        # ValidationError (both generator and derive_from).
-                        # This happens when a column is BOTH a source for
-                        # another column's derive_from AND itself derives
-                        # from yet another column (e.g., next_inspection
-                        # derives from purchase_date, and last_inspection
-                        # derives from next_inspection).
-                        if not c.get("derive_from"):
-                            gen = target_gen
-                            c["generator"] = target_gen
-                            c.pop("params", None)
-                            c["params"] = {}
-                            params = {}
+                    # Skip if this column already has derive_from.
+                    # Derived-mode columns don't need a generator — the
+                    # expression produces the correct type from the
+                    # source column (e.g., ``value + timedelta(...)``
+                    # where value is a date produces a date). Setting
+                    # generator here would create a Pydantic
+                    # ValidationError (both generator and derive_from).
+                    # This happens when a column is BOTH a source for
+                    # another column's derive_from AND itself derives
+                    # from yet another column (e.g., next_inspection
+                    # derives from purchase_date, and last_inspection
+                    # derives from next_inspection).
+                    if not c.get("derive_from"):
+                        gen = target_gen
+                        c["generator"] = target_gen
+                        c.pop("params", None)
+                        c["params"] = {}
+                        params = {}
                 # Derived-mode columns (``derive_from`` + ``expression``) are
                 # mutually exclusive with source-mode (``generator`` +
                 # ``params``) per the ``ColumnConfig`` model validator.
@@ -554,17 +552,11 @@ class AutoHealOrchestrator:
                 #       shipped_at derives from paid_at) → wrap the
                 #       expression with status condition + None-guard.
                 col_name_sm = c.get("name", "")
-                if (
-                    meta is not None
-                    and col_name_sm in state_machine_dates
-                    and not has_derive
-                ):
+                if meta is not None and col_name_sm in state_machine_dates and not has_derive:
                     status_col_sm, required_vals_sm = state_machine_dates[col_name_sm]
                     col_type_sm = meta.column_types.get(col_name_sm, "")
                     is_date_sm = (
-                        _is_date_column(col_name_sm)
-                        or "DATE" in col_type_sm.upper()
-                        or "TIME" in col_type_sm.upper()
+                        _is_date_column(col_name_sm) or "DATE" in col_type_sm.upper() or "TIME" in col_type_sm.upper()
                     )
                     if is_date_sm:
                         # Find a base date column to derive from
@@ -597,12 +589,7 @@ class AutoHealOrchestrator:
                 # by the transitive dependency chain delivered_at →
                 # shipped_at → paid_at). This net replaces the status set
                 # with the correct one from ``state_machine_dates``.
-                if (
-                    meta is not None
-                    and col_name_sm in state_machine_dates
-                    and has_derive
-                    and "derive_from" in c
-                ):
+                if meta is not None and col_name_sm in state_machine_dates and has_derive and "derive_from" in c:
                     status_col_sm2, required_vals_sm2 = state_machine_dates[col_name_sm]
                     existing_expr = c.get("expression", "")
                     src_col_sm = c.get("derive_from", "")
@@ -622,15 +609,9 @@ class AutoHealOrchestrator:
                             # state_machine_dates (i.e., it might be NULL
                             # when its own status condition isn't met),
                             # ensure a None-guard exists.
-                            if (
-                                src_col_sm in state_machine_dates
-                                and "None if value is None" not in inner_expr
-                            ):
+                            if src_col_sm in state_machine_dates and "None if value is None" not in inner_expr:
                                 inner_expr = f"(None if value is None else {inner_expr})"
-                            c["expression"] = (
-                                f"None if row['{status_col_sm2}'] not in ({vals_repr2}) "
-                                f"else {inner_expr}"
-                            )
+                            c["expression"] = f"None if row['{status_col_sm2}'] not in ({vals_repr2}) else {inner_expr}"
                         elif (
                             f"row['{status_col_sm2}']" not in existing_expr
                             and "None if value is None" not in existing_expr
@@ -788,8 +769,8 @@ class AutoHealOrchestrator:
                         # specific than the current generic one. Generic
                         # text generators produce random text that doesn't
                         # match the column's semantic intent.
-                        _GENERIC_TEXT_GENS = {"string", "catch_phrase", "sentence", "text"}
-                        if semantic_gen and semantic_gen not in _GENERIC_TEXT_GENS:
+                        generic_text_gens = {"string", "catch_phrase", "sentence", "text"}
+                        if semantic_gen and semantic_gen not in generic_text_gens:
                             c["generator"] = semantic_gen
                             # Apply EXACT_MATCH_PARAMS if available (e.g.,
                             # ``latitude`` has min/max_value from
@@ -822,13 +803,28 @@ class AutoHealOrchestrator:
                         tbl_lower = table_name.lower()
                         # Entity table patterns: tables whose ``name`` column
                         # represents a business entity name, not a person name.
-                        _ENTITY_TABLE_PATTERNS = (
-                            "product", "store", "shop", "brand", "categor",
-                            "warehouse", "supplier", "vendor", "course",
-                            "project", "asset", "equip", "depart", "module",
-                            "menu", "page", "topic", "channel", "plan",
+                        entity_table_patterns = (
+                            "product",
+                            "store",
+                            "shop",
+                            "brand",
+                            "categor",
+                            "warehouse",
+                            "supplier",
+                            "vendor",
+                            "course",
+                            "project",
+                            "asset",
+                            "equip",
+                            "depart",
+                            "module",
+                            "menu",
+                            "page",
+                            "topic",
+                            "channel",
+                            "plan",
                         )
-                        if any(p in tbl_lower for p in _ENTITY_TABLE_PATTERNS):
+                        if any(p in tbl_lower for p in entity_table_patterns):
                             # Locale-aware entity name generation.
                             # ``catch_phrase`` does NOT support zh_CN locale —
                             # Faker silently falls back to English output, which
@@ -844,23 +840,24 @@ class AutoHealOrchestrator:
                             # Brand/store names are company names — frontends
                             # display them as "Nike", "Apple Store", not as
                             # "Reactive upward-trending capability".
-                            _COMPANY_TABLE_PATTERNS = (
-                                "brand", "store", "shop", "supplier",
-                                "vendor", "merchant", "retailer",
+                            company_table_patterns = (
+                                "brand",
+                                "store",
+                                "shop",
+                                "supplier",
+                                "vendor",
+                                "merchant",
+                                "retailer",
                             )
-                            if any(p in tbl_lower for p in _COMPANY_TABLE_PATTERNS):
-                                _unique_cols_comp = (
-                                    _get_unique_columns(meta.constraints) if meta else set()
-                                )
+                            if any(p in tbl_lower for p in company_table_patterns):
+                                _unique_cols_comp = _get_unique_columns(meta.constraints) if meta else set()
                                 if col_name_ctx in _unique_cols_comp:
                                     if _is_zh:
                                         # zh_CN + UNIQUE: template with Chinese
                                         # prefix guarantees uniqueness without
                                         # relying on catch_phrase (English-only).
                                         c["generator"] = "template"
-                                        c["params"] = {
-                                            "template": f"品牌{{sequence:0{req_digits}d}}"
-                                        }
+                                        c["params"] = {"template": f"品牌{{sequence:0{req_digits}d}}"}
                                         gen = "template"
                                         params = c["params"]
                                     else:
@@ -881,17 +878,13 @@ class AutoHealOrchestrator:
                             # display them as "Electronics", "Books", not as
                             # "Centralized optimizing knowledgebase".
                             elif "categor" in tbl_lower:
-                                _unique_cols_cat = (
-                                    _get_unique_columns(meta.constraints) if meta else set()
-                                )
+                                _unique_cols_cat = _get_unique_columns(meta.constraints) if meta else set()
                                 if col_name_ctx in _unique_cols_cat:
                                     if _is_zh:
                                         # zh_CN + UNIQUE: Chinese-prefixed
                                         # template guarantees uniqueness.
                                         c["generator"] = "template"
-                                        c["params"] = {
-                                            "template": f"分类{{sequence:0{req_digits}d}}"
-                                        }
+                                        c["params"] = {"template": f"分类{{sequence:0{req_digits}d}}"}
                                         gen = "template"
                                         params = c["params"]
                                     else:
@@ -908,14 +901,10 @@ class AutoHealOrchestrator:
                                     params = {}
                             else:
                                 # products and other entities
-                                _unique_cols_ent = (
-                                    _get_unique_columns(meta.constraints) if meta else set()
-                                )
+                                _unique_cols_ent = _get_unique_columns(meta.constraints) if meta else set()
                                 if col_name_ctx in _unique_cols_ent and _is_zh:
                                     c["generator"] = "template"
-                                    c["params"] = {
-                                        "template": f"产品{{sequence:0{req_digits}d}}"
-                                    }
+                                    c["params"] = {"template": f"产品{{sequence:0{req_digits}d}}"}
                                     gen = "template"
                                     params = c["params"]
                                 else:
@@ -952,9 +941,7 @@ class AutoHealOrchestrator:
                                 elif "product" in tbl_lower_nm:
                                     _zh_prefix = "产品"
                                 c["generator"] = "template"
-                                c["params"] = {
-                                    "template": f"{_zh_prefix}{{sequence:0{req_digits}d}}"
-                                }
+                                c["params"] = {"template": f"{_zh_prefix}{{sequence:0{req_digits}d}}"}
                                 gen = "template"
                                 params = c["params"]
                             else:
@@ -982,16 +969,17 @@ class AutoHealOrchestrator:
                             if ctr.get("type") != "check":
                                 continue
                             ctr_expr = ctr.get("expression", "")
-                            if isinstance(ctr_expr, str) and "LENGTH" in ctr_expr:
-                                # Check if this CHECK constrains this phone column to 11
-                                if (
-                                    col_name_ph in ctr_expr
-                                    and "=11" in ctr_expr.replace(" ", "")
-                                    and _is_phone_like(col_name_ph)
-                                ):
-                                    c["params"] = {}
-                                    params = {}
-                                    break
+                            # Check if this CHECK constrains this phone column to 11
+                            if (
+                                isinstance(ctr_expr, str)
+                                and "LENGTH" in ctr_expr
+                                and col_name_ph in ctr_expr
+                                and "=11" in ctr_expr.replace(" ", "")
+                                and _is_phone_like(col_name_ph)
+                            ):
+                                c["params"] = {}
+                                params = {}
+                                break
 
                 # Non-FK business identifier → template: columns like
                 # ``transaction_id`` are matched by the L5 pattern ``.*_id$``
@@ -1007,14 +995,14 @@ class AutoHealOrchestrator:
                 # transaction numbers.
                 if not has_derive and gen == "foreign_key_or_integer" and meta is not None:
                     col_name_biz = c.get("name", "").lower()
-                    _BIZ_ID_TEMPLATES = {
+                    biz_id_templates = {
                         "transaction_id": "TXN-{sequence:08d}",
                         "txn_id": "TXN-{sequence:08d}",
                         "payment_ref": "PAY-{sequence:08d}",
                         "reference_no": "REF-{sequence:08d}",
                         "tracking_no": "TRK-{sequence:010d}",
                     }
-                    if col_name_biz in _BIZ_ID_TEMPLATES:
+                    if col_name_biz in biz_id_templates:
                         # Build FK set for this table to confirm the column
                         # is NOT an actual foreign key.
                         fk_cols_biz: set[str] = set()
@@ -1023,7 +1011,7 @@ class AutoHealOrchestrator:
                                 fk_cols_biz.add(fc_biz)
                         if col_name_biz not in fk_cols_biz:
                             c["generator"] = "template"
-                            c["params"] = {"template": _BIZ_ID_TEMPLATES[col_name_biz]}
+                            c["params"] = {"template": biz_id_templates[col_name_biz]}
                             gen = "template"
                             params = c["params"]
 
@@ -1045,16 +1033,17 @@ class AutoHealOrchestrator:
                             if ctr.get("type") != "check":
                                 continue
                             ctr_expr = ctr.get("expression", "")
-                            if isinstance(ctr_expr, str) and "LENGTH" in ctr_expr:
-                                if (
-                                    col_name_ph in ctr_expr
-                                    and "=11" in ctr_expr.replace(" ", "")
-                                ):
-                                    c["generator"] = "pattern"
-                                    c["params"] = {"regex": r"^1[3-9]\d{9}$"}
-                                    gen = "pattern"
-                                    params = c["params"]
-                                    break
+                            if (
+                                isinstance(ctr_expr, str)
+                                and "LENGTH" in ctr_expr
+                                and col_name_ph in ctr_expr
+                                and "=11" in ctr_expr.replace(" ", "")
+                            ):
+                                c["generator"] = "pattern"
+                                c["params"] = {"regex": r"^1[3-9]\d{9}$"}
+                                gen = "pattern"
+                                params = c["params"]
+                                break
 
                 # Currency precision rounding: ``derive_from`` expressions
                 # with float arithmetic (e.g., ``value * random_float(0.5, 1.0)``)
@@ -1068,19 +1057,24 @@ class AutoHealOrchestrator:
                 # ``844.6484506188955`` instead of ``844.65``, which no real
                 # frontend would ever submit.
                 _col_name_lower = c.get("name", "").lower()
-                _CURRENCY_NAME_KEYWORDS = (
-                    "amount", "price", "fee", "cost", "balance",
-                    "total", "adjustment", "subtotal", "discount",
-                    "shipping", "tax", "salary", "payment",
+                currency_name_keywords = (
+                    "amount",
+                    "price",
+                    "fee",
+                    "cost",
+                    "balance",
+                    "total",
+                    "adjustment",
+                    "subtotal",
+                    "discount",
+                    "shipping",
+                    "tax",
+                    "salary",
+                    "payment",
                 )
-                if has_derive and any(k in _col_name_lower for k in _CURRENCY_NAME_KEYWORDS):
+                if has_derive and any(k in _col_name_lower for k in currency_name_keywords):
                     expr = c.get("expression", "")
-                    if (
-                        isinstance(expr, str)
-                        and expr
-                        and not expr.startswith("round(")
-                        and "row[" not in expr
-                    ):
+                    if isinstance(expr, str) and expr and not expr.startswith("round(") and "row[" not in expr:
                         c["expression"] = f"round({expr}, 2)"
 
                 # Non-derive currency float → precision: 2: ``float`` generators
@@ -1092,11 +1086,7 @@ class AutoHealOrchestrator:
                 # Decision test: any non-derive ``float`` column with a currency-
                 # related name benefits — without this, the database stores
                 # inconsistent decimal places that no real frontend would submit.
-                if (
-                    not has_derive
-                    and gen == "float"
-                    and any(k in _col_name_lower for k in _CURRENCY_NAME_KEYWORDS)
-                ):
+                if not has_derive and gen == "float" and any(k in _col_name_lower for k in currency_name_keywords):
                     cur_params = c.get("params")
                     if isinstance(cur_params, dict) and "precision" not in cur_params:
                         cur_params["precision"] = 2
@@ -1116,7 +1106,7 @@ class AutoHealOrchestrator:
                 # — without this, the database stores values that no real
                 # frontend form would ever submit.
                 if not has_derive and gen in ("integer", "float"):
-                    _SEMANTIC_MAX_VALUES: dict[str, int | float] = {
+                    semantic_max_values: dict[str, int | float] = {
                         "sort_order": 999,
                         "points_balance": 100000,
                         "balance_after": 100000,
@@ -1128,12 +1118,12 @@ class AutoHealOrchestrator:
                     }
                     # Cart/order quantity: CHECK often allows up to 999, but
                     # real frontend forms cap at 99.
-                    if _col_name_lower == "quantity" and "cart" in table_name.lower():
-                        _SEMANTIC_MAX_VALUES["quantity"] = 99
-                    elif _col_name_lower == "quantity" and "order_item" in table_name.lower():
-                        _SEMANTIC_MAX_VALUES["quantity"] = 99
-                    if _col_name_lower in _SEMANTIC_MAX_VALUES:
-                        _sem_max = _SEMANTIC_MAX_VALUES[_col_name_lower]
+                    if (_col_name_lower == "quantity" and "cart" in table_name.lower()) or (
+                        _col_name_lower == "quantity" and "order_item" in table_name.lower()
+                    ):
+                        semantic_max_values["quantity"] = 99
+                    if _col_name_lower in semantic_max_values:
+                        _sem_max = semantic_max_values[_col_name_lower]
                         cur_params_sem = c.get("params")
                         if isinstance(cur_params_sem, dict):
                             _cur_max = cur_params_sem.get("max_value")
@@ -1166,7 +1156,7 @@ class AutoHealOrchestrator:
                                 cur_params_rt = {}
                                 c["params"] = cur_params_rt
                             if (
-                                any(k in _col_name_lower for k in _CURRENCY_NAME_KEYWORDS)
+                                any(k in _col_name_lower for k in currency_name_keywords)
                                 and "precision" not in cur_params_rt
                             ):
                                 cur_params_rt["precision"] = 2
@@ -1181,12 +1171,7 @@ class AutoHealOrchestrator:
                 # have null_ratio set.
                 # Decision test: any table with a nullable ``coupon_code``
                 # column benefits — without this, every order has a coupon.
-                if (
-                    not has_derive
-                    and _col_name_lower == "coupon_code"
-                    and "null_ratio" not in c
-                    and meta is not None
-                ):
+                if not has_derive and _col_name_lower == "coupon_code" and "null_ratio" not in c and meta is not None:
                     col_name_cc = c.get("name", "")
                     # Check column is nullable (not NOT NULL)
                     nullable_cc = True
@@ -1206,14 +1191,9 @@ class AutoHealOrchestrator:
                 # This safety net detects tables with both columns and sets
                 # ``variant_value`` to derive_from ``variant_name`` with a
                 # conditional expression that picks domain-appropriate values.
-                if (
-                    not has_derive
-                    and _col_name_lower == "variant_value"
-                    and gen == "choice"
-                ):
+                if not has_derive and _col_name_lower == "variant_value" and gen == "choice":
                     has_variant_name = any(
-                        col.get("name", "").lower() == "variant_name"
-                        for col in tcfg.get("columns", [])
+                        col.get("name", "").lower() == "variant_name" for col in tcfg.get("columns", [])
                     )
                     if has_variant_name:
                         c["generator"] = None
@@ -1332,9 +1312,10 @@ class AutoHealOrchestrator:
                 if gen == "template":
                     tmpl = params.get("template")
                     if isinstance(tmpl, str):
-
-                        def _upgrade_seq(m: re.Match[str]) -> str:
-                            return f"{{sequence:0{req_digits}d}}" if int(m.group(1)) < req_digits else m.group(0)
+                        # B023: req_digits 是外层 tables 循环变量，
+                        # 用默认参数在定义时绑定当前迭代的值。
+                        def _upgrade_seq(m: re.Match[str], digits: int = req_digits) -> str:
+                            return f"{{sequence:0{digits}d}}" if int(m.group(1)) < digits else m.group(0)
 
                         upgraded = re.sub(r"\{sequence:0(\d)d\}", _upgrade_seq, tmpl)
                         if upgraded != tmpl:
@@ -1641,18 +1622,17 @@ class AutoHealOrchestrator:
                         for _src_col in tcfg.get("columns", []):
                             if _src_col.get("name") == _src_check:
                                 _src_gen = _src_col.get("generator")
-                                if _src_gen in (None, "string"):
-                                    # Skip if source column already has
-                                    # derive_from — same rationale as the
-                                    # main-loop upgrade above.
-                                    if not _src_col.get("derive_from"):
-                                        _src_type = (meta.column_types.get(_src_check, "") if meta else "") or ""
-                                        if _is_date_only_type(_src_type):
-                                            _src_col["generator"] = "date"
-                                        else:
-                                            _src_col["generator"] = "datetime"
-                                        _src_col.pop("params", None)
-                                        _src_col["params"] = {}
+                                # Skip if source column already has
+                                # derive_from — same rationale as the
+                                # main-loop upgrade above.
+                                if _src_gen in (None, "string") and not _src_col.get("derive_from"):
+                                    _src_type = (meta.column_types.get(_src_check, "") if meta else "") or ""
+                                    if _is_date_only_type(_src_type):
+                                        _src_col["generator"] = "date"
+                                    else:
+                                        _src_col["generator"] = "datetime"
+                                    _src_col.pop("params", None)
+                                    _src_col["params"] = {}
                                 break
 
         # Pattern 27 source-column choices constraint: when a multi-clause
@@ -1931,19 +1911,32 @@ class AutoHealOrchestrator:
                     # only, not the whole table.
                     tokens_c = set(re.findall(r"\b[a-z_]\w*\b", expr_c_norm.lower()))
                     sql_keywords_c = {
-                        "and", "or", "not", "null", "is", "in", "between", "like",
-                        "case", "when", "then", "else", "end", "abs", "length",
-                        "date", "time", "timestamp", "true", "false",
+                        "and",
+                        "or",
+                        "not",
+                        "null",
+                        "is",
+                        "in",
+                        "between",
+                        "like",
+                        "case",
+                        "when",
+                        "then",
+                        "else",
+                        "end",
+                        "abs",
+                        "length",
+                        "date",
+                        "time",
+                        "timestamp",
+                        "true",
+                        "false",
                     }
                     col_refs_c = tokens_c - sql_keywords_c - {col_name_c.lower()}
                     col_refs_c = {t for t in col_refs_c if not t.isdigit()}
                     # Only count references to actual OTHER column names
                     other_col_refs_c = col_refs_c & (set(meta_c.columns) - {col_name_c})
-                    if (
-                        " OR " in expr_c_upper
-                        and f"{col_name_upper_c} IS NULL" in expr_c_upper
-                        and other_col_refs_c
-                    ):
+                    if " OR " in expr_c_upper and f"{col_name_upper_c} IS NULL" in expr_c_upper and other_col_refs_c:
                         has_complex_check_c = True
                         break
                 if has_complex_check_c:
@@ -2041,8 +2034,8 @@ class AutoHealOrchestrator:
                 # ``cond_col = 'V' AND ... AND col IS NULL``
                 # Use regex to split on top-level OR (not inside parens)
                 clauses_sn = re.split(r"\bOR\b", expr_sn, flags=re.IGNORECASE)
-                for clause_sn in clauses_sn:
-                    clause_sn = clause_sn.strip().strip("()")
+                for clause_raw_sn in clauses_sn:
+                    clause_sn = clause_raw_sn.strip().strip("()")
                     # Find cond_col = 'V' patterns
                     cond_matches = re.findall(r"(\w+)\s*=\s*'([^']+)'", clause_sn)
                     if not cond_matches:
@@ -2094,7 +2087,7 @@ class AutoHealOrchestrator:
                     anchor_col_sn = None
                     for ac_sn in columns_sn:
                         ac_name_sn = ac_sn.get("name", "")
-                        if ac_name_sn == col_sn or ac_name_sn == cond_col_sn:
+                        if ac_name_sn in (col_sn, cond_col_sn):
                             continue
                         ac_type_sn = meta_sn.column_types.get(ac_name_sn, "")
                         ac_gen_sn = ac_sn.get("generator")
@@ -2393,7 +2386,9 @@ class AutoHealOrchestrator:
                             elif "INT" in col_type_sn7.upper():
                                 c_sn7["generator"] = "integer"
                                 c_sn7["params"] = {"min_value": 0}
-                            elif any(k in col_type_sn7.upper() for k in ("REAL", "FLOAT", "DOUBLE", "DECIMAL", "NUMERIC")):
+                            elif any(
+                                k in col_type_sn7.upper() for k in ("REAL", "FLOAT", "DOUBLE", "DECIMAL", "NUMERIC")
+                            ):
                                 c_sn7["generator"] = "float"
                                 # Use 0.01 (not 0.0) to satisfy ``> 0.0`` CHECKs
                                 c_sn7["params"] = {"min_value": 0.01}
@@ -3162,9 +3157,7 @@ def _normalize_pg_check_expr(expr: str) -> str:
     # 3. Strip parentheses around comparison RHS in compound expressions
     #    e.g., "size_mb <= (max_size * 1.5)" → "size_mb <= max_size * 1.5"
     #    Only strips one level; inner expression must have no parens.
-    expr = re.sub(r"((?:>=|<=|!=|>|<)\s*)\(([^()]+)\)", r"\1\2", expr)
-
-    return expr
+    return re.sub(r"((?:>=|<=|!=|>|<)\s*)\(([^()]+)\)", r"\1\2", expr)
 
 
 def _normalize_constraints(constraints: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -4470,9 +4463,15 @@ def _infer_cross_column_config(
                 # (p1_lower, p1_upper) if they exist. This ensures the
                 # cross-column expression respects the single-column CHECK
                 # range simultaneously.
-                def _wrap_p1_bounds(inner_expr: str) -> str:
-                    if p1_lower is not None and p1_upper is not None:
-                        return f"max({p1_lower}, min({p1_upper}, {inner_expr}))"
+                # B023: p1_lower/p1_upper 在上方 constraints 循环中赋值，
+                # 用默认参数在定义时绑定循环结束后的最终值。
+                def _wrap_p1_bounds(
+                    inner_expr: str,
+                    lower: float | int | None = p1_lower,
+                    upper: float | int | None = p1_upper,
+                ) -> str:
+                    if lower is not None and upper is not None:
+                        return f"max({lower}, min({upper}, {inner_expr}))"
                     return inner_expr
 
                 if is_date_col or _is_date_column(other_col):
@@ -5259,56 +5258,55 @@ def _infer_cross_column_config(
             if m:
                 # Reverse ordering groups: (op, col1, total) — note the swap!
                 op, other_col, total_col = m.group(1), m.group(2), m.group(3)
-        if m:
-            if other_col in col_set and total_col in col_set and total_col != col_name:
-                # Cycle prevention: the constraint ``col1 + col2 = total`` is
-                # symmetric — both addends match Pattern 19 (one via first
-                # ordering, the other via reverse). Without this check, both
-                # would derive_from total and reference each other, creating a
-                # circular dependency that crashes the DAG. By only applying
-                # the ``total - other`` expression to the LATER column, the
-                # earlier column becomes the source (generated first).
-                col_idx_p19 = all_columns.index(col_name) if col_name in all_columns else -1
-                other_idx_p19 = all_columns.index(other_col) if other_col in all_columns else -1
-                if col_idx_p19 > other_idx_p19:
-                    # col1 + col = col2 → col = col2 - col1
-                    # col1 - col = col2 → col = col1 - col2
-                    # col + col1 = col2 → col = col2 - col1
-                    # col - col1 = col2 → col = col2 + col1
-                    if op == "+":
-                        return {
-                            "derive_from": total_col,
-                            "expression": f"value - row['{other_col}']",
-                        }
-                    # op == "-"
-                    return {
-                        "derive_from": total_col,
-                        "expression": f"row['{other_col}'] - value",
-                    }
-                # col is the EARLIER addend. Derive it from total as an
-                # integer fraction so that col ∈ [0, total] (when total >= 0).
-                # This guarantees the LATER addend (total - col) is also in
-                # [0, total], satisfying both ``col >= 0`` and
-                # ``other_col >= 0`` CHECK constraints. Only applies to
-                # addition (``col + other = total``); subtraction variants
-                # (``col - other = total``) don't have the same non-negativity
-                # guarantee, so we skip and let other patterns handle them.
-                #
-                # Uses ``random_int`` (not ``random_float``) to guarantee the
-                # CHECK ``col1 + col2 = total`` holds EXACTLY in IEEE 754
-                # floating point. Integers up to 2^53 are exactly representable
-                # in double precision, and ``int + (float - int) = float`` is
-                # exact for normal-range floats (the integer only affects the
-                # integer part, leaving the fractional bits untouched). With
-                # ``random_float``, the multiplication ``total * frac``
-                # introduces rounding, and ``frac*total + (total - frac*total)``
-                # may differ from ``total`` by 1 ULP, failing the ``=``
-                # CHECK on REAL columns.
+        if m and other_col in col_set and total_col in col_set and total_col != col_name:
+            # Cycle prevention: the constraint ``col1 + col2 = total`` is
+            # symmetric — both addends match Pattern 19 (one via first
+            # ordering, the other via reverse). Without this check, both
+            # would derive_from total and reference each other, creating a
+            # circular dependency that crashes the DAG. By only applying
+            # the ``total - other`` expression to the LATER column, the
+            # earlier column becomes the source (generated first).
+            col_idx_p19 = all_columns.index(col_name) if col_name in all_columns else -1
+            other_idx_p19 = all_columns.index(other_col) if other_col in all_columns else -1
+            if col_idx_p19 > other_idx_p19:
+                # col1 + col = col2 → col = col2 - col1
+                # col1 - col = col2 → col = col1 - col2
+                # col + col1 = col2 → col = col2 - col1
+                # col - col1 = col2 → col = col2 + col1
                 if op == "+":
                     return {
                         "derive_from": total_col,
-                        "expression": "random_int(0, max(0, int(value)))",
+                        "expression": f"value - row['{other_col}']",
                     }
+                # op == "-"
+                return {
+                    "derive_from": total_col,
+                    "expression": f"row['{other_col}'] - value",
+                }
+            # col is the EARLIER addend. Derive it from total as an
+            # integer fraction so that col ∈ [0, total] (when total >= 0).
+            # This guarantees the LATER addend (total - col) is also in
+            # [0, total], satisfying both ``col >= 0`` and
+            # ``other_col >= 0`` CHECK constraints. Only applies to
+            # addition (``col + other = total``); subtraction variants
+            # (``col - other = total``) don't have the same non-negativity
+            # guarantee, so we skip and let other patterns handle them.
+            #
+            # Uses ``random_int`` (not ``random_float``) to guarantee the
+            # CHECK ``col1 + col2 = total`` holds EXACTLY in IEEE 754
+            # floating point. Integers up to 2^53 are exactly representable
+            # in double precision, and ``int + (float - int) = float`` is
+            # exact for normal-range floats (the integer only affects the
+            # integer part, leaving the fractional bits untouched). With
+            # ``random_float``, the multiplication ``total * frac``
+            # introduces rounding, and ``frac*total + (total - frac*total)``
+            # may differ from ``total`` by 1 ULP, failing the ``=``
+            # CHECK on REAL columns.
+            if op == "+":
+                return {
+                    "derive_from": total_col,
+                    "expression": "random_int(0, max(0, int(value)))",
+                }
 
         # Pattern 20: col = VALUE OR other_col < col2 OR other_col > col3 (range membership)
         # e.g., is_abnormal = 0 OR test_value < ref_lower OR test_value > ref_upper
@@ -6578,10 +6576,7 @@ def _infer_cross_column_config(
                 # random value in a reasonable range; VALUE itself also
                 # satisfies the CHECK via the first OR branch, so the random
                 # range can include VALUE).
-                if is_float_p28c:
-                    random_expr_p28c = "random_float(0.0, 100.0)"
-                else:
-                    random_expr_p28c = "random_int(0, 100)"
+                random_expr_p28c = "random_float(0.0, 100.0)" if is_float_p28c else "random_int(0, 100)"
                 return {
                     "derive_from": other_col_p28c,
                     "expression": f"{val_num_p28c} if {fail_cond_p28c} else {random_expr_p28c}",

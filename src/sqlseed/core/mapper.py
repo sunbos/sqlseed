@@ -253,14 +253,28 @@ class ColumnMapper:
         "JSONB": ("json", {}),
         "JSON": ("json", {}),
         "INET": ("ipv4", {}),
-        "CIDR": ("choice", {"choices": [
-            "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",
-            "10.0.0.0/24", "172.16.0.0/24", "192.168.1.0/24",
-        ]}),
-        "MACADDR": ("pattern", {"pattern": (
-            r"[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:"
-            r"[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}"
-        )}),
+        "CIDR": (
+            "choice",
+            {
+                "choices": [
+                    "10.0.0.0/8",
+                    "172.16.0.0/12",
+                    "192.168.0.0/16",
+                    "10.0.0.0/24",
+                    "172.16.0.0/24",
+                    "192.168.1.0/24",
+                ]
+            },
+        ),
+        "MACADDR": (
+            "pattern",
+            {
+                "pattern": (
+                    r"[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:"
+                    r"[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}"
+                )
+            },
+        ),
         # PostgreSQL rare types — produce minimal valid literals via choice generator
         "INTERVAL": ("choice", {"choices": ["0 seconds"]}),
         "TSVECTOR": ("choice", {"choices": [""]}),
@@ -449,11 +463,7 @@ class ColumnMapper:
         # when generator is not set. The null_ratio must be applied to
         # whatever spec the L1b-L9 fallback chain produces, so the
         # DataStream generates NULL values for the column.
-        user_null_ratio = (
-            user_config.null_ratio
-            if user_config and hasattr(user_config, "null_ratio")
-            else 0.0
-        )
+        user_null_ratio = user_config.null_ratio if user_config and hasattr(user_config, "null_ratio") else 0.0
 
         spec = self._map_fallback(column_info, column_name, column_type, enrich, force_type_infer)
 

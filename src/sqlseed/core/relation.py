@@ -277,9 +277,7 @@ class RelationResolver:
                 result[from_col] = (ref_table, to_col)
         return result
 
-    def _get_composite_fk_groups(
-        self, table_name: str
-    ) -> dict[int, list[tuple[str, str, str]]]:
+    def _get_composite_fk_groups(self, table_name: str) -> dict[int, list[tuple[str, str, str]]]:
         """Detect composite FK groups and return them keyed by FK constraint id.
 
         Uses ``PRAGMA foreign_key_list`` and groups rows by the ``id`` field.
@@ -373,16 +371,12 @@ class RelationResolver:
 
         for _fk_id, cols in composite_groups.items():
             if len(cols) == 2:
-                self._resolve_two_column_composite_fk(
-                    table_name, cols, specs, user_configs
-                )
+                self._resolve_two_column_composite_fk(table_name, cols, specs, user_configs)
             else:
                 # 3+ column composite FK: fall back to independent per-column
                 # sampling. Pair coordination for N>2 would require a chain of
                 # derive_from expressions, which is complex and rare.
-                self._resolve_multi_column_composite_fk(
-                    table_name, cols, specs, user_configs
-                )
+                self._resolve_multi_column_composite_fk(table_name, cols, specs, user_configs)
 
         return specs
 
@@ -473,9 +467,7 @@ class RelationResolver:
             uc_b.generator = None
             uc_b.params = {}
             uc_b.derive_from = col_a
-            uc_b.expression = (
-                f"lookup('{ref_table}', '{ref_b}', value, '{ref_a}')"
-            )
+            uc_b.expression = f"lookup('{ref_table}', '{ref_b}', value, '{ref_a}')"
             logger.debug(
                 "Resolved composite FK second column (pair coordination via lookup)",
                 table_name=table_name,
@@ -653,13 +645,8 @@ class RelationResolver:
                 # bidirectional CHECK (e.g., org_type='root' OR parent_id IS
                 # NOT NULL). Without this, the conditional column gets random
                 # values that violate the CHECK when the FK is NULL.
-                if (
-                    spec.null_ratio == 1.0
-                    and not spec.params.get("_ref_values")
-                ):
-                    self._fix_conditional_column_for_null_fk(
-                        table_name, col_name, specs
-                    )
+                if spec.null_ratio == 1.0 and not spec.params.get("_ref_values"):
+                    self._fix_conditional_column_for_null_fk(table_name, col_name, specs)
                 continue
             if spec.generator_name == "foreign_key_or_integer":
                 # Only process foreign_key_or_integer for self-ref FK
@@ -722,9 +709,7 @@ class RelationResolver:
                     # The _post_fill_self_ref_fks pass later updates ~70% of
                     # rows to reference existing PKs and adjusts the
                     # conditional column accordingly.
-                    self._fix_conditional_column_for_null_fk(
-                        table_name, col_name, specs
-                    )
+                    self._fix_conditional_column_for_null_fk(table_name, col_name, specs)
                     continue
                 # NOT NULL self-referencing FK with empty parent: fall through
                 # to the default upgrade (will use fallback integers). This is
