@@ -40,7 +40,7 @@ jobs:
         run: |
           pip install -e "./plugins/sqlseed-cli"
           pip install -e ".[all,dev]"
-          pip install -e "./plugins/sqlseed-ai"
+          pip install -e "./plugins/sqlseed-ai[dev]"
           pip install -e "./plugins/mcp-server-sqlseed"
 
       - name: Lint
@@ -82,7 +82,7 @@ jobs:
         run: |
           pip install -e "./plugins/sqlseed-cli"
           pip install -e ".[all,dev]"
-          pip install -e "./plugins/sqlseed-ai"
+          pip install -e "./plugins/sqlseed-ai[dev]"
           pip install -e "./plugins/mcp-server-sqlseed"
 
       - name: Test with coverage
@@ -129,7 +129,7 @@ jobs:
         run: |
           pip install -e "./plugins/sqlseed-cli"
           pip install -e ".[all,dev]"
-          pip install -e "./plugins/sqlseed-ai"
+          pip install -e "./plugins/sqlseed-ai[dev]"
           pip install -e "./plugins/mcp-server-sqlseed"
 
       - name: Test
@@ -180,7 +180,7 @@ jobs:
         run: |
           pip install -e "./plugins/sqlseed-cli"
           pip install -e ".[all,dev]"
-          pip install -e "./plugins/sqlseed-ai"
+          pip install -e "./plugins/sqlseed-ai[dev]"
           pip install -e "./plugins/mcp-server-sqlseed"
 
       - name: Run PostgreSQL integration tests
@@ -215,7 +215,7 @@ jobs:
         run: |
           pip install -e "./plugins/sqlseed-cli"
           pip install -e ".[all,dev]"
-          pip install -e "./plugins/sqlseed-ai"
+          pip install -e "./plugins/sqlseed-ai[dev]"
           pip install -e "./plugins/mcp-server-sqlseed"
 
       - name: Run property-based tests
