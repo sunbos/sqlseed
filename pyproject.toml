@@ -141,6 +141,10 @@ select = ["E", "W", "F", "I", "N", "UP", "B", "A", "SIM", "TCH", "RET", "PLW", "
 ignore = [
     "PLR1730", "PLR2004", "PLR0913", "PLR0911",
     "RUF002", "RUF003", "PLR0912", "PLR0915",
+    # PLR0917 (too-many-positional-arguments): same rationale as PLR0913
+    # above — MCP tools, orchestrator, hookspecs, and test fixtures
+    # intentionally expose multiple positional parameters by API design.
+    "PLR0917",
     # ---- Project convention: lazy import of optional deps ----
     # CLAUDE.md: "Optional deps (mimesis): always lazy import with try/except"
     # Optional dependencies (mimesis, faker, rich, tqdm, testcontainers, etc.)
