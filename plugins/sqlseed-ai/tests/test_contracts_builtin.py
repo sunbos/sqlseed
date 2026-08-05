@@ -44,6 +44,38 @@ def test_random_float_on_integer_column():
     assert v.fix_strategy == "coerce_float_to_int"
 
 
+def test_expression_functions_as_generator_names_are_caught():
+    """random_float/random_int are SAFE_FUNCTIONS (expressions), not core generators.
+
+    LLMs emit them as generator names (the prompts list them); every numeric
+    column family must map to the real core generator, otherwise the fill
+    crashes with UnknownGeneratorError AFTER the validator said COMPATIBLE.
+    """
+    from sqlseed.generators._dispatch import GeneratorDispatchMixin
+
+    resolver = ContractResolver(BUILTIN_VIOLATIONS, set())
+    for col_type in ("REAL", "FLOAT", "DOUBLE", "DOUBLE PRECISION", "NUMERIC", "DECIMAL"):
+        v = resolver.check("random_float", col_type, frozenset(), {})
+        assert v is not None, f"random_float on {col_type} not covered"
+        assert v.fix_strategy == "switch_generator"
+        assert v.fix_params["target"] == "float"
+        assert v.fix_params["target"] in GeneratorDispatchMixin.GENERATOR_MAP
+    for col_type in ("INTEGER", "INT", "BIGINT", "SMALLINT", "TINYINT", "NUMERIC", "DECIMAL"):
+        v = resolver.check("random_int", col_type, frozenset(), {})
+        assert v is not None, f"random_int on {col_type} not covered"
+        assert v.fix_strategy == "switch_generator"
+        assert v.fix_params["target"] == "integer"
+        assert v.fix_params["target"] in GeneratorDispatchMixin.GENERATOR_MAP
+    # And every switch_generator target in the builtin matrix must be a real
+    # core generator (guards the whole class of cross-layer name drift).
+    for bv in BUILTIN_VIOLATIONS:
+        if bv.fix_strategy == "switch_generator":
+            target = bv.fix_params.get("target")
+            assert target in GeneratorDispatchMixin.GENERATOR_MAP, (
+                f"builtin violation ({bv.generator}, {bv.column_type}) targets unknown core generator {target!r}"
+            )
+
+
 def test_builtin_violations_include_phone_to_pattern_rule():
     """Rule #23: phone generator on phone-like column should be in BUILTIN_VIOLATIONS."""
     from sqlseed_ai.contracts.builtin_violations import BUILTIN_VIOLATIONS

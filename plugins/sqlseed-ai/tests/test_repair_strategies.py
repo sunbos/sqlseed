@@ -68,7 +68,15 @@ def test_normalize_params_fixes_choice_typo():
     assert result["params"] == {"choices": ["a", "b"]}
 
 
-def test_coerce_float_to_int_rewrites_random_float_to_random_int():
+def test_coerce_float_to_int_rewrites_random_float_to_integer():
+    """The rewrite target MUST be a real core generator.
+
+    ``random_int`` is only an expression function (SAFE_FUNCTIONS), not a
+    generator in core's GENERATOR_MAP — emitting it crashes the fill with
+    UnknownGeneratorError. Pin the target to ``integer``.
+    """
+    from sqlseed.generators._dispatch import GeneratorDispatchMixin
+
     col = {
         "name": "hours",
         "generator": "random_float",
@@ -76,7 +84,8 @@ def test_coerce_float_to_int_rewrites_random_float_to_random_int():
     }
     v = _v("coerce_float_to_int")
     result = REPAIR_STRATEGIES["coerce_float_to_int"](col, v, {})
-    assert result["generator"] == "random_int"
+    assert result["generator"] == "integer"
+    assert result["generator"] in GeneratorDispatchMixin.GENERATOR_MAP
 
 
 def test_fix_self_reference_strips_derive_from_when_self_referenced():

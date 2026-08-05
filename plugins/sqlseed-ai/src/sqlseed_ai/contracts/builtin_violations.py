@@ -34,6 +34,14 @@ BUILTIN_VIOLATIONS: set[ContractViolation] = {
     ),
     ContractViolation(
         generator="integer",
+        column_type="DATETIME",
+        constraints=frozenset(),
+        kind=ViolationKind.CRASH,
+        fix_strategy="switch_generator",
+        fix_params={"target": "datetime"},
+    ),
+    ContractViolation(
+        generator="integer",
         column_type="DATE",
         constraints=frozenset(),
         kind=ViolationKind.CRASH,
@@ -101,6 +109,35 @@ BUILTIN_VIOLATIONS: set[ContractViolation] = {
         kind=ViolationKind.CRASH,
         fix_strategy="coerce_float_to_int",
     ),
+    # === LLM-name normalization: expression functions emitted as generator names ===
+    # ``random_float``/``random_int`` are *expression* functions (core
+    # ``SAFE_FUNCTIONS``), not core generators (``GENERATOR_MAP``). The LLM
+    # prompts list them, so models emit them as generator names. The INTEGER
+    # family is covered above via ``coerce_float_to_int``; on float-family
+    # columns the matrix was silent (COMPATIBLE) and the fill crashed with
+    # ``UnknownGeneratorError``. Switch to the real core generator names.
+    *[
+        ContractViolation(
+            generator="random_float",
+            column_type=t,
+            constraints=frozenset(),
+            kind=ViolationKind.CRASH,
+            fix_strategy="switch_generator",
+            fix_params={"target": "float"},
+        )
+        for t in ("REAL", "FLOAT", "DOUBLE", "DOUBLE PRECISION", "NUMERIC", "DECIMAL")
+    ],
+    *[
+        ContractViolation(
+            generator="random_int",
+            column_type=t,
+            constraints=frozenset(),
+            kind=ViolationKind.CRASH,
+            fix_strategy="switch_generator",
+            fix_params={"target": "integer"},
+        )
+        for t in ("INTEGER", "INT", "BIGINT", "SMALLINT", "TINYINT", "NUMERIC", "DECIMAL")
+    ],
     # === Rule #24: UNIQUE code-like columns need template ===
     ContractViolation(
         generator="choice",

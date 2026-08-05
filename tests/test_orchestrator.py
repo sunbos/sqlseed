@@ -296,6 +296,33 @@ class TestOrchestratorUnique:
             assert adjusted["code"].params["min_length"] >= 1
             assert adjusted["code"].params["charset"] == "alphanumeric"
 
+    def test_fill_nullable_unique_column_not_all_null(self, tmp_path: Path) -> None:
+        """Regression: a nullable UNIQUE column (no DEFAULT, name matching no
+        semantic rule) must not be silently filled with NULL for every row.
+
+        The mapper's L8 nullable fallback yields a "skip" spec; the
+        UniqueAdjuster must re-map it to a type-faithful generator so the
+        column carries real unique values.
+        """
+        db_path = str(tmp_path / "nullable_unique.db")
+        conn = sqlite3.connect(db_path)
+        conn.execute("CREATE TABLE people (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, ssn TEXT UNIQUE)")
+        conn.commit()
+        conn.close()
+
+        with DataOrchestrator(db_path, provider_name="base") as orch:
+            result = orch.fill_table("people", count=50)
+            assert not result.errors
+
+        conn = sqlite3.connect(db_path)
+        total = conn.execute("SELECT COUNT(*) FROM people").fetchone()[0]
+        null_count = conn.execute("SELECT COUNT(*) FROM people WHERE ssn IS NULL").fetchone()[0]
+        distinct_count = conn.execute("SELECT COUNT(DISTINCT ssn) FROM people").fetchone()[0]
+        conn.close()
+        assert total == 50
+        assert null_count == 0
+        assert distinct_count == 50
+
 
 class TestOrchestratorEnrichment:
     def test_enrich_empty_table_uses_defaults(self, tmp_path: Path) -> None:

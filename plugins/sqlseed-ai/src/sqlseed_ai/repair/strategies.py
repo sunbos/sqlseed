@@ -313,10 +313,16 @@ def _fix_self_reference(col: dict[str, Any], v: ViolationReport, ctx: dict[str, 
 
 
 def _coerce_float_to_int(col: dict[str, Any], v: ViolationReport, ctx: dict[str, Any]) -> dict[str, Any]:
-    """Rewrite random_float → random_int for INTEGER columns (Rule #26)."""
+    """Rewrite random_float → integer for INTEGER columns (Rule #26).
+
+    The target MUST be a generator registered in core's ``GENERATOR_MAP``
+    (``sqlseed.generators._dispatch``). ``random_int`` is only an
+    *expression* function (``SAFE_FUNCTIONS``), not a generator — emitting
+    it as a generator name crashes the fill with ``UnknownGeneratorError``.
+    """
     new_col = {**col}
     if new_col.get("generator") == "random_float":
-        new_col["generator"] = "random_int"
+        new_col["generator"] = "integer"
     return new_col
 
 

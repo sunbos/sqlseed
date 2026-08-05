@@ -408,3 +408,67 @@ class TestAdjustStringEdgeCases:
         result = adjuster.adjust(specs, {"code"}, 100000)
         # Should have charset set to alphanumeric
         assert result["code"].params.get("charset") == "alphanumeric"
+
+
+class TestAdjustSkipUnique:
+    """Nullable UNIQUE columns must not silently fall through to an all-NULL fill.
+
+    Regression tests for the L8 nullable-skip loophole: a nullable UNIQUE
+    column (not PK, no DEFAULT) whose name matches no semantic rule lands on
+    the "skip" spec, and SQLite happily accepts 50 NULLs under UNIQUE. The
+    adjuster must re-map such columns to a type-faithful generator instead.
+    Uses a real ColumnMapper (pitfall #13: no self-proving mocks).
+    """
+
+    def test_nullable_unique_skip_remapped_to_type_faithful(self) -> None:
+        mapper = ColumnMapper()
+        adjuster = UniqueAdjuster(mapper)
+        specs = {"ssn": GeneratorSpec(generator_name="skip")}
+        col = _make_col_info("ssn", "TEXT", nullable=True)
+        result = adjuster.adjust(specs, {"ssn"}, 50, [col])
+        assert result["ssn"].generator_name != "skip"
+
+    def test_nullable_unique_integer_skip_gets_expanded_range(self) -> None:
+        # Recursion: the integer fallback must also get its value space
+        # expanded so 1000 rows can actually be unique.
+        mapper = ColumnMapper()
+        adjuster = UniqueAdjuster(mapper)
+        specs = {"lucky_num": GeneratorSpec(generator_name="skip")}
+        col = _make_col_info("lucky_num", "INTEGER", nullable=True)
+        result = adjuster.adjust(specs, {"lucky_num"}, 1000, [col])
+        spec = result["lucky_num"]
+        assert spec.generator_name == "integer"
+        assert spec.params["max_value"] - spec.params["min_value"] >= 1000
+
+    def test_primary_key_skip_untouched(self) -> None:
+        mapper = ColumnMapper()
+        adjuster = UniqueAdjuster(mapper)
+        specs = {"id": GeneratorSpec(generator_name="skip")}
+        col = _make_col_info("id", "INTEGER", nullable=True, is_primary_key=True)
+        result = adjuster.adjust(specs, {"id"}, 100, [col])
+        assert result["id"].generator_name == "skip"
+
+    def test_default_valued_skip_untouched(self) -> None:
+        mapper = ColumnMapper()
+        adjuster = UniqueAdjuster(mapper)
+        specs = {"status": GeneratorSpec(generator_name="skip")}
+        col = _make_col_info("status", "TEXT", nullable=True, default="active")
+        result = adjuster.adjust(specs, {"status"}, 100, [col])
+        assert result["status"].generator_name == "skip"
+
+    def test_not_null_skip_untouched(self) -> None:
+        # Non-nullable skip means the DEFAULT-skip level (L4), not the
+        # nullable-skip loophole — leave it alone.
+        mapper = ColumnMapper()
+        adjuster = UniqueAdjuster(mapper)
+        specs = {"code": GeneratorSpec(generator_name="skip")}
+        col = _make_col_info("code", "TEXT", nullable=False)
+        result = adjuster.adjust(specs, {"code"}, 100, [col])
+        assert result["code"].generator_name == "skip"
+
+    def test_no_column_info_skip_untouched(self) -> None:
+        mapper = ColumnMapper()
+        adjuster = UniqueAdjuster(mapper)
+        specs = {"id": GeneratorSpec(generator_name="skip")}
+        result = adjuster.adjust(specs, {"id"}, 1000, None)
+        assert result["id"].generator_name == "skip"

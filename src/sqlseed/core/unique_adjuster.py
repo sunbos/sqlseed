@@ -49,6 +49,12 @@ class UniqueAdjuster:
                 continue
             spec = specs[col_name]
             if spec.generator_name in {"skip", "autoincrement"}:
+                # A nullable UNIQUE column (not PK, no DEFAULT) falls through
+                # to the L8 nullable-skip fallback and would be silently
+                # filled with NULL for every row — valid per SQLite (multiple
+                # NULLs are distinct) but semantically useless. Re-map it to
+                # a type-faithful generator so it gets real unique values.
+                specs = self._adjust_skip_unique(specs, col_name, count, column_infos)
                 continue
 
             if spec.generator_name == "string":
@@ -59,6 +65,32 @@ class UniqueAdjuster:
                 specs = self._adjust_choice(specs, spec, col_name, count, column_infos)
 
         return specs
+
+    def _adjust_skip_unique(
+        self,
+        specs: dict[str, GeneratorSpec],
+        col_name: str,
+        count: int,
+        column_infos: list[ColumnInfo] | None,
+    ) -> dict[str, GeneratorSpec]:
+        """Re-map a nullable UNIQUE column that fell through to the L8 "skip" fallback.
+
+        Only touches columns that are nullable, non-PK, and have no DEFAULT —
+        those are the ones where "skip" means a silent all-NULL fill. When the
+        type-faithful fallback itself yields "skip"/"autoincrement" (e.g.,
+        unresolvable types), the original spec is kept untouched.
+        """
+        col_info = next((c for c in (column_infos or []) if c.name == col_name), None)
+        if col_info is None:
+            return specs
+        if col_info.is_primary_key or col_info.default is not None or not col_info.nullable:
+            return specs
+        fallback = self._mapper.map_column(col_info, force_type_infer=True)
+        if fallback.generator_name in {"skip", "autoincrement"}:
+            return specs
+        specs[col_name] = fallback
+        # Recurse so string/integer fallbacks also get value-space expansion.
+        return self.adjust(specs, {col_name}, count, column_infos)
 
     def _adjust_string(
         self,

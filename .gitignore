@@ -60,6 +60,8 @@ dmypy.json
 .sqlseed_cache/
 snapshots/
 .env
+# validation harness scratch artifacts
+scripts/complex_validation/dbs/_*.yaml
 examples/notebooks/_*.yaml
 examples/notebooks/_*.json
 examples/notebooks/batch_config.yaml
