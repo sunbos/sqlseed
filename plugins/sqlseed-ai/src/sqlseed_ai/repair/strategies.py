@@ -628,19 +628,36 @@ def _align_check_bounds(col: dict[str, Any], v: ViolationReport, ctx: dict[str, 
     or ``CHECK(balance >= 0)``), the generator's ``min_value``/``max_value``
     must be within the CHECK range. ``fix_params`` carries the target
     bounds extracted from the CHECK expression.
+
+    Each side is tightened toward the CHECK bound. If the original generator
+    range lies ENTIRELY outside the CHECK range, clamping each side
+    independently can invert the range (``min_value > max_value``, e.g.
+    ``[0, 999]`` clamped to ``CHECK year BETWEEN 2000 AND 2026``). In that
+    case the range is re-anchored onto the CHECK bounds so the generator
+    produces only legal values.
     """
     new_col = {**col}
     params = dict(new_col.get("params") or {})
-    if "min_value" in v.fix_params:
-        current_min = params.get("min_value")
-        target_min = v.fix_params["min_value"]
-        if current_min is None or current_min < target_min:
-            params["min_value"] = target_min
-    if "max_value" in v.fix_params:
-        current_max = params.get("max_value")
-        target_max = v.fix_params["max_value"]
-        if current_max is None or current_max > target_max:
-            params["max_value"] = target_max
+    check_min = v.fix_params.get("min_value")
+    check_max = v.fix_params.get("max_value")
+    if check_min is None and check_max is None:
+        return new_col
+    current_min = params.get("min_value")
+    current_max = params.get("max_value")
+    if check_min is not None and (current_min is None or current_min < check_min):
+        params["min_value"] = check_min
+    if check_max is not None and (current_max is None or current_max > check_max):
+        params["max_value"] = check_max
+    final_min = params.get("min_value")
+    final_max = params.get("max_value")
+    if final_min is not None and final_max is not None and final_min > final_max:
+        if check_min is not None and check_max is not None:
+            params["min_value"] = check_min
+            params["max_value"] = check_max
+        elif check_min is not None:
+            params["max_value"] = final_min
+        elif check_max is not None:
+            params["min_value"] = final_max
     new_col["params"] = params
     return new_col
 

@@ -8,6 +8,7 @@ Spec reference: Section 4.3.
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING, Any, Literal
 
 from sqlseed_ai.contracts.matrix import ContractResolver, ViolationKind
@@ -15,6 +16,77 @@ from sqlseed_ai.validator.models import ConstraintType, ViolationReport
 
 if TYPE_CHECKING:
     from sqlseed_ai.contracts.matrix import ContractViolation
+
+
+def _to_num(raw: str) -> int | float:
+    """Convert a numeric literal string to int (no decimal) or float."""
+    return int(raw) if "." not in raw else float(raw)
+
+
+def _extract_enum_values(expr: str, col_name: str) -> list[int | str] | None:
+    """Extract the value set from a ``col IN (...)`` CHECK expression.
+
+    Handles single- and double-quoted strings and bare int/float literals,
+    e.g. ``role IN ('admin', 'user', 'guest')`` → ``['admin', 'user', 'guest']``
+    or ``flag IN (0, 1)`` → ``[0, 1]``. Returns ``None`` when the expression
+    does not contain an ``IN`` clause for ``col_name``.
+    """
+    m = re.search(
+        rf"\b{re.escape(col_name)}\s+IN\s*\((.*?)\)",
+        expr,
+        re.IGNORECASE | re.DOTALL,
+    )
+    if not m:
+        return None
+    inner = m.group(1)
+    values: list[int | str] = []
+    for q_single, q_double, num in re.findall(r"""'([^']*)'|"([^"]*)"|(-?\d+(?:\.\d+)?)""", inner):
+        if q_single != "":
+            values.append(q_single)
+        elif q_double != "":
+            values.append(q_double)
+        elif num != "":
+            values.append(_to_num(num))
+    return values or None
+
+
+def _extract_range_bounds(exprs: list[str], col_name: str) -> dict[str, int | float] | None:
+    """Merge min/max bounds from a column's CHECK range expressions.
+
+    Handles ``col >= X AND col <= Y``, ``col BETWEEN X AND Y``, and one-sided
+    ``col >= X`` / ``col <= Y``. Multiple bounds are merged by taking the
+    higher lower-bound and the lower upper-bound. Returns ``None`` if no
+    range operator is found.
+    """
+    col = re.escape(col_name)
+    min_val: int | float | None = None
+    max_val: int | float | None = None
+    for expr in exprs:
+        m = re.search(
+            rf"\b{col}\s+BETWEEN\s+(-?\d+(?:\.\d+)?)\s+AND\s+(-?\d+(?:\.\d+)?)",
+            expr,
+            re.IGNORECASE,
+        )
+        if m:
+            lo, hi = _to_num(m.group(1)), _to_num(m.group(2))
+            min_val = lo if min_val is None else max(min_val, lo)
+            max_val = hi if max_val is None else min(max_val, hi)
+        m = re.search(rf"\b{col}\s+>=\s*(-?\d+(?:\.\d+)?)", expr, re.IGNORECASE)
+        if m:
+            v = _to_num(m.group(1))
+            min_val = v if min_val is None else max(min_val, v)
+        m = re.search(rf"\b{col}\s+<=\s*(-?\d+(?:\.\d+)?)", expr, re.IGNORECASE)
+        if m:
+            v = _to_num(m.group(1))
+            max_val = v if max_val is None else min(max_val, v)
+    if min_val is None and max_val is None:
+        return None
+    result: dict[str, int | float] = {}
+    if min_val is not None:
+        result["min_value"] = min_val
+    if max_val is not None:
+        result["max_value"] = max_val
+    return result
 
 
 class SingleColumnValidator:
@@ -76,6 +148,9 @@ class SingleColumnValidator:
                             fix_params={"reason": f"cardinality {cardinality} < row_count {row_count}"},
                         )
                     )
+            check_violation = self._check_constraint_compliance(col, col_name, table_config["name"], table_schema)
+            if check_violation is not None:
+                violations.append(check_violation)
         return violations
 
     def _compute_cardinality(self, col: dict[str, Any], row_count: int) -> int | float:
@@ -138,6 +213,98 @@ class SingleColumnValidator:
             if col.get("name") == col_name and not col.get("nullable", True):
                 result.add("NOT_NULL")
         return frozenset(result)
+
+    def _check_constraint_compliance(
+        self,
+        col: dict[str, Any],
+        col_name: str,
+        table_name: str,
+        table_schema: dict[str, Any],
+    ) -> ViolationReport | None:
+        """Flag generators that violate a column's CHECK expression values.
+
+        The sparse matrix is a closed set of known-bad *type* combinations
+        and cannot carry the values of a CHECK expression (its ``IN (...)``
+        set or numeric range). This step parses the column's CHECK
+        constraints and emits a targeted violation when the configured
+        generator would produce out-of-range values:
+
+        - ``string``/``text`` on a ``CHECK IN ('a','b',...)`` column →
+          ``coerce_to_text_enum`` (with ``check_values``)
+        - any non-boolean generator on a ``CHECK IN (0,1)`` column →
+          ``coerce_to_boolean_enum``
+        - a numeric generator whose min/max exceed the CHECK range bounds →
+          ``align_check_bounds`` (with ``min_value``/``max_value``)
+
+        Returns ``None`` when no conflict exists (correct generator already
+        chosen, or no parseable single-column CHECK).
+        """
+        gen = col.get("generator", "")
+        constraints = table_schema.get("constraints", [])
+        check_exprs: list[str] = []
+        for c in constraints:
+            if c.get("type") != "check":
+                continue
+            expr = c.get("expression")
+            if not isinstance(expr, str):
+                continue
+            cols = c.get("columns") or []
+            # SQLite inline CHECKs report empty column_names, so fall back to
+            # a word-boundary scan of the expression.
+            if col_name in cols or re.search(rf"\b{re.escape(col_name)}\b", expr, re.IGNORECASE):
+                check_exprs.append(expr)
+        if not check_exprs:
+            return None
+
+        enum_values: list[int | str] | None = None
+        for expr in check_exprs:
+            enum_values = _extract_enum_values(expr, col_name)
+            if enum_values:
+                break
+        if enum_values:
+            if all(isinstance(v, str) for v in enum_values):
+                if gen not in ("choice", "weighted_choice"):
+                    return ViolationReport(
+                        table=table_name,
+                        columns=[col_name],
+                        constraint_type=ConstraintType.CHECK,
+                        severity="semantic_error",
+                        fix_hint="coerce_to_text_enum",
+                        fix_params={"check_values": list(enum_values)},
+                    )
+            elif all(v in (0, 1) for v in enum_values):
+                if gen != "boolean":
+                    return ViolationReport(
+                        table=table_name,
+                        columns=[col_name],
+                        constraint_type=ConstraintType.CHECK,
+                        severity="semantic_error",
+                        fix_hint="coerce_to_boolean_enum",
+                        fix_params={"check_values": list(enum_values)},
+                    )
+            # Numeric (non-boolean) enum: no dedicated strategy — leave as-is.
+            return None
+
+        bounds = _extract_range_bounds(check_exprs, col_name)
+        if bounds and gen in ("integer", "random_int", "float", "random_float"):
+            params = col.get("params") or {}
+            cur_min = params.get("min_value")
+            cur_max = params.get("max_value")
+            conflict = False
+            if "min_value" in bounds and (cur_min is None or cur_min < bounds["min_value"]):
+                conflict = True
+            if "max_value" in bounds and (cur_max is None or cur_max > bounds["max_value"]):
+                conflict = True
+            if conflict:
+                return ViolationReport(
+                    table=table_name,
+                    columns=[col_name],
+                    constraint_type=ConstraintType.CHECK,
+                    severity="semantic_error",
+                    fix_hint="align_check_bounds",
+                    fix_params={k: v for k, v in bounds.items()},
+                )
+        return None
 
     @staticmethod
     def _map_constraint_type(v: ContractViolation) -> ConstraintType:

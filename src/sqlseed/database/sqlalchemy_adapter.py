@@ -32,7 +32,7 @@ from sqlseed.database._bulk_optimizer import (
     SQLiteBulkOptimizer,
 )
 from sqlseed.database._dialect import Dialect, PostgresDialect, SQLiteDialect
-from sqlseed.database._helpers import apply_bulk_optimize, apply_bulk_restore, batch_insert_rows
+from sqlseed.database._helpers import apply_bulk_optimize, apply_bulk_restore, batch_insert_rows, fetch_index_info
 from sqlseed.database._protocol import CheckConstraintInfo, ColumnInfo, ForeignKeyInfo, IndexInfo
 from sqlseed.database._type_normalizer import TypeNormalizer
 
@@ -544,6 +544,12 @@ class SQLAlchemyAdapter:
         by ``get_indexes`` because SQLite creates auto-indexes for them, and
         SQLAlchemy's ``inspector.get_indexes`` excludes auto-indexes.
 
+        On SQLite, ``inspector.get_unique_constraints`` can additionally miss
+        inline column-level ``UNIQUE`` constraints when the column also carries
+        a ``CHECK`` constraint (a SQLAlchemy reflection limitation that drops
+        the auto-index). PRAGMA-based index detection reports those auto-indexes
+        directly, so this method supplements the inspector result with them.
+
         Args:
             table_name: Target table name.
 
@@ -553,25 +559,47 @@ class SQLAlchemyAdapter:
         """
         validate_table_name(table_name)
 
+        result: list[IndexInfo] = []
+        seen: set[tuple[str, ...]] = set()
+
         inspector = self._get_inspector()
         try:
             constraints = inspector.get_unique_constraints(table_name)
         except NoSuchTableError:
-            return []
-        result: list[IndexInfo] = []
+            constraints = []
         for uc in constraints:
-            uc_name = uc.get("name") or ""
             col_names = tuple(c or "" for c in uc.get("column_names", []))
             if not col_names:
                 continue
-            result.append(
-                IndexInfo(
-                    name=uc_name,
-                    table=table_name,
-                    columns=col_names,
-                    unique=True,
+            if col_names not in seen:
+                seen.add(col_names)
+                result.append(
+                    IndexInfo(
+                        name=uc.get("name") or "",
+                        table=table_name,
+                        columns=col_names,
+                        unique=True,
+                    )
                 )
-            )
+
+        if self.dialect.name == "sqlite":
+            try:
+                for idx in fetch_index_info(self.execute, table_name):
+                    if idx.unique and len(idx.columns) == 1:
+                        key = idx.columns
+                        if key not in seen:
+                            seen.add(key)
+                            result.append(
+                                IndexInfo(
+                                    name=idx.name,
+                                    table=table_name,
+                                    columns=idx.columns,
+                                    unique=True,
+                                )
+                            )
+            except (SQLAlchemyError, ValueError, RuntimeError, OSError):
+                logger.debug("Failed to detect SQLite UNIQUE auto-indexes via PRAGMA", table_name=table_name)
+
         return result
 
     def get_check_constraints(self, table_name: str) -> list[CheckConstraintInfo]:

@@ -191,3 +191,62 @@ class TestCompositePrimaryKeyDetection:
             assert ["product_id", "tag_id"] in composite
         finally:
             adapter.close()
+
+
+class TestInlineUniqueWithCheckDetection:
+    """行内 UNIQUE 列同时带 CHECK 约束时的单列 UNIQUE 检测。
+
+    回归测试：SQLAlchemy 的 inspector.get_unique_constraints 在该组合下可能
+    （SQLite 反射限制）丢失自动索引，导致 year/rating 未被识别为 UNIQUE 列，
+    填充时生成重复值违反约束。修复：get_unique_constraints 用 PRAGMA 补充。
+    """
+
+    def test_inline_unique_with_check_single_column_sqlalchemy(self, tmp_path: Any) -> None:
+        """SQLAlchemyAdapter（生产路径）：UNIQUE+CHECK 列应被识别为单列 UNIQUE。"""
+        db_path = str(tmp_path / "inline_unique_check.db")
+        conn = sqlite3.connect(db_path)
+        conn.executescript(
+            """CREATE TABLE "t1" (
+                "id" INTEGER NOT NULL,
+                "price" REAL NOT NULL CHECK (price >= 0),
+                "year" INTEGER NOT NULL UNIQUE CHECK (year >= 2000 AND year <= 2026),
+                "priority" TEXT NOT NULL CHECK (priority IN ('low','medium','high')),
+                "rating" REAL NOT NULL UNIQUE CHECK (rating >= 0),
+                PRIMARY KEY ("id")
+            );"""
+        )
+        conn.commit()
+        conn.close()
+        adapter = SQLAlchemyAdapter()
+        adapter.connect(db_path)
+        try:
+            inferrer = SchemaInferrer(adapter)
+            unique_cols = inferrer.detect_unique_columns("t1")
+            assert "year" in unique_cols
+            assert "rating" in unique_cols
+        finally:
+            adapter.close()
+
+    def test_inline_unique_with_check_single_column_raw(self, tmp_path: Any) -> None:
+        """RawSQLiteAdapter：UNIQUE+CHECK 列应被识别为单列 UNIQUE（PRAGMA 路径）。"""
+        db_path = str(tmp_path / "inline_unique_check_raw.db")
+        conn = sqlite3.connect(db_path)
+        conn.executescript(
+            """CREATE TABLE "t1" (
+                "id" INTEGER NOT NULL,
+                "year" INTEGER NOT NULL UNIQUE CHECK (year >= 2000 AND year <= 2026),
+                "rating" REAL NOT NULL UNIQUE CHECK (rating >= 0),
+                PRIMARY KEY ("id")
+            );"""
+        )
+        conn.commit()
+        conn.close()
+        adapter = RawSQLiteAdapter()
+        adapter.connect(db_path)
+        try:
+            inferrer = SchemaInferrer(adapter)
+            unique_cols = inferrer.detect_unique_columns("t1")
+            assert "year" in unique_cols
+            assert "rating" in unique_cols
+        finally:
+            adapter.close()

@@ -192,8 +192,18 @@ class MimesisProvider(BaseProvider):
         return text[:max_length]
 
     def _gen_sentence(self) -> str:
-        """Generate a sentence."""
-        return self._generic.text.sentence()
+        """Generate a sentence with high cardinality.
+
+        ``Text.sentence()`` is drawn from a tiny fixed template set (~28
+        unique values), which makes UNIQUE-constrained sentence columns
+        (e.g. ``description``/``title``) fail once the row count exceeds
+        that value space. Building the sentence from a variable-length
+        ``Text.words()`` sample gives an effectively unbounded value space
+        while still reading as natural prose.
+        """
+        n = self._generic.random.randint(6, 12)
+        words = self._generic.text.words(quantity=n)
+        return " ".join(words).capitalize() + "."
 
     def _gen_password(self, *, length: int = 16) -> str:
         """Generate a password."""
