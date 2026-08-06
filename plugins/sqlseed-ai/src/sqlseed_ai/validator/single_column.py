@@ -23,7 +23,7 @@ def _to_num(raw: str) -> int | float:
     return int(raw) if "." not in raw else float(raw)
 
 
-def _extract_enum_values(expr: str, col_name: str) -> list[int | str] | None:
+def _extract_enum_values(expr: str, col_name: str) -> list[int | float | str] | None:
     """Extract the value set from a ``col IN (...)`` CHECK expression.
 
     Handles single- and double-quoted strings and bare int/float literals,
@@ -39,7 +39,7 @@ def _extract_enum_values(expr: str, col_name: str) -> list[int | str] | None:
     if not m:
         return None
     inner = m.group(1)
-    values: list[int | str] = []
+    values: list[int | float | str] = []
     for q_single, q_double, num in re.findall(r"""'([^']*)'|"([^"]*)"|(-?\d+(?:\.\d+)?)""", inner):
         if q_single != "":
             values.append(q_single)
@@ -256,7 +256,7 @@ class SingleColumnValidator:
         if not check_exprs:
             return None
 
-        enum_values: list[int | str] | None = None
+        enum_values: list[int | float | str] | None = None
         for expr in check_exprs:
             enum_values = _extract_enum_values(expr, col_name)
             if enum_values:
@@ -272,16 +272,15 @@ class SingleColumnValidator:
                         fix_hint="coerce_to_text_enum",
                         fix_params={"check_values": list(enum_values)},
                     )
-            elif all(v in (0, 1) for v in enum_values):
-                if gen != "boolean":
-                    return ViolationReport(
-                        table=table_name,
-                        columns=[col_name],
-                        constraint_type=ConstraintType.CHECK,
-                        severity="semantic_error",
-                        fix_hint="coerce_to_boolean_enum",
-                        fix_params={"check_values": list(enum_values)},
-                    )
+            elif all(v in (0, 1) for v in enum_values) and gen != "boolean":
+                return ViolationReport(
+                    table=table_name,
+                    columns=[col_name],
+                    constraint_type=ConstraintType.CHECK,
+                    severity="semantic_error",
+                    fix_hint="coerce_to_boolean_enum",
+                    fix_params={"check_values": list(enum_values)},
+                )
             # Numeric (non-boolean) enum: no dedicated strategy — leave as-is.
             return None
 

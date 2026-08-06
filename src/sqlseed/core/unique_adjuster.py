@@ -240,12 +240,13 @@ class UniqueAdjuster:
     def _check_range_bounds(
         col_name: str,
         check_constraints: list[Any] | None,
-    ) -> tuple[int, int] | None:
+    ) -> tuple[int | None, int | None] | None:
         """Return the integer [min, max] bounds a CHECK range imposes on ``col_name``.
 
         Only deterministic single-column integer ranges are honored (via
         ``CheckConstraintParser``); cross-column / unparseable CHECKs return None.
         Multiple range CHECKs are intersected (tightest lower / upper bound wins).
+        Either bound may be ``None`` when only a one-sided range is present.
         """
         if not check_constraints:
             return None
