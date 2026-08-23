@@ -25,6 +25,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          fetch-depth: 0
+
       - uses: ./.github/actions/setup-env
         with:
           python-version: "3.12"
@@ -52,6 +56,10 @@ jobs:
         python-version: ["3.10", "3.12", "3.13"]
 
     steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          fetch-depth: 0
+
       - uses: ./.github/actions/setup-env
         with:
           python-version: ${{ matrix.python-version }}
@@ -81,6 +89,10 @@ jobs:
         os: [macos-latest, windows-latest]
 
     steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          fetch-depth: 0
+
       - uses: ./.github/actions/setup-env
         with:
           python-version: "3.12"
@@ -113,6 +125,10 @@ jobs:
       PG_TEST_URL: postgresql+psycopg://postgres:postgres@localhost:5432/testdb
 
     steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          fetch-depth: 0
+
       - uses: ./.github/actions/setup-env
         with:
           python-version: "3.12"
@@ -130,6 +146,10 @@ jobs:
     timeout-minutes: 25
 
     steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          fetch-depth: 0
+
       - uses: ./.github/actions/setup-env
         with:
           python-version: "3.12"
