@@ -1,6 +1,6 @@
 # PROJECT KNOWLEDGE BASE
 
-**Last updated:** 2026-07-29
+**Last updated:** 2026-08-23
 **Branch:** `feat/contract-driven-self-healing`
 
 ## OVERVIEW
@@ -19,7 +19,7 @@ Declarative Multi-Database test data generation toolkit. YAML/JSON config or Pyt
 sqlseed/
 ├── src/sqlseed/          # Core package (no CLI/AI/MCP code)
 │   ├── __init__.py       # Public API: fill, connect, fill_from_config, preview
-│   ├── core/             # Orchestrator, mapper, schema, constraints, DAG, enrichment, transform
+│   ├── core/             # Orchestrator, mapper, schema, CHECK parse/adapt, constraints, DAG, enrichment, transform
 │   ├── generators/       # Data providers: base, faker, mimesis
 │   ├── database/         # DB adapters: SQLAlchemy (required, SQLite+PostgreSQL), raw sqlite3 (test-only)
 │   ├── plugins/          # Plugin infrastructure: hookspecs, manager, mediator
@@ -92,7 +92,7 @@ The connection-taking public API functions (`fill`, `connect`, `preview`) accept
 
 - `_common.py` — Shared dataclasses (not a mixin): `CoreCtx` (db, schema, mapper, relation, shared_pool), `ExtCtx` (registry, plugins, plugin_mediator, enrichment, unique_adjuster, schema_fallback, metrics). Helper: `_is_db_url()`.
 - `_connection.py` — `ConnectionMixin`: lifecycle (`__init__`, `_ensure_connected`, `close`), adapter creation, property accessors, context manager protocol, `from_config()` classmethod.
-- `_specs.py` — `SpecResolverMixin`: `_resolve_specs()` (schema inference → column mapping → enrichment → unique adjustment → FK resolution), `_build_stream()` (also extracts cross-column comparison CHECK constraints `col1 OP col2` into `inequality_constraints`), `_prepare_specs()`, `_resolve_user_configs()`.
+- `_specs.py` — `SpecResolverMixin`: `_resolve_specs()` (schema inference → CHECK adaptation (`CheckAdapter`, clamps user params to single-column CHECK bounds BEFORE mapping) → column mapping → enrichment → unique adjustment → FK resolution), `_build_stream()` (also extracts cross-column comparison CHECK constraints `col1 OP col2` into `inequality_constraints`), `_prepare_specs()`, `_resolve_user_configs()`.
 - `_generation.py` — `GenerationMixin`: `_generate_and_insert_batches()`, `fill_table()` (main entry point), `preview_table()`. (`fill = fill_table` alias.)
 - `_query.py` — `QueryMixin`: `get_schema_context()`, `get_column_mapping()`, `get_column_names()`, `get_skippable_columns()`, `get_topological_table_order()`, `get_table_names()`, `get_column_info()`, `get_foreign_keys()`, `get_row_count()`, `execute()`, `query()`, `fetch_one()`, `report()`, `map_column()`.
 
@@ -188,6 +188,7 @@ Battle scars — read before touching the relevant areas:
 12. **AUTO-GENERATED markers**: Doc files use `<!-- BEGIN:AUTO-GENERATED:name -->value<!-- END:AUTO-GENERATED:name -->`. Don't manually edit values inside markers — run `scripts/sync_docs.py` and `pytest tests/test_doc_sync.py`.
 13. **Mock self-proving trap**: Tests that mock `sqlseed.core.*` / `generators.*` / `database.*` classes (e.g., `mapper.map_column = MagicMock(return_value=...)` then `assert_called_once_with(...)`) are self-proving — the assertion echoes the mock setup and never verifies the computed `GeneratorSpec.params`. Use a real `ColumnMapper` + real `ColumnInfo` with non-None `default` and a non-exact-match column name (e.g., `"category"`/`"rank"`) to exercise `_type_faithful_fallback` and downstream `_adjust_*` math. See `tests/test_core/test_unique_adjuster.py::TestAdjustChoiceFallback` for the recommended pattern. Run `make mutmut` to detect self-proving tests.
 14. **Architecture enforcement is multi-layer**: 4 complementary mechanisms — (a) `lint-imports` (CI gate, fails fast on forbidden layer crossings), (b) `tests/test_architecture.py` (14 invariant tests), (c) `make mutmut` (mutation testing), (d) `tests/test_doc_sync.py` (count markers match code). All 4 must pass before merge.
+15. **CHECK adaptation is deterministic-only**: `check_adapt.py` clamps user params to single-column literal CHECK bounds (overlap → clamp + notice; disjoint → `ConfigurationError`). Cross-column/OR/unparseable CHECKs stay the AI/manual domain — never "guess" them in core. Composite PRIMARY KEYs are treated as composite UNIQUE constraints (`unique_adjuster.detect_unique_columns()`), not per-column unique.
 
 ## AI SELF-HEALING SUBSYSTEM (`sqlseed-ai`, current branch focus)
 

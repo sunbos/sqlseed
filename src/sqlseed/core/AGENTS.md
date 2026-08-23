@@ -1,6 +1,6 @@
 # CORE ORCHESTRATION LAYER
 
-**Last updated:** 2026-07-12
+**Last updated:** 2026-08-23
 
 ## OVERVIEW
 
@@ -20,7 +20,8 @@ core/
 │   └── _query.py        # QueryMixin — schema context, SQL execute/query, table info
 ├── mapper.py            # ColumnMapper 9-level strategy chain
 ├── schema.py            # SchemaInferrer — column info, indexes, distribution
-├── check_parser.py      # CheckConstraintParser + ParsedCheck — single-column CHECK → generator hints
+├── check_parser.py      # CheckConstraintParser + ParsedCheck — sqlglot AST, single-column literal CHECK → generator hints
+├── check_adapt.py       # CheckAdapter — deterministic clamp of user YAML params to CHECK bounds (disjoint → ConfigurationError)
 ├── schema_fallback.py   # SchemaFallbackGenerator — pure schema-semantics fallback, zero business logic
 ├── features.py          # Normalized structural features for cross-DB schema analysis
 ├── relation.py          # RelationResolver + SharedPool — FK resolution
@@ -43,7 +44,8 @@ core/
 | Add fill logic | `orchestrator/_generation.py` | DataOrchestrator.fill_table() |
 | Modify mapping | `mapper.py` | ColumnMapper.map_columns() — 9-level chain |
 | Add schema info | `schema.py` | SchemaInferrer.get_column_info() |
-| Parse CHECK constraints | `check_parser.py` | CheckConstraintParser, ParsedCheck |
+| Parse CHECK constraints | `check_parser.py` | sqlglot AST; single-column literal CHECKs only, else None (AI/manual domain) |
+| Clamp config to CHECK | `check_adapt.py` | CheckAdapter.adapt_user_configs() — runs in `_resolve_specs()` BEFORE map_columns |
 | Schema-only fallback | `schema_fallback.py` | SchemaFallbackGenerator — called when mapping yields nothing |
 | Handle FK | `relation.py` | RelationResolver.resolve_foreign_keys() |
 | Add derive_from | `column_dag.py` | ColumnDAG.build() — topological sort |

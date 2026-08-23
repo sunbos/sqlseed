@@ -1,6 +1,6 @@
 # DATA GENERATORS LAYER
 
-**Last updated:** 2026-07-12
+**Last updated:** 2026-08-23
 
 ## OVERVIEW
 
@@ -38,6 +38,8 @@ generators/
 - **Entry points**: Register in `pyproject.toml` `[project.entry-points."sqlseed"]`
 - **Fallback chain**: mimesis → faker → base (auto-degrades)
 - **Locale support**: `set_locale()` called before generation
+- **Phone**: locale-real format by default (faker/mimesis native); explicit `mask` param forces a unified custom format across providers
+- **Faker locale probing**: at init, per-instance probe for locale-missing methods (zh_CN lacks `state()`/`zipcode()`) and install BaseProvider fallbacks; cleared on locale switch back — never crash mid-fill
 
 ## ANTI-PATTERNS
 
