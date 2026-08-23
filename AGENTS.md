@@ -7,7 +7,7 @@
 
 Declarative Multi-Database test data generation toolkit. YAML/JSON config or Python API. Auto-infers schema, 9-level column mapping, 35 generators, plugin system (pluggy). Supports SQLite (default) and PostgreSQL via SQLAlchemy. MySQL removed (deferred until PostgreSQL fully validated). Gemma 4 as long-term LLM backend (protocol-based native function calling). License: **AGPL-3.0-or-later**.
 
-**Stack**: Python 3.10+ (`requires-python = ">=3.10"`), hatchling + hatch-vcs build, ruff lint, mypy strict, pytest. CI also gates on `lint-imports` (architectural layer contracts) and `mutmut` (mutation testing).
+**Stack**: Python 3.10+ (`requires-python = ">=3.10"`), hatchling + hatch-vcs build, ruff lint, mypy strict, pytest. CI also gates on `lint-imports` (architectural layer contracts); `mutmut` (mutation testing) is a local pre-merge gate via `make mutmut` — too slow for push CI.
 
 **Architecture**: 4 independent packages — `sqlseed` (core, offline), `sqlseed-cli` (CLI plugin), `sqlseed-ai` (AI plugin), `mcp-server-sqlseed` (MCP plugin; module path is `mcp_server_sqlseed`, note the underscore). See [ARCHITECTURE.md](./ARCHITECTURE.md) for the authoritative architecture reference; [CLAUDE.md](./CLAUDE.md) has the canonical "Never/Always" rules.
 
@@ -158,7 +158,7 @@ Defined in `src/sqlseed/plugins/hookspecs.py`. `firstresult=✓` means pluggy re
 - `lint-imports` — enforces the 3 forbidden layer contracts in `pyproject.toml` `[tool.importlinter]`: generators/database must not import core; `_utils` must not import upper layers. Violations fail CI automatically instead of relying on agents reading docs.
 - `tests/test_architecture.py` — 14 invariant tests complementing `lint-imports`: module location, count contracts (generator/hook/exact-rule counts), public API surface, production isolation. All must pass before merge.
 - `pytest tests/test_doc_sync.py` — verifies AUTO-GENERATED count markers in docs match the code. Run after editing `mapper.py` / `_dispatch.py` / `hookspecs.py` / `models.py` / `__init__.py` (see DOC SYNC RULES below).
-- `mutmut` — mutation testing to catch self-proving mock-based tests. **Windows gotcha**: mutmut 3.x is not Windows-native; use `mutmut<3` and set `PYTHONUTF8=1` (see `Makefile` `mutmut` target). Default high-risk module is `unique_adjuster`; override with `--paths-to-mutate`. Baseline: 49.2% survival on 2026-06-25 — surviving mutants indicate self-proving tests. `make mutmut-report` shows survivor IDs (`python -m mutmut show <id>` to inspect); `make mutmut-clean` resets the cache.
+- `mutmut` — mutation testing to catch self-proving mock-based tests (local gate: run `make mutmut` before merge; NOT executed in push CI due to runtime cost). **Windows gotcha**: mutmut 3.x is not Windows-native; use `mutmut<3` and set `PYTHONUTF8=1` (see `Makefile` `mutmut` target). Default high-risk module is `unique_adjuster`; override with `--paths-to-mutate`. Baseline: 49.2% survival on 2026-06-25 — surviving mutants indicate self-proving tests. `make mutmut-report` shows survivor IDs (`python -m mutmut show <id>` to inspect); `make mutmut-clean` resets the cache.
 
 ## UNIQUE STYLES
 
