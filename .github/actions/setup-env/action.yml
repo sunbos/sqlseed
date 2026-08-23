@@ -1,9 +1,8 @@
 name: 'Setup sqlseed CI environment'
-description: 'Checkout + Python setup (pip cache) + editable install of core & all plugins'
+description: 'Python setup (pip cache) + editable install of core & all plugins'
 
-# Shared by every job in ci.yml so the install block lives in ONE place.
-# GitHub Actions does not support YAML anchors; a composite action is the
-# canonical way to de-duplicate this across jobs.
+# Local composite actions are resolved from the working tree BEFORE any
+# step runs — jobs MUST run actions/checkout before this action.
 inputs:
   python-version:
     description: 'Python version for actions/setup-python'
@@ -12,10 +11,6 @@ inputs:
 runs:
   using: 'composite'
   steps:
-    - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
-      with:
-        fetch-depth: 0
-
     - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
       with:
         python-version: ${{ inputs.python-version }}
