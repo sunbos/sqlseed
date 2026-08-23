@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "sqlseed"
 dynamic = ["version"]
 requires-python = ">=3.10"
-description = "Declarative SQLite test data generation toolkit"
+description = "Declarative multi-database (SQLite/PostgreSQL) test data generation toolkit"
 readme = "README.md"
 license = "AGPL-3.0-or-later"
 authors = [
