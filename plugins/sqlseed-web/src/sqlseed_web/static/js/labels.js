@@ -48,6 +48,32 @@ export function genLabel(gen) {
   return GEN_LABELS[gen] || gen || '—';
 }
 
+// 生成器参数中文标签（genform 动态参数表单）。未收录的参数原样显示。
+export const PARAM_LABELS = {
+  min_length: '最小长度',
+  max_length: '最大长度',
+  charset: '字符集',
+  min_value: '最小值',
+  max_value: '最大值',
+  precision: '小数位数',
+  length: '长度',
+  mask: '号码格式',
+  start_year: '起始年份',
+  end_year: '结束年份',
+  choices: '候选值',
+  weighted_choices: '加权候选值',
+  pattern: '正则表达式',
+  regex: '正则表达式',
+  template: '模板',
+  sequence_start: '序列起始值',
+  sequence_step: '序列步长',
+  schema: 'JSON 结构',
+};
+
+export function paramLabel(p) {
+  return PARAM_LABELS[p] || p;
+}
+
 // 列的树节点语义标注：优先外键/自增，其次生成器语义。
 export function colAnnotation(col, spec, fkCols) {
   if (fkCols.has(col.name)) return '外键';

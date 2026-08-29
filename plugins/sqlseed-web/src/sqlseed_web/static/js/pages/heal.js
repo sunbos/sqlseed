@@ -1,5 +1,6 @@
-// 自愈实验室：L2 validate → L3 repair → L5 auto-heal，逐层可视。
+// AI 分析与修复：L2 validate → L3 repair → L5 auto-heal，逐层可视。
 // 这是缺陷收敛的主战场：贴 YAML，看违规、看修复、看最终产物。
+// 未安装 sqlseed-ai 时展示 onboarding 引导卡（安装命令 + 能力说明）。
 
 import { h, post, get, store, msg, clear, table, fmt } from '../api.js';
 import { createDropdown } from '../dropdown.js';
@@ -20,7 +21,7 @@ export function render() {
     store.tables[0]?.name || '',
   );
   root.append(
-    h('h2', {}, '自愈实验室（Layers 2 / 3 / 5）'),
+    h('h2', {}, 'AI 分析与修复（Layers 2 / 3 / 5）'),
     renderAiPanel(),
     h('div', { class: 'panel' },
       h('div', { class: 'row' },
@@ -55,7 +56,7 @@ export function mount() {
   if (!store.connId) {
     const out = document.getElementById('heal-out');
     clear(out);
-    out.append(msg('自愈管线需要先连接数据库（SchemaSnapshot 从连接读取 schema）。', 'warn'));
+    out.append(msg('AI 分析与修复需要先连接数据库（SchemaSnapshot 从连接读取 schema）。', 'warn'));
   }
 }
 
@@ -79,16 +80,34 @@ function renderAiPanel() {
   return h('div', { class: 'panel' },
     h('div', { class: 'row' },
       h('span', { class: 'pill gen' }, 'AI 配置'),
-      h('span', { class: 'muted' }, 'L5 全流程自愈使用的 LLM 后端（会话级，免重启切换）'),
+      h('span', { class: 'muted' }, '全流程自愈 / 一键生成配置使用的 LLM 后端（会话级，免重启切换）'),
     ),
     body,
+  );
+}
+
+// 未安装 sqlseed-ai 时的 onboarding 引导卡：说清楚缺了什么、怎么装、
+// 不装还能用什么（数据生成/浏览不依赖 AI）。
+function renderOnboarding(holder, reason) {
+  holder.append(
+    h('div', { class: 'msg warn' }, reason || 'sqlseed-ai 未安装'),
+    h('div', { class: 'muted', style: 'margin:8px 0; line-height:1.7' },
+      'sqlseed-ai 是可选插件，提供：① 契约校验（L2）与确定性修复（L3）；'
+      + '② LLM 全流程自愈（L5）；③ 数据生成向导里的「AI 一键生成配置」。'
+      + '未安装时，连接、数据生成、数据浏览功能完全不受影响。'),
+    h('div', { class: 'row' },
+      h('label', {}, '安装命令'),
+      h('code', {}, 'pip install -e ./plugins/sqlseed-web[ai]'),
+    ),
+    h('div', { class: 'muted', style: 'margin-top:6px' },
+      '安装后刷新本页即可。本地模型（Ollama / LM Studio）无需 API Key；在线模型需要 Key。'),
   );
 }
 
 function renderAiBody(holder) {
   clear(holder);
   if (!aiState || !aiState.available) {
-    holder.append(msg(aiState?.reason || 'sqlseed-ai 未安装：pip install -e ./plugins/sqlseed-web[ai]', 'warn'));
+    renderOnboarding(holder, aiState?.reason);
     return;
   }
   const eff = aiState.effective;
@@ -115,21 +134,38 @@ function renderAiBody(holder) {
     ),
     h('div', { class: 'row' },
       h('label', {}, 'API Key'),
-      h('input', { id: 'ai-key', type: 'password', placeholder: '在线后端需要；本地可留空', value: ov.api_key || '' }),
+      h('input', { id: 'ai-key', type: 'password', placeholder: '在线后端需要；本地后端无需密钥', value: ov.api_key || '' }),
       h('label', {}, 'Base URL'),
       h('input', { id: 'ai-url', placeholder: 'OpenAI 兼容服务需要；其余留空', value: ov.base_url || '' }),
     ),
     h('div', { class: 'row' },
       h('button', { class: 'primary', onclick: () => saveAiConfig(backendDd) }, '应用配置'),
+      h('button', { onclick: testConnection }, '测试连接'),
       h('span', { class: 'muted', id: 'ai-effective' },
         `当前生效：${eff.backend} · ${eff.model} · key ${eff.api_key_present ? '已配置' : '未配置'}`),
     ),
+    h('div', { id: 'ai-test-out' }),
   );
   // 初始化输入框禁用态
   const initB = aiState.backends.find((x) => x.id === backendDd.get());
   if (initB) {
     document.getElementById('ai-key').disabled = initB.needs_key === '0';
     document.getElementById('ai-url').disabled = initB.needs_url === '0';
+  }
+}
+
+async function testConnection() {
+  const out = document.getElementById('ai-test-out');
+  clear(out);
+  out.append(h('div', { class: 'loading' }, '探测后端连接…'));
+  try {
+    const res = await post('/api/ai/test-connection', {});
+    clear(out);
+    if (!res.available) { out.append(msg(res.reason || 'sqlseed-ai 未安装', 'warn')); return; }
+    out.append(msg(res.message, res.ok ? 'ok' : 'warn'));
+  } catch (e) {
+    clear(out);
+    out.append(msg(`测试失败：${e.message}`));
   }
 }
 

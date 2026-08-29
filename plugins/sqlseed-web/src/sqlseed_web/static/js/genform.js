@@ -2,7 +2,7 @@
 // 单列实时预览 + NULL 百分比 / 唯一 / 重置。
 
 import { h, clear, post, msg } from './api.js';
-import { genLabel } from './labels.js';
+import { genLabel, paramLabel } from './labels.js';
 
 /**
  * @param {object} opts
@@ -32,7 +32,9 @@ export function createGenForm({ connId, meta, onChange }) {
       generator: form.generator,
       params: cleanParams(),
     };
-    if (form.null_ratio > 0) cfg.null_ratio = form.null_ratio;
+    // form.null_ratio 是 0–100 百分比；核心 ColumnConfig.null_ratio 是 0–1
+    // 小数（le=1.0）——发送前必须除以 100，否则 preview/fill 直接 422。
+    if (form.null_ratio > 0) cfg.null_ratio = form.null_ratio / 100;
     if (form.unique) cfg.constraints = { unique: true };
     onChange(current.table, current.col, cfg);
   }
@@ -111,7 +113,7 @@ export function createGenForm({ connId, meta, onChange }) {
     const wrap = h('div', { class: 'genform-params' });
     const paramNames = meta.params?.[form.generator] || [];
     for (const p of paramNames) {
-      wrap.append(formRow(p, paramInput(p)));
+      wrap.append(formRow(paramLabel(p), paramInput(p)));
     }
     // 插在 NULL section 之前
     const section = el.querySelector('.genform-section');
@@ -180,7 +182,8 @@ export function createGenForm({ connId, meta, onChange }) {
     return {
       generator: spec.generator_name,
       params: { ...(spec.params || {}) },
-      null_ratio: spec.null_ratio || 0,
+      // 核心返回 0–1 小数，UI 展示 0–100 百分比
+      null_ratio: Math.round((spec.null_ratio || 0) * 100),
       unique: false,
     };
   }

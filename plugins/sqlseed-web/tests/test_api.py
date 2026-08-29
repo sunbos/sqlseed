@@ -320,6 +320,100 @@ class TestConfig:
         assert res.json()["valid"] is False
 
 
+class TestAiTestConnection:
+    """/api/ai/test-connection — friendly connectivity probe per backend.
+
+    Ollama/LM Studio need NO API key; the probe URL must be ``{base}/models``
+    (base already ends in ``/v1``). Probing ``/models`` on the bare host
+    returns 404 on Ollama — that bug made a healthy local server look dead.
+    """
+
+    def test_local_probe_hits_v1_models_and_lists_models(self, client, monkeypatch) -> None:
+        pytest.importorskip("sqlseed_ai")
+        import httpx
+
+        seen: dict[str, object] = {}
+
+        class FakeResp:
+            status_code = 200
+
+            @staticmethod
+            def json() -> dict:
+                return {"data": [{"id": "gemma4:31b-cloud"}]}
+
+        def fake_get(url: str, **kwargs: object) -> FakeResp:
+            seen["url"] = url
+            return FakeResp()
+
+        monkeypatch.setattr(httpx, "get", fake_get)
+        client.post("/api/ai/config", json={"backend": "ollama"})
+        try:
+            body = client.post("/api/ai/test-connection").json()
+            assert body["ok"] is True
+            assert seen["url"] == "http://localhost:11434/v1/models"
+            assert body["models"] == ["gemma4:31b-cloud"]
+            assert "无需 API Key" in body["message"]
+            assert "gemma4:31b-cloud" in body["message"]
+        finally:
+            client.post("/api/ai/config", json={})
+
+    def test_online_backend_without_key_reports_friendly(self, client, monkeypatch) -> None:
+        pytest.importorskip("sqlseed_ai")
+        for var in ("SQLSEED_AI_API_KEY", "GOOGLE_API_KEY", "OPENAI_API_KEY"):
+            monkeypatch.delenv(var, raising=False)
+        client.post("/api/ai/config", json={"backend": "google_ai_studio"})
+        try:
+            body = client.post("/api/ai/test-connection").json()
+            assert body["ok"] is False
+            assert "API Key" in body["message"]
+        finally:
+            client.post("/api/ai/config", json={})
+
+    def test_openai_compat_probe_url_gets_slash(self, client, monkeypatch) -> None:
+        """base_url without trailing slash must still probe ``.../v1/models``."""
+        pytest.importorskip("sqlseed_ai")
+        import httpx
+
+        seen: dict[str, object] = {}
+
+        class FakeResp:
+            status_code = 200
+
+            @staticmethod
+            def json() -> dict:
+                return {"data": []}
+
+        def fake_get(url: str, **kwargs: object) -> FakeResp:
+            seen["url"] = url
+            return FakeResp()
+
+        monkeypatch.setattr(httpx, "get", fake_get)
+        client.post(
+            "/api/ai/config",
+            json={"backend": "openai_compat", "base_url": "https://openrouter.ai/api/v1", "api_key": "sk-test"},
+        )
+        try:
+            body = client.post("/api/ai/test-connection").json()
+            assert body["ok"] is True
+            assert seen["url"] == "https://openrouter.ai/api/v1/models"
+        finally:
+            client.post("/api/ai/config", json={})
+
+
+class TestPreviewColumnConfig:
+    def test_preview_null_ratio_is_fraction(self, client: TestClient, conn_id: str) -> None:
+        """Contract the frontend must honor: null_ratio is a 0–1 fraction.
+
+        The genform UI collects a 0–100 percent and must divide by 100
+        before sending (ColumnConfig.null_ratio has le=1.0).
+        """
+        res = client.post(
+            f"/api/connections/{conn_id}/preview",
+            json={"table": "users", "count": 3, "columns": {"email": {"generator": "email", "null_ratio": 0.5}}},
+        )
+        assert res.status_code == 200, res.text
+
+
 @pytest.mark.parametrize("endpoint", ["validate", "repair"])
 class TestHeal:
     def test_validate_reports_violations(self, client: TestClient, conn_id: str, endpoint: str) -> None:

@@ -16,6 +16,7 @@ let connInfo = null;
 let tree = null;
 let genform = null;
 let cfg = new Map(); // table -> Map<col, ColumnConfig>
+let aiAvailable = null; // /api/meta/ai 探测结果（决定「AI 一键生成配置」可用性）
 
 export function render() {
   const root = h('div', { class: 'wizard' });
@@ -50,6 +51,11 @@ function renderHeader() {
 async function loadMeta() {
   if (!store.connId) return;
   meta = await get('/api/meta/generators');
+  try {
+    aiAvailable = await get('/api/meta/ai');
+  } catch {
+    aiAvailable = { available: false, reason: '无法探测 AI 插件状态' };
+  }
   await loadTablesMeta();
 }
 
@@ -128,7 +134,13 @@ function renderStep2() {
     onSelectColumn: (t, c) => {
       const tm = tablesMeta.find((x) => x.name === t);
       const colInfo = tm.columns.find((x) => x.name === c);
-      genform.setColumn(t, c, colInfo, tm.specs[c]);
+      // AI/加载配置优先于零配置推断。cfg 里 null_ratio 是 0–1（后端形状），
+      // genform.fromInferred 内部会 *100 转成展示百分比，这里原样透传。
+      const aiCfg = cfg.get(t)?.get(c);
+      const spec = aiCfg
+        ? { generator_name: aiCfg.generator, params: aiCfg.params, null_ratio: aiCfg.null_ratio || 0 }
+        : tm.specs[c];
+      genform.setColumn(t, c, colInfo, spec);
     },
     onChange: (checked) => {
       // 取消勾选的列从 cfg 移除
@@ -150,9 +162,79 @@ function renderStep2() {
       cfg.get(t).set(c, colCfg);
     },
   });
-  left.append(h('h3', { class: 'section-title' }, '数据库对象'), tree.el);
+  left.append(
+    h('h3', { class: 'section-title' }, '数据库对象'),
+    renderAiGenBar(),
+    tree.el,
+  );
   right.append(genform.el);
   return wrap;
+}
+
+// 「AI 一键生成配置」：调用 L5 全流程自愈产出 YAML，再映射回本向导的
+// 树勾选 + 列级配置，用户只需微调。AI 未安装/未配置时给出引导而非静默。
+function renderAiGenBar() {
+  const bar = h('div', { class: 'row', style: 'margin-bottom:8px' });
+  if (!aiAvailable || !aiAvailable.available) {
+    bar.append(h('span', { class: 'muted', style: 'font-size:12px' },
+      `AI 一键生成配置不可用：${aiAvailable?.reason || 'sqlseed-ai 未安装'}`));
+    return bar;
+  }
+  bar.append(
+    h('button', { class: 'primary small', id: 'btn-ai-gen', onclick: aiGenerateConfig }, 'AI 一键生成配置'),
+    h('span', { class: 'muted', id: 'ai-gen-status', style: 'font-size:12px' },
+      '由 LLM 分析 schema 生成一版配置，回填到下方供你微调'),
+  );
+  return bar;
+}
+
+async function aiGenerateConfig() {
+  const btn = document.getElementById('btn-ai-gen');
+  const status = document.getElementById('ai-gen-status');
+  if (btn) btn.disabled = true;
+  if (status) status.textContent = '正在调用 LLM 生成配置（可能需要数十秒）…';
+  try {
+    const res = await post(`/api/connections/${store.connId}/heal/auto`, { budget_seconds: 300 });
+    const job = await pollJob(res.job_id);
+    if (job.status !== 'done' || !job.result?.yaml) {
+      throw new Error(job.error || '生成失败');
+    }
+    await applyAiYaml(job.result.yaml);
+    if (status) status.textContent = '已回填 AI 生成的配置，可在右侧逐列微调。';
+  } catch (e) {
+    if (status) status.textContent = `生成失败：${e.message}`;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+// 把 AI 产出的 YAML 解析为结构化 config，映射回树勾选与列级配置。
+// 只回填当前连接里真实存在的表/列，忽略 schema 之外的噪声。
+async function applyAiYaml(yamlText) {
+  const parsed = await post('/api/config/parse', { yaml: yamlText });
+  if (!parsed.valid) throw new Error(parsed.error || 'AI 产出的配置无法解析');
+  const tables = parsed.config?.tables || [];
+  const sel = new Map();
+  cfg = new Map();
+  for (const tc of tables) {
+    const tm = tablesMeta.find((x) => x.name === tc.name);
+    if (!tm) continue;
+    const colSet = new Set();
+    const cfgMap = new Map();
+    for (const cc of tc.columns || []) {
+      if (!tm.columns.some((x) => x.name === cc.name)) continue;
+      colSet.add(cc.name);
+      const colCfg = { generator: cc.generator || 'string', params: cc.params || {} };
+      if (cc.null_ratio) colCfg.null_ratio = cc.null_ratio;
+      if (cc.constraints?.unique) colCfg.constraints = { unique: true };
+      cfgMap.set(cc.name, colCfg);
+    }
+    if (colSet.size) {
+      sel.set(tc.name, colSet);
+      cfg.set(tc.name, cfgMap);
+    }
+  }
+  if (tree) tree.setSelection(sel);
 }
 
 // ---- Step 3：生成 -----------------------------------------------------------
@@ -315,11 +397,14 @@ async function loadConfig() {
     const file = input.files[0];
     if (!file) return;
     const text = await file.text();
-    const res = await post('/api/config/parse', { yaml: text });
-    const out = document.getElementById('gen-out') || document.getElementById('wizard-body');
-    out.append(res.valid
-      ? msg('配置有效。列级配置已解析（向导当前以零配置推断为默认，加载的配置可在填充时生效）。', 'ok')
-      : msg(`配置无效：${res.error}`));
+    try {
+      await applyAiYaml(text);
+      const body = document.getElementById('wizard-body');
+      if (body) body.append(msg('配置已加载并映射到对象树与列属性，可逐列微调。', 'ok'));
+    } catch (e) {
+      const body = document.getElementById('wizard-body');
+      if (body) body.append(msg(`配置无效：${e.message}`));
+    }
   };
   input.click();
 }

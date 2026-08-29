@@ -7,7 +7,14 @@ let data = null;
 
 export function render() {
   const root = h('div');
-  root.append(h('h2', {}, '系统面板'), h('div', { id: 'meta-out' }, h('div', { class: 'loading' }, '加载中…')));
+  root.append(
+    h('h2', {}, '系统面板'),
+    h('div', { class: 'muted', style: 'margin-bottom:12px; line-height:1.6' },
+      '系统面板是 sqlseed 运行时的「体检报告」：展示当前安装的核心能力清单'
+      + '（生成器类型及参数、插件 hook、数据 provider 回退链、AI 后端状态）与最近任务记录。'
+      + '用于确认环境是否就绪、各计数是否与代码一致——不参与数据生成配置。'),
+    h('div', { id: 'meta-out' }, h('div', { class: 'loading' }, '加载中…')),
+  );
   return root;
 }
 

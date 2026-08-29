@@ -380,6 +380,76 @@ def ai_config_set(req: AIConfigRequest) -> dict[str, Any]:
     return ai_config_get()
 
 
+@router.post("/ai/test-connection")
+def ai_test_connection() -> dict[str, Any]:
+    """Ping the effective AI backend and return a friendly status.
+
+    Ollama/LM Studio need NO API key — a reachable local server is enough.
+    This endpoint makes that explicit in the UI instead of a bare 503.
+    The probe URL is ``{base_url}/models`` (OpenAI-compatible list endpoint;
+    all four backends serve it — probing the bare Ollama host's ``/models``
+    returns 404 and once made a healthy server look dead).
+    """
+    try:
+        from sqlseed_ai.config import AIConfig
+    except ImportError:
+        return {"available": False, "reason": "sqlseed-ai is not installed (pip install -e ./plugins/sqlseed-web[ai])"}
+    override = state.get_ai_override()
+    cfg = AIConfig.from_env().apply_overrides(
+        api_key=override.get("api_key"),
+        base_url=override.get("base_url"),
+        model=override.get("model"),
+    )
+    if override.get("backend"):
+        from sqlseed_ai.config import AIBackend
+
+        try:
+            cfg.backend = AIBackend(override["backend"])
+        except ValueError:
+            pass
+    backend = cfg.backend.value
+    result: dict[str, Any] = {"available": True, "backend": backend, "models": []}
+    try:
+        import httpx
+
+        base = cfg.resolve_base_url()
+        probe_url = base.rstrip("/") + "/models"
+        if backend in ("ollama", "lm_studio"):
+            # Local servers: reachability is the whole story; no key needed.
+            resp = httpx.get(probe_url, timeout=5)
+            result["ok"] = resp.status_code == 200
+            if result["ok"]:
+                try:
+                    result["models"] = [str(m.get("id")) for m in resp.json().get("data", []) if m.get("id")]
+                except (ValueError, AttributeError):
+                    pass
+                model_hint = f"可用模型：{', '.join(result['models'])}" if result["models"] else "未列出模型"
+                result["message"] = f"本地服务可达（{base}）。无需 API Key。{model_hint}"
+            else:
+                result["message"] = f"本地服务响应异常：HTTP {resp.status_code}"
+        else:
+            key = cfg.resolve_api_key()
+            if not key:
+                result["ok"] = False
+                result["message"] = (
+                    "在线后端需要 API Key：请在 AI 配置面板填写，或设置 GOOGLE_API_KEY / OPENAI_API_KEY。"
+                )
+            else:
+                resp = httpx.get(probe_url, headers={"Authorization": f"Bearer {key}"}, timeout=8)
+                result["ok"] = resp.status_code == 200
+                result["message"] = (
+                    "在线后端连通且 Key 有效。"
+                    if result["ok"]
+                    else f"在线后端拒绝：HTTP {resp.status_code}（检查 Key / Base URL）。"
+                )
+    except Exception as exc:  # noqa: BLE001 — connectivity probe
+        result["ok"] = False
+        result["message"] = f"无法连接 {backend}：{exc}"
+        if backend == "ollama":
+            result["message"] += "（本地需先运行 `ollama serve`，默认 http://localhost:11434；无需任何密钥）"
+    return result
+
+
 @router.get("/meta/info")
 def meta_info() -> dict[str, Any]:
     import sqlseed
