@@ -60,6 +60,20 @@ class UIState:
         self._jobs: dict[str, Job] = {}
         self._conn_locks: dict[str, threading.Lock] = {}
         self._global_lock = threading.Lock()
+        # In-session AI config overrides (UI 内 AI 配置面板). Empty values mean
+        # "fall back to environment" — the panel lets users switch online/
+        # local backends without editing env vars or restarting the server.
+        self._ai_override: dict[str, str] = {}
+
+    # ---- AI config override -------------------------------------------------
+
+    def set_ai_override(self, values: dict[str, str | None]) -> None:
+        with self._global_lock:
+            self._ai_override = {k: v for k, v in (values or {}).items() if v}
+
+    def get_ai_override(self) -> dict[str, str]:
+        with self._global_lock:
+            return dict(self._ai_override)
 
     # ---- connections ----------------------------------------------------
 

@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "sqlseed-ui"
+name = "sqlseed-web"
 version = "0.1.0"
 description = "Web UI for sqlseed: schema browsing, column-mapping inspector, config editor, preview/fill runner, and self-heal laboratory."
 requires-python = ">=3.10"
@@ -22,10 +22,10 @@ ai = ["sqlseed-ai"]
 dev = ["pytest>=8.0", "httpx>=0.27"]
 
 [project.scripts]
-sqlseed-ui = "sqlseed_ui.app:main"
+sqlseed-web = "sqlseed_web.app:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/sqlseed_ui"]
+packages = ["src/sqlseed_web"]
 
 [tool.ruff]
 line-length = 120

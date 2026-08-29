@@ -14,13 +14,13 @@ sqlseed-ai is an **optional** dependency: heal endpoints degrade to `{"ok": fals
 ## STRUCTURE
 
 ```
-sqlseed-ui/
+sqlseed-web/
 ├── pyproject.toml               # sqlseed + fastapi + uvicorn + pyyaml; [ai] extra = sqlseed-ai
-├── src/sqlseed_ui/
-│   ├── app.py                   # create_app() factory + `sqlseed-ui` console script (uvicorn, port 8630)
+├── src/sqlseed_web/
+│   ├── app.py                   # create_app() factory + `sqlseed-web` console script (uvicorn, port 8630)
 │   ├── state.py                 # UIState singleton: connection registry + job tracker (threading)
 │   ├── api.py                   # ALL routers under /api (see endpoint map below)
-│   ├── __main__.py              # python -m sqlseed_ui
+│   ├── __main__.py              # python -m sqlseed_web
 │   └── static/                  # frontend served at /
 │       ├── index.html           # shell: topbar nav + #main mount
 │       ├── style.css            # dark theme, GitHub-ish palette
@@ -47,7 +47,8 @@ sqlseed-ui/
 | `/api/connections/{id}/topo-order` | GET `?tables=a,b` | `get_topological_table_order()` — wizard step3 "表生成顺序" (Navicat parity) |
 | `/api/connections/{id}` | `preview`, `fill`, `query` | `preview_table()` / `fill_table()` (background thread + job polling) / read-only SELECT guard |
 | `/api/config` | `parse`, `serialize` | `load_config` via temp file (validation parity with CLI) |
-| `/api/connections/{id}/heal` | `validate`, `repair`, `auto` | L2 `FastValidator`, L3 `RepairPipeline`, L5 `AutoHealOrchestrator` (wired like `ai_commands._run_auto_heal_v4`) |
+| `/api/connections/{id}/heal` | `validate`, `repair`, `auto` | L2 `FastValidator`, L3 `RepairPipeline`, L5 `AutoHealOrchestrator` (wired like `ai_commands._run_auto_heal_v4`); `auto` honors the session AI override (`backend` param added) |
+| `/api/ai/config` | GET/POST | session-level AI override (backend/model/api_key/base_url) merged over env defaults — in-UI online/local LLM switching without env edits or restarts |
 | `/api/jobs` | list + `{job_id}` status | job registry; live fill progress via `get_row_count` delta |
 
 Connection kinds (UI): `sqlite` (local db file + file-picker modal), `postgresql` (field form → `postgresql://user:pass@host:port/db`), `url` (raw SQLAlchemy URL, reserved for future databases).
@@ -85,16 +86,16 @@ Connection kinds (UI): `sqlite` (local db file + file-picker modal), `postgresql
 ## COMMANDS
 
 ```bash
-pip install -e "./plugins/sqlseed-ui"          # + [ai] extra for the heal lab
-sqlseed-ui                                     # serve at http://127.0.0.1:8630
-pytest plugins/sqlseed-ui/tests/ -q            # 32 tests
-ruff check plugins/sqlseed-ui/ && mypy plugins/sqlseed-ui/src/
+pip install -e "./plugins/sqlseed-web"          # + [ai] extra for the heal lab
+sqlseed-web                                     # serve at http://127.0.0.1:8630
+pytest plugins/sqlseed-web/tests/ -q            # 32 tests
+ruff check plugins/sqlseed-web/ && mypy plugins/sqlseed-web/src/
 ```
 
 ## GOTCHAS
 
 - **Same-target connections are legal but grouped**: multiple connections to one SQLite file work (read concurrency + serialized writes, verified by concurrent fill tests), and `list_connections()` tags them 主连接/并行 N so users don't lose track. Do not "deduplicate" connections silently — the isolation (per-connection provider/locale) is a feature.
-- **Port 8630** is the default (uvicorn factory mode `sqlseed_ui.app:create_app`).
+- **Port 8630** is the default (uvicorn factory mode `sqlseed_web.app:create_app`).
 - **Page-render timing**: `render()` runs BEFORE the page is mounted into the DOM — never use `document.getElementById` inside `render()` for elements the page itself creates. Pass the element reference instead (see `renderKind(body)` in connect.js; the getElementById variant once caused a blank file-input row on first load). Use the `mount()` hook for post-mount DOM lookups.
 - **`out.append(arr)` renders `[object HTMLDivElement]`** — native `Element.append` does NOT spread arrays. When a render helper returns an array of nodes, always `out.append(...nodes)`. Found live in heal.js L2 violations rendering.
 - **Boolean attrs in `h()`**: `setAttribute('disabled', false)` still disables the element (attribute presence wins). `h()` handles boolean values by add/remove attribute — pass real booleans (`disabled: atFirst`), never strings.

@@ -1,4 +1,4 @@
-"""API smoke tests for sqlseed-ui.
+"""API smoke tests for sqlseed-web.
 
 Uses FastAPI TestClient against a real SQLite DB (repo rule: never mock the
 database layer — see root AGENTS.md Pitfall #13).
@@ -15,7 +15,7 @@ fastapi_testclient = pytest.importorskip("fastapi.testclient")
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from sqlseed_ui.app import create_app  # noqa: E402
+from sqlseed_web.app import create_app  # noqa: E402
 
 
 @pytest.fixture()
@@ -23,7 +23,7 @@ def client() -> TestClient:
     app = create_app()
     # Reset module-level state so connections from other tests don't leak
     # into grouping assertions (the singleton survives across TestClients).
-    from sqlseed_ui import state as state_mod
+    from sqlseed_web import state as state_mod
 
     for c in state_mod.state.list_connections():
         state_mod.state.close_connection(c["conn_id"])
@@ -179,6 +179,27 @@ class TestConnections:
         assert len(conns) == 2
         assert len(keys) == 1
         assert next(iter(keys)) == str(db)
+
+    def test_ai_config_roundtrip(self, client: TestClient) -> None:
+        """Session AI override stores and merges over env defaults."""
+        pytest.importorskip("sqlseed_ai")
+        res = client.post(
+            "/api/ai/config",
+            json={"backend": "ollama", "model": "gemma4:e4b", "api_key": None, "base_url": None},
+        )
+        body = res.json()
+        assert body["available"] is True
+        assert body["override"]["backend"] == "ollama"
+        assert body["effective"]["backend"] == "ollama"
+        assert body["effective"]["model"] == "gemma4:e4b"
+        # Reset for other tests (state singleton).
+        client.post("/api/ai/config", json={})
+
+    def test_ai_config_get_without_override(self, client: TestClient) -> None:
+        pytest.importorskip("sqlseed_ai")
+        body = client.get("/api/ai/config").json()
+        assert body["available"] is True
+        assert len(body["backends"]) == 4
 
     def test_topo_order_referenced_first(self, client: TestClient, db_path: str) -> None:
         """orders references users — users must precede orders in the order."""

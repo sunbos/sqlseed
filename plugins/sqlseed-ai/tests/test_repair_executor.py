@@ -113,7 +113,7 @@ def test_executor_sorts_by_severity_crash_first(snapshot: SchemaSnapshot):
 def test_executor_does_not_record_noop_fix_as_applied(snapshot: SchemaSnapshot):
     """A strategy that returns the column unchanged is NOT a successful fix.
 
-    Found live via sqlseed-ui heal lab: ``upgrade_phone_to_pattern`` on a
+    Found live via sqlseed-web heal lab: ``upgrade_phone_to_pattern`` on a
     non-phone-like column returns the column unchanged, yet the executor
     appended an ``AppliedFix`` with ``before == after`` — inflating
     fix_count and breaking the pipeline's partial-fix re-validation
