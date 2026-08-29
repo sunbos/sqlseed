@@ -87,6 +87,13 @@ test_merchants.yaml
 .worktrees/
 .sisyphus/
 
+# IDE knowledge graph cache (local only)
+.understand-anything/
+
+# AI batch edit scripts (one-shot, not for repo)
+.edits/
+_edit_helper.py
+
 # Node.js (for ctxlint)
 node_modules/
 

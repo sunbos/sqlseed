@@ -42,6 +42,9 @@ Use command: `mcp-server-sqlseed`
 |:-----|:------------|
 | `sqlseed_generate_yaml` | Rule-driven YAML config template generated from the schema via sqlseed's `ColumnMapper` (75 exact rules + 29 regex patterns). Offline, deterministic, no LLM. |
 | `sqlseed_execute_fill` | Execute data generation. Accepts optional `yaml_config` string, `count`, and `enrich` flag. Max YAML config size: 256KB. |
+| `sqlseed_gemma4_analyze` | Analyze table schema with Gemma 4 Native Function Calling. Supports `model`/`backend` overrides. Requires `sqlseed-ai`. |
+| `sqlseed_gemma4_agent_fill` | End-to-end AI agent: Gemma 4 analyzes schema → generates config (self-correction) → fills data. Requires `sqlseed-ai`. |
+| `sqlseed_list_gemma_models` | List Gemma 4 model variants with hardware compatibility (RAM/GPU/VRAM), backend availability, and recommended default model/backend. |
 
 ### What's NOT included
 
@@ -61,6 +64,10 @@ After configuring your MCP client, you can prompt:
 The AI assistant will call:
 1. `sqlseed_generate_yaml` → rule-driven YAML template (offline)
 2. `sqlseed_execute_fill` → fill data
+
+### Gemma 4 Integration
+
+The `sqlseed_gemma4_analyze` and `sqlseed_gemma4_agent_fill` tools leverage **Gemma 4 Native Function Calling** via the `GEMMA_TOOLS` interface (`analyze_schema` tool, with automatic fallback to JSON mode). They work with any backend supported by `sqlseed-ai` (Google AI Studio, LM Studio, Ollama, OpenAI-compatible) and accept optional `model`/`backend` overrides. Use `sqlseed_list_gemma_models` to see available model variants, hardware compatibility, and backend availability.
 
 ## Requirements
 
