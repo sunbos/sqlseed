@@ -2,21 +2,21 @@
 
 # _utils
 
-**Last updated:** 2026-07-12
+**Last updated:** 2026-08-30
 
 ## Purpose
 
-Cross-module shared low-level utility functions. Includes logging, metrics, progress bars, cache paths, and SQL safety.
+Cross-module shared low-level utility functions. Includes logging, metrics, progress bars, cache paths, and SQL safety. 6 files.
 
 ## Key Files
 
-| File | Description |
-|------|-------------|
-| `logger.py` | structlog configuration, `configure_logging()` and `get_logger()` functions; auto-configures on module import, outputs to stderr |
-| `metrics.py` | `MetricsCollector` performance metrics collection and aggregate statistics (count/total/min/max/avg), single-pass traversal |
-| `paths.py` | `get_cache_dir(subdir)` platform-standard cache directory (macOS/Linux/Windows), `SQLSEED_CACHE_DIR` environment variable takes highest priority, shared by SnapshotManager and AiConfigRefiner; `validate_db_target()` (extension/existence check for file paths, URL pass-through) and `validate_table_name()` (membership check against existing tables) — shared by both MCP server packages (`mcp-server-sqlseed` and `sqlseed-ai[mcp]`) |
-| `progress.py` | `create_progress()` three-backend progress bar factory: Null (disabled) / Rich (terminal, with ASCII fallback) / tqdm (Jupyter), auto-selected by runtime environment |
-| `sql_safe.py` | SQL injection protection three layers: `validate_table_name()` / `quote_identifier()` / `build_insert_sql()`; double-quote escaping, rejects `; \n \r '` but allows `-` |
+| File | Lines | Key symbols | Description |
+|------|------:|--------------|-------------|
+| `progress.py` | 423 | `ProgressBackend`, `NullProgressBackend`, `RichProgressBackend`, `TqdmNotebookBackend`, `create_progress()` | three-backend progress bar factory: Null (disabled) / Rich (terminal, ASCII fallback) / tqdm (Jupyter), auto-selected by runtime environment |
+| `paths.py` | 105 | `get_cache_dir()`, `validate_db_target()`, `validate_table_name()` | platform-standard cache dir (`SQLSEED_CACHE_DIR` env override), shared by SnapshotManager and AiConfigRefiner; validators shared by both MCP server packages |
+| `sql_safe.py` | 84 | `_sanitize_identifier()`, `quote_identifier()`, `validate_table_name()`, `build_insert_sql()` | SQL injection protection three layers: validate / quote / build; double-quote escaping, rejects `; \n \r '` but allows `-` |
+| `metrics.py` | 81 | `MetricEntry`, `MetricsCollector` | count/total/min/max/avg aggregate statistics, single-pass traversal |
+| `logger.py` | 67 | `configure_logging()`, `get_logger()` | structlog config, auto-configures on module import, outputs to stderr |
 
 ## For AI Agents
 

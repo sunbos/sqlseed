@@ -1,10 +1,26 @@
 # DATABASE ADAPTER LAYER
 
-**Last updated:** 2026-07-12
+**Last updated:** 2026-08-30
 
 ## OVERVIEW
 
-DB adapters: SQLAlchemy (required core dependency, multi-DB) and raw sqlite3 (test-only fallback). Protocol-based design with dialect abstraction and pragma optimization.
+DB adapters: SQLAlchemy (required core dependency, multi-DB) and raw sqlite3 (test-only fallback). Protocol-based design with dialect abstraction and pragma optimization. 11 files.
+
+## FILE INVENTORY (file → lines → symbols)
+
+| File | Lines | Symbols |
+|------|------:|---------|
+| `sqlalchemy_adapter.py` | 846 | `SQLAlchemyAdapter`, `SQLAlchemyBatchInserter` (production, multi-DB) |
+| `raw_sqlite_adapter.py` | 337 | `RawSQLiteAdapter` (test-only) |
+| `_base_adapter.py` | 207 | `BaseRawSQLiteAdapter` — shared native sqlite3 logic |
+| `_dialect.py` | 228 | `Dialect`, `SQLiteDialect`, `PostgresDialect` |
+| `_type_normalizer.py` | 157 | `NormalizedType`, `TypeNormalizer` |
+| `optimizer.py` | 156 | `PragmaProfile`, `PragmaOptimizer` (SQLite PRAGMA tuning) |
+| `_protocol.py` | 176 | `ColumnInfo`, `ForeignKeyInfo`, `IndexInfo`, `CheckConstraintInfo`, `DatabaseAdapter` protocol |
+| `_helpers.py` | 145 | `fetch_index_info()`, `fetch_sample_rows()`, `batch_insert_rows()`, `apply_bulk_optimize/restore()` |
+| `_sqlite_schema.py` | 105 | `_split_sql_definitions()`, `detect_sqlite_autoincrement()` |
+| `_bulk_optimizer.py` | 182 | `BulkWriteOptimizer`, `SQLiteBulkOptimizer`, `PostgresBulkOptimizer` |
+| `__init__.py` | 44 | exports |
 
 ## STRUCTURE
 

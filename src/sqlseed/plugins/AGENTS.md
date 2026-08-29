@@ -1,6 +1,6 @@
 <!-- Parent: ../AGENTS.md -->
 
-**Last updated:** 2026-07-12
+**Last updated:** 2026-08-30
 
 # plugins
 
@@ -10,11 +10,11 @@ pluggy-based plugin framework integration. Defines hook specifications and manag
 
 ## Key Files
 
-| File | Description |
-|------|-------------|
-| `__init__.py` | Public API exports |
-| `hookspecs.py` | `SqlseedHookSpec` hook specification definitions, `hookspec`/`hookimpl` markers |
-| `manager.py` | `PluginManager` wraps pluggy.PluginManager, auto-discovers and registers plugins |
+| File | Lines | Symbols | Description |
+|------|------:|---------|-------------|
+| `hookspecs.py` | 177 | `SqlseedHookSpec` | 12 hook definitions, `hookspec`/`hookimpl` markers |
+| `manager.py` | 58 | `PluginManager` | wraps pluggy.PluginManager, auto-discovers and registers plugins via `sqlseed` entry_points |
+| `__init__.py` | 15 | — | Public API exports |
 
 ## Complete Hook List (12 hooks)
 

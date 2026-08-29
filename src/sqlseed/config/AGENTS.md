@@ -2,7 +2,7 @@
 
 # config
 
-**Last updated:** 2026-07-12
+**Last updated:** 2026-08-30
 
 ## Purpose
 
@@ -10,12 +10,12 @@ Loading, validation, and model definitions for YAML/JSON configuration files. Bu
 
 ## Key Files
 
-| File | Description |
-|------|-------------|
-| `models.py` | Pydantic configuration models: `GeneratorConfig`, `TableConfig`, `ColumnConfig`, `ColumnConstraintsConfig`, `ProviderType` |
-| `loader.py` | Configuration file loader supporting YAML and JSON formats, with template generation (supports multi-database URLs) |
-| `snapshot.py` | `SnapshotManager` for saving and loading configuration snapshots (save/load/list_snapshots; replay has been removed) |
-| `__init__.py` | Public API exports |
+| File | Lines | Symbols | Description |
+|------|------:|---------|-------------|
+| `models.py` | 259 | 9 classes | `ProviderType`, `ColumnConstraintsConfig`, `ColumnConfig`, `TableConfig`, `ColumnAssociation`, `ExactColumnMappingRule`, `PatternColumnMappingRule`, `CustomColumnMappings`, `GeneratorConfig` |
+| `loader.py` | 184 | `load_config()`, `save_config()`, `generate_template()`, `_read_table_names()` | YAML/JSON loader, template generation (supports multi-database URLs) |
+| `snapshot.py` | 114 | `SnapshotManager` | save/load/list_snapshots; replay has been removed |
+| `__init__.py` | 28 | — | Public API exports |
 
 ## For AI Agents
 

@@ -1,6 +1,6 @@
 # sqlseed_cli
 
-**Last updated:** 2026-07-12
+**Last updated:** 2026-08-30
 
 ## Purpose
 
@@ -11,11 +11,11 @@ entry-point group and registered by `__init__.py` at startup.
 
 ## Key Files
 
-| File | Description |
-|------|-------------|
-| `main.py` | CLI entry point; defines the `cli` group and core subcommands (fill, preview, inspect, init, replay) |
-| `_utils.py` | Shared CLI utility functions (e.g. `sanitize_table_config()` for stripping leading dots/colons from table and column names) |
-| `__init__.py` | Exports `cli` and `main`; discovers and registers plugin subcommands via the `sqlseed.cli_commands` entry-point group |
+| File | Lines | Key symbols |
+|------|------:|--------------|
+| `main.py` | 585 | `cli` group, `fill`, `preview`, `inspect`, `init`, `replay`, `_execute_fill()`, `_inspect_table()`, `FillOptions`/`FillFlags`/`FillGeneratorConfig`/`ConnectionTarget` dataclasses, `_redact_credentials()` |
+| `__init__.py` | 67 | `cli`, `main`, `_register_plugin_commands()` (entry-point discovery) |
+| `_utils.py` | 23 | `sanitize_table_config()` |
 
 ## For AI Agents
 

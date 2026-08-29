@@ -1,27 +1,27 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Last updated: 2026-07-12 -->
+<!-- Last updated: 2026-08-30 -->
 
 # test_database
 
 ## Purpose
 
-Database adapter layer tests. Covers dual-adapter functionality, PRAGMA optimization, dialect abstraction, and SQL safety.
+Database adapter layer tests. Covers dual-adapter functionality, PRAGMA optimization, dialect abstraction, and SQL safety. 10 files, 265 test functions.
 
 ## Key Files
 
-| File | Description |
-|------|-------------|
-| `conftest.py` | Local fixtures: `sa_adapter` (tmp_db-backed SQLAlchemyAdapter), `empty_sa_adapter` (empty tmp_path DB) |
-| `test_raw_sqlite_adapter.py` | RawSQLiteAdapter functional tests |
-| `test_sqlalchemy_adapter.py` | SQLAlchemyAdapter contract tests (default adapter) |
-| `test_sqlalchemy_adapter_boundary.py` | SQLAlchemyAdapter boundary condition tests |
-| `test_sqlalchemy_adapter_url.py` | SQLAlchemyAdapter multi-DB URL connection tests |
-| `test_adapter_contract.py` | Adapter protocol contract tests |
-| `test_sqlite_schema.py` | SQLite AUTOINCREMENT detection tests (`detect_sqlite_autoincrement`) |
-| `test_dialect.py` | Dialect protocol, SQLiteDialect, PostgresDialect contract tests |
-| `test_optimizer.py` | PragmaOptimizer PRAGMA optimization tests |
-| `test_helpers.py` | Database helper function tests |
-| `test_sql_safe.py` | SQL injection protection tests |
+| File | Tests | Description |
+|------|------:|-------------|
+| `conftest.py` | — | Local fixtures: `sa_adapter` (tmp_db-backed SQLAlchemyAdapter), `empty_sa_adapter` (empty tmp_path DB) |
+| `test_dialect.py` | 92 | Dialect protocol, SQLiteDialect, PostgresDialect |
+| `test_helpers.py` | 38 | fetch_index_info/sample_rows/batch_insert helpers |
+| `test_sqlalchemy_adapter.py` | 27 | SQLAlchemyAdapter contract (default adapter) |
+| `test_sqlite_schema.py` | 25 | `detect_sqlite_autoincrement` |
+| `test_sqlalchemy_adapter_boundary.py` | 21 | boundary conditions |
+| `test_adapter_contract.py` | 19 | adapter protocol contract |
+| `test_raw_sqlite_adapter.py` | 13 | RawSQLiteAdapter (test-only adapter) |
+| `test_sql_safe.py` | 12 | SQL injection vectors |
+| `test_optimizer.py` | 10 | PragmaOptimizer + restore-on-exception |
+| `test_sqlalchemy_adapter_url.py` | 8 | multi-DB URL connections |
 
 ## For AI Agents
 

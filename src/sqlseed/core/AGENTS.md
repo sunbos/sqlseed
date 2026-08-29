@@ -1,10 +1,43 @@
 # CORE ORCHESTRATION LAYER
 
-**Last updated:** 2026-08-23
+**Last updated:** 2026-08-30
 
 ## OVERVIEW
 
-Central orchestration: schema inference, column mapping, constraint solving, data streaming.
+Central orchestration: schema inference, column mapping, constraint solving, data streaming. 17 top-level files + orchestrator package (6 files) = 23 files.
+
+## FILE INVENTORY (file → lines → symbols)
+
+| File | Lines | Classes / Functions |
+|------|------:|---------------------|
+| `relation.py` | 1033 | `SharedPool`, `RelationResolver`, `_make_fk_pool_spec()` |
+| `stream.py` | 675 | `DataStream` (batch generation + constraint backtracking) |
+| `mapper.py` | 630 | `GeneratorSpec`, `ColumnMapper` (75 exact + 29 pattern rules, 9-level chain) |
+| `features.py` | 468 | `ColumnFeatures`/`ForeignKeyFeatures`/`UniqueConstraintFeatures`/`CheckConstraintFeatures`/`IndexFeatures`/`TableFeatures`/`DialectSpecificFeatures`/`StructuralFeatures`, `StructuralFeatureExtractor` |
+| `check_parser.py` | 427 | `ParsedCheck`, `_Bound`, `CheckConstraintParser` + 15 parse helpers |
+| `check_adapt.py` | 283 | `CheckAdapter` (deterministic clamp) |
+| `schema.py` | 266 | `SchemaInferrer` |
+| `column_dag.py` | 248 | `ColumnConstraints`, `ColumnNode`, `ColumnDAG` |
+| `enrichment.py` | 244 | `EnrichmentEngine` (19 enum patterns) |
+| `constraints.py` | 230 | `RegisterResult`, `ConstraintSolver` |
+| `expression.py` | 227 | `ExpressionTimeoutError`, `ExpressionEngine` (26 safe functions) |
+| `schema_fallback.py` | 216 | `SchemaFallbackGenerator` |
+| `unique_adjuster.py` | 297 | `UniqueAdjuster` |
+| `plugin_mediator.py` | 151 | `PluginMediator` |
+| `result.py` | 43 | `GenerationResult` |
+| `transform.py` | 46 | `load_transform()` |
+| `__init__.py` | 26 | exports |
+
+orchestrator package:
+
+| File | Lines | Symbols |
+|------|------:|---------|
+| `_generation.py` | 524 | `GenerationMixin` (fill_table, preview_table, `_detect_cond_column`, `_extract_non_null_values`) |
+| `_specs.py` | 502 | `SpecResolverMixin` (_resolve_specs, _build_stream, _prepare_specs, _resolve_user_configs) |
+| `_query.py` | 251 | `QueryMixin` (13 query/report methods) |
+| `_connection.py` | 243 | `ConnectionMixin` (lifecycle, from_config) |
+| `__init__.py` | 57 | `DataOrchestrator` (composes 4 mixins) |
+| `_common.py` | 70 | `CoreCtx`, `ExtCtx`, `_is_db_url()` |
 
 ## STRUCTURE
 
