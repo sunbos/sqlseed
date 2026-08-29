@@ -197,6 +197,27 @@ class SpecResolverMixin:
                             null_ratio=current_spec.null_ratio,
                         )
                         continue
+                # Length-CHECK hard truth (2026-08-30): a phone-like column
+                # with a deterministic ``LENGTH(col) = N`` CHECK cannot use
+                # the ``phone`` generator — providers emit locale-formatted
+                # numbers (mimesis zh_CN: 19 chars, faker NANP: 14 chars,
+                # base: 13 chars) that violate the constraint. Upgrade to
+                # ``pattern`` with ``[0-9]{N}``, mirroring the repair-layer
+                # ``upgrade_phone_to_pattern`` semantics. Other generators
+                # with a length-range already flow through the L9 fallback
+                # below; this branch only rescues name-rule hits.
+                length_n = self._check_exact_length(col_name, check_constraints)
+                if (
+                    length_n is not None
+                    and current_spec.generator_name in ("phone", "string")
+                    and not (current_spec.generator_name == "string" and current_spec.params.get("charset"))
+                ):
+                    generator_specs[col_name] = GeneratorSpec(
+                        generator_name="pattern",
+                        params={"regex": f"[0-9]{{{length_n}}}"},
+                        null_ratio=current_spec.null_ratio,
+                    )
+                    continue
                 if current_spec.generator_name not in _fallback_generators:
                     continue
                 enhanced = self._schema_fallback.fallback_for_column(col_info, check_constraints, unique_list)
@@ -237,6 +258,34 @@ class SpecResolverMixin:
             parsed = CheckConstraintParser.parse(col_name, chk.expression)
             if parsed is not None and parsed.kind == "choice" and parsed.choices:
                 return list(parsed.choices)
+        return None
+
+    @staticmethod
+    def _check_exact_length(col_name: str, check_constraints: list[Any]) -> int | None:
+        """Return N from a deterministic ``LENGTH(col) = N`` CHECK, or None.
+
+        Handles the nullable form ``col IS NULL OR LENGTH(col) = N``. Only
+        exact-length CHECKs qualify — ``BETWEEN`` ranges flow through the L9
+        fallback's length_range branch, and cross-column/unparseable CHECKs
+        stay in the AI/manual domain. Uses a targeted regex rather than the
+        sqlglot parser (which intentionally treats the equality form as
+        non-deterministic); mirrors ``sqlseed_ai``'s ``_extract_length_check``.
+        """
+        if not col_name:
+            return None
+        prefix = re.compile(rf"{re.escape(col_name)}\s+IS\s+NULL\s+OR\s+", re.IGNORECASE)
+        equality = re.compile(
+            rf"^\s*LENGTH\s*\(\s*{re.escape(col_name)}\s*\)\s*=\s*(\d+)\s*$",
+            re.IGNORECASE,
+        )
+        for chk in check_constraints:
+            expr = getattr(chk, "expression", "")
+            if not isinstance(expr, str):
+                continue
+            expr = prefix.sub("", expr)
+            m = equality.match(expr)
+            if m:
+                return int(m.group(1))
         return None
 
     @staticmethod
@@ -293,17 +342,19 @@ class SpecResolverMixin:
         from sqlseed.core.check_parser import CheckConstraintParser
 
         expressions = [ck.expression for ck in check_constraints]
-        # Enum CHECKs (kind == "choice") are covered by the hard-truth
-        # reconciliation in _resolve_specs (the CHECK values become the
-        # generator's choices) — no warning needed for those. Range/length
-        # CHECKs remain type-approximated in zero-config mode and are the
-        # honest boundary this notice declares.
+        # Enum CHECKs (kind == "choice") and exact-length CHECKs are covered
+        # by the hard-truth reconciliation in _resolve_specs (CHECK values
+        # become choices; exact lengths upgrade phone/string to pattern
+        # [0-9]{N}) — no warning needed for those. Range/other CHECKs remain
+        # type-approximated in zero-config mode and are the honest boundary
+        # this notice declares.
         constrained_columns = [
             col.name
             for col in self._schema.get_column_info(table_name)
             for parsed in [CheckConstraintParser.parse_all(col.name, expressions)]
             if parsed is not None and parsed.kind != "choice"
         ]
+        constrained_columns = [c for c in constrained_columns if self._check_exact_length(c, check_constraints) is None]
         if not constrained_columns:
             return
         zh = self._locale.lower().replace("-", "_").startswith("zh")
