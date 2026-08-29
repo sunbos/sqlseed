@@ -1,5 +1,5 @@
 <!-- Parent: ../../AGENTS.md -->
-**Last updated:** 2026-07-12
+**Last updated:** 2026-08-30
 
 # mcp_server_sqlseed
 
@@ -9,12 +9,12 @@ FastMCP server implementation. Provides AI assistants with sqlseed's data genera
 
 ## Key Files
 
-| File | Description |
-|------|-------------|
-| `server.py` | MCP tool definitions (`@mcp.tool()` decorators), core business logic |
-| `config.py` | `MCPServerConfig` server configuration (db_path, host, port) |
-| `__main__.py` | Server startup entry point |
-| `__init__.py` | Package entry, exports `main` function |
+| File | Lines | Key symbols |
+|------|------:|--------------|
+| `server.py` | 132 | `sqlseed_generate_yaml`, `sqlseed_execute_fill`, `_convert_spec_to_column_entry()` — `@mcp.tool()` definitions |
+| `config.py` | 31 | `MCPServerConfig` (db_path, host, port) |
+| `__main__.py` | 9 | `python -m` startup |
+| `__init__.py` | 11 | exports `main` |
 
 ## MCP Interface Contract
 

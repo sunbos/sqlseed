@@ -1,18 +1,18 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Last updated: 2026-07-12 -->
+<!-- Last updated: 2026-08-30 -->
 
 # test_plugins
 
 ## Purpose
 
-Plugin system tests. Covers hook specification definitions and plugin manager lifecycle.
+Plugin system tests. Covers hook specification definitions and plugin manager lifecycle. 2 files, 21 test functions.
 
 ## Key Files
 
-| File | Description |
-|------|-------------|
-| `test_hookspecs.py` | Hook specification definition tests |
-| `test_manager.py` | PluginManager lifecycle tests |
+| File | Tests | Description |
+|------|------:|-------------|
+| `test_hookspecs.py` | 15 | 12 hook specs (signatures, firstresult markers) |
+| `test_manager.py` | 6 | PluginManager lifecycle |
 
 ## For AI Agents
 

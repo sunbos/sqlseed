@@ -2,7 +2,7 @@
 
 # sqlseed_ai
 
-**Last updated:** 2026-07-12
+**Last updated:** 2026-08-30
 
 ## Purpose
 
@@ -11,6 +11,30 @@ schemas via an OpenAI-compatible API and recommends data generation
 configurations. Supports Gemma 4 native function calling, a 3-tier prompt
 system (full / compact / ultra-compact), JSON-mode fallback, and automatic
 model fallback on timeout/connection errors.
+
+## FILE INVENTORY (file → lines → symbols)
+
+Top-level modules (17 files):
+
+| File | Lines | Key symbols |
+|------|------:|-------------|
+| `cli/ai_commands.py` | 928 | `ai_suggest`, `ai_analyze`, `auto_heal`, `register()` |
+| `refiner.py` | 819 | `AiConfigRefiner`, `AISuggestionFailedError`, `_RetryState` |
+| `config.py` | 642 | `GemmaModel`, `AIBackend`, `AIConfig`, `_resolve_backend()` |
+| `mcp.py` | 410 | `sqlseed_ai_generate_yaml`, `sqlseed_gemma4_analyze`, `sqlseed_gemma4_agent_fill`, `sqlseed_list_gemma_models` |
+| `_hardware.py` | 345 | `ModelRequirement`, `_HardwareCache`, `detect_hardware()`, `evaluate_model_status()` |
+| `__init__.py` | 326 | `AISqlseedPlugin` (implements four `@hookimpl` methods) |
+| `_prompts.py` | 301 | 3-tier prompts + `TEMPLATE_SYSTEM_PROMPT` |
+| `examples.py` | 278 | `FEW_SHOT_EXAMPLES` |
+| `_model_selector.py` | 131 | `select_gemma_model()`, `select_next_gemma_model()` |
+| `_json_utils.py` | 145 | `parse_json_response()` (4-strategy fallback) |
+| `errors.py` | 201 | `ErrorSummary`, `summarize_error()` (7 handlers) |
+| `ai_mediator.py` | 199 | `apply_ai_suggestions()` |
+| `exceptions.py` | 95 | `ContextOverflowError`, `ToolCallError`, `ModelFallbackError`, `classify_api_error()` |
+| `_client.py` | 62 | `get_openai_client()`, `httpx_timeout()` |
+| `_tools.py` | 81 | `GEMMA_TOOLS` |
+
+Subpackages: `analyzer/` 7 files (最大 `_caller.py` [434L], `_streaming.py` [308L], `_context.py` [262L]) · `contracts/` 4 · `validator/` 9 · `repair/` 5 · `healer/` 14 · `auto_heal/` 3 (orchestrator.py [6619L]) · `cli/` 3
 
 ## Key Files
 

@@ -1,10 +1,24 @@
 # DATA GENERATORS LAYER
 
-**Last updated:** 2026-08-23
+**Last updated:** 2026-08-30
 
 ## OVERVIEW
 
 35 generators across 3 providers: base (zero-dep fallback, synthesizes values via counter + seeded RNG), faker (required), mimesis (optional).
+
+## FILE INVENTORY (file → lines → symbols)
+
+| File | Lines | Symbols |
+|------|------:|---------|
+| `base_provider.py` | 501 | `BaseProvider` — zero-dep fallback, 35 `_gen_<type>()` methods |
+| `faker_provider.py` | 289 | `FakerProvider` — faker adapter + locale probing fallbacks |
+| `mimesis_provider.py` | 247 | `MimesisProvider` — mimesis adapter (optional dep) |
+| `_json_helpers.py` | 78 | `generate_json_from_schema()`, `_generate_from_schema()`, `_generate_scalar()` |
+| `_protocol.py` | 69 | `UnknownGeneratorError`, `GenerationError`, `ConfigurationError`, `DataProvider` protocol |
+| `_string_helpers.py` | 56 | `resolve_charset()`, `generate_random_string()` |
+| `registry.py` | 162 | `ProviderRegistry` — entry-point discovery + fallback chain |
+| `_dispatch.py` | 150 | `GeneratorDispatchMixin` — 35-type dispatch + `verify_dispatch_sync()` |
+| `__init__.py` | 17 | exports |
 
 ## STRUCTURE
 

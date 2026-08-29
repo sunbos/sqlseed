@@ -1,19 +1,19 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Last updated: 2026-07-12 -->
+<!-- Last updated: 2026-08-30 -->
 
 # test_config
 
 ## Purpose
 
-Configuration system tests. Covers model validation, file loading, and snapshot management.
+Configuration system tests. Covers model validation, file loading, and snapshot management. 3 files, 39 test functions.
 
 ## Key Files
 
-| File | Description |
-|------|-------------|
-| `test_loader.py` | YAML/JSON config loading tests |
-| `test_models.py` | Pydantic model validation tests |
-| `test_snapshot.py` | SnapshotManager snapshot management tests |
+| File | Tests | Description |
+|------|------:|-------------|
+| `test_models.py` | 17 | Pydantic model validation (source/derived mutual exclusion) |
+| `test_loader.py` | 16 | YAML/JSON loading |
+| `test_snapshot.py` | 6 | SnapshotManager save/load/list_snapshots |
 
 ## For AI Agents
 

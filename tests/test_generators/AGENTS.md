@@ -1,25 +1,25 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Last updated: 2026-07-12 -->
+<!-- Last updated: 2026-08-30 -->
 
 # test_generators
 
 ## Purpose
 
-Data generator correctness and consistency tests. Covers Base/Faker/Mimesis providers, registry, dispatch sync, and helper utilities.
+Data generator correctness and consistency tests. Covers Base/Faker/Mimesis providers, registry, dispatch sync, and helper utilities. 8 files, 168 test functions (36 shared in `_mixin.py`).
 
 ## Key Files
 
-| File | Description |
-|------|-------------|
-| `_mixin.py` | Shared test mixin, extracts common Provider test logic |
-| `test_base_provider.py` | BaseProvider built-in generator tests |
-| `test_faker_provider.py` | FakerProvider tests (faker is a required dep; no importorskip) |
-| `test_mimesis_provider.py` | MimesisProvider tests (direct import; mimesis optional at runtime) |
-| `test_registry.py` | ProviderRegistry registration and discovery tests |
-| `test_dispatch_sync.py` | `verify_dispatch_sync()` mapping consistency tests |
-| `test_dispatch_exclude.py` | `exclude_values` support in `GeneratorDispatchMixin.generate` tests |
-| `test_json_helpers.py` | JSON schema-based generation helper tests |
-| `test_string_helpers.py` | Random string utility tests |
+| File | Tests | Description |
+|------|------:|-------------|
+| `_mixin.py` | 36 | Shared Provider test mixin |
+| `test_string_helpers.py` | 40 | random string utilities |
+| `test_json_helpers.py` | 38 | JSON schema generation |
+| `test_registry.py` | 17 | ProviderRegistry discovery |
+| `test_base_provider.py` | 13 | BaseProvider 35 generators |
+| `test_faker_provider.py` | 10 | FakerProvider (required dep) |
+| `test_mimesis_provider.py` | 6 | MimesisProvider (optional dep) |
+| `test_dispatch_exclude.py` | 7 | `exclude_values` in dispatch |
+| `test_dispatch_sync.py` | 1 | `verify_dispatch_sync()` |
 
 ## For AI Agents
 

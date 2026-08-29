@@ -1,8 +1,10 @@
 # TEST SUITE
 
+**Last updated:** 2026-08-30
+
 ## OVERVIEW
 
-pytest suite. Tests mirror `src/sqlseed/` structure. conftest.py provides fixtures.
+pytest suite. Tests mirror `src/sqlseed/` structure. conftest.py provides fixtures. Root level: 16 test files, 319 test functions. Subdirs: test_core 14 files / 247 tests, test_database 10 files / 265, test_config 3 / 39, test_generators 8 / 168 (incl. `_mixin.py` 36 shared), test_utils 4 / 99, test_plugins 2 / 21, benchmarks 1 / 3.
 
 ## STRUCTURE
 
@@ -11,28 +13,28 @@ tests/
 ├── conftest.py              # Test helpers; fixtures moved to rootdir conftest.py
 ├── _helpers.py              # Test utilities
 ├── _ai_helpers.py           # Shared helpers for sqlseed-ai plugin tests
-├── test_public_api.py       # Public API tests (fill, connect, preview)
-├── test_orchestrator.py     # DataOrchestrator tests
-├── test_orchestrator_adapter.py  # Orchestrator-adapter integration tests
-├── test_mapper.py           # ColumnMapper tests
-├── test_mapper_camelcase.py # ColumnMapper camelCase name tests
-├── test_schema.py           # SchemaInferrer tests
-├── test_relation.py         # RelationResolver tests
-├── test_result.py           # GenerationResult tests
-├── test_enrich_enum_detection.py  # Enrichment tests
-├── test_architecture.py     # Architecture guard tests (14 invariants)
-├── test_doc_sync.py         # Doc sync verification (AUTO-GENERATED markers)
-├── test_hardware.py         # Hardware detection tests (sqlseed_ai._hardware)
-├── test_refiner.py          # AiConfigRefiner tests (sqlseed-ai)
-├── test_url_connection.py   # URL connection tests (--url / _resolve_db_target)
-├── test_core/               # Core module tests
-├── test_generators/         # Generator tests
-├── test_database/           # Database adapter tests
-├── test_config/             # Config tests
-├── test_plugins/            # Plugin tests
-├── test_utils/              # Utility tests
+├── test_public_api.py       # 10 tests — fill, connect, preview
+├── test_orchestrator.py     # 41 tests — DataOrchestrator
+├── test_orchestrator_adapter.py  # 9 tests — orchestrator-adapter integration
+├── test_mapper.py           # 33 tests — ColumnMapper
+├── test_mapper_camelcase.py # 21 tests — camelCase name mapping
+├── test_schema.py           # 16 tests — SchemaInferrer
+├── test_relation.py         # 41 tests — RelationResolver
+├── test_result.py           # 4 tests — GenerationResult
+├── test_enrich_enum_detection.py  # 18 tests — enrichment
+├── test_architecture.py     # 14 tests — architecture invariants
+├── test_doc_sync.py         # 13 tests — AUTO-GENERATED markers (17 with param)
+├── test_hardware.py         # 8 tests — sqlseed_ai._hardware
+├── test_refiner.py          # 61 tests — AiConfigRefiner (sqlseed-ai)
+├── test_url_connection.py   # 15 tests — --url / _resolve_db_target
+├── test_core/               # 14 files, 247 tests
+├── test_generators/         # 8 files, 168 tests
+├── test_database/           # 10 files, 265 tests
+├── test_config/             # 3 files, 39 tests
+├── test_plugins/            # 2 files, 21 tests
+├── test_utils/              # 4 files, 99 tests
 ├── integration/             # Integration tests (test_pg_integration.py, test_url_e2e.py, test_ai_real_llm.py)
-└── benchmarks/              # Performance benchmarks
+└── benchmarks/              # bench_fill.py (3 benchmarks)
 ```
 
 ## WHERE TO LOOK

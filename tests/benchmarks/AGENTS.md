@@ -1,17 +1,17 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Last updated: 2026-07-12 -->
+<!-- Last updated: 2026-08-30 -->
 
 # benchmarks
 
 ## Purpose
 
-Performance benchmarks. Uses pytest-benchmark for data generation performance measurement.
+Performance benchmarks. Uses pytest-benchmark for data generation performance measurement. 1 file, 3 benchmarks.
 
 ## Key Files
 
-| File | Description |
-|------|-------------|
-| `bench_fill.py` | Benchmark tests for the `fill` and `preview` functions |
+| File | Benchmarks | Description |
+|------|-----------:|-------------|
+| `bench_fill.py` | 3 | `fill` 1K/10K rows + `preview` 5 rows |
 
 ## For AI Agents
 

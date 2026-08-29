@@ -1,6 +1,6 @@
 # SRC/SQLSEED PACKAGE
 
-**Last updated:** 2026-07-12
+**Last updated:** 2026-08-30
 
 ## OVERVIEW
 
@@ -13,13 +13,25 @@ src/sqlseed/
 ├── __init__.py       # Public API: fill, connect, fill_from_config, preview, load_config
 ├── _version.py       # Version info (importlib.metadata dynamic detection)
 ├── py.typed          # PEP 561 type marker
-├── core/             # Orchestration engine: orchestrator, mapper, schema, constraints, DAG, enrichment, transform, stream (22 files)
-├── generators/       # Data providers: base, faker, mimesis + dispatch, registry (9 files)
+├── core/             # Orchestration engine: 17 top-level files + orchestrator/ package (6 files) = 23 files
+├── generators/       # Data providers: base, faker, mimesis + dispatch, registry (9 files, 35 generator types)
 ├── database/         # Database adapters: SQLAlchemy (production), raw sqlite3 (testing) + dialect, optimizer, helpers (11 files)
 ├── plugins/          # Plugin system: hookspecs (12 hooks), manager (3 files)
-├── config/           # Pydantic models, YAML loader, snapshot manager (4 files)
+├── config/           # Pydantic models (9 classes), YAML loader, snapshot manager (4 files)
 └── _utils/           # Internal utilities: sql_safe, metrics, progress, logger, paths (6 files)
 ```
+
+## FILE INVENTORY (per-module entry points)
+
+| Module | Files | Key symbols (largest first) |
+|--------|-------|------------------------------|
+| `core/` | 23 | `relation.py` [1033L] RelationResolver+SharedPool, `mapper.py` [630L] ColumnMapper+GeneratorSpec, `stream.py` [675L] DataStream, `features.py` [468L] StructuralFeatureExtractor, `check_parser.py` [427L] CheckConstraintParser |
+| `core/orchestrator/` | 6 | `_generation.py` [524L] GenerationMixin, `_specs.py` [502L] SpecResolverMixin, `_query.py` [251L] QueryMixin, `_connection.py` [243L] ConnectionMixin, `__init__.py` [57L] DataOrchestrator |
+| `generators/` | 9 | `base_provider.py` [501L] BaseProvider, `faker_provider.py` [289L], `mimesis_provider.py` [247L], `_dispatch.py` [150L] GeneratorDispatchMixin, `registry.py` [162L] ProviderRegistry |
+| `database/` | 11 | `sqlalchemy_adapter.py` [846L] SQLAlchemyAdapter+SQLAlchemyBatchInserter, `raw_sqlite_adapter.py` [337L], `_dialect.py` [228L] Dialect+SQLite/Postgres, `_protocol.py` [176L] DatabaseAdapter+4 info dataclasses |
+| `plugins/` | 3 | `hookspecs.py` [177L] SqlseedHookSpec (12 hooks), `manager.py` [58L] PluginManager |
+| `config/` | 4 | `models.py` [259L] 9 Pydantic classes, `loader.py` [184L] load/save/generate_template, `snapshot.py` [114L] SnapshotManager |
+| `_utils/` | 6 | `progress.py` [423L] 3 progress backends, `paths.py` [105L], `sql_safe.py` [84L], `metrics.py` [81L], `logger.py` [67L] |
 
 ## WHERE TO LOOK
 

@@ -1,6 +1,6 @@
 # MCP-SERVER-SQLSEED PLUGIN
 
-**Last updated:** 2026-07-12
+**Last updated:** 2026-08-30
 
 ## OVERVIEW
 
