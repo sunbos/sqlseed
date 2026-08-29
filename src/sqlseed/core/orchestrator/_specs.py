@@ -175,22 +175,29 @@ class SpecResolverMixin:
                 current_spec = generator_specs.get(col_name)
                 if current_spec is None:
                     continue
-                if current_spec.generator_name not in _fallback_generators:
-                    continue
-                # For "choice" with non-empty choices, reconcile against the
-                # column's CHECK IN (...) enum when one exists: the database
-                # constraint is the hard truth and must win over name-rule
-                # guesses (e.g., EXACT_MATCH_RULES maps ``gender`` to
-                # ['male', 'female', 'other'] but CHECK says IN ('M', 'F')).
-                # Without this, zero-config fill crashes on IntegrityError.
-                if current_spec.generator_name == "choice" and current_spec.params.get("choices"):
-                    enum_choices = self._check_enum_choices(col_info.name, check_constraints)
-                    if enum_choices is not None:
+                # Enum-CHECK hard truth (2026-08-30): ANY generator (name-rule
+                # or fallback) on a column with a CHECK IN (...) enum is
+                # reconciled against the enum — the DB constraint is the hard
+                # truth. Two cases, unified here (formerly a choice-only
+                # special case): (a) a non-enum generator (e.g.
+                # EXACT_MATCH_RULES maps ``title`` -> ``sentence`` while
+                # CHECK (title IN ('engineer',...)) rejects every sentence)
+                # is overridden by the enum; (b) a ``choice`` spec whose
+                # values differ from the CHECK enum (e.g. ``gender`` rule
+                # says ['male','female','other'] but CHECK says IN ('M','F'))
+                # is re-pointed to the CHECK values. Same values → untouched.
+                if current_spec.generator_name != "skip":
+                    enum_choices = self._check_enum_choices(col_name, check_constraints)
+                    if enum_choices is not None and not (
+                        current_spec.generator_name == "choice" and current_spec.params.get("choices") == enum_choices
+                    ):
                         generator_specs[col_name] = GeneratorSpec(
                             generator_name="choice",
                             params={"choices": enum_choices},
                             null_ratio=current_spec.null_ratio,
                         )
+                        continue
+                if current_spec.generator_name not in _fallback_generators:
                     continue
                 enhanced = self._schema_fallback.fallback_for_column(col_info, check_constraints, unique_list)
                 if enhanced is not None:
@@ -286,10 +293,16 @@ class SpecResolverMixin:
         from sqlseed.core.check_parser import CheckConstraintParser
 
         expressions = [ck.expression for ck in check_constraints]
+        # Enum CHECKs (kind == "choice") are covered by the hard-truth
+        # reconciliation in _resolve_specs (the CHECK values become the
+        # generator's choices) — no warning needed for those. Range/length
+        # CHECKs remain type-approximated in zero-config mode and are the
+        # honest boundary this notice declares.
         constrained_columns = [
             col.name
             for col in self._schema.get_column_info(table_name)
-            if CheckConstraintParser.parse_all(col.name, expressions) is not None
+            for parsed in [CheckConstraintParser.parse_all(col.name, expressions)]
+            if parsed is not None and parsed.kind != "choice"
         ]
         if not constrained_columns:
             return
