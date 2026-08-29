@@ -94,6 +94,9 @@ test_merchants.yaml
 .edits/
 _edit_helper.py
 
+# Local agent tool cache (not for repo)
+.omo/
+
 # Node.js (for ctxlint)
 node_modules/
 

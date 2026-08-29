@@ -1,0 +1,277 @@
+:root {
+  --bg: #0d1117;
+  --panel: #161b22;
+  --panel-2: #1c2129;
+  --border: #30363d;
+  --text: #e6edf3;
+  --muted: #8b949e;
+  --accent: #58a6ff;
+  --accent-2: #3fb950;
+  --warn: #d29922;
+  --danger: #f85149;
+  --mono: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.5 -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+#topbar {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 10px 20px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.brand { font-weight: 700; font-size: 16px; }
+.brand .accent { color: var(--accent); }
+
+#nav { display: flex; gap: 4px; flex: 1; }
+#nav a {
+  color: var(--muted);
+  text-decoration: none;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+#nav a:hover { color: var(--text); background: var(--panel-2); }
+#nav a.active { color: var(--text); background: var(--panel-2); }
+
+.badge {
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  max-width: 340px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.badge.ok { color: var(--accent-2); border-color: var(--accent-2); }
+
+#main { padding: 24px; max-width: 1400px; margin: 0 auto; }
+
+h2 { font-size: 18px; margin-bottom: 16px; }
+h3 { font-size: 14px; margin: 16px 0 8px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+.row.end { justify-content: flex-end; }
+
+label { color: var(--muted); font-size: 13px; }
+/* labels that wrap a checkbox/radio align text vertically with the box */
+label:has(> input[type="checkbox"]), label:has(> input[type="radio"]) {
+  display: inline-flex; align-items: center;
+}
+
+input, select, textarea, button {
+  font: inherit;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 7px 10px;
+}
+/* min-width only for free-text inputs and selects — checkbox/radio must stay
+   at natural size, otherwise a 160px-wide checkbox pushes its label text
+   ~147px away from the box (real bug found in the file picker). */
+input:not([type="checkbox"]):not([type="radio"]), select { min-width: 160px; }
+input[type="checkbox"], input[type="radio"] {
+  min-width: 0;
+  width: 13px;
+  height: 13px;
+  padding: 0;
+  margin: 0 6px 0 0;
+  accent-color: var(--accent);
+  flex: none;
+  vertical-align: middle;
+}
+textarea {
+  width: 100%;
+  font-family: var(--mono);
+  font-size: 13px;
+  min-height: 320px;
+  resize: vertical;
+  tab-size: 2;
+}
+input:focus, select:focus, textarea:focus, button:focus-visible {
+  outline: 1px solid var(--accent);
+}
+
+button { cursor: pointer; }
+button.primary { background: #1f6feb; border-color: #1f6feb; color: #fff; }
+button.primary:hover { background: #388bfd; }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+button.small { padding: 4px 8px; font-size: 12px; }
+
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--border); }
+th { color: var(--muted); font-weight: 600; position: sticky; top: 0; background: var(--panel); }
+tr:hover td { background: var(--panel-2); }
+td.mono { font-family: var(--mono); font-size: 12px; }
+
+.table-scroll { max-height: 480px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
+
+.pill {
+  display: inline-block;
+  font-size: 11px;
+  font-family: var(--mono);
+  padding: 1px 7px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+.pill.gen { color: var(--accent); border-color: #1f6feb66; }
+.pill.ok { color: var(--accent-2); border-color: #3fb95066; }
+.pill.warn { color: var(--warn); border-color: #d2992266; }
+.pill.err { color: var(--danger); border-color: #f8514966; }
+
+pre {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  font-family: var(--mono);
+  font-size: 12px;
+  overflow: auto;
+  max-height: 420px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.msg { padding: 10px 14px; border-radius: 8px; margin: 12px 0; font-size: 13px; }
+.msg.err { background: #f8514922; border: 1px solid #f8514955; color: #ff948f; }
+.msg.ok { background: #3fb95022; border: 1px solid #3fb95055; color: #7ee787; }
+.msg.warn { background: #d2992222; border: 1px solid #d2992255; color: #e3b341; }
+
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 1100px) { .grid2 { grid-template-columns: 1fr; } }
+
+.muted { color: var(--muted); font-size: 12px; }
+.stat { font-family: var(--mono); font-size: 22px; }
+.stat-label { color: var(--muted); font-size: 12px; }
+.stats { display: flex; gap: 32px; margin-bottom: 16px; }
+
+.progress {
+  height: 8px;
+  background: var(--panel-2);
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+.progress .bar { height: 100%; background: var(--accent); width: 0%; transition: width 0.3s; }
+
+.loading { color: var(--muted); font-style: italic; padding: 20px; }
+
+details { border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; margin-bottom: 8px; }
+details summary { cursor: pointer; color: var(--accent); font-size: 13px; }
+details pre { margin-top: 8px; }
+
+code { font-family: var(--mono); font-size: 12px; background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
+
+/* grow helper for inputs that should fill remaining row space */
+input.grow { flex: 1; min-width: 320px; }
+
+/* ---- custom dropdown (replaces native <select>: its popup layer is rendered
+   by the browser UI and mispositions in embedded WebViews / IDE preview) ---- */
+
+.dropdown { position: relative; display: inline-flex; min-width: 160px; }
+.dropdown.grow { flex: 1; }
+.dropdown-btn {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  width: 100%; padding: 7px 10px;
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px;
+  color: var(--text); cursor: pointer; font: inherit; text-align: left;
+}
+.dropdown-btn:hover { border-color: var(--accent); }
+.dropdown-btn::after { content: '▾'; color: var(--muted); font-size: 11px; flex: none; }
+.dropdown.open .dropdown-btn { border-color: var(--accent); outline: 1px solid var(--accent); }
+.dropdown-btn-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dropdown-panel {
+  display: none; position: absolute; top: calc(100% + 4px); left: 0;
+  min-width: 100%; max-height: 280px; overflow: auto;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
+  padding: 4px; z-index: 60; box-shadow: 0 8px 24px #000c;
+}
+.dropdown.open .dropdown-panel { display: block; }
+.dropdown-item {
+  display: block; width: 100%; text-align: left;
+  padding: 6px 10px; background: none; border: none; border-radius: 4px;
+  color: var(--text); cursor: pointer; font: inherit; font-size: 13px;
+  white-space: nowrap;
+}
+.dropdown-item:hover { background: var(--panel-2); }
+.dropdown-item.selected { color: var(--accent); }
+.dropdown-empty { padding: 8px 10px; font-size: 12px; }
+
+/* ---- modal (file picker) ---- */
+
+.modal-overlay {
+  position: fixed; inset: 0;
+  background: #000a;
+  display: flex; align-items: center; justify-content: center;
+  z-index: 100;
+}
+.modal {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  width: min(680px, 92vw);
+  max-height: 86vh;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.modal h3 { margin: 0 0 4px; }
+
+.file-crumbs {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 2px;
+  font-family: var(--mono); font-size: 12px;
+  border: 1px solid var(--border); border-radius: 6px;
+  padding: 5px 8px; background: var(--panel-2);
+}
+.file-crumbs button {
+  background: none; border: none; color: var(--accent);
+  padding: 1px 4px; font-family: var(--mono); font-size: 12px; cursor: pointer;
+}
+.file-crumbs button:hover { text-decoration: underline; }
+
+.file-list-wrap {
+  border: 1px solid var(--border); border-radius: 8px;
+  min-height: 240px; max-height: 46vh; overflow: auto; background: var(--bg);
+}
+.file-list { display: flex; flex-direction: column; }
+.file-entry {
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 12px; cursor: pointer; user-select: none;
+  border-bottom: 1px solid #21262d;
+}
+.file-entry:hover { background: var(--panel-2); }
+.file-entry.dir .file-name { color: var(--accent); }
+.file-entry.db .file-icon { color: var(--accent-2); border-color: #3fb95066; }
+.file-entry:not(.dir):not(.db) { color: var(--muted); }
+.file-icon {
+  font-family: var(--mono); font-size: 10px; width: 30px; text-align: center;
+  border: 1px solid var(--border); border-radius: 4px; padding: 1px 0; color: var(--muted);
+  flex: none;
+}
+.file-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-size { flex: none; }
+
