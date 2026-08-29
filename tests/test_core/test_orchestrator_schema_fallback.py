@@ -135,3 +135,82 @@ class TestSchemaFallbackIntegration:
         assert len(rows) == 20
         for (code,) in rows:
             assert 8 <= len(code) <= 20, f"CHECK violation: code={code!r} len={len(code)}"
+
+
+@pytest.fixture
+def db_with_title_enum(tmp_path: Path) -> str:
+    """Database where an EXACT-rule column carries a CHECK IN enum.
+
+    Schema mirrors the live defect found via sqlseed-ui on
+    ``employees.title``: EXACT_MATCH_RULES maps ``title`` -> ``sentence``,
+    yet the column has ``CHECK (title IN ('engineer','manager',...))``.
+    The name-rule guess deterministically violates the constraint (any
+    random sentence fails IN) — the DB constraint is the hard truth.
+    """
+    db_path = str(tmp_path / "title_enum.db")
+    conn = sqlite3.connect(db_path)
+    conn.executescript(
+        """
+        CREATE TABLE employees (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL CHECK (title IN ('engineer','manager','director','vp')),
+            note TEXT
+        );
+        """
+    )
+    conn.commit()
+    conn.close()
+    return db_path
+
+
+class TestNameRuleEnumCheckHardTruth:
+    """A name-rule hit whose output CANNOT satisfy a CHECK enum must be overridden.
+
+    Extends the existing ``gender`` reconciliation (choice-vs-CHECK): there
+    the spec was already ``choice`` and only the values were wrong. Here
+    the name rule produces a non-enum generator (``sentence``), which is
+    guaranteed to violate the constraint — same principle, earlier stage.
+    """
+
+    def test_exact_rule_sentence_overridden_by_check_enum(self, db_with_title_enum: str) -> None:
+        """``title`` -> sentence is deterministic-IN violation; CHECK enum wins."""
+        with DataOrchestrator(db_with_title_enum, provider_name="base") as orch:
+            specs, _, _, _ = orch._resolve_specs(
+                table_name="employees",
+                count=10,
+                columns=None,
+                column_configs=None,
+                enrich=False,
+            )
+        title_spec = specs.get("title")
+        assert title_spec is not None
+        assert title_spec.generator_name == "choice"
+        assert title_spec.params.get("choices") == ["engineer", "manager", "director", "vp"]
+
+    def test_fill_table_satisfies_enum_check(self, db_with_title_enum: str) -> None:
+        """End-to-end: zero-config fill succeeds and every row satisfies the enum."""
+        with DataOrchestrator(db_with_title_enum, provider_name="base") as orch:
+            result = orch.fill_table("employees", count=20)
+        assert result.count == 20
+        assert result.errors == []
+
+        conn = sqlite3.connect(db_with_title_enum)
+        rows = conn.execute("SELECT title FROM employees").fetchall()
+        conn.close()
+        allowed = {"engineer", "manager", "director", "vp"}
+        assert all((t,) and t[0] in allowed for t in rows)
+
+    def test_unrelated_column_untouched(self, db_with_title_enum: str) -> None:
+        """``note`` also hits the ``sentence`` EXACT rule but has NO CHECK — must stay untouched."""
+        with DataOrchestrator(db_with_title_enum, provider_name="base") as orch:
+            specs, _, _, _ = orch._resolve_specs(
+                table_name="employees",
+                count=10,
+                columns=None,
+                column_configs=None,
+                enrich=False,
+            )
+        note_spec = specs.get("note")
+        assert note_spec is not None
+        # No CHECK constraint on note → name rule keeps its original output.
+        assert note_spec.generator_name == "sentence"

@@ -304,7 +304,12 @@ class TestOrchestratorIntegration:
         assert all(v in ("active", "inactive") for v in vals)
 
     def test_zero_config_emits_boundary_notice(self, tmp_path: Any) -> None:
-        """零配置 + 有 CHECK → _resolve_specs 触发能力边界声明（zh/en 文案正确）。"""
+        """零配置 + 有 CHECK → 能力边界声明只覆盖仍为类型近似的列。
+
+        Enum CHECKs (``status IN (...)``) 已被 _resolve_specs 的硬真相协调
+        覆盖（CHECK 值成为 choice 的 choices），不再列入警告；range/length
+        CHECKs（``age``）在零配置下仍是类型近似，保持警告。
+        """
         import sqlseed.core.orchestrator._specs as specs_mod
         from sqlseed.core.orchestrator import DataOrchestrator
 
@@ -326,7 +331,9 @@ class TestOrchestratorIntegration:
                     specs_mod.logger.warning = orig  # type: ignore[assignment]
                 assert captured, f"locale={locale} 应产生声明"
                 assert needle in captured[0]
-                assert "age" in captured[0] and "status" in captured[0]
+                assert "age" in captured[0]
+                # Enum-CHECK 列已被硬真相协调覆盖，不再出现在边界警告里。
+                assert "status" not in captured[0]
 
     def test_zero_config_no_notice_without_check(self, tmp_path: Any) -> None:
         """零配置 + 无 CHECK → 不产生声明（无噪音）。"""
