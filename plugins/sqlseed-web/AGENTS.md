@@ -4,12 +4,12 @@
 
 ## OVERVIEW
 
-Web UI for sqlseed: a FastAPI backend wrapping `DataOrchestrator` + the sqlseed-ai self-healing subsystem, plus a dependency-free static frontend (vanilla ES modules, NO build toolchain, NO node_modules). Navicat-style information architecture (redesigned 2026-08-30 from 5 Navicat Data Generator reference screenshots): a three-step generation wizard (target → object tree + per-column property panel → topo-ordered preview/fill) and a three-pane data browser, plus the heal lab and acceptance cockpit as standalone entries. Serves two purposes:
+Web UI for sqlseed: a FastAPI backend wrapping `DataOrchestrator` + the sqlseed-ai self-healing subsystem, plus a dependency-free static frontend (vanilla ES modules, NO build toolchain, NO node_modules). Navicat-style information architecture (redesigned 2026-08-30 from 5 Navicat Data Generator reference screenshots): a three-step generation wizard (target → object tree + per-column property panel → topo-ordered preview/fill) and a three-pane data browser, plus AI 分析与修复 (formerly 自愈实验室) and the acceptance cockpit (系统面板) as standalone entries. Serves two purposes:
 
-1. **Visual workbench** — connection management, wizard-driven column configuration (generator dropdown + params + single-column live preview + NULL%/unique), topo-ordered generation, three-pane data browsing, YAML save/load.
+1. **Visual workbench** — connection management, wizard-driven column configuration (generator dropdown + params + single-column live preview + NULL%/unique), topo-ordered generation, three-pane data browsing, YAML save/load. Step 2 carries an **AI 一键生成配置** button: L5 auto-heal produces a full YAML which is parsed back into the tree selection + per-column configs for the user to fine-tune (the no-AI → AI-assisted closed loop).
 2. **Acceptance cockpit** — every core feature (9-level mapping, constraint solving, contract validation, repair strategies, auto-heal) is exposed as an observable endpoint. The meta page counts (35 generators, 12 hooks) must match the code — it is the UI-side equivalent of `tests/test_doc_sync.py`.
 
-sqlseed-ai is an **optional** dependency: heal endpoints degrade to `{"ok": false, "reason": ...}` / HTTP 503 without it. Auto-heal additionally requires an LLM API key.
+sqlseed-ai is an **optional** dependency: heal endpoints degrade to `{"ok": false, "reason": ...}` / HTTP 503 without it, and the AI page shows an onboarding card (install command + what still works without AI). Auto-heal additionally requires an LLM backend — local backends (Ollama / LM Studio) need NO API key, only a running server (`/api/ai/test-connection` probes and reports this in friendly Chinese).
 
 ## STRUCTURE
 
@@ -29,7 +29,7 @@ sqlseed-web/
 │           ├── app.js           # hash router: connect / wizard / browse / heal / meta
 │           ├── dropdown.js      # custom dropdown (page-DOM panel; native <select> popups misposition in WebViews)
 │           ├── filepicker.js    # server-side directory-browse modal (the real "choose file" button)
-│           ├── labels.js        # generator Chinese labels + tree column annotations (外键/序列/语义)
+│           ├── labels.js        # generator + param Chinese labels (PARAM_LABELS for genform) + tree column annotations (外键/序列/语义)
 │           ├── tree.js          # checkable table/column tree (wizard step2 left pane)
 │           ├── genform.js       # column property panel: generator dropdown + dynamic params + single-column preview + NULL%/unique
 │           └── pages/           # connect / wizard (3-step) / browse (3-pane) / heal / meta
@@ -49,6 +49,7 @@ sqlseed-web/
 | `/api/config` | `parse`, `serialize` | `load_config` via temp file (validation parity with CLI) |
 | `/api/connections/{id}/heal` | `validate`, `repair`, `auto` | L2 `FastValidator`, L3 `RepairPipeline`, L5 `AutoHealOrchestrator` (wired like `ai_commands._run_auto_heal_v4`); `auto` honors the session AI override (`backend` param added) |
 | `/api/ai/config` | GET/POST | session-level AI override (backend/model/api_key/base_url) merged over env defaults — in-UI online/local LLM switching without env edits or restarts |
+| `/api/ai/test-connection` | POST | friendly connectivity probe of the effective backend: local (Ollama/LM Studio) → reachability + model list, **no API key needed**; online → key check. Probe URL is `{base_url}/models` (probing bare Ollama `/models` returns 404 — bug fixed 2026-08-30) |
 | `/api/jobs` | list + `{job_id}` status | job registry; live fill progress via `get_row_count` delta |
 
 Connection kinds (UI): `sqlite` (local db file + file-picker modal), `postgresql` (field form → `postgresql://user:pass@host:port/db`), `url` (raw SQLAlchemy URL, reserved for future databases).
@@ -88,7 +89,7 @@ Connection kinds (UI): `sqlite` (local db file + file-picker modal), `postgresql
 ```bash
 pip install -e "./plugins/sqlseed-web"          # + [ai] extra for the heal lab
 sqlseed-web                                     # serve at http://127.0.0.1:8630
-pytest plugins/sqlseed-web/tests/ -q            # 32 tests
+pytest plugins/sqlseed-web/tests/ -q            # 40 tests
 ruff check plugins/sqlseed-web/ && mypy plugins/sqlseed-web/src/
 ```
 
@@ -106,3 +107,5 @@ ruff check plugins/sqlseed-web/ && mypy plugins/sqlseed-web/src/
 - **`load_config` does NOT validate generator names** — unknown generators pass `/api/config/parse` and only fail at fill time (`UnknownGeneratorError`) or as heal violations. This is the core contract; tests document it.
 - **YAML template endpoint** maps URL-prefixed targets to `url:` key, paths to `db_path:`.
 - **vite/client 404** in browser console is from the browser environment, not this app (no Vite anywhere in the repo).
+- **null_ratio unit mismatch**: the genform UI collects 0–100 percent but core `ColumnConfig.null_ratio` is a 0–1 fraction (`le=1.0`). `emit()` divides by 100 before sending; `fromInferred()` multiplies by 100 when hydrating from core specs. Wizard `cfg` stores the backend shape (0–1). Sending the raw percent once made every preview/fill with NULL% fail with 422 (fixed 2026-08-30).
+- **AI probe URL**: `/api/ai/test-connection` must probe `{base_url}/models` — Ollama's bare-host `/models` returns 404 (only `/api/tags` and `/v1/models` exist), which once made a healthy local server look dead.

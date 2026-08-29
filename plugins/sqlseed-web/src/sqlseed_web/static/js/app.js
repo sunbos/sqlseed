@@ -1,6 +1,6 @@
 // Router: hash-based navigation, lazy page module loading.
 // Navicat-style IA: 连接 → 数据生成向导（三步工作台）→ 数据浏览（三栏）
-// → 自愈实验室 → 系统面板。
+// → AI 分析与修复 → 系统面板。
 
 import { setConnBadge } from './api.js';
 

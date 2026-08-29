@@ -84,6 +84,15 @@ export function createTree({ tables, onSelectColumn, onChange }) {
   return {
     el,
     getSelection: () => checked,
+    /** 外部整体替换勾选状态（AI 一键生成配置回填用）：Map<table, Set<col>> */
+    setSelection(sel) {
+      for (const t of tables) {
+        const cols = sel.get(t.name);
+        checked.set(t.name, cols ? new Set([...cols].filter((c) => t.columns.some((x) => x.name === c))) : new Set());
+      }
+      render();
+      emit();
+    },
     getSelectedColumn: () => selected,
     refresh: render,
   };
