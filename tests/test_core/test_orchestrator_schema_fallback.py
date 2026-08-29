@@ -214,3 +214,84 @@ class TestNameRuleEnumCheckHardTruth:
         assert note_spec is not None
         # No CHECK constraint on note → name rule keeps its original output.
         assert note_spec.generator_name == "sentence"
+
+
+@pytest.fixture
+def db_with_phone_length(tmp_path: Path) -> str:
+    """Database where the phone name-rule column carries a LENGTH CHECK.
+
+    Mirrors the live sqlseed-ui demo defect: EXACT_MATCH_RULES maps
+    ``phone`` -> ``phone`` generator; the default provider (mimesis) emits
+    locale-formatted numbers like ``+86 601-73972132`` (19 chars) that
+    violate ``CHECK (phone IS NULL OR LENGTH(phone) = 11)``.
+    """
+    db_path = str(tmp_path / "phone_length.db")
+    conn = sqlite3.connect(db_path)
+    conn.executescript(
+        """
+        CREATE TABLE users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            phone TEXT CHECK (phone IS NULL OR LENGTH(phone) = 11),
+            note TEXT
+        );
+        """
+    )
+    conn.commit()
+    conn.close()
+    return db_path
+
+
+class TestLengthCheckHardTruth:
+    """A name-rule generator whose output cannot satisfy a LENGTH CHECK is overridden.
+
+    Same hard-truth principle as the enum reconciliation: the DB constraint
+    wins over the name-rule guess. A deterministic ``LENGTH(col) = N``
+    CHECK upgrades the column to ``pattern`` with ``[0-9]{N}`` — matching
+    the repair-layer ``upgrade_phone_to_pattern`` semantics.
+    """
+
+    def test_phone_generator_overridden_by_length_check(self, db_with_phone_length: str) -> None:
+        """``phone`` -> phone gen violates LENGTH=11; upgraded to pattern [0-9]{11}."""
+        with DataOrchestrator(db_with_phone_length, provider_name="base") as orch:
+            specs, _, _, _ = orch._resolve_specs(
+                table_name="users",
+                count=10,
+                columns=None,
+                column_configs=None,
+                enrich=False,
+            )
+        phone_spec = specs.get("phone")
+        assert phone_spec is not None
+        assert phone_spec.generator_name == "pattern"
+        assert phone_spec.params.get("regex") == "[0-9]{11}"
+
+    def test_fill_table_satisfies_length_check_with_mimesis(self, db_with_phone_length: str) -> None:
+        """End-to-end with the DEFAULT provider (mimesis): all phones are 11 digits."""
+        with DataOrchestrator(db_with_phone_length, provider_name="mimesis") as orch:
+            result = orch.fill_table("users", count=20)
+        assert result.count == 20
+        assert result.errors == []
+
+        conn = sqlite3.connect(db_with_phone_length)
+        rows = conn.execute("SELECT phone FROM users").fetchall()
+        conn.close()
+        for (phone,) in rows:
+            # nullable CHECK: None allowed; otherwise exactly 11 digits.
+            assert phone is None or (len(phone) == 11 and phone.isdigit())
+
+    def test_no_length_check_keeps_phone_generator(self, db_with_phone_length: str) -> None:
+        """Without the LENGTH CHECK the phone name rule stays (locale-real format is a feature).
+
+        ``note`` has no CHECK → its name rule output is untouched.
+        """
+        with DataOrchestrator(db_with_phone_length, provider_name="base") as orch:
+            specs, _, _, _ = orch._resolve_specs(
+                table_name="users",
+                count=10,
+                columns=None,
+                column_configs=None,
+                enrich=False,
+            )
+        note_spec = specs.get("note")
+        assert note_spec is not None
+        assert note_spec.generator_name == "sentence"
