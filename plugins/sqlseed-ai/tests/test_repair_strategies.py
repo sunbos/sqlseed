@@ -306,6 +306,64 @@ def test_upgrade_phone_to_pattern_noop_for_non_phone_column():
     assert result["generator"] == "string"
 
 
+# === Blind-spot fix (2026-08-30): LENGTH CHECK no-op in upgrade_phone_to_pattern ===
+
+
+def test_upgrade_phone_to_pattern_with_length_check_uses_digits_regex():
+    """Rule #23: phone + LENGTH(phone)=11 → pattern [0-9]{11}, NOT a skip.
+
+    Found live via sqlseed-ui heal lab: the strategy detected the LENGTH
+    CHECK and returned the column unchanged (assuming CHECK inference had
+    already handled it), while the executor still recorded an AppliedFix
+    with before == after — a no-op reported as a successful repair. The
+    ``phone`` generator emits 19-char zh_CN mobiles (``+86 XXX-XXXXXXXX``)
+    that violate ``LENGTH(phone) = 11``.
+
+    Mirrors the 2026-07-09 blind-spot fix in ``_semantic_upgrade``: use
+    ``_extract_length_check`` and upgrade to ``pattern`` with an N-digit
+    regex instead of skipping.
+    """
+    from sqlseed_ai.repair.strategies import _upgrade_phone_to_pattern
+
+    col = {"name": "phone", "generator": "phone", "params": {}}
+    v = _v("upgrade_phone_to_pattern", columns=["phone"])
+    ctx = {
+        "table_schema": SimpleNamespace(
+            constraints=[
+                {"type": "check", "expression": "phone IS NULL OR LENGTH(phone) = 11"},
+            ]
+        )
+    }
+    result = _upgrade_phone_to_pattern(col, v, ctx)
+    assert result["generator"] == "pattern"
+    assert result["params"]["regex"] == "[0-9]{11}"
+    # NANP regex would violate LENGTH=11 — must not be used here.
+    assert "+1" not in result["params"]["regex"]
+
+
+def test_upgrade_phone_to_pattern_with_length_check_on_string_col():
+    """Rule #23: string on phone-like col + LENGTH CHECK → pattern [0-9]{N}.
+
+    The LENGTH-aware upgrade applies regardless of the incoming generator
+    (phone / string / pattern): NANP output is always 14 chars and would
+    violate the constraint.
+    """
+    from sqlseed_ai.repair.strategies import _upgrade_phone_to_pattern
+
+    col = {"name": "mobile", "generator": "string", "params": {"min_length": 11, "max_length": 11}}
+    v = _v("upgrade_phone_to_pattern", columns=["mobile"])
+    ctx = {
+        "table_schema": SimpleNamespace(
+            constraints=[
+                {"type": "check", "expression": "LENGTH(mobile) = 10"},
+            ]
+        )
+    }
+    result = _upgrade_phone_to_pattern(col, v, ctx)
+    assert result["generator"] == "pattern"
+    assert result["params"]["regex"] == "[0-9]{10}"
+
+
 # === Task 2.5: Rule #32 coerce_to_boolean_enum tests ===
 def test_coerce_to_boolean_enum_for_zero_one_check():
     """Rule #32: integer column with CHECK(x IN (0,1)) → boolean generator."""

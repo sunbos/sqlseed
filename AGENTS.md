@@ -218,6 +218,7 @@ The `feat/contract-driven-self-healing` branch adds a contract-driven, multi-lev
 | `cli/` | 3 | `ai_commands.py` [928L] ai_suggest/ai_analyze/auto_heal + register() |
 
 **Gotchas when editing this subsystem**:
+- **RepairExecutor accounting invariant**: a strategy returning the column unchanged (`before == after`) is a *decline*, not a fix — the executor routes it to `unfixable`, never to `applied_fixes`. Violating this inflates `fix_count` and breaks `pipeline.py`'s partial-fix re-validation heuristic. Related: `_upgrade_phone_to_pattern` upgrades `LENGTH(col)=N` CHECK columns to `pattern` `[0-9]{N}` (same as `_semantic_upgrade`'s blind-spot fix) instead of skipping — the old skip was reported as a successful no-op fix (found live via sqlseed-ui heal lab, fixed 2026-08-30).
 - The `auto_heal.orchestrator` runs multiple convergence rounds; many `git log` entries are "Round N" fixes for specific cross-column CHECK patterns (Pattern 1/1b/4a/7a/7b/19/21/22/22c/24b/etc.). These are real constraint-handling rules, not throwaway — grep for the pattern number before removing.
 - `degrader.py` is the "semantic downgrade safety net" — stripping generator/params when `derive_from` is present is intentional (see commit `78d15f9`).
 - Self-referencing and composite FK resolution has many edge-case fixes (two-pass fill, `null_ratio=1.0` for empty-parent FK). See recent commits before changing `relation.py` / `_generation.py`.
