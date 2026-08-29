@@ -1,6 +1,6 @@
 # PROJECT KNOWLEDGE BASE
 
-**Last updated:** 2026-08-23
+**Last updated:** 2026-08-30
 **Branch:** `feat/contract-driven-self-healing`
 
 ## OVERVIEW
@@ -9,7 +9,7 @@ Declarative Multi-Database test data generation toolkit. YAML/JSON config or Pyt
 
 **Stack**: Python 3.10+ (`requires-python = ">=3.10"`), hatchling + hatch-vcs build, ruff lint, mypy strict, pytest. CI also gates on `lint-imports` (architectural layer contracts); `mutmut` (mutation testing) is a local pre-merge gate via `make mutmut` — too slow for push CI.
 
-**Architecture**: 4 independent packages — `sqlseed` (core, offline), `sqlseed-cli` (CLI plugin), `sqlseed-ai` (AI plugin), `mcp-server-sqlseed` (MCP plugin; module path is `mcp_server_sqlseed`, note the underscore). See [ARCHITECTURE.md](./ARCHITECTURE.md) for the authoritative architecture reference; [CLAUDE.md](./CLAUDE.md) has the canonical "Never/Always" rules.
+**Architecture**: 5 independent packages — `sqlseed` (core, offline), `sqlseed-cli` (CLI plugin), `sqlseed-ai` (AI plugin), `mcp-server-sqlseed` (MCP plugin; module path is `mcp_server_sqlseed`, note the underscore), `sqlseed-ui` (web UI plugin: FastAPI + dependency-free static frontend; optional `[ai]` extra for the heal lab). See [ARCHITECTURE.md](./ARCHITECTURE.md) for the authoritative architecture reference; [CLAUDE.md](./CLAUDE.md) has the canonical "Never/Always" rules.
 
 **Current work**: the `sqlseed-ai` self-healing subsystem (`auto_heal/`, `healer/`, `validator/`, `repair/`, `contracts/`) — contract-driven, multi-level repair pipeline.
 
@@ -29,6 +29,7 @@ sqlseed/
 ├── plugins/
 │   ├── sqlseed-cli/      # CLI plugin: fill, preview, inspect, init, replay (separate package)
 │   ├── sqlseed-ai/       # AI plugin: LLM schema analysis + self-healing (healer/, validator/, repair/, contracts/)
+│   ├── sqlseed-ui/       # Web UI plugin: FastAPI + static frontend (schema/mapping/preview/fill/heal lab)
 │   └── mcp-server-sqlseed/  # MCP server: rule-driven YAML gen + execute_fill (no LLM)
 ├── scripts/              # Helper scripts (run scripts, validation harnesses)
 ├── docs/                 # mkdocs-material site
@@ -37,7 +38,7 @@ sqlseed/
 
 ## MODULE-LEVEL AGENTS.md
 
-The repo ships 22 `AGENTS.md` files (1 root + 21 nested), one per package/test subdir. **Before editing a module, read the nearest `AGENTS.md`** for that area's local conventions and gotchas:
+The repo ships 23 `AGENTS.md` files (1 root + 22 nested), one per package/test subdir. **Before editing a module, read the nearest `AGENTS.md`** for that area's local conventions and gotchas:
 
 ```
 src/sqlseed/AGENTS.md                      (core package root)
@@ -51,6 +52,7 @@ plugins/sqlseed-cli/AGENTS.md
 plugins/sqlseed-cli/src/sqlseed_cli/AGENTS.md
 plugins/sqlseed-ai/AGENTS.md
 plugins/sqlseed-ai/src/sqlseed_ai/AGENTS.md
+plugins/sqlseed-ui/AGENTS.md
 plugins/mcp-server-sqlseed/AGENTS.md
 plugins/mcp-server-sqlseed/src/mcp_server_sqlseed/AGENTS.md
 tests/AGENTS.md + tests/{test_core,test_config,test_database,test_generators,test_plugins,test_utils,benchmarks}/AGENTS.md
@@ -73,6 +75,7 @@ This root file is the index; module-level files carry the detail. When adding a 
 | Add test fixture | `conftest.py` (repo root) | tmp_db, tmp_db_with_data, unique_test_db (auto-discovered by all tests) |
 | Configure AI plugin | `plugins/sqlseed-ai/` | Separate pyproject.toml, Gemma 4 multi-backend, `tool_calling_protocol` field |
 | Add MCP tool | `plugins/mcp-server-sqlseed/` | FastMCP, 2 tools (generate_yaml rule-driven, execute_fill). AI tools in sqlseed-ai[mcp] |
+| Run web UI | `plugins/sqlseed-ui/` | `sqlseed-ui` → http://127.0.0.1:8630 (FastAPI + static frontend; heal lab needs sqlseed-ai[ai]) |
 
 ## PUBLIC API (`src/sqlseed/__init__.py`)
 
@@ -201,6 +204,19 @@ The `feat/contract-driven-self-healing` branch adds a contract-driven, multi-lev
 - **Layer 5 — `auto_heal/`** — `AutoHealOrchestrator` (`orchestrator.py`) is the top-level entry point for `ai-analyze` (default v4 path), `ai-suggest --auto-heal`, and the standalone `auto-heal` command. Pipeline: SchemaSnapshot → SubgraphSplitter → per-subgraph (Layer 2 validate → Layer 3 repair → Layer 4 heal) → BrokenEdgeAligner → optimistic-lock schema_hash re-check → emit YAML. `time_budget.py` (`TimeBudgetController`) enforces wall-clock budget. `_build_subgraph_config()` performs deterministic CHECK-constraint inference before any LLM call (see gotchas below).
 - **Layer 6 — `analyzer/`** — LLM table-level analysis with streaming/tool-calling submodules (`_caller`, `_streaming`, `_tool_calling` [protocol-based: `gemma4`/`openai`/`none`], `_context`, `_json_parser`). Used by the non-auto-heal `ai-suggest` path.
 
+**sqlseed-ai file inventory (subpackages, by layer)**:
+
+| Subpackage | Files | Key files (lines) |
+|:-----------|------:|:------------------|
+| `contracts/` (L1) | 4 | `builtin_violations.py` [334L], `registry.py` [277L] LearnedContractsRegistry, `matrix.py` [183L] ContractResolver |
+| `validator/` (L2) | 9 | `single_column.py` [331L], `schema_snapshot.py` [218L], `cross_column.py` [188L], `shadow_fk_scan.py` [154L], `main.py` [95L] FastValidator |
+| `repair/` (L3) | 5 | `strategies.py` [776L] REPAIR_STRATEGIES, `executor.py` [101L], `pipeline.py` [57L], `models.py` [39L] |
+| `healer/` (L4) | 14 | `orchestrator.py` [559L] HealOrchestrator, `level2_column_healer.py` [313L], `level1_subgraph_healer.py` [206L], `degrader.py` [245L], `level3_compact_healer.py` [190L], `subgraph.py` [160L] TarjanSCC, `models.py` [149L] 10 dataclasses |
+| `auto_heal/` (L5) | 3 | `orchestrator.py` [6619L] AutoHealOrchestrator, `time_budget.py` [44L] TimeBudgetController |
+| `analyzer/` (L6) | 7 | `_caller.py` [434L], `_streaming.py` [308L], `_context.py` [262L], `__init__.py` [68L] SchemaAnalyzer, `_json_parser.py` [141L], `_tool_calling.py` [141L] |
+| root | 17 | `refiner.py` [819L] AiConfigRefiner, `config.py` [642L] AIConfig, `mcp.py` [410L] 3 Gemma tools, `__init__.py` [326L] AISqlseedPlugin, `_prompts.py` [301L], `examples.py` [278L], `_hardware.py` [345L] |
+| `cli/` | 3 | `ai_commands.py` [928L] ai_suggest/ai_analyze/auto_heal + register() |
+
 **Gotchas when editing this subsystem**:
 - The `auto_heal.orchestrator` runs multiple convergence rounds; many `git log` entries are "Round N" fixes for specific cross-column CHECK patterns (Pattern 1/1b/4a/7a/7b/19/21/22/22c/24b/etc.). These are real constraint-handling rules, not throwaway — grep for the pattern number before removing.
 - `degrader.py` is the "semantic downgrade safety net" — stripping generator/params when `derive_from` is present is intentional (see commit `78d15f9`).
@@ -240,6 +256,7 @@ pip install -e ".[dev,all]"
 pip install -e "./plugins/sqlseed-cli"
 pip install -e "./plugins/sqlseed-ai"
 pip install -e "./plugins/mcp-server-sqlseed"
+pip install -e "./plugins/sqlseed-ui"
 
 # Test
 pytest                              # All tests (core + plugins)
