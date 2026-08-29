@@ -312,7 +312,7 @@ def test_upgrade_phone_to_pattern_noop_for_non_phone_column():
 def test_upgrade_phone_to_pattern_with_length_check_uses_digits_regex():
     """Rule #23: phone + LENGTH(phone)=11 → pattern [0-9]{11}, NOT a skip.
 
-    Found live via sqlseed-ui heal lab: the strategy detected the LENGTH
+    Found live via sqlseed-web heal lab: the strategy detected the LENGTH
     CHECK and returned the column unchanged (assuming CHECK inference had
     already handled it), while the executor still recorded an AppliedFix
     with before == after — a no-op reported as a successful repair. The

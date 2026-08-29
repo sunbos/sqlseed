@@ -141,7 +141,7 @@ class TestSchemaFallbackIntegration:
 def db_with_title_enum(tmp_path: Path) -> str:
     """Database where an EXACT-rule column carries a CHECK IN enum.
 
-    Schema mirrors the live defect found via sqlseed-ui on
+    Schema mirrors the live defect found via sqlseed-web on
     ``employees.title``: EXACT_MATCH_RULES maps ``title`` -> ``sentence``,
     yet the column has ``CHECK (title IN ('engineer','manager',...))``.
     The name-rule guess deterministically violates the constraint (any
@@ -220,7 +220,7 @@ class TestNameRuleEnumCheckHardTruth:
 def db_with_phone_length(tmp_path: Path) -> str:
     """Database where the phone name-rule column carries a LENGTH CHECK.
 
-    Mirrors the live sqlseed-ui demo defect: EXACT_MATCH_RULES maps
+    Mirrors the live sqlseed-web demo defect: EXACT_MATCH_RULES maps
     ``phone`` -> ``phone`` generator; the default provider (mimesis) emits
     locale-formatted numbers like ``+86 601-73972132`` (19 chars) that
     violate ``CHECK (phone IS NULL OR LENGTH(phone) = 11)``.

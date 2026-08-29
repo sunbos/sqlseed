@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 
 from sqlseed._utils.logger import get_logger
 
-from sqlseed_ui.api import router
+from sqlseed_web.api import router
 
 logger = get_logger(__name__)
 
@@ -19,9 +19,9 @@ _STATIC_DIR = Path(__file__).parent / "static"
 
 
 def create_app() -> FastAPI:
-    """Build the sqlseed-ui application (API + static frontend)."""
+    """Build the sqlseed-web application (API + static frontend)."""
     app = FastAPI(
-        title="sqlseed-ui",
+        title="sqlseed-web",
         version="0.1.0",
         description="Web workbench and acceptance cockpit for the sqlseed test-data toolkit.",
     )
@@ -46,11 +46,11 @@ def create_app() -> FastAPI:
 
 
 def main() -> None:
-    """Run the dev server (``sqlseed-ui`` console script)."""
+    """Run the dev server (``sqlseed-web`` console script)."""
     import uvicorn
 
     uvicorn.run(
-        "sqlseed_ui.app:create_app",
+        "sqlseed_web.app:create_app",
         factory=True,
         host="127.0.0.1",
         port=8630,

@@ -9,7 +9,7 @@ Declarative Multi-Database test data generation toolkit. YAML/JSON config or Pyt
 
 **Stack**: Python 3.10+ (`requires-python = ">=3.10"`), hatchling + hatch-vcs build, ruff lint, mypy strict, pytest. CI also gates on `lint-imports` (architectural layer contracts); `mutmut` (mutation testing) is a local pre-merge gate via `make mutmut` — too slow for push CI.
 
-**Architecture**: 5 independent packages — `sqlseed` (core, offline), `sqlseed-cli` (CLI plugin), `sqlseed-ai` (AI plugin), `mcp-server-sqlseed` (MCP plugin; module path is `mcp_server_sqlseed`, note the underscore), `sqlseed-ui` (web UI plugin: FastAPI + dependency-free static frontend; optional `[ai]` extra for the heal lab). See [ARCHITECTURE.md](./ARCHITECTURE.md) for the authoritative architecture reference; [CLAUDE.md](./CLAUDE.md) has the canonical "Never/Always" rules.
+**Architecture**: 5 independent packages — `sqlseed` (core, offline), `sqlseed-cli` (CLI plugin), `sqlseed-ai` (AI plugin), `mcp-server-sqlseed` (MCP plugin; module path is `mcp_server_sqlseed`, note the underscore), `sqlseed-web` (web UI plugin: FastAPI + dependency-free static frontend; optional `[ai]` extra for the heal lab). See [ARCHITECTURE.md](./ARCHITECTURE.md) for the authoritative architecture reference; [CLAUDE.md](./CLAUDE.md) has the canonical "Never/Always" rules.
 
 **Current work**: the `sqlseed-ai` self-healing subsystem (`auto_heal/`, `healer/`, `validator/`, `repair/`, `contracts/`) — contract-driven, multi-level repair pipeline.
 
@@ -29,7 +29,7 @@ sqlseed/
 ├── plugins/
 │   ├── sqlseed-cli/      # CLI plugin: fill, preview, inspect, init, replay (separate package)
 │   ├── sqlseed-ai/       # AI plugin: LLM schema analysis + self-healing (healer/, validator/, repair/, contracts/)
-│   ├── sqlseed-ui/       # Web UI plugin: FastAPI + static frontend (schema/mapping/preview/fill/heal lab)
+│   ├── sqlseed-web/       # Web UI plugin: FastAPI + static frontend (schema/mapping/preview/fill/heal lab)
 │   └── mcp-server-sqlseed/  # MCP server: rule-driven YAML gen + execute_fill (no LLM)
 ├── scripts/              # Helper scripts (run scripts, validation harnesses)
 ├── docs/                 # mkdocs-material site
@@ -52,7 +52,7 @@ plugins/sqlseed-cli/AGENTS.md
 plugins/sqlseed-cli/src/sqlseed_cli/AGENTS.md
 plugins/sqlseed-ai/AGENTS.md
 plugins/sqlseed-ai/src/sqlseed_ai/AGENTS.md
-plugins/sqlseed-ui/AGENTS.md
+plugins/sqlseed-web/AGENTS.md
 plugins/mcp-server-sqlseed/AGENTS.md
 plugins/mcp-server-sqlseed/src/mcp_server_sqlseed/AGENTS.md
 tests/AGENTS.md + tests/{test_core,test_config,test_database,test_generators,test_plugins,test_utils,benchmarks}/AGENTS.md
@@ -75,7 +75,7 @@ This root file is the index; module-level files carry the detail. When adding a 
 | Add test fixture | `conftest.py` (repo root) | tmp_db, tmp_db_with_data, unique_test_db (auto-discovered by all tests) |
 | Configure AI plugin | `plugins/sqlseed-ai/` | Separate pyproject.toml, Gemma 4 multi-backend, `tool_calling_protocol` field |
 | Add MCP tool | `plugins/mcp-server-sqlseed/` | FastMCP, 2 tools (generate_yaml rule-driven, execute_fill). AI tools in sqlseed-ai[mcp] |
-| Run web UI | `plugins/sqlseed-ui/` | `sqlseed-ui` → http://127.0.0.1:8630 (FastAPI + static frontend; heal lab needs sqlseed-ai[ai]) |
+| Run web UI | `plugins/sqlseed-web/` | `sqlseed-web` → http://127.0.0.1:8630 (FastAPI + static frontend; heal lab needs sqlseed-ai[ai]) |
 
 ## PUBLIC API (`src/sqlseed/__init__.py`)
 
@@ -191,7 +191,7 @@ Battle scars — read before touching the relevant areas:
 12. **AUTO-GENERATED markers**: Doc files use `<!-- BEGIN:AUTO-GENERATED:name -->value<!-- END:AUTO-GENERATED:name -->`. Don't manually edit values inside markers — run `scripts/sync_docs.py` and `pytest tests/test_doc_sync.py`.
 13. **Mock self-proving trap**: Tests that mock `sqlseed.core.*` / `generators.*` / `database.*` classes (e.g., `mapper.map_column = MagicMock(return_value=...)` then `assert_called_once_with(...)`) are self-proving — the assertion echoes the mock setup and never verifies the computed `GeneratorSpec.params`. Use a real `ColumnMapper` + real `ColumnInfo` with non-None `default` and a non-exact-match column name (e.g., `"category"`/`"rank"`) to exercise `_type_faithful_fallback` and downstream `_adjust_*` math. See `tests/test_core/test_unique_adjuster.py::TestAdjustChoiceFallback` for the recommended pattern. Run `make mutmut` to detect self-proving tests.
 14. **Architecture enforcement is multi-layer**: 4 complementary mechanisms — (a) `lint-imports` (CI gate, fails fast on forbidden layer crossings), (b) `tests/test_architecture.py` (14 invariant tests), (c) `make mutmut` (mutation testing), (d) `tests/test_doc_sync.py` (count markers match code). All 4 must pass before merge.
-15. **CHECK adaptation is deterministic-only**: `check_adapt.py` clamps user params to single-column literal CHECK bounds (overlap → clamp + notice; disjoint → `ConfigurationError`). Cross-column/OR/unparseable CHECKs stay the AI/manual domain — never "guess" them in core. Composite PRIMARY KEYs are treated as composite UNIQUE constraints (`unique_adjuster.detect_unique_columns()`), not per-column unique. **Enum-CHECK hard truth** (2026-08-30): in `_resolve_specs`, a single-column `CHECK IN (...)` enum overrides ANY non-user generator — including name-rule hits like `title` → `sentence` that would deterministically violate the enum (fixes zero-config IntegrityError; found live via sqlseed-ui). **Length-CHECK hard truth** (same day, same principle): a `LENGTH(col) = N` CHECK upgrades `phone`/`string` name-rule specs to `pattern [0-9]{N}` — providers' locale-real phone formats (mimesis 19 chars, faker NANP 14) cannot satisfy exact lengths. The zero-config boundary notice therefore lists only non-enum/non-exact-length CHECKs.
+15. **CHECK adaptation is deterministic-only**: `check_adapt.py` clamps user params to single-column literal CHECK bounds (overlap → clamp + notice; disjoint → `ConfigurationError`). Cross-column/OR/unparseable CHECKs stay the AI/manual domain — never "guess" them in core. Composite PRIMARY KEYs are treated as composite UNIQUE constraints (`unique_adjuster.detect_unique_columns()`), not per-column unique. **Enum-CHECK hard truth** (2026-08-30): in `_resolve_specs`, a single-column `CHECK IN (...)` enum overrides ANY non-user generator — including name-rule hits like `title` → `sentence` that would deterministically violate the enum (fixes zero-config IntegrityError; found live via sqlseed-web). **Length-CHECK hard truth** (same day, same principle): a `LENGTH(col) = N` CHECK upgrades `phone`/`string` name-rule specs to `pattern [0-9]{N}` — providers' locale-real phone formats (mimesis 19 chars, faker NANP 14) cannot satisfy exact lengths. The zero-config boundary notice therefore lists only non-enum/non-exact-length CHECKs.
 
 ## AI SELF-HEALING SUBSYSTEM (`sqlseed-ai`, current branch focus)
 
@@ -218,7 +218,7 @@ The `feat/contract-driven-self-healing` branch adds a contract-driven, multi-lev
 | `cli/` | 3 | `ai_commands.py` [928L] ai_suggest/ai_analyze/auto_heal + register() |
 
 **Gotchas when editing this subsystem**:
-- **RepairExecutor accounting invariant**: a strategy returning the column unchanged (`before == after`) is a *decline*, not a fix — the executor routes it to `unfixable`, never to `applied_fixes`. Violating this inflates `fix_count` and breaks `pipeline.py`'s partial-fix re-validation heuristic. Related: `_upgrade_phone_to_pattern` upgrades `LENGTH(col)=N` CHECK columns to `pattern` `[0-9]{N}` (same as `_semantic_upgrade`'s blind-spot fix) instead of skipping — the old skip was reported as a successful no-op fix (found live via sqlseed-ui heal lab, fixed 2026-08-30).
+- **RepairExecutor accounting invariant**: a strategy returning the column unchanged (`before == after`) is a *decline*, not a fix — the executor routes it to `unfixable`, never to `applied_fixes`. Violating this inflates `fix_count` and breaks `pipeline.py`'s partial-fix re-validation heuristic. Related: `_upgrade_phone_to_pattern` upgrades `LENGTH(col)=N` CHECK columns to `pattern` `[0-9]{N}` (same as `_semantic_upgrade`'s blind-spot fix) instead of skipping — the old skip was reported as a successful no-op fix (found live via sqlseed-web heal lab, fixed 2026-08-30).
 - The `auto_heal.orchestrator` runs multiple convergence rounds; many `git log` entries are "Round N" fixes for specific cross-column CHECK patterns (Pattern 1/1b/4a/7a/7b/19/21/22/22c/24b/etc.). These are real constraint-handling rules, not throwaway — grep for the pattern number before removing.
 - `degrader.py` is the "semantic downgrade safety net" — stripping generator/params when `derive_from` is present is intentional (see commit `78d15f9`).
 - Self-referencing and composite FK resolution has many edge-case fixes (two-pass fill, `null_ratio=1.0` for empty-parent FK). See recent commits before changing `relation.py` / `_generation.py`.
@@ -257,7 +257,7 @@ pip install -e ".[dev,all]"
 pip install -e "./plugins/sqlseed-cli"
 pip install -e "./plugins/sqlseed-ai"
 pip install -e "./plugins/mcp-server-sqlseed"
-pip install -e "./plugins/sqlseed-ui"
+pip install -e "./plugins/sqlseed-web"
 
 # Test
 pytest                              # All tests (core + plugins)

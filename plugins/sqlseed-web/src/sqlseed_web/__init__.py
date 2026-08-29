@@ -1,4 +1,4 @@
-"""sqlseed-ui: web UI for the sqlseed test-data generation toolkit.
+"""sqlseed-web: web UI for the sqlseed test-data generation toolkit.
 
 A FastAPI application that wraps ``DataOrchestrator`` and the sqlseed-ai
 self-healing subsystem (Layers 1-5) with an HTTP API and a dependency-free
@@ -18,7 +18,7 @@ __version__ = "0.1.0"
 
 
 def main() -> None:
-    """Console-script entry point (``sqlseed-ui``)."""
-    from sqlseed_ui.app import main as run_server
+    """Console-script entry point (``sqlseed-web``)."""
+    from sqlseed_web.app import main as run_server
 
     run_server()

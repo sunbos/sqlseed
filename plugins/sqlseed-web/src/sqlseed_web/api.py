@@ -1,4 +1,4 @@
-"""HTTP API for sqlseed-ui.
+"""HTTP API for sqlseed-web.
 
 Routers (all mounted under ``/api``):
 
@@ -37,7 +37,7 @@ from sqlseed.config.loader import load_config
 from sqlseed.core.orchestrator import DataOrchestrator
 from sqlseed.generators._dispatch import GeneratorDispatchMixin
 
-from sqlseed_ui.state import state
+from sqlseed_web.state import state
 
 logger = get_logger(__name__)
 
@@ -87,7 +87,15 @@ class AutoHealRequest(BaseModel):
     model: str | None = None
     api_key: str | None = None
     base_url: str | None = None
+    backend: str | None = None
     timeout: float = 0.0
+
+
+class AIConfigRequest(BaseModel):
+    backend: str | None = None
+    model: str | None = None
+    api_key: str | None = None
+    base_url: str | None = None
 
 
 # --------------------------------------------------------------------------
@@ -309,7 +317,7 @@ def meta_ai() -> dict[str, Any]:
     try:
         from sqlseed_ai.config import AIConfig
     except ImportError:
-        return {"available": False, "reason": "sqlseed-ai is not installed (pip install -e ./plugins/sqlseed-ai)"}
+        return {"available": False, "reason": "sqlseed-ai is not installed (pip install -e ./plugins/sqlseed-web[ai])"}
     cfg = AIConfig.from_env()
     return {
         "available": True,
@@ -318,6 +326,58 @@ def meta_ai() -> dict[str, Any]:
         "api_key_present": bool(cfg.resolve_api_key()),
         "tool_calling_protocol": cfg.resolve_tool_calling_protocol(),
     }
+
+
+# --------------------------------------------------------------------------
+# AI config panel (在线/本地大模型 in-UI switching, no env edits / restarts)
+# --------------------------------------------------------------------------
+
+AI_BACKENDS: list[dict[str, str]] = [
+    {"id": "google_ai_studio", "label": "Google AI Studio（在线）", "needs_key": "1", "needs_url": "0"},
+    {"id": "openai_compat", "label": "OpenAI 兼容服务（在线/自建）", "needs_key": "1", "needs_url": "1"},
+    {"id": "ollama", "label": "Ollama（本地）", "needs_key": "0", "needs_url": "0"},
+    {"id": "lm_studio", "label": "LM Studio（本地）", "needs_key": "0", "needs_url": "0"},
+]
+
+
+@router.get("/ai/config")
+def ai_config_get() -> dict[str, Any]:
+    """Current effective AI config: session override merged over env defaults."""
+    try:
+        from sqlseed_ai.config import AIConfig
+    except ImportError:
+        return {"available": False, "reason": "sqlseed-ai is not installed (pip install -e ./plugins/sqlseed-web[ai])"}
+    override = state.get_ai_override()
+    cfg = AIConfig.from_env().apply_overrides(
+        api_key=override.get("api_key"),
+        base_url=override.get("base_url"),
+        model=override.get("model"),
+    )
+    if override.get("backend"):
+        from sqlseed_ai.config import AIBackend
+
+        try:
+            cfg.backend = AIBackend(override["backend"])
+        except ValueError:
+            pass
+    return {
+        "available": True,
+        "backends": AI_BACKENDS,
+        "override": override,
+        "effective": {
+            "backend": cfg.backend.value,
+            "model": cfg.resolve_model(),
+            "base_url": cfg.base_url,
+            "api_key_present": bool(cfg.resolve_api_key()),
+        },
+    }
+
+
+@router.post("/ai/config")
+def ai_config_set(req: AIConfigRequest) -> dict[str, Any]:
+    """Store session-level AI overrides (backend/model/key/base_url)."""
+    state.set_ai_override(req.model_dump())
+    return ai_config_get()
 
 
 @router.get("/meta/info")
@@ -738,17 +798,25 @@ def _run_auto_heal_job(conn_id: str, job_id: str, req: AutoHealRequest) -> None:
         from sqlseed_ai.validator.main import FastValidator
         from sqlseed_ai.validator.schema_snapshot import SchemaSnapshot
 
+        # Session AI override (UI panel) merged under per-request params.
+        override = state.get_ai_override()
         ai_config = _build_ai_config(
-            api_key=req.api_key,
-            base_url=req.base_url,
-            model=req.model,
+            api_key=req.api_key or override.get("api_key"),
+            base_url=req.base_url or override.get("base_url"),
+            model=req.model or override.get("model"),
             timeout=req.timeout,
             log_llm=False,
         )
+        backend_id = req.backend or override.get("backend")
+        if backend_id:
+            from sqlseed_ai.config import AIBackend
+
+            ai_config.backend = AIBackend(backend_id)
         if not ai_config.resolve_api_key():
             raise RuntimeError(
-                "AI API key not configured: set SQLSEED_AI_API_KEY / GOOGLE_API_KEY / OPENAI_API_KEY "
-                "or SQLSEED_AI_BACKEND=lm_studio|ollama for local backends"
+                "AI API key not configured: set it in the AI config panel, or via "
+                "SQLSEED_AI_API_KEY / GOOGLE_API_KEY / OPENAI_API_KEY, or switch to a "
+                "local backend (Ollama / LM Studio) in the panel"
             )
         ai_config.model = ai_config.resolve_model()
         is_url = conn.target.startswith(("postgres", "mysql", "sqlite://"))

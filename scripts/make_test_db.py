@@ -1,4 +1,4 @@
-"""Create a feature-complete test SQLite DB for sqlseed-ui validation.
+"""Create a feature-complete test SQLite DB for sqlseed-web validation.
 
 Schema deliberately exercises every core code path:
 - AUTOINCREMENT PK, implicit INTEGER PK

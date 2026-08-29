@@ -21,6 +21,7 @@ export function render() {
   );
   root.append(
     h('h2', {}, '自愈实验室（Layers 2 / 3 / 5）'),
+    renderAiPanel(),
     h('div', { class: 'panel' },
       h('div', { class: 'row' },
         h('span', { class: 'pill gen' }, 'L2 FastValidator'),
@@ -55,6 +56,98 @@ export function mount() {
     const out = document.getElementById('heal-out');
     clear(out);
     out.append(msg('自愈管线需要先连接数据库（SchemaSnapshot 从连接读取 schema）。', 'warn'));
+  }
+}
+
+// ---- AI 配置面板（在线/本地大模型，会话级，免重启切换） ----------------------
+
+let aiState = null; // /api/ai/config 响应
+
+async function loadAiConfig() {
+  try {
+    aiState = await get('/api/ai/config');
+  } catch {
+    aiState = null;
+  }
+  const holder = document.getElementById('ai-panel-body');
+  if (holder) renderAiBody(holder);
+}
+
+function renderAiPanel() {
+  const body = h('div', { id: 'ai-panel-body' }, h('div', { class: 'loading' }, '加载 AI 配置…'));
+  loadAiConfig().then(() => renderAiBody(body));
+  return h('div', { class: 'panel' },
+    h('div', { class: 'row' },
+      h('span', { class: 'pill gen' }, 'AI 配置'),
+      h('span', { class: 'muted' }, 'L5 全流程自愈使用的 LLM 后端（会话级，免重启切换）'),
+    ),
+    body,
+  );
+}
+
+function renderAiBody(holder) {
+  clear(holder);
+  if (!aiState || !aiState.available) {
+    holder.append(msg(aiState?.reason || 'sqlseed-ai 未安装：pip install -e ./plugins/sqlseed-web[ai]', 'warn'));
+    return;
+  }
+  const eff = aiState.effective;
+  const ov = aiState.override || {};
+  const backendDd = createDropdown({
+    value: ov.backend || eff.backend,
+    options: aiState.backends.map((b) => ({ value: b.id, label: b.label })),
+    onChange: (v) => {
+      const b = aiState.backends.find((x) => x.id === v);
+      const keyInput = document.getElementById('ai-key');
+      const urlInput = document.getElementById('ai-url');
+      if (b && keyInput && urlInput) {
+        keyInput.disabled = b.needs_key === '0';
+        urlInput.disabled = b.needs_url === '0';
+      }
+    },
+  });
+  holder.append(
+    h('div', { class: 'row' },
+      h('label', {}, '后端'),
+      backendDd.el,
+      h('label', {}, '模型'),
+      h('input', { id: 'ai-model', placeholder: '留空=自动（如 gemma4:e4b / gemma-4-26b-a4b-it）', value: ov.model || '' }),
+    ),
+    h('div', { class: 'row' },
+      h('label', {}, 'API Key'),
+      h('input', { id: 'ai-key', type: 'password', placeholder: '在线后端需要；本地可留空', value: ov.api_key || '' }),
+      h('label', {}, 'Base URL'),
+      h('input', { id: 'ai-url', placeholder: 'OpenAI 兼容服务需要；其余留空', value: ov.base_url || '' }),
+    ),
+    h('div', { class: 'row' },
+      h('button', { class: 'primary', onclick: () => saveAiConfig(backendDd) }, '应用配置'),
+      h('span', { class: 'muted', id: 'ai-effective' },
+        `当前生效：${eff.backend} · ${eff.model} · key ${eff.api_key_present ? '已配置' : '未配置'}`),
+    ),
+  );
+  // 初始化输入框禁用态
+  const initB = aiState.backends.find((x) => x.id === backendDd.get());
+  if (initB) {
+    document.getElementById('ai-key').disabled = initB.needs_key === '0';
+    document.getElementById('ai-url').disabled = initB.needs_url === '0';
+  }
+}
+
+async function saveAiConfig(backendDd) {
+  const payload = {
+    backend: backendDd.get(),
+    model: document.getElementById('ai-model').value.trim() || null,
+    api_key: document.getElementById('ai-key').value.trim() || null,
+    base_url: document.getElementById('ai-url').value.trim() || null,
+  };
+  try {
+    aiState = await post('/api/ai/config', payload);
+    const holder = document.getElementById('ai-panel-body');
+    renderAiBody(holder);
+    holder.append(msg('AI 配置已应用（本会话生效）。', 'ok'));
+  } catch (e) {
+    const holder = document.getElementById('ai-panel-body');
+    holder.append(msg(`保存失败：${e.message}`));
   }
 }
 
