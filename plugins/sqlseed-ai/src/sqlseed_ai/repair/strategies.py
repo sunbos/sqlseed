@@ -467,7 +467,7 @@ def _is_phone_like(name: str) -> bool:
 
 
 def _upgrade_phone_to_pattern(col: dict[str, Any], v: ViolationReport, ctx: dict[str, Any]) -> dict[str, Any]:
-    """Upgrade phone-like columns to a strict NANP pattern (Rule #23).
+    """Upgrade phone-like columns to a strict pattern (Rule #23).
 
     The Faker ``phone`` generator emits mixed formats across rows. Real
     front-end validation expects a single consistent format. Upgrading to
@@ -476,26 +476,24 @@ def _upgrade_phone_to_pattern(col: dict[str, Any], v: ViolationReport, ctx: dict
     Triggers on phone-like column names with ``phone`` (no params),
     ``string``, or ``pattern`` with all-digits regex.
 
-    Skips columns with a ``LENGTH(col) = N`` CHECK constraint — the NANP
-    regex produces 14-character strings (``+1-XXX-XXX-XXXX``), which would
-    violate constraints like ``LENGTH(phone) = 11``. In that case, the
-    CHECK-based inference (``string`` with ``min_length``/``max_length``)
-    already handles the column correctly.
+    Blind-spot fix (2026-08-30): a ``LENGTH(col) = N`` CHECK no longer
+    skips this strategy (previously returned the column unchanged, which
+    the executor mis-recorded as a successful fix). Instead the column is
+    upgraded to ``pattern`` with an N-digit regex — mirroring the
+    2026-07-09 fix in ``_semantic_upgrade``. The NANP regex is 14 chars
+    and would violate ``LENGTH(phone) = 11`` style constraints, while the
+    zh_CN ``phone`` output is 19 chars — the digits regex satisfies both
+    the semantics (phone-like) and the exact length.
     """
     name = col.get("name", "")
     if not _is_phone_like(name):
         return col
 
-    # Skip if column has a LENGTH(col) CHECK constraint — NANP regex is 14
-    # chars and would violate LENGTH(phone) = 11 style constraints.
-    table_schema = ctx.get("table_schema")
-    if table_schema:
-        for c in table_schema.constraints:
-            if c.get("type") != "check":
-                continue
-            expr = c.get("expression", "")
-            if re.search(rf"LENGTH\s*\(\s*{re.escape(name)}\s*\)", expr, re.IGNORECASE):
-                return col
+    # LENGTH(col) = N CHECK → N-digit pattern (not NANP: 14 chars violates
+    # constraints like LENGTH(phone) = 11).
+    length_n = _extract_length_check(name, ctx)
+    if length_n is not None:
+        return {**col, "generator": "pattern", "params": {"regex": f"[0-9]{{{length_n}}}"}}
 
     gen = col.get("generator")
     if gen == "phone":

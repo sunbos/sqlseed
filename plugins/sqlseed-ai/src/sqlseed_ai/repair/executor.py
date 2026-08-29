@@ -61,6 +61,16 @@ class RepairExecutor:
                     }
                     try:
                         after = self._strategies[strategy_name](col, violation, ctx)
+                        # Blind-spot fix (2026-08-30): a strategy that returns
+                        # the column unchanged is declining to fix — record
+                        # the violation as unfixable, NOT as an AppliedFix.
+                        # Previously a no-op (before == after) was reported
+                        # as a successful repair, inflating fix_count and
+                        # breaking the pipeline's partial-fix re-validation
+                        # heuristic (``len(applied_fixes) < len(violations)``).
+                        if after == before:
+                            unfixable.append(violation)
+                            continue
                         # ``after`` may be the same object as ``col`` (when a
                         # strategy returns ``col`` unchanged to skip repair).
                         # We must copy it before clearing ``col``, otherwise
