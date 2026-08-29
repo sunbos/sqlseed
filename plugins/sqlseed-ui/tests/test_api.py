@@ -180,6 +180,17 @@ class TestConnections:
         assert len(keys) == 1
         assert next(iter(keys)) == str(db)
 
+    def test_topo_order_referenced_first(self, client: TestClient, db_path: str) -> None:
+        """orders references users — users must precede orders in the order."""
+        cid = client.post("/api/connections", json={"db_path": db_path}).json()["conn_id"]
+        order = client.get(f"/api/connections/{cid}/topo-order").json()["tables"]
+        assert order.index("users") < order.index("orders")
+
+    def test_topo_order_subset(self, client: TestClient, db_path: str) -> None:
+        cid = client.post("/api/connections", json={"db_path": db_path}).json()["conn_id"]
+        order = client.get(f"/api/connections/{cid}/topo-order?tables=orders").json()["tables"]
+        assert order == ["orders"]
+
     def test_distinct_targets_distinct_groups(self, client: TestClient, tmp_path: Path) -> None:
         db1 = tmp_path / "a.db"
         db2 = tmp_path / "b.db"

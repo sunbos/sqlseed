@@ -443,6 +443,19 @@ def table_schema(conn_id: str, table: str) -> dict[str, Any]:
     return {"table": table, "row_count": row_count, "columns": columns, "foreign_keys": fks, "skippable": skippable}
 
 
+@router.get("/connections/{conn_id}/topo-order")
+def topo_order(conn_id: str, tables: str | None = None) -> dict[str, Any]:
+    """FK-topological table order (referenced tables first) — the wizard's
+    "表生成顺序" (Navicat parity). Defaults to all tables of the connection."""
+    orch = _conn_or_404(conn_id)
+    names = [t for t in (tables or "").split(",") if t] or orch.get_table_names()
+    try:
+        order = orch.get_topological_table_order(names)
+    except (ValueError, RuntimeError, OSError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"tables": order}
+
+
 @router.get("/connections/{conn_id}/tables/{table}/mapping")
 def table_mapping(conn_id: str, table: str) -> dict[str, Any]:
     orch = _conn_or_404(conn_id)

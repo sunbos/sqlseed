@@ -4,9 +4,9 @@
 
 ## OVERVIEW
 
-Web UI for sqlseed: a FastAPI backend wrapping `DataOrchestrator` + the sqlseed-ai self-healing subsystem, plus a dependency-free static frontend (vanilla ES modules, NO build toolchain, NO node_modules). Serves two purposes:
+Web UI for sqlseed: a FastAPI backend wrapping `DataOrchestrator` + the sqlseed-ai self-healing subsystem, plus a dependency-free static frontend (vanilla ES modules, NO build toolchain, NO node_modules). Navicat-style information architecture (redesigned 2026-08-30 from 5 Navicat Data Generator reference screenshots): a three-step generation wizard (target → object tree + per-column property panel → topo-ordered preview/fill) and a three-pane data browser, plus the heal lab and acceptance cockpit as standalone entries. Serves two purposes:
 
-1. **Visual workbench** — schema browsing, column-config editing, preview, fill execution, data viewing, YAML round-trip.
+1. **Visual workbench** — connection management, wizard-driven column configuration (generator dropdown + params + single-column live preview + NULL%/unique), topo-ordered generation, three-pane data browsing, YAML save/load.
 2. **Acceptance cockpit** — every core feature (9-level mapping, constraint solving, contract validation, repair strategies, auto-heal) is exposed as an observable endpoint. The meta page counts (35 generators, 12 hooks) must match the code — it is the UI-side equivalent of `tests/test_doc_sync.py`.
 
 sqlseed-ai is an **optional** dependency: heal endpoints degrade to `{"ok": false, "reason": ...}` / HTTP 503 without it. Auto-heal additionally requires an LLM API key.
@@ -26,10 +26,13 @@ sqlseed-ui/
 │       ├── style.css            # dark theme, GitHub-ish palette
 │       └── js/
 │           ├── api.js           # fetch helpers + h()/table()/msg() DOM utils + shared store
-│           ├── app.js           # hash router with lazy page-module imports
+│           ├── app.js           # hash router: connect / wizard / browse / heal / meta
 │           ├── dropdown.js      # custom dropdown (page-DOM panel; native <select> popups misposition in WebViews)
 │           ├── filepicker.js    # server-side directory-browse modal (the real "choose file" button)
-│           └── pages/           # connect / schema / editor / run / data / heal / meta
+│           ├── labels.js        # generator Chinese labels + tree column annotations (外键/序列/语义)
+│           ├── tree.js          # checkable table/column tree (wizard step2 left pane)
+│           ├── genform.js       # column property panel: generator dropdown + dynamic params + single-column preview + NULL%/unique
+│           └── pages/           # connect / wizard (3-step) / browse (3-pane) / heal / meta
 └── tests/test_api.py            # TestClient + real SQLite (never mock the DB layer — Pitfall #13)
 ```
 
@@ -41,6 +44,7 @@ sqlseed-ui/
 | `/api/fs` | `browse?path=&all_files=` | server-side directory listing for the file-picker modal (browsers never expose absolute paths) |
 | `/api/connections` | POST/GET/DELETE | `DataOrchestrator(target, provider_name, locale)` — target accepts SQLite path or URL. GET returns same-target grouping metadata (`group_key` normalized via `_normalize_target`: paths resolve absolute, `sqlite:///` URLs collapse to bare paths, other URLs keep scheme with password stripped; `group_index`/`group_size` drive the 主连接/并行 N badges) |
 | `/api/connections/{id}/tables/{t}` | `schema`, `mapping`, `yaml-template`, `rows` | `get_column_info` / `get_column_mapping` (9-level chain output) / `get_foreign_keys` / `query()` |
+| `/api/connections/{id}/topo-order` | GET `?tables=a,b` | `get_topological_table_order()` — wizard step3 "表生成顺序" (Navicat parity) |
 | `/api/connections/{id}` | `preview`, `fill`, `query` | `preview_table()` / `fill_table()` (background thread + job polling) / read-only SELECT guard |
 | `/api/config` | `parse`, `serialize` | `load_config` via temp file (validation parity with CLI) |
 | `/api/connections/{id}/heal` | `validate`, `repair`, `auto` | L2 `FastValidator`, L3 `RepairPipeline`, L5 `AutoHealOrchestrator` (wired like `ai_commands._run_auto_heal_v4`) |
