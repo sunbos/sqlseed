@@ -217,9 +217,8 @@ export function createGenForm({ connId, meta, uniqueColumnsOf, onChange }) {
     if (isDbGenerated()) {
       el.append(
         h('div', { class: 'msg warn', style: 'margin:8px 0' },
-          '该列是自增主键（序列）：值由数据库自动生成，sqlseed 跳过不生成。'
-          + '生成器与参数配置对此列不生效，故面板已锁定。'),
-        formRow('生成器', h('span', { class: 'muted' }, '序列（自增）· 由数据库生成')),
+          '该列是自增主键（序列）：值由数据库自动生成，sqlseed 跳过不生成，'
+          + '无需也不可配置。'),
         h('div', { class: 'genform-section' },
           formRow('预览', h('span', { class: 'muted' }, '由数据库自增生成，不预览'))),
       );
@@ -257,8 +256,7 @@ export function createGenForm({ connId, meta, uniqueColumnsOf, onChange }) {
       const ref = rp.ref_table && rp.ref_table !== '__shared_pool__' ? `（采样源：${rp.ref_table}.${rp.ref_column}）` : '';
       el.append(
         h('div', { class: 'msg warn', style: 'margin:8px 0' },
-          '该列是外键：值由系统从父表随机采样，保证参照完整性，生成器与参数不可配置。' + ref),
-        formRow('生成器', h('span', { class: 'muted' }, '外键采样 · 由系统管理')),
+          '该列是外键：值由系统从父表随机采样，保证参照完整性，无需配置生成器。' + ref),
       );
       if (colInfo.nullable) {
         // 可空外键：NULL 比例是唯一有意义的用户配置（null_ratio=1.0 也是
