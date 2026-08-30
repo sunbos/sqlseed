@@ -874,6 +874,27 @@ def heal_repair(conn_id: str, req: YamlRequest) -> dict[str, Any]:
     }
 
 
+class _CountingLLMClient:
+    """Proxy over the LLM client that counts ``chat_completions_create`` calls.
+
+    The auto-heal pipeline is deterministic-first (clean subgraphs skip
+    the LLM layer entirely), so a run can finish without calling the LLM.
+    The count is reported as ``job.result.llm_calls`` to make that visible.
+    """
+
+    def __init__(self, inner: Any) -> None:
+        self._inner = inner
+        self.calls = 0
+
+    def chat_completions_create(self, **kwargs: Any) -> Any:
+        self.calls += 1
+        return self._inner.chat_completions_create(**kwargs)
+
+    def __getattr__(self, name: str) -> Any:
+        # Passthrough so the proxy satisfies the full LLMClient surface.
+        return getattr(self._inner, name)
+
+
 def _run_auto_heal_job(conn_id: str, job_id: str, req: AutoHealRequest) -> None:
     """Background-thread body for the full auto-heal pipeline (Layer 5)."""
     job = state.get_job(job_id)
@@ -912,7 +933,10 @@ def _run_auto_heal_job(conn_id: str, job_id: str, req: AutoHealRequest) -> None:
         url = conn.target if is_url else None
         resolver = ContractResolver(set(BUILTIN_VIOLATIONS), set())
         validator = FastValidator(resolver, db_path=db_path, url=url)
-        client = _build_llm_client(ai_config)
+        # Count LLM invocations: the pipeline is deterministic-first — clean
+        # subgraphs skip Layer 4 entirely, so a run may finish WITHOUT any
+        # LLM call. Surfacing the count answers "did the AI actually run?".
+        client = _CountingLLMClient(_build_llm_client(ai_config))
         prelim_snapshot = SchemaSnapshot(db_path=db_path, url=url)
         heal_orch = _build_heal_orchestrator(
             ai_config,
@@ -932,7 +956,12 @@ def _run_auto_heal_job(conn_id: str, job_id: str, req: AutoHealRequest) -> None:
         )
         yaml_str = orch.run()
         job.status = "done"
-        job.result = {"yaml": yaml_str, "model": ai_config.model, "backend": ai_config.backend.value}
+        job.result = {
+            "yaml": yaml_str,
+            "model": ai_config.model,
+            "backend": ai_config.backend.value,
+            "llm_calls": client.calls,
+        }
     except Exception as exc:  # noqa: BLE001 — job isolation boundary
         job.status = "error"
         job.error = f"{type(exc).__name__}: {exc}"

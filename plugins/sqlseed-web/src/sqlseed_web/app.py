@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -31,6 +32,19 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # no-cache for the ES-module frontend: this app has no build pipeline or
+    # asset hashing, so browser-cached stale JS silently breaks new deploys
+    # (modules were observed serving 304-fresh while a cached sibling served
+    # old code). Always revalidate against the server instead.
+    @app.middleware("http")
+    async def _no_cache_static(request: Any, call_next: Any) -> Any:
+        response = await call_next(request)
+        path = request.url.path
+        if path == "/" or path.startswith("/static"):
+            response.headers["Cache-Control"] = "no-cache"
+        return response
+
     app.include_router(router)
     app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
 

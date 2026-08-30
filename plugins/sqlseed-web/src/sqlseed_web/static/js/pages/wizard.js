@@ -36,7 +36,22 @@ export function mount() {
     body.append(msg('先在「连接」页打开一个数据库，再进入数据生成向导。', 'warn'));
     return;
   }
-  loadMeta().then(() => renderStep());
+  // 「AI 分析与修复」页的「送到数据生成向导」：导入其产出的 YAML 并直达 Step 2。
+  const pending = store.aiYaml;
+  delete store.aiYaml;
+  loadMeta().then(async () => {
+    if (pending) step = 2;
+    renderStep();
+    if (pending) {
+      try {
+        const { tables, cols } = await applyAiYaml(pending);
+        document.getElementById('wizard-body')?.append(
+          msg(`已导入 AI 生成的配置（${tables} 张表 / ${cols} 列），可逐列微调。`, 'ok'));
+      } catch (e) {
+        document.getElementById('wizard-body')?.append(msg(`导入 AI 配置失败：${e.message}`));
+      }
+    }
+  });
 }
 
 function renderHeader() {
@@ -95,18 +110,23 @@ function renderStep(bodyEl = null, rootEl = null) {
 
 function renderStep1() {
   const info = connInfo;
+  const ready = aiReadiness();
   return h('div', { class: 'step1' },
     h('div', { class: 'step1-left' },
       h('h3', { class: 'section-title' }, '目标'),
       h('div', { class: 'genform-row' }, h('label', { class: 'genform-label' }, '连接:'),
         h('span', { class: 'pill ok' }, info ? `${info.target}` : '未连接')),
-      h('div', { class: 'genform-row' }, h('label', { class: 'genform-label' }, 'Locale:'),
+      h('div', { class: 'genform-row' }, h('label', { class: 'genform-label' }, '语言区域（Locale）:'),
         h('span', { class: 'pill' }, info?.locale || '—')),
-      h('div', { class: 'genform-row' }, h('label', { class: 'genform-label' }, 'Provider:'),
+      h('div', { class: 'genform-row' }, h('label', { class: 'genform-label' }, '数据引擎（Provider）:'),
         h('span', { class: 'pill' }, info?.provider || '—')),
+      h('div', { class: 'genform-row' }, h('label', { class: 'genform-label' }, 'AI 状态:'),
+        ready.ok
+          ? h('span', { class: 'pill ok' }, `已就绪（${ready.backend} · ${ready.model}）`)
+          : h('span', { class: 'pill warn' }, `未就绪 — ${ready.reason}`)),
       h('h3', { class: 'section-title', style: 'margin-top:24px' }, '信息'),
       h('div', { class: 'muted', style: 'white-space:pre-line' },
-        `数据库类型: SQLite\n文件: ${store.target || '—'}\n表: ${store.tables.length} 张\n总行数: ${store.tables.reduce((n, t) => n + t.row_count, 0)}`),
+        `数据库类型: SQLite\n文件: ${store.target || '—'}\n表: ${store.tables.length} 张\n总行数: ${store.tables.reduce((n, t) => n + t.row_count, 0)}\n\nAI 状态决定 Step 2 是否可用「AI 一键生成配置」；未就绪时仍可手动配置生成器。`),
     ),
     h('div', { class: 'step1-right' }, flowDiagram()),
   );
@@ -214,14 +234,18 @@ async function aiGenerateConfig() {
     if (!probe.available || !probe.ok) {
       throw new Error(probe.message || probe.reason || 'AI 后端不可用');
     }
-    if (status) status.textContent = `后端 ${probe.backend} 可达，正在调用 LLM 生成配置（可能需要数十秒）…`;
+    if (status) status.textContent = `后端 ${probe.backend} 可达，正在按约束生成配置（确定性校验/修复优先，仅在需要语义决策时调用 LLM）…`;
     const res = await post(`/api/connections/${store.connId}/heal/auto`, { budget_seconds: 300 });
     const job = await pollJob(res.job_id, 900);
     if (job.status !== 'done' || !job.result?.yaml) {
       throw new Error(job.error || '生成失败');
     }
     const { tables, cols } = await applyAiYaml(job.result.yaml);
-    if (status) status.textContent = `已回填 AI 配置（${tables} 张表 / ${cols} 列）——树标注与右侧属性面板已同步，点击列即可微调。`;
+    const n = job.result.llm_calls;
+    const llmNote = n === 0
+      ? '本次未调用 LLM —— schema 无语义违规，全部由确定性校验/修复完成（这正是 AI 插件的契约驱动设计：LLM 只在必要时介入）'
+      : `LLM 调用 ${n} 次`;
+    if (status) status.textContent = `已回填 AI 配置（${tables} 张表 / ${cols} 列，${llmNote}）——点击列即可微调。`;
   } catch (e) {
     if (status) status.textContent = `AI 生成未执行：${e.message}`;
   } finally {
@@ -256,7 +280,13 @@ async function applyAiYaml(yamlText) {
       cfg.set(tc.name, cfgMap);
     }
   }
-  if (tree) tree.setSelection(sel); // 触发重渲染：标注即时反映 AI 选择
+  if (tree) {
+    tree.setSelection(sel); // 触发重渲染：标注即时反映 AI 选择
+  } else {
+    // 树尚未创建（如从「AI 分析与修复」页导入时还在 Step 1）：
+    // 先持久化，进入 Step 2 时 createTree 会以它为 initialSelection。
+    treeSelection = new Map([...sel].map(([k, v]) => [k, new Set(v)]));
+  }
   // 右侧属性面板同步：当前选中列若在 AI 配置内则展示 AI 值
   const selCol = tree?.getSelectedColumn();
   if (selCol?.table && selCol?.col) showColumnInPanel(selCol.table, selCol.col);

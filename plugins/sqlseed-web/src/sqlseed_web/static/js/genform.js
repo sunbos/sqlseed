@@ -2,7 +2,8 @@
 // 单列实时预览 + NULL 百分比 / 唯一 / 重置。
 
 import { h, clear, post, msg } from './api.js';
-import { genLabel, paramLabel } from './labels.js';
+import { createDropdown } from './dropdown.js';
+import { genLabel, paramLabel, groupGenerators } from './labels.js';
 
 /**
  * @param {object} opts
@@ -53,15 +54,20 @@ export function createGenForm({ connId, meta, onChange }) {
       ),
     );
 
-    // 生成器下拉
-    const genSel = h('select', {
-      class: 'genform-select',
-      onchange: (e) => { form.generator = e.target.value; form.params = {}; renderParams(); emit(); },
-    });
-    for (const name of meta.names) {
-      genSel.append(h('option', { value: name, selected: name === form.generator }, `${genLabel(name)}（${name}）`));
+    // 生成器下拉：Navicat 式分类分组（通用/个人/商业/位置/网络与文件）
+    const genOpts = [];
+    for (const grp of groupGenerators(meta.names)) {
+      for (const name of grp.names) {
+        genOpts.push({ value: name, label: `${genLabel(name)}（${name}）`, group: grp.title });
+      }
     }
-    el.append(formRow('生成器', genSel));
+    const genSel = createDropdown({
+      value: form.generator,
+      options: genOpts,
+      width: '260px',
+      onChange: (v) => { form.generator = v; form.params = {}; renderParams(); emit(); },
+    });
+    el.append(formRow('生成器', genSel.el));
 
     // 外键提示
     if (inferred?.generator_name === 'foreign_key' || inferred?.generator_name === 'foreign_key_or_integer') {

@@ -221,6 +221,10 @@ input.grow { flex: 1; min-width: 320px; }
 .dropdown-item:hover { background: var(--panel-2); }
 .dropdown-item.selected { color: var(--accent); }
 .dropdown-empty { padding: 8px 10px; font-size: 12px; }
+.dropdown-group {
+  padding: 6px 10px 2px; font-size: 11px; color: var(--muted);
+  text-transform: none; letter-spacing: 1px; user-select: none;
+}
 
 /* ---- modal (file picker) ---- */
 
