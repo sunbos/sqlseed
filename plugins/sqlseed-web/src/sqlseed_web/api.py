@@ -314,11 +314,29 @@ def fs_browse(path: str | None = None, all_files: bool = False) -> dict[str, Any
 
 @router.get("/meta/ai")
 def meta_ai() -> dict[str, Any]:
+    """Effective AI status: env defaults merged with the session-level override.
+
+    The wizard's readiness check and the meta page both consume this —
+    reporting env-only state here made the UI contradict the AI panel
+    after an in-session backend switch.
+    """
     try:
         from sqlseed_ai.config import AIConfig
     except ImportError:
         return {"available": False, "reason": "sqlseed-ai is not installed (pip install -e ./plugins/sqlseed-web[ai])"}
-    cfg = AIConfig.from_env()
+    override = state.get_ai_override()
+    cfg = AIConfig.from_env().apply_overrides(
+        api_key=override.get("api_key"),
+        base_url=override.get("base_url"),
+        model=override.get("model"),
+    )
+    if override.get("backend"):
+        from sqlseed_ai.config import AIBackend
+
+        try:
+            cfg.backend = AIBackend(override["backend"])
+        except ValueError:
+            pass
     return {
         "available": True,
         "backend": cfg.backend.value,

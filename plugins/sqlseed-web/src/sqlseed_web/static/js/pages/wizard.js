@@ -15,8 +15,9 @@ let tablesMeta = []; // [{name, columns, specs, fks, rowCount}]
 let connInfo = null;
 let tree = null;
 let genform = null;
-let cfg = new Map(); // table -> Map<col, ColumnConfig>
-let aiAvailable = null; // /api/meta/ai 探测结果（决定「AI 一键生成配置」可用性）
+let cfg = new Map(); // table -> Map<col, ColumnConfig>（后端形状：null_ratio 0–1）
+let treeSelection = null; // 树勾选跨步骤持久化（AI 选择不被步骤切换重置）
+let aiCfg = null; // /api/ai/config 响应（会话覆盖已合并）——AI 就绪门控用
 
 export function render() {
   const root = h('div', { class: 'wizard' });
@@ -52,9 +53,9 @@ async function loadMeta() {
   if (!store.connId) return;
   meta = await get('/api/meta/generators');
   try {
-    aiAvailable = await get('/api/meta/ai');
+    aiCfg = await get('/api/ai/config');
   } catch {
-    aiAvailable = { available: false, reason: '无法探测 AI 插件状态' };
+    aiCfg = null;
   }
   await loadTablesMeta();
 }
@@ -131,19 +132,18 @@ function renderStep2() {
 
   tree = createTree({
     tables: tablesMeta,
-    onSelectColumn: (t, c) => {
+    // 树标注优先反映 AI/加载的列级配置（实时反馈），否则用零配置推断
+    specResolver: (t, c) => {
+      const cc = cfg.get(t)?.get(c);
+      if (cc) return { generator_name: cc.generator };
       const tm = tablesMeta.find((x) => x.name === t);
-      const colInfo = tm.columns.find((x) => x.name === c);
-      // AI/加载配置优先于零配置推断。cfg 里 null_ratio 是 0–1（后端形状），
-      // genform.fromInferred 内部会 *100 转成展示百分比，这里原样透传。
-      const aiCfg = cfg.get(t)?.get(c);
-      const spec = aiCfg
-        ? { generator_name: aiCfg.generator, params: aiCfg.params, null_ratio: aiCfg.null_ratio || 0 }
-        : tm.specs[c];
-      genform.setColumn(t, c, colInfo, spec);
+      return tm?.specs?.[c];
     },
+    initialSelection: treeSelection,
+    onSelectColumn: showColumnInPanel,
     onChange: (checked) => {
-      // 取消勾选的列从 cfg 移除
+      // 勾选状态持久化 + 取消勾选的列从 cfg 移除
+      treeSelection = new Map([...checked].map(([k, v]) => [k, new Set(v)]));
       for (const tm of tablesMeta) {
         const colSet = checked.get(tm.name) || new Set();
         const cfgMap = cfg.get(tm.name);
@@ -173,17 +173,31 @@ function renderStep2() {
 
 // 「AI 一键生成配置」：调用 L5 全流程自愈产出 YAML，再映射回本向导的
 // 树勾选 + 列级配置，用户只需微调。AI 未安装/未配置时给出引导而非静默。
+// 就绪 = 已安装 sqlseed-ai 且（本地后端 或 在线后端已配 Key）。
+function aiReadiness() {
+  if (!aiCfg || !aiCfg.available) {
+    return { ok: false, reason: aiCfg?.reason || 'sqlseed-ai 未安装（pip install -e ./plugins/sqlseed-web[ai]）' };
+  }
+  const eff = aiCfg.effective;
+  const isLocal = eff.backend === 'ollama' || eff.backend === 'lm_studio';
+  if (!isLocal && !eff.api_key_present) {
+    return { ok: false, reason: `当前后端 ${eff.backend} 需要API Key —— 到「AI 分析与修复」页填写，或切换本地后端（Ollama / LM Studio 无需 Key）` };
+  }
+  return { ok: true, backend: eff.backend, model: eff.model };
+}
+
 function renderAiGenBar() {
   const bar = h('div', { class: 'row', style: 'margin-bottom:8px' });
-  if (!aiAvailable || !aiAvailable.available) {
+  const ready = aiReadiness();
+  if (!ready.ok) {
     bar.append(h('span', { class: 'muted', style: 'font-size:12px' },
-      `AI 一键生成配置不可用：${aiAvailable?.reason || 'sqlseed-ai 未安装'}`));
+      `AI 一键生成配置未就绪：${ready.reason}`));
     return bar;
   }
   bar.append(
     h('button', { class: 'primary small', id: 'btn-ai-gen', onclick: aiGenerateConfig }, 'AI 一键生成配置'),
     h('span', { class: 'muted', id: 'ai-gen-status', style: 'font-size:12px' },
-      '由 LLM 分析 schema 生成一版配置，回填到下方供你微调'),
+      `由 ${ready.backend} 分析 schema 生成一版配置并回填（替换当前列级配置，不写库），你可在右侧逐列微调`),
   );
   return bar;
 }
@@ -192,17 +206,24 @@ async function aiGenerateConfig() {
   const btn = document.getElementById('btn-ai-gen');
   const status = document.getElementById('ai-gen-status');
   if (btn) btn.disabled = true;
-  if (status) status.textContent = '正在调用 LLM 生成配置（可能需要数十秒）…';
+  if (status) status.textContent = '正在探测 AI 后端…';
   try {
+    // 先探测后端可达性：失败直接给友好提示（如 Ollama 未启动），
+    // 不发起注定失败的 LLM 任务。
+    const probe = await post('/api/ai/test-connection', {});
+    if (!probe.available || !probe.ok) {
+      throw new Error(probe.message || probe.reason || 'AI 后端不可用');
+    }
+    if (status) status.textContent = `后端 ${probe.backend} 可达，正在调用 LLM 生成配置（可能需要数十秒）…`;
     const res = await post(`/api/connections/${store.connId}/heal/auto`, { budget_seconds: 300 });
-    const job = await pollJob(res.job_id);
+    const job = await pollJob(res.job_id, 900);
     if (job.status !== 'done' || !job.result?.yaml) {
       throw new Error(job.error || '生成失败');
     }
-    await applyAiYaml(job.result.yaml);
-    if (status) status.textContent = '已回填 AI 生成的配置，可在右侧逐列微调。';
+    const { tables, cols } = await applyAiYaml(job.result.yaml);
+    if (status) status.textContent = `已回填 AI 配置（${tables} 张表 / ${cols} 列）——树标注与右侧属性面板已同步，点击列即可微调。`;
   } catch (e) {
-    if (status) status.textContent = `生成失败：${e.message}`;
+    if (status) status.textContent = `AI 生成未执行：${e.message}`;
   } finally {
     if (btn) btn.disabled = false;
   }
@@ -210,6 +231,7 @@ async function aiGenerateConfig() {
 
 // 把 AI 产出的 YAML 解析为结构化 config，映射回树勾选与列级配置。
 // 只回填当前连接里真实存在的表/列，忽略 schema 之外的噪声。
+// 返回回填的表/列数量；树标注与右侧面板同步刷新。
 async function applyAiYaml(yamlText) {
   const parsed = await post('/api/config/parse', { yaml: yamlText });
   if (!parsed.valid) throw new Error(parsed.error || 'AI 产出的配置无法解析');
@@ -234,7 +256,28 @@ async function applyAiYaml(yamlText) {
       cfg.set(tc.name, cfgMap);
     }
   }
-  if (tree) tree.setSelection(sel);
+  if (tree) tree.setSelection(sel); // 触发重渲染：标注即时反映 AI 选择
+  // 右侧属性面板同步：当前选中列若在 AI 配置内则展示 AI 值
+  const selCol = tree?.getSelectedColumn();
+  if (selCol?.table && selCol?.col) showColumnInPanel(selCol.table, selCol.col);
+  const colCount = [...sel.values()].reduce((n, s) => n + s.size, 0);
+  return { tables: sel.size, cols: colCount };
+}
+
+// 在右侧属性面板展示某列：AI/加载配置优先于零配置推断。
+// cfg 里 null_ratio 是 0–1（后端形状），genform.fromInferred 内部会
+// *100 转成展示百分比，这里原样透传。
+function showColumnInPanel(t, c) {
+  if (!genform) return;
+  const tm = tablesMeta.find((x) => x.name === t);
+  if (!tm) return;
+  const colInfo = tm.columns.find((x) => x.name === c);
+  if (!colInfo) return;
+  const cc = cfg.get(t)?.get(c);
+  const spec = cc
+    ? { generator_name: cc.generator, params: cc.params, null_ratio: cc.null_ratio || 0 }
+    : tm.specs[c];
+  genform.setColumn(t, c, colInfo, spec);
 }
 
 // ---- Step 3：生成 -----------------------------------------------------------
@@ -322,8 +365,9 @@ async function doGenerate(selectedTables) {
   out.append(msg('全部完成。可在「数据浏览」页查看结果。', 'ok'));
 }
 
-async function pollJob(jobId) {
-  for (let i = 0; i < 120; i++) {
+async function pollJob(jobId, maxTries = 120) {
+  // 默认 120*400ms=48s 足够 fill；AI 全流程自愈可能要几分钟，调用方传更大 maxTries。
+  for (let i = 0; i < maxTries; i++) {
     const j = await get(`/api/jobs/${jobId}`);
     if (j.status !== 'running') return j;
     await new Promise((r) => setTimeout(r, 400));
