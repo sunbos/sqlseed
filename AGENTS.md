@@ -5,7 +5,7 @@
 
 ## OVERVIEW
 
-Declarative Multi-Database test data generation toolkit. YAML/JSON config or Python API. Auto-infers schema, 9-level column mapping, 35 generators, plugin system (pluggy). Supports SQLite (default) and PostgreSQL via SQLAlchemy. MySQL removed (deferred until PostgreSQL fully validated). Gemma 4 as long-term LLM backend (protocol-based native function calling). License: **AGPL-3.0-or-later**.
+Declarative Multi-Database test data generation toolkit. YAML/JSON config or Python API. Auto-infers schema, 9-level column mapping, 36 generators, plugin system (pluggy). Supports SQLite (default) and PostgreSQL via SQLAlchemy. MySQL removed (deferred until PostgreSQL fully validated). Gemma 4 as long-term LLM backend (protocol-based native function calling). License: **AGPL-3.0-or-later**.
 
 **Stack**: Python 3.10+ (`requires-python = ">=3.10"`), hatchling + hatch-vcs build, ruff lint, mypy strict, pytest. CI also gates on `lint-imports` (architectural layer contracts); `mutmut` (mutation testing) is a local pre-merge gate via `make mutmut` — too slow for push CI.
 

@@ -27,9 +27,10 @@ Column types are normalized (e.g., "VARCHAR" for all variable-length string type
 - city, country, state, zip_code, country_code — real geographic data
 - job_title — real job titles like "Software Engineer"
 - url, ipv4, uuid
-- date (params: start_year, end_year)
-- datetime (params: start_year, end_year)
-- timestamp
+- date (params: start_date, end_date, weekdays)
+- datetime (params: start_date, end_date, all_day, start_time, end_time, weekdays)
+- time (params: all_day, start_time, end_time)
+- timestamp (params: same as datetime)
 - text (params: min_length, max_length)
 - sentence, password
 - word — a real English word (e.g., "apple", "computer", "mountain"); use for
@@ -225,7 +226,10 @@ Generators and key params:
 - float (min_value, max_value, precision)
 - boolean, name, first_name, last_name, username, email, phone, address, company
 - city, country, state, zip_code, country_code, job_title, url, ipv4, uuid
-- date, datetime, timestamp (start_year, end_year)
+- date (start_date, end_date, weekdays)
+- datetime (start_date, end_date, all_day, start_time, end_time, weekdays)
+- time (all_day, start_time, end_time)
+- timestamp (same as datetime)
 - text (min_length, max_length), sentence, password
 - word — real English word for non-person *_name columns (product_name, animal_name, etc.)
 - choice (choices: [...]) — for enum CHECK constraints (col IN ('a','b','c'))
@@ -283,9 +287,10 @@ Format: {"name":"t","count":1000,"columns":[
 ]}
 Generators: string,integer,float,boolean,name,first_name,last_name,username,email,phone,
 address,company,city,country,state,zip_code,country_code,job_title,url,ipv4,uuid,date,
-datetime,timestamp,text,sentence,password,word,choice,weighted_choice,template,json,pattern.
+datetime,timestamp,time,text,sentence,password,word,choice,weighted_choice,template,json,pattern.
 Params: string(min_length,max_length,charset),integer/float(min_value,max_value),
-date/datetime(start_year,end_year),choice(choices),weighted_choice(choices/weighted_choices),
+date(start_date,end_date,weekdays),datetime(start_date,end_date,all_day,start_time,end_time,weekdays),
+time(all_day,start_time,end_time),choice(choices),weighted_choice(choices/weighted_choices),
 template(template,sequence_start,sequence_step),pattern(regex),text(min_length,max_length).
 lookup(table,column,key) — cross-table value fetch for derive_from expressions.
 Expr funcs ONLY: random_float/random_int/random_choice/timedelta/lookup/int/float/str/abs/min/max/round/len/

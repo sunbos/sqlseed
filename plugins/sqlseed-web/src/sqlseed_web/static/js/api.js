@@ -80,3 +80,59 @@ export function setConnBadge() {
     badge.textContent = '未连接';
   }
 }
+
+// ---- 跨刷新恢复 ------------------------------------------------------------
+// store 是模块级内存状态，浏览器一刷新就清空；但服务端的连接对象仍然活着。
+// 用 localStorage 记住上次用的 connId，恢复时先找它，找不到再回退到主连接
+// （group_index 1）。服务重启导致连接全丢时，恢复失败并清除记录。
+
+const CONN_KEY = 'sqlseed.connId';
+
+export function rememberConnId(connId) {
+  try {
+    localStorage.setItem(CONN_KEY, connId);
+  } catch {
+    /* 隐私模式等下 localStorage 不可用——恢复失败也只是退回手动连接，不值得报错 */
+  }
+}
+
+export function forgetConnId() {
+  try {
+    localStorage.removeItem(CONN_KEY);
+  } catch {
+    /* 同上 */
+  }
+}
+
+/**
+ * 尝试把上次会话的连接恢复进 store。
+ * @returns {Promise<boolean>} 恢复成功与否（失败时 store 保持原样）
+ */
+export async function restoreConnection() {
+  let remembered = null;
+  try {
+    remembered = localStorage.getItem(CONN_KEY);
+  } catch {
+    return false;
+  }
+  try {
+    const res = await get('/api/connections');
+    const list = res.connections || [];
+    const pick = list.find((c) => c.conn_id === remembered)
+      || list.find((c) => c.group_index === 1)
+      || list[0];
+    if (!pick) {
+      forgetConnId();
+      return false;
+    }
+    const detail = await get(`/api/connections/${pick.conn_id}/tables`);
+    store.connId = pick.conn_id;
+    store.target = detail.target;
+    store.tables = detail.tables;
+    setConnBadge();
+    return true;
+  } catch {
+    forgetConnId();
+    return false;
+  }
+}

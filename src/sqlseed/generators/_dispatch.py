@@ -1,4 +1,4 @@
-"""Generator dispatch mixin. Maps 35 generator types to methods and dispatches calls."""
+"""Generator dispatch mixin. Maps 36 generator types to methods and dispatches calls."""
 
 from __future__ import annotations
 
@@ -40,6 +40,7 @@ class GeneratorDispatchMixin:
         "uuid": "_gen_uuid",
         "date": "_gen_date",
         "datetime": "_gen_datetime",
+        "time": "_gen_time",
         "timestamp": "_gen_timestamp",
         "text": "_gen_text",
         "sentence": "_gen_sentence",

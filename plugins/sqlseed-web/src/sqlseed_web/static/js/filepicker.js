@@ -5,12 +5,15 @@
 import { h, get, clear, msg } from './api.js';
 
 /**
- * 打开文件选择模态框。
+ * 打开服务端目录浏览模态框。
  * @param {object} opts
+ * @param {'file'|'dir'} [opts.mode] file = 选数据库文件（默认）；dir = 选文件夹
+ *   （bytes 生成器的 folder 参数用 dir 模式，浏览器无法给出本地绝对路径）
  * @param {string} [opts.startPath] 起始目录（默认用户主目录）
- * @param {(path: string) => void} opts.onPick 选中数据库文件后的回调
+ * @param {(path: string) => void} opts.onPick 选中后的回调
  */
-export function openFilePicker({ startPath, onPick }) {
+export function openFilePicker({ mode = 'file', startPath, onPick }) {
+  const isDir = mode === 'dir';
   const overlay = h('div', { class: 'modal-overlay', onclick: (e) => { if (e.target === overlay) close(); } });
   const listing = h('div', { class: 'file-list' });
   const crumbs = h('div', { class: 'file-crumbs' });
@@ -19,12 +22,13 @@ export function openFilePicker({ startPath, onPick }) {
     class: 'file-path-input', spellcheck: 'false', placeholder: '目录路径',
     onkeydown: (e) => { if (e.key === 'Enter') load(e.target.value.trim() || null); },
   });
-  const showAll = { value: false };
+  // 选文件夹时默认列出全部文件（否则目录里的非 DB 文件会被过滤掉，看不出内容）。
+  const showAll = { value: isDir };
   let current = null;
   let selected = null;
 
   const dialog = h('div', { class: 'modal' },
-    h('h3', {}, '选择数据库文件'),
+    h('h3', {}, isDir ? '选择文件夹' : '选择数据库文件'),
     h('div', { class: 'row' },
       pathInput,
       h('button', { class: 'small', onclick: () => load(pathInput.value.trim() || null) }, '转到'),
@@ -40,7 +44,14 @@ export function openFilePicker({ startPath, onPick }) {
     statusEl,
     h('div', { class: 'row end' },
       h('button', { onclick: close }, '取消'),
-      h('button', { class: 'primary', disabled: true, id: 'fp-confirm' }, '选择'),
+      // file 模式：点文件即选中并关闭，确认按钮保持禁用（仅作占位）。
+      // dir 模式：目录只能逐级进入，靠确认按钮选中「当前所在目录」。
+      isDir
+        ? h('button', {
+          class: 'primary',
+          onclick: () => { if (current) onPick(current); close(); },
+        }, '选择此文件夹')
+        : h('button', { class: 'primary', disabled: true, id: 'fp-confirm' }, '选择'),
     ),
   );
 

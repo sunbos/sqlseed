@@ -3,7 +3,7 @@
 **Declarative Multi-Database test data generation toolkit.**
 
 Generate realistic test data for SQLite and PostgreSQL databases using YAML/JSON config or Python API.
-Auto-infers schema, 9-level column mapping, 35 generators, plugin system (pluggy).
+Auto-infers schema, 9-level column mapping, 36 generators, plugin system (pluggy).
 
 ## Quick Start
 
@@ -38,7 +38,7 @@ sqlseed inspect app.db --show-mapping
 ## Features
 
 - **9-level column mapping strategy** — auto-infers generators from column names
-- **35 built-in generators** — names, emails, phones, dates, UUIDs, and more
+- **36 built-in generators** — names, emails, phones, dates, UUIDs, and more
 - **Plugin system** — extend via pluggy hooks
 - **Expression engine** — derive columns from other columns (`value.split('@')[1]`)
 - **AI-powered schema analysis** — Gemma 4 Native Function Calling (optional)

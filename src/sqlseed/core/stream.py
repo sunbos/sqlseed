@@ -28,6 +28,41 @@ logger = get_logger(__name__)
 MAX_ROW_RETRIES = 1000
 
 
+def _violates_inequality(v1: Any, v2: Any, op: str, col1: str, col2: str) -> bool:
+    """Evaluate whether a cross-column CHECK ``col1 OP col2`` is violated.
+
+    Raises:
+        ConfigurationError: When the two columns yield values Python cannot
+            compare. The realistic trigger is assigning the ``time`` generator
+            to one side of a ``DATETIME`` pair, so the CHECK ends up evaluating
+            ``datetime >= time``. That is a configuration mistake, never a
+            transient one, so it must surface immediately — otherwise the
+            stream silently burns its 1000-retry budget and reports a generic
+            "constraint violated" instead of the real cause.
+    """
+    if op not in ("!=", ">", "<", ">=", "<="):
+        return False
+    try:
+        if op == "!=":
+            return bool(v1 == v2)
+        if op == ">":
+            return not (v1 > v2)
+        if op == "<":
+            return not (v1 < v2)
+        if op == ">=":
+            return not (v1 >= v2)
+        return not (v1 <= v2)
+    except TypeError as err:
+        raise ConfigurationError(
+            f"cross-column CHECK '{col1} {op} {col2}' cannot be enforced: "
+            f"'{col1}' produced {type(v1).__name__} ({v1!r}) while '{col2}' "
+            f"produced {type(v2).__name__} ({v2!r}), and Python cannot compare "
+            "these types. Use generators that yield comparable types on both "
+            "sides — e.g. do not put the `time` generator on one column of a "
+            "DATETIME pair, or `date` against `datetime`."
+        ) from err
+
+
 class DataStream:
     """Batch data stream generator.
 
@@ -388,17 +423,7 @@ class DataStream:
                 v2 = row.get(col2)
                 if v1 is None or v2 is None:
                     continue
-                violated = False
-                if op == "!=":
-                    violated = v1 == v2
-                elif op == ">":
-                    violated = not (v1 > v2)
-                elif op == "<":
-                    violated = not (v1 < v2)
-                elif op == ">=":
-                    violated = not (v1 >= v2)
-                elif op == "<=":
-                    violated = not (v1 <= v2)
+                violated = _violates_inequality(v1, v2, op, col1, col2)
                 if violated:
                     for col, val in generated_values.items():
                         self._constraint_solver.unregister(col, val)

@@ -2,7 +2,7 @@
 // 文件选择用服务器端目录浏览模态框（filepicker.js），
 // 下拉统一用自定义 dropdown 组件（原生 select 弹层在嵌入式 WebView 中定位错乱）。
 
-import { h, post, get, del, store, setConnBadge, table, msg, clear } from '../api.js';
+import { h, post, get, del, store, setConnBadge, table, msg, clear, rememberConnId } from '../api.js';
 import { openFilePicker } from '../filepicker.js';
 import { createDropdown } from '../dropdown.js';
 
@@ -56,8 +56,9 @@ export function render() {
       h('div', { class: 'row' },
         h('label', {}, '数据引擎 Provider'),
         providerDd.el,
-        h('label', {}, '数据 Locale'),
+        h('label', {}, '默认 Locale'),
         localeDd.el,
+        h('span', { class: 'muted' }, '连接级：个人/位置类数据的默认市场'),
         h('button', { class: 'primary', onclick: doConnect }, '连接'),
       ),
     ),
@@ -159,6 +160,7 @@ async function doConnect() {
     store.connId = res.conn_id;
     store.target = res.target;
     store.tables = res.tables;
+    rememberConnId(res.conn_id); // 刷新后向导可据此恢复
     setConnBadge();
     renderTables(out, res);
   } catch (e) {

@@ -4,15 +4,27 @@ from __future__ import annotations
 
 import random
 import re
+import struct
 import uuid
+import zlib
 from datetime import date as _date
-from datetime import datetime, timedelta
+from datetime import datetime
+from datetime import time as _time
+from pathlib import Path
 from typing import Any
 
 import rstr as _rstr
 
+from sqlseed.generators._datetime_utils import (
+    normalize_weekdays,
+    random_date,
+    random_time,
+    resolve_date_bounds,
+    resolve_time_bounds,
+)
 from sqlseed.generators._dispatch import GeneratorDispatchMixin
 from sqlseed.generators._json_helpers import generate_json_from_schema
+from sqlseed.generators._protocol import ConfigurationError
 from sqlseed.generators._string_helpers import generate_random_string
 
 
@@ -89,9 +101,78 @@ class BaseProvider(GeneratorDispatchMixin):
         n = self._next_id()
         return n % 2 == 1
 
-    def _gen_bytes(self, *, length: int = 16) -> bytes:
-        """Generate a byte string."""
+    def _gen_bytes(
+        self,
+        *,
+        length: int = 16,
+        width: int | None = None,
+        height: int | None = None,
+        image_format: str | None = None,
+        folder: str | None = None,
+        extensions: list[str] | None = None,
+    ) -> bytes:
+        """Generate bytes: random data, a synthetic image, or a file from disk.
+
+        Modes (first match wins, mirroring Navicat's 图像或二进制 type):
+
+        - ``folder`` — pick a random file from the directory (optionally
+          filtered by ``extensions``, case-insensitive, leading dot optional).
+          Raises ``ValueError`` when the folder is missing or nothing matches.
+        - ``width``/``height`` — a synthetic image. PNG is built with the
+          stdlib (8-bit RGB, deterministic); ``image_format="jpeg"`` uses
+          Pillow when installed and falls back to PNG bytes otherwise.
+        - otherwise — ``length`` random bytes (legacy behavior).
+        """
+        if folder is not None:
+            return self._file_bytes_from_folder(folder, extensions)
+        if width is not None or height is not None:
+            w = width if width is not None else (height or 1)
+            h = height if height is not None else (width or 1)
+            return self._image_bytes(w, h, image_format or "png")
         return self._rng.randbytes(length)
+
+    def _image_bytes(self, width: int, height: int, image_format: str) -> bytes:
+        """Synthesize image bytes for the given dimensions."""
+        if image_format.lower() in ("jpeg", "jpg"):
+            try:
+                import io
+
+                from PIL import Image  # optional dependency — not a hard requirement
+            except ImportError:
+                return self._png_bytes(width, height)
+            buf = io.BytesIO()
+            Image.new("RGB", (width, height)).save(buf, format="JPEG")
+            return buf.getvalue()
+        return self._png_bytes(width, height)
+
+    def _png_bytes(self, width: int, height: int) -> bytes:
+        """Build a minimal valid PNG (8-bit RGB, uniform gray) with the stdlib."""
+        raw = b"".join(b"\x00" + b"\x80" * (width * 3) for _ in range(height))
+
+        def chunk(tag: bytes, payload: bytes) -> bytes:
+            return struct.pack(">I", len(payload)) + tag + payload + struct.pack(">I", zlib.crc32(tag + payload))
+
+        ihdr = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+        return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b"")
+
+    def _file_bytes_from_folder(self, folder: str, extensions: list[str] | None) -> bytes:
+        """Return the bytes of a random file in ``folder`` matching ``extensions``.
+
+        Raises ``ConfigurationError`` (not the retriable ``GenerationError``):
+        a missing folder or empty match set can never succeed on retry, and
+        the stream layer would otherwise burn 1000 retries and replace the
+        real cause with a generic constraint-failure message.
+        """
+        root = Path(folder).expanduser()
+        if not root.is_dir():
+            raise ConfigurationError(f"bytes generator: folder does not exist or is not a directory: {folder}")
+        exts = {e.lower().lstrip(".") for e in (extensions or [])}
+        files = [p for p in root.iterdir() if p.is_file() and (not exts or p.suffix.lower().lstrip(".") in exts)]
+        if not files:
+            raise ConfigurationError(
+                f"bytes generator: no files matching {sorted(exts) or 'any extension'} in {folder}"
+            )
+        return self._rng.choice(files).read_bytes()
 
     # ── Name generators ───────────────────────────────────────────────
 
@@ -241,8 +322,22 @@ class BaseProvider(GeneratorDispatchMixin):
 
     # ── Date/time generators ──────────────────────────────────────────
 
-    def _gen_date(self, *, start_year: int = 2000, end_year: int | None = None) -> _date:
-        """Generate a ``datetime.date`` within the given year range.
+    def _gen_date(
+        self,
+        *,
+        start_year: int = 2000,
+        end_year: int | None = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        weekdays: str | list[int] | None = "all",
+    ) -> _date:
+        """Generate a ``datetime.date`` within the given bounds.
+
+        ``start_date`` / ``end_date`` (``YYYY-MM-DD``) take precedence over the
+        legacy ``start_year`` / ``end_year`` pair, kept for backward
+        compatibility. ``weekdays`` mirrors Navicat's 全部 / 工作日 / 自定义
+        radio: ``"all"`` (default), ``"workdays"``, or an explicit day list
+        such as ``[0, 2, 4]`` (Mon=0 … Sun=6).
 
         Returning a ``date`` object (rather than a ``strftime`` string)
         ensures SQLAlchemy ``DATE`` columns accept the value directly —
@@ -250,10 +345,29 @@ class BaseProvider(GeneratorDispatchMixin):
         ``StatementError: SQLite Date type only accepts Python date objects``.
         """
         self._next_id()
-        return self._random_date(start_year, end_year).date()
+        start, end = resolve_date_bounds(start_year, end_year, start_date, end_date)
+        return random_date(self._rng, start, end, normalize_weekdays(weekdays))
 
-    def _gen_datetime(self, *, start_year: int = 2000, end_year: int | None = None) -> datetime:
-        """Generate a ``datetime.datetime`` within the given year range.
+    def _gen_datetime(
+        self,
+        *,
+        start_year: int = 2000,
+        end_year: int | None = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        all_day: bool = True,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        weekdays: str | list[int] | None = "all",
+    ) -> datetime:
+        """Generate a ``datetime.datetime`` within the given bounds.
+
+        ``all_day`` is Navicat's 一整天 checkbox (checked by default): it
+        unlocks the full 00:00:00–23:59:59 day and ignores ``start_time`` /
+        ``end_time``. Unchecking it restricts generation to that window.
+
+        Truncated to whole seconds — Navicat's 日期时间 panel has no
+        sub-second control, so microsecond noise carries no meaning.
 
         Returning a ``datetime`` object (rather than a ``strftime`` string)
         ensures SQLAlchemy ``DATETIME``/``TIMESTAMP`` columns accept the value
@@ -262,29 +376,46 @@ class BaseProvider(GeneratorDispatchMixin):
         Python datetime and date objects as input``.
         """
         self._next_id()
-        base = self._random_date(start_year, end_year)
-        return base.replace(
-            hour=self._rng.randint(0, 23),
-            minute=self._rng.randint(0, 59),
-            second=self._rng.randint(0, 59),
-        )
+        start, end = resolve_date_bounds(start_year, end_year, start_date, end_date)
+        day = random_date(self._rng, start, end, normalize_weekdays(weekdays))
+        lo, hi = resolve_time_bounds(all_day, start_time, end_time)
+        return datetime.combine(day, random_time(self._rng, lo, hi))
 
-    @staticmethod
-    def _resolve_date_range(start_year: int, end_year: int | None) -> tuple[int, int]:
-        """Resolve the date range and return the start and end years."""
-        resolved_end = end_year or datetime.now().year
-        return start_year, max(resolved_end, start_year)
+    def _gen_time(
+        self,
+        *,
+        all_day: bool = True,
+        start_time: str | None = None,
+        end_time: str | None = None,
+    ) -> _time:
+        """Generate a ``datetime.time`` (Navicat 时间 panel).
 
-    def _random_date(self, start_year: int, end_year: int | None = None) -> datetime:
-        """Randomly generate a date within the given year range."""
-        _, resolved_end = self._resolve_date_range(start_year, end_year)
-        start = datetime(start_year, 1, 1)
-        end = datetime(resolved_end, 12, 31)
-        delta = max((end - start).days, 0)
-        return start + timedelta(days=self._rng.randint(0, max(delta, 1)))
+        ``all_day=True`` (default, Navicat's 一整天 checkbox) spans the whole
+        day; unchecking it enables the ``start_time`` / ``end_time`` window
+        (``HH:MM`` or ``HH:MM:SS``). Whole seconds only — Navicat's 时间 panel
+        has no sub-second control.
+        """
+        self._next_id()
+        lo, hi = resolve_time_bounds(all_day, start_time, end_time)
+        return random_time(self._rng, lo, hi)
 
-    def _gen_timestamp(self, *, start_year: int = 2000, end_year: int | None = None) -> datetime:
-        """Generate a ``datetime.datetime`` within the given year range.
+    def _gen_timestamp(
+        self,
+        *,
+        start_year: int = 2000,
+        end_year: int | None = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        all_day: bool = True,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        weekdays: str | list[int] | None = "all",
+    ) -> datetime:
+        """Generate a ``datetime.datetime`` within the given bounds.
+
+        Accepts the same params as :meth:`_gen_datetime` and delegates to it —
+        sqlseed's ``timestamp`` and ``datetime`` are the same SQLAlchemy-facing
+        ``datetime`` object; only the column dialect differs.
 
         Returning a ``datetime`` object (rather than a Unix epoch integer)
         ensures SQLAlchemy ``TIMESTAMP``/``DATETIME`` columns accept the value
@@ -292,8 +423,16 @@ class BaseProvider(GeneratorDispatchMixin):
         ``StatementError: SQLite DateTime type only accepts Python datetime
         and date objects as input``.
         """
-        self._next_id()
-        return self._gen_datetime(start_year=start_year, end_year=end_year)
+        return self._gen_datetime(
+            start_year=start_year,
+            end_year=end_year,
+            start_date=start_date,
+            end_date=end_date,
+            all_day=all_day,
+            start_time=start_time,
+            end_time=end_time,
+            weekdays=weekdays,
+        )
 
     # ── Network generators ────────────────────────────────────────────
 
@@ -491,8 +630,15 @@ class BaseProvider(GeneratorDispatchMixin):
             population = list(weighted_choices.keys())
             weights = [weighted_choices[v] for v in population]
         elif choices is not None:
-            population = [c["value"] for c in choices]
-            weights = [c.get("weight", 1) for c in choices]
+            if all(isinstance(c, str) for c in choices):
+                # 等权字符串列表：与 weighted_choices={v: 1} 等价。web 属性面板的
+                # 「每行一个值」textarea 提交的正是这个形状，此前会在这里以
+                # TypeError: string indices must be integers 崩掉。
+                population = list(choices)
+                weights = [1] * len(population)
+            else:
+                population = [c["value"] for c in choices]
+                weights = [c.get("weight", 1) for c in choices]
         else:
             raise ValueError("weighted_choice requires 'choices' or 'weighted_choices' param")
 
