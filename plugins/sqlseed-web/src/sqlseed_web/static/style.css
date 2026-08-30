@@ -68,6 +68,14 @@ body {
 
 .brand { font-weight: 700; font-size: 16px; }
 .brand .accent { color: var(--md-primary); }
+/* 主品牌后的轻量后缀：说明这是 web 入口，与包名 sqlseed-web 呼应，
+   视觉权重低于主品牌。 */
+.brand .sub {
+  font-weight: 400;
+  font-size: 13px;
+  color: var(--md-on-surface-variant);
+  margin-left: 6px;
+}
 
 #nav { display: flex; gap: var(--md-space-1); flex: 1; }
 #nav a {
