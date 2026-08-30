@@ -827,3 +827,36 @@ class TestColumnAssociationConfig:
             "SELECT code FROM regions",
         )
         assert len(results) == 2
+
+
+class TestFKSamplingStrategy:
+    """FK 采样策略（random/coverage）：用户配置必须被透传，不得被硬编码覆盖。"""
+
+    def test_fk_strategy_defaults_to_random(self) -> None:
+        from sqlseed.core.relation import _fk_strategy
+
+        assert _fk_strategy(GeneratorSpec(generator_name="integer", params={})) == "random"
+        assert _fk_strategy(None) == "random"
+        # 未知值回落 random（与流层的回落行为一致）
+        assert _fk_strategy(GeneratorSpec(generator_name="integer", params={"strategy": "quantum"})) == "random"
+
+    def test_fk_strategy_user_coverage_preserved_in_pool_spec(self) -> None:
+        from sqlseed.core.relation import _make_fk_pool_spec
+
+        spec = GeneratorSpec(generator_name="foreign_key", params={"strategy": "coverage"})
+        out = _make_fk_pool_spec("region_id", [1, 2, 3], spec)
+        assert out.params["strategy"] == "coverage"
+
+    def test_fk_resolve_preserves_user_strategy(self) -> None:
+        """端到端：FK 解析重写 spec 后 strategy 仍是用户指定的 coverage。"""
+        resolver = RelationResolver(
+            _FakeDB(
+                fks=[ForeignKeyInfo(column="user_id", ref_table="users", ref_column="id")],
+                column_values=[1, 2, 3],
+            )
+        )
+        spec = GeneratorSpec(generator_name="integer", params={"strategy": "coverage"})
+        resolved = resolver._resolve_fk_or_integer_spec("orders", "user_id", spec)
+        assert resolved.generator_name == "foreign_key"
+        assert resolved.params["strategy"] == "coverage"
+        assert resolved.params["_ref_values"] == [1, 2, 3]

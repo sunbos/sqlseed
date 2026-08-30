@@ -29,12 +29,27 @@ def _make_fk_pool_spec(col_name: str, pool_values: list[Any], spec: GeneratorSpe
         params={
             "ref_table": "__shared_pool__",
             "ref_column": col_name,
-            "strategy": "random",
+            "strategy": _fk_strategy(spec),
             "_ref_values": pool_values,
         },
         null_ratio=spec.null_ratio,
         provider=spec.provider,
     )
+
+
+def _fk_strategy(spec: GeneratorSpec | None) -> str:
+    """Resolve the FK sampling strategy, preserving a user-specified one.
+
+    用户可在 params 中指定 ``strategy``：``random``（放回随机，默认）或
+    ``coverage``（覆盖式——打乱父值队列逐个弹出，每轮保证每个父值至少被
+    引用一次）。重写 FK spec 时必须透传该值，否则用户配置会被硬编码的
+    ``random`` 静默覆盖。未知值一律回落 ``random``（与流层一致）。
+    """
+    if spec is not None:
+        s = spec.params.get("strategy")
+        if isinstance(s, str) and s in ("random", "coverage"):
+            return s
+    return "random"
 
 
 class SharedPool:
@@ -406,7 +421,7 @@ class RelationResolver:
                 params={
                     "ref_table": ref_table,
                     "ref_column": ref_a,
-                    "strategy": "random",
+                    "strategy": _fk_strategy(spec_a),
                     "_ref_values": ref_values_a,
                 },
                 null_ratio=spec_a.null_ratio,
@@ -484,7 +499,7 @@ class RelationResolver:
                 params={
                     "ref_table": ref_table,
                     "ref_column": ref_b,
-                    "strategy": "random",
+                    "strategy": _fk_strategy(spec_b),
                     "_ref_values": ref_values_b,
                 },
                 null_ratio=spec_b.null_ratio,
@@ -535,7 +550,7 @@ class RelationResolver:
                 params={
                     "ref_table": ref_table,
                     "ref_column": ref_col,
-                    "strategy": "random",
+                    "strategy": _fk_strategy(spec),
                     "_ref_values": ref_values,
                 },
                 null_ratio=spec.null_ratio,
@@ -587,7 +602,7 @@ class RelationResolver:
                 params={
                     "ref_table": fk_info.ref_table,
                     "ref_column": fk_info.ref_column,
-                    "strategy": "random",
+                    "strategy": _fk_strategy(spec),
                     "_ref_values": ref_values,
                 },
                 null_ratio=null_ratio,
@@ -684,7 +699,7 @@ class RelationResolver:
                         params={
                             "ref_table": fk_info.ref_table,
                             "ref_column": fk_info.ref_column,
-                            "strategy": "random",
+                            "strategy": _fk_strategy(spec),
                             "_ref_values": ref_values,
                             "_fallback_min": 1,
                             "_fallback_max": 1,
@@ -725,7 +740,7 @@ class RelationResolver:
                 params={
                     "ref_table": fk_info.ref_table,
                     "ref_column": fk_info.ref_column,
-                    "strategy": "random",
+                    "strategy": _fk_strategy(spec),
                     "_ref_values": ref_values,
                     "_fallback_min": original_min,
                     "_fallback_max": original_max,
