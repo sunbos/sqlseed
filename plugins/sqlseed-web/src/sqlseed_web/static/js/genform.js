@@ -17,6 +17,18 @@ export function createGenForm({ connId, meta, onChange }) {
   const el = h('div', { class: 'genform' });
   let current = null; // {table, col, colInfo, inferred}
   let form = {};      // {generator, params: {}, null_ratio, unique}
+  let previewBox = null; // 当前预览容器（render() 时更新）
+  let previewTimer = null;
+
+  // 防抖自动预览：生成器/参数/NULL/唯一任一变化后 400ms 刷新例值。
+  // 之前只在选中列和手动「刷新」时预览，改参数后一直显示旧值（实测发现）。
+  function schedulePreview() {
+    if (previewTimer) clearTimeout(previewTimer);
+    previewTimer = setTimeout(() => {
+      previewTimer = null;
+      if (current && previewBox && previewBox.isConnected) doPreview(previewBox);
+    }, 400);
+  }
 
   function cleanParams() {
     const out = {};
@@ -65,7 +77,7 @@ export function createGenForm({ connId, meta, onChange }) {
       value: form.generator,
       options: genOpts,
       width: '260px',
-      onChange: (v) => { form.generator = v; form.params = {}; renderParams(); emit(); },
+      onChange: (v) => { form.generator = v; form.params = {}; renderParams(); emit(); schedulePreview(); },
     });
     el.append(formRow('生成器', genSel.el));
 
@@ -83,22 +95,23 @@ export function createGenForm({ connId, meta, onChange }) {
         h('label', { class: 'genform-check' },
           h('input', {
             type: 'checkbox', checked: form.null_ratio > 0,
-            onchange: (e) => { form.null_ratio = e.target.checked ? 5 : 0; renderNull(); emit(); },
+            onchange: (e) => { form.null_ratio = e.target.checked ? 5 : 0; renderNull(); emit(); schedulePreview(); },
           }), '包含 NULL 值'),
         formRow('百分比', h('input', {
           type: 'number', class: 'num-input', value: form.null_ratio || 5, min: 0, max: 100,
-          oninput: (e) => { form.null_ratio = +e.target.value; emit(); },
+          oninput: (e) => { form.null_ratio = +e.target.value; emit(); schedulePreview(); },
         })),
         h('label', { class: 'genform-check' },
           h('input', {
             type: 'checkbox', checked: !!form.unique,
-            onchange: (e) => { form.unique = e.target.checked; emit(); },
+            onchange: (e) => { form.unique = e.target.checked; emit(); schedulePreview(); },
           }), '设置唯一'),
       ),
     );
 
     // 预览 + 重置
     const previewOut = h('div', { class: 'genform-preview' });
+    previewBox = previewOut;
     el.append(
       h('div', { class: 'genform-section' },
         formRow('预览', h('div', {}, previewOut)),
@@ -128,12 +141,34 @@ export function createGenForm({ connId, meta, onChange }) {
 
   function paramInput(name) {
     const val = form.params[name] ?? '';
-    const commit = (v) => { form.params[name] = v; emit(); };
+    const commit = (v) => { form.params[name] = v; emit(); schedulePreview(); };
     if (name === 'choices' || name === 'weighted_choices') {
-      return h('input', {
-        class: 'grow', placeholder: "逗号分隔，如: engineer,manager,director",
-        value: Array.isArray(val) ? val.join(',') : val,
-        oninput: (e) => commit(e.target.value.split(',').map((s) => s.trim()).filter(Boolean)),
+      // Navicat 式：每行一个值；加权枚举支持每行「值:权重」。
+      let text;
+      if (Array.isArray(val)) {
+        text = val.join('\n');
+      } else if (val && typeof val === 'object') {
+        text = Object.entries(val).map(([k, w]) => `${k}:${w}`).join('\n');
+      } else {
+        text = typeof val === 'string' ? val : '';
+      }
+      return h('textarea', {
+        class: 'grow', rows: '4', spellcheck: 'false',
+        placeholder: name === 'choices' ? '每行一个值，如:\nengineer\nmanager' : '每行一个「值:权重」，如:\nactive:80\nsuspended:15',
+        oninput: (e) => {
+          const lines = e.target.value.split('\n').map((s) => s.trim()).filter(Boolean);
+          if (name === 'choices') {
+            commit(lines);
+          } else {
+            const obj = {};
+            for (const line of lines) {
+              const idx = line.lastIndexOf(':');
+              if (idx > 0) obj[line.slice(0, idx)] = Number(line.slice(idx + 1)) || 0;
+              else obj[line] = 1;
+            }
+            commit(obj);
+          }
+        },
       });
     }
     if (/min|max|length|value|count/.test(name)) {
@@ -161,6 +196,9 @@ export function createGenForm({ connId, meta, onChange }) {
     out.append(h('span', { class: 'muted' }, '…'));
     try {
       const cfg = { generator: form.generator, params: cleanParams() };
+      // 预览必须带 NULL/唯一，否则勾选后预览永远显示不出空值（实测发现）。
+      if (form.null_ratio > 0) cfg.null_ratio = form.null_ratio / 100;
+      if (form.unique) cfg.constraints = { unique: true };
       const res = await post(`/api/connections/${connId}/preview`, {
         table: current.table, count: 3, columns: { [current.col]: cfg },
       });
