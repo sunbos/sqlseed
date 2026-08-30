@@ -15,7 +15,7 @@ Data generator correctness and consistency tests. Covers Base/Faker/Mimesis prov
 | `test_string_helpers.py` | 40 | random string utilities |
 | `test_json_helpers.py` | 38 | JSON schema generation |
 | `test_registry.py` | 17 | ProviderRegistry discovery |
-| `test_base_provider.py` | 13 | BaseProvider 35 generators |
+| `test_base_provider.py` | 13 | BaseProvider 36 generators |
 | `test_faker_provider.py` | 10 | FakerProvider (required dep) |
 | `test_mimesis_provider.py` | 6 | MimesisProvider (optional dep) |
 | `test_dispatch_exclude.py` | 7 | `exclude_values` in dispatch |

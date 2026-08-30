@@ -4,7 +4,7 @@ Routers (all mounted under ``/api``):
 
 - ``/api/meta``      — introspection: generators + param signatures, hooks,
                        providers, AI backend status. The "acceptance cockpit"
-                       surface: counts must match the code (35 generators,
+                       surface: counts must match the code (36 generators,
                        12 hooks).
 - ``/api/connections`` — open/list/close databases; table listing.
 - ``/api/connections/{id}/tables/{t}`` — schema (columns/FKs/indexes),
@@ -36,6 +36,7 @@ from sqlseed._utils.sql_safe import quote_identifier, validate_table_name
 from sqlseed.config.loader import load_config
 from sqlseed.core.orchestrator import DataOrchestrator
 from sqlseed.generators._dispatch import GeneratorDispatchMixin
+from sqlseed.generators._protocol import ConfigurationError
 
 from sqlseed_web.state import state
 
@@ -350,9 +351,12 @@ def meta_ai() -> dict[str, Any]:
 # AI config panel (在线/本地大模型 in-UI switching, no env edits / restarts)
 # --------------------------------------------------------------------------
 
+# 下拉展示顺序 = 通用程度：OpenAI 兼容协议最通用（vLLM / OpenRouter / 自建网关
+# 都能接，且是 AIConfig 的默认后端），Google AI Studio 次之，本地后端殿后。
+# heal 页会在此之上把「当前生效」的后端再提到第一位（见 heal.js）。
 AI_BACKENDS: list[dict[str, str]] = [
-    {"id": "google_ai_studio", "label": "Google AI Studio（在线）", "needs_key": "1", "needs_url": "0"},
     {"id": "openai_compat", "label": "OpenAI 兼容服务（在线/自建）", "needs_key": "1", "needs_url": "1"},
+    {"id": "google_ai_studio", "label": "Google AI Studio（在线）", "needs_key": "1", "needs_url": "0"},
     {"id": "ollama", "label": "Ollama（本地）", "needs_key": "0", "needs_url": "0"},
     {"id": "lm_studio", "label": "LM Studio（本地）", "needs_key": "0", "needs_url": "0"},
 ]
@@ -516,6 +520,36 @@ def connect_db(req: ConnectRequest) -> dict[str, Any]:
     }
 
 
+@router.get("/connections/{conn_id}/tables")
+def list_tables(conn_id: str) -> dict[str, Any]:
+    """Table summary for an existing connection.
+
+    Exists so the frontend can restore its state after a page reload: the
+    connection object survives server-side, but the browser's module-level
+    ``store`` (connId/target/tables) is wiped, and the wizard needs the table
+    list to rebuild its tree. Shape mirrors the POST /connections response.
+    """
+    orch = _conn_or_404(conn_id)
+    try:
+        return {
+            "conn_id": conn_id,
+            "target": state.get_connection(conn_id).target,
+            "tables": [
+                {
+                    "name": t,
+                    "row_count": orch.get_row_count(t),
+                    "column_count": len(orch.get_column_names(t)),
+                    "foreign_keys": len(orch.get_foreign_keys(t)),
+                }
+                for t in orch.get_table_names()
+            ],
+        }
+    except HTTPException:
+        raise
+    except (ValueError, RuntimeError, OSError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.get("/connections")
 def list_connections() -> dict[str, Any]:
     return {"connections": state.list_connections()}
@@ -586,7 +620,7 @@ def table_schema(conn_id: str, table: str) -> dict[str, Any]:
         fks = _serialize(orch.get_foreign_keys(table))
         skippable = sorted(orch.get_skippable_columns(table))
         row_count = orch.get_row_count(table)
-    except (ValueError, RuntimeError, OSError) as exc:
+    except (ConfigurationError, ValueError, RuntimeError, OSError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"table": table, "row_count": row_count, "columns": columns, "foreign_keys": fks, "skippable": skippable}
 
@@ -599,7 +633,7 @@ def topo_order(conn_id: str, tables: str | None = None) -> dict[str, Any]:
     names = [t for t in (tables or "").split(",") if t] or orch.get_table_names()
     try:
         order = orch.get_topological_table_order(names)
-    except (ValueError, RuntimeError, OSError) as exc:
+    except (ConfigurationError, ValueError, RuntimeError, OSError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"tables": order}
 
@@ -610,7 +644,7 @@ def table_mapping(conn_id: str, table: str) -> dict[str, Any]:
     try:
         validate_table_name(table)
         specs = orch.get_column_mapping(table)
-    except (ValueError, RuntimeError, OSError) as exc:
+    except (ConfigurationError, ValueError, RuntimeError, OSError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"table": table, "mapping": {col: _serialize(spec) for col, spec in specs.items()}}
 
@@ -622,7 +656,7 @@ def table_yaml_template(conn_id: str, table: str) -> dict[str, Any]:
     try:
         validate_table_name(table)
         specs = orch.get_column_mapping(table)
-    except (ValueError, RuntimeError, OSError) as exc:
+    except (ConfigurationError, ValueError, RuntimeError, OSError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     target = state.get_connection(conn_id).target
     columns: dict[str, Any] = {}
@@ -654,7 +688,7 @@ def preview_rows(conn_id: str, req: PreviewRequest) -> dict[str, Any]:
     orch = _conn_or_404(conn_id)
     try:
         rows = orch.preview_table(req.table, count=req.count, columns=req.columns, seed=req.seed)
-    except (ValueError, RuntimeError, OSError) as exc:
+    except (ConfigurationError, ValueError, RuntimeError, OSError) as exc:
         raise HTTPException(status_code=400, detail=f"preview failed: {exc}") from exc
     return {"table": req.table, "rows": _serialize(rows)}
 
@@ -676,7 +710,7 @@ def table_rows(conn_id: str, table: str, limit: int = 50, offset: int = 0) -> di
         total = orch.get_row_count(table)
         sql = f"SELECT * FROM {quote_identifier(table)} LIMIT ? OFFSET ?"
         rows = orch.query(sql, (limit, offset))
-    except (ValueError, RuntimeError, OSError) as exc:
+    except (ConfigurationError, ValueError, RuntimeError, OSError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"table": table, "total": total, "limit": limit, "offset": offset, "rows": _serialize(rows)}
 
@@ -694,7 +728,7 @@ def run_query(conn_id: str, req: QueryRequest) -> dict[str, Any]:
     orch = _conn_or_404(conn_id)
     try:
         rows = orch.query(statement)
-    except (ValueError, RuntimeError, OSError) as exc:
+    except (ConfigurationError, ValueError, RuntimeError, OSError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"rows": _serialize(rows)}
 

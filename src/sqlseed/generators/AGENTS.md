@@ -4,7 +4,7 @@
 
 ## OVERVIEW
 
-35 generators across 3 providers: base (zero-dep fallback, synthesizes values via counter + seeded RNG), faker (required), mimesis (optional).
+36 generators across 3 providers: base (zero-dep fallback, synthesizes values via counter + seeded RNG), faker (required), mimesis (optional).
 
 ## FILE INVENTORY (file → lines → symbols)
 
@@ -26,7 +26,7 @@
 generators/
 ├── __init__.py           # Public API exports
 ├── _protocol.py         # DataProvider protocol + UnknownGeneratorError
-├── _dispatch.py         # GeneratorDispatchMixin — 35 generator dispatch + verify_dispatch_sync()
+├── _dispatch.py         # GeneratorDispatchMixin — 36 generator dispatch + verify_dispatch_sync()
 ├── _json_helpers.py     # JSON schema-based generation
 ├── _string_helpers.py   # Random string utilities
 ├── registry.py          # ProviderRegistry — entry-point discovery
@@ -59,5 +59,5 @@ generators/
 
 - **NEVER** import optional third-party libs without a guard → rstr is imported unconditionally at module top; faker is imported at module top via ``importlib.import_module("faker")`` + try/except (``HAS_FAKER`` guard); only mimesis may use function-level lazy import.
 - **NEVER** raise in generate() without UnknownGeneratorError
-- **ALWAYS** implement all 35 generators or handle gracefully
+- **ALWAYS** implement all 36 generators or handle gracefully
 - **ALWAYS** use `self._rng` for random (seed support)

@@ -116,9 +116,16 @@ function renderAiBody(holder) {
   }
   const eff = aiState.effective;
   const ov = aiState.override || {};
+  // 排序：当前生效的后端浮到第一（下拉默认就选它，放最前免得被埋没），
+  // 其余保持 API 顺序——通用（OpenAI 兼容 / Google AI Studio）在前，本地殿后。
+  const currentBackend = ov.backend || eff.backend;
+  const orderedBackends = [
+    ...aiState.backends.filter((b) => b.id === currentBackend),
+    ...aiState.backends.filter((b) => b.id !== currentBackend),
+  ];
   const backendDd = createDropdown({
-    value: ov.backend || eff.backend,
-    options: aiState.backends.map((b) => ({ value: b.id, label: b.label })),
+    value: currentBackend,
+    options: orderedBackends.map((b) => ({ value: b.id, label: b.label })),
     onChange: (v) => {
       const b = aiState.backends.find((x) => x.id === v);
       const keyInput = document.getElementById('ai-key');

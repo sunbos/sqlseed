@@ -51,6 +51,15 @@ export function createDropdown({ value = '', options = [], onChange, placeholder
     if (el.classList.contains('open')) close(); else open();
   }
   function reposition() {
+    // 属性面板被 render() 整体重绘时（切列 / 切生成器 / AI 回填），旧的 dropdown
+    // 元素会被丢弃，而 scroll 监听只在 close() 里注销——面板还开着就被丢弃的话，
+    // 监听会泄漏下来，之后每次滚动都对已脱离文档的元素求值，并在 WebView 里抛出
+    // "Cannot read properties of null (reading 'getBoundingClientRect')"。
+    // 断开连接时主动注销，既修泄漏也顺带止住该报错。
+    if (!el || !el.isConnected) {
+      close();
+      return;
+    }
     // absolute 定位随文档流自动跟随控件，无需计算；仅滚动到视口外时收起。
     const r = el.getBoundingClientRect();
     if (r.bottom < 0 || r.top > innerHeight) close();
@@ -63,16 +72,19 @@ export function createDropdown({ value = '', options = [], onChange, placeholder
       return;
     }
     // 选项可带 group 字段（如生成器分类）：组名变化时插入不可点击的组标题。
+    // 选项可带 disabled（如 Navicat 有、sqlseed 未实现的占位组）：不可点选。
     let lastGroup = null;
     for (const opt of state.options) {
       if (opt.group && opt.group !== lastGroup) {
         lastGroup = opt.group;
         panel.append(h('div', { class: 'dropdown-group' }, opt.group));
       }
+      const selected = !opt.disabled && opt.value === state.value;
       panel.append(h('button', {
-        class: `dropdown-item${opt.value === state.value ? ' selected' : ''}`,
+        class: `dropdown-item${selected ? ' selected' : ''}${opt.disabled ? ' disabled' : ''}`,
         type: 'button',
-        onclick: () => { set(opt.value); close(); if (onChange) onChange(opt.value); },
+        disabled: !!opt.disabled,
+        onclick: opt.disabled ? undefined : () => { set(opt.value); close(); if (onChange) onChange(opt.value); },
       }, opt.label));
     }
   }
@@ -99,5 +111,13 @@ export function createDropdown({ value = '', options = [], onChange, placeholder
   state.options = options;
   renderBtn();
 
-  return { el, get: () => state.value, set, setOptions };
+  /**
+   * 彻底注销监听器。宿主（如 genform）重绘并丢弃本组件时必须调用——
+   * 监听只在 close() 里注销，面板开着就被丢弃会泄漏。
+   */
+  function destroy() {
+    close();
+  }
+
+  return { el, get: () => state.value, set, setOptions, destroy };
 }

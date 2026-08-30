@@ -464,7 +464,7 @@ and regenerates the source column.
 
 ### Generators
 
-sqlseed ships with 35 built-in generators. The most common ones:
+sqlseed ships with 36 built-in generators. The most common ones:
 
 | Generator | Description | Example Parameters |
 |-----------|-------------|-------------------|
@@ -482,9 +482,10 @@ sqlseed ships with 35 built-in generators. The most common ones:
 | `url` | URL | — |
 | `ipv4` | IPv4 address | — |
 | `uuid` | UUID | — |
-| `date` | Date | `start_year`, `end_year` |
-| `datetime` | Datetime | `start_year`, `end_year` |
-| `timestamp` | Unix timestamp | — |
+| `date` | Date | `start_date`, `end_date`, `weekdays` |
+| `datetime` | Datetime | `start_date`, `end_date`, `all_day`, `start_time`, `end_time`, `weekdays` |
+| `time` | Time | `all_day`, `start_time`, `end_time` |
+| `timestamp` | Unix timestamp | same as `datetime` |
 | `text` | Long text | `min_length`, `max_length` |
 | `sentence` | Sentence | — |
 | `word` | Real English word | — |

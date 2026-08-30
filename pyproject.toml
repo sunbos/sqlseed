@@ -367,7 +367,7 @@ files = ["src", "plugins"]
 exclude = ["tests/", "plugins/.*/tests/"]
 
 [[tool.mypy.overrides]]
-module = ["mimesis.*", "faker.*", "yaml", "simpleeval", "sqlglot", "sqlglot.*", "sqlseed_ai.*", "sqlseed_cli.*", "mcp.*", "mcp_server_sqlseed.*", "tqdm", "tqdm.*", "rich.*", "click.*"]
+module = ["mimesis.*", "faker.*", "yaml", "simpleeval", "sqlglot", "sqlglot.*", "sqlseed_ai.*", "sqlseed_cli.*", "mcp.*", "mcp_server_sqlseed.*", "tqdm", "tqdm.*", "rich.*", "click.*", "PIL.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

@@ -44,7 +44,7 @@ from sqlseed.generators._dispatch import GeneratorDispatchMixin
 logger = get_logger(__name__)
 
 # Valid generator names accepted by the orchestrator's safety net. Includes:
-# - All 35 generators in ``GeneratorDispatchMixin.GENERATOR_MAP`` (the
+# - All 36 generators in ``GeneratorDispatchMixin.GENERATOR_MAP`` (the
 #   dispatch table that raises ``UnknownGeneratorError`` for unregistered
 #   names at fill time).
 # - Special generators handled by the orchestrator (not in GENERATOR_MAP):

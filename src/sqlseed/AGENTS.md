@@ -14,7 +14,7 @@ src/sqlseed/
 ├── _version.py       # Version info (importlib.metadata dynamic detection)
 ├── py.typed          # PEP 561 type marker
 ├── core/             # Orchestration engine: 17 top-level files + orchestrator/ package (6 files) = 23 files
-├── generators/       # Data providers: base, faker, mimesis + dispatch, registry (9 files, 35 generator types)
+├── generators/       # Data providers: base, faker, mimesis + dispatch, registry (9 files, 36 generator types)
 ├── database/         # Database adapters: SQLAlchemy (production), raw sqlite3 (testing) + dialect, optimizer, helpers (11 files)
 ├── plugins/          # Plugin system: hookspecs (12 hooks), manager (3 files)
 ├── config/           # Pydantic models (9 classes), YAML loader, snapshot manager (4 files)
@@ -42,7 +42,7 @@ src/sqlseed/
 | Column mapping | `core/mapper.py` | 9-level strategy chain |
 | Schema inference | `core/schema.py` | SchemaInferrer class |
 | Data stream | `core/stream.py` | DataStream + constraint backtracking |
-| Base provider | `generators/base_provider.py` | 35 built-in generators, fallback provider with no external dependencies |
+| Base provider | `generators/base_provider.py` | 36 built-in generators, fallback provider with no external dependencies |
 | DB adapters | `database/` | SQLAlchemyAdapter (required), RawSQLiteAdapter (test-only) |
 | Plugin hooks | `plugins/hookspecs.py` | 12 pluggy hook definitions |
 | Config models | `config/models.py` | Pydantic: GeneratorConfig, TableConfig, ColumnConfig, ColumnConstraintsConfig, ColumnAssociation |

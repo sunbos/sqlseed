@@ -5,7 +5,7 @@
 // 底部持久栏：保存配置文件 / 加载配置文件 / 表生成顺序 / 上一步 / 下一步
 
 import { h, get, post, clear, msg, table, fmt } from '../api.js';
-import { store } from '../api.js';
+import { store, restoreConnection } from '../api.js';
 import { createTree } from '../tree.js';
 import { createGenForm } from '../genform.js';
 
@@ -29,12 +29,17 @@ export function render() {
   return root;
 }
 
-export function mount() {
+export async function mount() {
   if (!store.connId) {
-    const body = document.getElementById('wizard-body');
-    clear(body);
-    body.append(msg('先在「连接」页打开一个数据库，再进入数据生成向导。', 'warn'));
-    return;
+    // 页面刷新会清空模块级 store，但服务端的连接对象仍然活着——
+    // 先尝试按 localStorage 记录（或主连接）恢复，失败才提示去连接页。
+    const ok = await restoreConnection();
+    if (!ok) {
+      const body = document.getElementById('wizard-body');
+      clear(body);
+      body.append(msg('先在「连接」页打开一个数据库，再进入数据生成向导。', 'warn'));
+      return;
+    }
   }
   // 「AI 分析与修复」页的「送到数据生成向导」：导入其产出的 YAML 并直达 Step 2。
   const pending = store.aiYaml;
@@ -270,7 +275,12 @@ async function applyAiYaml(yamlText) {
     for (const cc of tc.columns || []) {
       if (!tm.columns.some((x) => x.name === cc.name)) continue;
       colSet.add(cc.name);
-      const colCfg = { generator: cc.generator || 'string', params: cc.params || {} };
+      // 派生列（derive_from）与 generator 互斥，不能退化成 'string'——
+      // 那会静默改写 AI 的配置，且该列一旦参与跨列 CHECK，类型不匹配
+      // （str vs datetime）会让预览直接失败。
+      const colCfg = cc.derive_from
+        ? { derive_from: cc.derive_from, expression: cc.expression }
+        : { generator: cc.generator || 'string', params: cc.params || {} };
       if (cc.null_ratio) colCfg.null_ratio = cc.null_ratio;
       if (cc.constraints?.unique) colCfg.constraints = { unique: true };
       cfgMap.set(cc.name, colCfg);
@@ -304,10 +314,13 @@ function showColumnInPanel(t, c) {
   const colInfo = tm.columns.find((x) => x.name === c);
   if (!colInfo) return;
   const cc = cfg.get(t)?.get(c);
-  const spec = cc
-    ? { generator_name: cc.generator, params: cc.params, null_ratio: cc.null_ratio || 0 }
-    : tm.specs[c];
-  genform.setColumn(t, c, colInfo, spec);
+  const spec = !cc
+    ? tm.specs[c]
+    : cc.derive_from
+      ? { derive_from: cc.derive_from, expression: cc.expression, null_ratio: cc.null_ratio || 0 }
+      : { generator_name: cc.generator, params: cc.params, null_ratio: cc.null_ratio || 0 };
+  // tm.specs[c] 是零配置推断结果，作为属性面板「重置属性」的回落基线。
+  genform.setColumn(t, c, colInfo, spec, tm.specs[c]);
 }
 
 // ---- Step 3：生成 -----------------------------------------------------------
@@ -448,11 +461,17 @@ function buildYaml() {
       const colCfg = cfg.get(tm.name)?.get(col.name);
       if (colCfg) {
         lines.push(`      - name: ${col.name}`);
-        lines.push(`        generator: ${colCfg.generator}`);
-        if (colCfg.params && Object.keys(colCfg.params).length) {
-          lines.push('        params:');
-          for (const [k, v] of Object.entries(colCfg.params)) {
-            lines.push(`          ${k}: ${Array.isArray(v) ? JSON.stringify(v) : v}`);
+        if (colCfg.derive_from) {
+          // 派生列走 derived 模式，与 generator 互斥。
+          lines.push(`        derive_from: ${colCfg.derive_from}`);
+          if (colCfg.expression) lines.push(`        expression: ${colCfg.expression}`);
+        } else {
+          lines.push(`        generator: ${colCfg.generator}`);
+          if (colCfg.params && Object.keys(colCfg.params).length) {
+            lines.push('        params:');
+            for (const [k, v] of Object.entries(colCfg.params)) {
+              lines.push(`          ${k}: ${Array.isArray(v) ? JSON.stringify(v) : v}`);
+            }
           }
         }
         if (colCfg.null_ratio) lines.push(`        null_ratio: ${colCfg.null_ratio / 100}`);

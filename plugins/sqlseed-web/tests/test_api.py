@@ -63,6 +63,12 @@ class TestMeta:
         assert "email" in body["names"]
         assert isinstance(body["params"], dict)
 
+    def test_bytes_media_params_exposed_to_ui(self, client: TestClient) -> None:
+        """/api/meta/generators drives the genform param rows — the Navicat
+        图像或二进制 modes (image generator / folder pick) must be visible."""
+        params = client.get("/api/meta/generators").json()["params"]["bytes"]
+        assert {"length", "width", "height", "image_format", "folder", "extensions"} <= set(params)
+
     def test_locales_covers_mimesis_map(self, client: TestClient) -> None:
         from sqlseed.generators.mimesis_provider import MimesisProvider
 

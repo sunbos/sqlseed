@@ -7,6 +7,13 @@ import importlib
 from typing import Any, ClassVar
 
 from sqlseed._utils.logger import get_logger
+from sqlseed.generators._datetime_utils import (
+    normalize_weekdays,
+    random_date,
+    random_time,
+    resolve_date_bounds,
+    resolve_time_bounds,
+)
 from sqlseed.generators.base_provider import BaseProvider
 
 # Use importlib.import_module() instead of a top-level ``from faker import
@@ -137,8 +144,10 @@ class FakerProvider(BaseProvider):
         """Generate a boolean."""
         return self._faker.boolean()
 
-    def _gen_bytes(self, *, length: int = 16) -> bytes:
-        """Generate a byte string."""
+    def _gen_bytes(self, *, length: int = 16, **kwargs: Any) -> bytes:
+        """Generate a byte string; media modes (image/folder) live in the base provider."""
+        if kwargs:
+            return super()._gen_bytes(length=length, **kwargs)
         return self._faker.binary(length=length)
 
     def _gen_name(self) -> str:
@@ -188,21 +197,53 @@ class FakerProvider(BaseProvider):
         """Generate a UUID."""
         return self._faker.uuid4()
 
-    def _gen_date(self, *, start_year: int = 2000, end_year: int | None = None) -> datetime.date:
+    def _gen_date(
+        self,
+        *,
+        start_year: int = 2000,
+        end_year: int | None = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        weekdays: str | list[int] | None = "all",
+    ) -> datetime.date:
         """Generate a ``datetime.date`` object.
+
+        ``start_date`` / ``end_date`` (``YYYY-MM-DD``) take precedence over the
+        legacy year pair. ``weekdays`` mirrors Navicat's 全部 / 工作日 / 自定义
+        radio (see :mod:`sqlseed.generators._datetime_utils`).
+
+        Date arithmetic is delegated to the shared helpers rather than
+        ``faker.date_between_dates``: faker cannot filter by weekday, and its
+        datetime output leaked microseconds while base did not. Sharing the
+        implementation keeps all three providers byte-identical.
 
         Returning a ``date`` object (rather than a ``strftime`` string)
         ensures SQLAlchemy ``DATE`` columns accept the value directly —
         SQLite's ``DATE`` type rejects ISO-format strings with
         ``StatementError: SQLite Date type only accepts Python date objects``.
         """
-        _, resolved_end = self._resolve_date_range(start_year, end_year)
-        start = datetime.datetime(start_year, 1, 1).date()
-        end = datetime.datetime(resolved_end, 12, 31).date()
-        return self._faker.date_between_dates(date_start=start, date_end=end)
+        start, end = resolve_date_bounds(start_year, end_year, start_date, end_date)
+        return random_date(self._rng, start, end, normalize_weekdays(weekdays))
 
-    def _gen_datetime(self, *, start_year: int = 2000, end_year: int | None = None) -> datetime.datetime:
+    def _gen_datetime(
+        self,
+        *,
+        start_year: int = 2000,
+        end_year: int | None = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        all_day: bool = True,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        weekdays: str | list[int] | None = "all",
+    ) -> datetime.datetime:
         """Generate a ``datetime.datetime`` object.
+
+        ``all_day`` is Navicat's 一整天 checkbox (default on): full-day range,
+        ignoring ``start_time`` / ``end_time``. Uncheck it to constrain the
+        time of day. Whole seconds only — Navicat's 日期时间 panel has no
+        sub-second control, so microsecond noise like ``T10:21:03.895011``
+        carries no meaning.
 
         Returning a ``datetime`` object (rather than a ``strftime`` string)
         ensures SQLAlchemy ``DATETIME``/``TIMESTAMP`` columns accept the value
@@ -210,13 +251,43 @@ class FakerProvider(BaseProvider):
         ``StatementError: SQLite DateTime type only accepts Python datetime
         and date objects as input``.
         """
-        _, resolved_end = self._resolve_date_range(start_year, end_year)
-        start = datetime.datetime(start_year, 1, 1)
-        end = datetime.datetime(resolved_end, 12, 31, 23, 59, 59)
-        return self._faker.date_time_between_dates(datetime_start=start, datetime_end=end)
+        start, end = resolve_date_bounds(start_year, end_year, start_date, end_date)
+        day = random_date(self._rng, start, end, normalize_weekdays(weekdays))
+        lo, hi = resolve_time_bounds(all_day, start_time, end_time)
+        return datetime.datetime.combine(day, random_time(self._rng, lo, hi))
 
-    def _gen_timestamp(self, *, start_year: int = 2000, end_year: int | None = None) -> datetime.datetime:
+    def _gen_time(
+        self,
+        *,
+        all_day: bool = True,
+        start_time: str | None = None,
+        end_time: str | None = None,
+    ) -> datetime.time:
+        """Generate a ``datetime.time`` object (Navicat 时间 panel).
+
+        ``all_day=True`` (default, 一整天) spans the whole day; unchecking it
+        enables the ``start_time`` / ``end_time`` window.
+        """
+        lo, hi = resolve_time_bounds(all_day, start_time, end_time)
+        return random_time(self._rng, lo, hi)
+
+    def _gen_timestamp(
+        self,
+        *,
+        start_year: int = 2000,
+        end_year: int | None = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        all_day: bool = True,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        weekdays: str | list[int] | None = "all",
+    ) -> datetime.datetime:
         """Generate a ``datetime.datetime`` object.
+
+        Same params as :meth:`_gen_datetime` and delegates to it — sqlseed's
+        ``timestamp`` and ``datetime`` are the same SQLAlchemy-facing
+        ``datetime`` object; only the column dialect differs.
 
         Returning a ``datetime`` object (rather than a Unix epoch integer)
         ensures SQLAlchemy ``TIMESTAMP``/``DATETIME`` columns accept the value
@@ -224,7 +295,16 @@ class FakerProvider(BaseProvider):
         ``StatementError: SQLite DateTime type only accepts Python datetime
         and date objects as input``.
         """
-        return self._gen_datetime(start_year=start_year, end_year=end_year)
+        return self._gen_datetime(
+            start_year=start_year,
+            end_year=end_year,
+            start_date=start_date,
+            end_date=end_date,
+            all_day=all_day,
+            start_time=start_time,
+            end_time=end_time,
+            weekdays=weekdays,
+        )
 
     def _gen_text(self, *, min_length: int = 50, max_length: int = 200) -> str:
         """Generate text."""

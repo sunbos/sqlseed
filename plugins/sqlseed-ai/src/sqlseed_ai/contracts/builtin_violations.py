@@ -10,7 +10,39 @@ Spec reference: Section 3.3. Seed entries derived from Rules #24, #26,
 
 from __future__ import annotations
 
+from datetime import date, datetime
+from typing import Any
+
 from sqlseed_ai.contracts.matrix import ContractViolation, ViolationKind
+
+
+def future_bound_key(params: dict[str, Any], cap: int | None = None) -> str | None:
+    """Return which date upper-bound param exceeds ``cap``, or ``None``.
+
+    Checks both the precise ``end_date`` (``YYYY-MM-DD``) form and the legacy
+    ``end_year`` fallback. Both must be handled: the LLM prompt now asks for
+    ``end_date``, but hand-written and previously generated configs still
+    carry ``end_year``, and it remains a valid (if deprecated) core param.
+
+    Shared by the Layer-1 predicate below and the Layer-3 repair strategy so
+    the two can never disagree about what counts as "too far in the future".
+    """
+    if not isinstance(params, dict):
+        return None
+    if cap is None:
+        cap = datetime.now().year + 1
+    end_date = params.get("end_date")
+    if isinstance(end_date, str):
+        try:
+            if date.fromisoformat(end_date.strip()).year > cap:
+                return "end_date"
+        except ValueError:
+            return None
+        return None
+    end_year = params.get("end_year")
+    if isinstance(end_year, int) and end_year > cap:
+        return "end_year"
+    return None
 
 
 def _is_code_like(name: str) -> bool:
@@ -296,17 +328,15 @@ BUILTIN_VIOLATIONS: set[ContractViolation] = {
         fix_strategy="downgrade_text_to_string",
         predicate=lambda cfg: _is_code_like(cfg.get("name", "")),
     ),
-    # === Rule #18: date/datetime with end_year > current_year+1 ===
+    # === Rule #18: date/datetime with an upper date bound beyond current_year+1 ===
+    # Covers both `end_date` (precise) and the legacy `end_year` fallback.
     ContractViolation(
         generator="date",
         column_type="ANY",
         constraints=frozenset(),
         kind=ViolationKind.SEMANTIC_ERROR,
         fix_strategy="cap_future_end_year",
-        predicate=lambda cfg: (
-            isinstance(cfg.get("params", {}).get("end_year"), int)
-            and cfg["params"]["end_year"] > __import__("datetime").datetime.now().year + 1
-        ),
+        predicate=lambda cfg: future_bound_key(cfg.get("params") or {}) is not None,
     ),
     ContractViolation(
         generator="datetime",
@@ -314,10 +344,15 @@ BUILTIN_VIOLATIONS: set[ContractViolation] = {
         constraints=frozenset(),
         kind=ViolationKind.SEMANTIC_ERROR,
         fix_strategy="cap_future_end_year",
-        predicate=lambda cfg: (
-            isinstance(cfg.get("params", {}).get("end_year"), int)
-            and cfg["params"]["end_year"] > __import__("datetime").datetime.now().year + 1
-        ),
+        predicate=lambda cfg: future_bound_key(cfg.get("params") or {}) is not None,
+    ),
+    ContractViolation(
+        generator="timestamp",
+        column_type="ANY",
+        constraints=frozenset(),
+        kind=ViolationKind.SEMANTIC_ERROR,
+        fix_strategy="cap_future_end_year",
+        predicate=lambda cfg: future_bound_key(cfg.get("params") or {}) is not None,
     ),
     # === Rule #15: pattern with unbounded regex quantifier {N,} ===
     ContractViolation(

@@ -13,6 +13,7 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
+from sqlseed_ai.contracts.builtin_violations import future_bound_key
 from sqlseed_ai.validator.models import ViolationReport
 
 RepairFn = Callable[[dict[str, Any], ViolationReport, dict[str, Any]], dict[str, Any]]
@@ -32,7 +33,7 @@ _GENERATOR_PARAM_WHITELIST: dict[str, set[str]] = {
     "random_float": {"min_value", "max_value", "precision"},
     "string": {"min_length", "max_length", "charset"},
     "text": {"min_length", "max_length"},
-    "bytes": {"length"},
+    "bytes": {"length", "width", "height", "image_format", "folder", "extensions"},
     "boolean": set(),
     "name": set(),
     "first_name": set(),
@@ -44,9 +45,30 @@ _GENERATOR_PARAM_WHITELIST: dict[str, set[str]] = {
     "url": set(),
     "ipv4": set(),
     "uuid": set(),
-    "date": {"start_year", "end_year"},
-    "datetime": {"start_year", "end_year"},
-    "timestamp": set(),
+    # date/datetime: 精确日期参数（Navicat parity）为主，年份参数仅作旧配置兼容回退。
+    # 白名单必须同时收录两套，否则 normalize_params 会把用户设的 start_date 等剥掉。
+    "date": {"start_date", "end_date", "weekdays", "start_year", "end_year"},
+    "datetime": {
+        "start_date",
+        "end_date",
+        "all_day",
+        "start_time",
+        "end_time",
+        "weekdays",
+        "start_year",
+        "end_year",
+    },
+    "time": {"all_day", "start_time", "end_time"},
+    "timestamp": {
+        "start_date",
+        "end_date",
+        "all_day",
+        "start_time",
+        "end_time",
+        "weekdays",
+        "start_year",
+        "end_year",
+    },
     "sentence": set(),
     "password": {"length"},
     "choice": {"choices"},
@@ -385,29 +407,31 @@ def _bound_regex(col: dict[str, Any], v: ViolationReport, ctx: dict[str, Any]) -
 
 # === Task 2.2: Rule #18 — cap_future_end_year ===
 def _cap_future_end_year(col: dict[str, Any], v: ViolationReport, ctx: dict[str, Any]) -> dict[str, Any]:
-    """Cap unreasonable future end_year on date/datetime generators (Rule #18).
+    """Cap an unreasonable future upper date bound (Rule #18).
 
-    LLMs sometimes return ``end_year: 2100`` producing test data in the
-    2090s. Cap at ``current_year + 1`` for a small lookahead without
-    producing 22nd-century data. Only applies to ``date`` and ``datetime``
-    generators (``timestamp`` accepts no params).
+    LLMs sometimes return ``end_year: 2100`` (or, now that the prompt asks for
+    precise dates, ``end_date: "2100-01-01"``), producing test data in the
+    2090s. Cap at ``current_year + 1`` for a small lookahead without producing
+    22nd-century data.
+
+    Handles both ``end_date`` and the legacy ``end_year`` fallback, reusing the
+    Layer-1 predicate helper so detection and repair can never disagree.
+    ``timestamp`` is included because it now accepts date params too.
     """
-    if col.get("generator") not in ("date", "datetime"):
+    if col.get("generator") not in ("date", "datetime", "timestamp"):
         return col
     params = col.get("params")
     if not isinstance(params, dict):
         return col
-    end_year = params.get("end_year")
-    if not isinstance(end_year, int):
-        return col
     cap = datetime.now().year + 1
-    if end_year > cap:
-        new_col = {**col}
-        new_params = dict(params)
-        new_params["end_year"] = cap
-        new_col["params"] = new_params
-        return new_col
-    return col
+    key = future_bound_key(params, cap)
+    if key is None:
+        return col
+    new_col = {**col}
+    new_params = dict(params)
+    new_params[key] = cap if key == "end_year" else f"{cap}-12-31"
+    new_col["params"] = new_params
+    return new_col
 
 
 # === Task 2.3: Rule #25 — downgrade_text_to_string ===
