@@ -1,4 +1,4 @@
-// 数据生成向导（Navicat 式三步工作台）：
+// 数据生成向导（参考工具 式三步工作台）：
 //   Step1 目标：连接选择 + 信息面板 + 流程图
 //   Step2 对象：左树（勾选表/列）+ 右列属性面板（生成器/参数/预览/NULL/唯一）
 //   Step3 生成：表生成顺序 + 逐表预览 + 按序填充
@@ -95,6 +95,7 @@ async function loadTablesMeta() {
       columns: schema.columns,
       specs: mapping.mapping,
       fks: new Set((schema.foreign_keys || []).map((fk) => fk.column)),
+      uniqueColumns: new Set(schema.unique_columns || []),
       rowCount: schema.row_count,
     });
   }
@@ -182,6 +183,8 @@ function renderStep2() {
   genform = createGenForm({
     connId: store.connId,
     meta,
+    // 数据库唯一约束列（主键/唯一索引）——属性面板据此锁定「设置唯一」。
+    uniqueColumnsOf: (t) => tablesMeta.find((x) => x.name === t)?.uniqueColumns,
     onChange: (t, c, colCfg) => {
       if (!cfg.has(t)) cfg.set(t, new Map());
       cfg.get(t).set(c, colCfg);

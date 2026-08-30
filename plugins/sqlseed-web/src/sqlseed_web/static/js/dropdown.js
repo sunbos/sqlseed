@@ -72,7 +72,7 @@ export function createDropdown({ value = '', options = [], onChange, placeholder
       return;
     }
     // 选项可带 group 字段（如生成器分类）：组名变化时插入不可点击的组标题。
-    // 选项可带 disabled（如 Navicat 有、sqlseed 未实现的占位组）：不可点选。
+    // 选项可带 disabled（如 参考工具 有、sqlseed 未实现的占位组）：不可点选。
     let lastGroup = null;
     for (const opt of state.options) {
       if (opt.group && opt.group !== lastGroup) {

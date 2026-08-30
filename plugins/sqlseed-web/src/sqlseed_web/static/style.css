@@ -267,7 +267,7 @@ input.grow { flex: 1; min-width: 320px; }
 }
 .dropdown-item:hover { background: var(--md-surface-container-high); }
 .dropdown-item.selected { color: var(--md-primary); }
-/* 占位项（Navicat 有、sqlseed 尚未实现的生成器组，如支付/产品） */
+/* 占位项（参考工具 有、sqlseed 尚未实现的生成器组，如支付/产品） */
 .dropdown-item.disabled { opacity: 0.45; cursor: not-allowed; color: var(--md-on-surface-variant); }
 .dropdown-item.disabled:hover { background: none; }
 .dropdown-empty { padding: var(--md-space-2) 10px; font-size: 12px; }
@@ -372,6 +372,9 @@ input.grow { flex: 1; min-width: 320px; }
 /* 星期：三选一 radio + 自定义时的周几勾选组 */
 .genform-field-col { display: flex; flex-direction: column; gap: var(--md-space-2); flex: 1; }
 .genform-radios { display: flex; align-items: center; gap: var(--md-space-4); }
+/* bytes 双模式：未选侧参数行变暗禁用（参考工具 同款）。 */
+.genform-row.off { opacity: 0.45; }
+.genform-row.off .genform-label { color: var(--md-on-surface-variant, inherit); }
 .genform-weekdays { display: flex; flex-wrap: wrap; gap: var(--md-space-3); padding-left: var(--md-space-2); }
 .genform-weekdays label { color: var(--md-on-surface); }
 .num-input { width: 72px; min-width: 72px; }
