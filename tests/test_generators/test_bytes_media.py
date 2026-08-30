@@ -1,6 +1,6 @@
-"""Media modes for the ``bytes`` generator (Navicat 图像或二进制 parity).
+"""Media modes for the ``bytes`` generator (参考工具 图像或二进制 parity).
 
-Navicat's 图像或二进制 type has two modes — an image generator
+参考工具's 图像或二进制 type has two modes — an image generator
 (width/height/format) and "pick a random file from a folder" (path +
 extension filter). ``_gen_bytes`` grows optional params for both while
 keeping the legacy ``length``-only random-bytes behavior untouched.

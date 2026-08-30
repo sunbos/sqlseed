@@ -1,19 +1,19 @@
-// 列属性面板（Navicat Step2 右栏）七段式布局：
+// 列属性面板（参考工具 Step2 右栏）七段式布局：
 //   字段名 + 类型副标题 → 生成器下拉 → 类型专属参数区 → 预览 + 刷新 →
 //   通用区（NULL 百分比 / 唯一）→ 重置属性
 // 布局顺序与「通用区按生成器裁剪」矩阵严格对照
-// docs/superpowers/plans/navicat_generator_ui_reference.md（§1.3 裁剪矩阵 / §9 检查要点）。
+// docs/superpowers/plans/generator_ui_reference.md（§1.3 裁剪矩阵 / §9 检查要点）。
 
 import { h, clear, post, msg } from './api.js';
 import { createDropdown } from './dropdown.js';
 import { openFilePicker } from './filepicker.js';
 import { genLabel, paramLabel, groupGenerators, PENDING_GROUP_HINT } from './labels.js';
 
-// Navicat：勾选「包含 NULL 值」后百分比框默认 5，且未勾选时处于禁用态（§9.5）。
+// 参考工具：勾选「包含 NULL 值」后百分比框默认 5，且未勾选时处于禁用态（§9.5）。
 const DEFAULT_PERCENT = 5;
 
 // 通用区裁剪矩阵（§1.3）。
-// 注意：Navicat 的「序列」在 sqlseed 里对应的是 `skip`（自增列由数据库生成，
+// 注意：参考工具 的「序列」在 sqlseed 里对应的是 `skip`（自增列由数据库生成，
 // 不在用户可选的生成器下拉里），不是 `template`——template 可含随机片段
 // （如 SKU-{random_string:4}-{sequence:03d}），NULL% 与唯一对它都有意义。
 // 曾误按「序列 → 通用区全无」裁掉 template，导致这两项不可见也不可改。
@@ -21,7 +21,7 @@ const DEFAULT_PERCENT = 5;
 const NO_COMMON_GENS = new Set();
 // 词表类（枚举 / 文本）值域有限，「设置唯一」无意义；图像或二进制同样不提供。
 const NO_UNIQUE_GENS = new Set(['text', 'choice', 'weighted_choice', 'bytes']);
-// 图像或二进制没有例值预览区（Navicat 该面板无预览）。
+// 图像或二进制没有例值预览区（参考工具 该面板无预览）。
 const NO_PREVIEW_GENS = new Set(['bytes']);
 
 // 参数控件形态：显式列举而非用 /min|max|length/ 之类的名字正则匹配——
@@ -55,7 +55,7 @@ const IMAGE_FORMATS = [
   { value: 'jpeg', label: 'JPEG（需安装 Pillow，否则回退 PNG）' },
 ];
 
-// 日期时间三件套（Navicat 日期/时间/日期时间面板）。
+// 日期时间三件套（参考工具 日期/时间/日期时间面板）。
 // 参数在面板上的排列顺序：精确日期优先，年份作为兼容项靠后。
 const PARAM_ORDER = [
   'start_date', 'end_date', 'all_day', 'start_time', 'end_time', 'weekdays',
@@ -77,7 +77,7 @@ const HIDDEN_PARAMS = {
 
 // 日期类生成器：AI 回填的 YAML 经常整个省略 params（LLM 倾向不写可选字段，
 // 实测 gemma4:31b-cloud 对 date/datetime 一律返回空 params），面板就会一片空白。
-// 此时填入核心默认值——核心本来就这么跑，显示出来比留空更贴近 Navicat
+// 此时填入核心默认值——核心本来就这么跑，显示出来比留空更贴近 参考工具
 // （其日期面板同样预填 2000-01-01 / 今天）。
 const DATE_DEFAULT_GENS = new Set(['date', 'datetime', 'timestamp']);
 
@@ -104,13 +104,16 @@ const WEEKDAY_MODES = [
  *   cfg 为该列的 ColumnConfig 形状（generator/params/null_ratio/constraints），
  *   null 表示跟随零配置推断。
  */
-export function createGenForm({ connId, meta, onChange }) {
+export function createGenForm({ connId, meta, uniqueColumnsOf, onChange }) {
   const el = h('div', { class: 'genform' });
   let current = null; // {table, col, colInfo, inferred}
   let form = {};      // {generator, params: {}, null_ratio, unique}
   let previewBox = null; // 当前预览容器（render() 时更新）
   let previewTimer = null;
   let paramsHolder = null; // 参数区容器（切换生成器时原地重绘）
+  let bytesModeState = null; // bytes 双模式的显式选择（'image'|'folder'|null=按参数推导）
+  // 数据库唯一列查询回调（wizard 注入）：table → Set<column>。缺省视为空集。
+  const uniqueColsOf = uniqueColumnsOf || (() => new Set());
   let nullPctInput = null; // NULL 百分比输入框（勾选框切换时联动禁用态）
   // 本轮 render() 创建的 dropdown。render() 会整体重建 DOM，若不先 destroy，
   // 旧的 scroll/mousedown 监听会残留在 document 上（面板开着被丢弃时）。
@@ -151,8 +154,10 @@ export function createGenForm({ connId, meta, onChange }) {
     if (NO_COMMON_GENS.has(form.generator)) return cfg;
     // form.null_ratio 是 0–100 百分比；核心 ColumnConfig.null_ratio 是 0–1
     // 小数（le=1.0）——发送前必须除以 100，否则 preview/fill 直接 422。
-    if (form.null_ratio > 0) cfg.null_ratio = form.null_ratio / 100;
-    if (!NO_UNIQUE_GENS.has(form.generator) && form.unique) cfg.constraints = { unique: true };
+    // 数据库硬约束兜底：NOT NULL 强制不带 null_ratio；数据库唯一强制 unique。
+    if (form.null_ratio > 0 && !dbNotNull()) cfg.null_ratio = form.null_ratio / 100;
+    if (dbUnique()) cfg.constraints = { unique: true };
+    else if (!NO_UNIQUE_GENS.has(form.generator) && form.unique) cfg.constraints = { unique: true };
     return cfg;
   }
 
@@ -206,7 +211,22 @@ export function createGenForm({ connId, meta, onChange }) {
       return;
     }
 
-    // ② 生成器下拉：Navicat 式 7 类分组（通用/个人/支付/商业/位置/产品/电脑）。
+    // ② 自增主键（序列）列：值由数据库生成，sqlseed 跳过不生成（mapper 最高
+    // 优先级），任何用户配置都不会生效——整个属性面板锁定为只读，避免「能改
+    // 但改了没用」的误导。
+    if (isDbGenerated()) {
+      el.append(
+        h('div', { class: 'msg warn', style: 'margin:8px 0' },
+          '该列是自增主键（序列）：值由数据库自动生成，sqlseed 跳过不生成。'
+          + '生成器与参数配置对此列不生效，故面板已锁定。'),
+        formRow('生成器', h('span', { class: 'muted' }, '序列（自增）· 由数据库生成')),
+        h('div', { class: 'genform-section' },
+          formRow('预览', h('span', { class: 'muted' }, '由数据库自增生成，不预览'))),
+      );
+      return;
+    }
+
+    // ③ 生成器下拉：7 类分组（通用/个人/支付/商业/位置/产品/电脑）。
     // 未实现的组（支付/产品）渲染为禁用占位项，等 P2 生成器就绪后自动可选。
     const genOpts = [];
     for (const grp of groupGenerators(meta.names)) {
@@ -225,18 +245,45 @@ export function createGenForm({ connId, meta, onChange }) {
       value: form.generator,
       options: genOpts,
       width: '260px',
-      onChange: (v) => { form.generator = v; form.params = {}; renderParams(); emit(); schedulePreview(); },
+      onChange: (v) => { form.generator = v; form.params = {}; bytesModeState = null; renderParams(); emit(); schedulePreview(); },
     }));
     el.append(formRow('生成器', genSel.el));
 
-    // 系统托管列提示：值不由 sqlseed 生成。
+    // ② 外键列：值域由父表决定（系统从父表采样保证参照完整性），生成器与
+    // 参数配置必然产生 FK violation——面板锁定为只读；唯一有意义的配置是
+    // 可空外键的 NULL 比例（NOT NULL 外键连这个也没有）。
     if (inferred?.generator_name === 'foreign_key' || inferred?.generator_name === 'foreign_key_or_integer') {
-      el.append(h('div', { class: 'msg warn', style: 'margin:8px 0' },
-        '该列是外键：生成值将从父表采样（策略 random），属性由系统管理。'));
-    } else if (isDbGenerated()) {
-      el.append(h('div', { class: 'msg warn', style: 'margin:8px 0' },
-        '该列是自增主键（等同 Navicat「序列」）：值由数据库生成，sqlseed 跳过不生成，'
-        + '且该优先级高于任何用户配置——下方生成器下拉仅是占位，不会生效。'));
+      const rp = inferred?.params || {};
+      const ref = rp.ref_table && rp.ref_table !== '__shared_pool__' ? `（采样源：${rp.ref_table}.${rp.ref_column}）` : '';
+      el.append(
+        h('div', { class: 'msg warn', style: 'margin:8px 0' },
+          '该列是外键：值由系统从父表随机采样，保证参照完整性，生成器与参数不可配置。' + ref),
+        formRow('生成器', h('span', { class: 'muted' }, '外键采样 · 由系统管理')),
+      );
+      if (colInfo.nullable) {
+        // 可空外键：NULL 比例是唯一有意义的用户配置（null_ratio=1.0 也是
+        // 核心对空父表的既有处理路径）。
+        const pct = h('input', {
+          type: 'number', class: 'num-input', min: 0, max: 100,
+          value: form.null_ratio > 0 ? form.null_ratio : '',
+          placeholder: '0',
+          oninput: (e) => { form.null_ratio = e.target.value === '' ? 0 : +e.target.value; emit(); schedulePreview(); },
+        });
+        el.append(h('div', { class: 'genform-section' },
+          formRow('包含 NULL 值', h('input', {
+            type: 'checkbox', checked: form.null_ratio > 0,
+            onchange: (e) => {
+              form.null_ratio = e.target.checked ? DEFAULT_PERCENT : 0;
+              pct.value = form.null_ratio > 0 ? form.null_ratio : '';
+              pct.disabled = form.null_ratio <= 0;
+              emit(); schedulePreview();
+            },
+          })),
+          formRow('百分比', pct)));
+      }
+      el.append(h('div', { class: 'genform-section' },
+        h('button', { class: 'small', onclick: reset }, '重置属性')));
+      return;
     }
 
     // ③ 类型专属参数区（切换生成器时原地重绘，不重建后面的段落）
@@ -246,13 +293,7 @@ export function createGenForm({ connId, meta, onChange }) {
 
     // ④ 预览 + 刷新
     if (NO_PREVIEW_GENS.has(form.generator)) {
-      previewBox = null; // Navicat：图像或二进制面板没有预览区
-    } else if (isDbGenerated()) {
-      // 自增列的值由数据库生成，预览请求返回的行里根本没有该列，
-      // 之前只能渲染成「（空）」，看着像生成失败。
-      previewBox = null;
-      el.append(h('div', { class: 'genform-section' },
-        formRow('预览', h('span', { class: 'muted' }, '由数据库自增生成，不预览'))));
+      previewBox = null; // 图像或二进制面板没有预览区
     } else {
       const previewOut = h('div', { class: 'genform-preview' });
       previewBox = previewOut;
@@ -272,14 +313,16 @@ export function createGenForm({ connId, meta, onChange }) {
       const pctInput = h('input', {
         type: 'number', class: 'num-input', value: form.null_ratio || DEFAULT_PERCENT,
         min: 0, max: 100,
-        disabled: form.null_ratio <= 0, // 未勾选「包含 NULL 值」时禁用（Navicat §9.5）
+        disabled: form.null_ratio <= 0, // 未勾选「包含 NULL 值」时禁用（参考工具 §9.5）
         oninput: (e) => { form.null_ratio = +e.target.value; emit(); schedulePreview(); },
       });
       nullPctInput = pctInput;
+      const notNull = dbNotNull();
       const common = [
-        // 行标签即属性名（Navicat 同款两栏网格），控件只放勾选框本身。
+        // 行标签即属性名（参考工具 同款两栏网格），控件只放勾选框本身。
         formRow('包含 NULL 值', h('input', {
-          type: 'checkbox', checked: form.null_ratio > 0,
+          type: 'checkbox', checked: form.null_ratio > 0 && !notNull,
+          disabled: notNull, // 数据库 NOT NULL：不可配置（配了必 IntegrityError）
           onchange: (e) => {
             form.null_ratio = e.target.checked ? DEFAULT_PERCENT : 0;
             renderNull(); emit(); schedulePreview();
@@ -287,24 +330,35 @@ export function createGenForm({ connId, meta, onChange }) {
         })),
         formRow('百分比', pctInput),
       ];
-      if (!NO_UNIQUE_GENS.has(form.generator)) {
+      if (notNull) {
+        common.push(formRow('', h('span', { class: 'muted' }, '数据库约束:NOT NULL,不允许 NULL 值')));
+      }
+      // 数据库唯一约束优先于「该生成器隐藏设置唯一」的裁剪规则：
+      // 约束是硬性的，隐藏会让用户失去知情权（即使核心 unique_adjuster 会兜底）。
+      const dbUniq = dbUnique();
+      if (!NO_UNIQUE_GENS.has(form.generator) || dbUniq) {
         common.push(formRow('设置唯一', h('input', {
-          type: 'checkbox', checked: !!form.unique,
+          type: 'checkbox',
+          checked: dbUniq || !!form.unique,
+          disabled: dbUniq,
           onchange: (e) => { form.unique = e.target.checked; emit(); schedulePreview(); },
         })));
+        if (dbUniq) {
+          common.push(formRow('', h('span', { class: 'muted' }, '数据库约束:UNIQUE,必须唯一')));
+        }
       }
       el.append(h('div', { class: 'genform-section' }, ...common));
     }
 
-    // ⑥ 重置属性（Navicat：面板底部独立按钮）
+    // ⑥ 重置属性（参考工具：面板底部独立按钮）
     el.append(h('div', { class: 'genform-section' },
       h('button', { class: 'small', onclick: reset }, '重置属性'),
     ));
   }
 
-  /** NULL 勾选框联动：未勾选时百分比输入框禁用（Navicat 同款行为）。 */
+  /** NULL 勾选框联动：未勾选时百分比输入框禁用（参考工具 同款行为）。 */
   function renderNull() {
-    if (nullPctInput) nullPctInput.disabled = form.null_ratio <= 0;
+    if (nullPctInput) nullPctInput.disabled = dbNotNull() || form.null_ratio <= 0;
   }
 
   /**
@@ -318,6 +372,7 @@ export function createGenForm({ connId, meta, onChange }) {
    */
   function resetDerived() {
     if (!current) return;
+    bytesModeState = null;
     form = fromInferred(current.zeroConfig);
     delete form.derived;
     delete form.expression;
@@ -379,7 +434,19 @@ export function createGenForm({ connId, meta, onChange }) {
       paramsHolder.append(formRow('', h('span', { class: 'muted' }, '该生成器无可配置参数')));
       return;
     }
-    // 按 Navicat 面板顺序排列；未列入 PARAM_ORDER 的参数保持签名原始顺序。
+    // bytes（图像或二进制）双模式：参考工具 同款「图像生成器 / 从文件夹随机选择」
+    // 单选二选一，未选侧的参数行变暗禁用（仍保留已填值，但发送前会被剥掉）。
+    if (form.generator === 'bytes') {
+      paramsHolder.append(bytesModeRow());
+      // 两组参数都渲染，未选侧变暗禁用（参考工具 同款二选一联动）。
+      for (const m of ['image', 'folder']) {
+        for (const p of BYTES_MODE_PARAMS[m]) {
+          paramsHolder.append(bytesParamRow(p, m));
+        }
+      }
+      return;
+    }
+    // 按 参考工具 面板顺序排列；未列入 PARAM_ORDER 的参数保持签名原始顺序。
     const hidden = HIDDEN_PARAMS[form.generator];
     const ordered = [...paramNames].filter((p) => !hidden?.has(p)).sort((a, b) => {
       const ia = PARAM_ORDER.indexOf(a);
@@ -394,17 +461,91 @@ export function createGenForm({ connId, meta, onChange }) {
     }
   }
 
-  /** 「一整天」勾选后禁用时间输入框（Navicat 同款联动）。 */
+  // bytes 双模式参数分组（顺序即 参考工具 面板顺序）。
+  const BYTES_MODE_PARAMS = {
+    image: ['width', 'height', 'image_format'],
+    folder: ['folder', 'extensions'],
+  };
+  const BYTES_MODE_LABELS = [
+    { value: 'image', label: '图像生成器' },
+    { value: 'folder', label: '从文件夹随机选择' },
+  ];
+
+  /** bytes 当前模式：显式选择优先，未选过时回退到参数推导（folder 非空 → folder，
+   *  与核心 _gen_bytes 的 folder 优先判定一致）。 */
+  function bytesMode() {
+    return bytesModeState || (form.params.folder ? 'folder' : 'image');
+  }
+
+  function switchBytesMode(mode) {
+    if (mode === bytesMode()) return;
+    bytesModeState = mode;
+    if (mode === 'image') {
+      delete form.params.folder;
+      delete form.params.extensions;
+    } else {
+      delete form.params.width;
+      delete form.params.height;
+      delete form.params.image_format;
+    }
+    renderParams();
+    emit();
+    schedulePreview();
+  }
+
+  function bytesModeRow() {
+    const mode = bytesMode();
+    const radios = h('div', { class: 'genform-radios' });
+    for (const m of BYTES_MODE_LABELS) {
+      radios.append(h('label', { class: 'genform-check' },
+        h('input', {
+          type: 'radio', name: 'genform-bytes-mode', checked: mode === m.value,
+          onchange: () => switchBytesMode(m.value),
+        }), m.label));
+    }
+    return formRow('模式', radios);
+  }
+
+  /** 渲染一行 bytes 参数；非当前模式的组加 .off（变暗 + 输入禁用）。 */
+  function bytesParamRow(name, groupMode) {
+    const row = formRow(paramLabel(name), paramInput(name));
+    if (groupMode !== bytesMode()) {
+      row.classList.add('off');
+      for (const node of row.querySelectorAll('input, button, textarea')) {
+        node.disabled = true;
+      }
+    }
+    return row;
+  }
+
+  /** 「一整天」勾选后禁用时间输入框（参考工具 同款联动）。 */
   function syncTimeInputs() {
     const off = form.params.all_day !== false;
     for (const node of el.querySelectorAll('[data-time-param]')) node.disabled = off;
   }
 
+  // ---- 数据库硬约束（schema 明确规定的 NOT NULL / UNIQUE）----
+  // 这两类约束用户在 UI 上配反了必然 IntegrityError，所以直接锁定控件：
+  // NOT NULL → NULL% 强制 0；数据库唯一 → 设置唯一强制开。
+
+  /** 该列是否被数据库约束为 NOT NULL（含主键）。 */
+  function dbNotNull() {
+    return !!current?.colInfo && current.colInfo.nullable === false;
+  }
+
+  /** 该列是否被数据库约束为唯一（主键 / 单列唯一索引）。 */
+  function dbUnique() {
+    if (current?.colInfo?.is_primary_key) return true;
+    const cols = uniqueColsOf(current?.table);
+    return !!(cols && cols.has && current?.col && cols.has(current.col));
+  }
+
+
   function paramInput(name) {
     const val = form.params[name] ?? '';
     const commit = (v) => { form.params[name] = v; emit(); schedulePreview(); };
     if (name === 'choices' || name === 'weighted_choices') {
-      // Navicat 式：每行一个值；加权枚举支持每行「值:权重」。
+      // 参考工具 式：每行一个值；加权枚举支持每行「值:权重」。
       let text;
       if (Array.isArray(val)) {
         text = val.join('\n');
@@ -432,7 +573,7 @@ export function createGenForm({ connId, meta, onChange }) {
         },
       }, text);
     }
-    // 正则 / JSON 结构 / 模板：多行编辑区（Navicat 同样用 textarea）。
+    // 正则 / JSON 结构 / 模板：多行编辑区（参考工具 同样用 textarea）。
     if (TEXTAREA_PARAMS.has(name)) {
       return h('textarea', {
         class: 'grow', rows: name === 'template' ? '2' : '3', spellcheck: 'false',
@@ -440,7 +581,7 @@ export function createGenForm({ connId, meta, onChange }) {
         oninput: (e) => commit(e.target.value),
       }, String(val ?? ''));
     }
-    // 日期 / 时间 / 星期：Navicat 日期、时间、日期时间三件套面板。
+    // 日期 / 时间 / 星期：参考工具 日期、时间、日期时间三件套面板。
     if (name === 'start_date' || name === 'end_date') {
       return h('input', {
         type: 'date', class: 'grow', value: val || '',
@@ -458,7 +599,7 @@ export function createGenForm({ connId, meta, onChange }) {
     if (name === 'all_day') {
       return h('input', {
         type: 'checkbox',
-        checked: form.params.all_day !== false, // Navicat 默认勾选「一整天」
+        checked: form.params.all_day !== false, // 参考工具 默认勾选「一整天」
         onchange: (e) => { commit(e.target.checked); syncTimeInputs(); },
       });
     }
@@ -521,7 +662,7 @@ export function createGenForm({ connId, meta, onChange }) {
   }
 
   /**
-   * 星期控件：全部 / 工作日 / 自定义（Navicat 三选一），选「自定义」时展开周几勾选组。
+   * 星期控件：全部 / 工作日 / 自定义（参考工具 三选一），选「自定义」时展开周几勾选组。
    * 值形态：'all' | 'workdays' | [0…6]（Monday=0，与核心 normalize_weekdays 一致）。
    */
   function weekdayControl(commit) {
@@ -603,6 +744,7 @@ export function createGenForm({ connId, meta, onChange }) {
 
   function reset() {
     if (!current) return;
+    bytesModeState = null;
     form = fromInferred(current.inferred);
     normalizeAliasParams();
     applyDateDefaults();
@@ -644,6 +786,7 @@ export function createGenForm({ connId, meta, onChange }) {
       // zeroConfig 是该列的零配置推断结果，作为「重置属性」的回落基线
       // （inferred 可能已被 AI/加载的配置覆盖）。
       current = { table, col, colInfo, inferred, zeroConfig };
+      bytesModeState = null;
       form = fromInferred(inferred);
       normalizeAliasParams();
       applyDateDefaults();

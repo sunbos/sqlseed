@@ -1,4 +1,4 @@
-// 生成器中文语义标注（Navicat 树节点括号标注的来源）。
+// 生成器中文语义标注（参考工具 树节点括号标注的来源）。
 
 export const GEN_LABELS = {
   name: '姓名',
@@ -88,9 +88,9 @@ export function paramLabel(p) {
   return PARAM_LABELS[p] || p;
 }
 
-// 生成器分类（Navicat 式分组下拉，严格对照 示例UI/生成数据类型/ 的 7 组）。
+// 生成器分类（参考工具 式分组下拉，严格对照 示例UI/生成数据类型/ 的 7 组）。
 // 顺序即下拉展示顺序；未收录的生成器自动落入末尾「其他」组。
-// 空 gens 的组（支付 / 产品）是 Navicat 有、sqlseed 尚未实现的占位组：
+// 空 gens 的组（支付 / 产品）是 参考工具 有、sqlseed 尚未实现的占位组：
 // 下拉里显示为禁用项，等 P2 生成器落地后自动变为可选（无需改本文件）。
 export const GEN_CATEGORIES = [
   {
@@ -106,7 +106,7 @@ export const GEN_CATEGORIES = [
       'email', 'phone', 'job_title'],
   },
   {
-    // Navicat：支付方式 / 信用卡类型 / 信用卡卡号 / 信用卡日期（P2）
+    // 参考工具：支付方式 / 信用卡类型 / 信用卡卡号 / 信用卡日期（P2）
     title: '支付',
     gens: [],
   },
@@ -119,7 +119,7 @@ export const GEN_CATEGORIES = [
     gens: ['address', 'city', 'state', 'country', 'zip_code', 'country_code'],
   },
   {
-    // Navicat：产品名称 / 产品类别 / 颜色 / 尺寸 / 重量单位 / 条码 / SKU（P2）
+    // 参考工具：产品名称 / 产品类别 / 颜色 / 尺寸 / 重量单位 / 条码 / SKU（P2）
     title: '产品',
     gens: [],
   },
@@ -134,7 +134,7 @@ export const PENDING_GROUP_HINT = '（暂无生成器）';
 
 /**
  * 把 meta.names（全部生成器）按分类分组。
- * 返回 [{title, names, pending}]——pending 表示该组在 Navicat 中存在但
+ * 返回 [{title, names, pending}]——pending 表示该组在 参考工具 中存在但
  * sqlseed 尚无对应生成器（支付/产品），调用方应渲染为禁用项。
  * 兜底「其他」组保证不丢项。
  */

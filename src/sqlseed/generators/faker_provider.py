@@ -209,7 +209,7 @@ class FakerProvider(BaseProvider):
         """Generate a ``datetime.date`` object.
 
         ``start_date`` / ``end_date`` (``YYYY-MM-DD``) take precedence over the
-        legacy year pair. ``weekdays`` mirrors Navicat's 全部 / 工作日 / 自定义
+        legacy year pair. ``weekdays`` mirrors 参考工具's 全部 / 工作日 / 自定义
         radio (see :mod:`sqlseed.generators._datetime_utils`).
 
         Date arithmetic is delegated to the shared helpers rather than
@@ -239,9 +239,9 @@ class FakerProvider(BaseProvider):
     ) -> datetime.datetime:
         """Generate a ``datetime.datetime`` object.
 
-        ``all_day`` is Navicat's 一整天 checkbox (default on): full-day range,
+        ``all_day`` is 参考工具's 一整天 checkbox (default on): full-day range,
         ignoring ``start_time`` / ``end_time``. Uncheck it to constrain the
-        time of day. Whole seconds only — Navicat's 日期时间 panel has no
+        time of day. Whole seconds only — 参考工具's 日期时间 panel has no
         sub-second control, so microsecond noise like ``T10:21:03.895011``
         carries no meaning.
 
@@ -263,7 +263,7 @@ class FakerProvider(BaseProvider):
         start_time: str | None = None,
         end_time: str | None = None,
     ) -> datetime.time:
-        """Generate a ``datetime.time`` object (Navicat 时间 panel).
+        """Generate a ``datetime.time`` object (参考工具 时间 panel).
 
         ``all_day=True`` (default, 一整天) spans the whole day; unchecking it
         enables the ``start_time`` / ``end_time`` window.

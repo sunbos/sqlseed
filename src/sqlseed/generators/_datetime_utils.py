@@ -1,6 +1,6 @@
 """Shared date/time helpers for the generator providers.
 
-Navicat parity (``示例UI/生成数据类型/日期.png``, ``时间.png``, ``日期时间.png``)
+参考工具 parity (``示例UI/生成数据类型/日期.png``, ``时间.png``, ``日期时间.png``)
 demands finer control than a year range:
 
 - exact date bounds (``start_date`` / ``end_date``) rather than year-only,
@@ -51,7 +51,7 @@ def normalize_weekdays(
 ) -> frozenset[int] | None:
     """Normalise the ``weekdays`` param into a day set, or ``None`` for "all".
 
-    Accepts (mirroring Navicat's 全部 / 工作日 / 自定义 radio):
+    Accepts (mirroring 参考工具's 全部 / 工作日 / 自定义 radio):
 
     - ``None``, ``"all"``, ``[]`` -> ``None`` (no filtering)
     - ``"workdays"`` -> Mon-Fri, ``"weekend"`` -> Sat-Sun
@@ -181,7 +181,7 @@ def random_date(rng: random.Random, start: date, end: date, weekdays: frozenset[
 def random_time(rng: random.Random, start_time: time, end_time: time) -> time:
     """Uniformly pick a whole-second time in ``[start_time, end_time]``.
 
-    Whole seconds only — Navicat's 日期时间 panel has no sub-second control,
+    Whole seconds only — 参考工具's 日期时间 panel has no sub-second control,
     and microsecond noise (``T10:21:03.895011``) carries no meaning.
     """
     lo = start_time.hour * 3600 + start_time.minute * 60 + start_time.second
@@ -199,7 +199,7 @@ def resolve_time_bounds(
 ) -> tuple[time, time]:
     """Resolve the time-of-day window.
 
-    ``all_day=True`` is Navicat's 一整天 checkbox — it disables the time
+    ``all_day=True`` is 参考工具's 一整天 checkbox — it disables the time
     controls and unlocks the full day, so any explicit bounds are ignored.
     """
     if all_day:

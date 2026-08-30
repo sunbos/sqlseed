@@ -1,13 +1,13 @@
-# Navicat 数据生成器对齐规格（Generator Parity Spec）
+# 参考工具 数据生成器对齐规格（Generator Parity Spec）
 
-**来源**: `示例UI/生成数据类型/` 下 44 张 Navicat 16 数据生成模块截图（2026-08-30 逐张核对）。
-**配套**: 逐截图的布局/参数/默认值/选项全量记录见 [navicat\_generator\_ui\_reference.md](./navicat_generator_ui_reference.md)（检查基线）；本文在其上做差距分析与落地路线。
-**目的**: 记录 Navicat 每个生成器的配置粒度，作为 sqlseed-web 属性面板与核心生成器参数演进的对照基线，防止遗忘。
+**来源**: `示例UI/生成数据类型/` 下 44 张 参考工具 16 数据生成模块截图（2026-08-30 逐张核对）。
+**配套**: 逐截图的布局/参数/默认值/选项全量记录见 [generator\_ui\_reference.md](./generator_ui_reference.md)（检查基线）；本文在其上做差距分析与落地路线。
+**目的**: 记录 参考工具 每个生成器的配置粒度，作为 sqlseed-web 属性面板与核心生成器参数演进的对照基线，防止遗忘。
 **状态**: 规划文档（非实现承诺）。优先级：P0 = 纯 UI 可做；P1 = 需扩展核心生成器参数；P2 = 需新增生成器。
 
 ***
 
-## 1. Navicat 面板通用结构
+## 1. 参考工具 面板通用结构
 
 每个生成器面板 = **类型专属参数区** + **例值** + **通用底部区**：
 
@@ -24,12 +24,12 @@
 
 ## 2. 下拉分类（2026-08-30 对齐到 web）
 
-Navicat 分组：**通用 / 个人 / 支付 / 商业 / 位置 / 产品 / 电脑**。
+参考工具 分组：**通用 / 个人 / 支付 / 商业 / 位置 / 产品 / 电脑**。
 web 现行分组（labels.js `GEN_CATEGORIES`）：**通用 / 个人 / 支付(占位) / 商业 / 位置 / 产品(占位) / 电脑 / 其他（兜底）**。
 
-* 分组名与顺序严格对齐 Navicat；原「网络与文件」组更名为「电脑」（url / ipv4）。
+* 分组名与顺序严格对齐 参考工具；原「网络与文件」组更名为「电脑」（url / ipv4）。
 
-* **支付 / 产品为空组**：Navicat 有、sqlseed 尚未实现（P2）。`groupGenerators()` 对空组标记 `pending: true`，
+* **支付 / 产品为空组**：参考工具 有、sqlseed 尚未实现（P2）。`groupGenerators()` 对空组标记 `pending: true`，
   下拉里渲染为**禁用占位项**（「（暂无生成器）」），而不是把生成器丢进"其他"。
   P2 生成器一旦落地，只需在 `GEN_CATEGORIES` 的 `gens` 里补名字，占位项自动变为可选项——
   **无需改动 genform.js 或本文件**。
@@ -41,7 +41,7 @@ web 现行分组（labels.js `GEN_CATEGORIES`）：**通用 / 个人 / 支付(�
 理由：
 
 1. provider 是连接级单例，`set_locale()` 重建 faker 实例并做能力探测（`faker_provider.py`），设计意图是"切换时探测一次、热路径零开销"。逐列热切换违背该设计；列级覆盖须用 **locale 实例缓存**（每 locale 一个实例，warm 后复用）实现。
-2. Navicat 语言面板（性别/称谓/婚姻/部门/行业等）的本质是**词表池**（有限枚举，与枚举的"值" textarea 同类），不是 locale。词表类生成器新增时的正确映射是词表参数（`values`/`brands`），而非 locale 参数。
+2. 参考工具 语言面板（性别/称谓/婚姻/部门/行业等）的本质是**词表池**（有限枚举，与枚举的"值" textarea 同类），不是 locale。词表类生成器新增时的正确映射是词表参数（`values`/`brands`），而非 locale 参数。
 3. 数据一致性：同一 DB 默认同市场；逐列自定义会让默认态滑向"中文姓名+美国地址"的混合数据。
 
 落地路线：
@@ -56,19 +56,19 @@ web 现行分组（labels.js `GEN_CATEGORIES`）：**通用 / 个人 / 支付(�
 
 ## 3. 逐生成器明细
 
-格式：**Navicat 配置** → sqlseed 现状 → 差距/建议。
+格式：**参考工具 配置** → sqlseed 现状 → 差距/建议。
 
 ### 3.1 通用类
 
 #### 数字 (integer/float)
 
-* Navicat: 开始(0)、结束(1000)、数字类型(整数/小数 radio)、小数位数(2)
+* 参考工具: 开始(0)、结束(1000)、数字类型(整数/小数 radio)、小数位数(2)
 
 * sqlseed: `integer(min_value,max_value)`、`float(min_value,max_value,precision)` ✅ 对齐（radio = 两个生成器）
 
 #### 日期 (date) — ✅ 已实现（2026-08-30）
 
-* Navicat: 开始日期、结束日期（具体日期，非年份）、星期(全部/工作日/自定义+周几勾选)
+* 参考工具: 开始日期、结束日期（具体日期，非年份）、星期(全部/工作日/自定义+周几勾选)
 
 * sqlseed: `date(start_date, end_date, weekdays, start_year, end_year)` ✅
 
@@ -77,17 +77,17 @@ web 现行分组（labels.js `GEN_CATEGORIES`）：**通用 / 个人 / 支付(�
 
 #### 日期时间 (datetime) — ✅ 已实现（2026-08-30）
 
-* Navicat: 日期范围（同日期）+ 一整天 checkbox + 开始时间/结束时间 + 星期
+* 参考工具: 日期范围（同日期）+ 一整天 checkbox + 开始时间/结束时间 + 星期
 
 * sqlseed: `datetime(start_date, end_date, all_day, start_time, end_time, weekdays, start_year, end_year)` ✅
 
-  * `all_day=True`（默认，等同 Navicat「一整天」勾选）→ 全天 00:00:00–23:59:59，忽略时间参数；
+  * `all_day=True`（默认，等同 参考工具「一整天」勾选）→ 全天 00:00:00–23:59:59，忽略时间参数；
     取消勾选则启用 `start_time` / `end_time` 时间窗（`HH:MM` 或 `HH:MM:SS`）。
   * 统一截断到**整秒**——此前 faker/mimesis 会带出微秒（`T10:21:03.895011`），base 不会，三 provider 已一致。
 
 #### 时间 (time) — ✅ 新增生成器（2026-08-30）
 
-* Navicat: 一整天(checkbox) + 开始时间/结束时间
+* 参考工具: 一整天(checkbox) + 开始时间/结束时间
 
 * sqlseed: `time(all_day=True, start_time, end_time)` ✅ 已加入 `GENERATOR_MAP`（生成器总数 35 → 36）
 
@@ -98,7 +98,7 @@ web 现行分组（labels.js `GEN_CATEGORIES`）：**通用 / 个人 / 支付(�
 
 #### 序列 (skip/autoincrement/template{sequence})
 
-* Navicat: 开始(1)、递增(1)、最小、最大、循环(checkbox)
+* 参考工具: 开始(1)、递增(1)、最小、最大、循环(checkbox)
 
 * sqlseed: PK 走 `skip`（自增列交给数据库生成，`skip` **不在用户可选的生成器下拉里**）；
   自定义序列靠 `template` 的 `{sequence}` 占位符 + `sequence_start` / `sequence_step` 参数 ⚠️
@@ -112,13 +112,13 @@ web 现行分组（labels.js `GEN_CATEGORIES`）：**通用 / 个人 / 支付(�
 * 建议 P1: 独立 `sequence(start,step,min,max,loop)` 生成器
 
 > **UI 映射坑（2026-08-30 修正）**：§1.3 裁剪矩阵里「序列 → 通用区全无」**不适用于 `template`**。
-> Navicat 的序列是纯确定性递增（恒非空、天然唯一），而 sqlseed 的 `template` 可含随机片段，
+> 参考工具 的序列是纯确定性递增（恒非空、天然唯一），而 sqlseed 的 `template` 可含随机片段，
 > NULL% 与「设置唯一」对它都有意义。曾据此裁掉 `template` 的通用区，导致这两项不可见也不可改。
 > 现 `NO_COMMON_GENS` 为空集——真正的独立 `sequence` 生成器落地后再加入。
 
 #### 枚举 (choice) / 加权枚举 (weighted\_choice)
 
-* Navicat: 值 textarea（每行一个）
+* 参考工具: 值 textarea（每行一个）
 
 * sqlseed: `choice(choices[])`、`weighted_choices(dict)` ✅ 参数齐全
 
@@ -126,13 +126,13 @@ web 现行分组（labels.js `GEN_CATEGORIES`）：**通用 / 个人 / 支付(�
 
 #### 文本 (text)
 
-* Navicat: 字符数(100–10000)
+* 参考工具: 字符数(100–10000)
 
 * sqlseed: `text(min_length,max_length)` ✅ 对齐
 
 #### 字符串 (string)
 
-* sqlseed 独有（min\_length/max\_length/charset），Navicat 无对应，保留
+* sqlseed 独有（min\_length/max\_length/charset），参考工具 无对应，保留
 
 #### 布尔值 (boolean)
 
@@ -140,7 +140,7 @@ web 现行分组（labels.js `GEN_CATEGORIES`）：**通用 / 个人 / 支付(�
 
 #### 图像或二进制 (bytes) — ✅ 已实现（2026-08-30）
 
-* Navicat（粒度最细的一种，双模式）:
+* 参考工具（粒度最细的一种，双模式）:
 
   * 模式A 图像生成器: 图像宽度(320)、图像高度(320)、图像格式(JPEG/PNG radio)
 
@@ -160,7 +160,7 @@ web 现行分组（labels.js `GEN_CATEGORIES`）：**通用 / 个人 / 支付(�
 
 #### 外键 (foreign\_key)
 
-* Navicat: 模式(schema)、表、字段 下拉 + 生成模式(随机/不重复/重复每个值 N 次)
+* 参考工具: 模式(schema)、表、字段 下拉 + 生成模式(随机/不重复/重复每个值 N 次)
 
 * sqlseed: FK 自动识别从父表采样 ✅ 基本对齐
 
@@ -168,25 +168,25 @@ web 现行分组（labels.js `GEN_CATEGORIES`）：**通用 / 个人 / 支付(�
 
 #### UUID (uuid)
 
-* Navicat: 格式(含连字符/无格式)
+* 参考工具: 格式(含连字符/无格式)
 
 * sqlseed: `uuid()` ⚠️ P1: `hyphens: bool`
 
 #### 正则表达式 (pattern)
 
-* Navicat: 正则表达式 textarea + 原始数据模式 checkbox
+* 参考工具: 正则表达式 textarea + 原始数据模式 checkbox
 
 * sqlseed: `pattern(pattern/regex)` ✅ 对齐（"原始数据模式"≈ 字面量输出，暂不需要）
 
 #### JSON (json)
 
-* sqlseed 独有（schema 参数），Navicat 无对应，保留
+* sqlseed 独有（schema 参数），参考工具 无对应，保留
 
 ### 3.2 个人类
 
 #### 姓名 (name/first\_name/last\_name)
 
-* Navicat: 格式类型(全名…) + 语言多选(English PinYin / 简体中文 / 繁體中文 / Japanese…)
+* 参考工具: 格式类型(全名…) + 语言多选(English PinYin / 简体中文 / 繁體中文 / Japanese…)
 
 * sqlseed: `name/first_name/last_name`，语言由**连接级 locale** 决定 ⚠️
 
@@ -194,7 +194,7 @@ web 现行分组（labels.js `GEN_CATEGORIES`）：**通用 / 个人 / 支付(�
 
 #### 性别 / 称谓 / 婚姻状况 / 产品类别 / 颜色 / 尺寸 / 行业 / 部门 / 职位名称 (job\_title)
 
-* Navicat: 语言多选（值域枚举：性别=M/F、称谓=Mr./…、婚姻=单身/…）
+* 参考工具: 语言多选（值域枚举：性别=M/F、称谓=Mr./…、婚姻=单身/…）
 
 * sqlseed: 仅 `job_title`；其余缺失 ⚠️
 
@@ -202,19 +202,19 @@ web 现行分组（labels.js `GEN_CATEGORIES`）：**通用 / 个人 / 支付(�
 
 #### 电子邮箱 (email)
 
-* Navicat: 域 textarea（gmail.com/hotmail.com/…自定义）
+* 参考工具: 域 textarea（gmail.com/hotmail.com/…自定义）
 
 * sqlseed: `email()` ⚠️ P1: `domains[]` 参数
 
 #### 电话号码 (phone)
 
-* Navicat: 格式(国内/国际) + 包含分隔符 + 地区多选(美国/英国/中国/日本/其它)
+* 参考工具: 格式(国内/国际) + 包含分隔符 + 地区多选(美国/英国/中国/日本/其它)
 
 * sqlseed: `phone(mask)` ⚠️ P1: `region[]`+`separator: bool`（注意 LENGTH CHECK 硬真相：分隔符开关必须尊重列长度约束）
 
 #### 社交网络 ID (username)
 
-* Navicat: 无参数
+* 参考工具: 无参数
 
 * sqlseed: `username()` ✅ 对齐
 
@@ -224,7 +224,7 @@ web 现行分组（labels.js `GEN_CATEGORIES`）：**通用 / 个人 / 支付(�
 
 ### 3.3 支付类（全部缺失，P2）
 
-| Navicat | 配置                                       | 建议                                                |
+| 参考工具 | 配置                                       | 建议                                                |
 | ------- | ---------------------------------------- | ------------------------------------------------- |
 | 支付方式    | 值 textarea（Credit Card/PayPal/Apple Pay） | `choice` 预设词表 `payment_method`                    |
 | 信用卡类型   | 类型多选(美国运通/JCB/万事达/银联/Visa)               | `credit_card_type(brands[])`                      |
@@ -235,41 +235,41 @@ web 现行分组（labels.js `GEN_CATEGORIES`）：**通用 / 个人 / 支付(�
 
 #### 公司名称 (company)
 
-* Navicat: 语言多选；sqlseed: `company()` ✅（语言走连接 locale，同姓名类 P1）
+* 参考工具: 语言多选；sqlseed: `company()` ✅（语言走连接 locale，同姓名类 P1）
 
 #### 部门 / 行业
 
-* Navicat: 语言多选；sqlseed 缺失 ⚠️ P2 新增（词表枚举）
+* 参考工具: 语言多选；sqlseed 缺失 ⚠️ P2 新增（词表枚举）
 
 #### 口号 (catch\_phrase)
 
-* sqlseed 独有（Navicat 无对应图），保留
+* sqlseed 独有（参考工具 无对应图），保留
 
 ### 3.5 位置类
 
 #### 地址 (address)
 
-* Navicat: 类型(第1行地址/第2行地址/完整地址) + 地区(中国/日本/…+书写语言)
+* 参考工具: 类型(第1行地址/第2行地址/完整地址) + 地区(中国/日本/…+书写语言)
 
 * sqlseed: `address()` ⚠️ P1: `line: 1|2|full`
 
 #### 城市 (city)
 
-* Navicat: 地区多选 + 语言；sqlseed: `city()` ⚠️ P1: `region[]`
+* 参考工具: 地区多选 + 语言；sqlseed: `city()` ⚠️ P1: `region[]`
 
 #### 地区 (state)
 
-* Navicat: 格式类型(全名/缩写) + 语言 + **将值转换为(全角/半角)**
+* 参考工具: 格式类型(全名/缩写) + 语言 + **将值转换为(全角/半角)**
 
 * sqlseed: `state()` ⚠️ P1: `format: full|abbr`；全半角转换 P2（通用文本后处理，可做成 transform 钩子）
 
 #### 国家 / 邮政编码 / 国家代码 (country/zip\_code/country\_code)
 
-* sqlseed 已有，Navicat 无独立截图（归并进地区/城市模式）✅
+* sqlseed 已有，参考工具 无独立截图（归并进地区/城市模式）✅
 
 ### 3.6 产品类（大部分缺失，P2）
 
-| Navicat        | 配置                                                         | 建议                                                   |
+| 参考工具        | 配置                                                         | 建议                                                   |
 | -------------- | ---------------------------------------------------------- | ---------------------------------------------------- |
 | 产品名称           | 使用关键字生成 textarea（Apple/Cherry/…）+ 组合修饰词（例值 Cherry premium） | `product_name(keywords[])`，模板 `{keyword} {modifier}` |
 | 产品类别           | 语言多选                                                       | 词表枚举                                                 |
@@ -281,28 +281,28 @@ web 现行分组（labels.js `GEN_CATEGORIES`）：**通用 / 个人 / 支付(�
 
 #### IP 地址 (ipv4)
 
-* Navicat: IPv4/IPv6 radio；sqlseed: `ipv4()` ⚠️ P1: `ipv6()` 新增或 `family` 参数
+* 参考工具: IPv4/IPv6 radio；sqlseed: `ipv4()` ⚠️ P1: `ipv6()` 新增或 `family` 参数
 
 #### MAC 地址
 
-* Navicat: 正则展示；sqlseed 缺失 ⚠️ P2 `mac_address()`（pattern 预设 `[0-9a-f]{2}(:[0-9a-f]{2}){5}`）
+* 参考工具: 正则展示；sqlseed 缺失 ⚠️ P2 `mac_address()`（pattern 预设 `[0-9a-f]{2}(:[0-9a-f]{2}){5}`）
 
 #### 主机名 / 网址 (url)
 
-* Navicat: 子域 textarea(auth/drive/mail/…) + 顶级域 textarea(com/cn/info/…)
+* 参考工具: 子域 textarea(auth/drive/mail/…) + 顶级域 textarea(com/cn/info/…)
 
 * sqlseed: `url()` ⚠️ P1: `subdomains[]` + `tlds[]`（两者同构，可共用参数组）
 
 #### 文件路径 / 文件名称 / 文件扩展名
 
-* Navicat: 路径类型多选(Windows/MacOS/Linux)、包含文件名称 checkbox、扩展名类型 dropdown、扩展名 textarea
+* 参考工具: 路径类型多选(Windows/MacOS/Linux)、包含文件名称 checkbox、扩展名类型 dropdown、扩展名 textarea
 
 * sqlseed 缺失 ⚠️ P2 `file_path(os[],include_name,extensions)` / `file_name(include_ext,extensions)` / `file_ext(extensions)`
 
 ## 4. 落地路线建议
 
 * **P0（纯 UI，0 核心改动）**：枚举/加权枚举 textarea ✅；下拉"其他"组中拆分"产品/支付"占位组 ✅（均为 2026-08-30 落地）；
-  属性面板改为 Navicat 七段式布局（预览上移至通用区之上、重置属性独立置底）✅；
+  属性面板改为 参考工具 七段式布局（预览上移至通用区之上、重置属性独立置底）✅；
   通用区按生成器裁剪（序列无通用区、词表类无"设置唯一"、图像或二进制无预览）✅；
   百分比默认 5 且未勾选时禁用 ✅；参数控件形态改为显式集合（数值/多行），`precision`、`start_year` 不再被误渲染为文本框 ✅；
   bytes 的 `image_format` 改为下拉（png/jpeg）、`folder` 增加服务端「选择文件夹」按钮（filepicker `mode: 'dir'`）✅
@@ -321,7 +321,7 @@ web 现行分组（labels.js `GEN_CATEGORIES`）：**通用 / 个人 / 支付(�
 
 ## 5. 截图 → 生成器对照速查
 
-| 截图                        | Navicat 生成器 | sqlseed 生成器                                         | 差距级                         |
+| 截图                        | 参考工具 生成器 | sqlseed 生成器                                         | 差距级                         |
 | ------------------------- | ----------- | --------------------------------------------------- | --------------------------- |
 | 数字                        | 数字          | integer/float                                       | ✅                           |
 | 日期/日期时间/时间                | 日期类         | date/datetime/time                                  | ✅                           |

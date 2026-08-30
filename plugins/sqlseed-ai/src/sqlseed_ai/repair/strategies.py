@@ -45,7 +45,7 @@ _GENERATOR_PARAM_WHITELIST: dict[str, set[str]] = {
     "url": set(),
     "ipv4": set(),
     "uuid": set(),
-    # date/datetime: 精确日期参数（Navicat parity）为主，年份参数仅作旧配置兼容回退。
+    # date/datetime: 精确日期参数（参考工具 parity）为主，年份参数仅作旧配置兼容回退。
     # 白名单必须同时收录两套，否则 normalize_params 会把用户设的 start_date 等剥掉。
     "date": {"start_date", "end_date", "weekdays", "start_year", "end_year"},
     "datetime": {

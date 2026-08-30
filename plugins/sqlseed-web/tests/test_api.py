@@ -64,7 +64,7 @@ class TestMeta:
         assert isinstance(body["params"], dict)
 
     def test_bytes_media_params_exposed_to_ui(self, client: TestClient) -> None:
-        """/api/meta/generators drives the genform param rows — the Navicat
+        """/api/meta/generators drives the genform param rows — the 参考工具
         图像或二进制 modes (image generator / folder pick) must be visible."""
         params = client.get("/api/meta/generators").json()["params"]["bytes"]
         assert {"length", "width", "height", "image_format", "folder", "extensions"} <= set(params)
@@ -265,6 +265,9 @@ class TestSchemaMapping:
         names = [c["name"] for c in body["columns"]]
         assert names == ["id", "name", "email"]
         assert "id" in body["skippable"]  # AUTOINCREMENT PK
+        # 数据库硬唯一约束列：AUTOINCREMENT 主键被核心排除（由 skip 处理），
+        # 因此 tmp_db 的 users 表此处为空列表——只验证字段存在且类型正确。
+        assert isinstance(body["unique_columns"], list)
 
     def test_mapping_endpoint(self, client: TestClient, conn_id: str) -> None:
         res = client.get(f"/api/connections/{conn_id}/tables/users/mapping")

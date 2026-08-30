@@ -619,16 +619,26 @@ def table_schema(conn_id: str, table: str) -> dict[str, Any]:
         columns = _serialize(orch.get_column_info(table))
         fks = _serialize(orch.get_foreign_keys(table))
         skippable = sorted(orch.get_skippable_columns(table))
+        # 数据库硬唯一约束列（主键/唯一索引/UNIQUE 约束）——前端属性面板
+        # 用它把「设置唯一」锁定为必开，避免用户配出必 IntegrityError 的组合。
+        unique_columns = sorted(orch._schema.detect_unique_columns(table))
         row_count = orch.get_row_count(table)
     except (ConfigurationError, ValueError, RuntimeError, OSError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {"table": table, "row_count": row_count, "columns": columns, "foreign_keys": fks, "skippable": skippable}
+    return {
+        "table": table,
+        "row_count": row_count,
+        "columns": columns,
+        "foreign_keys": fks,
+        "skippable": skippable,
+        "unique_columns": unique_columns,
+    }
 
 
 @router.get("/connections/{conn_id}/topo-order")
 def topo_order(conn_id: str, tables: str | None = None) -> dict[str, Any]:
     """FK-topological table order (referenced tables first) — the wizard's
-    "表生成顺序" (Navicat parity). Defaults to all tables of the connection."""
+    "表生成顺序" (参考工具 parity). Defaults to all tables of the connection."""
     orch = _conn_or_404(conn_id)
     names = [t for t in (tables or "").split(",") if t] or orch.get_table_names()
     try:

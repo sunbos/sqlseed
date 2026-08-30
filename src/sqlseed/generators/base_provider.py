@@ -113,7 +113,7 @@ class BaseProvider(GeneratorDispatchMixin):
     ) -> bytes:
         """Generate bytes: random data, a synthetic image, or a file from disk.
 
-        Modes (first match wins, mirroring Navicat's 图像或二进制 type):
+        Modes (first match wins, mirroring 参考工具's 图像或二进制 type):
 
         - ``folder`` — pick a random file from the directory (optionally
           filtered by ``extensions``, case-insensitive, leading dot optional).
@@ -335,7 +335,7 @@ class BaseProvider(GeneratorDispatchMixin):
 
         ``start_date`` / ``end_date`` (``YYYY-MM-DD``) take precedence over the
         legacy ``start_year`` / ``end_year`` pair, kept for backward
-        compatibility. ``weekdays`` mirrors Navicat's 全部 / 工作日 / 自定义
+        compatibility. ``weekdays`` mirrors 参考工具's 全部 / 工作日 / 自定义
         radio: ``"all"`` (default), ``"workdays"``, or an explicit day list
         such as ``[0, 2, 4]`` (Mon=0 … Sun=6).
 
@@ -362,11 +362,11 @@ class BaseProvider(GeneratorDispatchMixin):
     ) -> datetime:
         """Generate a ``datetime.datetime`` within the given bounds.
 
-        ``all_day`` is Navicat's 一整天 checkbox (checked by default): it
+        ``all_day`` is 参考工具's 一整天 checkbox (checked by default): it
         unlocks the full 00:00:00–23:59:59 day and ignores ``start_time`` /
         ``end_time``. Unchecking it restricts generation to that window.
 
-        Truncated to whole seconds — Navicat's 日期时间 panel has no
+        Truncated to whole seconds — 参考工具's 日期时间 panel has no
         sub-second control, so microsecond noise carries no meaning.
 
         Returning a ``datetime`` object (rather than a ``strftime`` string)
@@ -388,11 +388,11 @@ class BaseProvider(GeneratorDispatchMixin):
         start_time: str | None = None,
         end_time: str | None = None,
     ) -> _time:
-        """Generate a ``datetime.time`` (Navicat 时间 panel).
+        """Generate a ``datetime.time`` (参考工具 时间 panel).
 
-        ``all_day=True`` (default, Navicat's 一整天 checkbox) spans the whole
+        ``all_day=True`` (default, 参考工具's 一整天 checkbox) spans the whole
         day; unchecking it enables the ``start_time`` / ``end_time`` window
-        (``HH:MM`` or ``HH:MM:SS``). Whole seconds only — Navicat's 时间 panel
+        (``HH:MM`` or ``HH:MM:SS``). Whole seconds only — 参考工具's 时间 panel
         has no sub-second control.
         """
         self._next_id()
