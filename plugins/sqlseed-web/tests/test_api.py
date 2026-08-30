@@ -201,6 +201,24 @@ class TestConnections:
         assert body["available"] is True
         assert len(body["backends"]) == 4
 
+    def test_meta_ai_merges_session_override(self, client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+        """/api/meta/ai must report the EFFECTIVE backend (session override
+        merged over env), not env-only state — otherwise the meta page and
+        the wizard's readiness check contradict the AI panel after a switch.
+        """
+        pytest.importorskip("sqlseed_ai")
+        for var in ("SQLSEED_AI_BACKEND", "SQLSEED_AI_API_KEY", "SQLSEED_AI_MODEL", "GOOGLE_API_KEY", "OPENAI_API_KEY"):
+            monkeypatch.delenv(var, raising=False)
+        client.post("/api/ai/config", json={"backend": "ollama", "model": "gemma4:31b-cloud"})
+        try:
+            body = client.get("/api/meta/ai").json()
+            assert body["available"] is True
+            assert body["backend"] == "ollama"
+            assert body["model"] == "gemma4:31b-cloud"
+            assert body["api_key_present"] is True  # local placeholder key counts as present
+        finally:
+            client.post("/api/ai/config", json={})
+
     def test_topo_order_referenced_first(self, client: TestClient, db_path: str) -> None:
         """orders references users — users must precede orders in the order."""
         cid = client.post("/api/connections", json={"db_path": db_path}).json()["conn_id"]

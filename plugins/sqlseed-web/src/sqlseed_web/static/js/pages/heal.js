@@ -142,7 +142,9 @@ function renderAiBody(holder) {
       h('button', { class: 'primary', onclick: () => saveAiConfig(backendDd) }, '应用配置'),
       h('button', { onclick: testConnection }, '测试连接'),
       h('span', { class: 'muted', id: 'ai-effective' },
-        `当前生效：${eff.backend} · ${eff.model} · key ${eff.api_key_present ? '已配置' : '未配置'}`),
+        (eff.backend === 'ollama' || eff.backend === 'lm_studio')
+          ? `当前生效：${eff.backend} · ${eff.model} · 本地后端无需 Key`
+          : `当前生效：${eff.backend} · ${eff.model} · key ${eff.api_key_present ? '已配置' : '未配置'}`),
     ),
     h('div', { id: 'ai-test-out' }),
   );

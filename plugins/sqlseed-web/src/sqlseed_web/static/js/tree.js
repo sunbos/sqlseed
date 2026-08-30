@@ -7,12 +7,22 @@ import { colAnnotation } from './labels.js';
 /**
  * @param {object} opts
  * @param {Array} opts.tables - [{name, columns: ColumnInfo[], specs, fks}]
+ * @param {(table: string, col: string) => object|null} [opts.specResolver]
+ *   列标注用 spec 解析器（AI 一键配置回填后标注需反映 AI 选择而非零配置推断）；
+ *   缺省用 t.specs。
+ * @param {Map<string, Set<string>>} [opts.initialSelection]
+ *   初始勾选状态（跨步骤持久化；AI 选择不被步骤切换重置）。缺省全选。
  * @param {(table: string, col: string) => void} opts.onSelectColumn
  * @param {(sel: Map<string, Set<string>>) => void} opts.onChange
  */
-export function createTree({ tables, onSelectColumn, onChange }) {
+export function createTree({ tables, specResolver, initialSelection, onSelectColumn, onChange }) {
   const expanded = new Set(tables.map((t) => t.name)); // 默认全展开
-  const checked = new Map(tables.map((t) => [t.name, new Set(t.columns.map((c) => c.name))]));
+  const checked = initialSelection
+    ? new Map(tables.map((t) => {
+        const want = initialSelection.get(t.name);
+        return [t.name, new Set(t.columns.map((c) => c.name).filter((c) => want?.has(c)))];
+      }))
+    : new Map(tables.map((t) => [t.name, new Set(t.columns.map((c) => c.name))]));
   const selected = { table: null, col: null };
   const el = h('div', { class: 'tree' });
 
@@ -50,7 +60,7 @@ export function createTree({ tables, onSelectColumn, onChange }) {
       el.append(tRow);
       if (!isOpen) continue;
       for (const col of t.columns) {
-        const spec = t.specs?.[col.name];
+        const spec = specResolver ? specResolver(t.name, col.name) : t.specs?.[col.name];
         const anno = colAnnotation(col, spec, t.fks);
         const isSel = selected.table === t.name && selected.col === col.name;
         el.append(h('div', {
