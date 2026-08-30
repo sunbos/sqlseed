@@ -21,28 +21,32 @@ export function render() {
     store.tables[0]?.name || '',
   );
   root.append(
-    h('h2', {}, 'AI 分析与修复（Layers 2 / 3 / 5）'),
+    h('h2', {}, 'AI 分析与修复'),
     renderAiPanel(),
     h('div', { class: 'panel' },
+      h('div', { class: 'muted', style: 'margin-bottom:10px; line-height:1.7' },
+        '本页面向 YAML 配置的校验与修复，三步操作：',
+        h('br'),
+        '① 校验 — 找出配置中会违反数据库约束（CHECK / 外键 / 唯一）的问题；',
+        h('br'),
+        '② 修复 — 自动修正其中可确定性修复的问题；',
+        h('br'),
+        '③ 全流程生成 — 直接按数据库约束生成一份合规配置（确定性校验/修复优先，仅在需要语义决策时调用大模型）。'),
       h('div', { class: 'row' },
-        h('span', { class: 'pill gen' }, 'L2 FastValidator'),
-        h('span', { class: 'pill gen' }, 'L3 RepairPipeline'),
-        h('span', { class: 'pill gen' }, 'L5 AutoHealOrchestrator'),
-        h('span', { style: 'flex:1' }),
-      ),
-      h('div', { class: 'row' },
-        h('label', {}, '模板表'),
+        h('label', { class: 'genform-label' }, '从表导入模板:'),
         templateTableDd.el,
-        h('button', { onclick: loadTemplate }, '导入该表配置模板'),
+        h('button', { onclick: loadTemplate }, '导入'),
+        h('span', { class: 'muted', style: 'font-size:12px' },
+          '把所选表的单表配置模板填入编辑区作为起点；与「数据生成」向导相互独立，此处产出可通过「送到数据生成向导」回填使用'),
       ),
       h('textarea', {
         id: 'heal-yaml', spellcheck: 'false',
         oninput: (e) => { yamlText = e.target.value; },
       }, yamlText),
       h('div', { class: 'row end' },
-        h('button', { onclick: doValidate }, '① 校验（L2）'),
-        h('button', { onclick: doRepair }, '② 修复（L3）'),
-        h('button', { class: 'primary', onclick: doAutoHeal }, '③ 全流程自愈（L5，需 LLM）'),
+        h('button', { onclick: doValidate }, '① 校验'),
+        h('button', { onclick: doRepair }, '② 修复'),
+        h('button', { class: 'primary', onclick: doAutoHeal }, '③ 全流程生成（必要时调用大模型）'),
       ),
     ),
     h('div', { id: 'heal-out' }),
@@ -92,8 +96,8 @@ function renderOnboarding(holder, reason) {
   holder.append(
     h('div', { class: 'msg warn' }, reason || 'sqlseed-ai 未安装'),
     h('div', { class: 'muted', style: 'margin:8px 0; line-height:1.7' },
-      'sqlseed-ai 是可选插件，提供：① 契约校验（L2）与确定性修复（L3）；'
-      + '② LLM 全流程自愈（L5）；③ 数据生成向导里的「AI 一键生成配置」。'
+      'sqlseed-ai 是可选插件，提供：① 配置校验与自动修复；'
+      + '② 按数据库约束一键生成合规配置（即数据生成向导中的「AI 一键生成配置」）。'
       + '未安装时，连接、数据生成、数据浏览功能完全不受影响。'),
     h('div', { class: 'row' },
       h('label', {}, '安装命令'),
@@ -127,16 +131,20 @@ function renderAiBody(holder) {
   });
   holder.append(
     h('div', { class: 'row' },
-      h('label', {}, '后端'),
+      h('label', { class: 'genform-label' }, '后端'),
       backendDd.el,
-      h('label', {}, '模型'),
-      h('input', { id: 'ai-model', placeholder: '留空=自动（如 gemma4:e4b / gemma-4-26b-a4b-it）', value: ov.model || '' }),
     ),
     h('div', { class: 'row' },
-      h('label', {}, 'API Key'),
-      h('input', { id: 'ai-key', type: 'password', placeholder: '在线后端需要；本地后端无需密钥', value: ov.api_key || '' }),
-      h('label', {}, 'Base URL'),
-      h('input', { id: 'ai-url', placeholder: 'OpenAI 兼容服务需要；其余留空', value: ov.base_url || '' }),
+      h('label', { class: 'genform-label' }, '模型'),
+      h('input', { id: 'ai-model', class: 'grow', placeholder: '留空=自动（如 gemma4:e4b / gemma-4-26b-a4b-it）', value: ov.model || '' }),
+    ),
+    h('div', { class: 'row' },
+      h('label', { class: 'genform-label' }, 'API Key'),
+      h('input', { id: 'ai-key', class: 'grow', type: 'password', placeholder: '在线后端需要；本地后端无需密钥', value: ov.api_key || '' }),
+    ),
+    h('div', { class: 'row' },
+      h('label', { class: 'genform-label' }, 'Base URL'),
+      h('input', { id: 'ai-url', class: 'grow', placeholder: 'OpenAI 兼容服务需要；其余留空', value: ov.base_url || '' }),
     ),
     h('div', { class: 'row' },
       h('button', { class: 'primary', onclick: () => saveAiConfig(backendDd) }, '应用配置'),
@@ -211,7 +219,7 @@ function basePayload() {
 async function doValidate() {
   const out = document.getElementById('heal-out');
   clear(out);
-  out.append(h('div', { class: 'loading' }, 'L2 校验中…'));
+  out.append(h('div', { class: 'loading' }, '校验中…'));
   try {
     const res = await post(`/api/connections/${store.connId}/heal/validate`, basePayload());
     clear(out);
@@ -228,7 +236,7 @@ async function doValidate() {
 function renderViolations(res) {
   const parts = [];
   parts.push(h('div', { class: 'panel' },
-    h('h3', {}, `L2 校验结果 — schema_hash ${res.schema_hash?.slice(0, 12)}`),
+    h('h3', {}, `① 校验结果 — schema_hash ${res.schema_hash?.slice(0, 12)}`),
     res.is_clean
       ? msg('配置干净：无违规。', 'ok')
       : msg(`发现 ${res.violation_count} 处违规：`, 'warn'),
@@ -268,13 +276,13 @@ function renderViolations(res) {
 async function doRepair() {
   const out = document.getElementById('heal-out');
   clear(out);
-  out.append(h('div', { class: 'loading' }, 'L3 修复中…'));
+  out.append(h('div', { class: 'loading' }, '修复中…'));
   try {
     const res = await post(`/api/connections/${store.connId}/heal/repair`, basePayload());
     clear(out);
     if (!res.ok) { out.append(msg(`修复器异常：${res.error}`)); return; }
     out.append(h('div', { class: 'panel' },
-      h('h3', {}, `L3 修复结果 — ${res.fix_count} 处已修`),
+      h('h3', {}, `② 修复结果 — ${res.fix_count} 处已修`),
       res.applied_fixes?.length ?
         h('div', { class: 'table-scroll' },
           table(['策略', 'table', 'columns', 'before', 'after'],
@@ -312,8 +320,8 @@ async function doRepair() {
 async function doAutoHeal() {
   const out = document.getElementById('heal-out');
   clear(out);
-  const status = h('div', { class: 'muted' }, '提交 L5 全流程任务（schema 快照 → 子图拆分 → 分层校验/修复/LLM 治愈 → 乐观锁 → YAML）…');
-  out.append(h('div', { class: 'panel' }, h('h3', {}, 'L5 AutoHeal'), status));
+  const status = h('div', { class: 'muted' }, '提交全流程生成任务（读取 schema → 按约束校验/修复 → 必要时调用大模型 → 输出 YAML）…');
+  out.append(h('div', { class: 'panel' }, h('h3', {}, '③ 全流程生成'), status));
   try {
     const res = await post(`/api/connections/${store.connId}/heal/auto`, { budget_seconds: 300 });
     healTimer = setInterval(async () => {
@@ -322,11 +330,15 @@ async function doAutoHeal() {
         if (job.status === 'running') return;
         clearInterval(healTimer);
         if (job.status === 'error') {
-          status.replaceWith(msg(`自愈失败：${job.error}`));
+          status.replaceWith(msg(`生成失败：${job.error}`));
         } else {
+          const n = job.result.llm_calls;
+          const llmNote = n === 0
+            ? '本次未调用大模型：schema 无语义违规，全部由确定性校验/修复完成（契约驱动设计：LLM 只在必要时介入）'
+            : `大模型调用 ${n} 次`;
           status.replaceWith(
             h('div', {},
-              msg(`完成（模型 ${job.result.model} @ ${job.result.backend}）`, 'ok'),
+              msg(`完成（模型 ${job.result.model} @ ${job.result.backend}；${llmNote}）`, 'ok'),
               h('pre', {}, job.result.yaml),
               h('div', { class: 'row end' },
                 h('button', {
@@ -335,7 +347,13 @@ async function doAutoHeal() {
                     document.getElementById('heal-yaml').value = yamlText;
                   },
                 }, '回填到编辑区'),
-                h('button', { class: 'primary', onclick: () => { location.hash = '#/run'; } }, '去填充 →'),
+                h('button', {
+                  class: 'primary',
+                  onclick: () => {
+                    store.aiYaml = job.result.yaml;
+                    location.hash = '#/wizard';
+                  },
+                }, '送到数据生成向导 →'),
               ),
             ),
           );

@@ -418,6 +418,37 @@ class TestAiTestConnection:
             client.post("/api/ai/config", json={})
 
 
+class TestCountingLLMClient:
+    """LLM call counter — makes "did the AI actually run?" observable.
+
+    The auto-heal pipeline is deterministic-first: clean subgraphs skip
+    Layer 4 entirely, so a job can finish without any LLM call. The wizard
+    surfaces ``job.result.llm_calls`` so users aren't left guessing.
+    """
+
+    def test_counts_calls_and_passthrough(self) -> None:
+        from sqlseed_web.api import _CountingLLMClient
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.n = 0
+
+            def chat_completions_create(self, **kwargs: object) -> dict:
+                self.n += 1
+                return {"ok": True, "n": self.n}
+
+            def other_method(self) -> str:
+                return "x"
+
+        fake = FakeClient()
+        c = _CountingLLMClient(fake)
+        assert c.chat_completions_create(model="m") == {"ok": True, "n": 1}
+        assert c.chat_completions_create(model="m") == {"ok": True, "n": 2}
+        assert c.calls == 2
+        assert c.other_method() == "x"  # attribute passthrough
+        assert c.calls == 2  # passthrough must not count
+
+
 class TestPreviewColumnConfig:
     def test_preview_null_ratio_is_fraction(self, client: TestClient, conn_id: str) -> None:
         """Contract the frontend must honor: null_ratio is a 0–1 fraction.

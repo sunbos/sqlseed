@@ -89,7 +89,7 @@ Connection kinds (UI): `sqlite` (local db file + file-picker modal), `postgresql
 ```bash
 pip install -e "./plugins/sqlseed-web"          # + [ai] extra for the heal lab
 sqlseed-web                                     # serve at http://127.0.0.1:8630
-pytest plugins/sqlseed-web/tests/ -q            # 40 tests
+pytest plugins/sqlseed-web/tests/ -q            # 42 tests
 ruff check plugins/sqlseed-web/ && mypy plugins/sqlseed-web/src/
 ```
 

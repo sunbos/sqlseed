@@ -74,6 +74,49 @@ export function paramLabel(p) {
   return PARAM_LABELS[p] || p;
 }
 
+// 生成器分类（Navicat 式分组下拉，参照 示例UI/生成数据类型/ 截图）。
+// 顺序即下拉展示顺序；未收录的生成器自动落入末尾「其他」组。
+export const GEN_CATEGORIES = [
+  {
+    title: '通用',
+    gens: ['string', 'text', 'sentence', 'word', 'integer', 'float', 'boolean',
+      'date', 'datetime', 'timestamp', 'time', 'choice', 'weighted_choice',
+      'pattern', 'template', 'uuid', 'json', 'bytes'],
+  },
+  {
+    title: '个人',
+    gens: ['name', 'first_name', 'last_name', 'username', 'password',
+      'email', 'phone', 'job_title'],
+  },
+  {
+    title: '商业',
+    gens: ['company', 'catch_phrase'],
+  },
+  {
+    title: '位置',
+    gens: ['address', 'city', 'state', 'country', 'zip_code', 'country_code'],
+  },
+  {
+    title: '网络与文件',
+    gens: ['url', 'ipv4'],
+  },
+];
+
+/** 把 meta.names（全部生成器）按分类分组；返回 [{title, names}]，兜底组保证不丢项。 */
+export function groupGenerators(names) {
+  const remaining = new Set(names);
+  const groups = [];
+  for (const cat of GEN_CATEGORIES) {
+    const hit = cat.gens.filter((g) => remaining.has(g));
+    for (const g of hit) remaining.delete(g);
+    if (hit.length) groups.push({ title: cat.title, names: hit });
+  }
+  if (remaining.size) {
+    groups.push({ title: '其他', names: [...remaining].sort() });
+  }
+  return groups;
+}
+
 // 列的树节点语义标注：优先外键/自增，其次生成器语义。
 export function colAnnotation(col, spec, fkCols) {
   if (fkCols.has(col.name)) return '外键';

@@ -62,7 +62,13 @@ export function createDropdown({ value = '', options = [], onChange, placeholder
       panel.append(h('div', { class: 'dropdown-empty muted' }, '（无选项）'));
       return;
     }
+    // 选项可带 group 字段（如生成器分类）：组名变化时插入不可点击的组标题。
+    let lastGroup = null;
     for (const opt of state.options) {
+      if (opt.group && opt.group !== lastGroup) {
+        lastGroup = opt.group;
+        panel.append(h('div', { class: 'dropdown-group' }, opt.group));
+      }
       panel.append(h('button', {
         class: `dropdown-item${opt.value === state.value ? ' selected' : ''}`,
         type: 'button',
