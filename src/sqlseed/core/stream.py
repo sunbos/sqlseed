@@ -148,6 +148,10 @@ class DataStream:
         self._rng = random.Random(seed)
         if seed is not None:
             self._provider.set_seed(seed)
+        # FK coverage 采样策略的每列状态：spec 身份 → 待弹出的父值队列。
+        # 队列打乱后逐个弹出，弹尽后重新打乱——保证每个父值在一轮内被
+        # 引用恰好一次（覆盖式），轮与轮之间顺序随机。
+        self._coverage_queues: dict[int, list[Any]] = {}
 
     def generate(
         self,
@@ -687,13 +691,34 @@ class DataStream:
         ref_values = spec.params.get("_ref_values", [])
         if ref_values:
             if exclude_values:
+                # UNIQUE 外键：不放回采样优先于 coverage——exclude 过滤天然
+                # 保证唯一，而 coverage 的轮次重复会破坏 UNIQUE。
                 available = [v for v in ref_values if v not in exclude_values]
                 if available:
                     return self._rng.choice(available)
                 # All ref_values exhausted — fall through to fallback. The
                 # resulting value will likely fail the UNIQUE constraint,
                 # triggering the ConstraintSolver's retry/backtrack mechanism.
+            elif spec.params.get("strategy") == "coverage":
+                return self._coverage_pick(spec, ref_values)
             return self._rng.choice(ref_values)
         fallback_min = spec.params.get("_fallback_min", 1)
         fallback_max = spec.params.get("_fallback_max", 999999)
         return self._provider.generate("integer", min_value=fallback_min, max_value=fallback_max)
+
+    def _coverage_pick(self, spec: GeneratorSpec, ref_values: list[Any]) -> Any:
+        """Coverage-strategy FK pick: shuffle the parent values once, pop one
+        per call, reshuffle when exhausted.
+
+        与 ``random``（放回抽样）的区别：一轮之内每个父值被引用**恰好一次**，
+        因此 ``count <= len(ref_values)`` 时父表零覆盖遗漏；轮次之间重新打乱，
+        长期分布仍趋近均匀。适用于「希望测试数据遍历所有外键取值」的场景
+        （如枚举型维表引用）。队列按 spec 身份隔离，同一 spec 的多批次共享
+        同一队列——跨批次依然保证覆盖。
+        """
+        queue = self._coverage_queues.get(id(spec))
+        if not queue:
+            queue = list(ref_values)
+            self._rng.shuffle(queue)
+            self._coverage_queues[id(spec)] = queue
+        return queue.pop()

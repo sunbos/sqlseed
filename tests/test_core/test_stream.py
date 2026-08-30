@@ -106,6 +106,44 @@ class TestDataStream:
         batches = list(stream.generate(10, batch_size=10))
         assert all(row["user_id"] in {1, 2, 3, 4, 5} for row in batches[0])
 
+    def test_foreign_key_coverage_covers_all_ref_values_in_one_cycle(self) -> None:
+        """coverage 策略：一轮之内每个父值被引用恰好一次（零覆盖遗漏）。"""
+        specs = {
+            "user_id": GeneratorSpec(
+                generator_name="foreign_key",
+                params={"_ref_values": [1, 2, 3, 4, 5], "strategy": "coverage"},
+            ),
+        }
+        stream = self._create_stream(specs, seed=42)
+        batches = list(stream.generate(5, batch_size=5))
+        values = [row["user_id"] for row in batches[0]]
+        assert sorted(values) == [1, 2, 3, 4, 5]
+
+    def test_foreign_key_coverage_reshuffles_next_cycle(self) -> None:
+        """coverage 策略：父值弹尽后重新打乱进入下一轮（长期仍均匀、可续用）。"""
+        specs = {
+            "user_id": GeneratorSpec(
+                generator_name="foreign_key",
+                params={"_ref_values": [1, 2, 3], "strategy": "coverage"},
+            ),
+        }
+        stream = self._create_stream(specs, seed=42)
+        batches = list(stream.generate(9, batch_size=9))
+        values = [row["user_id"] for row in batches[0]]
+        assert sorted(values) == sorted([1, 2, 3] * 3)  # 恰好三轮，每轮各值一次
+
+    def test_foreign_key_unknown_strategy_falls_back_to_random(self) -> None:
+        """未知 strategy 值回落 random（不会崩溃，行为与默认一致）。"""
+        specs = {
+            "user_id": GeneratorSpec(
+                generator_name="foreign_key",
+                params={"_ref_values": [1, 2, 3], "strategy": "quantum"},
+            ),
+        }
+        stream = self._create_stream(specs, seed=42)
+        batches = list(stream.generate(6, batch_size=6))
+        assert all(row["user_id"] in {1, 2, 3} for row in batches[0])
+
     def test_foreign_key_without_ref_values(self) -> None:
         specs = {
             "user_id": GeneratorSpec(
