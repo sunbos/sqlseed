@@ -31,7 +31,7 @@ sqlseed-web/
 │           ├── filepicker.js    # server-side directory-browse modal (the real "choose file" button)
 │           ├── labels.js        # generator + param Chinese labels (PARAM_LABELS for genform) + tree column annotations (外键/序列/语义)
 │           ├── tree.js          # checkable table/column tree (wizard step2 left pane)
-│           ├── genform.js       # column property panel: generator dropdown + dynamic params + single-column preview + NULL%/unique
+│           ├── genform.js       # column property panel: grouped generator dropdown + dynamic params (choices = one-per-line textarea) + debounced auto preview + NULL%/unique
 │           └── pages/           # connect / wizard (3-step) / browse (3-pane) / heal / meta
 └── tests/test_api.py            # TestClient + real SQLite (never mock the DB layer — Pitfall #13)
 ```
@@ -94,6 +94,9 @@ ruff check plugins/sqlseed-web/ && mypy plugins/sqlseed-web/src/
 ```
 
 ## GOTCHAS
+
+- **genform preview is debounced-auto**: any generator/param/NULL/unique change schedules `doPreview` after 400ms (`schedulePreview`) — previously the preview only refreshed on column select or the manual 刷新 button, so it kept showing stale values after edits (found live 2026-08-30). `previewBox` must be updated in `render()`; the scheduled callback checks `isConnected` before firing.
+- **Navicat parity spec**: `docs/superpowers/plans/navicat_generator_parity.md` records the per-generator config granularity from the reference screenshots (示例UI/生成数据类型/) and the P0/P1/P2 backlog — consult it before extending generator params.
 
 - **Same-target connections are legal but grouped**: multiple connections to one SQLite file work (read concurrency + serialized writes, verified by concurrent fill tests), and `list_connections()` tags them 主连接/并行 N so users don't lose track. Do not "deduplicate" connections silently — the isolation (per-connection provider/locale) is a feature.
 - **Port 8630** is the default (uvicorn factory mode `sqlseed_web.app:create_app`).
