@@ -61,7 +61,7 @@ class SupervisedPluginManager(PluginManager):
             warnings = [
                 "安装固定当前环境与已有组件版本；没有兼容版本或 wheel 时会失败。"
                 if body.action == "install"
-                else "仅卸载选中的组件，不自动卸载其依赖。",
+                else "仅卸载选中的组件，不自动卸载其依赖。重新安装需要软件源提供兼容版本；开发版或本地安装的组件可能无法恢复。",
                 "操作期间会短暂暂停工作台；完成后自动恢复服务与可恢复的连接，无需手动重启。",
             ]
             result["warnings"] = warnings
