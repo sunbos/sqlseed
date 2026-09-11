@@ -30,7 +30,7 @@ import sqlite3
 import ssl
 import sys
 import urllib.request
-from contextlib import suppress
+from contextlib import closing, suppress
 from typing import TYPE_CHECKING
 
 import pytest
@@ -240,6 +240,15 @@ def _docker_transport_unavailable(error: Exception) -> bool:
     return False
 
 
+def _check_docker_daemon() -> None:
+    """Check the server's container support using the same endpoint configuration."""
+    from testcontainers.core.docker_client import DockerClient
+
+    with closing(DockerClient().client) as client:
+        if client.info().get("OSType") == "windows":
+            pytest.skip("PostgreSQL test containers require a Linux Docker daemon; server OSType is windows")
+
+
 @pytest.fixture(scope="session")
 def pg_url() -> Generator[str, None, None]:
     """Use an explicit test service or own a temporary PostgreSQL container.
@@ -255,6 +264,7 @@ def pg_url() -> Generator[str, None, None]:
     _check_docker_endpoint()
     pg = None
     try:
+        _check_docker_daemon()
         pg = PostgresContainer("postgres:16-alpine")
         pg.start()
     except Exception as e:
