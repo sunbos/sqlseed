@@ -21,6 +21,7 @@ v8 整体重建已完成；当前细化以 [可用性与 AI 辅助计划](../../
 - 同目标多连接是有效用法。旧 API 的长生命周期 orchestrator 保留独立 provider/locale；正式工作台的 provider/locale 属于配置，并按完整配置构建执行实例，不能用旧连接默认值覆盖文档。`group_key`、`group_index`、`group_size` 仅做显示分组，不是跨连接锁。
 - [sqlite_target.py](sqlite_target.py) 统一 SQLite 的分组、写入准入与配置身份，按 SQLAlchemy 传给 sqlite3 的实际 URI 参数识别文件、具名共享内存和私有内存。普通文件路径的既有配置 hash 保持不变；共享内存按名称、私有内存按 conn_id 隔离，不能把未启用 `uri` 的 `mode=memory` 当作内存库。Web 不支持自定义 SQLite VFS；实际 URI 带 `vfs` 时在连接注册、数据库打开前拒绝，不能忽略 `memdb` 等 VFS 导致同名不同库被合并。
 - SQLite URI 中解码后的 NUL、原始 TAB/CR/LF、无效 UTF-8 百分号编码也在注册前拒绝：SQLite 字符串截断与 Python URL 清理/替代解码不同，不能把异常编码折叠成另一目标。合法 UTF-8 与经过百分号编码的 TAB/CR/LF 文件名仍按真实路径识别。
+- URI 文件路径须经平台路径转换；Windows 的 `/C:/...` 与普通 `C:\...` 指向同一文件。百分号只解码一次，文件名中的字面 `%41` 不能被误识别为 `A`；真实文件别名回归覆盖空格、百分号及编码盘符。
 - fills 在后台线程运行，通过 `state.connection_operation(conn_id, job_id=...)` 领取已预留的任务；交互请求不排队等待连接锁，忙碌立即返回 HTTP 409。不得让同一 orchestrator 并发 `fill_table()`。
 - `create_job()` 原子预留连接；同一数据库目标只能有一个填充任务，其他数据库可并行。SQLite 规范路径、file URI 和共享内存身份；PostgreSQL 只规范 URL 中已知端点及有效参数，不宣称识别 DNS 别名、service 或代理后的物理身份。worker 初始化、启动或终态持久化失败也必须释放任务占用。
 - job 终态通过 `complete_job()` 原子发布 result、错误、行数和完成时间；非空 `GenerationResult.errors` 必须发布 error，不能报告成功。
