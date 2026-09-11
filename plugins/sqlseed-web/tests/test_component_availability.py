@@ -6,6 +6,7 @@ import importlib
 import json
 import sys
 from collections.abc import Iterator
+from contextlib import closing
 from importlib import metadata
 from pathlib import Path
 from types import ModuleType
@@ -244,7 +245,7 @@ def test_missing_provider_keeps_document_but_blocks_preview_with_recovery_contex
     monkeypatch.setattr(metadata, "version", version)
     monkeypatch.setattr(importlib, "import_module", broken)
     path = tmp_path / "provider.db"
-    with sqlite3.connect(path) as database:
+    with closing(sqlite3.connect(path)) as database, database:
         database.execute("CREATE TABLE users(id INTEGER PRIMARY KEY, name TEXT)")
     registry = UIState()
     conn = registry.add_connection(str(path), provider="base")

@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib
 import json
 import sqlite3
+from contextlib import closing
 from copy import deepcopy
 from datetime import date
 from importlib import metadata
@@ -28,7 +29,7 @@ def relation_client(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> Any:
         pytest.skip("AI relation regression requires the optional sqlseed-ai distribution")
     importlib.import_module("sqlseed_ai.config")
     path = tmp_path / "relations.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.executescript(
             "CREATE TABLE invoices(id INTEGER PRIMARY KEY AUTOINCREMENT, quantity INTEGER NOT NULL, "
             "price REAL NOT NULL, total REAL NOT NULL CHECK(total >= 0), alias TEXT, first TEXT NOT NULL, "
@@ -82,7 +83,7 @@ def relation(
 def null_target_client(relation_client: Any) -> Any:
     client, registry, payload = relation_client
     conn = registry.get_connection(payload["conn_id"])
-    with sqlite3.connect(conn.target) as db:
+    with closing(sqlite3.connect(conn.target)) as db, db:
         db.execute(
             "CREATE TABLE amounts(quantity INTEGER NOT NULL, price REAL NOT NULL, total REAL, "
             "default_total REAL DEFAULT 0, null_default_total REAL DEFAULT NULL, replacement REAL)"
@@ -154,7 +155,7 @@ def test_derived_default_column_is_a_relation_source_but_remains_a_protected_tar
 ) -> None:
     client, registry, payload = relation_client
     conn = registry.get_connection(payload["conn_id"])
-    with sqlite3.connect(conn.target) as db:
+    with closing(sqlite3.connect(conn.target)) as db, db:
         db.execute("ALTER TABLE invoices ADD COLUMN subtotal REAL NOT NULL DEFAULT 0")
     payload["schema_hash"] = inspect_connection(conn)["schema_hash"]
     payload["document"]["tables"][0]["columns"].append(
@@ -402,7 +403,7 @@ def test_database_cross_column_check_groups_independent_generator_patches(
 ) -> None:
     client, registry, payload = relation_client
     conn = registry.get_connection(payload["conn_id"])
-    with sqlite3.connect(conn.target) as db:
+    with closing(sqlite3.connect(conn.target)) as db, db:
         db.execute(
             "CREATE TABLE ranges(lower_bound INTEGER NOT NULL, upper_bound INTEGER NOT NULL, CHECK(upper_bound >= lower_bound))"
         )

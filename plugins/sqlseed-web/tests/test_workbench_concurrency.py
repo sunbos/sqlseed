@@ -6,6 +6,7 @@ import sqlite3
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -23,7 +24,7 @@ from sqlseed_web.workbench_store import RevisionConflict, WorkspaceStore
 @pytest.fixture()
 def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     path = tmp_path / "target.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute("CREATE TABLE items(id INTEGER PRIMARY KEY AUTOINCREMENT, value INTEGER NOT NULL)")
     registry = UIState()
     conn = registry.add_connection(str(path), provider="base")
@@ -159,7 +160,7 @@ def test_only_one_write_is_reserved_for_the_same_physical_target(
         release.set()
         wait_jobs(registry)
     assert store.get_run(first.json()["id"])["status"] == "done"
-    with sqlite3.connect(conn.target) as db:
+    with closing(sqlite3.connect(conn.target)) as db, db:
         assert db.execute("SELECT id,value FROM items ORDER BY id").fetchall() == [(1, 7), (2, 7)]
 
 
@@ -191,7 +192,7 @@ def test_other_sessions_can_read_and_other_targets_can_generate(
         assert registry.get_connection(parallel.conn_id).provider == "faker"
         assert registry.get_connection(conn.conn_id).provider == "base"
         other_path = Path(conn.target).with_name("independent.db")
-        with sqlite3.connect(other_path) as db:
+        with closing(sqlite3.connect(other_path)) as db, db:
             db.execute("CREATE TABLE items(id INTEGER PRIMARY KEY AUTOINCREMENT, value INTEGER NOT NULL)")
         other = registry.add_connection(str(other_path), provider="base")
         other_schema = inspect_connection(other)
@@ -212,7 +213,7 @@ def test_other_sessions_can_read_and_other_targets_can_generate(
             time.sleep(0.01)
         assert store.get_run(second.json()["id"])["status"] == "done"
         assert store.get_run(first.json()["id"])["status"] == "queued"
-        with sqlite3.connect(other_path) as db:
+        with closing(sqlite3.connect(other_path)) as db, db:
             assert db.execute("SELECT value FROM items").fetchall() == [(7,), (7,)]
     finally:
         release.set()
@@ -330,7 +331,7 @@ def test_sqlite_file_aliases_share_write_admission(tmp_path: Path, alias: str) -
     from urllib.parse import quote
 
     path = tmp_path / "database with spaces.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute("CREATE TABLE marker(value TEXT)")
         db.execute("INSERT INTO marker VALUES ('same physical database')")
     if alias == "uri":
@@ -356,7 +357,7 @@ def test_sqlite_file_aliases_share_write_admission(tmp_path: Path, alias: str) -
 @pytest.mark.parametrize("database", ["shared-admission", ":memory:"])
 def test_real_shared_memory_uri_cannot_reserve_two_writers(database: str) -> None:
     uri = f"file:{database}?mode=memory&cache=shared"
-    with sqlite3.connect(uri, uri=True) as anchor:
+    with closing(sqlite3.connect(uri, uri=True)) as anchor, anchor:
         anchor.execute("CREATE TABLE marker(value TEXT)")
         anchor.execute("INSERT INTO marker VALUES ('shared')")
         anchor.commit()

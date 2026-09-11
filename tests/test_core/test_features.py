@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
@@ -19,6 +20,7 @@ from sqlseed.core.features import (
 from sqlseed.database.raw_sqlite_adapter import RawSQLiteAdapter
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
     from pathlib import Path
 
 
@@ -130,7 +132,7 @@ def test_structural_features_has_schema_hash_and_dialect():
 
 
 @pytest.fixture
-def tmp_users_db(tmp_path: Path) -> RawSQLiteAdapter:
+def tmp_users_db(tmp_path: Path) -> Iterator[RawSQLiteAdapter]:
     """Create a small users/orders DB for feature extraction tests."""
     db_path = tmp_path / "test.db"
     conn = sqlite3.connect(str(db_path))
@@ -151,9 +153,9 @@ def tmp_users_db(tmp_path: Path) -> RawSQLiteAdapter:
     """)
     conn.commit()
     conn.close()
-    adapter = RawSQLiteAdapter()
-    adapter.connect(str(db_path))
-    return adapter
+    with closing(RawSQLiteAdapter()) as adapter:
+        adapter.connect(str(db_path))
+        yield adapter
 
 
 def test_extractor_extract_returns_structural_features(tmp_users_db):
@@ -221,12 +223,12 @@ def test_extractor_sqlite_detects_strict_table(tmp_path: Path):
     conn.executescript("CREATE TABLE strict_tbl (x INTEGER) STRICT;")
     conn.commit()
     conn.close()
-    adapter = RawSQLiteAdapter()
-    adapter.connect(str(db_path))
-    extractor = StructuralFeatureExtractor(adapter)
-    features = extractor.extract()
-    strict_tbl = next(t for t in features.tables if t.name == "strict_tbl")
-    assert strict_tbl.is_strict is True
+    with closing(RawSQLiteAdapter()) as adapter:
+        adapter.connect(str(db_path))
+        extractor = StructuralFeatureExtractor(adapter)
+        features = extractor.extract()
+        strict_tbl = next(t for t in features.tables if t.name == "strict_tbl")
+        assert strict_tbl.is_strict is True
 
 
 def test_extractor_sqlite_detects_without_rowid(tmp_path: Path):
@@ -236,12 +238,12 @@ def test_extractor_sqlite_detects_without_rowid(tmp_path: Path):
     conn.executescript("CREATE TABLE wrid_tbl (id INTEGER PRIMARY KEY) WITHOUT ROWID;")
     conn.commit()
     conn.close()
-    adapter = RawSQLiteAdapter()
-    adapter.connect(str(db_path))
-    extractor = StructuralFeatureExtractor(adapter)
-    features = extractor.extract()
-    wrid = next(t for t in features.tables if t.name == "wrid_tbl")
-    assert wrid.is_without_rowid is True
+    with closing(RawSQLiteAdapter()) as adapter:
+        adapter.connect(str(db_path))
+        extractor = StructuralFeatureExtractor(adapter)
+        features = extractor.extract()
+        wrid = next(t for t in features.tables if t.name == "wrid_tbl")
+        assert wrid.is_without_rowid is True
 
 
 def test_extractor_sqlite_detects_column_collation(tmp_path: Path):
@@ -251,15 +253,15 @@ def test_extractor_sqlite_detects_column_collation(tmp_path: Path):
     conn.executescript("CREATE TABLE items (name TEXT COLLATE NOCASE, code TEXT COLLATE BINARY);")
     conn.commit()
     conn.close()
-    adapter = RawSQLiteAdapter()
-    adapter.connect(str(db_path))
-    extractor = StructuralFeatureExtractor(adapter)
-    features = extractor.extract()
-    items = next(t for t in features.tables if t.name == "items")
-    name_col = next(c for c in items.columns if c.name == "name")
-    code_col = next(c for c in items.columns if c.name == "code")
-    assert name_col.collation == "NOCASE"
-    assert code_col.collation == "BINARY"
+    with closing(RawSQLiteAdapter()) as adapter:
+        adapter.connect(str(db_path))
+        extractor = StructuralFeatureExtractor(adapter)
+        features = extractor.extract()
+        items = next(t for t in features.tables if t.name == "items")
+        name_col = next(c for c in items.columns if c.name == "name")
+        code_col = next(c for c in items.columns if c.name == "code")
+        assert name_col.collation == "NOCASE"
+        assert code_col.collation == "BINARY"
 
 
 def test_extractor_postgresql_dialect_returns_empty_features():

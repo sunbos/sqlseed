@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 import time
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -22,7 +22,7 @@ from sqlseed_web.workbench_store import WorkspaceStore
 @pytest.fixture()
 def target(tmp_path: Path) -> Iterator[tuple[UIState, Connection, WorkspaceStore]]:
     path = tmp_path / "target.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.executescript(
             "CREATE TABLE parents(id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT UNIQUE NOT NULL);"
             "CREATE TABLE children(id INTEGER PRIMARY KEY AUTOINCREMENT, parent_id INTEGER NOT NULL REFERENCES parents(id));"
@@ -93,7 +93,7 @@ def wait_run(registry: UIState, store: WorkspaceStore, run: dict[str, Any]) -> d
 
 
 def contents(conn: Connection) -> dict[str, Any]:
-    with sqlite3.connect(conn.target) as db:
+    with closing(sqlite3.connect(conn.target)) as db, db:
         return {
             name: db.execute(f'SELECT * FROM "{name}" ORDER BY 1').fetchall()
             for name in ["parents", "children", "unrelated", "sqlite_sequence"]
@@ -141,7 +141,7 @@ def test_clear_and_reset_are_separate_and_foreign_keys_use_new_transaction_rows(
     assert rows["children"][0][0] == first_child and len(rows["children"]) == 3
     assert {row[1] for row in rows["children"]} <= {row[0] for row in rows["parents"]}
     assert rows["unrelated"] == [(7, "keep")]
-    with sqlite3.connect(conn.target) as db:
+    with closing(sqlite3.connect(conn.target)) as db, db:
         assert db.execute("PRAGMA foreign_key_check").fetchall() == []
     with pytest.raises(ValueError, match="immutable"):
         store.update_run(run["id"], {"execution": {"mode": "append", "reset_identity": False}})
@@ -154,7 +154,7 @@ def test_external_incoming_fk_blocks_clearing_even_with_cascade(
     from sqlseed_web.workbench_runtime import plan_execution, start_run
 
     registry, conn, store = target
-    with sqlite3.connect(conn.target) as db:
+    with closing(sqlite3.connect(conn.target)) as db, db:
         db.executescript(
             f"DROP TABLE children; CREATE TABLE children(id INTEGER PRIMARY KEY AUTOINCREMENT, parent_id INTEGER REFERENCES parents(id) ON DELETE {action}); INSERT INTO children VALUES(60,40);"
         )
@@ -178,7 +178,7 @@ def test_late_generated_batch_failure_restores_every_original_row_and_sequence(
     from sqlseed_web.workbench_runtime import plan_execution, start_run
 
     registry, conn, store = target
-    with sqlite3.connect(conn.target) as db:
+    with closing(sqlite3.connect(conn.target)) as db, db:
         db.executescript(
             "DELETE FROM children; DROP TABLE parents; CREATE TABLE parents(id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT UNIQUE NOT NULL CHECK(code <> 'new-4')); INSERT INTO parents VALUES(40,'old'); INSERT INTO children VALUES(60,40);"
         )
@@ -270,7 +270,7 @@ def test_worker_rechecks_after_writer_lock_and_before_any_delete(
     def concurrent_change(adapter: SQLAlchemyAdapter) -> Iterator[SQLAlchemyAdapter]:
         # Real second connection changes the target after request/worker checks,
         # immediately before the production writer takes BEGIN IMMEDIATE.
-        with sqlite3.connect(conn.target) as db:
+        with closing(sqlite3.connect(conn.target)) as db, db:
             if change == "rows":
                 db.execute("INSERT INTO parents VALUES(42,'concurrent')")
             else:
@@ -300,7 +300,7 @@ def test_replacement_blocks_unbounded_side_effects_and_removed_enrichment_source
 
     registry, conn, store = target
     if feature == "trigger":
-        with sqlite3.connect(conn.target) as db:
+        with closing(sqlite3.connect(conn.target)) as db, db:
             db.execute("CREATE TRIGGER outside_effect AFTER INSERT ON children BEGIN DELETE FROM unrelated; END")
     args, _ = prepared(conn, store, [{"name": "children", "count": 2, "enrich": feature == "enrich"}])
     before = contents(conn)
@@ -315,7 +315,7 @@ def test_sqlite_nullable_self_reference_uses_new_ids_and_deferred_updates(
     from sqlseed_web.workbench_runtime import plan_execution, start_run
 
     registry, conn, store = target
-    with sqlite3.connect(conn.target) as db:
+    with closing(sqlite3.connect(conn.target)) as db, db:
         db.executescript(
             "CREATE TABLE employees(id INTEGER PRIMARY KEY AUTOINCREMENT, manager_id INTEGER REFERENCES employees(id)); INSERT INTO employees VALUES(90,NULL); INSERT INTO employees VALUES(91,90);"
         )
@@ -329,7 +329,7 @@ def test_sqlite_nullable_self_reference_uses_new_ids_and_deferred_updates(
         start_run(**args, execution=execution, plan_hash=plan["plan_hash"], registry=registry, store=store),
     )
     assert run["status"] == "done", run
-    with sqlite3.connect(conn.target) as db:
+    with closing(sqlite3.connect(conn.target)) as db, db:
         rows = db.execute("SELECT * FROM employees ORDER BY id").fetchall()
         assert [row[0] for row in rows] == list(range(1, 9))
         assert all(row[1] is None or 1 <= row[1] <= 8 for row in rows)
@@ -431,7 +431,7 @@ def test_existing_self_reference_restrict_blocks_before_delete(
     from sqlseed_web.workbench_runtime import plan_execution
 
     registry, conn, store = target
-    with sqlite3.connect(conn.target) as db:
+    with closing(sqlite3.connect(conn.target)) as db, db:
         db.executescript(
             "CREATE TABLE employees(id INTEGER PRIMARY KEY AUTOINCREMENT, manager_id INTEGER REFERENCES employees(id) ON DELETE RESTRICT); INSERT INTO employees VALUES(90,NULL); INSERT INTO employees VALUES(91,90);"
         )

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -17,7 +18,7 @@ from sqlseed_web.state import UIState
 @pytest.fixture()
 def local_api(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[TestClient, UIState, Path]:
     database = tmp_path / "private.db"
-    with sqlite3.connect(database) as connection:
+    with closing(sqlite3.connect(database)) as connection, connection:
         connection.execute("CREATE TABLE records (value TEXT)")
         connection.execute("INSERT INTO records VALUES ('unchanged')")
     registry = UIState()
@@ -58,7 +59,7 @@ def test_cross_origin_reads_preflights_and_simple_posts_cannot_access_local_conn
         assert "access-control-allow-origin" not in response.headers
         assert str(database) not in response.text
     assert registry.list_connections() == before
-    with sqlite3.connect(database) as connection:
+    with closing(sqlite3.connect(database)) as connection, connection:
         assert connection.execute("SELECT * FROM records").fetchall() == [("unchanged",)]
 
 

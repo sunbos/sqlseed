@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import sqlite3
+from contextlib import closing
 from typing import TYPE_CHECKING
 
 import pytest
@@ -17,7 +18,7 @@ if TYPE_CHECKING:
 def test_execute_fill_does_not_write_progress_to_stdout(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     pytest.importorskip("rich")
     db_path = tmp_path / "mcp.db"
-    with sqlite3.connect(db_path) as conn:
+    with closing(sqlite3.connect(db_path)) as conn, conn:
         conn.execute("CREATE TABLE items (value INTEGER)")
 
     result = asyncio.run(
@@ -30,5 +31,5 @@ def test_execute_fill_does_not_write_progress_to_stdout(tmp_path: Path, capsys: 
     payload = json.loads(content[0].text)
     assert payload["count"] == 3
     assert payload["errors"] == []
-    with sqlite3.connect(db_path) as conn:
+    with closing(sqlite3.connect(db_path)) as conn, conn:
         assert conn.execute("SELECT COUNT(*) FROM items").fetchone()[0] == 3

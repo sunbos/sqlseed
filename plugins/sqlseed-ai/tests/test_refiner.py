@@ -8,6 +8,7 @@ detection relies on real SQLAlchemy schema reflection.
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from datetime import date, datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
@@ -254,7 +255,7 @@ class TestRule14ParamStripping:
     ) -> None:
         """Aliases and flat params must pass through the same generator whitelist."""
         db_path = tmp_path / "shapes.db"
-        with sqlite3.connect(db_path) as conn:
+        with closing(sqlite3.connect(db_path)) as conn, conn:
             conn.execute("CREATE TABLE codes (code TEXT NOT NULL CHECK(code = 'ZZZZ'))")
         params = {"min_length": 4, "max_length": 4, "charset": "Z", "pattern": "[A-Z]{4}"}
         column = {"name": "code", generator_key: "string"}
@@ -268,7 +269,7 @@ class TestRule14ParamStripping:
         with DataOrchestrator(str(db_path)) as orch:
             error = refiner._validate_config(orch, "codes", config)
         assert error is None
-        with sqlite3.connect(db_path) as conn:
+        with closing(sqlite3.connect(db_path)) as conn, conn:
             assert conn.execute("SELECT COUNT(*) FROM codes").fetchone() == (0,)
 
     def test_corrects_singular_choice_to_choices(self, tmp_path: Path) -> None:
@@ -363,7 +364,7 @@ def test_date_dry_run_uses_explicit_sqlite_binding(
         if value_kind == "date"
         else datetime(2024, 2, 29, 12, 34, 56, 123456, tzinfo=timezone(timedelta(hours=5, minutes=30)))
     )
-    with sqlite3.connect(db_path) as conn:
+    with closing(sqlite3.connect(db_path)) as conn, conn:
         conn.execute(f"CREATE TABLE events (created_at {sql_type} NOT NULL)")
         # Validate the stored representation after binding, without CHECK
         # inference replacing the date generator's values before insertion.
@@ -380,5 +381,5 @@ def test_date_dry_run_uses_explicit_sqlite_binding(
     with DataOrchestrator(str(db_path)) as orch:
         error = refiner._validate_config(orch, "events", config)
     assert error is None
-    with sqlite3.connect(db_path) as conn:
+    with closing(sqlite3.connect(db_path)) as conn, conn:
         assert conn.execute("SELECT COUNT(*) FROM events").fetchone() == (0,)

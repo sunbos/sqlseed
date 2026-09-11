@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from typing import TYPE_CHECKING
 
 import pytest
@@ -21,7 +22,7 @@ def _pragmas(orch: DataOrchestrator) -> list[dict[str, object]]:
 
 def test_explicit_null_self_reference_preserves_check_and_old_rows(tmp_path: Path) -> None:
     path = tmp_path / "post_fill_failure.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.executescript(
             "CREATE TABLE nodes (id INTEGER PRIMARY KEY, parent_id INTEGER REFERENCES nodes(id), "
             "label TEXT NOT NULL, CHECK(parent_id IS NULL));"
@@ -53,7 +54,7 @@ def test_explicit_null_self_reference_preserves_check_and_old_rows(tmp_path: Pat
 
 def test_derived_index_error_reports_failure_and_preserves_committed_batch(tmp_path: Path) -> None:
     path = tmp_path / "expression_failure.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute("CREATE TABLE items (id INTEGER PRIMARY KEY, token TEXT, result TEXT)")
     with DataOrchestrator(str(path), provider_name="base") as orch:
         before = _pragmas(orch)
@@ -88,7 +89,7 @@ def test_process_control_exceptions_propagate_and_restore_settings(
             raise exception("stop generation")
 
     path = tmp_path / "interrupted.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute("CREATE TABLE items (id INTEGER PRIMARY KEY)")
     with DataOrchestrator(str(path), provider_name="base") as orch:
         before = _pragmas(orch)

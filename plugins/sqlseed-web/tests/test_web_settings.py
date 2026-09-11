@@ -13,6 +13,7 @@ import subprocess
 import sys
 import time
 from collections.abc import Iterator
+from contextlib import closing
 from datetime import datetime
 from importlib import metadata
 from pathlib import Path
@@ -513,7 +514,7 @@ def test_legacy_auto_heal_cannot_reuse_env_key_for_request_endpoint(
 
     _, registry, _ = settings_client
     path = tmp_path / "auto-heal.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
     connection = registry.add_connection(str(path), provider="base")
     job = registry.create_job(connection.conn_id, "auto_heal", "credential isolation")

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from typing import TYPE_CHECKING
 
 import pytest
@@ -18,7 +19,7 @@ if TYPE_CHECKING:
 @pytest.fixture(params=["path", "url"])
 def fk_adapter(tmp_path: Path, request: pytest.FixtureRequest) -> Iterator[SQLAlchemyAdapter]:
     db_path = tmp_path / "foreign_keys.db"
-    with sqlite3.connect(db_path) as connection:
+    with closing(sqlite3.connect(db_path)) as connection, connection:
         connection.executescript(
             """
             CREATE TABLE parents (id INTEGER PRIMARY KEY AUTOINCREMENT);

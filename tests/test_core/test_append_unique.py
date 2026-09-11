@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from typing import TYPE_CHECKING
 
 import pytest
@@ -16,7 +17,7 @@ if TYPE_CHECKING:
 @pytest.mark.parametrize("constraint", ["PRIMARY KEY", "UNIQUE"])
 def test_append_avoids_existing_composite_fk_keys(tmp_path: Path, constraint: str) -> None:
     path = tmp_path / "append.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.executescript(
             "CREATE TABLE orders (id INTEGER PRIMARY KEY);"
             "CREATE TABLE products (id INTEGER PRIMARY KEY);"
@@ -45,7 +46,7 @@ def test_append_avoids_existing_composite_fk_keys(tmp_path: Path, constraint: st
 
 def test_append_avoids_existing_single_unique_values(tmp_path: Path) -> None:
     path = tmp_path / "single.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute("CREATE TABLE items (code TEXT NOT NULL UNIQUE)")
     columns = {"code": {"generator": "choice", "params": {"choices": [str(i) for i in range(40)]}}}
     with DataOrchestrator(str(path), provider_name="base", optimize_pragma=False) as orch:
@@ -115,7 +116,7 @@ def test_composite_registration_rolls_back_when_check_fails() -> None:
 @pytest.mark.parametrize("constraint", ["UNIQUE(a)", "UNIQUE(a, b)"])
 def test_append_preserves_sql_null_uniqueness(tmp_path: Path, constraint: str) -> None:
     path = tmp_path / "null.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute(f"CREATE TABLE items (a INTEGER, b INTEGER NOT NULL, {constraint})")
         db.execute("INSERT INTO items VALUES (NULL, 2)")
     with DataOrchestrator(str(path), provider_name="base", optimize_pragma=False) as orch:
@@ -135,7 +136,7 @@ def test_append_preserves_sql_null_uniqueness(tmp_path: Path, constraint: str) -
 
 def test_append_exhausted_composite_domain_preserves_existing_rows(tmp_path: Path) -> None:
     path = tmp_path / "full.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute("CREATE TABLE items (a INTEGER NOT NULL, b INTEGER NOT NULL, PRIMARY KEY(a,b))")
         db.execute("INSERT INTO items VALUES (1, 2)")
     with DataOrchestrator(str(path), provider_name="base", optimize_pragma=False) as orch:
@@ -157,7 +158,7 @@ def test_append_exhausted_composite_domain_preserves_existing_rows(tmp_path: Pat
 
 def test_clear_before_can_reuse_previous_keys(tmp_path: Path) -> None:
     path = tmp_path / "clear.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute("CREATE TABLE items (a INTEGER NOT NULL, b INTEGER NOT NULL, PRIMARY KEY(a,b))")
         db.execute("INSERT INTO items VALUES (1, 2)")
     with DataOrchestrator(str(path), provider_name="base", optimize_pragma=False) as orch:
@@ -179,7 +180,7 @@ def test_clear_before_can_reuse_previous_keys(tmp_path: Path) -> None:
 
 def test_append_database_lookup_uses_column_affinity_and_collation(tmp_path: Path) -> None:
     path = tmp_path / "collation.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute(
             'CREATE TABLE items ("select" TEXT COLLATE NOCASE NOT NULL, "order" INTEGER NOT NULL, '
             'UNIQUE("select", "order"))'
@@ -264,7 +265,7 @@ def test_existing_key_checks_remain_bounded_by_consumed_batch(tmp_path: Path, ex
     from sqlseed.database.sqlalchemy_adapter import SQLAlchemyAdapter
 
     path = tmp_path / "bounded.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute("CREATE TABLE items (a INTEGER NOT NULL UNIQUE)")
         if existing:
             db.execute("INSERT INTO items VALUES (42)")
@@ -315,7 +316,7 @@ def test_append_key_checks_match_insert_type_bindings(tmp_path: Path, column_typ
         if column_type == "DATETIME"
         else [Decimal("12.50"), Decimal("23.75")]
     )
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute(f"CREATE TABLE items (value {column_type} NOT NULL UNIQUE)")
     with DataOrchestrator(str(path), provider_name="base", optimize_pragma=False) as orch:
         orch.database_adapter.batch_insert("items", iter([{"value": values[0]}]))
@@ -333,7 +334,7 @@ def test_append_key_checks_match_insert_type_bindings(tmp_path: Path, column_typ
 
 def test_replayed_seed_prefix_stops_at_finite_retry_budget(tmp_path: Path) -> None:
     path = tmp_path / "replayed.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute("CREATE TABLE items (a INTEGER NOT NULL, b INTEGER NOT NULL, PRIMARY KEY(a,b))")
     columns = {name: {"generator": "integer", "params": {"min_value": 1, "max_value": 10000}} for name in ["a", "b"]}
     with DataOrchestrator(str(path), provider_name="base", optimize_pragma=False) as orch:

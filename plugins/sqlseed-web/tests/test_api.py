@@ -7,6 +7,7 @@ database layer — see root AGENTS.md Pitfall #13).
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -33,7 +34,7 @@ def client() -> TestClient:
 @pytest.fixture()
 def db_path(tmp_path: Path) -> str:
     path = tmp_path / "ui_test.db"
-    with sqlite3.connect(path) as conn:
+    with closing(sqlite3.connect(path)) as conn, conn:
         conn.execute("CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, email TEXT)")
         conn.execute(
             "CREATE TABLE orders ("
@@ -176,7 +177,7 @@ class TestConnections:
     def test_group_key_normalizes_paths(self, client: TestClient, tmp_path: Path) -> None:
         """File path, ./relative and sqlite:/// URL of one DB normalize to one group."""
         db = tmp_path / "grouped.db"
-        with sqlite3.connect(db) as conn:
+        with closing(sqlite3.connect(db)) as conn, conn:
             conn.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)")
         client.post("/api/connections", json={"db_path": str(db)})
         client.post("/api/connections", json={"db_path": f"sqlite:///{db}"})
@@ -240,7 +241,7 @@ class TestConnections:
         db1 = tmp_path / "a.db"
         db2 = tmp_path / "b.db"
         for db in (db1, db2):
-            with sqlite3.connect(db) as conn:
+            with closing(sqlite3.connect(db)) as conn, conn:
                 conn.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)")
         client.post("/api/connections", json={"db_path": str(db1)})
         client.post("/api/connections", json={"db_path": str(db2)})

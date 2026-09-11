@@ -5,6 +5,7 @@ from __future__ import annotations
 import sqlite3
 import time
 from collections.abc import Iterator
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -16,7 +17,7 @@ from sqlseed_web.state import Connection, UIState
 @pytest.fixture()
 def connection(tmp_path: Path) -> Iterator[Connection]:
     path = tmp_path / "workbench.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.executescript(
             "CREATE TABLE parents (id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT NOT NULL UNIQUE);"
             "CREATE TABLE children (id INTEGER PRIMARY KEY AUTOINCREMENT, parent_id INTEGER NOT NULL "
@@ -154,7 +155,7 @@ def test_run_executes_saved_parent_first_plan_with_derived_columns(connection: C
     assert run["status"] == "done", run
     assert run["rows_inserted"] == 7
     assert [table["name"] for table in run["tables"]] == ["parents", "children"]
-    with sqlite3.connect(connection.target) as db:
+    with closing(sqlite3.connect(connection.target)) as db, db:
         assert (
             db.execute(
                 "SELECT COUNT(*) FROM children JOIN parents ON parents.id = children.parent_id WHERE amount=7 AND doubled=14"
@@ -167,7 +168,7 @@ def test_run_executes_saved_parent_first_plan_with_derived_columns(connection: C
 def test_partial_failure_stops_later_tables_and_reports_committed_batches(
     connection: Connection, tmp_path: Path
 ) -> None:
-    with sqlite3.connect(connection.target) as db:
+    with closing(sqlite3.connect(connection.target)) as db, db:
         db.executescript(
             "CREATE TRIGGER reject_later BEFORE INSERT ON parents WHEN (SELECT COUNT(*) FROM parents) >= 2 BEGIN SELECT RAISE(ABORT, 'second batch rejected'); END;"
         )
@@ -200,7 +201,7 @@ def test_cross_table_cycle_and_column_cycle_are_rejected(connection: Connection)
     from sqlseed_web.workbench_runtime import check_document
     from sqlseed_web.workbench_schema import inspect_connection
 
-    with sqlite3.connect(connection.target) as db:
+    with closing(sqlite3.connect(connection.target)) as db, db:
         db.executescript(
             "CREATE TABLE a(id INTEGER PRIMARY KEY, bid INTEGER REFERENCES b(id)); CREATE TABLE b(id INTEGER PRIMARY KEY, aid INTEGER REFERENCES a(id));"
         )
@@ -292,7 +293,7 @@ def test_check_catches_derived_null_and_unique_exhaustion(connection: Connection
     from sqlseed_web.workbench_runtime import check_document
     from sqlseed_web.workbench_schema import inspect_connection
 
-    with sqlite3.connect(connection.target) as db:
+    with closing(sqlite3.connect(connection.target)) as db, db:
         db.execute("INSERT INTO parents(code) VALUES ('existing')")
     schema = inspect_connection(connection)
     config = document()
@@ -315,11 +316,11 @@ def test_check_hash_changes_when_parent_values_change_at_same_row_count(connecti
     from sqlseed_web.workbench_runtime import check_document
     from sqlseed_web.workbench_schema import inspect_connection
 
-    with sqlite3.connect(connection.target) as db:
+    with closing(sqlite3.connect(connection.target)) as db, db:
         db.execute("INSERT INTO parents(id, code) VALUES (1, 'existing')")
     schema = inspect_connection(connection)
     before = check_document(connection, document(), schema["schema_hash"])
-    with sqlite3.connect(connection.target) as db:
+    with closing(sqlite3.connect(connection.target)) as db, db:
         db.execute("UPDATE parents SET id=2")
     after = check_document(connection, document(), schema["schema_hash"])
     assert before["ok"] and after["ok"]
@@ -378,7 +379,7 @@ def test_per_column_provider_cannot_silently_override_global_provider(connection
 def test_saved_associations_and_custom_mappings_reach_core(
     connection: Connection, tmp_path: Path, mapping_mode: str, expected: int
 ) -> None:
-    with sqlite3.connect(connection.target) as db:
+    with closing(sqlite3.connect(connection.target)) as db, db:
         db.execute("CREATE TABLE associated (id INTEGER PRIMARY KEY, code_ref TEXT NOT NULL, marker INTEGER NOT NULL)")
     config = {
         "provider": "faker",
@@ -411,7 +412,7 @@ def test_saved_associations_and_custom_mappings_reach_core(
         ]
     run = run_plan(connection, config, tmp_path)
     assert run["status"] == "done", run
-    with sqlite3.connect(connection.target) as db:
+    with closing(sqlite3.connect(connection.target)) as db, db:
         assert (
             db.execute(
                 "SELECT COUNT(*) FROM associated JOIN parents ON associated.code_ref = parents.code WHERE marker=?",
@@ -422,7 +423,7 @@ def test_saved_associations_and_custom_mappings_reach_core(
 
 
 def test_nullable_self_reference_is_supported(connection: Connection, tmp_path: Path) -> None:
-    with sqlite3.connect(connection.target) as db:
+    with closing(sqlite3.connect(connection.target)) as db, db:
         db.execute(
             "CREATE TABLE nodes (id INTEGER PRIMARY KEY, parent_id INTEGER REFERENCES nodes(id), label TEXT NOT NULL)"
         )
@@ -435,7 +436,7 @@ def test_nullable_self_reference_is_supported(connection: Connection, tmp_path: 
         tmp_path,
     )
     assert run["status"] == "done", run
-    with sqlite3.connect(connection.target) as db:
+    with closing(sqlite3.connect(connection.target)) as db, db:
         assert db.execute("SELECT COUNT(*) FROM nodes").fetchone()[0] == 10
         assert db.execute("PRAGMA foreign_key_check").fetchall() == []
 
@@ -444,7 +445,7 @@ def test_source_check_explains_existing_parent_without_exposing_its_values(conne
     from sqlseed_web.workbench_runtime import check_document
     from sqlseed_web.workbench_schema import inspect_connection
 
-    with sqlite3.connect(connection.target) as db:
+    with closing(sqlite3.connect(connection.target)) as db, db:
         db.execute("INSERT INTO parents(code) VALUES ('private-parent-value')")
     config = document()
     config["tables"] = config["tables"][:1]

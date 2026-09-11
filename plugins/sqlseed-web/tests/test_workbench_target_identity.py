@@ -88,7 +88,7 @@ def test_real_file_aliases_share_configuration_group_and_write_admission(
 @pytest.mark.parametrize("name", ["identity-shared", ":memory:"])
 def test_named_shared_memory_uses_one_identity_without_ambiguous_legacy_aliases(registry: UIState, name: str) -> None:
     uri = f"file:{name}?mode=memory&cache=shared"
-    with sqlite3.connect(uri, uri=True) as anchor:
+    with closing(sqlite3.connect(uri, uri=True)) as anchor, anchor:
         anchor.executescript("CREATE TABLE items(value INTEGER); INSERT INTO items VALUES(7)")
         one = registry.add_connection(f"sqlite:///{uri}&uri=true", provider="base")
         two = registry.add_connection(f"sqlite:///{uri}&uri=true&timeout=10", provider="base")
@@ -200,7 +200,12 @@ def test_identical_schema_in_another_database_does_not_authorize_a_saved_draft(
     registry: UIState, database: Path, tmp_path: Path
 ) -> None:
     other = tmp_path / "other.db"
-    with sqlite3.connect(database) as source, sqlite3.connect(other) as destination:
+    with (
+        closing(sqlite3.connect(database)) as source,
+        source,
+        closing(sqlite3.connect(other)) as destination,
+        destination,
+    ):
         source.backup(destination)
     one = registry.add_connection(str(database), provider="base")
     two = registry.add_connection(f"sqlite:///file:{quote(str(other))}?uri=true", provider="base")
@@ -230,7 +235,7 @@ def test_literal_file_prefix_draft_is_never_authorized_for_a_different_uri_datab
     # An absolute path creates the literal filename on both SQLite builds, as
     # SQLAlchemy also does for the non-URI connection below.
     for filename, marker in (("file:catalog.db", 7), ("catalog.db", 99)):
-        with sqlite3.connect(tmp_path / filename, uri=False) as db:
+        with closing(sqlite3.connect(tmp_path / filename, uri=False)) as db, db:
             db.execute("CREATE TABLE items(id INTEGER PRIMARY KEY, value INTEGER NOT NULL)")
             db.execute("INSERT INTO items VALUES(1, ?)", (marker,))
     literal = registry.add_connection("sqlite:///file:catalog.db?uri=false", provider="base")
@@ -265,7 +270,12 @@ def test_custom_vfs_is_rejected_before_registering_an_isolated_database_as_the_s
     ordinary_uri = f"file:{name}" + ("?mode=memory&cache=shared" if memory else "?mode=rw")
     vfs_uri = ordinary_uri + "&vfs=memdb"
     # Real SQLite verifies the same name with memdb VFS addresses another database.
-    with sqlite3.connect(ordinary_uri, uri=True) as ordinary, sqlite3.connect(vfs_uri, uri=True) as isolated:
+    with (
+        closing(sqlite3.connect(ordinary_uri, uri=True)) as ordinary,
+        ordinary,
+        closing(sqlite3.connect(vfs_uri, uri=True)) as isolated,
+        isolated,
+    ):
         if memory:
             ordinary.executescript("CREATE TABLE items(value INTEGER); INSERT INTO items VALUES(7)")
         assert ordinary.execute("SELECT value FROM items").fetchall() == [(7,)]
@@ -283,7 +293,12 @@ def test_uri_nul_truncation_cannot_disguise_an_isolated_memory_database_as_a_dis
     registry: UIState, database: Path, query: str
 ) -> None:
     sqlite_uri = f"file:{quote(str(database))}?{query}"
-    with sqlite3.connect(database) as disk, sqlite3.connect(sqlite_uri, uri=True) as isolated:
+    with (
+        closing(sqlite3.connect(database)) as disk,
+        disk,
+        closing(sqlite3.connect(sqlite_uri, uri=True)) as isolated,
+        isolated,
+    ):
         assert disk.execute("SELECT value FROM items").fetchall() == [(7,)]
         assert isolated.execute("SELECT name FROM sqlite_schema WHERE name='items'").fetchall() == []
         isolated.executescript("CREATE TABLE items(value INTEGER); INSERT INTO items VALUES(99)")
@@ -304,11 +319,11 @@ def test_raw_uri_controls_cannot_silently_change_the_database_filename(
     ordinary = tmp_path / "catalog.db"
     different = tmp_path / f"ca{control}talog.db"
     for path, marker in ((ordinary, 7), (different, 99)):
-        with sqlite3.connect(path) as db:
+        with closing(sqlite3.connect(path)) as db, db:
             db.execute("CREATE TABLE items(value INTEGER)")
             db.execute("INSERT INTO items VALUES(?)", (marker,))
     raw_uri = f"file:{different}"
-    with sqlite3.connect(raw_uri, uri=True) as raw:
+    with closing(sqlite3.connect(raw_uri, uri=True)) as raw, raw:
         assert raw.execute("SELECT value FROM items").fetchall() == [(99,)]
     with pytest.raises(ValueError, match="控制字符"):
         registry.add_connection(f"sqlite:///{raw_uri}?uri=true", provider="base")
@@ -321,7 +336,12 @@ def test_raw_uri_controls_cannot_silently_change_the_database_filename(
 
 def test_non_utf8_memory_uri_names_are_rejected_instead_of_replaced_by_one_identity(registry: UIState) -> None:
     uris = [f"file:identity-{name}?mode=memory&cache=shared" for name in ("%FF", "%FE")]
-    with sqlite3.connect(uris[0], uri=True) as first, sqlite3.connect(uris[1], uri=True) as second:
+    with (
+        closing(sqlite3.connect(uris[0], uri=True)) as first,
+        first,
+        closing(sqlite3.connect(uris[1], uri=True)) as second,
+        second,
+    ):
         first.executescript("CREATE TABLE items(value INTEGER); INSERT INTO items VALUES(7)")
         second.executescript("CREATE TABLE items(value INTEGER); INSERT INTO items VALUES(99)")
         assert first.execute("SELECT value FROM items").fetchall() == [(7,)]

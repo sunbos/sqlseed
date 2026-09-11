@@ -6,6 +6,7 @@ import importlib
 import json
 import sqlite3
 from collections.abc import Iterator
+from contextlib import closing
 from importlib import metadata
 from pathlib import Path
 from typing import Any
@@ -30,7 +31,7 @@ def ai_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple
     # Installed-but-broken imports should fail visibly, not become a missing-plugin skip.
     importlib.import_module("sqlseed_ai.config")
     path = tmp_path / "private-target.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.executescript(
             "CREATE TABLE users(id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT NOT NULL UNIQUE);"
             "CREATE TABLE orders(id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER REFERENCES users(id), amount REAL NOT NULL, doubled REAL);"
@@ -127,7 +128,7 @@ def test_schema_changes_before_or_during_analysis_reject(ai_client: Any, monkeyp
     assert client.post("/api/workbench/ai/suggest", json={**payload, "schema_hash": "old"}).status_code == 409
 
     def change_schema(messages: Any, **kwargs: Any) -> dict[str, Any]:
-        with sqlite3.connect(registry.get_connection(payload["conn_id"]).target) as db:
+        with closing(sqlite3.connect(registry.get_connection(payload["conn_id"]).target)) as db, db:
             db.execute("ALTER TABLE orders ADD COLUMN note TEXT")
         return {"suggestions": []}
 
@@ -283,7 +284,7 @@ def test_default_with_active_generator_is_ai_editable(
 ) -> None:
     client, registry, payload = ai_client
     conn = registry.get_connection(payload["conn_id"])
-    with sqlite3.connect(conn.target) as db:
+    with closing(sqlite3.connect(conn.target)) as db, db:
         db.execute("ALTER TABLE orders ADD COLUMN balance REAL NOT NULL DEFAULT 0 CHECK(balance >= 0)")
         db.execute("ALTER TABLE orders ADD COLUMN reserved REAL NOT NULL DEFAULT 0")
     payload["schema_hash"] = inspect_connection(conn)["schema_hash"]
@@ -320,7 +321,7 @@ def test_default_with_active_generator_is_ai_editable(
 def test_custom_mapping_that_uses_default_stays_protected(ai_client: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     client, registry, payload = ai_client
     conn = registry.get_connection(payload["conn_id"])
-    with sqlite3.connect(conn.target) as db:
+    with closing(sqlite3.connect(conn.target)) as db, db:
         db.execute("ALTER TABLE orders ADD COLUMN balance REAL NOT NULL DEFAULT 0")
     payload["schema_hash"] = inspect_connection(conn)["schema_hash"]
     payload["document"]["custom_column_mappings"] = {"exact": {"balance": {"generator": "skip"}}}
@@ -349,7 +350,7 @@ def test_default_eligibility_resolves_custom_mappings_without_ai_or_record_data(
 ) -> None:
     client, registry, payload = ai_client
     conn = registry.get_connection(payload["conn_id"])
-    with sqlite3.connect(conn.target) as db:
+    with closing(sqlite3.connect(conn.target)) as db, db:
         db.execute("ALTER TABLE orders ADD COLUMN reserved REAL NOT NULL DEFAULT 0")
     payload["schema_hash"] = inspect_connection(conn)["schema_hash"]
     payload["document"]["custom_column_mappings"] = {"exact": {"reserved": {"generator": generator}}}
@@ -371,7 +372,7 @@ def test_default_eligibility_resolves_custom_mappings_without_ai_or_record_data(
 def test_default_eligibility_preserves_unselected_draft_override(ai_client: Any) -> None:
     client, registry, payload = ai_client
     conn = registry.get_connection(payload["conn_id"])
-    with sqlite3.connect(conn.target) as db:
+    with closing(sqlite3.connect(conn.target)) as db, db:
         db.execute("ALTER TABLE orders ADD COLUMN reserved REAL NOT NULL DEFAULT 0")
     table = payload["document"]["tables"].pop()
     table["columns"].append({"name": "reserved", "generator": "float", "params": {"min_value": 1, "max_value": 2}})
@@ -392,7 +393,7 @@ def test_default_eligibility_preserves_unselected_draft_override(ai_client: Any)
 def test_default_eligibility_resolves_enrichment_without_exposing_its_values(ai_client: Any) -> None:
     client, registry, payload = ai_client
     conn = registry.get_connection(payload["conn_id"])
-    with sqlite3.connect(conn.target) as db:
+    with closing(sqlite3.connect(conn.target)) as db, db:
         db.execute("ALTER TABLE orders ADD COLUMN reserved TEXT NOT NULL DEFAULT 'pending'")
         db.executemany("INSERT INTO orders(amount, reserved) VALUES (?, ?)", [(1, "private-enrichment-value")] * 30)
     payload["document"]["tables"][0]["enrich"] = True
@@ -501,7 +502,7 @@ def test_candidate_check_failure_identifies_column_without_sample_value(
 ) -> None:
     client, registry, payload = ai_client
     conn = registry.get_connection(payload["conn_id"])
-    with sqlite3.connect(conn.target) as db:
+    with closing(sqlite3.connect(conn.target)) as db, db:
         db.execute("ALTER TABLE orders ADD COLUMN phone TEXT CHECK(length(phone) BETWEEN 11 AND 11)")
     payload["schema_hash"] = inspect_connection(conn)["schema_hash"]
     monkeypatch.setattr(
@@ -812,7 +813,7 @@ def test_rejected_rule_identifies_known_field_and_safe_parameter_reason(
 def test_ai_sample_budget_allows_three_rows_of_a_wide_table(ai_client: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     client, registry, payload = ai_client
     conn = registry.get_connection(payload["conn_id"])
-    with sqlite3.connect(conn.target) as db:
+    with closing(sqlite3.connect(conn.target)) as db, db:
         db.execute("CREATE TABLE wide(" + ",".join(f"field_{index} INTEGER NOT NULL" for index in range(200)) + ")")
     payload.update(schema_hash=inspect_connection(conn)["schema_hash"], tables=["wide"])
     payload["document"]["tables"] = [

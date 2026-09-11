@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
@@ -23,7 +24,7 @@ if TYPE_CHECKING:
 @pytest.fixture
 def simple_db(tmp_path: Path) -> Path:
     path = tmp_path / "simple.db"
-    with sqlite3.connect(str(path)) as conn:
+    with closing(sqlite3.connect(str(path))) as conn, conn:
         conn.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT UNIQUE)")
     return path
 
@@ -100,7 +101,7 @@ def test_run_verifies_schema_hash_at_write_time(simple_db: Path):
 def unique_length_db(tmp_path: Path) -> Path:
     """DB with UNIQUE + LENGTH(N) CHECK columns (the conflict case)."""
     path = tmp_path / "unique_len.db"
-    with sqlite3.connect(str(path)) as conn:
+    with closing(sqlite3.connect(str(path))) as conn, conn:
         conn.execute(
             """
             CREATE TABLE codes (
@@ -782,7 +783,7 @@ def semantic_db(tmp_path: Path) -> Path:
     exact match rules + 29 pattern rules for semantic column name matching.
     """
     path = tmp_path / "semantic.db"
-    with sqlite3.connect(str(path)) as conn:
+    with closing(sqlite3.connect(str(path))) as conn, conn:
         conn.execute(
             """
             CREATE TABLE profiles (
@@ -1046,7 +1047,7 @@ def _run_with_missing_template_param(db_path: Path) -> dict:
     """
     # These are the columns whose generated templates are under test; they
     # must exist in the real schema rather than only in a mocked config.
-    with sqlite3.connect(db_path) as db:
+    with closing(sqlite3.connect(db_path)) as db, db:
         for name in ("user_code", "order_no", "cert_no"):
             db.execute(f'ALTER TABLE profiles ADD COLUMN "{name}" TEXT')
     mock_healer = MagicMock()
@@ -1117,7 +1118,7 @@ def test_step55_missing_template_param_cert_no(semantic_db: Path):
 def self_ref_fk_db(tmp_path: Path) -> Path:
     """DB with a self-referencing FK (categories.parent_id → categories.id)."""
     path = tmp_path / "self_ref.db"
-    with sqlite3.connect(str(path)) as conn:
+    with closing(sqlite3.connect(str(path))) as conn, conn:
         conn.execute(
             """
             CREATE TABLE categories (
@@ -1189,7 +1190,7 @@ def test_step0_non_self_ref_fk_not_affected(simple_db: Path):
 def phone_length_db(tmp_path: Path) -> Path:
     """DB with phone column that has LENGTH(phone) = 11 CHECK constraint."""
     path = tmp_path / "phone_len.db"
-    with sqlite3.connect(str(path)) as conn:
+    with closing(sqlite3.connect(str(path))) as conn, conn:
         conn.execute(
             """
             CREATE TABLE users (
@@ -1206,7 +1207,7 @@ def phone_length_db(tmp_path: Path) -> Path:
 def phone_length_not_null_db(tmp_path: Path) -> Path:
     """DB with NOT NULL phone column that has LENGTH(phone) = 11 CHECK."""
     path = tmp_path / "phone_len_nn.db"
-    with sqlite3.connect(str(path)) as conn:
+    with closing(sqlite3.connect(str(path))) as conn, conn:
         conn.execute(
             """
             CREATE TABLE contacts (
@@ -1279,7 +1280,7 @@ def test_step2_non_phone_with_length_check_keeps_string(tmp_path: Path):
     ``max_length`` config.
     """
     path = tmp_path / "code_len.db"
-    with sqlite3.connect(str(path)) as conn:
+    with closing(sqlite3.connect(str(path))) as conn, conn:
         conn.execute(
             """
             CREATE TABLE items (
@@ -1509,7 +1510,7 @@ def test_infer_cross_column_timedelta_for_real_datetime():
 def like_time_db(tmp_path: Path) -> Path:
     """DB with time-string columns (LIKE '__:__') and a cross-column CHECK."""
     path = tmp_path / "like_time.db"
-    with sqlite3.connect(str(path)) as conn:
+    with closing(sqlite3.connect(str(path))) as conn, conn:
         conn.execute(
             """
             CREATE TABLE shifts (
@@ -1635,7 +1636,7 @@ def test_step55_preserves_derive_from_for_real_datetime(
     from sqlseed import fill_from_config
 
     path = tmp_path / "datetime.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute(
             "CREATE TABLE events (id INTEGER PRIMARY KEY AUTOINCREMENT, "
             "start_dt DATETIME NOT NULL, end_dt DATETIME, "
@@ -1663,7 +1664,7 @@ def test_step55_preserves_derive_from_for_real_datetime(
     output.write_text(yaml.safe_dump(config))
     result = fill_from_config(output)
     assert result[0].count == 3 and result[0].errors == []
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         assert db.execute("SELECT count(*) FROM events WHERE end_dt >= start_dt").fetchone()[0] == 3
 
 
@@ -1685,7 +1686,7 @@ def test_step55_strips_generator_when_derive_from_present(tmp_path: Path):
     any database where the LLM emits both modes, not just R3.
     """
     path = tmp_path / "mixed_mode.db"
-    with sqlite3.connect(str(path)) as conn:
+    with closing(sqlite3.connect(str(path))) as conn, conn:
         conn.execute(
             """
             CREATE TABLE shipments (

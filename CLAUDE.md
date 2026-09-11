@@ -203,7 +203,7 @@ When modifying these source files, update the corresponding docs in the same com
 | `plugins/sqlseed-ai/src/sqlseed_ai/cli/ai_commands.py` | README.md, README.zh-CN.md | AI CLI command reference |
 | `src/sqlseed/__init__.py` | README.md, README.zh-CN.md | Public API table |
 
-Run `pytest tests/test_doc_sync.py` to verify doc sync after changes. Uses AUTO-GENERATED markers (`<!-- BEGIN:AUTO-GENERATED:marker-name -->value<!-- END:AUTO-GENERATED:marker-name -->`) for automated count verification.
+Run `pytest tests/test_doc_sync.py` to verify doc sync after changes. Automated count verification uses paired HTML comments named `BEGIN:AUTO-GENERATED:<name>` and `END:AUTO-GENERATED:<name>`, with the generated value between them.
 
 ## Testing
 
@@ -252,7 +252,7 @@ Float CHECK bounds round inward to decimal precision grid points, not simply `bo
 9. **Provider fallback**: `_ensure_connected()` silently falls back to `"base"` on provider load failure. Provider chain: mimesis (optional, high-performance) → faker (required, standard) → base (type-routing only, no real data).
 10. **Orchestrator is a package**: `core/orchestrator/` is a package with 4 mixin modules, not a single file. Imports should use `from sqlseed.core.orchestrator import DataOrchestrator`.
 11. **db_path vs url**: Public API and CLI both support `db_path` (SQLite) and `url` (database URL) as mutually exclusive connection modes. Never pass both.
-12. **AUTO-GENERATED markers**: Doc files use `<!-- BEGIN:AUTO-GENERATED:marker-name -->...<!-- END:AUTO-GENERATED:marker-name -->` markers for automated sync verification. Don't manually edit values inside markers — run `scripts/sync_docs.py` instead.
+12. **AUTO-GENERATED markers**: Doc files use paired `BEGIN:AUTO-GENERATED:<name>` and `END:AUTO-GENERATED:<name>` HTML comments for automated sync verification. Don't manually edit values inside markers — run `scripts/sync_docs.py` instead.
 13. **Mock self-proving trap**: Tests that mock `sqlseed.core.*` / `sqlseed.generators.*` / `sqlseed.database.*` classes (e.g., `mapper.map_column = MagicMock(return_value=...)` then `assert_called_once_with(...)`) are self-proving — the assertion merely echoes the mock setup and never verifies the actual computed `GeneratorSpec.params`. Use a real `ColumnMapper` + real `ColumnInfo` with non-None `default` (and a non-exact-match column name like `"category"`/`"rank"`) to exercise `_type_faithful_fallback` and the downstream `_adjust_*` math. Run `make mutmut` to detect self-proving tests — surviving mutants indicate the test fails to catch real behavior changes. See `tests/test_core/test_unique_adjuster.py::TestAdjustChoiceFallback` for the recommended real-schema pattern.
 14. **Architecture enforcement is multi-layer**: Defense against core code corruption/drift is provided by 4 complementary mechanisms — (a) `lint-imports` (CI gate, fails fast on forbidden layer crossings), (b) `tests/test_architecture.py` (14 invariant tests for module location, count contracts, public API), (c) `make mutmut` (mutation testing for self-proving mock detection), (d) `tests/test_doc_sync.py` (count markers in docs match code). All 4 must pass before merge.
 

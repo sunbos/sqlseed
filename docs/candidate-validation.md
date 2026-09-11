@@ -36,6 +36,7 @@
 - 独立 Web 服务实际卸载/安装 Mimesis 后恢复原连接，四表行数保持 12/8/24/48；缺失期间预览返回组件标识和安装/更换引擎提示。HTTP 验证不替代按钮和页面恢复的视觉验收。
 - 修复整数/CHECK 和字符串硬长度容量规划；列域校验先于清表，enrich+self-FK 从清空后的数据读取引用。此调整不把整个 fill 变成覆盖后续 provider/插件错误的事务。
 - SQLite 显式转换文本列中的日期，保留 SQLAlchemy 日期列处理器；AI 参数修复与 Core 共享别名和平铺输入规范化，避免非法参数在白名单之后被重新引入。
-- 冻结源码的 Python 3.13 全量结果：3288 passed、10 skipped、0 warnings；650 项 Node 回归通过。真实 Gemma 文件单独运行 7 项通过且无警告。跳过的 LM Studio、密钥和 Pillow 条件仍未覆盖。
+- Python 3.13 全量覆盖率复验：3290 passed、10 skipped、0 warnings；资源泄漏、弃用及不可引发异常警告均按错误处理。650 项 Node 回归通过。真实 Gemma 文件单独运行 7 项通过且无警告。跳过的 LM Studio、密钥和 Pillow 条件仍未覆盖。
+- 远程覆盖率测试曾暴露 795 条 SQLite 未关闭连接警告；补齐测试资源释放，并修复 AI 外键扫描的实际连接泄漏。CI 现在将资源泄漏及不可引发异常警告按错误处理；新的远程结果须重新核对。
 - 本地完整原始 mutation：239 total、231 killed、8 survived、退出码 2，无 timeout/suspicious/skipped/untested。6 项诊断文字、2 项合法但可能改变输出的采样差异仍待处理；没有放宽门禁或添加无关断言，PR 保持 Draft。
 - CI 外部依赖采用版本/hash 锁、锁定构建工具和两项源码包例外；维护说明见仓库的 `.github/DEPENDENCIES.md`。新的远程检查结果以对应提交为准，不能沿用上一提交的绿色状态。

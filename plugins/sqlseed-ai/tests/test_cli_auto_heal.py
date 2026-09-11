@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
@@ -14,7 +15,7 @@ if TYPE_CHECKING:
 @pytest.fixture
 def simple_db(tmp_path: Path) -> Path:
     path = tmp_path / "simple.db"
-    with sqlite3.connect(str(path)) as conn:
+    with closing(sqlite3.connect(str(path))) as conn, conn:
         conn.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT)")
     return path
 

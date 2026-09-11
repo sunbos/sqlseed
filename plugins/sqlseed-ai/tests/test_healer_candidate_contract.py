@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from contextlib import closing
 from typing import TYPE_CHECKING
 
 import pytest
@@ -54,7 +55,7 @@ class FixedClient:
 @pytest.fixture
 def pipeline(tmp_path: Path):
     path = tmp_path / "candidates.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute("CREATE TABLE items(value INTEGER NOT NULL, label TEXT)")
     snapshot = SchemaSnapshot(db_path=str(path))
     validator = FastValidator(ContractResolver(set(BUILTIN_VIOLATIONS), set()), db_path=str(path))
@@ -144,7 +145,7 @@ def test_valid_candidate_preserves_native_derived_and_constraints(pipeline, labe
     output.write_text(yaml.safe_dump({"db_path": snapshot.db_path, **result.config}))
     written = fill_from_config(output)
     assert written[0].errors == [] and written[0].count == 2
-    with sqlite3.connect(snapshot.db_path) as db:
+    with closing(sqlite3.connect(snapshot.db_path)) as db, db:
         rows = db.execute("SELECT value, label FROM items").fetchall()
     assert [row[0] for row in rows] == [7, 7]
     if label.get("derive_from"):

@@ -118,6 +118,7 @@ jobs:
           pytest
           --cov=sqlseed --cov=sqlseed_ai --cov=sqlseed_cli --cov=mcp_server_sqlseed --cov=sqlseed_web
           --cov-report=xml --cov-report=term-missing
+          -W error::ResourceWarning -W error::pytest.PytestUnraisableExceptionWarning
           --tb=short -q
 
       - name: Upload coverage (3.12 only)
@@ -147,7 +148,7 @@ jobs:
           python-version: "3.12"
 
       - name: Test
-        run: pytest --tb=short -q
+        run: pytest --tb=short -q -W error::ResourceWarning -W error::pytest.PytestUnraisableExceptionWarning
 
   # ── Integration tests: PostgreSQL 16 (real DB) ──────────────
   integration:

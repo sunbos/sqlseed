@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from typing import TYPE_CHECKING
 
 from sqlseed.core.orchestrator import DataOrchestrator
@@ -13,7 +14,7 @@ if TYPE_CHECKING:
 
 def test_self_reference_to_unique_non_primary_column(tmp_path: Path) -> None:
     path = tmp_path / "self_ref.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute(
             "CREATE TABLE nodes (id INTEGER PRIMARY KEY, code INTEGER NOT NULL UNIQUE, "
             "parent_code INTEGER REFERENCES nodes(code))"
@@ -38,7 +39,7 @@ def test_self_reference_to_unique_non_primary_column(tmp_path: Path) -> None:
 
 def test_self_reference_conditional_zero_root_value(tmp_path: Path) -> None:
     path = tmp_path / "zero_root.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute(
             "CREATE TABLE nodes (id INTEGER PRIMARY KEY, parent_id INTEGER REFERENCES nodes(id), "
             "kind INTEGER NOT NULL, CHECK(kind IN (0, 1)), "
@@ -60,7 +61,7 @@ def test_self_reference_postpass_is_seeded_without_changing_global_random(tmp_pa
     try:
         for index in range(2):
             path = tmp_path / f"seeded_{index}.db"
-            with sqlite3.connect(path) as db:
+            with closing(sqlite3.connect(path)) as db, db:
                 db.execute("CREATE TABLE nodes(id INTEGER PRIMARY KEY,parent_id INTEGER REFERENCES nodes(id))")
             with DataOrchestrator(str(path), provider_name="base", optimize_pragma=False) as orch:
                 result = orch.fill_table("nodes", count=30, seed=42, skip_ai=True)
