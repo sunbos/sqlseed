@@ -22,13 +22,16 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from sqlseed_web import api, workbench_ai
+from sqlseed_web import api, settings_environment, workbench_ai
 from sqlseed_web.app import create_app
 from sqlseed_web.state import UIState
 
 
 @pytest.fixture()
 def settings_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[TestClient, UIState, Path]]:
+    # Tests replace the probe clock and subprocess boundary. A previous test's
+    # cached result can otherwise match the same interpreter and 30-second slot.
+    settings_environment._probe_version.cache_clear()
     for name in tuple(os.environ):
         if name.startswith("SQLSEED_AI_") or name in {"OPENAI_API_KEY", "GOOGLE_API_KEY", "OPENAI_BASE_URL"}:
             monkeypatch.delenv(name)
@@ -37,8 +40,11 @@ def settings_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator
     registry = UIState()
     monkeypatch.setattr(api, "state", registry)
     monkeypatch.setattr(workbench_ai, "state", registry)
-    with TestClient(create_app()) as client:
-        yield client, registry, path
+    try:
+        with TestClient(create_app()) as client:
+            yield client, registry, path
+    finally:
+        settings_environment._probe_version.cache_clear()
 
 
 def configured(**changes: Any) -> dict[str, Any]:
