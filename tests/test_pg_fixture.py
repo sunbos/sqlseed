@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import socket
 import sys
+from contextlib import closing
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from tempfile import TemporaryDirectory
 from threading import Event, Thread
@@ -77,8 +78,9 @@ def test_unavailable_unix_endpoint_is_closed_before_sdk_construction(
         if bound:
             endpoint.bind(path)
         monkeypatch.setenv("DOCKER_HOST", f"unix://{path}")
-        with pytest.raises(pytest.skip.Exception, match="Docker"):
-            next(shared.pg_url.__wrapped__())
+        service = shared.pg_url.__wrapped__()
+        with closing(service), pytest.raises(pytest.skip.Exception, match="Docker"):
+            next(service)
 
 
 @pytest.mark.usefixtures("docker_environment")
@@ -142,8 +144,9 @@ def test_docker_transport_error_is_unavailable_without_matching_message(monkeypa
             raise DockerException("Error while fetching server API version") from transport_error
 
     monkeypatch.setattr(shared, "PostgresContainer", UnavailableContainer)
-    with pytest.raises(pytest.skip.Exception, match="Docker"):
-        next(shared.pg_url.__wrapped__())
+    service = shared.pg_url.__wrapped__()
+    with closing(service), pytest.raises(pytest.skip.Exception, match="Docker"):
+        next(service)
 
 
 @pytest.mark.parametrize("message", ["Invalid response from docker daemon", "Docker startup configuration invalid"])
@@ -161,8 +164,9 @@ def test_non_transport_failure_is_not_treated_as_unavailable(monkeypatch: pytest
             raise failure
 
     monkeypatch.setattr(shared, "PostgresContainer", BrokenContainer)
-    with pytest.raises(type(failure), match=str(failure)):
-        next(shared.pg_url.__wrapped__())
+    service = shared.pg_url.__wrapped__()
+    with closing(service), pytest.raises(type(failure), match=str(failure)):
+        next(service)
 
 
 @pytest.mark.parametrize("cause_kind", ["api", "tls", "http", "permission"])
@@ -192,8 +196,9 @@ def test_wrapped_authentication_and_permission_errors_remain_failures(
             raise DockerException("Error while fetching server API version") from causes[cause_kind]
 
     monkeypatch.setattr(shared, "PostgresContainer", BrokenContainer)
-    with pytest.raises(DockerException, match="Error while fetching server API version"):
-        next(shared.pg_url.__wrapped__())
+    service = shared.pg_url.__wrapped__()
+    with closing(service), pytest.raises(DockerException, match="Error while fetching server API version"):
+        next(service)
 
 
 @pytest.fixture
@@ -289,7 +294,8 @@ def test_daemon_api_errors_are_not_hidden_and_client_is_closed(
             pytest.fail("A failed daemon capability query must not create PostgreSQL or Ryuk")
 
     monkeypatch.setattr(shared, "PostgresContainer", UnexpectedContainer)
-    with pytest.raises(APIError, match="daemon rejected request"):
-        next(shared.pg_url.__wrapped__())
+    service = shared.pg_url.__wrapped__()
+    with closing(service), pytest.raises(APIError, match="daemon rejected request"):
+        next(service)
     assert disconnected.wait(2), "The failed Docker info client's HTTP connection must be closed"
     assert requests == ["/version", "/v1.55/info"]

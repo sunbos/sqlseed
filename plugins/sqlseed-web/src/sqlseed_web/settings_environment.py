@@ -190,7 +190,7 @@ def ai_import_failure() -> dict[str, Any]:
     message = (
         "尚未安装 AI 插件，AI 服务检测与规则分析不可用。请在设置的插件页安装 AI；手动配置与生成仍可使用。"
         if status == "not_installed"
-        else "AI 插件加载异常或版本不兼容，AI 服务检测与规则分析不可用。请在插件页查看修复指引；旧版本可卸载后重新安装。"
+        else "AI 插件加载异常或版本不兼容，AI 服务检测与规则分析不可用。请在插件页查看修复指引，确认有可安装的兼容版本后再卸载重装。"
     )
     return {
         "available": False,
