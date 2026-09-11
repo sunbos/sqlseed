@@ -1,66 +1,42 @@
-# SRC/SQLSEED PACKAGE
+# sqlseed 核心包
 
-**Last updated:** 2026-08-30
+本目录提供离线 Python API、生成引擎及插件基础设施。CLI、AI、MCP、Web 的实现放在仓库 `plugins/` 下；修改包边界前读 [ARCHITECTURE.md](../../ARCHITECTURE.md)。
 
-## OVERVIEW
+## 按工作范围继续阅读
 
-Main package. Public API in `__init__.py`. Core orchestration in `core/`. Data generation in `generators/`.
+| 工作 | 局部指导 |
+| --- | --- |
+| schema、mapping、流式生成、约束、关系 | [core/AGENTS.md](core/AGENTS.md) |
+| DataOrchestrator 的 mixin、连接、fill、preview | [core/orchestrator/AGENTS.md](core/orchestrator/AGENTS.md) |
+| provider、generator dispatch、locale | [generators/AGENTS.md](generators/AGENTS.md) |
+| adapter、dialect、批量写入 | [database/AGENTS.md](database/AGENTS.md) |
+| YAML/JSON、Pydantic、snapshot | [config/AGENTS.md](config/AGENTS.md) |
+| pluggy hookspec 与插件发现 | [plugins/AGENTS.md](plugins/AGENTS.md) |
+| SQL safety、logger、metrics、cache、progress | [_utils/AGENTS.md](_utils/AGENTS.md) |
 
-## STRUCTURE
+## Public API
 
-```
-src/sqlseed/
-├── __init__.py       # Public API: fill, connect, fill_from_config, preview, load_config
-├── _version.py       # Version info (importlib.metadata dynamic detection)
-├── py.typed          # PEP 561 type marker
-├── core/             # Orchestration engine: 17 top-level files + orchestrator/ package (6 files) = 23 files
-├── generators/       # Data providers: base, faker, mimesis + dispatch, registry (9 files, 36 generator types)
-├── database/         # Database adapters: SQLAlchemy (production), raw sqlite3 (testing) + dialect, optimizer, helpers (11 files)
-├── plugins/          # Plugin system: hookspecs (12 hooks), manager (3 files)
-├── config/           # Pydantic models (9 classes), YAML loader, snapshot manager (4 files)
-└── _utils/           # Internal utilities: sql_safe, metrics, progress, logger, paths (6 files)
-```
+[__init__.py](__init__.py) 是用户入口；保留参数兼容性并通过现有 orchestrator 委托实现。
 
-## FILE INVENTORY (per-module entry points)
+- `fill(db_path, *, url, table, count, ...)`：向单表写入数据。
+- `connect(db_path, *, url, ...)`：返回支持 context manager 的 `DataOrchestrator`。
+- `preview(db_path, *, url, table, count, ...)`：生成预览，不写入数据库。
+- `fill_from_config(config_path)`：加载配置并按关联顺序批量生成。
+- `load_config(path)`：读取 `GeneratorConfig`。
+- 前三者的 `db_path` 与 `url` 互斥；后两者接收配置路径，没有数据库连接参数。
 
-| Module | Files | Key symbols (largest first) |
-|--------|-------|------------------------------|
-| `core/` | 23 | `relation.py` [1033L] RelationResolver+SharedPool, `mapper.py` [630L] ColumnMapper+GeneratorSpec, `stream.py` [675L] DataStream, `features.py` [468L] StructuralFeatureExtractor, `check_parser.py` [427L] CheckConstraintParser |
-| `core/orchestrator/` | 6 | `_generation.py` [524L] GenerationMixin, `_specs.py` [502L] SpecResolverMixin, `_query.py` [251L] QueryMixin, `_connection.py` [243L] ConnectionMixin, `__init__.py` [57L] DataOrchestrator |
-| `generators/` | 9 | `base_provider.py` [501L] BaseProvider, `faker_provider.py` [289L], `mimesis_provider.py` [247L], `_dispatch.py` [150L] GeneratorDispatchMixin, `registry.py` [162L] ProviderRegistry |
-| `database/` | 11 | `sqlalchemy_adapter.py` [846L] SQLAlchemyAdapter+SQLAlchemyBatchInserter, `raw_sqlite_adapter.py` [337L], `_dialect.py` [228L] Dialect+SQLite/Postgres, `_protocol.py` [176L] DatabaseAdapter+4 info dataclasses |
-| `plugins/` | 3 | `hookspecs.py` [177L] SqlseedHookSpec (12 hooks), `manager.py` [58L] PluginManager |
-| `config/` | 4 | `models.py` [259L] 9 Pydantic classes, `loader.py` [184L] load/save/generate_template, `snapshot.py` [114L] SnapshotManager |
-| `_utils/` | 6 | `progress.py` [423L] 3 progress backends, `paths.py` [105L], `sql_safe.py` [84L], `metrics.py` [81L], `logger.py` [67L] |
+## 包边界
 
-## WHERE TO LOOK
+- 核心不直接导入外部插件或引入 LLM runtime；通过现有 hookspec 扩展。`core/enrichment.py` 是本地计算，保留在核心。
+- `generators`、`database` 不得导入 `core`；`_utils` 不得导入上层包。用 `lint-imports` 检查依赖方向。
+- 新 provider/adapter 满足各自的 `Protocol`，不要为复用少量逻辑破坏层级。
+- 生产数据库路径使用 `SQLAlchemyAdapter`；`RawSQLiteAdapter` 只服务原生 SQLite 测试。
+- optional dependency 的导入保留降级处理；不要把 required dependency（如 Faker、SQLAlchemy）误当成可选功能。
 
-| Task | Location | Notes |
-|------|----------|-------|
-| Public API | `__init__.py` | fill, connect, fill_from_config, preview, load_config |
-| Orchestrator | `core/orchestrator/` | DataOrchestrator package (4 mixins + shared _common) |
-| Column mapping | `core/mapper.py` | 9-level strategy chain |
-| Schema inference | `core/schema.py` | SchemaInferrer class |
-| Data stream | `core/stream.py` | DataStream + constraint backtracking |
-| Base provider | `generators/base_provider.py` | 36 built-in generators, fallback provider with no external dependencies |
-| DB adapters | `database/` | SQLAlchemyAdapter (required), RawSQLiteAdapter (test-only) |
-| Plugin hooks | `plugins/hookspecs.py` | 12 pluggy hook definitions |
-| Config models | `config/models.py` | Pydantic: GeneratorConfig, TableConfig, ColumnConfig, ColumnConstraintsConfig, ColumnAssociation |
+## 验证与文档
 
-## CONVENTIONS
+命令从仓库根执行；按局部指导选择受影响测试。
 
-- **Imports**: Always `from __future__ import annotations` first
-- **Logging**: `logger = get_logger(__name__)` at module top
-- **SQL safety**: `quote_identifier()` for all identifiers
-- **Optional deps**: try/except for mimesis, psycopg (faker is required)
-- **Provider protocol**: Implement `DataProvider` protocol, no base class required
-- **Multi-DB support**: `db_path` (SQLite) and `url` (database URL) are mutually exclusive
-- **Exception handling**: Use `sqlalchemy.exc.*` in SQLAlchemyAdapter; `sqlite3.*` only in RawSQLiteAdapter/PragmaOptimizer
-
-## ANTI-PATTERNS
-
-- **NEVER** import third-party libs without try/except (except faker, which is required)
-- **NEVER** use raw SQL string formatting for identifiers
-- **NEVER** use `assert` for runtime validation → use `RuntimeError`/`ValueError`
-- **ALWAYS** use SQLAlchemyAdapter for multi-DB support
-- **ALWAYS** use `from __future__ import annotations`
+- Public API 改动运行 `pytest tests/test_public_api.py tests/test_architecture.py`。
+- 修改 [__init__.py](__init__.py) 时同步 [README.md](../../README.md) 与 [README.zh-CN.md](../../README.zh-CN.md) 的 API 表。
+- 其他源码与文档的联动遵循 [CLAUDE.md](../../CLAUDE.md) 的 Doc Sync Rules；不要手改 AUTO-GENERATED markers，运行 `python scripts/sync_docs.py` 与 `pytest tests/test_doc_sync.py`。

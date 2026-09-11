@@ -480,15 +480,15 @@ class TestPostgresBulkOptimizer:
 
         mock_execute.assert_any_call("SET synchronous_commit = OFF")
 
-    def test_optimize_large_batch_disables_triggers(self) -> None:
-        """Large batches (>10000) should attempt to disable triggers."""
+    def test_optimize_large_batch_keeps_triggers(self) -> None:
+        """Large batches retain the same database integrity checks as small batches."""
         mock_execute = MagicMock()
         optimizer = PostgresBulkOptimizer(execute_fn=mock_execute)
         optimizer.optimize(expected_rows=50000)
 
         execute_calls = [call.args[0] for call in mock_execute.call_args_list]
         assert any("SET synchronous_commit = OFF" in call for call in execute_calls)
-        assert any("session_replication_role = 'replica'" in call for call in execute_calls)
+        assert not any("session_replication_role" in call for call in execute_calls)
 
     def test_optimize_small_batch_keeps_triggers(self) -> None:
         """Small batches (<=10000) should not disable triggers."""
@@ -534,16 +534,6 @@ class TestPostgresBulkOptimizer:
         # But the implementation may attempt SET (due to None check), needs verification
         # Actual: _original_synchronous_commit is initially None, restore only executes if not None
         mock_execute.assert_not_called()
-
-    def test_optimize_trigger_disable_failure_silent(self) -> None:
-        """Trigger disable failure (insufficient permissions) should degrade silently."""
-        mock_execute = MagicMock()
-        # First call SET synchronous_commit succeeds, second (session_replication_role) raises
-        mock_execute.side_effect = [None, SQLAlchemyError("permission denied"), None]
-
-        optimizer = PostgresBulkOptimizer(execute_fn=mock_execute)
-        # Should not raise an exception
-        optimizer.optimize(expected_rows=50000)
 
 
 class TestPostgresTypeNormalization:

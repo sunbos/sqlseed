@@ -141,12 +141,13 @@ class TestCheckParserCompoundAnd:
         assert result.min_value == 18.0
         assert result.max_value == 120.0
 
-    def test_strict_inequality_int_tightened(self) -> None:
-        """整数严格不等式收一为含边界：age > 17 AND age < 121 → [18, 120]。"""
+    def test_strict_inequality_preserves_literal_bounds(self) -> None:
+        """字面量是整数不代表列是整数；生成器适配阶段再处理严格边界。"""
         result = CheckConstraintParser.parse("age", "age > 17 AND age < 121")
         assert result is not None
-        assert result.min_value == 18.0
-        assert result.max_value == 120.0
+        assert result.min_value == 17
+        assert result.max_value == 121
+        assert result.min_exclusive and result.max_exclusive
 
     def test_length_and_merged(self) -> None:
         result = CheckConstraintParser.parse("code", "length(code) >= 3 AND length(code) <= 10")

@@ -28,10 +28,7 @@ First off, thank you for considering contributing to sqlseed! This document outl
 
 3. Install development dependencies:
    ```bash
-   pip install -e ".[dev,all]"
-   pip install -e "./plugins/sqlseed-cli"
-   pip install -e "./plugins/sqlseed-ai"
-   pip install -e "./plugins/mcp-server-sqlseed"
+   python -m pip install -e ".[dev,all]" -e "./plugins/sqlseed-cli" -e "./plugins/sqlseed-ai[dev]" -e "./plugins/mcp-server-sqlseed" -e "./plugins/sqlseed-web[dev]"
    ```
 
 4. Install pre-commit hooks:

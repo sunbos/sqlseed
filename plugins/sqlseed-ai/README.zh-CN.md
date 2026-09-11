@@ -19,7 +19,7 @@ sqlseed-ai 插件提供 **3 个 CLI 命令**：
 | 命令 | 用途 | 适用场景 |
 | :--- | :--- | :--- |
 | `ai-suggest` | 单表 LLM 分析 + 自纠正 | 单表分析，支持 `--verify` 校验 |
-| `ai-analyze` | 全库分析，走 v4 AutoHealOrchestrator（默认路径）；`--tables` 等筛选参数已接受但 v4 路径暂未生效 | 多表 YAML 生成，含契约驱动自愈 |
+| `ai-analyze` | 通过 v4 AutoHealOrchestrator 分析全库或指定表，支持 FK 依赖深度和合并选项 | 多表 YAML 生成，含契约驱动自愈 |
 | `auto-heal` | 通过 LLM + 规则管道修复损坏的 YAML 配置 | 修复 `sqlseed fill` 失败的 YAML 文件 |
 
 ```bash
@@ -69,6 +69,18 @@ sqlseed auto-heal --db app.db --config broken.yaml -o healed.yaml
 # 使用不同的 LLM 模型进行修复
 sqlseed auto-heal --db app.db --config broken.yaml -o healed.yaml --model gemma-4-26b-a4b-it
 ```
+
+`ai-analyze --tables orders` 默认包含最多 `--max-depth 5` 层引用的父表。
+使用 `--no-dependencies` 或 `--max-depth 0` 仅分析指定表。未知表名在写文件前报错。
+`--merge` 必须提供 `--output`：只替换显式选中的表，保留已有依赖表、无关表和全局设置，
+并追加尚不存在的生成表。
+
+`auto-heal --config` 实际读取并修复该文件，保留表范围、行数、seed 和未受修复影响的列规则。
+显式 `--db` / `--url` 决定输出连接。YAML / 配置结构错误或输入含未知表时，不覆盖输出文件。
+
+接受模型修复前，healer 校验配置结构、内置 generator 名称、参数名及参数注解类型，
+再运行既有 contract validator。无效候选进入确定性降级。这不等同于完整执行预览：
+native / custom 方法、生成值及依赖数据库状态的约束仍需正常执行校验。
 
 ## 功能
 

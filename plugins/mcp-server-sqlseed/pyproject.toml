@@ -22,7 +22,7 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
-    "sqlseed>=0.1.0,<2",
+    "sqlseed>=0.2.4.dev0,<2",
     "mcp>=1.0,<2",
 ]
 
@@ -48,6 +48,9 @@ exclude = [
     "AGENTS.md",
     "uv.lock",
 ]
+
+[tool.uv.sources]
+sqlseed = { path = "../..", editable = true }
 
 [tool.ruff]
 line-length = 120

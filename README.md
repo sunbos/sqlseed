@@ -21,10 +21,9 @@
 ```python
 import sqlseed
 
-# Just one line. Auto-infers schema, auto-selects strategy, auto-optimizes writes.
+# The database and users table must already exist.
 result = sqlseed.fill("test.db", table="users", count=100_000)
-print(result)
-# → GenerationResult(table=users, count=100000, elapsed=2.34s, speed=42735 rows/s)
+print(result.count, result.errors)  # Check actual writes and any failures.
 ```
 
 ***
@@ -37,7 +36,7 @@ In development and testing workflows, we often need to populate SQLite and Postg
 | :------ | :-----: | :-----------------: | :----------: |
 | Zero-config smart generation |    ✅    |         ❌         |      ❌      |
 | Automatic FK maintenance |    ✅    |       Manual       |    Manual    |
-| 100K+ rows | ✅ Streaming |    ⚠️ OOM    |      ❌      |
+| Batched large datasets | ✅ Built in | Requires implementation | Requires generated fixtures |
 | Column semantic inference | ✅ 9-level strategy |    ❌    |      ❌      |
 | Reproducible generation |  ✅ seed  |     ⚠️ Manual      |      ✅      |
 | AI-powered tuning |  ✅ LLM  |         ❌         |      ❌      |
@@ -51,7 +50,7 @@ In development and testing workflows, we often need to populate SQLite and Postg
 
 **🚀 Zero-Config Smart Generation**
 
-Auto-infers database schema and selects the best generator for each column via a 9-level strategy chain. Column named `email`? Generates email addresses. Column named `*_at`? Generates timestamps. No configuration needed.
+Auto-infers database schema and selects a generator for each column via a 9-level strategy chain. Column named `email`? Generates email addresses. Column named `*_at`? Generates timestamps. Business-specific relationships and complex constraints may require explicit rules.
 
 </td>
 <td width="50%">
@@ -67,14 +66,14 @@ Precisely control each column's data generation strategy, constraints, and null 
 
 **🔗 Automatic FK Ordering**
 
-Topological sort auto-detects table dependencies. SharedPool cross-table value sharing maintains referential integrity with zero configuration.
+Topological sort detects table dependencies, and SharedPool reuses actual parent values. Supported foreign keys are coordinated; unsupported composite or schema-qualified relationships are rejected before generation. See the support scope below.
 
 </td>
 <td>
 
-**🌊 Streaming Memory Safety**
+**🌊 Batched Streaming**
 
-`DataStream` yields batches via `Iterator[list[dict]]`. 1 million rows use the same memory as 1,000 rows.
+`DataStream` yields batches via `Iterator[list[dict]]`, respecting the configured batch-size limit. UNIQUE tracking, parent-key pools and self-reference processing have additional memory costs; total memory is not constant for every schema.
 
 </td>
 </tr>
@@ -164,6 +163,14 @@ pip install mcp-server-sqlseed
 pip install "sqlseed-ai[mcp]"
 ```
 
+### Local Web Workbench
+
+From the repository root, run `python -m pip install -e . -e ./plugins/sqlseed-web`, then `sqlseed-web` and open `http://127.0.0.1:8630`. The workbench provides real schema graphs, column-rule editing, versioned configurations, dependency checks, previews, server-managed multi-table generation, and persistent run history without requiring the AI plugin. See the [workbench guide](docs/web-workbench.md).
+
+Install or uninstall optional components directly in Settings. The default launcher pauses an idle workbench, changes packages in an isolated worker, then automatically restores the service and its reconnectable connections. Active database or AI work blocks the operation until it finishes. Existing package versions are protected; Core, Web, Faker, and Base cannot be removed. In-app changes require a writable, independent virtualenv on macOS/Linux and the default launcher; externally hosted apps and unsupported environments show their capability limits. See the [Web guide](docs/web-workbench.md) for recovery behavior and connection limits.
+
+The workbench has Workbench, Run history, Configuration management and Settings navigation, with database connections opened from the shared interface. Rules use a right-side drawer; saving, reopening and configuration-document editing share one configuration. The generator provider and locale belong to that configuration. Backend and frontend regression results do not substitute for browser acceptance of visual changes.
+
 ### Docs Build (Developers)
 
 ```bash
@@ -177,13 +184,8 @@ pip install sqlseed[docs]   # mkdocs-material + mkdocstrings
 git clone https://github.com/sunbos/sqlseed.git
 cd sqlseed
 
-# Install core + all providers + dev dependencies
-pip install -e ".[dev,all]"
-
-# Optional plugins
-pip install -e "./plugins/sqlseed-cli"
-pip install -e "./plugins/sqlseed-ai"
-pip install -e "./plugins/mcp-server-sqlseed"
+# Resolve Core and all local plugins together, including unpublished candidates
+python -m pip install -e ".[dev,all]" -e "./plugins/sqlseed-cli" -e "./plugins/sqlseed-ai[dev]" -e "./plugins/mcp-server-sqlseed" -e "./plugins/sqlseed-web[dev]"
 
 # Verify installation
 pytest
@@ -196,6 +198,8 @@ mypy src/sqlseed/
 ***
 
 ## 🚀 Quick Start
+
+For an end-to-end example with related users, products, orders and order items, see the [reproducible order workflow](examples/order_workflow/README.md). It includes a failing rule, corrected generation, database integrity checks and offline replay. See the [support and maintenance scope](docs/maintainable-release.md) and [project walkthrough](docs/project-showcase.md) for verified boundaries and an explanation of the design.
 
 ### Interactive Quickstart
 
@@ -257,7 +261,7 @@ sqlseed automatically:
 - ✅ `created_at` → generates datetime (matches `*_at` pattern)
 - ✅ `balance` → generates floats
 
-**Fully zero-config. Smart inference for everything.**
+**This simple schema works with inferred defaults; review and configure business-specific rules before generating more complex data.**
 
 ### Connect to PostgreSQL
 
@@ -275,7 +279,7 @@ result = sqlseed.fill(
 print(result)
 ```
 
-The same API works for both databases — schema inference, FK resolution, expression engine, and plugin hooks all run identically across SQLite and PostgreSQL.
+Both databases use the same public API, but dialect behavior and supported constraints differ. PostgreSQL composite foreign keys and reflected schema-qualified references are currently rejected for generation; SQLite tuple coordination covers two-column foreign keys. See the [support and verification scope](docs/maintainable-release.md), including the distinction between local SQLite checks and real PostgreSQL integration tests.
 
 ***
 
@@ -914,6 +918,14 @@ class MyPlugin:
 
 ## 🖥️ CLI Quick Reference
 
+With `fill --config`, the database target comes only from the configuration's
+`db_path` or `url`; combining it with a positional database path or `--url` is
+rejected before writing. If any configured table fails, the command reports the
+error and exits nonzero, including the count already committed. Multi-table fills
+are not one atomic transaction. With a configuration file, omitted `--provider`,
+`--locale`, and `--batch-size` preserve its settings; explicitly supplied values
+override them, even when equal to the CLI defaults.
+
 ```bash
 # ═══════════════════════════════════════
 # 📋 Data Generation
@@ -997,7 +1009,7 @@ sqlseed auto-heal --db app.db --config broken.yaml -o healed.yaml
 One of sqlseed's core highlights is the `ColumnMapper`'s 9-level strategy chain. Each column is matched by priority:
 
 ```
-Level 1 │ Autoincrement PK    PK + AUTOINCREMENT / INTEGER → skip
+Level 1 │ Autoincrement PK    Explicit database allocation → skip
         ▼
 Level 2 │ User config         columns={"email": "email"} highest priority
         ▼
@@ -1017,6 +1029,20 @@ Level 9 │ Type-faithful       VARCHAR(32)→max 32 chars, INT8→0~255, BLOB(1
 ```
 
 What this means:
+
+Explicit generator parameters override name-rule defaults. Defaults are inherited for the same generator; switching between `string` and `text` inherits only their shared `min_length` and `max_length`. `sentence` inherits no string/text parameters, and `text` never inherits `charset`. Explicit unsupported parameters still produce a configuration error.
+
+`faker_method` or `mimesis_method` with `native_params` can configure a source column without `generator`. The method must match the active provider. Native overrides remain active during UNIQUE retries; unknown methods or invalid native parameters fail explicitly instead of silently switching to inferred data. When a regular generator is also given, a native hint for a different provider leaves that generator's fallback intact.
+
+Explicit length limits are retained for validation, including contradictory `min_length`/`max_length`. SQLite primary keys receive generated values unless metadata identifies a real rowid alias. `WITHOUT ROWID` and inline `INTEGER PRIMARY KEY DESC` require ordinary column handling; table-level `PRIMARY KEY(id DESC)` can still alias rowid. Explicit user generators remain available for implicit rowid aliases.
+
+Partial UNIQUE indexes retain an `is_partial` metadata flag. Their WHERE predicates are enforced by the database; they are not inferred as unconditional single-column or composite UNIQUE constraints. Duplicate applicable rows can therefore fail at batch insertion; default per-batch commits retain earlier successful batches. SQLite table names use ASCII case-insensitive catalog resolution before reflection, generation and dependency sorting; PostgreSQL names remain exact.
+
+Single-column literal CHECKs are intersected across `AND` terms and separate CHECK declarations. Strict numeric bounds retain their SQL meaning until the integer/float generator adapts them. Configured `constraints.min_value`, `max_value`, and `regex` are checked on non-NULL generated values; regex constraints match the whole string, and failures retry or backtrack within a finite budget.
+
+Float bounds are rounded inward to the generator's decimal precision grid, so `0.005 < x < 0.015` still allows `0.01` at precision 2. If enum literals have no exact intersection but SQL affinity/collation could make them equivalent, the original candidates are retained for database validation; this fallback does not guarantee every candidate satisfies every CHECK.
+
+Append generation checks candidate UNIQUE/primary-key tuples against existing rows without preloading the table. A reused seed can replay a long prefix of existing keys and exhaust the retry budget; that failure does not prove the key space is full.
 
 - Column `user_email` → Level 7 pattern `*_email` → `email` generator ✅
 - Column `is_verified` → Level 7 pattern `is_*` → `boolean` generator ✅
@@ -1040,7 +1066,7 @@ sqlseed provides 12 hook points via [pluggy](https://pluggy.readthedocs.io/), co
 | `sqlseed_before_generate` |    <br />   | Before data generation loop |
 | `sqlseed_after_generate` |    <br />   | After data generation completes |
 | `sqlseed_transform_row` |    <br />   | Per-row transform (hot path, mind performance) |
-| `sqlseed_transform_batch` |    <br />   | Per-batch transform (supports chaining) |
+| `sqlseed_transform_batch` |    <br />   | Per-batch transform (same input batch; last non-`None` result wins) |
 | `sqlseed_before_insert` |    <br />   | Before each batch write to DB |
 | `sqlseed_after_insert` |    <br />   | After each batch write to DB |
 | `sqlseed_shared_pool_loaded` |    <br />   | After SharedPool registration (pool readable) |

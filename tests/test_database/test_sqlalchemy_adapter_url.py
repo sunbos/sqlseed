@@ -55,6 +55,14 @@ class TestSQLAlchemyAdapterUrl:
         with pytest.raises(RuntimeError, match="PostgreSQL driver not installed"):
             adapter.connect("postgresql://user:pass@host/db")
 
+    def test_explicit_postgresql_driver_is_not_replaced(self) -> None:
+        """An explicitly selected driver must fail as selected, never fall back."""
+        with SQLAlchemyAdapter() as adapter:
+            with pytest.raises(RuntimeError) as error:
+                adapter.connect("postgresql+sqlseed_unavailable_driver://localhost/audit")
+            assert isinstance(error.value.__cause__, NoSuchModuleError)
+            assert "sqlseed_unavailable_driver" in str(error.value.__cause__)
+
     def test_connect_invalid_url_raises_value_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """无效 URL（触发 ArgumentError）抛 ValueError。
 

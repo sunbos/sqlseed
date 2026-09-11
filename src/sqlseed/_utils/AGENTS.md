@@ -1,54 +1,24 @@
-<!-- Parent: ../AGENTS.md -->
+# 底层共享工具
 
-# _utils
+本目录是 leaf layer；禁止导入 `core/generators/database/plugins/config`。只接收多个模块需要的公共能力，单模块 helper 留在原模块。
 
-**Last updated:** 2026-08-30
+## SQL 安全边界
 
-## Purpose
+- [sql_safe.py](sql_safe.py) 提供 sanitize → quote → parameterized INSERT；改动必须检查 SQL injection 边界并做安全 review。
+- `quote_identifier()` 将内部双引号转义为两个双引号；拒绝空白名称、NUL、`;`、换行、回车与单引号。允许连字符，不能误伤已安全引用的表名。
+- `sql_safe.validate_table_name(name)` 会 warning 非常规名称并返回 quoted identifier；它不验证表是否存在。
+- [paths.py](paths.py) 的 `validate_table_name(name, allowed_tables)` 检查 allowlist membership；不要因同名而混用这两个函数。
+- `build_insert_sql()` 用 `?` placeholder 绑定值；不要把数据值拼进 SQL。
+- `validate_db_target()` 接受数据库 URL 或存在的 `.db/.sqlite/.sqlite3` 文件，URL 由 SQLAlchemy 后续校验；不施加项目目录限制。
 
-Cross-module shared low-level utility functions. Includes logging, metrics, progress bars, cache paths, and SQL safety. 6 files.
+## 其他工具
 
-## Key Files
+- [logger.py](logger.py)：统一使用 `get_logger(__name__)` / `configure_logging()`，不要另起标准库 logging 配置；默认日志输出 stderr，避免污染数据输出。导入时必须保留宿主已有的 structlog 配置；只有尚未配置时才安装默认处理器，显式调用 `configure_logging()` 仍可覆盖。
+- [metrics.py](metrics.py)：`MetricsCollector` 聚合 count/total/min/max/avg；保留单次遍历与按名称过滤。
+- [progress.py](progress.py)：通过 `create_progress()` 选 backend，disabled → Null，Jupyter → tqdm，terminal → Rich；保留编码不支持时的 ASCII fallback。
+- tqdm 是 notebook 可选依赖；不能因未安装 notebook 支持破坏其他环境。
+- `get_cache_dir()` 优先 `SQLSEED_CACHE_DIR`，否则遵循 macOS/Linux/Windows 路径约定；只返回路径，调用方负责创建目录。
 
-| File | Lines | Key symbols | Description |
-|------|------:|--------------|-------------|
-| `progress.py` | 423 | `ProgressBackend`, `NullProgressBackend`, `RichProgressBackend`, `TqdmNotebookBackend`, `create_progress()` | three-backend progress bar factory: Null (disabled) / Rich (terminal, ASCII fallback) / tqdm (Jupyter), auto-selected by runtime environment |
-| `paths.py` | 105 | `get_cache_dir()`, `validate_db_target()`, `validate_table_name()` | platform-standard cache dir (`SQLSEED_CACHE_DIR` env override), shared by SnapshotManager and AiConfigRefiner; validators shared by both MCP server packages |
-| `sql_safe.py` | 84 | `_sanitize_identifier()`, `quote_identifier()`, `validate_table_name()`, `build_insert_sql()` | SQL injection protection three layers: validate / quote / build; double-quote escaping, rejects `; \n \r '` but allows `-` |
-| `metrics.py` | 81 | `MetricEntry`, `MetricsCollector` | count/total/min/max/avg aggregate statistics, single-pass traversal |
-| `logger.py` | 67 | `configure_logging()`, `get_logger()` | structlog config, auto-configures on module import, outputs to stderr |
+## 验证
 
-## For AI Agents
-
-### Working In This Directory
-
-- `sql_safe.py` is a security-critical module; modifications require extreme caution, any changes must pass security review
-- Logging uniformly uses structlog; all modules obtain loggers via `get_logger(__name__)`, do not use the standard library `logging`
-- When adding new utility functions, consider whether they are truly shared by multiple modules; functions used by a single module should be placed in the corresponding module
-- `MetricsCollector` uses dataclass to store metric entries, supports filtering by name and aggregate statistics
-
-### Testing Requirements
-
-```bash
-pytest tests/test_utils/
-```
-
-### Common Patterns
-
-- `get_logger(__name__)` obtains a module-level logger
-- `sql_safe` module provides three layers of protection: validate, quote, build
-- `create_progress()` auto-selects backend by environment: Jupyter→tqdm, terminal→Rich (ASCII fallback for GBK encoding), disabled→Null
-
-## Dependencies
-
-### Internal
-
-- None (low-level module, does not depend on other internal modules)
-
-### External
-
-- `structlog>=24.0` — structured logging
-- `rich>=13.0` — progress bar (terminal backend)
-- `tqdm` — progress bar (Jupyter backend, optional, installed via `sqlseed[notebook]`)
-
-<!-- MANUAL: Any manually added notes below this line are preserved on regeneration -->
+从仓库根执行 `pytest tests/test_utils/ tests/test_database/test_sql_safe.py`。SQL quoting 修改补跑 `pytest tests/test_database/test_helpers.py`；`lint-imports` 检查 leaf layer 不反向依赖上层。

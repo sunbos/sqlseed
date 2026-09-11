@@ -1,49 +1,23 @@
-<!-- Parent: ../AGENTS.md -->
-<!-- Last updated: 2026-08-30 -->
-
 # test_utils
 
-## Purpose
+本目录验证日志、metrics、缓存路径与进度展示；实现规则见 [_utils/AGENTS.md](../../src/sqlseed/_utils/AGENTS.md)。
 
-Utility module tests. Covers logging configuration, metrics collection, cache path resolution, and progress bar display. 4 files, 99 test functions.
+## 入口与隔离
 
-## Key Files
+- `test_metrics.py`：直接构造 `MetricsCollector`，验证记录、过滤、聚合与空集合边界。
+- `test_logger.py`：验证 structlog 的自动初始化、日志级别、stderr 和环境配置；保留 `_restore_logging` 的清理。
+- logger 使用 `cache_logger_on_first_use=True`，已有 logger 不随新配置更新；需要观察配置切换时使用唯一 logger 名称，避免跨测试状态污染。
+- `test_paths.py`：覆盖 macOS/Linux/Windows 与 `SQLSEED_CACHE_DIR`；环境变量用 monkeypatch，创建目录用 `tmp_path`，不写用户真实缓存。
+- `test_progress.py`：覆盖 Null/Rich/tqdm 后端与环境检测；无 UI/无可选依赖的 fallback 仍要能工作。
+- 修改 environment/platform 检测时验证实际返回结果和状态恢复，不只验证某个 mock 调用。
 
-| File | Tests | Description |
-|------|------:|-------------|
-| `test_progress.py` | 43 | Null/Rich/tqdm backends + env detection |
-| `test_logger.py` | 41 | structlog config + `get_logger()` |
-| `test_paths.py` | 9 | cache dir (platform-aware, `SQLSEED_CACHE_DIR` override) |
-| `test_metrics.py` | 6 | MetricsCollector aggregates |
+## 验证
 
-## For AI Agents
-
-### Working In This Directory
-
-- Verify metric recording, filtering, and aggregate statistics
-- Test boundary cases for empty metric sets
-- Logger tests must verify structlog auto-configuration on module import
-- Path tests must cover macOS/Linux/Windows platform differences and env var override
-
-### Testing Requirements
+从仓库根执行：
 
 ```bash
 pytest tests/test_utils/
+lint-imports
 ```
 
-### Common Patterns
-
-- Directly instantiate `MetricsCollector` for testing
-- Use `tmp_path` for cache directory isolation in path tests
-
-## Dependencies
-
-### Internal
-
-- `src/sqlseed/_utils/`
-
-### External
-
-- `pytest>=8.0`
-
-<!-- MANUAL: Any manually added notes below this line are preserved on regeneration -->
+`_utils` 是叶子层；测试可以导入其他模块辅助验证，但不能因此在生产 `_utils` 引入上层依赖。

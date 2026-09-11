@@ -12,6 +12,8 @@ LLM-driven schema analysis, self-correcting config generation, and template pool
 pip install sqlseed-ai
 ```
 
+This release requires `sqlseed>=0.2.4.dev0` for its plugin hooks and target-validation interfaces; Core 0.2.3 is incompatible.
+
 ## Quick Start
 
 The sqlseed-ai plugin provides **3 CLI commands**:
@@ -19,7 +21,7 @@ The sqlseed-ai plugin provides **3 CLI commands**:
 | Command | Purpose | When to Use |
 | :------ | :------ | :---------- |
 | `ai-suggest` | Per-table LLM analysis with self-correction | Single-table analysis with `--verify` validation |
-| `ai-analyze` | Full DB analysis via v4 AutoHealOrchestrator (default); filter options like `--tables` are accepted but not yet effective on the v4 path | Multi-table YAML generation with contract-driven self-healing |
+| `ai-analyze` | Full or selected-table analysis via v4 AutoHealOrchestrator, with FK dependency depth and merge options | Multi-table YAML generation with contract-driven self-healing |
 | `auto-heal` | Repair broken YAML configs via LLM + rule-based pipeline | Fix YAML files that fail `sqlseed fill` |
 
 ```bash
@@ -69,6 +71,23 @@ sqlseed auto-heal --db app.db --config broken.yaml -o healed.yaml
 # Use a different LLM model for healing
 sqlseed auto-heal --db app.db --config broken.yaml -o healed.yaml --model gemma-4-26b-a4b-it
 ```
+
+`ai-analyze --tables orders` includes referenced parent tables up to `--max-depth 5`.
+Use `--no-dependencies` or `--max-depth 0` to include only the named tables.
+Unknown table names are rejected before writing output. `--merge` requires
+`--output`; it replaces explicitly selected tables, retains existing dependency
+and unrelated tables and root settings, and appends missing generated tables.
+
+`auto-heal --config` reads and repairs that document, preserving its table scope,
+row counts, seeds and unaffected column rules. The explicit `--db` / `--url`
+sets the output connection. Invalid YAML/config structure and unknown input
+tables fail without replacing the output file.
+
+Before accepting a model repair, the healer checks config shape and builtin
+generator names, parameter names and annotated parameter types, then runs the
+existing contract validator. Invalid candidates follow deterministic degradation.
+This is not a full execution preview: native/custom methods, generated values and
+database-dependent constraints still require normal execution validation.
 
 ## Features
 

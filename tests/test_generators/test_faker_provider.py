@@ -5,15 +5,15 @@ from typing import Any
 from sqlseed.generators.faker_provider import FakerProvider
 
 from ._mixin import (
-    CoreProviderTestMixin,
     IdentityProviderTestMixin,
+    JsonSchemaTestMixin,
     TemporalProviderTestMixin,
 )
 
 
 class TestFakerProvider(
-    CoreProviderTestMixin,
     IdentityProviderTestMixin,
+    JsonSchemaTestMixin,
     TemporalProviderTestMixin,
 ):
     def setup_method(self) -> None:
@@ -24,28 +24,25 @@ class TestFakerProvider(
 
 
 class TestLocaleFallback:
-    """faker 部分方法仅特定 locale 实现（实证：zh_CN 缺 state/zipcode，ja_JP 缺 state）。
-
-    缺失时必须按 mimesis → faker → base 的兜底链降级为 base 的类型路由实现，
-    而不是让生成在 AttributeError 中崩溃（可靠性：生成中途崩溃=整批失败）。
-    """
+    """使用当前 locale 的等价方法；确实缺失时才降级为 Base placeholder。"""
 
     def setup_method(self) -> None:
         self.provider = FakerProvider()
 
-    def test_zh_cn_state_falls_back_to_base(self) -> None:
-        """zh_CN 无 state() → 降级为 base 占位（state_NNN_xxxx 格式），不崩溃。"""
+    def test_zh_cn_state_uses_province(self) -> None:
+        """zh_CN 的 province() 是真实省份来源，不应被误判为缺少能力。"""
         self.provider.set_locale("zh_CN")
         value = self.provider.generate("state")
         assert isinstance(value, str)
-        assert value.startswith("state_")
+        assert not value.startswith("state_")
+        assert any("\u4e00" <= char <= "\u9fff" for char in value)
 
-    def test_zh_cn_zip_code_falls_back_to_base(self) -> None:
-        """zh_CN 无 zipcode() → 降级为 base 的 5 位数字占位。"""
+    def test_zh_cn_zip_code_uses_postcode(self) -> None:
+        """zh_CN 的 postcode() 生成六位数字邮政编码。"""
         self.provider.set_locale("zh_CN")
         value = self.provider.generate("zip_code")
         assert isinstance(value, str)
-        assert len(value) == 5 and value.isdigit()
+        assert len(value) == 6 and value.isdigit()
 
     def test_en_us_state_uses_real_data(self) -> None:
         """en_US 支持 state → 不触发降级，返回真实州名（非占位格式）。"""
@@ -55,8 +52,8 @@ class TestLocaleFallback:
         assert not value.startswith("state_")
 
     def test_locale_switch_back_clears_fallback(self) -> None:
-        """zh_CN 降级后切回 en_US：实例级遮蔽必须清除，恢复真实数据。"""
-        self.provider.set_locale("zh_CN")
+        """真实缺失地区方法的 zh_TW 切回 en_US，必须清除旧遮蔽。"""
+        self.provider.set_locale("zh_TW")
         assert self.provider.generate("state").startswith("state_")
         self.provider.set_locale("en_US")
         assert not self.provider.generate("state").startswith("state_")
@@ -69,7 +66,7 @@ class TestLocaleFallback:
 
         def _gen_with_seed() -> Any:
             p = FakerProvider()
-            p.set_locale("zh_CN")
+            p.set_locale("zh_TW")
             p.set_seed(7)
             return p.generate("state")
 

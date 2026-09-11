@@ -5,7 +5,7 @@
 交由上层 AI/人工 YAML 配置处理，绝不硬猜：
 
 - 跨列运算/比较（如 discount <= subtotal、price * quantity <= 10000）
-- OR 连接的非等值条件（如 age >= 18 OR age IS NULL）
+- OR 连接的非等值条件（如 age >= 18 OR age IS NULL）；同列可空精确长度保护除外
 - LIKE 模式匹配、IS NULL / IS NOT NULL、NOT IN / NOT BETWEEN
 - 非纯字面量（含函数调用、子查询、表达式）
 
@@ -21,6 +21,8 @@ from typing import Any, Literal, NamedTuple, cast
 
 from sqlglot import exp, parse_one
 from sqlglot.errors import SqlglotError
+
+_ASCII_CASE_FOLD = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")
 
 
 @dataclass(frozen=True)
@@ -68,7 +70,11 @@ class CheckConstraintParser:
 
     AND 连接的同列双边界会完整合并（如 age>=18 AND age<=120 → min=18, max=120）；
     多列 CHECK（如 price>=0 AND stock>=0）只提取目标列的条件，其余合取项跳过。
+    LENGTH(col)=N 提取精确长度；同列 col IS NULL OR LENGTH(col)=N 保留该非空值约束，
+    不改变列的可空性。其他非等值 OR 不据此扩展解析范围。
     跨列引用与其他不可确定映射的形态明确降级，返回 None。
+    枚举涉及未知 affinity/collation 且没有 Python 精确交集时保留原候选，
+    不据此断定 SQL 无解；这些候选仍须由数据库 CHECK 验证。
     """
 
     _CHECK_INNER_RE = re.compile(
@@ -94,40 +100,43 @@ class CheckConstraintParser:
         if tree is None:
             return None
 
-        target = target_column.lower()
-        choices: list[Any] = []
+        target = target_column.translate(_ASCII_CASE_FOLD)
+        choices: list[Any] | None = None
         lower: tuple[float, bool] | None = None  # (下界值, 是否严格)
         upper: tuple[float, bool] | None = None  # (上界值, 是否严格)
         min_length: int | None = None
         max_length: int | None = None
 
         for conjunct in _flatten_and(tree):
-            node = _unwrap(conjunct)
+            node = _unwrap_nullable_length_equality(_unwrap(conjunct), target)
 
-            # OR：唯一确定可处理的形态是同列等值析取（col = a OR col = b）。
+            # 可空精确长度保护已剥离；其余 OR 只处理同列等值析取。
             if isinstance(node, exp.Or):
                 values = _or_choice_values(node, target)
-                if values:
-                    choices.extend(v for v in values if v not in choices)
+                if values is not None:
+                    choices = _intersect_choices(choices, values)
                 continue
 
             # col IN (lit, ...)：全部为纯字面量才可确定；子查询/表达式降级。
             if isinstance(node, exp.In):
                 values = _in_choice_values(node, target)
-                if values:
-                    choices.extend(v for v in values if v not in choices)
+                if values is not None:
+                    choices = _intersect_choices(choices, values)
                 continue
 
-            # col = lit：单值枚举。
+            bounds: list[_Bound] = []
+            # col = lit：单值枚举；length(col) = N：相等的长度上下界。
             if isinstance(node, exp.EQ):
                 matched, value = _eq_choice_value(node, target)
-                if matched and value not in choices:
-                    choices.append(value)
-                continue
+                if matched:
+                    choices = _intersect_choices(choices, [value])
+                    continue
+                equality_bounds = _length_equality_bounds(node, target)
+                if equality_bounds is not None:
+                    bounds.extend(equality_bounds)
 
             # col BETWEEN lo AND hi / length(col) BETWEEN lo AND hi（含双边界）。
             # col OP lit / lit OP col / length(col) OP lit（单边界）。
-            bounds: list[_Bound] = []
             if isinstance(node, exp.Between):
                 pair = _between_bounds(node, target)
                 if pair is not None:
@@ -139,7 +148,7 @@ class CheckConstraintParser:
 
             for bound in bounds:
                 if bound.kind == "range":
-                    value, strict = _tighten(bound.value, strict=bound.strict, is_lower=bound.is_lower)
+                    value, strict = bound.value, bound.strict
                     if bound.is_lower:
                         lower = _merge_bound(lower, value, strict=strict, is_lower=True)
                     else:
@@ -153,7 +162,8 @@ class CheckConstraintParser:
                             max_length = length_value if max_length is None else min(max_length, length_value)
 
         # 结果类型优先级与历史行为一致：choice > length_range > range。
-        if choices:
+        if choices is not None:
+            choices = [v for v in choices if _choice_in_bounds(v, lower, upper, min_length, max_length)]
             return ParsedCheck(column=target_column, kind="choice", choices=tuple(choices))
         if min_length is not None or max_length is not None:
             return ParsedCheck(
@@ -175,20 +185,22 @@ class CheckConstraintParser:
 
     @staticmethod
     def parse_all(target_column: str, expressions: list[str]) -> ParsedCheck | None:
-        """依次解析多个 CHECK 表达式，返回首个可确定性解析的结果。
+        """按 AND 语义合并多个 CHECK 表达式的可确定性约束。
 
         Args:
             target_column: 目标列名。
             expressions: CHECK 约束 SQL 表达式列表。
 
         Returns:
-            首个命中表达式的 ParsedCheck；全部不可解析时返回 None。
+            合取后的 ParsedCheck；全部不可解析时返回 None。
         """
-        for expression in expressions:
-            parsed = CheckConstraintParser.parse(target_column, expression)
-            if parsed is not None:
-                return parsed
-        return None
+        trees = [tree for expression in expressions if (tree := _parse_expression(expression)) is not None]
+        if not trees:
+            return None
+        combined = trees[0]
+        for tree in trees[1:]:
+            combined = exp.And(this=exp.Paren(this=combined), expression=exp.Paren(this=tree))
+        return CheckConstraintParser.parse(target_column, combined.sql(dialect="sqlite"))
 
     @staticmethod
     def is_cross_column(expression: str, all_columns: list[str]) -> bool:
@@ -200,8 +212,8 @@ class CheckConstraintParser:
         tree = _parse_expression(expression)
         if tree is None:
             return False
-        known = {col.lower() for col in all_columns}
-        referenced = {col.name.lower() for col in tree.find_all(exp.Column) if col.name}
+        known = {col.translate(_ASCII_CASE_FOLD) for col in all_columns}
+        referenced = {col.name.translate(_ASCII_CASE_FOLD) for col in tree.find_all(exp.Column) if col.name}
         return len(referenced & known) >= 2
 
 
@@ -246,10 +258,10 @@ def _flatten_or(node: exp.Expression) -> list[exp.Expression]:
 
 
 def _column_name(node: exp.Expression) -> str | None:
-    """节点为列引用时返回小写列名（忽略表限定与引号），否则返回 None。"""
+    """返回仅折叠 ASCII 大小写的列名；SQLite 的非 ASCII 标识符保持独立。"""
     node = _unwrap(node)
     if isinstance(node, exp.Column) and node.name:
-        return node.name.lower()
+        return node.name.translate(_ASCII_CASE_FOLD)
     return None
 
 
@@ -295,6 +307,38 @@ def _eq_choice_value(node: exp.EQ, target: str) -> tuple[bool, Any]:
     if _column_name(right) == target:
         return _literal_value(left)
     return False, None
+
+
+def _length_equality_bounds(node: exp.Expression, target: str) -> tuple[_Bound, _Bound] | None:
+    """Match length(target) = nonnegative integer in either direction."""
+    if not isinstance(node, exp.EQ):
+        return None
+    for subject, literal in ((node.this, node.expression), (node.expression, node.this)):
+        if _length_column(subject) != target:
+            continue
+        matched, value = _literal_value(literal)
+        if matched and isinstance(value, int) and value >= 0:
+            return _Bound("length", True, value, False), _Bound("length", False, value, False)
+    return None
+
+
+def _unwrap_nullable_length_equality(node: exp.Expression, target: str) -> exp.Expression:
+    """Extract only target IS NULL OR length(target) = N, preserving SQL NULL.
+
+    NULL remains allowed independently of the non-NULL value's length. Other
+    guards, additional OR branches and predicates retain conservative fallback.
+    """
+    if isinstance(node, exp.Or):
+        for guard_node, predicate_node in ((node.this, node.expression), (node.expression, node.this)):
+            guard, predicate = _unwrap(guard_node), _unwrap(predicate_node)
+            if (
+                isinstance(guard, exp.Is)
+                and _column_name(guard.this) == target
+                and isinstance(_unwrap(guard.expression), exp.Null)
+                and _length_equality_bounds(predicate, target) is not None
+            ):
+                return predicate
+    return node
 
 
 def _or_choice_values(node: exp.Or, target: str) -> list[Any] | None:
@@ -394,11 +438,40 @@ def _side_bound(
     return None
 
 
-def _tighten(value: int | float, *, strict: bool, is_lower: bool) -> tuple[int | float, bool]:
-    """严格不等式收一：整数字面量 ±1 转为含边界；浮点保持原值并记录严格标记。"""
-    if strict and isinstance(value, int):
-        return (value + 1 if is_lower else value - 1), False
-    return value, strict
+def _intersect_choices(current: list[Any] | None, values: list[Any]) -> list[Any]:
+    """Intersect known equal literals; defer ambiguous SQL equality to the DB.
+
+    Without column affinity/collation, Python inequality cannot establish
+    that string or mixed literal domains are disjoint. Preserve the previous
+    candidates in that case, without claiming they satisfy every CHECK.
+    """
+    if current is None:
+        return list(dict.fromkeys(values))
+    intersection = [v for v in current if v in values]
+    if not intersection and any(isinstance(v, str) for v in [*current, *values]):
+        return current
+    return intersection
+
+
+def _choice_in_bounds(
+    value: Any,
+    lower: tuple[float, bool] | None,
+    upper: tuple[float, bool] | None,
+    min_length: int | None,
+    max_length: int | None,
+) -> bool:
+    """Apply known literal bounds without guessing SQL coercion of strings."""
+    if isinstance(value, int | float):
+        if lower is not None and (value < lower[0] or (lower[1] and value == lower[0])):
+            return False
+        if upper is not None and (value > upper[0] or (upper[1] and value == upper[0])):
+            return False
+    if isinstance(value, str):
+        if min_length is not None and len(value) < min_length:
+            return False
+        if max_length is not None and len(value) > max_length:
+            return False
+    return True
 
 
 def _tighten_length(value: int, *, strict: bool, is_lower: bool) -> int:

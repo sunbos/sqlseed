@@ -191,8 +191,11 @@ def fill_from_config(
     results: list[GenerationResult] = []
     with DataOrchestrator.from_config(config) as orch:
         table_names = [tc.name for tc in config.tables]
-        sorted_names = orch.get_topological_table_order(table_names)
-        name_to_config = {tc.name: tc for tc in config.tables}
+        canonical_names = orch._preflight_generation(table_names)
+        if len(set(canonical_names.values())) != len(table_names):
+            raise ValueError("Configuration contains duplicate references to the same table")
+        sorted_names = orch.get_topological_table_order(list(canonical_names.values()))
+        name_to_config = {canonical_names[tc.name]: tc for tc in config.tables}
         total_tables = len(sorted_names)
         for idx, name in enumerate(sorted_names, 1):
             table_config = name_to_config[name]
@@ -206,7 +209,7 @@ def fill_from_config(
                 progress=f"[{idx}/{total_tables}]",
             )
             result = orch.fill_table(
-                table_name=table_config.name,
+                table_name=name,
                 count=effective_count,
                 seed=effective_seed,
                 batch_size=effective_batch_size,

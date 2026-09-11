@@ -1,0 +1,105 @@
+/* Generation state stays on the inner box; inspection has its own outer ring. */
+.wb-schema-graph .graph-state-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 18px;
+  padding: 3px 2px 12px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.wb-schema-graph .graph-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.wb-schema-graph .graph-legend-swatch {
+  box-sizing: border-box;
+  width: 19px;
+  height: 12px;
+  border: 1px solid #d3dee4;
+  border-radius: 3px;
+  background: #f8fafb;
+}
+.wb-schema-graph .graph-legend-swatch.chosen {
+  border-color: #75a48b;
+  background: #edf7f1;
+}
+.wb-schema-graph .graph-legend-swatch.referenced {
+  border: 1px dashed #8faabb;
+  background: #f1f6fb;
+}
+.wb-schema-graph .graph-legend-swatch.current {
+  margin: 0 3px;
+  outline: 2px solid #2573a4;
+  outline-offset: 2px;
+}
+.wb-schema-graph .graph-node {
+  --graph-node-stroke: #d3dee4;
+  --graph-node-fill: #f8fafb;
+}
+.wb-schema-graph .graph-node.chosen {
+  --graph-node-stroke: #75a48b;
+  --graph-node-fill: #edf7f1;
+}
+.wb-schema-graph .graph-node.referenced {
+  --graph-node-stroke: #8faabb;
+  --graph-node-fill: #f1f6fb;
+}
+.wb-schema-graph .graph-node.blocked {
+  --graph-node-stroke: #bb8e56;
+  --graph-node-fill: #fdf7ec;
+}
+.wb-schema-graph .graph-node .graph-node-body {
+  fill: var(--graph-node-fill);
+  stroke: var(--graph-node-stroke)!important;
+  stroke-width: 1.3!important;
+}
+.wb-schema-graph .graph-node .graph-focus-ring {
+  fill: none;
+  stroke: #2573a4!important;
+  stroke-width: 2!important;
+  stroke-dasharray: none;
+  opacity: 0;
+  pointer-events: none;
+}
+.wb-schema-graph .graph-node.focused .graph-focus-ring,
+.wb-schema-graph .graph-node:focus-visible .graph-focus-ring {
+  opacity: 1;
+}
+.wb-schema-graph .graph-edge.path-related .edge-line {
+  stroke: #477f6a;
+  stroke-width: 2.4;
+}
+.wb-schema-graph .graph-edge { --graph-edge-stroke: #71978a; }
+.wb-schema-graph .graph-edge.path-related { --graph-edge-stroke: #477f6a; }
+.wb-schema-graph .graph-edge.focused { --graph-edge-stroke: #2573a4; }
+.wb-schema-graph .graph-edge.problem { --graph-edge-stroke: #ad641c; }
+.wb-schema-graph .graph-edge.path-unrelated,
+.wb-schema-graph .graph-label.path-unrelated {
+  opacity: .28;
+}
+.wb-schema-graph .graph-edge.focused,
+.wb-schema-graph .graph-edge:focus-visible,
+.wb-schema-graph .graph-edge:hover,
+.wb-schema-graph .graph-label.focused,
+.wb-schema-graph .graph-label:focus-visible,
+.wb-schema-graph .graph-label:hover,
+.wb-schema-graph .graph-edge.problem,
+.wb-schema-graph .graph-label.problem {
+  opacity: 1;
+}
+.wb-schema-graph .graph-edge.problem .edge-line {
+  stroke-width: 2.5;
+}
+.wb-schema-graph .graph-edge.focused .edge-line,
+.wb-schema-graph .graph-edge:focus-visible .edge-line {
+  stroke: var(--graph-edge-stroke);
+  stroke-width: 3.6;
+}
+.wb-schema-graph .graph-edge.problem .edge-line {
+  stroke: #ad641c;
+}
+.wb-schema-graph .graph-label.problem rect {
+  stroke: #ad641c;
+}

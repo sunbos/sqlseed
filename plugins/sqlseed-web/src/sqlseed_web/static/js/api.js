@@ -13,13 +13,19 @@ export async function api(path, options = {}) {
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error(body.detail || `HTTP ${res.status}`);
+    const detail=body.detail;
+    const message=typeof detail==='string'?detail:Array.isArray(detail)
+      ?detail.map(item=>`${(item.loc || []).join('.')}: ${item.msg || JSON.stringify(item)}`).join('；')
+      :detail?.message || (detail?JSON.stringify(detail):`HTTP ${res.status}`);
+    const error=new Error(message);error.status=res.status;error.detail=detail;throw error;
   }
   return body;
 }
 
 export const post = (path, data) =>
   api(path, { method: 'POST', body: JSON.stringify(data) });
+export const send = (path, data, method = 'POST') =>
+  api(path, { method, body: JSON.stringify(data) });
 export const get = (path) => api(path);
 export const del = (path) => api(path, { method: 'DELETE' });
 
@@ -71,7 +77,10 @@ export function fmt(v) {
 }
 
 export function setConnBadge() {
+  const label = document.getElementById('connection-label');
+  if (label) label.textContent = store.connId ? safeTargetLabel(store.target) : '连接数据库';
   const badge = document.getElementById('conn-badge');
+  if (!badge) return;
   if (store.connId) {
     badge.className = 'badge ok';
     badge.textContent = store.target || store.connId;
@@ -81,14 +90,32 @@ export function setConnBadge() {
   }
 }
 
+/** Display identity only; omit URL userinfo and query parameters. */
+export function safeTargetLabel(target) {
+  if (!target) return '已连接数据库';
+  const text = String(target);
+  if (text.includes('://')) {
+    try {
+      const url = new URL(text);
+      return `${url.hostname}${url.port ? `:${url.port}` : ''}${decodeURIComponent(url.pathname)}`;
+    } catch { return '已连接数据库'; }
+  }
+  return /^(?:[\\/]|[A-Za-z]:[\\/])/.test(text)
+    ? text.split(/[\\/]/).filter(Boolean).at(-1) || text : text;
+}
+
 // ---- 跨刷新恢复 ------------------------------------------------------------
 // store 是模块级内存状态，浏览器一刷新就清空；但服务端的连接对象仍然活着。
 // 用 localStorage 记住上次用的 connId，恢复时先找它，找不到再回退到主连接
 // （group_index 1）。服务重启导致连接全丢时，恢复失败并清除记录。
 
 const CONN_KEY = 'sqlseed.connId';
+let connectionChoiceVersion = 0;
+let explicitlyDisconnected = false;
 
 export function rememberConnId(connId) {
+  connectionChoiceVersion++;
+  explicitlyDisconnected = connId === '';
   try {
     localStorage.setItem(CONN_KEY, connId);
   } catch {
@@ -97,6 +124,8 @@ export function rememberConnId(connId) {
 }
 
 export function forgetConnId() {
+  connectionChoiceVersion++;
+  explicitlyDisconnected = false;
   try {
     localStorage.removeItem(CONN_KEY);
   } catch {
@@ -109,14 +138,22 @@ export function forgetConnId() {
  * @returns {Promise<boolean>} 恢复成功与否（失败时 store 保持原样）
  */
 export async function restoreConnection() {
+  if (explicitlyDisconnected) return false;
+  const originalConnection = store.connId;
+  const originalChoiceVersion = connectionChoiceVersion;
+  const current = () => store.connId === originalConnection && connectionChoiceVersion === originalChoiceVersion;
   let remembered = null;
   try {
     remembered = localStorage.getItem(CONN_KEY);
   } catch {
     return false;
   }
+  // An empty stored id is an explicit user disconnect, not a missing history.
+  // Preserve that choice even when other server-side sessions remain open.
+  if (remembered === '') return false;
   try {
     const res = await get('/api/connections');
+    if (!current()) return Boolean(store.connId);
     const list = res.connections || [];
     const pick = list.find((c) => c.conn_id === remembered)
       || list.find((c) => c.group_index === 1)
@@ -126,12 +163,14 @@ export async function restoreConnection() {
       return false;
     }
     const detail = await get(`/api/connections/${pick.conn_id}/tables`);
+    if (!current()) return Boolean(store.connId);
     store.connId = pick.conn_id;
-    store.target = detail.target;
+    store.target = String(detail.target || '').includes('://') ? safeTargetLabel(detail.target) : detail.target;
     store.tables = detail.tables;
     setConnBadge();
     return true;
   } catch {
+    if (!current()) return Boolean(store.connId);
     forgetConnId();
     return false;
   }

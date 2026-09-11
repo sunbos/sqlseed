@@ -26,6 +26,7 @@ import json
 import os
 import sqlite3
 import urllib.request
+from contextlib import suppress
 from typing import TYPE_CHECKING
 
 import pytest
@@ -164,23 +165,24 @@ def create_raw_adapter_with_data(tmp_db_with_data: str) -> Generator[RawSQLiteAd
 
 @pytest.fixture(scope="session")
 def pg_url() -> Generator[str, None, None]:
-    """Start a real PG container and return the connection URL. Fail with a hint if Docker is unavailable.
+    """Use an explicit test service or own a temporary PostgreSQL container.
 
-    Uses testcontainers to start a postgres:16-alpine container.
-    Session-scoped fixture: all PG tests share a single container.
+    PG_TEST_URL is supplied by CI; only containers created here are stopped here.
     """
+    external_url = os.environ.get("PG_TEST_URL")
+    if external_url:
+        yield external_url
+        return
     if PostgresContainer is None:
         pytest.skip("testcontainers package required for PG integration tests. Install: pip install testcontainers")
+    pg = None
     try:
         pg = PostgresContainer("postgres:16-alpine")
         pg.start()
-        # PostgresContainer.get_connection_url() returns postgresql+psycopg2://...,
-        # but we have psycopg (v3) installed, so we need the postgresql+psycopg:// scheme
-        url = pg.get_connection_url()
-        url = url.replace("postgresql+psycopg2://", "postgresql+psycopg://", 1)
-        yield url
-        pg.stop()
     except Exception as e:
+        if pg is not None:
+            with suppress(Exception):
+                pg.stop()
         if "docker" in str(e).lower() or "connection" in str(e).lower() or "daemon" in str(e).lower():
             pytest.skip(
                 "Docker must be running to execute PostgreSQL integration tests.\n"
@@ -188,6 +190,11 @@ def pg_url() -> Generator[str, None, None]:
                 f"Error details: {e}"
             )
         raise
+    try:
+        url = pg.get_connection_url().replace("postgresql+psycopg2://", "postgresql+psycopg://", 1)
+        yield url
+    finally:
+        pg.stop()
 
 
 @pytest.fixture(scope="session")
@@ -201,10 +208,15 @@ def available_llm_backend() -> dict[str, str]:
     try:
         with urllib.request.urlopen("http://localhost:11434/api/tags", timeout=2) as resp:
             tags = json.loads(resp.read())
-            models = {m.get("name", "") for m in tags.get("models", [])}
+            models = {name for m in tags.get("models", []) if isinstance(name := m.get("name"), str)}
             for preferred in ("gemma4:26b", "gemma4:31b", "gemma4:e4b", "gemma4:12b"):
-                if any(m.startswith(preferred) for m in models):
+                if preferred in models:
                     return {"backend": "ollama", "model": preferred}
+                # Keep the service's full tag (e.g. -cloud or a quantization
+                # suffix), and require a tag boundary rather than a fuzzy prefix.
+                variants = sorted(m for m in models if m.startswith(f"{preferred}-"))
+                if variants:
+                    return {"backend": "ollama", "model": variants[0]}
             pytest.fail(
                 "Ollama is running but no Gemma 4 model has been pulled. Please run:\n"
                 "  ollama pull gemma4:26b   # recommended (requires 16GB VRAM)\n"

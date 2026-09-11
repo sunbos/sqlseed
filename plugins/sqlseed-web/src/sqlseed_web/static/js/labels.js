@@ -23,7 +23,7 @@ export const GEN_LABELS = {
   datetime: '日期时间',
   timestamp: '时间戳',
   time: '时间',
-  integer: '数字',
+  integer: '整数',
   float: '小数',
   boolean: '布尔',
   choice: '枚举',
@@ -37,7 +37,7 @@ export const GEN_LABELS = {
   password: '密码',
   json: 'JSON',
   bytes: '图像或二进制',
-  skip: '序列',
+  skip: '数据库默认值',
   foreign_key: '外键',
   foreign_key_or_integer: '外键',
   autoincrement: '自增',
@@ -46,6 +46,37 @@ export const GEN_LABELS = {
 
 export function genLabel(gen) {
   return GEN_LABELS[gen] || gen || '—';
+}
+
+// Output illustrations supplement the live catalogue, never replace real previews.
+const GENERATOR_GUIDES = {
+  name: ['人物的完整姓名；商品名请使用枚举或模板。', '张晓明 / Alex Smith'],
+  first_name: ['人物的名字部分。', '晓明 / Alex'], last_name: ['人物的姓氏部分。', '张 / Smith'],
+  username: ['登录名或账号名称。', 'alex_chen'], email: ['电子邮箱地址；语言与格式受全局引擎影响。', 'alex@example.test'],
+  phone: ['电话号码；可用号码格式统一输出。', '13800138000'], address: ['完整地址；使用全局语言与地区。', '北京市朝阳区…'],
+  city: ['城市名称。', '北京 / London'], state: ['省、州或地区名称。', '浙江省 / California'],
+  country: ['国家名称。', '中国 / Canada'], country_code: ['国家代码。', 'CN'], zip_code: ['邮政编码。', '100000'],
+  url: ['网站地址。', 'https://example.test'], uuid: ['通用唯一标识符。', '1f22b412-3d73-4e22-a5e4-40a7f18ce319'],
+  ipv4: ['IPv4 地址。', '192.0.2.10'], company: ['公司或组织名称。', '示例科技有限公司'],
+  job_title: ['职位名称。', '软件工程师'], catch_phrase: ['营销口号或短标语。', '让每一天更简单'],
+  date: ['在日期范围内随机取值，可限定工作日。', '2026-09-07'],
+  datetime: ['在日期和时间范围内随机取值。', '2026-09-07 14:30:00'],
+  timestamp: ['生成日期时间对象；写入格式由数据库列类型决定。', '2026-09-07 14:30:00'],
+  time: ['一天内的时间，可限定营业时段。', '09:30:00'],
+  integer: ['范围内的随机整数，适合数量、年龄或库存。', '12'],
+  float: ['范围内的随机小数，适合金额或度量值。', '128.50'], boolean: ['真或假，适合启用、完成等标记。', 'true / false'],
+  choice: ['从你提供的候选值中随机选一个，适合状态或商品名。', 'pending / paid / shipped'],
+  weighted_choice: ['按指定权重选择候选值，适合不均匀分布。', '普通 80% / VIP 20%'],
+  pattern: ['生成符合正则表达式的值，适合固定格式编码。', '正则 [A-Z]{3}[0-9]{4} → ABC1234'],
+  template: ['按模板生成编号或组合文本，可包含递增序号。', 'SKU-{sequence:04d} → SKU-0001'],
+  string: ['从候选字符中生成随机字符串，适合随机代码；名称建议用枚举。', 'aB72xQ'],
+  text: ['较长的自然语言文本。', '一段说明文字…'], sentence: ['一条自然语言句子。', '这是一条示例描述。'],
+  word: ['一个单词。', 'river'], password: ['随机密码字符串。', 'a9B!x7Qp'],
+  json: ['生成 JSON 值，可指定对象结构。', '{"active": true}'], bytes: ['生成字节或图像内容，适合二进制列。', '16 字节 / PNG 图像'],
+};
+export function genGuide(generator) {
+  const guide = GENERATOR_GUIDES[generator];
+  return guide ? {purpose: guide[0], example: guide[1]} : {purpose: '扩展生成器；参数由当前服务提供。', example: ''};
 }
 
 // 生成器参数中文标签（genform 动态参数表单）。未收录的参数原样显示。

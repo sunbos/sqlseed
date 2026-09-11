@@ -1,4 +1,4 @@
-// 系统面板：35 生成器 + 参数签名、12 hooks、provider 链、AI 后端状态。
+// 系统信息：生成器与参数、插件扩展点、生成引擎、AI 后端状态。
 // 验收驾驶舱：这里的计数必须与代码一致（doc-sync 的 UI 版）。
 
 import { h, get, msg, clear, table } from '../api.js';
@@ -8,11 +8,9 @@ let data = null;
 export function render() {
   const root = h('div');
   root.append(
-    h('h2', {}, '系统面板'),
+    h('h2', {}, '系统信息'),
     h('div', { class: 'muted', style: 'margin-bottom:12px; line-height:1.6' },
-      '系统面板是 sqlseed 运行时的「体检报告」：展示当前安装的核心能力清单'
-      + '（生成器类型及参数、插件 hook、数据 provider 回退链、AI 后端状态）与最近任务记录。'
-      + '用于确认环境是否就绪、各计数是否与代码一致——不参与数据生成配置。'),
+      '查看当前版本、可用生成器、插件扩展点、数据生成引擎、AI 服务状态和最近任务。'),
     h('div', { id: 'meta-out' }, h('div', { class: 'loading' }, '加载中…')),
   );
   return root;
@@ -52,7 +50,7 @@ function renderStats(gen, hooks, ai, info) {
   return h('div', { class: 'panel' },
     h('div', { class: 'stats' },
       h('div', {}, h('div', { class: 'stat' }, gen.count), h('div', { class: 'stat-label' }, '生成器类型')),
-      h('div', {}, h('div', { class: 'stat' }, hooks.count), h('div', { class: 'stat-label' }, '插件 hooks')),
+      h('div', {}, h('div', { class: 'stat' }, hooks.count), h('div', { class: 'stat-label' }, '插件扩展点')),
       h('div', {}, h('div', { class: 'stat' }, info.sqlseed_version || '—'),
         h('div', { class: 'stat-label' }, 'sqlseed 版本')),
     ),
@@ -67,7 +65,7 @@ function renderStats(gen, hooks, ai, info) {
 function renderGenerators(gen) {
   const paramList = (name) => (gen.params[name] || []).join(', ');
   return h('div', { class: 'panel' },
-    h('h3', {}, `生成器清单（${gen.count}）— BaseProvider._gen_* 参数签名`),
+    h('h3', {}, `生成器及参数（${gen.count}）`),
     h('div', { class: 'table-scroll' },
       table(['生成器', '参数'],
         gen.names.map((n) => [h('span', { class: 'pill gen' }, n), paramList(n) || '—']),
@@ -77,12 +75,12 @@ function renderGenerators(gen) {
 
 function renderHooks(hooks) {
   return h('div', { class: 'panel' },
-    h('h3', {}, `Hook 清单（${hooks.count}）`),
+    h('h3', {}, `插件扩展点（${hooks.count}）`),
     h('div', { class: 'table-scroll' },
-      table(['hook', 'firstresult'],
+      table(['扩展点', '结果处理方式'],
         hooks.hooks.map((hk) => [
           hk.name,
-          hk.firstresult ? h('span', { class: 'pill ok' }, 'first') : h('span', { class: 'pill' }, 'all'),
+          hk.firstresult ? h('span', { class: 'pill ok' }, '首个有效结果') : h('span', { class: 'pill' }, '收集所有结果'),
         ]),
         { monoCols: [0] })),
   );
@@ -90,12 +88,12 @@ function renderHooks(hooks) {
 
 function renderProviders(providers) {
   return h('div', { class: 'panel' },
-    h('h3', {}, 'Provider 回退链'),
+    h('h3', {}, '数据生成引擎优先级'),
     h('div', { class: 'row' },
       ...providers.default_chain.map((p) => h('span', {
         class: `pill ${providers.available.includes(p) ? 'ok' : 'warn'}`,
       }, p)),
-      h('span', { class: 'muted' }, '（灰 = 未安装，自动降级）'),
+      h('span', { class: 'muted' }, '优先使用前面的引擎；不可用时依次尝试后续引擎。'),
     ),
   );
 }

@@ -37,7 +37,15 @@ def fetch_index_info(
         is_unique = bool(row[2])
         col_rows = execute_fn(f"PRAGMA index_info({quote_identifier(idx_name)})").fetchall()
         columns = tuple(cr[2] for cr in col_rows if cr[2] is not None)
-        result.append(IndexInfo(name=idx_name, table=table_name, columns=columns, unique=is_unique))
+        result.append(
+            IndexInfo(
+                name=idx_name,
+                table=table_name,
+                columns=columns,
+                unique=is_unique,
+                is_partial=bool(row[4]) if len(row) > 4 else False,
+            )
+        )
     return result
 
 

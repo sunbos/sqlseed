@@ -196,6 +196,10 @@ class ColumnDAG:
                             if ref not in depends_on:
                                 depends_on.append(ref)
 
+        pair_source = spec.params.get("_pair_source")
+        if isinstance(pair_source, str) and pair_source not in depends_on:
+            depends_on.append(pair_source)
+
         if is_unique:
             if constraints is None:
                 constraints = ColumnConstraints(is_unique=True)

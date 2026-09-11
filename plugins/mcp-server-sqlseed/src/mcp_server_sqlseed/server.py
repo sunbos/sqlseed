@@ -18,6 +18,7 @@ from mcp_server_sqlseed.config import MCPServerConfig
 from sqlseed._utils.logger import get_logger
 from sqlseed._utils.paths import validate_db_target as _validate_db_target
 from sqlseed._utils.paths import validate_table_name as _validate_table_name
+from sqlseed._utils.progress import NullProgressBackend
 from sqlseed.config.models import GeneratorConfig
 from sqlseed.core.orchestrator import DataOrchestrator
 
@@ -94,8 +95,12 @@ def sqlseed_execute_fill(
             clear_before = False
             seed = None
 
-            if yaml_config:
+            if yaml_config is not None:
                 data = yaml.safe_load(yaml_config)
+                if not isinstance(data, dict):
+                    raise ValueError("yaml_config must contain a YAML mapping")
+                if any(not isinstance(key, str) for key in data):
+                    raise ValueError("yaml_config mapping keys must be strings")
                 config = GeneratorConfig(**data)
                 for t in config.tables:
                     if t.name == table_name:
@@ -103,16 +108,20 @@ def sqlseed_execute_fill(
                         clear_before = t.clear_before
                         seed = t.seed
                         break
+                else:
+                    raise ValueError(f"YAML configuration does not include target table '{table_name}'")
 
-            result = orch.fill_table(
-                table_name=table_name,
-                count=count,
-                column_configs=column_configs,
-                clear_before=clear_before,
-                seed=seed,
-                enrich=enrich,
-                skip_ai=True,
-            )
+            with NullProgressBackend() as progress:
+                result = orch.fill_table(
+                    table_name=table_name,
+                    count=count,
+                    column_configs=column_configs,
+                    clear_before=clear_before,
+                    seed=seed,
+                    enrich=enrich,
+                    skip_ai=True,
+                    progress=progress,
+                )
 
             logger.info(
                 "Fill completed",

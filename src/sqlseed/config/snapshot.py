@@ -6,6 +6,8 @@ snapshots, used by the replay feature (regenerating previously saved configurati
 
 from __future__ import annotations
 
+import hashlib
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -46,7 +48,8 @@ class SnapshotManager:
     ) -> str:
         """Save a configuration snapshot to a YAML file.
 
-        File name format: {timestamp}_{table_name}.yaml
+        File name format: {timestamp}_{safe_table_label}.yaml. The original
+        table name is preserved in the snapshot, independently of its filename.
 
         Args:
             config: Generator configuration
@@ -62,7 +65,12 @@ class SnapshotManager:
         # Include microseconds to avoid filename collisions when multiple snapshots
         # are saved within the same second.
         timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S_%f")
-        filename = f"{timestamp}_{table_name}.yaml"
+        # SQL identifiers can contain path separators and exceed filesystem
+        # filename limits. Keep familiar names readable and bound all others.
+        table_label = table_name
+        if re.fullmatch(r"[A-Za-z0-9_.-]{1,80}", table_label) is None:
+            table_label = f"table-{hashlib.sha256(table_name.encode('utf-8')).hexdigest()[:16]}"
+        filename = f"{timestamp}_{table_label}.yaml"
         filepath = self._snapshot_dir / filename
 
         snapshot_data = {
@@ -91,15 +99,19 @@ class SnapshotManager:
 
         Raises:
             FileNotFoundError: Snapshot file does not exist
+            ValueError: Snapshot contents are not a mapping
         """
         path = Path(snapshot_path)
         if not path.exists():
             raise FileNotFoundError(f"Snapshot not found: {snapshot_path}")
 
         with open(path, encoding="utf-8") as f:
-            data: dict[str, Any] = yaml.safe_load(f)
+            data = yaml.safe_load(f)
 
-        return data
+        if not isinstance(data, dict):
+            raise ValueError("Snapshot must contain a YAML mapping")
+        result: dict[str, Any] = data
+        return result
 
     def list_snapshots(self) -> list[str]:
         """List all snapshot file paths in the snapshot directory.

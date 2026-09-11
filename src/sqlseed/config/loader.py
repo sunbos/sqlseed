@@ -103,18 +103,21 @@ def save_config(config: GeneratorConfig, path: str) -> None:
         ValueError: Unsupported format
     """
     config_path = Path(path)
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-
     suffix = config_path.suffix.lower()
-    data = config.model_dump(mode="json")
+    if suffix not in {".yaml", ".yml", ".json"}:
+        raise ValueError(f"Unsupported configuration file format: {suffix}")
 
-    with open(config_path, "w", encoding="utf-8") as f:
-        if suffix in {".yaml", ".yml"}:
-            yaml.dump(data, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
-        elif suffix == ".json":
-            json.dump(data, f, indent=2, ensure_ascii=False)
-        else:
-            raise ValueError(f"Unsupported configuration file format: {suffix}")
+    # Validate and encode completely before opening the destination: rejected
+    # formats or unencodable values must not truncate a previous configuration.
+    data = config.model_dump(mode="json")
+    if suffix in {".yaml", ".yml"}:
+        serialized = yaml.dump(data, default_flow_style=False, allow_unicode=True, sort_keys=False)
+    else:
+        serialized = json.dumps(data, indent=2, ensure_ascii=False)
+    encoded = serialized.encode("utf-8")
+
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_bytes(encoded)
 
     logger.info("Configuration saved", path=path)
 

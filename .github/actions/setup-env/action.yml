@@ -20,13 +20,8 @@ runs:
           plugins/*/pyproject.toml
 
     - name: Install dependencies
-      # Install local plugins BEFORE core extras so pip can satisfy
-      # `sqlseed-cli>=0.1.0` (referenced in [dev] and [all] extras)
-      # from the local editable install instead of PyPI. sqlseed-cli
-      # is not yet published to PyPI (monorepo package).
+      # Resolve the matching local packages together. Candidate plugins can
+      # require a Core version that has not been published to PyPI yet.
       shell: bash
       run: |
-        pip install -e "./plugins/sqlseed-cli"
-        pip install -e ".[all,dev]"
-        pip install -e "./plugins/sqlseed-ai[dev]"
-        pip install -e "./plugins/mcp-server-sqlseed"
+        python -m pip install -e ".[all,dev]" -e "./plugins/sqlseed-cli" -e "./plugins/sqlseed-ai[dev]" -e "./plugins/mcp-server-sqlseed" -e "./plugins/sqlseed-web[dev]"

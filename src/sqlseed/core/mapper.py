@@ -335,18 +335,21 @@ class ColumnMapper:
         return None
 
     def _map_from_user_config(self, user_config: Any) -> GeneratorSpec | None:
-        """Build a generator spec from explicit user config; returns None if no generator is provided."""
-        if user_config and hasattr(user_config, "generator") and user_config.generator:
+        """Build an explicit source spec, including native-only provider methods."""
+        generator = getattr(user_config, "generator", None)
+        faker_method = getattr(user_config, "faker_method", None)
+        mimesis_method = getattr(user_config, "mimesis_method", None)
+        if user_config and (generator or faker_method or mimesis_method):
             provider_val = (
                 user_config.provider.value if hasattr(user_config, "provider") and user_config.provider else None
             )
             return GeneratorSpec(
-                generator_name=user_config.generator,
+                generator_name=generator or "__native__",
                 params=user_config.params if hasattr(user_config, "params") else {},
                 null_ratio=user_config.null_ratio if hasattr(user_config, "null_ratio") else 0.0,
                 provider=provider_val,
-                native_faker_method=getattr(user_config, "faker_method", None),
-                native_mimesis_method=getattr(user_config, "mimesis_method", None),
+                native_faker_method=faker_method,
+                native_mimesis_method=mimesis_method,
                 native_params=getattr(user_config, "native_params", None) or None,
             )
         return None
@@ -430,12 +433,13 @@ class ColumnMapper:
         if user_spec:
             exact_match = self._match_exact(column_name) or self._match_pattern(column_name)
             if exact_match:
-                # Group Merge Compatibility: allow parameter merging across string-like generators
+                # Only string/text share length parameters. Sentence accepts
+                # neither lengths nor charset, and text does not accept charset.
                 same_group = False
                 if exact_match.generator_name == user_spec.generator_name:
                     same_group = True
                 else:
-                    string_generators = {"string", "text", "sentence"}
+                    string_generators = {"string", "text"}
                     if (
                         exact_match.generator_name in string_generators
                         and user_spec.generator_name in string_generators
@@ -444,6 +448,10 @@ class ColumnMapper:
 
                 if same_group:
                     merged_params = dict(exact_match.params)
+                    if exact_match.generator_name != user_spec.generator_name:
+                        merged_params = {
+                            key: value for key, value in merged_params.items() if key in {"min_length", "max_length"}
+                        }
                     merged_params.update(user_spec.params)
                     # Resolve min_length/max_length conflicts that would crash
                     # string/text generators (rng.randint raises ValueError
@@ -451,7 +459,12 @@ class ColumnMapper:
                     # min_length larger than the rule's max_length.
                     min_len = merged_params.get("min_length")
                     max_len = merged_params.get("max_length")
-                    if isinstance(min_len, int) and isinstance(max_len, int) and min_len > max_len:
+                    if (
+                        isinstance(min_len, int)
+                        and isinstance(max_len, int)
+                        and min_len > max_len
+                        and "max_length" not in user_spec.params
+                    ):
                         merged_params.pop("max_length", None)
                     user_spec.params = merged_params
             return user_spec
@@ -488,23 +501,14 @@ class ColumnMapper:
         force_type_infer: bool,
     ) -> GeneratorSpec:
         """L1b-L9 fallback chain (when no user config with generator is provided)."""
-        # L1b: Implicit INTEGER PRIMARY KEY skip (no user config provided).
-        # SQLite treats single-column ``INTEGER PRIMARY KEY`` (without the
-        # explicit ``AUTOINCREMENT`` keyword) as an alias for ROWID — SQLite
-        # auto-generates a value when none is inserted. We skip these columns
-        # so the fill logic does not override SQLite's rowid assignment.
-        #
-        # Composite PK INTEGER columns (e.g., ``day_of_week`` in
-        # ``PRIMARY KEY(doctor_id, day_of_week)``) are NOT autoincrement and
-        # require explicit values. However, when no user config is provided,
-        # we still skip them here for backward compatibility — the caller
-        # (orchestrator/AI plugin) is expected to provide explicit config for
-        # composite PK columns. The AI plugin's ``_build_subgraph_config``
-        # always infers config for composite PK columns via CHECK constraints
-        # or type/name-based placeholders, so this skip only affects the
-        # zero-config path where the user relies on SQLite's implicit behavior.
-        if column_info.is_primary_key and ("INTEGER" in column_type or "INT" in column_type):
+        # L1b: Only a real SQLite rowid alias receives an implicit ID. Unknown
+        # metadata preserves legacy hand-built ColumnInfo behavior; adapters
+        # explicitly distinguish composite, DESC and WITHOUT ROWID keys.
+        if column_info.is_primary_key and column_type == "INTEGER" and column_info.is_rowid_alias is not False:
             return GeneratorSpec(generator_name="skip")
+
+        if column_info.is_primary_key and "INT" in column_type:
+            return self._type_faithful_fallback(column_type)
 
         exact_match = self._match_exact(column_name)
         if exact_match:

@@ -26,6 +26,8 @@ import re
 from typing import TYPE_CHECKING, Any
 
 from sqlseed._utils.logger import get_logger
+from sqlseed.config.models import ColumnConfig
+from sqlseed.core.check_adapt import CheckAdapter
 from sqlseed.core.check_parser import CheckConstraintParser, ParsedCheck
 from sqlseed.core.mapper import GeneratorSpec
 
@@ -127,51 +129,35 @@ class SchemaFallbackGenerator:
         check_constraints: list[CheckConstraintInfo],
     ) -> GeneratorSpec | None:
         """Generate spec from single-column CHECK constraints."""
-        for chk in check_constraints:
-            parsed = CheckConstraintParser.parse(column.name, chk.expression)
-            if parsed is None:
-                continue
+        expressions = [chk.expression for chk in check_constraints]
+        parsed = CheckConstraintParser.parse_all(column.name, expressions)
+        if parsed is None:
+            return None
 
-            if parsed.kind == "choice":
-                return GeneratorSpec(
-                    generator_name="choice",
-                    params={"choices": list(parsed.choices)},
-                )
+        if parsed.kind == "choice":
+            return GeneratorSpec(generator_name="choice", params={"choices": list(parsed.choices)})
 
-            if parsed.kind == "range":
-                params: dict[str, Any] = {}
+        if parsed.kind == "range":
+            type_spec = self._fallback_from_type(column, [])
+            if type_spec is not None and type_spec.generator_name in {"integer", "float"}:
+                gen_name = type_spec.generator_name
+            else:
                 gen_name = "integer" if self._is_integer_range(parsed) else "float"
-                if gen_name == "integer":
-                    # Coerce float bounds (e.g., 1.0 from CHECK ``>= 1``) to
-                    # int — ``random.randint`` rejects float arguments with
-                    # ``TypeError: 'float' object cannot be interpreted as
-                    # an integer``.
-                    if parsed.min_value is not None:
-                        params["min_value"] = int(parsed.min_value)
-                    if parsed.max_value is not None:
-                        params["max_value"] = int(parsed.max_value)
-                else:
-                    if parsed.min_value is not None:
-                        params["min_value"] = parsed.min_value
-                    if parsed.max_value is not None:
-                        params["max_value"] = parsed.max_value
-                return GeneratorSpec(generator_name=gen_name, params=params)
+            config = ColumnConfig(name=column.name, generator=gen_name)
+            CheckAdapter().adapt_user_configs({column.name: config}, expressions)
+            return GeneratorSpec(generator_name=gen_name, params=config.params)
 
-            if parsed.kind == "length_range":
-                params = {}
-                if parsed.min_length is not None:
-                    params["min_length"] = parsed.min_length
-                if parsed.max_length is not None:
-                    params["max_length"] = parsed.max_length
-                # If column has explicit length in type (VARCHAR(N)), use min(parsed, N).
-                type_length = _parse_length_from_type(column.type)
-                if type_length and "max_length" in params:
-                    params["max_length"] = min(params["max_length"], type_length)
-                # charset required so BaseProvider._gen_string honors min/max_length
-                # (without charset it returns the fixed-length placeholder "str_NNN").
-                params["charset"] = "alphanumeric"
-                return GeneratorSpec(generator_name="string", params=params)
-
+        if parsed.kind == "length_range":
+            params: dict[str, Any] = {}
+            if parsed.min_length is not None:
+                params["min_length"] = parsed.min_length
+            if parsed.max_length is not None:
+                params["max_length"] = parsed.max_length
+            type_length = _parse_length_from_type(column.type)
+            if type_length and "max_length" in params:
+                params["max_length"] = min(params["max_length"], type_length)
+            params["charset"] = "alphanumeric"
+            return GeneratorSpec(generator_name="string", params=params)
         return None
 
     def _fallback_from_type(

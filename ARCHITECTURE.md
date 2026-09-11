@@ -197,6 +197,10 @@ sqlseed is a **declarative multi-database test data generation toolkit**. It foc
 
 ---
 
+### 3.5 Standalone application: `sqlseed-web`
+
+Web is the fifth distribution, built with FastAPI and static ES modules shipped in its wheel. It calls offline core directly and optionally uses AI Python services; it does not execute generation through CLI subprocesses or register UI hooks in core. Configuration storage, run history and HTTP lifecycle belong to Web. Its default supervisor coordinates business and maintenance workers without changing core dependencies. The app serves one trusted local user and does not provide multi-user authentication. See the [Web guide](docs/web-workbench.md).
+
 ## 4. Dependency Direction
 
 ```
@@ -206,6 +210,7 @@ User code
 sqlseed (core) ◄──── plugins/sqlseed-cli (CLI)
     │                plugins/sqlseed-ai (AI)
     │                plugins/mcp-server-sqlseed (MCP)
+    │                plugins/sqlseed-web (Web)
     │
     ▼
 sqlseed._utils (no internal deps, used by all)
@@ -215,7 +220,7 @@ sqlseed._utils (no internal deps, used by all)
 - `generators/` → never imports `core/`
 - `database/` → never imports `core/`
 - `_utils/` → never imports any upper layer
-- Plugins → import `sqlseed` core, never each other (except sqlseed-ai may import sqlseed-cli for CLI entry point)
+- Plugins import core. AI may depend on CLI for its command entry points; Web may use optional AI Python services. Web/MCP must not import AI CLI private implementations.
 
 ---
 
@@ -249,7 +254,7 @@ sqlseed._utils (no internal deps, used by all)
 
 ### 6.1 Version Compatibility Policy
 
-With 4 independent packages (`sqlseed`, `sqlseed-cli`, `sqlseed-ai`, `mcp-server-sqlseed`), each with independent versioning, the following policy governs cross-package compatibility:
+With 5 independent packages (`sqlseed`, `sqlseed-cli`, `sqlseed-ai`, `mcp-server-sqlseed`, `sqlseed-web`), each with independent versioning, the following policy governs cross-package compatibility:
 
 | Change Type | Version Impact | Plugin Action |
 |-------------|----------------|---------------|

@@ -22,23 +22,27 @@ sqlseed-ai is an optional dependency: heal endpoints degrade to
 from __future__ import annotations
 
 import inspect
-import threading
-import time
+import sqlite3
+from contextlib import closing
 from dataclasses import asdict, is_dataclass
 from typing import Any
 
 import yaml
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-
+from sqlalchemy.exc import SQLAlchemyError, StatementError
 from sqlseed._utils.logger import get_logger
 from sqlseed._utils.sql_safe import quote_identifier, validate_table_name
 from sqlseed.config.loader import load_config
+from sqlseed.config.models import GeneratorConfig
 from sqlseed.core.orchestrator import DataOrchestrator
 from sqlseed.generators._dispatch import GeneratorDispatchMixin
-from sqlseed.generators._protocol import ConfigurationError
+from sqlseed.generators._protocol import ConfigurationError, UnknownGeneratorError
 
-from sqlseed_web.state import state
+from sqlseed_web.ai_settings import SettingsRequest, credential_snapshot, resolve_settings, set_session_preferences
+from sqlseed_web.runtime_lifecycle import start_background
+from sqlseed_web.settings_environment import ai_import_failure, provider_availability, require_ai_available
+from sqlseed_web.state import ConnectionBusyError, UnknownConnectionError, state
 
 logger = get_logger(__name__)
 
@@ -62,6 +66,8 @@ class PreviewRequest(BaseModel):
     count: int = 5
     columns: dict[str, Any] | None = None
     seed: int | None = None
+    transform: str | None = None
+    enrich: bool = False
 
 
 class FillRequest(BaseModel):
@@ -72,6 +78,7 @@ class FillRequest(BaseModel):
     batch_size: int = 5000
     clear_before: bool = False
     enrich: bool = False
+    transform: str | None = None
 
 
 class YamlRequest(BaseModel):
@@ -111,6 +118,35 @@ def _conn_or_404(conn_id: str) -> DataOrchestrator:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+def _request_errors(orch: DataOrchestrator) -> tuple[type[Exception], ...]:
+    """Include errors from SQLAlchemy and the connection's raw DBAPI driver."""
+    errors: tuple[type[Exception], ...] = (
+        ConfigurationError,
+        UnknownGeneratorError,
+        ValueError,
+        RuntimeError,
+        OSError,
+        SQLAlchemyError,
+        sqlite3.Error,
+    )
+    # execute/query use native DBAPI cursors, whose errors are not wrapped
+    # by SQLAlchemy. Read the already-loaded driver, without importing an
+    # optional PostgreSQL dependency or opening another connection.
+    engine = getattr(orch.database_adapter, "_engine", None)
+    if engine is not None:
+        error_type = engine.dialect.loaded_dbapi.Error
+        if isinstance(error_type, type) and issubclass(error_type, Exception):
+            errors += (error_type,)
+    return errors
+
+
+def _error_detail(exc: Exception) -> str:
+    """Describe a failure without SQLAlchemy's SQL and parameter dump."""
+    if isinstance(exc, StatementError) and exc.orig is not None:
+        return str(exc.orig)
+    return str(exc)
+
+
 def _serialize(value: Any) -> Any:
     """Make any core dataclass JSON-safe (dates/datetimes/bytes -> str)."""
     if is_dataclass(value) and not isinstance(value, type):
@@ -124,7 +160,8 @@ def _serialize(value: Any) -> Any:
     if isinstance(value, bytes):
         try:
             return value.decode("utf-8", errors="replace")
-        except Exception:
+        except Exception:  # noqa: BLE001
+            # Keep the best-effort fallback for bytes subclasses supplied by database drivers.
             return repr(value)
     return value
 
@@ -147,11 +184,10 @@ def _yaml_to_config_dict(yaml_text: str) -> dict[str, Any]:
 
 def _run_fill_job(conn_id: str, job_id: str, req: FillRequest) -> None:
     """Background-thread body for a fill job."""
-    conn = state.get_connection(conn_id)
-    orch = conn.orchestrator
     job = state.get_job(job_id)
     try:
-        with state.connection_lock(conn_id):
+        with state.connection_operation(conn_id, job_id=job_id) as conn:
+            orch = conn.orchestrator
             job.rows_before = orch.get_row_count(req.table)
             result = orch.fill_table(
                 req.table,
@@ -161,25 +197,26 @@ def _run_fill_job(conn_id: str, job_id: str, req: FillRequest) -> None:
                 batch_size=req.batch_size,
                 clear_before=req.clear_before,
                 enrich=req.enrich,
+                transform=req.transform,
             )
-        job.rows_inserted = getattr(result, "count", 0) or 0
-        # Assign result BEFORE status: the polling endpoint may otherwise
-        # observe status="done" with an empty result dict (read race).
-        job.result = {
-            "rows_inserted": job.rows_inserted,
-            "elapsed": getattr(result, "elapsed", 0.0),
-            "rows_per_second": getattr(result, "rows_per_second", 0.0),
-            "errors": getattr(result, "errors", None),
-            "table": req.table,
-            "row_count_after": orch.get_row_count(req.table),
-        }
-        job.status = "done"
+            payload = {
+                "rows_inserted": result.count,
+                "elapsed": result.elapsed,
+                "rows_per_second": result.rows_per_second,
+                "errors": result.errors,
+                "table": req.table,
+                "row_count_after": orch.get_row_count(req.table),
+            }
+        state.complete_job(
+            job_id,
+            result=payload,
+            rows_inserted=result.count,
+            error="\n".join(result.errors) if result.errors else None,
+        )
     except Exception as exc:  # noqa: BLE001 — job isolation boundary
-        job.status = "error"
-        job.error = f"{type(exc).__name__}: {exc}"
-        logger.error("fill job failed", job_id=job_id, error=job.error)
-    finally:
-        job.finished_at = time.time()
+        error = f"{type(exc).__name__}: {_error_detail(exc)}"
+        state.complete_job(job_id, error=error)
+        logger.error("fill job failed", job_id=job_id, error=error)
 
 
 # --------------------------------------------------------------------------
@@ -228,12 +265,12 @@ def meta_hooks() -> dict[str, Any]:
 
 @router.get("/meta/providers")
 def meta_providers() -> dict[str, Any]:
-    from sqlseed.generators import registry as gen_registry
-
-    available = ["base", "faker"]
-    if getattr(gen_registry, "HAS_MIMESIS", False):
-        available.append("mimesis")
-    return {"available": available, "default_chain": ["mimesis", "faker", "base"]}
+    statuses = provider_availability()
+    return {
+        "available": [name for name, facts in statuses.items() if facts["available"]],
+        "default_chain": ["mimesis", "faker", "base"],
+        "statuses": statuses,
+    }
 
 
 # Curated locale list (faker-style codes — the lingua franca across providers:
@@ -322,22 +359,9 @@ def meta_ai() -> dict[str, Any]:
     after an in-session backend switch.
     """
     try:
-        from sqlseed_ai.config import AIConfig
+        cfg = resolve_settings(state)[0]
     except ImportError:
-        return {"available": False, "reason": "sqlseed-ai is not installed (pip install -e ./plugins/sqlseed-web[ai])"}
-    override = state.get_ai_override()
-    cfg = AIConfig.from_env().apply_overrides(
-        api_key=override.get("api_key"),
-        base_url=override.get("base_url"),
-        model=override.get("model"),
-    )
-    if override.get("backend"):
-        from sqlseed_ai.config import AIBackend
-
-        try:
-            cfg.backend = AIBackend(override["backend"])
-        except ValueError:
-            pass
+        return ai_import_failure()
     return {
         "available": True,
         "backend": cfg.backend.value,
@@ -357,8 +381,8 @@ def meta_ai() -> dict[str, Any]:
 AI_BACKENDS: list[dict[str, str]] = [
     {"id": "openai_compat", "label": "OpenAI 兼容服务（在线/自建）", "needs_key": "1", "needs_url": "1"},
     {"id": "google_ai_studio", "label": "Google AI Studio（在线）", "needs_key": "1", "needs_url": "0"},
-    {"id": "ollama", "label": "Ollama（本地）", "needs_key": "0", "needs_url": "0"},
-    {"id": "lm_studio", "label": "LM Studio（本地）", "needs_key": "0", "needs_url": "0"},
+    {"id": "ollama", "label": "Ollama", "needs_key": "0", "needs_url": "0"},
+    {"id": "lm_studio", "label": "LM Studio", "needs_key": "0", "needs_url": "0"},
 ]
 
 
@@ -366,26 +390,15 @@ AI_BACKENDS: list[dict[str, str]] = [
 def ai_config_get() -> dict[str, Any]:
     """Current effective AI config: session override merged over env defaults."""
     try:
-        from sqlseed_ai.config import AIConfig
+        cfg = resolve_settings(state)[0]
     except ImportError:
-        return {"available": False, "reason": "sqlseed-ai is not installed (pip install -e ./plugins/sqlseed-web[ai])"}
-    override = state.get_ai_override()
-    cfg = AIConfig.from_env().apply_overrides(
-        api_key=override.get("api_key"),
-        base_url=override.get("base_url"),
-        model=override.get("model"),
-    )
-    if override.get("backend"):
-        from sqlseed_ai.config import AIBackend
-
-        try:
-            cfg.backend = AIBackend(override["backend"])
-        except ValueError:
-            pass
+        return ai_import_failure()
     return {
         "available": True,
         "backends": AI_BACKENDS,
-        "override": override,
+        "override": {
+            key: value for key, value in state.get_ai_override().items() if key in {"backend", "model", "base_url"}
+        },
         "effective": {
             "backend": cfg.backend.value,
             "model": cfg.resolve_model(),
@@ -398,7 +411,16 @@ def ai_config_get() -> dict[str, Any]:
 @router.post("/ai/config")
 def ai_config_set(req: AIConfigRequest) -> dict[str, Any]:
     """Store session-level AI overrides (backend/model/key/base_url)."""
-    state.set_ai_override(req.model_dump())
+    # An empty legacy request still resets only the in-memory overrides.
+    if not req.model_fields_set:
+        state.set_ai_override({})
+    else:
+        try:
+            set_session_preferences(state, req.model_dump(exclude_unset=True))
+        except ImportError:
+            return ai_config_get()
+        except (ValueError, TypeError) as exc:
+            raise HTTPException(422, detail="AI 配置字段无效，请检查后端与 HTTP(S) 地址。") from exc
     return ai_config_get()
 
 
@@ -413,22 +435,9 @@ def ai_test_connection() -> dict[str, Any]:
     returns 404 and once made a healthy server look dead).
     """
     try:
-        from sqlseed_ai.config import AIConfig
+        cfg = resolve_settings(state)[0]
     except ImportError:
-        return {"available": False, "reason": "sqlseed-ai is not installed (pip install -e ./plugins/sqlseed-web[ai])"}
-    override = state.get_ai_override()
-    cfg = AIConfig.from_env().apply_overrides(
-        api_key=override.get("api_key"),
-        base_url=override.get("base_url"),
-        model=override.get("model"),
-    )
-    if override.get("backend"):
-        from sqlseed_ai.config import AIBackend
-
-        try:
-            cfg.backend = AIBackend(override["backend"])
-        except ValueError:
-            pass
+        return ai_import_failure()
     backend = cfg.backend.value
     result: dict[str, Any] = {"available": True, "backend": backend, "models": []}
     try:
@@ -464,9 +473,9 @@ def ai_test_connection() -> dict[str, Any]:
                     if result["ok"]
                     else f"在线后端拒绝：HTTP {resp.status_code}（检查 Key / Base URL）。"
                 )
-    except Exception as exc:  # noqa: BLE001 — connectivity probe
+    except Exception:  # noqa: BLE001 — connectivity probe
         result["ok"] = False
-        result["message"] = f"无法连接 {backend}：{exc}"
+        result["message"] = "无法连接 AI 服务，请检查地址、认证和服务状态。"
         if backend == "ollama":
             result["message"] += "（本地需先运行 `ollama serve`，默认 http://localhost:11434；无需任何密钥）"
     return result
@@ -499,7 +508,7 @@ def connect_db(req: ConnectRequest) -> dict[str, Any]:
         conn = state.add_connection(target, provider=req.provider, locale=req.locale)
         orch = conn.orchestrator
         tables = orch.get_table_names()
-    except Exception as exc:  # noqa: BLE001 — surface connect errors as 4xx/5xx
+    except Exception as exc:
         if conn is not None:
             state.close_connection(conn.conn_id)
         raise HTTPException(status_code=400, detail=f"connection failed: {exc}") from exc
@@ -546,8 +555,8 @@ def list_tables(conn_id: str) -> dict[str, Any]:
         }
     except HTTPException:
         raise
-    except (ValueError, RuntimeError, OSError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except _request_errors(orch) as exc:
+        raise HTTPException(status_code=400, detail=_error_detail(exc)) from exc
 
 
 @router.get("/connections")
@@ -559,6 +568,8 @@ def list_connections() -> dict[str, Any]:
 def close_db(conn_id: str) -> dict[str, Any]:
     try:
         state.close_connection(conn_id)
+    except ConnectionBusyError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {"closed": conn_id}
@@ -586,7 +597,7 @@ def jobs() -> dict[str, Any]:
 @router.get("/jobs/{job_id}")
 def job_status(job_id: str) -> dict[str, Any]:
     try:
-        job = state.get_job(job_id)
+        job = state.job_snapshot(job_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     live_rows = None
@@ -617,14 +628,16 @@ def table_schema(conn_id: str, table: str) -> dict[str, Any]:
     try:
         validate_table_name(table)
         columns = _serialize(orch.get_column_info(table))
+        if not columns:
+            raise ValueError(f"Table '{table}' does not exist")
         fks = _serialize(orch.get_foreign_keys(table))
         skippable = sorted(orch.get_skippable_columns(table))
         # 数据库硬唯一约束列（主键/唯一索引/UNIQUE 约束）——前端属性面板
         # 用它把「设置唯一」锁定为必开，避免用户配出必 IntegrityError 的组合。
         unique_columns = sorted(orch._schema.detect_unique_columns(table))
         row_count = orch.get_row_count(table)
-    except (ConfigurationError, ValueError, RuntimeError, OSError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except _request_errors(orch) as exc:
+        raise HTTPException(status_code=400, detail=_error_detail(exc)) from exc
     return {
         "table": table,
         "row_count": row_count,
@@ -643,8 +656,8 @@ def topo_order(conn_id: str, tables: str | None = None) -> dict[str, Any]:
     names = [t for t in (tables or "").split(",") if t] or orch.get_table_names()
     try:
         order = orch.get_topological_table_order(names)
-    except (ConfigurationError, ValueError, RuntimeError, OSError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except _request_errors(orch) as exc:
+        raise HTTPException(status_code=400, detail=_error_detail(exc)) from exc
     return {"tables": order}
 
 
@@ -654,8 +667,8 @@ def table_mapping(conn_id: str, table: str) -> dict[str, Any]:
     try:
         validate_table_name(table)
         specs = orch.get_column_mapping(table)
-    except (ConfigurationError, ValueError, RuntimeError, OSError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except _request_errors(orch) as exc:
+        raise HTTPException(status_code=400, detail=_error_detail(exc)) from exc
     return {"table": table, "mapping": {col: _serialize(spec) for col, spec in specs.items()}}
 
 
@@ -666,8 +679,8 @@ def table_yaml_template(conn_id: str, table: str) -> dict[str, Any]:
     try:
         validate_table_name(table)
         specs = orch.get_column_mapping(table)
-    except (ConfigurationError, ValueError, RuntimeError, OSError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except _request_errors(orch) as exc:
+        raise HTTPException(status_code=400, detail=_error_detail(exc)) from exc
     target = state.get_connection(conn_id).target
     columns: dict[str, Any] = {}
     for col, spec in specs.items():
@@ -681,7 +694,7 @@ def table_yaml_template(conn_id: str, table: str) -> dict[str, Any]:
             entry["null_ratio"] = spec.null_ratio
         columns[col] = entry
     config = {
-        "db_path" if not target.startswith(("postgres", "mysql", "sqlite://")) else "url": target,
+        "url" if "://" in target else "db_path": target,
         "provider": state.get_connection(conn_id).provider,
         "tables": [{"name": table, "count": 100, "columns": [{"name": c, **v} for c, v in columns.items()]}],
     }
@@ -697,18 +710,39 @@ def table_yaml_template(conn_id: str, table: str) -> dict[str, Any]:
 def preview_rows(conn_id: str, req: PreviewRequest) -> dict[str, Any]:
     orch = _conn_or_404(conn_id)
     try:
-        rows = orch.preview_table(req.table, count=req.count, columns=req.columns, seed=req.seed)
-    except (ConfigurationError, ValueError, RuntimeError, OSError) as exc:
-        raise HTTPException(status_code=400, detail=f"preview failed: {exc}") from exc
+        with state.connection_operation(conn_id) as conn:
+            rows = conn.orchestrator.preview_table(
+                req.table,
+                count=req.count,
+                columns=req.columns,
+                seed=req.seed,
+                transform=req.transform,
+                enrich=req.enrich,
+            )
+    except UnknownConnectionError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ConnectionBusyError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except _request_errors(orch) as exc:
+        raise HTTPException(status_code=400, detail=f"preview failed: {_error_detail(exc)}") from exc
     return {"table": req.table, "rows": _serialize(rows)}
 
 
 @router.post("/connections/{conn_id}/fill")
 def start_fill(conn_id: str, req: FillRequest) -> dict[str, Any]:
     _conn_or_404(conn_id)
-    job = state.create_job(conn_id, kind="fill", label=req.table)
-    thread = threading.Thread(target=_run_fill_job, args=(conn_id, job.job_id, req), daemon=True)
-    thread.start()
+    try:
+        with state.connection_operation(conn_id, write=True):
+            job = state.create_job(conn_id, kind="fill", label=req.table)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ConnectionBusyError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    try:
+        start_background(target=_run_fill_job, args=(conn_id, job.job_id, req), category="job")
+    except Exception as exc:
+        state.complete_job(job.job_id, error=_error_detail(exc))
+        raise HTTPException(status_code=503, detail="无法启动生成任务，请重试。") from exc
     return {"job_id": job.job_id, "table": req.table, "count": req.count}
 
 
@@ -720,8 +754,8 @@ def table_rows(conn_id: str, table: str, limit: int = 50, offset: int = 0) -> di
         total = orch.get_row_count(table)
         sql = f"SELECT * FROM {quote_identifier(table)} LIMIT ? OFFSET ?"
         rows = orch.query(sql, (limit, offset))
-    except (ConfigurationError, ValueError, RuntimeError, OSError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except _request_errors(orch) as exc:
+        raise HTTPException(status_code=400, detail=_error_detail(exc)) from exc
     return {"table": table, "total": total, "limit": limit, "offset": offset, "rows": _serialize(rows)}
 
 
@@ -738,8 +772,8 @@ def run_query(conn_id: str, req: QueryRequest) -> dict[str, Any]:
     orch = _conn_or_404(conn_id)
     try:
         rows = orch.query(statement)
-    except (ConfigurationError, ValueError, RuntimeError, OSError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except _request_errors(orch) as exc:
+        raise HTTPException(status_code=400, detail=_error_detail(exc)) from exc
     return {"rows": _serialize(rows)}
 
 
@@ -765,7 +799,7 @@ def config_serialize(req: YamlRequest) -> dict[str, Any]:
     return {"yaml": yaml.safe_dump(data, sort_keys=False, allow_unicode=True)}
 
 
-def load_config_from_text(yaml_text: str) -> Any:
+def load_config_from_text(yaml_text: str) -> GeneratorConfig:
     """Load a GeneratorConfig from YAML text via a temp file (core API is path-based)."""
     import tempfile
     from pathlib import Path
@@ -779,52 +813,9 @@ def load_config_from_text(yaml_text: str) -> Any:
         path.unlink(missing_ok=True)
 
 
-def config_to_dict(cfg: Any) -> dict[str, Any]:
-    """Convert a GeneratorConfig into a plain YAML-shaped dict."""
-    data: dict[str, Any] = {}
-    if getattr(cfg, "db_path", None):
-        data["db_path"] = cfg.db_path
-    if getattr(cfg, "url", None):
-        data["url"] = cfg.url
-    data["provider"] = str(getattr(cfg.provider, "value", cfg.provider))
-    if getattr(cfg, "locale", None):
-        data["locale"] = cfg.locale
-    tables = []
-    for t in cfg.tables or []:
-        tdata: dict[str, Any] = {"name": t.name}
-        if t.count is not None:
-            tdata["count"] = t.count
-        cols = []
-        for c in t.columns or []:
-            cdata: dict[str, Any] = {"name": c.name}
-            if c.generator:
-                cdata["generator"] = c.generator
-            if c.params:
-                cdata["params"] = dict(c.params)
-            if c.null_ratio:
-                cdata["null_ratio"] = c.null_ratio
-            if c.provider:
-                cdata["provider"] = str(getattr(c.provider, "value", c.provider))
-            if c.derive_from:
-                cdata["derive_from"] = c.derive_from
-                cdata["expression"] = c.expression
-            if c.constraints and (
-                c.constraints.unique or c.constraints.min_value is not None or c.constraints.max_value is not None
-            ):
-                cons: dict[str, Any] = {}
-                if c.constraints.unique:
-                    cons["unique"] = True
-                if c.constraints.min_value is not None:
-                    cons["min_value"] = c.constraints.min_value
-                if c.constraints.max_value is not None:
-                    cons["max_value"] = c.constraints.max_value
-                cdata["constraints"] = cons
-            cols.append(cdata)
-        if cols:
-            tdata["columns"] = cols
-        tables.append(tdata)
-    data["tables"] = tables
-    return data
+def config_to_dict(cfg: GeneratorConfig) -> dict[str, Any]:
+    """Preserve every validated field in a JSON-safe YAML-shaped mapping."""
+    return cfg.model_dump(mode="json", exclude_none=True)
 
 
 # --------------------------------------------------------------------------
@@ -834,11 +825,12 @@ def config_to_dict(cfg: Any) -> dict[str, Any]:
 
 def _require_sqlseed_ai() -> Any:
     try:
+        require_ai_available()
         from sqlseed_ai.contracts.builtin_violations import BUILTIN_VIOLATIONS  # noqa: F401
     except ImportError as exc:
         raise HTTPException(
             status_code=503,
-            detail="sqlseed-ai is not installed (pip install -e ./plugins/sqlseed-ai)",
+            detail=ai_import_failure(),
         ) from exc
 
 
@@ -846,7 +838,7 @@ def _build_snapshot(conn_id: str) -> Any:
     from sqlseed_ai.validator.schema_snapshot import SchemaSnapshot
 
     conn = state.get_connection(conn_id)
-    if conn.target.startswith(("postgres", "mysql", "sqlite://")):
+    if "://" in conn.target:
         return SchemaSnapshot(url=conn.target)
     return SchemaSnapshot(db_path=conn.target)
 
@@ -863,7 +855,7 @@ def heal_validate(conn_id: str, req: HealValidateRequest) -> dict[str, Any]:
     conn = state.get_connection(conn_id)
     try:
         snapshot = _build_snapshot(conn_id)
-        is_url = conn.target.startswith(("postgres", "mysql", "sqlite://"))
+        is_url = "://" in conn.target
         resolver = ContractResolver(set(BUILTIN_VIOLATIONS), set())
         validator = FastValidator(
             resolver,
@@ -898,7 +890,7 @@ def heal_repair(conn_id: str, req: YamlRequest) -> dict[str, Any]:
     try:
         snapshot = _build_snapshot(conn_id)
         resolver = ContractResolver(set(BUILTIN_VIOLATIONS), set())
-        is_url = conn.target.startswith(("postgres", "mysql", "sqlite://"))
+        is_url = "://" in conn.target
         pipeline = RepairPipeline(
             resolver,
             db_path=None if is_url else conn.target,
@@ -941,30 +933,39 @@ class _CountingLLMClient:
 
 def _run_auto_heal_job(conn_id: str, job_id: str, req: AutoHealRequest) -> None:
     """Background-thread body for the full auto-heal pipeline (Layer 5)."""
-    job = state.get_job(job_id)
-    conn = state.get_connection(conn_id)
     try:
+        conn = state.get_connection(conn_id)
         from sqlseed_ai.auto_heal.orchestrator import AutoHealOrchestrator
-        from sqlseed_ai.cli.ai_commands import _build_ai_config, _build_heal_orchestrator, _build_llm_client
         from sqlseed_ai.contracts.builtin_violations import BUILTIN_VIOLATIONS
         from sqlseed_ai.contracts.matrix import ContractResolver
+        from sqlseed_ai.runtime import build_ai_config, build_heal_orchestrator, build_llm_client
         from sqlseed_ai.validator.main import FastValidator
         from sqlseed_ai.validator.schema_snapshot import SchemaSnapshot
 
-        # Session AI override (UI panel) merged under per-request params.
-        override = state.get_ai_override()
-        ai_config = _build_ai_config(
-            api_key=req.api_key or override.get("api_key"),
-            base_url=req.base_url or override.get("base_url"),
-            model=req.model or override.get("model"),
+        # Request overrides may change service; bind authentication before the
+        # shared runtime builder can fall back to an environment credential.
+        current, _ = resolve_settings(state)
+        request_settings = SettingsRequest.model_validate(
+            {
+                "backend": req.backend or current.backend.value,
+                "model": req.model or current.model or "",
+                "base_url": req.base_url or current.base_url or "",
+                "api_key": req.api_key or "",
+            }
+        )
+        scoped, _ = resolve_settings(state, request_settings)
+        ai_config = build_ai_config(
+            api_key=scoped.api_key,
+            base_url=scoped.base_url,
+            model=scoped.model,
             timeout=req.timeout,
             log_llm=False,
         )
-        backend_id = req.backend or override.get("backend")
-        if backend_id:
-            from sqlseed_ai.config import AIBackend
-
-            ai_config.backend = AIBackend(backend_id)
+        ai_config.backend = scoped.backend
+        ai_config.api_key = scoped.api_key
+        ai_config.base_url = scoped.base_url
+        ai_config.model = scoped.model
+        ai_config = credential_snapshot(ai_config)
         if not ai_config.resolve_api_key():
             raise RuntimeError(
                 "AI API key not configured: set it in the AI config panel, or via "
@@ -972,7 +973,7 @@ def _run_auto_heal_job(conn_id: str, job_id: str, req: AutoHealRequest) -> None:
                 "local backend (Ollama / LM Studio) in the panel"
             )
         ai_config.model = ai_config.resolve_model()
-        is_url = conn.target.startswith(("postgres", "mysql", "sqlite://"))
+        is_url = "://" in conn.target
         db_path = None if is_url else conn.target
         url = conn.target if is_url else None
         resolver = ContractResolver(set(BUILTIN_VIOLATIONS), set())
@@ -980,38 +981,39 @@ def _run_auto_heal_job(conn_id: str, job_id: str, req: AutoHealRequest) -> None:
         # Count LLM invocations: the pipeline is deterministic-first — clean
         # subgraphs skip Layer 4 entirely, so a run may finish WITHOUT any
         # LLM call. Surfacing the count answers "did the AI actually run?".
-        client = _CountingLLMClient(_build_llm_client(ai_config))
-        prelim_snapshot = SchemaSnapshot(db_path=db_path, url=url)
-        heal_orch = _build_heal_orchestrator(
-            ai_config,
-            client,
-            prelim_snapshot,
-            validator,
-            schema_hash=prelim_snapshot.schema_hash,
-            max_retries=3,
+        with closing(build_llm_client(ai_config)) as owned_client:
+            client = _CountingLLMClient(owned_client)
+            prelim_snapshot = SchemaSnapshot(db_path=db_path, url=url)
+            heal_orch = build_heal_orchestrator(
+                ai_config,
+                client,
+                prelim_snapshot,
+                validator,
+                schema_hash=prelim_snapshot.schema_hash,
+                max_retries=3,
+            )
+            orch = AutoHealOrchestrator(
+                db_path=db_path,
+                url=url,
+                heal_orchestrator=heal_orch,
+                validator=validator,
+                total_budget_seconds=req.budget_seconds,
+                verbose=False,
+            )
+            yaml_str = orch.run()
+        state.complete_job(
+            job_id,
+            result={
+                "yaml": yaml_str,
+                "model": ai_config.model,
+                "backend": ai_config.backend.value,
+                "llm_calls": client.calls,
+            },
         )
-        orch = AutoHealOrchestrator(
-            db_path=db_path,
-            url=url,
-            heal_orchestrator=heal_orch,
-            validator=validator,
-            total_budget_seconds=req.budget_seconds,
-            verbose=False,
-        )
-        yaml_str = orch.run()
-        job.status = "done"
-        job.result = {
-            "yaml": yaml_str,
-            "model": ai_config.model,
-            "backend": ai_config.backend.value,
-            "llm_calls": client.calls,
-        }
     except Exception as exc:  # noqa: BLE001 — job isolation boundary
-        job.status = "error"
-        job.error = f"{type(exc).__name__}: {exc}"
-        logger.error("auto-heal job failed", job_id=job_id, error=job.error)
-    finally:
-        job.finished_at = time.time()
+        error = f"{type(exc).__name__}: {_error_detail(exc)}"
+        state.complete_job(job_id, error=error)
+        logger.error("auto-heal job failed", job_id=job_id, error=error)
 
 
 @router.post("/connections/{conn_id}/heal/auto")
@@ -1019,10 +1021,18 @@ def heal_auto(conn_id: str, req: AutoHealRequest) -> dict[str, Any]:
     _require_sqlseed_ai()
     _conn_or_404(conn_id)
     try:
-        from sqlseed_ai.cli.ai_commands import _build_ai_config  # noqa: F401
+        from sqlseed_ai.runtime import build_ai_config  # noqa: F401
     except ImportError as exc:
-        raise HTTPException(status_code=503, detail="sqlseed-ai is not installed") from exc
-    job = state.create_job(conn_id, kind="auto_heal", label="auto-heal")
-    thread = threading.Thread(target=_run_auto_heal_job, args=(conn_id, job.job_id, req), daemon=True)
-    thread.start()
+        raise HTTPException(status_code=503, detail=ai_import_failure()) from exc
+    try:
+        job = state.create_job(conn_id, kind="auto_heal", label="auto-heal")
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ConnectionBusyError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    try:
+        start_background(target=_run_auto_heal_job, args=(conn_id, job.job_id, req), category="job")
+    except Exception as exc:
+        state.complete_job(job.job_id, error=_error_detail(exc))
+        raise HTTPException(status_code=503, detail="无法启动分析任务，请重试。") from exc
     return {"job_id": job.job_id}

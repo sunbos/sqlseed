@@ -2,10 +2,18 @@
 
 ## Supported Versions
 
-| Version | Supported          |
-|---------|--------------------|
-| 0.1.x   | :white_check_mark: |
-| < 0.1   | :x:                |
+Security reports should identify the exact package and version, and whether the issue
+also occurs on the current development branch or latest release. Older versions may
+require upgrading; there is no separate long-term-support branch.
+
+## Local Web Workbench
+
+The Web service is intended for a trusted local user and binds to loopback by default.
+It has access to files and databases available to the account that runs it, and does
+not provide multi-user authentication. Same-origin, framing and plugin-operation checks
+are browser protections, not an authentication system. Do not expose the service directly
+to an untrusted network; an external deployment must supply authentication and access
+control. Use a test database or a disposable copy for demonstrations.
 
 ## Reporting a Vulnerability
 

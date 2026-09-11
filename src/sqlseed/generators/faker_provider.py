@@ -34,13 +34,10 @@ logger = get_logger(__name__)
 class FakerProvider(BaseProvider):
     """Faker-based data generator adapter."""
 
-    # generator 类型 -> 其 _gen_* 实现依赖的 faker 方法名。faker 的部分方法
-    # 仅特定 locale 实现（实证：zh_CN 缺 state/zipcode，ja_JP 缺 state），
-    # 缺失时在 _init_faker 阶段把该 generator 实例级遮蔽为 base 的类型路由
-    # 实现 —— 按 mimesis → faker → base 的既有兜底链降级，而不是让生成在
-    # AttributeError 中崩溃（生成中途崩溃 = 整批失败）。仅含本类覆写了
-    # _gen_* 且调用 faker 方法的条目；基类纯 Python 实现的不涉及。
-    _FAKER_ATTR_PROBES: ClassVar[dict[str, str]] = {
+    # Locale-specific providers may expose equivalent methods under different
+    # names (zh_CN uses province/postcode). Try those before installing a Base
+    # fallback, and remember the resolved method until the next locale switch.
+    _FAKER_ATTR_PROBES: ClassVar[dict[str, str | tuple[str, ...]]] = {
         "integer": "random_int",
         "float": "pyfloat",
         "boolean": "boolean",
@@ -62,11 +59,10 @@ class FakerProvider(BaseProvider):
         "sentence": "sentence",
         "password": "password",
         "choice": "random_element",
-        "json": "json",
         "city": "city",
         "country": "country",
-        "state": "state",
-        "zip_code": "zipcode",
+        "state": ("state", "province"),
+        "zip_code": ("zipcode", "postcode"),
         "job_title": "job",
         "country_code": "country_code",
         "word": "word",
@@ -82,7 +78,7 @@ class FakerProvider(BaseProvider):
     def _init_faker(self) -> None:
         """Initialize the Faker instance."""
         if _FAKER_CLASS is None:
-            raise ImportError("Faker is not installed. Install it with: pip install sqlseed[faker]")
+            raise ImportError("Faker is not installed. It is required by sqlseed. Install it with: pip install Faker")
         self._faker = _FAKER_CLASS(self._locale)
         self._install_locale_fallbacks()
 
@@ -98,9 +94,13 @@ class FakerProvider(BaseProvider):
         """
         for gen_type in self._FAKER_ATTR_PROBES:
             self.__dict__.pop(f"_gen_{gen_type}", None)
+        self._faker_attrs: dict[str, str] = {}
         missing: list[str] = []
         for gen_type, attr in self._FAKER_ATTR_PROBES.items():
-            if hasattr(self._faker, attr):
+            candidates = (attr,) if isinstance(attr, str) else attr
+            resolved = next((candidate for candidate in candidates if hasattr(self._faker, candidate)), None)
+            if resolved is not None:
+                self._faker_attrs[gen_type] = resolved
                 continue
             base_impl = getattr(BaseProvider, f"_gen_{gen_type}", None)
             if base_impl is None:
@@ -137,8 +137,12 @@ class FakerProvider(BaseProvider):
         max_value: float = 999999.0,
         precision: int = 2,
     ) -> float:
-        """Generate a float."""
-        return round(self._faker.pyfloat(min_value=min_value, max_value=max_value, right_digits=precision), precision)
+        """Generate a float within the closed interval at the requested precision."""
+        lower, upper = self._float_bounds(min_value, max_value, precision)
+        if lower == upper:
+            return lower
+        value = self._faker.pyfloat(min_value=min_value, max_value=max_value, right_digits=precision)
+        return max(lower, min(upper, round(value, precision)))
 
     def _gen_boolean(self) -> bool:
         """Generate a boolean."""
@@ -308,9 +312,13 @@ class FakerProvider(BaseProvider):
 
     def _gen_text(self, *, min_length: int = 50, max_length: int = 200) -> str:
         """Generate text."""
-        text = self._faker.text(max_nb_chars=max_length)
+        if min_length > max_length:
+            raise ValueError(f"min_length ({min_length}) must be <= max_length ({max_length})")
+        # Faker requires at least five characters per call, even when only a
+        # shorter final fragment is needed. Trim after reaching the minimum.
+        text = self._faker.text(max_nb_chars=max(5, max_length))
         while len(text) < min_length:
-            text += " " + self._faker.text(max_nb_chars=max_length - len(text))
+            text += " " + self._faker.text(max_nb_chars=max(5, max_length - len(text)))
         return text[:max_length]
 
     def _gen_sentence(self) -> str:
@@ -326,8 +334,8 @@ class FakerProvider(BaseProvider):
         return self._faker.random_element(choices)
 
     def _gen_json(self, *, schema: dict[str, Any] | None = None) -> str:
-        """Generate a JSON string based on the schema."""
-        return self._faker.json(data_columns=schema)
+        """Use sqlseed's shared schema contract with this provider's values."""
+        return super()._gen_json(schema=schema)
 
     def _gen_city(self) -> str:
         """Generate a city name."""
@@ -339,11 +347,11 @@ class FakerProvider(BaseProvider):
 
     def _gen_state(self) -> str:
         """Generate a state/province."""
-        return self._faker.state()
+        return getattr(self._faker, self._faker_attrs["state"])()
 
     def _gen_zip_code(self) -> str:
         """Generate a postal code."""
-        return self._faker.zipcode()
+        return getattr(self._faker, self._faker_attrs["zip_code"])()
 
     def _gen_job_title(self) -> str:
         """Generate a job title."""

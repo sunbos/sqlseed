@@ -121,7 +121,9 @@ class SqlseedHookSpec:
     ) -> list[dict[str, Any]] | None:
         """Transform a batch of data.
 
-        Supports chained application: each plugin's output becomes the next plugin's input.
+        Each plugin receives the same batch argument. The mediator uses the last
+        non-None result in pluggy's returned list, or the original batch when all
+        plugins return None. Returned batches are not chained between plugins.
         """
         del table_name, batch
         raise NotImplementedError

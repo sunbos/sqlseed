@@ -1,44 +1,22 @@
-<!-- Parent: ../AGENTS.md -->
-<!-- Last updated: 2026-08-30 -->
-
 # test_plugins
 
-## Purpose
+本目录验证 core 的 pluggy hook specifications 与 manager lifecycle；不是各业务插件的测试目录。
 
-Plugin system tests. Covers hook specification definitions and plugin manager lifecycle. 2 files, 21 test functions.
+## 入口与回归要求
 
-## Key Files
+- `test_hookspecs.py` 验证 hook 名称、签名与 `firstresult` 元数据；以 `src/sqlseed/plugins/hookspecs.py` 为定义来源。
+- `test_manager.py` 验证注册、卸载、分发与生命周期；使用真实 `PluginManager` 和内联 dummy plugin classes。
+- 区分 `firstresult=True` 的单值与普通 hook 的 `list[result]`，包含全 None / 多个结果的情况。
+- 验证 batch transform 结果处理时，同时参考 `tests/test_core/test_plugin_mediator.py`；不要假设 pluggy 会把一个插件的输出依次传入下一个插件。
+- CLI、AI、MCP、Web 的业务行为测试放在各插件自己的 `tests/`，避免这里强制依赖业务插件。
 
-| File | Tests | Description |
-|------|------:|-------------|
-| `test_hookspecs.py` | 15 | 12 hook specs (signatures, firstresult markers) |
-| `test_manager.py` | 6 | PluginManager lifecycle |
+## 验证
 
-## For AI Agents
-
-### Working In This Directory
-
-- Test plugin registration and unloading
-- Verify correct hook call dispatch
-
-### Testing Requirements
+从仓库根执行：
 
 ```bash
-pytest tests/test_plugins/
+pytest tests/test_plugins/ tests/test_core/test_plugin_mediator.py
+pytest tests/test_architecture.py tests/test_doc_sync.py
 ```
 
-### Common Patterns
-
-- Use real `PluginManager` instances with inline dummy plugin classes (no mocking)
-
-## Dependencies
-
-### Internal
-
-- `src/sqlseed/plugins/`
-
-### External
-
-- `pytest>=8.0`
-
-<!-- MANUAL: Any manually added notes below this line are preserved on regeneration -->
+修改 hookspec 时同步根指引列出的 hook 文档；hook 数量由源码与校验维护，不在本文件固定统计。

@@ -52,6 +52,8 @@ mutmut_results_*.txt
 .dmypy.json
 dmypy.json
 .ruff_cache/
+.hypothesis/
+.import_linter_cache/
 
 # sqlseed
 *.db
@@ -110,6 +112,7 @@ codeflow_issues_report.md
 # Temporary tool outputs (not for repo)
 test.log
 .understand-anything/
+.playwright-mcp/
 
 # LLM validation loop engineering (temporary, not committed)
 scripts/_*.py

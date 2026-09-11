@@ -1044,6 +1044,11 @@ def _run_with_missing_template_param(db_path: Path) -> dict:
     but ``params: {}`` — the ``template`` field is missing. Step 5.5 should
     fill in a default template using the column name prefix.
     """
+    # These are the columns whose generated templates are under test; they
+    # must exist in the real schema rather than only in a mocked config.
+    with sqlite3.connect(db_path) as db:
+        for name in ("user_code", "order_no", "cert_no"):
+            db.execute(f'ALTER TABLE profiles ADD COLUMN "{name}" TEXT')
     mock_healer = MagicMock()
     mock_healer.heal.return_value = SimpleNamespace(
         config={
@@ -1518,139 +1523,148 @@ def like_time_db(tmp_path: Path) -> Path:
     return path
 
 
-def test_step55_strips_timedelta_derive_from_for_like_column(like_time_db: Path):
-    """Step 5.5 strips ``derive_from`` with timedelta for LIKE-constrained columns.
+def _finalize_fixed_candidate(path: Path, candidate: dict, monkeypatch: pytest.MonkeyPatch) -> tuple[dict, dict]:
+    """Parse and merge a real healer response, then exercise final inference.
 
-    Simulates the LLM generating ``end_time: derive_from: start_time,
-    expression: value + timedelta(days=...)`` — the safety net detects
-    the LIKE constraint and strips the derive_from, preventing
-    ``TypeError: str + timedelta`` at fill time.
+    Only the initial-config builder is replaced, to deliver that accepted
+    candidate to Step 5.5 without relying on a fake validator to force a call.
     """
-    mock_healer = MagicMock()
-    # Simulate LLM returning a broken timedelta derive_from for end_time
-    mock_healer.heal_subgraph.return_value = {
-        "tables": [
-            {
-                "name": "shifts",
-                "columns": [
-                    {"name": "id", "generator": "autoincrement", "params": {}},
-                    {
-                        "name": "start_time",
-                        "generator": "pattern",
-                        "params": {"regex": "^[A-Za-z0-9]{2}:[A-Za-z0-9]{2}$"},
-                    },
-                    {
-                        "name": "end_time",
-                        "derive_from": "start_time",
-                        "expression": "value + timedelta(days=random_int(1, 30))",
-                    },
-                ],
-            }
-        ]
-    }
-    mock_validator = MagicMock()
-    mock_validator.validate.return_value = []
+    import copy
+    import json
 
-    orch = AutoHealOrchestrator(
-        db_path=str(like_time_db),
-        heal_orchestrator=mock_healer,
-        validator=mock_validator,
-        total_budget_seconds=10.0,
-    )
-    yaml_str = orch.run()
-    config = yaml.safe_load(yaml_str)
-    end_time_col = next(c for c in config["tables"][0]["columns"] if c["name"] == "end_time")
-    assert "derive_from" not in end_time_col, "Step 5.5 should strip timedelta derive_from for LIKE column"
+    from openai.types.chat import ChatCompletion
+    from sqlseed_ai.config import AIConfig
+    from sqlseed_ai.contracts.builtin_violations import BUILTIN_VIOLATIONS
+    from sqlseed_ai.contracts.matrix import ContractResolver
+    from sqlseed_ai.healer.models import SubgraphTask
+    from sqlseed_ai.runtime import build_heal_orchestrator
+    from sqlseed_ai.validator.main import FastValidator
+    from sqlseed_ai.validator.schema_snapshot import SchemaSnapshot
 
+    class FixedClient:
+        calls = 0
 
-def test_step55_strips_arithmetic_derive_from_for_like_column(like_time_db: Path):
-    """Step 5.5 strips ``value + random_int(...)`` for LIKE-constrained columns.
-
-    The LLM may generate non-timedelta arithmetic (e.g., ``value + random_int(1, 100)``)
-    which also fails on string columns. The safety net detects ANY arithmetic
-    on ``value`` for LIKE-constrained columns.
-    """
-    mock_healer = MagicMock()
-    mock_healer.heal_subgraph.return_value = {
-        "tables": [
-            {
-                "name": "shifts",
-                "columns": [
-                    {"name": "id", "generator": "autoincrement", "params": {}},
-                    {
-                        "name": "start_time",
-                        "generator": "pattern",
-                        "params": {"regex": "^[A-Za-z0-9]{2}:[A-Za-z0-9]{2}$"},
-                    },
-                    {"name": "end_time", "derive_from": "start_time", "expression": "value + random_int(1, 100)"},
-                ],
-            }
-        ]
-    }
-    mock_validator = MagicMock()
-    mock_validator.validate.return_value = []
-
-    orch = AutoHealOrchestrator(
-        db_path=str(like_time_db),
-        heal_orchestrator=mock_healer,
-        validator=mock_validator,
-        total_budget_seconds=10.0,
-    )
-    yaml_str = orch.run()
-    config = yaml.safe_load(yaml_str)
-    end_time_col = next(c for c in config["tables"][0]["columns"] if c["name"] == "end_time")
-    assert "derive_from" not in end_time_col, "Step 5.5 should strip arithmetic derive_from for LIKE-constrained column"
-
-
-def test_step55_preserves_derive_from_for_real_datetime(like_time_db: Path):
-    """Step 5.5 does NOT strip timedelta for real DATETIME columns (no LIKE).
-
-    Regression guard: the safety net must only affect LIKE-constrained columns.
-    """
-    # Use a different DB with DATETIME columns (no LIKE)
-    path = like_time_db.parent / "datetime.db"
-    with sqlite3.connect(str(path)) as conn:
-        conn.execute(
-            """
-            CREATE TABLE events (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                start_dt DATETIME NOT NULL,
-                end_dt DATETIME,
-                CHECK (end_dt IS NULL OR end_dt >= start_dt)
+        def chat_completions_create(self, *, model: str, **kwargs: object) -> ChatCompletion:
+            self.calls += 1
+            return ChatCompletion.model_validate(
+                {
+                    "id": "fixed",
+                    "created": 0,
+                    "model": model,
+                    "object": "chat.completion",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "finish_reason": "stop",
+                            "message": {
+                                "role": "assistant",
+                                "content": json.dumps(candidate),
+                            },
+                        }
+                    ],
+                }
             )
-            """
-        )
 
-    mock_healer = MagicMock()
-    mock_healer.heal_subgraph.return_value = {
+    snapshot = SchemaSnapshot(db_path=str(path))
+    validator = FastValidator(ContractResolver(set(BUILTIN_VIOLATIONS), set()), db_path=str(path))
+    original = copy.deepcopy(candidate)
+    original["tables"][0]["columns"][0] = {"name": "id", "generator": "string"}
+    original["tables"][0]["count"] = 3
+    violations = validator.validate(original, snapshot).violations
+    assert violations
+    client = FixedClient()
+    healer = build_heal_orchestrator(AIConfig(model="fixed"), client, snapshot, validator, max_retries=1)
+    name = candidate["tables"][0]["name"]
+    result = healer.heal(SubgraphTask(task_id=name, tables=[name]), violations, original)
+    assert result.success and client.calls == 1
+    assert result.config["tables"][0]["columns"] == candidate["tables"][0]["columns"]
+    accepted = copy.deepcopy(result.config)
+    monkeypatch.setattr(
+        AutoHealOrchestrator,
+        "_build_subgraph_config",
+        lambda self, tables, snapshot: copy.deepcopy(accepted),
+    )
+    orch = AutoHealOrchestrator(db_path=str(path), heal_orchestrator=healer, validator=validator)
+    finalized = yaml.safe_load(orch.run())
+    assert client.calls == 1  # Finalization must not require another paid call.
+    return finalized, accepted
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        "value + timedelta(days=random_int(1, 30))",
+        "value + random_int(1, 100)",
+    ],
+)
+def test_step55_strips_arithmetic_from_parsed_like_candidate(
+    like_time_db: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    expression: str,
+) -> None:
+    """The actual parsed/merged LLM expression is stripped for LIKE text."""
+    candidate = {
+        "tables": [
+            {
+                "name": "shifts",
+                "columns": [
+                    {"name": "id", "generator": "autoincrement"},
+                    {"name": "start_time", "generator": "pattern", "params": {"regex": "^[0-9]{2}:[0-9]{2}$"}},
+                    {"name": "end_time", "derive_from": "start_time", "expression": expression},
+                ],
+            }
+        ]
+    }
+    config, accepted = _finalize_fixed_candidate(like_time_db, candidate, monkeypatch)
+    assert accepted["tables"][0]["columns"][2]["expression"] == expression
+    column = _find_column(config, "shifts", "end_time")
+    assert "derive_from" not in column
+    assert "expression" not in column
+    assert column["generator"] == "pattern"
+    from sqlseed.generators.base_provider import BaseProvider
+
+    generated = BaseProvider().generate(column["generator"], **column["params"])
+    assert len(generated) == 5 and generated[2] == ":"
+
+
+def test_step55_preserves_derive_from_for_real_datetime(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The parsed timedelta stays executable for real DATETIME columns."""
+    from sqlseed import fill_from_config
+
+    path = tmp_path / "datetime.db"
+    with sqlite3.connect(path) as db:
+        db.execute(
+            "CREATE TABLE events (id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "start_dt DATETIME NOT NULL, end_dt DATETIME, "
+            "CHECK (end_dt IS NULL OR end_dt >= start_dt))"
+        )
+    expression = "value + timedelta(days=random_int(1, 30))"
+    candidate = {
         "tables": [
             {
                 "name": "events",
                 "columns": [
-                    {"name": "id", "generator": "autoincrement", "params": {}},
-                    {"name": "start_dt", "generator": "datetime", "params": {}},
-                    {
-                        "name": "end_dt",
-                        "derive_from": "start_dt",
-                        "expression": "value + timedelta(days=random_int(1, 30))",
-                    },
+                    {"name": "id", "generator": "autoincrement"},
+                    {"name": "start_dt", "generator": "datetime"},
+                    {"name": "end_dt", "derive_from": "start_dt", "expression": expression},
                 ],
             }
         ]
     }
-    mock_validator = MagicMock()
-    mock_validator.validate.return_value = []
-
-    orch = AutoHealOrchestrator(
-        db_path=str(path),
-        heal_orchestrator=mock_healer,
-        validator=mock_validator,
-        total_budget_seconds=10.0,
-    )
-    yaml_str = orch.run()
-    config = yaml.safe_load(yaml_str)
-    end_dt_col = next(c for c in config["tables"][0]["columns"] if c["name"] == "end_dt")
-    assert "derive_from" in end_dt_col, "Step 5.5 should preserve timedelta for real DATETIME"
+    config, accepted = _finalize_fixed_candidate(path, candidate, monkeypatch)
+    assert accepted["tables"][0]["columns"][2]["expression"] == expression
+    column = _find_column(config, "events", "end_dt")
+    assert column["derive_from"] == "start_dt"
+    assert "timedelta" in column["expression"]
+    output = path.with_suffix(".yaml")
+    output.write_text(yaml.safe_dump(config))
+    result = fill_from_config(output)
+    assert result[0].count == 3 and result[0].errors == []
+    with sqlite3.connect(path) as db:
+        assert db.execute("SELECT count(*) FROM events WHERE end_dt >= start_dt").fetchone()[0] == 3
 
 
 def test_step55_strips_generator_when_derive_from_present(tmp_path: Path):

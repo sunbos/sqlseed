@@ -94,11 +94,12 @@ class MimesisProvider(BaseProvider):
         max_value: float = 999999.0,
         precision: int = 2,
     ) -> float:
-        """Generate a float."""
-        return round(
-            self._generic.numeric.float_number(start=min_value, end=max_value, precision=precision),
-            precision,
-        )
+        """Generate a float within the closed interval at the requested precision."""
+        lower, upper = self._float_bounds(min_value, max_value, precision)
+        if lower == upper:
+            return lower
+        value = self._generic.numeric.float_number(start=min_value, end=max_value, precision=precision)
+        return max(lower, min(upper, round(value, precision)))
 
     def _gen_boolean(self) -> bool:
         """Generate a boolean."""
@@ -112,6 +113,10 @@ class MimesisProvider(BaseProvider):
 
     def _gen_name(self) -> str:
         """Generate a full name."""
+        if self._locale == "zh":
+            # Native full_name keeps Western order and a separator for every
+            # locale. Chinese names use surname first without that separator.
+            return self._generic.person.full_name(reverse=True).replace(" ", "")
         return self._generic.person.full_name()
 
     def _gen_first_name(self) -> str:
@@ -268,6 +273,8 @@ class MimesisProvider(BaseProvider):
 
     def _gen_text(self, *, min_length: int = 50, max_length: int = 200) -> str:
         """Generate text."""
+        if min_length > max_length:
+            raise ValueError("min_length must not exceed max_length")
         text = self._generic.text.text(quantity=1)
         while len(text) < min_length:
             text += " " + self._generic.text.text(quantity=1)

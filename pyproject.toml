@@ -98,20 +98,20 @@ fallback-version = "0.0.0"
 packages = ["src/sqlseed"]
 
 [tool.hatch.build.targets.sdist]
-exclude = [
-    "docs/",
-    "tests/",
-    "plugins/sqlseed-ai/",
-    "plugins/sqlseed-cli/",
-    "plugins/mcp-server-sqlseed/",
-    ".github/",
-    ".trae/",
-    ".gemini/",
-    "*.db",
-    "AGENTS.md",
-    "CLAUDE.md",
-    "GEMINI.md",
+# Core is independently distributable. Do not ship sibling packages, local
+# browser captures, test caches or design assets in its source archive.
+include = [
+    "/src/sqlseed/",
+    "/pyproject.toml",
+    "/README*.md",
+    "/LICENSE*",
+    "/CHANGELOG*.md",
 ]
+
+# Resolve the optional CLI from this monorepo during development. Published
+# distributions keep ordinary version requirements; pip ignores this table.
+[tool.uv.sources]
+sqlseed-cli = { path = "plugins/sqlseed-cli", editable = true }
 
 [tool.ruff]
 target-version = "py310"
@@ -385,7 +385,7 @@ disallow_untyped_calls = false
 check_untyped_defs = true
 
 [tool.pytest.ini_options]
-testpaths = ["tests", "plugins/mcp-server-sqlseed/tests", "plugins/sqlseed-cli/tests", "plugins/sqlseed-ai/tests"]
+testpaths = ["tests", "plugins/mcp-server-sqlseed/tests", "plugins/sqlseed-cli/tests", "plugins/sqlseed-ai/tests", "plugins/sqlseed-web/tests"]
 addopts = "-ra --strict-markers"
 markers = [
     "integration: marks tests as integration tests (require external services like Docker/PostgreSQL)",
@@ -454,4 +454,4 @@ forbidden_modules = [
 #   python -m mutmut run --paths-to-mutate "src/sqlseed/core/stream.py" \
 #     --runner "python -m pytest tests/test_core/test_stream.py -x -q"
 paths_to_mutate = ["src/sqlseed/core/unique_adjuster.py"]
-runner = "python -m pytest tests/test_core/test_unique_adjuster.py -x -q --no-header"
+runner = "python -m pytest tests/test_core/test_unique_adjuster.py tests/test_core/test_unique_string_capacity.py -x -q --no-header"

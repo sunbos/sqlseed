@@ -1,0 +1,50 @@
+/* Configuration lifecycle uses the shared v8 palette and controls. */
+.configs-page .heading { align-items:flex-start; }
+.configs-page .heading-actions { flex-wrap:wrap; }
+.configs-page a.btn { text-decoration:none; }
+.config-toolbar { display:flex; align-items:end; gap:24px; padding:20px 24px; border:1px solid var(--line); border-radius:var(--radius); background:var(--paper); }
+.config-search { display:flex; flex-direction:column; gap:7px; flex:1; min-width:200px; font-weight:600; }
+.config-search input { width:100%; min-height:40px; padding:8px 12px; border:1px solid var(--line); border-radius:6px; background:var(--paper); color:var(--ink); font-weight:400; }
+.config-scope { min-width:160px; }
+.config-filter { display:flex; align-items:center; gap:8px; cursor:pointer; }
+.config-filter input { width:16px; height:16px; margin:0; accent-color:var(--teal); }
+.config-filter input:disabled { cursor:default; }
+.config-filter-hint { margin:5px 0 0; font-size:12px; max-width:260px; overflow-wrap:anywhere; }
+.config-notice { margin:12px 0; color:var(--teal); }
+.config-notice:empty { margin:0; }
+.config-count { margin:16px 0 10px; font-size:12px; }
+.config-list { display:grid; gap:12px; }
+.config-card { display:flex; align-items:center; gap:24px; padding:20px 24px; background:var(--paper); border:1px solid var(--line); border-radius:var(--radius); }
+.config-card-main { flex:1; min-width:0; }
+.config-card-heading { display:flex; align-items:baseline; gap:10px; }
+.config-card h2 { margin:0; font-size:16px; line-height:1.5; overflow-wrap:anywhere; }
+.config-revision { flex-shrink:0; color:var(--muted); font-family:var(--mono); font-size:12px; }
+.config-target { display:flex; align-items:center; gap:7px; margin:7px 0; color:var(--muted); overflow-wrap:anywhere; word-break:break-word; }
+.config-target svg { flex-shrink:0; width:15px; height:15px; }
+.config-facts { margin:7px 0 0; font-size:12px; }
+.config-updated { margin:4px 0 0; font-size:12px; }
+.config-card-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:8px; max-width:460px; }
+.config-card-actions .btn { min-height:34px; padding:6px 12px; font-size:12px; }
+.config-card-actions a.btn { color:var(--teal); border-color:var(--teal); background:var(--soft); }
+.config-card-actions .config-delete { color:#a33c39; }
+.config-empty { padding:42px 24px; margin:0; text-align:center; background:var(--paper); border:1px solid var(--line); border-radius:var(--radius); }
+.config-empty h2 { font-size:18px; }
+.config-empty p { color:var(--muted); }
+.config-empty a { display:inline-flex; }
+.config-dialog .config-name-field { display:flex; flex-direction:column; gap:8px; margin:20px 0 8px; }
+.config-dialog .config-name-field input { min-width:0; width:100%; min-height:40px; border:1px solid var(--line); border-radius:6px; padding:8px 12px; color:var(--ink); }
+.config-dialog .config-error { color:#a33c39; margin-top:12px; overflow-wrap:anywhere; }
+.config-dialog .config-error:empty { margin:0; }
+.config-delete-name { display:block; font-size:18px; overflow-wrap:anywhere; }
+.config-dialog .config-delete-confirm { color:#a33c39; border-color:#a33c39; background:var(--paper); }
+.configs-page a:focus-visible { outline:3px solid #74b7c9; outline-offset:3px; }
+@media (max-width:1000px) {
+  .config-card { align-items:flex-start; flex-direction:column; gap:14px; }
+  .config-card-actions { justify-content:flex-start; max-width:none; }
+}
+@media (max-width:700px) {
+  .config-toolbar { flex-wrap:wrap; padding:16px; gap:16px; }
+  .config-search { flex-basis:100%; min-width:0; }
+  .config-scope { flex:1; min-width:0; }
+  .config-card { padding:16px; }
+}

@@ -45,6 +45,55 @@ jobs:
       - name: Architectural layer contracts (import-linter)
         run: lint-imports
 
+      - name: Web frontend regressions (Node built-in test runner)
+        run: node --test plugins/sqlseed-web/tests/test_*.cjs
+
+      - name: Build maintained documentation
+        run: |
+          pip install mkdocs-material 'mkdocstrings[python]'
+          mkdocs build --strict
+
+  # Exercise the distributions users install, including sdist-to-wheel builds.
+  packages:
+    needs: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: "3.12"
+      - name: Build and validate all five packages
+        run: |
+          pip install build twine
+          python -m build --outdir dist/
+          python -m build plugins/sqlseed-cli --outdir dist/
+          python -m build plugins/sqlseed-ai --outdir dist/
+          python -m build plugins/mcp-server-sqlseed --outdir dist/
+          python -m build plugins/sqlseed-web --outdir dist/
+          twine check --strict dist/*
+      - name: Install wheels together and check dependencies
+        run: |
+          pip install dist/*.whl
+          pip check
+          sqlseed --help
+          sqlseed-web --help
+          python scripts/check_wheel_install.py
+      - name: Verify Core and Web without optional plugins
+        run: |
+          python -m venv "$RUNNER_TEMP/sqlseed-minimal"
+          "$RUNNER_TEMP/sqlseed-minimal/bin/python" -m pip install dist/sqlseed-[0-9]*.whl dist/sqlseed_web-*.whl
+          "$RUNNER_TEMP/sqlseed-minimal/bin/python" scripts/check_wheel_install.py --without-optional-components
+      - name: Upload candidate packages for installation testing
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: sqlseed-candidate-${{ github.sha }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+
   # ── Core tests: Linux × {3.10, 3.12, 3.13} ─────────────────
   test:
     needs: lint
@@ -67,7 +116,7 @@ jobs:
       - name: Test with coverage
         run: >-
           pytest
-          --cov=sqlseed --cov=sqlseed_ai --cov=sqlseed_cli --cov=mcp_server_sqlseed
+          --cov=sqlseed --cov=sqlseed_ai --cov=sqlseed_cli --cov=mcp_server_sqlseed --cov=sqlseed_web
           --cov-report=xml --cov-report=term-missing
           --tb=short -q
 
@@ -134,7 +183,7 @@ jobs:
           python-version: "3.12"
 
       - name: Run PostgreSQL integration tests
-        run: pytest tests/integration/ -v --tb=short
+        run: pytest tests/integration/test_pg_*.py tests/integration/test_url_e2e.py -v --tb=short
 
   # ── Property-based tests: contract matrix completeness ──────
   # Runs Hypothesis-based property tests separately because they are

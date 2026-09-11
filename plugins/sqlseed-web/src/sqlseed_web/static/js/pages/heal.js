@@ -1,4 +1,4 @@
-// AI 分析与修复：L2 validate → L3 repair → L5 auto-heal，逐层可视。
+// 配置校验与修复：L2 validate → L3 repair → L5 auto-heal，逐层可视。
 // 这是缺陷收敛的主战场：贴 YAML，看违规、看修复、看最终产物。
 // 未安装 sqlseed-ai 时展示 onboarding 引导卡（安装命令 + 能力说明）。
 
@@ -21,23 +21,23 @@ export function render() {
     store.tables[0]?.name || '',
   );
   root.append(
-    h('h2', {}, 'AI 分析与修复'),
+    h('h2', {}, '配置助手'),
     renderAiPanel(),
     h('div', { class: 'panel' },
       h('div', { class: 'muted', style: 'margin-bottom:10px; line-height:1.7' },
-        '本页面的作用对象是下方的 YAML 配置文本（不是已生成的数据文件）。三种用法：',
+        '校验、修复或生成测试数据配置：',
         h('br'),
-        '① 校验配置 — 找出配置中会违反数据库约束（CHECK / 外键 / 唯一）的问题；',
+        '① 校验配置 — 检查下方 YAML 中的生成规则是否符合数据库约束；',
         h('br'),
-        '② 修复配置 — 自动修正可确定性修复的问题，输出修复后的 YAML；',
+        '② 修复配置 — 修正下方 YAML 中可自动处理的问题，输出修复后的配置；',
         h('br'),
-        '③ 全流程生成 — 按数据库约束直接产出一份合规 YAML（确定性校验/修复优先，仅在需要语义决策时调用大模型）。'),
+        '③ 生成新配置 — 根据当前数据库的表结构和约束重新生成配置，需要时由 AI 辅助。此操作不使用下方 YAML。'),
       h('div', { class: 'row' },
         h('label', { class: 'genform-label' }, '从表导入模板:'),
         templateTableDd.el,
         h('button', { onclick: loadTemplate }, '导入'),
         h('span', { class: 'muted', style: 'font-size:12px' },
-          'YAML 从哪来：手动粘贴、或点「导入」用所选表的配置作起点；修好的 YAML 可「送到数据生成向导」回填，也可复制保存为 .yaml 用 sqlseed fill-from-config 使用'),
+          '粘贴 YAML，或从所选表导入模板。处理后的配置可送到数据生成向导，也可保存后用 sqlseed fill --config config.yaml 执行。'),
       ),
       h('textarea', {
         id: 'heal-yaml', spellcheck: 'false',
@@ -46,7 +46,7 @@ export function render() {
       h('div', { class: 'row end' },
         h('button', { onclick: doValidate }, '① 校验此配置'),
         h('button', { onclick: doRepair }, '② 修复此配置'),
-        h('button', { class: 'primary', onclick: doAutoHeal }, '③ 生成合规配置（必要时调用大模型）'),
+        h('button', { class: 'primary', onclick: doAutoHeal }, '③ 生成新配置'),
       ),
     ),
     h('div', { id: 'heal-out' }),
@@ -60,7 +60,7 @@ export function mount() {
   if (!store.connId) {
     const out = document.getElementById('heal-out');
     clear(out);
-    out.append(msg('AI 分析与修复需要先连接数据库（SchemaSnapshot 从连接读取 schema）。', 'warn'));
+    out.append(msg('请先在「数据库连接」页连接数据库，以便按表结构和约束校验配置。', 'warn'));
   }
 }
 
@@ -83,8 +83,8 @@ function renderAiPanel() {
   loadAiConfig().then(() => renderAiBody(body));
   return h('div', { class: 'panel' },
     h('div', { class: 'row' },
-      h('span', { class: 'pill gen' }, 'AI 配置'),
-      h('span', { class: 'muted' }, '全流程自愈 / 一键生成配置使用的 LLM 后端（会话级，免重启切换）'),
+      h('span', { class: 'pill gen' }, 'AI 服务设置'),
+      h('span', { class: 'muted' }, '选择辅助生成配置的模型服务，保存后立即生效。'),
     ),
     body,
   );

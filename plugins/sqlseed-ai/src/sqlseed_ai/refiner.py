@@ -330,6 +330,8 @@ class AiConfigRefiner:
         max_retries: int,
         state: _RetryState,
         on_progress: Callable[[str, dict[str, Any]], None] | None = None,
+        *,
+        cache_success: bool = True,
     ) -> dict[str, Any] | None:
         """Handle validation result: return config on success, or update retry state.
 
@@ -340,7 +342,8 @@ class AiConfigRefiner:
 
         if val_error is None:
             logger.info("AI config validated successfully", table_name=table_name, attempts=attempt + 1)
-            self._cache_successful_config(table_name, config_dict, schema_hash)
+            if cache_success:
+                self._cache_successful_config(table_name, config_dict, schema_hash)
             if on_progress:
                 on_progress("done", {"tokens": 0, "model": "validated"})
             return config_dict
@@ -376,7 +379,7 @@ class AiConfigRefiner:
             schema_ctx: Schema context from the orchestrator.
             schema_hash: Hash of the table schema for cache invalidation.
             max_retries: Maximum number of refinement retries.
-            no_cache: If True, skip cache lookup.
+            no_cache: If True, skip cache lookup and storage.
             use_compact: If set, force/override compact mode; None for auto-detect.
             call_fn: Function that takes messages and returns config dict or raises.
             on_progress: Optional progress callback (streaming only).
@@ -419,6 +422,7 @@ class AiConfigRefiner:
                 max_retries,
                 state,
                 on_progress,
+                cache_success=not no_cache,
             )
             if result is not None:
                 return result
@@ -743,6 +747,20 @@ class AiConfigRefiner:
 
         return "\n".join(parts)
 
+    def _cache_path(self, table_name: str) -> Path:
+        """Keep SQL identifiers separate from filesystem path components."""
+        digest = hashlib.sha256(table_name.encode("utf-8")).hexdigest()
+        return self._cache_dir / f"table-{digest}.json"
+
+    def _legacy_cache_path(self, table_name: str) -> Path | None:
+        """Read old basename caches only; never follow identifier paths or links."""
+        if not table_name or any(char in table_name for char in ("/", "\\", "\x00")):
+            return None
+        candidate = self._cache_dir / f"{table_name}.json"
+        if candidate.resolve().parent != self._cache_dir.resolve():
+            return None
+        return candidate
+
     def _cache_successful_config(
         self,
         table_name: str,
@@ -758,11 +776,14 @@ class AiConfigRefiner:
         """
         try:
             self._cache_dir.mkdir(parents=True, exist_ok=True)
-            cache_file = self._cache_dir / f"{table_name}.json"
+            cache_file = self._cache_path(table_name)
+            if cache_file.resolve().parent != self._cache_dir.resolve():
+                raise OSError("Cache file resolves outside the cache directory")
             entry = {
                 "_meta": {
                     "schema_hash": schema_hash,
                     "created_at": time.time(),
+                    "cache_format": 2,
                 },
                 "config": config_dict,
             }
@@ -794,9 +815,16 @@ class AiConfigRefiner:
         Returns:
             Cached config dict, or ``None`` if no valid cache exists.
         """
-        cache_file = self._cache_dir / f"{table_name}.json"
-        if cache_file.exists():
-            try:
+        try:
+            cache_file = self._cache_path(table_name)
+            if not cache_file.exists():
+                legacy = self._legacy_cache_path(table_name)
+                if legacy is None:
+                    return None
+                cache_file = legacy
+            if cache_file.resolve().parent != self._cache_dir.resolve():
+                return None
+            if cache_file.exists():
                 entry = json.loads(cache_file.read_text(encoding="utf-8"))
                 if isinstance(entry, dict) and "_meta" in entry:
                     cached_hash = entry["_meta"].get("schema_hash", "")
@@ -809,10 +837,10 @@ class AiConfigRefiner:
                         )
                         return None
                     config = entry.get("config")
-                    if isinstance(config, dict):
+                    if isinstance(config, dict) and entry["_meta"].get("cache_format") != 2:
                         _sanitize_names(config)
                     return config
                 return entry if isinstance(entry, dict) else None
-            except (OSError, ValueError) as e:
-                logger.debug("Failed to read AI config cache", error=str(e))
+        except (OSError, ValueError) as e:
+            logger.debug("Failed to read AI config cache", error=str(e))
         return None

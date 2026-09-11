@@ -1,11 +1,20 @@
 site_name: sqlseed
-site_description: Declarative SQLite test data generation toolkit
+site_description: Declarative SQLite and PostgreSQL test data generation toolkit
 site_url: https://sunbos.github.io/sqlseed/
 repo_url: https://github.com/sunbos/sqlseed
 repo_name: sunbos/sqlseed
 edit_uri: edit/main/docs/
 
 docs_dir: docs
+
+# The public site contains maintained user/reference documentation. Review logs,
+# screenshots and historical prototypes remain in the repository for contributors.
+# Keep strict validation enabled for every page that is actually published.
+exclude_docs: |
+  /code-review/
+  /design-review/
+  /superpowers/
+  /specs/
 
 theme:
   name: material
@@ -34,6 +43,9 @@ theme:
 nav:
   - Home: index.md
   - User Guide: guide.md
+  - Web Workbench: web-workbench.md
+  - Support & Maintenance: maintainable-release.md
+  - Project Walkthrough: project-showcase.md
   - API Reference: api.md
   - Architecture:
       - Architecture (EN): architecture.md

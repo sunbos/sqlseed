@@ -11,6 +11,7 @@ Type-safe configuration models built on Pydantic, including:
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from enum import Enum
 from typing import Any, Literal
 
@@ -106,6 +107,8 @@ class ColumnConfig(BaseModel):
 
         known_fields = set(cls.model_fields)
         nested_params = result.pop("params", None)
+        if nested_params is not None and not isinstance(nested_params, Mapping):
+            raise ValueError(f"Column '{result.get('name', '<unknown>')}': 'params' must be a mapping")
 
         extra_keys = {k: v for k, v in result.items() if k not in known_fields}
         for k in extra_keys:
@@ -120,7 +123,7 @@ class ColumnConfig(BaseModel):
         extra_keys = {k: v for k, v in extra_keys.items() if k not in _internal_fields}
 
         merged_params: dict[str, Any] = {}
-        if isinstance(nested_params, dict):
+        if isinstance(nested_params, Mapping):
             merged_params.update(nested_params)
         merged_params.update(extra_keys)
 

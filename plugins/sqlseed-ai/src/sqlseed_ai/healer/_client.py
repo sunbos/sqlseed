@@ -37,6 +37,10 @@ class OpenAICompatAdapter:
     def __init__(self, openai_client: Any) -> None:
         self._client = openai_client
 
+    def close(self) -> None:
+        """Release the wrapped SDK client when its owning caller is finished."""
+        self._client.close()
+
     def chat_completions_create(
         self,
         *,

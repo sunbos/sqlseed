@@ -16,7 +16,7 @@ This package provides the `sqlseed` console command with subcommands:
 pip install sqlseed-cli
 ```
 
-This auto-pulls the `sqlseed` core package. To enable the AI subcommands
+This auto-pulls the `sqlseed>=0.2.4.dev0` core package; Core 0.2.3 lacks the URL API required by this CLI. To enable the AI subcommands
 (`ai-suggest`, `ai-analyze`, `auto-heal`), also install `sqlseed-ai`:
 
 ```bash
@@ -40,6 +40,25 @@ Multi-database connections via `--url`:
 sqlseed fill --url "postgresql+psycopg://user:pass@host/db" -t users -n 1000
 sqlseed inspect --url "postgresql+psycopg://user:pass@host/db"
 ```
+
+For config-driven generation, set `db_path` or `url` inside the config file:
+
+```bash
+sqlseed fill --config generate.yaml --no-ai
+```
+
+`--config` cannot be combined with a positional database path or `--url`.
+Omitted `--provider`, `--locale`, and `--batch-size` options preserve the
+configuration values; explicitly supplied options override them, even when
+their values equal the command's defaults. Without `--config`, the defaults
+remain `mimesis`, `en_US`, and `5000` respectively.
+If any table reports generation errors, the command prints those errors and
+exits with status 1. Each result's `count` is the number of rows actually
+committed, including rows committed before a later failure.
+
+For direct `fill --transform script.py --snapshot`, the snapshot retains the
+transform path and `replay` applies it again. Keep that script available at the
+saved path; a snapshot does not embed its contents.
 
 ## Architecture
 
