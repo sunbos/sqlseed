@@ -6,7 +6,7 @@ on:
   pull_request:
     branches: [main, 'feat/**', 'refactor/**', 'fix/**']
 
-# Least-privilege: no job in this workflow needs write access.
+# Repository contents stay read-only; the coverage job can request an OIDC token.
 permissions:
   contents: read
 
@@ -98,6 +98,9 @@ jobs:
   test:
     needs: lint
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     timeout-minutes: 25
     strategy:
       fail-fast: false
@@ -126,7 +129,8 @@ jobs:
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f  # v7.0.0
         with:
           files: coverage.xml
-          fail_ci_if_error: false
+          use_oidc: true
+          fail_ci_if_error: true
 
   # ── Platform compat: macOS + Windows on 3.12 ────────────────
   test-compat:

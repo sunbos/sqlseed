@@ -21,10 +21,14 @@ Helper functions (``make_column_info``, ``create_simple_db``,
 
 from __future__ import annotations
 
+import errno
 import gc
 import json
 import os
+import socket
 import sqlite3
+import ssl
+import sys
 import urllib.request
 from contextlib import suppress
 from typing import TYPE_CHECKING
@@ -167,6 +171,75 @@ def create_raw_adapter_with_data(tmp_db_with_data: str) -> Generator[RawSQLiteAd
     adapter.close()
 
 
+def _connection_unavailable(error: BaseException) -> bool:
+    return isinstance(error, (FileNotFoundError, ConnectionError, TimeoutError)) or (
+        isinstance(error, OSError) and error.errno in (errno.ENETDOWN, errno.ENETUNREACH, errno.EHOSTUNREACH)
+    )
+
+
+def _check_docker_endpoint() -> None:
+    """Own the Unix probe before the SDK can leak a failed connection socket."""
+    from docker.utils import parse_host
+    from testcontainers.core.docker_client import get_docker_host
+
+    endpoint = parse_host(get_docker_host(), is_win32=sys.platform == "win32")
+    if not endpoint.startswith("http+unix://"):
+        return
+    path = endpoint.removeprefix("http+unix://")
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
+            probe.settimeout(2)
+            probe.connect(path)
+    except OSError as error:
+        if not _connection_unavailable(error):
+            raise
+        pytest.skip(f"Docker Unix endpoint is unavailable: {path}: {error}")
+
+
+def _docker_transport_unavailable(error: Exception) -> bool:
+    """Recognize transport failures without hiding Docker API or TLS errors."""
+    try:
+        from docker.errors import APIError, DockerException, TLSParameterError
+    except ImportError:
+        return False
+    from requests.exceptions import ConnectionError as RequestsConnectionError
+    from requests.exceptions import RequestException, SSLError, Timeout
+
+    if not isinstance(error, DockerException):
+        return False
+    chain = []
+    current: BaseException | None = error
+    while current is not None and current not in chain:
+        chain.append(current)
+        current = current.__cause__ or current.__context__
+    if any(
+        isinstance(cause, (APIError, TLSParameterError, SSLError, ssl.SSLError, PermissionError)) for cause in chain
+    ):
+        return False
+    if sys.platform == "win32":
+        import pywintypes
+        import winerror
+
+        pipe_errors = [cause for cause in chain if isinstance(cause, pywintypes.error)]
+        unavailable_codes = (
+            winerror.ERROR_FILE_NOT_FOUND,
+            winerror.ERROR_PATH_NOT_FOUND,
+            winerror.ERROR_BAD_NETPATH,
+            winerror.ERROR_BROKEN_PIPE,
+            winerror.ERROR_SEM_TIMEOUT,
+            winerror.ERROR_PIPE_BUSY,
+        )
+        if pipe_errors:
+            return all(cause.winerror in unavailable_codes for cause in pipe_errors)
+    for cause in chain:
+        if isinstance(cause, RequestException):
+            if isinstance(cause, (RequestsConnectionError, Timeout)):
+                return True
+        elif _connection_unavailable(cause):
+            return True
+    return False
+
+
 @pytest.fixture(scope="session")
 def pg_url() -> Generator[str, None, None]:
     """Use an explicit test service or own a temporary PostgreSQL container.
@@ -179,6 +252,7 @@ def pg_url() -> Generator[str, None, None]:
         return
     if PostgresContainer is None:
         pytest.skip("testcontainers package required for PG integration tests. Install: pip install testcontainers")
+    _check_docker_endpoint()
     pg = None
     try:
         pg = PostgresContainer("postgres:16-alpine")
@@ -187,7 +261,7 @@ def pg_url() -> Generator[str, None, None]:
         if pg is not None:
             with suppress(Exception):
                 pg.stop()
-        if "docker" in str(e).lower() or "connection" in str(e).lower() or "daemon" in str(e).lower():
+        if _docker_transport_unavailable(e):
             pytest.skip(
                 "Docker must be running to execute PostgreSQL integration tests.\n"
                 "Install guide: https://docs.docker.com/get-docker/\n"
