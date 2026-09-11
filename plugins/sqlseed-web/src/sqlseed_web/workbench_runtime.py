@@ -53,6 +53,26 @@ class WorkbenchError(ValueError):
         self.status = status
 
 
+def _redact_query_credentials(message: str) -> str:
+    """Consume each query field once, including incomplete keys containing '?'."""
+    field_pattern = re.compile(r"[?&][^=&\s]*=?")
+    value_pattern = re.compile(r"[^&\s'\")]+")
+    parts: list[str] = []
+    cursor = copied = 0
+    while field := field_pattern.search(message, cursor):
+        cursor = field.end()
+        key = field.group()
+        if not key.endswith("=") or not re.search(
+            r"password|passwd|pwd|secret|token|credential|key|passfile", key, re.IGNORECASE
+        ):
+            continue
+        value = value_pattern.match(message, cursor)
+        if value is not None:
+            parts.extend((message[copied:cursor], "***"))
+            cursor = copied = value.end()
+    return "".join(parts) + message[copied:]
+
+
 def public_error(exc: Exception) -> str:
     """Avoid exposing connection credentials or SQLAlchemy parameter dumps."""
     if isinstance(exc, StatementError) and exc.orig is not None:
@@ -60,13 +80,9 @@ def public_error(exc: Exception) -> str:
     else:
         message = str(exc)
     message = message.split("\n[SQL:", 1)[0].split("\n[parameters:", 1)[0]
-    message = re.sub(r"(\w+(?:\+\w+)?://)[^\s/@]+@", r"\1***@", message)
-    message = re.sub(
-        r"([?&][^=&\s]*(?:password|passwd|pwd|secret|token|credential|key|passfile)[^=&\s]*=)[^&\s'\")]+",
-        r"\1***",
-        message,
-        flags=re.IGNORECASE,
-    )
+    # A scheme can only start at a word boundary; do not retry inside long words.
+    message = re.sub(r"(?<!\w)(\w+(?:\+\w+)?://)[^\s/@]+@", r"\1***@", message)
+    message = _redact_query_credentials(message)
     return message[:2000]
 
 

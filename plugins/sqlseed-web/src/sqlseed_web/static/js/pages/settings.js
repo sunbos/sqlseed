@@ -15,6 +15,7 @@ const descriptions = {core: '离线生成、约束处理与数据库写入', cli
 let root, aiPanel, pluginsPanel, sections, form, backend, endpoint, modelInput, key, clearKey;
 let notice, saveState, badge, currentService, readinessNote, keyLabel, keyHint, serviceHint, testNotice, models, save, probe, reset, returnButton, returnPrompt, storageInfo;
 let config = null, loaded = false, busy = false, version = 0, configController = null;
+let settingsVersion = 0, settingsStale = false;
 let environmentList, environmentNotice, environmentSummary, refreshButton, environmentController = null, environmentVersion = 0;
 let installationVersion = 0;
 let currentSection = 'ai';
@@ -31,7 +32,7 @@ function dirty() {
 export function render() {
   management?.destroy();
   invalidateInstallationCopies();
-  version++; loaded = false; busy = false; config = null;
+  version++; loaded = false; busy = false; config = null; settingsStale = false;
   environmentInfo = null; environmentLoading = false;
   currentSection = new URLSearchParams(location.hash.split('?')[1] || '').get('section') === 'plugins' ? 'plugins' : 'ai';
   notice = h('p', {class: 'settings-notice', role: 'status', 'aria-live': 'polite', 'data-settings-notice': ''}, '正在读取设置…');
@@ -61,12 +62,12 @@ export function render() {
     testNotice, models,
     h('div', {class: 'settings-key'}, field(keyLabel, key), keyHint,
       h('label', {class: 'settings-clear-key'}, clearKey, '停用本次服务的密钥')),
-    h('div', {class: 'settings-actions'}, save, probe, reset), saveState, notice, storageInfo);
+    h('div', {class: 'settings-actions'}, save, probe, reset), saveState, storageInfo);
   const installation = h('section', {class: 'settings-install', 'data-ai-install': '', hidden: true});
   aiPanel = h('section', {id: 'settings-ai', class: 'settings-panel', role: 'tabpanel', 'aria-labelledby': 'settings-tab-ai'},
     h('header', {class: 'settings-panel-head'}, h('div', {}, h('h2', {}, 'AI 服务'), h('p', {class: 'muted'}, '配置默认服务，供工作台的 AI 配置助手使用。')), badge),
     h('section', {class: 'settings-current', 'aria-label': '当前使用的 AI 服务'}, h('span', {class: 'muted'}, '当前使用'), currentService, readinessNote),
-    installation, form);
+    installation, form, notice);
   environmentNotice = h('p', {class: 'settings-notice', role: 'status', 'aria-live': 'polite'});
   environmentSummary = h('p', {class: 'muted'}, '正在读取运行环境…');
   environmentList = h('div', {class: 'settings-environment'});
@@ -74,11 +75,14 @@ export function render() {
   management = createPluginManagement({initialEnabled: document.documentElement?.dataset.pluginMaintenance === 'true',
     onChange: () => {updatePluginControls(); refreshButton.disabled = environmentLoading || management.refreshBlocked;}, onMode: setMaintenanceMode,
     onRestored: async () => {
-      const expected = version;
-      await Promise.all([refreshEnvironment(), refreshCurrentConnection(expected)]);
-      if (expected !== version) return;
-      await loadSettings({preserveDraft:dirty()});
-      if (expected === version) window.dispatchEvent(new Event('sqlseed:plugins-changed'));
+      const expected = version, preserveDraft = dirty();
+      const request = ++settingsVersion; settingsStale = true;
+      configController?.abort(); busy = false;
+      probe.textContent = '检测连接'; save.textContent = '保存设置'; testNotice.textContent = ''; models.replaceChildren(); update();
+      await Promise.all([refreshEnvironment({replace:true}), refreshCurrentConnection(expected)]);
+      if (expected !== version || request !== settingsVersion) return;
+      await loadSettings({preserveDraft});
+      if (expected === version && request === settingsVersion) window.dispatchEvent(new Event('sqlseed:plugins-changed'));
     }});
   pluginsPanel = h('section', {id: 'settings-plugins', class: 'settings-panel', role: 'tabpanel', 'aria-labelledby': 'settings-tab-plugins'},
     h('header', {class: 'settings-panel-head'}, h('div', {}, h('h2', {}, '插件与版本'), h('p', {class: 'muted'}, '查看当前 Web 服务所在 Python 环境中的组件。')), refreshButton),
@@ -142,7 +146,7 @@ function changed() {
   models.replaceChildren(); notice.textContent = ''; update();
 }
 function update() {
-  const disabled = busy || !loaded || !config?.available;
+  const disabled = busy || settingsStale || !loaded || !config?.available;
   for (const input of [endpoint, modelInput, key, clearKey]) input.disabled = disabled;
   backend.el.querySelector('button').disabled = disabled;
   save.disabled = disabled || !dirty(); probe.disabled = disabled; reset.disabled = disabled || !dirty();
@@ -151,7 +155,7 @@ function update() {
   returnButton.disabled = busy;
   for (const option of models.querySelectorAll('button')) option.disabled = disabled;
   form.setAttribute('aria-busy', String(busy));
-  badge.textContent = !loaded ? '读取中' : !config ? '读取失败' : !config.available ? config.availability_status === 'import_error' ? '加载异常' : '未安装' : dirty() ? '未保存' : config.ready ? '配置已填写' : '待配置';
+  badge.textContent = settingsStale ? busy ? '读取中' : '待重新读取' : !loaded ? '读取中' : !config ? '读取失败' : !config.available ? config.availability_status === 'import_error' ? '加载异常' : '未安装' : dirty() ? '未保存' : config.ready ? '配置已填写' : '待配置';
   serviceHint.textContent = backend.get() === 'ollama' ? 'Ollama 可连接本地或云端模型；本机服务地址不代表模型一定在本机运行。' : backend.get() === 'lm_studio' ? '填写 LM Studio 服务地址，并在服务中加载需要使用的模型。' : '使用提供方公布的 API 地址和模型 ID。OpenAI 兼容服务地址通常以 /v1 结尾。';
   updateAuthenticationHint();
 }
@@ -199,31 +203,35 @@ function populate({preserveDraft=false}={}) {
       h('p', {}, `${componentImpact('ai')} 已保存的服务设置会保留。`),
       ...(broken ? [h('p', {}, config.message || 'AI 插件已安装，但加载失败，请检查运行 Web 的环境依赖。')] : []),
       button(broken ? '查看插件状态' : '前往安装', () => selectSection('plugins'), {primary:true}),
-      ...(!management?.automatic || broken ? [h('details', {class:'settings-package-help'}, h('summary', {}, '管理员排查信息'),
+      ...(!managedInstallAvailable(management?.controls({id:'ai'})) || broken ? [h('details', {class:'settings-package-help'}, h('summary', {}, '管理员排查信息'),
         ...installationInstructions(config.installer, broken ? config.repair_command : config.install_command))] : []));
   }
   form.hidden = !config.available; update();
 }
 async function loadSettings({preserveDraft=false}={}) {
   if (busy || management?.maintenance) return;
-  const expected = version; busy = true; configController = new AbortController(); update();
+  preserveDraft ||= settingsStale && dirty();
+  const expected = version, request = settingsVersion;
+  const current = () => expected === version && request === settingsVersion;
+  busy = true; configController = new AbortController(); update();
   try {
     const response = await api(`${prefix}/config`, {signal: configController.signal});
-    if (expected !== version || management?.maintenance) return;
-    config = structuredClone(response); loaded = true; populate({preserveDraft}); notice.textContent = '';
+    if (!current() || management?.maintenance) return;
+    config = structuredClone(response); loaded = true; settingsStale = false; populate({preserveDraft}); notice.textContent = '';
   } catch (error) {
-    if (expected === version) {loaded = true; notice.replaceChildren(`无法读取 AI 设置：${error.message} `, button('重试读取', loadSettings));}
-  } finally {if (expected === version) {busy = false; update();}}
+    if (current()) {loaded = true; notice.replaceChildren(`无法读取 AI 设置：${error.message} `, button('重试读取', loadSettings));}
+  } finally {if (current()) {busy = false; update();}}
 }
 async function submit(testOnly) {
-  if (busy || management?.maintenance || !loaded || !config?.available || (!testOnly && !dirty())) return;
-  const expected = version, snapshot = currentDraft();
+  if (busy || settingsStale || management?.maintenance || !loaded || !config?.available || (!testOnly && !dirty())) return;
+  const expected = version, request = settingsVersion, snapshot = currentDraft();
+  const current = () => expected === version && request === settingsVersion;
   busy = true; configController = new AbortController(); update();
   probe.textContent = testOnly ? '检测中…' : '检测连接'; save.textContent = testOnly ? '保存设置' : '保存中…';
   if (testOnly) {testNotice.textContent = '正在检测服务连接…'; models.replaceChildren();} else notice.textContent = '正在保存设置…';
   try {
     const response = await api(`${prefix}/${testOnly ? 'test' : 'config'}`, {method: 'POST', body: JSON.stringify(snapshot), signal: configController.signal});
-    if (expected !== version || management?.maintenance) return;
+    if (!current() || management?.maintenance) return;
     if (testOnly) {
       const checked = response.checked_at ? new Date(response.checked_at) : null;
       const time = checked && Number.isFinite(checked.getTime()) ? checked.toLocaleTimeString('zh-CN', {hour12: false}) : '';
@@ -234,8 +242,8 @@ async function submit(testOnly) {
       notice.textContent = '设置已保存，下一次 AI 分析将使用此配置。';
       window.dispatchEvent(new Event('sqlseed:ai-settings-changed'));
     }
-  } catch (error) {if (expected === version) (testOnly ? testNotice : notice).textContent = `${testOnly ? '检测' : '保存'}失败：${error.message}`;}
-  finally {snapshot.api_key = ''; if (expected === version) {busy = false; probe.textContent = '检测连接'; save.textContent = '保存设置'; update();}}
+  } catch (error) {if (current()) (testOnly ? testNotice : notice).textContent = `${testOnly ? '检测' : '保存'}失败：${error.message}`;}
+  finally {snapshot.api_key = ''; if (current()) {busy = false; probe.textContent = '检测连接'; save.textContent = '保存设置'; update();}}
 }
 async function refreshPlugins() {
   if (refreshButton.disabled) return;
@@ -254,8 +262,9 @@ async function refreshCurrentConnection(expected) {
     if (expected === version) environmentNotice.textContent = '组件状态已刷新；当前数据库连接信息暂时无法更新。';
   }
 }
-async function refreshEnvironment() {
-  if (environmentLoading) return;
+async function refreshEnvironment({replace=false}={}) {
+  if (environmentLoading && !replace) return;
+  environmentController?.abort();
   invalidateInstallationCopies();
   const expected = version, request = ++environmentVersion; environmentController = new AbortController();
   environmentLoading = true; refreshButton.disabled = true; environmentNotice.textContent = '正在读取组件状态…';
@@ -286,8 +295,12 @@ function updatePluginControls() {
     const controls = item && management.controls(item);
     holder.replaceChildren(...(controls ? [controls] : []));
     const guide = row.querySelector('.settings-package-help');
-    if (guide) guide.hidden = Boolean(management.automatic && !item?.installed && ['ai','cli','mcp','mimesis'].includes(item?.id));
+    if (guide) guide.hidden = !item?.installed && managedInstallAvailable(controls);
   }
+}
+
+function managedInstallAvailable(controls) {
+  return Boolean(management?.automatic && controls?.querySelector('[data-plugin-action="install"]'));
 }
 
 function installationInstructions(installer, command) {
@@ -340,6 +353,7 @@ function packageRow(item, installer) {
   const state = metadataOnly && requirement === 'builtin' ? '内置' : metadataOnly && item.installed ? '已安装（待验证）' : item.available ? '可用' : item.installed ? '加载异常' : requirement === 'optional' ? '未安装' : '必需依赖缺失';
   const requirementLabels = {builtin: '内置', required: '必需', optional: '可选'};
   const requirementLabel = {base: '内置', faker: '随 sqlseed 安装', mimesis: '按需安装'}[item.id] || requirementLabels[requirement];
+  const controls = management?.controls(item);
   const row = h('article', {class: 'settings-package', 'data-package-id': item.id},
     h('div', {class: 'settings-package-info'},
       h('div', {class: 'settings-package-name'}, h('strong', {}, item.name), h('span', {class: 'settings-requirement'}, requirementLabel)),
@@ -350,11 +364,10 @@ function packageRow(item, installer) {
     h('span', {class: 'mono settings-version'}, requirement === 'builtin' ? '随 sqlseed 提供' : item.version || '—'),
     h('div', {class: 'settings-package-status'}, h('span', {class: `settings-badge${broken ? ' settings-badge-warning' : !item.available ? ' settings-badge-neutral' : ''}`}, state)));
   if (!item.available && (!metadataOnly || (!item.installed && requirement !== 'builtin'))) {
-    row.append(h('details', {class: 'settings-package-help', hidden:Boolean(management?.automatic && !item.installed && ['ai','cli','mcp','mimesis'].includes(item.id))}, h('summary', {}, broken ? '修复指引' : '管理员安装信息'),
+    row.append(h('details', {class: 'settings-package-help', hidden:!item.installed && managedInstallAvailable(controls)}, h('summary', {}, broken ? '修复指引' : '管理员安装信息'),
       h('p', {}, item.guidance || item.message || '请在运行 Web 的 Python 环境中检查此组件。'),
       ...installationInstructions(installer, item.installed || requirement === 'builtin' ? item.repair_command : item.install_command)));
   }
-  const controls = management?.controls(item);
   row.append(h('div', {'data-plugin-controls': ''}, controls));
   return row;
 }

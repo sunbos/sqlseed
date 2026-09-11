@@ -104,6 +104,116 @@ test('uninstalling AI refreshes availability with a pending draft and reinstalli
   t.context.unmount();
 });
 
+test('worker recovery replaces an in-flight initial AI read and rejects its late available response', async () => {
+  let generation = 1, reads = 0;
+  const old = deferred(), effective = {backend:'ollama', model:'retained-model'};
+  const t = harness({request: call => {
+    if (call.url.endsWith('/management')) return {enabled:true, automatic_lifecycle:true, phase:'ready', service_generation:generation, instance_id:'app', available:true, token:'token', components:[]};
+    if (call.url.endsWith('/config')) return ++reads === 1 ? old.promise : {available:false, ready:false, availability_status:'not_installed', effective};
+    if (call.url === '/api/connections') return {connections:[]};
+  }});
+  await tick(); generation++;
+  const refreshed = t.find('刷新状态').click(); await tick();
+  old.resolve({available:true, ready:true, effective:{...effective, model:'old-worker-model'}});
+  await Promise.all([t.mounted, refreshed]);
+  assert.equal(t.find('检测连接').disabled, true);
+  assert.equal(t.document.querySelector('[data-ai-install]').hidden, false);
+  assert.equal(t.input('模型名称').value, 'retained-model');
+  assert.equal(reads, 2);
+  t.context.unmount();
+});
+
+for (const operation of ['test', 'config']) test(`worker recovery preserves a draft and rejects a late AI ${operation} response`, async () => {
+  let generation = 1;
+  const old = deferred(), effective = {backend:'ollama', model:'saved-model'};
+  const t = harness({request: call => {
+    if (call.url.endsWith('/management')) return {enabled:true, automatic_lifecycle:true, phase:'ready', service_generation:generation, instance_id:'app', available:true, token:'token', components:[]};
+    if (call.method === 'POST') return old.promise;
+    if (call.url.endsWith('/config')) return {available:generation === 1, ready:generation === 1, availability_status:generation === 1?'available':'not_installed', effective};
+    if (call.url === '/api/connections') return {connections:[]};
+  }}); await t.mounted;
+  t.input('模型名称').value = 'unsaved-model'; await t.input('模型名称').dispatchEvent('input');
+  const pending = t.find(operation === 'test' ? '检测连接' : '保存设置').click(); await tick();
+  generation++; await t.find('刷新状态').click();
+  old.resolve({available:true, ready:true, effective:{...effective, model:'old-worker-model'}, ok:true, models:['late-model'], message:'late-success'});
+  await pending;
+  assert.equal(t.find('检测连接').disabled, true);
+  assert.equal(t.document.querySelector('[data-ai-install]').hidden, false);
+  assert.equal(t.input('模型名称').value, 'unsaved-model');
+  assert.doesNotMatch(t.document.textContent, /late-model|late-success|设置已保存/);
+  assert.equal(t.calls.filter(call => call.method === 'POST').length, 1);
+  t.context.unmount();
+});
+
+test('a failed capability refresh keeps AI disabled and preserves its draft when retried', async () => {
+  let generation = 1, reads = 0;
+  const effective = {backend:'ollama', model:'saved-model'};
+  const t = harness({request: call => {
+    if (call.url.endsWith('/management')) return {enabled:true, automatic_lifecycle:true, phase:'ready', service_generation:generation, instance_id:'app', available:true, token:'token', components:[]};
+    if (call.url.endsWith('/config')) {
+      if (++reads === 2) throw new Error('temporary capability failure');
+      return {available:generation === 1, ready:generation === 1, availability_status:generation === 1?'available':'not_installed', effective};
+    }
+    if (call.url === '/api/connections') return {connections:[]};
+  }}); await t.mounted;
+  t.input('模型名称').value = 'unsaved-model'; await t.input('模型名称').dispatchEvent('input');
+  generation++; await t.find('刷新状态').click();
+  assert.equal(t.find('检测连接').disabled, true);
+  assert.match(t.document.querySelector('[data-settings-notice]').textContent, /无法读取 AI 设置/);
+  await t.find('重试读取').click();
+  assert.equal(t.document.querySelector('[data-ai-install]').hidden, false);
+  assert.equal(t.input('模型名称').value, 'unsaved-model');
+  t.context.unmount();
+});
+
+test('AI reinstall read failure exposes retry outside the hidden form and retains the draft', async () => {
+  let generation = 1, reads = 0;
+  const effective = {backend:'ollama', model:'saved-model'};
+  const t = harness({request: call => {
+    if (call.url.endsWith('/management')) return {enabled:true, automatic_lifecycle:true, phase:'ready', service_generation:generation, instance_id:'app', available:true, token:'token', components:[]};
+    if (call.url.endsWith('/config')) {
+      if (++reads === 3) throw new Error('temporary reinstall read failure');
+      return {available:generation !== 2, ready:generation !== 2, availability_status:generation === 2?'not_installed':'available', effective};
+    }
+    if (call.url === '/api/connections') return {connections:[]};
+  }}); await t.mounted;
+  t.input('模型名称').value = 'unsaved-model'; await t.input('模型名称').dispatchEvent('input');
+  generation++; await t.find('刷新状态').click();
+  assert.equal(t.document.querySelector('.settings-form').hidden, true);
+  generation++; await t.find('刷新状态').click();
+  const retry = t.find('重试读取'); assert.ok(retry);
+  for (let node = retry; node; node = node.parentElement) assert.notEqual(node.hidden, true, 'retry must remain visible');
+  await retry.click();
+  assert.equal(t.document.querySelector('[data-ai-install]').hidden, true);
+  assert.equal(t.find('检测连接').disabled, false);
+  assert.equal(t.input('模型名称').value, 'unsaved-model');
+  t.context.unmount();
+});
+
+test('worker recovery replaces an in-flight environment read and rejects old component availability', async () => {
+  let refreshing = false, environmentReads = 0;
+  const old = deferred(), recovered = deferred(), missing = optionalEnvironment();
+  const installed = structuredClone(missing);
+  for (const item of [...installed.packages, ...installed.providers]) Object.assign(item, {installed:true, available:true, status:'available'});
+  const management = generation => ({enabled:true, automatic_lifecycle:true, available:true, phase:'ready', instance_id:'app', service_generation:generation, token:'token', components:[{id:'ai', can_install:generation === 2}]});
+  const t = harness({request: call => {
+    if (call.url.endsWith('/management')) return refreshing ? recovered.promise : management(1);
+    if (call.url.endsWith('/environment')) return ++environmentReads === 2 ? old.promise : refreshing ? missing : installed;
+    if (call.url === '/api/connections') return {connections:[]};
+  }}); await t.mounted;
+  refreshing = true; const pending = t.find('刷新状态').click(); await tick();
+  recovered.resolve(management(2)); await tick();
+  old.resolve(installed); await pending;
+  for (const id of ['ai', 'cli', 'mcp', 'mimesis']) {
+    const row = t.document.querySelector(`[data-package-id="${id}"]`);
+    assert.match(row.querySelector('.settings-badge').textContent, /未安装/, id);
+    assert.ok(row.querySelector('[data-component-impact]'), id);
+  }
+  assert.equal(environmentReads, 3);
+  assert.equal(t.find('刷新状态').disabled, false);
+  t.context.unmount();
+});
+
 test('missing optional components explain their specific functional impact beside their status', async () => {
   const t = harness({request:call=>call.url.endsWith('/environment')?optionalEnvironment():undefined}); await t.mounted;
   for (const [id, pattern] of [['ai',/规则建议与分析不可用/],['cli',/终端.*不可用/],['mcp',/MCP 客户端.*不可用/],['mimesis',/Mimesis.*预览或生成/]]) {
@@ -111,6 +221,25 @@ test('missing optional components explain their specific functional impact besid
     const impact=row.querySelector('[data-component-impact]'); assert.ok(impact,id); assert.match(impact.textContent,pattern,id);
     assert.equal(impact.closest('details'), null);
   }
+  t.context.unmount();
+});
+
+test('unsupported automatic management keeps recovery guidance reachable for missing components', async () => {
+  const t = harness({config:{available:false, ready:false, availability_status:'not_installed', effective:{}}, request:call => {
+    if (call.url.endsWith('/management')) return {enabled:true, automatic_lifecycle:true, available:false, phase:'ready', instance_id:'app', service_generation:1, reason:'当前环境使用共享 site-packages，无法在网页中管理组件。', components:[]};
+    if (call.url.endsWith('/environment')) return optionalEnvironment();
+  }}); await t.mounted;
+  const checkGuidance = () => {
+    for (const id of ['cli', 'mcp', 'ai', 'mimesis']) {
+      const row = t.document.querySelector(`[data-package-id="${id}"]`);
+      assert.equal(row.querySelector('[data-plugin-action="install"]'), null);
+      const help = row.querySelector('.settings-package-help');
+      assert.ok(help, id); assert.equal(help.hidden, false, id);
+      assert.match(help.textContent, /安装|环境/);
+    }
+    assert.ok(t.document.querySelector('[data-ai-install]').querySelector('.settings-package-help'));
+  };
+  checkGuidance(); await t.find('刷新状态').click(); checkGuidance();
   t.context.unmount();
 });
 

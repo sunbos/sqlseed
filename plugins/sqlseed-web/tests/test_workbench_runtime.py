@@ -289,6 +289,104 @@ def test_errors_remove_query_credentials() -> None:
     assert "another-secret" not in message
 
 
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    [
+        (
+            "postgresql+psycopg://user:private@db.local/app?mode=fast&sslpassword=hidden",
+            "postgresql+psycopg://***@db.local/app?mode=fast&sslpassword=***",
+        ),
+        ("https://user:private@api.example/v1?access_token=hidden", "https://***@api.example/v1?access_token=***"),
+        ("?password?junk=hidden&mode=fast", "?password?junk=***&mode=fast"),
+        ("?x=1?password=hidden&mode=fast", "?x=1?password=***&mode=fast"),
+        ("?x=1?password=hidden?other=value&mode=fast", "?x=1?password=***&mode=fast"),
+        ("?password=before?junk'??token=after", "?password=***'??token=***"),
+        ("?credentİal=hidden&mode=fast", "?credentİal=***&mode=fast"),
+    ],
+)
+def test_error_redaction_preserves_urls_and_query_boundaries(message: str, expected: str) -> None:
+    from sqlseed_web.workbench_runtime import public_error
+
+    assert public_error(ValueError(message)) == expected
+
+
+@pytest.mark.parametrize(
+    ("template", "redacted"),
+    [
+        ("https://user:{password}@api.example/v1", "https://***@api.example/v1"),
+        (
+            "postgresql://db.local/app?sslpassword={password}&mode=fast",
+            "postgresql://db.local/app?sslpassword=***&mode=fast",
+        ),
+    ],
+)
+def test_error_redaction_precedes_truncation(template: str, redacted: str) -> None:
+    from sqlseed_web.workbench_runtime import public_error
+
+    prefix = "context " * 230
+    suffix = " trailing detail" * 40
+    message = prefix + template.format(password="long-password-" * 400) + suffix
+    expected = (prefix + redacted + suffix)[:2000]
+    assert public_error(ValueError(message)) == expected
+
+
+def test_error_redaction_keeps_sqlalchemy_parameter_dumps_private() -> None:
+    from sqlalchemy.exc import StatementError
+
+    from sqlseed_web.workbench_runtime import public_error
+
+    error = StatementError(
+        "database failed", "SELECT :value", {"value": "private parameter"}, ValueError("connection lost")
+    )
+    assert public_error(error) == "connection lost"
+    assert (
+        public_error(ValueError("connection lost\n[SQL: SELECT private]\n[parameters: private]")) == "connection lost"
+    )
+
+
+@pytest.mark.parametrize("message", ["?" * 16000, ("?" * 4000 + "&") * 4], ids=["single-key", "multiple-keys"])
+def test_error_redaction_handles_long_query_fragments_promptly(message: str) -> None:
+    from sqlseed_web.workbench_runtime import public_error
+
+    started = time.perf_counter()
+    result = public_error(ValueError(message))
+    elapsed = time.perf_counter() - started
+    assert result == message[:2000]
+    assert elapsed < 2, f"Redacting an incomplete query took {elapsed:.2f}s"
+
+
+def test_long_unknown_field_is_rejected_promptly_over_http(
+    connection: Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from sqlseed_web import workbench
+    from sqlseed_web.workbench_schema import inspect_connection
+
+    registry = UIState()
+    conn = registry.add_connection(connection.target, provider="base")
+    monkeypatch.setattr(workbench, "state", registry)
+    app = FastAPI()
+    app.include_router(workbench.router)
+    config = document()
+    config["a" * 16000] = True
+    body = {"conn_id": conn.conn_id, "schema_hash": inspect_connection(conn)["schema_hash"], "document": config}
+    try:
+        with TestClient(app) as client:
+            started = time.perf_counter()
+            response = client.post("/api/workbench/check", json=body)
+            elapsed = time.perf_counter() - started
+        assert response.status_code == 200
+        checked = response.json()
+        assert not checked["ok"]
+        assert checked["issues"][0]["code"] == "unknown_field"
+        assert len(checked["issues"][0]["message"]) == 2000
+        assert elapsed < 2, f"Rejecting an unknown field took {elapsed:.2f}s"
+    finally:
+        registry.close_connection(conn.conn_id)
+
+
 def test_check_catches_derived_null_and_unique_exhaustion(connection: Connection) -> None:
     from sqlseed_web.workbench_runtime import check_document
     from sqlseed_web.workbench_schema import inspect_connection
