@@ -14,6 +14,7 @@
 - `ColumnConfig.generator` 与 `derive_from` 互斥；存在 `derive_from` 必须有 `expression`。保留 validator，不能仅依靠调用方清理。
 - Source mode 使用 `generator/params/provider/null_ratio`；derived mode 使用 `derive_from/expression`，不要在 derived 配置中混入 source generator。
 - `normalize_dict_input()` 将 `type` 作为 `generator` alias，两者同时存在时保留 `generator` 并 warning；非 derived 的未知字段合入 `params`，顶层额外参数覆盖 nested params。
+- 无装饰器的 `normalize_column_input()` 共用于 model validator 与插件参数修复；保持传入模型字段集合，避免子类字段误入 `params`，不要在插件复制别名/平铺规则。
 - `_degraded`、`degrade_reason` 是内部 metadata，不能进入 generator params，否则会造成意外 keyword 参数错误。
 - `ColumnConstraintsConfig.max_retries >= 0`，`null_ratio` 范围为 `[0, 1]`；`TableConfig.count/batch_size` 必须为正。
 - 保留 `faker_method`、`mimesis_method`、`native_params` 的 native override 配置传递。

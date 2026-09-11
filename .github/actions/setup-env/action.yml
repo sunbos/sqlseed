@@ -16,12 +16,15 @@ runs:
         python-version: ${{ inputs.python-version }}
         cache: 'pip'
         cache-dependency-path: |
-          pyproject.toml
-          plugins/*/pyproject.toml
+          .github/requirements-ci.txt
+          .github/requirements-bootstrap.txt
+
+    - uses: ./.github/actions/install-ci-deps
 
     - name: Install dependencies
       # Resolve the matching local packages together. Candidate plugins can
       # require a Core version that has not been published to PyPI yet.
       shell: bash
       run: |
-        python -m pip install -e ".[all,dev]" -e "./plugins/sqlseed-cli" -e "./plugins/sqlseed-ai[dev]" -e "./plugins/mcp-server-sqlseed" -e "./plugins/sqlseed-web[dev]"
+        python -m pip install --no-deps --no-build-isolation -e ".[all,dev,docs]" -e "./plugins/sqlseed-cli" -e "./plugins/sqlseed-ai[dev]" -e "./plugins/mcp-server-sqlseed" -e "./plugins/sqlseed-web[dev]"
+        python -m pip check

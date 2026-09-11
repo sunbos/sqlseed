@@ -11,7 +11,7 @@ Type-safe configuration models built on Pydantic, including:
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from enum import Enum
 from typing import Any, Literal
 
@@ -46,6 +46,56 @@ class ColumnConstraintsConfig(BaseModel):
         "Set to 0 to disable retries (the first generated value is kept even if it "
         "violates the unique constraint). Must be >= 0.",
     )
+
+
+def normalize_column_input(*, data: dict[str, Any], known_fields: Collection[str]) -> dict[str, Any]:
+    """Normalize column aliases and flat params without validating unrelated fields.
+
+    Shared by the Core model validator and plugin repair before parameter
+    validation. The caller supplies model fields so subclasses retain theirs.
+    """
+    result = dict(data)
+
+    if "type" in result and "generator" not in result:
+        result["generator"] = result.pop("type")
+    elif "type" in result and "generator" in result:
+        # Both 'type' and 'generator' provided: 'type' is discarded.
+        # Warn the user so they notice the silent drop.
+        logger.warning(
+            "Column has both 'type' and 'generator' specified; 'type' is ignored",
+            column=result.get("name", "<unknown>"),
+        )
+        result.pop("type")
+
+    derive_from = result.get("derive_from")
+    if derive_from:
+        return result
+
+    nested_params = result.pop("params", None)
+    if nested_params is not None and not isinstance(nested_params, Mapping):
+        raise ValueError(f"Column '{result.get('name', '<unknown>')}': 'params' must be a mapping")
+
+    extra_keys = {k: v for k, v in result.items() if k not in known_fields}
+    for k in extra_keys:
+        result.pop(k)
+
+    # Filter out Layer 4 internal metadata fields (e.g., _degraded,
+    # degrade_reason) — these are ProgressiveDegrader markers used during
+    # the auto-heal pipeline and must NOT be merged into params, otherwise
+    # they get passed to generators as keyword arguments (e.g.,
+    # ``_gen_string(_degraded=True)`` raises TypeError).
+    _internal_fields = {"_degraded", "degrade_reason"}
+    extra_keys = {k: v for k, v in extra_keys.items() if k not in _internal_fields}
+
+    merged_params: dict[str, Any] = {}
+    if isinstance(nested_params, Mapping):
+        merged_params.update(nested_params)
+    merged_params.update(extra_keys)
+
+    if merged_params:
+        result["params"] = merged_params
+
+    return result
 
 
 class ColumnConfig(BaseModel):
@@ -88,49 +138,7 @@ class ColumnConfig(BaseModel):
         """Normalize dict input: treat 'type' as alias for 'generator' and merge unknown keys into params."""
         if not isinstance(data, dict):
             return data
-        result = dict(data)
-
-        if "type" in result and "generator" not in result:
-            result["generator"] = result.pop("type")
-        elif "type" in result and "generator" in result:
-            # Both 'type' and 'generator' provided: 'type' is discarded.
-            # Warn the user so they notice the silent drop.
-            logger.warning(
-                "Column has both 'type' and 'generator' specified; 'type' is ignored",
-                column=result.get("name", "<unknown>"),
-            )
-            result.pop("type")
-
-        derive_from = result.get("derive_from")
-        if derive_from:
-            return result
-
-        known_fields = set(cls.model_fields)
-        nested_params = result.pop("params", None)
-        if nested_params is not None and not isinstance(nested_params, Mapping):
-            raise ValueError(f"Column '{result.get('name', '<unknown>')}': 'params' must be a mapping")
-
-        extra_keys = {k: v for k, v in result.items() if k not in known_fields}
-        for k in extra_keys:
-            result.pop(k)
-
-        # Filter out Layer 4 internal metadata fields (e.g., _degraded,
-        # degrade_reason) — these are ProgressiveDegrader markers used during
-        # the auto-heal pipeline and must NOT be merged into params, otherwise
-        # they get passed to generators as keyword arguments (e.g.,
-        # ``_gen_string(_degraded=True)`` raises TypeError).
-        _internal_fields = {"_degraded", "degrade_reason"}
-        extra_keys = {k: v for k, v in extra_keys.items() if k not in _internal_fields}
-
-        merged_params: dict[str, Any] = {}
-        if isinstance(nested_params, Mapping):
-            merged_params.update(nested_params)
-        merged_params.update(extra_keys)
-
-        if merged_params:
-            result["params"] = merged_params
-
-        return result
+        return normalize_column_input(data=data, known_fields=cls.model_fields.keys())
 
     @model_validator(mode="after")
     def validate_column_mode(self) -> Self:

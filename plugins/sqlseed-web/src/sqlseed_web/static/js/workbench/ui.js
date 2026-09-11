@@ -1,4 +1,5 @@
 import { h } from '../api.js';
+import { lockPageScroll } from './scroll-lock.js';
 
 const paths={
   sparkles:'m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5ZM20 2v4m-2-2h4',
@@ -54,13 +55,15 @@ export function modal(title,{onClose,wide=false,drawer=false}={}) {
   activeModalClose?.();
   let closed=false;
   const previous=document.activeElement;
+  const unlockScroll=lockPageScroll();
   const background=[...document.body.children].map(element=>({element,inert:Boolean(element.inert)}));
   const body=h('div',{class:`${drawer?'drawer-body':'modal-body'} wb-modal-body`}),actions=h('div',{class:`${drawer?'drawer-footer':'modal-footer'} wb-modal-actions`});
   const close=()=>{
     if(closed)return;closed=true;overlay.remove();document.removeEventListener('keydown',key);
+    unlockScroll();
     for(const {element,inert} of background)element.inert=inert;
     if(activeModalClose===close)activeModalClose=null;
-    onClose?.();previous?.focus?.();
+    onClose?.();previous?.focus?.({preventScroll:true});
   };
   const header=h('header',{class:drawer?'drawer-head':'modal-head'},h('h2',{},title),
     h('button',{type:'button',class:'close','aria-label':'关闭',onclick:close},'×'));

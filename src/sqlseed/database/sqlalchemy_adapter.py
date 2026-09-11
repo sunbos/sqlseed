@@ -21,6 +21,7 @@ from __future__ import annotations
 import re
 import weakref
 from contextlib import contextmanager
+from datetime import date, datetime
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import MetaData, Table, create_engine, event, inspect, literal, select, text
@@ -48,6 +49,24 @@ if TYPE_CHECKING:
     from typing_extensions import Self
 
 logger = get_logger(__name__)
+
+
+def _sqlite_date_value(value: Any) -> Any:
+    """Preserve SQLite's date representation without its deprecated adapters."""
+    if isinstance(value, datetime):
+        return value.isoformat(" ")
+    if isinstance(value, date):
+        return value.isoformat()
+    return value
+
+
+def _sqlite_unprocessed_columns(table: Any, dialect: Any) -> set[str]:
+    # DATE/DATETIME and other typed columns keep SQLAlchemy's bind processors.
+    # TEXT columns have no processor, so date objects would reach sqlite3's
+    # implicit adapters. Convert those values explicitly at our binding boundary.
+    return {
+        column.name for column in table.columns if column.type.dialect_impl(dialect).bind_processor(dialect) is None
+    }
 
 
 class _PooledCursor:
@@ -173,6 +192,12 @@ class SQLAlchemyBatchInserter:
         if conn.dialect.name == "postgresql":
             result = conn.execute(statement.returning(literal(1)), rows)
             return sum(1 for _ in result)
+        if conn.dialect.name == "sqlite":
+            unprocessed = _sqlite_unprocessed_columns(table, conn.dialect)
+            rows = [
+                {name: _sqlite_date_value(value) if name in unprocessed else value for name, value in row.items()}
+                for row in rows
+            ]
         result = conn.execute(statement, rows)
         if result.rowcount < 0:
             raise RuntimeError("Database driver did not report the number of inserted rows")
@@ -417,6 +442,8 @@ class SQLAlchemyAdapter:
         a transaction the enclosing scope owns the connection instead.
         """
         engine = self._get_engine()
+        if engine.dialect.name == "sqlite":
+            params = tuple(_sqlite_date_value(value) for value in params)
         shared = self._transaction_connection is not None
         raw = (
             self._transaction_connection.connection
@@ -938,9 +965,12 @@ class SQLAlchemyAdapter:
         """Check a key with the same typed bindings used to insert its values."""
         table_name = self._resolve_table_name(table_name)
         table = self._get_table(table_name)
+        dialect = self._get_engine().dialect
+        unprocessed = _sqlite_unprocessed_columns(table, dialect) if dialect.name == "sqlite" else set()
         statement = select(1).select_from(table).limit(1)
         for name, value in values.items():
-            statement = statement.where(table.c[name] == value)
+            bound_value = _sqlite_date_value(value) if name in unprocessed else value
+            statement = statement.where(table.c[name] == bound_value)
         with self._connection() as connection:
             return connection.execute(statement).first() is not None
 

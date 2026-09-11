@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from types import SimpleNamespace
 
 from sqlseed_ai.repair.strategies import REPAIR_STRATEGIES
@@ -66,6 +67,30 @@ def test_normalize_params_fixes_choice_typo():
     v = _v("normalize_params")
     result = REPAIR_STRATEGIES["normalize_params"](col, v, {})
     assert result["params"] == {"choices": ["a", "b"]}
+
+
+def test_normalize_params_accepts_choice_alias_with_list():
+    col = {"name": "category", "type": "choice", "params": ["a", "b", "c"]}
+    result = REPAIR_STRATEGIES["normalize_params"](col, _v("normalize_params"), {})
+    assert result == {"name": "category", "generator": "choice", "params": {"choices": ["a", "b", "c"]}}
+
+
+def test_normalize_params_preserves_flat_precedence_input_and_audit_metadata():
+    col = {
+        "name": "code",
+        "type": "string",
+        "params": {"min_length": 2, "max_length": 5},
+        "max_length": 4,
+        "pattern": "[A-Z]{4}",
+        "_degraded": True,
+        "degrade_reason": "Recovered a valid source generator",
+    }
+    before = deepcopy(col)
+    result = REPAIR_STRATEGIES["normalize_params"](col, _v("normalize_params"), {})
+    assert result["params"] == {"min_length": 2, "max_length": 4}
+    assert result["_degraded"] is True
+    assert result["degrade_reason"] == before["degrade_reason"]
+    assert col == before
 
 
 def test_coerce_float_to_int_rewrites_random_float_to_integer():

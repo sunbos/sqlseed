@@ -212,3 +212,23 @@ test('a detached or destroyed trigger cannot create an orphan portal or register
   assert.equal(ui.button.getAttribute('aria-expanded'), 'false');
   assert.equal(ui.document.listeners.get('keydown')?.size || 0, 0);
 });
+
+test('clicking a wrapping label does not forward activation to the dropdown trigger', async () => {
+  const ui = harness();
+  const label = new Element('label'), caption = new Element('span');
+  caption.textContent = '数据语言';
+  ui.body.append(label); label.append(caption, ui.dropdown.el);
+  const event = {type: 'click', target: caption, defaultPrevented: false,
+    preventDefault() {this.defaultPrevented = true;}};
+  await ui.document.dispatchEvent(event);
+  // Native labels activate their first labelable control after event dispatch.
+  if (!event.defaultPrevented) await ui.button.click();
+  assert.equal(ui.button.getAttribute('aria-expanded'), 'false');
+  assert.deepEqual(ui.changes, []);
+  await ui.button.click();
+  assert.equal(ui.button.getAttribute('aria-expanded'), 'true');
+  await ui.key('Escape'); await ui.key(' ');
+  assert.equal(ui.button.getAttribute('aria-expanded'), 'true');
+  ui.dropdown.destroy();
+  assert.equal(ui.document.listeners.get('click')?.size || 0, 0);
+});

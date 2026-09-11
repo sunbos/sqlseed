@@ -243,7 +243,7 @@ class LearnedContractsRegistry:
                 if not self._is_safe_entry(item):
                     continue
                 self._contracts.add(ContractViolation.from_dict(item))
-        except (json.JSONDecodeError, KeyError, ValueError, TypeError) as e:
+        except (KeyError, ValueError, TypeError) as e:
             logger.warning(
                 "Learned contracts registry corrupted, ignoring",
                 error=str(e),

@@ -137,3 +137,8 @@ class TestCheckDrivenFallback:
         assert spec is not None
         assert spec.params.get("min_length") == 8
         assert spec.params.get("max_length") == 20
+
+    def test_unique_string_keeps_narrow_declared_length(self) -> None:
+        spec = SchemaFallbackGenerator().fallback_for_column(_make_col("code", "VARCHAR(3)"), [], ["code"])
+        assert spec is not None
+        assert spec.params == {"min_length": 3, "max_length": 3}

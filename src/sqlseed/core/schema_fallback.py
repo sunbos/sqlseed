@@ -185,11 +185,11 @@ class SchemaFallbackGenerator:
             if length:
                 params["max_length"] = length
 
-        # For UNIQUE string columns, ensure uniqueness via longer random strings.
-        # This is schema semantics (UNIQUE requires distinctness), not business.
+        # Prefer longer UNIQUE strings within the declared type width.
+        # UniqueAdjuster plans sampling headroom without widening hard bounds.
         if column.name in unique_columns and gen_name == "string":
-            params.setdefault("min_length", 8)
-            params["max_length"] = max(params.get("max_length", 16), 8)
+            params.setdefault("max_length", 16)
+            params["min_length"] = min(params["max_length"], 8)
 
         return GeneratorSpec(generator_name=gen_name, params=params)
 

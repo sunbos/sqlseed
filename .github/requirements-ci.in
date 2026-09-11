@@ -1,0 +1,19 @@
+# Resolve all five local candidates together; only third-party packages are
+# emitted into requirements-ci.txt. See .github/DEPENDENCIES.md.
+-e .[dev,all,docs]
+-e ./plugins/sqlseed-cli
+-e ./plugins/sqlseed-ai[dev]
+-e ./plugins/mcp-server-sqlseed
+-e ./plugins/sqlseed-web[dev]
+build
+twine
+hatchling
+hatch-vcs
+# hatchling's editable build hook requests this dynamically.
+editables
+setuptools
+wheel
+# Starlette 1.6.0 TestClient still imports anyio.abc.BlockingPortal.
+# The upstream fix is merged but unreleased: Kludex/starlette#3498.
+# This constraint applies to CI tests only, not users' runtime dependencies.
+anyio<4.15

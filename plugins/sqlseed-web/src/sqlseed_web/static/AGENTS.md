@@ -45,7 +45,7 @@
 - 外键的单列唯一性使用 schema `unique_columns`，复合主键成员不能仅因 `is_primary_key` 就各自设置 unique。
 - `derive_from`/`expression` 必须在 `applyAiYaml`、`showColumnInPanel`、`fromInferred`、`buildCfg`、YAML 保存中保留；derived mode 与 generator 互斥，不能回落成 `string`。
 - 派生列展示来源/表达式/预览；用户点“重置属性”才回到 `zeroConfig` 的普通生成器基线，不能以 AI 改写后的 inferred spec 当作原始基线。
-- 旧 `NO_COMMON_GENS` 当前为空；旧 `NO_UNIQUE_GENS` 隐藏 text/choice/weighted_choice/bytes 的普通唯一选项，`NO_PREVIEW_GENS` 隐藏 bytes 预览。新工作台不继承此裁剪：有限词表的 unique 根据候选容量和真实能力检查，数据库唯一约束始终保留。
+- 旧普通生成器均保留 NULL 通用区；旧 `NO_UNIQUE_GENS` 隐藏 text/choice/weighted_choice/bytes 的普通唯一选项，`NO_PREVIEW_GENS` 隐藏 bytes 预览。新工作台不继承此裁剪：有限词表的 unique 根据候选容量和真实能力检查，数据库唯一约束始终保留。
 - `schedulePreview()` 对 generator/params/NULL/unique 变化做 400ms 防抖，更新 `previewBox` 并检查 `isConnected`。choice/weighted_choice 缺必填参数时显示“待填写”，不发送注定失败的预览。
 - 新参数同时维护 `PARAM_LABELS`、`NUMERIC_PARAMS`/`TEXTAREA_PARAMS` 等显式集合，不用名称正则猜控件类型。
 - `HIDDEN_PARAMS` + `normalizeAliasParams()` 合并 pattern/regex 与 weighted_choice 的 choices/weighted_choices；加权值使用对象结构，不把自由文本直接作为对象列表处理。
@@ -144,6 +144,7 @@
 ## 2026-09-10 导航与折叠动效
 
 - `navigation.css` 保持品牌、四项导航和连接入口的稳定应用外壳；窄屏导航独立成行。当前页状态与键盘焦点分别表达，强制颜色模式也要同时可辨。
+- `scrollbars.css` 统一根页面、面板、下拉和表格的滚动条。通用模态与连接弹窗通过 `workbench/scroll-lock.js` 共同锁定背景；最后一个持有者关闭才恢复原滚动位置与原有锁状态。关闭返回焦点使用 `preventScroll`，数据表仍保留必要的横向滚动。
 - `app.js` 只在不同已提交顶层页面间添加短暂淡入；初载、同页参数和连接重挂载不播放。不等待动画再执行 import/mount，保留 `routeVersion` 与模块清理，不给页面添加 transform 或持久动画层。
 - `disclosure.css` 统一正式页面与弹窗的圆头 Chevron，保留原生 details/summary、已有默认展开状态和整行点击范围；不为图标增加翻译字符串。
 - 高度动画同时检测 `::details-content`、`interpolate-size`、离散过渡与 `interactivity: inert`。关闭期间内容立即 inert，展开完成后释放 overflow；缺任一能力时回退原生开合。减少动态效果时关闭新增过渡。

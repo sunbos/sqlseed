@@ -1,4 +1,5 @@
 import { h, get, send, store, rememberConnId, setConnBadge, safeTargetLabel } from '../api.js';
+import { lockPageScroll } from './scroll-lock.js';
 
 let activeDialog = null;
 
@@ -6,6 +7,7 @@ let activeDialog = null;
 export function openConnectionDialog({onConnected} = {}) {
   activeDialog?.close();
   const previousFocus = document.activeElement;
+  const unlockScroll = lockPageScroll();
   const app = document.getElementById('app');
   const previousInert = app?.inert;
   if (app) app.inert = true;
@@ -46,9 +48,10 @@ export function openConnectionDialog({onConnected} = {}) {
   function close() {
     if (closed) return;
     closed = true; sequence++; fileSequence++; existingSequence++; clearSecrets(); overlay.remove();
+    unlockScroll();
     document.removeEventListener('keydown', keydown);
     if (app) app.inert = previousInert;
-    previousFocus?.focus?.();
+    previousFocus?.focus?.({preventScroll: true});
     if (activeDialog?.close === close) activeDialog = null;
   }
   function field(name, label, value = '', type = 'text') {

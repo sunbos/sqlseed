@@ -16,6 +16,8 @@ from typing import Any
 from sqlseed_ai.contracts.builtin_violations import future_bound_key
 from sqlseed_ai.validator.models import ViolationReport
 
+from sqlseed.config.models import ColumnConfig, normalize_column_input
+
 RepairFn = Callable[[dict[str, Any], ViolationReport, dict[str, Any]], dict[str, Any]]
 
 
@@ -262,11 +264,24 @@ def _normalize_params(col: dict[str, Any], v: ViolationReport, ctx: dict[str, An
     delegation from ``AiConfigRefiner._apply_rule_14_param_stripping``.
     """
     params = col.get("params")
-    gen = col.get("generator", "")
+    gen = col.get("generator", col.get("type", ""))
     new_col = {**col}
     if gen in {"choice", "weighted_choice"} and isinstance(params, list):
         new_col["params"] = {"choices": params}
         params = new_col["params"]
+    if params is None or isinstance(params, dict):
+        # Match Core's accepted input shapes before applying the whitelist:
+        # otherwise type aliases and flat keys become unchecked params later.
+        new_col = normalize_column_input(data=new_col, known_fields=ColumnConfig.model_fields.keys())
+        # Preserve explicit empty params and repair audit metadata. They are
+        # not generator arguments, and normalization must not erase them.
+        if params == {}:
+            new_col.setdefault("params", {})
+        for key in ("_degraded", "degrade_reason"):
+            if key in col:
+                new_col[key] = col[key]
+        params = new_col.get("params")
+        gen = new_col.get("generator", "")
     if gen == "weighted_choice" and isinstance(params, dict):
         choices = params.get("choices", [])
         if choices and any(isinstance(c, str) for c in choices):

@@ -147,7 +147,7 @@ class Level1SubgraphHealer:
                 temperature=self._temperature,
                 max_tokens=self._max_response_tokens,
             )
-        except (TimeoutError, ConnectionError, OSError):
+        except OSError:
             # Network errors propagate (Section 5.3) — do not degrade.
             raise
         except (RuntimeError, AttributeError, ValueError) as exc:

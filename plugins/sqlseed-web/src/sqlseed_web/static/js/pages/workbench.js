@@ -250,7 +250,7 @@ function updateProviderWarning() {
   const selected=m.document.provider==='mimesis';
   const capability=providerMetadata?.statuses?.mimesis;
   const unavailable=capability?capability.available===false:providerMetadata?.available&&!providerMetadata.available.includes('mimesis');
-  host.hidden=!(unavailable&&(selected||fields.length));
+  host.hidden = !(unavailable && (selected || fields.length));
   if(host.hidden){host.replaceChildren();return;}
   const broken=capability?.status==='import_error';
   const fieldNames=fields.slice(0,3).map(({table,column})=>`${table.name}.${column.name}`).join('、');
@@ -626,10 +626,8 @@ function drawGraph(table) {
       table = next; m.view.table = name; graph.focusTable?.(name); drawSidebar(); syncTableHeading(table); updateStatus(); inspect();
       sidebar.querySelector('.wb-table-entry.active')?.scrollIntoView({block: 'nearest'});
     }, table.name);
-    else inspectorBody.replaceChildren(h('p', {class: 'muted'}, '选择字段调整生成器与参数。'), ...table.columns.map(column => {
-      const info = ruleDescription(table, column);
-      return button('', () => openRule(table, column), {plain: true, class: 'graph-field inspector-field wb-field-card', title: `调整 ${table.name}.${column.name}`});
-    }));
+    else inspectorBody.replaceChildren(h('p', {class: 'muted'}, '选择字段调整生成器与参数。'), ...table.columns.map(column =>
+      button('', () => openRule(table, column), {plain: true, class: 'graph-field inspector-field wb-field-card', title: `调整 ${table.name}.${column.name}`})));
     if (!selectedEdge && inspectorMode === 'fields') [...inspectorBody.querySelectorAll('.wb-field-card')].forEach((card, i) => {
       const column = table.columns[i], info = ruleDescription(table, column);
       card.append(h('div', {class: 'graph-field-title field-card-heading'}, h('strong', {class: 'mono'}, column.name), h('small', {}, info.allocated ? '数据库处理' : info.fk ? '引用' : info.rule.derive_from ? '派生' : '生成器')),

@@ -49,9 +49,7 @@ jobs:
         run: node --test plugins/sqlseed-web/tests/test_*.cjs
 
       - name: Build maintained documentation
-        run: |
-          pip install mkdocs-material 'mkdocstrings[python]'
-          mkdocs build --strict
+        run: mkdocs build --strict
 
   # Exercise the distributions users install, including sdist-to-wheel builds.
   packages:
@@ -65,18 +63,18 @@ jobs:
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:
           python-version: "3.12"
+      - uses: ./.github/actions/install-ci-deps
       - name: Build and validate all five packages
         run: |
-          pip install build twine
-          python -m build --outdir dist/
-          python -m build plugins/sqlseed-cli --outdir dist/
-          python -m build plugins/sqlseed-ai --outdir dist/
-          python -m build plugins/mcp-server-sqlseed --outdir dist/
-          python -m build plugins/sqlseed-web --outdir dist/
+          python -m build --no-isolation --outdir dist/
+          python -m build --no-isolation plugins/sqlseed-cli --outdir dist/
+          python -m build --no-isolation plugins/sqlseed-ai --outdir dist/
+          python -m build --no-isolation plugins/mcp-server-sqlseed --outdir dist/
+          python -m build --no-isolation plugins/sqlseed-web --outdir dist/
           twine check --strict dist/*
       - name: Install wheels together and check dependencies
         run: |
-          pip install dist/*.whl
+          python -m pip install --no-deps --only-binary :all: dist/*.whl
           pip check
           sqlseed --help
           sqlseed-web --help
@@ -84,7 +82,9 @@ jobs:
       - name: Verify Core and Web without optional plugins
         run: |
           python -m venv "$RUNNER_TEMP/sqlseed-minimal"
-          "$RUNNER_TEMP/sqlseed-minimal/bin/python" -m pip install dist/sqlseed-[0-9]*.whl dist/sqlseed_web-*.whl
+          "$RUNNER_TEMP/sqlseed-minimal/bin/python" -m pip install --require-hashes --only-binary :all: -r .github/requirements-minimal.txt
+          "$RUNNER_TEMP/sqlseed-minimal/bin/python" -m pip install --no-deps --only-binary :all: dist/sqlseed-[0-9]*.whl dist/sqlseed_web-*.whl
+          "$RUNNER_TEMP/sqlseed-minimal/bin/python" -m pip check
           "$RUNNER_TEMP/sqlseed-minimal/bin/python" scripts/check_wheel_install.py --without-optional-components
       - name: Upload candidate packages for installation testing
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -122,7 +122,7 @@ jobs:
 
       - name: Upload coverage (3.12 only)
         if: matrix.python-version == '3.12'
-        uses: codecov/codecov-action@75cd11691c0faa626561e295848008c8a7dddffe  # v5.5.4
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f  # v7.0.0
         with:
           files: coverage.xml
           fail_ci_if_error: false
