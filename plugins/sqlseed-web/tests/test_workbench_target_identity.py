@@ -7,6 +7,7 @@ import json
 import sqlite3
 import sys
 from collections.abc import Iterator
+from contextlib import closing
 from pathlib import Path
 from urllib.parse import quote
 
@@ -40,7 +41,9 @@ def registry() -> Iterator[UIState]:
 @pytest.fixture()
 def database(tmp_path: Path) -> Path:
     path = tmp_path / "orders with spaces.db"
-    with sqlite3.connect(path) as db:
+    # sqlite3's own context manager commits/rolls back but does not close the
+    # handle. Release it before aliases rename the file on Windows.
+    with closing(sqlite3.connect(path)) as db:
         db.executescript(
             "CREATE TABLE items(id INTEGER PRIMARY KEY, value INTEGER NOT NULL); INSERT INTO items VALUES(1, 7)"
         )
