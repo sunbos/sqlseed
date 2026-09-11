@@ -8,7 +8,7 @@ import sqlite3
 import threading
 import time
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -37,7 +37,7 @@ def client(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
 @pytest.fixture()
 def db_path(tmp_path: Path) -> str:
     path = tmp_path / "regressions.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute("CREATE TABLE items (id INTEGER PRIMARY KEY AUTOINCREMENT, value INTEGER NOT NULL)")
         db.execute("CREATE TABLE evens (id INTEGER PRIMARY KEY AUTOINCREMENT, value INTEGER CHECK(value % 2 = 0))")
     return str(path)
@@ -77,7 +77,7 @@ def test_failed_insert_reports_error_and_actual_count(client: TestClient, db_pat
     assert result["result"]["errors"]
     assert result["result"]["row_count_after"] == 0
     assert api.state.get_job(response.json()["job_id"]).finished_at > 0
-    with sqlite3.connect(db_path) as db:
+    with closing(sqlite3.connect(db_path)) as db, db:
         assert db.execute("SELECT COUNT(*) FROM evens").fetchone()[0] == 0
 
 

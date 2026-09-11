@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from contextlib import closing
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -21,7 +22,7 @@ if TYPE_CHECKING:
 @pytest.mark.parametrize("mode", ["append", "clear", "enrich_clear", "preview"])
 def test_three_column_fk_is_rejected_without_changing_existing_rows(tmp_path: Path, mode: str) -> None:
     path = tmp_path / "unsupported.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.executescript(
             "CREATE TABLE parents(a INTEGER,b INTEGER,c INTEGER,PRIMARY KEY(a,b,c));"
             "INSERT INTO parents VALUES(1,10,100),(2,20,200);"
@@ -53,7 +54,7 @@ def test_three_column_fk_is_rejected_without_changing_existing_rows(tmp_path: Pa
 
 def test_config_preflights_later_unsupported_table_before_any_write(tmp_path: Path) -> None:
     path = tmp_path / "multi.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.executescript(
             "CREATE TABLE first(id INTEGER PRIMARY KEY,label TEXT);"
             "INSERT INTO first VALUES(7,'original');"
@@ -75,7 +76,7 @@ def test_config_preflights_later_unsupported_table_before_any_write(tmp_path: Pa
     )
     with pytest.raises(ConfigurationError, match=r"last.*3-column composite foreign key.*not supported"):
         fill_from_config(str(config), clear_before=True)
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         assert db.execute("SELECT * FROM first").fetchall() == [(7, "original")]
         assert db.execute("SELECT * FROM last").fetchall() == [(1, 10, 100)]
 
@@ -86,7 +87,7 @@ def test_missing_table_is_rejected_before_any_requested_table_changes(
     tmp_path: Path, entrypoint: str, clear_before: bool
 ) -> None:
     path = tmp_path / "missing.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.executescript("CREATE TABLE first(value INTEGER); INSERT INTO first VALUES(777);")
     config = tmp_path / "missing.json"
     config.write_text(
@@ -115,18 +116,18 @@ def test_missing_table_is_rejected_before_any_requested_table_changes(
     else:
         with pytest.raises(RuntimeError, match=r"Table 'missing' does not exist"):
             fill_from_config(str(config), clear_before=clear_before)
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         assert db.execute("SELECT * FROM first").fetchall() == [(777,)]
 
 
 def test_schema_preflight_database_error_returns_failed_result(tmp_path: Path) -> None:
     path = tmp_path / "locked.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.executescript("CREATE TABLE items(value INTEGER); INSERT INTO items VALUES(777);")
     with DataOrchestrator(str(path), provider_name="base", optimize_pragma=False) as orch:
         cursor = orch.execute("PRAGMA busy_timeout=1")
         cursor.close()
-        with sqlite3.connect(path) as blocker:
+        with closing(sqlite3.connect(path)) as blocker, blocker:
             blocker.execute("BEGIN EXCLUSIVE")
             try:
                 result = orch.fill_table("items", count=1, clear_before=True, skip_ai=True)
@@ -143,7 +144,7 @@ def test_success_and_cooperative_cancel_report_actual_committed_rows(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cancel_after: int | None
 ) -> None:
     path = tmp_path / "result.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.executescript(
             "CREATE TABLE items(id INTEGER PRIMARY KEY,label TEXT);INSERT INTO items VALUES(7,'original');"
         )

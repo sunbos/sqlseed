@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from typing import TYPE_CHECKING
 
 import pytest
@@ -17,7 +18,7 @@ if TYPE_CHECKING:
 @pytest.mark.parametrize("sql_type", ["INT", "BIGINT", "INTEGER"])
 def test_sqlite_non_rowid_integer_primary_keys_get_values(tmp_path: Path, sql_type: str) -> None:
     path = tmp_path / "pk.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute(f"CREATE TABLE items (id {sql_type} NOT NULL PRIMARY KEY)")
     with DataOrchestrator(str(path), provider_name="base", optimize_pragma=False) as orch:
         result = orch.fill_table("items", count=5, seed=42, skip_ai=True)
@@ -30,7 +31,7 @@ def test_sqlite_non_rowid_integer_primary_keys_get_values(tmp_path: Path, sql_ty
 def test_conjoined_check_enums_are_intersected(tmp_path: Path, separate: bool, explicit: bool) -> None:
     path = tmp_path / "enum.db"
     checks = "CHECK(x IN (1,2)), CHECK(x IN (2,3))" if separate else "CHECK(x IN (1,2) AND x IN (2,3))"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute(f"CREATE TABLE items (x INTEGER NOT NULL, {checks})")
     columns = {"x": {"generator": "choice", "params": {"choices": [1, 2, 3]}}} if explicit else None
     with DataOrchestrator(str(path), provider_name="base", optimize_pragma=False) as orch:
@@ -45,7 +46,7 @@ def test_strict_check_bounds_follow_column_domain(
     tmp_path: Path, sql_type: str, generator: str, explicit: bool
 ) -> None:
     path = tmp_path / "bounds.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute(f"CREATE TABLE items (x {sql_type} NOT NULL CHECK(x > 0 AND x < 3))")
     columns = {"x": {"generator": generator}} if explicit else None
     with DataOrchestrator(str(path), provider_name="base", optimize_pragma=False) as orch:
@@ -77,7 +78,7 @@ def test_user_numeric_constraints_are_enforced(tmp_path: Path, derived: bool) ->
     from sqlseed.config.models import ColumnConfig
 
     path = tmp_path / "configured.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute("CREATE TABLE items (source INTEGER NOT NULL, x INTEGER NOT NULL)")
     x = (
         ColumnConfig(name="x", derive_from="source", expression="value", constraints={"min_value": 10, "max_value": 20})
@@ -111,7 +112,7 @@ def test_user_regex_constraint_is_enforced(tmp_path: Path) -> None:
     from sqlseed.config.models import ColumnConfig
 
     path = tmp_path / "regex.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute("CREATE TABLE items (x TEXT NOT NULL)")
     with DataOrchestrator(str(path), provider_name="base", optimize_pragma=False) as orch:
         result = orch.fill_table(
@@ -144,7 +145,7 @@ def test_mapper_preserves_explicit_invalid_length_bounds() -> None:
 
 def test_strict_integer_unique_check_bounds_are_not_widened(tmp_path: Path) -> None:
     path = tmp_path / "strict_unique.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute("CREATE TABLE items (x INTEGER NOT NULL UNIQUE CHECK(x > 0 AND x < 3))")
     with DataOrchestrator(str(path), provider_name="base", optimize_pragma=False) as orch:
         specs, _, _, _ = orch._resolve_specs("items", 2, {"x": {"generator": "integer"}}, None, False)
@@ -156,7 +157,7 @@ def test_strict_integer_unique_check_bounds_are_not_widened(tmp_path: Path) -> N
 
 def test_nullable_unique_fallback_honors_strict_integer_bounds(tmp_path: Path) -> None:
     path = tmp_path / "nullable_unique.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute("CREATE TABLE items (x INTEGER UNIQUE CHECK(x > 0 AND x < 3))")
     with DataOrchestrator(str(path), provider_name="base", optimize_pragma=False) as orch:
         result = orch.fill_table("items", count=2, seed=42, skip_ai=True)
@@ -169,7 +170,7 @@ def test_nullable_unique_fallback_honors_strict_integer_bounds(tmp_path: Path) -
 )
 def test_nullable_unique_fallback_uses_check_domain_outside_default_range(tmp_path: Path, check: str) -> None:
     path = tmp_path / "outside_range.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute(f"CREATE TABLE items(rank INTEGER UNIQUE CHECK({check}))")
     with DataOrchestrator(str(path), provider_name="base", optimize_pragma=False) as orch:
         result = orch.fill_table("items", count=5, seed=42, skip_ai=True)
@@ -180,7 +181,7 @@ def test_nullable_unique_fallback_uses_check_domain_outside_default_range(tmp_pa
 
 def test_choice_type_fallback_preserves_numeric_check_range(tmp_path: Path) -> None:
     path = tmp_path / "choice_range.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute("CREATE TABLE items(rank INTEGER NOT NULL DEFAULT 18 UNIQUE CHECK(rank >= 18 AND rank <= 65))")
     with DataOrchestrator(str(path), provider_name="base", optimize_pragma=False) as orch:
         result = orch.fill_table(
@@ -199,7 +200,7 @@ def test_unsatisfiable_user_constraint_fails_without_writes(tmp_path: Path) -> N
     from sqlseed.config.models import ColumnConfig
 
     path = tmp_path / "impossible.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute("CREATE TABLE items (x INTEGER NOT NULL)")
     with DataOrchestrator(str(path), provider_name="base", optimize_pragma=False) as orch:
         result = orch.fill_table(
@@ -226,7 +227,7 @@ def test_invalid_constraint_regex_fails_clearly(tmp_path: Path) -> None:
     from sqlseed.config.models import ColumnConfig
 
     path = tmp_path / "invalid_regex.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute("CREATE TABLE items (x TEXT NOT NULL)")
     with DataOrchestrator(str(path), provider_name="base", optimize_pragma=False) as orch:
         result = orch.fill_table(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from typing import TYPE_CHECKING
 
 import pytest
@@ -28,7 +29,7 @@ if TYPE_CHECKING:
 )
 def test_exact_length_matches_real_sqlite_check(tmp_path: Path, expression: str) -> None:
     path = tmp_path / "length.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute(f"CREATE TABLE contacts(phone TEXT CHECK({expression}))")
         db.execute("INSERT INTO contacts VALUES (NULL)")
         db.execute("INSERT INTO contacts VALUES (?)", ("1" * 11,))
@@ -65,7 +66,7 @@ def test_equality_and_inequality_remain_distinct() -> None:
 
 
 def test_nullable_check_guard_does_not_override_not_null(tmp_path: Path) -> None:
-    with sqlite3.connect(tmp_path / "not-null.db") as db:
+    with closing(sqlite3.connect(tmp_path / "not-null.db")) as db, db:
         db.execute("CREATE TABLE contacts(phone TEXT NOT NULL CHECK(phone IS NULL OR LENGTH(phone) = 11))")
         with pytest.raises(sqlite3.IntegrityError, match="NOT NULL"):
             db.execute("INSERT INTO contacts VALUES (NULL)")

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from typing import TYPE_CHECKING
 
 import pytest
@@ -18,7 +19,7 @@ if TYPE_CHECKING:
 @pytest.fixture
 def snapshot(tmp_path: Path) -> SchemaSnapshot:
     path = tmp_path / "t.db"
-    with sqlite3.connect(str(path)) as conn:
+    with closing(sqlite3.connect(str(path))) as conn, conn:
         conn.executescript(
             """
             CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT);

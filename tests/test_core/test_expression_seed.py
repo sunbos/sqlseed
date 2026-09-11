@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import random
 import sqlite3
+from contextlib import closing
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -24,18 +25,18 @@ _COLUMNS = {
 
 
 def _generate_rows(db_path: Path, seed: int, mode: str) -> list[dict[str, Any]]:
-    with sqlite3.connect(db_path) as conn:
+    with closing(sqlite3.connect(db_path)) as conn, conn:
         conn.execute("CREATE TABLE samples (source INTEGER, sample_int INTEGER, sample_float REAL, sample_choice TEXT)")
     with DataOrchestrator(str(db_path), provider_name="base") as orch:
         if mode == "preview":
             rows = orch.preview_table("samples", count=6, seed=seed, columns=_COLUMNS)
-            with sqlite3.connect(db_path) as conn:
+            with closing(sqlite3.connect(db_path)) as conn, conn:
                 assert conn.execute("SELECT COUNT(*) FROM samples").fetchone()[0] == 0
             return rows
         result = orch.fill_table("samples", count=6, seed=seed, columns=_COLUMNS, batch_size=2, skip_ai=True)
         assert result.errors == []
         assert result.count == 6
-    with sqlite3.connect(db_path) as conn:
+    with closing(sqlite3.connect(db_path)) as conn, conn:
         conn.row_factory = sqlite3.Row
         return [dict(row) for row in conn.execute("SELECT * FROM samples ORDER BY rowid")]
 

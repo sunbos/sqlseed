@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from contextlib import closing
 from typing import TYPE_CHECKING
 
 import pytest
@@ -18,7 +19,7 @@ if TYPE_CHECKING:
 
 def test_ascii_aliases_resolve_to_the_existing_table_and_share_fk_state(tmp_path: Path) -> None:
     path = tmp_path / "aliases.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.executescript(
             "CREATE TABLE parents(id INTEGER PRIMARY KEY AUTOINCREMENT);"
             "CREATE TABLE children(id INTEGER PRIMARY KEY,parent_id INTEGER NOT NULL REFERENCES PARENTS(id));"
@@ -49,19 +50,19 @@ def test_ascii_aliases_resolve_to_the_existing_table_and_share_fk_state(tmp_path
 
 def test_aliases_preserve_self_fk_generation(tmp_path: Path) -> None:
     path = tmp_path / "self_alias.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute("CREATE TABLE nodes(id INTEGER PRIMARY KEY AUTOINCREMENT,parent_id INTEGER REFERENCES NODES(id))")
     with DataOrchestrator(str(path), provider_name="base", optimize_pragma=False) as orch:
         result = orch.fill_table("nOdEs", count=10, seed=42, skip_ai=True, progress=NullProgressBackend())
         assert result.errors == [] and result.count == 10
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         assert db.execute("PRAGMA foreign_key_check").fetchall() == []
         assert db.execute("SELECT COUNT(*) FROM nodes WHERE parent_id IS NOT NULL").fetchone()[0] > 0
 
 
 def test_public_topological_order_preserves_aliases_then_fills_parents_first(tmp_path: Path) -> None:
     path = tmp_path / "ordered_aliases.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute("PRAGMA foreign_keys=ON")
         db.executescript(
             "CREATE TABLE parents(id INTEGER PRIMARY KEY);"
@@ -75,7 +76,7 @@ def test_public_topological_order_preserves_aliases_then_fills_parents_first(tmp
         for table in ordered:
             result = orch.fill_table(table, count=2, seed=42, skip_ai=True, progress=NullProgressBackend())
             assert result.errors == [] and result.count == 2
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         assert db.execute("SELECT COUNT(*) FROM parents").fetchone()[0] == 2
         assert db.execute("SELECT COUNT(*) FROM children").fetchone()[0] == 2
         assert db.execute("PRAGMA foreign_key_check").fetchall() == []
@@ -83,7 +84,7 @@ def test_public_topological_order_preserves_aliases_then_fills_parents_first(tmp
 
 def test_public_topological_order_keeps_non_ascii_tables_distinct(tmp_path: Path) -> None:
     path = tmp_path / "unicode_order.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.executescript(
             'CREATE TABLE "Äpfel"(id INTEGER PRIMARY KEY);'
             'CREATE TABLE "äpfel"(id INTEGER PRIMARY KEY);'
@@ -100,7 +101,7 @@ def test_public_topological_order_keeps_non_ascii_tables_distinct(tmp_path: Path
 
 def test_duplicate_aliases_in_config_are_rejected_before_clearing(tmp_path: Path) -> None:
     path = tmp_path / "duplicate_alias.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.executescript("CREATE TABLE items(id INTEGER PRIMARY KEY);INSERT INTO items VALUES(777);")
     config = tmp_path / "duplicate_alias.json"
     config.write_text(
@@ -115,13 +116,13 @@ def test_duplicate_aliases_in_config_are_rejected_before_clearing(tmp_path: Path
     )
     with pytest.raises(ValueError, match="duplicate references"):
         fill_from_config(str(config), clear_before=True)
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         assert db.execute("SELECT id FROM items").fetchall() == [(777,)]
 
 
 def test_sqlite_non_ascii_names_are_not_casefolded(tmp_path: Path) -> None:
     path = tmp_path / "unicode.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute('CREATE TABLE "Äpfel"(id INTEGER PRIMARY KEY)')
         with pytest.raises(sqlite3.OperationalError, match="no such table"):
             db.execute('SELECT * FROM "äpfel"')
@@ -137,7 +138,7 @@ def test_partial_unique_only_constrains_rows_selected_by_its_predicate(
     tmp_path: Path, members: str, archived: int
 ) -> None:
     path = tmp_path / "partial.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute("CREATE TABLE items(kind TEXT NOT NULL,region TEXT NOT NULL,archived INTEGER NOT NULL)")
         db.execute(f"CREATE UNIQUE INDEX uq_active ON items({members}) WHERE archived=0")
         db.execute("INSERT INTO items VALUES('same','zone',?)", (archived,))
@@ -174,7 +175,7 @@ def test_partial_unique_only_constrains_rows_selected_by_its_predicate(
 )
 def test_non_rowid_integer_pk_requires_generated_values(tmp_path: Path, definition: str) -> None:
     path = tmp_path / "non_rowid.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute("CREATE TABLE items(" + definition)
         with pytest.raises(sqlite3.IntegrityError, match="NOT NULL"):
             db.execute("INSERT INTO items DEFAULT VALUES")
@@ -189,7 +190,7 @@ def test_non_rowid_integer_pk_requires_generated_values(tmp_path: Path, definiti
 
 def test_descending_integer_pk_preserves_sqlite_nullable_semantics(tmp_path: Path) -> None:
     path = tmp_path / "nullable_desc.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute("CREATE TABLE items(id INTEGER PRIMARY KEY DESC)")
         db.execute("INSERT INTO items VALUES(NULL),(NULL)")
         assert db.execute("SELECT id FROM items").fetchall() == [(None,), (None,)]

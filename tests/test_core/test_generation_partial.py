@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from typing import TYPE_CHECKING
 
 from sqlseed.core.orchestrator import DataOrchestrator
@@ -13,7 +14,7 @@ if TYPE_CHECKING:
 
 def test_second_batch_failure_reports_committed_rows(tmp_path: Path) -> None:
     path = tmp_path / "partial.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.executescript(
             "CREATE TABLE items (id INTEGER PRIMARY KEY, value INTEGER NOT NULL);"
             "CREATE TRIGGER reject_later BEFORE INSERT ON items "

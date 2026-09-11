@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -56,7 +57,7 @@ def test_draft_snapshot_survives_reopen_and_does_not_alias_input(tmp_path: Path)
     assert restored["revision"] == 1
     assert restored["document"]["tables"][0]["count"] == 3
     assert restored["updated_at"]
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         assert db.execute("PRAGMA user_version").fetchone()[0] == 1
         assert db.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
 
@@ -240,13 +241,13 @@ def test_newer_workspace_schema_is_not_overwritten(tmp_path: Path) -> None:
     from sqlseed_web.workbench_store import WorkspaceStore
 
     path = tmp_path / "future.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute("PRAGMA user_version = 99")
         db.execute("CREATE TABLE future (payload TEXT)")
         db.execute("INSERT INTO future VALUES (?)", (json.dumps({"preserve": True}),))
     with pytest.raises(RuntimeError, match=r"schema|version"):
         WorkspaceStore(path)
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         assert db.execute("SELECT payload FROM future").fetchone()[0] == '{"preserve": true}'
 
 

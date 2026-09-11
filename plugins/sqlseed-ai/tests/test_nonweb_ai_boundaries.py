@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from contextlib import closing
 from copy import deepcopy
 from typing import TYPE_CHECKING
 
@@ -44,7 +45,7 @@ def test_refiner_cache_keeps_quoted_table_names_inside_cache(
 ) -> None:
     path, cache = tmp_path / "test.db", tmp_path / "cache"
     table = str(tmp_path / "outside") if absolute else "../outside"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute('CREATE TABLE "' + table + '"(value INTEGER NOT NULL)')
     refiner = refiner_for(path, cache, table, monkeypatch)
     result = refiner.generate_and_refine(table, max_retries=0, use_compact=True)
@@ -52,7 +53,7 @@ def test_refiner_cache_keeps_quoted_table_names_inside_cache(
     files = list(cache.glob("*.json"))
     assert len(files) == 1
     assert refiner.get_cached_config(table) == result
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         assert db.execute('SELECT count(*) FROM "' + table + '"').fetchone()[0] == 0
 
 
@@ -76,14 +77,14 @@ def test_refiner_first_cache_miss_accepts_long_table_name(tmp_path: Path, monkey
     path, cache = tmp_path / "test.db", tmp_path / "cache"
     cache.mkdir()
     table = "x" * 300
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute('CREATE TABLE "' + table + '"(value INTEGER NOT NULL)')
     refiner = refiner_for(path, cache, table, monkeypatch)
     result = refiner.generate_and_refine(table, max_retries=0, use_compact=True)
     assert result["name"] == table
     assert refiner.get_cached_config(table) == result
     assert len(list(cache.glob("*.json"))) == 1
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         assert db.execute('SELECT count(*) FROM "' + table + '"').fetchone()[0] == 0
 
 
@@ -92,7 +93,7 @@ def test_no_cache_disables_both_cache_read_and_write(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, existing: bool
 ) -> None:
     path, cache = tmp_path / "test.db", tmp_path / "cache"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute("CREATE TABLE users(value INTEGER NOT NULL)")
     refiner = refiner_for(path, cache, "users", monkeypatch)
     if existing:
@@ -112,7 +113,7 @@ def test_no_cache_disables_both_cache_read_and_write(
 
 def test_real_qualified_failure_restores_only_its_table_before_degradation(tmp_path: Path) -> None:
     path = tmp_path / "test.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.executescript("CREATE TABLE users(phone TEXT CHECK(length(phone)=11)); CREATE TABLE contacts(phone TEXT);")
     snapshot = SchemaSnapshot(db_path=str(path))
     original = {
@@ -159,11 +160,11 @@ def test_real_qualified_failure_restores_only_its_table_before_degradation(tmp_p
 )
 def test_snapshot_detects_column_semantic_drift(tmp_path: Path, before: str, after: str) -> None:
     path = tmp_path / "test.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute(f"CREATE TABLE sample({before})")
     snapshot = SchemaSnapshot(db_path=str(path))
     assert snapshot.validate_against_current(db_path=str(path))
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute("DROP TABLE sample")
         db.execute(f"CREATE TABLE sample({after})")
     assert not snapshot.validate_against_current(db_path=str(path))

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from typing import TYPE_CHECKING
 
 import pytest
@@ -17,7 +18,7 @@ if TYPE_CHECKING:
 @pytest.fixture
 def db_with_composite_fk(tmp_path: Path) -> Path:
     path = tmp_path / "test.db"
-    with sqlite3.connect(str(path)) as conn:
+    with closing(sqlite3.connect(str(path))) as conn, conn:
         conn.executescript(
             """
             CREATE TABLE shop_users (shop_id INTEGER, user_id INTEGER,
@@ -95,7 +96,7 @@ def test_coordinate_degrade_returns_all_group_cols():
 def test_identify_groups_returns_empty_when_no_composite_fk(tmp_path: Path):
     """Tables with only single-column FKs produce no groups."""
     path = tmp_path / "test.db"
-    with sqlite3.connect(str(path)) as conn:
+    with closing(sqlite3.connect(str(path))) as conn, conn:
         conn.executescript(
             """
             CREATE TABLE users (id INTEGER PRIMARY KEY);

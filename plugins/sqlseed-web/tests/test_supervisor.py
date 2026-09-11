@@ -6,6 +6,7 @@ import importlib
 import sqlite3
 import sys
 import time
+from contextlib import closing
 from importlib import metadata
 from pathlib import Path
 from typing import Any
@@ -52,7 +53,7 @@ def test_supervisor_preserves_port_connection_identity_and_database_after_packag
 
     monkeypatch.setattr("sqlseed_web.plugin_management.run_installer", controlled_installer)
     database = tmp_path / "data.sqlite3"
-    with sqlite3.connect(database) as connection:
+    with closing(sqlite3.connect(database)) as connection, connection:
         connection.executescript(
             "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT); INSERT INTO users VALUES (1, 'kept');"
         )
@@ -103,7 +104,7 @@ def test_supervisor_preserves_port_connection_identity_and_database_after_packag
             assert client.get(f"/api/connections/{conn_id}/tables").status_code == 200
             assert supervisor.process.pid != old_process.pid
         assert invoked == ["mimesis"]
-        with sqlite3.connect(database) as connection:
+        with closing(sqlite3.connect(database)) as connection, connection:
             assert connection.execute("SELECT * FROM users").fetchall() == [(1, "kept")]
         assert installed_before == sorted((item.metadata["Name"], item.version) for item in metadata.distributions())
         # An orphan keeps the environment locked until its existing work has

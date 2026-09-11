@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Iterator
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -18,7 +19,7 @@ from sqlseed_web.workbench_schema import inspect_connection
 @pytest.fixture()
 def conn(tmp_path: Path) -> Iterator[Connection]:
     path = tmp_path / "samples.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.executescript(
             "CREATE TABLE items(code TEXT NOT NULL UNIQUE);"
             "CREATE TABLE later(value INTEGER NOT NULL);"

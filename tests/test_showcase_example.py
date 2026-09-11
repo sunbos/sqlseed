@@ -7,6 +7,7 @@ import runpy
 import sqlite3
 import stat
 import tempfile
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -30,7 +31,7 @@ def test_showcase_databases_have_private_independent_paths(showcase: dict[str, A
         if os.name != "nt":
             assert stat.S_IMODE(path.parent.stat().st_mode) == 0o700
         showcase["build_schema"](path)
-        with sqlite3.connect(path) as connection:
+        with closing(sqlite3.connect(path)) as connection, connection:
             tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
             assert {"organizations", "departments", "categories"} <= tables
     assert first.is_file() and second.is_file()

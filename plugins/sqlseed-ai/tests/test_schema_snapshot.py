@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from typing import TYPE_CHECKING
 
 import pytest
@@ -21,7 +22,7 @@ if TYPE_CHECKING:
 @pytest.fixture
 def sqlite_db(tmp_path: Path) -> Path:
     path = tmp_path / "test.db"
-    with sqlite3.connect(str(path)) as conn:
+    with closing(sqlite3.connect(str(path))) as conn, conn:
         conn.executescript(
             """
             CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT NOT NULL UNIQUE);
@@ -55,14 +56,14 @@ def test_snapshot_has_stable_hash(sqlite_db: Path):
 def test_snapshot_detects_drift(sqlite_db: Path):
     snap = SchemaSnapshot(db_path=str(sqlite_db))
     # Modify schema: add a column
-    with sqlite3.connect(str(sqlite_db)) as conn:
+    with closing(sqlite3.connect(str(sqlite_db))) as conn, conn:
         conn.execute("ALTER TABLE users ADD COLUMN name TEXT")
     assert snap.validate_against_current(db_path=str(sqlite_db)) is False
 
 
 def test_optimistic_lock_raises_on_drift(sqlite_db: Path, tmp_path: Path):
     snap = SchemaSnapshot(db_path=str(sqlite_db))
-    with sqlite3.connect(str(sqlite_db)) as conn:
+    with closing(sqlite3.connect(str(sqlite_db))) as conn, conn:
         conn.execute("ALTER TABLE users ADD COLUMN name TEXT")
     out = tmp_path / "out.yaml"
     with pytest.raises(SchemaDriftError):

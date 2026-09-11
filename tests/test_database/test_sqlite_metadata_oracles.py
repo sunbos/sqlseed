@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from typing import TYPE_CHECKING
 
 import pytest
@@ -36,7 +37,7 @@ def test_primary_key_metadata_matches_native_default_insert(
     nullable: bool,
 ) -> None:
     path = tmp_path / "pk.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute("CREATE TABLE items(" + definition)
         if allocated or nullable:
             db.execute("INSERT INTO items DEFAULT VALUES")
@@ -58,7 +59,7 @@ def test_partial_index_marker_survives_reflection(
     adapter_type: type[SQLAlchemyAdapter] | type[RawSQLiteAdapter],
 ) -> None:
     path = tmp_path / "partial.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.executescript(
             "CREATE TABLE items(kind TEXT,archived INTEGER,reference TEXT);"
             "CREATE UNIQUE INDEX active ON items(kind) WHERE archived=0;"
@@ -84,7 +85,7 @@ def test_table_aliases_preserve_metadata_after_canonical_lookup(
     adapter_type: type[SQLAlchemyAdapter] | type[RawSQLiteAdapter],
 ) -> None:
     path = tmp_path / "aliases.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.executescript(
             "CREATE TABLE parents(id INTEGER PRIMARY KEY AUTOINCREMENT,code TEXT UNIQUE CHECK(length(code)>0));"
             "CREATE INDEX codes ON parents(code);"
@@ -102,7 +103,7 @@ def test_table_aliases_preserve_metadata_after_canonical_lookup(
             assert adapter.get_check_constraints(name)
         assert adapter.batch_insert("PARENTS", iter([{"code": "second"}])) == 1
         assert adapter.batch_insert("PaReNtS", iter([{"code": "third"}])) == 1
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         assert db.execute("SELECT id,code FROM parents ORDER BY id").fetchall() == [
             (1, "first"),
             (2, "second"),

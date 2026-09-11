@@ -9,6 +9,7 @@ Spec reference: Section 14.3.
 
 from __future__ import annotations
 
+from contextlib import closing
 from typing import TYPE_CHECKING, Any
 
 from sqlseed_ai.validator.models import ConstraintType, ViolationReport
@@ -131,8 +132,8 @@ class ShadowFKScanner:
         if self._db_path:
             import sqlite3
 
-            with sqlite3.connect(self._db_path) as conn:
-                rows = conn.execute(f"SELECT {safe_col} FROM {safe_table}").fetchall()
+            with closing(sqlite3.connect(self._db_path)) as sqlite_conn, sqlite_conn:
+                rows = sqlite_conn.execute(f"SELECT {safe_col} FROM {safe_table}").fetchall()
             return {r[0] for r in rows}
         # Database URL (PostgreSQL, sqlite:////path, memory): use SQLAlchemy
         if self._url:

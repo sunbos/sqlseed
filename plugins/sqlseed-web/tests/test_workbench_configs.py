@@ -6,6 +6,7 @@ import sqlite3
 import threading
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -117,7 +118,7 @@ def lifecycle_client(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> Iterator[tuple[TestClient, dict[str, Any], Path]]:
     target = tmp_path / "user-data.sqlite3"
-    with sqlite3.connect(target) as db:
+    with closing(sqlite3.connect(target)) as db, db:
         db.executescript("CREATE TABLE users(id INTEGER PRIMARY KEY, name TEXT); INSERT INTO users VALUES(1, 'Keep');")
     monkeypatch.setenv("SQLSEED_WEB_WORKSPACE_PATH", str(tmp_path / "metadata.sqlite3"))
     draft = get_store().save_draft({**payload(), "target_label": str(target)})
@@ -144,7 +145,7 @@ def test_metadata_endpoints_work_without_connection_and_never_touch_business_row
     assert deleted.json() == {"id": draft["id"], "revision": 2, "deleted": True}
     assert client.get(base).status_code == 404
     assert client.get(f"/api/workbench/drafts/{copied.json()['id']}").status_code == 200
-    with sqlite3.connect(target) as db:
+    with closing(sqlite3.connect(target)) as db, db:
         assert db.execute("SELECT * FROM users").fetchall() == [(1, "Keep")]
 
 
@@ -168,7 +169,7 @@ def test_accepted_worker_finishes_from_snapshot_after_configuration_is_deleted(
     from sqlseed_web.workbench_schema import inspect_connection
 
     target = tmp_path / "running.sqlite3"
-    with sqlite3.connect(target) as db:
+    with closing(sqlite3.connect(target)) as db, db:
         db.execute("CREATE TABLE users(id INTEGER PRIMARY KEY AUTOINCREMENT, amount INTEGER NOT NULL)")
     registry = UIState()
     connection = registry.add_connection(str(target), provider="base")
@@ -232,7 +233,7 @@ def test_accepted_worker_finishes_from_snapshot_after_configuration_is_deleted(
         assert result["status"] == "done", result
         assert result["rows_inserted"] == 3
         assert result["document"] == document
-        with sqlite3.connect(target) as db:
+        with closing(sqlite3.connect(target)) as db, db:
             assert db.execute("SELECT id, amount FROM users ORDER BY id").fetchall() == [(1, 8), (2, 8), (3, 8)]
     finally:
         release.set()

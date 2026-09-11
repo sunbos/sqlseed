@@ -387,6 +387,7 @@ check_untyped_defs = true
 [tool.pytest.ini_options]
 testpaths = ["tests", "plugins/mcp-server-sqlseed/tests", "plugins/sqlseed-cli/tests", "plugins/sqlseed-ai/tests", "plugins/sqlseed-web/tests"]
 addopts = "-ra --strict-markers"
+asyncio_default_fixture_loop_scope = "function"
 markers = [
     "integration: marks tests as integration tests (require external services like Docker/PostgreSQL)",
 ]

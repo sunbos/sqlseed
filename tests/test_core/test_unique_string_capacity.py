@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from typing import TYPE_CHECKING
 
 import pytest
@@ -17,7 +18,7 @@ if TYPE_CHECKING:
 @pytest.mark.parametrize("column_type,count", [("INT8", 256), ("INT16", 65536)])
 def test_sqlite_integer_type_names_do_not_imply_bit_capacity(tmp_path: Path, column_type: str, count: int) -> None:
     path = tmp_path / "integer_capacity.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute(f"CREATE TABLE items(code {column_type} NOT NULL UNIQUE)")
         db.executemany("INSERT INTO items VALUES (?)", ((value,) for value in range(count)))
         assert db.execute("SELECT COUNT(DISTINCT code) FROM items").fetchone() == (count,)
@@ -28,7 +29,7 @@ def test_impossible_nonnullable_integer_request_is_rejected_before_generation(
     tmp_path: Path, clear_before: bool
 ) -> None:
     path = tmp_path / "bounded_integer_capacity.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute("CREATE TABLE items(code INTEGER NOT NULL UNIQUE CHECK(code BETWEEN 10 AND 12))")
         db.execute("INSERT INTO items VALUES (10)")
     with DataOrchestrator(str(path), provider_name="base", optimize_pragma=False) as orch:
@@ -46,7 +47,7 @@ def test_impossible_nonnullable_integer_request_is_rejected_before_generation(
 
 def test_nullable_integer_unique_can_generate_more_rows_than_nonnull_values(tmp_path: Path) -> None:
     path = tmp_path / "nullable_integer_capacity.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute("CREATE TABLE items(code INTEGER UNIQUE CHECK(code BETWEEN 10 AND 12))")
     with DataOrchestrator(str(path), provider_name="base", optimize_pragma=False) as orch:
         result = orch.fill_table(
@@ -68,7 +69,7 @@ def test_nullable_integer_unique_can_generate_more_rows_than_nonnull_values(tmp_
 @pytest.mark.parametrize("enrich", [False, True])
 def test_valid_clear_reuses_integer_domain_and_resolves_self_fk_from_new_rows(tmp_path: Path, enrich: bool) -> None:
     path = tmp_path / "clear_integer_capacity.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute(
             "CREATE TABLE items(id INTEGER PRIMARY KEY, code INTEGER NOT NULL UNIQUE CHECK(code BETWEEN 10 AND 12), "
             "parent_id INTEGER REFERENCES items(id))"
@@ -98,7 +99,7 @@ def test_valid_clear_reuses_integer_domain_and_resolves_self_fk_from_new_rows(tm
 @pytest.mark.parametrize("charset", ["01", "000111"])
 def test_small_custom_charset_generates_requested_unique_rows(tmp_path: Path, charset: str) -> None:
     path = tmp_path / "binary_codes.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute("CREATE TABLE items(code TEXT NOT NULL UNIQUE)")
     with DataOrchestrator(str(path), provider_name="base", optimize_pragma=False) as orch:
         result = orch.fill_table(
@@ -118,7 +119,7 @@ def test_small_custom_charset_generates_requested_unique_rows(tmp_path: Path, ch
 @pytest.mark.parametrize("count", [69, 70, 1000])
 def test_supported_string_batch_fits_database_length_check(tmp_path: Path, count: int) -> None:
     path = tmp_path / "three_character_codes.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute("CREATE TABLE items(code TEXT NOT NULL UNIQUE CHECK(LENGTH(code) <= 3))")
     with DataOrchestrator(str(path), provider_name="base", optimize_pragma=False) as orch:
         result = orch.fill_table(
@@ -137,7 +138,7 @@ def test_supported_string_batch_fits_database_length_check(tmp_path: Path, count
 
 def test_bounded_binary_strings_reject_exhausted_domain_before_clear(tmp_path: Path) -> None:
     path = tmp_path / "binary_capacity.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute("CREATE TABLE items(code TEXT NOT NULL UNIQUE CHECK(LENGTH(code) BETWEEN 1 AND 2))")
         db.execute("INSERT INTO items VALUES ('0')")
     with DataOrchestrator(str(path), provider_name="base", optimize_pragma=False) as orch:
@@ -158,7 +159,7 @@ def test_bounded_binary_strings_reject_exhausted_domain_before_clear(tmp_path: P
 @pytest.mark.parametrize("charset", ["01", "z"])
 def test_nullable_bounded_strings_can_exceed_nonnull_capacity(tmp_path: Path, charset: str) -> None:
     path = tmp_path / "nullable_string_capacity.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute("CREATE TABLE items(code TEXT UNIQUE CHECK(LENGTH(code) BETWEEN 1 AND 2))")
     with DataOrchestrator(str(path), provider_name="base", optimize_pragma=False) as orch:
         result = orch.fill_table(
@@ -188,7 +189,7 @@ def test_degenerate_charset_uses_existing_finite_length_domain(
     tmp_path: Path, charset: str, min_length: int, max_length: int, count: int
 ) -> None:
     path = tmp_path / "finite_codes.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute(
             f"CREATE TABLE items(code TEXT NOT NULL UNIQUE CHECK(LENGTH(code) BETWEEN {min_length} AND {max_length}))"
         )
@@ -217,7 +218,7 @@ def test_degenerate_charset_insufficient_domain_is_explicit_and_keeps_rows(
     tmp_path: Path, charset: str, count: int
 ) -> None:
     path = tmp_path / "invalid_codes.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute("CREATE TABLE items(code TEXT NOT NULL UNIQUE)")
         db.execute("INSERT INTO items VALUES('sentinel')")
     with DataOrchestrator(str(path), provider_name="base", optimize_pragma=False) as orch:

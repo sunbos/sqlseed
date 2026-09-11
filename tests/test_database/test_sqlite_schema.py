@@ -7,7 +7,8 @@ detection logic across a variety of CREATE TABLE DDL variants.
 from __future__ import annotations
 
 import sqlite3
-from typing import Any
+from contextlib import closing
+from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -16,6 +17,9 @@ from sqlseed.database._sqlite_schema import (
     _split_sql_definitions,
     detect_sqlite_autoincrement,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 
 class _FakeCursor:
@@ -158,8 +162,9 @@ class TestDetectSqliteAutoincrementIntegration:
     """Verify against a real sqlite3 connection to catch parser drift."""
 
     @pytest.fixture
-    def conn(self) -> sqlite3.Connection:
-        return sqlite3.connect(":memory:")
+    def conn(self) -> Iterator[sqlite3.Connection]:
+        with closing(sqlite3.connect(":memory:")) as connection:
+            yield connection
 
     def test_real_autoincrement(self, conn: sqlite3.Connection) -> None:
         conn.execute("CREATE TABLE t (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT)")

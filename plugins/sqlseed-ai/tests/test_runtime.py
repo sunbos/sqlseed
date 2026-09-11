@@ -6,6 +6,7 @@ import builtins
 import importlib
 import json
 import sqlite3
+from contextlib import closing
 from typing import TYPE_CHECKING
 
 import httpx
@@ -163,7 +164,7 @@ def test_cli_releases_owned_client_on_success_and_failure(
     from sqlseed_ai.healer._client import OpenAICompatAdapter
 
     path = tmp_path / "cli.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute("CREATE TABLE items(value INTEGER NOT NULL)")
     config_path = tmp_path / "rules.yaml"
     config_path.write_text("tables:\n- name: items\n  columns:\n  - name: value\n    generator: integer\n")
@@ -210,7 +211,7 @@ def test_runtime_healer_repairs_real_schema_with_fixed_model_response(tmp_path: 
     from sqlseed_ai.validator.schema_snapshot import SchemaSnapshot
 
     path = tmp_path / "runtime.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute("CREATE TABLE items(value INTEGER NOT NULL)")
     snapshot = SchemaSnapshot(db_path=str(path))
     validator = FastValidator(ContractResolver(set(BUILTIN_VIOLATIONS), set()), db_path=str(path))

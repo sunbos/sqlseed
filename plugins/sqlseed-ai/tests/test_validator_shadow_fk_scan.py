@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import gc
 import sqlite3
+import warnings
+from contextlib import closing
 from typing import TYPE_CHECKING
 
 import pytest
@@ -17,7 +20,7 @@ if TYPE_CHECKING:
 @pytest.fixture
 def db_with_fk(tmp_path: Path) -> Path:
     path = tmp_path / "test.db"
-    with sqlite3.connect(str(path)) as conn:
+    with closing(sqlite3.connect(str(path))) as conn, conn:
         conn.executescript(
             """
             CREATE TABLE users (id INTEGER PRIMARY KEY);
@@ -154,3 +157,19 @@ def test_shadow_scan_no_culprit_when_all_values_valid(db_with_fk: Path):
     # All values 1, 2 exist in parent users(id) - no culprit
     updated = scanner.scan(report, batch=[{"id": 1, "user_id": 1, "product_id": 5}])
     assert updated.columns == []  # no culprit found
+
+
+@pytest.mark.parametrize("parent_table", ["users", "missing_users"])
+def test_parent_pk_load_closes_sqlite_connection(db_with_fk: Path, parent_table: str) -> None:
+    """Both successful reads and query failures must release the connection."""
+    scanner = ShadowFKScanner(db_path=str(db_with_fk))
+    gc.collect()
+    with warnings.catch_warnings(record=True) as captured:
+        warnings.simplefilter("always", ResourceWarning)
+        if parent_table == "users":
+            assert scanner._load_parent_pk_set(parent_table, "id") == {1, 2, 3}
+        else:
+            with pytest.raises(sqlite3.OperationalError, match="no such table"):
+                scanner._load_parent_pk_set(parent_table, "id")
+        gc.collect()
+    assert not [str(w.message) for w in captured if issubclass(w.category, ResourceWarning)]

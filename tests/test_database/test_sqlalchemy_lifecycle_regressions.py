@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from datetime import datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
@@ -33,12 +34,16 @@ def test_execute_cursor_keeps_connection_until_closed(tmp_path: Path) -> None:
 def test_execute_results_survive_pool_disposal(tmp_path: Path) -> None:
     with SQLAlchemyAdapter() as adapter:
         adapter.connect(str(tmp_path / "cursor.db"))
+        original_pool = adapter._get_engine().pool
         cursor = adapter.execute("SELECT 1 UNION ALL SELECT 2")
         try:
             adapter._get_engine().dispose()
             assert cursor.fetchall() == [(1,), (2,)]
         finally:
             cursor.close()
+            # Engine disposal replaces its pool. The checked-out connection
+            # returns to the original pool, which this test must also dispose.
+            original_pool.dispose()
 
 
 def test_temporary_cursor_remains_open_during_fetch(tmp_path: Path) -> None:
@@ -81,9 +86,9 @@ def test_temporary_cursor_supports_fetchmany_and_iteration(tmp_path: Path) -> No
 
 def test_reconnect_uses_new_table_schema(tmp_path: Path) -> None:
     first, second = tmp_path / "first.db", tmp_path / "second.db"
-    with sqlite3.connect(first) as db:
+    with closing(sqlite3.connect(first)) as db, db:
         db.execute("CREATE TABLE items (id INTEGER PRIMARY KEY, old_value TEXT)")
-    with sqlite3.connect(second) as db:
+    with closing(sqlite3.connect(second)) as db, db:
         db.execute("CREATE TABLE items (id INTEGER PRIMARY KEY, new_value TEXT)")
     with SQLAlchemyAdapter() as adapter:
         adapter.connect(str(first))
@@ -130,7 +135,7 @@ def test_key_exists_binds_values_using_column_types(tmp_path: Path) -> None:
 @pytest.mark.parametrize("declared_type", ["INT", "INTEGER", "BIGINT", "SMALLINT"])
 def test_sqlite_primary_key_metadata_preserves_declared_type(tmp_path: Path, declared_type: str) -> None:
     path = tmp_path / "declared_type.db"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute(f"CREATE TABLE items (id {declared_type} NOT NULL PRIMARY KEY, value TEXT)")
     with SQLAlchemyAdapter() as adapter:
         adapter.connect(str(path))

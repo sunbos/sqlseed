@@ -27,6 +27,7 @@
 - `raw_adapter` / `raw_adapter_with_data` 是测试专用 adapter fixtures；`pg_url` 与 `available_llm_backend` 是 session fixtures，需要外部服务。
 - 构造 schema 使用 `make_column_info()`、`create_simple_db()`、`create_project_info_db()`；enrichment 可用 `apply_enrichment()`。新测试不用已弃用的 `make_col()`。
 - 用 `tmp_path` 创建真实 SQLite，不 mock 数据库层；连接、orchestrator 用 context manager 或 fixture teardown 释放。`gc_between_tests` 是 opt-in，不要改成 autouse。
+- 原生 `sqlite3.Connection` 的 context manager 只负责提交/回滚，不关闭连接。测试使用 `with closing(sqlite3.connect(...)) as conn, conn:` 保留事务语义并释放资源；连接 fixture 使用 `yield` 加 teardown，不直接返回未托管连接。
 - 纯 core 测试可使用 `provider="base"` / `provider_name="base"` 获得可重复占位数据；provider 真实性、locale 与 dispatch 回归必须使用对应 Faker/Mimesis provider，不能一律替换成 base。
 - CLI 使用 `click.testing.CliRunner`，不启动 subprocess；AI 可选依赖用 `pytest.importorskip("sqlseed_ai")` 或现有模块级 skip 模式。
 - 普通测试沿用 `test_<module>.py`；mypy 不检查 tests，但保留清楚的类型注解。断言实际输出，不只断言 mock 被调用，具体例子见 `test_core/AGENTS.md`。
