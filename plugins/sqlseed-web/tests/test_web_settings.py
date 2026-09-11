@@ -43,6 +43,9 @@ def settings_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator
     monkeypatch.setattr(workbench_ai, "state", registry)
     try:
         with TestClient(create_app()) as client:
+            # App construction probes the real installer. Test clocks may
+            # reuse that slot, so isolate the boundary after startup as well.
+            settings_environment._probe_version.cache_clear()
             yield client, registry, path
     finally:
         settings_environment._probe_version.cache_clear()
