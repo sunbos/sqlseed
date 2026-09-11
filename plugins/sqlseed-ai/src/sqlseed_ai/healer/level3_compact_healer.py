@@ -120,7 +120,7 @@ class Level3CompactHealer:
                 temperature=self._temperature,
                 max_tokens=self._max_response_tokens,
             )
-        except (TimeoutError, ConnectionError, OSError):
+        except OSError:
             raise
         except (RuntimeError, AttributeError, ValueError) as exc:
             logger.warning("Level 3 LLM call failed", mode=mode, error=str(exc))

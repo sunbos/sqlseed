@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import string
 from dataclasses import replace
+from inspect import signature
 from unittest.mock import MagicMock
 
 import pytest
+from structlog.testing import capture_logs
 
 from sqlseed.core.mapper import ColumnMapper, GeneratorSpec
 from sqlseed.core.unique_adjuster import UniqueAdjuster
@@ -23,6 +25,13 @@ def _checks(*expressions: str) -> list[CheckConstraintInfo]:
 
 
 class TestUniqueAdjuster:
+    @pytest.mark.parametrize("generator,params", [("string", {"min_length": 0, "max_length": 0}), ("integer", {})])
+    def test_zero_rows_need_no_domain_adjustment(self, generator: str, params: dict[str, int]) -> None:
+        original = GeneratorSpec(generator_name=generator, params=params)
+        adjusted = UniqueAdjuster(ColumnMapper()).adjust({"code": original}, {"code"}, 0)
+
+        assert adjusted == {"code": original}
+
     @pytest.mark.parametrize(
         "charset,min_length,max_length,capacity",
         [("", 0, 0, 1), ("", 1, 5, 0), ("aaa", 1, 5, 5), ("x", 3, 3, 1)],
@@ -336,8 +345,8 @@ class TestAdjustChoiceFallback:
         assert result["rank"].params["max_value"] == 1_000_000
 
 
-class TestAdjustIntegerWarnings:
-    """Tests for INT8/INT16 warning paths (lines 130-138)."""
+class TestAdjustIntegerTypeSampling:
+    """Type names alone do not establish a database-enforced integer capacity."""
 
     @pytest.mark.parametrize(
         ("col_type", "count", "expected_min_max"),
@@ -346,22 +355,15 @@ class TestAdjustIntegerWarnings:
             ("INT16", 70000, 700000),
             ("INT8", 200, 2000),
         ],
-        ids=["int8_over_255_warns", "int16_over_65535_warns", "int8_under_256_no_warning"],
+        ids=["int8_large_sample", "int16_large_sample", "int8_small_sample"],
     )
     def test_int_column_range_expanded(
         self,
-        caplog: pytest.LogCaptureFixture,
         col_type: str,
         count: int,
         expected_min_max: int,
     ) -> None:
-        """INT8/INT16 integer ranges are expanded to fit ``count`` unique rows.
-
-        The first two cases (count > 255 for INT8, count > 65535 for INT16)
-        trigger a WARNING log; the third (count < 256 for INT8) expands the
-        range silently. All three assert only that ``max_value`` grew enough
-        to hold ``count * 10`` unique values.
-        """
+        """Integer domains remain expandable without a declared CHECK range."""
         mapper = ColumnMapper()
         adjuster = UniqueAdjuster(mapper)
         specs = {
@@ -371,9 +373,10 @@ class TestAdjustIntegerWarnings:
             )
         }
         col_infos = [_make_col_info("code", col_type)]
-        with caplog.at_level("WARNING"):
+        with capture_logs() as events:
             result = adjuster.adjust(specs, {"code"}, count, col_infos)
         assert result["code"].params["max_value"] >= expected_min_max
+        assert not [event for event in events if event["log_level"] == "warning"]
 
     def test_integer_column_with_no_col_info_still_adjusts(self) -> None:
         # When col_infos is None, adjustment still happens (no warning path)
@@ -499,6 +502,38 @@ class TestAdjustIntegerChecks:
     """CHECK bounds remain authoritative when UNIQUE requires more values."""
 
     @pytest.mark.parametrize(
+        "params,expression,capacity",
+        [
+            ({"min_value": 10, "max_value": 12}, "rank BETWEEN 0 AND 100", 3),
+            ({"min_value": 0, "max_value": 100}, "rank BETWEEN 10 AND 12", 3),
+            ({"min_value": 10, "max_value": 12}, "rank <= 100", 3),
+            ({"min_value": 10, "max_value": 12}, "rank >= 0", 3),
+        ],
+    )
+    def test_nonnullable_bounded_integer_rejects_only_count_above_actual_capacity(
+        self, params: dict[str, int], expression: str, capacity: int
+    ) -> None:
+        spec = GeneratorSpec(generator_name="integer", params=params)
+        adjuster = UniqueAdjuster(ColumnMapper())
+        adjusted = adjuster.adjust({"rank": spec}, {"rank"}, capacity, check_constraints=_checks(expression))
+        assert adjusted["rank"].params == {"min_value": 10, "max_value": 12}
+        with pytest.raises(ConfigurationError):
+            adjuster.adjust({"rank": spec}, {"rank"}, capacity + 1, check_constraints=_checks(expression))
+
+    @pytest.mark.parametrize("count", [1, 10, 100])
+    def test_check_bounds_apply_even_when_unclamped_range_has_sampling_room(self, count: int) -> None:
+        original = GeneratorSpec(generator_name="integer", params={"min_value": -1000, "max_value": 1000})
+        result = UniqueAdjuster(ColumnMapper()).adjust(
+            {"rank": original}, {"rank"}, count, check_constraints=_checks("rank BETWEEN 10 AND 200")
+        )["rank"]
+
+        assert result.params == {"min_value": 10, "max_value": 200}
+        provider = BaseProvider()
+        provider.set_seed(42)
+        assert all(10 <= provider.generate("integer", **result.params) <= 200 for _ in range(100))
+        assert original.params == {"min_value": -1000, "max_value": 1000}
+
+    @pytest.mark.parametrize(
         ("expression", "expected"),
         [
             ("rank >= 18 AND rank <= 65", (18, 65)),
@@ -542,9 +577,13 @@ class TestAdjustIntegerChecks:
 
         assert result.params == {"min_value": 19, "max_value": 65}
 
-    def test_insufficient_check_domain_does_not_expand_narrower_user_range(self) -> None:
+    def test_nullable_check_domain_does_not_expand_narrower_user_range(self) -> None:
         result = UniqueAdjuster(ColumnMapper()).adjust(
-            {"rank": GeneratorSpec(generator_name="integer", params={"min_value": 20, "max_value": 30})},
+            {
+                "rank": GeneratorSpec(
+                    generator_name="integer", params={"min_value": 20, "max_value": 30}, null_ratio=0.2
+                )
+            },
             {"rank"},
             100,
             check_constraints=_checks("rank >= 18 AND rank <= 65"),
@@ -566,6 +605,38 @@ class TestAdjustIntegerChecks:
 
 class TestAdjustFallbackChecks:
     """Real type inference must retain CHECK domains through recursive adjustment."""
+
+    @pytest.mark.parametrize(("col_type", "expression"), [("INTEGER", "rank <= 100"), ("INT64", "rank >= 5")])
+    def test_one_sided_check_preserves_unconstrained_type_domain_endpoint(self, col_type: str, expression: str) -> None:
+        mapper = ColumnMapper()
+        column = _make_col_info("rank", col_type, nullable=True)
+        inferred = mapper.map_column(column, force_type_infer=True)
+        result = UniqueAdjuster(mapper).adjust(
+            {"rank": GeneratorSpec(generator_name="skip")}, {"rank"}, 5, [column], _checks(expression)
+        )["rank"]
+
+        free_endpoint = "min_value" if "<=" in expression else "max_value"
+        assert result.params[free_endpoint] == inferred.params[free_endpoint]
+
+    @pytest.mark.parametrize("expression", ["rank <= -1000000", "rank >= 1000000"])
+    def test_one_sided_fallback_uses_same_sampling_width_as_unbounded_integer(self, expression: str) -> None:
+        adjuster = UniqueAdjuster(ColumnMapper())
+        unbounded = adjuster.adjust(
+            {"rank": GeneratorSpec(generator_name="integer", params={"min_value": 0, "max_value": 0})},
+            {"rank"},
+            5,
+        )["rank"]
+        fallback = adjuster.adjust(
+            {"rank": GeneratorSpec(generator_name="skip")},
+            {"rank"},
+            5,
+            [_make_col_info("rank", "INTEGER", nullable=True)],
+            _checks(expression),
+        )["rank"]
+
+        assert fallback.params["max_value"] - fallback.params["min_value"] == (
+            unbounded.params["max_value"] - unbounded.params["min_value"]
+        )
 
     @pytest.mark.parametrize(
         ("expression", "expected"),
@@ -666,6 +737,84 @@ class TestAdjustTraversalAndRecursion:
 
 
 class TestAdjustedStringBehavior:
+    @pytest.mark.parametrize("count", [69, 70, 1000])
+    @pytest.mark.parametrize("bound_source", ["VARCHAR(3)", "CHECK"])
+    def test_string_batch_preserves_declared_length_budget(self, count: int, bound_source: str) -> None:
+        spec = GeneratorSpec(
+            generator_name="string", params={"min_length": 1, "max_length": 3, "charset": "alphanumeric"}
+        )
+        columns = [_make_col_info("code", "VARCHAR(3)")] if bound_source != "CHECK" else None
+        checks = _checks("length(code) <= 3") if bound_source == "CHECK" else None
+        adjusted = UniqueAdjuster(ColumnMapper()).adjust({"code": spec}, {"code"}, count, columns, checks)["code"]
+
+        assert adjusted.params["max_length"] <= 3
+        provider = BaseProvider()
+        provider.set_seed(42)
+        values = [provider.generate("string", **adjusted.params) for _ in range(count)]
+        assert all(len(value) <= 3 for value in values)
+
+    @pytest.mark.parametrize("column_type", ["VARCHAR(2)", "CHAR(2)"])
+    def test_bounded_string_capacity_includes_all_allowed_lengths(self, column_type: str) -> None:
+        spec = GeneratorSpec(generator_name="string", params={"min_length": 1, "max_length": 2, "charset": "01"})
+        columns = [_make_col_info("code", column_type)]
+        adjuster = UniqueAdjuster(ColumnMapper())
+        adjusted = adjuster.adjust({"code": spec}, {"code"}, 6, columns)["code"]
+
+        assert adjusted.params == spec.params
+        with pytest.raises(ConfigurationError):
+            adjuster.adjust({"code": spec}, {"code"}, 7, columns)
+
+    @pytest.mark.parametrize("reverse", [False, True])
+    def test_string_schema_bounds_intersect_without_using_other_columns(self, reverse: bool) -> None:
+        checks = _checks("length(other) <= 1", "code < ceiling", "length(code) <= 3", "length(code) > 1")
+        if reverse:
+            checks.reverse()
+        spec = GeneratorSpec(generator_name="string", params={"min_length": 0, "max_length": 10, "charset": "01"})
+        columns = [_make_col_info("other", "VARCHAR(1)"), _make_col_info("code", "VARCHAR(4)")]
+        adjuster = UniqueAdjuster(ColumnMapper())
+        result = adjuster.adjust({"code": spec}, {"code"}, 12, columns, checks)["code"]
+
+        assert result.params == {"min_length": 2, "max_length": 3, "charset": "01"}
+        with pytest.raises(ConfigurationError):
+            adjuster.adjust({"code": spec}, {"code"}, 13, columns, checks)
+
+    def test_string_lower_check_applies_without_an_upper_check(self) -> None:
+        spec = GeneratorSpec(generator_name="string", params={"min_length": 0, "max_length": 10, "charset": "01"})
+        result = UniqueAdjuster(ColumnMapper()).adjust(
+            {"code": spec}, {"code"}, 1, check_constraints=_checks("length(code) >= 8")
+        )["code"]
+
+        assert result.params == {"min_length": 8, "max_length": 10, "charset": "01"}
+
+    def test_string_length_domain_with_no_schema_intersection_is_rejected(self) -> None:
+        spec = GeneratorSpec(generator_name="string", params={"min_length": 4, "max_length": 8})
+        with pytest.raises(ConfigurationError):
+            UniqueAdjuster(ColumnMapper()).adjust({"code": spec}, {"code"}, 1, [_make_col_info("code", "CHAR(3)")])
+
+    @pytest.mark.parametrize("min_length,max_length,capacity", [(2, 2, 4), (0, 0, 1)])
+    def test_fixed_string_domain_has_exact_capacity(self, min_length: int, max_length: int, capacity: int) -> None:
+        spec = GeneratorSpec(
+            generator_name="string", params={"min_length": min_length, "max_length": max_length, "charset": "01"}
+        )
+        checks = _checks(f"length(code) <= {max_length}")
+        adjuster = UniqueAdjuster(ColumnMapper())
+        assert (
+            adjuster.adjust({"code": spec}, {"code"}, capacity, check_constraints=checks)["code"].params == spec.params
+        )
+        with pytest.raises(ConfigurationError):
+            adjuster.adjust({"code": spec}, {"code"}, capacity + 1, check_constraints=checks)
+
+    def test_large_bounded_string_capacity_uses_exact_integer_arithmetic(self) -> None:
+        # 2**55 - 1 lies above float's exact integer range. Planning must not
+        # round the capacity upward and admit one impossible extra value.
+        spec = GeneratorSpec(generator_name="string", params={"min_length": 0, "max_length": 54, "charset": "01"})
+        capacity = 2**55 - 1
+        columns = [_make_col_info("code", "VARCHAR(54)")]
+        adjuster = UniqueAdjuster(ColumnMapper())
+        assert adjuster.adjust({"code": spec}, {"code"}, capacity, columns)["code"].params == spec.params
+        with pytest.raises(ConfigurationError):
+            adjuster.adjust({"code": spec}, {"code"}, capacity + 1, columns)
+
     @pytest.mark.parametrize(
         ("canonical", "alias", "count"),
         [
@@ -700,15 +849,16 @@ class TestAdjustedStringBehavior:
 
     @pytest.mark.parametrize("charset", ["01", "0011", "ab"])
     def test_small_custom_alphabet_can_generate_the_requested_unique_batch(self, charset: str) -> None:
-        spec = UniqueAdjuster(ColumnMapper()).adjust(
-            {
-                "code": GeneratorSpec(
-                    generator_name="string", params={"min_length": 1, "max_length": 1, "charset": charset}
-                )
-            },
-            {"code"},
-            1000,
-        )["code"]
+        with capture_logs() as events:
+            spec = UniqueAdjuster(ColumnMapper()).adjust(
+                {
+                    "code": GeneratorSpec(
+                        generator_name="string", params={"min_length": 1, "max_length": 1, "charset": charset}
+                    )
+                },
+                {"code"},
+                1000,
+            )["code"]
         assert len(set(charset)) ** spec.params["max_length"] >= 1000
         provider = BaseProvider()
         provider.set_seed(42)
@@ -716,6 +866,7 @@ class TestAdjustedStringBehavior:
 
         assert len(set(values)) == 1000
         assert set("".join(values)) <= set(charset)
+        assert not [event for event in events if event["log_level"] == "warning"]
 
     @pytest.mark.parametrize(("count", "original_length"), [(1, 0), (50, 1), (69, 1), (70, 1), (1000, 1)])
     def test_overflow_recalculation_agrees_with_the_resulting_alphabet(self, count: int, original_length: int) -> None:
@@ -774,6 +925,17 @@ class TestAdjustedStringBehavior:
 
 
 class TestIntegerDomainInvariants:
+    def test_omitted_integer_bounds_resolve_to_provider_defaults(self) -> None:
+        result = UniqueAdjuster(ColumnMapper()).adjust({"rank": GeneratorSpec(generator_name="integer")}, {"rank"}, 1)[
+            "rank"
+        ]
+        provider_defaults = signature(BaseProvider._gen_integer).parameters
+
+        assert result.params == {
+            "min_value": provider_defaults["min_value"].default,
+            "max_value": provider_defaults["max_value"].default,
+        }
+
     def test_shifted_narrow_range_expands_without_moving_the_lower_bound(self) -> None:
         result = UniqueAdjuster(ColumnMapper()).adjust(
             {"rank": GeneratorSpec(generator_name="integer", params={"min_value": 1000, "max_value": 1003})},
@@ -805,9 +967,9 @@ class TestIntegerDomainInvariants:
         assert result.params == {"min_value": 0, "max_value": 0}
         assert BaseProvider().generate("integer", **result.params) == 0
 
-    def test_omitted_integer_bounds_are_clamped_even_when_capacity_is_exhausted(self) -> None:
+    def test_nullable_integer_bounds_are_clamped_even_when_nonnull_capacity_is_exhausted(self) -> None:
         result = UniqueAdjuster(ColumnMapper()).adjust(
-            {"rank": GeneratorSpec(generator_name="integer")},
+            {"rank": GeneratorSpec(generator_name="integer", null_ratio=0.2)},
             {"rank"},
             100_000,
             check_constraints=_checks("rank >= 0 AND rank <= 3"),

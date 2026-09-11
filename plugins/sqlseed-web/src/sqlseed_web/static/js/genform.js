@@ -17,8 +17,7 @@ const DEFAULT_PERCENT = 5;
 // 不在用户可选的生成器下拉里），不是 `template`——template 可含随机片段
 // （如 SKU-{random_string:4}-{sequence:03d}），NULL% 与唯一对它都有意义。
 // 曾误按「序列 → 通用区全无」裁掉 template，导致这两项不可见也不可改。
-// 真正的独立 `sequence` 生成器属 P1，落地后加入此集合即可。
-const NO_COMMON_GENS = new Set();
+// 所有可编辑的普通生成器均保留 NULL 设置；自增列已由只读面板处理。
 // 词表类（枚举 / 文本）值域有限，「设置唯一」无意义；图像或二进制同样不提供。
 const NO_UNIQUE_GENS = new Set(['text', 'choice', 'weighted_choice', 'bytes']);
 // 图像或二进制没有例值预览区（参考工具 该面板无预览）。
@@ -168,14 +167,11 @@ export function createGenForm({ connId, meta, uniqueColumnsOf, foreignKeysOf, on
       cfg.params = cleanParams();
     }
     const constraints = { ...form.constraints };
-    // 通用区被裁剪时（序列类）不发送对应字段——否则切到模板类生成器后，
-    // 之前勾的 NULL/唯一会因为控件不可见而「看不见也改不掉」。
-    const showCommon = !NO_COMMON_GENS.has(form.generator);
     // form.null_ratio 是 0–100 百分比；核心 ColumnConfig.null_ratio 是 0–1
     // 小数（le=1.0）——发送前必须除以 100，否则 preview/fill 直接 422。
     // 数据库硬约束兜底：NOT NULL 强制不带 null_ratio；数据库唯一强制 unique。
-    if (showCommon && form.null_ratio > 0 && !dbNotNull()) cfg.null_ratio = form.null_ratio / 100;
-    if (dbUnique() || (showCommon && !NO_UNIQUE_GENS.has(form.generator) && form.unique)) {
+    if (form.null_ratio > 0 && !dbNotNull()) cfg.null_ratio = form.null_ratio / 100;
+    if (dbUnique() || (!NO_UNIQUE_GENS.has(form.generator) && form.unique)) {
       constraints.unique = true;
     } else {
       delete constraints.unique;
@@ -319,52 +315,54 @@ export function createGenForm({ connId, meta, uniqueColumnsOf, foreignKeysOf, on
       if (preview) doPreview(previewOut);
     }
 
-    // ⑤ 通用区（序列类整体隐藏）
-    if (!NO_COMMON_GENS.has(form.generator)) {
-      const pctInput = h('input', {
-        type: 'number', class: 'num-input', value: form.null_ratio || DEFAULT_PERCENT,
-        min: 0, max: 100,
-        disabled: dbNotNull() || form.null_ratio <= 0,
-        oninput: (e) => { form.null_ratio = +e.target.value; emit(); schedulePreview(); },
-      });
-      nullPctInput = pctInput;
-      const notNull = dbNotNull();
-      const common = [
-        // 行标签即属性名（参考工具 同款两栏网格），控件只放勾选框本身。
-        formRow('包含 NULL 值', h('input', {
-          type: 'checkbox', checked: form.null_ratio > 0 && !notNull,
-          disabled: notNull, // 数据库 NOT NULL：不可配置（配了必 IntegrityError）
-          onchange: (e) => {
-            form.null_ratio = e.target.checked ? DEFAULT_PERCENT : 0;
-            renderNull(); emit(); schedulePreview();
-          },
-        })),
-        formRow('百分比', pctInput),
-      ];
-      if (notNull) {
-        common.push(formRow('', h('span', { class: 'muted' }, '数据库约束:NOT NULL,不允许 NULL 值')));
-      }
-      // 数据库唯一约束优先于「该生成器隐藏设置唯一」的裁剪规则：
-      // 约束是硬性的，隐藏会让用户失去知情权（即使核心 unique_adjuster 会兜底）。
-      const dbUniq = dbUnique();
-      if (!NO_UNIQUE_GENS.has(form.generator) || dbUniq) {
-        common.push(formRow('设置唯一', h('input', {
-          type: 'checkbox',
-          checked: dbUniq || !!form.unique,
-          disabled: dbUniq,
-          onchange: (e) => { form.unique = e.target.checked; emit(); schedulePreview(); },
-        })));
-        if (dbUniq) {
-          common.push(formRow('', h('span', { class: 'muted' }, '数据库约束:UNIQUE,必须唯一')));
-        }
-      }
-      el.append(h('div', { class: 'genform-section' }, ...common));
-    }
+    // ⑤ 通用区
+    renderCommon();
 
     // ⑥ 重置属性（参考工具：面板底部独立按钮）
     el.append(h('div', { class: 'genform-section' },
       h('button', { class: 'small', onclick: reset }, '重置属性'),
     ));
+  }
+
+  function renderCommon() {
+    const pctInput = h('input', {
+      type: 'number', class: 'num-input', value: form.null_ratio || DEFAULT_PERCENT,
+      min: 0, max: 100,
+      disabled: dbNotNull() || form.null_ratio <= 0,
+      oninput: (e) => { form.null_ratio = +e.target.value; emit(); schedulePreview(); },
+    });
+    nullPctInput = pctInput;
+    const notNull = dbNotNull();
+    const common = [
+      // 行标签即属性名（参考工具 同款两栏网格），控件只放勾选框本身。
+      formRow('包含 NULL 值', h('input', {
+        type: 'checkbox', checked: form.null_ratio > 0 && !notNull,
+        disabled: notNull, // 数据库 NOT NULL：不可配置（配了必 IntegrityError）
+        onchange: (e) => {
+          form.null_ratio = e.target.checked ? DEFAULT_PERCENT : 0;
+          renderNull(); emit(); schedulePreview();
+        },
+      })),
+      formRow('百分比', pctInput),
+    ];
+    if (notNull) {
+      common.push(formRow('', h('span', { class: 'muted' }, '数据库约束:NOT NULL,不允许 NULL 值')));
+    }
+    // 数据库唯一约束优先于「该生成器隐藏设置唯一」的裁剪规则：
+    // 约束是硬性的，隐藏会让用户失去知情权（即使核心 unique_adjuster 会兜底）。
+    const dbUniq = dbUnique();
+    if (!NO_UNIQUE_GENS.has(form.generator) || dbUniq) {
+      common.push(formRow('设置唯一', h('input', {
+        type: 'checkbox',
+        checked: dbUniq || !!form.unique,
+        disabled: dbUniq,
+        onchange: (e) => { form.unique = e.target.checked; emit(); schedulePreview(); },
+      })));
+      if (dbUniq) {
+        common.push(formRow('', h('span', { class: 'muted' }, '数据库约束:UNIQUE,必须唯一')));
+      }
+    }
+    el.append(h('div', { class: 'genform-section' }, ...common));
   }
 
   function renderForeignKey(preview) {
@@ -840,7 +838,7 @@ export function createGenForm({ connId, meta, uniqueColumnsOf, foreignKeysOf, on
     }
     const common = {
       options,
-      constraints: { ...(spec?.constraints || {}) },
+      constraints: { ...spec?.constraints },
       // 核心为 0–1，UI 为 0–100；保留小数，避免未编辑比例时发生精度损失。
       null_ratio: (spec?.null_ratio || 0) * 100,
       unique: !!spec?.constraints?.unique,
@@ -869,7 +867,7 @@ export function createGenForm({ connId, meta, uniqueColumnsOf, foreignKeysOf, on
     return {
       ...common,
       generator: spec.generator_name || spec.generator || 'string',
-      params: { ...(spec.params || {}) },
+      params: { ...spec.params },
     };
   }
 

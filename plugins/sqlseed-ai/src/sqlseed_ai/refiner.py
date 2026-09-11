@@ -27,6 +27,7 @@ from sqlseed._utils.logger import get_logger
 from sqlseed._utils.paths import get_cache_dir
 from sqlseed.config.models import TableConfig
 from sqlseed.core.orchestrator import DataOrchestrator
+from sqlseed.database.sqlalchemy_adapter import SQLAlchemyBatchInserter
 from sqlseed.generators._protocol import ConfigurationError
 
 if TYPE_CHECKING:
@@ -619,7 +620,7 @@ class AiConfigRefiner:
                     with engine.connect() as conn:
                         transaction = conn.begin()
                         try:
-                            conn.execute(table.insert(), preview_data)
+                            SQLAlchemyBatchInserter(engine, table_name, table=table).insert(preview_data, conn=conn)
                         finally:
                             transaction.rollback()
                 except Exception as e:

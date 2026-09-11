@@ -1400,9 +1400,9 @@ class AutoHealOrchestrator:
                     if isinstance(tmpl_cl, str):
                         cleaned = tmpl_cl
                         # Fix ``X_-{sequence`` → ``X-{sequence``
-                        cleaned = re.sub(r"_-\{sequence", "-{sequence", cleaned)
+                        cleaned = cleaned.replace("_-{sequence", "-{sequence")
                         # Fix ``X_-{`` (other placeholders) → ``X-{``
-                        cleaned = re.sub(r"_-\{", "-{", cleaned)
+                        cleaned = cleaned.replace("_-{", "-{")
                         if cleaned != tmpl_cl:
                             params["template"] = cleaned
                             c["params"] = params
@@ -2146,7 +2146,6 @@ class AutoHealOrchestrator:
                         c_sn["expression"] = new_expr_sn
                 else:
                     # Case 2: col has no derive_from — find anchor datetime column
-                    col_type_sn = meta_sn.column_types.get(col_sn, "")
                     anchor_col_sn = None
                     for ac_sn in columns_sn:
                         ac_name_sn = ac_sn.get("name", "")
@@ -2178,16 +2177,10 @@ class AutoHealOrchestrator:
                     c_sn["generator"] = None
                     c_sn.pop("params", None)
                     c_sn.pop("null_ratio", None)
-                    if col_type_sn.upper() == "DATE":
-                        c_sn["expression"] = (
-                            f"None if value in ({vals_tuple_str}) else "
-                            f"row['{anchor_col_sn}'] + timedelta(days=random_int(0, 30))"
-                        )
-                    else:
-                        c_sn["expression"] = (
-                            f"None if value in ({vals_tuple_str}) else "
-                            f"row['{anchor_col_sn}'] + timedelta(days=random_int(0, 30))"
-                        )
+                    c_sn["expression"] = (
+                        f"None if value in ({vals_tuple_str}) else "
+                        f"row['{anchor_col_sn}'] + timedelta(days=random_int(0, 30))"
+                    )
 
         # Safety net 7: Clear ``null_ratio: 1.0`` on columns that:
         # (a) have ``IS NOT NULL`` in their CHECK constraints, OR

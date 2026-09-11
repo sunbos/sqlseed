@@ -276,7 +276,7 @@ class TestOrchestratorUnique:
         project_nos = [r[0] for r in rows]
         assert len(project_nos) == len(set(project_nos))
 
-    def test_adjust_specs_for_unique_varchar_min_exceeds_max(self, tmp_path: Path) -> None:
+    def test_unique_varchar_preserves_length_limit_under_sampling_pressure(self, tmp_path: Path) -> None:
         db_path = str(tmp_path / "varchar_unique.db")
         conn = sqlite3.connect(db_path)
         conn.execute("CREATE TABLE items (id INTEGER PRIMARY KEY AUTOINCREMENT, code VARCHAR(5) NOT NULL)")
@@ -293,8 +293,12 @@ class TestOrchestratorUnique:
                 ),
             }
             adjusted = orch._unique_adjuster.adjust(specs, {"code"}, 10000, orch._schema.get_column_info("items"))
-            assert adjusted["code"].params["min_length"] >= 1
-            assert adjusted["code"].params["charset"] == "alphanumeric"
+            assert 1 <= adjusted["code"].params["min_length"] <= 5
+            assert adjusted["code"].params["max_length"] == 5
+            result = orch.fill_table("items", count=10000, seed=42, skip_ai=True)
+            assert result.errors == []
+            assert result.count == 10000
+            assert orch.query("SELECT MAX(LENGTH(code)) AS max_length FROM items") == [{"max_length": 5}]
 
     def test_fill_nullable_unique_column_not_all_null(self, tmp_path: Path) -> None:
         """Regression: a nullable UNIQUE column (no DEFAULT, name matching no

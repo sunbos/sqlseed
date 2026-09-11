@@ -8,6 +8,7 @@ detection relies on real SQLAlchemy schema reflection.
 from __future__ import annotations
 
 import sqlite3
+from datetime import date, datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
 import pytest
@@ -246,6 +247,30 @@ class TestRule14ParamStripping:
         params = config["columns"][0]["params"]
         assert params == {"min_length": 1, "max_length": 20}
 
+    @pytest.mark.parametrize("generator_key", ["generator", "type"])
+    @pytest.mark.parametrize("flat_params", [False, True])
+    def test_normalizes_supported_column_shapes_before_live_preview(
+        self, tmp_path: Path, generator_key: str, flat_params: bool
+    ) -> None:
+        """Aliases and flat params must pass through the same generator whitelist."""
+        db_path = tmp_path / "shapes.db"
+        with sqlite3.connect(db_path) as conn:
+            conn.execute("CREATE TABLE codes (code TEXT NOT NULL CHECK(code = 'ZZZZ'))")
+        params = {"min_length": 4, "max_length": 4, "charset": "Z", "pattern": "[A-Z]{4}"}
+        column = {"name": "code", generator_key: "string"}
+        if flat_params:
+            column.update(params)
+        else:
+            column["params"] = params
+        config = {"name": "codes", "columns": [column]}
+        refiner = _make_refiner(db_path)
+        refiner._apply_rule_14_param_stripping(config)
+        with DataOrchestrator(str(db_path)) as orch:
+            error = refiner._validate_config(orch, "codes", config)
+        assert error is None
+        with sqlite3.connect(db_path) as conn:
+            assert conn.execute("SELECT COUNT(*) FROM codes").fetchone() == (0,)
+
     def test_corrects_singular_choice_to_choices(self, tmp_path: Path) -> None:
         """choice generator: ``choice`` (singular) typo -> ``choices`` (plural)."""
         refiner = _make_refiner(tmp_path / "scratch.db")
@@ -316,3 +341,44 @@ class TestRule14ParamStripping:
         }
         refiner._apply_rule_14_param_stripping(config)
         assert config["columns"][0] == {"name": "id"}
+
+
+@pytest.mark.parametrize(
+    ("sql_type", "value_kind", "expected"),
+    [
+        ("TEXT", "date", "2024-02-29"),
+        ("TEXT", "datetime", "2024-02-29 12:34:56.123456+05:30"),
+        ("DATE", "date", "2024-02-29"),
+        ("DATETIME", "datetime", "2024-02-29 12:34:56.123456"),
+    ],
+)
+@pytest.mark.filterwarnings("error:The default date.*adapter is deprecated:DeprecationWarning")
+def test_date_dry_run_uses_explicit_sqlite_binding(
+    tmp_path: Path, sql_type: str, value_kind: str, expected: str
+) -> None:
+    """A real dry-run handles date values without implicit sqlite3 adapters."""
+    db_path = tmp_path / "dates.db"
+    value = (
+        date(2024, 2, 29)
+        if value_kind == "date"
+        else datetime(2024, 2, 29, 12, 34, 56, 123456, tzinfo=timezone(timedelta(hours=5, minutes=30)))
+    )
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(f"CREATE TABLE events (created_at {sql_type} NOT NULL)")
+        # Validate the stored representation after binding, without CHECK
+        # inference replacing the date generator's values before insertion.
+        conn.execute(
+            f"CREATE TRIGGER validate_date BEFORE INSERT ON events "
+            f"WHEN NEW.created_at <> '{expected}' "
+            "BEGIN SELECT RAISE(ABORT, 'Date binding changed its representation'); END"
+        )
+    refiner = _make_refiner(db_path)
+    config = {
+        "name": "events",
+        "columns": [{"name": "created_at", "generator": "choice", "params": {"choices": [value]}}],
+    }
+    with DataOrchestrator(str(db_path)) as orch:
+        error = refiner._validate_config(orch, "events", config)
+    assert error is None
+    with sqlite3.connect(db_path) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM events").fetchone() == (0,)

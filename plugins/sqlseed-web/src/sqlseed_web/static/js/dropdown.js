@@ -33,6 +33,16 @@ export function createDropdown({ value = '', options = [], onChange, placeholder
   const el = h('div', { class: 'dropdown' }, btn, panel);
   if (width) el.style.minWidth = width;
 
+  // Keep the caption as the accessible name without letting its native label
+  // default action forward a second click to the select-only trigger.
+  const onLabelClick = (event) => {
+    const wrapper = el.closest('label');
+    if (!wrapper || !wrapper.contains(event.target) || el.contains(event.target)) return;
+    if (event.target.closest?.('a, button, input, textarea, select')) return;
+    event.preventDefault();
+  };
+  document.addEventListener('click', onLabelClick, true);
+
   // 关闭面板：点击组件外部或按 Escape。
   const onDocClick = (e) => {
     if (!el.contains(e.target) && !panel.contains(e.target)) close();
@@ -242,6 +252,7 @@ export function createDropdown({ value = '', options = [], onChange, placeholder
   function destroy() {
     destroyed = true;
     close();
+    document.removeEventListener('click', onLabelClick, true);
     btn.removeEventListener('keydown', onKey);
     btn.removeEventListener('focus', syncName);
   }

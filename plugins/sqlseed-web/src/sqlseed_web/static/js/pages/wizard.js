@@ -4,8 +4,7 @@
 //   Step3 生成：表生成顺序 + 逐表预览 + 按序填充
 // 底部持久栏：保存配置文件 / 加载配置文件 / 表生成顺序 / 上一步 / 下一步
 
-import { h, get, post, clear, msg, table, fmt } from '../api.js';
-import { store, restoreConnection } from '../api.js';
+import { h, get, post, clear, msg, table, fmt, store, restoreConnection } from '../api.js';
 import { createTree } from '../tree.js';
 import { createGenForm } from '../genform.js';
 

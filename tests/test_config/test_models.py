@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 
 import pytest
 import yaml
@@ -27,6 +28,41 @@ class TestConfigModels:
         )
         assert config.generator == "integer"
         assert config.params["min_value"] == 18
+
+    def test_column_normalization_preserves_alias_precedence_and_input(self) -> None:
+        raw = {
+            "name": "code",
+            "type": "string",
+            "params": {"min_length": 2, "max_length": 10},
+            "max_length": 4,
+            "_degraded": True,
+            "degrade_reason": "Recovered a valid source generator",
+        }
+        before = deepcopy(raw)
+        config = ColumnConfig.model_validate(raw)
+        assert config.generator == "string"
+        assert config.params == {"min_length": 2, "max_length": 4}
+        assert raw == before
+
+    def test_column_normalization_preserves_subclass_fields(self) -> None:
+        class LabeledColumn(ColumnConfig):
+            label: str
+
+        config = LabeledColumn.model_validate({"name": "code", "label": "Code", "type": "string", "max_length": 4})
+        assert config.label == "Code"
+        assert config.params == {"max_length": 4}
+
+    def test_column_normalization_preserves_derived_and_existing_models(self) -> None:
+        config = ColumnConfig.model_validate(
+            {"name": "derived", "derive_from": "origin", "expression": "value", "max_length": 4}
+        )
+        assert config.derive_from == "origin"
+        assert config.params == {}
+        assert ColumnConfig.model_validate(config) is config
+
+    def test_column_normalization_rejects_non_mapping_params(self) -> None:
+        with pytest.raises(ValueError, match="'params' must be a mapping"):
+            ColumnConfig.model_validate({"name": "code", "type": "string", "params": ["a", "b"]})
 
     def test_column_config_null_ratio_validation(self) -> None:
         config = ColumnConfig(name="test", null_ratio=0.5)

@@ -5,6 +5,9 @@ on:
     types: [published]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   # ── Pre-publish smoke test ───────────────────────────────────
   test:
@@ -41,8 +44,7 @@ jobs:
         with:
           python-version: "3.x"
 
-      - name: Install build dependencies
-        run: pip install build twine
+      - uses: ./.github/actions/install-ci-deps
 
       - name: Require a version tag
         run: |
@@ -52,22 +54,22 @@ jobs:
           esac
 
       - name: Build sqlseed
-        run: python -m build --outdir dist/
+        run: python -m build --no-isolation --outdir dist/
 
       - name: Build sqlseed-ai
-        run: python -m build --outdir ../../dist/
+        run: python -m build --no-isolation --outdir ../../dist/
         working-directory: plugins/sqlseed-ai
 
       - name: Build sqlseed-cli
-        run: python -m build --outdir ../../dist/
+        run: python -m build --no-isolation --outdir ../../dist/
         working-directory: plugins/sqlseed-cli
 
       - name: Build mcp-server-sqlseed
-        run: python -m build --outdir ../../dist/
+        run: python -m build --no-isolation --outdir ../../dist/
         working-directory: plugins/mcp-server-sqlseed
 
       - name: Build sqlseed-web
-        run: python -m build --outdir ../../dist/
+        run: python -m build --no-isolation --outdir ../../dist/
         working-directory: plugins/sqlseed-web
 
       - name: Validate package metadata

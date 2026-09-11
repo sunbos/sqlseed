@@ -136,7 +136,12 @@ function createDom() {
   const document = new Element('document');
   document._connected = true;
   document.body = new Element('body');
-  document.append(document.body);
+  document.documentElement = new Element('html');
+  document.scrollingElement = document.documentElement;
+  document.documentElement.scrollTop = 0;
+  document.documentElement.scrollLeft = 0;
+  document.append(document.documentElement);
+  document.documentElement.append(document.body);
   document.createElement = (tag) => new Element(tag);
   document.createTextNode = (text) => new Element('#text', String(text));
   document.getElementById = (id) => document.querySelector('#' + id);
@@ -144,6 +149,7 @@ function createDom() {
 }
 
 const sourceRoot = path.join(__dirname, '../src/sqlseed_web/static/js');
+const scrollModules = new WeakMap();
 function source(name) {
   return fs.readFileSync(path.join(sourceRoot, name), 'utf8')
     .replace(/^import[\s\S]*?;\s*\n/gm, '')
@@ -164,7 +170,12 @@ function loadFrontend(name, bindings = {}) {
   const apiContext = vm.createContext({...globals});
   vm.runInContext(source('api.js'), apiContext, {filename: 'api.js'});
   const api = vm.runInContext('({h, clear, msg, table, fmt, store, api, get, post, del, setConnBadge, rememberConnId, forgetConnId, restoreConnection})', apiContext);
-  const context = vm.createContext({...globals, ...api, ...bindings});
+  if (!scrollModules.has(document)) {
+    const scrollContext = vm.createContext({document});
+    vm.runInContext(source('workbench/scroll-lock.js'), scrollContext, {filename: 'workbench/scroll-lock.js'});
+    scrollModules.set(document, vm.runInContext('lockPageScroll', scrollContext));
+  }
+  const context = vm.createContext({...globals, ...api, lockPageScroll: scrollModules.get(document), ...bindings});
   if (name !== 'api.js') vm.runInContext(source(name), context, {filename: name});
   return context;
 }

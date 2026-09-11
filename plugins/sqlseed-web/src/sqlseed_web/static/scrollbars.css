@@ -1,0 +1,42 @@
+/* Keep root, panels, menus and tables on the same quiet scrollbar treatment. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--muted) var(--wash);
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: var(--wash);
+}
+
+::-webkit-scrollbar-thumb {
+  border: 2px solid var(--wash);
+  border-radius: 999px;
+  background: var(--muted);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--teal);
+}
+
+/* The stable root gutter remains reserved while a dialog owns scrolling. */
+html.wb-scroll-locked {
+  overflow: hidden !important;
+}
+
+.overlay,
+.modal-body,
+.drawer-body,
+.connection-modal,
+.dropdown-floating {
+  overscroll-behavior: contain;
+}
+
+@media (forced-colors: active) {
+  * { scrollbar-color: auto; }
+}

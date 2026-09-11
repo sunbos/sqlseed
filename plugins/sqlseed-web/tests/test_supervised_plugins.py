@@ -110,7 +110,7 @@ def test_restoration_failure_is_recoverable_without_repeating_install(managed: A
     manager._worker.join(5)
     assert manager.status()["phase"] == "recovery_failed"
     assert manager.status()["active_task"]["status"] == "failed"
-    assert "private" not in str(manager.status())
+    assert "private-error" not in str(manager.status())
     controller.restoration_error = False
     manager.recover()
     manager._worker.join(5)

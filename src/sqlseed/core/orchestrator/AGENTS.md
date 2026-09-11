@@ -31,6 +31,7 @@
 ## spec 顺序与 CHECK hard truth
 
 - `_resolve_specs()` 保留顺序：schema → 用户 CHECK clamp → mapping → enrichment/schema fallback → UNIQUE adjustment → 单列 FK → composite FK → composite PK 修正。
+- `clear_before=True` 在列配置、CHECK 与 UNIQUE 值域规划成功后清表，再读取 FK 候选值；enrichment 仍读取清表前数据。容量/值域配置错误不得删除原行，self-ref FK 不能沿用已删除的旧 ID。此顺序不承诺后续 stream/provider/插件执行失败时整次 fill 可回滚。
 - 用户 source params 与单列 literal CHECK 相交则 clamp 并提示，无交集则 `ConfigurationError`；不替用户猜跨列或 OR 关系。
 - 非 user-configured 且非 `skip` 的 spec 遇到单列 `CHECK IN (...)`，应以 CHECK enum 为准，包括 `title → sentence` 等名称命中，以及值集合不一致的 `choice`。
 - 非 user-configured `phone`/`string` 遇到 `LENGTH(col) = N`，升级为 `pattern`、`regex: [0-9]{N}`；已有 `string.charset` 的例外保留。provider 的 locale phone 格式不能保证长度。

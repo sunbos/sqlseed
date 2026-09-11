@@ -33,7 +33,9 @@
 - 保留 DAG 顺序、UNIQUE 登记与失败回溯的配合；`composite_unique_constraints` 约束元组，不要求每一列独立唯一。
 - composite PRIMARY KEY 由 `SchemaInferrer.detect_composite_unique_constraints()` 作为组合 UNIQUE 上报；不要将所有 PK 列送入单列 UNIQUE 调整。
 - nullable UNIQUE skip / choice 的 integer 类型回退按 CHECK 选择值域；type mapper 的默认 `[0, 999999]` 不是用户限制，负数及大整数 CHECK 可替换它，单边 CHECK 的自由端须留足采样空间。显式 integer 用户范围不能套用此扩展规则。
+- UNIQUE integer 无论原采样域大小都先与 CHECK 相交；`null_ratio=0` 且交集容量不足时在生成前抛 `ConfigurationError`。允许 NULL 的 UNIQUE 列不能仅按非空整数域容量拒绝行数，因为 NULL 可重复。
 - UNIQUE string 的采样容量使用 `resolve_charset()` 返回字符的去重数量，别名与自定义字符集不能假定为 62。零字符只支持固定零长度的单个空串；单字符按既有长度区间计算容量，不足时明确报错，不无限扩长度。
+- UNIQUE string 不得为采样余量扩大 CHAR/VARCHAR 声明或已解析长度 CHECK 的硬上限；需要时保留整个长度区间，容量按各长度的去重字符串数量求和。非空容量不足时提前拒绝，允许 NULL 的 UNIQUE 列可重复生成 NULL；无 schema 硬上限时保留原采样扩容行为。
 - 仅完整索引推导无条件 UNIQUE；`IndexInfo.is_partial=True` 的条件唯一性交给数据库写入约束，不运行通用 WHERE 求值器。mapper 使用 `ColumnInfo.is_rowid_alias` 区分真实隐式 ID 与普通 INTEGER PK。
 - 表达式通过 `ExpressionEngine` 的 simpleeval sandbox 和 `SAFE_FUNCTIONS` 执行。处理 `ExpressionTimeoutError`；线程 timeout 默认 5 秒，超时线程无法被杀死。
 - `PluginMediator` 只保留通用 batch transform 与 template pool；AI suggestion 通过 `sqlseed_apply_ai_suggestions` hook。返回值语义见 [../plugins/AGENTS.md](../plugins/AGENTS.md)。

@@ -34,9 +34,13 @@ import pytest
 from sqlseed.database.raw_sqlite_adapter import RawSQLiteAdapter
 
 try:
-    from testcontainers.postgres import PostgresContainer
+    from testcontainers.community.postgres import PostgresContainer
 except ImportError:
-    PostgresContainer = None
+    try:
+        # Older supported testcontainers releases predate the community namespace.
+        from testcontainers.postgres import PostgresContainer
+    except ImportError:
+        PostgresContainer = None
 
 if TYPE_CHECKING:
     from collections.abc import Generator

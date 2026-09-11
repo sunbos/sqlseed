@@ -110,6 +110,8 @@ class SpecResolverMixin:
         columns: dict[str, Any] | None,
         column_configs: list[Any] | None,
         enrich: bool,
+        *,
+        clear_before: bool = False,
     ) -> tuple[dict[str, Any], dict[str, Any], set[str], list[list[str]]]:
         """Resolve column generator specs, executing schema inference, column mapping, enrichment,
         uniqueness adjustment, and foreign key resolution in order.
@@ -120,6 +122,7 @@ class SpecResolverMixin:
             columns: Simple column config dict (column name -> string/dict).
             column_configs: List of ColumnConfig objects (full column config).
             enrich: Whether to enable enrichment mode (identify enumeration columns based on existing data).
+            clear_before: Clear only after column domains are validated, before hydrating FK values.
 
         Returns:
             A 4-tuple (generator_specs, user_configs, unique_columns, composite_unique).
@@ -230,6 +233,8 @@ class SpecResolverMixin:
         generator_specs = self._unique_adjuster.adjust(
             generator_specs, unique_columns, count, column_infos, check_constraints
         )
+        if clear_before:
+            self._db.clear_table(table_name)
         generator_specs = self._relation.resolve_foreign_keys(
             table_name,
             generator_specs,
@@ -509,9 +514,9 @@ class SpecResolverMixin:
         and apply AI suggestions and template pool.
 
         Execution order rules:
-            - enrich and clear_before: resolve specs first (enrich based on existing data), then clear the table
-            - clear_before only: clear the table first, then resolve specs
-            - Otherwise: resolve specs directly
+            - Resolve column domains and optional enrichment from existing data.
+            - If requested, clear only after column domain validation succeeds.
+            - Resolve FK values against the resulting database contents.
 
         When skip_ai=False, calls PluginMediator to apply AI column suggestions and template pool enrichment.
 
@@ -528,17 +533,9 @@ class SpecResolverMixin:
             A 4-tuple (generator_specs, user_configs, unique_columns, composite_unique).
         """
         t_resolve = time.monotonic()
-        if enrich and clear_before:
-            specs, user_configs, unique_columns, composite_unique = self._resolve_specs(
-                table_name, count, columns, column_configs, enrich
-            )
-            self._db.clear_table(table_name)
-        else:
-            if clear_before:
-                self._db.clear_table(table_name)
-            specs, user_configs, unique_columns, composite_unique = self._resolve_specs(
-                table_name, count, columns, column_configs, enrich
-            )
+        specs, user_configs, unique_columns, composite_unique = self._resolve_specs(
+            table_name, count, columns, column_configs, enrich, clear_before=clear_before
+        )
         logger.debug("resolve_specs", table_name=table_name, elapsed=f"{time.monotonic() - t_resolve:.3f}s")
         builtin_count = sum(
             1

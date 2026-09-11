@@ -265,7 +265,7 @@ class Level2ColumnHealer:
                 temperature=self._temperature,
                 max_tokens=self._max_response_tokens,
             )
-        except (TimeoutError, ConnectionError, OSError):
+        except OSError:
             raise
         except (RuntimeError, AttributeError, ValueError) as exc:
             logger.warning("Level 2 LLM call failed", column=column_name, error=str(exc))

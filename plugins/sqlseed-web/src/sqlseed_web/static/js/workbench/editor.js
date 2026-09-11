@@ -268,15 +268,19 @@ export function createRuleEditor({table, column, rule, baseline, catalog, draft,
     let custom = Array.isArray(value) ? [...value] : value === 'workdays' ? [0, 1, 2, 3, 4] : value === 'weekend' ? [5, 6] : [0, 1, 2, 3, 4, 5, 6];
     let selectedMode = Array.isArray(value) ? 'custom' : ['all', 'workdays', 'weekend'].includes(value) ? value : 'raw';
     const wrap = h('div', {class: 'wb-weekday-control'}), days = h('div', {class: 'wb-weekday-options'});
+    const updateDay = (day, checked) => {
+      custom = custom.filter(item => item !== day);
+      if (checked) custom.push(day);
+      custom.sort((left, right) => left - right);
+      if (!custom.length) errors.set('weekdays', '自定义星期至少选择一天。');
+      else { errors.delete('weekdays'); current.params.weekdays = [...custom]; }
+      emit();
+    };
     const renderDays = () => {
       days.hidden = selectedMode !== 'custom';
       days.replaceChildren(...['周一', '周二', '周三', '周四', '周五', '周六', '周日'].map((label, day) =>
-        h('label', {}, h('input', {type: 'checkbox', 'data-field': `weekday-${day}`, checked: custom.includes(day), onchange: event => {
-          custom = custom.filter(item => item !== day); if (event.target.checked) custom.push(day); custom.sort();
-          if (!custom.length) errors.set('weekdays', '自定义星期至少选择一天。');
-          else { errors.delete('weekdays'); current.params.weekdays = [...custom]; }
-          emit();
-        }}), label)));
+        h('label', {}, h('input', {type: 'checkbox', 'data-field': `weekday-${day}`, checked: custom.includes(day),
+          onchange: event => updateDay(day, event.target.checked)}), label)));
     };
     const choices = [{value: 'all', label: '每天'}, {value: 'workdays', label: '工作日（周一至周五）'}, {value: 'weekend', label: '周末'}, {value: 'custom', label: '自定义星期'}];
     if (selectedMode === 'raw') choices.push({value: 'raw', label: `已导入：${String(value)}`});

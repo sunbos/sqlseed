@@ -388,7 +388,7 @@ def test_missing_required_provider_is_an_environment_repair_not_optional_install
     faker = next(item for item in response.json()["providers"] if item["id"] == "faker")
     assert faker["requirement"] == "required" and faker["status"] == "not_installed"
     assert "必需依赖缺失" in faker["guidance"] and "修复" in faker["guidance"]
-    assert "private" not in response.text
+    assert "private-provider-secret" not in response.text
 
 
 @pytest.mark.parametrize("installed", [False, True])
@@ -466,7 +466,8 @@ def test_missing_optional_packages_and_broken_imports_remain_readable(
     packages = {item["id"]: item for item in result["packages"]}
     assert packages["ai"]["status"] == "not_installed" and packages["ai"]["available"] is False
     assert packages["mcp"]["status"] == "import_error" and packages["mcp"]["available"] is False
-    assert "private" not in response.text
+    assert "private-missing-secret" not in response.text
+    assert "private-broken-secret" not in response.text
     assert client.get("/api/health").json() == {"status": "ok"}
 
 
