@@ -47,16 +47,19 @@ def database(tmp_path: Path) -> Path:
     return path
 
 
-@pytest.mark.parametrize("alias", ["url", "file_uri", "localhost_uri", "symlink"])
+@pytest.mark.parametrize("alias", ["url", "file_uri", "localhost_uri", "encoded_colon_uri", "symlink"])
 def test_real_file_aliases_share_configuration_group_and_write_admission(
     registry: UIState, database: Path, alias: str
 ) -> None:
+    database = database.rename(database.with_name("orders with spaces %41.db"))
     if alias == "url":
         target = f"sqlite+pysqlite:///{database}"
-    elif alias in {"file_uri", "localhost_uri"}:
+    elif alias in {"file_uri", "localhost_uri", "encoded_colon_uri"}:
         file_uri = database.as_uri()
         if alias == "localhost_uri":
             file_uri = file_uri.replace("file://", "file://localhost", 1)
+        elif alias == "encoded_colon_uri":
+            file_uri = "file:" + file_uri.removeprefix("file:").replace(":", "%3A")
         target = f"sqlite:///{file_uri}?uri=true&mode=rw"
     else:
         link = database.with_name("linked.db")
@@ -220,9 +223,11 @@ def test_literal_file_prefix_draft_is_never_authorized_for_a_different_uri_datab
     registry: UIState, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    # sqlite3's default URI=False opens a literal filename; URI=True strips file:.
+    # SQLITE_USE_URI builds parse a relative "file:" prefix even with uri=False.
+    # An absolute path creates the literal filename on both SQLite builds, as
+    # SQLAlchemy also does for the non-URI connection below.
     for filename, marker in (("file:catalog.db", 7), ("catalog.db", 99)):
-        with sqlite3.connect(filename, uri=False) as db:
+        with sqlite3.connect(tmp_path / filename, uri=False) as db:
             db.execute("CREATE TABLE items(id INTEGER PRIMARY KEY, value INTEGER NOT NULL)")
             db.execute("INSERT INTO items VALUES(1, ?)", (marker,))
     literal = registry.add_connection("sqlite:///file:catalog.db?uri=false", provider="base")
@@ -232,6 +237,7 @@ def test_literal_file_prefix_draft_is_never_authorized_for_a_different_uri_datab
     schema = inspect_connection(literal)
     uri_schema = inspect_connection(uri)
     assert schema["schema_hash"] == uri_schema["schema_hash"]
+    assert schema["target_key"] != uri_schema["target_key"]
     document = normalize_document(literal, {"provider": "base", "tables": [{"name": "items", "count": 2}]})
     store = WorkspaceStore(tmp_path / "workspace.db")
     draft = store.save_draft(

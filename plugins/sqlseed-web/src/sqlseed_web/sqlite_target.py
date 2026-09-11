@@ -5,7 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
-from urllib.parse import parse_qs, unquote, urlsplit
+from urllib.parse import parse_qs, quote, unquote, urlsplit
+from urllib.request import url2pathname
 
 from sqlalchemy.dialects.sqlite.pysqlite import SQLiteDialect_pysqlite
 from sqlalchemy.engine import Dialect, make_url
@@ -73,4 +74,8 @@ def sqlite_target(target: str, conn_id: str) -> SQLiteTarget | None:
             if query.get("cache") == ["shared"]:
                 return SQLiteTarget("sqlite-shared-memory", filename)
             return SQLiteTarget("sqlite-memory", conn_id)
+        # Convert URI drive syntax (/C:/...) to a native Windows filename.
+        # Re-encode the validated text so literal percent sequences are not
+        # decoded twice by url2pathname; keep drive colons visible to it.
+        filename = url2pathname(quote(filename, safe="/:"))
     return SQLiteTarget("sqlite", str(Path(filename).resolve()))

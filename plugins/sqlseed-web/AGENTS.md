@@ -29,7 +29,7 @@
 从仓库根执行：
 
 ```bash
-pip install -e "./plugins/sqlseed-web[dev]"
+python -m pip install -e "." -e "./plugins/sqlseed-web[dev]"
 pytest plugins/sqlseed-web/tests/ -q
 node --test plugins/sqlseed-web/tests/test_*.cjs
 ruff check plugins/sqlseed-web/

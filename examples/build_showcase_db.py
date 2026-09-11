@@ -9,16 +9,23 @@
 
 用法:
     .venv/bin/python examples/build_showcase_db.py
+
+每次运行在私有临时目录创建数据库，打印完整路径并保留文件供后续检查。
 """
 
 from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
+from tempfile import mkdtemp
 
 from sqlseed import connect
 
-DB_PATH = Path("/tmp/sqlseed_showcase.db")
+
+def create_database_path() -> Path:
+    """Allocate a private output directory and retain the example for inspection."""
+    return Path(mkdtemp(prefix="sqlseed-showcase-")) / "showcase.db"
+
 
 # ---------------------------------------------------------------------------
 # Schema: SaaS 电商平台（15 张表，按 FK 拓扑顺序排列）
@@ -652,9 +659,11 @@ def verify(db_path: Path) -> None:
 
 def main() -> None:
     """构建 schema → 填充数据 → 验证约束合规性。"""
-    build_schema(DB_PATH)
-    fill_data(DB_PATH)
-    verify(DB_PATH)
+    db_path = create_database_path()
+    print(f"[output] 示例数据库将保留在 {db_path}")
+    build_schema(db_path)
+    fill_data(db_path)
+    verify(db_path)
 
 
 if __name__ == "__main__":

@@ -48,7 +48,7 @@ def test_real_order_data_obeys_relationships_and_matches_report(tmp_path: Path) 
     }
     assert report["validation"]["row_counts"] == {table: len(records) for table, records in actual.items()}
     assert report["validation"]["ok"] is True
-    assert json.loads((output / "report.json").read_text()) == report
+    assert json.loads((output / "report.json").read_text(encoding="utf-8")) == report
     with closing(sqlite3.connect(output / "orders.db")) as db:
         assert db.execute("PRAGMA foreign_key_check").fetchall() == []
         assert db.execute("PRAGMA integrity_check").fetchall() == [("ok",)]
