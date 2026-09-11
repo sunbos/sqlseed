@@ -323,7 +323,15 @@
 .wb-preview-tables { display:flex; flex-wrap:wrap; gap:7px; margin:16px 0 12px; }
 .wb-preview-tables .btn[aria-pressed=true] { border-color:var(--teal); color:var(--teal); background:var(--soft); }
 .wb-preview-summary { margin:12px 0; font-size:13px; }
-.wb-preview-scroll { max-height:48vh; overflow:auto; border:1px solid var(--line); border-radius:8px; }
+/* Short inline previews stay natural; long tables retain their fixed headers. */
+.wb-preview-scroll { overflow-x:auto; border:1px solid var(--line); border-radius:8px; }
+.wb-preview-scroll.wb-preview-long { max-height:55vh; overflow:auto; }
+/* Only the measured desktop table or the modal body scrolls vertically. */
+.modal.wb-data-preview > .modal-body { display:flex; flex-direction:column; scrollbar-gutter:stable; }
+.modal.wb-data-preview > .modal-body > * { flex:none; }
+.modal.wb-data-preview .wb-preview-results { display:flex; flex-direction:column; }
+.modal.wb-data-preview .wb-preview-results > * { flex:none; }
+.modal.wb-data-preview.wb-preview-table-scroll > .modal-body { overflow:hidden; }
 .wb-preview-data { width:max-content; min-width:100%; border-collapse:collapse; table-layout:auto; font-size:12px; }
 .wb-preview-data caption { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
 .wb-preview-data thead th { position:sticky; top:0; z-index:1; background:var(--soft); text-align:left; white-space:nowrap; }
@@ -339,7 +347,6 @@
   .wb-preview-controls { gap:10px; }
   .wb-preview-field:first-child { width:100%; }
   .wb-preview-field .dropdown { width:100%; }
-  .wb-preview-scroll { max-height:40vh; }
 }
 
 /* Object-focused workbench: table navigation and table content size independently. */
@@ -383,7 +390,6 @@
 .wb-page .statusbar { padding:10px 22px; }
 .wb-table-preview { padding:2px 22px 18px; }
 .wb-table-preview .wb-preview-controls { margin-top:12px; }
-.wb-table-preview .wb-preview-scroll { max-height:55vh; }
 .wb-table-preview .wb-preview-summary { margin:10px 0; }
 .wb-document-toolbar { display:flex; align-items:center; flex-wrap:wrap; gap:10px; margin:14px 0 10px; }
 .wb-document-format { display:flex; align-items:center; gap:8px; margin-left:auto; color:var(--muted); font-size:12px; }

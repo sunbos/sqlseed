@@ -767,7 +767,7 @@ function previewReturnHandler(owner,m,{scope,table,column,view:sourceView}) {
     if(scope==='selected')return refreshSamples(view);
     if(m.view.page!=='preview' || m.view.table!==table)return;
     previewReturns.set(m,{table,view});drawBody();
-    [...content.querySelectorAll('[data-preview-column]')].find(item=>item.getAttribute('data-preview-column')===column && item.getAttribute('data-preview-entry')===(sourceView.columnAction || 'information'))?.focus();
+    [...content.querySelectorAll('[data-preview-column]')].find(item=>item.getAttribute('data-preview-column')===column && item.getAttribute('data-preview-entry')===(sourceView.columnAction || 'information'))?.focus({preventScroll:true});
   };
 }
 function editPreviewColumn(owner,m,scope,action,context) {
@@ -798,7 +798,7 @@ async function refreshSamples(resume=null) {
     onError:error=>{if(current())notify(error.message,true);},
   });
   openedModal=preview.dialog;
-  if(resume){[...preview.dialog.body.querySelectorAll('[data-preview-column]')].find(item=>item.getAttribute('data-preview-column')===resume.column && item.getAttribute('data-preview-entry')===(resume.columnAction || 'information'))?.focus();return;}
+  if(resume){[...preview.dialog.body.querySelectorAll('[data-preview-column]')].find(item=>item.getAttribute('data-preview-column')===resume.column && item.getAttribute('data-preview-entry')===(resume.columnAction || 'information'))?.focus({preventScroll:true});return;}
   await preview.refresh();
 }
 
