@@ -9,7 +9,7 @@ from sqlseed._utils.logger import get_logger
 from sqlseed.generators._protocol import ConfigurationError, GenerationError, UnknownGeneratorError
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
 
     from sqlseed.core.column_dag import ColumnNode
     from sqlseed.core.constraints import ConstraintSolver
@@ -26,6 +26,36 @@ logger = get_logger(__name__)
 # resolve realistic UNIQUE conflicts on small-to-medium value spaces while
 # bounding the worst-case cost per row.
 MAX_ROW_RETRIES = 1000
+
+
+class GenerationBudgetExceededError(RuntimeError):
+    """The caller's optional stream-wide attempt budget has been consumed."""
+
+    def __init__(self, limit: int, *, table: str | None, column: str | None, generator: str | None) -> None:
+        self.limit = limit
+        self.table = table
+        self.column = column
+        self.generator = generator
+        context = f" for table {table!r}" if table is not None else ""
+        if column is not None:
+            context += f", column {column!r} (generator={generator!r})"
+        else:
+            context += " during a row attempt (no generated column)"
+        super().__init__(
+            f"Generation attempt budget exhausted after {limit} attempts{context}. "
+            "The budget counts row attempts and column candidates; it does not prove the value space is exhausted."
+        )
+
+
+class GenerationCancelledError(RuntimeError):
+    """A cooperative cancellation guard stopped generation.
+
+    ``reason`` retains the caller's exception for boundary layers to propagate.
+    """
+
+    def __init__(self, reason: Exception) -> None:
+        super().__init__("Generation cancelled by the caller")
+        self.reason = reason
 
 
 def _violates_inequality(v1: Any, v2: Any, op: str, col1: str, col2: str) -> bool:
@@ -83,6 +113,10 @@ class DataStream:
         seed: int | None = None,
         composite_unique_constraints: list[list[str]] | None = None,
         inequality_constraints: list[tuple[str, str, str]] | list[tuple[str, str]] | None = None,
+        *,
+        max_attempts: int | None = None,
+        cancel_check: Callable[[], None] | None = None,
+        table_name: str | None = None,
     ) -> None:
         """Initialize the data stream.
 
@@ -107,7 +141,25 @@ class DataStream:
                 sampled (e.g., start_time and end_time with LIKE constraints
                 that block derive_from, or origin_wh_id and dest_wh_id both
                 referencing warehouses with ``CHECK(origin_wh_id != dest_wh_id)``).
+            max_attempts: Optional positive stream-wide budget. Each row attempt
+                and each column candidate consumes one unit, across batches and
+                repeated ``generate`` calls. None preserves normal retry limits.
+            cancel_check: Optional cooperative guard. Exceptions stop generation
+                as ``GenerationCancelledError`` with the original exception as reason.
+                Checked between attempts and around transforms; cannot interrupt
+                a provider or expression while its call is running.
+            table_name: Optional diagnostic context; never includes row values.
         """
+        if max_attempts is not None and (type(max_attempts) is not int or max_attempts <= 0):
+            raise ValueError("max_attempts must be a positive integer or None")
+        self._max_attempts = max_attempts
+        self._attempts = 0
+        self._cancel_check = cancel_check
+        self._table_name = table_name
+        self._last_attempt_node: ColumnNode | None = None
+        self._last_row_registrations: dict[str, Any] = {}
+        self._selected_fk_pairs: dict[str, tuple[Any, Any]] = {}
+        self._current_row_composites: list[tuple[str, tuple[Any, ...]]] = []
         self._nodes = dag_nodes
         self._provider = provider
         self._expr_engine = expr_engine
@@ -126,7 +178,9 @@ class DataStream:
                 # constraints referencing skipped columns (e.g., autoincrement
                 # PKs) can't be enforced at the row level.
                 if all(c in node_names for c in cols):
-                    key_name = "__composite__" + "_".join(cols)
+                    # Preserve column boundaries: (a_b, c) and (a, b_c)
+                    # must never share a seen set.
+                    key_name = f"__composite__{tuple(cols)!r}"
                     self._composite_unique.append((key_name, cols))
 
         # Normalize inequality constraints: only keep tuples where both columns
@@ -153,6 +207,31 @@ class DataStream:
         # 引用恰好一次（覆盖式），轮与轮之间顺序随机。
         self._coverage_queues: dict[int, list[Any]] = {}
 
+    def _check_cancelled(self) -> None:
+        if self._cancel_check is not None:
+            try:
+                self._cancel_check()
+            except GenerationCancelledError:
+                raise
+            except Exception as exc:
+                raise GenerationCancelledError(exc) from exc
+
+    def _consume_attempt(self, node: ColumnNode | None = None) -> None:
+        self._check_cancelled()
+        if node is not None:
+            self._last_attempt_node = node
+        if self._max_attempts is None:
+            return
+        if self._attempts >= self._max_attempts:
+            last = self._last_attempt_node
+            raise GenerationBudgetExceededError(
+                self._max_attempts,
+                table=self._table_name,
+                column=last.name if last is not None else None,
+                generator=last.generator_spec.generator_name if last is not None else None,
+            )
+        self._attempts += 1
+
     def generate(
         self,
         count: int,
@@ -167,12 +246,33 @@ class DataStream:
         Yields:
             A list of generated rows for each batch. Each row is a dict mapping column names to values.
         """
+        if type(batch_size) is not int or batch_size <= 0:
+            raise ValueError("batch_size must be a positive integer")
         generated = 0
         while generated < count:
             current_batch_size = min(batch_size, count - generated)
-            batch = [self._generate_row(row_idx=generated + i + 1) for i in range(current_batch_size)]
+            batch = []
+            registrations: list[dict[str, Any]] = []
+            try:
+                for i in range(current_batch_size):
+                    batch.append(self._generate_row(row_idx=generated + i + 1))
+                    registrations.append(self._last_row_registrations)
+            except BaseException:
+                # None of this batch has been delivered. Use the original
+                # registered values, since transforms may mutate returned rows.
+                for values in registrations:
+                    self._unregister_row(values)
+                raise
+            registrations.clear()
+            self._last_row_registrations = {}
             yield batch
             generated += current_batch_size
+
+    def _unregister_row(self, values: dict[str, Any]) -> None:
+        for key_name, cols in self._composite_unique:
+            self._constraint_solver.unregister_composite(key_name, tuple(values.get(c) for c in cols))
+        for column, value in values.items():
+            self._constraint_solver.unregister(column, value)
 
     def _generate_node_value(
         self,
@@ -218,6 +318,25 @@ class DataStream:
                 raise GenerationError(f"Expression evaluation failed: {exc}") from exc
             except (TypeError, AttributeError) as exc:
                 raise ConfigurationError(f"Expression misconfigured: {exc}") from exc
+
+        spec = node.generator_spec
+        pairs = spec.params.get("_ref_pairs")
+        pair_source = spec.params.get("_pair_source")
+        if pairs:
+            available = [pair for pair in pairs if pair[0] not in exclude_values] if exclude_values else pairs
+            candidates = available or pairs
+            if not exclude_values and spec.params.get("strategy") == "coverage":
+                pair = self._coverage_pick(spec, candidates)
+            else:
+                pair = self._rng.choice(candidates)
+            self._selected_fk_pairs[node.name] = pair
+            if node.nullable and spec.null_ratio > 0 and self._rng.random() < spec.null_ratio:
+                return None
+            return pair[0]
+        if isinstance(pair_source, str) and pair_source in self._selected_fk_pairs:
+            if node.nullable and spec.null_ratio > 0 and self._rng.random() < spec.null_ratio:
+                return None
+            return self._selected_fk_pairs[pair_source][1]
 
         try:
             return self._apply_generator(node.generator_spec, exclude_values=exclude_values, nullable=node.nullable)
@@ -274,6 +393,7 @@ class DataStream:
         source_columns = node.derive_from_sources if node.is_derived else None
 
         for _ in range(max_retries):
+            self._consume_attempt(node)
             try:
                 # UNIQUE columns: pass the seen set as exclude_values so the
                 # generator can avoid producing values already in use. This is
@@ -296,6 +416,9 @@ class DataStream:
                 val,
                 is_unique=is_unique,
                 source_columns=source_columns,
+                min_value=node.constraints.min_value if node.constraints else None,
+                max_value=node.constraints.max_value if node.constraints else None,
+                regex=node.constraints.regex if node.constraints else None,
             )
 
             if result.is_registered:
@@ -400,10 +523,14 @@ class DataStream:
         # this, the constraint solver's ``check_and_register_composite()`` is
         # never called, and composite UNIQUE violations only surface at INSERT
         # time as IntegrityError (fatal, no retry).
+        registered_composites = self._current_row_composites
         if self._composite_unique:
             for key_name, cols in self._composite_unique:
                 composite_tuple = tuple(row.get(c) for c in cols)
-                if not self._constraint_solver.check_and_register_composite(key_name, composite_tuple):
+                if not self._constraint_solver.check_and_register_composite(key_name, composite_tuple, columns=cols):
+                    for registered_key, registered_tuple in registered_composites:
+                        self._constraint_solver.unregister_composite(registered_key, registered_tuple)
+                    registered_composites.clear()
                     # Collision: roll back all single-column registrations and
                     # retry the whole row. Use the first composite column as
                     # the backtracking target so the retry regenerates it.
@@ -413,6 +540,7 @@ class DataStream:
                     row.clear()
                     bt_idx = self._find_node_index(cols[0])
                     return False, bt_idx
+                registered_composites.append((key_name, composite_tuple))
 
         # Inequality CHECK enforcement: after all columns are generated, check
         # each ``col1 OP col2`` constraint. If violated, roll back and retry.
@@ -429,6 +557,9 @@ class DataStream:
                     continue
                 violated = _violates_inequality(v1, v2, op, col1, col2)
                 if violated:
+                    for registered_key, registered_tuple in registered_composites:
+                        self._constraint_solver.unregister_composite(registered_key, registered_tuple)
+                    registered_composites.clear()
                     for col, val in generated_values.items():
                         self._constraint_solver.unregister(col, val)
                     generated_values.clear()
@@ -459,12 +590,29 @@ class DataStream:
         total_retries = 0
 
         while total_retries < max_total_retries:
+            self._consume_attempt()
             row: dict[str, Any] = {}
             generated_values: dict[str, Any] = {}
+            self._selected_fk_pairs.clear()
+            self._current_row_composites = []
 
-            success, backtrack_to = self._attempt_row_generation(row, generated_values)
+            try:
+                success, backtrack_to = self._attempt_row_generation(row, generated_values)
+            except BaseException:
+                # Every interrupted current row is uncommitted. Track only the
+                # composite keys actually accepted, so a later check failure
+                # cannot unregister a colliding key belonging to a prior row.
+                for key, values in self._current_row_composites:
+                    self._constraint_solver.unregister_composite(key, values)
+                self._current_row_composites.clear()
+                self._handle_col_failure(None, row, generated_values)
+                raise
 
             if backtrack_to is not None:
+                # The next attempt rebuilds the whole row, so release every
+                # remaining registration, including independent UNIQUE nodes
+                # preceding a derived column whose source was rolled back.
+                self._handle_col_failure(None, row, generated_values)
                 total_retries += 1
                 if total_retries <= 3:
                     logger.debug(
@@ -476,7 +624,15 @@ class DataStream:
                 continue
 
             if generated_values or not any(not n.is_skip for n in self._nodes):
-                return self._finalize_row(row, row_idx, total_retries)
+                try:
+                    self._check_cancelled()
+                    final_row = self._finalize_row(row, row_idx, total_retries)
+                    self._check_cancelled()
+                    self._last_row_registrations = generated_values
+                    return final_row
+                except BaseException:
+                    self._unregister_row(generated_values)
+                    raise
 
             if total_retries <= 3:
                 logger.debug(
@@ -494,6 +650,13 @@ class DataStream:
             if not n.is_skip and n.constraints and n.constraints.is_unique
         ]
         detail = f" Unique-constraint columns: {unique_nodes}" if unique_nodes else ""
+        if self._composite_unique:
+            detail += f" Composite UNIQUE constraints: {[cols for _, cols in self._composite_unique]}."
+        if unique_nodes or self._composite_unique:
+            detail += (
+                " Reusing a seed may replay existing keys. Reaching the retry limit"
+                " does not establish that the UNIQUE value space is exhausted."
+            )
         raise RuntimeError(
             f"Failed to generate row satisfying all constraints after {max_total_retries} retries. "
             f"Non-skip columns: {non_skip_nodes}.{detail}"
@@ -524,9 +687,8 @@ class DataStream:
 
         Processing order:
         1. If ``null_ratio`` hits AND the column is nullable, return ``None``;
-        2. Try a native method (direct faker/mimesis call) — skipped when
-           ``exclude_values`` is non-empty, because native methods don't
-           support exclude and would bypass the dispatch-layer retry loop;
+        2. Run the configured native method for the current provider. The
+           constraint solver retries duplicate native values at the node level;
         3. Call ``provider.generate`` for regular generation, passing
            ``exclude_values`` for UNIQUE-aware retry;
         4. On ``UnknownGeneratorError``, ``choice`` falls back to local random and
@@ -557,14 +719,25 @@ class DataStream:
             elif self._rng.random() < spec.null_ratio:
                 return None
 
-        # Skip native method when exclude_values is needed — native methods
-        # (faker/mimesis direct calls via native_faker_method/native_mimesis_method)
-        # don't support exclude_values, so we fall through to the dispatch
-        # layer's retry-with-exclude logic which does.
-        if not exclude_values:
-            native_result = self._try_native_method(spec)
-            if native_result is not _NATIVE_MISS:
-                return native_result
+        # Native methods do not accept exclude_values. The surrounding solver
+        # still checks each candidate, so UNIQUE must not switch later rows to
+        # a different generator after the first native value is registered.
+        native_result = self._try_native_method(spec)
+        if native_result is not _NATIVE_MISS:
+            return native_result
+        native_method = (
+            spec.native_faker_method
+            if self._provider.name == "faker"
+            else spec.native_mimesis_method
+            if self._provider.name == "mimesis"
+            else None
+        )
+        if native_method or spec.generator_name == "__native__":
+            configured = native_method or spec.native_faker_method or spec.native_mimesis_method
+            raise ConfigurationError(
+                f"Native method '{configured}' is unavailable or has invalid parameters "
+                f"for provider '{self._provider.name}'"
+            )
 
         try:
             if spec.params:

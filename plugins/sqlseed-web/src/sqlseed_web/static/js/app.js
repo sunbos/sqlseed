@@ -1,33 +1,59 @@
-// Router: hash-based navigation, lazy page module loading.
-// 参考工具-style IA: 连接 → 数据生成向导（三步工作台）→ 数据浏览（三栏）
-// → AI 分析与修复 → 系统面板。
-
 import { setConnBadge } from './api.js';
+import { openConnectionDialog } from './workbench/connection.js';
 
+// Retired connect/wizard/browse/heal/meta modules remain historical source only.
+// Product navigation mounts the unified workbench or durable run history.
 const pages = {
-  connect: () => import('./pages/connect.js'),
-  wizard: () => import('./pages/wizard.js'),
-  browse: () => import('./pages/browse.js'),
-  heal: () => import('./pages/heal.js'),
-  meta: () => import('./pages/meta.js'),
+  workbench: () => import('./pages/workbench.js'),
+  configs: () => import('./pages/configs.js'),
+  runs: () => import('./pages/runs.js'),
+  settings: () => import('./pages/settings.js'),
 };
+let currentModule = null;
+let routeVersion = 0;
+let committedPage = null;
+const maintenance = document.documentElement?.getAttribute('data-plugin-maintenance') === 'true';
+const initialRecovery = document.documentElement?.getAttribute('data-plugin-supervised-maintenance') === 'true';
 
 async function render() {
-  const hash = location.hash || '#/connect';
-  const page = hash.replace('#/', '').split('?')[0] || 'connect';
-  const main = document.getElementById('main');
-  document.querySelectorAll('#nav a').forEach((a) => {
-    a.classList.toggle('active', a.dataset.page === page);
+  const version = ++routeVersion;
+  currentModule?.unmount?.();
+  currentModule = null;
+  const requested = location.hash.replace('#/', '').split('?')[0];
+  const recovering = initialRecovery && committedPage === null;
+  const page = maintenance || recovering ? 'settings' : Object.hasOwn(pages, requested) ? requested : 'workbench';
+  if ((maintenance || recovering) && location.hash !== '#/settings?section=plugins') location.hash = '#/settings?section=plugins';
+  document.title = maintenance ? 'sqlseed · 插件维护' : `sqlseed · ${{workbench:'工作台',configs:'配置管理',runs:'运行记录',settings:'设置'}[page]}`;
+  const main = document.getElementById('app');
+  document.querySelectorAll('#nav button').forEach(button => {
+    const active = button.dataset.page === page;
+    button.classList.toggle('active', active);
+    if (active) button.setAttribute('aria-current', 'page');
+    else button.removeAttribute('aria-current');
   });
-  if (!pages[page]) {
-    main.textContent = `未知页面: ${page}`;
-    return;
+  try {
+    const module = await pages[page]();
+    if (version !== routeVersion) return;
+    currentModule = module;
+    const content = module.render();
+    if (committedPage !== null && committedPage !== page) content.classList.add('page-enter');
+    main.replaceChildren(content);
+    committedPage = page;
+    await module.mount?.();
+    if (version === routeVersion && !maintenance) setConnBadge();
+  } catch (error) {
+    if (version === routeVersion) main.textContent = `页面加载失败：${error.message}`;
   }
-  const mod = await pages[page]();
-  main.replaceChildren(mod.render());
-  if (mod.mount) mod.mount();
 }
 
+document.querySelectorAll('#nav button').forEach(button => {
+  const unavailable = maintenance && button.dataset.page !== 'settings';
+  button.hidden = unavailable; button.disabled = unavailable;
+  button.onclick = () => {if (!unavailable) location.hash = maintenance ? '#/settings?section=plugins' : `#/${button.dataset.page}`;};
+});
+const connectionButton = document.getElementById('connection-button');
+connectionButton.hidden = maintenance; connectionButton.disabled = maintenance;
+connectionButton.onclick = () => {if (!maintenance) openConnectionDialog({});};
 window.addEventListener('hashchange', render);
-setConnBadge();
+window.addEventListener('sqlseed:connection-changed', () => {if (!maintenance) {setConnBadge(); render();}});
 render();

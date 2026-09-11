@@ -1,31 +1,45 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [project]
 name = "sqlseed-web"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Web UI for sqlseed: schema browsing, column-mapping inspector, config editor, preview/fill runner, and self-heal laboratory."
+readme = "README.md"
 requires-python = ">=3.10"
 license = "AGPL-3.0-or-later"
 authors = [{ name = "sqlseed contributors" }]
 keywords = ["sqlseed", "test-data", "web-ui", "fastapi"]
 dependencies = [
-    "sqlseed",
+    "sqlseed>=0.2.4.dev0",
     "fastapi>=0.110",
     "uvicorn>=0.29",
     "pyyaml>=6.0",
+    "packaging>=23.2",
 ]
 
 [project.optional-dependencies]
-ai = ["sqlseed-ai"]
+ai = ["sqlseed-ai>=0.2.4.dev0"]
 dev = ["pytest>=8.0", "httpx>=0.27"]
 
 [project.scripts]
 sqlseed-web = "sqlseed_web.app:main"
 
+[project.urls]
+Homepage = "https://github.com/sunbos/sqlseed"
+Repository = "https://github.com/sunbos/sqlseed/tree/main/plugins/sqlseed-web"
+Documentation = "https://github.com/sunbos/sqlseed/blob/main/docs/web-workbench.md"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/sqlseed_web"]
+
+[tool.hatch.version]
+source = "vcs"
+fallback-version = "0.0.0"
+
+[tool.hatch.version.raw-options]
+root = "../.."
 
 [tool.ruff]
 line-length = 120

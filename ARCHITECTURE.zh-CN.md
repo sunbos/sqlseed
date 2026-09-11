@@ -194,6 +194,10 @@ sqlseed 是一个**声明式多数据库测试数据生成工具包**。它专�
 
 ---
 
+### 3.5 独立应用：`sqlseed-web`
+
+Web 是第五个发行包，使用 FastAPI 与随 wheel 打包的静态 ES modules。它直接调用离线 core，AI 建议为可选能力；不通过 CLI 子进程执行生成，也不向 core 注册 UI hooks。配置、运行记录与 HTTP 生命周期属于 Web。默认 supervisor 管理业务/维护 worker；组件操作和可用性提示不改变离线 core 的依赖。普通 Web 是可信本机用户的工作台，不提供多用户认证。详见 [Web 指南](docs/web-workbench.md)。
+
 ## 4. 依赖方向
 
 ```
@@ -203,6 +207,7 @@ sqlseed 是一个**声明式多数据库测试数据生成工具包**。它专�
 sqlseed（核心）◄──── plugins/sqlseed-cli (CLI)
     │                plugins/sqlseed-ai (AI)
     │                plugins/mcp-server-sqlseed (MCP)
+    │                plugins/sqlseed-web (Web)
     │
     ▼
 sqlseed._utils（无内部依赖，被所有层使用）
@@ -212,7 +217,7 @@ sqlseed._utils（无内部依赖，被所有层使用）
 - `generators/` → 永不导入 `core/`
 - `database/` → 永不导入 `core/`
 - `_utils/` → 永不导入任何上层
-- 插件 → 导入 `sqlseed` 核心，永不互相导入（除 sqlseed-ai 可为 CLI entry point 导入 sqlseed-cli）
+- 插件导入 `sqlseed` 核心；AI 可为 CLI entry point 依赖 CLI，Web 可按可选安装状态调用 AI 的 Python 服务。Web/MCP 不导入 AI CLI 私有实现。
 
 ---
 
@@ -246,7 +251,7 @@ sqlseed._utils（无内部依赖，被所有层使用）
 
 ### 6.1 版本兼容性策略
 
-4 个独立包（`sqlseed`、`sqlseed-cli`、`sqlseed-ai`、`mcp-server-sqlseed`）各有独立版本号，以下策略管理跨包兼容性：
+5 个独立包（`sqlseed`、`sqlseed-cli`、`sqlseed-ai`、`mcp-server-sqlseed`、`sqlseed-web`）各有独立版本号，以下策略管理跨包兼容性：
 
 | 变更类型 | 版本影响 | 插件操作 |
 |---------|---------|---------|

@@ -20,13 +20,10 @@ jobs:
           python-version: "3.13"
 
       - name: Install Python dependencies
-        # Install local plugins BEFORE core extras so pip can satisfy
-        # `sqlseed-cli>=0.1.0` (referenced in [dev] extra) from the
-        # local editable install instead of PyPI. sqlseed-cli is not
-        # yet published to PyPI (monorepo package).
+        # Supply both local candidates so an unpublished Core requirement
+        # is resolved from this checkout rather than the package index.
         run: |
-          pip install -e "./plugins/sqlseed-cli"
-          pip install -e ".[dev]"
+          python -m pip install -e ".[dev]" -e "./plugins/sqlseed-cli"
 
       - name: Run doc_sync tests
         run: python -m pytest tests/test_doc_sync.py -v

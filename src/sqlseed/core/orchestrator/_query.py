@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy.exc import OperationalError as SAOperationalError
 
 from sqlseed._utils.sql_safe import validate_table_name
+from sqlseed.database._sqlite_schema import resolve_sqlite_table_name
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -145,9 +146,20 @@ class QueryMixin:
         }
 
     def get_topological_table_order(self, table_names: list[str]) -> list[str]:
-        """Return the given tables ordered so referenced tables precede their dependents."""
+        """Order tables by catalog identity, retaining the caller's name spellings."""
         self._ensure_connected()
-        return self._relation.topological_sort(table_names)
+        if self._get_dialect_name() != "sqlite":
+            return self._relation.topological_sort(table_names)
+        existing_tables = self._db.get_table_names()
+        requested: dict[str, list[str]] = {}
+        for name in table_names:
+            validate_table_name(name)
+            canonical = resolve_sqlite_table_name(name, existing_tables)
+            aliases = requested.setdefault(canonical, [])
+            if name not in aliases:
+                aliases.append(name)
+        ordered = self._relation.topological_sort(list(requested))
+        return [name for canonical in ordered for name in requested[canonical]]
 
     def get_table_names(self) -> list[str]:
         """Return all table names in the connected database."""

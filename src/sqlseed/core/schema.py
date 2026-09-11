@@ -90,7 +90,7 @@ class SchemaInferrer:
         try:
             indexes = self.get_index_info(table_name)
             for idx in indexes:
-                if idx.unique and len(idx.columns) == 1:
+                if idx.unique and not idx.is_partial and len(idx.columns) == 1:
                     unique_cols.add(idx.columns[0])
         except (ValueError, RuntimeError, OSError, SAOperationalError):
             logger.debug("Failed to detect unique constraints from indexes", table_name=table_name)
@@ -98,7 +98,7 @@ class SchemaInferrer:
         try:
             unique_constraints = self._db.get_unique_constraints(table_name)
             for uc in unique_constraints:
-                if uc.unique and len(uc.columns) == 1:
+                if uc.unique and not uc.is_partial and len(uc.columns) == 1:
                     unique_cols.add(uc.columns[0])
         except (ValueError, RuntimeError, OSError, SAOperationalError):
             logger.debug("Failed to detect unique constraints from get_unique_constraints", table_name=table_name)
@@ -146,7 +146,7 @@ class SchemaInferrer:
         try:
             indexes = self.get_index_info(table_name)
             for idx in indexes:
-                if idx.unique and len(idx.columns) > 1:
+                if idx.unique and not idx.is_partial and len(idx.columns) > 1:
                     key = tuple(idx.columns)
                     if key not in seen:
                         seen.add(key)
@@ -159,7 +159,7 @@ class SchemaInferrer:
         try:
             unique_constraints = self._db.get_unique_constraints(table_name)
             for uc in unique_constraints:
-                if uc.unique and len(uc.columns) > 1:
+                if uc.unique and not uc.is_partial and len(uc.columns) > 1:
                     key = tuple(uc.columns)
                     if key not in seen:
                         seen.add(key)

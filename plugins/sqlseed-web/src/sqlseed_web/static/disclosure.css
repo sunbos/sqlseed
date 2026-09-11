@@ -1,0 +1,149 @@
+/* Shared native disclosures in the product pages and their overlays. */
+:is(.wb-page, .settings-page, .configs-page, .runs-page, .wb-overlay) {
+  --disclosure-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+}
+
+:is(.wb-page, .settings-page, .configs-page, .runs-page, .wb-overlay) details > summary {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-block-size: 38px;
+  padding: 8px 34px 8px 8px;
+  border-radius: 6px;
+  list-style: none;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+:is(.wb-page, .settings-page, .configs-page, .runs-page, .wb-overlay) details > summary::marker {
+  content: "";
+}
+
+:is(.wb-page, .settings-page, .configs-page, .runs-page, .wb-overlay) details > summary::-webkit-details-marker {
+  display: none;
+}
+
+:is(.wb-page, .settings-page, .configs-page, .runs-page, .wb-overlay) details > summary::after,
+.wb-page details.wb-structure-menu[open] > summary::after,
+:is(.wb-page, .settings-page, .configs-page, .runs-page, .wb-overlay) .dropdown-btn::after {
+  content: "";
+  inline-size: 16px;
+  block-size: 16px;
+  flex: 0 0 16px;
+  color: var(--muted);
+  background: currentColor;
+  -webkit-mask: var(--disclosure-chevron) center / contain no-repeat;
+  mask: var(--disclosure-chevron) center / contain no-repeat;
+}
+
+:is(.wb-page, .settings-page, .configs-page, .runs-page, .wb-overlay) details > summary::after {
+  position: absolute;
+  inset-inline-end: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+:is(.wb-page, .settings-page, .configs-page, .runs-page, .wb-overlay) details[open] > summary::after {
+  transform: translateY(-50%) rotate(180deg);
+}
+
+:is(.wb-page, .settings-page, .configs-page, .runs-page, .wb-overlay) .dropdown-btn[aria-expanded="true"]::after {
+  transform: rotate(180deg);
+}
+
+:is(.wb-page, .settings-page, .configs-page, .runs-page, .wb-overlay) details > summary:hover {
+  background-color: var(--wash);
+}
+
+:is(.wb-page, .settings-page, .configs-page, .runs-page, .wb-overlay) details > summary:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+  background-color: var(--soft);
+}
+
+/* Give the table-level constraints one visible disclosure boundary. */
+.wb-overlay .wb-field-constraints {
+  margin-block-start: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+}
+
+.wb-overlay .wb-field-constraints > summary {
+  min-block-size: 42px;
+  padding: 10px 36px 10px 12px;
+  border-radius: 7px;
+  background: var(--wash);
+  font-weight: 600;
+}
+
+.wb-overlay .wb-field-constraints[open] > summary {
+  border-radius: 7px 7px 0 0;
+}
+
+.wb-overlay .wb-field-constraints > summary::after {
+  color: var(--ink);
+}
+
+.wb-overlay .wb-field-constraints > p {
+  margin: 12px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.wb-overlay .wb-field-constraints > p.mono {
+  padding: 8px 10px;
+  border-radius: 5px;
+  background: var(--wash);
+  line-height: 1.65;
+}
+
+/* Long values remain compact inside the current-data table. */
+.wb-overlay details.wb-table-data-value > summary {
+  min-block-size: 0;
+  padding-block: 2px;
+  padding-inline-start: 0;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  :is(.wb-page, .settings-page, .configs-page, .runs-page, .wb-overlay) details > summary {
+    transition: background-color 160ms ease;
+  }
+
+  :is(.wb-page, .settings-page, .configs-page, .runs-page, .wb-overlay) details > summary::after,
+  :is(.wb-page, .settings-page, .configs-page, .runs-page, .wb-overlay) .dropdown-btn::after {
+    transition: transform 200ms ease;
+  }
+
+  @supports selector(details::details-content) and (interpolate-size: allow-keywords) and (transition-behavior: allow-discrete) and (interactivity: inert) {
+    :is(.wb-page, .settings-page, .configs-page, .runs-page, .wb-overlay) details::details-content {
+      interpolate-size: allow-keywords;
+      block-size: 0;
+      content-visibility: hidden;
+      /* Closing keeps content painted briefly, but it must stop receiving input. */
+      interactivity: inert;
+      overflow: clip;
+      transition: block-size 200ms ease, content-visibility 200ms allow-discrete,
+        overflow-x 0s allow-discrete, overflow-y 0s allow-discrete;
+    }
+
+    :is(.wb-page, .settings-page, .configs-page, .runs-page, .wb-overlay) details[open]::details-content {
+      block-size: auto;
+      content-visibility: visible;
+      interactivity: auto;
+      overflow: visible;
+      /* Clip during expansion, then release focus rings and nested controls.
+         The closed rule resets these delays so collapse clips immediately. */
+      transition-delay: 0s, 0s, 200ms, 200ms;
+    }
+  }
+}
+
+@media (forced-colors: active) {
+  :is(.wb-page, .settings-page, .configs-page, .runs-page, .wb-overlay) details > summary::after,
+  :is(.wb-page, .settings-page, .configs-page, .runs-page, .wb-overlay) .dropdown-btn::after {
+    background-color: ButtonText;
+    forced-color-adjust: none;
+  }
+}

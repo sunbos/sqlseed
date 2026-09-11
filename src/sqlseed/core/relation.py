@@ -16,6 +16,7 @@ from sqlalchemy.exc import OperationalError as SAOperationalError
 from sqlseed._utils.logger import get_logger
 from sqlseed._utils.sql_safe import quote_identifier
 from sqlseed.core.mapper import GeneratorSpec
+from sqlseed.generators._protocol import ConfigurationError
 
 if TYPE_CHECKING:
     from sqlseed.database._protocol import ForeignKeyInfo
@@ -108,7 +109,7 @@ class RelationResolver:
     def __init__(self, db_adapter: Any, shared_pool: SharedPool | None = None) -> None:
         self._db = db_adapter
         self._fk_cache: dict[str, list[ForeignKeyInfo]] = {}
-        self._composite_fk_cache: dict[str, dict[str, tuple[str, str]]] = {}
+        self._composite_fk_cache: dict[str, dict[int, list[tuple[str, str, str]]]] = {}
         self._shared_pool = shared_pool if shared_pool is not None else SharedPool()
         self._associations: list[Any] = []
 
@@ -121,6 +122,30 @@ class RelationResolver:
         if table_name not in self._fk_cache:
             self._fk_cache[table_name] = self._db.get_foreign_keys(table_name)
         return self._fk_cache[table_name]
+
+    def validate_generation_schema(self, table_name: str) -> None:
+        """Reject unsupported FK shapes before generation or clearing any rows."""
+        for fk in self.get_foreign_keys(table_name):
+            if fk.ref_schema is not None:
+                raise ConfigurationError(
+                    f"Table '{table_name}': schema-qualified foreign key "
+                    f"{fk.column} -> {fk.ref_schema}.{fk.ref_table}.{fk.ref_column} is not supported. "
+                    "Use unqualified tables in the connection's default schema."
+                )
+        dialect_name = getattr(getattr(self._db, "dialect", None), "name", "sqlite")
+        for columns in self._get_composite_fk_groups(table_name).values():
+            if dialect_name == "postgresql":
+                raise ConfigurationError(
+                    f"Table '{table_name}': PostgreSQL composite foreign key is not supported; "
+                    "complete tuple sampling is currently available only for two-column SQLite foreign keys."
+                )
+            if len(columns) > 2:
+                names = ", ".join(column for column, _, _ in columns)
+                raise ConfigurationError(
+                    f"Table '{table_name}': {len(columns)}-column composite foreign key "
+                    f"({names}) is not supported; complete tuple sampling is only available "
+                    "for two-column SQLite foreign keys. No rows were changed by this preflight."
+                )
 
     def get_dependencies(self, table_name: str) -> set[str]:
         """Return the set of tables the given table depends on (FK targets and association sources)."""
@@ -265,10 +290,8 @@ class RelationResolver:
     def _get_composite_fk_targets(self, table_name: str) -> dict[str, tuple[str, str]]:
         """Detect composite FK columns and return their (ref_table, ref_column) mapping.
 
-        Uses ``PRAGMA foreign_key_list`` and groups rows by the ``id`` field —
-        rows sharing the same ``id`` belong to the same (possibly composite) FK
-        constraint. Only columns from FK constraints with 2+ columns (composite
-        FKs) are returned.
+        Uses reflected constraint identity, or SQLite PRAGMA identity for the
+        raw test adapter. Only constraints with 2+ columns are returned.
 
         This is needed because ``get_fk_info`` returns the first matching FK
         for a column (usually the single-column FK), but when a column is part
@@ -282,8 +305,7 @@ class RelationResolver:
 
         Returns:
             Dict mapping column_name -> (ref_table, ref_column) for composite FK
-            columns. Empty dict if no composite FKs exist or the PRAGMA query
-            fails (e.g., on non-SQLite backends).
+            columns. Empty dict if no composite FKs exist.
         """
         groups = self._get_composite_fk_groups(table_name)
         result: dict[str, tuple[str, str]] = {}
@@ -295,24 +317,32 @@ class RelationResolver:
     def _get_composite_fk_groups(self, table_name: str) -> dict[int, list[tuple[str, str, str]]]:
         """Detect composite FK groups and return them keyed by FK constraint id.
 
-        Uses ``PRAGMA foreign_key_list`` and groups rows by the ``id`` field.
-        Only groups with 2+ columns (composite FKs) are returned.
+        Uses reflected identity when available; the raw SQLite test adapter
+        falls back to ``PRAGMA foreign_key_list``. Only multi-column groups
+        are returned, preserving the reflected member order.
 
         Returns:
             Dict mapping fk_id -> list of (from_col, ref_table, to_col) tuples.
             The list preserves the ``seq`` order (column order within the FK).
             Empty dict if no composite FKs exist or the PRAGMA query fails.
         """
-        # Cache key includes both the flat mapping and the grouped structure.
-        # We store the groups in _composite_fk_cache under a sentinel key to
-        # avoid a second cache dict, but keep the API clean by exposing only
-        # the flat mapping via _get_composite_fk_targets.
-        cache_key = f"__groups__:{table_name}"
-        cached = self._composite_fk_cache.get(cache_key)
+        cached = self._composite_fk_cache.get(table_name)
         if cached is not None:
-            return cached  # type: ignore[return-value]
+            return cached
 
         result: dict[int, list[tuple[str, str, str]]] = {}
+        fks = self.get_foreign_keys(table_name)
+        if not fks:
+            self._composite_fk_cache[table_name] = result
+            return result
+        if any(fk.constraint_id is not None for fk in fks):
+            for fk in fks:
+                if fk.constraint_id is not None:
+                    result.setdefault(fk.constraint_id, []).append((fk.column, fk.ref_table, fk.ref_column))
+            result = {fk_id: columns for fk_id, columns in result.items() if len(columns) > 1}
+            self._composite_fk_cache[table_name] = result
+            return result
+
         with contextlib.suppress(Exception):
             cursor = self._db.execute(f"PRAGMA foreign_key_list({quote_identifier(table_name)})")
             try:
@@ -332,7 +362,7 @@ class RelationResolver:
                 entries.sort(key=lambda e: e[0])
                 result[fk_id] = [(e[1], e[2], e[3]) for e in entries]
 
-        self._composite_fk_cache[cache_key] = result  # type: ignore[assignment]
+        self._composite_fk_cache[table_name] = result
         return result
 
     def resolve_composite_fks(
@@ -346,52 +376,28 @@ class RelationResolver:
         For columns that are part of a composite FK (e.g.,
         ``FOREIGN KEY (a, b) REFERENCES routes(a, b)``), this method:
 
-        1. Clears any ``derive_from`` in user_configs for the FIRST column of
-           each composite FK group. The LLM may have set ``derive_from``
-           (e.g., ``dest_wh_id`` deriving from ``origin_wh_id``) which overrides
-           the GeneratorSpec in the DAG builder. But the first column must
-           sample from its parent table column to get a valid starting value.
+        1. Clears conflicting ``derive_from`` on composite FK members so FK
+           integrity takes precedence over a user/LLM expression.
 
-        2. For 2-column composite FKs, implements PAIR-LEVEL COORDINATION:
-           - First column (col_a): set spec to ``foreign_key`` sampling from
-             parent's first column (ref_a).
-           - Second column (col_b): set user_config ``derive_from: col_a`` with
-             expression ``lookup('parent', 'ref_b', value, 'ref_a')``. This
-             guarantees the (col_a, col_b) pair always exists in the parent
-             table, because col_b is looked up from the parent for the given
-             col_a value. The ``lookup`` function is available in the
-             ExpressionEngine when a db_adapter is supplied (which the
-             orchestrator always does).
+        2. For two-column FKs, reads at most 100000 complete parent tuples.
+           The first DAG node selects a pair; the second depends on that node
+           and uses the selected second member. Repeated first members retain
+           all their second members. Each nullable column retains null_ratio.
 
-        3. For composite FKs with 3+ columns (rare), falls back to independent
-           per-column sampling (known limitation — pair coordination is only
-           implemented for 2-column composite FKs).
+        3. Composite FKs with 3+ columns are rejected during schema preflight;
+           independent sampling cannot guarantee a valid parent tuple.
 
         The CHECK constraint (e.g., ``origin_wh_id != dest_wh_id``) is enforced
-        separately by ``inequality_constraints`` in the DataStream, which retries
-        rows that violate cross-column comparison constraints. When pair-level
-        coordination is active, the CHECK is naturally satisfied because the
-        pair comes from a real row in the parent table (which already satisfies
-        its own CHECK constraints).
+        separately by ``inequality_constraints`` in DataStream. A valid parent
+        pair need not satisfy additional CHECK constraints on the child.
         """
+        self.validate_generation_schema(table_name)
         composite_groups = self._get_composite_fk_groups(table_name)
         if not composite_groups:
             return specs
 
-        # Build a flat set of all composite FK columns for quick lookup.
-        all_composite_cols: set[str] = set()
         for cols in composite_groups.values():
-            for from_col, _ref_table, _to_col in cols:
-                all_composite_cols.add(from_col)
-
-        for _fk_id, cols in composite_groups.items():
-            if len(cols) == 2:
-                self._resolve_two_column_composite_fk(table_name, cols, specs, user_configs)
-            else:
-                # 3+ column composite FK: fall back to independent per-column
-                # sampling. Pair coordination for N>2 would require a chain of
-                # derive_from expressions, which is complex and rare.
-                self._resolve_multi_column_composite_fk(table_name, cols, specs, user_configs)
+            self._resolve_two_column_composite_fk(table_name, cols, specs, user_configs)
 
         return specs
 
@@ -402,168 +408,58 @@ class RelationResolver:
         specs: dict[str, GeneratorSpec],
         user_configs: dict[str, Any] | None,
     ) -> None:
-        """Resolve a 2-column composite FK with pair-level coordination.
+        """Sample complete parent pairs, retaining non-unique first members.
 
-        ``cols`` is ``[(col_a, ref_table, ref_a), (col_b, ref_table, ref_b)]``.
-        Sets col_a to ``foreign_key`` sampling from parent.ref_a, and col_b
-        to ``derive_from: col_a`` with a ``lookup()`` expression that queries
-        parent.ref_b for the given col_a value.
+        A scalar lookup loses all but one second member for repeated first
+        members. Keep the bounded pool at tuple granularity and make the second
+        node depend on the first; DataStream selects the pair once per row.
         """
         col_a, ref_table, ref_a = cols[0]
         col_b, _ref_table_b, ref_b = cols[1]
-
-        # --- Column A: foreign_key spec sampling from parent.ref_a ---
-        if col_a in specs:
-            spec_a = specs[col_a]
-            ref_values_a = self._db.get_column_values(ref_table, ref_a, limit=100000)
-            specs[col_a] = GeneratorSpec(
-                generator_name="foreign_key",
-                params={
-                    "ref_table": ref_table,
-                    "ref_column": ref_a,
-                    "strategy": _fk_strategy(spec_a),
-                    "_ref_values": ref_values_a,
-                },
-                null_ratio=spec_a.null_ratio,
-                provider=spec_a.provider,
-            )
-            # Clear any LLM-set derive_from on col_a so the foreign_key spec
-            # takes effect in the DAG builder.
-            if user_configs is not None:
-                uc_a = user_configs.get(col_a)
-                if uc_a is not None and hasattr(uc_a, "derive_from") and uc_a.derive_from:
-                    uc_a.derive_from = None
-                    uc_a.expression = None
-            logger.debug(
-                "Resolved composite FK first column (pair coordination)",
-                table_name=table_name,
-                column_name=col_a,
-                ref_table=ref_table,
-                ref_column=ref_a,
-                values_count=len(ref_values_a),
-            )
-
-        # --- Column B: derive_from col_a via lookup expression ---
-        # This guarantees (col_a, col_b) pair exists in parent table.
-        if col_b not in specs:
+        if col_a not in specs or col_b not in specs:
             return
-        spec_b = specs[col_b]
-
-        # The DAG builder has a guard: if spec.generator_name == "foreign_key",
-        # it keeps the foreign_key spec and ignores derive_from in user_configs.
-        # So for col_b, we have two cases:
-        #
-        # 1. user_configs IS available (normal path): set col_b's spec to a
-        #    neutral "integer" placeholder and set derive_from + expression in
-        #    user_configs. The DAG will create a __derive__ node that evaluates
-        #    the lookup expression, guaranteeing pair coordination.
-        #
-        # 2. user_configs is None (defensive fallback): set col_b's spec to
-        #    foreign_key sampling from parent.ref_b. This does NOT guarantee
-        #    pair coordination, but at least produces valid individual values.
-        if user_configs is not None:
-            # Case 1: use derive_from + lookup expression for pair coordination.
-            specs[col_b] = GeneratorSpec(
-                generator_name="integer",
-                params={"min_value": 1, "max_value": 999999},
-                null_ratio=spec_b.null_ratio,
-                provider=spec_b.provider,
-            )
-
-            uc_b = user_configs.get(col_b)
-            if uc_b is None:
-                from sqlseed.config.models import ColumnConfig
-
-                uc_b = ColumnConfig(name=col_b)
-                user_configs[col_b] = uc_b
-
-            # Set derive_from + expression. Clear generator to avoid the
-            # "cannot use both generator and derive_from" validation error.
-            uc_b.generator = None
-            uc_b.params = {}
-            uc_b.derive_from = col_a
-            uc_b.expression = f"lookup('{ref_table}', '{ref_b}', value, '{ref_a}')"
-            logger.debug(
-                "Resolved composite FK second column (pair coordination via lookup)",
-                table_name=table_name,
-                column_name=col_b,
-                derive_from=col_a,
-                ref_table=ref_table,
-                ref_column=ref_b,
-            )
+        typed_pairs = getattr(self._db, "_get_column_pairs", None)
+        if callable(typed_pairs):
+            pairs = typed_pairs(ref_table, ref_a, ref_b, limit=100000)
         else:
-            # Case 2: defensive fallback — independent sampling (no pair coordination).
-            ref_values_b = self._db.get_column_values(ref_table, ref_b, limit=100000)
-            specs[col_b] = GeneratorSpec(
-                generator_name="foreign_key",
-                params={
-                    "ref_table": ref_table,
-                    "ref_column": ref_b,
-                    "strategy": _fk_strategy(spec_b),
-                    "_ref_values": ref_values_b,
-                },
-                null_ratio=spec_b.null_ratio,
-                provider=spec_b.provider,
+            # Protocol-compatible adapters retain their own returned value types.
+            rows = self._db.get_sample_rows(ref_table, columns=[ref_a, ref_b], limit=100000)
+            pairs = [(row[ref_a], row[ref_b]) for row in rows]
+        nullable = {column.name: column.nullable for column in self._db.get_column_info(table_name)}
+        usable_pairs = [
+            pair
+            for pair in pairs
+            if all(value is not None or nullable.get(cols[index][0], True) for index, value in enumerate(pair))
+        ]
+        if pairs and not usable_pairs:
+            raise ConfigurationError(
+                f"Composite FK {table_name}.{(col_a, col_b)!r} has no sampled parent pair "
+                "compatible with the child columns' NOT NULL constraints"
             )
-            logger.warning(
-                "Composite FK pair coordination unavailable (user_configs is None); "
-                "falling back to independent sampling",
-                table_name=table_name,
-                column_name=col_b,
-            )
-
-    def _resolve_multi_column_composite_fk(
-        self,
-        table_name: str,
-        cols: list[tuple[str, str, str]],
-        specs: dict[str, GeneratorSpec],
-        user_configs: dict[str, Any] | None,
-    ) -> None:
-        """Resolve a 3+ column composite FK with independent per-column sampling.
-
-        This is a fallback for composite FKs with more than 2 columns. Each
-        column samples independently from its parent table column. This does
-        NOT guarantee the column tuple exists in the parent table — it's a
-        known limitation. Pair coordination for N>2 columns would require a
-        chain of derive_from expressions.
-        """
-        for col_name, ref_table, ref_col in cols:
-            if col_name not in specs:
-                continue
-            spec = specs[col_name]
-
-            # Clear derive_from in user_configs if present.
-            if user_configs is not None:
-                uc = user_configs.get(col_name)
-                if uc is not None and hasattr(uc, "derive_from") and uc.derive_from:
-                    uc.derive_from = None
-                    uc.expression = None
-                    logger.debug(
-                        "Cleared derive_from for composite FK column",
-                        table_name=table_name,
-                        column_name=col_name,
-                    )
-
-            ref_values = self._db.get_column_values(ref_table, ref_col, limit=100000)
-            specs[col_name] = GeneratorSpec(
+        pairs = usable_pairs
+        for index, (column, _parent, ref_column) in enumerate(cols):
+            spec = specs[column]
+            params: dict[str, Any] = {
+                "ref_table": ref_table,
+                "ref_column": ref_column,
+                "strategy": _fk_strategy(spec),
+                "_ref_values": [pair[index] for pair in pairs],
+            }
+            if index == 0:
+                params["_ref_pairs"] = pairs
+            else:
+                params["_pair_source"] = col_a
+            specs[column] = GeneratorSpec(
                 generator_name="foreign_key",
-                params={
-                    "ref_table": ref_table,
-                    "ref_column": ref_col,
-                    "strategy": _fk_strategy(spec),
-                    "_ref_values": ref_values,
-                },
+                params=params,
                 null_ratio=spec.null_ratio,
                 provider=spec.provider,
             )
-            logger.debug(
-                "Resolved composite FK column (independent, N>2)",
-                table_name=table_name,
-                column_name=col_name,
-                ref_table=ref_table,
-                ref_column=ref_col,
-                values_count=len(ref_values),
-            )
+            if user_configs is not None:
+                config = user_configs.get(column)
+                if config is not None and getattr(config, "derive_from", None):
+                    config.derive_from = None
+                    config.expression = None
 
     def _resolve_fk_or_integer_spec(
         self,
@@ -604,6 +500,12 @@ class RelationResolver:
                     "ref_column": fk_info.ref_column,
                     "strategy": _fk_strategy(spec),
                     "_ref_values": ref_values,
+                    "_self_ref_deferred": (
+                        fk_info.ref_table == table_name
+                        and spec.null_ratio < 1.0
+                        and null_ratio == 1.0
+                        and self._db.get_row_count(table_name) == 0
+                    ),
                 },
                 null_ratio=null_ratio,
                 provider=spec.provider,
@@ -703,6 +605,11 @@ class RelationResolver:
                             "_ref_values": ref_values,
                             "_fallback_min": 1,
                             "_fallback_max": 1,
+                            "_self_ref_deferred": (
+                                fk_info.ref_table == table_name
+                                and spec.null_ratio < 1.0
+                                and self._db.get_row_count(table_name) == 0
+                            ),
                         },
                         null_ratio=1.0,
                         provider=spec.provider,

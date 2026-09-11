@@ -20,7 +20,8 @@ class ColumnInfo:
 
     Contains column name, type, nullability, default value, primary key, autoincrement,
     and computed/generated flags, returned by adapter ``get_column_info`` for use by the
-    mapper and constraint checks.
+    mapper and constraint checks. ``is_rowid_alias`` distinguishes SQLite's implicit
+    ID allocation from explicit AUTOINCREMENT; ``None`` denotes legacy/unknown metadata.
     """
 
     name: str
@@ -30,6 +31,7 @@ class ColumnInfo:
     is_primary_key: bool
     is_autoincrement: bool
     is_computed: bool = False
+    is_rowid_alias: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -37,12 +39,16 @@ class ForeignKeyInfo:
     """Foreign key relationship information.
 
     Describes that ``column`` of the current table references ``ref_column`` of the ``ref_table`` table,
-    used for dependency ordering and reference value generation.
+    used for dependency ordering and reference value generation. ``constraint_id``
+    groups members of one constraint within a table; it is not a database-wide ID.
+    ``ref_schema`` preserves an explicitly reflected parent schema.
     """
 
     column: str
     ref_table: str
     ref_column: str
+    constraint_id: int | None = None
+    ref_schema: str | None = None
 
 
 @dataclass(frozen=True)
@@ -50,13 +56,18 @@ class IndexInfo:
     """Index metadata.
 
     Contains the index name, owning table, covered columns tuple, and uniqueness flag,
-    used for constraint inference and performance hints.
+    used for constraint inference and performance hints. ``is_partial`` marks a
+    predicate-filtered index; its uniqueness does not apply to every table row.
+    ``predicate`` retains reflected SQL when available; ``None`` can also mean
+    that a partial index's predicate text is unavailable (raw SQLite adapter).
     """
 
     name: str
     table: str
     columns: tuple[str, ...]
     unique: bool
+    is_partial: bool = False
+    predicate: str | None = None
 
 
 @dataclass(frozen=True)

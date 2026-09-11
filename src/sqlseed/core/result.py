@@ -15,10 +15,12 @@ class GenerationResult:
 
     Field descriptions:
     - table_name: Target table name;
-    - count: Actual number of rows generated;
+    - count: Rows accepted by successful target-table insert batches, excluding
+      existing rows and failed batches. Each batch commits by default; inside an
+      explicit adapter transaction this count is provisional until its exit;
     - elapsed: Generation elapsed time (seconds);
     - rows_per_second: Average generation speed (rows/sec), auto-computed by __post_init__;
-    - batch_count: Number of batch writes;
+    - batch_count: Number of successful batch insert calls, including zero-row writes;
     - errors: List of error messages accumulated during writes.
     """
 

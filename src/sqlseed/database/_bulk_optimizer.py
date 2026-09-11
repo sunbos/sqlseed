@@ -100,7 +100,7 @@ class PostgresBulkOptimizer:
 
     PG bulk write optimization strategy:
     - ``SET synchronous_commit = OFF``: disable synchronous commit (each transaction does not wait for WAL flush)
-    - Optional ``SET session_replication_role = 'replica'``: disable triggers (FK checks, etc.)
+    - Keep triggers and foreign-key checks enabled for every batch size.
 
     Unlike SQLite PRAGMAs, PG session-level parameters auto-expire when the connection closes,
     but in long-lived connection pools an explicit restore is still required to avoid affecting subsequent operations.
@@ -139,22 +139,12 @@ class PostgresBulkOptimizer:
         """Apply PG bulk write optimization.
 
         Args:
-            expected_rows: Expected number of rows to write.
-                          When >10000, additionally disables triggers (session_replication_role = replica)
-                          to skip FK checks and other overhead. Small batches keep origin mode to preserve constraints.
+            expected_rows: Expected number of rows to write, retained for the shared optimizer protocol.
+                          Trigger and foreign-key behavior is independent of batch size.
         """
-        # Disable synchronous commit (safe: only the last few uncommitted transactions are lost on crash)
+        # A crash can lose recently acknowledged commits before WAL is flushed;
+        # asynchronous commit preserves database consistency, not full durability.
         self._execute_fn("SET synchronous_commit = OFF")
-
-        # Disable triggers for large batches (FK checks, index maintenance, etc.)
-        # Note: requires SUPERUSER privileges; ordinary users will fail, silently degrade here
-        threshold = 10000
-        if expected_rows is not None and expected_rows > threshold:
-            # Silently degrade on insufficient privileges or unsupported session-level setting
-            try:
-                self._execute_fn("SET session_replication_role = 'replica'")
-            except (SQLAlchemyError, OSError, ValueError, RuntimeError) as exc:
-                logger.debug("Failed to set session_replication_role; degrading", error=str(exc))
 
     def restore(self) -> None:
         """Restore original synchronous_commit and session_replication_role configuration."""

@@ -1,0 +1,57 @@
+/* Optional AI review stays inside the workbench's shared visual system. */
+.wb-ai-scope { border:0; padding:0; min-width:0; }
+.wb-ai-scope legend { font-weight:600; margin-bottom:8px; }
+.wb-ai-scope label { min-height:36px; padding:5px 9px; border:1px solid var(--line); border-radius:6px; }
+.wb-ai-scope label:has(input:checked) { border-color:var(--teal); background:var(--soft); }
+.wb-ai-scope.wb-ai-scope-selector { display:block; margin:18px 0 12px; }
+.wb-ai-scope-options { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+.wb-ai-scope-options .wb-ai-scope-choice { display:flex; align-items:flex-start; gap:9px; min-width:0; padding:10px 12px; cursor:pointer; }
+.wb-ai-scope-options .wb-ai-scope-choice > input { flex-shrink:0; margin-top:3px; }
+.wb-ai-scope-choice > span { display:grid; gap:5px; min-width:0; overflow-wrap:anywhere; }
+.wb-ai-scope-choice strong { font-size:13px; font-weight:600; }
+.wb-ai-scope-description { display:block; font-size:11px; line-height:1.5; color:var(--muted); }
+.wb-ai-scope-choice:has(input:disabled) { cursor:default; }
+.wb-ai-scope-choice:has(input:focus-visible) { outline:3px solid #74b7c9; outline-offset:2px; }
+.wb-ai-scope-summary { padding:10px 12px; margin:10px 0; border-radius:7px; background:var(--soft); font-size:12px; line-height:1.6; }
+.wb-ai-scope-summary strong { display:block; overflow-wrap:anywhere; }
+.wb-ai-scope-summary p { margin:5px 0 0; color:var(--muted); }
+.wb-ai-targets { min-width:0; max-height:250px; overflow:auto; border:1px solid var(--line); border-radius:8px; padding:12px; margin:8px 0; }
+.wb-ai-targets[hidden] { display:none; }
+.wb-ai-targets > legend { font-weight:600; }
+.wb-ai-targets fieldset { min-width:0; border:0; margin:8px 0; padding:2px 4px; }
+.wb-ai-targets fieldset legend { font-size:12px; color:var(--muted); }
+.wb-ai-targets label { display:flex; align-items:center; flex-wrap:wrap; gap:9px; min-height:36px; padding:5px 4px; overflow-wrap:anywhere; }
+.wb-ai-targets input[type=checkbox] { width:16px; height:16px; margin:0; flex-shrink:0; }
+.wb-ai-targets summary { cursor:pointer; min-height:36px; padding:7px 4px; }
+.wb-ai-targets.wb-ai-columns { max-height:none; overflow:visible; }
+.wb-ai-columns [hidden] { display:none; }
+.wb-ai-columns .wb-ai-field-search { display:grid; gap:6px; padding:0; font-weight:600; }
+.wb-ai-field-search input { min-width:0; width:100%; padding:9px 10px; border:1px solid var(--line); border-radius:6px; background:var(--paper); color:var(--ink); font:inherit; font-weight:400; }
+.wb-ai-field-search input:focus-visible { outline:3px solid #74b7c9; outline-offset:2px; }
+.wb-ai-field-count { margin:10px 0 5px; font-size:12px; font-weight:600; overflow-wrap:anywhere; }
+.wb-ai-field-results { margin:5px 0; }
+.wb-ai-field-list { max-height:250px; overflow:auto; padding:3px; margin-top:10px; border-top:1px solid var(--line); }
+.wb-ai-protected-fields { margin:4px 8px; color:var(--muted); font-size:12px; }
+.wb-ai-protected-field { display:grid; gap:5px; padding:8px; overflow-wrap:anywhere; }
+.wb-ai-protected-field + .wb-ai-protected-field { border-top:1px solid var(--line); }
+.wb-ai-field-empty { margin:10px 4px; }
+.wb-ai-business { display:grid; gap:7px; margin:16px 0; font-weight:600; }
+.wb-ai-business textarea { width:100%; min-width:0; resize:vertical; padding:10px; border:1px solid var(--line); border-radius:7px; background:var(--paper); color:var(--ink); font:inherit; font-weight:400; }
+.wb-ai-business small { font-weight:400; }
+.wb-ai-business textarea:focus-visible,.wb-ai-targets summary:focus-visible { outline:3px solid #74b7c9; outline-offset:2px; }
+.wb-ai-suggestion > label { min-height:36px; }
+.wb-ai-suggestion h4 { margin:18px 0 6px; overflow-wrap:anywhere; }
+.wb-ai-relation { color:var(--teal); font-size:13px; overflow-wrap:anywhere; }
+.wb-ai-evidence { max-width:100%; overflow:auto; margin:10px 0; border:1px solid var(--line); border-radius:6px; }
+.wb-ai-evidence table { width:100%; border-collapse:collapse; font-size:12px; }
+.wb-ai-evidence caption { text-align:left; padding:9px; color:var(--muted); }
+.wb-ai-evidence th,.wb-ai-evidence td { padding:8px 10px; text-align:left; border-top:1px solid var(--line); overflow-wrap:anywhere; }
+.wb-ai-evidence th { background:var(--canvas); }
+#ai-scope-error:empty { display:none; }
+@media(max-width:600px) { .wb-ai-scope-options { grid-template-columns:1fr; } }
+/* Compact service summary; credentials and connection editing live in Settings. */
+.wb-ai-service-card { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:6px 16px; align-items:center; }
+.wb-ai-service-card > strong { grid-column:1; grid-row:1; }
+.wb-ai-service-card > [aria-label="AI 服务摘要"] { grid-column:1; grid-row:2; margin:0; overflow-wrap:anywhere; }
+.wb-ai-service-card > .wb-ai-status { grid-column:1 / -1; grid-row:3; margin:0; }
+.wb-ai-service-card > .btn { grid-column:2; grid-row:1 / 3; }

@@ -361,6 +361,7 @@ classDiagram
         +is_primary_key: bool
         +is_autoincrement: bool
         +is_computed: bool
+        +is_rowid_alias: bool | None
     }
 
     class ForeignKeyInfo {
@@ -368,6 +369,8 @@ classDiagram
         +column: str
         +ref_table: str
         +ref_column: str
+        +constraint_id: int | None
+        +ref_schema: str | None
     }
 
     class IndexInfo {
@@ -376,6 +379,8 @@ classDiagram
         +table: str
         +columns: tuple~str~
         +unique: bool
+        +is_partial: bool
+        +predicate: str | None
     }
 
     class CheckConstraintInfo {
@@ -421,6 +426,8 @@ classDiagram
 ```
 
 ***
+
+adapter 明确报告 `ColumnInfo.is_rowid_alias`，默认 `None` 兼容旧构造。SQLite 区分真实 rowid 别名与显式 AUTOINCREMENT，并保留普通主键的可空语义。`IndexInfo.is_partial` 防止将条件唯一性误当作无条件 UNIQUE；SQLAlchemy 在 `predicate` 保留反射出的 WHERE SQL，RawSQLite 可不提供条件原文。谓词由数据库在写入时执行。FK 元数据保留表内约束身份和反射出的父 schema。
 
 ## 6. 列依赖 DAG 与约束回溯
 
@@ -554,7 +561,7 @@ flowchart TB
         direction TB
         GenBatch["DataStream 生成一批"]
         H6["🔄 sqlseed_transform_row<br/>(每行，热路径)"]
-        H7["🔄 sqlseed_transform_batch<br/>(链式处理)"]
+        H7["🔄 sqlseed_transform_batch<br/>(同批输入；最后一个非 None 结果)"]
         H8["📢 sqlseed_before_insert"]
         Insert["batch_insert()"]
         H9["📢 sqlseed_after_insert"]
@@ -577,6 +584,10 @@ flowchart TB
 ***
 
 ## 9. 配置模型层次结构
+
+源列的 `params` 接受映射；省略或填写 `null` 时保留空参数行为。字符串、列表等
+非映射值会在配置加载时明确拒绝，不会静默丢弃规则。顶层生成器参数仍覆盖嵌套
+`params` 中的同名参数。
 
 ```mermaid
 classDiagram
@@ -765,3 +776,17 @@ flowchart TB
     style FCIterate fill:#EA4335,color:#fff
 ```
 
+
+## 12. Web 工作台与组件生命周期
+
+当前项目包含 Core、CLI、AI、MCP 和 Web 五个发行包。Web 直接调用离线 core；模型建议仅在用户请求时通过可选 AI 包生成，确认后的规则可离线执行。supervisor 在组件变更时协调业务和维护进程，避免对正在导入或执行的包直接修改。可用性同时检查发行包与导入结果；卸载后保留配置并说明受影响功能。详见 [Web 指南](web-workbench.md) 和 [支持范围](maintainable-release.md)。
+
+```mermaid
+flowchart LR
+    Browser[Browser workbench] --> HTTP[FastAPI / Web state]
+    HTTP --> Runtime[Web runtime]
+    Runtime --> Core[Offline Python core]
+    HTTP -. optional suggestions .-> AI[AI Python services]
+    Supervisor[Supervisor] --> HTTP
+    Supervisor --> Maintenance[Package maintenance worker]
+```

@@ -13,6 +13,7 @@ import time
 from typing import TYPE_CHECKING, Any
 
 from sqlseed._utils.logger import get_logger
+from sqlseed._utils.sql_safe import quote_identifier
 from sqlseed.config.models import ColumnConfig
 from sqlseed.core.check_adapt import CheckAdapter
 from sqlseed.core.check_parser import CheckConstraintParser
@@ -24,6 +25,8 @@ from sqlseed.core.stream import DataStream
 from sqlseed.core.transform import load_transform
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from sqlseed.core.enrichment import EnrichmentEngine
     from sqlseed.core.mapper import ColumnMapper
     from sqlseed.core.plugin_mediator import PluginMediator
@@ -123,6 +126,7 @@ class SpecResolverMixin:
             ``composite_unique`` is a list of column-name lists, each representing
             one composite UNIQUE constraint (e.g., ``UNIQUE(a, b)`` → ``[['a', 'b']]``).
         """
+        self._relation.validate_generation_schema(table_name)
         column_infos = self._schema.get_column_info(table_name)
         user_configs = self._resolve_user_configs(columns, column_configs)
         check_constraints = self._db.get_check_constraints(table_name)
@@ -251,13 +255,13 @@ class SpecResolverMixin:
     def _check_enum_choices(col_name: str, check_constraints: list[Any]) -> list[Any] | None:
         """Return the literal choices of a single-column CHECK IN (...) enum, or None.
 
-        Only deterministic single-column enums are resolved; cross-column or
-        unparseable CHECKs stay in the AI/manual domain and return None.
+        Cross-column or unparseable CHECKs stay in the AI/manual domain.
+        If SQL affinity/collation makes literal equality ambiguous, candidates
+        are retained for database validation instead of claiming an empty domain.
         """
-        for chk in check_constraints:
-            parsed = CheckConstraintParser.parse(col_name, chk.expression)
-            if parsed is not None and parsed.kind == "choice" and parsed.choices:
-                return list(parsed.choices)
+        parsed = CheckConstraintParser.parse_all(col_name, [chk.expression for chk in check_constraints])
+        if parsed is not None and parsed.kind == "choice":
+            return list(parsed.choices)
         return None
 
     @staticmethod
@@ -273,10 +277,10 @@ class SpecResolverMixin:
         """
         if not col_name:
             return None
-        prefix = re.compile(rf"{re.escape(col_name)}\s+IS\s+NULL\s+OR\s+", re.IGNORECASE)
+        prefix = re.compile(rf"{re.escape(col_name)}\s+IS\s+NULL\s+OR\s+", re.IGNORECASE | re.ASCII)
         equality = re.compile(
             rf"^\s*LENGTH\s*\(\s*{re.escape(col_name)}\s*\)\s*=\s*(\d+)\s*$",
-            re.IGNORECASE,
+            re.IGNORECASE | re.ASCII,
         )
         for chk in check_constraints:
             expr = getattr(chk, "expression", "")
@@ -373,6 +377,30 @@ class SpecResolverMixin:
             )
         logger.warning(msg)
 
+    def _existing_key_checker(self, table_name: str) -> Callable[[dict[str, Any]], bool]:
+        """Check only candidate keys, retaining no database rows in memory."""
+        typed_check = getattr(self._db, "_key_exists", None)
+        dialect = getattr(self._db, "dialect", None)
+        placeholder = "%s" if getattr(dialect, "name", "") == "postgresql" else "?"
+        quoted_table = quote_identifier(table_name)
+        queries: dict[tuple[str, ...], str] = {}
+
+        def exists(values: dict[str, Any]) -> bool:
+            if callable(typed_check):
+                return bool(typed_check(table_name, values))
+            columns = tuple(values)
+            if columns not in queries:
+                predicate = " AND ".join(f"{quote_identifier(col)} = {placeholder}" for col in columns)
+                where = f" WHERE {predicate}" if predicate else ""
+                queries[columns] = f"SELECT 1 FROM {quoted_table}{where} LIMIT 1"
+            cursor = self._db.execute(queries[columns], tuple(values.values()))
+            try:
+                return cursor.fetchone() is not None
+            finally:
+                cursor.close()
+
+        return exists
+
     def _build_stream(
         self,
         generator_specs: dict[str, Any],
@@ -382,6 +410,9 @@ class SpecResolverMixin:
         seed: int | None,
         table_name: str | None = None,
         composite_unique: list[list[str]] | None = None,
+        *,
+        max_attempts: int | None = None,
+        cancel_check: Callable[[], None] | None = None,
     ) -> DataStream:
         dag = ColumnDAG()
         col_configs_list = list(user_configs.values()) if user_configs else None
@@ -398,8 +429,16 @@ class SpecResolverMixin:
             column_infos=column_infos,
         )
 
-        expr_engine = ExpressionEngine(db_adapter=self._db)
-        constraint_solver = ConstraintSolver()
+        expr_engine = ExpressionEngine(db_adapter=self._db, seed=seed)
+        existing_value_check = None
+        has_unique_nodes = any(not n.is_skip and n.constraints and n.constraints.is_unique for n in dag_nodes)
+        if table_name is not None and (has_unique_nodes or composite_unique):
+            checker = self._existing_key_checker(table_name)
+            # Empty/cleared tables need only in-stream checks. The nonempty
+            # probe is bounded too: never COUNT or preload existing key tuples.
+            if checker({}):
+                existing_value_check = checker
+        constraint_solver = ConstraintSolver(existing_value_check=existing_value_check)
 
         transform_fn = None
         if transform:
@@ -451,6 +490,9 @@ class SpecResolverMixin:
             seed=seed,
             composite_unique_constraints=composite_unique,
             inequality_constraints=inequality_constraints,
+            max_attempts=max_attempts,
+            cancel_check=cancel_check,
+            table_name=table_name,
         )
 
     def _prepare_specs(

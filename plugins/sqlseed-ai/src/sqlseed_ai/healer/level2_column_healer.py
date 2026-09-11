@@ -290,8 +290,12 @@ class Level2ColumnHealer:
             )
 
         try:
-            patch = json.loads(content)
-        except json.JSONDecodeError as exc:
+            from sqlseed_ai.healer.candidate_validation import validate_column_patch
+
+            patch = validate_column_patch(json.loads(content))
+            if patch["name"] != column_name:
+                raise ValueError(f"Config validation: expected column {column_name!r}")
+        except ValueError as exc:
             logger.warning("Level 2 LLM returned malformed JSON", column=column_name, error=str(exc))
             return Level2Result(
                 success=False,

@@ -82,7 +82,9 @@ class ExpressionEngine:
 
     _SIMPLE_EXPR_RE: ClassVar[re.Pattern[str]] = re.compile(r"^[a-zA-Z_]\w*\s*(\.\s*[a-zA-Z_]\w*\s*\([^)]*\)\s*)+$")
 
-    def __init__(self, timeout_seconds: int = 5, db_adapter: DatabaseAdapter | None = None) -> None:
+    def __init__(
+        self, timeout_seconds: int = 5, db_adapter: DatabaseAdapter | None = None, *, seed: int | None = None
+    ) -> None:
         """Initialize the expression engine.
 
         Args:
@@ -90,14 +92,26 @@ class ExpressionEngine:
             db_adapter: Optional database adapter. When provided, enables the
                 ``lookup(table, column, key, key_column='id')`` function for
                 cross-table value reference in derived expressions.
+            seed: Optional seed for an instance-local random sequence. When
+                None, random functions retain the module-global behavior.
         """
         self._timeout = timeout_seconds
         self._db_adapter = db_adapter
         self._lookup_cache: dict[tuple[str, str, Any, str], Any] = {}
+        self._rng = random.Random(seed) if seed is not None else None
 
     def _get_functions(self) -> dict[str, Any]:
         """Build the functions dict, conditionally including ``lookup``."""
         funcs = dict(self.SAFE_FUNCTIONS)
+        rng = self._rng
+        if rng is not None:
+            funcs.update(
+                {
+                    "random_float": lambda min_val, max_val: rng.uniform(float(min_val), float(max_val)),
+                    "random_int": lambda min_val, max_val: rng.randint(int(min_val), int(max_val)),
+                    "random_choice": lambda seq: rng.choice(list(seq)),
+                }
+            )
         if self._db_adapter is not None:
             funcs["lookup"] = self._lookup
         return funcs
@@ -148,17 +162,23 @@ class ExpressionEngine:
         cache_key = (table, column, key, key_column)
         if cache_key in self._lookup_cache:
             return self._lookup_cache[cache_key]
-        sql = (
-            f"SELECT {quote_identifier(column)} FROM {quote_identifier(table)} WHERE {quote_identifier(key_column)} = ?"
-        )
-        cursor = self._db_adapter.execute(sql, (key,))  # type: ignore[union-attr]
-        try:
-            row = cursor.fetchone()
-            result = row[0] if row else None
-        finally:
-            # Close cursor so the underlying DBAPI connection is returned
-            # to the pool promptly (see SQLAlchemyAdapter.execute docstring).
-            cursor.close()
+        adapter = self._db_adapter
+        if adapter is None:
+            raise RuntimeError("Expression lookup requires a database adapter")
+        typed_lookup = getattr(adapter, "_lookup_value", None)
+        if callable(typed_lookup):
+            result = typed_lookup(table, column, key, key_column)
+        else:
+            sql = (
+                f"SELECT {quote_identifier(column)} FROM {quote_identifier(table)} "
+                f"WHERE {quote_identifier(key_column)} = ?"
+            )
+            cursor = adapter.execute(sql, (key,))
+            try:
+                row = cursor.fetchone()
+                result = row[0] if row else None
+            finally:
+                cursor.close()
         self._lookup_cache[cache_key] = result
         return result
 
@@ -205,7 +225,9 @@ class ExpressionEngine:
         def _eval() -> None:
             try:
                 result_container[0] = evaluator.eval(expression)
-            except (ValueError, SyntaxError, TypeError, simpleeval.InvalidExpression) as e:
+            except Exception as e:
+                # Preserve the calling-thread contract for arithmetic, lookup
+                # and adapter failures; an unhandled worker error is not NULL.
                 error_container[0] = e
 
         # daemon=True ensures the thread cannot block interpreter shutdown

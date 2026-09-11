@@ -12,6 +12,7 @@ point target.
 
 from __future__ import annotations
 
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +23,9 @@ from rich.live import Live
 from rich.text import Text
 from sqlseed_ai import AIBackend, AIConfig, AiConfigRefiner, SchemaAnalyzer
 from sqlseed_ai.config import BACKEND_DISPLAY_NAMES
+from sqlseed_ai.runtime import build_ai_config as _build_ai_config
+from sqlseed_ai.runtime import build_heal_orchestrator as _build_heal_orchestrator
+from sqlseed_ai.runtime import build_llm_client as _build_llm_client
 
 # sanitize_table_config lives in the sqlseed-cli package; this is the only
 # cross-plugin import permitted per ARCHITECTURE.md Section 4 (sqlseed-ai
@@ -31,6 +35,7 @@ from sqlseed_ai.config import BACKEND_DISPLAY_NAMES
 # create a circular import: sqlseed_cli/__init__ loads this module via the
 # ``sqlseed.cli_commands`` entry point while this module is still initializing.
 from sqlseed._utils.logger import get_logger
+from sqlseed.config.models import GeneratorConfig
 from sqlseed.core.orchestrator import DataOrchestrator
 
 logger = get_logger(__name__)
@@ -448,101 +453,6 @@ def _run_auto_heal(
     click.echo(yaml_str)
 
 
-def _build_llm_client(ai_config: AIConfig) -> Any:
-    """Build an LLM client from the given :class:`AIConfig`.
-
-    Reuses the existing OpenAI-compatible client construction from
-    :mod:`sqlseed_ai.analyzer._client`. Returns an object satisfying the
-    :class:`~sqlseed_ai.healer.llm_healer.LLMClient` protocol.
-    """
-    from openai import OpenAI
-
-    resolved_key = ai_config.resolve_api_key()
-    if not resolved_key:
-        click.echo(
-            "Error: AI API key not configured for --auto-heal. Set SQLSEED_AI_API_KEY or OPENAI_API_KEY.",
-            err=True,
-        )
-        raise SystemExit(1)
-    base = ai_config.resolve_base_url() or "https://api.openai.com/v1"
-    raw_client = OpenAI(api_key=resolved_key, base_url=base, timeout=ai_config.timeout or None)
-    # Wrap in adapter so the client satisfies the LLMClient protocol
-    # (flat chat_completions_create method) instead of the OpenAI SDK's
-    # attribute-chain style (client.chat.completions.create).
-    from sqlseed_ai.healer._client import OpenAICompatAdapter as _OpenAICompatAdapter
-
-    return _OpenAICompatAdapter(raw_client)
-
-
-def _build_heal_orchestrator(
-    ai_config: AIConfig,
-    client: Any,
-    snapshot: Any,
-    validator: Any,
-    *,
-    schema_hash: str = "",
-    max_retries: int = 3,
-) -> Any:
-    """Construct a :class:`HealOrchestrator` with all 4-level components.
-
-    Builds the 6 sub-components (context detector, failure classifier,
-    Level 1/2/3 healers, degrader) and wires them into a
-    :class:`HealOrchestrator` ready for use by :class:`AutoHealOrchestrator`.
-
-    Uses lazy imports so the healer submodules are only loaded when the
-    ``ai-analyze`` / ``auto-heal`` commands are actually invoked.
-    """
-    from sqlseed_ai.healer.context_detector import ContextWindowDetector
-    from sqlseed_ai.healer.degrader import ProgressiveDegrader
-    from sqlseed_ai.healer.failure_classifier import FailureClassifier
-    from sqlseed_ai.healer.level1_subgraph_healer import Level1SubgraphHealer
-    from sqlseed_ai.healer.level2_column_healer import Level2ColumnHealer
-    from sqlseed_ai.healer.level3_compact_healer import Level3CompactHealer
-    from sqlseed_ai.healer.orchestrator import HealOrchestrator
-
-    model = ai_config.model or ""
-    context_detector = ContextWindowDetector(ai_config, model=model)
-    failure_classifier = FailureClassifier()
-    level1 = Level1SubgraphHealer(client=client, model=model)
-    level2 = Level2ColumnHealer(client=client, model=model)
-    level3 = Level3CompactHealer(client=client, model=model)
-    degrader = ProgressiveDegrader(snapshot=snapshot)
-
-    return HealOrchestrator(
-        snapshot=snapshot,
-        context_detector=context_detector,
-        failure_classifier=failure_classifier,
-        level1=level1,
-        level2=level2,
-        level3=level3,
-        degrader=degrader,
-        validator=validator,
-        schema_hash=schema_hash,
-        max_rounds=max_retries,
-    )
-
-
-def _build_ai_config(
-    *,
-    api_key: str | None = None,
-    base_url: str | None = None,
-    model: str | None = None,
-    timeout: float = 0.0,
-    log_llm: bool = False,
-) -> AIConfig:
-    """Build an :class:`AIConfig` from env defaults plus CLI overrides.
-
-    Centralizes the ``from_env`` + ``apply_overrides`` + ``timeout`` +
-    ``log_llm_interactions`` assignment previously inlined in ``ai_analyze``.
-    Extracted as a helper so the AI config construction can be unit-tested
-    in isolation without invoking the Click command or the LLM.
-    """
-    ai_config = AIConfig.from_env().apply_overrides(api_key=api_key, base_url=base_url, model=model)
-    ai_config.timeout = timeout
-    ai_config.log_llm_interactions = log_llm
-    return ai_config
-
-
 @click.command("ai-analyze")
 @click.option("--db", "db_path", required=False, help="SQLite database path")
 @click.option("--url", "db_url", default=None, help="Database URL (alternative to --db)")
@@ -554,7 +464,7 @@ def _build_ai_config(
     default=False,
     help="Skip FK dependency resolution (analyze only specified tables)",
 )
-@click.option("--max-depth", default=5, type=int, help="Max FK recursion depth (default: 5)")
+@click.option("--max-depth", default=5, type=click.IntRange(min=0), help="Max FK recursion depth (default: 5)")
 @click.option("--model", "-m", default=None, help="AI model name (default: auto-select based on backend)")
 @click.option("--api-key", envvar="SQLSEED_AI_API_KEY", default=None, help="AI API key (env: SQLSEED_AI_API_KEY)")
 @click.option(
@@ -620,10 +530,16 @@ def ai_analyze(
     if db_path and db_url:
         raise click.UsageError("--db and --url are mutually exclusive. Provide only one.")
 
-    # v4 path: AutoHealOrchestrator handles all tables, validation, repair, healing.
-    # Note: --tables/--no-dependencies/--max-depth/--merge are accepted for
-    # backward compatibility but not yet forwarded to the v4 orchestrator
-    # (will be wired when AutoHealOrchestrator adds subgraph filtering).
+    if merge and not output:
+        raise click.UsageError("--merge requires --output.")
+    selected = [name.strip() for name in tables.split(",")] if tables is not None else None
+    if selected is not None and not all(selected):
+        raise click.UsageError("--tables must contain non-empty table names.")
+    existing = (
+        _read_config_document(Path(output), db_path=db_path, url=db_url)
+        if merge and output and Path(output).exists()
+        else None
+    )
     yaml_str = _run_auto_heal_v4(
         db_path=db_path,
         db_url=db_url,
@@ -633,7 +549,26 @@ def ai_analyze(
         timeout=timeout,
         max_retries=max_retries,
         log_llm=log_llm,
+        tables=selected,
+        include_dependencies=not no_dependencies,
+        max_depth=max_depth,
     )
+    if existing is not None:
+        generated = yaml.safe_load(yaml_str)
+        replacements = {table["name"]: table for table in generated["tables"]}
+        merged_tables = []
+        for table in existing["tables"]:
+            replacement = replacements.pop(table["name"], None)
+            if replacement is not None and (selected is None or table["name"] in selected):
+                merged_tables.append(replacement)
+            else:
+                merged_tables.append(table)
+        merged_tables.extend(replacements.values())
+        merged = {**generated, **existing, "tables": merged_tables}
+        # The explicit CLI target owns the output connection, including merge mode.
+        merged.pop("url" if db_path else "db_path", None)
+        merged["db_path" if db_path else "url"] = db_path or db_url
+        yaml_str = yaml.safe_dump(merged, sort_keys=False, allow_unicode=True)
 
     if output:
         output_path = Path(output)
@@ -655,6 +590,9 @@ def _run_auto_heal_v4(
     timeout: float,
     max_retries: int = 2,
     log_llm: bool = False,
+    tables: list[str] | None = None,
+    include_dependencies: bool = True,
+    max_depth: int = 5,
 ) -> str:
     """Build and run AutoHealOrchestrator, returning the YAML string.
 
@@ -699,40 +637,57 @@ def _run_auto_heal_v4(
 
     resolver = ContractResolver(set(BUILTIN_VIOLATIONS), set())
     validator = FastValidator(resolver, db_path=db_path, url=db_url)
-    client = _build_llm_client(ai_config)
+    with closing(_build_llm_client(ai_config)) as client:
+        # Build HealOrchestrator (4-level: subgraph → column → compact → degrade).
+        # The snapshot is captured inside AutoHealOrchestrator.run(), but
+        # HealOrchestrator needs it for Level 2 context building. We create a
+        # preliminary snapshot here for construction; AutoHealOrchestrator.run()
+        # will create its own for the optimistic-lock check (Defense 8).
+        from sqlseed_ai.validator.schema_snapshot import SchemaSnapshot
 
-    # Build HealOrchestrator (4-level: subgraph → column → compact → degrade).
-    # The snapshot is captured inside AutoHealOrchestrator.run(), but
-    # HealOrchestrator needs it for Level 2 context building. We create a
-    # preliminary snapshot here for construction; AutoHealOrchestrator.run()
-    # will create its own for the optimistic-lock check (Defense 8).
-    from sqlseed_ai.validator.schema_snapshot import SchemaSnapshot
+        prelim_snapshot = SchemaSnapshot(db_path=db_path, url=db_url)
+        heal_orch = _build_heal_orchestrator(
+            ai_config,
+            client,
+            prelim_snapshot,
+            validator,
+            schema_hash=prelim_snapshot.schema_hash,
+            max_retries=max_retries,
+        )
 
-    prelim_snapshot = SchemaSnapshot(db_path=db_path, url=db_url)
-    heal_orch = _build_heal_orchestrator(
-        ai_config,
-        client,
-        prelim_snapshot,
-        validator,
-        schema_hash=prelim_snapshot.schema_hash,
-        max_retries=max_retries,
-    )
+        orch = AutoHealOrchestrator(
+            db_path=db_path,
+            url=db_url,
+            heal_orchestrator=heal_orch,
+            validator=validator,
+            total_budget_seconds=300.0,
+            max_retries=max_retries,
+            verbose=True,  # Always verbose: user needs to see LLM progress in real time
+        )
 
-    orch = AutoHealOrchestrator(
-        db_path=db_path,
-        url=db_url,
-        heal_orchestrator=heal_orch,
-        validator=validator,
-        total_budget_seconds=300.0,
-        max_retries=max_retries,
-        verbose=True,  # Always verbose: user needs to see LLM progress in real time
-    )
+        try:
+            return orch.run(tables=tables, include_dependencies=include_dependencies, max_depth=max_depth)
+        except (ValueError, RuntimeError, OSError) as exc:
+            click.echo(f"Error: v4 auto-heal failed: {exc}", err=True)
+            raise SystemExit(1) from exc
 
+
+def _read_config_document(path: Path, *, db_path: str | None, url: str | None) -> dict[str, Any]:
+    """Parse with the same configuration model as fill, preserving explicit fields."""
     try:
-        return orch.run()
-    except (ValueError, RuntimeError, OSError) as exc:
-        click.echo(f"Error: v4 auto-heal failed: {exc}", err=True)
-        raise SystemExit(1) from exc
+        document = yaml.safe_load(path.read_text(encoding="utf-8"))
+        if not isinstance(document, dict):
+            raise ValueError("Config must be a mapping")
+        document.pop("url" if db_path else "db_path", None)
+        document["db_path" if db_path else "url"] = db_path or url
+        GeneratorConfig.model_validate(document)
+        document.setdefault("tables", [])
+        names = [table["name"] for table in document["tables"]]
+        if len(names) != len(set(names)):
+            raise ValueError("Config contains duplicate table names")
+        return document
+    except (OSError, ValueError, yaml.YAMLError) as exc:
+        raise click.ClickException(f"Invalid config {path}: {exc}") from exc
 
 
 @click.command("auto-heal")
@@ -807,6 +762,7 @@ def auto_heal(
     config_file = Path(config_path)
     if not config_file.exists():
         raise click.UsageError(f"Config file not found: {config_path}")
+    initial_config = _read_config_document(config_file, db_path=db_path, url=db_url)
 
     # Determine output path (default: <config_stem>_healed.yaml)
     output = output_path if output_path is not None else str(config_file.with_suffix("")) + "_healed.yaml"
@@ -850,48 +806,47 @@ def auto_heal(
 
     resolver = ContractResolver(set(BUILTIN_VIOLATIONS), set())
     validator = FastValidator(resolver, db_path=db_path, url=db_url)
-    client = _build_llm_client(ai_config)
+    with closing(_build_llm_client(ai_config)) as client:
+        # Build HealOrchestrator (4-level: subgraph → column → compact → degrade).
+        # The snapshot is captured inside AutoHealOrchestrator.run(), but
+        # HealOrchestrator needs it for Level 2 context building. We create a
+        # preliminary snapshot here for construction; AutoHealOrchestrator.run()
+        # will create its own for the optimistic-lock check (Defense 8).
+        from sqlseed_ai.validator.schema_snapshot import SchemaSnapshot
 
-    # Build HealOrchestrator (4-level: subgraph → column → compact → degrade).
-    # The snapshot is captured inside AutoHealOrchestrator.run(), but
-    # HealOrchestrator needs it for Level 2 context building. We create a
-    # preliminary snapshot here for construction; AutoHealOrchestrator.run()
-    # will create its own for the optimistic-lock check (Defense 8).
-    from sqlseed_ai.validator.schema_snapshot import SchemaSnapshot
+        prelim_snapshot = SchemaSnapshot(db_path=db_path, url=db_url)
+        heal_orch = _build_heal_orchestrator(
+            ai_config,
+            client,
+            prelim_snapshot,
+            validator,
+            schema_hash=prelim_snapshot.schema_hash,
+            max_retries=max_retries,
+        )
 
-    prelim_snapshot = SchemaSnapshot(db_path=db_path, url=db_url)
-    heal_orch = _build_heal_orchestrator(
-        ai_config,
-        client,
-        prelim_snapshot,
-        validator,
-        schema_hash=prelim_snapshot.schema_hash,
-        max_retries=max_retries,
-    )
+        orch = AutoHealOrchestrator(
+            db_path=db_path,
+            url=db_url,
+            heal_orchestrator=heal_orch,
+            validator=validator,
+            total_budget_seconds=300.0,
+            max_retries=max_retries,
+            verbose=True,  # Always verbose: user needs to see LLM progress in real time
+        )
 
-    orch = AutoHealOrchestrator(
-        db_path=db_path,
-        url=db_url,
-        heal_orchestrator=heal_orch,
-        validator=validator,
-        total_budget_seconds=300.0,
-        max_retries=max_retries,
-        verbose=True,  # Always verbose: user needs to see LLM progress in real time
-    )
+        try:
+            yaml_str = orch.run(initial_config=initial_config)
+        except (ValueError, RuntimeError, OSError) as exc:
+            err_msg = str(exc)
+            if db_url:
+                try:
+                    from sqlseed_cli.main import _redact_credentials
 
-    try:
-        yaml_str = orch.run()
-    except (ValueError, RuntimeError, OSError) as exc:
-        err_msg = str(exc)
-        if db_url:
-            try:
-                from sqlseed_cli.main import _redact_credentials
-
-                err_msg = _redact_credentials(err_msg)
-            except ImportError:
-                pass
-        click.echo(f"Error: auto-heal failed: {err_msg}", err=True)
-        raise SystemExit(1) from exc
+                    err_msg = _redact_credentials(err_msg)
+                except ImportError:
+                    pass
+            click.echo(f"Error: auto-heal failed: {err_msg}", err=True)
+            raise SystemExit(1) from exc
 
     # Write healed YAML
     output_file = Path(output)

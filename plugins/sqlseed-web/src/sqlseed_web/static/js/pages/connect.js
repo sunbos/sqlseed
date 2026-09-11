@@ -29,9 +29,9 @@ const kindDd = createDropdown({
 const providerDd = createDropdown({
   value: form.provider,
   options: [
-    { value: 'mimesis', label: 'mimesis（高性能，可选）' },
-    { value: 'faker', label: 'faker（标准）' },
-    { value: 'base', label: 'base（零依赖）' },
+    { value: 'mimesis', label: 'Mimesis' },
+    { value: 'faker', label: 'Faker' },
+    { value: 'base', label: '基础生成器' },
   ],
   onChange: (v) => { form.provider = v; },
 });
@@ -45,7 +45,7 @@ const localeDd = createDropdown({
 export function render() {
   const root = h('div');
   root.append(
-    h('h2', {}, '连接数据库'),
+    h('h2', {}, '数据库连接'),
     h('div', { class: 'panel' },
       h('div', { class: 'row' },
         h('label', {}, '数据库类型'),
@@ -54,13 +54,13 @@ export function render() {
       ),
       (() => { const el = h('div', { id: 'kind-body' }); renderKind(el); return el; })(),
       h('div', { class: 'row' },
-        h('label', {}, '数据引擎 Provider'),
+        h('label', {}, '数据生成引擎'),
         providerDd.el,
-        h('label', {}, '默认 Locale'),
+        h('label', {}, '数据语言与地区'),
         localeDd.el,
-        h('span', { class: 'muted' }, '连接级：个人/位置类数据的默认市场'),
         h('button', { class: 'primary', onclick: doConnect }, '连接'),
       ),
+      h('div', { class: 'muted' }, '语言与地区决定生成的姓名、地址、电话等数据的语言和格式。'),
     ),
     h('div', { id: 'tables-out' }),
   );
@@ -127,7 +127,7 @@ async function loadLocales() {
     const res = await get('/api/meta/locales');
     locales = res.locales;
     localeDd.setOptions(
-      res.locales.map((l) => ({ value: l.code, label: `${l.label}（${l.code}）` })),
+      res.locales.map((l) => ({ value: l.code, label: l.label })),
       res.default,
     );
     form.locale = res.default;
@@ -171,6 +171,7 @@ async function doConnect() {
 function renderTables(out, res) {
   out.append(
     h('div', { class: 'msg ok' }, `已连接 ${res.conn_id}（${res.tables.length} 张表）`),
+    h('a', {href:'#/workbench',class:'btn primary'}, '进入工作台'),
     h('div', { class: 'table-scroll' },
       table(
         ['表名', '行数', '列数', '外键数'],
@@ -190,21 +191,30 @@ async function refreshExisting() {
       h('h3', {}, '已有连接'),
       h('div', { class: 'table-scroll' },
         table(
-          ['连接 ID', '目标', '分组', 'Provider', 'Locale', ''],
+          ['连接编号', '数据库', '分组', '数据生成引擎', '数据语言与地区', '操作'],
           res.connections.map((c) => [
             c.conn_id,
             c.target,
             groupBadge(c),
             c.provider,
             c.locale,
-            h('button', {
+            h('div', {class:'row'}, h('button', {
+              class:'small',
+              onclick:async()=>{
+                try {
+                  const detail=await get(`/api/connections/${c.conn_id}/tables`);
+                  store.connId=c.conn_id;store.target=detail.target;store.tables=detail.tables;
+                  rememberConnId(c.conn_id);setConnBadge();location.hash='#/workbench';
+                } catch(error) {out.append(msg(`无法打开连接：${error.message}`));}
+              },
+            }, '进入工作台'), h('button', {
               class: 'small',
               onclick: async () => {
                 await del(`/api/connections/${c.conn_id}`);
                 if (store.connId === c.conn_id) { store.connId = null; setConnBadge(); }
                 location.reload();
               },
-            }, '断开'),
+            }, '断开')),
           ]),
         )),
     );

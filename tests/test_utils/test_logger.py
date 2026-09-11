@@ -11,6 +11,8 @@ import importlib
 import logging
 import os
 import re
+import subprocess
+import sys
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
@@ -302,6 +304,41 @@ class TestLogLevelFiltering:
 class TestModuleAutoConfiguration:
     """Tests for the module's auto-configuration on import via SQLSEED_LOG_LEVEL."""
 
+    def test_import_preserves_application_logging(self) -> None:
+        """Importing the library must preserve the host's processor and sink."""
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                """
+import structlog
+
+def processor(logger, method, event):
+    event["source"] = "host"
+    return event
+
+factory = structlog.ReturnLoggerFactory()
+structlog.configure(
+    processors=[processor],
+    logger_factory=factory,
+    cache_logger_on_first_use=False,
+)
+before = structlog.get_config().copy()
+import sqlseed
+from sqlseed._utils.logger import get_logger
+
+assert structlog.get_config() == before
+assert get_logger("embedded").warning("message") == (
+    (), {"event": "message", "source": "host"}
+)
+""",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert result.returncode == 0, result.stderr
+
     def test_module_exposes_configure_logging(self) -> None:
         """The logger module exposes configure_logging."""
         assert hasattr(logger_mod, "configure_logging")
@@ -316,6 +353,7 @@ class TestModuleAutoConfiguration:
         """Without SQLSEED_LOG_LEVEL, the default level is WARNING."""
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("SQLSEED_LOG_LEVEL", None)
+            structlog.reset_defaults()
             importlib.reload(logger_mod)
         try:
             log = get_logger("test_default_env_level_is_warning")
@@ -330,6 +368,7 @@ class TestModuleAutoConfiguration:
     def test_env_var_debug_level(self, capsys: pytest.CaptureFixture[str]) -> None:
         """SQLSEED_LOG_LEVEL=DEBUG sets the initial level to DEBUG."""
         with patch.dict(os.environ, {"SQLSEED_LOG_LEVEL": "DEBUG"}):
+            structlog.reset_defaults()
             importlib.reload(logger_mod)
         try:
             log = get_logger("test_env_var_debug_level")
@@ -342,6 +381,7 @@ class TestModuleAutoConfiguration:
     def test_env_var_info_level(self, capsys: pytest.CaptureFixture[str]) -> None:
         """SQLSEED_LOG_LEVEL=INFO sets the initial level to INFO."""
         with patch.dict(os.environ, {"SQLSEED_LOG_LEVEL": "INFO"}):
+            structlog.reset_defaults()
             importlib.reload(logger_mod)
         try:
             log = get_logger("test_env_var_info_level")
@@ -356,6 +396,7 @@ class TestModuleAutoConfiguration:
     def test_env_var_error_level(self, capsys: pytest.CaptureFixture[str]) -> None:
         """SQLSEED_LOG_LEVEL=ERROR sets the initial level to ERROR."""
         with patch.dict(os.environ, {"SQLSEED_LOG_LEVEL": "ERROR"}):
+            structlog.reset_defaults()
             importlib.reload(logger_mod)
         try:
             log = get_logger("test_env_var_error_level")
@@ -370,6 +411,7 @@ class TestModuleAutoConfiguration:
     def test_env_var_lowercase_value(self, capsys: pytest.CaptureFixture[str]) -> None:
         """SQLSEED_LOG_LEVEL is uppercased before resolution."""
         with patch.dict(os.environ, {"SQLSEED_LOG_LEVEL": "debug"}):
+            structlog.reset_defaults()
             importlib.reload(logger_mod)
         try:
             log = get_logger("test_env_var_lowercase_value")
@@ -382,6 +424,7 @@ class TestModuleAutoConfiguration:
     def test_env_var_mixed_case_value(self, capsys: pytest.CaptureFixture[str]) -> None:
         """SQLSEED_LOG_LEVEL with mixed case is uppercased before resolution."""
         with patch.dict(os.environ, {"SQLSEED_LOG_LEVEL": "WaRnInG"}):
+            structlog.reset_defaults()
             importlib.reload(logger_mod)
         try:
             log = get_logger("test_env_var_mixed_case_value")
@@ -402,6 +445,7 @@ class TestModuleAutoConfiguration:
         INFO — so INFO messages are emitted.
         """
         with patch.dict(os.environ, {"SQLSEED_LOG_LEVEL": "NOT_A_LEVEL"}):
+            structlog.reset_defaults()
             importlib.reload(logger_mod)
         try:
             log = get_logger("test_env_var_invalid_falls_back_to_info")
@@ -420,6 +464,7 @@ class TestModuleAutoConfiguration:
         returns the default ``logging.INFO``.
         """
         with patch.dict(os.environ, {"SQLSEED_LOG_LEVEL": ""}):
+            structlog.reset_defaults()
             importlib.reload(logger_mod)
         try:
             log = get_logger("test_env_var_empty_string_falls_back_to_info")

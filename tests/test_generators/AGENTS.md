@@ -1,54 +1,25 @@
-<!-- Parent: ../AGENTS.md -->
-<!-- Last updated: 2026-08-30 -->
-
 # test_generators
 
-## Purpose
+本目录验证 Base/Faker/Mimesis providers、registry、dispatch、字符串/JSON 与 bytes media；实现规则见 [generators/AGENTS.md](../../src/sqlseed/generators/AGENTS.md)。
 
-Data generator correctness and consistency tests. Covers Base/Faker/Mimesis providers, registry, dispatch sync, and helper utilities. 8 files, 168 test functions (36 shared in `_mixin.py`).
+## 入口与回归要求
 
-## Key Files
+- `_mixin.py` 提供共享 provider 测试，公共契约优先复用 mixin；provider 独有行为保留在对应文件。
+- `test_base_provider.py` 验证占位生成与 seed；`test_faker_provider.py` / `test_mimesis_provider.py` 验证真实 provider 行为。
+- 检查 seed 可复现、值类型与约束满足；不要强制不同 provider 产生相同文本或相同 locale 电话格式。
+- Faker 是必需依赖，Mimesis 是可选依赖。`test_registry.py` 的 discovery 用例使用 importorskip；专属 provider 测试会直接构造 provider，完整运行需安装 Mimesis。
+- `test_dispatch_sync.py` 校验 `GENERATOR_MAP` 在 providers 间的一致性；`test_dispatch_exclude.py` 覆盖 exclude_values 透传。
+- `test_string_helpers.py` / `test_json_helpers.py` 覆盖随机字符串与 JSON schema 递归/边界。
+- `test_bytes_media.py` 覆盖随机 bytes、PNG/JPEG 与目录读取：断言实际图片 header/尺寸、扩展名过滤、缺失目录/无匹配文件错误，以及 Faker/Mimesis 参数透传。
+- 文件读取场景在 `tmp_path` 创建输入；可选 Pillow JPEG 测试采用现有 importorskip 模式。
 
-| File | Tests | Description |
-|------|------:|-------------|
-| `_mixin.py` | 36 | Shared Provider test mixin |
-| `test_string_helpers.py` | 40 | random string utilities |
-| `test_json_helpers.py` | 38 | JSON schema generation |
-| `test_registry.py` | 17 | ProviderRegistry discovery |
-| `test_base_provider.py` | 13 | BaseProvider 36 generators |
-| `test_faker_provider.py` | 10 | FakerProvider (required dep) |
-| `test_mimesis_provider.py` | 6 | MimesisProvider (optional dep) |
-| `test_dispatch_exclude.py` | 7 | `exclude_values` in dispatch |
-| `test_dispatch_sync.py` | 1 | `verify_dispatch_sync()` |
+## 验证
 
-## For AI Agents
-
-### Working In This Directory
-
-- `_mixin.py` provides shared Provider test methods to avoid duplication
-- `test_registry.py` uses `pytest.importorskip("faker")` / `pytest.importorskip("mimesis")` to guard optional-dep provider discovery; the dedicated provider test files import directly
-- Generator tests must verify seed reproducibility
-- Dispatch sync tests ensure `GENERATOR_MAP` consistency across providers
-
-### Testing Requirements
+从仓库根执行：
 
 ```bash
 pytest tests/test_generators/
+pytest tests/test_generators/test_bytes_media.py
 ```
 
-### Common Patterns
-
-- Use `_mixin.py` mixin to avoid duplicating test logic
-- `test_registry.py` guards optional deps with `pytest.importorskip("faker")` / `pytest.importorskip("mimesis")`; provider test files import directly (faker is required, mimesis is optional)
-
-## Dependencies
-
-### Internal
-
-- `src/sqlseed/generators/`
-
-### External
-
-- `pytest>=8.0`
-
-<!-- MANUAL: Any manually added notes below this line are preserved on regeneration -->
+修改 dispatch 名称集合后，同步 README 双语 generator 表并运行 `pytest tests/test_architecture.py tests/test_doc_sync.py`。

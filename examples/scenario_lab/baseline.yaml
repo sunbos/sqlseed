@@ -1,0 +1,59 @@
+# Web 可直接导入；core 使用 verify.py 注入临时副本路径。
+# 仅追加这六表，不尝试生成三列 FK、订单金额汇总或跨表循环。
+provider: faker
+locale: zh_CN
+optimize_pragma: false
+associations:
+  - column_name: customer_email
+    source_table: customers
+    source_column: email
+    target_tables: [audit_events]
+    strategy: shared_pool
+tables:
+  - name: warehouses
+    count: 4
+    seed: 101
+    batch_size: 2
+    columns:
+      - {name: code, generator: uuid}
+      - {name: name, generator: company}
+      - {name: city, generator: city}
+      - {name: capacity, generator: integer, params: {min_value: 1000, max_value: 10000}}
+  - name: customers
+    count: 6
+    seed: 102
+    batch_size: 3
+    columns:
+      - {name: name, generator: name}
+      - {name: email, generator: email}
+      - {name: phone, generator: phone}
+  - name: suppliers
+    count: 4
+    seed: 103
+    batch_size: 2
+    columns:
+      - {name: code, generator: uuid}
+      - {name: name, generator: company}
+  - name: products
+    count: 8
+    seed: 104
+    batch_size: 3
+    columns:
+      - {name: sku, generator: uuid}
+      - {name: name, generator: choice, params: {choices: [折叠支架, 收纳盒, 便携灯, 记事本]}}
+      - {name: price_cents, generator: integer, params: {min_value: 500, max_value: 2000}}
+      - {name: cost_cents, generator: integer, params: {min_value: 100, max_value: 300}}
+      - {name: weight_grams, generator: integer, params: {min_value: 100, max_value: 1000}}
+  - name: tags
+    count: 6
+    seed: 105
+    batch_size: 3
+    columns:
+      - {name: name, generator: uuid}
+  - name: audit_events
+    count: 10
+    seed: 106
+    batch_size: 4
+    columns:
+      - {name: event_type, generator: choice, params: {choices: [customer.preview]}}
+      - {name: message, generator: sentence}

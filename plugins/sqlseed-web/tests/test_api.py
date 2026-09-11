@@ -13,9 +13,9 @@ import pytest
 
 fastapi_testclient = pytest.importorskip("fastapi.testclient")
 
-from fastapi.testclient import TestClient  # noqa: E402
+from fastapi.testclient import TestClient
 
-from sqlseed_web.app import create_app  # noqa: E402
+from sqlseed_web.app import create_app
 
 
 @pytest.fixture()

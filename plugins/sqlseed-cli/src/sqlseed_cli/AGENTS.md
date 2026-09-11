@@ -1,62 +1,32 @@
-# sqlseed_cli
+# sqlseed_cli 实现
 
-**Last updated:** 2026-08-30
+上层规则见 [包指南](../../AGENTS.md)。本目录负责参数解析、终端展示和 core API 调用；生成与校验算法留在库层。
 
-## Purpose
+## 入口与职责
 
-Click-based command-line tool. Provides subcommands such as fill, preview, inspect, init, replay.
-AI-related subcommands (ai-suggest, ai-analyze, auto-heal, registered by sqlseed-ai's
-`ai_commands.register()`) are discovered via the `sqlseed.cli_commands`
-entry-point group and registered by `__init__.py` at startup.
+| 文件 | 修改入口 |
+| --- | --- |
+| [main.py](main.py) | `cli` group；`fill`、`preview`、`inspect`、`init`、`replay`；`FillOptions` 与分组 dataclasses |
+| [__init__.py](__init__.py) | 导出 `cli`/`main`；导入时发现并注册插件命令 |
+| [_utils.py](_utils.py) | `sanitize_table_config()` 原地去掉表名、列名前导 `.`/`:` |
 
-## Key Files
+## 命令约定
 
-| File | Lines | Key symbols |
-|------|------:|--------------|
-| `main.py` | 585 | `cli` group, `fill`, `preview`, `inspect`, `init`, `replay`, `_execute_fill()`, `_inspect_table()`, `FillOptions`/`FillFlags`/`FillGeneratorConfig`/`ConnectionTarget` dataclasses, `_redact_credentials()` |
-| `__init__.py` | 67 | `cli`, `main`, `_register_plugin_commands()` (entry-point discovery) |
-| `_utils.py` | 23 | `sanitize_table_config()` |
+- 新 core 命令挂到 `main.py` 的 `cli` group。第三方命令使用 `sqlseed.cli_commands`，entry point callable 签名为 `register(cli_group)`。
+- 插件注册失败应记录 WARNING 并继续提供基础 CLI；不要扩大捕获范围吞掉 `KeyboardInterrupt`/`SystemExit`。
+- 用户输出用 `click.echo`/Rich；内部日志用项目 logger。`cli()` 从 `SQLSEED_LOG_LEVEL` 读取日志级别，默认 WARNING。
+- `fill`/`preview`/`inspect` 的 positional `db_path` 与 `--url` 互斥；调用 public API 时未使用的一方传 `None`。
+- `init` 的 `--db` 默认保持 `None`，只有 `--db` 和 `--url` 均未提供时才补 `test.db`，否则会错误拒绝 `init --url`。
+- `fill` 无 `--config` 时要求正数 `--count`；`--config` 下未指定 count/seed 时保留 `None`，由 core 使用 YAML 值。
+- `fill --config` 的连接目标只能来自配置文件；与 positional `db_path` 或 `--url` 混用时在写库前返回 usage error，避免静默忽略显式目标。
+- `_execute_fill()` 的配置分支通过 Click parameter source 区分选项来源：不传 decorator 默认 provider/locale/batch-size，让 core 保留 YAML 值；显式参数（即使等于默认值）仍覆盖。无配置路径保持原默认值。改优先级时同时验证真实 CLI 与 core API 两条入口。
+- 直接 `fill`、配置批量 `fill` 与 `replay` 的 `result.errors` 会展示并以非零 exit code 表示部分失败；配置批量路径保留每张表实际提交的 count，不把某张表失败误报为全部回滚。
+- 将数据库异常转为用户错误时复用 `_redact_credentials()`；避免在终端错误里泄漏 URL 凭据。
+- `replay` 使用 `SnapshotManager.load()`、`GeneratorConfig`、`DataOrchestrator.from_config()`；保留 snapshot 中的列配置、seed、batch_size、clear_before 与 transform。直接 `fill --transform --snapshot` 必须保存 transform 路径，重放时仍需该脚本可用。
+- `replay` 对含 `..` 且解析到 cache 目录之外的路径拒绝访问；不要误改为禁止所有外部绝对路径。
 
-## For AI Agents
+## 局部验证
 
-### Working In This Directory
-
-- New core subcommands must be registered with the `cli` group in `main.py`.
-- Third-party subcommands (e.g. ai-suggest, ai-analyze, auto-heal from
-  sqlseed-ai) are registered via the `sqlseed.cli_commands` entry-point
-  group, NOT by direct import.
-  This decouples sqlseed-cli from any specific plugin package.
-- User-facing output uses click.echo / rich; internal logging uses structlog
-  (via `sqlseed._utils.logger`).
-- The CLI layer should stay thin; parameter validation and generation logic
-  belong to the library layer (`sqlseed.core`).
-- Log level is controlled via the `SQLSEED_LOG_LEVEL` environment variable.
-
-### Testing Requirements
-
-```bash
-pytest plugins/sqlseed-cli/tests/
-```
-
-### Common Patterns
-
-- Command structure: `cli` (group) -> `fill` / `preview` / `inspect` / `init` / `replay`
-  subcommands (main.py). Plugin subcommands (e.g. `ai-suggest`, `ai-analyze`,
-  `auto-heal`) are attached via entry-points.
-- Output is beautified with the rich library (progress bars, tables, highlighting).
-- `--url` multi-database support (mutually exclusive with db_path): the
-  fill/preview/inspect commands all accept `--url` as an alternative to the
-  positional db_path argument.
-
-## Dependencies
-
-### Internal
-
-- `sqlseed` (core: DataOrchestrator, config, _utils.logger)
-- This package does NOT depend on `sqlseed-ai` at import time; AI subcommands
-  are discovered via entry-points.
-
-### External
-
-- `click>=8.0` — CLI framework
-- `rich>=13.0` — beautified output
+从仓库根运行 `pytest plugins/sqlseed-cli/tests/`。修改参数优先级时重点检查
+[test_cli_yaml_priority.py](../../tests/test_cli_yaml_priority.py)；修改入口发现或 AI 命令接入时检查
+[test_cli_ai_commands.py](../../tests/test_cli_ai_commands.py)。

@@ -1,60 +1,34 @@
-<!-- Parent: ../AGENTS.md -->
+# 配置与 snapshot
 
-# config
+本目录负责 YAML/JSON loading、Pydantic models、离线模板和配置快照。配置驱动的执行留在 orchestrator；CLI replay 留在 CLI plugin。
 
-**Last updated:** 2026-08-30
+## 入口
 
-## Purpose
+- [models.py](models.py)：`GeneratorConfig`、`TableConfig`、`ColumnConfig`、constraints、associations、自定义 mapping rules。
+- [loader.py](loader.py)：`load_config()`、`save_config()`、`generate_template()`；URL table discovery 使用延迟导入的 SQLAlchemy。
+- [snapshot.py](snapshot.py)：`SnapshotManager.save/load/list_snapshots`；不要添加执行生成逻辑。
 
-Loading, validation, and model definitions for YAML/JSON configuration files. Builds type-safe configuration models on top of Pydantic.
+## 不变量
 
-## Key Files
+- `GeneratorConfig.db_path` 与 `url` 必须二选一；统一经 `connection_target` 取连接目标。
+- `ColumnConfig.generator` 与 `derive_from` 互斥；存在 `derive_from` 必须有 `expression`。保留 validator，不能仅依靠调用方清理。
+- Source mode 使用 `generator/params/provider/null_ratio`；derived mode 使用 `derive_from/expression`，不要在 derived 配置中混入 source generator。
+- `normalize_dict_input()` 将 `type` 作为 `generator` alias，两者同时存在时保留 `generator` 并 warning；非 derived 的未知字段合入 `params`，顶层额外参数覆盖 nested params。
+- `_degraded`、`degrade_reason` 是内部 metadata，不能进入 generator params，否则会造成意外 keyword 参数错误。
+- `ColumnConstraintsConfig.max_retries >= 0`，`null_ratio` 范围为 `[0, 1]`；`TableConfig.count/batch_size` 必须为正。
+- 保留 `faker_method`、`mimesis_method`、`native_params` 的 native override 配置传递。
+- `ProviderType` 值为 base/faker/mimesis/custom；新增选择时核对 registry 与调用方，不仅修改 enum。
+- `ColumnAssociation` 是独立跨表模型：`column_name/source_table/source_column/target_tables/strategy`；未给 `source_column` 时由关系层回退到 `column_name`。
+- `custom_column_mappings` 包含 exact 与 pattern 规则，优先级由 `ColumnMapper` 执行。
+- 新字段给出兼容默认值，保留既有配置加载；`log_level` 已 deprecated，仅兼容读取，不再应用配置值。
 
-| File | Lines | Symbols | Description |
-|------|------:|---------|-------------|
-| `models.py` | 259 | 9 classes | `ProviderType`, `ColumnConstraintsConfig`, `ColumnConfig`, `TableConfig`, `ColumnAssociation`, `ExactColumnMappingRule`, `PatternColumnMappingRule`, `CustomColumnMappings`, `GeneratorConfig` |
-| `loader.py` | 184 | `load_config()`, `save_config()`, `generate_template()`, `_read_table_names()` | YAML/JSON loader, template generation (supports multi-database URLs) |
-| `snapshot.py` | 114 | `SnapshotManager` | save/load/list_snapshots; replay has been removed |
-| `__init__.py` | 28 | — | Public API exports |
+## 快照
 
-## For AI Agents
+- `SnapshotManager` 使用 `get_cache_dir("snapshots")` 或显式目录，以含微秒的 timestamp 命名避免同秒冲突。
+- 快照文件名不得直接使用任意 SQL 表名；特殊或过长名称使用安全摘要，原名保留在内容中。`load()` 对非 mapping 内容抛出 `ValueError`。
+- snapshot 外层保存 timestamp/table_name/count/seed，配置通过 `model_dump(mode="json")` 序列化；`load()` 返回外层字典，不是 `GeneratorConfig`。
+- CLI replay 使用 `load()` 加 `DataOrchestrator.from_config()`；不要重新添加 `SnapshotManager.replay()`。
 
-### Working In This Directory
+## 验证与同步
 
-- Source-column mode (`generator` + `params`) and derived-column mode (`derive_from` + `expression`) are mutually exclusive, enforced via `model_validator`; do not break this constraint
-- The `ProviderType` enum has four values: BASE/FAKER/MIMESIS/CUSTOM
-- Modifications to Pydantic models must remain backward compatible; existing configuration files should not fail to load due to model changes
-- `field_validator`/`model_validator` are the core validation logic; when modifying them, ensure all constraints are still satisfied
-- New configuration options should provide sensible defaults to avoid breaking existing user configurations
-- `ColumnAssociation` is an independent cross-table association model (not an enum inside `ColumnConfig`); fields: `column_name`, `source_table`, `source_column` (defaults to None, falls back to column_name), `target_tables`, `strategy="shared_pool"`
-
-### Testing Requirements
-
-```bash
-pytest tests/test_config/
-```
-
-### Common Patterns
-
-- Model hierarchy: `GeneratorConfig` → `TableConfig` → `ColumnConfig` → `ColumnConstraintsConfig`
-- `SnapshotManager` names snapshot files by timestamp
-- Configuration templates are generated via `generate_template()` in `loader.py`
-- `url` provides multi-database support (mutually exclusive with db_path): `GeneratorConfig` specifies the connection target via either `db_path` or `url`; the two are mutually exclusive
-- The `connection_target` property returns the connection target (url or db_path)
-- `generate_template` supports URLs (uses SQLAlchemy to read table names, imported lazily to avoid circular dependencies)
-
-## Dependencies
-
-### Internal
-
-- `_utils` (logger)
-- `paths` (snapshot.py uses get_cache_dir)
-
-### External
-
-- `pydantic>=2.0` — model definition and validation
-- `pyyaml>=6.0` — YAML loading
-- `typing_extensions` — `Self` type (model_validator return type)
-- `sqlalchemy` — loader.py reads table names (imported lazily)
-
-<!-- MANUAL: Any manually added notes below this line are preserved on regeneration -->
+从仓库根执行 `pytest tests/test_config/`。修改 models 后同步 [docs/architecture.md](../../../docs/architecture.md) 与 [docs/architecture.zh-CN.md](../../../docs/architecture.zh-CN.md) 的字段与 class diagrams，并运行 `pytest tests/test_doc_sync.py`。

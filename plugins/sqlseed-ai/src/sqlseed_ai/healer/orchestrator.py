@@ -17,6 +17,7 @@ import copy
 import time
 from typing import TYPE_CHECKING, Any
 
+from sqlseed_ai.healer.candidate_validation import validate_candidate, validate_patch
 from sqlseed_ai.healer.models import (
     DegradeReason,
     FailureType,
@@ -119,8 +120,25 @@ class HealOrchestrator:
 
             if result.success:
                 # Re-validate the patched config.
-                if result.config_patch is not None:
-                    current_config = self._merge_patch(current_config, result.config_patch)
+                try:
+                    candidate = self._merge_patch(current_config, validate_patch(result.config_patch or {"tables": []}))
+                    validate_candidate(candidate, self._snapshot)
+                except ValueError as exc:
+                    attempts[-1].failure_type = FailureType.SEMANTIC
+                    attempts[-1].error_message = str(exc)
+                    logger.warning("Healer candidate rejected", error=str(exc), level=result.level)
+                    degraded_result = self._degrade_and_return(
+                        current_config,
+                        original_config,
+                        current_violations,
+                        DegradeReason.LLM_FAILURE,
+                        attempts,
+                        round_num,
+                        start,
+                    )
+                    self._log_heal_complete(table_name, degraded_result, start)
+                    return degraded_result
+                current_config = candidate
                 val_result = self._validator.validate(current_config, self._snapshot)
                 new_violations = self._extract_violations(val_result)
 
@@ -469,7 +487,7 @@ class HealOrchestrator:
             orig_cols = {c["name"]: c for c in orig_table.get("columns", [])}
             for col in table_cfg.get("columns", []):
                 col_name = col.get("name", "")
-                if col_name not in failed_set:
+                if col_name not in failed_set and f"{table_name}:{col_name}" not in failed_set:
                     continue
                 orig_col = orig_cols.get(col_name)
                 if not orig_col:

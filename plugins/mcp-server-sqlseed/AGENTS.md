@@ -1,70 +1,28 @@
-# MCP-SERVER-SQLSEED PLUGIN
+# mcp-server-sqlseed 包边界
 
-**Last updated:** 2026-08-30
+本包用 FastMCP 暴露 core 的规则驱动 YAML 生成与数据填充，不依赖 LLM。
+实现细节见 [src/mcp_server_sqlseed/AGENTS.md](src/mcp_server_sqlseed/AGENTS.md)。
 
-## OVERVIEW
+## 范围与依赖
 
-MCP (Model Context Protocol) server for sqlseed. Exposes **core capabilities only** (rule-driven YAML template generation + data fill). No LLM dependency. Per ARCHITECTURE.md Section 3.4, schema inspection and AI-driven analysis live in separate packages.
+- distribution 名为 `mcp-server-sqlseed`，Python module 名为 `mcp_server_sqlseed`。
+- [pyproject.toml](pyproject.toml) 声明 `sqlseed>=0.2.4.dev0,<2`、`mcp>=1.0,<2`；console script 指向 `mcp_server_sqlseed:main`。Core 0.2.3 缺少入口使用的目标校验函数，不兼容当前 MCP。
+- 仅提供 `sqlseed_generate_yaml`、`sqlseed_execute_fill`；不提供 schema resource 或独立 schema-inspect 工具。
+- AI 工具属于 [sqlseed-ai](../sqlseed-ai/AGENTS.md) 的 `sqlseed_ai.mcp`；不要在本包导入 `sqlseed_ai`。
+- 区分两类 MCP 的依据是是否需要 LLM runtime，不是部署位置或是否联网；当前启动入口调用 `mcp.run()`。
+- 依赖变化后，在本包目录执行 `uv lock`，使 [uv.lock](uv.lock) 与 manifest 同步。
 
-## STRUCTURE
+## 测试与验证
 
-```
-mcp-server-sqlseed/
-├── src/mcp_server_sqlseed/
-│   ├── __init__.py                   # main() entry point
-│   ├── __main__.py                   # python -m support
-│   ├── config.py                     # MCPServerConfig (Pydantic)
-│   └── server.py                     # FastMCP server, 2 tools (no resources)
-├── tests/                            # pytest suite (test_server.py, test_validate_db_path.py, test_config.py)
-├── README.md                         # English documentation
-├── README.zh-CN.md                   # Chinese documentation
-├── AGENTS.md                         # This file
-├── pyproject.toml                    # Package config: sqlseed>=0.1.0,<2, mcp>=1.0,<2
-└── uv.lock                           # Lock file (auto-generated)
+从仓库根执行：
+
+```bash
+pip install -e "." -e "./plugins/mcp-server-sqlseed"
+pytest plugins/mcp-server-sqlseed/tests/
 ```
 
-## WHERE TO LOOK
-
-| Task | Location | Notes |
-|------|----------|-------|
-| Add MCP tool | `server.py` | Decorate with `@mcp.tool()` |
-| Modify config | `config.py` | MCPServerConfig Pydantic model |
-| Entry point | `__init__.py` | `main()` runs `mcp.run()` |
-| Run as module | `__main__.py` | `python -m mcp_server_sqlseed` |
-
-## MCP TOOLS
-
-The server exposes 2 tools (no resources):
-
-| Tool | Description |
-|------|-------------|
-| `sqlseed_generate_yaml` | Rule-driven YAML config template via core `ColumnMapper` (no LLM) |
-| `sqlseed_execute_fill` | Fill a table with generated data |
-
-### Moved to `sqlseed-ai[mcp]`
-
-The following tools now live in the `sqlseed-ai` package's MCP module (`sqlseed_ai.mcp`):
-- `sqlseed_ai_generate_yaml` (LLM-driven YAML generation)
-- `sqlseed_gemma4_analyze`
-- `sqlseed_gemma4_agent_fill`
-- `sqlseed_list_gemma_models`
-
-### Removed (delegated to third-party MCPs)
-
-- `sqlseed_inspect_schema` — use mcp-database-server / mcp-db-analyzer
-- `sqlseed://schema` Resource — schema inspection by other MCPs
-
-## CONVENTIONS
-
-- **MCP framework**: FastMCP from `mcp.server.fastmcp`
-- **Entry point**: `mcp-server-sqlseed` console script → `main()`
-- **No AI dependency**: this package never imports `sqlseed_ai`
-- **Validation**: `_validate_db_target()`, `_validate_table_name()` before operations
-- **Size limit**: `_MAX_YAML_CONFIG_SIZE = 256KB` for YAML input
-
-## ANTI-PATTERNS
-
-- **NEVER** import sqlseed_ai in this package — AI tools belong in `sqlseed-ai[mcp]`
-- **NEVER** skip path/table validation before DB operations
-- **ALWAYS** return dict from `@mcp.tool()` functions (JSON-serializable)
-- **ALWAYS** handle `(ValueError, RuntimeError, OSError)` in tool functions
+- `tests/test_server.py` 检查真实 YAML → fill 往返与数据库行数；`test_validate_db_path.py` 检查路径/URL；`test_config.py` 检查 Pydantic 配置。
+- SQLite 测试使用 `tmp_path` 建真实库；本包 `tests/conftest.py` 提供 `tmp_sqlite_db`，其他共享 fixtures 由仓库根发现。
+- PostgreSQL 场景使用根 `pg_url` fixture，外部服务要求以该 fixture 为准。
+- pytest 配置继承仓库根；不要添加本包 pytest rootdir 配置，否则会改变共享 fixtures 与 `tests` 包解析。
+- 本包 Ruff isort 显式把 `sqlseed` 设为 first-party、插件模块设为 third-party；不要根据当前工作目录反转分类。

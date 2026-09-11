@@ -21,10 +21,9 @@
 ```python
 import sqlseed
 
-# 就这一行。自动推断 Schema，自动选择策略，自动优化写入。
+# 数据库和 users 表需要已经存在。
 result = sqlseed.fill("test.db", table="users", count=100_000)
-print(result)
-# → GenerationResult(table=users, count=100000, elapsed=2.34s, speed=42735 rows/s)
+print(result.count, result.errors)  # 检查实际写入数和失败原因。
 ```
 
 ***
@@ -35,7 +34,7 @@ print(result)
 | :--- | :-----: | :----: | :----------: |
 | 零配置智能生成 |    ✅    |    ❌   |       ❌      |
 | 外键自动维护 |    ✅    |   手动   |      手动      |
-| 10 万行+ 数据 |   ✅ 流式  | ⚠️ OOM |       ❌      |
+| 分批生成大量数据 | ✅ 内置支持 | 需自行实现 | 需生成对应脚本 |
 | 列语义推断 | ✅ 9 级策略 |    ❌   |       ❌      |
 | 可重复生成 |  ✅ seed  |  ⚠️ 手动 |       ✅      |
 | AI 智能调优 |  ✅ LLM  |    ❌   |       ❌      |
@@ -49,7 +48,7 @@ print(result)
 
 **🚀 零配置智能生成**
 
-自动推断数据库 Schema，通过 9 级策略链为每列选择最佳生成器。列名是 `email`？生成邮箱。列名是 `*_at`？生成时间戳。完全不需要配置。
+自动推断数据库 Schema，通过 9 级策略链为每列选择生成器。列名是 `email`？生成邮箱。列名是 `*_at`？生成时间戳。特定业务关系与复杂约束可能需要显式规则。
 
 </td>
 <td width="50%">
@@ -65,14 +64,14 @@ print(result)
 
 **🔗 外键自动排序**
 
-拓扑排序自动检测表依赖关系，SharedPool 跨表共享值池，零配置维持引用完整性。
+拓扑排序检测表依赖，SharedPool 复用真实父键值。支持范围内的外键会协调生成；不支持的复合或 schema-qualified 关系在生成前明确拒绝，详见下方支持约定。
 
 </td>
 <td>
 
-**🌊 流式内存安全**
+**🌊 分批流式生成**
 
-`DataStream` 通过 `Iterator[list[dict]]` 逐批 yield，100 万行数据内存占用与 1000 行相同。
+`DataStream` 通过 `Iterator[list[dict]]` 逐批 yield，并遵守配置的批大小上限。UNIQUE 跟踪、父键池和自引用处理仍有额外内存成本，不能保证所有结构的总内存占用恒定。
 
 </td>
 </tr>
@@ -162,6 +161,14 @@ pip install mcp-server-sqlseed
 pip install "sqlseed-ai[mcp]"
 ```
 
+### 本地 Web 工作台
+
+从仓库根目录运行 `python -m pip install -e . -e ./plugins/sqlseed-web`，然后启动 `sqlseed-web`，打开 `http://127.0.0.1:8630`。工作台提供真实 schema 关系图、字段规则编辑、版本化配置保存、依赖检查、预览、多表生成与持久运行记录，不要求 AI 插件。详见 [Web 工作台](docs/web-workbench.md)。
+
+可直接在设置中安装或卸载可选组件。默认启动器在工作台空闲时暂停业务，通过隔离进程变更包，再自动恢复服务与可重连的连接；数据库或 AI 工作尚未结束时会阻止操作。已有包版本受到保护，Core、Web、Faker、Base 不开放移除。界面包变更需要 macOS/Linux 的可写独立 virtualenv 及默认启动器；外部托管应用和不支持的环境会明确说明能力限制。恢复行为和连接限制见 [Web 工作台指南](docs/web-workbench.md)。
+
+主导航为工作台、运行记录、配置管理和设置，数据库连接通过统一界面的按钮打开弹窗；规则使用右侧抽屉，保存、重开和 YAML/JSON 编辑共享同一份配置。生成引擎与语言地区属于配置。后端与前端回归结果不能替代界面改动的浏览器验收。
+
 ### 文档构建（开发者）
 
 ```bash
@@ -175,12 +182,8 @@ pip install sqlseed[docs]   # mkdocs-material + mkdocstrings
 git clone https://github.com/sunbos/sqlseed.git
 cd sqlseed
 
-# 安装核心 + 所有 Provider + 开发依赖
-pip install -e ".[dev,all]"
-
-# 可选插件
-pip install -e "./plugins/sqlseed-ai"
-pip install -e "./plugins/mcp-server-sqlseed"
+# 同次解析 Core 和本地插件，支持尚未发布的候选版本
+python -m pip install -e ".[dev,all]" -e "./plugins/sqlseed-cli" -e "./plugins/sqlseed-ai[dev]" -e "./plugins/mcp-server-sqlseed" -e "./plugins/sqlseed-web[dev]"
 
 # 验证安装
 pytest
@@ -193,6 +196,8 @@ mypy src/sqlseed/
 ***
 
 ## 🚀 快速开始
+
+完整体验推荐 [可复现订单流程](examples/order_workflow/README.md)：包含用户、商品、订单与明细的真实生成、坏规则诊断、修正与离线重放。[支持与维护约定](docs/maintainable-release.md)说明当前能力边界；[项目展示说明](docs/project-showcase.md)提供演示顺序和架构讲解。
 
 ### 一键体验脚本
 
@@ -256,7 +261,7 @@ sqlseed 会自动：
 - ✅ `created_at` → 生成日期时间（匹配 `*_at` 模式）
 - ✅ `balance` → 生成浮点数
 
-**完全零配置，智能推断一切。**
+**这个简单结构可以使用推断默认值；生成复杂数据前，请检查并配置特定业务规则。**
 
 ### 连接 PostgreSQL
 
@@ -274,7 +279,7 @@ result = sqlseed.fill(
 print(result)
 ```
 
-两种数据库使用相同的 API —— Schema 推断、外键解析、表达式引擎和插件 Hook 在 SQLite 和 PostgreSQL 上行为完全一致。
+两种数据库使用相同的 public API，但方言行为与约束支持范围不同。当前生成会拒绝 PostgreSQL 复合外键及反射出的 schema-qualified 引用；SQLite 完整元组协调覆盖两列外键。详见 [支持与验证范围](docs/maintainable-release.md)，其中区分本地 SQLite 验证与真实 PostgreSQL 集成测试。
 
 ***
 
@@ -763,6 +768,12 @@ class MyPlugin:
 
 ## 🖥️ CLI 命令速查
 
+使用 `fill --config` 时，数据库目标仅由配置中的 `db_path` 或 `url` 提供；
+同时传入位置参数数据库路径或 `--url` 会在写入前报错。任一配置表生成失败时，
+命令会显示错误和已提交行数，并以非零状态退出。多表生成不构成一个原子事务。
+未显式指定 `--provider`、`--locale`、`--batch-size` 时保留配置值；显式传入的值
+会覆盖配置，即使该值恰好等于 CLI 默认值。
+
 ```bash
 # ═══ 数据生成 ═══
 sqlseed fill app.db --table users --count 10000
@@ -806,7 +817,7 @@ sqlseed auto-heal --db app.db --config broken.yaml -o healed.yaml
 ## 🧠 9 级智能列映射
 
 ```
-Level 1 │ 自增主键          PK + AUTOINCREMENT / INTEGER → skip
+Level 1 │ 自增主键          数据库显式自动分配 → skip
         ▼
 Level 2 │ 用户配置          columns={"email": "email"} 最高优先级
         ▼
@@ -824,6 +835,20 @@ Level 8 │ NULLABLE 回退     可 NULL → skip / __enrich__
         ▼
 Level 9 │ 类型忠实回退      VARCHAR(32)→最长32字符, INT8→0~255, BLOB(1024)→1024字节
 ```
+
+显式生成器参数优先于名称规则默认值。同一生成器继承默认参数；在 `string` 与 `text` 之间切换时，只继承共有的 `min_length`、`max_length`。`sentence` 不继承字符串或文本参数，`text` 不继承 `charset`；用户显式提供不支持的参数时仍会报告配置错误。
+
+显式长度上下限会保留并交给校验，即使 `min_length` 大于 `max_length`。SQLite 主键仅在元数据确认是真实 rowid 别名时跳过默认生成。`WITHOUT ROWID` 和列内 `INTEGER PRIMARY KEY DESC` 按普通列处理；表级 `PRIMARY KEY(id DESC)` 仍可能是 rowid 别名。隐式 rowid 别名仍允许用户显式指定 generator。
+
+`faker_method` 或 `mimesis_method` 配合 `native_params` 可独立配置 source 列，无须指定 `generator`；方法须对应当前 provider。UNIQUE 重试仍调用指定的 native 方法。未知方法或非法 native 参数明确失败，不会静默改为推断生成的数据。同时给出普通 generator 时，另一 provider 的 native 提示不影响该 generator 的正常回退。
+
+部分 UNIQUE 索引保留 `is_partial` 元数据标记。WHERE 条件由数据库执行，不推导为无条件的单列或组合 UNIQUE。适用行发生重复时可能在写入批次时失败；默认逐批提交保留此前成功批次。SQLite 表名在反射、生成和依赖排序前按 ASCII 大小写不敏感规则解析为数据库名称；PostgreSQL 保持精确名称匹配。
+
+单列字面量 CHECK 会对 `AND` 子句及多条 CHECK 声明取交集。严格数值边界先保留 SQL 含义，再按 integer/float generator 处理。用户的 `constraints.min_value`、`max_value`、`regex` 会检查生成的非 NULL 值；regex 要求匹配整个字符串，失败时在有限预算内重试或回溯。
+
+Float 边界向生成器的小数精度网格内收，因此 precision 为 2 时，`0.005 < x < 0.015` 仍允许 `0.01`。若枚举没有精确交集，但 SQL affinity/collation 可能让字面量等价，则保留原候选交给数据库验证；此降级不保证每个候选都满足全部 CHECK。
+
+追加生成通过候选键点查避开数据库已有的 UNIQUE/主键组合，不预加载全表。同一 seed 可能重放很长的已有键前缀并耗尽重试预算；这不代表唯一值空间已经用尽。
 
 示例：
 
@@ -849,7 +874,7 @@ sqlseed 通过 [pluggy](https://pluggy.readthedocs.io/) 提供 12 个 Hook 点�
 | `sqlseed_before_generate` |    <br />   | 数据生成循环前 |
 | `sqlseed_after_generate` |    <br />   | 数据生成完成后 |
 | `sqlseed_transform_row` |    <br />   | 逐行变换（热路径，注意性能） |
-| `sqlseed_transform_batch` |    <br />   | 逐批变换（支持链式处理） |
+| `sqlseed_transform_batch` |    <br />   | 逐批变换（各插件接收同一批输入，取最后一个非 `None` 结果） |
 | `sqlseed_before_insert` |    <br />   | 每批写入 DB 前 |
 | `sqlseed_after_insert` |    <br />   | 每批写入 DB 后 |
 | `sqlseed_shared_pool_loaded` |    <br />   | SharedPool 注册后（值池已可读） |

@@ -1,0 +1,53 @@
+/* Run-specific layout stays stronger than the shared base rules. */
+.runs-page .run-list {
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--wash);
+  scrollbar-gutter: stable;
+  scroll-padding: 8px;
+}
+
+.runs-page .run-card {
+  border-color: #e8eef0;
+}
+
+.runs-page .run-card:last-child {
+  margin-bottom: 0;
+}
+
+.runs-page .run-card:hover {
+  border-color: #b4cfc5;
+  background: #f2f8f5;
+}
+
+.runs-page .run-card.active {
+  border-color: #92bcae;
+  background: #edf6f1;
+  box-shadow: inset 3px 0 0 var(--teal);
+}
+
+.runs-page .run-result-content {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+
+.runs-page .run-result-content > span {
+  max-width: 100%;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.runs-page .run-view-data {
+  margin: 0;
+}
+
+@media (max-width: 760px) {
+  .runs-page .run-list {
+    max-height: min(240px, 45vh);
+  }
+}

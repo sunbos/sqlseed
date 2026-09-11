@@ -19,6 +19,7 @@ core 是确定性执行器，CHECK 是既定事实。本模块在 ``_resolve_spe
 from __future__ import annotations
 
 import math
+from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
 from typing import TYPE_CHECKING, Any
 
 from sqlseed._utils.logger import get_logger
@@ -42,6 +43,21 @@ _CHOICE_GENERATORS = frozenset({"choice", "weighted_choice"})
 def _is_chinese_locale(locale: str) -> bool:
     """locale 以 zh 开头（zh / zh_CN / zh-CN ...）视为中文。"""
     return locale.lower().replace("-", "_").startswith("zh")
+
+
+def _float_grid_bound(value: float, precision: int, *, lower: bool, exclusive: bool) -> float:
+    """Round inward to a decimal grid point without losing narrow valid domains."""
+    step = Decimal(1).scaleb(-precision)
+    scaled = Decimal(str(value)) / step
+    if lower:
+        index = scaled.to_integral_value(rounding=ROUND_FLOOR if exclusive else ROUND_CEILING)
+        if exclusive:
+            index += 1
+    else:
+        index = scaled.to_integral_value(rounding=ROUND_CEILING if exclusive else ROUND_FLOOR)
+        if exclusive:
+            index -= 1
+    return float(index * step)
 
 
 class CheckAdapter:
@@ -118,21 +134,21 @@ class CheckAdapter:
         #   非严格浮点边界按 ceil/floor 取整（0.5 <= x <= 9.5 → [1, 9]）。
         # - float 生成器：round(uniform(lo, hi), precision) 可能恰好命中边界值
         #   （uniform 含下界，banker's rounding 会吞掉 nextafter 级别的 epsilon），
-        #   故向域内收进一个完整精度单位，保证生成值严格满足不等式。
+        #   故取域内首/末精度网格点。直接加减step会误删窄域合法值：
+        #   0.005 < x < 0.015，precision=2 时仍可生成0.01。
         precision = params.get("precision", 2)
-        step = 10 ** -int(precision)
         if new_lo is not None:
             exclusive = parsed.min_exclusive and lo is not None and new_lo == lo
             if integer:
                 new_lo = math.floor(new_lo) + 1 if exclusive else math.ceil(new_lo)
-            elif exclusive:
-                new_lo = new_lo + step
+            else:
+                new_lo = _float_grid_bound(new_lo, int(precision), lower=True, exclusive=exclusive)
         if new_hi is not None:
             exclusive = parsed.max_exclusive and hi is not None and new_hi == hi
             if integer:
                 new_hi = math.ceil(new_hi) - 1 if exclusive else math.floor(new_hi)
-            elif exclusive:
-                new_hi = new_hi - step
+            else:
+                new_hi = _float_grid_bound(new_hi, int(precision), lower=False, exclusive=exclusive)
 
         if new_lo is not None and new_hi is not None and new_lo > new_hi:
             self._raise_no_intersection(cc, parsed, f"[{user_lo}, {user_hi}]")

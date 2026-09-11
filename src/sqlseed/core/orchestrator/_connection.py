@@ -189,44 +189,48 @@ class ConnectionMixin:
         if not self._connected:
             self._db.connect(self._db_path)
             self._connected = True
-            self._enrichment = EnrichmentEngine(self._db, self._mapper, self._schema)
-            self._plugins.load_plugins()
-            self._plugins.hook.sqlseed_register_providers(registry=self._registry)
-            self._plugins.hook.sqlseed_register_column_mappers(mapper=self._mapper)
-            # Load user-defined custom column mappings from YAML config.
-            # These rules have higher priority than built-in rules but are
-            # registered after plugin hooks so plugins can also contribute.
-            if self._custom_column_mappings is not None:
-                self._mapper.load_custom_mappings(self._custom_column_mappings)
-            self._registry.register_from_entry_points()
             try:
-                self._registry.ensure_provider(self._provider_name)
-                self._registry.set_default(self._provider_name)
-            except (ImportError, ValueError):
-                logger.warning(
-                    "Provider not available, falling back to 'base'",
-                    provider_name=self._provider_name,
-                )
-                self._provider_name = "base"
-                # Make the fallback durable: subsequent get() calls without an
-                # explicit name (which use the default) must resolve to "base"
-                # rather than re-attempting the failed provider.
-                self._registry.set_default("base")
-            provider = self._registry.get(self._provider_name)
-            try:
-                provider.set_locale(self._locale)
-            except (ValueError, TypeError) as exc:
-                # Invalid locale string (e.g. "en_XX") may crash the provider.
-                # Fall back to a safe default and log a warning so the user can
-                # correct the locale without the whole run failing.
-                logger.warning(
-                    "Invalid locale, falling back to provider default",
-                    locale=self._locale,
-                    provider=self._provider_name,
-                    error=str(exc),
-                )
-                provider.set_locale("en_US" if self._provider_name == "faker" else "en")
-            self._plugin_mediator = PluginMediator(self._plugins, self._db, self._schema)
+                self._enrichment = EnrichmentEngine(self._db, self._mapper, self._schema)
+                self._plugins.load_plugins()
+                self._plugins.hook.sqlseed_register_providers(registry=self._registry)
+                self._plugins.hook.sqlseed_register_column_mappers(mapper=self._mapper)
+                # Load user-defined custom column mappings from YAML config.
+                # These rules have higher priority than built-in rules but are
+                # registered after plugin hooks so plugins can also contribute.
+                if self._custom_column_mappings is not None:
+                    self._mapper.load_custom_mappings(self._custom_column_mappings)
+                self._registry.register_from_entry_points()
+                try:
+                    self._registry.ensure_provider(self._provider_name)
+                    self._registry.set_default(self._provider_name)
+                except (ImportError, ValueError):
+                    logger.warning(
+                        "Provider not available, falling back to 'base'",
+                        provider_name=self._provider_name,
+                    )
+                    self._provider_name = "base"
+                    # Make the fallback durable: subsequent get() calls without an
+                    # explicit name (which use the default) must resolve to "base"
+                    # rather than re-attempting the failed provider.
+                    self._registry.set_default("base")
+                provider = self._registry.get(self._provider_name)
+                try:
+                    provider.set_locale(self._locale)
+                except (ValueError, TypeError) as exc:
+                    # Invalid locale string (e.g. "en_XX") may crash the provider.
+                    # Fall back to a safe default and log a warning so the user can
+                    # correct the locale without the whole run failing.
+                    logger.warning(
+                        "Invalid locale, falling back to provider default",
+                        locale=self._locale,
+                        provider=self._provider_name,
+                        error=str(exc),
+                    )
+                    provider.set_locale("en_US" if self._provider_name == "faker" else "en")
+                self._plugin_mediator = PluginMediator(self._plugins, self._db, self._schema)
+            except BaseException:
+                self.close()
+                raise
 
     def close(self) -> None:
         """Close the database connection if it is currently open."""

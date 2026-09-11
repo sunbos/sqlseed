@@ -1,8 +1,8 @@
 """structlog configuration for sqlseed.
 
-Centralized structured logging setup. The module auto-configures structlog on
-import so that ``import sqlseed`` is sufficient to get properly formatted
-log output — callers do not need to explicitly call ``configure_logging()``.
+Centralized structured logging setup. When the application has not configured
+structlog, the module supplies defaults on import. Existing application logging
+configuration is preserved when sqlseed is embedded through its Python API.
 
 Output is written to **stderr** (not stdout) so that log lines never interleave
 with data piped to stdout (e.g. ``sqlseed inspect`` JSON output).
@@ -10,8 +10,8 @@ with data piped to stdout (e.g. ``sqlseed inspect`` JSON output).
 ``cache_logger_on_first_use=True`` is enabled for performance: structlog
 wraps each logger in a bound callable on first use and reuses it thereafter.
 The trade-off is that subsequent ``configure_logging()`` calls will not
-affect loggers that have already been used — acceptable for sqlseed's
-CLI-driven usage pattern where configuration happens once at startup.
+affect loggers that have already been used. Applications should configure
+logging before importing sqlseed or before first use of its loggers.
 """
 
 from __future__ import annotations
@@ -53,7 +53,8 @@ def configure_logging(level: str = "INFO") -> None:
 
 
 _env_log_level = os.environ.get("SQLSEED_LOG_LEVEL", "WARNING").upper()
-configure_logging(_env_log_level)
+if not structlog.is_configured():
+    configure_logging(_env_log_level)
 
 
 def get_logger(name: str | None = None) -> Any:

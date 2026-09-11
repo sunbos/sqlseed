@@ -8,12 +8,15 @@ the probability of unique constraint conflicts.
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 from sqlseed._utils.logger import get_logger
-from sqlseed.core.mapper import ColumnMapper, GeneratorSpec
+from sqlseed.generators._protocol import ConfigurationError
+from sqlseed.generators._string_helpers import resolve_charset
 
 if TYPE_CHECKING:
+    from sqlseed.core.mapper import ColumnMapper, GeneratorSpec
     from sqlseed.database._protocol import ColumnInfo
 
 logger = get_logger(__name__)
@@ -95,31 +98,37 @@ class UniqueAdjuster:
         fallback = self._mapper.map_column(col_info, force_type_infer=True)
         if fallback.generator_name in {"skip", "autoincrement"}:
             return specs
-        # Clamp integer fallbacks to CHECK-bounded ranges BEFORE assigning, so
-        # a UNIQUE nullable integer column (e.g. ``qty INTEGER UNIQUE CHECK
-        # (qty >= 1 AND qty <= 100)``) never gets a widened [0, 999999] range
-        # that generates CHECK-violating values. The type-faithful fallback
-        # knows nothing about CHECK constraints, so without this clamp the
-        # wide range would be kept (space large enough for uniqueness) and
-        # every value would still violate the CHECK.
-        if fallback.generator_name == "integer":
-            bounds = self._check_range_bounds(col_name, check_constraints)
-            if bounds is not None:
-                cmin, cmax = bounds
-                params = dict(fallback.params)
-                if cmin is not None:
-                    params["min_value"] = max(params.get("min_value", 0), cmin)
-                if cmax is not None:
-                    params["max_value"] = min(params.get("max_value", 999999), cmax)
-                fallback = GeneratorSpec(
-                    generator_name=fallback.generator_name,
-                    params=params,
-                    null_ratio=fallback.null_ratio,
-                    provider=fallback.provider,
-                )
-        specs[col_name] = fallback
+        specs[col_name] = self._bound_integer_fallback(fallback, col_name, count, check_constraints)
         # Recurse so string/integer fallbacks also get value-space expansion.
         return self.adjust(specs, {col_name}, count, column_infos, check_constraints)
+
+    def _bound_integer_fallback(
+        self,
+        fallback: GeneratorSpec,
+        col_name: str,
+        count: int,
+        check_constraints: list[Any] | None,
+    ) -> GeneratorSpec:
+        """Choose a CHECK-valid domain for inferred defaults, not user ranges."""
+        if fallback.generator_name != "integer":
+            return fallback
+        bounds = self._check_range_bounds(col_name, check_constraints)
+        if bounds is None:
+            return fallback
+        cmin, cmax = bounds
+        params = dict(fallback.params)
+        # The type mapper's [0, 999999] is a sample domain, not a constraint.
+        # Replace each known endpoint; on a one-sided CHECK, move the free
+        # endpoint far enough into the allowed domain for UNIQUE sampling.
+        if cmin is not None:
+            params["min_value"] = cmin
+        elif cmax is not None:
+            params["min_value"] = min(params.get("min_value", 0), cmax - count * 10)
+        if cmax is not None:
+            params["max_value"] = cmax
+        elif cmin is not None:
+            params["max_value"] = max(params.get("max_value", 999999), cmin + count * 10)
+        return replace(fallback, params=params)
 
     def _adjust_string(
         self,
@@ -136,11 +145,16 @@ class UniqueAdjuster:
         params.setdefault("min_length", 1)
         max_length = params["max_length"]
 
-        charset_size = 62
-        if params.get("charset") == "digits":
-            charset_size = 10
-        elif params.get("charset") == "alpha":
-            charset_size = 52
+        charset_size = len(set(resolve_charset(params.get("charset"))))
+        if charset_size < 2:
+            min_length = params["min_length"]
+            capacity = max_length - min_length + 1 if charset_size == 1 else int(min_length == max_length == 0)
+            if count > capacity:
+                raise ConfigurationError(
+                    f"Column '{col_name}': {charset_size}-character domain cannot provide {count} UNIQUE strings "
+                    f"within lengths [{min_length}, {max_length}]."
+                )
+            return replace(spec, params=params)
 
         min_needed = max(1, math.ceil(math.log(max(count * count * 50, 1)) / math.log(charset_size)))
         current_min = params["min_length"]
@@ -149,7 +163,7 @@ class UniqueAdjuster:
         if params["min_length"] > max_length:
             if params.get("charset") is None:
                 params["charset"] = "alphanumeric"
-                charset_size = 62
+                charset_size = len(set(resolve_charset(params["charset"])))
                 min_needed = max(1, math.ceil(math.log(max(count * count * 50, 1)) / math.log(charset_size)))
                 params["min_length"] = max(current_min, min_needed)
             if params["min_length"] > max_length:
@@ -163,12 +177,7 @@ class UniqueAdjuster:
         elif params["max_length"] < params["min_length"]:
             params["max_length"] = params["min_length"]
 
-        return GeneratorSpec(
-            generator_name=spec.generator_name,
-            params=params,
-            null_ratio=spec.null_ratio,
-            provider=spec.provider,
-        )
+        return replace(spec, params=params)
 
     def _adjust_integer(
         self,
@@ -229,12 +238,7 @@ class UniqueAdjuster:
                             count=count,
                         )
                 params["max_value"] = min_val + count * 10
-        return GeneratorSpec(
-            generator_name=spec.generator_name,
-            params=params,
-            null_ratio=spec.null_ratio,
-            provider=spec.provider,
-        )
+        return replace(spec, params=params)
 
     @staticmethod
     def _check_range_bounds(
@@ -258,11 +262,11 @@ class UniqueAdjuster:
             parsed = CheckConstraintParser.parse(col_name, chk.expression)
             if parsed is None or parsed.kind != "range":
                 continue
-            if parsed.min_value is not None and parsed.min_value == int(parsed.min_value):
-                v = int(parsed.min_value)
+            if parsed.min_value is not None:
+                v = math.floor(parsed.min_value) + 1 if parsed.min_exclusive else math.ceil(parsed.min_value)
                 cmin = v if cmin is None else max(cmin, v)
-            if parsed.max_value is not None and parsed.max_value == int(parsed.max_value):
-                v = int(parsed.max_value)
+            if parsed.max_value is not None:
+                v = math.ceil(parsed.max_value) - 1 if parsed.max_exclusive else math.floor(parsed.max_value)
                 cmax = v if cmax is None else min(cmax, v)
         if cmin is None and cmax is None:
             return None
@@ -286,10 +290,11 @@ class UniqueAdjuster:
             if col_info:
                 fallback = self._mapper.map_column(col_info, force_type_infer=True)
                 if fallback.generator_name not in {"skip", "choice"}:
-                    specs[col_name] = GeneratorSpec(
+                    fallback = self._bound_integer_fallback(fallback, col_name, count, check_constraints)
+                    specs[col_name] = replace(
+                        spec,
                         generator_name=fallback.generator_name,
                         params=fallback.params,
-                        null_ratio=spec.null_ratio,
                         provider=fallback.provider,
                     )
                     specs = self.adjust(specs, {col_name}, count, column_infos, check_constraints)

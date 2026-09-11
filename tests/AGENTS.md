@@ -1,64 +1,49 @@
 # TEST SUITE
 
-**Last updated:** 2026-08-30
+**核验日期：** 2026-09-05
 
-## OVERVIEW
+## 范围与入口
 
-pytest suite. Tests mirror `src/sqlseed/` structure. conftest.py provides fixtures. Root level: 16 test files, 319 test functions. Subdirs: test_core 14 files / 247 tests, test_database 10 files / 265, test_config 3 / 39, test_generators 8 / 168 (incl. `_mixin.py` 36 shared), test_utils 4 / 99, test_plugins 2 / 21, benchmarks 1 / 3.
+本目录覆盖 core API、编排与各内部模块；`test_hardware.py`、`test_refiner.py` 等仍有 AI 插件相关回归。新增插件测试放各插件自己的 `tests/`，不要仅凭文件名假定其依赖属于 core。
 
-## STRUCTURE
+| 任务 | 入口 |
+|---|---|
+| Public API、连接互斥 | `test_public_api.py`、`test_url_connection.py` |
+| 编排与 adapter 集成 | `test_orchestrator.py`、`test_orchestrator_adapter.py` |
+| 映射、schema、FK | `test_mapper.py`、`test_mapper_camelcase.py`、`test_schema.py`、`test_relation.py` |
+| Core 算法、CHECK、unique | [test_core/AGENTS.md](test_core/AGENTS.md) |
+| 配置、snapshot | [test_config/AGENTS.md](test_config/AGENTS.md) |
+| Adapter、dialect、SQL 安全 | [test_database/AGENTS.md](test_database/AGENTS.md) |
+| Provider、dispatch、media | [test_generators/AGENTS.md](test_generators/AGENTS.md) |
+| pluggy 与 manager | [test_plugins/AGENTS.md](test_plugins/AGENTS.md) |
+| 日志、metrics、paths、progress | [test_utils/AGENTS.md](test_utils/AGENTS.md) |
+| 真实 PostgreSQL / LLM | [integration/AGENTS.md](integration/AGENTS.md) |
+| 性能测量 | [benchmarks/AGENTS.md](benchmarks/AGENTS.md) |
 
+## Fixtures 与隔离
+
+- 共享 fixtures 定义在仓库根 [conftest.py](../conftest.py)，pytest 对 core 和插件自动发现；本目录 [conftest.py](conftest.py) 只保留可导入的 helper functions。
+- `tmp_db_simple` 是单表库；`tmp_db_full` / `tmp_db` 是 users/orders 外键库；`tmp_db_with_data` 预置用户数据；`unique_test_db` 提供 projects 与唯一索引。
+- `raw_adapter` / `raw_adapter_with_data` 是测试专用 adapter fixtures；`pg_url` 与 `available_llm_backend` 是 session fixtures，需要外部服务。
+- 构造 schema 使用 `make_column_info()`、`create_simple_db()`、`create_project_info_db()`；enrichment 可用 `apply_enrichment()`。新测试不用已弃用的 `make_col()`。
+- 用 `tmp_path` 创建真实 SQLite，不 mock 数据库层；连接、orchestrator 用 context manager 或 fixture teardown 释放。`gc_between_tests` 是 opt-in，不要改成 autouse。
+- 纯 core 测试可使用 `provider="base"` / `provider_name="base"` 获得可重复占位数据；provider 真实性、locale 与 dispatch 回归必须使用对应 Faker/Mimesis provider，不能一律替换成 base。
+- CLI 使用 `click.testing.CliRunner`，不启动 subprocess；AI 可选依赖用 `pytest.importorskip("sqlseed_ai")` 或现有模块级 skip 模式。
+- 普通测试沿用 `test_<module>.py`；mypy 不检查 tests，但保留清楚的类型注解。断言实际输出，不只断言 mock 被调用，具体例子见 `test_core/AGENTS.md`。
+
+## 验证
+
+从仓库根运行：
+
+```bash
+pytest tests/test_orchestrator.py
+pytest tests/test_core/
+pytest tests/test_architecture.py tests/test_doc_sync.py
+pytest plugins/sqlseed-web/tests/
 ```
-tests/
-├── conftest.py              # Test helpers; fixtures moved to rootdir conftest.py
-├── _helpers.py              # Test utilities
-├── _ai_helpers.py           # Shared helpers for sqlseed-ai plugin tests
-├── test_public_api.py       # 10 tests — fill, connect, preview
-├── test_orchestrator.py     # 41 tests — DataOrchestrator
-├── test_orchestrator_adapter.py  # 9 tests — orchestrator-adapter integration
-├── test_mapper.py           # 33 tests — ColumnMapper
-├── test_mapper_camelcase.py # 21 tests — camelCase name mapping
-├── test_schema.py           # 16 tests — SchemaInferrer
-├── test_relation.py         # 41 tests — RelationResolver
-├── test_result.py           # 4 tests — GenerationResult
-├── test_enrich_enum_detection.py  # 18 tests — enrichment
-├── test_architecture.py     # 14 tests — architecture invariants
-├── test_doc_sync.py         # 13 tests — AUTO-GENERATED markers (17 with param)
-├── test_hardware.py         # 8 tests — sqlseed_ai._hardware
-├── test_refiner.py          # 61 tests — AiConfigRefiner (sqlseed-ai)
-├── test_url_connection.py   # 15 tests — --url / _resolve_db_target
-├── test_core/               # 14 files, 247 tests
-├── test_generators/         # 8 files, 168 tests
-├── test_database/           # 10 files, 265 tests
-├── test_config/             # 3 files, 39 tests
-├── test_plugins/            # 2 files, 21 tests
-├── test_utils/              # 4 files, 99 tests
-├── integration/             # Integration tests (test_pg_integration.py, test_url_e2e.py, test_ai_real_llm.py)
-└── benchmarks/              # bench_fill.py (3 benchmarks)
-```
 
-## WHERE TO LOOK
-
-| Task | Location | Notes |
-|------|----------|-------|
-| Add fixture | root `conftest.py` (not tests/) | tmp_db, tmp_db_with_data, unique_test_db |
-| Test new generator | `test_generators/` | Mirror generators/ structure |
-| Test core logic | `test_core/` | Mirror core/ structure |
-| Test CLI | `plugins/sqlseed-cli/tests/` | Click CliRunner |
-| Test AI plugin | `plugins/sqlseed-ai/tests/` | Integration tests |
-| Add benchmark | `benchmarks/` | pytest-benchmark |
-
-## CONVENTIONS
-
-- **Naming**: `test_<module>.py` mirrors `src/sqlseed/<module>/`
-- **Fixtures**: Use `tmp_db`, `tmp_db_with_data`, `unique_test_db` from conftest
-- **DB creation**: Use `create_simple_db()`, `create_project_info_db()` helpers
-- **Orchestrator tests**: Use `DataOrchestrator` as context manager
-- **Type hints**: Relaxed in tests (mypy overrides in pyproject.toml)
-
-## ANTI-PATTERNS
-
-- **NEVER** hardcode DB paths → use `tmp_path` fixture
-- **NEVER** skip cleanup → use context managers or fixtures
-- **ALWAYS** use `provider="base"` in tests (no external deps)
-- Use the opt-in `gc_between_tests` fixture for memory-sensitive tests (not autouse)
+- 根 `pyproject.toml` 的默认 `pytest` 包含 tests、CLI、AI、MCP、Web；`make test-core` 不包含本目录根层用例。
+- `test_architecture.py` 校验 import 边界、public API、production isolation 与注册集合；配合 `lint-imports` 使用。
+- `test_package_boundaries.py` 对整个源目录执行 AST 导入检查：离线 core 不直接导入插件或模型 SDK，Web/MCP 不导入 AI CLI，AI runtime 不依赖终端入口。此检查不依赖测试进程此前已经加载哪些模块，不覆盖任意动态导入。
+- `test_doc_sync.py` 检查源码事实与 Markdown 标记；它的 AGENTS 路径列表是显式的，新增文件并不自动加入该列表。`scripts/sync_docs.py --check` 会扫描 Markdown 标记。
+- 真实服务用例与 benchmark 的执行、跳过条件及收集差异见各自本地指引；不要把 skip 或未收集报告成验证通过。

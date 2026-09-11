@@ -1,345 +1,110 @@
 # PROJECT KNOWLEDGE BASE
 
-**Last updated:** 2026-08-30
-**Branch:** `feat/contract-driven-self-healing`
+**核验日期：** 2026-09-05
 
-## OVERVIEW
+## 项目概览
 
-Declarative Multi-Database test data generation toolkit. YAML/JSON config or Python API. Auto-infers schema, 9-level column mapping, 36 generators, plugin system (pluggy). Supports SQLite (default) and PostgreSQL via SQLAlchemy. MySQL removed (deferred until PostgreSQL fully validated). Gemma 4 as long-term LLM backend (protocol-based native function calling). License: **AGPL-3.0-or-later**.
+sqlseed 是声明式测试数据生成工具：通过 Python API 或 YAML/JSON 配置推断 schema、选择 generator、流式写入数据并维护外键。支持 SQLite 与 PostgreSQL；MySQL 已移除，待 PostgreSQL 完整验证后再考虑。
 
-**Stack**: Python 3.10+ (`requires-python = ">=3.10"`), hatchling + hatch-vcs build, ruff lint, mypy strict, pytest. CI also gates on `lint-imports` (architectural layer contracts); `mutmut` (mutation testing) is a local pre-merge gate via `make mutmut` — too slow for push CI.
+技术栈：Python 3.10+、hatchling + hatch-vcs、SQLAlchemy、Pydantic、pluggy、structlog；ruff、mypy strict、pytest。许可证为 **AGPL-3.0-or-later**。
 
-**Architecture**: 5 independent packages — `sqlseed` (core, offline), `sqlseed-cli` (CLI plugin), `sqlseed-ai` (AI plugin), `mcp-server-sqlseed` (MCP plugin; module path is `mcp_server_sqlseed`, note the underscore), `sqlseed-web` (web UI plugin: FastAPI + dependency-free static frontend; optional `[ai]` extra for the heal lab). See [ARCHITECTURE.md](./ARCHITECTURE.md) for the authoritative architecture reference; [CLAUDE.md](./CLAUDE.md) has the canonical "Never/Always" rules.
+仓库现有五个独立 package：离线 core，以及 CLI、AI、MCP、Web 插件。Gemma 4 是 AI 插件的长期 LLM 后端方向，协议与修复规则位于插件内。
 
-**Current work**: the `sqlseed-ai` self-healing subsystem (`auto_heal/`, `healer/`, `validator/`, `repair/`, `contracts/`) — contract-driven, multi-level repair pipeline.
+## 开始工作
 
-## STRUCTURE
+- 修改目录前，读取从根到目标目录沿途的 `AGENTS.md`；子级文件只补充本地差异。
+- 修改包边界或 public API 前，阅读 [ARCHITECTURE.md](ARCHITECTURE.md)；修改 core 前，阅读 [CLAUDE.md](CLAUDE.md) 的 Never/Always 与 Critical Pitfalls。
+- `ARCHITECTURE.md` 是架构决策依据，`CLAUDE.md` 是规则来源；[GEMINI.md](GEMINI.md) 只是指向后者。旧文档中的四包描述、文件统计等可能落后于代码；用 manifest、实现与 CI 核验现状，不把历史描述当成新增行为要求。
+- 保留目录内的历史约束回归规则。新增 package 或重要职责边界时，评估并补充本地 `AGENTS.md`；不要给纯数据或薄封装目录添加重复指引。
 
-```
-sqlseed/
-├── src/sqlseed/          # Core package (no CLI/AI/MCP code)
-│   ├── __init__.py       # Public API: fill, connect, fill_from_config, preview
-│   ├── core/             # Orchestrator, mapper, schema, CHECK parse/adapt, constraints, DAG, enrichment, transform
-│   ├── generators/       # Data providers: base, faker, mimesis
-│   ├── database/         # DB adapters: SQLAlchemy (required, SQLite+PostgreSQL), raw sqlite3 (test-only)
-│   ├── plugins/          # Plugin infrastructure: hookspecs, manager, mediator
-│   ├── config/           # Pydantic models, YAML loader, snapshots
-│   └── _utils/           # Internal: sql_safe, metrics, progress, logger, paths
-├── tests/                # Core pytest suite, conftest fixtures
-├── plugins/
-│   ├── sqlseed-cli/      # CLI plugin: fill, preview, inspect, init, replay (separate package)
-│   ├── sqlseed-ai/       # AI plugin: LLM schema analysis + self-healing (healer/, validator/, repair/, contracts/)
-│   ├── sqlseed-web/       # Web UI plugin: FastAPI + static frontend (schema/mapping/preview/fill/heal lab)
-│   └── mcp-server-sqlseed/  # MCP server: rule-driven YAML gen + execute_fill (no LLM)
-├── scripts/              # Helper scripts (run scripts, validation harnesses)
-├── docs/                 # mkdocs-material site
-└── examples/             # Usage examples
-```
+## 目录与任务导航
 
-## MODULE-LEVEL AGENTS.md
+| 工作范围 | 入口与本地指引 |
+|---|---|
+| Core public API | [src/sqlseed/AGENTS.md](src/sqlseed/AGENTS.md)、`src/sqlseed/__init__.py` |
+| 编排、列映射、schema、CHECK、FK、流式生成 | [core/AGENTS.md](src/sqlseed/core/AGENTS.md)、`src/sqlseed/core/orchestrator/`、`mapper.py`、`schema.py`、`relation.py` |
+| Provider 与 generator dispatch | [generators/AGENTS.md](src/sqlseed/generators/AGENTS.md) |
+| SQLAlchemy adapters、dialect、批量写入 | [database/AGENTS.md](src/sqlseed/database/AGENTS.md) |
+| 配置模型、加载、snapshot | [config/AGENTS.md](src/sqlseed/config/AGENTS.md) |
+| pluggy hooks 与加载生命周期 | [plugins/AGENTS.md](src/sqlseed/plugins/AGENTS.md)；`PluginMediator` 在 `src/sqlseed/core/plugin_mediator.py` |
+| 日志、metrics、SQL 安全、缓存路径、进度 | [_utils/AGENTS.md](src/sqlseed/_utils/AGENTS.md) |
+| CLI：fill / preview / inspect / init / replay | [sqlseed-cli/AGENTS.md](plugins/sqlseed-cli/AGENTS.md) |
+| AI：schema analysis、contract-driven self-healing | [sqlseed-ai/AGENTS.md](plugins/sqlseed-ai/AGENTS.md)，深入层次时读其 `src/sqlseed_ai/AGENTS.md` |
+| MCP：规则生成 YAML 与 execute_fill | [mcp-server-sqlseed/AGENTS.md](plugins/mcp-server-sqlseed/AGENTS.md)；import 名称为 `mcp_server_sqlseed` |
+| Web：FastAPI、静态前端、heal lab | [sqlseed-web/AGENTS.md](plugins/sqlseed-web/AGENTS.md) |
+| Core 与共享测试、集成测试、benchmark | [tests/AGENTS.md](tests/AGENTS.md)；插件测试在各自 `tests/` |
+| 文档、示例、辅助脚本 | `docs/`（MkDocs）、`examples/`、`scripts/` |
 
-The repo ships 23 `AGENTS.md` files (1 root + 22 nested), one per package/test subdir. **Before editing a module, read the nearest `AGENTS.md`** for that area's local conventions and gotchas:
+`scripts/sync_docs.py` 与 `scripts/_fact_extractors.py` 是正式文档校验工具；同目录的临时 `.db` / `.sql` / `.yaml`、回归日志与 ad-hoc harness 仅作参考，不作为产品稳定依赖。
 
-```
-src/sqlseed/AGENTS.md                      (core package root)
-src/sqlseed/core/AGENTS.md                 (orchestrator, mapper, schema, relation, ...)
-src/sqlseed/config/AGENTS.md
-src/sqlseed/database/AGENTS.md
-src/sqlseed/generators/AGENTS.md
-src/sqlseed/plugins/AGENTS.md              (plugin infrastructure: hookspecs + manager)
-src/sqlseed/_utils/AGENTS.md
-plugins/sqlseed-cli/AGENTS.md
-plugins/sqlseed-cli/src/sqlseed_cli/AGENTS.md
-plugins/sqlseed-ai/AGENTS.md
-plugins/sqlseed-ai/src/sqlseed_ai/AGENTS.md
-plugins/sqlseed-web/AGENTS.md
-plugins/mcp-server-sqlseed/AGENTS.md
-plugins/mcp-server-sqlseed/src/mcp_server_sqlseed/AGENTS.md
-tests/AGENTS.md + tests/{test_core,test_config,test_database,test_generators,test_plugins,test_utils,benchmarks}/AGENTS.md
-```
+## 全局规则
 
-This root file is the index; module-level files carry the detail. When adding a new package subdir, create its `AGENTS.md` too.
+- 保持 core 离线、Python API 优先；CLI/AI/MCP/Web 行为留在插件，core 不依赖插件。
+- 禁止 `sqlseed.generators` 或 `sqlseed.database` 导入 `sqlseed.core`；禁止 `sqlseed._utils` 导入任何上层。这些边界由 `pyproject.toml` 的 import-linter contracts 校验。
+- Python 文件使用 `from __future__ import annotations`。日志经 `sqlseed._utils.logger.get_logger(__name__)`；SQL identifiers 经 `_utils/sql_safe.py` 的 `quote_identifier()`，不得直接拼接未引用的名称。
+- Runtime validation 使用 `RuntimeError` / `ValueError`，不用 `assert`；不要以类型抑制掩盖错误。mypy strict 针对 source，排除 tests。
+- Provider/adapter 满足现有 Protocol；可选依赖按已有模式 lazy import 并处理 `ImportError`。SQLAlchemy 与 Faker 是 core 必需依赖，Mimesis 是可选依赖。
+- 生产数据库入口使用 `SQLAlchemyAdapter`；`RawSQLiteAdapter` 仅供测试。通过 context manager / finally 释放连接并恢复 PRAGMA。
+- 保持 `DataStream.generate()` 的流式迭代，不把全量数据收集后再写库。seed、CHECK adaptation 与 FK 两阶段处理的细节见 core 子级指引。
+- `fill` / `connect` / `preview` 的 `db_path` 与 `url` 互斥；`fill_from_config(config_path)` 和 `load_config(path)` 接收配置路径。
+- `ColumnConfig` 的 source 模式（generator/params）与 derived 模式（derive_from/expression）互斥；修改时核对 `src/sqlseed/config/models.py` 的 validators。
+- 测试用 `tmp_path` 创建真实 SQLite，不 mock 数据库行为。CLI 测试用 `click.testing.CliRunner`；AI 测试按可选插件安装状态跳过。
+- 不写只验证 mock 设置的自证测试；应断言真实计算结果，如 `GeneratorSpec.params`。具体模式见 [test_core/AGENTS.md](tests/test_core/AGENTS.md)。
 
-## WHERE TO LOOK
+## 安装与运行
 
-| Task | Location | Notes |
-|------|----------|-------|
-| Add new generator | `src/sqlseed/generators/` | Create new provider; base_provider is type-routing only, real data from faker/mimesis |
-| Modify column mapping | `src/sqlseed/core/mapper.py` | 9-level strategy chain |
-| Edit orchestrator | `src/sqlseed/core/orchestrator/` | Package of 4 mixins + `_common` (see ORCHESTRATOR PACKAGE LAYOUT below) |
-| Add CLI command | `plugins/sqlseed-cli/src/sqlseed_cli/main.py` | Core commands (fill, preview, inspect, init, replay) |
-| Add AI CLI command | `plugins/sqlseed-ai/src/sqlseed_ai/cli/ai_commands.py` | 3 AI commands (ai-suggest, ai-analyze, auto-heal), injected via entry_points |
-| Add plugin hook | `src/sqlseed/plugins/hookspecs.py` | pluggy hookspec |
-| Modify schema inference | `src/sqlseed/core/schema.py` | SchemaInferrer class |
-| Change batch insert | `src/sqlseed/database/` | SQLAlchemyAdapter (required), RawSQLiteAdapter (test-only) |
-| Add test fixture | `conftest.py` (repo root) | tmp_db, tmp_db_with_data, unique_test_db (auto-discovered by all tests) |
-| Configure AI plugin | `plugins/sqlseed-ai/` | Separate pyproject.toml, Gemma 4 multi-backend, `tool_calling_protocol` field |
-| Add MCP tool | `plugins/mcp-server-sqlseed/` | FastMCP, 2 tools (generate_yaml rule-driven, execute_fill). AI tools in sqlseed-ai[mcp] |
-| Run web UI | `plugins/sqlseed-web/` | `sqlseed-web` → http://127.0.0.1:8630 (FastAPI + static frontend; heal lab needs sqlseed-ai[ai]) |
-
-## PUBLIC API (`src/sqlseed/__init__.py`)
-
-| Function | Purpose |
-|----------|---------|
-| `fill(db_path, *, url, table, count, ...)` | Single-table zero-config fill |
-| `connect(db_path, *, url, ...)` | Returns `DataOrchestrator` context manager |
-| `preview(db_path, *, url, table, count, ...)` | Preview data without writing |
-| `fill_from_config(config_path)` | Batch fill from YAML/JSON config |
-| `load_config(path)` | Load config as `GeneratorConfig` |
-
-The connection-taking public API functions (`fill`, `connect`, `preview`) accept `db_path` (SQLite file) and `url` (database URL) as **mutually exclusive** connection modes — never pass both. `fill_from_config` takes a `config_path` and `load_config` takes a `path`, so they do not take connection args.
-
-## ORCHESTRATOR PACKAGE LAYOUT
-
-`core/orchestrator/` is a **package**, not a single file. `DataOrchestrator` is composed via multiple inheritance from 4 mixins + 1 shared data module:
-
-- `_common.py` — Shared dataclasses (not a mixin): `CoreCtx` (db, schema, mapper, relation, shared_pool), `ExtCtx` (registry, plugins, plugin_mediator, enrichment, unique_adjuster, schema_fallback, metrics). Helper: `_is_db_url()`.
-- `_connection.py` — `ConnectionMixin`: lifecycle (`__init__`, `_ensure_connected`, `close`), adapter creation, property accessors, context manager protocol, `from_config()` classmethod.
-- `_specs.py` — `SpecResolverMixin`: `_resolve_specs()` (schema inference → CHECK adaptation (`CheckAdapter`, clamps user params to single-column CHECK bounds BEFORE mapping) → column mapping → enrichment → unique adjustment → FK resolution), `_build_stream()` (also extracts cross-column comparison CHECK constraints `col1 OP col2` into `inequality_constraints`), `_prepare_specs()`, `_resolve_user_configs()`.
-- `_generation.py` — `GenerationMixin`: `_generate_and_insert_batches()`, `fill_table()` (main entry point), `preview_table()`. (`fill = fill_table` alias.)
-- `_query.py` — `QueryMixin`: `get_schema_context()`, `get_column_mapping()`, `get_column_names()`, `get_skippable_columns()`, `get_topological_table_order()`, `get_table_names()`, `get_column_info()`, `get_foreign_keys()`, `get_row_count()`, `execute()`, `query()`, `fetch_one()`, `report()`, `map_column()`.
-
-Import as `from sqlseed.core.orchestrator import DataOrchestrator`. When editing, put changes in the correct mixin — don't add lifecycle code to the generation mixin, etc.
-
-## CONFIG MODEL INVARIANTS
-
-`GeneratorConfig` → `list[TableConfig]` → `list[ColumnConfig]` + `list[ColumnAssociation]`. Enforced by Pydantic `model_validator`:
-
-- `GeneratorConfig.db_path` and `url` are **mutually exclusive**. `connection_target` property returns whichever is set.
-- `ColumnConfig` has two **mutually exclusive** modes:
-  - **Source mode**: `generator` + `params` + `null_ratio` + `provider`
-  - **Derived mode**: `derive_from` + `expression`
-- `ColumnConfig.constraints: ColumnConstraintsConfig` (unique, min_value, max_value, regex, max_retries with `ge=0`).
-- `ColumnConfig` also supports `faker_method`, `mimesis_method`, `native_params` for AI-suggested native method overrides.
-
-## CONVENTIONS
-
-- **Type hints**: `from __future__ import annotations` at top of every file
-- **Logging**: structlog via `sqlseed._utils.logger.get_logger(__name__)`
-- **SQL safety**: Always use `quote_identifier()` from `_utils/sql_safe.py`
-- **Test naming**: `test_<module>.py` mirrors `src/sqlseed/<module>/`
-- **Provider pattern**: Implement `DataProvider` protocol (no base class required)
-- **Entry points**: Register providers via `pyproject.toml` `[project.entry-points."sqlseed"]`
-
-## ANTI-PATTERNS (THIS PROJECT)
-
-- **NEVER** use raw string formatting for SQL identifiers → use `quote_identifier()`
-- **NEVER** import third-party libs without try/except in provider files (optional deps only; faker is required)
-- **NEVER** suppress type errors with `as any` or `@ts-ignore`
-- **NEVER** use `assert` for runtime validation → use `RuntimeError`/`ValueError` (asserts can be optimized away with `-O`)
-- **NEVER** let `sqlseed.generators` or `sqlseed.database` import `sqlseed.core` (enforced by `lint-imports` — CI gate)
-- **NEVER** let `sqlseed._utils` import any upper layer (`core`/`generators`/`database`/`plugins`/`config`) — `_utils` is the leaf layer (enforced by `lint-imports`)
-- **ALWAYS** use `from __future__ import annotations` (enforced by ruff)
-- **ALWAYS** use SQLAlchemyAdapter for multi-DB support; RawSQLiteAdapter for zero-dep tests
-
-## PLUGIN HOOKS (12 total)
-
-Defined in `src/sqlseed/plugins/hookspecs.py`. `firstresult=✓` means pluggy returns the first non-None result; otherwise returns `list[result]`.
-
-| Hook | firstresult | Trigger |
-|------|:-----------:|---------|
-| `sqlseed_register_providers(registry)` | ✗ | `_ensure_connected()` |
-| `sqlseed_register_column_mappers(mapper)` | ✗ | `_ensure_connected()` |
-| `sqlseed_ai_analyze_table(...)` | ✓ | Low-level LLM call |
-| `sqlseed_apply_ai_suggestions(...)` | ✓ | Orchestrator `_resolve_specs()` (implemented in `sqlseed_ai.ai_mediator`) |
-| `sqlseed_before_generate(table_name, count, config)` | ✗ | Before main generation loop |
-| `sqlseed_after_generate(table_name, count, elapsed)` | ✗ | After generation completes |
-| `sqlseed_transform_row(table_name, row)` | ✗ | Per-row (hot path — mind performance) |
-| `sqlseed_transform_batch(table_name, batch)` | ✗ | `apply_batch_transforms()` |
-| `sqlseed_before_insert(table_name, batch_number, batch_size)` | ✗ | Before each batch write |
-| `sqlseed_after_insert(table_name, batch_number, rows_inserted)` | ✗ | After each batch write |
-| `sqlseed_shared_pool_loaded(table_name, shared_pool)` | ✗ | After `register_shared_pool()` |
-| `sqlseed_pre_generate_templates(...)` | ✓ | `apply_template_pool()` |
-
-**Gotcha**: pluggy returns `list[result]` for non-firstresult hooks, not a single value. Batch transforms chain: last non-`None` result wins (not accumulative).
-
-## CI GATES (must pass before merge)
-
-- `ruff check src/ tests/ plugins/` and `ruff format --check src/ tests/ plugins/`
-- `mypy src/sqlseed/ plugins/` (strict on source; tests excluded)
-- `pytest`
-- `lint-imports` — enforces the 3 forbidden layer contracts in `pyproject.toml` `[tool.importlinter]`: generators/database must not import core; `_utils` must not import upper layers. Violations fail CI automatically instead of relying on agents reading docs.
-- `tests/test_architecture.py` — 14 invariant tests complementing `lint-imports`: module location, count contracts (generator/hook/exact-rule counts), public API surface, production isolation. All must pass before merge.
-- `pytest tests/test_doc_sync.py` — verifies AUTO-GENERATED count markers in docs match the code. Run after editing `mapper.py` / `_dispatch.py` / `hookspecs.py` / `models.py` / `__init__.py` (see DOC SYNC RULES below).
-- `mutmut` — mutation testing to catch self-proving mock-based tests (local gate: run `make mutmut` before merge; NOT executed in push CI due to runtime cost). **Windows gotcha**: mutmut 3.x is not Windows-native; use `mutmut<3` and set `PYTHONUTF8=1` (see `Makefile` `mutmut` target). Default high-risk module is `unique_adjuster`; override with `--paths-to-mutate`. Baseline: 49.2% survival on 2026-06-25 — surviving mutants indicate self-proving tests. `make mutmut-report` shows survivor IDs (`python -m mutmut show <id>` to inspect); `make mutmut-clean` resets the cache.
-
-## UNIQUE STYLES
-
-- **Provider fallback chain**: mimesis (optional, high-performance) → faker (required, standard) → base (type-routing only, no real data)
-- **AI backend fallback chain**: Google AI Studio → LM Studio → Ollama → OpenAI-compat (4 backends, no gemma4 backend)
-- **Gemma 4 protocol-based tool calling**: `AIConfig.tool_calling_protocol: Literal["gemma4", "openai", "none"]` (Phase E of ARCHITECTURE.md §8 refactoring). `GEMMA_TOOLS` shared across protocols; `resolve_tool_calling_protocol()` narrows based on backend support. Gemma4 is a long-term LLM backend (NOT competition-only).
-- **Context manager pattern**: `DataOrchestrator` is a context manager
-- **Plugin mediation**: `PluginMediator` bridges plugins and core (generic methods only: `apply_batch_transforms`, `apply_template_pool`). AI-specific `apply_ai_suggestions` moved to `sqlseed-ai` (Phase C of ARCHITECTURE.md §8 refactoring), invoked via pluggy hook.
-- **DAG-based column ordering**: `ColumnDAG` handles derive_from dependencies
-- **SnapshotManager**: save/load/list_snapshots only; CLI `replay` uses load() + DataOrchestrator.from_config()
-
-## CRITICAL PITFALLS
-
-Battle scars — read before touching the relevant areas:
-
-1. **Seed handling**: Don't set provider seed in the orchestrator — `DataStream.__init__` does it (`set_seed` only when `seed is not None`).
-2. **Hook return values**: pluggy returns `list[result]` for non-firstresult hooks, not a single value.
-3. **Mimesis locale**: Use short codes (`"en"`, `"zh"`) — NOT Faker-style (`"en_US"`, `"zh_CN"`).
-4. **Memory**: Never collect all rows before writing — use the `DataStream.generate()` iterator (streaming).
-5. **Expression timeout**: Always handle `ExpressionTimeoutError`; timeout threads can't be killed (5s default via `simpleeval`).
-6. **Batch transforms chain**: Last non-`None` result wins — not accumulative.
-7. **PRAGMA restore**: Must be in a `finally` block, or the DB stays in an unsafe state.
-8. **SQLAlchemy is the required adapter**: `database/sqlalchemy_adapter.py` is required; `RawSQLiteAdapter` is test-only fallback.
-9. **Provider fallback**: `_ensure_connected()` silently falls back to `"base"` on provider load failure. Chain: mimesis (optional) → faker (required) → base (type-routing only, no real data).
-10. **Orchestrator is a package**: `core/orchestrator/` is 4 mixins + `_common` (see ORCHESTRATOR PACKAGE LAYOUT). Import as `from sqlseed.core.orchestrator import DataOrchestrator`.
-11. **db_path vs url**: Mutually exclusive on both public API and CLI. Never pass both.
-12. **AUTO-GENERATED markers**: Doc files use `<!-- BEGIN:AUTO-GENERATED:name -->value<!-- END:AUTO-GENERATED:name -->`. Don't manually edit values inside markers — run `scripts/sync_docs.py` and `pytest tests/test_doc_sync.py`.
-13. **Mock self-proving trap**: Tests that mock `sqlseed.core.*` / `generators.*` / `database.*` classes (e.g., `mapper.map_column = MagicMock(return_value=...)` then `assert_called_once_with(...)`) are self-proving — the assertion echoes the mock setup and never verifies the computed `GeneratorSpec.params`. Use a real `ColumnMapper` + real `ColumnInfo` with non-None `default` and a non-exact-match column name (e.g., `"category"`/`"rank"`) to exercise `_type_faithful_fallback` and downstream `_adjust_*` math. See `tests/test_core/test_unique_adjuster.py::TestAdjustChoiceFallback` for the recommended pattern. Run `make mutmut` to detect self-proving tests.
-14. **Architecture enforcement is multi-layer**: 4 complementary mechanisms — (a) `lint-imports` (CI gate, fails fast on forbidden layer crossings), (b) `tests/test_architecture.py` (14 invariant tests), (c) `make mutmut` (mutation testing), (d) `tests/test_doc_sync.py` (count markers match code). All 4 must pass before merge.
-15. **CHECK adaptation is deterministic-only**: `check_adapt.py` clamps user params to single-column literal CHECK bounds (overlap → clamp + notice; disjoint → `ConfigurationError`). Cross-column/OR/unparseable CHECKs stay the AI/manual domain — never "guess" them in core. Composite PRIMARY KEYs are treated as composite UNIQUE constraints (`unique_adjuster.detect_unique_columns()`), not per-column unique. **Enum-CHECK hard truth** (2026-08-30): in `_resolve_specs`, a single-column `CHECK IN (...)` enum overrides ANY non-user generator — including name-rule hits like `title` → `sentence` that would deterministically violate the enum (fixes zero-config IntegrityError; found live via sqlseed-web). **Length-CHECK hard truth** (same day, same principle): a `LENGTH(col) = N` CHECK upgrades `phone`/`string` name-rule specs to `pattern [0-9]{N}` — providers' locale-real phone formats (mimesis 19 chars, faker NANP 14) cannot satisfy exact lengths. The zero-config boundary notice therefore lists only non-enum/non-exact-length CHECKs.
-
-## AI SELF-HEALING SUBSYSTEM (`sqlseed-ai`, current branch focus)
-
-The `feat/contract-driven-self-healing` branch adds a contract-driven, multi-level repair pipeline under `plugins/sqlseed-ai/src/sqlseed_ai/`. The v4 architecture is a 6-layer pipeline built on the open-closed principle: core code (Registry + Validator + Executor) is closed; rules are open for extension via the `REPAIR_STRATEGIES` dict. Layer numbers are the canonical vocabulary used in docs/commits — grep for them.
-
-- **Layer 1 — `contracts/`** — Sparse contract matrix + resolver. `ContractViolation` defines a single bad generator/type/constraints combination; `ContractResolver` merges builtin + learned violations with specificity-priority matching. The matrix is a *closed set* — only known-bad combinations are listed; unlisted combinations default to COMPATIBLE. `builtin_violations.py` ships the seed violations; `registry.py` exposes the lookup API.
-- **Layer 2 — `validator/`** — `FastValidator` orchestrates five components: `single_column` (per-column contract + cardinality), `cross_column` (FK integrity + derive_from DAG cycle detection), `composite_fk`, `shadow_fk_scan` (localize SQLite FK violation column), `dialect_parser` (normalize DBAPI exceptions to `ViolationReport`). `schema_snapshot.py` records `schema_hash` at startup for optimistic-lock re-check at write time.
-- **Layer 3 — `repair/`** — Stateless repair engine. Each strategy is a pure function `RepairFn = Callable[[dict, ViolationReport, dict], dict]` registered in `REPAIR_STRATEGIES`. `strategies.py` ships canonical strategies — notably `normalize_params` (strips params not in `_GENERATOR_PARAM_WHITELIST` for ALL generators), `coerce_float_to_int` (`random_float` → `random_int` for INTEGER columns), plus derive_from cleanup, date-column generator fixes, CHECK-chain mirroring. `executor.py` applies strategies by `fix_hint` dispatch; `pipeline.py` chains them.
-- **Layer 4 — `healer/`** — 4-level LLM heal architecture with failure-type-aware routing. `orchestrator.py` (`HealOrchestrator`) coordinates: Level 1 (subgraph) → Level 2 (column) → Level 3 (compact) → Level 4 (deterministic degrade). Supporting: `failure_classifier` (6 types: `CONTEXT_OVERFLOW`/`EMPTY_RESPONSE`/`JSON_FORMAT`/`SEMANTIC`/`NETWORK`/`UNKNOWN`), `oscillation`, `degrader` (semantic downgrade safety net), `post_repair` (broken FK edge aligner), `diff_learner` (persists learned violations back to Layer 1), `subgraph` (Tarjan SCC + megacluster breaking), `context_detector` (dynamic context-window detection, skips Level 1 if token estimate > 60% of window). Routing: `CONTEXT_OVERFLOW`/`EMPTY_RESPONSE` → Level 2; `JSON_FORMAT` → Level 3; `SEMANTIC` → Level 4; `NETWORK` → raise.
-- **Layer 5 — `auto_heal/`** — `AutoHealOrchestrator` (`orchestrator.py`) is the top-level entry point for `ai-analyze` (default v4 path), `ai-suggest --auto-heal`, and the standalone `auto-heal` command. Pipeline: SchemaSnapshot → SubgraphSplitter → per-subgraph (Layer 2 validate → Layer 3 repair → Layer 4 heal) → BrokenEdgeAligner → optimistic-lock schema_hash re-check → emit YAML. `time_budget.py` (`TimeBudgetController`) enforces wall-clock budget. `_build_subgraph_config()` performs deterministic CHECK-constraint inference before any LLM call (see gotchas below).
-- **Layer 6 — `analyzer/`** — LLM table-level analysis with streaming/tool-calling submodules (`_caller`, `_streaming`, `_tool_calling` [protocol-based: `gemma4`/`openai`/`none`], `_context`, `_json_parser`). Used by the non-auto-heal `ai-suggest` path.
-
-**sqlseed-ai file inventory (subpackages, by layer)**:
-
-| Subpackage | Files | Key files (lines) |
-|:-----------|------:|:------------------|
-| `contracts/` (L1) | 4 | `builtin_violations.py` [334L], `registry.py` [277L] LearnedContractsRegistry, `matrix.py` [183L] ContractResolver |
-| `validator/` (L2) | 9 | `single_column.py` [331L], `schema_snapshot.py` [218L], `cross_column.py` [188L], `shadow_fk_scan.py` [154L], `main.py` [95L] FastValidator |
-| `repair/` (L3) | 5 | `strategies.py` [776L] REPAIR_STRATEGIES, `executor.py` [101L], `pipeline.py` [57L], `models.py` [39L] |
-| `healer/` (L4) | 14 | `orchestrator.py` [559L] HealOrchestrator, `level2_column_healer.py` [313L], `level1_subgraph_healer.py` [206L], `degrader.py` [245L], `level3_compact_healer.py` [190L], `subgraph.py` [160L] TarjanSCC, `models.py` [149L] 10 dataclasses |
-| `auto_heal/` (L5) | 3 | `orchestrator.py` [6619L] AutoHealOrchestrator, `time_budget.py` [44L] TimeBudgetController |
-| `analyzer/` (L6) | 7 | `_caller.py` [434L], `_streaming.py` [308L], `_context.py` [262L], `__init__.py` [68L] SchemaAnalyzer, `_json_parser.py` [141L], `_tool_calling.py` [141L] |
-| root | 17 | `refiner.py` [819L] AiConfigRefiner, `config.py` [642L] AIConfig, `mcp.py` [410L] 3 Gemma tools, `__init__.py` [326L] AISqlseedPlugin, `_prompts.py` [301L], `examples.py` [278L], `_hardware.py` [345L] |
-| `cli/` | 3 | `ai_commands.py` [928L] ai_suggest/ai_analyze/auto_heal + register() |
-
-**Gotchas when editing this subsystem**:
-- **RepairExecutor accounting invariant**: a strategy returning the column unchanged (`before == after`) is a *decline*, not a fix — the executor routes it to `unfixable`, never to `applied_fixes`. Violating this inflates `fix_count` and breaks `pipeline.py`'s partial-fix re-validation heuristic. Related: `_upgrade_phone_to_pattern` upgrades `LENGTH(col)=N` CHECK columns to `pattern` `[0-9]{N}` (same as `_semantic_upgrade`'s blind-spot fix) instead of skipping — the old skip was reported as a successful no-op fix (found live via sqlseed-web heal lab, fixed 2026-08-30).
-- The `auto_heal.orchestrator` runs multiple convergence rounds; many `git log` entries are "Round N" fixes for specific cross-column CHECK patterns (Pattern 1/1b/4a/7a/7b/19/21/22/22c/24b/etc.). These are real constraint-handling rules, not throwaway — grep for the pattern number before removing.
-- `degrader.py` is the "semantic downgrade safety net" — stripping generator/params when `derive_from` is present is intentional (see commit `78d15f9`).
-- Self-referencing and composite FK resolution has many edge-case fixes (two-pass fill, `null_ratio=1.0` for empty-parent FK). See recent commits before changing `relation.py` / `_generation.py`.
-- `refiner.py` delegates Rule #14 param stripping to v4 `REPAIR_STRATEGIES["normalize_params"]` — don't re-implement there.
-- The legacy `Stage3Validator` (36 numbered rules), `SchemaSemanticAnalyzer`, and `StagedSchemaAnalyzer` were deleted in Phase 4 zero-rot cleanup — no dual-track system. Migration: Rule #14 → `normalize_params`; Rule #26 → `coerce_float_to_int`; Rule #35 → derive_from cleanup; Rule #36 → date-column generator coercion. Full matrix in `docs/superpowers/plans/v4_coverage_matrix.md`.
-
-## DOCS TO READ BEFORE SENSITIVE EDITS
-
-- **[ARCHITECTURE.md](./ARCHITECTURE.md)** — authoritative architecture reference (4-package layout, plugin contracts, core-stability principle). Read before touching package boundaries or public API.
-- **[CLAUDE.md](./CLAUDE.md)** — canonical "Never/Always" rules (the import-linter contracts encode these). Read before core changes.
-
-## DOC SYNC RULES
-
-When modifying these source files, update the corresponding docs in the **same commit**:
-
-| Source File | Docs to Update | What to Check |
-|:------------|:---------------|:--------------|
-| `src/sqlseed/generators/_dispatch.py` | README.md, README.zh-CN.md | Generator type table (count + names) |
-| `src/sqlseed/core/mapper.py` | README.md, CLAUDE.md | Exact match rule count, pattern match count |
-| `src/sqlseed/core/expression.py` | README.md, README.zh-CN.md | SAFE_FUNCTIONS table (count + names) |
-| `src/sqlseed/plugins/hookspecs.py` | README.md, CLAUDE.md, AGENTS.md, docs/architecture.md | Hook table (count + names) |
-| `src/sqlseed/config/models.py` | docs/architecture.md, docs/architecture.zh-CN.md | Class diagrams (field names + types) |
-| `plugins/sqlseed-cli/src/sqlseed_cli/main.py` | README.md, README.zh-CN.md | CLI command reference |
-| `plugins/sqlseed-ai/src/sqlseed_ai/cli/ai_commands.py` | README.md, README.zh-CN.md | AI CLI command reference |
-| `src/sqlseed/__init__.py` | README.md, README.zh-CN.md | Public API table |
-
-Doc files use `<!-- BEGIN:AUTO-GENERATED:marker-name -->value<!-- END:AUTO-GENERATED:marker-name -->` markers for automated count verification. **Don't manually edit values inside markers** — run `scripts/sync_docs.py`, then `pytest tests/test_doc_sync.py` to verify.
-
-## COMMANDS
-
-A `Makefile` wraps the common flows (`make help` lists all targets). Both forms work.
+以下命令从仓库根执行；在同一次解析中提供本地 Core 和所有插件，避免候选插件的新版本要求被错误地交给 PyPI 解析（与 CI setup 一致）：
 
 ```bash
-# Install core + plugins (dev mode)
-pip install -e ".[dev,all]"
-pip install -e "./plugins/sqlseed-cli"
-pip install -e "./plugins/sqlseed-ai"
-pip install -e "./plugins/mcp-server-sqlseed"
-pip install -e "./plugins/sqlseed-web"
-
-# Test
-pytest                              # All tests (core + plugins)
-make test-core                      # Core only (test_core/test_config/test_database/test_generators/test_plugins)
-pytest plugins/sqlseed-ai/tests/    # AI plugin only
-pytest tests/test_orchestrator.py -v            # Single file
-pytest -k "test_fill" -v                         # Pattern match
-pytest --cov=sqlseed.core.orchestrator --cov-report=term-missing   # Focused coverage
-make test-integration              # Requires Docker (PostgreSQL)
-
-# Lint / type-check / layer contracts (run all before merge)
-ruff check src/ tests/ plugins/     # or: make lint  (also lints examples/)
-ruff format src/ tests/ plugins/    # or: make format
-mypy src/sqlseed/ plugins/          # or: make type-check
-lint-imports                        # architectural layer contracts (CI gate)
-
-# Mutation testing
-make mutmut                         # Windows: needs mutmut<3 + PYTHONUTF8=1
-make mutmut-report                  # show survivors (then: python -m mutmut show <id>)
-make mutmut-clean                   # remove .mutmut-cache and survivor reports
-
-# Docs
-make docs-serve                     # mkdocs serve
-make docs-build                     # mkdocs build --strict
-
-# CLI (requires sqlseed-cli installed)
+python -m pip install -e ".[dev,all]" -e "./plugins/sqlseed-cli" -e "./plugins/sqlseed-ai[dev]" -e "./plugins/mcp-server-sqlseed" -e "./plugins/sqlseed-web[dev]"
 sqlseed fill app.db -t users -n 10000
 sqlseed preview app.db -t users -n 5
 sqlseed inspect app.db --show-mapping
+sqlseed-web
 ```
 
-## TEST FIXTURES (root `conftest.py`)
+Core 自身没有 console script；`sqlseed` 由 CLI package 提供。Web 默认地址 `http://127.0.0.1:8630`；heal lab 的 AI extra 与安装方式见其本地指引。`make help` 列出真实可用的辅助命令。
 
-Core fixtures (auto-discovered from the root `conftest.py`; plugin conftests only reuse helper functions from `tests/conftest.py` via importlib):
+## 验证与合并门禁
 
-- `tmp_db_simple` — simple single-table DB (id + name)
-- `tmp_db_full` — full multi-table DB (users + orders with FK)
-- `tmp_db` — backward-compatible alias for `tmp_db_full`
-- `tmp_db_with_data` — `tmp_db` pre-populated with 10 user rows
-- `unique_test_db` — projects table with unique indexes
-- `raw_adapter` / `raw_adapter_with_data` — `RawSQLiteAdapter` instances
-- `gc_between_tests` — opt-in garbage collection for memory-sensitive tests
-- `pg_url` (session-scoped) — testcontainers PostgreSQL, **requires Docker**
-- `available_llm_backend` (session-scoped) — auto-detects Ollama / LM Studio / Google AI Studio
-- Helper functions: `make_column_info()` factory, `create_project_info_db()`, `create_simple_db()`, `apply_enrichment()`
+```bash
+ruff check src/ tests/ plugins/
+ruff format --check src/ tests/ plugins/
+mypy src/sqlseed/ plugins/
+lint-imports
+pytest
+pytest tests/test_architecture.py tests/test_doc_sync.py
+pytest plugins/sqlseed-web/tests/
+node --test plugins/sqlseed-web/tests/test_*.cjs
+make mutmut
+```
 
-**Rules**:
-- Use real SQLite via `tmp_path`, never mock the database layer (mocks create self-proving tests — see Pitfall #13).
-- CLI tests: `click.testing.CliRunner`, never subprocess.
-- AI plugin tests: `pytest.importorskip("sqlseed_ai")`.
-- Integration tests: `tests/integration/` with `@pytest.mark.integration` marker.
-- Benchmarks: `tests/benchmarks/` with `pytest-benchmark`.
+- 以 [.github/workflows/ci.yml](.github/workflows/ci.yml)、[setup-env action](.github/actions/setup-env/action.yml) 和 [pyproject.toml](pyproject.toml) 为命令与依赖依据。
+- 默认 `pytest` 收集 core、CLI、AI、MCP 和 Web；CI setup 安装所有包，Node 内置运行器单独验证 Web 前端回归。
+- `make test-core` 只覆盖 Makefile 中列出的 core 子目录，不涵盖 `tests/` 根层 API/编排回归；验证范围要覆盖实际改动。
+- `make test-integration` 运行 `tests/integration/`；PostgreSQL fixture 需要 Docker/testcontainers，真实 LLM 用例需要可用 backend。详见 [integration/AGENTS.md](tests/integration/AGENTS.md)。
+- 合并前通过 lint、format、mypy、pytest、import-linter、architecture/doc-sync checks 与本地 mutation gate。`make mutmut` 默认针对 `unique_adjuster`，不在 push CI 执行；`make mutmut-report` 查看幸存 mutant，`make mutmut-clean` 清理缓存。Windows 使用 `mutmut<3` 与 `PYTHONUTF8=1`。
+- benchmark 需显式指定 `tests/benchmarks/bench_fill.py`；运行与比较方法见 [benchmarks/AGENTS.md](tests/benchmarks/AGENTS.md)。
 
-## RELEASE CHECKLIST
+## 文档同步
 
-When preparing a new version release:
+下列源文件发生接口或规则变更时，在同一提交中同步对应文档：
 
-1. **`uv.lock` files** — There are 3 lock files, all must stay in sync with their `pyproject.toml`:
-   - `./uv.lock` (root)
-   - `./plugins/sqlseed-ai/uv.lock`
-   - `./plugins/mcp-server-sqlseed/uv.lock`
+| 源文件 | 对应文档与内容 |
+|---|---|
+| `src/sqlseed/generators/_dispatch.py` | README.md、README.zh-CN.md：generator 名称与数量 |
+| `src/sqlseed/core/mapper.py` | README.md、CLAUDE.md：exact/pattern match rules |
+| `src/sqlseed/core/expression.py` | README.md、README.zh-CN.md：SAFE_FUNCTIONS |
+| `src/sqlseed/plugins/hookspecs.py` | README.md、CLAUDE.md、docs/architecture.md 与相关 AGENTS.md：hooks |
+| `src/sqlseed/config/models.py` | docs/architecture.md、docs/architecture.zh-CN.md：模型字段与类型 |
+| `plugins/sqlseed-cli/src/sqlseed_cli/main.py` | README.md、README.zh-CN.md：CLI reference |
+| `plugins/sqlseed-ai/src/sqlseed_ai/cli/ai_commands.py` | README.md、README.zh-CN.md：AI CLI reference |
+| `src/sqlseed/__init__.py` | README.md、README.zh-CN.md：public API |
 
-   Run `uv lock` in each directory after any `pyproject.toml` dependency change. (`plugins/sqlseed-cli/` has no separate lock — it pins `sqlseed` core.)
+不要手改 `AUTO-GENERATED` 标记内的值；运行 `python scripts/sync_docs.py`，再运行 `python scripts/sync_docs.py --check` 与 `pytest tests/test_doc_sync.py`。需要构建文档时运行 `make docs-build`（MkDocs strict）。
 
-2. **Changelog** — Update both `CHANGELOG.md` and `CHANGELOG.zh-CN.md` with the new version number.
+## 发布维护
 
-3. **Tag & Release** — After pushing all commits:
-   ```bash
-   git tag v<version>
-   git push origin v<version>
-   gh release create v<version> --title "v<version>" --generate-notes
-   ```
-
-4. **CI publish** — `publish.yml` triggers on release or `workflow_dispatch`. If PyPI publish fails on sigstore attestation (`ChunkedEncodingError`), this is a known upstream issue (pypa/gh-action-pypi-publish#364) — re-run via the GitHub Actions UI.
-
-## NOTES
-
-- **Optional deps**: mimesis is optional. faker is a required core dependency. Base provider is type-routing only (no real data generation).
-- **Plugin isolation**: sqlseed-cli, sqlseed-ai, mcp-server-sqlseed each have separate pyproject.toml, install separately. `mcp-server-sqlseed` installs as package `mcp-server-sqlseed` but its import module is **`mcp_server_sqlseed`** (hyphens → underscores); `server.py` exposes the FastMCP server, `__main__` is the entrypoint.
-- **Core has no CLI**: `src/sqlseed/` has no `cli/` directory. Install `sqlseed-cli` to get the `sqlseed` command. Core has no `[project.scripts]`.
-- **mypy strict**: Strict on `src/` and `plugins/` source code; test directories (`tests/`, `plugins/*/tests/`) excluded.
-- **ruff config**: Line length 120, isort known-first-party=["sqlseed"], known-third-party=["sqlseed_ai", "sqlseed_cli", "mcp_server_sqlseed"].
-- **Test layout**: Core tests in `tests/`; plugin tests co-located with plugins (`plugins/*/tests/`). Fixtures live in the root `conftest.py` (auto-discovered); plugin conftests only reuse helper functions from `tests/conftest.py` via importlib.
-- **`scripts/` is scratch**: regression logs, generated `.db`/`.sql`/`.yaml` files, and ad-hoc harnesses. Useful as references for the self-healing scenarios but not shipped artifacts — don't rely on their contents being stable.
-- **Sibling agent files**: `CLAUDE.md` is the canonical rules source (Never/Always + Critical Pitfalls + Key Modules detail); `GEMINI.md` is a pointer to `CLAUDE.md` (single source of truth — don't reconcile them as divergent copies). `AGENTS.md` (this file) is the project knowledge base index. All three are kept in sync; when in doubt, `CLAUDE.md` wins on rules, `ARCHITECTURE.md` wins on architecture decisions.
+- 修改依赖后，在根目录、`plugins/sqlseed-ai/`、`plugins/mcp-server-sqlseed/` 各自运行 `uv lock`，维护已有三个 lock files；CLI/Web 当前没有独立 lock file。
+- 版本发布同时更新 [CHANGELOG.md](CHANGELOG.md) 和 [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md)。
+- 推送提交后再创建/推送 `v<version>` tag，并通过 `gh release create` 发布；详细命令与 sigstore attestation 失败的已知处理方式见 [CLAUDE.md](CLAUDE.md) 的 Release Checklist，以及 `.github/workflows/publish.yml`。

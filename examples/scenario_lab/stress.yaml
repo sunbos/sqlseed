@@ -1,0 +1,11 @@
+# 只用来检查/浏览边界，预期检查不通过。不要用它填充数据库。
+provider: faker
+locale: zh_CN
+optimize_pragma: false
+tables:
+  - {name: orders, count: 2}
+  - {name: shipments, count: 2}
+  - {name: shipment_events, count: 2}
+  - {name: shipment_items, count: 2}
+  - {name: stock_movements, count: 2}
+  - {name: return_items, count: 2}

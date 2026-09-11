@@ -8,8 +8,12 @@ mode (hash-based) can be enabled to reduce memory usage.
 from __future__ import annotations
 
 import hashlib
+import re
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 @dataclass
@@ -27,14 +31,20 @@ class ConstraintSolver:
     For large datasets (>100K rows), set probabilistic=True to use
     a hash-based probabilistic set that trades a small false-positive
     rate for significantly reduced memory usage.
+
+    ``existing_value_check`` optionally checks candidate keys against a
+    database. Existing values are never registered locally, so backtracking
+    cannot accidentally make an existing database key available again.
     """
 
     def __init__(
         self,
         *,
         probabilistic: bool = False,
+        existing_value_check: Callable[[dict[str, Any]], bool] | None = None,
     ) -> None:
         self._probabilistic = probabilistic
+        self._existing_value_check = existing_value_check
         self._seen: dict[str, set[Any]] = {}
         self._composite_seen: dict[str, set[tuple[Any, ...]]] = {}
         if probabilistic:
@@ -47,8 +57,10 @@ class ConstraintSolver:
     def _is_seen(self, column_name: str, value: Any) -> bool:
         if self._probabilistic:
             h = self._deterministic_hash(value)
-            return column_name in self._hash_seen and h in self._hash_seen[column_name]
-        return column_name in self._seen and value in self._seen[column_name]
+            seen = column_name in self._hash_seen and h in self._hash_seen[column_name]
+        else:
+            seen = column_name in self._seen and value in self._seen[column_name]
+        return seen or bool(self._existing_value_check and self._existing_value_check({column_name: value}))
 
     def _register(self, column_name: str, value: Any) -> None:
         if self._probabilistic:
@@ -101,6 +113,10 @@ class ConstraintSolver:
         value: Any,
         is_unique: bool = False,
         source_columns: list[str] | None = None,
+        *,
+        min_value: int | float | None = None,
+        max_value: int | float | None = None,
+        regex: str | None = None,
     ) -> RegisterResult:
         """Attempt to register a single-column value, returning a result carrying backtracking info.
 
@@ -114,25 +130,50 @@ class ConstraintSolver:
             value: The value to register.
             is_unique: Whether to enable unique constraint checking.
             source_columns: Optional list of backtracking target columns, defaults to [column_name].
+            min_value: Optional inclusive lower bound.
+            max_value: Optional inclusive upper bound.
+            regex: Optional full-string pattern constraint.
 
         Returns:
             RegisterResult: is_registered=True means registration succeeded;
             is_registered=False with should_backtrack=True means backtracking is required.
         """
-        if not is_unique:
-            return RegisterResult(is_registered=True)
-
         if value is None:
             return RegisterResult(is_registered=True)
 
-        if self._is_seen(column_name, value):
+        valid = self._matches_value_constraints(column_name, value, min_value, max_value, regex)
+        if not valid or (is_unique and self._is_seen(column_name, value)):
             return RegisterResult(
                 is_registered=False,
                 should_backtrack=True,
                 backtrack_targets=source_columns if source_columns else [column_name],
             )
-        self._register(column_name, value)
+        if is_unique:
+            self._register(column_name, value)
         return RegisterResult(is_registered=True)
+
+    @staticmethod
+    def _matches_value_constraints(
+        column_name: str,
+        value: Any,
+        min_value: int | float | None,
+        max_value: int | float | None,
+        regex: str | None,
+    ) -> bool:
+        try:
+            if min_value is not None and value < min_value:
+                return False
+            if max_value is not None and value > max_value:
+                return False
+        except TypeError as exc:
+            raise ValueError(f"Column '{column_name}' produced a value incompatible with numeric constraints") from exc
+        if regex is not None:
+            try:
+                pattern = re.compile(regex)
+            except re.error as exc:
+                raise ValueError(f"Column '{column_name}' has an invalid constraint regex: {exc}") from exc
+            return isinstance(value, str) and pattern.fullmatch(value) is not None
+        return True
 
     def _is_composite_seen(self, key_name: str, values: tuple[Any, ...]) -> bool:
         if any(v is None for v in values):
@@ -148,6 +189,8 @@ class ConstraintSolver:
         self,
         key_name: str,
         values: tuple[Any, ...],
+        *,
+        columns: list[str] | None = None,
     ) -> bool:
         """Check the composite unique constraint and register the tuple value.
 
@@ -156,8 +199,9 @@ class ConstraintSolver:
         participate in unique constraints).
 
         Args:
-            key_name: Composite constraint key name (typically a concatenation of column names).
+            key_name: Unambiguous identifier for the composite constraint.
             values: Tuple of column values to check.
+            columns: Column names for the optional existing-database lookup.
 
         Returns:
             True means the composite value passed the check and was registered;
@@ -167,6 +211,12 @@ class ConstraintSolver:
             return True
 
         if self._is_composite_seen(key_name, values):
+            return False
+        if (
+            self._existing_value_check
+            and columns is not None
+            and self._existing_value_check(dict(zip(columns, values, strict=True)))
+        ):
             return False
         self._register_composite(key_name, values)
         return True

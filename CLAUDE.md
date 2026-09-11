@@ -8,18 +8,13 @@ Python 3.10+ declarative multi-database test data generation toolkit. Single API
 
 **Stack**: hatchling + hatch-vcs build, ruff lint, mypy strict, pytest. License: AGPL-3.0-or-later.
 
-**Architecture**: 4 independent packages — `sqlseed` (core, offline Python API), `sqlseed-cli` (CLI plugin), `sqlseed-ai` (AI plugin), `mcp-server-sqlseed` (MCP plugin). See [ARCHITECTURE.md](./ARCHITECTURE.md) for the authoritative architecture reference.
+**Architecture**: 5 independent packages — `sqlseed` (core, offline Python API), `sqlseed-cli` (CLI plugin), `sqlseed-ai` (AI plugin), `mcp-server-sqlseed` (MCP plugin), and `sqlseed-web` (Web plugin). See [ARCHITECTURE.md](./ARCHITECTURE.md) for the authoritative architecture reference.
 
 ## Quick Start Commands
 
 ```bash
-# Install core in dev mode (all optional deps + dev tools)
-pip install -e ".[dev,all]"
-
-# Install plugins in editable mode (for plugin development)
-pip install -e "./plugins/sqlseed-cli"
-pip install -e "./plugins/sqlseed-ai"
-pip install -e "./plugins/mcp-server-sqlseed"
+# Resolve Core and all local plugins together, including unpublished candidates
+python -m pip install -e ".[dev,all]" -e "./plugins/sqlseed-cli" -e "./plugins/sqlseed-ai[dev]" -e "./plugins/mcp-server-sqlseed" -e "./plugins/sqlseed-web[dev]"
 
 # Run all tests (core + all plugin tests)
 pytest
@@ -132,7 +127,7 @@ ColumnConfig supports two mutually exclusive modes (enforced by Pydantic `model_
 - **Source mode**: `generator` + `params` + `null_ratio` + `provider`
 - **Derived mode**: `derive_from` + `expression`
 
-ColumnConfig also supports `faker_method`, `mimesis_method`, and `native_params` for AI-suggested native method overrides.
+ColumnConfig also supports `faker_method`, `mimesis_method`, and `native_params` for native method overrides, including native-only sources without `generator`. Matching native methods remain active during UNIQUE retries; unsupported methods/parameters fail explicitly. Generic UNIQUE widening must preserve native source selection.
 
 ### Plugin Hooks (12 total)
 
@@ -145,7 +140,7 @@ ColumnConfig also supports `faker_method`, `mimesis_method`, and `native_params`
 | `sqlseed_before_generate(table_name, count, config)` | ✗ | Before main generation loop |
 | `sqlseed_after_generate(table_name, count, elapsed)` | ✗ | After generation completes |
 | `sqlseed_transform_row(table_name, row)` | ✗ | Per-row (hot path) |
-| `sqlseed_transform_batch(table_name, batch)` | ✗ | `apply_batch_transforms()` |
+| `sqlseed_transform_batch(table_name, batch)` | ✗ | `apply_batch_transforms()`; same batch input, last non-`None` result wins |
 | `sqlseed_before_insert(table_name, batch_number, batch_size)` | ✗ | Before each batch write |
 | `sqlseed_after_insert(table_name, batch_number, rows_inserted)` | ✗ | After each batch write |
 | `sqlseed_shared_pool_loaded(table_name, shared_pool)` | ✗ | After `register_shared_pool()` |
@@ -239,6 +234,12 @@ Run `pytest tests/test_doc_sync.py` to verify doc sync after changes. Uses AUTO-
 - Mutation testing (mutmut): `make mutmut` runs mutation tests on `src/sqlseed/core/unique_adjuster.py` by default. Override with `--paths-to-mutate` and `--runner` CLI flags to test other modules. See `pyproject.toml` `[tool.mutmut]` for the baseline (49.2% survival on 2026-06-25) and `make mutmut-report` to inspect surviving mutants. **Surviving mutants indicate self-proving tests** — tests that pass because mocks returned what the author expected, not because the production code actually computes the right thing. When adding new core code or strengthening tests, run `make mutmut` and check that the survival rate does not increase.
 
 ## Critical Pitfalls
+
+Explicit generator overrides inherit name-rule defaults only when compatible: the same generator retains defaults, while cross-`string`/`text` inheritance is limited to `min_length`/`max_length`. Never inject length parameters into `sentence` or `charset` into `text`. Preserve explicit user parameters so unsupported values still fail validation.
+
+Preserve explicit contradictory length limits for validation. SQLite PK generation skips only metadata-confirmed rowid aliases; `WITHOUT ROWID`, inline `INTEGER PRIMARY KEY DESC`, and composite PKs need ordinary column handling. Preserve SQLite nullable PK semantics outside rowid aliases and declared NOT NULL. Legacy hand-built `ColumnInfo.is_rowid_alias=None` retains the old INTEGER heuristic; adapters report explicit booleans. Partial UNIQUE indexes retain `IndexInfo.is_partial=True` and do not imply unconditional UNIQUE; the database enforces applicable rows at insertion. Resolve SQLite table aliases using ASCII-only matching before generation; PostgreSQL names remain exact. Literal CHECK conjunctions (including separate CHECK declarations) intersect their domains. The parser preserves strict numeric boundaries regardless of literal spelling; integer/float generator adaptation applies the correct rounding. User numeric constraints and full-string regex constraints are enforced before UNIQUE registration. Appends use bounded candidate key probes against existing data; retry exhaustion, including replayed seed prefixes, does not prove key-space exhaustion.
+
+Float CHECK bounds round inward to decimal precision grid points, not simply `bound ± step`. When a Python enum intersection is empty but strings or mixed literals leave SQL affinity/collation unknown, retain the prior candidates for database validation rather than claiming an empty SQL domain. This conservative fallback does not guarantee every candidate satisfies all CHECKs.
 
 1. **Seed handling**: Don't set provider seed in orchestrator — `DataStream.__init__` does it (`set_seed` only when `seed is not None`)
 2. **Hook return values**: pluggy returns `list[result]` for non-firstresult hooks, not a single value

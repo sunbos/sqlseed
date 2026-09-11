@@ -25,6 +25,35 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
+def resolve_sqlite_table_name(table_name: str, existing_tables: list[str]) -> str:
+    """Return the catalog spelling using SQLite's ASCII-only identifier matching."""
+    if table_name in existing_tables:
+        return table_name
+    ascii_fold = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")
+    folded = table_name.translate(ascii_fold)
+    return next((name for name in existing_tables if name.translate(ascii_fold) == folded), table_name)
+
+
+def detect_sqlite_rowid_alias(execute_fn: Callable[..., Any], table_name: str, primary_keys: set[str]) -> str | None:
+    """Identify SQLite's sole INTEGER PK with no separate primary-key index.
+
+    Inline PRIMARY KEY DESC and WITHOUT ROWID have a PK index; table-level
+    PRIMARY KEY(id DESC) still aliases rowid. PRAGMA facts avoid DDL regex guesses.
+    """
+    if len(primary_keys) != 1:
+        return None
+    cursor = execute_fn(
+        "SELECT name FROM pragma_table_info(?) WHERE pk = 1 AND upper(type) = 'INTEGER' "
+        "AND NOT EXISTS (SELECT 1 FROM pragma_index_list(?) WHERE origin = 'pk')",
+        (table_name, table_name),
+    )
+    try:
+        row = cursor.fetchone()
+        return str(row[0]) if row else None
+    finally:
+        cursor.close()
+
+
 def _split_sql_definitions(sql: str) -> list[str]:
     """Extract individual column or constraint definitions from a CREATE TABLE statement.
 

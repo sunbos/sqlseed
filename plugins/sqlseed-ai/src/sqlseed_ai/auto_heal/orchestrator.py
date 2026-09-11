@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import re
 import sys
+from copy import deepcopy
 from functools import lru_cache
 from typing import Any
 
@@ -37,6 +38,7 @@ from sqlseed_ai.repair.strategies import _is_phone_like
 from sqlseed_ai.validator.schema_snapshot import SchemaSnapshot
 
 from sqlseed._utils.logger import get_logger
+from sqlseed.config.models import GeneratorConfig
 from sqlseed.core.mapper import ColumnMapper
 from sqlseed.database._protocol import ColumnInfo
 from sqlseed.generators._dispatch import GeneratorDispatchMixin
@@ -140,6 +142,10 @@ class AutoHealOrchestrator:
         self,
         *,
         broken_edges_inject: list[tuple[str, str]] | None = None,
+        initial_config: dict[str, Any] | None = None,
+        tables: list[str] | None = None,
+        include_dependencies: bool = True,
+        max_depth: int = 5,
     ) -> str:
         """Execute the full pipeline and return the final YAML config string."""
         # Step 1: snapshot (Defense 8)
@@ -155,6 +161,38 @@ class AutoHealOrchestrator:
             _debug("[ai-analyze] Step 2: splitting FK graph into subgraphs ...")
         splitter = SubgraphSplitter(max_scc_size=self._max_scc_size)
         fk_graph = self._build_fk_graph(snapshot)
+        initial_tables: dict[str, dict[str, Any]] | None = None
+        if initial_config is not None:
+            initial_config = deepcopy(initial_config)
+            if self._db_path or self._url:
+                initial_config.pop("url" if self._db_path else "db_path", None)
+                initial_config["db_path" if self._db_path else "url"] = self._db_path or self._url
+            validated = GeneratorConfig.model_validate(initial_config)
+            names = [table.name for table in validated.tables]
+            if len(names) != len(set(names)):
+                raise ValueError("Config contains duplicate table names")
+            initial_tables = {table["name"]: deepcopy(table) for table in initial_config.get("tables", [])}
+            tables = names
+            include_dependencies = False
+        if max_depth < 0:
+            raise ValueError("max_depth must be >= 0")
+        if tables is not None:
+            selected = set(tables)
+            unknown = selected - snapshot.tables.keys()
+            if unknown:
+                raise ValueError(f"Unknown tables: {', '.join(sorted(unknown))}")
+            frontier = selected.copy()
+            for _ in range(max_depth if include_dependencies else 0):
+                frontier = {parent for table in frontier for parent in fk_graph[table]} - selected
+                frontier.intersection_update(snapshot.tables)
+                selected.update(frontier)
+                if not frontier:
+                    break
+            fk_graph = {
+                table: [parent for parent in parents if parent in selected]
+                for table, parents in fk_graph.items()
+                if table in selected
+            }
         subgraphs, broken_edges = splitter.split(fk_graph)
         if broken_edges_inject:
             broken_edges.extend(broken_edges_inject)
@@ -182,16 +220,19 @@ class AutoHealOrchestrator:
         # so Faker generates 11-digit Chinese mobile numbers. Otherwise,
         # ``en_US`` is the safe default.
         inferred_locale = _infer_locale(snapshot)
-        config: dict[str, Any] = {}
+        config: dict[str, Any] = deepcopy(initial_config) if initial_config is not None else {}
         if self._url:
+            config.pop("db_path", None)
             config["url"] = self._url
         elif self._db_path:
+            config.pop("url", None)
             config["db_path"] = self._db_path
-        config["provider"] = "faker"
-        config["locale"] = inferred_locale
+        config.setdefault("provider", "faker")
+        config.setdefault("locale", inferred_locale)
         config["tables"] = []
         if self._verbose:
             _debug(f"[ai-analyze] locale inferred: {inferred_locale}")
+        input_violations: set[tuple[str, str]] = set()
         for sg_idx, sg_tables in enumerate(subgraphs, 1):
             if budget.is_expired():
                 logger.warning(
@@ -200,13 +241,24 @@ class AutoHealOrchestrator:
                 )
                 if self._verbose:
                     _debug(f"[ai-analyze]   TIME BUDGET EXPIRED for {sg_tables} — using defaults")
+                if initial_tables is not None:
+                    raise RuntimeError("Time budget expired before the input config could be repaired")
                 self._append_default_columns(config, sg_tables, snapshot)
                 continue
 
             if self._verbose:
                 _debug(f"[ai-analyze] Step 3[{sg_idx}/{len(subgraphs)}]: building config for {sg_tables} ...")
-            sg_config = self._build_subgraph_config(sg_tables, snapshot)
+            sg_config = (
+                {"tables": [deepcopy(initial_tables[name]) for name in sg_tables]}
+                if initial_tables is not None
+                else self._build_subgraph_config(sg_tables, snapshot)
+            )
+            sg_config["provider"] = config["provider"]
+            sg_config["locale"] = config["locale"]
             violations = self._validate(sg_config, snapshot)
+            if initial_tables is not None:
+                for violation in violations:
+                    input_violations.update((violation.table, column) for column in violation.columns)
             if self._verbose:
                 _debug(f"[ai-analyze]   initial violations={len(violations) if violations else 0} tables={sg_tables}")
                 if violations:
@@ -257,6 +309,17 @@ class AutoHealOrchestrator:
                 current=new_snapshot.schema_hash,
             )
             raise RuntimeError(f"Schema changed during auto-heal: {original_hash} -> {new_snapshot.schema_hash}")
+
+        # Explicit input rules which validation/repair/healing left untouched
+        # belong to the caller. Preserve them across the inference safety net.
+        preserved_columns: dict[tuple[str, str], dict[str, Any]] = {}
+        if initial_tables is not None:
+            for table in config["tables"]:
+                originals = {column["name"]: column for column in initial_tables[table["name"]].get("columns", [])}
+                for column in table.get("columns", []):
+                    key = (table["name"], column["name"])
+                    if key not in input_violations and column == originals.get(column["name"]):
+                        preserved_columns[key] = deepcopy(column)
 
         # Step 5.5: Final param normalization + missing-generator repair.
         # This is a safety net: even if the validator didn't report a
@@ -2415,11 +2478,17 @@ class AutoHealOrchestrator:
         # internal LLM failure state and confuse users. Empty ``params: {}``
         # is redundant since Pydantic defaults handle missing params.
         for tcfg in config.get("tables", []):
+            tcfg["columns"] = [
+                preserved_columns.get((tcfg["name"], column["name"]), column) for column in tcfg.get("columns", [])
+            ]
             for c in tcfg.get("columns", []):
                 c.pop("_degraded", None)
                 c.pop("degrade_reason", None)
                 if c.get("params") == {}:
                     c.pop("params", None)
+        from sqlseed_ai.healer.candidate_validation import validate_candidate
+
+        validate_candidate(config, snapshot)
         if self._verbose:
             table_count = len(config.get("tables", []))
             _debug(f"[ai-analyze] Step 6: emitting YAML ({table_count} tables) ...")

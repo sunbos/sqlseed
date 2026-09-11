@@ -65,6 +65,10 @@ def _fill_from_config_cmd(config_path: str, *, clear_before: bool = False, **kwa
     results = fill_from_config(config_path, clear_before=clear_before, **kwargs)
     for result in results:
         click.echo(str(result))
+        for error in result.errors:
+            click.echo(f"  Error: {_redact_credentials(error)}", err=True)
+    if any(result.errors for result in results):
+        raise SystemExit(1)
 
 
 def _save_snapshot_cmd(
@@ -78,6 +82,7 @@ def _save_snapshot_cmd(
     clear: bool,
     *,
     url: str | None = None,
+    transform: str | None = None,
 ) -> None:
     config = GeneratorConfig(
         db_path=db_path,
@@ -91,6 +96,7 @@ def _save_snapshot_cmd(
                 batch_size=batch_size,
                 clear_before=clear,
                 seed=seed,
+                transform=transform,
             )
         ],
     )
@@ -179,7 +185,13 @@ class FillOptions:
     help="Batch size for insertion (default: 5000)",
 )
 @click.option("--clear", is_flag=True, help="Clear table before generating")
-@click.option("--config", "-c", "config_path", default=None, help="YAML/JSON config file path")
+@click.option(
+    "--config",
+    "-c",
+    "config_path",
+    default=None,
+    help="YAML/JSON config file path (cannot combine with db_path or --url)",
+)
 @click.option("--transform", "transform_path", default=None, help="Python transform script path")
 @click.option("--snapshot", is_flag=True, help="Save generation snapshot for replay")
 @click.option("--enrich", is_flag=True, help="Enrich data using existing table distribution")
@@ -194,8 +206,10 @@ def fill(**kwargs: Any) -> None:
     """Fill a table with generated test data.
 
     Use --config for config-driven generation, or provide db_path + --table
-    + --count for direct generation. When using --config, CLI options
-    override the corresponding YAML values.
+    + --count for direct generation. With --config, set the database target
+    inside the config file; positional db_path and --url cannot be combined
+    with --config. Explicit count, provider, locale, seed, batch-size and clear
+    options override the corresponding config values.
 
     Connection methods (mutually exclusive):
     - Positional db_path: sqlseed fill app.db -t users -n 1000
@@ -237,6 +251,10 @@ def fill(**kwargs: Any) -> None:
     # Validate that db_path and --url are mutually exclusive
     if db_path and db_url:
         raise click.UsageError("Cannot specify both positional db_path and --url. Use one or the other.")
+    if config_path and (db_path or db_url):
+        raise click.UsageError(
+            "Cannot combine --config with positional db_path or --url. Set db_path or url in the config file."
+        )
     if not config_path and not db_path and not db_url:
         raise click.UsageError("db_path or --url is required when not using --config.")
 
@@ -256,15 +274,23 @@ def _execute_fill(options: FillOptions) -> None:
     config_path = options.config_path
     if config_path:
         logger.debug("Using config-driven generation", config_path=config_path)
+        context = click.get_current_context()
+        config_overrides = {
+            name: value
+            for name, value in (
+                ("provider", options.generator.provider),
+                ("locale", options.generator.locale),
+                ("batch_size", options.generator.batch_size),
+            )
+            if context.get_parameter_source(name) is not click.core.ParameterSource.DEFAULT
+        }
         _fill_from_config_cmd(
             config_path,
             clear_before=options.flags.clear,
             skip_ai=options.flags.no_ai,
             count=options.count,
-            provider=options.generator.provider,
             seed=options.generator.seed,
-            batch_size=options.generator.batch_size,
-            locale=options.generator.locale,
+            **config_overrides,
         )
         return
 
@@ -321,6 +347,7 @@ def _execute_fill(options: FillOptions) -> None:
             batch_size=options.generator.batch_size,
             clear=options.flags.clear,
             url=fill_url,
+            transform=options.transform_path,
         )
 
     # Generation completed with errors: exit non-zero so callers/scripts can detect partial failure.
@@ -567,6 +594,7 @@ def replay(snapshot_path: str) -> None:
             batch_size=table_config.batch_size if table_config else 5000,
             clear_before=table_config.clear_before if table_config else False,
             column_configs=table_config.columns if table_config else None,
+            transform=table_config.transform if table_config else None,
         )
     click.echo(str(result))
     if result.errors:

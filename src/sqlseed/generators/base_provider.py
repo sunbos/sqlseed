@@ -10,6 +10,8 @@ import zlib
 from datetime import date as _date
 from datetime import datetime
 from datetime import time as _time
+from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal, localcontext
+from math import isfinite
 from pathlib import Path
 from typing import Any
 
@@ -92,9 +94,36 @@ class BaseProvider(GeneratorDispatchMixin):
         max_value: float = 999999.0,
         precision: int = 2,
     ) -> float:
-        """Generate a float."""
+        """Generate a float within the closed interval at the requested precision."""
+        lower, upper = self._float_bounds(min_value, max_value, precision)
+        if lower == upper:
+            return lower
         value = self._rng.uniform(min_value, max_value)
-        return round(value, precision)
+        return max(lower, min(upper, round(value, precision)))
+
+    @staticmethod
+    def _float_bounds(min_value: float, max_value: float, precision: int) -> tuple[float, float]:
+        """Find rounded endpoints without letting rounding escape the requested range."""
+        if not isfinite(min_value) or not isfinite(max_value):
+            raise ValueError("float bounds must be finite")
+        if min_value > max_value:
+            raise ValueError("min_value must not exceed max_value")
+
+        lower, upper = round(min_value, precision), round(max_value, precision)
+        if lower < min_value or upper > max_value:
+            # Decimal strings avoid treating a bound such as 0.29 as slightly
+            # below its decimal value when locating the first/last valid step.
+            minimum, maximum = Decimal(str(min_value)), Decimal(str(max_value))
+            quantum = Decimal((0, (1,), -precision))
+            with localcontext() as context:
+                context.prec = max(28, minimum.adjusted() + precision + 1, maximum.adjusted() + precision + 1)
+                if lower < min_value:
+                    lower = float(minimum.quantize(quantum, rounding=ROUND_CEILING))
+                if upper > max_value:
+                    upper = float(maximum.quantize(quantum, rounding=ROUND_FLOOR))
+        if lower > upper or lower < min_value or upper > max_value:
+            raise ValueError(f"No float in [{min_value}, {max_value}] has the requested precision {precision}")
+        return float(lower), float(upper)
 
     def _gen_boolean(self) -> bool:
         """Generate a boolean."""
@@ -620,12 +649,15 @@ class BaseProvider(GeneratorDispatchMixin):
 
         Args:
             choices: List of ``{"value": v, "weight": w}`` dicts.
-            weighted_choices: Dict mapping value -> weight (alternative to choices).
+            weighted_choices: Value-to-weight mapping or the same weighted list
+                accepted by choices.
 
         Returns:
             One value selected with probability proportional to its weight.
         """
         self._next_id()
+        if isinstance(weighted_choices, list):
+            choices = weighted_choices
         if weighted_choices is not None and isinstance(weighted_choices, dict):
             population = list(weighted_choices.keys())
             weights = [weighted_choices[v] for v in population]

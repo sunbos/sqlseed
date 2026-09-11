@@ -99,12 +99,8 @@ pip install sqlseed[docs]   # mkdocs-material + mkdocstrings
 git clone https://github.com/sunbos/sqlseed.git
 cd sqlseed
 
-# Install core + all providers + dev dependencies
-pip install -e ".[dev,all]"
-
-# Optional plugins
-pip install -e "./plugins/sqlseed-ai"
-pip install -e "./plugins/mcp-server-sqlseed"
+# Resolve Core and all local plugins together, including unpublished candidates
+python -m pip install -e ".[dev,all]" -e "./plugins/sqlseed-cli" -e "./plugins/sqlseed-ai[dev]" -e "./plugins/mcp-server-sqlseed" -e "./plugins/sqlseed-web[dev]"
 
 # Verify installation
 pytest
@@ -506,6 +502,12 @@ sqlseed ships with 36 built-in generators. The most common ones:
 | `weighted_choice` | Weighted random pick | `choices` (list of `{value, weight}`) or `weighted_choices` (dict) |
 | `foreign_key` | FK reference | `ref_table`, `ref_column`, `strategy` |
 | `skip` | Skip (use default/NULL) | — |
+
+The `float` generator treats `min_value` and `max_value` as inclusive bounds,
+including after rounding to `precision` decimal places. Reversed or non-finite
+bounds raise `ValueError`. If no value with the requested precision fits the
+range (for example, `0.005`–`0.006` with `precision: 2`), generation raises
+`ValueError` instead of returning an out-of-range value.
 
 `foreign_key` and `skip` are special pseudo-generators: they are handled
 directly by the `RelationResolver` / `DataStream` and are not registered in

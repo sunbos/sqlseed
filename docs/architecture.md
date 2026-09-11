@@ -361,6 +361,7 @@ classDiagram
         +is_primary_key: bool
         +is_autoincrement: bool
         +is_computed: bool
+        +is_rowid_alias: bool | None
     }
 
     class ForeignKeyInfo {
@@ -368,6 +369,8 @@ classDiagram
         +column: str
         +ref_table: str
         +ref_column: str
+        +constraint_id: int | None
+        +ref_schema: str | None
     }
 
     class IndexInfo {
@@ -376,6 +379,8 @@ classDiagram
         +table: str
         +columns: tuple~str~
         +unique: bool
+        +is_partial: bool
+        +predicate: str | None
     }
 
     class CheckConstraintInfo {
@@ -421,6 +426,8 @@ classDiagram
 ```
 
 ---
+
+`ColumnInfo.is_rowid_alias` is explicit for adapter metadata; its `None` default preserves legacy constructors. SQLite detects real rowid aliases separately from explicit AUTOINCREMENT and preserves ordinary nullable primary keys. `IndexInfo.is_partial` prevents treating conditional uniqueness as unconditional. SQLAlchemy retains the reflected WHERE SQL in `predicate`; raw SQLite metadata may omit its text. The database evaluates predicates during writes. FK metadata retains per-table constraint identity and reflected parent schema.
 
 ## 6. Column Dependency DAG & Constraint Backtracking
 
@@ -554,7 +561,7 @@ flowchart TB
         direction TB
         GenBatch["DataStream generates a batch"]
         H6["🔄 sqlseed_transform_row<br/>(per-row, hot path)"]
-        H7["🔄 sqlseed_transform_batch<br/>(chained processing)"]
+        H7["🔄 sqlseed_transform_batch<br/>(same batch; last non-None result)"]
         H8["📢 sqlseed_before_insert"]
         Insert["batch_insert()"]
         H9["📢 sqlseed_after_insert"]
@@ -577,6 +584,11 @@ flowchart TB
 ---
 
 ## 9. Config Model Hierarchy
+
+For source columns, `params` accepts a mapping; omitted or `null` values retain
+the empty-parameter behavior. Strings, lists, and other non-mapping values are
+rejected during configuration loading instead of silently discarding the rules.
+Top-level generator arguments still override keys in nested `params`.
 
 ```mermaid
 classDiagram
@@ -763,4 +775,19 @@ flowchart TB
     style FCExec fill:#FBBC05,color:#000
     style FCResult fill:#34A853,color:#fff
     style FCIterate fill:#EA4335,color:#fff
+```
+
+
+## 12. Web workbench and component lifecycle
+
+The project contains five distributions: Core, CLI, AI, MCP and Web. Web calls offline core directly; optional AI Python services produce user-requested suggestions, and accepted rules can run offline. The supervisor coordinates business and maintenance workers during component changes. Availability requires both distribution metadata and successful imports; removing a component preserves configuration and explains affected features. See the [Web guide](web-workbench.md) and [support scope](maintainable-release.md).
+
+```mermaid
+flowchart LR
+    Browser[Browser workbench] --> HTTP[FastAPI / Web state]
+    HTTP --> Runtime[Web runtime]
+    Runtime --> Core[Offline Python core]
+    HTTP -. optional suggestions .-> AI[AI Python services]
+    Supervisor[Supervisor] --> HTTP
+    Supervisor --> Maintenance[Package maintenance worker]
 ```

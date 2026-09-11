@@ -11,6 +11,7 @@ from sqlseed._utils.sql_safe import build_insert_sql, quote_identifier, validate
 from sqlseed.database._base_adapter import BaseRawSQLiteAdapter
 from sqlseed.database._helpers import batch_insert_rows
 from sqlseed.database._protocol import CheckConstraintInfo, ColumnInfo, ForeignKeyInfo
+from sqlseed.database._sqlite_schema import detect_sqlite_rowid_alias, resolve_sqlite_table_name
 from sqlseed.database.optimizer import PragmaOptimizer
 
 if TYPE_CHECKING:
@@ -78,6 +79,11 @@ class RawSQLiteAdapter(BaseRawSQLiteAdapter):
         cursor = self.conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
         return [row[0] for row in cursor.fetchall()]
 
+    def _resolve_table_name(self, table_name: str) -> str:
+        """Validate names and keep SQLite reflection/cache keys in catalog spelling."""
+        validate_table_name(table_name)
+        return resolve_sqlite_table_name(table_name, self.get_table_names())
+
     def get_column_info(self, table_name: str) -> list[ColumnInfo]:
         """Get column information for a table.
 
@@ -90,8 +96,9 @@ class RawSQLiteAdapter(BaseRawSQLiteAdapter):
         Returns:
             A list of ColumnInfo for all columns of the table.
         """
-        validate_table_name(table_name)
+        table_name = self._resolve_table_name(table_name)
         pks = set(self.get_primary_keys(table_name))
+        rowid_alias = detect_sqlite_rowid_alias(self.conn.execute, table_name, pks)
 
         cursor = self.conn.execute(f"PRAGMA table_xinfo({quote_identifier(table_name)})")
         result: list[ColumnInfo] = []
@@ -106,11 +113,12 @@ class RawSQLiteAdapter(BaseRawSQLiteAdapter):
                 ColumnInfo(
                     name=name,
                     type=col_type.upper() if col_type else "TEXT",
-                    nullable=not is_pk_flag and not notnull,
+                    nullable=name != rowid_alias and not notnull,
                     default=default_val,
                     is_primary_key=is_pk_flag,
                     is_autoincrement=is_autoincrement,
                     is_computed=is_computed,
+                    is_rowid_alias=name == rowid_alias,
                 )
             )
         return result
@@ -124,7 +132,7 @@ class RawSQLiteAdapter(BaseRawSQLiteAdapter):
         Returns:
             List of primary key column names, in the order returned by PRAGMA table_info.
         """
-        validate_table_name(table_name)
+        table_name = self._resolve_table_name(table_name)
         cursor = self.conn.execute(f"PRAGMA table_info({quote_identifier(table_name)})")
         pks: list[str] = []
         for row in cursor.fetchall():
@@ -142,7 +150,7 @@ class RawSQLiteAdapter(BaseRawSQLiteAdapter):
         Returns:
             A list of ForeignKeyInfo for all foreign keys of the table.
         """
-        validate_table_name(table_name)
+        table_name = self._resolve_table_name(table_name)
         cursor = self.conn.execute(f"PRAGMA foreign_key_list({quote_identifier(table_name)})")
         result: list[ForeignKeyInfo] = []
         for row in cursor.fetchall():
@@ -150,7 +158,7 @@ class RawSQLiteAdapter(BaseRawSQLiteAdapter):
             result.append(
                 ForeignKeyInfo(
                     column=from_col,
-                    ref_table=ref_table,
+                    ref_table=resolve_sqlite_table_name(ref_table, self.get_table_names()),
                     ref_column=to_col,
                 )
             )
@@ -165,7 +173,7 @@ class RawSQLiteAdapter(BaseRawSQLiteAdapter):
         Returns:
             The number of rows in the table.
         """
-        validate_table_name(table_name)
+        table_name = self._resolve_table_name(table_name)
         safe_table = quote_identifier(table_name)
         cursor = self.conn.execute(f"SELECT COUNT(*) FROM {safe_table}")
         return int(cursor.fetchone()[0])
@@ -186,7 +194,7 @@ class RawSQLiteAdapter(BaseRawSQLiteAdapter):
             best-effort column references; returns an empty list when the
             table has no CHECK constraints or cannot be reflected.
         """
-        validate_table_name(table_name)
+        table_name = self._resolve_table_name(table_name)
         cursor = self.conn.execute(
             "SELECT sql FROM sqlite_master WHERE type='table' AND name=?",
             [table_name],
@@ -269,7 +277,7 @@ class RawSQLiteAdapter(BaseRawSQLiteAdapter):
         Returns:
             Total number of inserted rows.
         """
-        validate_table_name(table_name)
+        table_name = self._resolve_table_name(table_name)
         return batch_insert_rows(data, batch_size, lambda b: self._insert_batch(table_name, b))
 
     def _insert_batch(self, table_name: str, batch: list[dict[str, Any]]) -> int:
@@ -297,7 +305,7 @@ class RawSQLiteAdapter(BaseRawSQLiteAdapter):
         Args:
             table_name: Target table name.
         """
-        validate_table_name(table_name)
+        table_name = self._resolve_table_name(table_name)
         safe_table = quote_identifier(table_name)
         self.conn.execute(f"DELETE FROM {safe_table}")
         # sqlite_sequence table only exists when at least one table uses AUTOINCREMENT.

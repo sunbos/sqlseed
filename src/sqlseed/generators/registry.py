@@ -9,16 +9,12 @@ from sqlseed.generators._protocol import DataProvider
 from sqlseed.generators.base_provider import BaseProvider
 
 try:
-    from sqlseed.generators.faker_provider import FakerProvider
-
-    HAS_FAKER = True
+    from sqlseed.generators.faker_provider import HAS_FAKER, FakerProvider
 except ImportError:
     HAS_FAKER = False
 
 try:
-    from sqlseed.generators.mimesis_provider import MimesisProvider
-
-    HAS_MIMESIS = True
+    from sqlseed.generators.mimesis_provider import HAS_MIMESIS, MimesisProvider
 except ImportError:
     HAS_MIMESIS = False
 
@@ -149,7 +145,7 @@ class ProviderRegistry:
             self.register(provider)
             return provider
         if name == "faker":
-            raise ImportError("Faker is not installed. Install it with: pip install sqlseed[faker]")
+            raise ImportError("Faker is not installed. It is required by sqlseed. Install it with: pip install Faker")
 
         if name == "mimesis" and HAS_MIMESIS:
             provider = MimesisProvider()

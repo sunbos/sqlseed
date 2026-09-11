@@ -1,0 +1,27 @@
+/* Shared read-only record viewer; independent from generated preview state. */
+.run-view-data { display:flex; margin-top:8px; font-size:11px; min-height:30px; padding:4px 9px; }
+.wb-table-data .wb-table-data-heading { display:flex; gap:16px; align-items:center; justify-content:space-between; }
+.wb-table-data-heading h3 { margin:0; font-size:20px; overflow-wrap:anywhere; }
+.wb-table-data-target { overflow-wrap:anywhere; user-select:text; font-size:12px; }
+.wb-table-data-status { min-height:1.6em; font-size:12px; margin:14px 0 8px; }
+.wb-table-data-error { color:var(--danger,#ac3434); font-size:13px; overflow-wrap:anywhere; }
+.wb-table-data-error:empty { display:none; }
+.wb-table-data-scroll { max-height:min(52vh,520px); overflow:auto; border:1px solid var(--line); border-radius:8px; }
+.wb-table-data-scroll table { width:100%; border-spacing:0; border-collapse:separate; font-size:12px; }
+.wb-table-data-scroll caption { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
+.wb-table-data-scroll th { position:sticky; top:0; z-index:1; background:var(--soft); text-align:left; white-space:nowrap; padding:10px 14px; border-bottom:1px solid var(--line); }
+.wb-table-data-scroll th small { display:block; font-size:11px; color:var(--muted); font-weight:400; margin-top:4px; }
+.wb-table-data-scroll td { padding:10px 14px; border-bottom:1px solid var(--line); vertical-align:top; max-width:28rem; white-space:pre-wrap; overflow-wrap:anywhere; user-select:text; font-family:var(--mono,monospace); }
+.wb-table-data-scroll tbody tr:last-child td { border-bottom:0; }
+.wb-table-data-scroll tbody tr:hover { background:var(--wash); }
+.wb-table-data-value summary { cursor:pointer; min-width:180px; color:var(--teal); }
+.wb-table-data-value pre { white-space:pre-wrap; overflow-wrap:anywhere; margin:8px 0 0; font:inherit; }
+.wb-table-data-pagination { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; margin-top:14px; font-size:12px; }
+.wb-table-data-pagination > div { display:flex; gap:8px; }
+.wb-table-data-read-at,.wb-table-data-order,.wb-table-data-empty { font-size:12px; }
+.wb-table-data-empty { padding:20px 14px; background:var(--wash); }
+@media(max-width:760px) {
+  .wb-table-data-heading { flex-wrap:wrap; }
+  .wb-table-data-scroll { max-height:48vh; }
+  .wb-table-data-scroll td { min-width:100px; max-width:240px; }
+}

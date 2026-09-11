@@ -50,6 +50,7 @@ class TableMeta:
     column_types: dict[str, str]
     constraints: list[dict[str, Any]]
     foreign_keys: list[dict[str, Any]] = field(default_factory=list)
+    column_metadata: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 class SchemaSnapshot:
@@ -119,6 +120,16 @@ class SchemaSnapshot:
                     name=tname,
                     columns=[c["name"] for c in cols],
                     column_types={c["name"]: str(c["type"]) for c in cols},
+                    column_metadata={
+                        c["name"]: {
+                            "nullable": c.get("nullable", True),
+                            "default": c.get("default"),
+                            "autoincrement": c.get("autoincrement"),
+                            "computed": c.get("computed"),
+                            "identity": c.get("identity"),
+                        }
+                        for c in cols
+                    },
                     constraints=constraints_list,
                     foreign_keys=[
                         {
@@ -139,6 +150,7 @@ class SchemaSnapshot:
                 t: {
                     "columns": c.columns,
                     "column_types": c.column_types,
+                    "column_metadata": c.column_metadata,
                     "constraints": c.constraints,
                     "foreign_keys": c.foreign_keys,
                 }

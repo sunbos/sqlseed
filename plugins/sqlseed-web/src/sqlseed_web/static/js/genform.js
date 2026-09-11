@@ -31,12 +31,12 @@ const NUMERIC_PARAMS = new Set([
   'width', 'height', 'start_year', 'end_year', 'sequence_start', 'sequence_step',
   'n', 'num_words', 'value',
 ]);
-const TEXTAREA_PARAMS = new Set(['pattern', 'regex', 'schema', 'template']);
+const TEXTAREA_PARAMS = new Set(['pattern', 'regex', 'template']);
 
 const PARAM_PLACEHOLDERS = {
   charset: '留空 = 默认字符集（字母/数字/空格/_/-）',
   mask: '号码模板，如 1##-####-####（# 为随机数字）',
-  schema: '{"name": "string", "age": "integer"}',
+  schema: '{"type":"object","properties":{"name":{"type":"string"}}}',
   template: '支持 {sequence}、{random:3} 等占位符',
   folder: '服务器本地文件夹路径，如 /Users/you/Pictures',
   extensions: '逗号分隔，如: png,jpg,svg',
@@ -100,24 +100,29 @@ const WEEKDAY_MODES = [
  * @param {object} opts
  * @param {string} opts.connId
  * @param {object} opts.meta - /api/meta/generators 响应（names + params）
+ * @param {(table: string) => object[]} opts.foreignKeysOf - 数据库 schema 的外键关系
  * @param {(table: string, col: string, cfg: object|null) => void} opts.onChange
  *   cfg 为该列的 ColumnConfig 形状（generator/params/null_ratio/constraints），
  *   null 表示跟随零配置推断。
  */
-export function createGenForm({ connId, meta, uniqueColumnsOf, onChange }) {
+export function createGenForm({ connId, meta, uniqueColumnsOf, foreignKeysOf, onChange }) {
   const el = h('div', { class: 'genform' });
-  let current = null; // {table, col, colInfo, inferred}
-  let form = {};      // {generator, params: {}, null_ratio, unique}
+  let current = null; // {table, col, colInfo, inferred, zeroConfig}
+  let form = {};      // {generator, params, null_ratio, unique, constraints, options}
   let previewBox = null; // 当前预览容器（render() 时更新）
   let previewTimer = null;
-  let paramsHolder = null; // 参数区容器（切换生成器时原地重绘）
+  let paramsHolder = null; // 参数区容器（保留引用，不按 section 顺序查找）
   let bytesModeState = null; // bytes 双模式的显式选择（'image'|'folder'|null=按参数推导）
   // 数据库唯一列查询回调（wizard 注入）：table → Set<column>。缺省视为空集。
   const uniqueColsOf = uniqueColumnsOf || (() => new Set());
+  const foreignKeys = () => current
+    ? (foreignKeysOf?.(current.table) || []).filter((fk) => fk.column === current.col)
+    : [];
   let nullPctInput = null; // NULL 百分比输入框（勾选框切换时联动禁用态）
   // 本轮 render() 创建的 dropdown。render() 会整体重建 DOM，若不先 destroy，
   // 旧的 scroll/mousedown 监听会残留在 document 上（面板开着被丢弃时）。
   let dropdowns = [];
+  const paramErrors = new Map(); // 无效编辑草稿不写入 form.params，也不用于预览。
 
   // 防抖自动预览：生成器/参数/NULL/唯一任一变化后 400ms 刷新例值。
   // 之前只在选中列和手动「刷新」时预览，改参数后一直显示旧值（实测发现）。
@@ -140,24 +145,42 @@ export function createGenForm({ connId, meta, uniqueColumnsOf, onChange }) {
 
   /** 组装单列 ColumnConfig（emit 与预览共用，避免两处规则漂移）。 */
   function buildCfg() {
+    if (foreignKeys().length && !isDbGenerated()) {
+      // 由 schema 解析引用关系；不把运行时缓存的父表值或导入的普通生成器参数写回配置。
+      // 使用解析型生成器，保留核心对空父表、可空外键及自引用的处理。
+      const cfg = { generator: 'foreign_key_or_integer', params: { ...form.params } };
+      if (form.null_ratio > 0 && !dbNotNull()) cfg.null_ratio = form.null_ratio / 100;
+      const constraints = { ...form.constraints };
+      // 复合主键成员并非单列唯一；只补充 schema 明确报告的单列唯一约束。
+      if (uniqueColsOf(current.table)?.has(current.col)) constraints.unique = true;
+      if (Object.keys(constraints).length) cfg.constraints = constraints;
+      return cfg;
+    }
     // 派生列走 ColumnConfig 的 derived 模式（derive_from + expression），
     // 与 generator 互斥——退化成 generator 会静默改写 AI 的配置，并在参与
     // 跨列 CHECK 时因类型不匹配直接预览失败。
+    const cfg = { ...form.options };
     if (form.derived) {
-      const cfg = { derive_from: form.derived };
+      cfg.derive_from = form.derived;
       if (form.expression) cfg.expression = form.expression;
-      return cfg;
+    } else {
+      cfg.generator = form.generator;
+      cfg.params = cleanParams();
     }
-    const cfg = { generator: form.generator, params: cleanParams() };
+    const constraints = { ...form.constraints };
     // 通用区被裁剪时（序列类）不发送对应字段——否则切到模板类生成器后，
     // 之前勾的 NULL/唯一会因为控件不可见而「看不见也改不掉」。
-    if (NO_COMMON_GENS.has(form.generator)) return cfg;
+    const showCommon = !NO_COMMON_GENS.has(form.generator);
     // form.null_ratio 是 0–100 百分比；核心 ColumnConfig.null_ratio 是 0–1
     // 小数（le=1.0）——发送前必须除以 100，否则 preview/fill 直接 422。
     // 数据库硬约束兜底：NOT NULL 强制不带 null_ratio；数据库唯一强制 unique。
-    if (form.null_ratio > 0 && !dbNotNull()) cfg.null_ratio = form.null_ratio / 100;
-    if (dbUnique()) cfg.constraints = { unique: true };
-    else if (!NO_UNIQUE_GENS.has(form.generator) && form.unique) cfg.constraints = { unique: true };
+    if (showCommon && form.null_ratio > 0 && !dbNotNull()) cfg.null_ratio = form.null_ratio / 100;
+    if (dbUnique() || (showCommon && !NO_UNIQUE_GENS.has(form.generator) && form.unique)) {
+      constraints.unique = true;
+    } else {
+      delete constraints.unique;
+    }
+    if (Object.keys(constraints).length) cfg.constraints = constraints;
     return cfg;
   }
 
@@ -172,7 +195,13 @@ export function createGenForm({ connId, meta, uniqueColumnsOf, onChange }) {
     return dd;
   }
 
-  function render() {
+  function render(preview = true) {
+    if (previewTimer) clearTimeout(previewTimer);
+    previewTimer = null;
+    previewBox = null;
+    paramsHolder = null;
+    nullPctInput = null;
+    paramErrors.clear();
     // 旧 dropdown 的 scroll/mousedown 监听挂在 document 上，必须先注销再丢弃 DOM。
     for (const dd of dropdowns) dd.destroy();
     dropdowns = [];
@@ -181,13 +210,19 @@ export function createGenForm({ connId, meta, uniqueColumnsOf, onChange }) {
       el.append(h('div', { class: 'muted', style: 'padding:24px' }, '在左侧树中选择一列以配置生成器。'));
       return;
     }
-    const { col, colInfo, inferred } = current;
+    const { col, colInfo } = current;
     el.append(
       h('div', { class: 'genform-head' },
         h('div', { class: 'genform-title' }, col),
         h('div', { class: 'muted' }, `${colInfo.type}${colInfo.nullable ? '' : ' NOT NULL'}${colInfo.is_primary_key ? ' · PK' : ''}`),
       ),
     );
+
+    // 外键身份来自数据库，不能被 AI、导入配置或 NULL 比例编辑改成普通生成器。
+    if (foreignKeys().length && !isDbGenerated()) {
+      renderForeignKey(preview);
+      return;
+    }
 
     // 派生列：没有生成器可配（与 derived 模式互斥），直接展示派生来源。
     if (form.derived) {
@@ -205,9 +240,9 @@ export function createGenForm({ connId, meta, uniqueColumnsOf, onChange }) {
       const out = h('div', { class: 'genform-preview' });
       previewBox = out;
       el.append(h('div', { class: 'genform-section' }, formRow('预览', out)));
-      doPreview(out);
+      if (preview) doPreview(out);
       el.append(h('div', { class: 'genform-section' },
-        h('button', { class: 'small', onclick: resetDerived }, '重置属性')));
+        h('button', { class: 'small', onclick: reset }, '重置属性')));
       return;
     }
 
@@ -244,47 +279,25 @@ export function createGenForm({ connId, meta, uniqueColumnsOf, onChange }) {
       value: form.generator,
       options: genOpts,
       width: '260px',
-      onChange: (v) => { form.generator = v; form.params = {}; bytesModeState = null; renderParams(); emit(); schedulePreview(); },
+      onChange: (v) => {
+        if (v === form.generator) return;
+        form.generator = v;
+        form.params = {};
+        // 原生方法覆盖属于原生成器，显式换生成器后不可继续覆盖新选择。
+        delete form.options.faker_method;
+        delete form.options.mimesis_method;
+        delete form.options.native_params;
+        bytesModeState = null;
+        applyDateDefaults();
+        // 参数、预览和通用区都依赖生成器，必须一起重建并清理旧下拉监听。
+        render(false);
+        emit();
+        schedulePreview();
+      },
     }));
     el.append(formRow('生成器', genSel.el));
 
-    // ② 外键列：值域由父表决定（系统从父表采样保证参照完整性），生成器与
-    // 参数配置必然产生 FK violation——面板锁定为只读；唯一有意义的配置是
-    // 可空外键的 NULL 比例（NOT NULL 外键连这个也没有）。
-    if (inferred?.generator_name === 'foreign_key' || inferred?.generator_name === 'foreign_key_or_integer') {
-      const rp = inferred?.params || {};
-      const ref = rp.ref_table && rp.ref_table !== '__shared_pool__' ? `（采样源：${rp.ref_table}.${rp.ref_column}）` : '';
-      el.append(
-        h('div', { class: 'msg warn', style: 'margin:8px 0' },
-          '该列是外键：值由系统从父表随机采样，保证参照完整性，无需配置生成器。' + ref),
-      );
-      if (colInfo.nullable) {
-        // 可空外键：NULL 比例是唯一有意义的用户配置（null_ratio=1.0 也是
-        // 核心对空父表的既有处理路径）。
-        const pct = h('input', {
-          type: 'number', class: 'num-input', min: 0, max: 100,
-          value: form.null_ratio > 0 ? form.null_ratio : '',
-          placeholder: '0',
-          oninput: (e) => { form.null_ratio = e.target.value === '' ? 0 : +e.target.value; emit(); schedulePreview(); },
-        });
-        el.append(h('div', { class: 'genform-section' },
-          formRow('包含 NULL 值', h('input', {
-            type: 'checkbox', checked: form.null_ratio > 0,
-            onchange: (e) => {
-              form.null_ratio = e.target.checked ? DEFAULT_PERCENT : 0;
-              pct.value = form.null_ratio > 0 ? form.null_ratio : '';
-              pct.disabled = form.null_ratio <= 0;
-              emit(); schedulePreview();
-            },
-          })),
-          formRow('百分比', pct)));
-      }
-      el.append(h('div', { class: 'genform-section' },
-        h('button', { class: 'small', onclick: reset }, '重置属性')));
-      return;
-    }
-
-    // ③ 类型专属参数区（切换生成器时原地重绘，不重建后面的段落）
+    // ③ 类型专属参数区
     paramsHolder = h('div', { class: 'genform-params' });
     el.append(paramsHolder);
     renderParams();
@@ -303,7 +316,7 @@ export function createGenForm({ connId, meta, uniqueColumnsOf, onChange }) {
           )),
         ),
       );
-      doPreview(previewOut);
+      if (preview) doPreview(previewOut);
     }
 
     // ⑤ 通用区（序列类整体隐藏）
@@ -311,7 +324,7 @@ export function createGenForm({ connId, meta, uniqueColumnsOf, onChange }) {
       const pctInput = h('input', {
         type: 'number', class: 'num-input', value: form.null_ratio || DEFAULT_PERCENT,
         min: 0, max: 100,
-        disabled: form.null_ratio <= 0, // 未勾选「包含 NULL 值」时禁用（参考工具 §9.5）
+        disabled: dbNotNull() || form.null_ratio <= 0,
         oninput: (e) => { form.null_ratio = +e.target.value; emit(); schedulePreview(); },
       });
       nullPctInput = pctInput;
@@ -354,29 +367,57 @@ export function createGenForm({ connId, meta, uniqueColumnsOf, onChange }) {
     ));
   }
 
+  function renderForeignKey(preview) {
+    const refs = foreignKeys();
+    const selfRef = refs.some((fk) => fk.ref_table === current.table);
+    el.append(
+      formRow('引用列', h('span', { class: 'mono' },
+        refs.map((fk) => `${fk.ref_table}.${fk.ref_column}`).join('、'))),
+      h('div', { class: 'msg warn', style: 'margin:8px 0' },
+        '该列是外键，非空值从引用列中选取，不能切换为普通生成器。'
+        + (selfRef ? '这是同一张表内的自引用关系。' : '生成数据时需先准备被引用表中的记录。')),
+    );
+    const out = h('div', { class: 'genform-preview' });
+    previewBox = out;
+    el.append(h('div', { class: 'genform-section' },
+      formRow('预览', h('div', { class: 'row genform-inline' },
+        out, h('button', { class: 'small', onclick: () => doPreview(out) }, '刷新')))));
+    if (preview) doPreview(out);
+    if (!dbNotNull()) {
+      const pct = h('input', {
+        type: 'number', class: 'num-input', min: 0, max: 100,
+        value: form.null_ratio > 0 ? form.null_ratio : '',
+        placeholder: '0', disabled: form.null_ratio <= 0,
+        oninput: (e) => {
+          form.null_ratio = e.target.value === '' ? 0 : +e.target.value;
+          emit(); schedulePreview();
+        },
+      });
+      el.append(h('div', { class: 'genform-section' },
+        formRow('包含 NULL 值', h('input', {
+          type: 'checkbox', checked: form.null_ratio > 0,
+          onchange: (e) => {
+            form.null_ratio = e.target.checked ? DEFAULT_PERCENT : 0;
+            pct.value = form.null_ratio > 0 ? form.null_ratio : '';
+            pct.disabled = form.null_ratio <= 0;
+            emit(); schedulePreview();
+          },
+        })),
+        formRow('百分比', pct),
+        h('div', { class: 'muted' }, selfRef
+          ? '首次向空表生成数据时，会先留空再建立表内关联，最终空值比例受初始化过程影响。'
+          : '引用列没有可用值时，可空外键会先生成 NULL；填充被引用表后才能建立关联。')));
+    } else {
+      el.append(h('div', { class: 'genform-section muted' },
+        '数据库约束：NOT NULL，不允许空值；引用列必须有可用记录。'));
+    }
+    el.append(h('div', { class: 'genform-section' },
+      h('button', { class: 'small', onclick: reset }, '重置属性')));
+  }
+
   /** NULL 勾选框联动：未勾选时百分比输入框禁用（参考工具 同款行为）。 */
   function renderNull() {
     if (nullPctInput) nullPctInput.disabled = dbNotNull() || form.null_ratio <= 0;
-  }
-
-  /**
-   * 日期边界默认值：仅在 AI/推断**完全没有**给任何边界时补，绝不覆盖已有的
-   * 半边设置（如只给了 start_date）。
-   */
-  /**
-   * 派生列改回普通生成器：丢弃 derive_from，回落到该列的零配置推断。
-   * 用零配置推断（而非当前 AI 配置）是因为 derive_from 与 generator 互斥——
-   * 用户一旦选择放弃派生，就该拿到和从未配置时一样的结果。
-   */
-  function resetDerived() {
-    if (!current) return;
-    bytesModeState = null;
-    form = fromInferred(current.zeroConfig);
-    delete form.derived;
-    delete form.expression;
-    applyDateDefaults();
-    render();
-    emit();
   }
 
   /**
@@ -405,6 +446,7 @@ export function createGenForm({ connId, meta, uniqueColumnsOf, onChange }) {
     }
   }
 
+  /** 日期边界只在未提供任何边界时补默认值，保留 AI 给出的单边设置。 */
   function applyDateDefaults() {
     if (!DATE_DEFAULT_GENS.has(form.generator)) return;
     const p = form.params;
@@ -486,7 +528,7 @@ export function createGenForm({ connId, meta, uniqueColumnsOf, onChange }) {
       delete form.params.height;
       delete form.params.image_format;
     }
-    renderParams();
+    render(false);
     emit();
     schedulePreview();
   }
@@ -542,6 +584,40 @@ export function createGenForm({ connId, meta, uniqueColumnsOf, onChange }) {
   function paramInput(name) {
     const val = form.params[name] ?? '';
     const commit = (v) => { form.params[name] = v; emit(); schedulePreview(); };
+    if (name === 'schema') {
+      const error = h('div', { class: 'msg err', role: 'alert', hidden: true });
+      const input = h('textarea', {
+        class: 'grow', rows: '5', spellcheck: 'false',
+        placeholder: PARAM_PLACEHOLDERS.schema,
+        oninput: (e) => {
+          let parsed;
+          try {
+            const text = e.target.value.trim();
+            if (text) {
+              parsed = JSON.parse(text);
+              if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+                throw new Error('JSON schema must be an object');
+              }
+            }
+          } catch {
+            const detail = '请输入有效的 JSON 对象；留空使用默认结构。';
+            paramErrors.set(name, detail);
+            error.textContent = detail;
+            error.hidden = false;
+            input.setAttribute('aria-invalid', 'true');
+            if (previewTimer) clearTimeout(previewTimer);
+            previewTimer = null;
+            return;
+          }
+          paramErrors.delete(name);
+          error.textContent = '';
+          error.hidden = true;
+          input.removeAttribute('aria-invalid');
+          commit(parsed);
+        },
+      }, typeof val === 'string' ? val : JSON.stringify(val, null, 2));
+      return h('div', { class: 'genform-field-col' }, input, error);
+    }
     if (name === 'choices' || name === 'weighted_choices') {
       // 参考工具 式：每行一个值；加权枚举支持每行「值:权重」。
       let text;
@@ -571,7 +647,7 @@ export function createGenForm({ connId, meta, uniqueColumnsOf, onChange }) {
         },
       }, text);
     }
-    // 正则 / JSON 结构 / 模板：多行编辑区（参考工具 同样用 textarea）。
+    // 正则 / 模板：多行文本编辑区。
     if (TEXTAREA_PARAMS.has(name)) {
       return h('textarea', {
         class: 'grow', rows: name === 'template' ? '2' : '3', spellcheck: 'false',
@@ -716,6 +792,11 @@ export function createGenForm({ connId, meta, uniqueColumnsOf, onChange }) {
 
   async function doPreview(out) {
     if (!current) return;
+    if (paramErrors.size) {
+      clear(out);
+      out.append(msg('请先修正参数中的 JSON 格式错误。'));
+      return;
+    }
     const missing = missingRequired();
     if (missing) {
       // 空参请求注定失败（如 choice 缺候选值），提示待填而不是闪一条报错。
@@ -740,10 +821,11 @@ export function createGenForm({ connId, meta, uniqueColumnsOf, onChange }) {
     }
   }
 
+  /** 源列与派生列都回到零配置基线，丢弃导入或手动编辑后的设置。 */
   function reset() {
     if (!current) return;
     bytesModeState = null;
-    form = fromInferred(current.inferred);
+    form = fromInferred(current.zeroConfig ?? current.inferred);
     normalizeAliasParams();
     applyDateDefaults();
     render();
@@ -751,35 +833,49 @@ export function createGenForm({ connId, meta, uniqueColumnsOf, onChange }) {
   }
 
   function fromInferred(spec) {
+    // 保留面板未提供编辑器的 ColumnConfig 字段，参数编辑不应重写这些设置。
+    const options = {};
+    for (const key of ['provider', 'faker_method', 'mimesis_method', 'native_params']) {
+      if (spec?.[key] !== undefined && spec[key] !== null) options[key] = spec[key];
+    }
+    const common = {
+      options,
+      constraints: { ...(spec?.constraints || {}) },
+      // 核心为 0–1，UI 为 0–100；保留小数，避免未编辑比例时发生精度损失。
+      null_ratio: (spec?.null_ratio || 0) * 100,
+      unique: !!spec?.constraints?.unique,
+    };
+    if (foreignKeys().length && !isDbGenerated()) {
+      const params = {};
+      if (['random', 'coverage'].includes(spec?.params?.strategy)) params.strategy = spec.params.strategy;
+      return { ...common, options: {}, generator: 'foreign_key_or_integer', params };
+    }
     // 派生列（AI 常为 shipped_at 一类配 derive_from）必须原样保留：ColumnConfig
     // 的 derived 模式与 generator 互斥，退化成 generator 会静默改写 AI 配置，
     // 且该列一旦参与跨列 CHECK 就因类型不匹配而预览失败。
     if (spec && spec.derive_from) {
       return {
+        ...common,
         generator: '',
         derived: spec.derive_from,
         expression: spec.expression || '',
         params: {},
-        null_ratio: Math.round((spec.null_ratio || 0) * 100),
-        unique: false,
       };
     }
     if (!spec || spec.generator_name === 'skip' || spec.generator_name === 'foreign_key'
       || spec.generator_name === 'foreign_key_or_integer' || spec.generator_name === '__enrich__') {
-      return { generator: 'string', params: {}, null_ratio: 0, unique: false };
+      return { ...common, generator: 'string', params: {} };
     }
     return {
-      generator: spec.generator_name,
+      ...common,
+      generator: spec.generator_name || spec.generator || 'string',
       params: { ...(spec.params || {}) },
-      // 核心返回 0–1 小数，UI 展示 0–100 百分比
-      null_ratio: Math.round((spec.null_ratio || 0) * 100),
-      unique: false,
     };
   }
 
   return {
     el,
-    /** 选中一列：colInfo 为 ColumnInfo，inferred 为零配置推断的 GeneratorSpec */
+    /** 选中一列：inferred 为当前配置，zeroConfig 为零配置推断的 GeneratorSpec。 */
     setColumn(table, col, colInfo, inferred, zeroConfig) {
       // zeroConfig 是该列的零配置推断结果，作为「重置属性」的回落基线
       // （inferred 可能已被 AI/加载的配置覆盖）。

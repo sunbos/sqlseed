@@ -109,13 +109,13 @@ class TestCLIFill:
         assert "--count is required" in result.output
 
     @pytest.mark.parametrize(
-        "extra_args",
+        "extra_args, expected_exit",
         [
-            [],
-            [pytest.param("{db}", "--table", "users", "--provider", "base", id="with_db_table")],
+            pytest.param([], 0, id="config_target_only"),
+            pytest.param(["{db}", "--table", "users", "--provider", "base"], 2, id="reject_explicit_target"),
         ],
     )
-    def test_fill_with_config(self, tmp_db, tmp_path: Path, extra_args) -> None:
+    def test_fill_with_config(self, tmp_db, tmp_path: Path, extra_args, expected_exit: int) -> None:
         config_path = tmp_path / "gen.yaml"
         config_data = {
             "db_path": tmp_db,
@@ -128,7 +128,9 @@ class TestCLIFill:
         for arg in extra_args:
             args.append(arg.format(db=tmp_db) if "{db}" in arg else arg)
         result = runner.invoke(cli, args)
-        assert result.exit_code == 0
+        assert result.exit_code == expected_exit
+        if expected_exit:
+            assert "Cannot combine --config" in result.output
 
     def test_fill_with_transform(self, tmp_path: Path) -> None:
         db_path = str(tmp_path / "test.db")
@@ -161,9 +163,10 @@ class TestCLIFill:
         conn = sqlite3.connect(db_path)
         rows = conn.execute("SELECT name FROM users").fetchall()
         conn.close()
+        assert len(rows) == 5
         for (name,) in rows:
-            if name:
-                assert name == name.upper()
+            assert isinstance(name, str) and name
+            assert name == name.upper()
 
     def test_fill_with_snapshot(self, tmp_db, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.chdir(tmp_path)

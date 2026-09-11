@@ -1,105 +1,54 @@
-# CORE ORCHESTRATION LAYER
+# 核心生成引擎
 
-**Last updated:** 2026-08-30
+本目录负责 schema inference、column mapping、CHECK 解析、流式生成与跨表关系。编排入口是 package；改连接或 fill 流程前继续读 [orchestrator/AGENTS.md](orchestrator/AGENTS.md)。
 
-## OVERVIEW
+## 修改入口
 
-Central orchestration: schema inference, column mapping, constraint solving, data streaming. 17 top-level files + orchestrator package (6 files) = 23 files.
+| 工作 | 入口与职责 |
+| --- | --- |
+| 列映射优先级 | [mapper.py](mapper.py)：`ColumnMapper`、`GeneratorSpec` |
+| schema 与唯一性分类 | [schema.py](schema.py)：`SchemaInferrer`；[features.py](features.py)：跨数据库结构特征 |
+| 单列 CHECK | [check_parser.py](check_parser.py)、[check_adapt.py](check_adapt.py)、[schema_fallback.py](schema_fallback.py) |
+| FK、shared pool、表排序 | [relation.py](relation.py)：`RelationResolver`、`SharedPool` |
+| derived columns 与表达式 | [column_dag.py](column_dag.py)、[expression.py](expression.py) |
+| 生成、回溯与 UNIQUE | [stream.py](stream.py)、[constraints.py](constraints.py)、[unique_adjuster.py](unique_adjuster.py) |
+| 本地 enum enrichment | [enrichment.py](enrichment.py)：不调用 LLM |
+| 插件与用户 transform | [plugin_mediator.py](plugin_mediator.py)、[transform.py](transform.py) |
 
-## FILE INVENTORY (file → lines → symbols)
+## 映射与 CHECK
 
-| File | Lines | Classes / Functions |
-|------|------:|---------------------|
-| `relation.py` | 1033 | `SharedPool`, `RelationResolver`, `_make_fk_pool_spec()` |
-| `stream.py` | 675 | `DataStream` (batch generation + constraint backtracking) |
-| `mapper.py` | 630 | `GeneratorSpec`, `ColumnMapper` (75 exact + 29 pattern rules, 9-level chain) |
-| `features.py` | 468 | `ColumnFeatures`/`ForeignKeyFeatures`/`UniqueConstraintFeatures`/`CheckConstraintFeatures`/`IndexFeatures`/`TableFeatures`/`DialectSpecificFeatures`/`StructuralFeatures`, `StructuralFeatureExtractor` |
-| `check_parser.py` | 427 | `ParsedCheck`, `_Bound`, `CheckConstraintParser` + 15 parse helpers |
-| `check_adapt.py` | 283 | `CheckAdapter` (deterministic clamp) |
-| `schema.py` | 266 | `SchemaInferrer` |
-| `column_dag.py` | 248 | `ColumnConstraints`, `ColumnNode`, `ColumnDAG` |
-| `enrichment.py` | 244 | `EnrichmentEngine` (19 enum patterns) |
-| `constraints.py` | 230 | `RegisterResult`, `ConstraintSolver` |
-| `expression.py` | 227 | `ExpressionTimeoutError`, `ExpressionEngine` (26 safe functions) |
-| `schema_fallback.py` | 216 | `SchemaFallbackGenerator` |
-| `unique_adjuster.py` | 297 | `UniqueAdjuster` |
-| `plugin_mediator.py` | 151 | `PluginMediator` |
-| `result.py` | 43 | `GenerationResult` |
-| `transform.py` | 46 | `load_transform()` |
-| `__init__.py` | 26 | exports |
+- 保留 mapper 的优先级：自增 PK → user config → exact match → default/nullability → pattern match → CamelCase 转换后的 exact/pattern 重试 → nullable fallback → type fallback。自定义规则优先于对应 builtin 规则。
+- 显式 `faker_method`/`mimesis_method` 可无 generator；mapper 用内部 `__native__` spec 保留该 source，不能落入 nullable/default skip。native 参数不做通用 UNIQUE 扩域；stream 持续调用匹配方法，由 ConstraintSolver 检查重复，未知方法/非法参数明确失败。
+- `CheckConstraintParser` 用 sqlglot AST 处理确定的单列 literal CHECK；无法解析时返回 `None`，不猜测业务关系。列名仅折叠 ASCII 大小写，不能把 SQLite 中不同的非 ASCII 列（如 `Ä` / `ä`）合并。
+- 长度等值支持 `LENGTH(col) = N` 及反向写法；仅将同列 `col IS NULL OR LENGTH(col) = N` 识别为可空长度约束，不能推广到其他 OR 或不同列 NULL guard。
+- `CheckAdapter.adapt_user_configs()` 在 mapping 前收紧 source-column 参数；重叠域 clamp 并提示，无交集抛 `ConfigurationError`。derived、跨列、OR、列引用不属于该适配器范围。
+- `SchemaFallbackGenerator` 只作 schema semantics 补充。enum 与 exact-length CHECK 对非 user mapping 的强约束例外保存在 [orchestrator/AGENTS.md](orchestrator/AGENTS.md)，改 fallback 时一并检查。
+- 普通跨列比较另由 orchestrator 提取到 `DataStream.inequality_constraints` 做逐行验证；不要把它和单列 CHECK adaptation 的范围混为一谈。
 
-orchestrator package:
+## 生成与约束
 
-| File | Lines | Symbols |
-|------|------:|---------|
-| `_generation.py` | 524 | `GenerationMixin` (fill_table, preview_table, `_detect_cond_column`, `_extract_non_null_values`) |
-| `_specs.py` | 502 | `SpecResolverMixin` (_resolve_specs, _build_stream, _prepare_specs, _resolve_user_configs) |
-| `_query.py` | 251 | `QueryMixin` (13 query/report methods) |
-| `_connection.py` | 243 | `ConnectionMixin` (lifecycle, from_config) |
-| `__init__.py` | 57 | `DataOrchestrator` (composes 4 mixins) |
-| `_common.py` | 70 | `CoreCtx`, `ExtCtx`, `_is_db_url()` |
+- 写入沿用 `DataStream.generate()` 的 batch iterator，不预先收集全部待生成行；`batch_size` 必须为正整数，生成阶段不得扩大用户给定的批大小。未交付 batch 因取消/预算/生成异常而丢弃时，释放其中原始值的 UNIQUE 预留，保留已交付 batch 的登记。
+- `DataStream` 可选 `max_attempts` 按实例累计行尝试与列候选次数（跨 batch 和 `generate()` 调用）；默认 `None` 保留原重试上限。`cancel_check` 为合作式 guard，取消抛 `GenerationCancelledError` 并保留原始 reason，不能当普通生成失败重试；无法中断正在运行的 provider/expression/transform。
+- seed 由 `DataStream.__init__` 管理，仅 `seed is not None` 时调用 provider 的 `set_seed()`；不要在 orchestrator 重复播种。
+- 保留 DAG 顺序、UNIQUE 登记与失败回溯的配合；`composite_unique_constraints` 约束元组，不要求每一列独立唯一。
+- composite PRIMARY KEY 由 `SchemaInferrer.detect_composite_unique_constraints()` 作为组合 UNIQUE 上报；不要将所有 PK 列送入单列 UNIQUE 调整。
+- nullable UNIQUE skip / choice 的 integer 类型回退按 CHECK 选择值域；type mapper 的默认 `[0, 999999]` 不是用户限制，负数及大整数 CHECK 可替换它，单边 CHECK 的自由端须留足采样空间。显式 integer 用户范围不能套用此扩展规则。
+- UNIQUE string 的采样容量使用 `resolve_charset()` 返回字符的去重数量，别名与自定义字符集不能假定为 62。零字符只支持固定零长度的单个空串；单字符按既有长度区间计算容量，不足时明确报错，不无限扩长度。
+- 仅完整索引推导无条件 UNIQUE；`IndexInfo.is_partial=True` 的条件唯一性交给数据库写入约束，不运行通用 WHERE 求值器。mapper 使用 `ColumnInfo.is_rowid_alias` 区分真实隐式 ID 与普通 INTEGER PK。
+- 表达式通过 `ExpressionEngine` 的 simpleeval sandbox 和 `SAFE_FUNCTIONS` 执行。处理 `ExpressionTimeoutError`；线程 timeout 默认 5 秒，超时线程无法被杀死。
+- `PluginMediator` 只保留通用 batch transform 与 template pool；AI suggestion 通过 `sqlseed_apply_ai_suggestions` hook。返回值语义见 [../plugins/AGENTS.md](../plugins/AGENTS.md)。
 
-## STRUCTURE
+## FK 与 shared pool
 
-```
-core/
-├── __init__.py          # Public API exports: DataOrchestrator, ColumnMapper, GeneratorSpec, DataStream, etc.
-├── orchestrator/        # DataOrchestrator package (4 mixins + shared _common):
-│   ├── __init__.py      # DataOrchestrator class (composes 4 mixins via multiple inheritance)
-│   ├── _common.py       # CoreCtx, ExtCtx, _is_db_url() — shared defs to avoid circular import
-│   ├── _connection.py   # ConnectionMixin — init, adapter, connect, properties, lifecycle
-│   ├── _specs.py        # SpecResolverMixin — resolve_specs, build_stream, prepare_specs
-│   ├── _generation.py   # GenerationMixin — fill_table, preview_table, batch insert
-│   └── _query.py        # QueryMixin — schema context, SQL execute/query, table info
-├── mapper.py            # ColumnMapper 9-level strategy chain
-├── schema.py            # SchemaInferrer — column info, indexes, distribution
-├── check_parser.py      # CheckConstraintParser + ParsedCheck — sqlglot AST, single-column literal CHECK → generator hints
-├── check_adapt.py       # CheckAdapter — deterministic clamp of user YAML params to CHECK bounds (disjoint → ConfigurationError)
-├── schema_fallback.py   # SchemaFallbackGenerator — pure schema-semantics fallback, zero business logic
-├── features.py          # Normalized structural features for cross-DB schema analysis
-├── relation.py          # RelationResolver + SharedPool — FK resolution
-├── column_dag.py        # ColumnDAG — derive_from dependency graph
-├── expression.py        # ExpressionEngine — simpleeval sandbox
-├── constraints.py       # ConstraintSolver — unique constraint backtracking
-├── enrichment.py        # EnrichmentEngine — 19 enum patterns
-├── unique_adjuster.py   # UniqueAdjuster — auto-adjust unique specs
-├── transform.py         # load_transform() function — user script dynamic loading
-├── stream.py            # DataStream — batch generation + constraint backtracking
-├── plugin_mediator.py   # PluginMediator — plugin ↔ core bridge
-└── result.py            # GenerationResult dataclass
-```
+- 表排序使用 `RelationResolver.topological_sort()`；循环 FK 以带 warning 的断环处理，优先选剩余依赖可空的表，不改成一遇环就报错。
+- 空父表且 FK 可空时保留 `foreign_key` 的 `null_ratio=1.0`，不要升级成随机整数；自引用两阶段处理见 orchestrator 指导。
+- composite FK 的父表来源优先于重叠的单列 FK，并清理妨碍 FK 的 `derive_from`。SQLite 两列 FK 从最多 100000 条父元组中整对抽样，第二节点通过内部依赖复用本行所选元组，不能用首列标量 lookup 压缩合法组合；每个可空成员仍保留 NULL 语义，SQLAlchemy 内部读取保留列类型；父元组 NULL 成员只在对应子列可空时保留，非空候选池过滤后为空时明确报配置错误。三列及以上 composite FK、PostgreSQL composite FK、反射到显式 schema 的 FK 在生成/清表前抛 `ConfigurationError`；不得恢复独立采样 fallback。SQLite 两列协调并不保证子表其他 CHECK 或重叠约束一定满足。
+- FK metadata cache 随 orchestrator 生命周期；改缓存清理或 shared pool 更新前检查 `RelationResolver.clear_cache()` 与 `register_shared_pool()`。
 
-## WHERE TO LOOK
+## 验证
 
-| Task | Location | Notes |
-|------|----------|-------|
-| Public API exports | `__init__.py` | Exports DataOrchestrator, ColumnMapper, GeneratorSpec, DataStream, RelationResolver, GenerationResult, SchemaInferrer, CheckConstraintParser, ParsedCheck, SchemaFallbackGenerator |
-| Add fill logic | `orchestrator/_generation.py` | DataOrchestrator.fill_table() |
-| Modify mapping | `mapper.py` | ColumnMapper.map_columns() — 9-level chain |
-| Add schema info | `schema.py` | SchemaInferrer.get_column_info() |
-| Parse CHECK constraints | `check_parser.py` | sqlglot AST; single-column literal CHECKs only, else None (AI/manual domain) |
-| Clamp config to CHECK | `check_adapt.py` | CheckAdapter.adapt_user_configs() — runs in `_resolve_specs()` BEFORE map_columns |
-| Schema-only fallback | `schema_fallback.py` | SchemaFallbackGenerator — called when mapping yields nothing |
-| Handle FK | `relation.py` | RelationResolver.resolve_foreign_keys() |
-| Add derive_from | `column_dag.py` | ColumnDAG.build() — topological sort |
-| Modify expressions | `expression.py` | ExpressionEngine — 26 safe functions |
-| Add constraint | `constraints.py` | ConstraintSolver — retry logic |
-| Add enum pattern | `enrichment.py` | EnrichmentEngine — 19 patterns |
-| Batch generation | `stream.py` | DataStream.generate() — yields batches |
-| Add plugin hook | `plugin_mediator.py` | PluginMediator.apply_batch_transforms(), apply_template_pool() (generic only; apply_ai_suggestions moved to sqlseed-ai/ai_mediator.py in Phase C) |
+命令从仓库根执行。
 
-## CONVENTIONS
-
-- **Context manager**: DataOrchestrator uses `__enter__`/`__exit__`
-- **Property access**: Private via `self._core.*` and `self._ext.*`
-- **Error handling**: Catch `ValueError, RuntimeError, OSError, sqlalchemy.exc.OperationalError` (alias `SAOperationalError`) / `sqlalchemy.exc.IntegrityError` (alias `SAIntegrityError`)
-- **Exception catching**: Production environments use SQLAlchemyAdapter, all database exceptions are `sqlalchemy.exc.*`; do not catch `sqlite3.*` (RawSQLiteAdapter is only for zero-dependency tests)
-- **Metrics**: Record via `self._metrics.record(key, value)`
-- **Progress**: Rich progress bars via `create_progress()`
-
-## ANTI-PATTERNS
-
-- **NEVER** call DB directly from orchestrator for data operations → use `self._db` property (except `execute()` for direct SQL)
-- **NEVER** skip `validate_table_name()` before table operations
-- **ALWAYS** call `_ensure_connected()` before any DB operation
-- **ALWAYS** use `contextlib.suppress()` for non-critical errors
+- 通用范围：`pytest tests/test_core/ tests/test_mapper.py tests/test_mapper_camelcase.py tests/test_schema.py tests/test_relation.py`。
+- UNIQUE 回归使用真实 `ColumnMapper` 和 `ColumnInfo`，断言算出的 `GeneratorSpec.params`。保留非 exact-match 名称与非空 default 的覆盖；参考 [TestAdjustChoiceFallback](../../../tests/test_core/test_unique_adjuster.py)，避免只验证 mock 调用。
+- 修改 `mapper.py` 同步 README/CLAUDE 的规则表；修改 `expression.py` 同步两种语言 README 的 `SAFE_FUNCTIONS` 表，遵循根级文档同步流程。
