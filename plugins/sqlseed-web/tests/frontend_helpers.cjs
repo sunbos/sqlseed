@@ -176,6 +176,9 @@ function loadFrontend(name, bindings = {}) {
     scrollModules.set(document, vm.runInContext('lockPageScroll', scrollContext));
   }
   const context = vm.createContext({...globals, ...api, lockPageScroll: scrollModules.get(document), ...bindings});
+  if (name === 'workbench/preview.js') {
+    vm.runInContext(source('workbench/preview-scroll-layout.js'), context, {filename: 'workbench/preview-scroll-layout.js'});
+  }
   if (name !== 'api.js') vm.runInContext(source(name), context, {filename: name});
   return context;
 }

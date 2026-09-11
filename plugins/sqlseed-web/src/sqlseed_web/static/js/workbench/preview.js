@@ -1,6 +1,7 @@
 import {h} from '../api.js';
 import {createDropdown} from '../dropdown.js';
 import {modal,button,valueText} from './ui.js';
+import {createPreviewScrollLayout} from './preview-scroll-layout.js';
 
 let nextPreviewId=0;
 const validCount=value=>/^\d+$/.test(String(value)) && Number(value)>=1 && Number(value)<=100;
@@ -18,7 +19,8 @@ export function openDataPreview({tables,currentTable,selectedTables,initialScope
   let closed=false,busy=false,sequence=0,scopeControl=null,result=null,shownTable=initialView?.shownTable || currentTable;
   let selectedColumn=initialView?.column || null,stale=initialStale;
   let columnAction=initialView?.columnAction || 'information';
-  const destroy=()=>{closed=true;sequence++;scopeControl?.destroy();};
+  let scrollLayout=null;
+  const destroy=()=>{closed=true;sequence++;scopeControl?.destroy();scrollLayout?.destroy();};
   const dialog=container?{el:container,body:container,close:destroy}:modal(scope==='selected'?'预览已选表':'预览数据',{wide:true,onClose:destroy});
   dialog.el.classList.add('wb-data-preview');
   const help=h('p',{id:`${id}-help`,class:'wb-preview-help'},'按当前规则生成临时记录，不写入数据库。正式生成时会重新取值。');
@@ -27,6 +29,7 @@ export function openDataPreview({tables,currentTable,selectedTables,initialScope
   const issues=h('div',{class:'wb-preview-issues'});
   const tabs=h('div',{class:'wb-preview-tables',role:'group','aria-label':'切换预览表'});
   const results=h('section',{class:'wb-preview-results','aria-label':'预览记录'});
+  scrollLayout=createPreviewScrollLayout({dialog,results,inline:Boolean(container)});
   const scopeHolder=h('div',{class:'wb-preview-field'},h('span',{},'预览范围'));
   const scopeSlot=h('div',{});scopeHolder.append(scopeSlot);
   const countInput=h('input',{type:'number',min:1,max:100,step:1,value:String(count),
@@ -58,6 +61,7 @@ export function openDataPreview({tables,currentTable,selectedTables,initialScope
   }
   function optionsChanged() {
     if(closed || busy)return;
+    scrollLayout.setTable(null);
     sequence++;result=null;stale=false;tableScroll.clear();error.textContent='';results.replaceChildren();tabs.replaceChildren();issues.replaceChildren();
     status.textContent='设置已改变，请重新预览。';
     if(countValid())onOptionsChange?.({scope,count});
@@ -82,6 +86,7 @@ export function openDataPreview({tables,currentTable,selectedTables,initialScope
     return {text:'暂不可预览',placeholder:true};
   }
   const viewport=node=>({left:node.scrollLeft || 0,top:node.scrollTop || 0});
+  const bodyViewport=()=>({...viewport(dialog.body),top:scrollLayout.captureVertical()?.bodyTop ?? (dialog.body.scrollTop || 0)});
   function restoreViewport(node,position) {
     if(!position)return;
     node.scrollLeft=Math.max(0,Math.min(position.left,(node.scrollWidth || 0)-(node.clientWidth || 0)));
@@ -89,11 +94,17 @@ export function openDataPreview({tables,currentTable,selectedTables,initialScope
   }
   function rememberTableScroll() {
     const scroll=results.querySelector('.wb-preview-scroll');
-    if(scroll)tableScroll.set(shownTable,viewport(scroll));
+    if(scroll)tableScroll.set(shownTable,{...viewport(scroll),top:scrollLayout.captureVertical()?.tableTop ?? (scroll.scrollTop || 0)});
+  }
+  function restoreScroll(bodyPosition) {
+    const scroll=results.querySelector('.wb-preview-scroll'),tablePosition=tableScroll.get(shownTable);
+    if(scroll)restoreViewport(scroll,tablePosition);
+    restoreViewport(dialog.body,bodyPosition);
+    scrollLayout.restoreVertical(tablePosition?.top || 0,bodyPosition?.top || 0);
   }
   function getView() {
     rememberTableScroll();
-    return {shownTable,column:selectedColumn,columnAction,count,scope,tableScroll:Object.fromEntries(tableScroll),bodyScroll:viewport(dialog.body),result,stale};
+    return {shownTable,column:selectedColumn,columnAction,count,scope,tableScroll:Object.fromEntries(tableScroll),bodyScroll:bodyViewport(),result,stale};
   }
   function columnHeader(table,column) {
     const metadata=[column.type];
@@ -122,7 +133,7 @@ export function openDataPreview({tables,currentTable,selectedTables,initialScope
   }
   function renderRows() {
     if(!result)return;
-    const bodyScroll=viewport(dialog.body);
+    const bodyScroll=bodyViewport();
     const name=shownTable;
     const table=schema.get(name);
     const rows=Array.isArray(result.samples?.[name])?result.samples[name]:[];
@@ -131,6 +142,7 @@ export function openDataPreview({tables,currentTable,selectedTables,initialScope
       const empty=result.preview_complete===false
         ?'本表暂未返回可预览记录，关联依赖数据可能尚未就绪。请查看依赖检查及上方提示。'
         :result.ok===false?'本表预览未完成，请处理上方提示后重新预览。':'本表未返回预览记录。';
+      scrollLayout.setTable(null);
       results.replaceChildren(summary,h('p',{class:'wb-preview-empty'},empty));
       restoreViewport(dialog.body,bodyScroll);return;
     }
@@ -143,11 +155,11 @@ export function openDataPreview({tables,currentTable,selectedTables,initialScope
       })))));
     const scroll=h('div',{class:'wb-preview-scroll',tabindex:0,'aria-label':`${name} 预览数据，可横向滚动`},data);
     results.replaceChildren(summary,scroll);
-    restoreViewport(scroll,tableScroll.get(name));
-    restoreViewport(dialog.body,bodyScroll);
+    scrollLayout.setTable(scroll);
+    restoreScroll(bodyScroll);
   }
   function renderResult() {
-    const bodyScroll=viewport(dialog.body);
+    const bodyScroll=bodyViewport();
     rememberTableScroll();
     const names=scope==='current'?[currentTable]:[...new Set([...(result.order || []).filter(name=>selected.includes(name)),...selected])];
     if(!names.includes(shownTable))shownTable=names[0];
@@ -162,7 +174,7 @@ export function openDataPreview({tables,currentTable,selectedTables,initialScope
       class:issue.severity==='error'?'wb-error':'wb-preview-warning',
     },[issue.table,issue.column].filter(Boolean).join('.')+(issue.table||issue.column?'：':'')+String(issue.message || '预览存在待处理项'))))]:[]));
     renderRows();
-    restoreViewport(dialog.body,bodyScroll);
+    restoreScroll(bodyScroll);
   }
   const refresh=guard(async()=>{
     if(closed || busy)return;
@@ -173,7 +185,7 @@ export function openDataPreview({tables,currentTable,selectedTables,initialScope
     if(scope==='current' && !schema.has(currentTable)) {error.textContent='请先选择当前表。';return;}
     const request=++sequence,options={scope,count,table:currentTable};
     const stillCurrent=()=>live() && request===sequence;
-    if(!result)results.replaceChildren(h('p',{class:'wb-preview-loading'},'正在生成预览数据…'));
+    if(!result){scrollLayout.setTable(null);results.replaceChildren(h('p',{class:'wb-preview-loading'},'正在生成预览数据…'));}
     status.textContent=result?(stale?'正在更新；规则已改变，当前为旧样例。':'正在更新，当前为上次结果。'):'正在生成预览数据…';setBusy(true);
     try {
       let response;
@@ -213,6 +225,6 @@ export function openDataPreview({tables,currentTable,selectedTables,initialScope
     '每表最多预览 1–100 行，且不超过该表配置的生成数量；此设置不会修改正式生成行数。'),status,error,issues,tabs,results);
   if(dialog.actions)dialog.actions.append(button('关闭',dialog.close));
   if(initialResult){result=initialResult;renderResult();refreshButton.textContent='重新预览';status.textContent=stale?'规则已改变，当前为旧样例，请重新预览。':'上次预览结果；重新预览可更新取值。';}
-  restoreViewport(dialog.body,initialView?.bodyScroll);
+  restoreScroll(initialView?.bodyScroll);
   return {dialog,refresh,destroy,getView};
 }

@@ -21,7 +21,7 @@ function harness(options={}) {
   document.createElementNS=(_,tag)=>new Element(tag);
   const ui=loadFrontend('workbench/ui.js',{document,window});
   const dropdown=loadFrontend('dropdown.js',{document,window});
-  const context=loadFrontend('workbench/preview.js',{document,window,
+  const context=loadFrontend('workbench/preview.js',{document,window,...options.browser,
     ...vm.runInContext('({modal,button,valueText})',ui),createDropdown:vm.runInContext('createDropdown',dropdown)});
   const requests=[],results=[],resultOptions=[],changes=[],errors=[];let current=true,guardBusy=false;
   const component=context.openDataPreview({tables,currentTable:'orders',selectedTables:['orders','users'],
@@ -47,6 +47,19 @@ test('creates the modal immediately and generates only when its guarded refresh 
   assert.deepEqual(t.requests,[{scope:'current',count:10,table:'orders'}]);
   assert.equal(t.results.length,1);
   assert.deepEqual(t.resultOptions,[{scope:'current',count:10,table:'orders'}]);
+});
+
+test('inline previews keep ten actual rows natural and limit only longer results',async()=>{
+  for(const size of [10,100,3]) {
+    const container=new Element('section');container._connected=true;
+    const t=harness({props:{container,initialCount:100},generate:()=>({ok:true,
+      samples:{orders:Array.from({length:size},(_,index)=>({code:`row ${index}`}))},issues:[]})});
+    await t.component.refresh();
+    const scroll=container.querySelector('.wb-preview-scroll');
+    assert.equal(scroll.classList.contains('wb-preview-long'),size>10);
+    assert.equal(scroll.querySelector('tbody').children.length,size);
+    t.component.destroy();
+  }
 });
 
 test('column name and generation rule are separate direct actions with exact return context',async()=>{
@@ -307,6 +320,26 @@ test('switching tables restores independent scroll positions and clamps after fe
   assert.equal(viewport.scrollLeft,100);assert.equal(viewport.scrollTop,60);
   await t.find('orders').click();viewport=t.document.querySelector('.wb-preview-scroll');
   assert.equal(viewport.scrollLeft,100);assert.equal(viewport.scrollTop,60);
+});
+
+test('body-scroll fallback remembers each table independently without counting its offset twice',async()=>{
+  const t=harness({props:{initialScope:'selected',initialCount:100},
+    browser:{innerWidth:390,getComputedStyle:()=>({maxHeight:'800px'})},
+    layout:element=>element.classList.contains('wb-modal-body')
+      ?{clientHeight:600,scrollHeight:4300}:element.classList.contains('wb-preview-scroll')
+        ?{clientWidth:300,scrollWidth:1100,clientHeight:4000,scrollHeight:4000}:null,
+    generate:()=>({ok:true,samples:{orders:Array.from({length:100},()=>({code:'order'})),
+      users:Array.from({length:100},()=>({name:'user'}))},issues:[]})});
+  await t.component.refresh();
+  t.component.dialog.body.scrollTop=320;
+  const saved=t.component.getView();
+  assert.equal(saved.tableScroll.orders.top,320);
+  assert.equal(saved.bodyScroll.top,0);
+  await t.find('users').click();assert.equal(t.component.dialog.body.scrollTop,0);
+  t.component.dialog.body.scrollTop=80;
+  await t.find('orders').click();assert.equal(t.component.dialog.body.scrollTop,320);
+  await t.find('users').click();assert.equal(t.component.dialog.body.scrollTop,80);
+  t.component.dialog.close();
 });
 
 test('a refresh invalidated by configuration or session expiry cannot replace retained results',async()=>{
