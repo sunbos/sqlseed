@@ -19,11 +19,16 @@ def fixture_llm_available() -> bool:
     """Check if local LM Studio is available (Spec 6.4)."""
     try:
         import httpx
-
-        resp = httpx.get("http://localhost:1234/v1/models", timeout=2)
-        return resp.status_code == 200
-    except Exception:
+    except ModuleNotFoundError as exc:
+        if exc.name != "httpx":
+            raise
         return False
+
+    try:
+        resp = httpx.get("http://localhost:1234/v1/models", timeout=2)
+    except httpx.RequestError:
+        return False
+    return resp.status_code == 200
 
 
 @pytest.fixture(scope="session")

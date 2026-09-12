@@ -1,0 +1,24 @@
+{
+  "commit": "ef7b2795370873c915b9d1c9b50b59c6ac7016fb",
+  "ci_run_id": 34700401559,
+  "ci_url": "https://github.com/sunbos/sqlseed/actions/runs/34700401559",
+  "successful_jobs": [
+    "lint",
+    "packages",
+    "test (3.10)",
+    "test-compat (windows-latest)",
+    "integration",
+    "test (3.13)",
+    "test-compat (macos-latest)",
+    "property-tests"
+  ],
+  "failed_job": "test (3.12)",
+  "failed_step": "Upload coverage (3.12 only)",
+  "failure_log_excerpt": [
+    "test (3.12)\tUpload coverage (3.12 only)\t2026-09-12T14:54:32.7572941Z error - 2026-09-12 14:54:32,757 -- Upload queued for processing failed: {\"message\":\"Repository not found\"}",
+    "test (3.12)\tUpload coverage (3.12 only)\t2026-09-12T14:54:32.9857952Z ##[error]Process completed with exit code 1."
+  ],
+  "doc_sync_run_id": 34700401558,
+  "doc_sync_conclusion": "success",
+  "classification": "Existing external Codecov repository lookup/upload failure, not a test assertion failure. Do not report CI as all green."
+}

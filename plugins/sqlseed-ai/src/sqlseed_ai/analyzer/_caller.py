@@ -29,37 +29,14 @@ ProgressCallback = Callable[[str, dict[str, Any]], None]
 _MAX_FALLBACK_ATTEMPTS = 3
 
 
-class LLMCallerMixin:
-    """Mixin providing LLM call orchestration with model fallback.
-
-    Expects the host class to expose a ``_config`` attribute of type
-    ``AIConfig | None`` and to mix in :class:`StreamingHandlerMixin` for
-    ``_send_llm_request`` and :class:`JsonParserMixin` for
-    ``_parse_json_response``.
-    """
+class _InteractionLoggingMixin:
+    """Write optional interaction diagnostics for both request modes."""
 
     # Type hints for attributes provided by the host class.
     _config: AIConfig | None
 
     if TYPE_CHECKING:
         from pathlib import Path
-
-        # Provided by StreamingHandlerMixin / JsonParserMixin when combined
-        # in SchemaAnalyzer. Stubs use `raise RuntimeError("provided by ...")`
-        # (NOT `...` which pylint infers as implicit None return ->
-        # assignment-from-no-return; NOT `return None`/`return {}` which
-        # pylint flags as assignment-from-none (E1128) on callers that
-        # assign the result; and NOT `raise NotImplementedError` which
-        # pylint treats as abstract method -> abstract-method). RuntimeError
-        # avoids all three: it's a raise (no implicit None return), it's
-        # not an explicit None return, and it's not NotImplementedError.
-        # Real impls live in sibling mixins and DO return values.
-        def _send_llm_request(self, client: Any, kwargs: dict[str, Any]) -> Any:
-            raise RuntimeError("provided by StreamingHandlerMixin")
-
-        # Provided by JsonParserMixin when combined in SchemaAnalyzer.
-        def _parse_json_response(self, content: str) -> dict[str, Any]:
-            raise RuntimeError("provided by JsonParserMixin")
 
     def _log_llm_interaction(
         self,
@@ -108,6 +85,34 @@ class LLMCallerMixin:
         except Exception as e:
             logger.warning("Failed to log LLM interaction", error=str(e))
             return None
+
+
+class LLMCallerMixin(_InteractionLoggingMixin):
+    """Mixin providing LLM call orchestration with model fallback.
+
+    Expects the host class to expose a ``_config`` attribute of type
+    ``AIConfig | None`` and to mix in :class:`StreamingHandlerMixin` for
+    ``_send_llm_request`` and :class:`JsonParserMixin` for
+    ``_parse_json_response``.
+    """
+
+    if TYPE_CHECKING:
+        # Provided by StreamingHandlerMixin / JsonParserMixin when combined
+        # in SchemaAnalyzer. Stubs use `raise RuntimeError("provided by ...")`
+        # (NOT `...` which pylint infers as implicit None return ->
+        # assignment-from-no-return; NOT `return None`/`return {}` which
+        # pylint flags as assignment-from-none (E1128) on callers that
+        # assign the result; and NOT `raise NotImplementedError` which
+        # pylint treats as abstract method -> abstract-method). RuntimeError
+        # avoids all three: it's a raise (no implicit None return), it's
+        # not an explicit None return, and it's not NotImplementedError.
+        # Real impls live in sibling mixins and DO return values.
+        def _send_llm_request(self, client: Any, kwargs: dict[str, Any]) -> Any:
+            raise RuntimeError("provided by StreamingHandlerMixin")
+
+        # Provided by JsonParserMixin when combined in SchemaAnalyzer.
+        def _parse_json_response(self, content: str) -> dict[str, Any]:
+            raise RuntimeError("provided by JsonParserMixin")
 
     def _find_local_fallback_model(
         self,

@@ -34,7 +34,7 @@ def test_constant_unique_retries_share_one_stream_budget() -> None:
     assert next(stream.generate(1)) == [{"code": "private-value"}]
     with pytest.raises(RuntimeError, match=r"attempt budget.*12") as caught:
         next(stream.generate(1))
-    assert type(caught.value) is stream_module.GenerationBudgetExceededError
+    assert caught.type is stream_module.GenerationBudgetExceededError
     assert caught.value.limit == 12
     assert caught.value.table == "items"
     assert caught.value.column == "code"
@@ -100,7 +100,7 @@ def test_cancel_guard_interrupts_unique_retry_and_preserves_reason() -> None:
     stream = make_stream(unique=True, cancel_check=cancel_check)
     with pytest.raises(RuntimeError) as caught:
         next(stream.generate(2))
-    assert type(caught.value) is stream_module.GenerationCancelledError
+    assert caught.type is stream_module.GenerationCancelledError
     assert caught.value.__cause__ is reason
     assert calls == 8
 

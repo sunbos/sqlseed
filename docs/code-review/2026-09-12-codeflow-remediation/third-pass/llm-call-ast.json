@@ -1,0 +1,41 @@
+{
+  "passed": true,
+  "checks": [
+    {
+      "file": "level1_subgraph_healer.py",
+      "method": "heal",
+      "unchanged": [
+        "signature",
+        "preparation_before_rpc",
+        "full_rpc_expression_in_deferred_request",
+        "failure_logger_call",
+        "entire_response_parsing_suffix",
+        "all_other_module_code"
+      ]
+    },
+    {
+      "file": "level2_column_healer.py",
+      "method": "heal_column",
+      "unchanged": [
+        "signature",
+        "preparation_before_rpc",
+        "full_rpc_expression_in_deferred_request",
+        "failure_logger_call",
+        "entire_response_parsing_suffix",
+        "all_other_module_code"
+      ]
+    },
+    {
+      "file": "level3_compact_healer.py",
+      "method": "heal_compact",
+      "unchanged": [
+        "signature",
+        "preparation_before_rpc",
+        "full_rpc_expression_in_deferred_request",
+        "failure_logger_call",
+        "entire_response_parsing_suffix",
+        "all_other_module_code"
+      ]
+    }
+  ]
+}

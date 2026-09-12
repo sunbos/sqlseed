@@ -15,6 +15,7 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from sqlseed_ai.healer._llm_call import call_llm
 from sqlseed_ai.healer.models import Level1Result
 
 from sqlseed._utils.logger import get_logger
@@ -136,8 +137,8 @@ class Level1SubgraphHealer:
         prompt = self.build_prompt(task, violations, parent_config)
         start = time.monotonic()
 
-        try:
-            resp = self._client.chat_completions_create(
+        outcome = call_llm(
+            lambda: self._client.chat_completions_create(
                 model=self._model,
                 messages=[
                     {"role": "system", "content": prompt.system_prompt},
@@ -145,22 +146,21 @@ class Level1SubgraphHealer:
                 ],
                 temperature=self._temperature,
                 max_tokens=self._max_response_tokens,
-            )
-        except OSError:
-            # Network errors propagate (Section 5.3) — do not degrade.
-            raise
-        except (RuntimeError, AttributeError, ValueError) as exc:
-            logger.warning("Level 1 LLM call failed", error=str(exc))
+            ),
+            started_at=start,
+            on_failure=lambda exc: logger.warning("Level 1 LLM call failed", error=str(exc)),
+        )
+        if outcome.error is not None:
             return Level1Result(
                 success=False,
                 config_patch=None,
-                error=exc,
-                elapsed_seconds=time.monotonic() - start,
+                error=outcome.error,
+                elapsed_seconds=outcome.elapsed_seconds,
                 prompt_tokens=prompt.estimated_tokens,
             )
 
-        elapsed = time.monotonic() - start
-        content = resp.choices[0].message.content or ""
+        elapsed = outcome.elapsed_seconds
+        content = outcome.response.choices[0].message.content or ""
 
         if not content.strip():
             return Level1Result(

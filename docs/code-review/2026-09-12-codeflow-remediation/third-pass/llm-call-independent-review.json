@@ -1,0 +1,231 @@
+{
+  "comparisons": 45,
+  "mismatches": [],
+  "cases": [
+    {
+      "level": 1,
+      "case": "valid",
+      "equal": true
+    },
+    {
+      "level": 1,
+      "case": "empty",
+      "equal": true
+    },
+    {
+      "level": 1,
+      "case": "null_content",
+      "equal": true
+    },
+    {
+      "level": 1,
+      "case": "malformed_json",
+      "equal": true
+    },
+    {
+      "level": 1,
+      "case": "invalid_shape",
+      "equal": true
+    },
+    {
+      "level": 1,
+      "case": "missing_response",
+      "equal": true
+    },
+    {
+      "level": 1,
+      "case": "runtime",
+      "equal": true
+    },
+    {
+      "level": 1,
+      "case": "falsy",
+      "equal": true
+    },
+    {
+      "level": 1,
+      "case": "mixed_network",
+      "equal": true
+    },
+    {
+      "level": 1,
+      "case": "fake_network",
+      "equal": true
+    },
+    {
+      "level": 1,
+      "case": "unknown",
+      "equal": true
+    },
+    {
+      "level": 1,
+      "case": "interrupt",
+      "equal": true
+    },
+    {
+      "level": 1,
+      "case": "logging_failure",
+      "equal": true
+    },
+    {
+      "level": 1,
+      "case": "clock_failure_after_success",
+      "equal": true
+    },
+    {
+      "level": 1,
+      "case": "clock_failure_after_error",
+      "equal": true
+    },
+    {
+      "level": 2,
+      "case": "valid",
+      "equal": true
+    },
+    {
+      "level": 2,
+      "case": "empty",
+      "equal": true
+    },
+    {
+      "level": 2,
+      "case": "null_content",
+      "equal": true
+    },
+    {
+      "level": 2,
+      "case": "malformed_json",
+      "equal": true
+    },
+    {
+      "level": 2,
+      "case": "invalid_shape",
+      "equal": true
+    },
+    {
+      "level": 2,
+      "case": "missing_response",
+      "equal": true
+    },
+    {
+      "level": 2,
+      "case": "runtime",
+      "equal": true
+    },
+    {
+      "level": 2,
+      "case": "falsy",
+      "equal": true
+    },
+    {
+      "level": 2,
+      "case": "mixed_network",
+      "equal": true
+    },
+    {
+      "level": 2,
+      "case": "fake_network",
+      "equal": true
+    },
+    {
+      "level": 2,
+      "case": "unknown",
+      "equal": true
+    },
+    {
+      "level": 2,
+      "case": "interrupt",
+      "equal": true
+    },
+    {
+      "level": 2,
+      "case": "logging_failure",
+      "equal": true
+    },
+    {
+      "level": 2,
+      "case": "clock_failure_after_success",
+      "equal": true
+    },
+    {
+      "level": 2,
+      "case": "clock_failure_after_error",
+      "equal": true
+    },
+    {
+      "level": 3,
+      "case": "valid",
+      "equal": true
+    },
+    {
+      "level": 3,
+      "case": "empty",
+      "equal": true
+    },
+    {
+      "level": 3,
+      "case": "null_content",
+      "equal": true
+    },
+    {
+      "level": 3,
+      "case": "malformed_json",
+      "equal": true
+    },
+    {
+      "level": 3,
+      "case": "invalid_shape",
+      "equal": true
+    },
+    {
+      "level": 3,
+      "case": "missing_response",
+      "equal": true
+    },
+    {
+      "level": 3,
+      "case": "runtime",
+      "equal": true
+    },
+    {
+      "level": 3,
+      "case": "falsy",
+      "equal": true
+    },
+    {
+      "level": 3,
+      "case": "mixed_network",
+      "equal": true
+    },
+    {
+      "level": 3,
+      "case": "fake_network",
+      "equal": true
+    },
+    {
+      "level": 3,
+      "case": "unknown",
+      "equal": true
+    },
+    {
+      "level": 3,
+      "case": "interrupt",
+      "equal": true
+    },
+    {
+      "level": 3,
+      "case": "logging_failure",
+      "equal": true
+    },
+    {
+      "level": 3,
+      "case": "clock_failure_after_success",
+      "equal": true
+    },
+    {
+      "level": 3,
+      "case": "clock_failure_after_error",
+      "equal": true
+    }
+  ]
+}

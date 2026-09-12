@@ -11,6 +11,7 @@ and HTTP calls are mocked — no real API requests are made.
 
 from __future__ import annotations
 
+import json
 from contextlib import ExitStack, contextmanager
 from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
@@ -37,6 +38,74 @@ from tests._helpers import clear_llm_env
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+    from pathlib import Path
+
+
+class TestInteractionLogging:
+    """Interaction diagnostics use the real cache path and filesystem."""
+
+    @pytest.mark.parametrize("enabled", [None, False])
+    def test_disabled_logging_does_not_create_cache(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, enabled: bool | None
+    ) -> None:
+        cache = tmp_path / "cache"
+        monkeypatch.setenv("SQLSEED_CACHE_DIR", str(cache))
+        config = AIConfig(model="test-model", log_llm_interactions=enabled) if enabled is not None else None
+        analyzer = SchemaAnalyzer(config)
+
+        result = analyzer._log_llm_interaction(messages=[], response="unused", model=None)
+
+        assert result is None
+        assert not cache.exists()
+
+    @pytest.mark.parametrize(("model", "error"), [("test-model", None), (None, "request failed")])
+    def test_enabled_logging_writes_full_interaction(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, model: str | None, error: str | None
+    ) -> None:
+        cache = tmp_path / "custom-cache"
+        monkeypatch.setenv("SQLSEED_CACHE_DIR", str(cache))
+        analyzer = SchemaAnalyzer(AIConfig(model="test-model", log_llm_interactions=True))
+        messages = [{"role": "user", "content": "生成测试数据"}]
+
+        result = analyzer._log_llm_interaction(
+            messages=messages,
+            response="完整响应",
+            model=model,
+            stage="stage/one",
+            table_name="users/orders",
+            elapsed=1.23456,
+            error=error,
+        )
+
+        assert result is not None
+        assert result.parent == cache / "ai_logs"
+        assert result.name.endswith("_stage_one_users_orders.json")
+        payload = json.loads(result.read_text(encoding="utf-8"))
+        assert isinstance(payload.pop("timestamp"), str)
+        expected = {
+            "model": model or "(unknown)",
+            "stage": "stage/one",
+            "table_name": "users/orders",
+            "elapsed_seconds": 1.235,
+            "messages": messages,
+            "response": "完整响应",
+        }
+        if error is not None:
+            expected["error"] = error
+        assert payload == expected
+
+    def test_cache_failure_does_not_replace_interaction_result(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        cache = tmp_path / "cache-file"
+        cache.write_text("occupied", encoding="utf-8")
+        monkeypatch.setenv("SQLSEED_CACHE_DIR", str(cache))
+        analyzer = SchemaAnalyzer(AIConfig(model="test-model", log_llm_interactions=True))
+
+        result = analyzer._log_llm_interaction(messages=[], response="completed", model="test-model")
+
+        assert result is None
+        assert cache.read_text(encoding="utf-8") == "occupied"
 
 
 def _make_request_obj() -> Any:

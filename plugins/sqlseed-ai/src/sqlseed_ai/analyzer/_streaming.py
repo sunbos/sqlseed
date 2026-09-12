@@ -11,10 +11,12 @@ import time
 from typing import TYPE_CHECKING, Any, NoReturn
 
 from sqlseed_ai._client import APIConnectionError, APIError, APITimeoutError, get_openai_client
-from sqlseed_ai.config import AIBackend, AIConfig
+from sqlseed_ai.config import AIBackend
 from sqlseed_ai.exceptions import ModelFallbackError, classify_api_error
 
 from sqlseed._utils.logger import get_logger
+
+from ._caller import _InteractionLoggingMixin
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -24,34 +26,16 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
-class StreamingHandlerMixin:
+class StreamingHandlerMixin(_InteractionLoggingMixin):
     """Mixin providing streaming LLM calls and request dispatch strategy.
 
     Expects the host class to expose a ``_config`` attribute of type
     ``AIConfig | None`` and to mix in :class:`LLMCallerMixin` for
     ``_call_with_fallback``, ``_build_llm_kwargs``,
-    ``_create_with_reasoning_fallback``, ``_log_llm_interaction`` and
+    ``_create_with_reasoning_fallback`` and
     :class:`ToolCallingMixin` for ``_try_tool_calling`` and
     :class:`JsonParserMixin` for ``_parse_json_response``.
     """
-
-    # Type hints for attributes provided by the host class.
-    _config: AIConfig | None
-
-    if TYPE_CHECKING:
-        # Provided by LLMCallerMixin when combined in SchemaAnalyzer.
-        def _log_llm_interaction(
-            self,
-            *,
-            messages: list[dict[str, str]],
-            response: str,
-            model: str | None,
-            stage: str = "",
-            table_name: str = "",
-            elapsed: float = 0.0,
-            error: str | None = None,
-        ) -> Any:
-            raise RuntimeError("provided by LLMCallerMixin")
 
     if TYPE_CHECKING:
         # Provided by LLMCallerMixin / ToolCallingMixin / JsonParserMixin
