@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -58,3 +60,95 @@ def test_installer_keeps_environment_locked_after_parent_descriptor_closes(tmp_p
     assert result == 0
     contender.acquire()
     contender.release()
+
+
+def test_installer_reaps_child_when_output_worker_cannot_start(
+    monkeypatch: pytest.MonkeyPatch, recorded_processes: list[subprocess.Popen[bytes]]
+) -> None:
+    children = recorded_processes
+
+    def fail_start(self: threading.Thread) -> None:
+        raise RuntimeError("cannot start output reader")
+
+    monkeypatch.setattr(threading.Thread, "start", fail_start)
+    try:
+        with pytest.raises(RuntimeError, match="cannot start output reader"):
+            run_installer([sys.executable, "-c", "import time; time.sleep(30)"], lambda text: None)
+        assert len(children) == 1
+        assert children[0].poll() is not None
+        assert children[0].stdout is not None and children[0].stdout.closed
+    finally:
+        for process in children:
+            if process.poll() is None:
+                process.kill()
+                process.wait()
+            if process.stdout is not None:
+                process.stdout.close()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Managed package operations require POSIX process groups")
+def test_output_start_failure_kills_descendant_after_installer_parent_exits(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, recorded_processes: list[subprocess.Popen[bytes]]
+) -> None:
+    import signal
+
+    lock = EnvironmentLock(tmp_path, exclusive=True)
+    contender = EnvironmentLock(tmp_path, exclusive=True)
+    lock.acquire()
+    descriptor = lock.fileno()
+    children = recorded_processes
+
+    def fail_start(self: threading.Thread) -> None:
+        children[0].wait(timeout=5)
+        raise RuntimeError("output startup failed after installer exited")
+
+    script = (
+        "import subprocess,sys; descriptor=int(sys.argv[1]); "
+        "subprocess.Popen([sys.executable,'-c','import time; time.sleep(30)'],pass_fds=(descriptor,))"
+    )
+    monkeypatch.setattr(threading.Thread, "start", fail_start)
+    try:
+        with pytest.raises(RuntimeError, match="after installer exited"):
+            run_installer(
+                [sys.executable, "-c", script, str(descriptor)], lambda text: None, lock_descriptor=descriptor
+            )
+        lock.release()
+        _wait_for_environment_lock(contender)
+    finally:
+        for process in children:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.wait()
+            if process.stdout is not None:
+                process.stdout.close()
+        lock.release()
+        contender.release()
+
+
+def _wait_for_environment_lock(lock: EnvironmentLock) -> None:
+    """SIGKILL delivery and the kernel's inherited flock release are asynchronous."""
+    deadline = time.monotonic() + 2
+    while True:
+        try:
+            lock.acquire()
+            return
+        except RuntimeError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(0.01)
+
+
+@pytest.fixture(name="recorded_processes")
+def fixture_recorded_processes(monkeypatch: pytest.MonkeyPatch) -> list[subprocess.Popen[bytes]]:
+    children: list[subprocess.Popen[bytes]] = []
+    original = subprocess.Popen
+
+    class RecordingProcess(original):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            children.append(self)
+
+    monkeypatch.setattr(subprocess, "Popen", RecordingProcess)
+    return children

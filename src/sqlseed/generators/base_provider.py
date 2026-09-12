@@ -7,9 +7,6 @@ import re
 import struct
 import uuid
 import zlib
-from datetime import date as _date
-from datetime import datetime
-from datetime import time as _time
 from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal, localcontext
 from math import isfinite
 from pathlib import Path
@@ -17,13 +14,7 @@ from typing import TYPE_CHECKING, Any
 
 import rstr as _rstr
 
-from sqlseed.generators._datetime_utils import (
-    normalize_weekdays,
-    random_date,
-    random_time,
-    resolve_date_bounds,
-    resolve_time_bounds,
-)
+from sqlseed.generators._datetime_methods import date_method, datetime_method, time_method
 from sqlseed.generators._dispatch import GeneratorDispatchMixin
 from sqlseed.generators._json_helpers import generate_json_from_schema
 from sqlseed.generators._protocol import ConfigurationError
@@ -364,119 +355,12 @@ class BaseProvider(GeneratorDispatchMixin):
         words = [self._gen_word() for _ in range(num_words)]
         return " ".join(words)
 
-    # ── Date/time generators ──────────────────────────────────────────
-
-    def _gen_date(
-        self,
-        *,
-        start_year: int = 2000,
-        end_year: int | None = None,
-        start_date: str | None = None,
-        end_date: str | None = None,
-        weekdays: str | list[int] | None = "all",
-    ) -> _date:
-        """Generate a ``datetime.date`` within the given bounds.
-
-        ``start_date`` / ``end_date`` (``YYYY-MM-DD``) take precedence over the
-        legacy ``start_year`` / ``end_year`` pair, kept for backward
-        compatibility. ``weekdays`` mirrors 参考工具's 全部 / 工作日 / 自定义
-        radio: ``"all"`` (default), ``"workdays"``, or an explicit day list
-        such as ``[0, 2, 4]`` (Mon=0 … Sun=6).
-
-        Returning a ``date`` object (rather than a ``strftime`` string)
-        ensures SQLAlchemy ``DATE`` columns accept the value directly —
-        SQLite's ``DATE`` type rejects ISO-format strings with
-        ``StatementError: SQLite Date type only accepts Python date objects``.
-        """
-        self._next_id()
-        start, end = resolve_date_bounds(start_year, end_year, start_date, end_date)
-        return random_date(self._rng, start, end, normalize_weekdays(weekdays))
-
-    def _gen_datetime(
-        self,
-        *,
-        start_year: int = 2000,
-        end_year: int | None = None,
-        start_date: str | None = None,
-        end_date: str | None = None,
-        all_day: bool = True,
-        start_time: str | None = None,
-        end_time: str | None = None,
-        weekdays: str | list[int] | None = "all",
-    ) -> datetime:
-        """Generate a ``datetime.datetime`` within the given bounds.
-
-        ``all_day`` is 参考工具's 一整天 checkbox (checked by default): it
-        unlocks the full 00:00:00–23:59:59 day and ignores ``start_time`` /
-        ``end_time``. Unchecking it restricts generation to that window.
-
-        Truncated to whole seconds — 参考工具's 日期时间 panel has no
-        sub-second control, so microsecond noise carries no meaning.
-
-        Returning a ``datetime`` object (rather than a ``strftime`` string)
-        ensures SQLAlchemy ``DATETIME``/``TIMESTAMP`` columns accept the value
-        directly — SQLite's ``DateTime`` type rejects strings and Unix epoch
-        integers with ``StatementError: SQLite DateTime type only accepts
-        Python datetime and date objects as input``.
-        """
-        self._next_id()
-        start, end = resolve_date_bounds(start_year, end_year, start_date, end_date)
-        day = random_date(self._rng, start, end, normalize_weekdays(weekdays))
-        lo, hi = resolve_time_bounds(all_day, start_time, end_time)
-        return datetime.combine(day, random_time(self._rng, lo, hi))
-
-    def _gen_time(
-        self,
-        *,
-        all_day: bool = True,
-        start_time: str | None = None,
-        end_time: str | None = None,
-    ) -> _time:
-        """Generate a ``datetime.time`` (参考工具 时间 panel).
-
-        ``all_day=True`` (default, 参考工具's 一整天 checkbox) spans the whole
-        day; unchecking it enables the ``start_time`` / ``end_time`` window
-        (``HH:MM`` or ``HH:MM:SS``). Whole seconds only — 参考工具's 时间 panel
-        has no sub-second control.
-        """
-        self._next_id()
-        lo, hi = resolve_time_bounds(all_day, start_time, end_time)
-        return random_time(self._rng, lo, hi)
-
-    def _gen_timestamp(
-        self,
-        *,
-        start_year: int = 2000,
-        end_year: int | None = None,
-        start_date: str | None = None,
-        end_date: str | None = None,
-        all_day: bool = True,
-        start_time: str | None = None,
-        end_time: str | None = None,
-        weekdays: str | list[int] | None = "all",
-    ) -> datetime:
-        """Generate a ``datetime.datetime`` within the given bounds.
-
-        Accepts the same params as :meth:`_gen_datetime` and delegates to it —
-        sqlseed's ``timestamp`` and ``datetime`` are the same SQLAlchemy-facing
-        ``datetime`` object; only the column dialect differs.
-
-        Returning a ``datetime`` object (rather than a Unix epoch integer)
-        ensures SQLAlchemy ``TIMESTAMP``/``DATETIME`` columns accept the value
-        directly — SQLite's ``DateTime`` type rejects integers with
-        ``StatementError: SQLite DateTime type only accepts Python datetime
-        and date objects as input``.
-        """
-        return self._gen_datetime(
-            start_year=start_year,
-            end_year=end_year,
-            start_date=start_date,
-            end_date=end_date,
-            all_day=all_day,
-            start_time=start_time,
-            end_time=end_time,
-            weekdays=weekdays,
-        )
+    # Date methods bind their bookkeeping policy to the implementation, so
+    # explicitly installed Base fallbacks count even on native instances.
+    _gen_date = date_method(count_placeholder=True)
+    _gen_datetime = datetime_method(count_placeholder=True)
+    _gen_time = time_method(count_placeholder=True)
+    _gen_timestamp = datetime_method(delegate=True)
 
     # ── Network generators ────────────────────────────────────────────
 

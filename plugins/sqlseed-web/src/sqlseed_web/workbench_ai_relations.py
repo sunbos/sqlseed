@@ -10,6 +10,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 from sqlglot import exp, parse_one
 from sqlglot.errors import SqlglotError
+from sqlseed._utils.type_checks import has_exact_type
 from sqlseed.config.models import ColumnConfig
 from sqlseed.core.check_parser import CheckConstraintParser, ParsedCheck
 from sqlseed.core.column_dag import ColumnDAG
@@ -93,7 +94,7 @@ def _concat_expression(kinds: list[str], target_kind: str, options: dict[str, An
 
 def _product_expression(kinds: list[str], target_kind: str, options: dict[str, Any], values: list[str]) -> str:
     precision = options.get("precision", 2 if target_kind == "number" else 0)
-    if set(options) - {"precision"} or type(precision) is not int or not 0 <= precision <= 8:
+    if set(options) - {"precision"} or not has_exact_type(precision, int) or not 0 <= precision <= 8:
         raise ValueError("乘积需要两个数值字段，精度为 0–8")
     if (
         len(kinds) != 2
@@ -108,7 +109,7 @@ def _product_expression(kinds: list[str], target_kind: str, options: dict[str, A
 
 def _date_offset_expression(kinds: list[str], target_kind: str, options: dict[str, Any]) -> str:
     days = options.get("days", 0)
-    if set(options) - {"days"} or type(days) is not int or not -36500 <= days <= 36500:
+    if set(options) - {"days"} or not has_exact_type(days, int) or not -36500 <= days <= 36500:
         raise ValueError("日期偏移需要相同日期类型，天数为 -36500–36500")
     if len(kinds) != 1 or target_kind not in {"date", "datetime"} or kinds[0] != target_kind:
         raise ValueError("日期偏移需要相同日期类型，天数为 -36500–36500")

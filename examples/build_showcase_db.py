@@ -20,6 +20,7 @@ from pathlib import Path
 from tempfile import mkdtemp
 
 from sqlseed import connect
+from sqlseed.generators._protocol import ConfigurationError
 
 
 def create_database_path() -> Path:
@@ -468,7 +469,7 @@ def fill_data(db_path: Path) -> None:
                 if result.errors:
                     for e in result.errors[:3]:
                         print(f"         ! {e}")
-            except Exception as exc:
+            except (ConfigurationError, ValueError, RuntimeError) as exc:
                 print(f"[fill] {table:<16} → 失败: {type(exc).__name__}: {exc}")
 
 
@@ -508,7 +509,7 @@ def verify(db_path: Path) -> None:
 
     # ---- 2. FK 完整性 ----
     print("\n[2] 外键完整性（PRAGMA foreign_key_check）")
-    if (fk_violations := conn.execute("PRAGMA foreign_key_check").fetchall()):
+    if fk_violations := conn.execute("PRAGMA foreign_key_check").fetchall():
         for v in fk_violations[:10]:
             print(f"    违反: 表={v[0]} rowid={v[1]} 父表={v[2]} fkid={v[3]}")
         print(f"    共 {len(fk_violations)} 处违反")

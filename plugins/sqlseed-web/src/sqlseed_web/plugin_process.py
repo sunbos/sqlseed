@@ -7,10 +7,11 @@ import re
 import signal
 import subprocess
 import tempfile
-import threading
 import time
 from collections.abc import Callable
-from typing import BinaryIO
+from typing import IO
+
+from sqlseed._utils.daemon_task import DaemonTask
 
 OUTPUT_LIMIT = 24_000
 
@@ -27,7 +28,7 @@ def _sanitized(text: str) -> str:
     return "".join(character for character in text if character in "\n\t" or ord(character) >= 32)
 
 
-def _read_installer_output(stream: BinaryIO, output: Callable[[str], None]) -> None:
+def _read_installer_output(stream: IO[bytes], output: Callable[[str], None]) -> None:
     remaining = OUTPUT_LIMIT
     pending = b""
     dropping_line = False
@@ -67,8 +68,9 @@ def run_installer(
         if not name.startswith(("PIP_", "UV_", "PYTHON")) and name != "VIRTUAL_ENV"
     }
     environment.update({"PIP_CONFIG_FILE": os.devnull, "PYTHONNOUSERSITE": "1", "NO_COLOR": "1"})
-    with tempfile.TemporaryDirectory(prefix="sqlseed-plugin-process-") as directory:
-        process = subprocess.Popen(
+    with (
+        tempfile.TemporaryDirectory(prefix="sqlseed-plugin-process-") as directory,
+        subprocess.Popen(
             arguments,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
@@ -76,38 +78,47 @@ def run_installer(
             cwd=directory,
             env=environment,
             start_new_session=os.name != "nt",
-            # Keep the same flock alive if the supervisor dies while this
-            # process is still changing packages. It closes on process exit.
+            # Children retain the environment lock until they have exited.
             pass_fds=(lock_descriptor,) if os.name != "nt" and lock_descriptor is not None else (),
-        )
-        if (stream := process.stdout) is None:
-            process.kill()
-            process.wait()
-            raise RuntimeError("无法读取安装工具输出。")
-
-        reader = threading.Thread(
-            target=_read_installer_output, args=(stream, output), daemon=True, name="sqlseed-plugin-output"
-        )
-        reader.start()
-        deadline = time.monotonic() + timeout
+        ) as process,
+    ):
+        reader: DaemonTask[None] | None = None
+        stopped = False
         try:
-            result = process.wait(timeout=timeout)
-            reader.join(timeout=max(0, deadline - time.monotonic()))
-            if reader.is_alive():
-                raise subprocess.TimeoutExpired(arguments, timeout)
-        except subprocess.TimeoutExpired:
-            if os.name == "nt":
-                process.kill()
-            else:
-                try:
-                    os.killpg(process.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-            process.wait()
-            result = -1
-            output("安装工具运行超时，子进程已停止；请检查环境并重启 Web。")
+            if (stream := process.stdout) is None:
+                raise RuntimeError("无法读取安装工具输出。")
+            reader = DaemonTask(lambda: _read_installer_output(stream, output), name="sqlseed-plugin-output")
+            deadline = time.monotonic() + timeout
+            try:
+                result = process.wait(timeout=timeout)
+                if not reader.wait(max(0, deadline - time.monotonic())):
+                    raise subprocess.TimeoutExpired(arguments, timeout)
+            except subprocess.TimeoutExpired:
+                _stop_installer(process)
+                stopped = True
+                output("安装工具运行超时，子进程已停止；请检查环境并重启 Web。")
+                return -1
+            if (error := reader.exception()) is not None:
+                raise RuntimeError("无法读取安装工具输出。") from error
+            return result
         finally:
-            reader.join(timeout=2)
-            if not reader.is_alive():
-                stream.close()
-        return result
+            # Startup and output failures own the same cleanup as timeouts.
+            # Terminate before Popen.__exit__ waits, including inherited pipes.
+            # The process group can outlive its leader while holding pipes
+            # and the environment lock, including after a successful exit.
+            if not stopped:
+                _stop_installer(process)
+            if reader is not None:
+                reader.wait(2)
+
+
+def _stop_installer(process: subprocess.Popen[bytes]) -> None:
+    if os.name == "nt":
+        if process.poll() is None:
+            process.kill()
+    else:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    process.wait()

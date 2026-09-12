@@ -16,10 +16,11 @@ from sqlalchemy.exc import OperationalError as SAOperationalError
 from sqlseed._utils.logger import get_logger
 from sqlseed._utils.sql_safe import quote_identifier
 from sqlseed.core.mapper import GeneratorSpec
+from sqlseed.core.schema_metadata import SchemaMetadataError, SchemaMetadataReader
 from sqlseed.generators._protocol import ConfigurationError
 
 if TYPE_CHECKING:
-    from sqlseed.database._protocol import ColumnInfo, ForeignKeyInfo
+    from sqlseed.database._protocol import ForeignKeyInfo
 
 logger = get_logger(__name__)
 
@@ -226,8 +227,8 @@ class RelationResolver:
             # FK column is nullable. Self-referencing FKs are skipped
             # (they don't participate in the inter-table cycle).
             try:
-                col_info = self._db.get_column_info(table)
-            except Exception:
+                col_info = SchemaMetadataReader(self._db).columns(table)
+            except SchemaMetadataError:
                 continue
             nullable_map = {c.name: c.nullable for c in col_info}
             for fk in fks:
@@ -530,11 +531,11 @@ class RelationResolver:
     def _column_allows_null(self, table_name: str, col_name: str) -> bool:
         """Read FK nullability, preserving the permissive fallback on lookup failure."""
         try:
-            columns: list[ColumnInfo] = self._db.get_column_info(table_name)
+            columns = SchemaMetadataReader(self._db).columns(table_name)
             for column in columns:
                 if column.name == col_name:
                     return column.nullable
-        except Exception:
+        except SchemaMetadataError:
             pass
         return True
 
@@ -687,8 +688,8 @@ class RelationResolver:
         non-null_val values.
         """
         try:
-            checks = self._db.get_check_constraints(table_name)
-        except Exception:
+            checks = list(SchemaMetadataReader(self._db).checks(table_name))
+        except SchemaMetadataError:
             return
 
         # Detect bidirectional CHECK: cond_col = VALUE OR fk_col IS NOT NULL

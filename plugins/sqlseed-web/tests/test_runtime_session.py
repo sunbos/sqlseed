@@ -177,3 +177,21 @@ def test_oversized_prepared_session_resumes_business_and_preserves_the_live_stat
     assert registry.get_ai_override() == override
     with gate.request():
         assert gate.activity()["requests"] == 1
+
+
+def test_restore_skips_invalid_records_and_continues_with_valid_database(tmp_path: Path, registry: UIState) -> None:
+    path = tmp_path / "valid-session.db"
+    with sqlite_connection(path) as db:
+        db.execute("CREATE TABLE records(value INTEGER)")
+    summary = runtime_session.restore_session(
+        {
+            "connections": [
+                None,
+                {"conn_id": "invalid", "target": 17, "provider": "base", "locale": "en_US"},
+                {"conn_id": "valid", "target": str(path), "provider": "base", "locale": "en_US"},
+            ]
+        }
+    )
+    assert summary["restored_connections"] == 1
+    assert [item["conn_id"] for item in summary["failed_connections"]] == ["", "invalid"]
+    assert registry.get_connection("valid").orchestrator.get_table_names() == ["records"]

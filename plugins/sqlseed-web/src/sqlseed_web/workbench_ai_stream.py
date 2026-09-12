@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import AsyncIterator, Callable
+from concurrent.futures import Future
 from queue import Empty, Full, Queue
 from threading import Event, Lock
 from time import monotonic
@@ -12,8 +13,9 @@ from typing import Any
 
 from fastapi import HTTPException, Request
 from fastapi.responses import Response, StreamingResponse
+from sqlseed._utils.daemon_task import DaemonTask
 
-from sqlseed_web.runtime_lifecycle import start_background
+from sqlseed_web import runtime_lifecycle
 
 ANALYSIS_TIMEOUT = 180.0
 _active: set[str] = set()
@@ -45,31 +47,47 @@ class AnalysisOperation:
                 )
             _active.add(conn_id)
 
-        def worker() -> None:
+        gate = runtime_lifecycle.runtime_gate
+        try:
+            gate.acquire("ai_analyses")
+        except BaseException:
+            with _active_lock:
+                _active.discard(conn_id)
+            raise
+
+        def worker() -> dict[str, Any]:
+            self.check_cancelled()
+            result = run(self.progress, self.check_cancelled)
+            self.check_cancelled()
+            return result
+
+        def finished(task: Future[dict[str, Any]]) -> None:
             try:
-                self.check_cancelled()
-                result = run(self.progress, self.check_cancelled)
-                self.check_cancelled()
-                self.publish({"type": "result", "result": result})
-            except HTTPException as exc:
-                self.publish(_error(exc))
-            except Exception:  # noqa: BLE001
-                # Always publish a sanitized terminal event when the AI worker fails.
-                self.publish(
-                    _error(
-                        HTTPException(
-                            500,
-                            detail={"code": "ai_analysis_failed", "message": "AI 分析未完成，请重试；当前规则未改变。"},
+                if (failure := task.exception()) is None:
+                    self.publish({"type": "result", "result": task.result()})
+                elif isinstance(failure, HTTPException):
+                    self.publish(_error(failure))
+                else:
+                    self.publish(
+                        _error(
+                            HTTPException(
+                                500,
+                                detail={
+                                    "code": "ai_analysis_failed",
+                                    "message": "AI 分析未完成，请重试；当前规则未改变。",
+                                },
+                            )
                         )
                     )
-                )
             finally:
                 with _active_lock:
                     _active.discard(conn_id)
+                gate.release("ai_analyses")
 
         try:
-            self.thread = start_background(target=worker, name="sqlseed-ai-analysis", category="ai")
-        except Exception:
+            self.task = DaemonTask(worker, name="sqlseed-ai-analysis", on_done=finished)
+        except BaseException:
+            gate.release("ai_analyses")
             with _active_lock:
                 _active.discard(conn_id)
             raise

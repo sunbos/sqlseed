@@ -6,6 +6,7 @@ import hmac
 import ipaddress
 import secrets
 import shlex
+import subprocess
 import sys
 import tempfile
 import threading
@@ -279,9 +280,7 @@ class PluginManager:
                     message = "组件操作完成；请停止维护服务并正常重启 Web 验证。"
                 elif result == 0:
                     message = "安装工具已退出，但组件元数据核验未通过；请检查环境并重启 Web。"
-        except Exception:  # noqa: BLE001
-            # The package-task boundary must publish a terminal result without exposing tool errors.
-            # Process/tool paths and arbitrary exceptions may contain credentials.
+        except (OSError, RuntimeError, ValueError, subprocess.SubprocessError):
             self._output("无法完成环境操作；请使用原环境管理工具检查。")
         finally:
             with self._lock:

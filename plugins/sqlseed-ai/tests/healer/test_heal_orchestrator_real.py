@@ -10,22 +10,19 @@ deterministic rule engine, stubbed here to isolate the heal flow.
 from __future__ import annotations
 
 import sqlite3
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from sqlseed_ai.config import AIConfig
-from sqlseed_ai.healer.context_detector import ContextWindowDetector
-from sqlseed_ai.healer.degrader import ProgressiveDegrader
-from sqlseed_ai.healer.failure_classifier import FailureClassifier
-from sqlseed_ai.healer.level1_subgraph_healer import Level1SubgraphHealer
-from sqlseed_ai.healer.level2_column_healer import Level2ColumnHealer
-from sqlseed_ai.healer.level3_compact_healer import Level3CompactHealer
 from sqlseed_ai.healer.models import SubgraphTask
-from sqlseed_ai.healer.orchestrator import HealOrchestrator
+from sqlseed_ai.runtime import build_heal_orchestrator
 from sqlseed_ai.validator.models import ValidationResult
 from sqlseed_ai.validator.schema_snapshot import SchemaSnapshot
 
 from .scenario_helpers import product_price_config, product_price_violation
+
+if TYPE_CHECKING:
+    from sqlseed_ai.healer.orchestrator import HealOrchestrator
 
 
 class _StubValidator:
@@ -74,17 +71,13 @@ def _build_orchestrator(
     *,
     always_violate: bool = False,
 ) -> HealOrchestrator:
-    ai_config = AIConfig(max_context_tokens=8192)
-    return HealOrchestrator(
-        snapshot=snapshot,
-        context_detector=ContextWindowDetector(ai_config, model=llm_model),
-        failure_classifier=FailureClassifier(),
-        level1=Level1SubgraphHealer(client=llm_client, model=llm_model),
-        level2=Level2ColumnHealer(client=llm_client, model=llm_model),
-        level3=Level3CompactHealer(client=llm_client, model=llm_model),
-        degrader=ProgressiveDegrader(snapshot=snapshot),
-        validator=_StubValidator(always_violate=always_violate),
-        max_rounds=1,
+    ai_config = AIConfig(model=llm_model, max_context_tokens=8192)
+    return build_heal_orchestrator(
+        ai_config,
+        llm_client,
+        snapshot,
+        _StubValidator(always_violate=always_violate),
+        max_retries=1,
         time_budget_seconds=120,
     )
 

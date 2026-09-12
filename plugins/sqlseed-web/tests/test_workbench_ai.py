@@ -634,7 +634,7 @@ def test_disconnect_stops_post_model_work_but_keeps_gate_until_worker_exits(
     finally:
         release.set()
         if operations:
-            operations[0].thread.join(3)
+            operations[0].task.wait(3)
     assert registry.get_connection(payload["conn_id"]).orchestrator.get_row_count("orders") == 0
     assert client.post("/api/workbench/ai/suggest", json=payload).status_code == 200
 
@@ -658,7 +658,7 @@ def test_stream_deadline_reports_timeout_keeps_gate_and_skips_preview(
     finally:
         release.set()
         if operations:
-            operations[0].thread.join(3)
+            operations[0].task.wait(3)
     assert not any(event.get("stage") == "preview" for event in list(operations[0].queue.queue))
     assert registry.get_connection(payload["conn_id"]).orchestrator.get_row_count("orders") == 0
     assert client.post("/api/workbench/ai/suggest", json=payload).status_code == 200

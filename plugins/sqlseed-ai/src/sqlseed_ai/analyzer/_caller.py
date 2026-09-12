@@ -53,7 +53,8 @@ class _InteractionLoggingMixin:
 
         Writes to ``<cache_root>/ai_logs/<timestamp>_<stage>.json`` when
         ``self._config.log_llm_interactions`` is True. Returns the file path
-        on success, or None if logging is disabled or failed.
+        on success, or None if logging is disabled or an I/O/serialization
+        failure prevents writing. Unexpected implementation errors propagate.
         """
         if not self._config or not self._config.log_llm_interactions:
             return None
@@ -82,7 +83,7 @@ class _InteractionLoggingMixin:
                 encoding="utf-8",
             )
             return log_path
-        except Exception as e:
+        except (OSError, TypeError, ValueError) as e:
             logger.warning("Failed to log LLM interaction", error=str(e))
             return None
 

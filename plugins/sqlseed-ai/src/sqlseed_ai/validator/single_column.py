@@ -11,6 +11,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, Any, Literal
 
+from sqlseed_ai._generator_names import NUMERIC_GENERATORS, generator_name
 from sqlseed_ai.contracts.matrix import ContractResolver, ViolationKind
 from sqlseed_ai.validator.models import ConstraintType, ViolationReport
 
@@ -112,7 +113,7 @@ class SingleColumnValidator:
             col_type = self._extract_col_type(col_name, table_schema)
             constraints = self._extract_constraints(col_name, table_schema)
             violation = self._resolver.check(
-                generator=col.get("generator", ""),
+                generator=generator_name(col.get("generator")) or "",
                 column_type=col_type,
                 constraints=constraints,
                 config={
@@ -248,7 +249,7 @@ class SingleColumnValidator:
             return self._enum_compliance(gen, enum_values, table_name, col_name)
 
         bounds = _extract_range_bounds(check_exprs, col_name)
-        if bounds and gen in ("integer", "random_int", "float", "random_float"):
+        if bounds and generator_name(gen) in NUMERIC_GENERATORS:
             params = col.get("params") or {}
             cur_min = params.get("min_value")
             cur_max = params.get("max_value")

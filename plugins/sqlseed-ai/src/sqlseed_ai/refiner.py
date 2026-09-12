@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError as PydanticValidationError
+from sqlalchemy.exc import SQLAlchemyError
 from sqlseed_ai._json_utils import _sanitize_names
 from sqlseed_ai.analyzer import SchemaAnalyzer
 from sqlseed_ai.errors import ErrorSummary, summarize_error
@@ -608,7 +609,7 @@ class AiConfigRefiner:
                     SQLAlchemyBatchInserter(engine, table_name, table=table).insert(preview_data, conn=conn)
                 finally:
                     transaction.rollback()
-        except Exception as e:
+        except (SQLAlchemyError, ValueError, TypeError, RuntimeError) as e:
             err_msg = str(e).lower()
             is_fk_error = False
 
@@ -684,7 +685,7 @@ class AiConfigRefiner:
             metadata = MetaData()
             reflected = Table(table_name, metadata, autoload_with=engine)
             computed_cols = {col.name for col in reflected.columns if getattr(col, "computed", None) is not None}
-        except Exception:
+        except (SQLAlchemyError, NotImplementedError):
             # Reflection failed — skip this pre-check and rely on preview-based validation.
             return None
 

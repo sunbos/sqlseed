@@ -21,6 +21,7 @@ from sqlseed.core.column_dag import ColumnDAG
 from sqlseed.core.constraints import ConstraintSolver
 from sqlseed.core.expression import ExpressionEngine
 from sqlseed.core.mapper import GeneratorSpec
+from sqlseed.core.schema_metadata import SchemaMetadataError, SchemaMetadataReader
 from sqlseed.core.stream import DataStream
 from sqlseed.core.transform import load_transform
 
@@ -486,7 +487,7 @@ class SpecResolverMixin:
         inequality_constraints: list[tuple[str, str, str]] = []
         if table_name is not None:
             try:
-                check_constraints = self._db.get_check_constraints(table_name)
+                check_constraints = SchemaMetadataReader(self._db).checks(table_name)
                 for ck in check_constraints:
                     expr_ck = ck.expression.strip()
                     # Match ``col1 (op) col2`` for cross-column comparisons
@@ -505,7 +506,7 @@ class SpecResolverMixin:
                     if m_ck:
                         col1_ck, op_ck, col2_ck = m_ck.group(1), m_ck.group(2), m_ck.group(3)
                         inequality_constraints.append((col1_ck, col2_ck, op_ck))
-            except Exception:
+            except SchemaMetadataError:
                 # Non-critical: if CHECK constraint extraction fails, proceed
                 # without inequality enforcement (INSERT-time error will surface).
                 pass

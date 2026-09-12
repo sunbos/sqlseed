@@ -69,3 +69,25 @@ def test_oversized_response_reports_bounded_error_without_timing_out_or_closing_
     finally:
         left.close()
         right.close()
+
+
+def test_reply_start_failure_returns_its_reserved_slot(monkeypatch: pytest.MonkeyPatch) -> None:
+    import threading
+
+    module = importlib.import_module("sqlseed_web.worker_control")
+    first, second = multiprocessing.Pipe()
+    channel = module.ControlChannel(first)
+    channel._handler = lambda method, params: {}
+
+    def fail_start(self: threading.Thread) -> None:
+        raise RuntimeError("cannot start reply")
+
+    monkeypatch.setattr(threading.Thread, "start", fail_start)
+    try:
+        for _ in range(10):
+            with pytest.raises(RuntimeError, match="cannot start reply"):
+                channel._start_answer({"id": "test", "method": "status", "params": {}})
+        assert not channel._answers
+    finally:
+        channel.close()
+        second.close()

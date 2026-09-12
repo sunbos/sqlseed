@@ -28,6 +28,10 @@ from contextlib import closing
 from pathlib import Path
 from typing import Any
 
+from sqlalchemy.exc import SQLAlchemyError
+
+from sqlseed.generators._protocol import ConfigurationError
+
 if __package__:
     from ._checks import CheckRecorder
 else:
@@ -112,10 +116,11 @@ def fill_with_config(cfg: dict[str, Any], db: Path, tag: str) -> tuple[bool, str
     yaml_path = DB_DIR / f"_{tag}.yaml"
     yaml_path.write_text(yaml.safe_dump({**cfg, "db_path": str(db)}))
     try:
-        fill_from_config(str(yaml_path))
-    except Exception as e:  # noqa: BLE001 - validation harness
+        results = fill_from_config(str(yaml_path))
+    except (ConfigurationError, ValueError, RuntimeError, OSError, SQLAlchemyError) as e:
         return False, f"{type(e).__name__}: {e}"
-    return True, ""
+    errors = [error for result in results for error in result.errors]
+    return not errors, "; ".join(errors)
 
 
 # ---------------------------------------------------------------------------
@@ -418,7 +423,7 @@ def section_f() -> None:
     print("\n[F] MCP tools round-trip")
     try:
         from mcp_server_sqlseed.server import sqlseed_execute_fill, sqlseed_generate_yaml
-    except Exception as e:  # noqa: BLE001
+    except ImportError as e:
         check("F0 MCP server importable", False, f"{type(e).__name__}: {e}")
         return
 

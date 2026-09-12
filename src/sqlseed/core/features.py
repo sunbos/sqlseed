@@ -18,6 +18,8 @@ import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from sqlseed.core.schema_metadata import SchemaMetadataError, SchemaMetadataReader
+
 if TYPE_CHECKING:
     from sqlseed.database._protocol import DatabaseAdapter, ForeignKeyInfo
 
@@ -321,19 +323,12 @@ class StructuralFeatureExtractor:
                 features[table_name] = table_features
         return DialectSpecificFeatures(dialect="sqlite", features=features)
 
-    def _read_sqlite_ddl(self, table_name: str) -> Any:
-        """Read an optional DDL string through the adapter's result protocol."""
+    def _read_sqlite_ddl(self, table_name: str) -> str:
+        """Missing optional DDL does not prevent dialect-independent extraction."""
         try:
-            result = self.adapter.execute(
-                "SELECT sql FROM sqlite_master WHERE type='table' AND name=?",
-                (table_name,),
-            )
-            rows = result.fetchall() if hasattr(result, "fetchall") else []
-            ddl = rows[0][0] if rows and rows[0] else ""
-        except Exception:
-            ddl = ""
-
-        return ddl
+            return SchemaMetadataReader(self.adapter).sqlite_ddl(table_name)
+        except SchemaMetadataError:
+            return ""
 
     @staticmethod
     def _sqlite_ddl_features(ddl: str) -> dict[str, Any]:
@@ -379,19 +374,9 @@ class StructuralFeatureExtractor:
         """Accumulate any partial-index predicates exposed by the adapter."""
         index_predicates: dict[str, str] = {}
         try:
-            from sqlseed._utils.sql_safe import quote_identifier
-
-            safe_table = quote_identifier(table_name)
-            result = self.adapter.execute(f"PRAGMA index_list({safe_table})")
-            rows = result.fetchall() if hasattr(result, "fetchall") else []
-            for row in rows:
-                # row: (seq, name, unique, origin, partial)
-                if len(row) >= 5 and row[4]:
-                    idx_name = row[1]
-                    partial = row[4]
-                    if isinstance(partial, str) and partial.strip():
-                        index_predicates[idx_name] = partial
-        except Exception:
+            for name, predicate in SchemaMetadataReader(self.adapter).sqlite_index_predicates(table_name):
+                index_predicates[name] = predicate
+        except SchemaMetadataError:
             pass
         return index_predicates
 

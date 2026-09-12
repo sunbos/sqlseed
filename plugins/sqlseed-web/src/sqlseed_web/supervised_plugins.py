@@ -102,6 +102,8 @@ class SupervisedPluginManager(PluginManager):
                 )
 
     def _run(self, operation_plan: dict[str, Any], before: dict[str, InstalledPackage]) -> None:
+        self._package_status = "failed"
+        self._package_message = "组件操作未完成，业务服务已恢复；请检查服务日志后重试。"
         try:
             self.controller.enter_maintenance()
             self._stage("installing", "正在安装组件。" if operation_plan["action"] == "install" else "正在卸载组件。")
@@ -116,29 +118,34 @@ class SupervisedPluginManager(PluginManager):
                         if self._package_status == "succeeded"
                         else "组件操作失败，业务服务已恢复；请查看输出后重试。"
                     )
-        except Exception:  # noqa: BLE001
-            # Every package-task failure must reach business recovery with sanitized output.
+        except (HTTPException, OSError, RuntimeError, ValueError):
             self._package_status = "failed"
             self._package_message = "组件操作未完成，业务服务已恢复；环境未通过操作前检查。"
             self._output("组件操作未完成，正在自动恢复业务服务。")
-        self._restore()
+        finally:
+            self._restore()
+
+    def _recovery_failed(self) -> None:
+        with self._lock:
+            self.phase = "recovery_failed"
+            self.restart_required = False
+            if self._task is not None:
+                self._task.update(
+                    status="failed",
+                    message="业务服务未恢复，请点击重试恢复；不会重复安装或卸载。",
+                    service_ready=False,
+                )
 
     def _restore(self) -> None:
         self._stage("restoring", "正在恢复业务服务与连接。")
+        restored = None
         try:
             restored = self.controller.restore_business()
-        except Exception:  # noqa: BLE001
-            # Worker recovery failures must become an explicit, credential-free service state.
-            with self._lock:
-                self.phase = "recovery_failed"
-                self.restart_required = False
-                if self._task is not None:
-                    self._task.update(
-                        status="failed",
-                        message="业务服务未恢复，请点击重试恢复；不会重复安装或卸载。",
-                        service_ready=False,
-                    )
+        except (HTTPException, OSError, RuntimeError, ValueError):
             return
+        finally:
+            if restored is None:
+                self._recovery_failed()
         with self._lock:
             self.phase = "ready"
             self.restart_required = False

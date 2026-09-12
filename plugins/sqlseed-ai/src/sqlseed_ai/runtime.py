@@ -57,6 +57,7 @@ def build_heal_orchestrator(
     *,
     schema_hash: str = "",
     max_retries: int = 3,
+    time_budget_seconds: float = 60.0,
 ) -> HealOrchestrator:
     """Wire the existing four healing levels, borrowing all supplied resources."""
     from sqlseed_ai.healer.context_detector import ContextWindowDetector
@@ -79,4 +80,5 @@ def build_heal_orchestrator(
         validator=validator,
         schema_hash=schema_hash,
         max_rounds=max_retries,
+        time_budget_seconds=time_budget_seconds,
     )

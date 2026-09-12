@@ -12,7 +12,10 @@ import sqlite3
 import tempfile
 from pathlib import Path
 
+from sqlalchemy.exc import SQLAlchemyError
+
 import sqlseed
+from sqlseed.generators._protocol import ConfigurationError
 
 OUT = Path(tempfile.mkdtemp(prefix="repro2_"))
 
@@ -31,8 +34,9 @@ def run_case(name: str, ddl: str, count: int, seed: int = 42) -> None:
         con = sqlite3.connect(db)
         n = con.execute(f"SELECT COUNT(*) FROM {name}").fetchone()[0]
         con.close()
-        print(f"[OK]   {name}: rows={n} errors={errs}")
-    except Exception as e:  # noqa: BLE001
+        status = "FAIL" if errs or n != count else "OK"
+        print(f"[{status}] {name}: rows={n} errors={errs}")
+    except (ConfigurationError, ValueError, RuntimeError, OSError, sqlite3.Error, SQLAlchemyError) as e:
         print(f"[FAIL] {name}: {type(e).__name__}: {str(e)[:180]}")
 
 

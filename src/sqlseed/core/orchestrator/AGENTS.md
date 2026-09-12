@@ -26,6 +26,7 @@
 - `fill_table(progress=...)` 接收调用方管理生命周期的 `ProgressBackend`；默认 `None` 由 core 创建并关闭 backend，MCP 等调用方可传 `NullProgressBackend`。
 - `fill_table()` 无论成功或失败都在 `finally` 中调用 `restore_settings()` 恢复优化设置；生产异常使用 `sqlalchemy.exc.*`，不以 `sqlite3.*` 替代。
 - `GenerationResult.errors` 表达 fill 失败；不要把捕获的异常变成成功结果。只对可忽略的辅助操作使用 `contextlib.suppress()`。
+- [_session.py](_session.py) 的 `FillSession` 管理单次 fill 的计数与终态；只在 adapter 确认批次后累计，后续 transform/hook/数据库失败仍返回已提交行数。`ConfigurationError` 与进程控制异常继续传播，不能作为普通失败结果返回。
 - `SQLAlchemyAdapter.batch_insert()` 的事务覆盖单次调用；fill 会多次调用它，不要宣称整个 fill 原子提交。
 
 ## spec 顺序与 CHECK hard truth

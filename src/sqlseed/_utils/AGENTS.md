@@ -18,6 +18,8 @@
 - [progress.py](progress.py)：通过 `create_progress()` 选 backend，disabled → Null，Jupyter → tqdm，terminal → Rich；保留编码不支持时的 ASCII fallback。
 - tqdm 是 notebook 可选依赖；不能因未安装 notebook 支持破坏其他环境。
 - `get_cache_dir()` 优先 `SQLSEED_CACHE_DIR`，否则遵循 macOS/Linux/Windows 路径约定；只返回路径，调用方负责创建目录。
+- [daemon_task.py](daemon_task.py) 用 Future 管理单个 daemon worker 的结果与异常；超时只停止等待，不终止工作。需要在 worker 内执行的完成回调通过构造参数 `on_done` 在线程启动前注册，避免快速任务完成后回调落到调用线程。进程控制异常也必须传回等待方，不能变成 `None` 成功结果。
+- [type_checks.py](type_checks.py) 的 `has_exact_type()` 表达严格内建类型合同；计数与 JSON 类型边界不能因改用普通 `isinstance(value, int)` 而接受布尔值。
 
 ## 验证
 

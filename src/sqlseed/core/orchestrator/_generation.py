@@ -12,7 +12,6 @@ import contextlib
 import random
 import re
 import time
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.exc import IntegrityError as SAIntegrityError
@@ -20,7 +19,8 @@ from sqlalchemy.exc import IntegrityError as SAIntegrityError
 from sqlseed._utils.logger import get_logger
 from sqlseed._utils.progress import ProgressBackend, create_progress
 from sqlseed._utils.sql_safe import quote_identifier, validate_table_name
-from sqlseed.core.result import GenerationResult
+from sqlseed._utils.type_checks import has_exact_type
+from sqlseed.core.orchestrator._session import FillSession
 from sqlseed.database._sqlite_schema import resolve_sqlite_table_name
 from sqlseed.generators._protocol import ConfigurationError
 
@@ -32,19 +32,12 @@ if TYPE_CHECKING:
     from sqlseed.core.mapper import GeneratorSpec
     from sqlseed.core.plugin_mediator import PluginMediator
     from sqlseed.core.relation import RelationResolver, SharedPool
+    from sqlseed.core.result import GenerationResult
     from sqlseed.core.stream import DataStream
     from sqlseed.database._protocol import DatabaseAdapter, ForeignKeyInfo
     from sqlseed.plugins.manager import PluginManager
 
 logger = get_logger(__name__)
-
-
-@dataclass
-class _CommittedBatches:
-    """Counts acknowledged by successful adapter transactions, including partial fills."""
-
-    rows: int = 0
-    batches: int = 0
 
 
 def _detect_cond_column(
@@ -188,7 +181,7 @@ class GenerationMixin:
         batch_size: int,
         progress: ProgressBackend | None = None,
         task_id: Any | None = None,
-        committed: _CommittedBatches | None = None,
+        committed: FillSession | None = None,
     ) -> tuple[int, int]:
         """Generate and write data batch by batch, triggering before/after_insert plugin hooks.
 
@@ -323,16 +316,12 @@ class GenerationMixin:
         """
         self._ensure_connected()
         validate_table_name(table_name)
-        if type(batch_size) is not int or batch_size <= 0:
+        if not has_exact_type(batch_size, int) or batch_size <= 0:
             raise ValueError("batch_size must be a positive integer")
         if count <= 0:
             raise ValueError(f"count must be greater than 0, got {count}")
-        start_time = time.monotonic()
-        total_inserted = 0
-        batch_count = 0
-
-        committed = _CommittedBatches()
-        try:
+        committed = FillSession()
+        with committed:
             table_name = self._preflight_generation([table_name])[table_name]
             own_progress = progress is None
             if progress is None:
@@ -371,7 +360,7 @@ class GenerationMixin:
                         config=None,
                     )
 
-                    total_inserted, batch_count = self._generate_and_insert_batches(
+                    total_inserted, _batch_count = self._generate_and_insert_batches(
                         table_name, stream, count, batch_size, progress, gen_task, committed
                     )
 
@@ -379,7 +368,7 @@ class GenerationMixin:
                     if self._optimize_pragma:
                         self._db.restore_settings()
 
-            elapsed = time.monotonic() - start_time
+            elapsed = committed.elapsed = time.monotonic() - committed.started
 
             self._metrics.record(f"{table_name}.total_elapsed", elapsed)
             self._metrics.record(f"{table_name}.total_rows", float(total_inserted))
@@ -402,23 +391,9 @@ class GenerationMixin:
             # satisfy bidirectional CHECK constraints.
             self._post_fill_self_ref_fks(table_name, generator_specs, seed=seed)
 
-            return GenerationResult(
-                table_name=table_name,
-                count=total_inserted,
-                elapsed=elapsed,
-                batch_count=batch_count,
-            )
-        except ConfigurationError:
-            raise
-        except Exception as e:
-            self._log_fill_failure(table_name, e, enrich)
-            return GenerationResult(
-                table_name=table_name,
-                count=committed.rows,
-                elapsed=time.monotonic() - start_time,
-                batch_count=committed.batches,
-                errors=[str(e)],
-            )
+        if committed.error is not None:
+            self._log_fill_failure(table_name, committed.error, enrich)
+        return committed.result(table_name)
 
     @staticmethod
     def _log_fill_failure(table_name: str, error: Exception, enrich: bool) -> None:

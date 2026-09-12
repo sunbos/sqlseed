@@ -176,16 +176,42 @@ def _installer() -> _Installer:
     return _Installer(None, executable, None, shell)
 
 
+class ComponentMetadataError(RuntimeError):
+    """An installed distribution has unreadable or invalid metadata."""
+
+
+def _component_version(distribution: str) -> str:
+    """Normalize metadata-provider failures before capability decisions."""
+    try:
+        version = metadata.version(distribution)
+        if not isinstance(version, str) or not version.strip():
+            raise ValueError("Distribution version is missing")
+    except metadata.PackageNotFoundError:
+        raise
+    except Exception as exc:
+        raise ComponentMetadataError(f"Unable to read distribution metadata: {distribution}") from exc
+    return version
+
+
+def _load_component(distribution: str, module: str) -> None:
+    """Optional module initialization has the same ImportError contract as missing code."""
+    try:
+        importlib.import_module(module)
+        if distribution == "sqlseed-ai":
+            _require_ai_contract()
+    except Exception as exc:
+        raise ImportError(f"Unable to initialize component: {distribution}") from exc
+
+
 def ai_import_failure() -> dict[str, Any]:
     """Describe a caught AI import failure without exposing dependency exception text."""
     status = "import_error"
     try:
-        metadata.version("sqlseed-ai")
+        _component_version("sqlseed-ai")
     except metadata.PackageNotFoundError:
         status = "not_installed"
-    except Exception:  # noqa: BLE001, S110
-        # Metadata providers can fail arbitrarily; retain the sanitized import-error state.
-        pass  # An unreadable metadata record does not prove the package is absent.
+    except ComponentMetadataError:
+        status = "import_error"
     installer = _installer()
     message = (
         "尚未安装 AI 插件，AI 服务检测与规则分析不可用。请在设置的插件页安装 AI；手动配置与生成仍可使用。"
@@ -229,22 +255,18 @@ def package_availability(distribution: str, module: str, *, metadata_only: bool 
     """
     installed = metadata_valid = True
     try:
-        version = metadata.version(distribution)
+        version = _component_version(distribution)
     except metadata.PackageNotFoundError:
         version, installed, metadata_valid = None, False, False
-    except Exception:  # noqa: BLE001
-        # Malformed or third-party metadata must become an unavailable capability.
+    except ComponentMetadataError:
         version, metadata_valid = None, False
     available = False
     if metadata_valid and not metadata_only:
         try:
-            importlib.import_module(module)
-            if distribution == "sqlseed-ai":
-                _require_ai_contract()
+            _load_component(distribution, module)
             available = True
-        except Exception:  # noqa: BLE001, S110
-            # Optional plugin initialization can fail arbitrarily; expose only its status.
-            pass
+        except ImportError:
+            available = False
     status = (
         "not_installed"
         if not installed

@@ -6,9 +6,13 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import HTTPException
+from sqlseed._utils.logger import get_logger
 
+from sqlseed_web.operation_errors import generation_errors
 from sqlseed_web.sqlite_target import sqlite_target
 from sqlseed_web.state import Connection, state
+
+logger = get_logger(__name__)
 
 
 def export_session() -> dict[str, Any]:
@@ -28,37 +32,54 @@ def export_session() -> dict[str, Any]:
     return {"connections": connections, "ai_override": state.get_ai_override()}
 
 
+def _restore_connection(item: Any) -> None:
+    """Validate and open one saved connection, unregistering unsuccessful opens."""
+    conn: Connection | None = None
+    opened = False
+    try:
+        if not isinstance(item, dict) or not all(
+            isinstance(item.get(key), str) and item[key] for key in ("target", "conn_id", "provider", "locale")
+        ):
+            raise ValueError("Invalid saved connection settings")
+        target = sqlite_target(item["target"], item["conn_id"])
+        if target is not None and (target.kind != "sqlite" or not Path(target.value).is_file()):
+            raise ValueError("The original file-backed database is unavailable")
+        conn = state.add_connection(
+            item["target"], provider=item["provider"], locale=item["locale"], connection_id=item["conn_id"]
+        )
+        # Registry construction is lazy: exercise the actual opening path.
+        conn.orchestrator.get_table_names()
+        opened = True
+    except generation_errors(conn.orchestrator if conn is not None else None, additional=(KeyError,)) as exc:
+        raise ValueError("Saved connection could not be restored") from exc
+    finally:
+        if conn is not None and not opened:
+            try:
+                state.close_connection(conn.conn_id)
+            except generation_errors(conn.orchestrator, additional=(KeyError,)):
+                # The registry removes ownership before disposing the adapter.
+                logger.warning("Restored connection adapter cleanup failed", conn_id=conn.conn_id)
+
+
 def restore_session(snapshot: dict[str, Any]) -> dict[str, Any]:
     """Reopen each target with the original ID; report sanitized partial failures."""
     restored = 0
     failures: list[dict[str, str]] = []
-    for item in snapshot.get("connections", []):
-        conn: Connection | None = None
+    items = snapshot.get("connections", [])
+    if not isinstance(items, list):
+        raise TypeError("Session connections must be a list")
+    for item in items:
         try:
-            target = sqlite_target(item["target"], item["conn_id"])
-            if target is not None and (target.kind != "sqlite" or not Path(target.value).is_file()):
-                raise ValueError("The original file-backed database is unavailable")
-            conn = state.add_connection(
-                item["target"], provider=item["provider"], locale=item["locale"], connection_id=item["conn_id"]
-            )
-            # The registry constructor is lazy. Exercise the same opening path
-            # as POST /connections before reporting a successfully restored ID.
-            conn.orchestrator.get_table_names()
-            restored += 1
-        except Exception:  # noqa: BLE001
-            # One driver failure must not prevent restoring the remaining connections.
-            if conn is not None:
-                try:
-                    state.close_connection(conn.conn_id)
-                except Exception:  # noqa: BLE001, S110
-                    # Best-effort cleanup; the sanitized connection failure is reported below.
-                    pass
+            _restore_connection(item)
+        except ValueError:
             failures.append(
                 {
-                    "conn_id": str(item.get("conn_id", "")),
+                    "conn_id": str(item.get("conn_id", "")) if isinstance(item, dict) else "",
                     "message": "无法恢复此连接，请检查数据库可访问性并重新连接。",
                 }
             )
+        else:
+            restored += 1
     override = snapshot.get("ai_override", {})
     valid_override = isinstance(override, dict) and all(
         isinstance(k, str) and isinstance(v, str) for k, v in override.items()
