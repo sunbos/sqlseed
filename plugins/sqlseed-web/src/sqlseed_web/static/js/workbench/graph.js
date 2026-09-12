@@ -80,6 +80,13 @@ export function createSchemaGraph({
   onExpand = () => {},
   onViewChange = () => {}
 }) {
+  function visibleGraph(visible) {
+    return {
+      nodes: data.nodes.filter(node => visible.has(node.id)),
+      edges: data.edges.filter(edge => visible.has(edge.source) && visible.has(edge.target))
+    };
+  }
+
   const data = {
     nodes: (schema.nodes || []).map(node => ({
       ...node
@@ -424,12 +431,6 @@ export function createSchemaGraph({
       }
     }
     return visibleGraph(visible);
-    function visibleGraph(visible) {
-      return {
-        nodes: data.nodes.filter(node => visible.has(node.id)),
-        edges: data.edges.filter(edge => visible.has(edge.source) && visible.has(edge.target))
-      };
-    }
   }
   function highlightFocus() {
     // Highlight the complete dependency closure within the existing projection.

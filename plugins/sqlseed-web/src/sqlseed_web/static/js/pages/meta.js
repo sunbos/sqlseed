@@ -89,17 +89,17 @@ function renderProviders(providers) {
     class: 'muted'
   }, '优先使用前面的引擎；不可用时依次尝试后续引擎。')));
 }
+function jobStatusClass(j) {
+  if (j.status === 'done') {
+    return 'ok';
+  } else if (j.status === 'error') {
+    return 'err';
+  } else {
+    return 'warn';
+  }
+}
 function renderJobs(jobs) {
   if (!jobs.jobs.length) return h('div');
-  function jobStatusClass(j) {
-    if (j.status === 'done') {
-      return 'ok';
-    } else if (j.status === 'error') {
-      return 'err';
-    } else {
-      return 'warn';
-    }
-  }
   return h('div', {
     class: 'panel'
   }, h('h3', {}, '最近任务'), h('div', {

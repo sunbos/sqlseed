@@ -111,6 +111,29 @@ export function createGenForm({
   foreignKeysOf,
   onChange
 }) {
+  function generatorOptions() {
+    const genOpts = [];
+    for (const grp of groupGenerators(meta.names)) {
+      if (grp.pending) {
+        genOpts.push({
+          value: `__pending_${grp.title}`,
+          label: PENDING_GROUP_HINT,
+          group: grp.title,
+          disabled: true
+        });
+        continue;
+      }
+      for (const name of grp.names) {
+        genOpts.push({
+          value: name,
+          label: `${genLabel(name)}（${name}）`,
+          group: grp.title
+        });
+      }
+    }
+    return genOpts;
+  }
+
   const el = h('div', {
     class: 'genform'
   });
@@ -349,29 +372,6 @@ export function createGenForm({
         class: 'small',
         onclick: reset
       }, '重置属性')));
-      return;
-    }
-    function generatorOptions() {
-      const genOpts = [];
-      for (const grp of groupGenerators(meta.names)) {
-        if (grp.pending) {
-          genOpts.push({
-            value: `__pending_${grp.title}`,
-            label: PENDING_GROUP_HINT,
-            group: grp.title,
-            disabled: true
-          });
-          continue;
-        }
-        for (const name of grp.names) {
-          genOpts.push({
-            value: name,
-            label: `${genLabel(name)}（${name}）`,
-            group: grp.title
-          });
-        }
-      }
-      return genOpts;
     }
   }
   function renderCommon() {

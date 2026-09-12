@@ -2,24 +2,10 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 from sqlseed_ai.validator.cross_column import CrossColumnValidator
 from sqlseed_ai.validator.models import ConstraintType
-from sqlseed_ai.validator.schema_snapshot import SchemaSnapshot
 
 from tests.assertions import assert_empty
-from tests.sqlite_helpers import sqlite_connection
-
-if TYPE_CHECKING:
-    from pathlib import Path
-
-
-def _make_db(tmp_path: Path, ddl: str) -> Path:
-    path = tmp_path / "t.db"
-    with sqlite_connection(str(path)) as conn:
-        conn.executescript(ddl)
-    return path
 
 
 def _derived_pair_config(source: str | list[str]) -> dict:
@@ -32,10 +18,8 @@ def _derived_pair_config(source: str | list[str]) -> dict:
     }
 
 
-def test_check_derive_from_dag_detects_2_cycle(tmp_path: Path):
+def test_check_derive_from_dag_detects_2_cycle():
     """A derives from B, B derives from A → 2-cycle violation."""
-    path = _make_db(tmp_path, "CREATE TABLE t (a INTEGER, b INTEGER)")
-    snapshot = SchemaSnapshot(db_path=str(path))
     validator = CrossColumnValidator()
     config = {
         "name": "t",
@@ -44,15 +28,13 @@ def test_check_derive_from_dag_detects_2_cycle(tmp_path: Path):
             {"name": "b", "derive_from": ["a"], "expression": "value + 2"},
         ],
     }
-    violations = validator.validate(config, {"columns": [], "constraints": []}, snapshot)
+    violations = validator.validate(config, {"columns": [], "constraints": []})
     assert any(v.constraint_type == ConstraintType.CHECK for v in violations)
     assert any(v.fix_hint == "break_derive_from_cycle" for v in violations)
 
 
-def test_check_derive_from_dag_detects_self_reference(tmp_path: Path):
+def test_check_derive_from_dag_detects_self_reference():
     """A derives from A → self-reference violation."""
-    path = _make_db(tmp_path, "CREATE TABLE t (a INTEGER)")
-    snapshot = SchemaSnapshot(db_path=str(path))
     validator = CrossColumnValidator()
     config = {
         "name": "t",
@@ -60,30 +42,20 @@ def test_check_derive_from_dag_detects_self_reference(tmp_path: Path):
             {"name": "a", "derive_from": "a", "expression": "value + 1"},
         ],
     }
-    violations = validator.validate(config, {"columns": [], "constraints": []}, snapshot)
+    violations = validator.validate(config, {"columns": [], "constraints": []})
     assert any(v.fix_hint == "fix_self_reference" for v in violations)
 
 
-def test_check_derive_from_dag_clean_when_no_cycle(tmp_path: Path):
+def test_check_derive_from_dag_clean_when_no_cycle():
     """No cycle → no derive_from violations."""
-    path = _make_db(tmp_path, "CREATE TABLE t (a INTEGER, b INTEGER)")
-    snapshot = SchemaSnapshot(db_path=str(path))
     validator = CrossColumnValidator()
     config = _derived_pair_config(["a"])
-    violations = validator.validate(config, {"columns": [], "constraints": []}, snapshot)
+    violations = validator.validate(config, {"columns": [], "constraints": []})
     assert_empty(violations, list)
 
 
-def test_check_fk_integrity_returns_list_without_crash(tmp_path: Path):
-    """FK integrity check returns a list (may be empty)."""
-    path = _make_db(
-        tmp_path,
-        """
-        CREATE TABLE users (id INTEGER PRIMARY KEY);
-        CREATE TABLE orders (id INTEGER PRIMARY KEY, user_id INTEGER REFERENCES users(id));
-        """,
-    )
-    snapshot = SchemaSnapshot(db_path=str(path))
+def test_plain_generator_has_no_cross_column_violation():
+    """A plain generator does not introduce a dependency or uniqueness violation."""
     validator = CrossColumnValidator()
     config = {
         "name": "orders",
@@ -91,14 +63,12 @@ def test_check_fk_integrity_returns_list_without_crash(tmp_path: Path):
             {"name": "user_id", "generator": "integer", "params": {"min_value": 0, "max_value": 99999}},
         ],
     }
-    violations = validator.validate(config, {"columns": [], "constraints": []}, snapshot)
-    assert isinstance(violations, list)
+    violations = validator.validate(config, {"columns": [], "constraints": []})
+    assert_empty(violations, list)
 
 
-def test_check_fk_integrity_no_violation_when_table_not_in_snapshot(tmp_path: Path):
-    """When the table is not in the snapshot, FK integrity check returns empty."""
-    path = _make_db(tmp_path, "CREATE TABLE users (id INTEGER PRIMARY KEY)")
-    snapshot = SchemaSnapshot(db_path=str(path))
+def test_no_cross_column_violation_without_table_schema():
+    """Missing table metadata does not invent cross-column constraints."""
     validator = CrossColumnValidator()
     config = {
         "name": "nonexistent_table",
@@ -106,17 +76,15 @@ def test_check_fk_integrity_no_violation_when_table_not_in_snapshot(tmp_path: Pa
             {"name": "user_id", "generator": "integer", "params": {"max_value": 99999}},
         ],
     }
-    violations = validator.validate(config, {"columns": [], "constraints": []}, snapshot)
+    violations = validator.validate(config, {"columns": [], "constraints": []})
     assert_empty(violations, list)
 
 
-def test_validate_handles_string_derive_from(tmp_path: Path):
+def test_validate_handles_string_derive_from():
     """derive_from as a string (single dep) should work, not crash."""
-    path = _make_db(tmp_path, "CREATE TABLE t (a INTEGER, b INTEGER)")
-    snapshot = SchemaSnapshot(db_path=str(path))
     validator = CrossColumnValidator()
     config = _derived_pair_config("a")
-    violations = validator.validate(config, {"columns": [], "constraints": []}, snapshot)
+    violations = validator.validate(config, {"columns": [], "constraints": []})
     # No cycle, no self-reference → no violations
     assert_empty(violations, list)
 

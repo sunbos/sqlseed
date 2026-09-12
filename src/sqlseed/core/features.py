@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections import deque
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -199,15 +200,13 @@ class StructuralFeatureExtractor:
         if table_names is None:
             return self.adapter.get_table_names()
         scope = set(table_names)
-        changed = True
-        while changed:
-            changed = False
-            for table in list(scope):
-                fks = self.adapter.get_foreign_keys(table)
-                for fk in fks:
-                    if fk.ref_table not in scope:
-                        scope.add(fk.ref_table)
-                        changed = True
+        pending = deque(scope)
+        while pending:
+            table = pending.popleft()
+            for fk in self.adapter.get_foreign_keys(table):
+                if fk.ref_table not in scope:
+                    scope.add(fk.ref_table)
+                    pending.append(fk.ref_table)
         return sorted(scope)
 
     def _extract_table_common(self, table_name: str) -> TableFeatures:

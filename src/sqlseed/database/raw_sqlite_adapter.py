@@ -249,7 +249,7 @@ class RawSQLiteAdapter(BaseRawSQLiteAdapter):
             if end == -1:
                 continue
             expression = create_sql[start + 1 : end].strip()
-            identifiers = re.findall(r"[A-Za-z_][A-Za-z0-9_]*", expression)
+            identifiers = re.findall(r"[A-Za-z_]\w*", expression, re.ASCII)
             cols = tuple(i for i in identifiers if i.lower() not in sql_keywords)
             results.append(
                 CheckConstraintInfo(

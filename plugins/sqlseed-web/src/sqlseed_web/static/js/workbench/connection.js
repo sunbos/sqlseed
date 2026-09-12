@@ -7,6 +7,16 @@ let activeDialog = null;
 export function openConnectionDialog({
   onConnected
 } = {}) {
+  function switchConnectionLabel(connection) {
+    if (pendingOperation?.kind === 'switch' && pendingOperation.connId === connection.conn_id) {
+      return '正在切换…';
+    } else if (connection.conn_id === store.connId) {
+      return '当前连接';
+    } else {
+      return '切换到此连接';
+    }
+  }
+
   activeDialog?.close();
   const previousFocus = document.activeElement;
   const unlockScroll = lockPageScroll();
@@ -349,15 +359,6 @@ export function openConnectionDialog({
       class: 'muted connection-session-help'
     }, '切换连接后查看对应配置。断开并移除只关闭本次服务会话，不会删除数据库或运行记录。'), ...[...groups.values()].map(group => {
       const target = group[0].target_label || group[0].target;
-      function switchConnectionLabel(connection) {
-        if (pendingOperation?.kind === 'switch' && pendingOperation.connId === connection.conn_id) {
-          return '正在切换…';
-        } else if (connection.conn_id === store.connId) {
-          return '当前连接';
-        } else {
-          return '切换到此连接';
-        }
-      }
       return h('section', {
         class: 'connection-group'
       }, h('header', {

@@ -25,6 +25,24 @@ export function openDataPreview({
   initialView = null,
   initialStale = false
 }) {
+  function showPreviewLoading() {
+    if (!result) {
+      scrollLayout.setTable(null);
+      results.replaceChildren(h('p', {
+        class: 'wb-preview-loading'
+      }, '正在生成预览数据…'));
+    }
+    if (result) {
+      if (stale) {
+        status.textContent = '正在更新；规则已改变，当前为旧样例。';
+      } else {
+        status.textContent = '正在更新，当前为上次结果。';
+      }
+    } else {
+      status.textContent = '正在生成预览数据…';
+    }
+  }
+
   const id = `wb-preview-${++nextPreviewId}`;
   const schema = new Map(tables.map(table => [table.name, table]));
   const selected = [...new Set(selectedTables)];
@@ -477,23 +495,6 @@ export function openDataPreview({
       return response;
     } finally {
       finishPreviewRequest();
-    }
-    function showPreviewLoading() {
-      if (!result) {
-        scrollLayout.setTable(null);
-        results.replaceChildren(h('p', {
-          class: 'wb-preview-loading'
-        }, '正在生成预览数据…'));
-      }
-      if (result) {
-        if (stale) {
-          status.textContent = '正在更新；规则已改变，当前为旧样例。';
-        } else {
-          status.textContent = '正在更新，当前为上次结果。';
-        }
-      } else {
-        status.textContent = '正在生成预览数据…';
-      }
     }
     function showPreviewFailure(error_) {
       error.textContent = error_?.message || String(error_);

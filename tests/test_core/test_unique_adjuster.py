@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import logging
 import string
 from dataclasses import replace
 from inspect import signature
 from unittest.mock import MagicMock
 
 import pytest
+import structlog
 from structlog.testing import capture_logs
 
+from sqlseed.core import unique_adjuster
 from sqlseed.core.mapper import ColumnMapper, GeneratorSpec
 from sqlseed.core.unique_adjuster import UniqueAdjuster
 from sqlseed.database._protocol import CheckConstraintInfo
@@ -994,3 +997,65 @@ class TestIntegerDomainInvariants:
         provider = BaseProvider()
         provider.set_seed(42)
         assert {provider.generate("integer", **result.params) for _ in range(100)} == {0, 1, 2, 3}
+
+
+@pytest.mark.parametrize(
+    "spec,count,column_type,expression,message",
+    [
+        (
+            GeneratorSpec(generator_name="string", params={"charset": "", "min_length": 1, "max_length": 5}),
+            1,
+            "TEXT",
+            None,
+            "Column 'code': 0-character domain cannot provide 1 UNIQUE strings within lengths [1, 5].",
+        ),
+        (
+            GeneratorSpec(generator_name="string", params={"charset": "01", "min_length": 1, "max_length": 2}),
+            7,
+            "VARCHAR(2)",
+            None,
+            "Column 'code': lengths [1, 2] cannot fit 7 UNIQUE strings.",
+        ),
+        (
+            GeneratorSpec(generator_name="string", params={"min_length": 4, "max_length": 8}),
+            1,
+            "VARCHAR(3)",
+            None,
+            "Column 'code': string length domain has no intersection with schema bounds.",
+        ),
+        (
+            GeneratorSpec(generator_name="integer", params={"min_value": 0, "max_value": 100}),
+            4,
+            "INTEGER",
+            "code >= 10 AND code <= 12",
+            "Column 'code': integer range [10, 12] cannot provide 4 UNIQUE values.",
+        ),
+    ],
+)
+def test_unsatisfiable_domain_reports_column_bounds_and_requested_count(
+    spec: GeneratorSpec, count: int, column_type: str, expression: str | None, message: str
+) -> None:
+    """Keep actionable column/domain diagnostics intact for CLI and API callers."""
+    column = _make_col_info("code", column_type)
+    checks = _checks(expression) if expression else []
+    adjuster = unique_adjuster.UniqueAdjuster(ColumnMapper())
+    with pytest.raises(ConfigurationError) as error:
+        adjuster.adjust({"code": spec}, {"code"}, count, [column], checks)
+    assert str(error.value) == message
+
+
+def test_expansion_debug_log_reports_the_actual_adjusted_lengths(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A real DEBUG logger reports the final sampling width and affected column."""
+    with capture_logs() as events:
+        logger = structlog.wrap_logger(None, wrapper_class=structlog.make_filtering_bound_logger(logging.DEBUG))
+        monkeypatch.setattr(unique_adjuster, "logger", logger)
+        spec = GeneratorSpec(generator_name="string", params={"min_length": 1, "max_length": 1, "charset": "digits"})
+        adjusted = unique_adjuster.UniqueAdjuster(ColumnMapper()).adjust({"code": spec}, {"code"}, 141)["code"]
+    assert adjusted.params == {"min_length": 6, "max_length": 6, "charset": "digits"}
+    assert events == [
+        {
+            "column": "code",
+            "event": "Expanded string length from 1 to 6 for UNIQUE sampling with count=141",
+            "log_level": "debug",
+        }
+    ]

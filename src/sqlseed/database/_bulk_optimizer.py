@@ -25,7 +25,7 @@ logger = get_logger(__name__)
 
 # PG session setting values are simple identifiers (e.g., 'on', 'off', 'origin', 'replica').
 # Validate before f-string interpolation to defend against unexpected content.
-_PG_SETTING_RE = re.compile(r"^[a-zA-Z0-9_]+$")
+_PG_SETTING_RE = re.compile(r"^\w+$", re.ASCII)
 
 
 @runtime_checkable
