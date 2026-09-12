@@ -1,0 +1,46 @@
+{
+  "commit": {
+    "hash": "218ab14db47dcbc9c9a450f8d6b0e6d233854fac",
+    "status": 2,
+    "analysisCount": 3,
+    "finishedAnalysisCount": 3,
+    "errorCount": 0,
+    "warningCount": 88,
+    "updatedAt": "1789230520000"
+  },
+  "reports": 38,
+  "issues": 88,
+  "all_report_messages_complete": true,
+  "pylint_matches_local_positions_rules_and_messages": true,
+  "counts": {
+    "broad-exception-caught": 51,
+    "use-set-for-membership": 10,
+    "CodeDuplication": 14,
+    "consider-using-with": 2,
+    "unidiomatic-typecheck": 11
+  },
+  "tools": [
+    {
+      "errorCount": 0,
+      "warningCount": 0,
+      "tool": "eslint",
+      "toolVersion": "8.57.1",
+      "status": 3
+    },
+    {
+      "errorCount": 0,
+      "warningCount": 14,
+      "tool": "jscpd",
+      "toolVersion": "4.0.5",
+      "status": 3
+    },
+    {
+      "errorCount": 0,
+      "warningCount": 74,
+      "tool": "pylint",
+      "toolVersion": "2.17.7",
+      "status": 3
+    }
+  ],
+  "retrieved_at_utc": "2026-09-12T16:34:57.913136+00:00"
+}
