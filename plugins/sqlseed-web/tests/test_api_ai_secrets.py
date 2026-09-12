@@ -7,6 +7,7 @@ from typing import Any
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from tests.assertions import assert_empty
 
 from sqlseed_web import api
 from sqlseed_web.state import UIState
@@ -41,4 +42,4 @@ def test_legacy_settings_redact_secret_and_preserve_blank_password_edits(monkeyp
         assert registry.get_ai_override()["api_key"] == "secret-value-for-test"
         assert "secret-value-for-test" not in response.text
         client.post("/api/ai/config", json={})
-        assert registry.get_ai_override() == {}
+        assert_empty(registry.get_ai_override(), dict)

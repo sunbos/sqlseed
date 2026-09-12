@@ -106,7 +106,7 @@ def _check_target(value: str) -> None:
             query_passwords = [item for key, item in parse_qsl(parsed.query) if key.lower() in _PASSWORD_KEYS]
         except ValueError as exc:
             raise ValueError("Invalid target label; use a credential-free label") from exc
-        if any(secret and set(secret) != {"*"} for secret in [password, *query_passwords]):
+        if any(secret and set(secret) != {"*"} for secret in (password, *query_passwords)):
             raise ValueError("Connection passwords must be removed from workspace payloads")
 
 
@@ -153,10 +153,46 @@ def _validate_run(record: dict[str, Any]) -> None:
         table_status = table.get("status", "queued")
         if not isinstance(table_status, str) or table_status not in _RUN_STATUSES | {"not_run"}:
             raise ValueError("Unknown run table status")
-    for progress in [record, *tables]:
+    for progress in (record, *tables):
         inserted = progress.get("rows_inserted", 0)
         if inserted is not None and (isinstance(inserted, bool) or not isinstance(inserted, int) or inserted < 0):
             raise ValueError("rows_inserted must be a nonnegative integer or null")
+
+
+def _run_snapshot(payload: dict[str, Any]) -> dict[str, Any]:
+    """Validate execution and metadata before a run enters the store transaction."""
+    record = _snapshot(payload)
+    record["execution"] = normalize_execution(payload.get("execution"))
+    plan_hash = payload.get("plan_hash", "")
+    if not isinstance(plan_hash, str) or (plan_hash and not re.fullmatch(r"[a-f0-9]{64}", plan_hash)):
+        raise ValueError("plan_hash must be a SHA-256 digest or empty")
+    if record["execution"]["mode"] == "replace_selected" and not plan_hash:
+        raise ValueError("replacement execution requires an immutable plan_hash")
+    record["plan_hash"] = plan_hash
+    run_id = payload.get("id", str(uuid.uuid4()))
+    _text({"id": run_id}, "id", 128)
+    revision = payload.get("revision")
+    if revision is not None and (isinstance(revision, bool) or not isinstance(revision, int) or revision < 1):
+        raise ValueError("revision must be a positive integer or null")
+    draft_id = payload.get("draft_id")
+    if draft_id is not None:
+        _text({"draft_id": draft_id}, "draft_id", 128)
+    created_at = payload.get("created_at", time.time())
+    if isinstance(created_at, bool) or not isinstance(created_at, (int, float)) or created_at < 0:
+        raise ValueError("created_at must be a nonnegative timestamp")
+    record.update(id=run_id, draft_id=draft_id, revision=revision, created_at=created_at)
+    for key in ("name", "config_hash"):
+        if key in payload:
+            record[key] = _text(payload, key)
+    if "order" in payload:
+        order = payload["order"]
+        if not isinstance(order, list) or len(order) > _MAX_TABLES or any(not isinstance(name, str) for name in order):
+            raise ValueError("order must be a bounded list of table names")
+        record["order"] = order
+    record.update(status="queued", tables=[], rows_inserted=0, error=None, started_at=None, finished_at=None)
+    record.update({key: value for key, value in payload.items() if key in _RUN_MUTABLE_FIELDS})
+    _validate_run(record)
+    return record
 
 
 class WorkspaceStore:
@@ -330,41 +366,8 @@ class WorkspaceStore:
 
     def create_run(self, payload: dict[str, Any], *, require_current_draft: bool = False) -> dict[str, Any]:
         """Create a unique run containing its complete, immutable configuration."""
-        record = _snapshot(payload)
-        record["execution"] = normalize_execution(payload.get("execution"))
-        plan_hash = payload.get("plan_hash", "")
-        if not isinstance(plan_hash, str) or (plan_hash and not re.fullmatch(r"[a-f0-9]{64}", plan_hash)):
-            raise ValueError("plan_hash must be a SHA-256 digest or empty")
-        if record["execution"]["mode"] == "replace_selected" and not plan_hash:
-            raise ValueError("replacement execution requires an immutable plan_hash")
-        record["plan_hash"] = plan_hash
-        run_id = payload.get("id", str(uuid.uuid4()))
-        _text({"id": run_id}, "id", 128)
-        revision = payload.get("revision")
-        if revision is not None and (isinstance(revision, bool) or not isinstance(revision, int) or revision < 1):
-            raise ValueError("revision must be a positive integer or null")
-        draft_id = payload.get("draft_id")
-        if draft_id is not None:
-            _text({"draft_id": draft_id}, "draft_id", 128)
-        created_at = payload.get("created_at", time.time())
-        if isinstance(created_at, bool) or not isinstance(created_at, (int, float)) or created_at < 0:
-            raise ValueError("created_at must be a nonnegative timestamp")
-        record.update(id=run_id, draft_id=draft_id, revision=revision, created_at=created_at)
-        for key in ("name", "config_hash"):
-            if key in payload:
-                record[key] = _text(payload, key)
-        if "order" in payload:
-            order = payload["order"]
-            if (
-                not isinstance(order, list)
-                or len(order) > _MAX_TABLES
-                or any(not isinstance(name, str) for name in order)
-            ):
-                raise ValueError("order must be a bounded list of table names")
-            record["order"] = order
-        record.update(status="queued", tables=[], rows_inserted=0, error=None, started_at=None, finished_at=None)
-        record.update({key: value for key, value in payload.items() if key in _RUN_MUTABLE_FIELDS})
-        _validate_run(record)
+        record = _run_snapshot(payload)
+        run_id, draft_id, created_at = record["id"], record["draft_id"], record["created_at"]
         encoded = _json_text(record)
         try:
             with self._connection(write=True) as db:

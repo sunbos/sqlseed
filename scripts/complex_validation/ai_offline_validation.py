@@ -24,26 +24,31 @@ import json
 import re
 import sqlite3
 import sys
+from contextlib import closing
 from pathlib import Path
 from typing import Any
+
+if __package__:
+    from ._checks import CheckRecorder
+else:
+    from _checks import CheckRecorder
 
 DB_DIR = Path(__file__).resolve().parent / "dbs"
 DB_DIR.mkdir(exist_ok=True)
 
-PASS = 0
-FAIL = 0
-FAILURES: list[str] = []
+check = CheckRecorder()
 
 
-def check(name: str, ok: bool, detail: str = "") -> None:
-    global PASS, FAIL
-    if ok:
-        PASS += 1
-        print(f"  [PASS] {name}")
-    else:
-        FAIL += 1
-        FAILURES.append(name)
-        print(f"  [FAIL] {name}  {detail}")
+def _user_columns(
+    *, email_generator: str = "email", age_generator: str = "integer", created_at_generator: str = "datetime"
+) -> list[dict[str, Any]]:
+    """Build fresh user rules with explicit overrides for each validation scenario."""
+    return [
+        {"name": "email", "generator": email_generator},
+        {"name": "status", "generator": "choice", "params": {"choices": ["active", "inactive", "banned"]}},
+        {"name": "age", "generator": age_generator, "params": {"min_value": 18, "max_value": 120}},
+        {"name": "created_at", "generator": created_at_generator},
+    ]
 
 
 def build_db(path: Path, ddl: list[str]) -> Path:
@@ -181,13 +186,7 @@ def section_b() -> None:
     clean_cfg = {
         "tables": [{
             "name": "users", "count": 30,
-            "columns": [
-                {"name": "email", "generator": "email"},
-                {"name": "status", "generator": "choice",
-                 "params": {"choices": ["active", "inactive", "banned"]}},
-                {"name": "age", "generator": "integer", "params": {"min_value": 18, "max_value": 120}},
-                {"name": "created_at", "generator": "datetime"},
-            ],
+            "columns": _user_columns(),
         }]
     }
     v = validator.validate(clean_cfg, snapshot)
@@ -221,20 +220,17 @@ def section_b() -> None:
           f"violations={[(x.columns, x.severity) for x in v.violations]}")
 
     # Dialect parser: normalize a raw sqlite IntegrityError into a report.
-    try:
-        con = sqlite3.connect(db)
-        con.execute("INSERT INTO users (user_id, email, status, age, created_at) VALUES (1, 'a@b.c', 'active', 30, '2024-01-01')")
-        con.execute("INSERT INTO users (user_id, email, status, age, created_at) VALUES (2, 'a@b.c', 'active', 30, '2024-01-01')")
-        con.commit()
-        check("B4 dialect parser (setup insert must fail)", False, "no IntegrityError raised")
-    except Exception as e:  # noqa: BLE001
-        report = DialectErrorParser.parse(e, dialect="sqlite", table="users", snapshot=None)
-        check("B4 dialect parser normalizes UNIQUE IntegrityError",
-              report is not None and report.constraint_type.name == "UNIQUE" and "email" in report.columns,
-              f"report={report}")
-    finally:
-        con.close()
-
+    with closing(sqlite3.connect(db)) as con:
+        try:
+            con.execute("INSERT INTO users (user_id, email, status, age, created_at) VALUES (1, 'a@b.c', 'active', 30, '2024-01-01')")
+            con.execute("INSERT INTO users (user_id, email, status, age, created_at) VALUES (2, 'a@b.c', 'active', 30, '2024-01-01')")
+            con.commit()
+            check("B4 dialect parser (setup insert must fail)", False, "no IntegrityError raised")
+        except sqlite3.IntegrityError as e:
+            report = DialectErrorParser.parse(e, dialect="sqlite", table="users", snapshot=None)
+            check("B4 dialect parser normalizes UNIQUE IntegrityError",
+                  report is not None and report.constraint_type.name == "UNIQUE" and "email" in report.columns,
+                  f"report={report}")
 
 # ---------------------------------------------------------------------------
 # C. Layer 3 — RepairPipeline
@@ -255,12 +251,7 @@ def section_c() -> None:
     broken = {
         "tables": [{
             "name": "users", "count": 30,
-            "columns": [
-                {"name": "email", "generator": "email"},
-                {"name": "status", "generator": "choice", "params": {"choices": ["active", "inactive", "banned"]}},
-                {"name": "age", "generator": "random_float", "params": {"min_value": 18, "max_value": 120}},
-                {"name": "created_at", "generator": "integer"},
-            ],
+            "columns": _user_columns(age_generator="random_float", created_at_generator="integer"),
         }]
     }
     new_cfg, result = pipeline.run(broken, snapshot)
@@ -386,16 +377,10 @@ def section_e() -> None:
     inferred = {
         "tables": [{
             "name": "users", "count": 25,
-            "columns": [
-                {"name": "email", "generator": "string"},   # deliberately generic -> semantic_upgrade/switch expected? (string@TEXT UNIQUE code-like? email is not code-like) 
-                {"name": "status", "generator": "choice",
-                 "params": {"choices": ["active", "inactive", "banned"]}},
-                {"name": "age", "generator": "integer", "params": {"min_value": 18, "max_value": 120}},
-                {"name": "created_at", "generator": "datetime"},
-            ],
+            "columns": _user_columns(email_generator="string"),
         }]
     }
-    v1 = FastValidator(resolver, db_path=str(db)).validate(inferred, snapshot)
+    FastValidator(resolver, db_path=str(db)).validate(inferred, snapshot)
     fixed, res = RepairPipeline(resolver, db_path=str(db)).run(inferred, snapshot)
     v2 = FastValidator(resolver, db_path=str(db)).validate(fixed, snapshot)
     check("E1 inferred config converges after L3 repair",
@@ -477,14 +462,7 @@ def main() -> int:
     section_d()
     section_e()
     section_f()
-    print("\n" + "=" * 70)
-    print(f"TOTAL: {PASS} passed, {FAIL} failed")
-    if FAILURES:
-        print("failed checks:")
-        for f in FAILURES:
-            print(f"  - {f}")
-    print("=" * 70)
-    return 0 if FAIL == 0 else 1
+    return check.summarize()
 
 
 if __name__ == "__main__":

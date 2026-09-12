@@ -316,7 +316,8 @@
           height = Math.max(height, ...leader.points.map(point => point[1] + PADDING));
         }
       }
-      const { score, ...geometry } = chosen;
+      const geometry = { ...chosen };
+      delete geometry.score;
       const label = { edgeId: caption.edgeId, text: caption.text, lines, lineHeight, ...geometry,
         textX: chosen.x + pad, textY: chosen.y + 17 };
       placed.push(label);

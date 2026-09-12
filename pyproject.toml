@@ -177,17 +177,19 @@ allowed-confusables = ["：", "（", "）", "，", "。"]
 
 
 # ---------------------------------------------------------------------------
-# pylint: CodeFlow runs pylint separately from ruff (the CI lint gate).
-# This config eliminates false positives that conflict with documented project
-# conventions. In pylint 3.x/4.x, `disable` must be under [tool.pylint.main]
-# (NOT [tool.pylint."messages control"] which is the legacy INI-era format).
-# `known-first-party` and `known-third-party` ARE pylint options (under
-# [tool.pylint.imports]), mirroring the isort/ruff settings above.
-# Note: pylint 4.x does NOT read tests/.pylintrc (it only reads pyproject.toml
-# from the repo root). Test-specific rule disables are therefore documented
-# inline in the `disable` list below. Source code docstring coverage is
-# independently safeguarded by ruff D100-D104,D106 rules (see
-# [tool.ruff.lint] above) via [tool.ruff.lint.per-file-ignores].
+# pylint: Existing project policy, separate from ruff (the CI lint gate).
+# CodeFlow documents repository-root .pylintrc as its configuration entry point.
+# That file mirrors the options supported by its reported Pylint 2.17.7 version;
+# tests/test_codeflow_config.py guards parity and the R0917 version exception.
+# It also explicitly loads the extension checkers observed in CodeFlow findings.
+# Default Pylint discovery prefers .pylintrc over pyproject.toml. To use all modern
+# options below, run pylint --rcfile=pyproject.toml explicitly.
+# Both [tool.pylint.main] and [tool.pylint."MESSAGES CONTROL"] are valid TOML
+# groups; moving disable between them does not change configuration discovery.
+# Pylint provides known-standard-library and known-third-party, but no
+# known-first-party option; Ruff's package classification is configured above.
+# Pylint uses the selected config, without automatically merging every scanned
+# tests/.pylintrc. Source docstrings are independently checked by Ruff's D rules.
 # ---------------------------------------------------------------------------
 [tool.pylint.main]
 # Pyproject-based pylint config (complements ruff).
@@ -249,9 +251,9 @@ disable = [
     "too-many-arguments",
 
     # ---- Monorepo package classification ----
-    # The repo ships 4 independent packages (sqlseed core + 3 plugins).
-    # pylint runs from the repo root with a single [tool.pylint.main] config
-    # and cannot apply per-package first-party classification. When linting
+    # The repo ships 5 independent packages (sqlseed core + 4 plugins).
+    # A root Pylint run uses one selected config rather than automatically
+    # merging per-package import classifications. When linting
     # a plugin file (e.g. mcp_server_sqlseed/server.py), pylint treats the
     # plugin's own package as third-party and sqlseed (a dependency from the
     # plugin's perspective) as first-party, producing false wrong-import-order
@@ -279,6 +281,7 @@ disable = [
 
     # MCP tools (mcp.py) expose multiple parameters by API design (db_path,
     # url, table, count, etc.). Cannot be reduced without breaking the contract.
+    # R0917 was added in Pylint 3.3 and is omitted only from the 2.17.7 adapter.
     "too-many-positional-arguments",
 
     # Orchestrator functions (__init__.py fill/preview, sqlalchemy_adapter)
@@ -296,11 +299,9 @@ disable = [
     "too-many-instance-attributes",
 
     # ---- Test code conventions (project-level disable, documented) ----
-    # pylint 4.x has no native per-file-ignores (unlike ruff). The
-    # tests/.pylintrc file is NOT read by pylint 4.x (it only reads
-    # pyproject.toml from the repo root). These rules fire on every test
-    # module and conflict with documented Python testing conventions. They
-    # are globally disabled here with documentation; source code docstring
+    # Unlike Ruff's per-file-ignores, nested tests/.pylintrc files are not
+    # automatically layered onto a root Pylint run. These existing global
+    # exclusions account for the project's test conventions; source docstring
     # coverage is independently safeguarded by ruff D100-D104,D106 rules
     # (see [tool.ruff.lint] select above) which only apply to src/ and
     # plugins/*/src/ (tests are exempt via [tool.ruff.lint.per-file-ignores]).

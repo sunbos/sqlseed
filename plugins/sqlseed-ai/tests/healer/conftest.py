@@ -14,8 +14,8 @@ import os
 import pytest
 
 
-@pytest.fixture(scope="session")
-def llm_available() -> bool:
+@pytest.fixture(scope="session", name="llm_available")
+def fixture_llm_available() -> bool:
     """Check if local LM Studio is available (Spec 6.4)."""
     try:
         import httpx

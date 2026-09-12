@@ -3,23 +3,23 @@
 from __future__ import annotations
 
 import sqlite3
-from contextlib import closing
 from typing import TYPE_CHECKING
 
 import pytest
 from sqlalchemy.exc import IntegrityError
 
 from sqlseed.database.sqlalchemy_adapter import SQLAlchemyAdapter
+from tests.sqlite_helpers import sqlite_connection
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
     from pathlib import Path
 
 
-@pytest.fixture(params=["path", "url"])
-def fk_adapter(tmp_path: Path, request: pytest.FixtureRequest) -> Iterator[SQLAlchemyAdapter]:
+@pytest.fixture(name="fk_adapter", params=["path", "url"])
+def fixture_fk_adapter(tmp_path: Path, request: pytest.FixtureRequest) -> Iterator[SQLAlchemyAdapter]:
     db_path = tmp_path / "foreign_keys.db"
-    with closing(sqlite3.connect(db_path)) as connection, connection:
+    with sqlite_connection(db_path) as connection:
         connection.executescript(
             """
             CREATE TABLE parents (id INTEGER PRIMARY KEY AUTOINCREMENT);

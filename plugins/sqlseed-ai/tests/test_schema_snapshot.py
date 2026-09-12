@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import sqlite3
-from contextlib import closing
 from typing import TYPE_CHECKING
 
 import pytest
@@ -15,14 +13,17 @@ from sqlseed_ai.validator.schema_snapshot import (
     write_yaml_with_optimistic_lock,
 )
 
+from tests.assertions import assert_empty
+from tests.sqlite_helpers import sqlite_connection
+
 if TYPE_CHECKING:
     from pathlib import Path
 
 
-@pytest.fixture
-def sqlite_db(tmp_path: Path) -> Path:
+@pytest.fixture(name="sqlite_db")
+def fixture_sqlite_db(tmp_path: Path) -> Path:
     path = tmp_path / "test.db"
-    with closing(sqlite3.connect(str(path))) as conn, conn:
+    with sqlite_connection(str(path)) as conn:
         conn.executescript(
             """
             CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT NOT NULL UNIQUE);
@@ -56,14 +57,14 @@ def test_snapshot_has_stable_hash(sqlite_db: Path):
 def test_snapshot_detects_drift(sqlite_db: Path):
     snap = SchemaSnapshot(db_path=str(sqlite_db))
     # Modify schema: add a column
-    with closing(sqlite3.connect(str(sqlite_db))) as conn, conn:
+    with sqlite_connection(str(sqlite_db)) as conn:
         conn.execute("ALTER TABLE users ADD COLUMN name TEXT")
     assert snap.validate_against_current(db_path=str(sqlite_db)) is False
 
 
 def test_optimistic_lock_raises_on_drift(sqlite_db: Path, tmp_path: Path):
     snap = SchemaSnapshot(db_path=str(sqlite_db))
-    with closing(sqlite3.connect(str(sqlite_db))) as conn, conn:
+    with sqlite_connection(str(sqlite_db)) as conn:
         conn.execute("ALTER TABLE users ADD COLUMN name TEXT")
     out = tmp_path / "out.yaml"
     with pytest.raises(SchemaDriftError):
@@ -96,7 +97,7 @@ def test_constraint_info_dataclass_defaults():
 def test_table_meta_defaults():
     """TableMeta defaults foreign_keys to empty list."""
     tm = TableMeta(name="t", columns=["id"], column_types={"id": "INTEGER"}, constraints=[])
-    assert tm.foreign_keys == []
+    assert_empty(tm.foreign_keys, list)
 
 
 def test_get_column_type_returns_any_for_unknown(sqlite_db: Path):

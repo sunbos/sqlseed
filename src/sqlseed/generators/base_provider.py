@@ -13,7 +13,7 @@ from datetime import time as _time
 from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal, localcontext
 from math import isfinite
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import rstr as _rstr
 
@@ -28,6 +28,9 @@ from sqlseed.generators._dispatch import GeneratorDispatchMixin
 from sqlseed.generators._json_helpers import generate_json_from_schema
 from sqlseed.generators._protocol import ConfigurationError
 from sqlseed.generators._string_helpers import generate_random_string
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 class BaseProvider(GeneratorDispatchMixin):
@@ -95,10 +98,22 @@ class BaseProvider(GeneratorDispatchMixin):
         precision: int = 2,
     ) -> float:
         """Generate a float within the closed interval at the requested precision."""
+        return self._generate_float_in_bounds(
+            min_value, max_value, precision, lambda: self._rng.uniform(min_value, max_value)
+        )
+
+    def _generate_float_in_bounds(
+        self,
+        min_value: float,
+        max_value: float,
+        precision: int,
+        draw: Callable[[], float],
+    ) -> float:
+        """Validate before drawing, avoiding RNG consumption for a single valid value."""
         lower, upper = self._float_bounds(min_value, max_value, precision)
         if lower == upper:
             return lower
-        value = self._rng.uniform(min_value, max_value)
+        value = draw()
         return max(lower, min(upper, round(value, precision)))
 
     @staticmethod
@@ -162,7 +177,7 @@ class BaseProvider(GeneratorDispatchMixin):
 
     def _image_bytes(self, width: int, height: int, image_format: str) -> bytes:
         """Synthesize image bytes for the given dimensions."""
-        if image_format.lower() in ("jpeg", "jpg"):
+        if image_format.lower() in {"jpeg", "jpg"}:
             try:
                 import io
 
@@ -578,6 +593,21 @@ class BaseProvider(GeneratorDispatchMixin):
         self._template_seq[seq_key] += sequence_step
         seq_val = self._template_seq[seq_key]
 
+        result = self._replace_random_template_fields(template)
+
+        # {sequence} or {sequence:format}
+        # Use a sentinel-safe approach: temporarily replace {sequence:XXd} with formatted value
+        def _replace_sequence(match: re.Match[str]) -> str:
+            fmt = match.group(1)
+            if fmt:
+                # Strip leading colon: ":04d" -> "04d"
+                return format(seq_val, fmt.lstrip(":"))
+            return str(seq_val)
+
+        return re.sub(r"\{sequence(:[^}]*)?\}", _replace_sequence, result)
+
+    def _replace_random_template_fields(self, template: str) -> str:
+        """Replace random fields in string/digits/integer order, preserving RNG draws."""
         # Replace custom placeholders first (not in default str.format spec)
         result = template
         # {random_string:N}
@@ -612,17 +642,7 @@ class BaseProvider(GeneratorDispatchMixin):
             replacement = str(self._rng.randint(int(min_v), int(max_v)))
             result = result[:start] + replacement + result[end + 1 :]
 
-        # {sequence} or {sequence:format}
-        # Use a sentinel-safe approach: temporarily replace {sequence:XXd} with formatted value
-
-        def _replace_sequence(match: re.Match[str]) -> str:
-            fmt = match.group(1)
-            if fmt:
-                # Strip leading colon: ":04d" -> "04d"
-                return format(seq_val, fmt.lstrip(":"))
-            return str(seq_val)
-
-        return re.sub(r"\{sequence(:[^}]*)?\}", _replace_sequence, result)
+        return result
 
     def _gen_weighted_choice(
         self,

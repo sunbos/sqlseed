@@ -60,6 +60,15 @@ def _float_grid_bound(value: float, precision: int, *, lower: bool, exclusive: b
     return float(index * step)
 
 
+def _intersect_bounds(user_lo: Any, user_hi: Any, lo: int | float | None, hi: int | float | None) -> tuple[Any, Any]:
+    """Adopt missing user bounds, then intersect supplied bounds with CHECK."""
+    eff_lo = user_lo if user_lo is not None else lo
+    eff_hi = user_hi if user_hi is not None else hi
+    new_lo = eff_lo if lo is None or eff_lo is None else max(eff_lo, lo)
+    new_hi = eff_hi if hi is None or eff_hi is None else min(eff_hi, hi)
+    return new_lo, new_hi
+
+
 class CheckAdapter:
     """用 CHECK 既定事实钳制用户配置的生成值域。
 
@@ -123,11 +132,7 @@ class CheckAdapter:
         user_hi = params.get("max_value")
 
         # 用户未设置的边界直接采用 CHECK 边界（不视为"修正"，仅 logger.info）。
-        eff_lo = user_lo if user_lo is not None else lo
-        eff_hi = user_hi if user_hi is not None else hi
-
-        new_lo = eff_lo if lo is None or eff_lo is None else max(eff_lo, lo)
-        new_hi = eff_hi if hi is None or eff_hi is None else min(eff_hi, hi)
+        new_lo, new_hi = _intersect_bounds(user_lo, user_hi, lo, hi)
 
         # 严格边界处理（仅当 CHECK 边界为生效边界时才需要内收）：
         # - integer 生成器：值域为整数，x > 0.5 → min=1（floor+1），x < 5.0 → max=4（ceil-1）；
@@ -241,10 +246,7 @@ class CheckAdapter:
         user_lo = params.get("min_length")
         user_hi = params.get("max_length")
 
-        eff_lo = user_lo if user_lo is not None else lo
-        eff_hi = user_hi if user_hi is not None else hi
-        new_lo = eff_lo if lo is None or eff_lo is None else max(eff_lo, lo)
-        new_hi = eff_hi if hi is None or eff_hi is None else min(eff_hi, hi)
+        new_lo, new_hi = _intersect_bounds(user_lo, user_hi, lo, hi)
 
         if new_lo is not None and new_hi is not None and new_lo > new_hi:
             self._raise_no_intersection(cc, parsed, f"length[{user_lo}, {user_hi}]")

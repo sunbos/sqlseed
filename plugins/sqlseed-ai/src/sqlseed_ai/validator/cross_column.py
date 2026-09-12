@@ -93,22 +93,7 @@ class CrossColumnValidator:
         if not isinstance(unique_indexes, list):
             return result
 
-        single_unique_cols: set[str] = set()
-        composite_unique_cols: set[str] = set()
-        for idx in unique_indexes:
-            if not isinstance(idx, dict):
-                continue
-            cols = idx.get("columns") or []
-            if not isinstance(cols, list):
-                continue
-            if len(cols) == 1:
-                single_unique_cols.add(cols[0])
-            elif len(cols) > 1:
-                composite_unique_cols.update(cols)
-
-        # Columns in composite UNIQUE but NOT in single-col UNIQUE
-        composite_only = composite_unique_cols - single_unique_cols
-        if not composite_only:
+        if not (composite_only := self._composite_only_columns(unique_indexes)):
             return result
 
         for col in table_config.get("columns", []):
@@ -128,6 +113,25 @@ class CrossColumnValidator:
                     )
                 )
         return result
+
+    @staticmethod
+    def _composite_only_columns(unique_indexes: list[Any]) -> set[str]:
+        """Separate columns covered only by composite UNIQUE constraints."""
+        single_unique_cols: set[str] = set()
+        composite_unique_cols: set[str] = set()
+        for idx in unique_indexes:
+            if not isinstance(idx, dict):
+                continue
+            cols = idx.get("columns") or []
+            if not isinstance(cols, list):
+                continue
+            if len(cols) == 1:
+                single_unique_cols.add(cols[0])
+            elif len(cols) > 1:
+                composite_unique_cols.update(cols)
+
+        # Columns in composite UNIQUE but NOT in single-col UNIQUE
+        return composite_unique_cols - single_unique_cols
 
     def _check_semantic_relations(
         self,

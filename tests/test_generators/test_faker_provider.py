@@ -7,6 +7,7 @@ from sqlseed.generators.faker_provider import FakerProvider
 from ._mixin import (
     IdentityProviderTestMixin,
     JsonSchemaTestMixin,
+    NativePhoneProviderTestMixin,
     TemporalProviderTestMixin,
 )
 
@@ -23,7 +24,7 @@ class TestFakerProvider(
         assert self.provider.name == "faker"
 
 
-class TestLocaleFallback:
+class TestLocaleFallback(NativePhoneProviderTestMixin):
     """使用当前 locale 的等价方法；确实缺失时才降级为 Base placeholder。"""
 
     def setup_method(self) -> None:
@@ -85,18 +86,6 @@ class TestLocaleFallback:
         assert isinstance(result, str)
         assert len(result) > 0
         assert result.isalpha()
-
-    def test_phone_default_follows_locale(self) -> None:
-        """默认 phone 按 locale 生成真实号码（非空字符串，含数字）。
-
-        默认 mask=None 走 faker 原生 phone_number()，按 locale 输出真实
-        国家格式，不强制统一（如 en_US 可能带分机号），保证业务真实性。
-        """
-        for _ in range(20):
-            phone = self.provider.generate("phone")
-            assert isinstance(phone, str)
-            assert len(phone) > 0
-            assert any(c.isdigit() for c in phone)
 
     def test_phone_custom_mask(self) -> None:
         """显式传 mask 参数时按 mask 生成（统一格式的可控覆盖）。"""

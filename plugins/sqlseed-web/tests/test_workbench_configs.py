@@ -2,17 +2,16 @@
 
 from __future__ import annotations
 
-import sqlite3
 import threading
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import closing
 from pathlib import Path
 from typing import Any
 
 import pytest
 import yaml
 from fastapi.testclient import TestClient
+from tests.sqlite_helpers import sqlite_connection
 
 from sqlseed_web.app import create_app
 from sqlseed_web.workbench_store import RevisionConflict, WorkspaceStore, get_store
@@ -35,8 +34,8 @@ def payload() -> dict[str, Any]:
     }
 
 
-@pytest.fixture()
-def store(tmp_path: Path) -> WorkspaceStore:
+@pytest.fixture(name="store")
+def fixture_store(tmp_path: Path) -> WorkspaceStore:
     return WorkspaceStore(tmp_path / "workspace.sqlite3")
 
 
@@ -113,12 +112,12 @@ def test_run_creation_racing_delete_never_loses_accepted_snapshot(store: Workspa
         assert store.list_runs() == []
 
 
-@pytest.fixture()
-def lifecycle_client(
+@pytest.fixture(name="lifecycle_client")
+def fixture_lifecycle_client(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> Iterator[tuple[TestClient, dict[str, Any], Path]]:
     target = tmp_path / "user-data.sqlite3"
-    with closing(sqlite3.connect(target)) as db, db:
+    with sqlite_connection(target) as db:
         db.executescript("CREATE TABLE users(id INTEGER PRIMARY KEY, name TEXT); INSERT INTO users VALUES(1, 'Keep');")
     monkeypatch.setenv("SQLSEED_WEB_WORKSPACE_PATH", str(tmp_path / "metadata.sqlite3"))
     draft = get_store().save_draft({**payload(), "target_label": str(target)})
@@ -145,7 +144,7 @@ def test_metadata_endpoints_work_without_connection_and_never_touch_business_row
     assert deleted.json() == {"id": draft["id"], "revision": 2, "deleted": True}
     assert client.get(base).status_code == 404
     assert client.get(f"/api/workbench/drafts/{copied.json()['id']}").status_code == 200
-    with closing(sqlite3.connect(target)) as db, db:
+    with sqlite_connection(target) as db:
         assert db.execute("SELECT * FROM users").fetchall() == [(1, "Keep")]
 
 
@@ -169,7 +168,7 @@ def test_accepted_worker_finishes_from_snapshot_after_configuration_is_deleted(
     from sqlseed_web.workbench_schema import inspect_connection
 
     target = tmp_path / "running.sqlite3"
-    with closing(sqlite3.connect(target)) as db, db:
+    with sqlite_connection(target) as db:
         db.execute("CREATE TABLE users(id INTEGER PRIMARY KEY AUTOINCREMENT, amount INTEGER NOT NULL)")
     registry = UIState()
     connection = registry.add_connection(str(target), provider="base")
@@ -233,7 +232,7 @@ def test_accepted_worker_finishes_from_snapshot_after_configuration_is_deleted(
         assert result["status"] == "done", result
         assert result["rows_inserted"] == 3
         assert result["document"] == document
-        with closing(sqlite3.connect(target)) as db, db:
+        with sqlite_connection(target) as db:
             assert db.execute("SELECT id, amount FROM users ORDER BY id").fetchall() == [(1, 8), (2, 8), (3, 8)]
     finally:
         release.set()

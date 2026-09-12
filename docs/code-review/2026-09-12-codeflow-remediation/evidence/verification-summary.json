@@ -1,0 +1,102 @@
+{
+  "python": "3.11.15",
+  "pytest": {
+    "command": "pytest --tb=short -q -W error::ResourceWarning -W error::pytest.PytestUnraisableExceptionWarning",
+    "passed": 3370,
+    "skipped": 47,
+    "failed": 0,
+    "seconds": 193.55,
+    "phase": "Full suite before final Click option declaration dedup; final delta independently rechecked with 32 CLI tests and 216 input comparisons"
+  },
+  "node": {
+    "command": "node --test plugins/sqlseed-web/tests/test_*.cjs",
+    "passed": 666,
+    "failed": 0,
+    "skipped": 0
+  },
+  "ruff": {
+    "command": "ruff check src/ tests/ plugins/",
+    "result": "passed"
+  },
+  "format": {
+    "command": "ruff format --check src/ tests/ plugins/",
+    "result": "413 files already formatted"
+  },
+  "mypy": {
+    "command": "mypy src/sqlseed/ plugins/",
+    "result": "Success: no issues found in 154 source files"
+  },
+  "imports": {
+    "command": "lint-imports",
+    "kept": 3,
+    "broken": 0
+  },
+  "architecture_and_doc_sync": {
+    "passed": 31
+  },
+  "sync_docs": {
+    "command": "python scripts/sync_docs.py --check",
+    "result": "All markers up to date"
+  },
+  "eslint": {
+    "version": "8.57.1",
+    "files": 37,
+    "errors": 0,
+    "warnings": 0
+  },
+  "pylint_baseline_rules": {
+    "version": "2.17.7",
+    "errors": 0,
+    "findings": 81,
+    "scope": "53 rule symbols observed in original CodeFlow report, minus pre-existing project exclusions; tracked and new Python files",
+    "counts": {
+      "broad-exception-caught": 53,
+      "unidiomatic-typecheck": 13,
+      "use-set-for-membership": 10,
+      "try-except-raise": 3,
+      "consider-using-with": 2
+    }
+  },
+  "jscpd": {
+    "version": "4.0.5",
+    "baseline_clones": 76,
+    "current_clones": 10,
+    "sources": 415,
+    "duplicated_lines": 110,
+    "percentage": 0.13,
+    "settings": "default minLines=5, minTokens=50, maxLines=1000, maxSize=100kb, mode=mild; original tracked and new Python/JS files"
+  },
+  "mutation": {
+    "command": "make mutmut",
+    "exit_code": 2,
+    "total": 240,
+    "killed": 232,
+    "survived": 8,
+    "survivors": [
+      87,
+      88,
+      91,
+      103,
+      117,
+      133,
+      152,
+      190
+    ],
+    "result": "NOT PASSED; isolated source copy; six diagnostic/log string mutations and two sampling heuristic/boundary mutations; review separate"
+  },
+  "external_limitations": [
+    "Real PostgreSQL/Docker not run",
+    "Real LLM/API-key-dependent tests skipped",
+    "Optional Pillow missing",
+    "A pre-existing scenario_lab example integration test fails identically at baseline; outside default pytest collection"
+  ],
+  "remote": "pending post-push CodeFlow analysis",
+  "distribution": "5 packages built, twine strict 10/10, full and minimal wheel installs and smokes passed",
+  "mkdocs": "strict build passed",
+  "final_cli_options_delta": {
+    "tests_passed": 32,
+    "parser_equivalence_cases": 216,
+    "signatures_help_metadata": "unchanged",
+    "mypy_ruff_format_pylint": "passed"
+  }
+}

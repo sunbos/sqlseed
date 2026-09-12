@@ -26,13 +26,14 @@ from sqlseed.generators._protocol import ConfigurationError
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from types import ModuleType
 
     from sqlseed._utils.metrics import MetricsCollector
     from sqlseed.core.mapper import GeneratorSpec
     from sqlseed.core.plugin_mediator import PluginMediator
     from sqlseed.core.relation import RelationResolver, SharedPool
     from sqlseed.core.stream import DataStream
-    from sqlseed.database._protocol import DatabaseAdapter
+    from sqlseed.database._protocol import DatabaseAdapter, ForeignKeyInfo
     from sqlseed.plugins.manager import PluginManager
 
 logger = get_logger(__name__)
@@ -202,6 +203,7 @@ class GenerationMixin:
             batch_size: Maximum number of generated rows held per batch.
             progress: Optional progress bar instance; created internally when None.
             task_id: Optional progress task ID; added internally when None.
+            committed: Optional shared counter of completed writes, updated before post-insert hooks.
 
         Returns:
             A tuple (total_inserted, batch_count).
@@ -409,10 +411,7 @@ class GenerationMixin:
         except ConfigurationError:
             raise
         except Exception as e:
-            if isinstance(e, SAIntegrityError) and enrich:
-                logger.warning("Integrity constraint during enrich", table_name=table_name, error=e)
-            else:
-                logger.error("Failed to fill table", table_name=table_name, error=e)
+            self._log_fill_failure(table_name, e, enrich)
             return GenerationResult(
                 table_name=table_name,
                 count=committed.rows,
@@ -420,6 +419,14 @@ class GenerationMixin:
                 batch_count=committed.batches,
                 errors=[str(e)],
             )
+
+    @staticmethod
+    def _log_fill_failure(table_name: str, error: Exception, enrich: bool) -> None:
+        """Keep enrichment integrity failures distinct from other operational failures."""
+        if isinstance(error, SAIntegrityError) and enrich:
+            logger.warning("Integrity constraint during enrich", table_name=table_name, error=error)
+        else:
+            logger.error("Failed to fill table", table_name=table_name, error=error)
 
     def _post_fill_self_ref_fks(
         self,
@@ -460,7 +467,6 @@ class GenerationMixin:
         # DBAPI placeholder: SQLite uses ?, PostgreSQL uses %s
         dialect = getattr(self._db, "dialect", None)
         ph = "%s" if dialect is not None and getattr(dialect, "name", "") == "postgresql" else "?"
-        update_ratio = 0.7
         # Keep seeded fills reproducible without reseeding the provider or the
         # process-wide RNG. Unseeded fills retain their existing random source.
         rng = random.Random(seed) if seed is not None else random
@@ -470,72 +476,89 @@ class GenerationMixin:
             spec = generator_specs.get(fk_col)
             if spec is None or not spec.params.get("_self_ref_deferred"):
                 continue
+            self._update_self_ref_column(table_name, pk_col, fk, checks, ph, rng)
 
-            pk_rows = self.query(
-                f"SELECT {quote_identifier(pk_col)} AS pk, "
-                f"{quote_identifier(fk.ref_column)} AS ref_value "
-                f"FROM {quote_identifier(table_name)} "
-                f"ORDER BY {quote_identifier(pk_col)}"
-            )
-            if len(pk_rows) < 2:
-                continue
-            pk_values = [row["pk"] for row in pk_rows]
-            ref_values = [row["ref_value"] for row in pk_rows]
-
-            cond_col, null_val = _detect_cond_column(fk_col, checks)
-            non_null_values: list[str | int] = []
-            if cond_col and null_val is not None:
-                non_null_values = _extract_non_null_values(cond_col, null_val, checks)
-                if not non_null_values:
-                    existing = self.query(
-                        f"SELECT DISTINCT {quote_identifier(cond_col)} AS v "
-                        f"FROM {quote_identifier(table_name)} "
-                        f"WHERE {quote_identifier(cond_col)} IS NOT NULL "
-                        f"AND {quote_identifier(cond_col)} != {ph}",
-                        (null_val,),
-                    )
-                    # Preserve original type: if null_val is int, convert
-                    # query results to int; otherwise keep as-is.
-                    if isinstance(null_val, int):
-                        non_null_values = [int(r["v"]) for r in existing]
-                    else:
-                        non_null_values = [str(r["v"]) for r in existing]
-
-            updated = 0
-            for i, pk_val in enumerate(pk_values):
-                if i == 0 or rng.random() > update_ratio:
-                    continue
-                ref_value = ref_values[rng.randint(0, i - 1)]
-                if ref_value is None:
-                    continue
-
-                if cond_col and non_null_values:
-                    new_cond = rng.choice(non_null_values)
-                    sql = (
-                        f"UPDATE {quote_identifier(table_name)} "
-                        f"SET {quote_identifier(fk_col)} = {ph}, "
-                        f"{quote_identifier(cond_col)} = {ph} "
-                        f"WHERE {quote_identifier(pk_col)} = {ph}"
-                    )
-                    self.execute(sql, (ref_value, new_cond, pk_val)).close()
-                    updated += 1
-                else:
-                    sql = (
-                        f"UPDATE {quote_identifier(table_name)} "
-                        f"SET {quote_identifier(fk_col)} = {ph} "
-                        f"WHERE {quote_identifier(pk_col)} = {ph}"
-                    )
-                    self.execute(sql, (ref_value, pk_val)).close()
-                    updated += 1
-
-            if updated:
-                logger.info(
-                    "Post-fill self-ref FK update",
-                    table_name=table_name,
-                    fk_col=fk_col,
-                    updated=updated,
-                    total=len(pk_values),
+    def _self_ref_condition_values(
+        self, table_name: str, fk_col: str, checks: list[Any], ph: str
+    ) -> tuple[str | None, list[str | int]]:
+        """Find allowed condition values, using existing rows when CHECK has no enum."""
+        cond_col, null_val = _detect_cond_column(fk_col, checks)
+        non_null_values: list[str | int] = []
+        if cond_col and null_val is not None:
+            non_null_values = _extract_non_null_values(cond_col, null_val, checks)
+            if not non_null_values:
+                existing = self.query(
+                    f"SELECT DISTINCT {quote_identifier(cond_col)} AS v "
+                    f"FROM {quote_identifier(table_name)} "
+                    f"WHERE {quote_identifier(cond_col)} IS NOT NULL "
+                    f"AND {quote_identifier(cond_col)} != {ph}",
+                    (null_val,),
                 )
+                # Preserve the CHECK literal type in values sampled for UPDATE.
+                if isinstance(null_val, int):
+                    non_null_values = [int(r["v"]) for r in existing]
+                else:
+                    non_null_values = [str(r["v"]) for r in existing]
+        return cond_col, non_null_values
+
+    def _update_self_ref_column(
+        self,
+        table_name: str,
+        pk_col: str,
+        fk: ForeignKeyInfo,
+        checks: list[Any],
+        ph: str,
+        rng: random.Random | ModuleType,
+    ) -> None:
+        """Link one deferred FK to preceding rows using the fill's existing RNG."""
+        fk_col = fk.column
+        pk_rows = self.query(
+            f"SELECT {quote_identifier(pk_col)} AS pk, "
+            f"{quote_identifier(fk.ref_column)} AS ref_value "
+            f"FROM {quote_identifier(table_name)} "
+            f"ORDER BY {quote_identifier(pk_col)}"
+        )
+        if len(pk_rows) < 2:
+            return
+        pk_values = [row["pk"] for row in pk_rows]
+        ref_values = [row["ref_value"] for row in pk_rows]
+        cond_col, non_null_values = self._self_ref_condition_values(table_name, fk_col, checks, ph)
+
+        updated = 0
+        for i, pk_val in enumerate(pk_values):
+            if i == 0 or rng.random() > 0.7:
+                continue
+            ref_value = ref_values[rng.randint(0, i - 1)]
+            if ref_value is None:
+                continue
+
+            if cond_col and non_null_values:
+                new_cond = rng.choice(non_null_values)
+                sql = (
+                    f"UPDATE {quote_identifier(table_name)} "
+                    f"SET {quote_identifier(fk_col)} = {ph}, "
+                    f"{quote_identifier(cond_col)} = {ph} "
+                    f"WHERE {quote_identifier(pk_col)} = {ph}"
+                )
+                self.execute(sql, (ref_value, new_cond, pk_val)).close()
+                updated += 1
+            else:
+                sql = (
+                    f"UPDATE {quote_identifier(table_name)} "
+                    f"SET {quote_identifier(fk_col)} = {ph} "
+                    f"WHERE {quote_identifier(pk_col)} = {ph}"
+                )
+                self.execute(sql, (ref_value, pk_val)).close()
+                updated += 1
+
+        if updated:
+            logger.info(
+                "Post-fill self-ref FK update",
+                table_name=table_name,
+                fk_col=fk_col,
+                updated=updated,
+                total=len(pk_values),
+            )
 
     def preview_table(
         self,

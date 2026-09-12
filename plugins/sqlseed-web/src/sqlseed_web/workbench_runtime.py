@@ -8,7 +8,7 @@ import json
 import re
 import time
 from collections.abc import Callable
-from dataclasses import asdict, replace
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +30,7 @@ from sqlseed.config.models import (
 from sqlseed.core.column_dag import ColumnDAG
 from sqlseed.core.expression import ExpressionEngine
 from sqlseed.core.orchestrator import DataOrchestrator
+from sqlseed.core.result import GenerationResult
 from sqlseed.core.stream import GenerationBudgetExceededError, GenerationCancelledError
 from sqlseed.database.sqlalchemy_adapter import SQLAlchemyAdapter
 from sqlseed.generators._dispatch import GeneratorDispatchMixin
@@ -216,7 +217,7 @@ def _source_values(orch: DataOrchestrator, table: str, columns: list[str]) -> li
     )
 
 
-def _can_omit(column: dict[str, Any], table: dict[str, Any], dialect: str) -> bool:
+def _can_omit(column: dict[str, Any]) -> bool:
     return bool(
         column.get("default") is not None
         or column.get("is_autoincrement")
@@ -255,96 +256,117 @@ def _runtime_columns(config: GeneratorConfig, table: TableConfig, orch: DataOrch
     return columns
 
 
+def _table_option_issues(table: TableConfig, issues: list[dict[str, Any]]) -> None:
+    if table.clear_before:
+        _issue(
+            issues,
+            "clear_not_supported",
+            "工作台尚未支持经过外键校验的清空计划；请关闭 clear_before",
+            table=table.name,
+        )
+    if table.transform:
+        _issue(
+            issues,
+            "transform_not_supported",
+            "工作台尚未支持执行服务器 Python transform；配置会保留在导出中",
+            table=table.name,
+        )
+
+
+def _unique_domain_issues(
+    column: ColumnConfig,
+    table: TableConfig,
+    metadata: dict[str, Any],
+    context: dict[str, str],
+    issues: list[dict[str, Any]],
+) -> None:
+    single_unique = [constraint["columns"] for constraint in metadata["unique_constraints"]]
+    single_unique.append(metadata["primary_key"])
+    is_unique = [column.name] in single_unique or bool(column.constraints and column.constraints.unique)
+    if is_unique and column.null_ratio == 0:
+        choices = column.params.get("choices", column.params.get("weighted_choices"))
+        if column.generator in {"choice", "weighted_choice"} and isinstance(choices, (list, dict)):
+            available = len({_hash(value) for value in choices})
+            if available < table.count:
+                _issue(
+                    issues,
+                    "unique_domain_exhausted",
+                    f"显式候选值只有 {available} 个，无法生成 {table.count} 个唯一值",
+                    **context,
+                )
+        minimum, maximum = column.params.get("min_value"), column.params.get("max_value")
+        if (
+            column.generator == "integer"
+            and isinstance(minimum, int)
+            and isinstance(maximum, int)
+            and maximum - minimum + 1 < table.count
+        ):
+            _issue(issues, "unique_domain_exhausted", "显式整数范围不足以生成所需的唯一值", **context)
+
+
+def _derived_column_issues(
+    column: ColumnConfig, columns: dict[str, Any], context: dict[str, str], issues: list[dict[str, Any]]
+) -> None:
+    sources = column.derive_from
+    for source in [sources] if isinstance(sources, str) else sources or []:
+        if source not in columns:
+            _issue(issues, "unknown_derive_source", f"派生来源列不存在：{source}", **context)
+    if column.expression:
+        try:
+            expression = ast.parse(column.expression, mode="eval")
+            allowed_calls = set(ExpressionEngine.SAFE_FUNCTIONS) | {"lookup"}
+            for call in ast.walk(expression):
+                if isinstance(call, ast.Call) and isinstance(call.func, ast.Name) and call.func.id not in allowed_calls:
+                    _issue(
+                        issues,
+                        "unknown_expression_function",
+                        f"不支持的 expression 函数：{call.func.id}",
+                        **context,
+                    )
+        except SyntaxError as exc:
+            _issue(issues, "invalid_expression", public_error(exc), **context)
+
+
+def _table_column_issues(
+    config: GeneratorConfig, table: TableConfig, metadata: dict[str, Any], known: set[str], issues: list[dict[str, Any]]
+) -> None:
+    _table_option_issues(table, issues)
+    columns = {column["name"]: column for column in metadata["columns"]}
+    seen: set[str] = set()
+    for column in table.columns:
+        context = {"table": table.name, "column": column.name}
+        if column.name in seen:
+            _issue(issues, "duplicate_column", "列配置重复", **context)
+        seen.add(column.name)
+        if column.provider is not None and column.provider != config.provider:
+            _issue(
+                issues,
+                "column_provider_not_supported",
+                "当前 core 使用全局 provider；暂不支持不同的每列 provider",
+                **context,
+            )
+        if column.generator and column.generator not in known:
+            _issue(issues, "unknown_generator", f"未知 generator：{column.generator}", **context)
+        info = columns.get(column.name)
+        if info is None:
+            _issue(issues, "unknown_column", "列已不存在，请刷新 schema 并修正配置", **context)
+            continue
+        _unique_domain_issues(column, table, metadata, context, issues)
+        if column.null_ratio > 0 and not info.get("nullable", True):
+            _issue(issues, "not_null", "NOT NULL 列不能设置 null_ratio > 0", **context)
+        can_skip = _can_omit(info)
+        if column.generator == "skip" and not info.get("nullable", True) and not can_skip:
+            _issue(issues, "required_column", "没有默认值的 NOT NULL 列不能跳过", **context)
+        _derived_column_issues(column, columns, context, issues)
+
+
 def _column_issues(config: GeneratorConfig, tables: dict[str, Any], issues: list[dict[str, Any]]) -> None:
     known = set(GeneratorDispatchMixin.GENERATOR_MAP) | {"skip", "foreign_key", "foreign_key_or_integer"}
     for table in config.tables:
         if table.name not in tables:
             _issue(issues, "unknown_table", "数据表不存在", table=table.name)
             continue
-        if table.clear_before:
-            _issue(
-                issues,
-                "clear_not_supported",
-                "工作台尚未支持经过外键校验的清空计划；请关闭 clear_before",
-                table=table.name,
-            )
-        if table.transform:
-            _issue(
-                issues,
-                "transform_not_supported",
-                "工作台尚未支持执行服务器 Python transform；配置会保留在导出中",
-                table=table.name,
-            )
-        columns = {column["name"]: column for column in tables[table.name]["columns"]}
-        seen: set[str] = set()
-        for column in table.columns:
-            context = {"table": table.name, "column": column.name}
-            if column.name in seen:
-                _issue(issues, "duplicate_column", "列配置重复", **context)
-            seen.add(column.name)
-            if column.provider is not None and column.provider != config.provider:
-                _issue(
-                    issues,
-                    "column_provider_not_supported",
-                    "当前 core 使用全局 provider；暂不支持不同的每列 provider",
-                    **context,
-                )
-            if column.generator and column.generator not in known:
-                _issue(issues, "unknown_generator", f"未知 generator：{column.generator}", **context)
-            info = columns.get(column.name)
-            if info is None:
-                _issue(issues, "unknown_column", "列已不存在，请刷新 schema 并修正配置", **context)
-                continue
-            single_unique = [constraint["columns"] for constraint in tables[table.name]["unique_constraints"]]
-            single_unique.append(tables[table.name]["primary_key"])
-            is_unique = [column.name] in single_unique or bool(column.constraints and column.constraints.unique)
-            if is_unique and column.null_ratio == 0:
-                choices = column.params.get("choices", column.params.get("weighted_choices"))
-                if column.generator in {"choice", "weighted_choice"} and isinstance(choices, (list, dict)):
-                    available = len({_hash(value) for value in choices})
-                    if available < table.count:
-                        _issue(
-                            issues,
-                            "unique_domain_exhausted",
-                            f"显式候选值只有 {available} 个，无法生成 {table.count} 个唯一值",
-                            **context,
-                        )
-                minimum, maximum = column.params.get("min_value"), column.params.get("max_value")
-                if (
-                    column.generator == "integer"
-                    and isinstance(minimum, int)
-                    and isinstance(maximum, int)
-                    and maximum - minimum + 1 < table.count
-                ):
-                    _issue(issues, "unique_domain_exhausted", "显式整数范围不足以生成所需的唯一值", **context)
-            if column.null_ratio > 0 and not info.get("nullable", True):
-                _issue(issues, "not_null", "NOT NULL 列不能设置 null_ratio > 0", **context)
-            dialect = make_url(config.url).get_backend_name() if config.url else "sqlite"
-            can_skip = _can_omit(info, tables[table.name], dialect)
-            if column.generator == "skip" and not info.get("nullable", True) and not can_skip:
-                _issue(issues, "required_column", "没有默认值的 NOT NULL 列不能跳过", **context)
-            sources = column.derive_from
-            for source in [sources] if isinstance(sources, str) else sources or []:
-                if source not in columns:
-                    _issue(issues, "unknown_derive_source", f"派生来源列不存在：{source}", **context)
-            if column.expression:
-                try:
-                    expression = ast.parse(column.expression, mode="eval")
-                    allowed_calls = set(ExpressionEngine.SAFE_FUNCTIONS) | {"lookup"}
-                    for call in ast.walk(expression):
-                        if (
-                            isinstance(call, ast.Call)
-                            and isinstance(call.func, ast.Name)
-                            and call.func.id not in allowed_calls
-                        ):
-                            _issue(
-                                issues,
-                                "unknown_expression_function",
-                                f"不支持的 expression 函数：{call.func.id}",
-                                **context,
-                            )
-                except SyntaxError as exc:
-                    _issue(issues, "invalid_expression", public_error(exc), **context)
+        _table_column_issues(config, table, tables[table.name], known, issues)
     if config.snapshot_dir:
         _issue(
             issues,
@@ -353,10 +375,10 @@ def _column_issues(config: GeneratorConfig, tables: dict[str, Any], issues: list
         )
     if config.custom_column_mappings:
         mappings = config.custom_column_mappings
-        for generator in [
+        for generator in (
             *[rule.generator for rule in mappings.exact.values()],
             *[rule.generator for rule in mappings.pattern],
-        ]:
+        ):
             if generator not in known:
                 _issue(issues, "unknown_generator", f"自定义映射包含未知 generator：{generator}")
         for rule in mappings.pattern:
@@ -364,6 +386,83 @@ def _column_issues(config: GeneratorConfig, tables: dict[str, Any], issues: list
                 re.compile(rule.pattern)
             except re.error as exc:
                 _issue(issues, "invalid_pattern", public_error(exc))
+
+
+def _empty_source_issues(
+    context: dict[str, str],
+    columns: list[str],
+    nullable: bool,
+    selected: set[str],
+    deferred: set[str],
+    issues: list[dict[str, Any]],
+) -> None:
+    parent, target = context["source_table"], context["table"]
+    if parent == target:
+        if not nullable:
+            _issue(issues, "self_reference_no_seed", "空表的 NOT NULL 自引用缺少有效初始父行", **context)
+        elif len(columns) > 1:
+            _issue(issues, "composite_self_reference", "当前 core 未保证组合自引用的第二阶段回填", **context)
+        else:
+            _issue(
+                issues,
+                "self_reference_backfill",
+                "可空自引用先生成 NULL，再由 core 回填已生成父行",
+                severity="warning",
+                **context,
+            )
+    elif parent in selected:
+        deferred.add(target)
+        _issue(
+            issues,
+            "preview_requires_parent",
+            "父表当前没有可用值；执行时先填父表，预览无法提供完整关联样例",
+            severity="warning",
+            **context,
+        )
+    elif nullable:
+        _issue(
+            issues,
+            "nullable_parent_empty",
+            "父表没有可用值，core 将生成 NULL 外键",
+            severity="warning",
+            **context,
+        )
+    else:
+        _issue(
+            issues,
+            "missing_parent_source",
+            "非空外键/关联没有可用来源，请将父表加入计划或先准备有效父行",
+            **context,
+        )
+
+
+def _association_sources(
+    config: GeneratorConfig,
+    tables: dict[str, Any],
+    dependencies: dict[str, set[str]],
+    source: Callable[[str, str, list[str], bool, str], None],
+    issues: list[dict[str, Any]],
+) -> None:
+    for association in config.associations:
+        if association.strategy != "shared_pool":
+            _issue(issues, "association_strategy", "当前 core 尚未区分 random 关联策略，请使用 shared_pool")
+        for name in association.target_tables:
+            if name not in tables or association.column_name not in {c["name"] for c in tables[name]["columns"]}:
+                _issue(
+                    issues,
+                    "invalid_association_target",
+                    "关联目标表或列不存在",
+                    table=name,
+                    column=association.column_name,
+                )
+            elif name in dependencies:
+                source(
+                    name,
+                    association.source_table,
+                    [association.source_column or association.column_name],
+                    False,
+                    association.column_name,
+                )
 
 
 def _dependency_plan(
@@ -398,43 +497,7 @@ def _dependency_plan(
         if parent != target and parent in dependencies:
             dependencies[target].add(parent)
         if not values:
-            if parent == target:
-                if not nullable:
-                    _issue(issues, "self_reference_no_seed", "空表的 NOT NULL 自引用缺少有效初始父行", **context)
-                elif len(columns) > 1:
-                    _issue(issues, "composite_self_reference", "当前 core 未保证组合自引用的第二阶段回填", **context)
-                else:
-                    _issue(
-                        issues,
-                        "self_reference_backfill",
-                        "可空自引用先生成 NULL，再由 core 回填已生成父行",
-                        severity="warning",
-                        **context,
-                    )
-            elif parent in selected:
-                deferred.add(target)
-                _issue(
-                    issues,
-                    "preview_requires_parent",
-                    "父表当前没有可用值；执行时先填父表，预览无法提供完整关联样例",
-                    severity="warning",
-                    **context,
-                )
-            elif nullable:
-                _issue(
-                    issues,
-                    "nullable_parent_empty",
-                    "父表没有可用值，core 将生成 NULL 外键",
-                    severity="warning",
-                    **context,
-                )
-            else:
-                _issue(
-                    issues,
-                    "missing_parent_source",
-                    "非空外键/关联没有可用来源，请将父表加入计划或先准备有效父行",
-                    **context,
-                )
+            _empty_source_issues(context, columns, nullable, selected, deferred, issues)
 
     for name in dependencies:
         for fk in tables[name]["foreign_keys"]:
@@ -445,26 +508,7 @@ def _dependency_plan(
                 _issue(issues, "composite_fk_width", "当前 core 尚未保证三列及以上组合外键的元组配对", table=name)
                 continue
             source(name, fk["ref_table"], fk["ref_columns"], fk["nullable"], ",".join(fk["columns"]))
-    for association in config.associations:
-        if association.strategy != "shared_pool":
-            _issue(issues, "association_strategy", "当前 core 尚未区分 random 关联策略，请使用 shared_pool")
-        for name in association.target_tables:
-            if name not in tables or association.column_name not in {c["name"] for c in tables[name]["columns"]}:
-                _issue(
-                    issues,
-                    "invalid_association_target",
-                    "关联目标表或列不存在",
-                    table=name,
-                    column=association.column_name,
-                )
-            elif name in dependencies:
-                source(
-                    name,
-                    association.source_table,
-                    [association.source_column or association.column_name],
-                    False,
-                    association.column_name,
-                )
+    _association_sources(config, tables, dependencies, source, issues)
     order, layers = _layers(dependencies)
     if len(order) != len(dependencies):
         _issue(issues, "cross_table_cycle", "跨表循环需要通用 backfill；当前工作台不能安全执行该计划")
@@ -476,7 +520,6 @@ def _sample_issues(
     samples: list[dict[str, Any]],
     issues: list[dict[str, Any]],
     *,
-    dialect: str,
     excluded: set[str] | None = None,
 ) -> None:
     excluded = excluded or set()
@@ -484,7 +527,7 @@ def _sample_issues(
         name = column["name"]
         if name in excluded or column.get("nullable", True):
             continue
-        can_skip = _can_omit(column, table, dialect)
+        can_skip = _can_omit(column)
         if any(row.get(name) is None and (name in row or not can_skip) for row in samples):
             _issue(issues, "not_null_sample", "实际生成的样例违反 NOT NULL 约束", table=table["name"], column=name)
     unique_groups = [constraint["columns"] for constraint in table["unique_constraints"]]
@@ -500,6 +543,196 @@ def _sample_issues(
             _issue(
                 issues, "unique_sample", "实际生成的样例违反 UNIQUE 约束", table=table["name"], column=",".join(columns)
             )
+
+
+@dataclass(frozen=True)
+class _PreviewOptions:
+    count: int
+    preview: bool
+    sample_max_attempts: int | None
+    cancel_check: Callable[[], None] | None
+
+    def guard(self) -> None:
+        if self.cancel_check is not None:
+            try:
+                self.cancel_check()
+            except Exception as exc:
+                raise GenerationCancelledError(exc) from exc
+
+
+@dataclass(frozen=True)
+class _SampleRules:
+    columns: list[ColumnConfig]
+    specs: dict[str, Any]
+    user_configs: dict[str, Any]
+    unique: set[str]
+    composite: list[list[str]]
+
+
+def _resolve_sample_rules(config: GeneratorConfig, table: TableConfig, orch: DataOrchestrator) -> _SampleRules:
+    columns = _runtime_columns(config, table, orch)
+    specs, user_configs, unique, composite = orch._resolve_specs(table.name, table.count, None, columns, table.enrich)
+    return _SampleRules(columns, specs, user_configs, unique, composite)
+
+
+def _preview_provider_available(config: GeneratorConfig, issues: list[dict[str, Any]]) -> bool:
+    if config.provider.value == "mimesis":
+        availability = package_availability("mimesis", "mimesis")
+        if not availability["available"]:
+            missing = availability["status"] == "not_installed"
+            _issue(
+                issues,
+                "provider_not_installed" if missing else "provider_import_error",
+                "当前配置使用 Mimesis，但尚未安装；请在插件页安装，或明确更改生成引擎后重新检查。"
+                if missing
+                else "当前配置使用 Mimesis，但组件加载异常；请在插件页查看修复指引，或明确更改生成引擎。",
+                component_id="mimesis",
+                recovery_action="install" if missing else "repair",
+            )
+            return False
+    return True
+
+
+def _deferred_table_samples(
+    config: GeneratorConfig,
+    table: TableConfig,
+    metadata: dict[str, Any],
+    orch: DataOrchestrator,
+    rules: _SampleRules,
+    options: _PreviewOptions,
+    issues: list[dict[str, Any]],
+) -> None:
+    # Validate the independent part of a deferred table without
+    # inventing the database-generated keys it will later consume.
+    blocked = {column for fk in metadata["foreign_keys"] for column in fk["columns"]}
+    blocked.update(
+        association.column_name for association in config.associations if table.name in association.target_tables
+    )
+    for node in ColumnDAG().build(rules.specs, rules.columns):
+        if any(dependency in blocked for dependency in node.depends_on):
+            blocked.add(node.name)
+    independent = {key: spec for key, spec in rules.specs.items() if key not in blocked}
+    independent_users = {key: value for key, value in rules.user_configs.items() if key not in blocked}
+    partial_stream = orch._build_stream(
+        independent,
+        independent_users,
+        rules.unique - blocked,
+        None,
+        table.seed,
+        table_name=table.name,
+        composite_unique=[columns for columns in rules.composite if not blocked.intersection(columns)],
+        max_attempts=options.sample_max_attempts,
+        cancel_check=options.cancel_check,
+    )
+    partial_samples = next(
+        partial_stream.generate(min(options.count, table.count), min(options.count, table.count)), []
+    )
+    _sample_issues(metadata, partial_samples, issues, excluded=blocked)
+
+
+def _table_samples(
+    config: GeneratorConfig,
+    table: TableConfig,
+    tables: dict[str, Any],
+    orch: DataOrchestrator,
+    result: dict[str, Any],
+    options: _PreviewOptions,
+    deferred: bool,
+) -> None:
+    issues = result["issues"]
+    name = table.name
+    rules = _resolve_sample_rules(config, table, orch)
+    options.guard()
+    result["effective_rules"][name] = {
+        key: {k: v for k, v in asdict(spec).items() if k != "params"}
+        | {"params": {k: v for k, v in spec.params.items() if not k.startswith("_")}}
+        for key, spec in rules.specs.items()
+    }
+    stream = orch._build_stream(
+        rules.specs,
+        rules.user_configs,
+        rules.unique,
+        None,
+        table.seed,
+        table_name=name,
+        composite_unique=rules.composite,
+        max_attempts=options.sample_max_attempts,
+        cancel_check=options.cancel_check,
+    )
+    if deferred:
+        _deferred_table_samples(config, table, tables[name], orch, rules, options, issues)
+        return
+    samples = next(stream.generate(min(options.count, table.count), min(options.count, table.count)), [])
+    _sample_issues(tables[name], samples, issues)
+    if options.preview:
+        result["samples"][name] = samples
+
+
+def _preview_tables(
+    config: GeneratorConfig,
+    tables: dict[str, Any],
+    order: list[str],
+    deferred: set[str],
+    orch: DataOrchestrator,
+    result: dict[str, Any],
+    options: _PreviewOptions,
+) -> None:
+    issues = result["issues"]
+    configs = {table.name: table for table in config.tables}
+    for name in order:
+        options.guard()
+        table = configs[name]
+        try:
+            _table_samples(config, table, tables, orch, result, options, name in deferred)
+        except GenerationCancelledError:
+            raise
+        except GenerationBudgetExceededError as exc:
+            location = f"表 {name}"
+            if exc.column is not None:
+                location += f" 的列 {exc.column}（generator: {exc.generator}）"
+            _issue(
+                issues,
+                "generation_invalid",
+                f"样例校验在{location}达到 {exc.limit} 次尝试上限，请检查唯一值空间或约束冲突。",
+                table=name,
+                column=exc.column,
+                generator=exc.generator,
+                attempt_limit=exc.limit,
+            )
+        except Exception as exc:  # noqa: BLE001
+            # Generator/provider failures become sanitized, table-specific validation issues.
+            _issue(issues, "generation_invalid", public_error(exc), table=name)
+
+
+def _check_generation(
+    config: GeneratorConfig, schema: dict[str, Any], result: dict[str, Any], options: _PreviewOptions
+) -> None:
+    issues = result["issues"]
+    if not config.tables:
+        _issue(issues, "empty_plan", "请至少选择一张需要生成的表")
+    if len({table.name for table in config.tables}) != len(config.tables):
+        _issue(issues, "duplicate_table", "同一计划不能重复配置同一张表")
+    tables = {table["name"]: table for table in schema["tables"]}
+    _column_issues(config, tables, issues)
+    normalized = config.model_dump(mode="json", exclude={"db_path", "url"})
+    try:
+        with DataOrchestrator.from_config(config) as orch:
+            options.guard()
+            if orch._provider_name != config.provider.value:
+                raise WorkbenchError(f"provider {config.provider.value} 不可用，不能使用降级 provider 代替")
+            orch._registry.get(config.provider.value).set_locale(config.locale)
+            order, layers, deferred, evidence = _dependency_plan(config, schema, orch, issues)
+            result.update(order=order, layers=layers, preview_complete=not deferred, sources=evidence["source_checks"])
+            result["config_hash"] = _hash(
+                {"document": normalized, "schema_hash": schema["schema_hash"], "sources": evidence}
+            )
+            if not any(issue["severity"] == "error" for issue in issues):
+                _preview_tables(config, tables, order, deferred, orch, result, options)
+    except GenerationCancelledError as exc:
+        raise exc.reason from None
+    except Exception as exc:  # noqa: BLE001
+        # The validation boundary reports arbitrary adapter failures without SQL or credentials.
+        _issue(issues, "validation_failed", public_error(exc))
 
 
 def check_document(
@@ -524,12 +757,7 @@ def check_document(
     if sample_max_attempts is not None and (type(sample_max_attempts) is not int or sample_max_attempts <= 0):
         raise WorkbenchError("sample_max_attempts 必须为正整数或 None")
 
-    def guard() -> None:
-        if cancel_check is not None:
-            try:
-                cancel_check()
-            except Exception as exc:
-                raise GenerationCancelledError(exc) from exc
+    options = _PreviewOptions(count, preview, sample_max_attempts, cancel_check)
 
     schema = inspect_connection(conn)
     issues: list[dict[str, Any]] = []
@@ -552,128 +780,9 @@ def check_document(
     except (WorkbenchError, TypeError, AttributeError) as exc:
         _issue(issues, getattr(exc, "code", "invalid_config"), public_error(exc))
         return result
-    if config.provider.value == "mimesis":
-        availability = package_availability("mimesis", "mimesis")
-        if not availability["available"]:
-            missing = availability["status"] == "not_installed"
-            _issue(
-                issues,
-                "provider_not_installed" if missing else "provider_import_error",
-                "当前配置使用 Mimesis，但尚未安装；请在插件页安装，或明确更改生成引擎后重新检查。"
-                if missing
-                else "当前配置使用 Mimesis，但组件加载异常；请在插件页查看修复指引，或明确更改生成引擎。",
-                component_id="mimesis",
-                recovery_action="install" if missing else "repair",
-            )
-            return result
-    if not config.tables:
-        _issue(issues, "empty_plan", "请至少选择一张需要生成的表")
-    if len({table.name for table in config.tables}) != len(config.tables):
-        _issue(issues, "duplicate_table", "同一计划不能重复配置同一张表")
-    tables = {table["name"]: table for table in schema["tables"]}
-    _column_issues(config, tables, issues)
-    normalized = config.model_dump(mode="json", exclude={"db_path", "url"})
-    try:
-        with DataOrchestrator.from_config(config) as orch:
-            guard()
-            if orch._provider_name != config.provider.value:
-                raise WorkbenchError(f"provider {config.provider.value} 不可用，不能使用降级 provider 代替")
-            orch._registry.get(config.provider.value).set_locale(config.locale)
-            order, layers, deferred, evidence = _dependency_plan(config, schema, orch, issues)
-            result.update(order=order, layers=layers, preview_complete=not deferred, sources=evidence["source_checks"])
-            result["config_hash"] = _hash(
-                {"document": normalized, "schema_hash": schema["schema_hash"], "sources": evidence}
-            )
-            if not any(issue["severity"] == "error" for issue in issues):
-                configs = {table.name: table for table in config.tables}
-                for name in order:
-                    guard()
-                    table = configs[name]
-                    try:
-                        runtime_columns = _runtime_columns(config, table, orch)
-                        specs, user_configs, unique, composite = orch._resolve_specs(
-                            name, table.count, None, runtime_columns, table.enrich
-                        )
-                        guard()
-                        result["effective_rules"][name] = {
-                            key: {k: v for k, v in asdict(spec).items() if k != "params"}
-                            | {"params": {k: v for k, v in spec.params.items() if not k.startswith("_")}}
-                            for key, spec in specs.items()
-                        }
-                        stream = orch._build_stream(
-                            specs,
-                            user_configs,
-                            unique,
-                            None,
-                            table.seed,
-                            table_name=name,
-                            composite_unique=composite,
-                            max_attempts=sample_max_attempts,
-                            cancel_check=cancel_check,
-                        )
-                        if name in deferred:
-                            # Validate the independent part of a deferred table without
-                            # inventing the database-generated keys it will later consume.
-                            blocked = {column for fk in tables[name]["foreign_keys"] for column in fk["columns"]}
-                            blocked.update(
-                                association.column_name
-                                for association in config.associations
-                                if name in association.target_tables
-                            )
-                            for node in ColumnDAG().build(specs, runtime_columns):
-                                if any(dependency in blocked for dependency in node.depends_on):
-                                    blocked.add(node.name)
-                            independent = {key: spec for key, spec in specs.items() if key not in blocked}
-                            independent_users = {
-                                key: value for key, value in user_configs.items() if key not in blocked
-                            }
-                            partial_stream = orch._build_stream(
-                                independent,
-                                independent_users,
-                                unique - blocked,
-                                None,
-                                table.seed,
-                                table_name=name,
-                                composite_unique=[
-                                    columns for columns in composite if not blocked.intersection(columns)
-                                ],
-                                max_attempts=sample_max_attempts,
-                                cancel_check=cancel_check,
-                            )
-                            partial_samples = next(
-                                partial_stream.generate(min(count, table.count), min(count, table.count)), []
-                            )
-                            _sample_issues(
-                                tables[name], partial_samples, issues, dialect=schema["dialect"], excluded=blocked
-                            )
-                            continue
-                        samples = next(stream.generate(min(count, table.count), min(count, table.count)), [])
-                        _sample_issues(tables[name], samples, issues, dialect=schema["dialect"])
-                        if preview:
-                            result["samples"][name] = samples
-                    except GenerationCancelledError:
-                        raise
-                    except GenerationBudgetExceededError as exc:
-                        location = f"表 {name}"
-                        if exc.column is not None:
-                            location += f" 的列 {exc.column}（generator: {exc.generator}）"
-                        _issue(
-                            issues,
-                            "generation_invalid",
-                            f"样例校验在{location}达到 {exc.limit} 次尝试上限，请检查唯一值空间或约束冲突。",
-                            table=name,
-                            column=exc.column,
-                            generator=exc.generator,
-                            attempt_limit=exc.limit,
-                        )
-                    except Exception as exc:  # noqa: BLE001
-                        # Generator/provider failures become sanitized, table-specific validation issues.
-                        _issue(issues, "generation_invalid", public_error(exc), table=name)
-    except GenerationCancelledError as exc:
-        raise exc.reason from None
-    except Exception as exc:  # noqa: BLE001
-        # The validation boundary reports arbitrary adapter failures without SQL or credentials.
-        _issue(issues, "validation_failed", public_error(exc))
+    if not _preview_provider_available(config, issues):
+        return result
+    _check_generation(config, schema, result, options)
     if cancel_check is not None:
         cancel_check()
     result["ok"] = not any(issue["severity"] == "error" for issue in issues)
@@ -821,6 +930,74 @@ def start_run(
     return run
 
 
+def _fill_run_table(config: GeneratorConfig, table: TableConfig, orch: DataOrchestrator) -> GenerationResult:
+    return orch.fill_table(
+        table.name,
+        count=table.count,
+        batch_size=table.batch_size,
+        seed=table.seed,
+        column_configs=_runtime_columns(config, table, orch),
+        clear_before=False,
+        transform=None,
+        enrich=table.enrich,
+        skip_ai=True,
+    )
+
+
+def _replacement_plan(
+    conn: Connection, config: GeneratorConfig, run: dict[str, Any]
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    # BEGIN IMMEDIATE prevents another connection from changing the
+    # target between this final read and the destructive statements.
+    checked = check_document(conn, run["document"], run["schema_hash"])
+    if not checked["ok"] or checked["config_hash"] != run["config_hash"]:
+        raise WorkbenchError("执行前数据库来源或结构已变化，请重新检查与确认清空计划", code="check_stale")
+    schema = inspect_connection(conn)
+    plan = build_execution_plan(conn, config, schema, checked["order"], run["execution"], run["config_hash"])
+    _require_execution_plan(plan, run["plan_hash"])
+    return schema, plan
+
+
+def _clear_replacement_tables(
+    adapter: SQLAlchemyAdapter, plan: dict[str, Any], schema: dict[str, Any], reset_identity: bool
+) -> None:
+    for name in plan["delete_order"]:
+        adapter.execute(f"DELETE FROM {quote_identifier(name)}").close()
+    if reset_identity:
+        # Do not use the legacy dialect reset helper, which suppresses
+        # SQLite errors. A reset failure must roll back this whole run.
+        for table in schema["tables"]:
+            if table["name"] in plan["delete_order"] and any(column["is_autoincrement"] for column in table["columns"]):
+                adapter.execute("DELETE FROM sqlite_sequence WHERE name = ?", (table["name"],)).close()
+
+
+def _fill_replacement_tables(
+    orch: DataOrchestrator,
+    config: GeneratorConfig,
+    run: dict[str, Any],
+    store: WorkspaceStore,
+    tables: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    configs = {table.name: table for table in config.tables}
+    staged: dict[str, dict[str, Any]] = {}
+    for item in tables:
+        table = configs[item["name"]]
+        item["status"] = "running"
+        store.update_run(run["id"], {"tables": tables})
+        result = _fill_run_table(config, table, orch)
+        if result.errors:
+            raise WorkbenchError("; ".join(public_error(ValueError(error)) for error in result.errors))
+        staged[table.name] = {
+            "rows_inserted": result.count,
+            "batch_count": result.batch_count,
+            "elapsed": result.elapsed,
+        }
+        violations = orch.query(f"PRAGMA foreign_key_check({quote_identifier(table.name)})")
+        if violations:
+            raise WorkbenchError(f"{table.name} 生成后的外键检查未通过")
+    return staged
+
+
 def _execute_replacement(
     conn: Connection,
     run: dict[str, Any],
@@ -830,8 +1007,6 @@ def _execute_replacement(
 ) -> int:
     """Keep every delete, sequence reset, FK read and streamed batch in one transaction."""
     config = bind_document(conn, run["document"])
-    configs = {table.name: table for table in config.tables}
-    staged: dict[str, dict[str, Any]] = {}
     with DataOrchestrator.from_config(config) as orch:
         orch.get_table_names()
         adapter = orch.database_adapter
@@ -839,59 +1014,132 @@ def _execute_replacement(
             raise WorkbenchError("清空生成需要 SQLAlchemyAdapter", code="execution_blocked")
         with adapter.transaction():
             outcome["rolled_back"] = True
-            transaction_conn = replace(conn, orchestrator=orch)
-            # BEGIN IMMEDIATE prevents another connection from changing the
-            # target between this final read and the destructive statements.
-            checked = check_document(transaction_conn, run["document"], run["schema_hash"])
-            if not checked["ok"] or checked["config_hash"] != run["config_hash"]:
-                raise WorkbenchError("执行前数据库来源或结构已变化，请重新检查与确认清空计划", code="check_stale")
-            schema = inspect_connection(transaction_conn)
-            plan = build_execution_plan(
-                transaction_conn, config, schema, checked["order"], run["execution"], run["config_hash"]
-            )
-            _require_execution_plan(plan, run["plan_hash"])
-            for name in plan["delete_order"]:
-                adapter.execute(f"DELETE FROM {quote_identifier(name)}").close()
-            if run["execution"]["reset_identity"]:
-                # Do not use the legacy dialect reset helper, which suppresses
-                # SQLite errors. A reset failure must roll back this whole run.
-                for table in schema["tables"]:
-                    if table["name"] in plan["delete_order"] and any(
-                        column["is_autoincrement"] for column in table["columns"]
-                    ):
-                        adapter.execute("DELETE FROM sqlite_sequence WHERE name = ?", (table["name"],)).close()
+            schema, plan = _replacement_plan(replace(conn, orchestrator=orch), config, run)
+            _clear_replacement_tables(adapter, plan, schema, run["execution"]["reset_identity"])
             orch._relation.clear_cache()
             orch._shared_pool.clear()
-            for item in tables:
-                table = configs[item["name"]]
-                item["status"] = "running"
-                store.update_run(run["id"], {"tables": tables})
-                result = orch.fill_table(
-                    table.name,
-                    count=table.count,
-                    batch_size=table.batch_size,
-                    seed=table.seed,
-                    column_configs=_runtime_columns(config, table, orch),
-                    clear_before=False,
-                    transform=None,
-                    enrich=table.enrich,
-                    skip_ai=True,
-                )
-                if result.errors:
-                    raise WorkbenchError("; ".join(public_error(ValueError(error)) for error in result.errors))
-                staged[table.name] = {
-                    "rows_inserted": result.count,
-                    "batch_count": result.batch_count,
-                    "elapsed": result.elapsed,
-                }
-                violations = orch.query(f"PRAGMA foreign_key_check({quote_identifier(table.name)})")
-                if violations:
-                    raise WorkbenchError(f"{table.name} 生成后的外键检查未通过")
+            staged = _fill_replacement_tables(orch, config, run, store, tables)
         # Only the successful context exit above makes staged counts committed.
         outcome.update(committed=True, rolled_back=False)
         for item in tables:
             item.update(status="done", **staged[item["name"]])
     return sum(item["rows_inserted"] for item in tables)
+
+
+def _run_snapshot_failure(
+    run_id: str, job_id: str, store: WorkspaceStore | None, registry: UIState, exc: Exception
+) -> None:
+    # Failed snapshot loading must finish the reserved job, including storage failures.
+    error = public_error(exc)
+    try:
+        if store is not None:
+            store.update_run(run_id, {"status": "error", "errors": [error], "finished_at": time.time()})
+    except Exception:  # noqa: BLE001
+        # Secondary storage failures must not prevent releasing the job in finally.
+        logger.error("Workbench run snapshot unavailable", run_id=run_id)
+    finally:
+        registry.complete_job(job_id, error=error)
+
+
+@dataclass
+class _RunProgress:
+    rows_inserted: int
+    errors: list[str]
+
+
+def _current_run_config(conn: Connection, run: dict[str, Any]) -> GeneratorConfig:
+    checked = check_document(conn, run["document"], run["schema_hash"])
+    if not checked["ok"] or checked["config_hash"] != run["config_hash"]:
+        raise WorkbenchError("排队期间配置来源或 schema 已变化，运行未开始", code="check_stale")
+    return bind_document(conn, run["document"])
+
+
+def _append_run_tables(
+    config: GeneratorConfig, run_id: str, store: WorkspaceStore, tables: list[dict[str, Any]], progress: _RunProgress
+) -> None:
+    configs = {table.name: table for table in config.tables}
+    with DataOrchestrator.from_config(config) as orch:
+        for item in tables:
+            table = configs[item["name"]]
+            item["status"] = "running"
+            store.update_run(run_id, {"tables": tables})
+            result = _fill_run_table(config, table, orch)
+            progress.rows_inserted += result.count
+            item.update(
+                status="error" if result.errors else "done",
+                rows_inserted=result.count,
+                batch_count=result.batch_count,
+                elapsed=result.elapsed,
+                errors=[public_error(ValueError(error)) for error in result.errors],
+            )
+            store.update_run(run_id, {"tables": tables, "rows_inserted": progress.rows_inserted})
+            if result.errors:
+                progress.errors.extend(item["errors"])
+                break
+
+
+def _run_execution_failure(
+    exc: Exception, tables: list[dict[str, Any]], progress: _RunProgress, outcome: dict[str, Any], replacing: bool
+) -> None:
+    # The worker boundary records sanitized failures while preserving committed counts.
+    progress.errors.append(public_error(exc))
+    if replacing and outcome["committed"]:
+        # Disposal/reporting failures after COMMIT cannot erase rows that
+        # are already committed or claim the transaction rolled back.
+        progress.rows_inserted = sum(item["rows_inserted"] for item in tables)
+    for item in tables:
+        if item["status"] == "running":
+            item.update(status="error", rows_inserted=0 if replacing else None, errors=[public_error(exc)])
+
+
+def _run_terminal(
+    tables: list[dict[str, Any]], progress: _RunProgress, started: float, outcome: dict[str, Any], replacing: bool
+) -> dict[str, Any]:
+    for item in tables:
+        if item["status"] == "queued":
+            item["status"] = "not_run"
+    terminal: dict[str, Any] = {
+        "status": "error" if progress.errors else "done",
+        "tables": tables,
+        "rows_inserted": progress.rows_inserted,
+        "errors": progress.errors,
+        "elapsed": time.monotonic() - started,
+        "finished_at": time.time(),
+        "row_counts_exact": all(item["rows_inserted"] is not None for item in tables),
+    }
+    if replacing:
+        terminal["result"] = outcome
+    return terminal
+
+
+def _publish_run_terminal(
+    run_id: str,
+    job_id: str,
+    registry: UIState,
+    store: WorkspaceStore,
+    terminal: dict[str, Any],
+    progress: _RunProgress,
+) -> None:
+    try:
+        store.update_run(run_id, terminal)
+    except Exception as exc:  # noqa: BLE001
+        # Terminal persistence failures must still publish and release the in-memory job.
+        persistence_error = f"无法保存运行终态：{public_error(exc)}"
+        progress.errors.append(persistence_error)
+        terminal["status"] = "error"
+        logger.error("Failed to persist workbench run", run_id=run_id, error=persistence_error)
+        # A bounded second publication handles a record-validation failure.
+        # If storage itself is unavailable, the interrupted-run recovery on
+        # the next server start remains authoritative for the persisted run.
+        try:
+            store.update_run(run_id, {"status": "error", "error": persistence_error, "finished_at": time.time()})
+        except Exception:  # noqa: BLE001
+            # The bounded fallback must release the job even when storage remains unavailable.
+            logger.error("Workbench run storage unavailable", run_id=run_id)
+    finally:
+        registry.complete_job(
+            job_id, result=terminal, error="; ".join(progress.errors) or None, rows_inserted=progress.rows_inserted
+        )
 
 
 def execute_run(
@@ -902,102 +1150,24 @@ def execute_run(
         store = store or get_store()
         run = store.get_run(run_id)
     except Exception as exc:  # noqa: BLE001
-        # Failed snapshot loading must finish the reserved job, including storage failures.
-        error = public_error(exc)
-        try:
-            if store is not None:
-                store.update_run(run_id, {"status": "error", "errors": [error], "finished_at": time.time()})
-        except Exception:  # noqa: BLE001
-            # Secondary storage failures must not prevent releasing the job in finally.
-            logger.error("Workbench run snapshot unavailable", run_id=run_id)
-        finally:
-            registry.complete_job(job_id, error=error)
+        _run_snapshot_failure(run_id, job_id, store, registry, exc)
         return
     tables = run["tables"]
-    errors: list[str] = []
-    total = 0
+    progress = _RunProgress(rows_inserted=0, errors=[])
     started = time.monotonic()
     replacing = run.get("execution", {}).get("mode") == "replace_selected"
     outcome: dict[str, Any] = {"atomic": replacing, "committed": False, "rolled_back": False}
     try:
         with registry.connection_operation(conn_id, job_id=job_id) as conn:
-            checked = check_document(conn, run["document"], run["schema_hash"])
-            if not checked["ok"] or checked["config_hash"] != run["config_hash"]:
-                raise WorkbenchError("排队期间配置来源或 schema 已变化，运行未开始", code="check_stale")
-            config = bind_document(conn, run["document"])
+            config = _current_run_config(conn, run)
             store.update_run(run_id, {"status": "running", "started_at": time.time()})
             if replacing:
-                total = _execute_replacement(conn, run, store, tables, outcome)
+                progress.rows_inserted = _execute_replacement(conn, run, store, tables, outcome)
                 return
-            configs = {table.name: table for table in config.tables}
-            with DataOrchestrator.from_config(config) as orch:
-                for item in tables:
-                    table = configs[item["name"]]
-                    item["status"] = "running"
-                    store.update_run(run_id, {"tables": tables})
-                    result = orch.fill_table(
-                        table.name,
-                        count=table.count,
-                        batch_size=table.batch_size,
-                        seed=table.seed,
-                        column_configs=_runtime_columns(config, table, orch),
-                        clear_before=False,
-                        transform=None,
-                        enrich=table.enrich,
-                        skip_ai=True,
-                    )
-                    total += result.count
-                    item.update(
-                        status="error" if result.errors else "done",
-                        rows_inserted=result.count,
-                        batch_count=result.batch_count,
-                        elapsed=result.elapsed,
-                        errors=[public_error(ValueError(error)) for error in result.errors],
-                    )
-                    store.update_run(run_id, {"tables": tables, "rows_inserted": total})
-                    if result.errors:
-                        errors.extend(item["errors"])
-                        break
+            _append_run_tables(config, run_id, store, tables, progress)
     except Exception as exc:  # noqa: BLE001
-        # The worker boundary records sanitized failures while preserving committed counts.
-        errors.append(public_error(exc))
-        if replacing and outcome["committed"]:
-            # Disposal/reporting failures after COMMIT cannot erase rows that
-            # are already committed or claim the transaction rolled back.
-            total = sum(item["rows_inserted"] for item in tables)
-        for item in tables:
-            if item["status"] == "running":
-                item.update(status="error", rows_inserted=0 if replacing else None, errors=[public_error(exc)])
+        _run_execution_failure(exc, tables, progress, outcome, replacing)
     finally:
-        for item in tables:
-            if item["status"] == "queued":
-                item["status"] = "not_run"
-        terminal = {
-            "status": "error" if errors else "done",
-            "tables": tables,
-            "rows_inserted": total,
-            "errors": errors,
-            "elapsed": time.monotonic() - started,
-            "finished_at": time.time(),
-            "row_counts_exact": all(item["rows_inserted"] is not None for item in tables),
-        }
-        if replacing:
-            terminal["result"] = outcome
-        try:
-            store.update_run(run_id, terminal)
-        except Exception as exc:  # noqa: BLE001
-            # Terminal persistence failures must still publish and release the in-memory job.
-            persistence_error = f"无法保存运行终态：{public_error(exc)}"
-            errors.append(persistence_error)
-            terminal["status"] = "error"
-            logger.error("Failed to persist workbench run", run_id=run_id, error=persistence_error)
-            # A bounded second publication handles a record-validation failure.
-            # If storage itself is unavailable, the interrupted-run recovery on
-            # the next server start remains authoritative for the persisted run.
-            try:
-                store.update_run(run_id, {"status": "error", "error": persistence_error, "finished_at": time.time()})
-            except Exception:  # noqa: BLE001
-                # The bounded fallback must release the job even when storage remains unavailable.
-                logger.error("Workbench run storage unavailable", run_id=run_id)
-        finally:
-            registry.complete_job(job_id, result=terminal, error="; ".join(errors) or None, rows_inserted=total)
+        _publish_run_terminal(
+            run_id, job_id, registry, store, _run_terminal(tables, progress, started, outcome, replacing), progress
+        )

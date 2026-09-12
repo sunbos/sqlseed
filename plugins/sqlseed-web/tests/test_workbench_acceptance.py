@@ -2,25 +2,26 @@
 
 from __future__ import annotations
 
-import sqlite3
 import time
-from contextlib import closing
 from typing import TYPE_CHECKING, Any
 
 import pytest
 from fastapi.testclient import TestClient
+from tests.sqlite_helpers import sqlite_connection
 
 from sqlseed_web import api, workbench
 from sqlseed_web.app import create_app
 from sqlseed_web.state import UIState
+
+from .workbench_test_helpers import parent_child_document
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
     from pathlib import Path
 
 
-@pytest.fixture()
-def workspace_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
+@pytest.fixture(name="workspace_client")
+def fixture_workspace_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     registry = UIState()
     monkeypatch.setattr(api, "state", registry)
     monkeypatch.setattr(workbench, "state", registry)
@@ -36,10 +37,10 @@ def workspace_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterato
         registry.close_connection(connection["conn_id"])
 
 
-@pytest.fixture()
-def target_path(tmp_path: Path) -> Path:
+@pytest.fixture(name="target_path")
+def fixture_target_path(tmp_path: Path) -> Path:
     path = tmp_path / "target.sqlite3"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.executescript(
             "CREATE TABLE parents (id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT NOT NULL UNIQUE);"
             "CREATE TABLE children (id INTEGER PRIMARY KEY AUTOINCREMENT, "
@@ -58,28 +59,7 @@ def _connect(client: TestClient, path: Path) -> tuple[str, dict[str, Any]]:
 
 
 def _document() -> dict[str, Any]:
-    return {
-        "provider": "base",
-        "locale": "zh_CN",
-        "optimize_pragma": False,
-        "tables": [
-            {
-                "name": "children",
-                "count": 4,
-                "batch_size": 2,
-                "seed": 0,
-                "columns": [
-                    {"name": "amount", "generator": "integer", "params": {"min_value": 7, "max_value": 7}},
-                    {"name": "doubled", "derive_from": "amount", "expression": "value * 2"},
-                ],
-            },
-            {
-                "name": "parents",
-                "count": 3,
-                "columns": [{"name": "code", "generator": "uuid"}],
-            },
-        ],
-    }
+    return parent_child_document("base", child_batch_size=2)
 
 
 def _save(client: TestClient, conn_id: str, schema: dict[str, Any], document: dict[str, Any]) -> dict[str, Any]:
@@ -125,7 +105,7 @@ def _poll(client: TestClient, run_id: str) -> dict[str, Any]:
         if run["status"] not in {"queued", "running"}:
             return run
         time.sleep(0.01)
-    pytest.fail("Persistent run did not reach a terminal state")
+    return pytest.fail("Persistent run did not reach a terminal state")
 
 
 def test_http_save_reopen_check_preview_run_and_history(workspace_client: TestClient, target_path: Path) -> None:
@@ -146,7 +126,7 @@ def test_http_save_reopen_check_preview_run_and_history(workspace_client: TestCl
     assert checked["order"] == ["parents", "children"]
     assert not preview["preview_complete"]
     assert len(preview["samples"]["parents"]) == 3
-    with closing(sqlite3.connect(target_path)) as db, db:
+    with sqlite_connection(target_path) as db:
         assert db.execute("SELECT COUNT(*) FROM parents").fetchone()[0] == 0
         assert db.execute("SELECT COUNT(*) FROM children").fetchone()[0] == 0
 
@@ -163,7 +143,7 @@ def test_http_save_reopen_check_preview_run_and_history(workspace_client: TestCl
     assert history.json()[0]["status"] == "done"
     with TestClient(create_app(), raise_server_exceptions=False) as reopened_client:
         assert reopened_client.get(f"/api/workbench/runs/{run['id']}").json()["rows_inserted"] == 7
-    with closing(sqlite3.connect(target_path)) as db, db:
+    with sqlite_connection(target_path) as db:
         assert (
             db.execute(
                 "SELECT COUNT(*) FROM children JOIN parents ON parents.id=children.parent_id "
@@ -197,13 +177,13 @@ def test_http_run_rejects_stale_draft_revision_and_target(
     assert stale.status_code == 409, stale.text
 
     other = tmp_path / "other.sqlite3"
-    with closing(sqlite3.connect(other)) as db, db:
+    with sqlite_connection(other) as db:
         db.execute("CREATE TABLE unrelated (id INTEGER PRIMARY KEY)")
     other_id, _ = _connect(client, other)
     mismatch = client.post("/api/workbench/runs", json=_run_request(other_id, updated.json(), checked))
     assert mismatch.status_code == 409, mismatch.text
     assert client.get("/api/workbench/runs").json() == []
-    with closing(sqlite3.connect(target_path)) as db, db:
+    with sqlite_connection(target_path) as db:
         assert db.execute("SELECT COUNT(*) FROM parents").fetchone()[0] == 0
 
 
@@ -212,17 +192,17 @@ def test_http_run_rechecks_schema_and_parent_data_after_check(workspace_client: 
     conn_id, schema = _connect(client, target_path)
     draft = _save(client, conn_id, schema, _document())
     checked = _check(client, conn_id, draft)
-    with closing(sqlite3.connect(target_path)) as db, db:
+    with sqlite_connection(target_path) as db:
         db.execute("INSERT INTO parents (code) VALUES ('external-row')")
     stale = client.post("/api/workbench/runs", json=_run_request(conn_id, draft, checked))
     assert stale.status_code == 409, stale.text
     fresh = _check(client, conn_id, draft)
-    with closing(sqlite3.connect(target_path)) as db, db:
+    with sqlite_connection(target_path) as db:
         db.execute("ALTER TABLE children ADD COLUMN external_change TEXT")
     changed = client.post("/api/workbench/runs", json=_run_request(conn_id, draft, fresh))
     assert changed.status_code == 409, changed.text
     assert client.get("/api/workbench/runs").json() == []
-    with closing(sqlite3.connect(target_path)) as db, db:
+    with sqlite_connection(target_path) as db:
         assert db.execute("SELECT COUNT(*) FROM parents").fetchone()[0] == 1
         assert db.execute("SELECT COUNT(*) FROM children").fetchone()[0] == 0
 
@@ -230,7 +210,7 @@ def test_http_run_rechecks_schema_and_parent_data_after_check(workspace_client: 
 def test_http_partial_failure_persists_actual_rows_and_unstarted_tables(
     workspace_client: TestClient, target_path: Path
 ) -> None:
-    with closing(sqlite3.connect(target_path)) as db, db:
+    with sqlite_connection(target_path) as db:
         db.executescript(
             "CREATE TRIGGER reject_later BEFORE INSERT ON parents "
             "WHEN (SELECT COUNT(*) FROM parents) >= 2 "
@@ -252,6 +232,6 @@ def test_http_partial_failure_persists_actual_rows_and_unstarted_tables(
     assert run["tables"][0]["batch_count"] == 1
     assert run["tables"][1]["status"] == "not_run"
     assert run["errors"]
-    with closing(sqlite3.connect(target_path)) as db, db:
+    with sqlite_connection(target_path) as db:
         assert db.execute("SELECT COUNT(*) FROM parents").fetchone()[0] == 2
         assert db.execute("SELECT COUNT(*) FROM children").fetchone()[0] == 0

@@ -2,19 +2,11 @@
 
 from __future__ import annotations
 
-import datetime
 import importlib
 from typing import Any
 
 from sqlseed._utils.logger import get_logger
-from sqlseed.generators._datetime_utils import (
-    normalize_weekdays,
-    random_date,
-    random_time,
-    resolve_date_bounds,
-    resolve_time_bounds,
-)
-from sqlseed.generators.base_provider import BaseProvider
+from sqlseed.generators._native_provider import NativeProvider
 
 # Use importlib.import_module() instead of top-level ``from mimesis import
 # Generic`` so that ruff's import-outside-toplevel check is not triggered
@@ -34,7 +26,7 @@ HAS_MIMESIS = _GENERIC_CLASS is not None
 logger = get_logger(__name__)
 
 
-class MimesisProvider(BaseProvider):
+class MimesisProvider(NativeProvider):
     """Mimesis-based data generator adapter."""
 
     def __init__(self) -> None:
@@ -87,19 +79,9 @@ class MimesisProvider(BaseProvider):
         """Generate an integer."""
         return self._generic.numeric.integer_number(start=min_value, end=max_value)
 
-    def _gen_float(
-        self,
-        *,
-        min_value: float = 0.0,
-        max_value: float = 999999.0,
-        precision: int = 2,
-    ) -> float:
-        """Generate a float within the closed interval at the requested precision."""
-        lower, upper = self._float_bounds(min_value, max_value, precision)
-        if lower == upper:
-            return lower
-        value = self._generic.numeric.float_number(start=min_value, end=max_value, precision=precision)
-        return max(lower, min(upper, round(value, precision)))
+    def _draw_native_float(self, min_value: float, max_value: float, precision: int) -> float:
+        """Draw using the native library; shared validation runs before this call."""
+        return self._generic.numeric.float_number(start=min_value, end=max_value, precision=precision)
 
     def _gen_boolean(self) -> bool:
         """Generate a boolean."""
@@ -161,115 +143,6 @@ class MimesisProvider(BaseProvider):
     def _gen_uuid(self) -> str:
         """Generate a UUID."""
         return str(self._generic.cryptographic.uuid_object())
-
-    def _gen_date(
-        self,
-        *,
-        start_year: int = 2000,
-        end_year: int | None = None,
-        start_date: str | None = None,
-        end_date: str | None = None,
-        weekdays: str | list[int] | None = "all",
-    ) -> datetime.date:
-        """Generate a ``datetime.date`` object.
-
-        ``start_date`` / ``end_date`` (``YYYY-MM-DD``) take precedence over the
-        legacy year pair. ``weekdays`` mirrors 参考工具's 全部 / 工作日 / 自定义
-        radio (see :mod:`sqlseed.generators._datetime_utils`).
-
-        Date arithmetic is delegated to the shared helpers rather than
-        ``mimesis.datetime.date``: mimesis cannot filter by weekday, and its
-        datetime output leaked microseconds while base did not. Sharing the
-        implementation keeps all three providers byte-identical.
-
-        Returning a ``date`` object (rather than a ``str(date)`` string)
-        ensures SQLAlchemy ``DATE`` columns accept the value directly —
-        SQLite's ``DATE`` type rejects ISO-format strings with
-        ``StatementError: SQLite Date type only accepts Python date objects``.
-        """
-        start, end = resolve_date_bounds(start_year, end_year, start_date, end_date)
-        return random_date(self._rng, start, end, normalize_weekdays(weekdays))
-
-    def _gen_datetime(
-        self,
-        *,
-        start_year: int = 2000,
-        end_year: int | None = None,
-        start_date: str | None = None,
-        end_date: str | None = None,
-        all_day: bool = True,
-        start_time: str | None = None,
-        end_time: str | None = None,
-        weekdays: str | list[int] | None = "all",
-    ) -> datetime.datetime:
-        """Generate a ``datetime.datetime`` object.
-
-        ``all_day`` is 参考工具's 一整天 checkbox (default on): full-day range,
-        ignoring ``start_time`` / ``end_time``. Uncheck it to constrain the
-        time of day. Whole seconds only — 参考工具's 日期时间 panel has no
-        sub-second control, so microsecond noise like ``T10:21:03.895011``
-        carries no meaning.
-
-        Returning a ``datetime`` object (rather than a ``str(datetime)`` string)
-        ensures SQLAlchemy ``DATETIME``/``TIMESTAMP`` columns accept the value
-        directly — SQLite's ``DateTime`` type rejects ISO-format strings with
-        ``StatementError: SQLite DateTime type only accepts Python datetime
-        and date objects as input``.
-        """
-        start, end = resolve_date_bounds(start_year, end_year, start_date, end_date)
-        day = random_date(self._rng, start, end, normalize_weekdays(weekdays))
-        lo, hi = resolve_time_bounds(all_day, start_time, end_time)
-        return datetime.datetime.combine(day, random_time(self._rng, lo, hi))
-
-    def _gen_time(
-        self,
-        *,
-        all_day: bool = True,
-        start_time: str | None = None,
-        end_time: str | None = None,
-    ) -> datetime.time:
-        """Generate a ``datetime.time`` object (参考工具 时间 panel).
-
-        ``all_day=True`` (default, 一整天) spans the whole day; unchecking it
-        enables the ``start_time`` / ``end_time`` window.
-        """
-        lo, hi = resolve_time_bounds(all_day, start_time, end_time)
-        return random_time(self._rng, lo, hi)
-
-    def _gen_timestamp(
-        self,
-        *,
-        start_year: int = 2000,
-        end_year: int | None = None,
-        start_date: str | None = None,
-        end_date: str | None = None,
-        all_day: bool = True,
-        start_time: str | None = None,
-        end_time: str | None = None,
-        weekdays: str | list[int] | None = "all",
-    ) -> datetime.datetime:
-        """Generate a ``datetime.datetime`` object.
-
-        Same params as :meth:`_gen_datetime` and delegates to it — sqlseed's
-        ``timestamp`` and ``datetime`` are the same SQLAlchemy-facing
-        ``datetime`` object; only the column dialect differs.
-
-        Returning a ``datetime`` object (rather than a Unix epoch integer)
-        ensures SQLAlchemy ``TIMESTAMP``/``DATETIME`` columns accept the value
-        directly — SQLite's ``DateTime`` type rejects integers with
-        ``StatementError: SQLite DateTime type only accepts Python datetime
-        and date objects as input``.
-        """
-        return self._gen_datetime(
-            start_year=start_year,
-            end_year=end_year,
-            start_date=start_date,
-            end_date=end_date,
-            all_day=all_day,
-            start_time=start_time,
-            end_time=end_time,
-            weekdays=weekdays,
-        )
 
     def _gen_text(self, *, min_length: int = 50, max_length: int = 200) -> str:
         """Generate text."""

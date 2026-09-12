@@ -19,8 +19,8 @@ import pytest
 from click.testing import CliRunner
 
 
-@pytest.fixture
-def cli_runner() -> CliRunner:
+@pytest.fixture(name="cli_runner")
+def fixture_cli_runner() -> CliRunner:
     """Provide a fresh ``CliRunner`` for invoking Click commands."""
     return CliRunner()
 
@@ -42,7 +42,6 @@ def test_ai_analyze_defaults_to_v4_path(monkeypatch, tmp_path):
     """ai-analyze without --staged-pipeline should use AutoHealOrchestrator (v4)."""
     import sqlite3
 
-    from click.testing import CliRunner
     from sqlseed_ai.cli.ai_commands import ai_analyze
 
     # Create a minimal SQLite db
@@ -54,7 +53,7 @@ def test_ai_analyze_defaults_to_v4_path(monkeypatch, tmp_path):
 
     captured: dict = {}
 
-    def _fake_run_auto_heal_v4(*, db_path=None, db_url=None, **kwargs):
+    def _fake_run_auto_heal_v4(*, db_path=None, db_url=None, **_kwargs):
         captured["called"] = True
         captured["db_path"] = db_path
         captured["db_url"] = db_url

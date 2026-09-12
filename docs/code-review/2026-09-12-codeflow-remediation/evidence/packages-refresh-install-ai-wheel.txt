@@ -1,0 +1,7 @@
+Processing /tmp/sqlseed-codeflow-packages-bp87t1jx/dist/sqlseed_ai-0.2.4.dev255+g5b0dd0723.d20260912-py3-none-any.whl
+Installing collected packages: sqlseed-ai
+  Attempting uninstall: sqlseed-ai
+    Found existing installation: sqlseed-ai 0.2.4.dev255+g5b0dd0723.d20260912
+    Uninstalling sqlseed-ai-0.2.4.dev255+g5b0dd0723.d20260912:
+      Successfully uninstalled sqlseed-ai-0.2.4.dev255+g5b0dd0723.d20260912
+Successfully installed sqlseed-ai-0.2.4.dev255+g5b0dd0723.d20260912

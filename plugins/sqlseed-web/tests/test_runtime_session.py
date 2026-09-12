@@ -2,20 +2,19 @@
 
 from __future__ import annotations
 
-import sqlite3
-from contextlib import closing
 from pathlib import Path
 from typing import Any
 
 import pytest
 from fastapi import HTTPException
+from tests.sqlite_helpers import sqlite_connection
 
 from sqlseed_web import runtime_session
 from sqlseed_web.state import UIState
 
 
-@pytest.fixture()
-def registry(monkeypatch: pytest.MonkeyPatch) -> Any:
+@pytest.fixture(name="registry")
+def fixture_registry(monkeypatch: pytest.MonkeyPatch) -> Any:
     value = UIState()
     monkeypatch.setattr(runtime_session, "state", value)
     yield value
@@ -27,7 +26,7 @@ def test_export_close_restore_preserves_connection_id_rows_provider_locale_and_a
     tmp_path: Path, registry: UIState
 ) -> None:
     path = tmp_path / "session.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.execute("CREATE TABLE records(id INTEGER PRIMARY KEY, label TEXT)")
         db.execute("INSERT INTO records VALUES (1, 'existing')")
     conn = registry.add_connection(str(path), provider="faker", locale="zh_CN")
@@ -86,7 +85,7 @@ def test_restore_reports_partial_failures_without_exposing_targets_or_secrets(
     tmp_path: Path, registry: UIState
 ) -> None:
     path = tmp_path / "valid.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.execute("CREATE TABLE records(value INTEGER)")
     snapshot = {
         "connections": [
@@ -116,7 +115,7 @@ def test_duplicate_restored_id_cannot_replace_or_close_an_existing_connection(
     tmp_path: Path, registry: UIState
 ) -> None:
     path = tmp_path / "original.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.execute("CREATE TABLE records(value INTEGER)")
     original = registry.add_connection(str(path), provider="base", connection_id="same-id")
     original.orchestrator.get_table_names()

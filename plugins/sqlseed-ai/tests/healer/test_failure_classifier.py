@@ -8,8 +8,8 @@ import pytest
 from sqlseed_ai.healer.failure_classifier import FailureClassifier, FailureType
 
 
-@pytest.fixture
-def classifier():
+@pytest.fixture(name="classifier")
+def fixture_classifier():
     return FailureClassifier()
 
 

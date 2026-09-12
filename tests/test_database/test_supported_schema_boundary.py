@@ -5,8 +5,6 @@ PostgreSQL cases exercise SQLAlchemy metadata contracts, not a live server.
 
 from __future__ import annotations
 
-import sqlite3
-from contextlib import closing
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -16,6 +14,7 @@ from sqlseed.core.relation import RelationResolver
 from sqlseed.database._dialect import PostgresDialect
 from sqlseed.database.sqlalchemy_adapter import SQLAlchemyAdapter
 from sqlseed.generators._protocol import ConfigurationError
+from tests.sqlite_helpers import sqlite_connection
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -23,7 +22,7 @@ if TYPE_CHECKING:
 
 def test_real_sqlite_reflection_preserves_separate_fk_constraint_identity(tmp_path: Path) -> None:
     path = tmp_path / "groups.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.executescript(
             "CREATE TABLE parents(a INTEGER,b INTEGER,PRIMARY KEY(a,b));"
             "CREATE TABLE other(id INTEGER PRIMARY KEY);"

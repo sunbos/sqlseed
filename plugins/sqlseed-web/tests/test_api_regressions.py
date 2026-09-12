@@ -3,28 +3,29 @@
 from __future__ import annotations
 
 import builtins
+import importlib
 import json
-import sqlite3
 import threading
 import time
 from collections.abc import Iterator
-from contextlib import closing, contextmanager
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-import httpx
 import pytest
 import yaml
 from fastapi.testclient import TestClient
 from sqlseed.config.models import GeneratorConfig
+from tests.llm_helpers import no_network_openai_client
+from tests.sqlite_helpers import sqlite_connection
 
 from sqlseed_web import api
 from sqlseed_web.app import create_app
 from sqlseed_web.state import Job, UIState
 
 
-@pytest.fixture()
-def client(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
+@pytest.fixture(name="client")
+def fixture_client(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     registry = UIState()
     monkeypatch.setattr(api, "state", registry)
     monkeypatch.setenv("SQLSEED_AI_ENABLED", "0")
@@ -34,10 +35,10 @@ def client(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
         registry.close_connection(conn["conn_id"])
 
 
-@pytest.fixture()
-def db_path(tmp_path: Path) -> str:
+@pytest.fixture(name="db_path")
+def fixture_db_path(tmp_path: Path) -> str:
     path = tmp_path / "regressions.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.execute("CREATE TABLE items (id INTEGER PRIMARY KEY AUTOINCREMENT, value INTEGER NOT NULL)")
         db.execute("CREATE TABLE evens (id INTEGER PRIMARY KEY AUTOINCREMENT, value INTEGER CHECK(value % 2 = 0))")
     return str(path)
@@ -57,7 +58,7 @@ def poll_job(client: TestClient, job_id: str) -> dict[str, Any]:
         if result["status"] != "running":
             return result
         time.sleep(0.01)
-    pytest.fail("background job never finished")
+    return pytest.fail("background job never finished")
 
 
 def test_failed_insert_reports_error_and_actual_count(client: TestClient, db_path: str) -> None:
@@ -77,7 +78,7 @@ def test_failed_insert_reports_error_and_actual_count(client: TestClient, db_pat
     assert result["result"]["errors"]
     assert result["result"]["row_count_after"] == 0
     assert api.state.get_job(response.json()["job_id"]).finished_at > 0
-    with closing(sqlite3.connect(db_path)) as db, db:
+    with sqlite_connection(db_path) as db:
         assert db.execute("SELECT COUNT(*) FROM evens").fetchone()[0] == 0
 
 
@@ -317,13 +318,20 @@ def test_auto_heal_missing_runtime_dependency_returns_503(
     pytest.importorskip("sqlseed_ai")
     cid = connect(client, db_path)
     original_import = builtins.__import__
+    original_import_module = importlib.import_module
 
     def missing_runtime(name: str, *args: Any, **kwargs: Any) -> Any:
         if name == "sqlseed_ai.runtime":
             raise ImportError("runtime dependency missing: private-provider-secret")
         return original_import(name, *args, **kwargs)
 
+    def missing_runtime_module(name: str, package: str | None = None) -> Any:
+        if name == "sqlseed_ai.runtime":
+            return missing_runtime(name)
+        return original_import_module(name, package)
+
     monkeypatch.setattr(builtins, "__import__", missing_runtime)
+    monkeypatch.setattr(importlib, "import_module", missing_runtime_module)
     response = client.post(f"/api/connections/{cid}/heal/auto", json={})
     assert response.status_code == 503
     detail = response.json()["detail"]
@@ -336,6 +344,38 @@ def test_auto_heal_missing_runtime_dependency_returns_503(
     assert client.delete(f"/api/connections/{cid}").status_code == 200
 
 
+@pytest.mark.parametrize(
+    ("module_name", "export_name", "endpoint"),
+    [
+        ("sqlseed_ai.contracts.builtin_violations", "BUILTIN_VIOLATIONS", "heal/validate"),
+        ("sqlseed_ai.runtime", "build_ai_config", "heal/auto"),
+    ],
+)
+def test_heal_missing_required_export_returns_503_before_job_admission(
+    client: TestClient,
+    db_path: str,
+    monkeypatch: pytest.MonkeyPatch,
+    module_name: str,
+    export_name: str,
+    endpoint: str,
+) -> None:
+    pytest.importorskip("sqlseed_ai")
+    module = importlib.import_module(module_name)
+    cid = connect(client, db_path)
+    monkeypatch.setattr(api, "require_ai_available", lambda: None)
+    monkeypatch.delattr(module, export_name)
+
+    response = client.post(f"/api/connections/{cid}/{endpoint}", json={"yaml": "tables: []"})
+
+    assert response.status_code == 503
+    detail = response.json()["detail"]
+    assert detail["code"] == "ai_unavailable"
+    assert detail["availability_status"] == "import_error"
+    assert detail["recovery_action"] == "repair"
+    assert not api.state.recent_jobs()
+    assert client.delete(f"/api/connections/{cid}").status_code == 200
+
+
 @pytest.mark.parametrize("failure", [None, "construct", "run"])
 def test_auto_heal_releases_owned_client_before_terminal_state(
     client: TestClient,
@@ -344,16 +384,11 @@ def test_auto_heal_releases_owned_client_before_terminal_state(
     failure: str | None,
 ) -> None:
     pytest.importorskip("sqlseed_ai")
-    from openai import OpenAI
     from sqlseed_ai import runtime
     from sqlseed_ai.auto_heal.orchestrator import AutoHealOrchestrator
     from sqlseed_ai.healer._client import OpenAICompatAdapter
 
-    def no_network(request: httpx.Request) -> httpx.Response:
-        pytest.fail("unexpected LLM request")
-
-    transport_client = httpx.Client(transport=httpx.MockTransport(no_network), trust_env=False)
-    sdk_client = OpenAI(api_key="test-key", base_url="https://example.invalid/v1", http_client=transport_client)
+    transport_client, sdk_client = no_network_openai_client()
     monkeypatch.setattr(runtime, "build_llm_client", lambda _config: OpenAICompatAdapter(sdk_client))
 
     def fail(*args: Any, **kwargs: Any) -> None:
@@ -370,7 +405,7 @@ def test_auto_heal_releases_owned_client_before_terminal_state(
 
     def observe_terminal(self: Job, name: str, value: Any) -> None:
         original_setattr(self, name, value)
-        if self is job and name == "status" and value in ("done", "error"):
+        if self is job and name == "status" and value in {"done", "error"}:
             published_closed.append(transport_client.is_closed)
 
     monkeypatch.setattr(Job, "__setattr__", observe_terminal)

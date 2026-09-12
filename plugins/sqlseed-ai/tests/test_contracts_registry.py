@@ -12,20 +12,22 @@ from sqlseed_ai.contracts.registry import (
     LearnedContractsRegistry,
 )
 
+from tests.assertions import assert_empty
+
 if TYPE_CHECKING:
     from pathlib import Path
 
 
 def _make_v(**kwargs):
-    defaults = dict(
-        generator="float",
-        column_type="TEXT",
-        constraints=frozenset(),
-        kind=ViolationKind.SEMANTIC_ERROR,
-        fix_strategy="switch_generator",
-        fix_params={"target": "string"},
-        source="auto_learned",
-    )
+    defaults = {
+        "generator": "float",
+        "column_type": "TEXT",
+        "constraints": frozenset(),
+        "kind": ViolationKind.SEMANTIC_ERROR,
+        "fix_strategy": "switch_generator",
+        "fix_params": {"target": "string"},
+        "source": "auto_learned",
+    }
     defaults.update(kwargs)
     return ContractViolation(**defaults)
 
@@ -116,7 +118,7 @@ def test_save_and_load_roundtrip(tmp_path: Path):
 def test_load_empty_file_returns_empty_list(tmp_path: Path):
     """Missing or empty file = empty list (no crash)."""
     reg = LearnedContractsRegistry(path=tmp_path / "nonexistent.json")
-    assert reg.load() == []
+    assert_empty(reg.load(), list)
 
 
 def test_load_filter_by_schema_hash(tmp_path: Path):
@@ -145,7 +147,7 @@ def test_atomic_save_uses_temp_file(tmp_path: Path):
     reg.save([_contract_for_save()])
     assert (tmp_path / "learned.json").exists()
     temp_files = list(tmp_path.glob("learned.json.*.tmp"))
-    assert temp_files == []
+    assert_empty(temp_files, list)
 
 
 def test_load_rejects_tampered_rce_entries(tmp_path: Path):
@@ -166,4 +168,4 @@ def test_load_rejects_tampered_rce_entries(tmp_path: Path):
     ]
     (tmp_path / "learned.json").write_text(json.dumps(tampered), encoding="utf-8")
     loaded = reg.load()
-    assert loaded == []
+    assert_empty(loaded, list)

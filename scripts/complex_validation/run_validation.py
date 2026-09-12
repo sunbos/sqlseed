@@ -23,8 +23,10 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from corpus import DEFAULT_COUNT, SCHEMAS  # noqa: E402
+if __package__:
+    from .corpus import DEFAULT_COUNT, SCHEMAS
+else:
+    from corpus import DEFAULT_COUNT, SCHEMAS
 
 DB_DIR = Path(__file__).resolve().parent / "dbs"
 SEED = 42
@@ -51,6 +53,29 @@ class DbReport:
         return [c for c in self.checks if not c.ok]
 
 
+def _check_body(create_sql: str, i: int) -> str | None:
+    """Return a balanced CHECK body while respecting escaped SQL string quotes."""
+    depth, j, in_str = 0, i, False
+    while j < len(create_sql):
+        c = create_sql[j]
+        if in_str:
+            if c == "'":
+                if j + 1 < len(create_sql) and create_sql[j + 1] == "'":
+                    j += 1
+                else:
+                    in_str = False
+        elif c == "'":
+            in_str = True
+        elif c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+            if depth == 0:
+                return create_sql[i + 1 : j]
+        j += 1
+    return None
+
+
 def extract_checks(create_sql: str) -> list[str]:
     """Extract balanced-paren CHECK(...) expressions from a CREATE TABLE statement."""
     exprs: list[str] = []
@@ -60,25 +85,9 @@ def extract_checks(create_sql: str) -> list[str]:
             i += 1
         if i >= len(create_sql) or create_sql[i] != "(":
             continue
-        depth, j, in_str = 0, i, False
-        while j < len(create_sql):
-            c = create_sql[j]
-            if in_str:
-                if c == "'":
-                    if j + 1 < len(create_sql) and create_sql[j + 1] == "'":
-                        j += 1
-                    else:
-                        in_str = False
-            elif c == "'":
-                in_str = True
-            elif c == "(":
-                depth += 1
-            elif c == ")":
-                depth -= 1
-                if depth == 0:
-                    exprs.append(create_sql[i + 1 : j])
-                    break
-            j += 1
+        body = _check_body(create_sql, i)
+        if body is not None:
+            exprs.append(body)
     return exprs
 
 
@@ -114,6 +123,52 @@ def fill_db(db_path: Path, counts: dict) -> tuple[dict[str, str], float, int]:
     return errors, time.perf_counter() - t_start, rows
 
 
+def _verify_check_constraints(con: sqlite3.Connection, tables: dict[str, str], counts: dict, checks: list[CheckResult]) -> None:
+    # D3 CHECK re-evaluation (independent of insert-time enforcement)
+    for t, sql in tables.items():
+        if counts.get(t, DEFAULT_COUNT) is None:
+            continue
+        for expr in extract_checks(sql):
+            try:
+                bad = con.execute(f'SELECT COUNT(*) FROM "{t}" WHERE NOT ({expr})').fetchone()[0]
+            except sqlite3.Error as exc:
+                checks.append(CheckResult("D3-check", t, False, f"unevaluable: {expr[:60]} ({exc})"))
+                continue
+            checks.append(CheckResult("D3-check", t, bad == 0, f"NOT ({expr[:70]}) -> {bad}"))
+
+
+def _verify_unique_notnull(con: sqlite3.Connection, tables: dict[str, str], counts: dict, checks: list[CheckResult]) -> None:
+    # D4 UNIQUE duplicates + NOT NULL violations
+    for t in tables:
+        if counts.get(t, DEFAULT_COUNT) is None:
+            continue
+        cols_info = con.execute(f'PRAGMA table_info("{t}")').fetchall()
+        notnull_cols = [r[1] for r in cols_info if r[3] == 1]
+        pk_cols = {r[1] for r in cols_info if r[5] > 0}
+        single_int_pk = len(pk_cols) == 1 and any(
+            r[1] in pk_cols and r[2].upper() == "INTEGER" for r in cols_info
+        )
+        for col in notnull_cols:
+            nulls = con.execute(f'SELECT COUNT(*) FROM "{t}" WHERE "{col}" IS NULL').fetchone()[0]
+            checks.append(CheckResult("D4-notnull", t, nulls == 0, f"{col} nulls={nulls}"))
+        for idx in con.execute(f'PRAGMA index_list("{t}")').fetchall():
+            idx_name, is_unique, origin = idx[1], idx[2], idx[3]
+            if not is_unique or origin not in ("u", "pk"):
+                continue
+            idx_cols = [r[2] for r in con.execute(f'PRAGMA index_info("{idx_name}")')]
+            if single_int_pk and set(idx_cols) == pk_cols:
+                continue  # rowid alias is inherently unique
+            col_list = ", ".join(f'"{c}"' for c in idx_cols)
+            # SQL standard: UNIQUE indexes allow repeated NULLs — exclude
+            # rows with any NULL key column from the duplicate scan.
+            not_null_where = " AND ".join(f'"{c}" IS NOT NULL' for c in idx_cols)
+            dup = con.execute(
+                f'SELECT COUNT(*) FROM (SELECT {col_list} FROM "{t}" WHERE {not_null_where} '
+                f"GROUP BY {col_list} HAVING COUNT(*) > 1)"
+            ).fetchone()[0]
+            checks.append(CheckResult("D4-unique", t, dup == 0, f"({col_list}) dup_groups={dup}"))
+
+
 def verify_db(db_path: Path, counts: dict, semantic: list) -> list[CheckResult]:
     checks: list[CheckResult] = []
     con = sqlite3.connect(db_path)
@@ -137,47 +192,9 @@ def verify_db(db_path: Path, counts: dict, semantic: list) -> list[CheckResult]:
         orphans = con.execute("PRAGMA foreign_key_check").fetchall()
         checks.append(CheckResult("D2-fk", "*", len(orphans) == 0, f"orphans={len(orphans)} {orphans[:3]}"))
 
-        # D3 CHECK re-evaluation (independent of insert-time enforcement)
-        for t, sql in tables.items():
-            if counts.get(t, DEFAULT_COUNT) is None:
-                continue
-            for expr in extract_checks(sql):
-                try:
-                    bad = con.execute(f'SELECT COUNT(*) FROM "{t}" WHERE NOT ({expr})').fetchone()[0]
-                except sqlite3.Error as exc:
-                    checks.append(CheckResult("D3-check", t, False, f"unevaluable: {expr[:60]} ({exc})"))
-                    continue
-                checks.append(CheckResult("D3-check", t, bad == 0, f"NOT ({expr[:70]}) -> {bad}"))
+        _verify_check_constraints(con, tables, counts, checks)
 
-        # D4 UNIQUE duplicates + NOT NULL violations
-        for t in tables:
-            if counts.get(t, DEFAULT_COUNT) is None:
-                continue
-            cols_info = con.execute(f'PRAGMA table_info("{t}")').fetchall()
-            notnull_cols = [r[1] for r in cols_info if r[3] == 1]
-            pk_cols = {r[1] for r in cols_info if r[5] > 0}
-            single_int_pk = len(pk_cols) == 1 and any(
-                r[1] in pk_cols and r[2].upper() == "INTEGER" for r in cols_info
-            )
-            for col in notnull_cols:
-                nulls = con.execute(f'SELECT COUNT(*) FROM "{t}" WHERE "{col}" IS NULL').fetchone()[0]
-                checks.append(CheckResult("D4-notnull", t, nulls == 0, f"{col} nulls={nulls}"))
-            for idx in con.execute(f'PRAGMA index_list("{t}")').fetchall():
-                idx_name, is_unique, origin = idx[1], idx[2], idx[3]
-                if not is_unique or origin not in ("u", "pk"):
-                    continue
-                idx_cols = [r[2] for r in con.execute(f'PRAGMA index_info("{idx_name}")')]
-                if single_int_pk and set(idx_cols) == pk_cols:
-                    continue  # rowid alias is inherently unique
-                col_list = ", ".join(f'"{c}"' for c in idx_cols)
-                # SQL standard: UNIQUE indexes allow repeated NULLs — exclude
-                # rows with any NULL key column from the duplicate scan.
-                not_null_where = " AND ".join(f'"{c}" IS NOT NULL' for c in idx_cols)
-                dup = con.execute(
-                    f'SELECT COUNT(*) FROM (SELECT {col_list} FROM "{t}" WHERE {not_null_where} '
-                    f"GROUP BY {col_list} HAVING COUNT(*) > 1)"
-                ).fetchone()[0]
-                checks.append(CheckResult("D4-unique", t, dup == 0, f"({col_list}) dup_groups={dup}"))
+        _verify_unique_notnull(con, tables, counts, checks)
 
         # D5 semantic invariants
         for t, expr, desc in semantic:
@@ -221,20 +238,19 @@ def main() -> int:
     print("\n" + "=" * 78)
     print(f"{'schema':<12} {'fill':<6} {'D1-rows':<9} {'D2-fk':<7} {'D3-check':<9} {'D4-uni/nn':<10} {'D5-sem':<7}")
     all_ok = True
+
+    def dim_status(report: DbReport, prefixes: tuple[str, ...]) -> str:
+        sel = [c for c in report.checks if c.dim in prefixes]
+        if not sel:
+            return "-"
+        bad = sum(1 for c in sel if not c.ok)
+        return "ok" if bad == 0 else f"FAIL/{bad}"
+
     for rep in reports:
-        dims = ["D0-fill", "D1-rows", "D2-fk", "D3-check", "D4-unique", "D4-notnull", "D5-semantic"]
-
-        def dim_status(prefixes: tuple[str, ...]) -> str:
-            sel = [c for c in rep.checks if c.dim in prefixes]
-            if not sel:
-                return "-"
-            bad = sum(1 for c in sel if not c.ok)
-            return "ok" if bad == 0 else f"FAIL/{bad}"
-
         row = (
-            f"{rep.name:<12} {dim_status(('D0-fill',)):<6} {dim_status(('D1-rows',)):<9} "
-            f"{dim_status(('D2-fk',)):<7} {dim_status(('D3-check',)):<9} "
-            f"{dim_status(('D4-unique', 'D4-notnull')):<10} {dim_status(('D5-semantic',)):<7}"
+            f"{rep.name:<12} {dim_status(rep, ('D0-fill',)):<6} {dim_status(rep, ('D1-rows',)):<9} "
+            f"{dim_status(rep, ('D2-fk',)):<7} {dim_status(rep, ('D3-check',)):<9} "
+            f"{dim_status(rep, ('D4-unique', 'D4-notnull')):<10} {dim_status(rep, ('D5-semantic',)):<7}"
         )
         print(row)
         if rep.failed:

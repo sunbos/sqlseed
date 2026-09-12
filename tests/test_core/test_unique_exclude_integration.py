@@ -23,6 +23,8 @@ without the ``exclude_values`` propagation, this test fails with
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pytest
 
 from sqlseed.core.column_dag import ColumnConstraints, ColumnDAG, ColumnNode
@@ -30,6 +32,25 @@ from sqlseed.core.mapper import GeneratorSpec
 from sqlseed.generators.faker_provider import FakerProvider
 
 from .conftest import make_stream
+
+if TYPE_CHECKING:
+    from sqlseed.core.stream import DataStream
+    from sqlseed.generators import DataProvider
+
+
+def _unique_stream(column: str, generator: str, provider: DataProvider, *, max_retries: int = 100) -> DataStream:
+    """Build a seeded semantic generator with SQL-style uniqueness retries."""
+    nodes = ColumnDAG().build({column: GeneratorSpec(generator_name=generator)})
+    unique_nodes = [
+        ColumnNode(
+            name=node.name,
+            generator_spec=node.generator_spec,
+            constraints=ColumnConstraints(is_unique=True, max_retries=max_retries),
+        )
+        for node in nodes
+    ]
+    provider.set_seed(42)
+    return make_stream(unique_nodes, provider, seed=42)
 
 
 class TestUniqueSemanticGenerators:
@@ -44,21 +65,7 @@ class TestUniqueSemanticGenerators:
         after 1000 retries`` because ``faker.email()`` produces duplicates
         on large row counts.
         """
-        specs = {"email": GeneratorSpec(generator_name="email")}
-        dag = ColumnDAG()
-        nodes = dag.build(specs)
-        unique_nodes = [
-            ColumnNode(
-                name=n.name,
-                generator_spec=n.generator_spec,
-                constraints=ColumnConstraints(is_unique=True, max_retries=100),
-            )
-            for n in nodes
-        ]
-
-        provider = FakerProvider()
-        provider.set_seed(42)
-        stream = make_stream(unique_nodes, provider, seed=42)
+        stream = _unique_stream("email", "email", FakerProvider())
 
         batches = list(stream.generate(1000, batch_size=500))
         emails = [row["email"] for batch in batches for row in batch]
@@ -74,21 +81,7 @@ class TestUniqueSemanticGenerators:
         duplicates on large row counts. The ``exclude_values`` fix applies
         uniformly to all generators via the dispatch layer.
         """
-        specs = {"name": GeneratorSpec(generator_name="name")}
-        dag = ColumnDAG()
-        nodes = dag.build(specs)
-        unique_nodes = [
-            ColumnNode(
-                name=n.name,
-                generator_spec=n.generator_spec,
-                constraints=ColumnConstraints(is_unique=True, max_retries=100),
-            )
-            for n in nodes
-        ]
-
-        provider = FakerProvider()
-        provider.set_seed(42)
-        stream = make_stream(unique_nodes, provider, seed=42)
+        stream = _unique_stream("name", "name", FakerProvider())
 
         batches = list(stream.generate(500, batch_size=500))
         names = [row["name"] for batch in batches for row in batch]
@@ -104,21 +97,7 @@ class TestUniqueSemanticGenerators:
         format permutations), so this test exercises the dispatch-layer
         retry loop more aggressively.
         """
-        specs = {"phone": GeneratorSpec(generator_name="phone")}
-        dag = ColumnDAG()
-        nodes = dag.build(specs)
-        unique_nodes = [
-            ColumnNode(
-                name=n.name,
-                generator_spec=n.generator_spec,
-                constraints=ColumnConstraints(is_unique=True, max_retries=100),
-            )
-            for n in nodes
-        ]
-
-        provider = FakerProvider()
-        provider.set_seed(42)
-        stream = make_stream(unique_nodes, provider, seed=42)
+        stream = _unique_stream("phone", "phone", FakerProvider())
 
         batches = list(stream.generate(300, batch_size=300))
         phones = [row["phone"] for batch in batches for row in batch]
@@ -137,21 +116,7 @@ class TestUniqueSemanticGenerators:
         """
         from sqlseed.generators.base_provider import BaseProvider
 
-        specs = {"email": GeneratorSpec(generator_name="email")}
-        dag = ColumnDAG()
-        nodes = dag.build(specs)
-        unique_nodes = [
-            ColumnNode(
-                name=n.name,
-                generator_spec=n.generator_spec,
-                constraints=ColumnConstraints(is_unique=True, max_retries=100),
-            )
-            for n in nodes
-        ]
-
-        provider = BaseProvider()
-        provider.set_seed(42)
-        stream = make_stream(unique_nodes, provider, seed=42)
+        stream = _unique_stream("email", "email", BaseProvider())
 
         batches = list(stream.generate(1000, batch_size=500))
         emails = [row["email"] for batch in batches for row in batch]
@@ -171,21 +136,7 @@ class TestUniqueSemanticGenerators:
         value-space exhaustion — it only helps when the value space is
         sufficient but the generator happens to produce duplicates.
         """
-        specs = {"flag": GeneratorSpec(generator_name="boolean")}
-        dag = ColumnDAG()
-        nodes = dag.build(specs)
-        unique_nodes = [
-            ColumnNode(
-                name=n.name,
-                generator_spec=n.generator_spec,
-                constraints=ColumnConstraints(is_unique=True, max_retries=5),
-            )
-            for n in nodes
-        ]
-
-        provider = FakerProvider()
-        provider.set_seed(42)
-        stream = make_stream(unique_nodes, provider, seed=42)
+        stream = _unique_stream("flag", "boolean", FakerProvider(), max_retries=5)
 
         with pytest.raises(RuntimeError, match="Failed to generate row satisfying all constraints"):
             list(stream.generate(3, batch_size=3))

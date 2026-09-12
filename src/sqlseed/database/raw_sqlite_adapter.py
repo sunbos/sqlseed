@@ -108,7 +108,7 @@ class RawSQLiteAdapter(BaseRawSQLiteAdapter):
                 default_val = None
             is_pk_flag = name in pks
             is_autoincrement = is_pk_flag and self._is_autoincrement(table_name, name)
-            is_computed = hidden in (2, 3)
+            is_computed = hidden in {2, 3}
             result.append(
                 ColumnInfo(
                     name=name,

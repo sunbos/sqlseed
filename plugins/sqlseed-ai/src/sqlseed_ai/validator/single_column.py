@@ -241,48 +241,16 @@ class SingleColumnValidator:
         """
         gen = col.get("generator", "")
         constraints = table_schema.get("constraints", [])
-        check_exprs: list[str] = []
-        for c in constraints:
-            if c.get("type") != "check":
-                continue
-            expr = c.get("expression")
-            if not isinstance(expr, str):
-                continue
-            cols = c.get("columns") or []
-            # SQLite inline CHECKs report empty column_names, so fall back to
-            # a word-boundary scan of the expression.
-            if col_name in cols or re.search(rf"\b{re.escape(col_name)}\b", expr, re.IGNORECASE):
-                check_exprs.append(expr)
-        if not check_exprs:
+        if not (check_exprs := self._column_check_expressions(col_name, constraints)):
             return None
 
-        enum_values: list[int | float | str] | None = None
+        enum_values: list[int | float | str] = []
         for expr in check_exprs:
-            enum_values = _extract_enum_values(expr, col_name)
+            enum_values = _extract_enum_values(expr, col_name) or []
             if enum_values:
                 break
         if enum_values:
-            if all(isinstance(v, str) for v in enum_values):
-                if gen not in ("choice", "weighted_choice"):
-                    return ViolationReport(
-                        table=table_name,
-                        columns=[col_name],
-                        constraint_type=ConstraintType.CHECK,
-                        severity="semantic_error",
-                        fix_hint="coerce_to_text_enum",
-                        fix_params={"check_values": list(enum_values)},
-                    )
-            elif all(v in (0, 1) for v in enum_values) and gen != "boolean":
-                return ViolationReport(
-                    table=table_name,
-                    columns=[col_name],
-                    constraint_type=ConstraintType.CHECK,
-                    severity="semantic_error",
-                    fix_hint="coerce_to_boolean_enum",
-                    fix_params={"check_values": list(enum_values)},
-                )
-            # Numeric (non-boolean) enum: no dedicated strategy — leave as-is.
-            return None
+            return self._enum_compliance(gen, enum_values, table_name, col_name)
 
         bounds = _extract_range_bounds(check_exprs, col_name)
         if bounds and gen in ("integer", "random_int", "float", "random_float"):
@@ -301,9 +269,55 @@ class SingleColumnValidator:
                     constraint_type=ConstraintType.CHECK,
                     severity="semantic_error",
                     fix_hint="align_check_bounds",
-                    fix_params={k: v for k, v in bounds.items()},
+                    fix_params=bounds.copy(),
                 )
         return None
+
+    @staticmethod
+    def _enum_compliance(
+        gen: Any, enum_values: list[int | float | str], table_name: str, col_name: str
+    ) -> ViolationReport | None:
+        """Preserve text-before-boolean enum repair priority and numeric no-op behavior."""
+        if all(isinstance(v, str) for v in enum_values):
+            match gen:
+                case "choice" | "weighted_choice":
+                    return None
+            return ViolationReport(
+                table=table_name,
+                columns=[col_name],
+                constraint_type=ConstraintType.CHECK,
+                severity="semantic_error",
+                fix_hint="coerce_to_text_enum",
+                fix_params={"check_values": list(enum_values)},
+            )
+        if all(v in {0, 1} for v in enum_values) and gen != "boolean":
+            return ViolationReport(
+                table=table_name,
+                columns=[col_name],
+                constraint_type=ConstraintType.CHECK,
+                severity="semantic_error",
+                fix_hint="coerce_to_boolean_enum",
+                fix_params={"check_values": list(enum_values)},
+            )
+        # Numeric (non-boolean) enum: no dedicated strategy — leave as-is.
+        return None
+
+    @staticmethod
+    def _column_check_expressions(col_name: str, constraints: list[dict[str, Any]]) -> list[str]:
+        """Select declared and inline CHECK expressions mentioning this column."""
+        check_exprs: list[str] = []
+        for c in constraints:
+            if c.get("type") != "check":
+                continue
+            expr = c.get("expression")
+            if not isinstance(expr, str):
+                continue
+            cols = c.get("columns") or []
+            # SQLite inline CHECKs report empty column_names, so fall back to
+            # a word-boundary scan of the expression.
+            if col_name in cols or re.search(rf"\b{re.escape(col_name)}\b", expr, re.IGNORECASE):
+                check_exprs.append(expr)
+        return check_exprs
 
     @staticmethod
     def _map_constraint_type(v: ContractViolation) -> ConstraintType:

@@ -33,6 +33,7 @@ from sqlseed.generators._protocol import ConfigurationError
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from sqlalchemy import Table
     from sqlseed_ai.config import AIConfig
 
 logger = get_logger(__name__)
@@ -586,56 +587,69 @@ class AiConfigRefiner:
         except (ValueError, RuntimeError, OSError, ConfigurationError) as e:
             return summarize_error(e)
 
-        # Transactional dry-run insert validation to catch DB-level constraints
-        # (CHECK, UNIQUE, NOT NULL, VARCHAR length) that preview cannot detect.
-        # Note: GENERATED/computed columns are already filtered out of preview_data
-        # by the mapper, so the dry-run insert will not attempt to write to them.
+        return self._validate_preview_insert(orch, table_name, preview_data)
+
+    def _validate_preview_insert(
+        self, orch: DataOrchestrator, table_name: str, preview_data: list[dict[str, Any]]
+    ) -> ErrorSummary | None:
+        """Validate preview rows with an always-rolled-back insert, tolerating FK failures."""
         db_adapter = getattr(orch, "_db", None)
-        if db_adapter and preview_data:
-            engine = getattr(db_adapter, "_engine", None)
-            if engine is not None:
+        if not db_adapter or not preview_data:
+            return None
+        if (engine := getattr(db_adapter, "_engine", None)) is None:
+            return None
+        try:
+            from sqlalchemy import MetaData, Table
+
+            metadata = MetaData()
+            table = Table(table_name, metadata, autoload_with=engine)
+
+            self._validate_varchar_lengths(table, preview_data)
+
+            # Transactional dry-run insert (for DB-level CHECK/UNIQUE constraints)
+            with engine.connect() as conn:
+                transaction = conn.begin()
                 try:
-                    from sqlalchemy import MetaData, String, Table
+                    SQLAlchemyBatchInserter(engine, table_name, table=table).insert(preview_data, conn=conn)
+                finally:
+                    transaction.rollback()
+        except Exception as e:
+            err_msg = str(e).lower()
+            is_fk_error = False
 
-                    metadata = MetaData()
-                    table = Table(table_name, metadata, autoload_with=engine)
+            # Detect PostgreSQL foreign key violation code (23503) or generic message
+            pgcode = getattr(e, "pgcode", None)
+            if pgcode == "23503" or "foreign key" in err_msg or "foreignkey" in err_msg:
+                is_fk_error = True
 
-                    # Pre-validate VARCHAR length constraints in Python to surface
-                    # the precise column name to the AI (DB error messages vary by dialect).
-                    for row in preview_data:
-                        for col in table.columns:
-                            val = row.get(col.name)
-                            if (
-                                val is not None
-                                and isinstance(col.type, String)
-                                and col.type.length is not None
-                                and len(str(val)) > col.type.length
-                            ):
-                                raise ValueError(
-                                    f"Column '{col.name}' value '{val}' is too long "
-                                    f"for type character varying({col.type.length})"
-                                )
-
-                    # Transactional dry-run insert (for DB-level CHECK/UNIQUE constraints)
-                    with engine.connect() as conn:
-                        transaction = conn.begin()
-                        try:
-                            SQLAlchemyBatchInserter(engine, table_name, table=table).insert(preview_data, conn=conn)
-                        finally:
-                            transaction.rollback()
-                except Exception as e:
-                    err_msg = str(e).lower()
-                    is_fk_error = False
-
-                    # Detect PostgreSQL foreign key violation code (23503) or generic message
-                    pgcode = getattr(e, "pgcode", None)
-                    if pgcode == "23503" or "foreign key" in err_msg or "foreignkey" in err_msg:
-                        is_fk_error = True
-
-                    if not is_fk_error:
-                        return summarize_error(e)
+            if not is_fk_error:
+                return summarize_error(e)
 
         return None
+
+    @staticmethod
+    def _validate_varchar_lengths(table: Table, preview_data: list[dict[str, Any]]) -> None:
+        """Report the first oversized value before attempting the transactional insert.
+
+        Raises:
+            ValueError: When a preview value exceeds its declared VARCHAR length.
+        """
+        from sqlalchemy import String
+
+        # Pre-validate VARCHAR length constraints in Python to surface
+        # the precise column name to the AI (DB error messages vary by dialect).
+        for row in preview_data:
+            for col in table.columns:
+                val = row.get(col.name)
+                if (
+                    val is not None
+                    and isinstance(col.type, String)
+                    and col.type.length is not None
+                    and len(str(val)) > col.type.length
+                ):
+                    raise ValueError(
+                        f"Column '{col.name}' value '{val}' is too long for type character varying({col.type.length})"
+                    )
 
     def _check_computed_column_assignments(
         self,

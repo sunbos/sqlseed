@@ -196,48 +196,65 @@ def _check_docker_endpoint() -> None:
         pytest.skip(f"Docker Unix endpoint is unavailable: {path}: {error}")
 
 
+def _exception_chain(error: BaseException) -> list[BaseException]:
+    """Follow exception causes without revisiting cycles."""
+    chain: list[BaseException] = []
+    current: BaseException | None = error
+    while current is not None and current not in chain:
+        chain.append(current)
+        current = current.__cause__ or current.__context__
+    return chain
+
+
+def _windows_pipe_unavailable(chain: list[BaseException]) -> bool | None:
+    """Classify a Windows pipe error, leaving other transports unclassified."""
+    import pywintypes
+    import winerror
+
+    pipe_errors = [cause for cause in chain if isinstance(cause, pywintypes.error)]
+    unavailable_codes = (
+        winerror.ERROR_FILE_NOT_FOUND,
+        winerror.ERROR_PATH_NOT_FOUND,
+        winerror.ERROR_BAD_NETPATH,
+        winerror.ERROR_BROKEN_PIPE,
+        winerror.ERROR_SEM_TIMEOUT,
+        winerror.ERROR_PIPE_BUSY,
+    )
+    if pipe_errors:
+        return all(cause.winerror in unavailable_codes for cause in pipe_errors)
+    return None
+
+
+def _transport_cause_unavailable(cause: BaseException) -> bool:
+    """Keep requests protocol errors distinct from unavailable OS transports."""
+    from requests.exceptions import ConnectionError as RequestsConnectionError
+    from requests.exceptions import RequestException, Timeout
+
+    if isinstance(cause, RequestException):
+        return isinstance(cause, (RequestsConnectionError, Timeout))
+    return _connection_unavailable(cause)
+
+
 def _docker_transport_unavailable(error: Exception) -> bool:
     """Recognize transport failures without hiding Docker API or TLS errors."""
     try:
         from docker.errors import APIError, DockerException, TLSParameterError
     except ImportError:
         return False
-    from requests.exceptions import ConnectionError as RequestsConnectionError
-    from requests.exceptions import RequestException, SSLError, Timeout
+    from requests.exceptions import SSLError
 
     if not isinstance(error, DockerException):
         return False
-    chain = []
-    current: BaseException | None = error
-    while current is not None and current not in chain:
-        chain.append(current)
-        current = current.__cause__ or current.__context__
+    chain = _exception_chain(error)
     if any(
         isinstance(cause, (APIError, TLSParameterError, SSLError, ssl.SSLError, PermissionError)) for cause in chain
     ):
         return False
     if sys.platform == "win32":
-        import pywintypes
-        import winerror
-
-        pipe_errors = [cause for cause in chain if isinstance(cause, pywintypes.error)]
-        unavailable_codes = (
-            winerror.ERROR_FILE_NOT_FOUND,
-            winerror.ERROR_PATH_NOT_FOUND,
-            winerror.ERROR_BAD_NETPATH,
-            winerror.ERROR_BROKEN_PIPE,
-            winerror.ERROR_SEM_TIMEOUT,
-            winerror.ERROR_PIPE_BUSY,
-        )
-        if pipe_errors:
-            return all(cause.winerror in unavailable_codes for cause in pipe_errors)
-    for cause in chain:
-        if isinstance(cause, RequestException):
-            if isinstance(cause, (RequestsConnectionError, Timeout)):
-                return True
-        elif _connection_unavailable(cause):
-            return True
-    return False
+        unavailable = _windows_pipe_unavailable(chain)
+        if unavailable is not None:
+            return unavailable
+    return any(_transport_cause_unavailable(cause) for cause in chain)
 
 
 def _check_docker_daemon() -> None:
@@ -285,6 +302,17 @@ def pg_url() -> Generator[str, None, None]:
         pg.stop()
 
 
+def _preferred_ollama_model(models: set[str]) -> str | None:
+    """Choose an exact preferred model or its first complete tag variant."""
+    for preferred in ("gemma4:26b", "gemma4:31b", "gemma4:e4b", "gemma4:12b"):
+        if preferred in models:
+            return preferred
+        variants = sorted(model for model in models if model.startswith(f"{preferred}-"))
+        if variants:
+            return variants[0]
+    return None
+
+
 @pytest.fixture(scope="session")
 def available_llm_backend() -> dict[str, str]:
     """Detect available LLM backend. Fail with a hint if none is available.
@@ -297,14 +325,9 @@ def available_llm_backend() -> dict[str, str]:
         with urllib.request.urlopen("http://localhost:11434/api/tags", timeout=2) as resp:
             tags = json.loads(resp.read())
             models = {name for m in tags.get("models", []) if isinstance(name := m.get("name"), str)}
-            for preferred in ("gemma4:26b", "gemma4:31b", "gemma4:e4b", "gemma4:12b"):
-                if preferred in models:
-                    return {"backend": "ollama", "model": preferred}
-                # Keep the service's full tag (e.g. -cloud or a quantization
-                # suffix), and require a tag boundary rather than a fuzzy prefix.
-                variants = sorted(m for m in models if m.startswith(f"{preferred}-"))
-                if variants:
-                    return {"backend": "ollama", "model": variants[0]}
+            model = _preferred_ollama_model(models)
+            if model is not None:
+                return {"backend": "ollama", "model": model}
             pytest.fail(
                 "Ollama is running but no Gemma 4 model has been pulled. Please run:\n"
                 "  ollama pull gemma4:26b   # recommended (requires 16GB VRAM)\n"

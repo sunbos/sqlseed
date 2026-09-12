@@ -161,45 +161,62 @@ class ColumnDAG:
                     regex=cc.constraints.regex,
                     max_retries=cc.constraints.max_retries,
                 )
-            if hasattr(cc, "derive_from") and cc.derive_from:
-                # Don't override foreign_key specs — relation.py sets these
-                # for FK columns (including self-referencing FKs with empty
-                # parent, where null_ratio=1.0 is critical for avoiding FK
-                # violations). If the LLM also set derive_from for the same
-                # column, the foreign_key spec takes precedence (FK integrity
-                # is more important than the LLM's derive_from expression).
-                # This mirrors the composite FK handling in
-                # RelationResolver.resolve_composite_fks which clears
-                # derive_from for composite FK columns.
-                if spec.generator_name == "foreign_key":
-                    # Keep the foreign_key spec, ignore derive_from
-                    pass
-                else:
-                    df = cc.derive_from
-                    # derive_from_sources holds ONLY the explicit derive_from
-                    # sources (single string -> one element, list -> as-is).
-                    # The stream uses this to decide whether ``value`` is a
-                    # scalar (len <= 1) or a list (len > 1).
-                    derive_from_sources = list(df) if isinstance(df, list) else [df]
-                    # depends_on starts with the explicit sources, then adds
-                    # implicit row['col_name'] references for DAG ordering.
-                    depends_on = list(derive_from_sources)
-                    expression = cc.expression
-                    is_derived = True
-                    final_spec = GeneratorSpec(generator_name="__derive__")
-                    # Track implicit row['col_name'] dependencies in the
-                    # expression. Without this, the DAG may schedule the
-                    # derived column before columns it references via row[...],
-                    # causing KeyError at expression evaluation time.
-                    if expression:
-                        for ref in _ROW_REF_RE.findall(expression):
-                            if ref not in depends_on:
-                                depends_on.append(ref)
+            # Don't override foreign_key specs — relation.py sets these
+            # for FK columns (including self-referencing FKs with empty
+            # parent, where null_ratio=1.0 is critical for avoiding FK
+            # violations). If the LLM also set derive_from for the same
+            # column, the foreign_key spec takes precedence (FK integrity
+            # is more important than the LLM's derive_from expression).
+            # This mirrors the composite FK handling in
+            # RelationResolver.resolve_composite_fks which clears
+            # derive_from for composite FK columns.
+            if hasattr(cc, "derive_from") and cc.derive_from and spec.generator_name != "foreign_key":
+                df = cc.derive_from
+                # derive_from_sources holds ONLY the explicit derive_from
+                # sources (single string -> one element, list -> as-is).
+                # The stream uses this to decide whether ``value`` is a
+                # scalar (len <= 1) or a list (len > 1).
+                derive_from_sources = list(df) if isinstance(df, list) else [df]
+                # depends_on starts with the explicit sources, then adds
+                # implicit row['col_name'] references for DAG ordering.
+                depends_on = list(derive_from_sources)
+                expression = cc.expression
+                is_derived = True
+                final_spec = GeneratorSpec(generator_name="__derive__")
+                # Track implicit row['col_name'] dependencies in the
+                # expression. Without this, the DAG may schedule the
+                # derived column before columns it references via row[...],
+                # causing KeyError at expression evaluation time.
+                self._append_row_references(depends_on, expression)
 
         pair_source = spec.params.get("_pair_source")
         if isinstance(pair_source, str) and pair_source not in depends_on:
             depends_on.append(pair_source)
 
+        constraints = self._apply_unique_constraint(constraints, is_unique)
+
+        return ColumnNode(
+            name=col_name,
+            generator_spec=final_spec,
+            depends_on=depends_on,
+            derive_from_sources=derive_from_sources,
+            expression=expression,
+            constraints=constraints,
+            is_derived=is_derived,
+            nullable=nullable,
+        )
+
+    @staticmethod
+    def _append_row_references(depends_on: list[str], expression: str | None) -> None:
+        """Add implicit row references after explicit dependencies, without duplicates."""
+        if expression:
+            for reference in _ROW_REF_RE.findall(expression):
+                if reference not in depends_on:
+                    depends_on.append(reference)
+
+    @staticmethod
+    def _apply_unique_constraint(constraints: ColumnConstraints | None, is_unique: bool) -> ColumnConstraints | None:
+        """Enforce schema uniqueness while preserving all configured bounds."""
         if is_unique:
             if constraints is None:
                 constraints = ColumnConstraints(is_unique=True)
@@ -212,16 +229,7 @@ class ColumnDAG:
                     max_retries=constraints.max_retries,
                 )
 
-        return ColumnNode(
-            name=col_name,
-            generator_spec=final_spec,
-            depends_on=depends_on,
-            derive_from_sources=derive_from_sources,
-            expression=expression,
-            constraints=constraints,
-            is_derived=is_derived,
-            nullable=nullable,
-        )
+        return constraints
 
     def _topological_sort(self, nodes: dict[str, ColumnNode]) -> list[ColumnNode]:
         """Topological sort using Kahn's algorithm."""

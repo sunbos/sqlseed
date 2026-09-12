@@ -1,0 +1,3 @@
+  Generating users ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100% 5/5 ? 0:00:00
+  Generating web_users ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100% 5/5 ? 0:00:00
+{"wheel_imports": true, "rows": 5, "web_rows": 5, "web": "ready", "components": {"core": "available", "web": "available", "ai": "available", "cli": "available", "mcp": "available"}}

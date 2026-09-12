@@ -1,0 +1,661 @@
+{
+  "before": {
+    "statistics": {
+      "detectionDate": "2026-09-12T10:24:36.394Z",
+      "formats": {
+        "python": {
+          "sources": {
+            "/tmp/sqlseed-provider-dedup-baseline/src/sqlseed/generators/mimesis_provider.py": {
+              "lines": 334,
+              "tokens": 2291,
+              "sources": 1,
+              "clones": 8,
+              "duplicatedLines": 192,
+              "duplicatedTokens": 1315,
+              "percentage": 57.49,
+              "percentageTokens": 57.4,
+              "newDuplicatedLines": 0,
+              "newClones": 0
+            },
+            "/tmp/sqlseed-provider-dedup-baseline/src/sqlseed/generators/faker_provider.py": {
+              "lines": 372,
+              "tokens": 2629,
+              "sources": 1,
+              "clones": 4,
+              "duplicatedLines": 134,
+              "duplicatedTokens": 789,
+              "percentage": 36.02,
+              "percentageTokens": 30.01,
+              "newDuplicatedLines": 0,
+              "newClones": 0
+            },
+            "/tmp/sqlseed-provider-dedup-baseline/src/sqlseed/generators/base_provider.py": {
+              "lines": 682,
+              "tokens": 5327,
+              "sources": 1,
+              "clones": 4,
+              "duplicatedLines": 58,
+              "duplicatedTokens": 526,
+              "percentage": 8.5,
+              "percentageTokens": 9.87,
+              "newDuplicatedLines": 0,
+              "newClones": 0
+            }
+          },
+          "total": {
+            "lines": 1388,
+            "tokens": 10247,
+            "sources": 3,
+            "clones": 8,
+            "duplicatedLines": 192,
+            "duplicatedTokens": 1315,
+            "percentage": 13.83,
+            "percentageTokens": 12.83,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          }
+        }
+      },
+      "total": {
+        "lines": 1388,
+        "tokens": 10247,
+        "sources": 3,
+        "clones": 8,
+        "duplicatedLines": 192,
+        "duplicatedTokens": 1315,
+        "percentage": 13.83,
+        "percentageTokens": 12.83,
+        "newDuplicatedLines": 0,
+        "newClones": 0
+      }
+    },
+    "duplicates": [
+      {
+        "format": "python",
+        "lines": 14,
+        "fragment": "=max_value)\n\n    def _gen_float(\n        self,\n        *,\n        min_value: float = 0.0,\n        max_value: float = 999999.0,\n        precision: int = 2,\n    ) -> float:\n        \"\"\"Generate a float within the closed interval at the requested precision.\"\"\"\n        lower, upper = self._float_bounds(min_value, max_value, precision)\n        if lower == upper:\n            return lower\n        value = self._faker",
+        "tokens": 0,
+        "firstFile": {
+          "name": "../../../../tmp/sqlseed-provider-dedup-baseline/src/sqlseed/generators/faker_provider.py",
+          "start": 132,
+          "end": 145,
+          "startLoc": {
+            "line": 132,
+            "column": 4,
+            "position": 993
+          },
+          "endLoc": {
+            "line": 145,
+            "column": 7,
+            "position": 1100
+          },
+          "fragment": "        return self._faker.random_int(min=min_value, max=max_value)\n\n    def _gen_float(\n        self,\n        *,\n        min_value: float = 0.0,\n        max_value: float = 999999.0,\n        precision: int = 2,\n    ) -> float:\n        \"\"\"Generate a float within the closed interval at the requested precision.\"\"\"\n        lower, upper = self._float_bounds(min_value, max_value, precision)\n        if lower == upper:\n            return lower\n        value = self._faker.pyfloat(min_value=min_value, max_value=max_value, right_digits=precision)",
+          "sha256": "42e5ec80db68913eaa267adf0ae9e09d65319b541cb6a3ce592e5b33069cc8cf"
+        },
+        "secondFile": {
+          "name": "../../../../tmp/sqlseed-provider-dedup-baseline/src/sqlseed/generators/mimesis_provider.py",
+          "start": 88,
+          "end": 101,
+          "startLoc": {
+            "line": 88,
+            "column": 4,
+            "position": 666
+          },
+          "endLoc": {
+            "line": 101,
+            "column": 9,
+            "position": 773
+          },
+          "fragment": "        return self._generic.numeric.integer_number(start=min_value, end=max_value)\n\n    def _gen_float(\n        self,\n        *,\n        min_value: float = 0.0,\n        max_value: float = 999999.0,\n        precision: int = 2,\n    ) -> float:\n        \"\"\"Generate a float within the closed interval at the requested precision.\"\"\"\n        lower, upper = self._float_bounds(min_value, max_value, precision)\n        if lower == upper:\n            return lower\n        value = self._generic.numeric.float_number(start=min_value, end=max_value, precision=precision)",
+          "sha256": "bf83b3220c8763ce9169df662ec957446201e545bf1b4ff1da8a0ce4ca13cd93"
+        }
+      },
+      {
+        "format": "python",
+        "lines": 27,
+        "fragment": ")\n\n    def _gen_date(\n        self,\n        *,\n        start_year: int = 2000,\n        end_year: int | None = None,\n        start_date: str | None = None,\n        end_date: str | None = None,\n        weekdays: str | list[int] | None = \"all\",\n    ) -> datetime.date:\n        \"\"\"Generate a ``datetime.date`` object.\n\n        ``start_date`` / ``end_date`` (``YYYY-MM-DD``) take precedence over the\n        legacy year pair. ``weekdays`` mirrors 参考工具's 全部 / 工作日 / 自定义\n        radio (see :mod:`sqlseed.generators._datetime_utils`).\n\n        Date arithmetic is delegated to the shared helpers rather than\n        ``faker.date_between_dates``: faker cannot filter by weekday, and its\n        datetime output leaked microseconds while base did not. Sharing the\n        implementation keeps all three providers byte-identical.\n\n        Returning a ``date`` object (rather than a ``strftime`` string)\n        ensures SQLAlchemy ``DATE`` columns accept the value directly —\n        SQLite's ``DATE`` type rejects ISO-format strings with\n        ``StatementError: SQLite Date type only accepts Python date objects``.\n        \"\"\"",
+        "tokens": 0,
+        "firstFile": {
+          "name": "../../../../tmp/sqlseed-provider-dedup-baseline/src/sqlseed/generators/faker_provider.py",
+          "start": 203,
+          "end": 229,
+          "startLoc": {
+            "line": 203,
+            "column": 2,
+            "position": 1588
+          },
+          "endLoc": {
+            "line": 229,
+            "column": 12,
+            "position": 1695
+          },
+          "fragment": "        return self._faker.uuid4()\n\n    def _gen_date(\n        self,\n        *,\n        start_year: int = 2000,\n        end_year: int | None = None,\n        start_date: str | None = None,\n        end_date: str | None = None,\n        weekdays: str | list[int] | None = \"all\",\n    ) -> datetime.date:\n        \"\"\"Generate a ``datetime.date`` object.\n\n        ``start_date`` / ``end_date`` (``YYYY-MM-DD``) take precedence over the\n        legacy year pair. ``weekdays`` mirrors 参考工具's 全部 / 工作日 / 自定义\n        radio (see :mod:`sqlseed.generators._datetime_utils`).\n\n        Date arithmetic is delegated to the shared helpers rather than\n        ``faker.date_between_dates``: faker cannot filter by weekday, and its\n        datetime output leaked microseconds while base did not. Sharing the\n        implementation keeps all three providers byte-identical.\n\n        Returning a ``date`` object (rather than a ``strftime`` string)\n        ensures SQLAlchemy ``DATE`` columns accept the value directly —\n        SQLite's ``DATE`` type rejects ISO-format strings with\n        ``StatementError: SQLite Date type only accepts Python date objects``.\n        \"\"\"",
+          "sha256": "42e5ec80db68913eaa267adf0ae9e09d65319b541cb6a3ce592e5b33069cc8cf"
+        },
+        "secondFile": {
+          "name": "../../../../tmp/sqlseed-provider-dedup-baseline/src/sqlseed/generators/mimesis_provider.py",
+          "start": 163,
+          "end": 189,
+          "startLoc": {
+            "line": 163,
+            "column": 2,
+            "position": 1326
+          },
+          "endLoc": {
+            "line": 189,
+            "column": 12,
+            "position": 1433
+          },
+          "fragment": "        return str(self._generic.cryptographic.uuid_object())\n\n    def _gen_date(\n        self,\n        *,\n        start_year: int = 2000,\n        end_year: int | None = None,\n        start_date: str | None = None,\n        end_date: str | None = None,\n        weekdays: str | list[int] | None = \"all\",\n    ) -> datetime.date:\n        \"\"\"Generate a ``datetime.date`` object.\n\n        ``start_date`` / ``end_date`` (``YYYY-MM-DD``) take precedence over the\n        legacy year pair. ``weekdays`` mirrors 参考工具's 全部 / 工作日 / 自定义\n        radio (see :mod:`sqlseed.generators._datetime_utils`).\n\n        Date arithmetic is delegated to the shared helpers rather than\n        ``mimesis.datetime.date``: mimesis cannot filter by weekday, and its\n        datetime output leaked microseconds while base did not. Sharing the\n        implementation keeps all three providers byte-identical.\n\n        Returning a ``date`` object (rather than a ``str(date)`` string)\n        ensures SQLAlchemy ``DATE`` columns accept the value directly —\n        SQLite's ``DATE`` type rejects ISO-format strings with\n        ``StatementError: SQLite Date type only accepts Python date objects``.\n        \"\"\"",
+          "sha256": "bf83b3220c8763ce9169df662ec957446201e545bf1b4ff1da8a0ce4ca13cd93"
+        }
+      },
+      {
+        "format": "python",
+        "lines": 29,
+        "fragment": "start, end = resolve_date_bounds(start_year, end_year, start_date, end_date)\n        return random_date(self._rng, start, end, normalize_weekdays(weekdays))\n\n    def _gen_datetime(\n        self,\n        *,\n        start_year: int = 2000,\n        end_year: int | None = None,\n        start_date: str | None = None,\n        end_date: str | None = None,\n        all_day: bool = True,\n        start_time: str | None = None,\n        end_time: str | None = None,\n        weekdays: str | list[int] | None = \"all\",\n    ) -> datetime.datetime:\n        \"\"\"Generate a ``datetime.datetime`` object.\n\n        ``all_day`` is 参考工具's 一整天 checkbox (default on): full-day range,\n        ignoring ``start_time`` / ``end_time``. Uncheck it to constrain the\n        time of day. Whole seconds only — 参考工具's 日期时间 panel has no\n        sub-second control, so microsecond noise like ``T10:21:03.895011``\n        carries no meaning.\n\n        Returning a ``datetime`` object (rather than a ``strftime`` string)\n        ensures SQLAlchemy ``DATETIME``/``TIMESTAMP`` columns accept the value\n        directly — SQLite's ``DateTime`` type rejects ISO-format strings with\n        ``StatementError: SQLite DateTime type only accepts Python datetime\n        and date objects as input``.\n        \"\"\"",
+        "tokens": 0,
+        "firstFile": {
+          "name": "../../../../tmp/sqlseed-provider-dedup-baseline/src/sqlseed/generators/faker_provider.py",
+          "start": 230,
+          "end": 258,
+          "startLoc": {
+            "line": 230,
+            "column": 9,
+            "position": 1698
+          },
+          "endLoc": {
+            "line": 258,
+            "column": 12,
+            "position": 1887
+          },
+          "fragment": "        start, end = resolve_date_bounds(start_year, end_year, start_date, end_date)\n        return random_date(self._rng, start, end, normalize_weekdays(weekdays))\n\n    def _gen_datetime(\n        self,\n        *,\n        start_year: int = 2000,\n        end_year: int | None = None,\n        start_date: str | None = None,\n        end_date: str | None = None,\n        all_day: bool = True,\n        start_time: str | None = None,\n        end_time: str | None = None,\n        weekdays: str | list[int] | None = \"all\",\n    ) -> datetime.datetime:\n        \"\"\"Generate a ``datetime.datetime`` object.\n\n        ``all_day`` is 参考工具's 一整天 checkbox (default on): full-day range,\n        ignoring ``start_time`` / ``end_time``. Uncheck it to constrain the\n        time of day. Whole seconds only — 参考工具's 日期时间 panel has no\n        sub-second control, so microsecond noise like ``T10:21:03.895011``\n        carries no meaning.\n\n        Returning a ``datetime`` object (rather than a ``strftime`` string)\n        ensures SQLAlchemy ``DATETIME``/``TIMESTAMP`` columns accept the value\n        directly — SQLite's ``DateTime`` type rejects ISO-format strings with\n        ``StatementError: SQLite DateTime type only accepts Python datetime\n        and date objects as input``.\n        \"\"\"",
+          "sha256": "42e5ec80db68913eaa267adf0ae9e09d65319b541cb6a3ce592e5b33069cc8cf"
+        },
+        "secondFile": {
+          "name": "../../../../tmp/sqlseed-provider-dedup-baseline/src/sqlseed/generators/mimesis_provider.py",
+          "start": 190,
+          "end": 218,
+          "startLoc": {
+            "line": 190,
+            "column": 9,
+            "position": 1436
+          },
+          "endLoc": {
+            "line": 218,
+            "column": 12,
+            "position": 1625
+          },
+          "fragment": "        start, end = resolve_date_bounds(start_year, end_year, start_date, end_date)\n        return random_date(self._rng, start, end, normalize_weekdays(weekdays))\n\n    def _gen_datetime(\n        self,\n        *,\n        start_year: int = 2000,\n        end_year: int | None = None,\n        start_date: str | None = None,\n        end_date: str | None = None,\n        all_day: bool = True,\n        start_time: str | None = None,\n        end_time: str | None = None,\n        weekdays: str | list[int] | None = \"all\",\n    ) -> datetime.datetime:\n        \"\"\"Generate a ``datetime.datetime`` object.\n\n        ``all_day`` is 参考工具's 一整天 checkbox (default on): full-day range,\n        ignoring ``start_time`` / ``end_time``. Uncheck it to constrain the\n        time of day. Whole seconds only — 参考工具's 日期时间 panel has no\n        sub-second control, so microsecond noise like ``T10:21:03.895011``\n        carries no meaning.\n\n        Returning a ``datetime`` object (rather than a ``str(datetime)`` string)\n        ensures SQLAlchemy ``DATETIME``/``TIMESTAMP`` columns accept the value\n        directly — SQLite's ``DateTime`` type rejects ISO-format strings with\n        ``StatementError: SQLite DateTime type only accepts Python datetime\n        and date objects as input``.\n        \"\"\"",
+          "sha256": "bf83b3220c8763ce9169df662ec957446201e545bf1b4ff1da8a0ce4ca13cd93"
+        }
+      },
+      {
+        "format": "python",
+        "lines": 68,
+        "fragment": "start, end = resolve_date_bounds(start_year, end_year, start_date, end_date)\n        day = random_date(self._rng, start, end, normalize_weekdays(weekdays))\n        lo, hi = resolve_time_bounds(all_day, start_time, end_time)\n        return datetime.datetime.combine(day, random_time(self._rng, lo, hi))\n\n    def _gen_time(\n        self,\n        *,\n        all_day: bool = True,\n        start_time: str | None = None,\n        end_time: str | None = None,\n    ) -> datetime.time:\n        \"\"\"Generate a ``datetime.time`` object (参考工具 时间 panel).\n\n        ``all_day=True`` (default, 一整天) spans the whole day; unchecking it\n        enables the ``start_time`` / ``end_time`` window.\n        \"\"\"\n        lo, hi = resolve_time_bounds(all_day, start_time, end_time)\n        return random_time(self._rng, lo, hi)\n\n    def _gen_timestamp(\n        self,\n        *,\n        start_year: int = 2000,\n        end_year: int | None = None,\n        start_date: str | None = None,\n        end_date: str | None = None,\n        all_day: bool = True,\n        start_time: str | None = None,\n        end_time: str | None = None,\n        weekdays: str | list[int] | None = \"all\",\n    ) -> datetime.datetime:\n        \"\"\"Generate a ``datetime.datetime`` object.\n\n        Same params as :meth:`_gen_datetime` and delegates to it — sqlseed's\n        ``timestamp`` and ``datetime`` are the same SQLAlchemy-facing\n        ``datetime`` object; only the column dialect differs.\n\n        Returning a ``datetime`` object (rather than a Unix epoch integer)\n        ensures SQLAlchemy ``TIMESTAMP``/``DATETIME`` columns accept the value\n        directly — SQLite's ``DateTime`` type rejects integers with\n        ``StatementError: SQLite DateTime type only accepts Python datetime\n        and date objects as input``.\n        \"\"\"\n        return self._gen_datetime(\n            start_year=start_year,\n            end_year=end_year,\n            start_date=start_date,\n            end_date=end_date,\n            all_day=all_day,\n            start_time=start_time,\n            end_time=end_time,\n            weekdays=weekdays,\n        )\n\n    def _gen_text(self, *, min_length: int = 50, max_length: int = 200) -> str:\n        \"\"\"Generate text.\"\"\"\n        if min_length > max_length:\n            raise ValueError(f\"min_length ({min_length}) must be <= max_length ({max_length})\")\n        # Faker requires at least five characters per call, even when only a\n        # shorter final fragment is needed. Trim after reaching the minimum.\n        text = self._faker.text(max_nb_chars=max(5, max_length))\n        while len(text) < min_length:\n            text += \" \" + self._faker.text(max_nb_chars=max(5, max_length - len(text)))\n        return text[:max_length]\n\n    def _gen_sentence(self) -> str:\n        \"\"\"",
+        "tokens": 0,
+        "firstFile": {
+          "name": "../../../../tmp/sqlseed-provider-dedup-baseline/src/sqlseed/generators/faker_provider.py",
+          "start": 259,
+          "end": 326,
+          "startLoc": {
+            "line": 259,
+            "column": 9,
+            "position": 1890
+          },
+          "endLoc": {
+            "line": 326,
+            "column": 12,
+            "position": 2276
+          },
+          "fragment": "        start, end = resolve_date_bounds(start_year, end_year, start_date, end_date)\n        day = random_date(self._rng, start, end, normalize_weekdays(weekdays))\n        lo, hi = resolve_time_bounds(all_day, start_time, end_time)\n        return datetime.datetime.combine(day, random_time(self._rng, lo, hi))\n\n    def _gen_time(\n        self,\n        *,\n        all_day: bool = True,\n        start_time: str | None = None,\n        end_time: str | None = None,\n    ) -> datetime.time:\n        \"\"\"Generate a ``datetime.time`` object (参考工具 时间 panel).\n\n        ``all_day=True`` (default, 一整天) spans the whole day; unchecking it\n        enables the ``start_time`` / ``end_time`` window.\n        \"\"\"\n        lo, hi = resolve_time_bounds(all_day, start_time, end_time)\n        return random_time(self._rng, lo, hi)\n\n    def _gen_timestamp(\n        self,\n        *,\n        start_year: int = 2000,\n        end_year: int | None = None,\n        start_date: str | None = None,\n        end_date: str | None = None,\n        all_day: bool = True,\n        start_time: str | None = None,\n        end_time: str | None = None,\n        weekdays: str | list[int] | None = \"all\",\n    ) -> datetime.datetime:\n        \"\"\"Generate a ``datetime.datetime`` object.\n\n        Same params as :meth:`_gen_datetime` and delegates to it — sqlseed's\n        ``timestamp`` and ``datetime`` are the same SQLAlchemy-facing\n        ``datetime`` object; only the column dialect differs.\n\n        Returning a ``datetime`` object (rather than a Unix epoch integer)\n        ensures SQLAlchemy ``TIMESTAMP``/``DATETIME`` columns accept the value\n        directly — SQLite's ``DateTime`` type rejects integers with\n        ``StatementError: SQLite DateTime type only accepts Python datetime\n        and date objects as input``.\n        \"\"\"\n        return self._gen_datetime(\n            start_year=start_year,\n            end_year=end_year,\n            start_date=start_date,\n            end_date=end_date,\n            all_day=all_day,\n            start_time=start_time,\n            end_time=end_time,\n            weekdays=weekdays,\n        )\n\n    def _gen_text(self, *, min_length: int = 50, max_length: int = 200) -> str:\n        \"\"\"Generate text.\"\"\"\n        if min_length > max_length:\n            raise ValueError(f\"min_length ({min_length}) must be <= max_length ({max_length})\")\n        # Faker requires at least five characters per call, even when only a\n        # shorter final fragment is needed. Trim after reaching the minimum.\n        text = self._faker.text(max_nb_chars=max(5, max_length))\n        while len(text) < min_length:\n            text += \" \" + self._faker.text(max_nb_chars=max(5, max_length - len(text)))\n        return text[:max_length]\n\n    def _gen_sentence(self) -> str:\n        \"\"\"Generate a sentence.\"\"\"",
+          "sha256": "42e5ec80db68913eaa267adf0ae9e09d65319b541cb6a3ce592e5b33069cc8cf"
+        },
+        "secondFile": {
+          "name": "../../../../tmp/sqlseed-provider-dedup-baseline/src/sqlseed/generators/mimesis_provider.py",
+          "start": 219,
+          "end": 284,
+          "startLoc": {
+            "line": 219,
+            "column": 9,
+            "position": 1628
+          },
+          "endLoc": {
+            "line": 284,
+            "column": 12,
+            "position": 2014
+          },
+          "fragment": "        start, end = resolve_date_bounds(start_year, end_year, start_date, end_date)\n        day = random_date(self._rng, start, end, normalize_weekdays(weekdays))\n        lo, hi = resolve_time_bounds(all_day, start_time, end_time)\n        return datetime.datetime.combine(day, random_time(self._rng, lo, hi))\n\n    def _gen_time(\n        self,\n        *,\n        all_day: bool = True,\n        start_time: str | None = None,\n        end_time: str | None = None,\n    ) -> datetime.time:\n        \"\"\"Generate a ``datetime.time`` object (参考工具 时间 panel).\n\n        ``all_day=True`` (default, 一整天) spans the whole day; unchecking it\n        enables the ``start_time`` / ``end_time`` window.\n        \"\"\"\n        lo, hi = resolve_time_bounds(all_day, start_time, end_time)\n        return random_time(self._rng, lo, hi)\n\n    def _gen_timestamp(\n        self,\n        *,\n        start_year: int = 2000,\n        end_year: int | None = None,\n        start_date: str | None = None,\n        end_date: str | None = None,\n        all_day: bool = True,\n        start_time: str | None = None,\n        end_time: str | None = None,\n        weekdays: str | list[int] | None = \"all\",\n    ) -> datetime.datetime:\n        \"\"\"Generate a ``datetime.datetime`` object.\n\n        Same params as :meth:`_gen_datetime` and delegates to it — sqlseed's\n        ``timestamp`` and ``datetime`` are the same SQLAlchemy-facing\n        ``datetime`` object; only the column dialect differs.\n\n        Returning a ``datetime`` object (rather than a Unix epoch integer)\n        ensures SQLAlchemy ``TIMESTAMP``/``DATETIME`` columns accept the value\n        directly — SQLite's ``DateTime`` type rejects integers with\n        ``StatementError: SQLite DateTime type only accepts Python datetime\n        and date objects as input``.\n        \"\"\"\n        return self._gen_datetime(\n            start_year=start_year,\n            end_year=end_year,\n            start_date=start_date,\n            end_date=end_date,\n            all_day=all_day,\n            start_time=start_time,\n            end_time=end_time,\n            weekdays=weekdays,\n        )\n\n    def _gen_text(self, *, min_length: int = 50, max_length: int = 200) -> str:\n        \"\"\"Generate text.\"\"\"\n        if min_length > max_length:\n            raise ValueError(\"min_length must not exceed max_length\")\n        text = self._generic.text.text(quantity=1)\n        while len(text) < min_length:\n            text += \" \" + self._generic.text.text(quantity=1)\n        return text[:max_length]\n\n    def _gen_sentence(self) -> str:\n        \"\"\"Generate a sentence with high cardinality.",
+          "sha256": "bf83b3220c8763ce9169df662ec957446201e545bf1b4ff1da8a0ce4ca13cd93"
+        }
+      },
+      {
+        "format": "python",
+        "lines": 14,
+        "fragment": "max_value)\n\n    def _gen_float(\n        self,\n        *,\n        min_value: float = 0.0,\n        max_value: float = 999999.0,\n        precision: int = 2,\n    ) -> float:\n        \"\"\"Generate a float within the closed interval at the requested precision.\"\"\"\n        lower, upper = self._float_bounds(min_value, max_value, precision)\n        if lower == upper:\n            return lower\n        value = self._rng",
+        "tokens": 0,
+        "firstFile": {
+          "name": "../../../../tmp/sqlseed-provider-dedup-baseline/src/sqlseed/generators/base_provider.py",
+          "start": 88,
+          "end": 101,
+          "startLoc": {
+            "line": 88,
+            "column": 2,
+            "position": 573
+          },
+          "endLoc": {
+            "line": 101,
+            "column": 5,
+            "position": 679
+          },
+          "fragment": "        return self._rng.randint(min_value, max_value)\n\n    def _gen_float(\n        self,\n        *,\n        min_value: float = 0.0,\n        max_value: float = 999999.0,\n        precision: int = 2,\n    ) -> float:\n        \"\"\"Generate a float within the closed interval at the requested precision.\"\"\"\n        lower, upper = self._float_bounds(min_value, max_value, precision)\n        if lower == upper:\n            return lower\n        value = self._rng.uniform(min_value, max_value)",
+          "sha256": "8d1b024e9c8da0f7db56beec443b1e4d01bc9466ff094088d472a553902fa2bb"
+        },
+        "secondFile": {
+          "name": "../../../../tmp/sqlseed-provider-dedup-baseline/src/sqlseed/generators/mimesis_provider.py",
+          "start": 88,
+          "end": 101,
+          "startLoc": {
+            "line": 88,
+            "column": 2,
+            "position": 667
+          },
+          "endLoc": {
+            "line": 101,
+            "column": 9,
+            "position": 773
+          },
+          "fragment": "        return self._generic.numeric.integer_number(start=min_value, end=max_value)\n\n    def _gen_float(\n        self,\n        *,\n        min_value: float = 0.0,\n        max_value: float = 999999.0,\n        precision: int = 2,\n    ) -> float:\n        \"\"\"Generate a float within the closed interval at the requested precision.\"\"\"\n        lower, upper = self._float_bounds(min_value, max_value, precision)\n        if lower == upper:\n            return lower\n        value = self._generic.numeric.float_number(start=min_value, end=max_value, precision=precision)",
+          "sha256": "bf83b3220c8763ce9169df662ec957446201e545bf1b4ff1da8a0ce4ca13cd93"
+        }
+      },
+      {
+        "format": "python",
+        "lines": 9,
+        "fragment": "def _gen_date(\n        self,\n        *,\n        start_year: int = 2000,\n        end_year: int | None = None,\n        start_date: str | None = None,\n        end_date: str | None = None,\n        weekdays: str | list[int] | None = \"all\",\n    ) -> _date",
+        "tokens": 0,
+        "firstFile": {
+          "name": "../../../../tmp/sqlseed-provider-dedup-baseline/src/sqlseed/generators/base_provider.py",
+          "start": 354,
+          "end": 362,
+          "startLoc": {
+            "line": 354,
+            "column": 5,
+            "position": 2936
+          },
+          "endLoc": {
+            "line": 362,
+            "column": 6,
+            "position": 3033
+          },
+          "fragment": "    def _gen_date(\n        self,\n        *,\n        start_year: int = 2000,\n        end_year: int | None = None,\n        start_date: str | None = None,\n        end_date: str | None = None,\n        weekdays: str | list[int] | None = \"all\",\n    ) -> _date:",
+          "sha256": "8d1b024e9c8da0f7db56beec443b1e4d01bc9466ff094088d472a553902fa2bb"
+        },
+        "secondFile": {
+          "name": "../../../../tmp/sqlseed-provider-dedup-baseline/src/sqlseed/generators/mimesis_provider.py",
+          "start": 165,
+          "end": 173,
+          "startLoc": {
+            "line": 165,
+            "column": 5,
+            "position": 1330
+          },
+          "endLoc": {
+            "line": 173,
+            "column": 9,
+            "position": 1427
+          },
+          "fragment": "    def _gen_date(\n        self,\n        *,\n        start_year: int = 2000,\n        end_year: int | None = None,\n        start_date: str | None = None,\n        end_date: str | None = None,\n        weekdays: str | list[int] | None = \"all\",\n    ) -> datetime.date:",
+          "sha256": "bf83b3220c8763ce9169df662ec957446201e545bf1b4ff1da8a0ce4ca13cd93"
+        }
+      },
+      {
+        "format": "python",
+        "lines": 15,
+        "fragment": "start, end = resolve_date_bounds(start_year, end_year, start_date, end_date)\n        return random_date(self._rng, start, end, normalize_weekdays(weekdays))\n\n    def _gen_datetime(\n        self,\n        *,\n        start_year: int = 2000,\n        end_year: int | None = None,\n        start_date: str | None = None,\n        end_date: str | None = None,\n        all_day: bool = True,\n        start_time: str | None = None,\n        end_time: str | None = None,\n        weekdays: str | list[int] | None = \"all\",\n    ) -> datetime:",
+        "tokens": 0,
+        "firstFile": {
+          "name": "../../../../tmp/sqlseed-provider-dedup-baseline/src/sqlseed/generators/base_provider.py",
+          "start": 377,
+          "end": 391,
+          "startLoc": {
+            "line": 377,
+            "column": 9,
+            "position": 3047
+          },
+          "endLoc": {
+            "line": 391,
+            "column": 2,
+            "position": 3231
+          },
+          "fragment": "        start, end = resolve_date_bounds(start_year, end_year, start_date, end_date)\n        return random_date(self._rng, start, end, normalize_weekdays(weekdays))\n\n    def _gen_datetime(\n        self,\n        *,\n        start_year: int = 2000,\n        end_year: int | None = None,\n        start_date: str | None = None,\n        end_date: str | None = None,\n        all_day: bool = True,\n        start_time: str | None = None,\n        end_time: str | None = None,\n        weekdays: str | list[int] | None = \"all\",\n    ) -> datetime:",
+          "sha256": "8d1b024e9c8da0f7db56beec443b1e4d01bc9466ff094088d472a553902fa2bb"
+        },
+        "secondFile": {
+          "name": "../../../../tmp/sqlseed-provider-dedup-baseline/src/sqlseed/generators/mimesis_provider.py",
+          "start": 190,
+          "end": 204,
+          "startLoc": {
+            "line": 190,
+            "column": 9,
+            "position": 1436
+          },
+          "endLoc": {
+            "line": 204,
+            "column": 2,
+            "position": 1620
+          },
+          "fragment": "        start, end = resolve_date_bounds(start_year, end_year, start_date, end_date)\n        return random_date(self._rng, start, end, normalize_weekdays(weekdays))\n\n    def _gen_datetime(\n        self,\n        *,\n        start_year: int = 2000,\n        end_year: int | None = None,\n        start_date: str | None = None,\n        end_date: str | None = None,\n        all_day: bool = True,\n        start_time: str | None = None,\n        end_time: str | None = None,\n        weekdays: str | list[int] | None = \"all\",\n    ) -> datetime.datetime:",
+          "sha256": "bf83b3220c8763ce9169df662ec957446201e545bf1b4ff1da8a0ce4ca13cd93"
+        }
+      },
+      {
+        "format": "python",
+        "lines": 24,
+        "fragment": "(\n        self,\n        *,\n        start_year: int = 2000,\n        end_year: int | None = None,\n        start_date: str | None = None,\n        end_date: str | None = None,\n        all_day: bool = True,\n        start_time: str | None = None,\n        end_time: str | None = None,\n        weekdays: str | list[int] | None = \"all\",\n    ) -> datetime:\n        \"\"\"Generate a ``datetime.datetime`` within the given bounds.\n\n        Accepts the same params as :meth:`_gen_datetime` and delegates to it —\n        sqlseed's ``timestamp`` and ``datetime`` are the same SQLAlchemy-facing\n        ``datetime`` object; only the column dialect differs.\n\n        Returning a ``datetime`` object (rather than a Unix epoch integer)\n        ensures SQLAlchemy ``TIMESTAMP``/``DATETIME`` columns accept the value\n        directly — SQLite's ``DateTime`` type rejects integers with\n        ``StatementError: SQLite DateTime type only accepts Python datetime\n        and date objects as input``.\n        \"\"\"",
+        "tokens": 0,
+        "firstFile": {
+          "name": "../../../../tmp/sqlseed-provider-dedup-baseline/src/sqlseed/generators/base_provider.py",
+          "start": 431,
+          "end": 454,
+          "startLoc": {
+            "line": 431,
+            "column": 15,
+            "position": 3447
+          },
+          "endLoc": {
+            "line": 454,
+            "column": 12,
+            "position": 3586
+          },
+          "fragment": "    def _gen_timestamp(\n        self,\n        *,\n        start_year: int = 2000,\n        end_year: int | None = None,\n        start_date: str | None = None,\n        end_date: str | None = None,\n        all_day: bool = True,\n        start_time: str | None = None,\n        end_time: str | None = None,\n        weekdays: str | list[int] | None = \"all\",\n    ) -> datetime:\n        \"\"\"Generate a ``datetime.datetime`` within the given bounds.\n\n        Accepts the same params as :meth:`_gen_datetime` and delegates to it —\n        sqlseed's ``timestamp`` and ``datetime`` are the same SQLAlchemy-facing\n        ``datetime`` object; only the column dialect differs.\n\n        Returning a ``datetime`` object (rather than a Unix epoch integer)\n        ensures SQLAlchemy ``TIMESTAMP``/``DATETIME`` columns accept the value\n        directly — SQLite's ``DateTime`` type rejects integers with\n        ``StatementError: SQLite DateTime type only accepts Python datetime\n        and date objects as input``.\n        \"\"\"",
+          "sha256": "8d1b024e9c8da0f7db56beec443b1e4d01bc9466ff094088d472a553902fa2bb"
+        },
+        "secondFile": {
+          "name": "../../../../tmp/sqlseed-provider-dedup-baseline/src/sqlseed/generators/mimesis_provider.py",
+          "start": 193,
+          "end": 406,
+          "startLoc": {
+            "line": 193,
+            "column": 14,
+            "position": 1484
+          },
+          "endLoc": {
+            "line": 406,
+            "column": 12,
+            "position": 3234
+          },
+          "fragment": "    def _gen_datetime(\n        self,\n        *,\n        start_year: int = 2000,\n        end_year: int | None = None,\n        start_date: str | None = None,\n        end_date: str | None = None,\n        all_day: bool = True,\n        start_time: str | None = None,\n        end_time: str | None = None,\n        weekdays: str | list[int] | None = \"all\",\n    ) -> datetime.datetime:\n        \"\"\"Generate a ``datetime.datetime`` object.\n\n        ``all_day`` is 参考工具's 一整天 checkbox (default on): full-day range,\n        ignoring ``start_time`` / ``end_time``. Uncheck it to constrain the\n        time of day. Whole seconds only — 参考工具's 日期时间 panel has no\n        sub-second control, so microsecond noise like ``T10:21:03.895011``\n        carries no meaning.\n\n        Returning a ``datetime`` object (rather than a ``str(datetime)`` string)\n        ensures SQLAlchemy ``DATETIME``/``TIMESTAMP`` columns accept the value\n        directly — SQLite's ``DateTime`` type rejects ISO-format strings with\n        ``StatementError: SQLite DateTime type only accepts Python datetime\n        and date objects as input``.\n        \"\"\"\n        start, end = resolve_date_bounds(start_year, end_year, start_date, end_date)\n        day = random_date(self._rng, start, end, normalize_weekdays(weekdays))\n        lo, hi = resolve_time_bounds(all_day, start_time, end_time)\n        return datetime.datetime.combine(day, random_time(self._rng, lo, hi))\n\n    def _gen_time(\n        self,\n        *,\n        all_day: bool = True,\n        start_time: str | None = None,\n        end_time: str | None = None,\n    ) -> datetime.time:\n        \"\"\"Generate a ``datetime.time`` object (参考工具 时间 panel).\n\n        ``all_day=True`` (default, 一整天) spans the whole day; unchecking it\n        enables the ``start_time`` / ``end_time`` window.\n        \"\"\"\n        lo, hi = resolve_time_bounds(all_day, start_time, end_time)\n        return random_time(self._rng, lo, hi)\n\n    def _gen_timestamp(\n        self,\n        *,\n        start_year: int = 2000,\n        end_year: int | None = None,\n        start_date: str | None = None,\n        end_date: str | None = None,\n        all_day: bool = True,\n        start_time: str | None = None,\n        end_time: str | None = None,\n        weekdays: str | list[int] | None = \"all\",\n    ) -> datetime.datetime:\n        \"\"\"Generate a ``datetime.datetime`` object.\n\n        Same params as :meth:`_gen_datetime` and delegates to it — sqlseed's\n        ``timestamp`` and ``datetime`` are the same SQLAlchemy-facing\n        ``datetime`` object; only the column dialect differs.\n\n        Returning a ``datetime`` object (rather than a Unix epoch integer)\n        ensures SQLAlchemy ``TIMESTAMP``/``DATETIME`` columns accept the value\n        directly — SQLite's ``DateTime`` type rejects integers with\n        ``StatementError: SQLite DateTime type only accepts Python datetime\n        and date objects as input``.\n        \"\"\"\n        return self._gen_datetime(\n            start_year=start_year,\n            end_year=end_year,\n            start_date=start_date,\n            end_date=end_date,\n            all_day=all_day,\n            start_time=start_time,\n            end_time=end_time,\n            weekdays=weekdays,\n        )\n\n    def _gen_text(self, *, min_length: int = 50, max_length: int = 200) -> str:\n        \"\"\"Generate text.\"\"\"\n        if min_length > max_length:\n            raise ValueError(\"min_length must not exceed max_length\")\n        text = self._generic.text.text(quantity=1)\n        while len(text) < min_length:\n            text += \" \" + self._generic.text.text(quantity=1)\n        return text[:max_length]\n\n    def _gen_sentence(self) -> str:\n        \"\"\"Generate a sentence with high cardinality.\n\n        ``Text.sentence()`` is drawn from a tiny fixed template set (~28\n        unique values), which makes UNIQUE-constrained sentence columns\n        (e.g. ``description``/``title``) fail once the row count exceeds\n        that value space. Building the sentence from a variable-length\n        ``Text.words()`` sample gives an effectively unbounded value space\n        while still reading as natural prose.\n        \"\"\"\n        n = self._generic.random.randint(6, 12)\n        words = self._generic.text.words(quantity=n)\n        return \" \".join(words).capitalize() + \".\"\n\n    def _gen_password(self, *, length: int = 16) -> str:\n        \"\"\"Generate a password.\"\"\"\n        return self._generic.person.password(length=length)\n\n    def _gen_choice(self, choices: list[Any]) -> Any:\n        \"\"\"Randomly select a value from the given choices.\"\"\"\n        return self._generic.random.choice(choices)\n\n    def _get_array_count(self) -> int:\n        \"\"\"Return the number of array elements.\"\"\"\n        return self._generic.numeric.integer_number(start=1, end=5)\n\n    def _gen_city(self) -> str:\n        \"\"\"Generate a city name.\"\"\"\n        return self._generic.address.city()\n\n    def _gen_country(self) -> str:\n        \"\"\"Generate a country name.\"\"\"\n        return self._generic.address.country()\n\n    def _gen_state(self) -> str:\n        \"\"\"Generate a state/province.\"\"\"\n        return self._generic.address.state()\n\n    def _gen_zip_code(self) -> str:\n        \"\"\"Generate a postal code.\"\"\"\n        return self._generic.address.postal_code()\n\n    def _gen_job_title(self) -> str:\n        \"\"\"Generate a job title.\"\"\"\n        return self._generic.person.occupation()\n\n    def _gen_country_code(self) -> str:\n        \"\"\"Generate a country code.\"\"\"\n        return self._generic.address.country_code()\n\n    def _gen_word(self) -> str:\n        \"\"\"Generate a real English word (e.g., 'apple', 'computer', 'mountain').\"\"\"\n        return self._generic.text.word()",
+          "sha256": "bf83b3220c8763ce9169df662ec957446201e545bf1b4ff1da8a0ce4ca13cd93"
+        }
+      }
+    ]
+  },
+  "after": {
+    "statistics": {
+      "detectionDate": "2026-09-12T10:26:56.372Z",
+      "formats": {
+        "python": {
+          "sources": {
+            "src/sqlseed/generators/_native_provider.py": {
+              "lines": 80,
+              "tokens": 709,
+              "sources": 1,
+              "clones": 4,
+              "duplicatedLines": 71,
+              "duplicatedTokens": 573,
+              "percentage": 88.75,
+              "percentageTokens": 80.82,
+              "newDuplicatedLines": 0,
+              "newClones": 0
+            },
+            "src/sqlseed/generators/mimesis_provider.py": {
+              "lines": 207,
+              "tokens": 1751,
+              "sources": 1,
+              "clones": 0,
+              "duplicatedLines": 0,
+              "duplicatedTokens": 0,
+              "percentage": 0,
+              "percentageTokens": 0,
+              "newDuplicatedLines": 0,
+              "newClones": 0
+            },
+            "src/sqlseed/generators/faker_provider.py": {
+              "lines": 246,
+              "tokens": 2005,
+              "sources": 1,
+              "clones": 0,
+              "duplicatedLines": 0,
+              "duplicatedTokens": 0,
+              "percentage": 0,
+              "percentageTokens": 0,
+              "newDuplicatedLines": 0,
+              "newClones": 0
+            },
+            "src/sqlseed/generators/base_provider.py": {
+              "lines": 697,
+              "tokens": 5433,
+              "sources": 1,
+              "clones": 4,
+              "duplicatedLines": 71,
+              "duplicatedTokens": 573,
+              "percentage": 10.19,
+              "percentageTokens": 10.55,
+              "newDuplicatedLines": 0,
+              "newClones": 0
+            }
+          },
+          "total": {
+            "lines": 1230,
+            "tokens": 9898,
+            "sources": 4,
+            "clones": 4,
+            "duplicatedLines": 71,
+            "duplicatedTokens": 573,
+            "percentage": 5.77,
+            "percentageTokens": 5.79,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          }
+        }
+      },
+      "total": {
+        "lines": 1230,
+        "tokens": 9898,
+        "sources": 4,
+        "clones": 4,
+        "duplicatedLines": 71,
+        "duplicatedTokens": 573,
+        "percentage": 5.77,
+        "percentageTokens": 5.79,
+        "newDuplicatedLines": 0,
+        "newClones": 0
+      }
+    },
+    "duplicates": [
+      {
+        "format": "python",
+        "lines": 9,
+        "fragment": "def _gen_date(\n        self,\n        *,\n        start_year: int = 2000,\n        end_year: int | None = None,\n        start_date: str | None = None,\n        end_date: str | None = None,\n        weekdays: str | list[int] | None = \"all\",\n    ) -> _date",
+        "tokens": 0,
+        "firstFile": {
+          "name": "src/sqlseed/generators/base_provider.py",
+          "start": 369,
+          "end": 377,
+          "startLoc": {
+            "line": 369,
+            "column": 5,
+            "position": 3042
+          },
+          "endLoc": {
+            "line": 377,
+            "column": 6,
+            "position": 3139
+          },
+          "fragment": "    def _gen_date(\n        self,\n        *,\n        start_year: int = 2000,\n        end_year: int | None = None,\n        start_date: str | None = None,\n        end_date: str | None = None,\n        weekdays: str | list[int] | None = \"all\",\n    ) -> _date:",
+          "sha256": "cd9b98149fa07af49283eed368ef346b15d6766b88695a73f7a240a234d624ba"
+        },
+        "secondFile": {
+          "name": "src/sqlseed/generators/_native_provider.py",
+          "start": 41,
+          "end": 49,
+          "startLoc": {
+            "line": 41,
+            "column": 5,
+            "position": 226
+          },
+          "endLoc": {
+            "line": 49,
+            "column": 5,
+            "position": 323
+          },
+          "fragment": "    def _gen_date(\n        self,\n        *,\n        start_year: int = 2000,\n        end_year: int | None = None,\n        start_date: str | None = None,\n        end_date: str | None = None,\n        weekdays: str | list[int] | None = \"all\",\n    ) -> date:",
+          "sha256": "1360cbec8f9b6311ccaaf1da4f7e6ec3d879d21343a09bafde8a7fd50e76a7ad"
+        },
+        "preservation_reason": "相同 date 参数签名；Base 推进 counter，native 不推进，不能删除覆盖。"
+      },
+      {
+        "format": "python",
+        "lines": 30,
+        "fragment": "start, end = resolve_date_bounds(start_year, end_year, start_date, end_date)\n        return random_date(self._rng, start, end, normalize_weekdays(weekdays))\n\n    def _gen_datetime(\n        self,\n        *,\n        start_year: int = 2000,\n        end_year: int | None = None,\n        start_date: str | None = None,\n        end_date: str | None = None,\n        all_day: bool = True,\n        start_time: str | None = None,\n        end_time: str | None = None,\n        weekdays: str | list[int] | None = \"all\",\n    ) -> datetime:\n        \"\"\"Generate a ``datetime.datetime`` within the given bounds.\n\n        ``all_day`` is 参考工具's 一整天 checkbox (checked by default): it\n        unlocks the full 00:00:00–23:59:59 day and ignores ``start_time`` /\n        ``end_time``. Unchecking it restricts generation to that window.\n\n        Truncated to whole seconds — 参考工具's 日期时间 panel has no\n        sub-second control, so microsecond noise carries no meaning.\n\n        Returning a ``datetime`` object (rather than a ``strftime`` string)\n        ensures SQLAlchemy ``DATETIME``/``TIMESTAMP`` columns accept the value\n        directly — SQLite's ``DateTime`` type rejects strings and Unix epoch\n        integers with ``StatementError: SQLite DateTime type only accepts\n        Python datetime and date objects as input``.\n        \"\"\"",
+        "tokens": 0,
+        "firstFile": {
+          "name": "src/sqlseed/generators/base_provider.py",
+          "start": 392,
+          "end": 421,
+          "startLoc": {
+            "line": 392,
+            "column": 9,
+            "position": 3153
+          },
+          "endLoc": {
+            "line": 421,
+            "column": 12,
+            "position": 3340
+          },
+          "fragment": "        start, end = resolve_date_bounds(start_year, end_year, start_date, end_date)\n        return random_date(self._rng, start, end, normalize_weekdays(weekdays))\n\n    def _gen_datetime(\n        self,\n        *,\n        start_year: int = 2000,\n        end_year: int | None = None,\n        start_date: str | None = None,\n        end_date: str | None = None,\n        all_day: bool = True,\n        start_time: str | None = None,\n        end_time: str | None = None,\n        weekdays: str | list[int] | None = \"all\",\n    ) -> datetime:\n        \"\"\"Generate a ``datetime.datetime`` within the given bounds.\n\n        ``all_day`` is 参考工具's 一整天 checkbox (checked by default): it\n        unlocks the full 00:00:00–23:59:59 day and ignores ``start_time`` /\n        ``end_time``. Unchecking it restricts generation to that window.\n\n        Truncated to whole seconds — 参考工具's 日期时间 panel has no\n        sub-second control, so microsecond noise carries no meaning.\n\n        Returning a ``datetime`` object (rather than a ``strftime`` string)\n        ensures SQLAlchemy ``DATETIME``/``TIMESTAMP`` columns accept the value\n        directly — SQLite's ``DateTime`` type rejects strings and Unix epoch\n        integers with ``StatementError: SQLite DateTime type only accepts\n        Python datetime and date objects as input``.\n        \"\"\"",
+          "sha256": "cd9b98149fa07af49283eed368ef346b15d6766b88695a73f7a240a234d624ba"
+        },
+        "secondFile": {
+          "name": "src/sqlseed/generators/_native_provider.py",
+          "start": 51,
+          "end": 66,
+          "startLoc": {
+            "line": 51,
+            "column": 9,
+            "position": 330
+          },
+          "endLoc": {
+            "line": 66,
+            "column": 84,
+            "position": 517
+          },
+          "fragment": "        start, end = resolve_date_bounds(start_year, end_year, start_date, end_date)\n        return random_date(self._rng, start, end, normalize_weekdays(weekdays))\n\n    def _gen_datetime(\n        self,\n        *,\n        start_year: int = 2000,\n        end_year: int | None = None,\n        start_date: str | None = None,\n        end_date: str | None = None,\n        all_day: bool = True,\n        start_time: str | None = None,\n        end_time: str | None = None,\n        weekdays: str | list[int] | None = \"all\",\n    ) -> datetime:\n        \"\"\"Return whole seconds, drawing the day before validating and drawing the time.\"\"\"",
+          "sha256": "1360cbec8f9b6311ccaaf1da4f7e6ec3d879d21343a09bafde8a7fd50e76a7ad"
+        },
+        "preservation_reason": "共享 datetime 签名及两行既有日期 helper 调用；Base counter 语义与 native 不同。"
+      },
+      {
+        "format": "python",
+        "lines": 12,
+        "fragment": "start, end = resolve_date_bounds(start_year, end_year, start_date, end_date)\n        day = random_date(self._rng, start, end, normalize_weekdays(weekdays))\n        lo, hi = resolve_time_bounds(all_day, start_time, end_time)\n        return datetime.combine(day, random_time(self._rng, lo, hi))\n\n    def _gen_time(\n        self,\n        *,\n        all_day: bool = True,\n        start_time: str | None = None,\n        end_time: str | None = None,\n    ) -> _time",
+        "tokens": 0,
+        "firstFile": {
+          "name": "src/sqlseed/generators/base_provider.py",
+          "start": 423,
+          "end": 434,
+          "startLoc": {
+            "line": 423,
+            "column": 9,
+            "position": 3350
+          },
+          "endLoc": {
+            "line": 434,
+            "column": 6,
+            "position": 3500
+          },
+          "fragment": "        start, end = resolve_date_bounds(start_year, end_year, start_date, end_date)\n        day = random_date(self._rng, start, end, normalize_weekdays(weekdays))\n        lo, hi = resolve_time_bounds(all_day, start_time, end_time)\n        return datetime.combine(day, random_time(self._rng, lo, hi))\n\n    def _gen_time(\n        self,\n        *,\n        all_day: bool = True,\n        start_time: str | None = None,\n        end_time: str | None = None,\n    ) -> _time:",
+          "sha256": "cd9b98149fa07af49283eed368ef346b15d6766b88695a73f7a240a234d624ba"
+        },
+        "secondFile": {
+          "name": "src/sqlseed/generators/_native_provider.py",
+          "start": 67,
+          "end": 78,
+          "startLoc": {
+            "line": 67,
+            "column": 9,
+            "position": 520
+          },
+          "endLoc": {
+            "line": 78,
+            "column": 5,
+            "position": 670
+          },
+          "fragment": "        start, end = resolve_date_bounds(start_year, end_year, start_date, end_date)\n        day = random_date(self._rng, start, end, normalize_weekdays(weekdays))\n        lo, hi = resolve_time_bounds(all_day, start_time, end_time)\n        return datetime.combine(day, random_time(self._rng, lo, hi))\n\n    def _gen_time(\n        self,\n        *,\n        all_day: bool = True,\n        start_time: str | None = None,\n        end_time: str | None = None,\n    ) -> time:",
+          "sha256": "1360cbec8f9b6311ccaaf1da4f7e6ec3d879d21343a09bafde8a7fd50e76a7ad"
+        },
+        "preservation_reason": "共享 time 签名及四行日期/时间 helper 组合；保持日采样先于时间参数验证，Base counter 与 native 不同。"
+      },
+      {
+        "format": "python",
+        "lines": 24,
+        "fragment": "(\n        self,\n        *,\n        start_year: int = 2000,\n        end_year: int | None = None,\n        start_date: str | None = None,\n        end_date: str | None = None,\n        all_day: bool = True,\n        start_time: str | None = None,\n        end_time: str | None = None,\n        weekdays: str | list[int] | None = \"all\",\n    ) -> datetime:\n        \"\"\"Generate a ``datetime.datetime`` within the given bounds.\n\n        Accepts the same params as :meth:`_gen_datetime` and delegates to it —\n        sqlseed's ``timestamp`` and ``datetime`` are the same SQLAlchemy-facing\n        ``datetime`` object; only the column dialect differs.\n\n        Returning a ``datetime`` object (rather than a Unix epoch integer)\n        ensures SQLAlchemy ``TIMESTAMP``/``DATETIME`` columns accept the value\n        directly — SQLite's ``DateTime`` type rejects integers with\n        ``StatementError: SQLite DateTime type only accepts Python datetime\n        and date objects as input``.\n        \"\"\"",
+        "tokens": 0,
+        "firstFile": {
+          "name": "src/sqlseed/generators/base_provider.py",
+          "start": 446,
+          "end": 469,
+          "startLoc": {
+            "line": 446,
+            "column": 15,
+            "position": 3553
+          },
+          "endLoc": {
+            "line": 469,
+            "column": 12,
+            "position": 3692
+          },
+          "fragment": "    def _gen_timestamp(\n        self,\n        *,\n        start_year: int = 2000,\n        end_year: int | None = None,\n        start_date: str | None = None,\n        end_date: str | None = None,\n        all_day: bool = True,\n        start_time: str | None = None,\n        end_time: str | None = None,\n        weekdays: str | list[int] | None = \"all\",\n    ) -> datetime:\n        \"\"\"Generate a ``datetime.datetime`` within the given bounds.\n\n        Accepts the same params as :meth:`_gen_datetime` and delegates to it —\n        sqlseed's ``timestamp`` and ``datetime`` are the same SQLAlchemy-facing\n        ``datetime`` object; only the column dialect differs.\n\n        Returning a ``datetime`` object (rather than a Unix epoch integer)\n        ensures SQLAlchemy ``TIMESTAMP``/``DATETIME`` columns accept the value\n        directly — SQLite's ``DateTime`` type rejects integers with\n        ``StatementError: SQLite DateTime type only accepts Python datetime\n        and date objects as input``.\n        \"\"\"",
+          "sha256": "cd9b98149fa07af49283eed368ef346b15d6766b88695a73f7a240a234d624ba"
+        },
+        "secondFile": {
+          "name": "src/sqlseed/generators/_native_provider.py",
+          "start": 54,
+          "end": 66,
+          "startLoc": {
+            "line": 54,
+            "column": 14,
+            "position": 378
+          },
+          "endLoc": {
+            "line": 66,
+            "column": 84,
+            "position": 517
+          },
+          "fragment": "    def _gen_datetime(\n        self,\n        *,\n        start_year: int = 2000,\n        end_year: int | None = None,\n        start_date: str | None = None,\n        end_date: str | None = None,\n        all_day: bool = True,\n        start_time: str | None = None,\n        end_time: str | None = None,\n        weekdays: str | list[int] | None = \"all\",\n    ) -> datetime:\n        \"\"\"Return whole seconds, drawing the day before validating and drawing the time.\"\"\"",
+          "sha256": "1360cbec8f9b6311ccaaf1da4f7e6ec3d879d21343a09bafde8a7fd50e76a7ad"
+        },
+        "preservation_reason": "timestamp 与 datetime 的相同参数签名；timestamp 必须动态调用 self._gen_datetime 以保留 subclass override。"
+      }
+    ]
+  },
+  "verification": {
+    "jscpd_version": "4.0.5",
+    "options": {
+      "minLines": 5,
+      "minTokens": 50,
+      "maxLines": 1000,
+      "maxSize": "100kb",
+      "mode": "mild"
+    },
+    "generator_pytest": "333 passed, 1 skipped (Pillow unavailable), before and after",
+    "seed_diff_script": "/tmp/sqlseed-provider-seed-diff.py",
+    "seed_diff": {
+      "normal_calls": 10800,
+      "invalid_boundary_calls": 1530,
+      "forced_faker_fallback_calls": 120
+    }
+  }
+}

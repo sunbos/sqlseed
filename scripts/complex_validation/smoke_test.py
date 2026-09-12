@@ -20,22 +20,14 @@ import sys
 import tempfile
 from pathlib import Path
 
+if __package__:
+    from ._checks import CheckRecorder
+else:
+    from _checks import CheckRecorder
+
 OUT_DIR = Path(tempfile.mkdtemp(prefix="sqlseed_smoke_"))
 
-PASS = 0
-FAIL = 0
-FAILURES: list[str] = []
-
-
-def check(name: str, ok: bool, detail: str = "") -> None:
-    global PASS, FAIL
-    if ok:
-        PASS += 1
-        print(f"  [PASS] {name}")
-    else:
-        FAIL += 1
-        FAILURES.append(name)
-        print(f"  [FAIL] {name}  {detail}")
+check = CheckRecorder()
 
 
 def build_db(name: str, ddl: list[str]) -> Path:
@@ -235,7 +227,7 @@ def s8_error_handling() -> None:
     try:
         fill_from_config(str(bad))
         check("S8 negative count rejected", False, "no exception")
-    except Exception as e:  # noqa: BLE001
+    except ValueError as e:
         check("S8 negative count rejected", True, f"{type(e).__name__}")
 
 
@@ -251,14 +243,7 @@ def main() -> int:
     s6_preview_isolation()
     s7_yaml_round_trip()
     s8_error_handling()
-    print("\n" + "=" * 70)
-    print(f"TOTAL: {PASS} passed, {FAIL} failed")
-    if FAILURES:
-        print("failed checks:")
-        for f in FAILURES:
-            print(f"  - {f}")
-    print("=" * 70)
-    return 0 if FAIL == 0 else 1
+    return check.summarize()
 
 
 if __name__ == "__main__":

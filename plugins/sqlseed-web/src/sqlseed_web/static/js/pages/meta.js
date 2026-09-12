@@ -3,8 +3,6 @@
 
 import { h, get, msg, clear, table } from '../api.js';
 
-let data = null;
-
 export function render() {
   const root = h('div');
   root.append(
@@ -31,7 +29,6 @@ async function load() {
       get('/api/meta/info'),
       get('/api/jobs'),
     ]);
-    data = { generators, hooks, providers, ai, info, jobs };
     clear(out);
     out.append(
       renderStats(generators, hooks, ai, info),

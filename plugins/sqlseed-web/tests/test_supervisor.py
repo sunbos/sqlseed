@@ -3,16 +3,31 @@
 from __future__ import annotations
 
 import importlib
-import sqlite3
 import sys
 import time
-from contextlib import closing
 from importlib import metadata
 from pathlib import Path
 from typing import Any
 
 import httpx
 import pytest
+from tests.sqlite_helpers import sqlite_connection
+
+
+def _wait_for_task_result(client: httpx.Client, task_id: str) -> dict[str, Any]:
+    deadline = time.monotonic() + 20
+    result: dict[str, Any] = {}
+    while time.monotonic() < deadline:
+        try:
+            response = client.get(f"/api/settings/plugins/tasks/{task_id}")
+            if response.status_code == 200:
+                result = response.json()
+                if result["status"] != "running":
+                    break
+        except httpx.TransportError:
+            pass
+        time.sleep(0.05)
+    return result
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Managed worker replacement requires POSIX descriptor inheritance")
@@ -53,7 +68,7 @@ def test_supervisor_preserves_port_connection_identity_and_database_after_packag
 
     monkeypatch.setattr("sqlseed_web.plugin_management.run_installer", controlled_installer)
     database = tmp_path / "data.sqlite3"
-    with closing(sqlite3.connect(database)) as connection, connection:
+    with sqlite_connection(database) as connection:
         connection.executescript(
             "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT); INSERT INTO users VALUES (1, 'kept');"
         )
@@ -81,18 +96,7 @@ def test_supervisor_preserves_port_connection_identity_and_database_after_packag
             )
             assert response.status_code == 202, response.text
             task_id = response.json()["task_id"]
-            deadline = time.monotonic() + 20
-            result: dict[str, Any] = {}
-            while time.monotonic() < deadline:
-                try:
-                    response = client.get(f"/api/settings/plugins/tasks/{task_id}")
-                    if response.status_code == 200:
-                        result = response.json()
-                        if result["status"] != "running":
-                            break
-                except httpx.TransportError:
-                    pass
-                time.sleep(0.05)
+            result = _wait_for_task_result(client, task_id)
             assert result.get("status") == "succeeded", result
             assert result["service_ready"] is True
             status = client.get("/api/settings/plugins/management").json()
@@ -104,7 +108,7 @@ def test_supervisor_preserves_port_connection_identity_and_database_after_packag
             assert client.get(f"/api/connections/{conn_id}/tables").status_code == 200
             assert supervisor.process.pid != old_process.pid
         assert invoked == ["mimesis"]
-        with closing(sqlite3.connect(database)) as connection, connection:
+        with sqlite_connection(database) as connection:
             assert connection.execute("SELECT * FROM users").fetchall() == [(1, "kept")]
         assert installed_before == sorted((item.metadata["Name"], item.version) for item in metadata.distributions())
         # An orphan keeps the environment locked until its existing work has

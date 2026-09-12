@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import sqlite3
-from contextlib import closing
 from typing import TYPE_CHECKING
 
 import pytest
@@ -12,6 +10,8 @@ from click.testing import CliRunner
 from sqlseed_cli.main import cli
 
 import sqlseed
+from tests.assertions import assert_empty
+from tests.sqlite_helpers import sqlite_connection
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -22,7 +22,7 @@ def test_config_rejects_explicit_target_without_changing_either_database(tmp_pat
     configured_db = tmp_path / "configured.db"
     explicit_db = tmp_path / "explicit.db"
     for db_path in (configured_db, explicit_db):
-        with closing(sqlite3.connect(db_path)) as conn, conn:
+        with sqlite_connection(db_path) as conn:
             conn.execute("CREATE TABLE items (value INTEGER)")
             conn.execute("INSERT INTO items VALUES (99)")
     config_path = tmp_path / "generate.yaml"
@@ -47,14 +47,14 @@ def test_config_rejects_explicit_target_without_changing_either_database(tmp_pat
     assert "db_path" in result.output
     assert "--url" in result.output
     for db_path in (configured_db, explicit_db):
-        with closing(sqlite3.connect(db_path)) as conn, conn:
+        with sqlite_connection(db_path) as conn:
             assert conn.execute("SELECT value FROM items").fetchall() == [(99,)]
 
 
 @pytest.mark.parametrize("failed_first", [False, True])
 def test_config_partial_failure_reports_committed_rows_and_nonzero_exit(tmp_path: Path, failed_first: bool) -> None:
     db_path = tmp_path / "partial.db"
-    with closing(sqlite3.connect(db_path)) as conn, conn:
+    with sqlite_connection(db_path) as conn:
         conn.execute("CREATE TABLE good (value INTEGER)")
         conn.execute("CREATE TABLE bad (value INTEGER)")
         conn.execute("INSERT INTO bad VALUES (99)")
@@ -96,7 +96,7 @@ def test_config_partial_failure_reports_committed_rows_and_nonzero_exit(tmp_path
     assert "table=good, count=2," in result.output
     assert "table=bad, count=2," in result.output
     assert "Error: third row failed" in result.stderr
-    with closing(sqlite3.connect(db_path)) as conn, conn:
+    with sqlite_connection(db_path) as conn:
         assert conn.execute("SELECT value FROM good").fetchall() == [(11,), (11,)]
         assert conn.execute("SELECT value FROM bad ORDER BY value").fetchall() == [(11,), (11,), (99,)]
 
@@ -105,7 +105,7 @@ def test_config_partial_failure_reports_committed_rows_and_nonzero_exit(tmp_path
 @pytest.mark.parametrize("option", ["provider", "locale"])
 def test_config_generation_matches_api_option_priority(tmp_path: Path, option: str, explicit_override: bool) -> None:
     db_path = tmp_path / "people.db"
-    with closing(sqlite3.connect(db_path)) as conn, conn:
+    with sqlite_connection(db_path) as conn:
         conn.execute("CREATE TABLE people (name TEXT)")
     config_path = tmp_path / "generate.yaml"
     config_path.write_text(
@@ -137,8 +137,8 @@ def test_config_generation_matches_api_option_priority(tmp_path: Path, option: s
         locale=override if option == "locale" else None,
     )
     assert expected[0].count == 5
-    assert expected[0].errors == []
-    with closing(sqlite3.connect(db_path)) as conn, conn:
+    assert_empty(expected[0].errors, list)
+    with sqlite_connection(db_path) as conn:
         expected_rows = conn.execute("SELECT name FROM people ORDER BY rowid").fetchall()
     args = ["fill", "--config", str(config_path), "--no-ai"]
     if option == "locale":
@@ -149,7 +149,7 @@ def test_config_generation_matches_api_option_priority(tmp_path: Path, option: s
     result = CliRunner().invoke(cli, args)
 
     assert result.exit_code == 0, result.output
-    with closing(sqlite3.connect(db_path)) as conn, conn:
+    with sqlite_connection(db_path) as conn:
         assert conn.execute("SELECT name FROM people ORDER BY rowid").fetchall() == expected_rows
 
 
@@ -158,7 +158,7 @@ def test_config_batch_size_controls_real_partial_commits(
     tmp_path: Path, explicit_override: bool, expected_count: int
 ) -> None:
     db_path = tmp_path / "batches.db"
-    with closing(sqlite3.connect(db_path)) as conn, conn:
+    with sqlite_connection(db_path) as conn:
         conn.execute("CREATE TABLE items (value INTEGER)")
     transform_path = tmp_path / "fail_third.py"
     transform_path.write_text(
@@ -191,20 +191,20 @@ def test_config_batch_size_controls_real_partial_commits(
     assert result.exit_code == 1, result.output
     assert f"table=items, count={expected_count}," in result.output
     assert "Error: third row failed" in result.stderr
-    with closing(sqlite3.connect(db_path)) as conn, conn:
+    with sqlite_connection(db_path) as conn:
         assert conn.execute("SELECT COUNT(*) FROM items").fetchone()[0] == expected_count
 
 
 def test_direct_fill_keeps_default_provider_and_locale(tmp_path: Path) -> None:
     db_path = tmp_path / "direct.db"
-    with closing(sqlite3.connect(db_path)) as conn, conn:
+    with sqlite_connection(db_path) as conn:
         conn.execute("CREATE TABLE people (name TEXT)")
     expected = sqlseed.fill(
         str(db_path), table="people", count=5, seed=42, provider="mimesis", locale="en_US", skip_ai=True
     )
     assert expected.count == 5
-    assert expected.errors == []
-    with closing(sqlite3.connect(db_path)) as conn, conn:
+    assert_empty(expected.errors, list)
+    with sqlite_connection(db_path) as conn:
         expected_rows = conn.execute("SELECT name FROM people ORDER BY rowid").fetchall()
 
     result = CliRunner().invoke(
@@ -212,5 +212,5 @@ def test_direct_fill_keeps_default_provider_and_locale(tmp_path: Path) -> None:
     )
 
     assert result.exit_code == 0, result.output
-    with closing(sqlite3.connect(db_path)) as conn, conn:
+    with sqlite_connection(db_path) as conn:
         assert conn.execute("SELECT name FROM people ORDER BY rowid").fetchall() == expected_rows

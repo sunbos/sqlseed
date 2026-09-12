@@ -8,6 +8,7 @@ import threading
 from pathlib import Path
 
 import pytest
+from tests.assertions import assert_empty
 
 from sqlseed_web.plugin_environment import EnvironmentLock
 from sqlseed_web.plugin_process import run_installer
@@ -44,7 +45,7 @@ def test_installer_keeps_environment_locked_after_parent_descriptor_closes(tmp_p
     contender = EnvironmentLock(tmp_path, exclusive=True)
     try:
         assert ready.wait(5)
-        assert failures == []
+        assert_empty(failures, list)
         lock.release()
         with pytest.raises(RuntimeError):
             contender.acquire()

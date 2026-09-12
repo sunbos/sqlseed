@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import sqlite3
-from contextlib import closing
 from typing import TYPE_CHECKING
 
 import pytest
@@ -11,28 +10,33 @@ from sqlseed_ai.contracts.builtin_violations import BUILTIN_VIOLATIONS
 from sqlseed_ai.contracts.matrix import ContractResolver
 from sqlseed_ai.validator.main import FastValidator
 from sqlseed_ai.validator.models import ConstraintType
-from sqlseed_ai.validator.schema_snapshot import SchemaSnapshot
+
+from .schema_helpers import snapshot_from_ddl
 
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from sqlseed_ai.validator.schema_snapshot import SchemaSnapshot
 
-@pytest.fixture
-def snapshot(tmp_path: Path) -> SchemaSnapshot:
-    path = tmp_path / "t.db"
-    with closing(sqlite3.connect(str(path))) as conn, conn:
-        conn.executescript(
-            """
-            CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT UNIQUE);
-            CREATE TABLE orders (id INTEGER PRIMARY KEY, user_id INTEGER REFERENCES users(id));
+
+@pytest.fixture(name="snapshot")
+def fixture_snapshot(tmp_path: Path) -> SchemaSnapshot:
+    return snapshot_from_ddl(
+        tmp_path / "t.db",
         """
-        )
-    return SchemaSnapshot(db_path=str(path))
+        CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT UNIQUE);
+        CREATE TABLE orders (id INTEGER PRIMARY KEY, user_id INTEGER REFERENCES users(id));
+        """,
+    )
+
+
+def _validator(snapshot: SchemaSnapshot) -> FastValidator:
+    resolver = ContractResolver(BUILTIN_VIOLATIONS, set())
+    return FastValidator(resolver, db_path=snapshot.db_path)
 
 
 def test_validate_clean_config_returns_no_violations(snapshot: SchemaSnapshot):
-    resolver = ContractResolver(BUILTIN_VIOLATIONS, set())
-    validator = FastValidator(resolver, db_path=snapshot.db_path)
+    validator = _validator(snapshot)
     config = {
         "tables": [
             {
@@ -56,8 +60,7 @@ def test_validate_clean_config_returns_no_violations(snapshot: SchemaSnapshot):
 
 
 def test_validate_reports_crash_violation(snapshot: SchemaSnapshot):
-    resolver = ContractResolver(BUILTIN_VIOLATIONS, set())
-    validator = FastValidator(resolver, db_path=snapshot.db_path)
+    validator = _validator(snapshot)
     config = {
         "tables": [
             {
@@ -75,8 +78,7 @@ def test_validate_reports_crash_violation(snapshot: SchemaSnapshot):
 
 
 def test_validate_runs_shadow_scan_for_fk_error(snapshot: SchemaSnapshot):
-    resolver = ContractResolver(BUILTIN_VIOLATIONS, set())
-    validator = FastValidator(resolver, db_path=snapshot.db_path)
+    validator = _validator(snapshot)
     config = {
         "tables": [
             {

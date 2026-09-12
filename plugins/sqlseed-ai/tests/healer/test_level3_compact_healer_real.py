@@ -49,7 +49,7 @@ def test_level3_compact_real(llm_client, llm_model):
     result = healer.heal_compact(_make_task(), [_make_violation()], _make_config(), mode="compact")
 
     assert result.mode == "compact"
-    assert result.success in (True, False)
+    assert isinstance(result.success, bool)
     assert result.elapsed_seconds >= 0
     assert result.prompt_tokens > 0
     if result.success:
@@ -63,6 +63,6 @@ def test_level3_ultra_compact_real(llm_client, llm_model):
     result = healer.heal_compact(_make_task(), [_make_violation()], _make_config(), mode="ultra_compact")
 
     assert result.mode == "ultra_compact"
-    assert result.success in (True, False)
+    assert isinstance(result.success, bool)
     assert result.elapsed_seconds >= 0
     assert result.prompt_tokens > 0

@@ -12,9 +12,9 @@ point target.
 
 from __future__ import annotations
 
-from contextlib import closing
+from contextlib import closing, contextmanager
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, ParamSpec, TypeVar
 
 import click
 import yaml
@@ -38,12 +38,41 @@ from sqlseed._utils.logger import get_logger
 from sqlseed.config.models import GeneratorConfig
 from sqlseed.core.orchestrator import DataOrchestrator
 
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterator
+
+    from sqlseed_ai.auto_heal.orchestrator import AutoHealOrchestrator
+
 logger = get_logger(__name__)
 
 # This module is always loaded from inside the sqlseed-ai package, so the
 # AI plugin is always available. The flag is kept for backward-compatible
 # internal references and tests that monkeypatch it.
 HAS_AI_PLUGIN = True
+
+_CommandParams = ParamSpec("_CommandParams")
+_CommandResult = TypeVar("_CommandResult")
+
+
+def _ai_model_options(
+    callback: Callable[_CommandParams, _CommandResult],
+) -> Callable[_CommandParams, _CommandResult]:
+    """Attach shared model options in their displayed command-line order."""
+    options = (
+        click.option("--model", "-m", default=None, help="AI model name (default: auto-select based on backend)"),
+        click.option(
+            "--api-key", envvar="SQLSEED_AI_API_KEY", default=None, help="AI API key (env: SQLSEED_AI_API_KEY)"
+        ),
+        click.option(
+            "--base-url",
+            envvar="SQLSEED_AI_BASE_URL",
+            default=None,
+            help="AI API base URL (env: SQLSEED_AI_BASE_URL)",
+        ),
+    )
+    for option in reversed(options):
+        callback = option(callback)
+    return callback
 
 
 class _StreamingProgressDisplay:
@@ -341,20 +370,14 @@ def _report_ai_failure() -> None:
 @click.argument("db_path")
 @click.option("--table", "-t", required=False, help="Target table name (required unless --auto-heal)")
 @click.option("--output", "-o", required=False, help="Output YAML file path (required unless --auto-heal)")
-@click.option("--model", "-m", default=None, help="AI model name (default: auto-select based on backend)")
-@click.option("--api-key", envvar="SQLSEED_AI_API_KEY", default=None, help="AI API key (env: SQLSEED_AI_API_KEY)")
-@click.option(
-    "--base-url",
-    envvar="SQLSEED_AI_BASE_URL",
-    default=None,
-    help="AI API base URL (env: SQLSEED_AI_BASE_URL)",
-)
+@_ai_model_options
 @click.option("--max-retries", default=3, type=int, help="Max refinement retries, 0=disable (default: 3)")
 @click.option("--verify/--no-verify", default=True, help="Enable AI config self-correction (default: verify)")
 @click.option("--no-cache", is_flag=True, help="Skip cached AI configs")
 @click.option("--timeout", default=0, type=float, help="API call timeout in seconds (0=auto, default: auto)")
 @click.option(
     "--auto-heal",
+    "enable_auto_heal",
     is_flag=True,
     default=False,
     help=(
@@ -373,10 +396,10 @@ def ai_suggest(
     verify: bool,
     no_cache: bool,
     timeout: float,
-    auto_heal: bool,
+    enable_auto_heal: bool,
 ) -> None:
     """Analyze table schema and suggest generation rules via AI."""
-    if auto_heal:
+    if enable_auto_heal:
         _run_auto_heal(db_path, model=model, api_key=api_key, base_url=base_url, timeout=timeout)
         return
 
@@ -465,14 +488,7 @@ def _run_auto_heal(
     help="Skip FK dependency resolution (analyze only specified tables)",
 )
 @click.option("--max-depth", default=5, type=click.IntRange(min=0), help="Max FK recursion depth (default: 5)")
-@click.option("--model", "-m", default=None, help="AI model name (default: auto-select based on backend)")
-@click.option("--api-key", envvar="SQLSEED_AI_API_KEY", default=None, help="AI API key (env: SQLSEED_AI_API_KEY)")
-@click.option(
-    "--base-url",
-    envvar="SQLSEED_AI_BASE_URL",
-    default=None,
-    help="AI API base URL (env: SQLSEED_AI_BASE_URL)",
-)
+@_ai_model_options
 @click.option("--timeout", default=0, type=float, help="API call timeout in seconds (0=auto, default: auto)")
 @click.option(
     "--log-llm",
@@ -601,10 +617,6 @@ def _run_auto_heal_v4(
     ``ai-analyze`` (new default v4 path). Returns YAML string instead of
     echoing to stdout so the caller can choose to write to file or echo.
     """
-    from sqlseed_ai.auto_heal.orchestrator import AutoHealOrchestrator
-    from sqlseed_ai.contracts.builtin_violations import BUILTIN_VIOLATIONS
-    from sqlseed_ai.contracts.matrix import ContractResolver
-    from sqlseed_ai.validator.main import FastValidator
 
     ai_config = _build_ai_config(
         api_key=api_key,
@@ -614,6 +626,22 @@ def _run_auto_heal_v4(
         log_llm=log_llm,
     )
 
+    _announce_auto_heal_model(ai_config, log_llm=log_llm, err=True)
+
+    with _cli_auto_healer(ai_config, db_path, db_url, max_retries) as orch:
+        try:
+            return orch.run(tables=tables, include_dependencies=include_dependencies, max_depth=max_depth)
+        except (ValueError, RuntimeError, OSError) as exc:
+            click.echo(f"Error: v4 auto-heal failed: {exc}", err=True)
+            raise SystemExit(1) from exc
+
+
+def _announce_auto_heal_model(ai_config: AIConfig, *, log_llm: bool, err: bool) -> None:
+    """Validate credentials and display the model on the caller's output stream.
+
+    Raises:
+        SystemExit: When no usable API key is configured.
+    """
     if not ai_config.resolve_api_key():
         click.echo(
             "Error: AI API key not configured. "
@@ -627,13 +655,24 @@ def _run_auto_heal_v4(
     resolved_model = ai_config.resolve_model()
     ai_config.model = resolved_model
     backend_name = BACKEND_DISPLAY_NAMES.get(ai_config.backend, ai_config.backend.value)
-    click.echo(f"Using AI model: {resolved_model} (via {backend_name})", err=True)
+    click.echo(f"Using AI model: {resolved_model} (via {backend_name})", err=err)
 
     if log_llm:
         from sqlseed._utils.paths import get_cache_dir
 
         log_dir = get_cache_dir("ai_logs")
-        click.echo(f"LLM interaction logging enabled: {log_dir}", err=True)
+        click.echo(f"LLM interaction logging enabled: {log_dir}", err=err)
+
+
+@contextmanager
+def _cli_auto_healer(
+    ai_config: AIConfig, db_path: str | None, db_url: str | None, max_retries: int
+) -> Iterator[AutoHealOrchestrator]:
+    """Own the CLI client through construction and execution of its auto-healer."""
+    from sqlseed_ai.auto_heal.orchestrator import AutoHealOrchestrator
+    from sqlseed_ai.contracts.builtin_violations import BUILTIN_VIOLATIONS
+    from sqlseed_ai.contracts.matrix import ContractResolver
+    from sqlseed_ai.validator.main import FastValidator
 
     resolver = ContractResolver(set(BUILTIN_VIOLATIONS), set())
     validator = FastValidator(resolver, db_path=db_path, url=db_url)
@@ -655,7 +694,7 @@ def _run_auto_heal_v4(
             max_retries=max_retries,
         )
 
-        orch = AutoHealOrchestrator(
+        yield AutoHealOrchestrator(
             db_path=db_path,
             url=db_url,
             heal_orchestrator=heal_orch,
@@ -664,12 +703,6 @@ def _run_auto_heal_v4(
             max_retries=max_retries,
             verbose=True,  # Always verbose: user needs to see LLM progress in real time
         )
-
-        try:
-            return orch.run(tables=tables, include_dependencies=include_dependencies, max_depth=max_depth)
-        except (ValueError, RuntimeError, OSError) as exc:
-            click.echo(f"Error: v4 auto-heal failed: {exc}", err=True)
-            raise SystemExit(1) from exc
 
 
 def _read_config_document(path: Path, *, db_path: str | None, url: str | None) -> dict[str, Any]:
@@ -776,75 +809,16 @@ def auto_heal(
         log_llm=log_llm,
     )
 
-    if not ai_config.resolve_api_key():
-        click.echo(
-            "Error: AI API key not configured. "
-            "Set SQLSEED_AI_API_KEY or OPENAI_API_KEY. "
-            "For Google AI Studio, set GOOGLE_API_KEY. "
-            "For LM Studio/Ollama, set SQLSEED_AI_BACKEND=lm_studio or ollama.",
-            err=True,
-        )
-        raise SystemExit(1)
-
-    resolved_model = ai_config.resolve_model()
-    ai_config.model = resolved_model
-    backend_name = BACKEND_DISPLAY_NAMES.get(ai_config.backend, ai_config.backend.value)
-    click.echo(f"Using AI model: {resolved_model} (via {backend_name})")
-
-    if log_llm:
-        from sqlseed._utils.paths import get_cache_dir
-
-        log_dir = get_cache_dir("ai_logs")
-        click.echo(f"LLM interaction logging enabled: {log_dir}")
+    _announce_auto_heal_model(ai_config, log_llm=log_llm, err=False)
 
     # Build validator + healer + orchestrator (lazy imports to avoid
     # loading auto_heal submodules unless the command is actually invoked)
-    from sqlseed_ai.auto_heal.orchestrator import AutoHealOrchestrator
-    from sqlseed_ai.contracts.builtin_violations import BUILTIN_VIOLATIONS
-    from sqlseed_ai.contracts.matrix import ContractResolver
-    from sqlseed_ai.validator.main import FastValidator
 
-    resolver = ContractResolver(set(BUILTIN_VIOLATIONS), set())
-    validator = FastValidator(resolver, db_path=db_path, url=db_url)
-    with closing(_build_llm_client(ai_config)) as client:
-        # Build HealOrchestrator (4-level: subgraph → column → compact → degrade).
-        # The snapshot is captured inside AutoHealOrchestrator.run(), but
-        # HealOrchestrator needs it for Level 2 context building. We create a
-        # preliminary snapshot here for construction; AutoHealOrchestrator.run()
-        # will create its own for the optimistic-lock check (Defense 8).
-        from sqlseed_ai.validator.schema_snapshot import SchemaSnapshot
-
-        prelim_snapshot = SchemaSnapshot(db_path=db_path, url=db_url)
-        heal_orch = _build_heal_orchestrator(
-            ai_config,
-            client,
-            prelim_snapshot,
-            validator,
-            schema_hash=prelim_snapshot.schema_hash,
-            max_retries=max_retries,
-        )
-
-        orch = AutoHealOrchestrator(
-            db_path=db_path,
-            url=db_url,
-            heal_orchestrator=heal_orch,
-            validator=validator,
-            total_budget_seconds=300.0,
-            max_retries=max_retries,
-            verbose=True,  # Always verbose: user needs to see LLM progress in real time
-        )
-
+    with _cli_auto_healer(ai_config, db_path, db_url, max_retries) as orch:
         try:
             yaml_str = orch.run(initial_config=initial_config)
         except (ValueError, RuntimeError, OSError) as exc:
-            err_msg = str(exc)
-            if db_url:
-                try:
-                    from sqlseed_cli.main import _redact_credentials
-
-                    err_msg = _redact_credentials(err_msg)
-                except ImportError:
-                    pass
+            err_msg = _auto_heal_error_message(exc, db_url)
             click.echo(f"Error: auto-heal failed: {err_msg}", err=True)
             raise SystemExit(1) from exc
 
@@ -860,6 +834,19 @@ def auto_heal(
 
     click.echo(f"Healed YAML written to: {output_file}")
     click.echo(f"Tables repaired: {tables_repaired}")
+
+
+def _auto_heal_error_message(exc: Exception, db_url: str | None) -> str:
+    """Redact URL credentials at the CLI error boundary when its helper is available."""
+    err_msg = str(exc)
+    if db_url:
+        try:
+            from sqlseed_cli.main import _redact_credentials
+
+            err_msg = _redact_credentials(err_msg)
+        except ImportError:
+            pass
+    return err_msg
 
 
 def register(cli_group: click.Group) -> None:

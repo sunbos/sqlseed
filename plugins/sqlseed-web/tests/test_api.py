@@ -6,21 +6,18 @@ database layer — see root AGENTS.md Pitfall #13).
 
 from __future__ import annotations
 
-import sqlite3
-from contextlib import closing
+from importlib import import_module
 from pathlib import Path
 
 import pytest
+from tests.sqlite_helpers import sqlite_connection
 
-fastapi_testclient = pytest.importorskip("fastapi.testclient")
-
-from fastapi.testclient import TestClient
-
-from sqlseed_web.app import create_app
+TestClient = pytest.importorskip("fastapi.testclient").TestClient
+create_app = import_module("sqlseed_web.app").create_app
 
 
-@pytest.fixture()
-def client() -> TestClient:
+@pytest.fixture(name="client")
+def fixture_client() -> TestClient:
     app = create_app()
     # Reset module-level state so connections from other tests don't leak
     # into grouping assertions (the singleton survives across TestClients).
@@ -31,10 +28,10 @@ def client() -> TestClient:
     return TestClient(app)
 
 
-@pytest.fixture()
-def db_path(tmp_path: Path) -> str:
+@pytest.fixture(name="db_path")
+def fixture_db_path(tmp_path: Path) -> str:
     path = tmp_path / "ui_test.db"
-    with closing(sqlite3.connect(path)) as conn, conn:
+    with sqlite_connection(path) as conn:
         conn.execute("CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, email TEXT)")
         conn.execute(
             "CREATE TABLE orders ("
@@ -45,8 +42,8 @@ def db_path(tmp_path: Path) -> str:
     return str(path)
 
 
-@pytest.fixture()
-def conn_id(client: TestClient, db_path: str) -> str:
+@pytest.fixture(name="conn_id")
+def fixture_conn_id(client: TestClient, db_path: str) -> str:
     res = client.post("/api/connections", json={"db_path": db_path})
     assert res.status_code == 200, res.text
     return res.json()["conn_id"]
@@ -112,8 +109,6 @@ class TestMeta:
 
 class TestFsBrowse:
     def test_browse_defaults_to_home(self, client: TestClient) -> None:
-        from pathlib import Path
-
         res = client.get("/api/fs/browse")
         assert res.status_code == 200
         body = res.json()
@@ -177,7 +172,7 @@ class TestConnections:
     def test_group_key_normalizes_paths(self, client: TestClient, tmp_path: Path) -> None:
         """File path, ./relative and sqlite:/// URL of one DB normalize to one group."""
         db = tmp_path / "grouped.db"
-        with closing(sqlite3.connect(db)) as conn, conn:
+        with sqlite_connection(db) as conn:
             conn.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)")
         client.post("/api/connections", json={"db_path": str(db)})
         client.post("/api/connections", json={"db_path": f"sqlite:///{db}"})
@@ -241,7 +236,7 @@ class TestConnections:
         db1 = tmp_path / "a.db"
         db2 = tmp_path / "b.db"
         for db in (db1, db2):
-            with closing(sqlite3.connect(db)) as conn, conn:
+            with sqlite_connection(db) as conn:
                 conn.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)")
         client.post("/api/connections", json={"db_path": str(db1)})
         client.post("/api/connections", json={"db_path": str(db2)})
@@ -274,7 +269,7 @@ class TestSchemaMapping:
         res = client.get(f"/api/connections/{conn_id}/tables/users/mapping")
         mapping = res.json()["mapping"]
         assert mapping["id"]["generator_name"] == "skip"
-        assert mapping["name"]["generator_name"] in ("string", "name", "text")
+        assert mapping["name"]["generator_name"] in {"string", "name", "text"}
 
     def test_yaml_template(self, client: TestClient, conn_id: str) -> None:
         res = client.get(f"/api/connections/{conn_id}/tables/users/yaml-template")

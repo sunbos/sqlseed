@@ -17,7 +17,7 @@ from sqlseed_ai.validator.models import ConstraintType, ViolationReport
 from sqlseed._utils.logger import get_logger
 
 if TYPE_CHECKING:
-    from sqlseed_ai.validator.schema_snapshot import SchemaSnapshot
+    from sqlseed_ai.validator.schema_snapshot import SchemaSnapshot, TableMeta
 
 logger = get_logger(__name__)
 
@@ -84,28 +84,36 @@ class ShadowFKScanner:
             candidate_tables = list(self._snapshot.tables.values())
 
         for table_meta in candidate_tables:
-            for fk in table_meta.foreign_keys:
-                fk_cols = fk.get("columns") or []
-                parent_table = fk.get("ref_table")
-                parent_cols = fk.get("ref_columns") or []
-                if not (fk_cols and parent_table and parent_cols):
-                    continue
-                parent_pk_set = self._load_parent_pk_set(parent_table, parent_cols[0])
-                for fk_col in fk_cols:
-                    generated_values = {row.get(fk_col) for row in batch if row.get(fk_col) is not None}
-                    offending = generated_values - parent_pk_set
-                    if offending:
-                        logger.info(
-                            "Shadow FK scan localized offender",
-                            table=table_meta.name,
-                            column=fk_col,
-                            offending_count=len(offending),
-                        )
-                        report.columns = [fk_col]
-                        report.table = table_meta.name  # backfill table name
-                        return report
+            if self._scan_table_foreign_keys(report, batch, table_meta):
+                return report
         logger.warning("Shadow FK scan found no culprit", table=report.table)
         return report
+
+    def _scan_table_foreign_keys(
+        self, report: ViolationReport, batch: list[dict[str, Any]], table_meta: TableMeta
+    ) -> bool:
+        """Stop at the first offending FK member in the snapshot's original order."""
+        for fk in table_meta.foreign_keys:
+            fk_cols = fk.get("columns") or []
+            parent_table = fk.get("ref_table")
+            parent_cols = fk.get("ref_columns") or []
+            if not (fk_cols and parent_table and parent_cols):
+                continue
+            parent_pk_set = self._load_parent_pk_set(parent_table, parent_cols[0])
+            for fk_col in fk_cols:
+                generated_values = {row.get(fk_col) for row in batch if row.get(fk_col) is not None}
+                offending = generated_values - parent_pk_set
+                if offending:
+                    logger.info(
+                        "Shadow FK scan localized offender",
+                        table=table_meta.name,
+                        column=fk_col,
+                        offending_count=len(offending),
+                    )
+                    report.columns = [fk_col]
+                    report.table = table_meta.name  # backfill table name
+                    return True
+        return False
 
     def _load_parent_pk_set(self, parent_table: str, parent_col: str) -> set[Any]:
         """Load parent PK values from snapshot cache or DB.
@@ -132,7 +140,7 @@ class ShadowFKScanner:
         if self._db_path:
             import sqlite3
 
-            with closing(sqlite3.connect(self._db_path)) as sqlite_conn, sqlite_conn:
+            with closing(sqlite3.connect(self._db_path)) as sqlite_conn:
                 rows = sqlite_conn.execute(f"SELECT {safe_col} FROM {safe_table}").fetchall()
             return {r[0] for r in rows}
         # Database URL (PostgreSQL, sqlite:////path, memory): use SQLAlchemy

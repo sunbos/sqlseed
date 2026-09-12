@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import sqlite3
-from contextlib import closing
 from datetime import datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
@@ -12,6 +11,7 @@ import pytest
 from sqlalchemy.exc import OperationalError
 
 from sqlseed.database.sqlalchemy_adapter import SQLAlchemyAdapter
+from tests.sqlite_helpers import sqlite_connection
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -86,9 +86,9 @@ def test_temporary_cursor_supports_fetchmany_and_iteration(tmp_path: Path) -> No
 
 def test_reconnect_uses_new_table_schema(tmp_path: Path) -> None:
     first, second = tmp_path / "first.db", tmp_path / "second.db"
-    with closing(sqlite3.connect(first)) as db, db:
+    with sqlite_connection(first) as db:
         db.execute("CREATE TABLE items (id INTEGER PRIMARY KEY, old_value TEXT)")
-    with closing(sqlite3.connect(second)) as db, db:
+    with sqlite_connection(second) as db:
         db.execute("CREATE TABLE items (id INTEGER PRIMARY KEY, new_value TEXT)")
     with SQLAlchemyAdapter() as adapter:
         adapter.connect(str(first))
@@ -135,7 +135,7 @@ def test_key_exists_binds_values_using_column_types(tmp_path: Path) -> None:
 @pytest.mark.parametrize("declared_type", ["INT", "INTEGER", "BIGINT", "SMALLINT"])
 def test_sqlite_primary_key_metadata_preserves_declared_type(tmp_path: Path, declared_type: str) -> None:
     path = tmp_path / "declared_type.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.execute(f"CREATE TABLE items (id {declared_type} NOT NULL PRIMARY KEY, value TEXT)")
     with SQLAlchemyAdapter() as adapter:
         adapter.connect(str(path))

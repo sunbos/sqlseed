@@ -5,21 +5,22 @@ from __future__ import annotations
 import builtins
 import importlib
 import json
-import sqlite3
-from contextlib import closing
 from typing import TYPE_CHECKING
 
 import httpx
 import pytest
 
 from tests._helpers import clear_llm_env
+from tests.llm_helpers import no_network_openai_client
+from tests.sqlite_helpers import sqlite_connection
 
 if TYPE_CHECKING:
     from pathlib import Path
 
 pytest.importorskip("sqlseed_ai")
 
-from sqlseed_ai.config import AIBackend, AIConfig
+ai_config = importlib.import_module("sqlseed_ai.config")
+AIBackend, AIConfig = ai_config.AIBackend, ai_config.AIConfig
 
 
 @pytest.fixture(autouse=True)
@@ -158,22 +159,17 @@ def test_cli_releases_owned_client_on_success_and_failure(
     failure: str | None,
 ) -> None:
     from click.testing import CliRunner
-    from openai import OpenAI
     from sqlseed_ai.auto_heal.orchestrator import AutoHealOrchestrator
     from sqlseed_ai.cli import ai_commands
     from sqlseed_ai.healer._client import OpenAICompatAdapter
 
     path = tmp_path / "cli.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.execute("CREATE TABLE items(value INTEGER NOT NULL)")
     config_path = tmp_path / "rules.yaml"
     config_path.write_text("tables:\n- name: items\n  columns:\n  - name: value\n    generator: integer\n")
 
-    def no_network(request: httpx.Request) -> httpx.Response:
-        pytest.fail("unexpected LLM request")
-
-    transport_client = httpx.Client(transport=httpx.MockTransport(no_network), trust_env=False)
-    sdk_client = OpenAI(api_key="test-key", base_url="https://example.invalid/v1", http_client=transport_client)
+    transport_client, sdk_client = no_network_openai_client()
     monkeypatch.setattr(ai_commands, "_build_llm_client", lambda _config: OpenAICompatAdapter(sdk_client))
 
     def fail(*args: object, **kwargs: object) -> None:
@@ -211,7 +207,7 @@ def test_runtime_healer_repairs_real_schema_with_fixed_model_response(tmp_path: 
     from sqlseed_ai.validator.schema_snapshot import SchemaSnapshot
 
     path = tmp_path / "runtime.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.execute("CREATE TABLE items(value INTEGER NOT NULL)")
     snapshot = SchemaSnapshot(db_path=str(path))
     validator = FastValidator(ContractResolver(set(BUILTIN_VIOLATIONS), set()), db_path=str(path))

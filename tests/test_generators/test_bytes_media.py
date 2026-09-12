@@ -89,7 +89,7 @@ class TestBytesFolderMode:
         provider = BaseProvider()
         for _ in range(10):
             data = provider._gen_bytes(folder=str(media_dir), extensions=["png", "jpg"])
-            assert data in (b"PNGFILE-A", b"JPGFILE-B")
+            assert data in {b"PNGFILE-A", b"JPGFILE-B"}
 
     def test_extension_match_is_case_insensitive_and_dot_tolerant(self, media_dir: Path) -> None:
         provider = BaseProvider()

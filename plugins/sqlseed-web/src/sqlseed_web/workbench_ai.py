@@ -351,54 +351,54 @@ class _SuggestionError(ValueError):
     """Only fixed, application-authored diagnostics may cross the model boundary."""
 
 
-def _validate_params(params: dict[str, Any], entry: dict[str, Any]) -> None:
-    json.dumps(params, allow_nan=False)
-    if entry["id"] == "pattern":
-        effective = params.get("pattern") or params.get("regex")
-        if not isinstance(effective, str) or not effective:
-            raise _SuggestionError("pattern 必须提供非空正则表达式 pattern 或 regex")
-        try:
-            re.compile(effective)
-        except re.error as exc:
-            raise _SuggestionError("pattern 的正则表达式无效") from exc
-    definitions = {item["name"]: item for item in entry["params"]}
-    if set(params) - definitions.keys():
-        raise _SuggestionError("生成器参数不在可用目录中")
-    for name, meta in definitions.items():
-        if meta["required"] and name not in params:
-            raise _SuggestionError("缺少必填生成器参数")
-    for name, value in params.items():
-        if name.startswith("_") or name in {"folder", "file", "directory", "path"}:
-            raise _SuggestionError("AI 建议不接受运行时数据或文件路径")
-        meta = definitions[name]
-        if value is None and meta.get("default") is None and not meta["required"]:
-            continue
-        if name in {"start_date", "end_date"}:
-            parse_iso_date(value)
-        elif name in {"start_time", "end_time"}:
-            parse_iso_time(value)
-        elif name == "weekdays":
-            normalize_weekdays(value)
-        elif name in {"choices", "weighted_choices"} and not value:
-            raise _SuggestionError("候选值不能为空")
-        kind = meta["type"]
-        valid = {
-            "string": isinstance(value, str),
-            "integer": type(value) is int,
-            "number": type(value) in (float, int),
-            "boolean": type(value) is bool,
-            "array": isinstance(value, list),
-            "object": isinstance(value, dict),
-        }.get(kind, True)
-        if not valid or (meta.get("choices") and value not in meta["choices"]):
-            raise _SuggestionError("生成器参数类型或选项不正确")
-        if kind in {"date", "datetime", "time"}:
-            if kind == "date":
-                date.fromisoformat(value)
-            elif kind == "datetime":
-                datetime.fromisoformat(value)
-            else:
-                time.fromisoformat(value)
+def _validate_pattern_parameter(params: dict[str, Any]) -> None:
+    effective = params.get("pattern") or params.get("regex")
+    if not isinstance(effective, str) or not effective:
+        raise _SuggestionError("pattern 必须提供非空正则表达式 pattern 或 regex")
+    try:
+        re.compile(effective)
+    except re.error as exc:
+        raise _SuggestionError("pattern 的正则表达式无效") from exc
+
+
+def _validate_parameter_value(value: Any, meta: dict[str, Any]) -> None:
+    kind = meta["type"]
+    valid = {
+        "string": isinstance(value, str),
+        "integer": type(value) is int,
+        "number": type(value) in (float, int),
+        "boolean": type(value) is bool,
+        "array": isinstance(value, list),
+        "object": isinstance(value, dict),
+    }.get(kind, True)
+    if not valid or (meta.get("choices") and value not in meta["choices"]):
+        raise _SuggestionError("生成器参数类型或选项不正确")
+    if kind in {"date", "datetime", "time"}:
+        if kind == "date":
+            date.fromisoformat(value)
+        elif kind == "datetime":
+            datetime.fromisoformat(value)
+        else:
+            time.fromisoformat(value)
+
+
+def _validate_parameter(name: str, value: Any, meta: dict[str, Any]) -> None:
+    if name.startswith("_") or name in {"folder", "file", "directory", "path"}:
+        raise _SuggestionError("AI 建议不接受运行时数据或文件路径")
+    if value is None and meta.get("default") is None and not meta["required"]:
+        return
+    if name in {"start_date", "end_date"}:
+        parse_iso_date(value)
+    elif name in {"start_time", "end_time"}:
+        parse_iso_time(value)
+    elif name == "weekdays":
+        normalize_weekdays(value)
+    elif name in {"choices", "weighted_choices"} and not value:
+        raise _SuggestionError("候选值不能为空")
+    _validate_parameter_value(value, meta)
+
+
+def _validate_param_bounds(params: dict[str, Any]) -> None:
     for low, high in (
         ("min_value", "max_value"),
         ("min_length", "max_length"),
@@ -417,6 +417,122 @@ def _validate_params(params: dict[str, Any], entry: dict[str, Any]) -> None:
             raise _SuggestionError("参数下限不能超过上限")
 
 
+def _validate_params(params: dict[str, Any], entry: dict[str, Any]) -> None:
+    json.dumps(params, allow_nan=False)
+    if entry["id"] == "pattern":
+        _validate_pattern_parameter(params)
+    definitions = {item["name"]: item for item in entry["params"]}
+    if set(params) - definitions.keys():
+        raise _SuggestionError("生成器参数不在可用目录中")
+    for name, meta in definitions.items():
+        if meta["required"] and name not in params:
+            raise _SuggestionError("缺少必填生成器参数")
+    for name, value in params.items():
+        _validate_parameter(name, value, definitions[name])
+    _validate_param_bounds(params)
+
+
+def _suggestion_location(item: Any, tables: dict[str, Any]) -> str:
+    if isinstance(item, dict) and isinstance(item.get("table"), str) and isinstance(item.get("column"), str):
+        known_table = tables.get(item["table"])
+        if known_table and any(col["name"] == item["column"] for col in known_table["columns"]):
+            return f"{item['table']}.{item['column']}"
+    return "一条建议"
+
+
+def _suggestion_target(
+    suggestion: Suggestion | RelationSuggestion,
+    body: SuggestRequest,
+    tables: dict[str, Any],
+    seen: set[tuple[str, str]],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    table = tables[suggestion.table]
+    column = next(column for column in table["columns"] if column["name"] == suggestion.column)
+    if suggestion.table not in body.tables or (suggestion.table, suggestion.column) in seen:
+        raise _SuggestionError("表不在当前分析范围或建议重复")
+    if body.allowed_targets is not None and not any(
+        target.table == suggestion.table and suggestion.column in target.columns for target in body.allowed_targets
+    ):
+        raise _SuggestionError("列不在允许修改范围")
+    return table, column
+
+
+def _generator_rule(
+    suggestion: Suggestion, before: dict[str, Any] | None, generators: dict[str, Any]
+) -> dict[str, Any]:
+    if suggestion.generator not in generators:
+        raise _SuggestionError("生成器不在可用目录中")
+    try:
+        _validate_params(suggestion.params, generators[suggestion.generator])
+    except _SuggestionError:
+        raise
+    except (ValueError, TypeError) as exc:
+        raise _SuggestionError("生成器参数类型或选项不正确") from exc
+    return {
+        **(deepcopy(before) if before else {}),
+        "name": suggestion.column,
+        "generator": suggestion.generator,
+        "params": suggestion.params,
+    }
+
+
+def _suggestion_patch(
+    suggestion: Suggestion | RelationSuggestion,
+    table: dict[str, Any],
+    column: dict[str, Any],
+    config: dict[str, Any],
+    generators: dict[str, Any],
+) -> dict[str, Any]:
+    before = next((col for col in config.get("columns", []) if col["name"] == suggestion.column), None)
+    if locked_column(table, column, before):
+        raise _SuggestionError("数据库管理、外键或派生字段保持原规则")
+    relation = None
+    if isinstance(suggestion, RelationSuggestion):
+        after = compile_relation(suggestion, table, {col["name"]: col for col in config.get("columns", [])})
+        relation = suggestion.model_dump(include={"template", "sources", "options"})
+    else:
+        after = _generator_rule(suggestion, before, generators)
+    ColumnConfig.model_validate(after)
+    return {
+        "table": suggestion.table,
+        "column": suggestion.column,
+        "before": before,
+        "after": after,
+        "reason": suggestion.reason,
+        "relation": relation,
+    }
+
+
+def _collect_suggestions(
+    items: list[Any],
+    body: SuggestRequest,
+    tables: dict[str, Any],
+    configs: dict[str, Any],
+    generators: dict[str, Any],
+) -> tuple[list[dict[str, Any]], list[str]]:
+    accepted, rejected = [], []
+    seen: set[tuple[str, str]] = set()
+    for item in items:
+        location = _suggestion_location(item, tables)
+        try:
+            suggestion = (
+                RelationSuggestion.model_validate(item)
+                if isinstance(item, dict) and item.get("kind") == "relation"
+                else Suggestion.model_validate(item)
+            )
+            table, column = _suggestion_target(suggestion, body, tables, seen)
+            patch = _suggestion_patch(suggestion, table, column, configs.get(suggestion.table, {}), generators)
+            seen.add((suggestion.table, suggestion.column))
+            accepted.append(patch)
+        except (ValueError, KeyError, StopIteration, TypeError) as exc:
+            # Locations come from verified schema names; never echo model-only
+            # identifiers, Pydantic payloads or underlying parameter exceptions.
+            rejected.append(
+                f"{location}：{str(exc) if isinstance(exc, _SuggestionError) else '字段、生成器或参数不符合支持范围'}，已忽略。"
+            )
+    return accepted, rejected
+
+
 def _suggestions(
     raw: dict[str, Any], schema: dict[str, Any], body: SuggestRequest, catalog: dict[str, Any]
 ) -> dict[str, Any]:
@@ -426,78 +542,7 @@ def _suggestions(
     tables = {table["name"]: table for table in schema["tables"]}
     configs = {table["name"]: table for table in body.document.get("tables", [])}
     generators = {entry["id"]: entry for entry in catalog["entries"]}
-    accepted, rejected, seen = [], [], set()
-    for item in items:
-        location = "一条建议"
-        if isinstance(item, dict) and isinstance(item.get("table"), str) and isinstance(item.get("column"), str):
-            known_table = tables.get(item["table"])
-            if known_table and any(col["name"] == item["column"] for col in known_table["columns"]):
-                location = f"{item['table']}.{item['column']}"
-        try:
-            suggestion = (
-                RelationSuggestion.model_validate(item)
-                if isinstance(item, dict) and item.get("kind") == "relation"
-                else Suggestion.model_validate(item)
-            )
-            table = tables[suggestion.table]
-            column = next(column for column in table["columns"] if column["name"] == suggestion.column)
-            if suggestion.table not in body.tables or (suggestion.table, suggestion.column) in seen:
-                raise _SuggestionError("表不在当前分析范围或建议重复")
-            if body.allowed_targets is not None and not any(
-                target.table == suggestion.table and suggestion.column in target.columns
-                for target in body.allowed_targets
-            ):
-                raise _SuggestionError("列不在允许修改范围")
-            before = next(
-                (
-                    col
-                    for col in configs.get(suggestion.table, {}).get("columns", [])
-                    if col["name"] == suggestion.column
-                ),
-                None,
-            )
-            if locked_column(table, column, before):
-                raise _SuggestionError("数据库管理、外键或派生字段保持原规则")
-            relation = None
-            if isinstance(suggestion, RelationSuggestion):
-                after = compile_relation(
-                    suggestion,
-                    table,
-                    {col["name"]: col for col in configs.get(suggestion.table, {}).get("columns", [])},
-                )
-                relation = suggestion.model_dump(include={"template", "sources", "options"})
-            else:
-                if suggestion.generator not in generators:
-                    raise _SuggestionError("生成器不在可用目录中")
-                try:
-                    _validate_params(suggestion.params, generators[suggestion.generator])
-                except _SuggestionError:
-                    raise
-                except (ValueError, TypeError) as exc:
-                    raise _SuggestionError("生成器参数类型或选项不正确") from exc
-                after = {
-                    **(deepcopy(before) if before else {}),
-                    "name": suggestion.column,
-                    "generator": suggestion.generator,
-                    "params": suggestion.params,
-                }
-            ColumnConfig.model_validate(after)
-            seen.add((suggestion.table, suggestion.column))
-            accepted.append(
-                {
-                    "table": suggestion.table,
-                    "column": suggestion.column,
-                    "before": before,
-                    "after": after,
-                    "reason": suggestion.reason,
-                    "relation": relation,
-                }
-            )
-        except (ValueError, KeyError, StopIteration, TypeError) as exc:
-            # Locations come from verified schema names; never echo model-only
-            # identifiers, Pydantic payloads or underlying parameter exceptions.
-            reason = str(exc) if isinstance(exc, _SuggestionError) else "字段、生成器或参数不符合支持范围"
-            rejected.append(f"{location}：{reason}，已忽略。")
+    accepted, rejected = _collect_suggestions(items, body, tables, configs, generators)
     return {"schema_hash": schema["schema_hash"], "suggestions": accepted, "rejected": rejected}
 
 
@@ -577,6 +622,54 @@ def eligibility(body: EligibilityRequest) -> dict[str, Any]:
         }
 
 
+def _model_cause_error(cause: BaseException) -> HTTPException | None:
+    name = type(cause).__name__.lower()
+    if isinstance(cause, TimeoutError) or "timeout" in name:
+        return HTTPException(
+            504, detail={"code": "ai_model_timeout", "message": "AI 服务响应超时，请检查服务或缩小分析范围后重试。"}
+        )
+    if isinstance(cause, ConnectionError) or "connection" in name:
+        return HTTPException(
+            502, detail={"code": "ai_connection_failed", "message": "无法连接 AI 服务，请检查服务地址和运行状态。"}
+        )
+    status = getattr(cause, "status_code", None)
+    if status in {401, 403}:
+        return HTTPException(
+            502, detail={"code": "ai_auth_failed", "message": "AI 服务认证失败，请检查访问密钥和权限。"}
+        )
+    if status == 404:
+        return HTTPException(
+            502,
+            detail={
+                "code": "ai_model_not_found",
+                "message": "AI 模型或接口不存在（HTTP 404），请检查模型名称和服务地址。",
+            },
+        )
+    if status in {400, 422}:
+        return HTTPException(
+            502,
+            detail={
+                "code": "ai_request_rejected",
+                "message": f"AI 服务拒绝请求（HTTP {status}），请检查模型及接口兼容性。",
+            },
+        )
+    if isinstance(status, int) and 500 <= status <= 599:
+        return HTTPException(
+            502,
+            detail={
+                "code": "ai_service_unavailable",
+                "message": f"AI 服务异常（HTTP {status}），请检查服务状态后重试。",
+            },
+        )
+    if status == 429:
+        return HTTPException(502, detail={"code": "ai_rate_limited", "message": "AI 服务请求受限，请稍后重试。"})
+    if isinstance(cause, json.JSONDecodeError):
+        return HTTPException(
+            502, detail={"code": "ai_response_invalid", "message": "AI 返回内容无法解析为规则，请重新分析。"}
+        )
+    return None
+
+
 def _model_error(exc: Exception) -> HTTPException:
     """Classify service failures without exposing SDK requests, credentials or output."""
     causes: list[BaseException] = []
@@ -585,53 +678,106 @@ def _model_error(exc: Exception) -> HTTPException:
         causes.append(current)
         current = current.__cause__ or current.__context__
     for cause in causes:
-        name = type(cause).__name__.lower()
-        if isinstance(cause, TimeoutError) or "timeout" in name:
-            return HTTPException(
-                504, detail={"code": "ai_model_timeout", "message": "AI 服务响应超时，请检查服务或缩小分析范围后重试。"}
-            )
-        if isinstance(cause, ConnectionError) or "connection" in name:
-            return HTTPException(
-                502, detail={"code": "ai_connection_failed", "message": "无法连接 AI 服务，请检查服务地址和运行状态。"}
-            )
-        status = getattr(cause, "status_code", None)
-        if status in {401, 403}:
-            return HTTPException(
-                502, detail={"code": "ai_auth_failed", "message": "AI 服务认证失败，请检查访问密钥和权限。"}
-            )
-        if status == 404:
-            return HTTPException(
-                502,
-                detail={
-                    "code": "ai_model_not_found",
-                    "message": "AI 模型或接口不存在（HTTP 404），请检查模型名称和服务地址。",
-                },
-            )
-        if status in {400, 422}:
-            return HTTPException(
-                502,
-                detail={
-                    "code": "ai_request_rejected",
-                    "message": f"AI 服务拒绝请求（HTTP {status}），请检查模型及接口兼容性。",
-                },
-            )
-        if isinstance(status, int) and 500 <= status <= 599:
-            return HTTPException(
-                502,
-                detail={
-                    "code": "ai_service_unavailable",
-                    "message": f"AI 服务异常（HTTP {status}），请检查服务状态后重试。",
-                },
-            )
-        if status == 429:
-            return HTTPException(502, detail={"code": "ai_rate_limited", "message": "AI 服务请求受限，请稍后重试。"})
-        if isinstance(cause, json.JSONDecodeError):
-            return HTTPException(
-                502, detail={"code": "ai_response_invalid", "message": "AI 返回内容无法解析为规则，请重新分析。"}
-            )
+        if (error := _model_cause_error(cause)) is not None:
+            return error
     return HTTPException(
         502, detail={"code": "ai_analysis_failed", "message": "AI 分析失败，请检查服务后重试；当前规则未改变。"}
     )
+
+
+def _resolve_analysis_targets(body: SuggestRequest, schema: dict[str, Any]) -> None:
+    schema_tables = {table["name"]: table for table in schema["tables"]}
+    if body.allowed_targets is None:
+        body.allowed_targets = [
+            AllowedTarget(table=name, columns=[col["name"] for col in schema_tables[name]["columns"]])
+            for name in body.tables
+        ]
+    if len({target.table for target in body.allowed_targets}) != len(body.allowed_targets) or {
+        target.table for target in body.allowed_targets
+    } != set(body.tables):
+        raise WorkbenchError("允许修改范围必须与分析表一致", code="invalid_ai_targets")
+    for target in body.allowed_targets:
+        if len(set(target.columns)) != len(target.columns) or not set(target.columns) <= {
+            col["name"] for col in schema_tables[target.table]["columns"]
+        }:
+            raise WorkbenchError("允许修改范围包含不存在或重复的列", code="invalid_ai_targets")
+
+
+def _request_model(messages: list[dict[str, str]], config: AIConfig | None) -> dict[str, Any]:
+    try:
+        return _call_model(messages, config=config) if config is not None else _call_model(messages)
+    except WorkbenchError as exc:
+        raise HTTPException(exc.status, detail={"code": exc.code, "message": str(exc)}) from exc
+    except ImportError as exc:
+        raise HTTPException(503, detail=ai_import_failure()) from exc
+    except Exception as exc:
+        raise _model_error(exc) from exc
+
+
+def _candidate_document(body: SuggestRequest, patches: list[dict[str, Any]]) -> dict[str, Any]:
+    candidate = deepcopy(body.document)
+    for patch in patches:
+        table = next(table for table in candidate["tables"] if table["name"] == patch["table"])
+        table["columns"] = [col for col in table.get("columns", []) if col["name"] != patch["column"]] + [
+            patch["after"]
+        ]
+    return candidate
+
+
+def _preview_candidate(
+    conn: Connection,
+    candidate: dict[str, Any],
+    schema: dict[str, Any],
+    body: SuggestRequest,
+    cancel_check: Callable[[], None],
+) -> dict[str, Any]:
+    # Three ordinary rows need one row attempt plus one candidate per
+    # field. Reserve additional retry room without rejecting wide tables.
+    widest = max(
+        len(table["columns"])
+        for table in schema["tables"]
+        if table["name"] in {item["name"] for item in candidate["tables"]}
+    )
+    sample_budget = max(500, 6 * (widest + 1))
+    checked = check_document(
+        conn,
+        candidate,
+        body.schema_hash,
+        count=3,
+        preview=True,
+        sample_max_attempts=sample_budget,
+        cancel_check=cancel_check,
+    )
+    cancel_check()
+    try:
+        validate_sample_checks(schema, checked["samples"])
+    except SampleCheckError as exc:
+        checked["ok"] = False
+        checked["issues"].append(exc.issue)
+    except (ValueError, KeyError, TypeError):
+        checked["ok"] = False
+        checked["issues"].append(
+            {
+                "code": "sample_check_failed",
+                "severity": "error",
+                "message": "生成值类型不满足 CHECK 约束，请检查候选规则。",
+            }
+        )
+    return checked
+
+
+def _attach_relation_evidence(patches: list[dict[str, Any]], checked: dict[str, Any]) -> None:
+    for patch in patches:
+        if patch["relation"]:
+            names = patch["relation"]["sources"] + [patch["column"]]
+            rows = checked["samples"].get(patch["table"], [])
+            patch["evidence"] = {
+                "kind": "readonly_preview",
+                "rows": [{name: row.get(name) for name in names} for row in rows if all(name in row for name in names)],
+                "message": "同一行的只读样例，未写入数据库。"
+                if rows
+                else "该表的引用来源尚待生成；已验证独立规则，完整样例请在应用后预览。",
+            }
 
 
 def _analyze(
@@ -643,21 +789,7 @@ def _analyze(
     progress("context", "正在读取结构与当前规则…")
     with _request_errors(), state.connection_operation(body.conn_id) as conn:
         schema = _analysis_schema(conn, body, body.tables)
-        schema_tables = {table["name"]: table for table in schema["tables"]}
-        if body.allowed_targets is None:
-            body.allowed_targets = [
-                AllowedTarget(table=name, columns=[col["name"] for col in schema_tables[name]["columns"]])
-                for name in body.tables
-            ]
-        if len({target.table for target in body.allowed_targets}) != len(body.allowed_targets) or {
-            target.table for target in body.allowed_targets
-        } != set(body.tables):
-            raise WorkbenchError("允许修改范围必须与分析表一致", code="invalid_ai_targets")
-        for target in body.allowed_targets:
-            if len(set(target.columns)) != len(target.columns) or not set(target.columns) <= {
-                col["name"] for col in schema_tables[target.table]["columns"]
-            }:
-                raise WorkbenchError("允许修改范围包含不存在或重复的列", code="invalid_ai_targets")
+        _resolve_analysis_targets(body, schema)
         catalog = generator_catalog()
         messages = _messages(
             schema,
@@ -670,14 +802,7 @@ def _analyze(
     # Release the database lock during network I/O; a slow model must not block
     # reading or disconnecting. The subsequent fresh hash invalidates stale work.
     progress("model", "正在等待 AI 分析字段与关系…")
-    try:
-        raw = _call_model(messages, config=config) if config is not None else _call_model(messages)
-    except WorkbenchError as exc:
-        raise HTTPException(exc.status, detail={"code": exc.code, "message": str(exc)}) from exc
-    except ImportError as exc:
-        raise HTTPException(503, detail=ai_import_failure()) from exc
-    except Exception as exc:
-        raise _model_error(exc) from exc
+    raw = _request_model(messages, config)
     cancel_check()
     progress("validation", "正在校验建议范围、参数与字段依赖…")
     with _request_errors(), state.connection_operation(body.conn_id) as conn:
@@ -685,12 +810,7 @@ def _analyze(
             raise WorkbenchError("分析期间数据库结构已变化，请刷新后重新分析", code="schema_changed", status=409)
         result = _suggestions(raw, schema, body, catalog)
         patches = result["suggestions"]
-        candidate = deepcopy(body.document)
-        for patch in patches:
-            table = next(table for table in candidate["tables"] if table["name"] == patch["table"])
-            table["columns"] = [col for col in table.get("columns", []) if col["name"] != patch["column"]] + [
-                patch["after"]
-            ]
+        candidate = _candidate_document(body, patches)
         try:
             validate_dags(candidate, schema)
         except (ValueError, KeyError, TypeError):
@@ -699,38 +819,7 @@ def _analyze(
             return result
         if patches:
             progress("preview", "正在生成只读样例并检查约束…")
-            # Three ordinary rows need one row attempt plus one candidate per
-            # field. Reserve additional retry room without rejecting wide tables.
-            widest = max(
-                len(table["columns"])
-                for table in schema["tables"]
-                if table["name"] in {item["name"] for item in candidate["tables"]}
-            )
-            sample_budget = max(500, 6 * (widest + 1))
-            checked = check_document(
-                conn,
-                candidate,
-                body.schema_hash,
-                count=3,
-                preview=True,
-                sample_max_attempts=sample_budget,
-                cancel_check=cancel_check,
-            )
-            cancel_check()
-            try:
-                validate_sample_checks(schema, checked["samples"])
-            except SampleCheckError as exc:
-                checked["ok"] = False
-                checked["issues"].append(exc.issue)
-            except (ValueError, KeyError, TypeError):
-                checked["ok"] = False
-                checked["issues"].append(
-                    {
-                        "code": "sample_check_failed",
-                        "severity": "error",
-                        "message": "生成值类型不满足 CHECK 约束，请检查候选规则。",
-                    }
-                )
+            checked = _preview_candidate(conn, candidate, schema, body, cancel_check)
             result["validation"] = {
                 "ok": checked["ok"],
                 "stage": "preview",
@@ -744,21 +833,7 @@ def _analyze(
                 result["rejected"].append("候选配置无法满足数据库或生成规则约束，建议未应用。")
                 return result
             group_patches(patches, candidate, schema)
-            for patch in patches:
-                if patch["relation"]:
-                    names = patch["relation"]["sources"] + [patch["column"]]
-                    rows = checked["samples"].get(patch["table"], [])
-                    patch["evidence"] = {
-                        "kind": "readonly_preview",
-                        "rows": [
-                            {name: row.get(name) for name in names}
-                            for row in rows
-                            if all(name in row for name in names)
-                        ],
-                        "message": "同一行的只读样例，未写入数据库。"
-                        if rows
-                        else "该表的引用来源尚待生成；已验证独立规则，完整样例请在应用后预览。",
-                    }
+            _attach_relation_evidence(patches, checked)
         return result
 
 

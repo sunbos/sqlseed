@@ -253,6 +253,8 @@ class SQLAlchemyAdapter:
             RuntimeError: When connecting to PG but the corresponding driver
                 is not installed, gives a friendly hint.
             ValueError: When the database URL is invalid (sqlalchemy.ArgumentError).
+            BaseException: Propagates initialization failures after closing the
+                partially initialized engine and clearing its state.
         """
         self.close()
         # Pure file path automatically converted to SQLite URL
@@ -264,22 +266,7 @@ class SQLAlchemyAdapter:
             db_url = db_path
 
         self._db_url = db_url
-        try:
-            engine_url = make_url(db_url)
-            if engine_url.drivername == "postgresql":
-                # Match the psycopg3 driver supplied by sqlseed[postgres].
-                # Keep the original target and every explicitly chosen driver.
-                engine_url = engine_url.set(drivername="postgresql+psycopg")
-            self._engine = create_engine(engine_url)
-        except NoSuchModuleError as exc:
-            # Give a friendly hint when the driver is not installed
-            if "postgresql" in db_url:
-                raise RuntimeError(
-                    "PostgreSQL driver not installed. Install with: pip install sqlseed[postgres]"
-                ) from exc
-            raise
-        except ArgumentError as exc:
-            raise ValueError(f"Invalid database URL: {db_url}") from exc
+        self._engine = self._create_engine_for_url(db_url)
 
         try:
             self._dialect = self._detect_dialect()
@@ -303,6 +290,32 @@ class SQLAlchemyAdapter:
             raise
 
         logger.debug("Connected to database via SQLAlchemy", db_url=db_url, dialect=self._dialect.name)
+
+    @staticmethod
+    def _create_engine_for_url(db_url: str) -> Engine:
+        """Select the default PostgreSQL driver and explain invalid connection URLs.
+
+        Raises:
+            RuntimeError: When the PostgreSQL driver cannot be loaded.
+            ValueError: When SQLAlchemy rejects the connection URL.
+            NoSuchModuleError: When another requested dialect or driver is unavailable.
+        """
+        try:
+            engine_url = make_url(db_url)
+            if engine_url.drivername == "postgresql":
+                # Match the psycopg3 driver supplied by sqlseed[postgres].
+                # Keep the original target and every explicitly chosen driver.
+                engine_url = engine_url.set(drivername="postgresql+psycopg")
+            return create_engine(engine_url)
+        except NoSuchModuleError as exc:
+            # Give a friendly hint when the driver is not installed
+            if "postgresql" in db_url:
+                raise RuntimeError(
+                    "PostgreSQL driver not installed. Install with: pip install sqlseed[postgres]"
+                ) from exc
+            raise
+        except ArgumentError as exc:
+            raise ValueError(f"Invalid database URL: {db_url}") from exc
 
     def close(self) -> None:
         """Close the database connection and release resources. No-op if not connected."""
@@ -762,24 +775,30 @@ class SQLAlchemyAdapter:
                 )
 
         if self.dialect.name == "sqlite":
-            try:
-                for idx in fetch_index_info(self.execute, table_name):
-                    if idx.unique and not idx.is_partial and len(idx.columns) == 1:
-                        key = idx.columns
-                        if key not in seen:
-                            seen.add(key)
-                            result.append(
-                                IndexInfo(
-                                    name=idx.name,
-                                    table=table_name,
-                                    columns=idx.columns,
-                                    unique=True,
-                                )
-                            )
-            except (SQLAlchemyError, ValueError, RuntimeError, OSError):
-                logger.debug("Failed to detect SQLite UNIQUE auto-indexes via PRAGMA", table_name=table_name)
+            self._append_sqlite_unique_constraints(table_name, result, seen)
 
         return result
+
+    def _append_sqlite_unique_constraints(
+        self, table_name: str, result: list[IndexInfo], seen: set[tuple[str, ...]]
+    ) -> None:
+        """Supplement reflection with complete single-column SQLite UNIQUE indexes."""
+        try:
+            for idx in fetch_index_info(self.execute, table_name):
+                if idx.unique and not idx.is_partial and len(idx.columns) == 1:
+                    key = idx.columns
+                    if key not in seen:
+                        seen.add(key)
+                        result.append(
+                            IndexInfo(
+                                name=idx.name,
+                                table=table_name,
+                                columns=idx.columns,
+                                unique=True,
+                            )
+                        )
+        except (SQLAlchemyError, ValueError, RuntimeError, OSError):
+            logger.debug("Failed to detect SQLite UNIQUE auto-indexes via PRAGMA", table_name=table_name)
 
     def get_check_constraints(self, table_name: str) -> list[CheckConstraintInfo]:
         """Get CHECK constraint metadata for a table.

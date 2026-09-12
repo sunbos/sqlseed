@@ -5,7 +5,6 @@ from __future__ import annotations
 import gc
 import sqlite3
 import warnings
-from contextlib import closing
 from typing import TYPE_CHECKING
 
 import pytest
@@ -13,14 +12,27 @@ from sqlseed_ai.validator.models import ConstraintType, ViolationReport
 from sqlseed_ai.validator.schema_snapshot import SchemaSnapshot
 from sqlseed_ai.validator.shadow_fk_scan import ShadowFKScanner
 
+from tests.assertions import assert_empty
+from tests.sqlite_helpers import sqlite_connection
+
 if TYPE_CHECKING:
     from pathlib import Path
 
 
-@pytest.fixture
-def db_with_fk(tmp_path: Path) -> Path:
+def _unlocalized_fk_report() -> ViolationReport:
+    return ViolationReport(
+        table="orders",
+        columns=[],
+        constraint_type=ConstraintType.FK,
+        severity="crash",
+        fix_hint="shadow_fk_scan",
+    )
+
+
+@pytest.fixture(name="db_with_fk")
+def fixture_db_with_fk(tmp_path: Path) -> Path:
     path = tmp_path / "test.db"
-    with closing(sqlite3.connect(str(path))) as conn, conn:
+    with sqlite_connection(str(path)) as conn:
         conn.executescript(
             """
             CREATE TABLE users (id INTEGER PRIMARY KEY);
@@ -38,13 +50,7 @@ def db_with_fk(tmp_path: Path) -> Path:
 
 def test_shadow_scan_identifies_offending_fk_column(db_with_fk: Path):
     snapshot = SchemaSnapshot(db_path=str(db_with_fk))
-    report = ViolationReport(
-        table="orders",
-        columns=[],
-        constraint_type=ConstraintType.FK,
-        severity="crash",
-        fix_hint="shadow_fk_scan",
-    )
+    report = _unlocalized_fk_report()
     scanner = ShadowFKScanner(str(db_with_fk), snapshot)
     updated = scanner.scan(report, batch=[{"id": 1, "user_id": 999, "product_id": 5}])
     assert updated.columns == ["user_id"]
@@ -70,13 +76,7 @@ def test_shadow_scan_works_with_sqlite_url(db_with_fk: Path):
     users connect via ``--url sqlite:////path`` or in-memory SQLite.
     """
     snapshot = SchemaSnapshot(db_path=str(db_with_fk))
-    report = ViolationReport(
-        table="orders",
-        columns=[],
-        constraint_type=ConstraintType.FK,
-        severity="crash",
-        fix_hint="shadow_fk_scan",
-    )
+    report = _unlocalized_fk_report()
     # Connect via URL instead of db_path
     url = f"sqlite:///{db_with_fk}"
     scanner = ShadowFKScanner(db_path=None, snapshot=snapshot, url=url)
@@ -87,17 +87,11 @@ def test_shadow_scan_works_with_sqlite_url(db_with_fk: Path):
 def test_shadow_scan_returns_empty_set_when_no_connection_info(db_with_fk: Path):
     """When neither db_path nor url is provided, scanner degrades gracefully."""
     snapshot = SchemaSnapshot(db_path=str(db_with_fk))
-    report = ViolationReport(
-        table="orders",
-        columns=[],
-        constraint_type=ConstraintType.FK,
-        severity="crash",
-        fix_hint="shadow_fk_scan",
-    )
+    report = _unlocalized_fk_report()
     scanner = ShadowFKScanner(db_path=None, snapshot=snapshot, url=None)
     # Without connection info, the scanner cannot localize — returns report unchanged
     updated = scanner.scan(report, batch=[{"user_id": 999}])
-    assert updated.columns == []  # unchanged (no culprit found)
+    assert_empty(updated.columns, list)  # unchanged (no culprit found)
 
 
 def test_shadow_scan_noop_when_constraint_type_not_fk(db_with_fk: Path):
@@ -111,21 +105,15 @@ def test_shadow_scan_noop_when_constraint_type_not_fk(db_with_fk: Path):
     )
     scanner = ShadowFKScanner(str(db_with_fk), snapshot)
     updated = scanner.scan(report, batch=[{"id": 1}])
-    assert updated.columns == []  # unchanged
+    assert_empty(updated.columns, list)  # unchanged
 
 
 def test_shadow_scan_noop_when_snapshot_missing(db_with_fk: Path):
     """Scanner should noop when snapshot is None."""
-    report = ViolationReport(
-        table="orders",
-        columns=[],
-        constraint_type=ConstraintType.FK,
-        severity="crash",
-        fix_hint="shadow_fk_scan",
-    )
+    report = _unlocalized_fk_report()
     scanner = ShadowFKScanner(str(db_with_fk), snapshot=None)
     updated = scanner.scan(report, batch=[{"user_id": 999}])
-    assert updated.columns == []  # unchanged
+    assert_empty(updated.columns, list)  # unchanged
 
 
 def test_shadow_scan_noop_when_table_not_in_snapshot(db_with_fk: Path):
@@ -140,23 +128,17 @@ def test_shadow_scan_noop_when_table_not_in_snapshot(db_with_fk: Path):
     )
     scanner = ShadowFKScanner(str(db_with_fk), snapshot)
     updated = scanner.scan(report, batch=[{"user_id": 999}])
-    assert updated.columns == []  # unchanged
+    assert_empty(updated.columns, list)  # unchanged
 
 
 def test_shadow_scan_no_culprit_when_all_values_valid(db_with_fk: Path):
     """Scanner returns report unchanged when generated values all exist in parent."""
     snapshot = SchemaSnapshot(db_path=str(db_with_fk))
-    report = ViolationReport(
-        table="orders",
-        columns=[],
-        constraint_type=ConstraintType.FK,
-        severity="crash",
-        fix_hint="shadow_fk_scan",
-    )
+    report = _unlocalized_fk_report()
     scanner = ShadowFKScanner(str(db_with_fk), snapshot)
     # All values 1, 2 exist in parent users(id) - no culprit
     updated = scanner.scan(report, batch=[{"id": 1, "user_id": 1, "product_id": 5}])
-    assert updated.columns == []  # no culprit found
+    assert_empty(updated.columns, list)  # no culprit found
 
 
 @pytest.mark.parametrize("parent_table", ["users", "missing_users"])

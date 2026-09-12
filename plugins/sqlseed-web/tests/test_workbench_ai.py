@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import importlib
 import json
-import sqlite3
+import threading
 from collections.abc import Iterator
-from contextlib import closing
 from importlib import metadata
 from pathlib import Path
 from typing import Any
@@ -14,16 +13,45 @@ from typing import Any
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from tests.sqlite_helpers import sqlite_connection
 
 from sqlseed_web import workbench_ai
 from sqlseed_web.state import UIState
 from sqlseed_web.workbench_schema import inspect_connection
 
+from .workbench_test_helpers import generator_suggestion, suggestion_response
+
 ORIGINAL_CALL_MODEL = workbench_ai._call_model
 
 
-@pytest.fixture()
-def ai_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[TestClient, UIState, dict[str, Any]]]:
+def _block_analysis_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[threading.Event, threading.Event, list[Any]]:
+    from sqlseed_web import workbench_ai_stream
+
+    entered, release = threading.Event(), threading.Event()
+    operations: list[Any] = []
+    original = workbench_ai_stream.AnalysisOperation
+
+    def record_operation(*args: Any) -> Any:
+        operation = original(*args)
+        operations.append(operation)
+        return operation
+
+    def reply(messages: Any, **kwargs: Any) -> dict[str, Any]:
+        entered.set()
+        assert release.wait(5)
+        return {"suggestions": [generator_suggestion("orders", "amount", "float", min_value=10, max_value=100)]}
+
+    monkeypatch.setattr(workbench_ai_stream, "AnalysisOperation", record_operation)
+    monkeypatch.setattr(workbench_ai, "_call_model", reply)
+    return entered, release, operations
+
+
+@pytest.fixture(name="ai_client")
+def fixture_ai_client(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[tuple[TestClient, UIState, dict[str, Any]]]:
     try:
         metadata.version("sqlseed-ai")
     except metadata.PackageNotFoundError:
@@ -31,7 +59,7 @@ def ai_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple
     # Installed-but-broken imports should fail visibly, not become a missing-plugin skip.
     importlib.import_module("sqlseed_ai.config")
     path = tmp_path / "private-target.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.executescript(
             "CREATE TABLE users(id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT NOT NULL UNIQUE);"
             "CREATE TABLE orders(id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER REFERENCES users(id), amount REAL NOT NULL, doubled REAL);"
@@ -128,7 +156,7 @@ def test_schema_changes_before_or_during_analysis_reject(ai_client: Any, monkeyp
     assert client.post("/api/workbench/ai/suggest", json={**payload, "schema_hash": "old"}).status_code == 409
 
     def change_schema(messages: Any, **kwargs: Any) -> dict[str, Any]:
-        with closing(sqlite3.connect(registry.get_connection(payload["conn_id"]).target)) as db, db:
+        with sqlite_connection(registry.get_connection(payload["conn_id"]).target) as db:
             db.execute("ALTER TABLE orders ADD COLUMN note TEXT")
         return {"suggestions": []}
 
@@ -284,7 +312,7 @@ def test_default_with_active_generator_is_ai_editable(
 ) -> None:
     client, registry, payload = ai_client
     conn = registry.get_connection(payload["conn_id"])
-    with closing(sqlite3.connect(conn.target)) as db, db:
+    with sqlite_connection(conn.target) as db:
         db.execute("ALTER TABLE orders ADD COLUMN balance REAL NOT NULL DEFAULT 0 CHECK(balance >= 0)")
         db.execute("ALTER TABLE orders ADD COLUMN reserved REAL NOT NULL DEFAULT 0")
     payload["schema_hash"] = inspect_connection(conn)["schema_hash"]
@@ -294,22 +322,13 @@ def test_default_with_active_generator_is_ai_editable(
         )
     captured = []
 
-    def reply(messages: Any, **kwargs: Any) -> Any:
-        captured.extend(messages)
-        return {
-            "suggestions": [
-                {
-                    "table": "orders",
-                    "column": "balance",
-                    "generator": "float",
-                    "params": {"min_value": 0, "max_value": 10000},
-                }
-            ]
-        }
-
-    monkeypatch.setattr(workbench_ai, "_call_model", reply)
-    response = client.post("/api/workbench/ai/suggest", json=payload)
-    assert response.status_code == 200, response.text
+    response = suggestion_response(
+        client,
+        payload,
+        monkeypatch,
+        [generator_suggestion("orders", "balance", "float", min_value=0, max_value=10000)],
+        messages=captured,
+    )
     result = response.json()
     assert [patch["column"] for patch in result["suggestions"]] == ["balance"]
     prompt = json.loads(captured[1]["content"])
@@ -321,7 +340,7 @@ def test_default_with_active_generator_is_ai_editable(
 def test_custom_mapping_that_uses_default_stays_protected(ai_client: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     client, registry, payload = ai_client
     conn = registry.get_connection(payload["conn_id"])
-    with closing(sqlite3.connect(conn.target)) as db, db:
+    with sqlite_connection(conn.target) as db:
         db.execute("ALTER TABLE orders ADD COLUMN balance REAL NOT NULL DEFAULT 0")
     payload["schema_hash"] = inspect_connection(conn)["schema_hash"]
     payload["document"]["custom_column_mappings"] = {"exact": {"balance": {"generator": "skip"}}}
@@ -350,7 +369,7 @@ def test_default_eligibility_resolves_custom_mappings_without_ai_or_record_data(
 ) -> None:
     client, registry, payload = ai_client
     conn = registry.get_connection(payload["conn_id"])
-    with closing(sqlite3.connect(conn.target)) as db, db:
+    with sqlite_connection(conn.target) as db:
         db.execute("ALTER TABLE orders ADD COLUMN reserved REAL NOT NULL DEFAULT 0")
     payload["schema_hash"] = inspect_connection(conn)["schema_hash"]
     payload["document"]["custom_column_mappings"] = {"exact": {"reserved": {"generator": generator}}}
@@ -372,7 +391,7 @@ def test_default_eligibility_resolves_custom_mappings_without_ai_or_record_data(
 def test_default_eligibility_preserves_unselected_draft_override(ai_client: Any) -> None:
     client, registry, payload = ai_client
     conn = registry.get_connection(payload["conn_id"])
-    with closing(sqlite3.connect(conn.target)) as db, db:
+    with sqlite_connection(conn.target) as db:
         db.execute("ALTER TABLE orders ADD COLUMN reserved REAL NOT NULL DEFAULT 0")
     table = payload["document"]["tables"].pop()
     table["columns"].append({"name": "reserved", "generator": "float", "params": {"min_value": 1, "max_value": 2}})
@@ -393,7 +412,7 @@ def test_default_eligibility_preserves_unselected_draft_override(ai_client: Any)
 def test_default_eligibility_resolves_enrichment_without_exposing_its_values(ai_client: Any) -> None:
     client, registry, payload = ai_client
     conn = registry.get_connection(payload["conn_id"])
-    with closing(sqlite3.connect(conn.target)) as db, db:
+    with sqlite_connection(conn.target) as db:
         db.execute("ALTER TABLE orders ADD COLUMN reserved TEXT NOT NULL DEFAULT 'pending'")
         db.executemany("INSERT INTO orders(amount, reserved) VALUES (?, ?)", [(1, "private-enrichment-value")] * 30)
     payload["document"]["tables"][0]["enrich"] = True
@@ -448,22 +467,12 @@ def test_candidate_failure_exposes_unique_domain_issue(ai_client: Any, monkeypat
     client, _, payload = ai_client
     payload["tables"] = ["users"]
     payload["document"]["tables"] = [{"name": "users", "count": 100, "columns": []}]
-    monkeypatch.setattr(
-        workbench_ai,
-        "_call_model",
-        lambda messages, **kwargs: {
-            "suggestions": [
-                {
-                    "table": "users",
-                    "column": "email",
-                    "generator": "choice",
-                    "params": {"choices": ["synthetic@example.test"]},
-                }
-            ]
-        },
+    response = suggestion_response(
+        client,
+        payload,
+        monkeypatch,
+        [generator_suggestion("users", "email", "choice", choices=["synthetic@example.test"])],
     )
-    response = client.post("/api/workbench/ai/suggest", json=payload)
-    assert response.status_code == 200, response.text
     validation = response.json()["validation"]
     issue = next(issue for issue in validation["issues"] if issue["code"] == "unique_domain_exhausted")
     assert issue["table"] == "users" and issue["column"] == "email"
@@ -502,20 +511,12 @@ def test_candidate_check_failure_identifies_column_without_sample_value(
 ) -> None:
     client, registry, payload = ai_client
     conn = registry.get_connection(payload["conn_id"])
-    with closing(sqlite3.connect(conn.target)) as db, db:
+    with sqlite_connection(conn.target) as db:
         db.execute("ALTER TABLE orders ADD COLUMN phone TEXT CHECK(length(phone) BETWEEN 11 AND 11)")
     payload["schema_hash"] = inspect_connection(conn)["schema_hash"]
-    monkeypatch.setattr(
-        workbench_ai,
-        "_call_model",
-        lambda messages, **kwargs: {
-            "suggestions": [
-                {"table": "orders", "column": "phone", "generator": "phone", "params": {"mask": "##########"}}
-            ]
-        },
+    response = suggestion_response(
+        client, payload, monkeypatch, [generator_suggestion("orders", "phone", "phone", mask="##########")]
     )
-    response = client.post("/api/workbench/ai/suggest", json=payload)
-    assert response.status_code == 200, response.text
     validation = response.json()["validation"]
     issue = next(issue for issue in validation["issues"] if issue["code"] == "sample_check_failed")
     assert issue["table"] == "orders" and issue["column"] == "phone"
@@ -582,36 +583,9 @@ def test_disconnect_stops_post_model_work_but_keeps_gate_until_worker_exits(
     ai_client: Any, monkeypatch: pytest.MonkeyPatch, spec_version: str
 ) -> None:
     import asyncio
-    from threading import Event
-
-    from sqlseed_web import workbench_ai_stream
 
     client, registry, payload = ai_client
-    entered, release = Event(), Event()
-    operations: list[Any] = []
-    original = workbench_ai_stream.AnalysisOperation
-
-    def record_operation(*args: Any) -> Any:
-        operation = original(*args)
-        operations.append(operation)
-        return operation
-
-    def reply(messages: Any, **kwargs: Any) -> dict[str, Any]:
-        entered.set()
-        assert release.wait(5)
-        return {
-            "suggestions": [
-                {
-                    "table": "orders",
-                    "column": "amount",
-                    "generator": "float",
-                    "params": {"min_value": 10, "max_value": 100},
-                }
-            ]
-        }
-
-    monkeypatch.setattr(workbench_ai_stream, "AnalysisOperation", record_operation)
-    monkeypatch.setattr(workbench_ai, "_call_model", reply)
+    entered, release, operations = _block_analysis_model(monkeypatch)
 
     async def disconnect_request() -> list[dict[str, Any]]:
         disconnect = asyncio.Event()
@@ -667,37 +641,12 @@ def test_disconnect_stops_post_model_work_but_keeps_gate_until_worker_exits(
 def test_stream_deadline_reports_timeout_keeps_gate_and_skips_preview(
     ai_client: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from threading import Event
 
     from sqlseed_web import workbench_ai_stream
 
     client, registry, payload = ai_client
-    entered, release = Event(), Event()
-    operations: list[Any] = []
-    original = workbench_ai_stream.AnalysisOperation
-
-    def record_operation(*args: Any) -> Any:
-        operation = original(*args)
-        operations.append(operation)
-        return operation
-
-    def reply(messages: Any, **kwargs: Any) -> dict[str, Any]:
-        entered.set()
-        assert release.wait(5)
-        return {
-            "suggestions": [
-                {
-                    "table": "orders",
-                    "column": "amount",
-                    "generator": "float",
-                    "params": {"min_value": 10, "max_value": 100},
-                }
-            ]
-        }
-
-    monkeypatch.setattr(workbench_ai_stream, "AnalysisOperation", record_operation)
+    entered, release, operations = _block_analysis_model(monkeypatch)
     monkeypatch.setattr(workbench_ai_stream, "ANALYSIS_TIMEOUT", 0.3)
-    monkeypatch.setattr(workbench_ai, "_call_model", reply)
     try:
         response = client.post("/api/workbench/ai/suggest", json=payload, headers={"Accept": "application/x-ndjson"})
         events = [json.loads(line) for line in response.text.splitlines()]
@@ -813,7 +762,7 @@ def test_rejected_rule_identifies_known_field_and_safe_parameter_reason(
 def test_ai_sample_budget_allows_three_rows_of_a_wide_table(ai_client: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     client, registry, payload = ai_client
     conn = registry.get_connection(payload["conn_id"])
-    with closing(sqlite3.connect(conn.target)) as db, db:
+    with sqlite_connection(conn.target) as db:
         db.execute("CREATE TABLE wide(" + ",".join(f"field_{index} INTEGER NOT NULL" for index in range(200)) + ")")
     payload.update(schema_hash=inspect_connection(conn)["schema_hash"], tables=["wide"])
     payload["document"]["tables"] = [

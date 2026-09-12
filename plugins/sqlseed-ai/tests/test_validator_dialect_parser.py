@@ -9,6 +9,8 @@ from sqlseed_ai.validator.dialect_parser import DialectErrorParser
 from sqlseed_ai.validator.models import ConstraintType
 from sqlseed_ai.validator.schema_snapshot import ConstraintInfo, SchemaSnapshot
 
+from tests.assertions import assert_empty
+
 
 def test_parse_sqlite_check_violation():
     err = sqlite3.IntegrityError("CHECK constraint failed: sale_price >= cost_price")
@@ -33,7 +35,7 @@ def test_parse_sqlite_fk_violation_returns_empty_columns():
     report = DialectErrorParser.parse(err, "sqlite", table="orders", snapshot=None)
     assert report is not None
     assert report.constraint_type == ConstraintType.FK
-    assert report.columns == []
+    assert_empty(report.columns, list)
     assert report.fix_hint == "shadow_fk_scan"
 
 

@@ -129,21 +129,23 @@ class DiffLearner:
         completely unchecked at this layer.
         """
 
-        def _scan(obj: Any) -> bool:
-            if isinstance(obj, dict):
-                for k, v in obj.items():
-                    if k in FORBIDDEN_PERSIST_KEYS:
-                        return True
-                    if _scan(v):
-                        return True
-            elif isinstance(obj, list):
-                for item in obj:
-                    if _scan(item):
-                        return True
-            elif isinstance(obj, str):
-                lowered = obj.lower()
-                if any(s in lowered for s in _DANGEROUS_SUBSTRINGS):
-                    return True
-            return False
+        return _scan_forbidden_value(after)
 
-        return _scan(after)
+
+def _scan_forbidden_value(obj: Any) -> bool:
+    """Visit nested mappings/lists in order and stop at the first forbidden value."""
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if k in FORBIDDEN_PERSIST_KEYS:
+                return True
+            if _scan_forbidden_value(v):
+                return True
+    elif isinstance(obj, list):
+        for item in obj:
+            if _scan_forbidden_value(item):
+                return True
+    elif isinstance(obj, str):
+        lowered = obj.lower()
+        if any(s in lowered for s in _DANGEROUS_SUBSTRINGS):
+            return True
+    return False

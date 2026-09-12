@@ -48,8 +48,16 @@ def test_management_is_opt_in_and_normal_business_routes_remain_available() -> N
         assert client.get("/api/connections").status_code == 200
 
 
-@pytest.fixture
-def maintenance(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
+def _isolated_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
+    module = importlib.import_module("sqlseed_web.plugin_environment")
+    (tmp_path / "pyvenv.cfg").write_text("include-system-site-packages = false\n", encoding="utf-8")
+    monkeypatch.setattr(sys, "prefix", str(tmp_path))
+    monkeypatch.setattr(sys, "base_prefix", str(tmp_path.parent))
+    return module
+
+
+@pytest.fixture(name="maintenance")
+def fixture_maintenance(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     env = importlib.import_module("sqlseed_web.plugin_environment")
     manager = importlib.import_module("sqlseed_web.plugin_management")
     prefix = tmp_path / "venv"
@@ -184,7 +192,7 @@ def test_execute_single_plan_freezes_existing_versions_and_requires_restart(main
     assert arguments[:4] == [sys.executable, "-m", "pip", "--isolated"]
     assert arguments[-1] == "mimesis"
     constraint_file = Path(arguments[arguments.index("--constraint") + 1])
-    constraints = constraint_file.read_text()
+    constraints = constraint_file.read_text(encoding="utf-8")
     assert "sqlseed==1.2.3" in constraints and "sqlseed-web==0.1.0" in constraints
     release.set()
     task_id = task.json()["task_id"]
@@ -427,10 +435,7 @@ def test_real_installer_installs_and_uninstalls_only_in_a_temporary_venv(tmp_pat
 
 
 def test_environment_rejects_install_directories_outside_venv(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    module = importlib.import_module("sqlseed_web.plugin_environment")
-    (tmp_path / "pyvenv.cfg").write_text("include-system-site-packages = false\n")
-    monkeypatch.setattr(sys, "prefix", str(tmp_path))
-    monkeypatch.setattr(sys, "base_prefix", str(tmp_path.parent))
+    module = _isolated_environment(tmp_path, monkeypatch)
     monkeypatch.setattr(module.sysconfig, "get_path", lambda name: str(tmp_path.parent))
     assert module._environment().reason
 
@@ -452,10 +457,7 @@ def test_windows_maintenance_is_explicitly_unsupported_without_affecting_manual_
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    module = importlib.import_module("sqlseed_web.plugin_environment")
-    (tmp_path / "pyvenv.cfg").write_text("include-system-site-packages = false\n")
-    monkeypatch.setattr(sys, "prefix", str(tmp_path))
-    monkeypatch.setattr(sys, "base_prefix", str(tmp_path.parent))
+    module = _isolated_environment(tmp_path, monkeypatch)
     monkeypatch.setattr(sys, "platform", "win32")
     monkeypatch.setattr(module.sysconfig, "get_path", lambda name: str(tmp_path))
     assert "Windows" in module._environment().reason

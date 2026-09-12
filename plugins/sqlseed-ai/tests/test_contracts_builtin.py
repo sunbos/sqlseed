@@ -78,8 +78,6 @@ def test_expression_functions_as_generator_names_are_caught():
 
 def test_builtin_violations_include_phone_to_pattern_rule():
     """Rule #23: phone generator on phone-like column should be in BUILTIN_VIOLATIONS."""
-    from sqlseed_ai.contracts.builtin_violations import BUILTIN_VIOLATIONS
-    from sqlseed_ai.contracts.matrix import ContractResolver
 
     resolver = ContractResolver(set(BUILTIN_VIOLATIONS), set())
     v = resolver.check(
@@ -94,8 +92,6 @@ def test_builtin_violations_include_phone_to_pattern_rule():
 
 def test_builtin_violations_include_text_on_code_unique_rule():
     """Rule #25: text generator on UNIQUE code-like column should be in BUILTIN_VIOLATIONS."""
-    from sqlseed_ai.contracts.builtin_violations import BUILTIN_VIOLATIONS
-    from sqlseed_ai.contracts.matrix import ContractResolver
 
     resolver = ContractResolver(set(BUILTIN_VIOLATIONS), set())
     v = resolver.check(

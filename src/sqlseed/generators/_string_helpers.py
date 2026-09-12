@@ -27,12 +27,13 @@ def resolve_charset(charset: str | None) -> str:
       - ``digits`` / ``numeric`` / ``numbers``
         → ASCII digits only
     """
-    if charset in ("alphanumeric", "alphanum", "letters_digits", "ascii_letters_digits"):
-        return string.ascii_letters + string.digits
-    if charset in ("alpha", "letters", "ascii_letters"):
-        return string.ascii_letters
-    if charset in ("digits", "numeric", "numbers"):
-        return string.digits
+    match charset:
+        case "alphanumeric" | "alphanum" | "letters_digits" | "ascii_letters_digits":
+            return string.ascii_letters + string.digits
+        case "alpha" | "letters" | "ascii_letters":
+            return string.ascii_letters
+        case "digits" | "numeric" | "numbers":
+            return string.digits
     if charset is not None:
         return charset
     return string.ascii_letters + string.digits + " _-"

@@ -61,20 +61,25 @@ class TarjanSCC:
                         lowlink[node] = min(lowlink[node], index[succ])
                 else:
                     if lowlink[node] == index[node]:
-                        scc: list[str] = []
-                        while True:
-                            w = stack.pop()
-                            on_stack[w] = False
-                            scc.append(w)
-                            if w == node:
-                                break
-                        result.append(scc)
+                        result.append(TarjanSCC._pop_scc(node, stack, on_stack))
                     work.pop()
                     if work:
                         parent = work[-1][0]
                         lowlink[parent] = min(lowlink[parent], lowlink[node])
 
         return result
+
+    @staticmethod
+    def _pop_scc(node: str, stack: list[str], on_stack: dict[str, bool]) -> list[str]:
+        """Pop the just-completed component in Tarjan's established stack order."""
+        scc: list[str] = []
+        while True:
+            w = stack.pop()
+            on_stack[w] = False
+            scc.append(w)
+            if w == node:
+                break
+        return scc
 
 
 class SubgraphSplitter:

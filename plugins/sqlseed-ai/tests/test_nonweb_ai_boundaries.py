@@ -3,26 +3,29 @@
 from __future__ import annotations
 
 import json
-import sqlite3
-from contextlib import closing
 from copy import deepcopy
+from importlib import import_module
 from typing import TYPE_CHECKING
 
 import pytest
+
+from tests.sqlite_helpers import sqlite_connection
 
 if TYPE_CHECKING:
     from pathlib import Path
 
 pytest.importorskip("sqlseed_ai")
 
-from sqlseed_ai.analyzer import SchemaAnalyzer
-from sqlseed_ai.config import AIBackend, AIConfig
-from sqlseed_ai.healer.degrader import ProgressiveDegrader
-from sqlseed_ai.healer.models import DegradeReason
-from sqlseed_ai.healer.orchestrator import HealOrchestrator
-from sqlseed_ai.refiner import AiConfigRefiner
-from sqlseed_ai.validator.models import ConstraintType, ViolationReport
-from sqlseed_ai.validator.schema_snapshot import SchemaSnapshot
+SchemaAnalyzer = import_module("sqlseed_ai.analyzer").SchemaAnalyzer
+ai_config = import_module("sqlseed_ai.config")
+AIBackend, AIConfig = ai_config.AIBackend, ai_config.AIConfig
+ProgressiveDegrader = import_module("sqlseed_ai.healer.degrader").ProgressiveDegrader
+DegradeReason = import_module("sqlseed_ai.healer.models").DegradeReason
+HealOrchestrator = import_module("sqlseed_ai.healer.orchestrator").HealOrchestrator
+AiConfigRefiner = import_module("sqlseed_ai.refiner").AiConfigRefiner
+validator_models = import_module("sqlseed_ai.validator.models")
+ConstraintType, ViolationReport = validator_models.ConstraintType, validator_models.ViolationReport
+SchemaSnapshot = import_module("sqlseed_ai.validator.schema_snapshot").SchemaSnapshot
 
 
 def refiner_for(path: Path, cache: Path, table: str, monkeypatch: pytest.MonkeyPatch) -> AiConfigRefiner:
@@ -45,7 +48,7 @@ def test_refiner_cache_keeps_quoted_table_names_inside_cache(
 ) -> None:
     path, cache = tmp_path / "test.db", tmp_path / "cache"
     table = str(tmp_path / "outside") if absolute else "../outside"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.execute('CREATE TABLE "' + table + '"(value INTEGER NOT NULL)')
     refiner = refiner_for(path, cache, table, monkeypatch)
     result = refiner.generate_and_refine(table, max_retries=0, use_compact=True)
@@ -53,7 +56,7 @@ def test_refiner_cache_keeps_quoted_table_names_inside_cache(
     files = list(cache.glob("*.json"))
     assert len(files) == 1
     assert refiner.get_cached_config(table) == result
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         assert db.execute('SELECT count(*) FROM "' + table + '"').fetchone()[0] == 0
 
 
@@ -77,14 +80,14 @@ def test_refiner_first_cache_miss_accepts_long_table_name(tmp_path: Path, monkey
     path, cache = tmp_path / "test.db", tmp_path / "cache"
     cache.mkdir()
     table = "x" * 300
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.execute('CREATE TABLE "' + table + '"(value INTEGER NOT NULL)')
     refiner = refiner_for(path, cache, table, monkeypatch)
     result = refiner.generate_and_refine(table, max_retries=0, use_compact=True)
     assert result["name"] == table
     assert refiner.get_cached_config(table) == result
     assert len(list(cache.glob("*.json"))) == 1
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         assert db.execute('SELECT count(*) FROM "' + table + '"').fetchone()[0] == 0
 
 
@@ -93,7 +96,7 @@ def test_no_cache_disables_both_cache_read_and_write(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, existing: bool
 ) -> None:
     path, cache = tmp_path / "test.db", tmp_path / "cache"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.execute("CREATE TABLE users(value INTEGER NOT NULL)")
     refiner = refiner_for(path, cache, "users", monkeypatch)
     if existing:
@@ -113,7 +116,7 @@ def test_no_cache_disables_both_cache_read_and_write(
 
 def test_real_qualified_failure_restores_only_its_table_before_degradation(tmp_path: Path) -> None:
     path = tmp_path / "test.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.executescript("CREATE TABLE users(phone TEXT CHECK(length(phone)=11)); CREATE TABLE contacts(phone TEXT);")
     snapshot = SchemaSnapshot(db_path=str(path))
     original = {
@@ -160,11 +163,11 @@ def test_real_qualified_failure_restores_only_its_table_before_degradation(tmp_p
 )
 def test_snapshot_detects_column_semantic_drift(tmp_path: Path, before: str, after: str) -> None:
     path = tmp_path / "test.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.execute(f"CREATE TABLE sample({before})")
     snapshot = SchemaSnapshot(db_path=str(path))
     assert snapshot.validate_against_current(db_path=str(path))
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.execute("DROP TABLE sample")
         db.execute(f"CREATE TABLE sample({after})")
     assert not snapshot.validate_against_current(db_path=str(path))

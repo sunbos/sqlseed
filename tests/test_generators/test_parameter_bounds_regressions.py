@@ -6,8 +6,8 @@ from sqlseed.generators.base_provider import BaseProvider
 from sqlseed.generators.faker_provider import FakerProvider
 
 
-@pytest.fixture(params=["base", "faker", "mimesis"])
-def provider(request: pytest.FixtureRequest) -> BaseProvider:
+@pytest.fixture(name="provider", params=["base", "faker", "mimesis"])
+def fixture_provider(request: pytest.FixtureRequest) -> BaseProvider:
     if request.param == "faker":
         return FakerProvider()
     if request.param == "mimesis":

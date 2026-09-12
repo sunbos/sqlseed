@@ -108,11 +108,11 @@ def test_faker_locale_aliases_follow_current_locale_after_switch() -> None:
     from faker import Faker
 
     provider = FakerProvider()
-    for locale, state_method, zip_method in [
+    for locale, state_method, zip_method in (
         ("zh_CN", "province", "postcode"),
         ("en_US", "state", "zipcode"),
         ("zh_CN", "province", "postcode"),
-    ]:
+    ):
         provider.set_locale(locale)
         provider.set_seed(1707)
         native = Faker(locale)

@@ -1,26 +1,27 @@
 from __future__ import annotations
 
-import sqlite3
-from contextlib import closing
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
 
+from tests.sqlite_helpers import sqlite_connection
+
 if TYPE_CHECKING:
     from pathlib import Path
 
 
-@pytest.fixture
-def simple_db(tmp_path: Path) -> Path:
+@pytest.fixture(name="simple_db")
+def fixture_simple_db(tmp_path: Path) -> Path:
     path = tmp_path / "simple.db"
-    with closing(sqlite3.connect(str(path))) as conn, conn:
+    with sqlite_connection(str(path)) as conn:
         conn.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT)")
     return path
 
 
-def test_ai_suggest_has_auto_heal_flag(simple_db: Path):
+@pytest.mark.usefixtures("simple_db")
+def test_ai_suggest_has_auto_heal_flag():
     """`ai-suggest --help` mentions --auto-heal."""
     from sqlseed_ai.cli.ai_commands import ai_suggest
 

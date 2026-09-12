@@ -1,0 +1,263 @@
+..........FFFFFFF..                                                      [100%]
+=================================== FAILURES ===================================
+_ test_postgres_single_column_any_check_normalization[value = ANY (ARRAY[1e400])-None] _
+
+expression = 'value = ANY (ARRAY[1e400])', expected = None
+
+    @pytest.mark.parametrize(
+        ("expression", "expected"),
+        [
+            ("value = ANY (ARRAY['active'::text, 'inactive'::text])", ("choice", {"choices": ["active", "inactive"]})),
+            ("value = ANY (ARRAY[0, 1])", ("boolean", {})),
+            ("value = ANY (ARRAY[2, 3])", ("choice", {"choices": [2, 3]})),
+            ("value = ANY (ARRAY[-2, -1])", ("choice", {"choices": [-2, -1]})),
+            ("value = ANY (ARRAY[-2::integer, +3::integer])", ("choice", {"choices": [-2, 3]})),
+            ("value = ANY (ARRAY[-2.5, 3.25])", ("choice", {"choices": [-2.5, 3.25]})),
+            ("value = ANY (ARRAY[-2e1, +3E-1])", ("choice", {"choices": [-20.0, 0.3]})),
+            ("value = ANY (ARRAY[0.0, 1.0])", ("choice", {"choices": [0.0, 1.0]})),
+            ("value = ANY (ARRAY[1e308, 1e-308])", ("choice", {"choices": [1e308, 1e-308]})),
+            ("value = ANY (ARRAY[9007199254740993])", ("choice", {"choices": [9007199254740993]})),
+            ("value = ANY (ARRAY[1e400])", None),
+            ("value = ANY (ARRAY[-1e400])", None),
+            ("value = ANY (ARRAY[1e-400])", None),
+            ("value = ANY (ARRAY[-1e-400])", None),
+            ("value = ANY (ARRAY[9007199254740993.0])", None),
+            ("value = ANY (ARRAY[0.10000000000000001])", None),
+            ("value = ANY (ARRAY[1e999999999999999999999999])", None),
+            ("value = ANY (ARRAY[other + 2, 3])", None),
+            ("value = ANY (ARRAY[2, NULL])", None),
+        ],
+    )
+    def test_postgres_single_column_any_check_normalization(expression: str, expected: tuple | None) -> None:
+        """Recognize PostgreSQL enum spellings without requiring a live server."""
+        constraints = [{"type": "check", "expression": expression}]
+>       assert _infer_from_check_constraints("value", constraints, ["value"]) == expected
+E       AssertionError: assert ('choice', {'choices': [inf]}) == None
+E        +  where ('choice', {'choices': [inf]}) = _infer_from_check_constraints('value', [{'type': 'check', 'expression': 'value = ANY (ARRAY[1e400])'}], ['value'])
+
+plugins/sqlseed-ai/tests/test_auto_heal_orchestrator.py:619: AssertionError
+_ test_postgres_single_column_any_check_normalization[value = ANY (ARRAY[-1e400])-None] _
+
+expression = 'value = ANY (ARRAY[-1e400])', expected = None
+
+    @pytest.mark.parametrize(
+        ("expression", "expected"),
+        [
+            ("value = ANY (ARRAY['active'::text, 'inactive'::text])", ("choice", {"choices": ["active", "inactive"]})),
+            ("value = ANY (ARRAY[0, 1])", ("boolean", {})),
+            ("value = ANY (ARRAY[2, 3])", ("choice", {"choices": [2, 3]})),
+            ("value = ANY (ARRAY[-2, -1])", ("choice", {"choices": [-2, -1]})),
+            ("value = ANY (ARRAY[-2::integer, +3::integer])", ("choice", {"choices": [-2, 3]})),
+            ("value = ANY (ARRAY[-2.5, 3.25])", ("choice", {"choices": [-2.5, 3.25]})),
+            ("value = ANY (ARRAY[-2e1, +3E-1])", ("choice", {"choices": [-20.0, 0.3]})),
+            ("value = ANY (ARRAY[0.0, 1.0])", ("choice", {"choices": [0.0, 1.0]})),
+            ("value = ANY (ARRAY[1e308, 1e-308])", ("choice", {"choices": [1e308, 1e-308]})),
+            ("value = ANY (ARRAY[9007199254740993])", ("choice", {"choices": [9007199254740993]})),
+            ("value = ANY (ARRAY[1e400])", None),
+            ("value = ANY (ARRAY[-1e400])", None),
+            ("value = ANY (ARRAY[1e-400])", None),
+            ("value = ANY (ARRAY[-1e-400])", None),
+            ("value = ANY (ARRAY[9007199254740993.0])", None),
+            ("value = ANY (ARRAY[0.10000000000000001])", None),
+            ("value = ANY (ARRAY[1e999999999999999999999999])", None),
+            ("value = ANY (ARRAY[other + 2, 3])", None),
+            ("value = ANY (ARRAY[2, NULL])", None),
+        ],
+    )
+    def test_postgres_single_column_any_check_normalization(expression: str, expected: tuple | None) -> None:
+        """Recognize PostgreSQL enum spellings without requiring a live server."""
+        constraints = [{"type": "check", "expression": expression}]
+>       assert _infer_from_check_constraints("value", constraints, ["value"]) == expected
+E       AssertionError: assert ('choice', {'choices': [-inf]}) == None
+E        +  where ('choice', {'choices': [-inf]}) = _infer_from_check_constraints('value', [{'type': 'check', 'expression': 'value = ANY (ARRAY[-1e400])'}], ['value'])
+
+plugins/sqlseed-ai/tests/test_auto_heal_orchestrator.py:619: AssertionError
+_ test_postgres_single_column_any_check_normalization[value = ANY (ARRAY[1e-400])-None] _
+
+expression = 'value = ANY (ARRAY[1e-400])', expected = None
+
+    @pytest.mark.parametrize(
+        ("expression", "expected"),
+        [
+            ("value = ANY (ARRAY['active'::text, 'inactive'::text])", ("choice", {"choices": ["active", "inactive"]})),
+            ("value = ANY (ARRAY[0, 1])", ("boolean", {})),
+            ("value = ANY (ARRAY[2, 3])", ("choice", {"choices": [2, 3]})),
+            ("value = ANY (ARRAY[-2, -1])", ("choice", {"choices": [-2, -1]})),
+            ("value = ANY (ARRAY[-2::integer, +3::integer])", ("choice", {"choices": [-2, 3]})),
+            ("value = ANY (ARRAY[-2.5, 3.25])", ("choice", {"choices": [-2.5, 3.25]})),
+            ("value = ANY (ARRAY[-2e1, +3E-1])", ("choice", {"choices": [-20.0, 0.3]})),
+            ("value = ANY (ARRAY[0.0, 1.0])", ("choice", {"choices": [0.0, 1.0]})),
+            ("value = ANY (ARRAY[1e308, 1e-308])", ("choice", {"choices": [1e308, 1e-308]})),
+            ("value = ANY (ARRAY[9007199254740993])", ("choice", {"choices": [9007199254740993]})),
+            ("value = ANY (ARRAY[1e400])", None),
+            ("value = ANY (ARRAY[-1e400])", None),
+            ("value = ANY (ARRAY[1e-400])", None),
+            ("value = ANY (ARRAY[-1e-400])", None),
+            ("value = ANY (ARRAY[9007199254740993.0])", None),
+            ("value = ANY (ARRAY[0.10000000000000001])", None),
+            ("value = ANY (ARRAY[1e999999999999999999999999])", None),
+            ("value = ANY (ARRAY[other + 2, 3])", None),
+            ("value = ANY (ARRAY[2, NULL])", None),
+        ],
+    )
+    def test_postgres_single_column_any_check_normalization(expression: str, expected: tuple | None) -> None:
+        """Recognize PostgreSQL enum spellings without requiring a live server."""
+        constraints = [{"type": "check", "expression": expression}]
+>       assert _infer_from_check_constraints("value", constraints, ["value"]) == expected
+E       AssertionError: assert ('choice', {'choices': [0.0]}) == None
+E        +  where ('choice', {'choices': [0.0]}) = _infer_from_check_constraints('value', [{'type': 'check', 'expression': 'value = ANY (ARRAY[1e-400])'}], ['value'])
+
+plugins/sqlseed-ai/tests/test_auto_heal_orchestrator.py:619: AssertionError
+_ test_postgres_single_column_any_check_normalization[value = ANY (ARRAY[-1e-400])-None] _
+
+expression = 'value = ANY (ARRAY[-1e-400])', expected = None
+
+    @pytest.mark.parametrize(
+        ("expression", "expected"),
+        [
+            ("value = ANY (ARRAY['active'::text, 'inactive'::text])", ("choice", {"choices": ["active", "inactive"]})),
+            ("value = ANY (ARRAY[0, 1])", ("boolean", {})),
+            ("value = ANY (ARRAY[2, 3])", ("choice", {"choices": [2, 3]})),
+            ("value = ANY (ARRAY[-2, -1])", ("choice", {"choices": [-2, -1]})),
+            ("value = ANY (ARRAY[-2::integer, +3::integer])", ("choice", {"choices": [-2, 3]})),
+            ("value = ANY (ARRAY[-2.5, 3.25])", ("choice", {"choices": [-2.5, 3.25]})),
+            ("value = ANY (ARRAY[-2e1, +3E-1])", ("choice", {"choices": [-20.0, 0.3]})),
+            ("value = ANY (ARRAY[0.0, 1.0])", ("choice", {"choices": [0.0, 1.0]})),
+            ("value = ANY (ARRAY[1e308, 1e-308])", ("choice", {"choices": [1e308, 1e-308]})),
+            ("value = ANY (ARRAY[9007199254740993])", ("choice", {"choices": [9007199254740993]})),
+            ("value = ANY (ARRAY[1e400])", None),
+            ("value = ANY (ARRAY[-1e400])", None),
+            ("value = ANY (ARRAY[1e-400])", None),
+            ("value = ANY (ARRAY[-1e-400])", None),
+            ("value = ANY (ARRAY[9007199254740993.0])", None),
+            ("value = ANY (ARRAY[0.10000000000000001])", None),
+            ("value = ANY (ARRAY[1e999999999999999999999999])", None),
+            ("value = ANY (ARRAY[other + 2, 3])", None),
+            ("value = ANY (ARRAY[2, NULL])", None),
+        ],
+    )
+    def test_postgres_single_column_any_check_normalization(expression: str, expected: tuple | None) -> None:
+        """Recognize PostgreSQL enum spellings without requiring a live server."""
+        constraints = [{"type": "check", "expression": expression}]
+>       assert _infer_from_check_constraints("value", constraints, ["value"]) == expected
+E       AssertionError: assert ('choice', {'choices': [-0.0]}) == None
+E        +  where ('choice', {'choices': [-0.0]}) = _infer_from_check_constraints('value', [{'type': 'check', 'expression': 'value = ANY (ARRAY[-1e-400])'}], ['value'])
+
+plugins/sqlseed-ai/tests/test_auto_heal_orchestrator.py:619: AssertionError
+_ test_postgres_single_column_any_check_normalization[value = ANY (ARRAY[9007199254740993.0])-None] _
+
+expression = 'value = ANY (ARRAY[9007199254740993.0])', expected = None
+
+    @pytest.mark.parametrize(
+        ("expression", "expected"),
+        [
+            ("value = ANY (ARRAY['active'::text, 'inactive'::text])", ("choice", {"choices": ["active", "inactive"]})),
+            ("value = ANY (ARRAY[0, 1])", ("boolean", {})),
+            ("value = ANY (ARRAY[2, 3])", ("choice", {"choices": [2, 3]})),
+            ("value = ANY (ARRAY[-2, -1])", ("choice", {"choices": [-2, -1]})),
+            ("value = ANY (ARRAY[-2::integer, +3::integer])", ("choice", {"choices": [-2, 3]})),
+            ("value = ANY (ARRAY[-2.5, 3.25])", ("choice", {"choices": [-2.5, 3.25]})),
+            ("value = ANY (ARRAY[-2e1, +3E-1])", ("choice", {"choices": [-20.0, 0.3]})),
+            ("value = ANY (ARRAY[0.0, 1.0])", ("choice", {"choices": [0.0, 1.0]})),
+            ("value = ANY (ARRAY[1e308, 1e-308])", ("choice", {"choices": [1e308, 1e-308]})),
+            ("value = ANY (ARRAY[9007199254740993])", ("choice", {"choices": [9007199254740993]})),
+            ("value = ANY (ARRAY[1e400])", None),
+            ("value = ANY (ARRAY[-1e400])", None),
+            ("value = ANY (ARRAY[1e-400])", None),
+            ("value = ANY (ARRAY[-1e-400])", None),
+            ("value = ANY (ARRAY[9007199254740993.0])", None),
+            ("value = ANY (ARRAY[0.10000000000000001])", None),
+            ("value = ANY (ARRAY[1e999999999999999999999999])", None),
+            ("value = ANY (ARRAY[other + 2, 3])", None),
+            ("value = ANY (ARRAY[2, NULL])", None),
+        ],
+    )
+    def test_postgres_single_column_any_check_normalization(expression: str, expected: tuple | None) -> None:
+        """Recognize PostgreSQL enum spellings without requiring a live server."""
+        constraints = [{"type": "check", "expression": expression}]
+>       assert _infer_from_check_constraints("value", constraints, ["value"]) == expected
+E       AssertionError: assert ('choice', {'choices': [9007199254740992.0]}) == None
+E        +  where ('choice', {'choices': [9007199254740992.0]}) = _infer_from_check_constraints('value', [{'type': 'check', 'expression': 'value = ANY (ARRAY[9007199254740993.0])'}], ['value'])
+
+plugins/sqlseed-ai/tests/test_auto_heal_orchestrator.py:619: AssertionError
+_ test_postgres_single_column_any_check_normalization[value = ANY (ARRAY[0.10000000000000001])-None] _
+
+expression = 'value = ANY (ARRAY[0.10000000000000001])', expected = None
+
+    @pytest.mark.parametrize(
+        ("expression", "expected"),
+        [
+            ("value = ANY (ARRAY['active'::text, 'inactive'::text])", ("choice", {"choices": ["active", "inactive"]})),
+            ("value = ANY (ARRAY[0, 1])", ("boolean", {})),
+            ("value = ANY (ARRAY[2, 3])", ("choice", {"choices": [2, 3]})),
+            ("value = ANY (ARRAY[-2, -1])", ("choice", {"choices": [-2, -1]})),
+            ("value = ANY (ARRAY[-2::integer, +3::integer])", ("choice", {"choices": [-2, 3]})),
+            ("value = ANY (ARRAY[-2.5, 3.25])", ("choice", {"choices": [-2.5, 3.25]})),
+            ("value = ANY (ARRAY[-2e1, +3E-1])", ("choice", {"choices": [-20.0, 0.3]})),
+            ("value = ANY (ARRAY[0.0, 1.0])", ("choice", {"choices": [0.0, 1.0]})),
+            ("value = ANY (ARRAY[1e308, 1e-308])", ("choice", {"choices": [1e308, 1e-308]})),
+            ("value = ANY (ARRAY[9007199254740993])", ("choice", {"choices": [9007199254740993]})),
+            ("value = ANY (ARRAY[1e400])", None),
+            ("value = ANY (ARRAY[-1e400])", None),
+            ("value = ANY (ARRAY[1e-400])", None),
+            ("value = ANY (ARRAY[-1e-400])", None),
+            ("value = ANY (ARRAY[9007199254740993.0])", None),
+            ("value = ANY (ARRAY[0.10000000000000001])", None),
+            ("value = ANY (ARRAY[1e999999999999999999999999])", None),
+            ("value = ANY (ARRAY[other + 2, 3])", None),
+            ("value = ANY (ARRAY[2, NULL])", None),
+        ],
+    )
+    def test_postgres_single_column_any_check_normalization(expression: str, expected: tuple | None) -> None:
+        """Recognize PostgreSQL enum spellings without requiring a live server."""
+        constraints = [{"type": "check", "expression": expression}]
+>       assert _infer_from_check_constraints("value", constraints, ["value"]) == expected
+E       AssertionError: assert ('choice', {'choices': [0.1]}) == None
+E        +  where ('choice', {'choices': [0.1]}) = _infer_from_check_constraints('value', [{'type': 'check', 'expression': 'value = ANY (ARRAY[0.10000000000000001])'}], ['value'])
+
+plugins/sqlseed-ai/tests/test_auto_heal_orchestrator.py:619: AssertionError
+_ test_postgres_single_column_any_check_normalization[value = ANY (ARRAY[1e999999999999999999999999])-None] _
+
+expression = 'value = ANY (ARRAY[1e999999999999999999999999])', expected = None
+
+    @pytest.mark.parametrize(
+        ("expression", "expected"),
+        [
+            ("value = ANY (ARRAY['active'::text, 'inactive'::text])", ("choice", {"choices": ["active", "inactive"]})),
+            ("value = ANY (ARRAY[0, 1])", ("boolean", {})),
+            ("value = ANY (ARRAY[2, 3])", ("choice", {"choices": [2, 3]})),
+            ("value = ANY (ARRAY[-2, -1])", ("choice", {"choices": [-2, -1]})),
+            ("value = ANY (ARRAY[-2::integer, +3::integer])", ("choice", {"choices": [-2, 3]})),
+            ("value = ANY (ARRAY[-2.5, 3.25])", ("choice", {"choices": [-2.5, 3.25]})),
+            ("value = ANY (ARRAY[-2e1, +3E-1])", ("choice", {"choices": [-20.0, 0.3]})),
+            ("value = ANY (ARRAY[0.0, 1.0])", ("choice", {"choices": [0.0, 1.0]})),
+            ("value = ANY (ARRAY[1e308, 1e-308])", ("choice", {"choices": [1e308, 1e-308]})),
+            ("value = ANY (ARRAY[9007199254740993])", ("choice", {"choices": [9007199254740993]})),
+            ("value = ANY (ARRAY[1e400])", None),
+            ("value = ANY (ARRAY[-1e400])", None),
+            ("value = ANY (ARRAY[1e-400])", None),
+            ("value = ANY (ARRAY[-1e-400])", None),
+            ("value = ANY (ARRAY[9007199254740993.0])", None),
+            ("value = ANY (ARRAY[0.10000000000000001])", None),
+            ("value = ANY (ARRAY[1e999999999999999999999999])", None),
+            ("value = ANY (ARRAY[other + 2, 3])", None),
+            ("value = ANY (ARRAY[2, NULL])", None),
+        ],
+    )
+    def test_postgres_single_column_any_check_normalization(expression: str, expected: tuple | None) -> None:
+        """Recognize PostgreSQL enum spellings without requiring a live server."""
+        constraints = [{"type": "check", "expression": expression}]
+>       assert _infer_from_check_constraints("value", constraints, ["value"]) == expected
+E       AssertionError: assert ('choice', {'choices': [inf]}) == None
+E        +  where ('choice', {'choices': [inf]}) = _infer_from_check_constraints('value', [{'type': 'check', 'expression': 'value = ANY (ARRAY[1e999999999999999999999999])'}], ['value'])
+
+plugins/sqlseed-ai/tests/test_auto_heal_orchestrator.py:619: AssertionError
+=========================== short test summary info ============================
+FAILED plugins/sqlseed-ai/tests/test_auto_heal_orchestrator.py::test_postgres_single_column_any_check_normalization[value = ANY (ARRAY[1e400])-None]
+FAILED plugins/sqlseed-ai/tests/test_auto_heal_orchestrator.py::test_postgres_single_column_any_check_normalization[value = ANY (ARRAY[-1e400])-None]
+FAILED plugins/sqlseed-ai/tests/test_auto_heal_orchestrator.py::test_postgres_single_column_any_check_normalization[value = ANY (ARRAY[1e-400])-None]
+FAILED plugins/sqlseed-ai/tests/test_auto_heal_orchestrator.py::test_postgres_single_column_any_check_normalization[value = ANY (ARRAY[-1e-400])-None]
+FAILED plugins/sqlseed-ai/tests/test_auto_heal_orchestrator.py::test_postgres_single_column_any_check_normalization[value = ANY (ARRAY[9007199254740993.0])-None]
+FAILED plugins/sqlseed-ai/tests/test_auto_heal_orchestrator.py::test_postgres_single_column_any_check_normalization[value = ANY (ARRAY[0.10000000000000001])-None]
+FAILED plugins/sqlseed-ai/tests/test_auto_heal_orchestrator.py::test_postgres_single_column_any_check_normalization[value = ANY (ARRAY[1e999999999999999999999999])-None]
+7 failed, 12 passed, 187 deselected in 3.05s

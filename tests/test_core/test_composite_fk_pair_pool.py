@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import sqlite3
-from contextlib import closing
 from datetime import datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from sqlseed.core.orchestrator import DataOrchestrator
+from tests.assertions import assert_empty
+from tests.sqlite_helpers import sqlite_connection
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
 def test_typed_pairs_keep_datetime_and_decimal_values(tmp_path: Path) -> None:
     path = tmp_path / "typed_pairs.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.executescript(
             "CREATE TABLE parents(a DATETIME,b NUMERIC(10,2),PRIMARY KEY(a,b));"
             "CREATE TABLE children(a DATETIME NOT NULL,b NUMERIC(10,2) NOT NULL,PRIMARY KEY(a,b),"
@@ -33,14 +33,15 @@ def test_typed_pairs_keep_datetime_and_decimal_values(tmp_path: Path) -> None:
             ),
         )
         result = orch.fill_table("children", count=2, seed=42, skip_ai=True)
-        assert result.errors == [] and result.count == 2
-        assert orch.query("PRAGMA foreign_key_check") == []
+        assert_empty(result.errors, list)
+        assert result.count == 2
+        assert_empty(orch.query("PRAGMA foreign_key_check"), list)
         assert orch.query("SELECT * FROM children ORDER BY b") == orch.query("SELECT * FROM parents ORDER BY b")
 
 
 def test_coverage_samples_parent_pairs_across_batches_and_dag_orders_source_first(tmp_path: Path) -> None:
     path = tmp_path / "coverage.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         # Deliberately reverse the child column order relative to the FK order.
         db.executescript(
             "CREATE TABLE parents(a INTEGER,b INTEGER,PRIMARY KEY(a,b));"
@@ -56,18 +57,19 @@ def test_coverage_samples_parent_pairs_across_batches_and_dag_orders_source_firs
             skip_ai=True,
             columns={"a": {"generator": "foreign_key", "params": {"strategy": "coverage"}}},
         )
-        assert result.errors == [] and result.count == 3
+        assert_empty(result.errors, list)
+        assert result.count == 3
         assert orch.query("SELECT a,b FROM children ORDER BY b") == [
             {"a": 1, "b": 10},
             {"a": 1, "b": 20},
             {"a": 2, "b": 30},
         ]
-        assert orch.query("PRAGMA foreign_key_check") == []
+        assert_empty(orch.query("PRAGMA foreign_key_check"), list)
 
 
 def test_partial_null_composite_fk_preserves_explicit_null(tmp_path: Path) -> None:
     path = tmp_path / "nullable_pairs.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.executescript(
             "CREATE TABLE parents(a INTEGER,b INTEGER,PRIMARY KEY(a,b));"
             "INSERT INTO parents VALUES(1,10),(1,20);"
@@ -77,15 +79,16 @@ def test_partial_null_composite_fk_preserves_explicit_null(tmp_path: Path) -> No
         result = orch.fill_table(
             "children", count=10, seed=42, skip_ai=True, columns={"a": {"generator": "foreign_key", "null_ratio": 1.0}}
         )
-        assert result.errors == [] and result.count == 10
+        assert_empty(result.errors, list)
+        assert result.count == 10
         rows = orch.query("SELECT * FROM children")
-        assert all(row["a"] is None and row["b"] in (10, 20) for row in rows)
-        assert orch.query("PRAGMA foreign_key_check") == []
+        assert all(row["a"] is None and row["b"] in {10, 20} for row in rows)
+        assert_empty(orch.query("PRAGMA foreign_key_check"), list)
 
 
 def test_parent_null_member_is_filtered_for_nonnullable_child(tmp_path: Path) -> None:
     path = tmp_path / "parent_null.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.executescript(
             "CREATE TABLE parents(a INTEGER,b INTEGER);"
             "CREATE UNIQUE INDEX uq ON parents(a,b DESC);"
@@ -94,14 +97,15 @@ def test_parent_null_member_is_filtered_for_nonnullable_child(tmp_path: Path) ->
         )
     with DataOrchestrator(str(path), provider_name="base", optimize_pragma=False) as orch:
         result = orch.fill_table("children", count=5, seed=42, skip_ai=True)
-        assert result.errors == [] and result.count == 5
+        assert_empty(result.errors, list)
+        assert result.count == 5
         assert orch.query("SELECT a,b FROM children") == [{"a": 1, "b": 10}] * 5
-        assert orch.query("PRAGMA foreign_key_check") == []
+        assert_empty(orch.query("PRAGMA foreign_key_check"), list)
 
 
 def test_parent_null_member_is_retained_for_nullable_child(tmp_path: Path) -> None:
     path = tmp_path / "allowed_parent_null.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.executescript(
             "CREATE TABLE parents(a INTEGER,b INTEGER,UNIQUE(a,b));"
             "INSERT INTO parents VALUES(1,10),(1,NULL);"
@@ -118,9 +122,10 @@ def test_parent_null_member_is_retained_for_nullable_child(tmp_path: Path) -> No
                 "b": {"generator": "foreign_key", "null_ratio": 0.0},
             },
         )
-        assert result.errors == [] and result.count == 2
+        assert_empty(result.errors, list)
+        assert result.count == 2
         assert orch.query("SELECT a,b FROM children ORDER BY b") == [{"a": 1, "b": None}, {"a": 1, "b": 10}]
-        assert orch.query("PRAGMA foreign_key_check") == []
+        assert_empty(orch.query("PRAGMA foreign_key_check"), list)
 
 
 def test_all_parent_pairs_rejected_by_child_nullability_fail_before_insert(tmp_path: Path) -> None:
@@ -129,7 +134,7 @@ def test_all_parent_pairs_rejected_by_child_nullability_fail_before_insert(tmp_p
     from sqlseed.generators._protocol import ConfigurationError
 
     path = tmp_path / "no_usable_pairs.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.executescript(
             "CREATE TABLE parents(a INTEGER,b INTEGER,UNIQUE(a,b));"
             "INSERT INTO parents VALUES(1,NULL);"

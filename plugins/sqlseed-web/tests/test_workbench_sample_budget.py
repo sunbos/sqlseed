@@ -2,24 +2,24 @@
 
 from __future__ import annotations
 
-import sqlite3
 from collections.abc import Iterator
-from contextlib import closing
 from pathlib import Path
 from typing import Any
 
 import pytest
 from fastapi import HTTPException
+from tests.assertions import assert_empty
+from tests.sqlite_helpers import sqlite_connection
 
 from sqlseed_web.state import Connection, UIState
 from sqlseed_web.workbench_runtime import check_document
 from sqlseed_web.workbench_schema import inspect_connection
 
 
-@pytest.fixture()
-def conn(tmp_path: Path) -> Iterator[Connection]:
+@pytest.fixture(name="conn")
+def fixture_conn(tmp_path: Path) -> Iterator[Connection]:
     path = tmp_path / "samples.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.executescript(
             "CREATE TABLE items(code TEXT NOT NULL UNIQUE);"
             "CREATE TABLE later(value INTEGER NOT NULL);"
@@ -67,7 +67,8 @@ def test_impossible_string_capacity_is_rejected_without_writing(conn: Connection
         {"name": "code", "generator": "string", "params": {"min_length": 13, "max_length": 13, "charset": "P"}}
     ]
     result = check_document(conn, config, inspect_connection(conn)["schema_hash"], sample_max_attempts=12, preview=True)
-    assert result["ok"] is False and result["samples"] == {}
+    assert result["ok"] is False
+    assert_empty(result["samples"], dict)
     issue = next(issue for issue in result["issues"] if issue["code"] == "generation_invalid")
     assert "cannot provide 3 UNIQUE strings" in issue["message"]
     assert "12 次尝试上限" not in issue["message"]

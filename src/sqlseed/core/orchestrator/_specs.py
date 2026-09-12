@@ -171,65 +171,9 @@ class SpecResolverMixin:
         # can fill the gap.
         if self._schema_fallback is not None:
             check_constraints = self._db.get_check_constraints(table_name)
-            unique_list = list(unique_columns)
-            # Generators produced by L9 type-fallback that may benefit from
-            # CHECK constraint inference (range, length, choices).
-            _fallback_generators = {"string", "integer", "float", "boolean", "choice"}
-            for col_info in column_infos:
-                col_name = col_info.name
-                if col_name in user_configs:
-                    continue
-                current_spec = generator_specs.get(col_name)
-                if current_spec is None:
-                    continue
-                # Enum-CHECK hard truth (2026-08-30): ANY generator (name-rule
-                # or fallback) on a column with a CHECK IN (...) enum is
-                # reconciled against the enum — the DB constraint is the hard
-                # truth. Two cases, unified here (formerly a choice-only
-                # special case): (a) a non-enum generator (e.g.
-                # EXACT_MATCH_RULES maps ``title`` -> ``sentence`` while
-                # CHECK (title IN ('engineer',...)) rejects every sentence)
-                # is overridden by the enum; (b) a ``choice`` spec whose
-                # values differ from the CHECK enum (e.g. ``gender`` rule
-                # says ['male','female','other'] but CHECK says IN ('M','F'))
-                # is re-pointed to the CHECK values. Same values → untouched.
-                if current_spec.generator_name != "skip":
-                    enum_choices = self._check_enum_choices(col_name, check_constraints)
-                    if enum_choices is not None and not (
-                        current_spec.generator_name == "choice" and current_spec.params.get("choices") == enum_choices
-                    ):
-                        generator_specs[col_name] = GeneratorSpec(
-                            generator_name="choice",
-                            params={"choices": enum_choices},
-                            null_ratio=current_spec.null_ratio,
-                        )
-                        continue
-                # Length-CHECK hard truth (2026-08-30): a phone-like column
-                # with a deterministic ``LENGTH(col) = N`` CHECK cannot use
-                # the ``phone`` generator — providers emit locale-formatted
-                # numbers (mimesis zh_CN: 19 chars, faker NANP: 14 chars,
-                # base: 13 chars) that violate the constraint. Upgrade to
-                # ``pattern`` with ``[0-9]{N}``, mirroring the repair-layer
-                # ``upgrade_phone_to_pattern`` semantics. Other generators
-                # with a length-range already flow through the L9 fallback
-                # below; this branch only rescues name-rule hits.
-                length_n = self._check_exact_length(col_name, check_constraints)
-                if (
-                    length_n is not None
-                    and current_spec.generator_name in ("phone", "string")
-                    and not (current_spec.generator_name == "string" and current_spec.params.get("charset"))
-                ):
-                    generator_specs[col_name] = GeneratorSpec(
-                        generator_name="pattern",
-                        params={"regex": f"[0-9]{{{length_n}}}"},
-                        null_ratio=current_spec.null_ratio,
-                    )
-                    continue
-                if current_spec.generator_name not in _fallback_generators:
-                    continue
-                enhanced = self._schema_fallback.fallback_for_column(col_info, check_constraints, unique_list)
-                if enhanced is not None:
-                    generator_specs[col_name] = enhanced
+            self._enhance_fallback_specs(
+                self._schema_fallback, column_infos, user_configs, generator_specs, check_constraints, unique_columns
+            )
         generator_specs = self._unique_adjuster.adjust(
             generator_specs, unique_columns, count, column_infos, check_constraints
         )
@@ -255,6 +199,75 @@ class SpecResolverMixin:
         )
         generator_specs = self._fill_composite_pk_integer_columns(column_infos, generator_specs)
         return generator_specs, user_configs, unique_columns, composite_unique
+
+    def _enhance_fallback_specs(
+        self,
+        fallback: SchemaFallbackGenerator,
+        column_infos: list[Any],
+        user_configs: dict[str, Any],
+        generator_specs: dict[str, Any],
+        check_constraints: list[Any],
+        unique_columns: set[str],
+    ) -> None:
+        """Apply CHECK hard truth before type fallback, preserving explicit user specs."""
+        unique_list = list(unique_columns)
+        # Generators produced by L9 type-fallback that may benefit from
+        # CHECK constraint inference (range, length, choices).
+        _fallback_generators = {"string", "integer", "float", "boolean", "choice"}
+        for col_info in column_infos:
+            col_name = col_info.name
+            if col_name in user_configs:
+                continue
+            current_spec = generator_specs.get(col_name)
+            if current_spec is None:
+                continue
+            # Enum-CHECK hard truth (2026-08-30): ANY generator (name-rule
+            # or fallback) on a column with a CHECK IN (...) enum is
+            # reconciled against the enum — the DB constraint is the hard
+            # truth. Two cases, unified here (formerly a choice-only
+            # special case): (a) a non-enum generator (e.g.
+            # EXACT_MATCH_RULES maps ``title`` -> ``sentence`` while
+            # CHECK (title IN ('engineer',...)) rejects every sentence)
+            # is overridden by the enum; (b) a ``choice`` spec whose
+            # values differ from the CHECK enum (e.g. ``gender`` rule
+            # says ['male','female','other'] but CHECK says IN ('M','F'))
+            # is re-pointed to the CHECK values. Same values → untouched.
+            if current_spec.generator_name != "skip":
+                enum_choices = self._check_enum_choices(col_name, check_constraints)
+                if enum_choices is not None and not (
+                    current_spec.generator_name == "choice" and current_spec.params.get("choices") == enum_choices
+                ):
+                    generator_specs[col_name] = GeneratorSpec(
+                        generator_name="choice",
+                        params={"choices": enum_choices},
+                        null_ratio=current_spec.null_ratio,
+                    )
+                    continue
+            # Length-CHECK hard truth (2026-08-30): a phone-like column
+            # with a deterministic ``LENGTH(col) = N`` CHECK cannot use
+            # the ``phone`` generator — providers emit locale-formatted
+            # numbers (mimesis zh_CN: 19 chars, faker NANP: 14 chars,
+            # base: 13 chars) that violate the constraint. Upgrade to
+            # ``pattern`` with ``[0-9]{N}``, mirroring the repair-layer
+            # ``upgrade_phone_to_pattern`` semantics. Other generators
+            # with a length-range already flow through the L9 fallback
+            # below; this branch only rescues name-rule hits.
+            length_n = self._check_exact_length(col_name, check_constraints)
+            if (
+                length_n is not None
+                and current_spec.generator_name in {"phone", "string"}
+                and not (current_spec.generator_name == "string" and current_spec.params.get("charset"))
+            ):
+                generator_specs[col_name] = GeneratorSpec(
+                    generator_name="pattern",
+                    params={"regex": f"[0-9]{{{length_n}}}"},
+                    null_ratio=current_spec.null_ratio,
+                )
+                continue
+            if current_spec.generator_name not in _fallback_generators:
+                continue
+            if (enhanced := fallback.fallback_for_column(col_info, check_constraints, unique_list)) is not None:
+                generator_specs[col_name] = enhanced
 
     @staticmethod
     def _check_enum_choices(col_name: str, check_constraints: list[Any]) -> list[Any] | None:
@@ -348,8 +361,6 @@ class SpecResolverMixin:
         column-reference CHECKs are intentionally left to the AI/manual domain and
         are not enumerated here. Message language follows ``self._locale``.
         """
-        from sqlseed.core.check_parser import CheckConstraintParser
-
         expressions = [ck.expression for ck in check_constraints]
         # Enum CHECKs (kind == "choice") and exact-length CHECKs are covered
         # by the hard-truth reconciliation in _resolve_specs (CHECK values
@@ -360,7 +371,7 @@ class SpecResolverMixin:
         constrained_columns = [
             col.name
             for col in self._schema.get_column_info(table_name)
-            for parsed in [CheckConstraintParser.parse_all(col.name, expressions)]
+            for parsed in (CheckConstraintParser.parse_all(col.name, expressions),)
             if parsed is not None and parsed.kind != "choice"
         ]
         constrained_columns = [c for c in constrained_columns if self._check_exact_length(c, check_constraints) is None]
@@ -458,6 +469,24 @@ class SpecResolverMixin:
         # Without this, independently-sampled columns (e.g., start_time and
         # end_time with LIKE constraints that block derive_from) can violate
         # ordering CHECKs, causing batch-level IntegrityError.
+        inequality_constraints = self._get_inequality_constraints(table_name)
+
+        return DataStream(
+            dag_nodes=dag_nodes,
+            provider=provider,
+            expr_engine=expr_engine,
+            constraint_solver=constraint_solver,
+            transform_fn=transform_fn,
+            seed=seed,
+            composite_unique_constraints=composite_unique,
+            inequality_constraints=inequality_constraints,
+            max_attempts=max_attempts,
+            cancel_check=cancel_check,
+            table_name=table_name,
+        )
+
+    def _get_inequality_constraints(self, table_name: str | None) -> list[tuple[str, str, str]]:
+        """Read supported comparisons, retaining earlier matches if later extraction fails."""
         inequality_constraints: list[tuple[str, str, str]] = []
         if table_name is not None:
             try:
@@ -485,20 +514,7 @@ class SpecResolverMixin:
                 # Non-critical: if CHECK constraint extraction fails, proceed
                 # without inequality enforcement (INSERT-time error will surface).
                 pass
-
-        return DataStream(
-            dag_nodes=dag_nodes,
-            provider=provider,
-            expr_engine=expr_engine,
-            constraint_solver=constraint_solver,
-            transform_fn=transform_fn,
-            seed=seed,
-            composite_unique_constraints=composite_unique,
-            inequality_constraints=inequality_constraints,
-            max_attempts=max_attempts,
-            cancel_check=cancel_check,
-            table_name=table_name,
-        )
+        return inequality_constraints
 
     def _prepare_specs(
         self,

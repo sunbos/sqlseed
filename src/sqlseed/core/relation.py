@@ -19,7 +19,7 @@ from sqlseed.core.mapper import GeneratorSpec
 from sqlseed.generators._protocol import ConfigurationError
 
 if TYPE_CHECKING:
-    from sqlseed.database._protocol import ForeignKeyInfo
+    from sqlseed.database._protocol import ColumnInfo, ForeignKeyInfo
 
 logger = get_logger(__name__)
 
@@ -48,8 +48,10 @@ def _fk_strategy(spec: GeneratorSpec | None) -> str:
     """
     if spec is not None:
         s = spec.params.get("strategy")
-        if isinstance(s, str) and s in ("random", "coverage"):
-            return s
+        if isinstance(s, str):
+            match s:
+                case "random" | "coverage":
+                    return s
     return "random"
 
 
@@ -415,7 +417,7 @@ class RelationResolver:
         node depend on the first; DataStream selects the pair once per row.
         """
         col_a, ref_table, ref_a = cols[0]
-        col_b, _ref_table_b, ref_b = cols[1]
+        col_b, _, ref_b = cols[1]
         if col_a not in specs or col_b not in specs:
             return
         typed_pairs = getattr(self._db, "_get_column_pairs", None)
@@ -437,7 +439,7 @@ class RelationResolver:
                 "compatible with the child columns' NOT NULL constraints"
             )
         pairs = usable_pairs
-        for index, (column, _parent, ref_column) in enumerate(cols):
+        for index, (column, _, ref_column) in enumerate(cols):
             spec = specs[column]
             params: dict[str, Any] = {
                 "ref_table": ref_table,
@@ -481,18 +483,8 @@ class RelationResolver:
             # empty ref_values — the generator will use the fallback integer
             # range.
             null_ratio = spec.null_ratio
-            if not ref_values:
-                col_nullable = True
-                try:
-                    col_info = self._db.get_column_info(table_name)
-                    for c in col_info:
-                        if c.name == col_name:
-                            col_nullable = c.nullable
-                            break
-                except Exception:
-                    pass
-                if col_nullable:
-                    null_ratio = 1.0
+            if not ref_values and self._column_allows_null(table_name, col_name):
+                null_ratio = 1.0
             return GeneratorSpec(
                 generator_name="foreign_key",
                 params={
@@ -542,6 +534,38 @@ class RelationResolver:
             provider=spec.provider,
         )
 
+    def _column_allows_null(self, table_name: str, col_name: str) -> bool:
+        """Read FK nullability, preserving the permissive fallback on lookup failure."""
+        try:
+            columns: list[ColumnInfo] = self._db.get_column_info(table_name)
+            for column in columns:
+                if column.name == col_name:
+                    return column.nullable
+        except Exception:
+            pass
+        return True
+
+    def _prepare_fk_upgrade(
+        self,
+        table_name: str,
+        col_name: str,
+        spec: GeneratorSpec,
+        specs: dict[str, GeneratorSpec],
+    ) -> bool:
+        """Repair resolved nullable FKs and select the specs still needing an upgrade."""
+        if spec.generator_name == "foreign_key":
+            # Already-resolved empty nullable FKs still need their linked CHECK
+            # columns set to the value compatible with NULL.
+            if spec.null_ratio == 1.0 and not spec.params.get("_ref_values"):
+                self._fix_conditional_column_for_null_fk(table_name, col_name, specs)
+            return False
+        if spec.generator_name == "foreign_key_or_integer":
+            # Only self references are upgraded here; resolve other fallback
+            # specs later through _resolve_fk_or_integer_spec.
+            fk_info = self.get_fk_info(table_name, col_name)
+            return fk_info is not None and fk_info.ref_table == table_name
+        return True
+
     def _upgrade_fk_constrained_columns(
         self,
         table_name: str,
@@ -555,24 +579,8 @@ class RelationResolver:
             if col_name not in specs:
                 continue
             spec = specs[col_name]
-            if spec.generator_name == "foreign_key":
-                # If _resolve_fk_or_integer_spec already upgraded this to
-                # foreign_key with null_ratio=1.0 (empty parent + nullable),
-                # we still need to fix any conditional column linked via
-                # bidirectional CHECK (e.g., org_type='root' OR parent_id IS
-                # NOT NULL). Without this, the conditional column gets random
-                # values that violate the CHECK when the FK is NULL.
-                if spec.null_ratio == 1.0 and not spec.params.get("_ref_values"):
-                    self._fix_conditional_column_for_null_fk(table_name, col_name, specs)
+            if not self._prepare_fk_upgrade(table_name, col_name, spec, specs):
                 continue
-            if spec.generator_name == "foreign_key_or_integer":
-                # Only process foreign_key_or_integer for self-ref FK
-                # handling; other foreign_key_or_integer columns are
-                # resolved later by _resolve_fk_or_integer_spec.
-                fk_info_peek = self.get_fk_info(table_name, col_name)
-                if fk_info_peek is None or fk_info_peek.ref_table != table_name:
-                    continue
-                # Fall through to self-ref FK handling below
             fk_info = self.get_fk_info(table_name, col_name)
             if fk_info is None:
                 continue

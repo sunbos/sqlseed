@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import importlib
 import json
-import sqlite3
-from contextlib import closing
 from copy import deepcopy
 from datetime import date
 from importlib import metadata
@@ -15,21 +13,24 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlseed.core.expression import ExpressionEngine
+from tests.sqlite_helpers import sqlite_connection
 
 from sqlseed_web import workbench_ai
 from sqlseed_web.state import UIState
 from sqlseed_web.workbench_schema import inspect_connection
 
+from .workbench_test_helpers import generator_suggestion, suggestion_response
 
-@pytest.fixture()
-def relation_client(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> Any:
+
+@pytest.fixture(name="relation_client")
+def fixture_relation_client(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> Any:
     try:
         metadata.version("sqlseed-ai")
     except metadata.PackageNotFoundError:
         pytest.skip("AI relation regression requires the optional sqlseed-ai distribution")
     importlib.import_module("sqlseed_ai.config")
     path = tmp_path / "relations.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.executescript(
             "CREATE TABLE invoices(id INTEGER PRIMARY KEY AUTOINCREMENT, quantity INTEGER NOT NULL, "
             "price REAL NOT NULL, total REAL NOT NULL CHECK(total >= 0), alias TEXT, first TEXT NOT NULL, "
@@ -79,11 +80,11 @@ def relation(
     }
 
 
-@pytest.fixture()
-def null_target_client(relation_client: Any) -> Any:
+@pytest.fixture(name="null_target_client")
+def fixture_null_target_client(relation_client: Any) -> Any:
     client, registry, payload = relation_client
     conn = registry.get_connection(payload["conn_id"])
-    with closing(sqlite3.connect(conn.target)) as db, db:
+    with sqlite_connection(conn.target) as db:
         db.execute(
             "CREATE TABLE amounts(quantity INTEGER NOT NULL, price REAL NOT NULL, total REAL, "
             "default_total REAL DEFAULT 0, null_default_total REAL DEFAULT NULL, replacement REAL)"
@@ -155,7 +156,7 @@ def test_derived_default_column_is_a_relation_source_but_remains_a_protected_tar
 ) -> None:
     client, registry, payload = relation_client
     conn = registry.get_connection(payload["conn_id"])
-    with closing(sqlite3.connect(conn.target)) as db, db:
+    with sqlite_connection(conn.target) as db:
         db.execute("ALTER TABLE invoices ADD COLUMN subtotal REAL NOT NULL DEFAULT 0")
     payload["schema_hash"] = inspect_connection(conn)["schema_hash"]
     payload["document"]["tables"][0]["columns"].append(
@@ -163,18 +164,16 @@ def test_derived_default_column_is_a_relation_source_but_remains_a_protected_tar
     )
     captured = []
 
-    def reply(messages: Any, **kwargs: Any) -> Any:
-        captured.extend(messages)
-        return {
-            "suggestions": [
-                relation("total", template="copy", sources=["subtotal"]),
-                {"table": "invoices", "column": "subtotal", "generator": "float", "params": {}},
-            ]
-        }
-
-    monkeypatch.setattr(workbench_ai, "_call_model", reply)
-    response = client.post("/api/workbench/ai/suggest", json=payload)
-    assert response.status_code == 200, response.text
+    response = suggestion_response(
+        client,
+        payload,
+        monkeypatch,
+        [
+            relation("total", template="copy", sources=["subtotal"]),
+            generator_suggestion("invoices", "subtotal", "float"),
+        ],
+        messages=captured,
+    )
     result = response.json()
     assert [patch["column"] for patch in result["suggestions"]] == ["total"]
     assert result["suggestions"][0]["evidence"]["rows"][0] == {"subtotal": 4, "total": 4}
@@ -373,27 +372,15 @@ def test_existing_implicit_row_dependencies_also_group_source_changes_atomically
     columns[:] = [col for col in columns if col["name"] != "total"] + [
         {"name": "total", "derive_from": "price", "expression": "value * row['quantity']"}
     ]
-    monkeypatch.setattr(
-        workbench_ai,
-        "_call_model",
-        lambda _, **kwargs: {
-            "suggestions": [
-                {
-                    "table": "invoices",
-                    "column": "quantity",
-                    "generator": "integer",
-                    "params": {"min_value": 2, "max_value": 2},
-                },
-                {
-                    "table": "invoices",
-                    "column": "price",
-                    "generator": "float",
-                    "params": {"min_value": 4, "max_value": 4},
-                },
-            ]
-        },
-    )
-    patches = client.post("/api/workbench/ai/suggest", json=payload).json()["suggestions"]
+    patches = suggestion_response(
+        client,
+        payload,
+        monkeypatch,
+        [
+            generator_suggestion("invoices", "quantity", "integer", min_value=2, max_value=2),
+            generator_suggestion("invoices", "price", "float", min_value=4, max_value=4),
+        ],
+    ).json()["suggestions"]
     assert len(patches) == 2
     assert patches[0]["group_id"] == patches[1]["group_id"]
 
@@ -403,7 +390,7 @@ def test_database_cross_column_check_groups_independent_generator_patches(
 ) -> None:
     client, registry, payload = relation_client
     conn = registry.get_connection(payload["conn_id"])
-    with closing(sqlite3.connect(conn.target)) as db, db:
+    with sqlite_connection(conn.target) as db:
         db.execute(
             "CREATE TABLE ranges(lower_bound INTEGER NOT NULL, upper_bound INTEGER NOT NULL, CHECK(upper_bound >= lower_bound))"
         )
@@ -412,27 +399,15 @@ def test_database_cross_column_check_groups_independent_generator_patches(
         tables=["ranges"],
         document={"provider": "base", "tables": [{"name": "ranges", "count": 3, "columns": []}]},
     )
-    monkeypatch.setattr(
-        workbench_ai,
-        "_call_model",
-        lambda _, **kwargs: {
-            "suggestions": [
-                {
-                    "table": "ranges",
-                    "column": "lower_bound",
-                    "generator": "integer",
-                    "params": {"min_value": 10, "max_value": 10},
-                },
-                {
-                    "table": "ranges",
-                    "column": "upper_bound",
-                    "generator": "integer",
-                    "params": {"min_value": 20, "max_value": 20},
-                },
-            ]
-        },
-    )
-    patches = client.post("/api/workbench/ai/suggest", json=payload).json()["suggestions"]
+    patches = suggestion_response(
+        client,
+        payload,
+        monkeypatch,
+        [
+            generator_suggestion("ranges", "lower_bound", "integer", min_value=10, max_value=10),
+            generator_suggestion("ranges", "upper_bound", "integer", min_value=20, max_value=20),
+        ],
+    ).json()["suggestions"]
     assert len(patches) == 2
     assert patches[0]["group_id"] == patches[1]["group_id"]
 

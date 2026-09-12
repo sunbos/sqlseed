@@ -11,6 +11,7 @@ from sqlseed.config.models import ColumnConfig
 from sqlseed.core.mapper import GeneratorSpec
 from sqlseed.core.orchestrator import DataOrchestrator
 from sqlseed.plugins.hookspecs import hookimpl
+from tests.assertions import assert_empty
 from tests.conftest import apply_enrichment, create_project_info_db
 
 if TYPE_CHECKING:
@@ -296,7 +297,7 @@ class TestOrchestratorUnique:
             assert 1 <= adjusted["code"].params["min_length"] <= 5
             assert adjusted["code"].params["max_length"] == 5
             result = orch.fill_table("items", count=10000, seed=42, skip_ai=True)
-            assert result.errors == []
+            assert_empty(result.errors, list)
             assert result.count == 10000
             assert orch.query("SELECT MAX(LENGTH(code)) AS max_length FROM items") == [{"max_length": 5}]
 

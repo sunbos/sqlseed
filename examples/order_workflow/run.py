@@ -109,17 +109,8 @@ def generate(config_path: Path) -> list[dict[str, Any]]:
     return summaries
 
 
-def run_workflow(output_dir: Path) -> dict[str, Any]:
-    """Run the demonstration in a new directory, refusing any existing target."""
-    output = output_dir.expanduser().absolute()
-    output.mkdir(parents=True, exist_ok=False)
-    verification = output / "verification"
-    verification.mkdir()
-    schema = (HERE / "schema.sql").read_text(encoding="utf-8")
-    rules = yaml.safe_load((HERE / "rules.yaml").read_text(encoding="utf-8"))
-    expected = {table["name"]: table["count"] for table in rules["tables"]}
-    (output / "schema.sql").write_text(schema, encoding="utf-8")
-
+def demonstrate_rejected_rule(verification: Path, schema: str, rules: dict[str, Any]) -> tuple[Path, dict[str, Any]]:
+    """Record a rejected rule and verify that it leaves the database empty."""
     bad_database = verification / "bad.db"
     create_database(bad_database, schema)
     bad_rules = deepcopy(rules)
@@ -148,8 +139,22 @@ def run_workflow(output_dir: Path) -> dict[str, Any]:
         }
         if any(after_row_counts.values()):
             raise RuntimeError("The rejected rule unexpectedly committed data") from error
-    else:
-        raise RuntimeError("The deliberately invalid price rule unexpectedly succeeded")
+        return bad_config, failed_rule
+    raise RuntimeError("The deliberately invalid price rule unexpectedly succeeded")
+
+
+def run_workflow(output_dir: Path) -> dict[str, Any]:
+    """Run the demonstration in a new directory, refusing any existing target."""
+    output = output_dir.expanduser().absolute()
+    output.mkdir(parents=True, exist_ok=False)
+    verification = output / "verification"
+    verification.mkdir()
+    schema = (HERE / "schema.sql").read_text(encoding="utf-8")
+    rules = yaml.safe_load((HERE / "rules.yaml").read_text(encoding="utf-8"))
+    expected = {table["name"]: table["count"] for table in rules["tables"]}
+    (output / "schema.sql").write_text(schema, encoding="utf-8")
+
+    bad_config, failed_rule = demonstrate_rejected_rule(verification, schema, rules)
 
     main_database = output / "orders.db"
     main_config = output / "rules.yaml"

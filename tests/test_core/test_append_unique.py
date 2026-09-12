@@ -2,22 +2,42 @@
 
 from __future__ import annotations
 
-import sqlite3
-from contextlib import closing
 from typing import TYPE_CHECKING
 
 import pytest
 
+from sqlseed.core.column_dag import ColumnConstraints, ColumnDAG, ColumnNode
+from sqlseed.core.constraints import ConstraintSolver
+from sqlseed.core.expression import ExpressionEngine
+from sqlseed.core.mapper import GeneratorSpec
 from sqlseed.core.orchestrator import DataOrchestrator
+from sqlseed.core.stream import DataStream
+from sqlseed.generators.base_provider import BaseProvider
+from tests.assertions import assert_empty
+from tests.sqlite_helpers import sqlite_connection
 
 if TYPE_CHECKING:
     from pathlib import Path
 
 
+def _create_full_pair_domain(path: Path) -> None:
+    """Populate the only key that the fixed generators can produce."""
+    with sqlite_connection(path) as db:
+        db.execute("CREATE TABLE items (a INTEGER NOT NULL, b INTEGER NOT NULL, PRIMARY KEY(a,b))")
+        db.execute("INSERT INTO items VALUES (1, 2)")
+
+
+def _fixed_pair_columns() -> dict[str, dict[str, object]]:
+    return {
+        "a": {"generator": "choice", "params": {"choices": [1]}},
+        "b": {"generator": "choice", "params": {"choices": [2]}},
+    }
+
+
 @pytest.mark.parametrize("constraint", ["PRIMARY KEY", "UNIQUE"])
 def test_append_avoids_existing_composite_fk_keys(tmp_path: Path, constraint: str) -> None:
     path = tmp_path / "append.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.executescript(
             "CREATE TABLE orders (id INTEGER PRIMARY KEY);"
             "CREATE TABLE products (id INTEGER PRIMARY KEY);"
@@ -30,10 +50,10 @@ def test_append_avoids_existing_composite_fk_keys(tmp_path: Path, constraint: st
         db.executemany("INSERT INTO products VALUES (?)", [(i,) for i in range(1, 21)])
     with DataOrchestrator(str(path), provider_name="base", optimize_pragma=False) as orch:
         first = orch.fill_table("order_items", count=80, seed=42, batch_size=20, skip_ai=True)
-        assert first.errors == []
+        assert_empty(first.errors, list)
         previous = orch.query("SELECT order_id, product_id FROM order_items")
         second = orch.fill_table("order_items", count=80, seed=42, batch_size=20, skip_ai=True)
-        assert second.errors == []
+        assert_empty(second.errors, list)
         assert second.count == 80
         rows = orch.query("SELECT order_id, product_id FROM order_items")
         pairs = {(row["order_id"], row["product_id"]) for row in rows}
@@ -41,32 +61,26 @@ def test_append_avoids_existing_composite_fk_keys(tmp_path: Path, constraint: st
         assert all((row["order_id"], row["product_id"]) in pairs for row in previous)
         # Components may repeat: only their pair must be unique.
         assert len({row["order_id"] for row in rows}) <= 20
-        assert orch.query("PRAGMA foreign_key_check") == []
+        assert_empty(orch.query("PRAGMA foreign_key_check"), list)
 
 
 def test_append_avoids_existing_single_unique_values(tmp_path: Path) -> None:
     path = tmp_path / "single.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.execute("CREATE TABLE items (code TEXT NOT NULL UNIQUE)")
     columns = {"code": {"generator": "choice", "params": {"choices": [str(i) for i in range(40)]}}}
     with DataOrchestrator(str(path), provider_name="base", optimize_pragma=False) as orch:
-        assert orch.fill_table("items", count=10, columns=columns, seed=42, skip_ai=True).errors == []
+        assert_empty(orch.fill_table("items", count=10, columns=columns, seed=42, skip_ai=True).errors, list)
         result = orch.fill_table("items", count=10, columns=columns, seed=42, skip_ai=True)
-        assert result.errors == []
+        assert_empty(result.errors, list)
         assert orch.get_row_count("items") == 20
 
 
 def test_composite_registration_rolls_back_when_a_later_constraint_fails() -> None:
-    from sqlseed.core.column_dag import ColumnDAG
-    from sqlseed.core.constraints import ConstraintSolver
-    from sqlseed.core.expression import ExpressionEngine
-    from sqlseed.core.mapper import GeneratorSpec
-    from sqlseed.core.stream import DataStream
-    from sqlseed.generators.base_provider import BaseProvider
 
     specs = {
         name: GeneratorSpec(generator_name="choice", params={"choices": [value]})
-        for name, value in [("a", 1), ("b", 2), ("c", 3)]
+        for name, value in (("a", 1), ("b", 2), ("c", 3))
     }
     solver = ConstraintSolver()
     solver.check_and_register_composite("__composite__('b', 'c')", (2, 3))
@@ -87,16 +101,10 @@ def test_composite_registration_rolls_back_when_a_later_constraint_fails() -> No
 
 
 def test_composite_registration_rolls_back_when_check_fails() -> None:
-    from sqlseed.core.column_dag import ColumnDAG
-    from sqlseed.core.constraints import ConstraintSolver
-    from sqlseed.core.expression import ExpressionEngine
-    from sqlseed.core.mapper import GeneratorSpec
-    from sqlseed.core.stream import DataStream
-    from sqlseed.generators.base_provider import BaseProvider
 
     specs = {
         name: GeneratorSpec(generator_name="choice", params={"choices": [value]})
-        for name, value in [("a", 1), ("b", 2), ("c", 1)]
+        for name, value in (("a", 1), ("b", 2), ("c", 1))
     }
     stream = DataStream(
         ColumnDAG().build(specs),
@@ -116,7 +124,7 @@ def test_composite_registration_rolls_back_when_check_fails() -> None:
 @pytest.mark.parametrize("constraint", ["UNIQUE(a)", "UNIQUE(a, b)"])
 def test_append_preserves_sql_null_uniqueness(tmp_path: Path, constraint: str) -> None:
     path = tmp_path / "null.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.execute(f"CREATE TABLE items (a INTEGER, b INTEGER NOT NULL, {constraint})")
         db.execute("INSERT INTO items VALUES (NULL, 2)")
     with DataOrchestrator(str(path), provider_name="base", optimize_pragma=False) as orch:
@@ -130,23 +138,18 @@ def test_append_preserves_sql_null_uniqueness(tmp_path: Path, constraint: str) -
             seed=42,
             skip_ai=True,
         )
-        assert result.errors == []
+        assert_empty(result.errors, list)
         assert orch.query("SELECT a, b FROM items") == [{"a": None, "b": 2}] * 6
 
 
 def test_append_exhausted_composite_domain_preserves_existing_rows(tmp_path: Path) -> None:
     path = tmp_path / "full.db"
-    with closing(sqlite3.connect(path)) as db, db:
-        db.execute("CREATE TABLE items (a INTEGER NOT NULL, b INTEGER NOT NULL, PRIMARY KEY(a,b))")
-        db.execute("INSERT INTO items VALUES (1, 2)")
+    _create_full_pair_domain(path)
     with DataOrchestrator(str(path), provider_name="base", optimize_pragma=False) as orch:
         result = orch.fill_table(
             "items",
             count=1,
-            columns={
-                "a": {"generator": "choice", "params": {"choices": [1]}},
-                "b": {"generator": "choice", "params": {"choices": [2]}},
-            },
+            columns=_fixed_pair_columns(),
             seed=42,
             skip_ai=True,
         )
@@ -158,29 +161,24 @@ def test_append_exhausted_composite_domain_preserves_existing_rows(tmp_path: Pat
 
 def test_clear_before_can_reuse_previous_keys(tmp_path: Path) -> None:
     path = tmp_path / "clear.db"
-    with closing(sqlite3.connect(path)) as db, db:
-        db.execute("CREATE TABLE items (a INTEGER NOT NULL, b INTEGER NOT NULL, PRIMARY KEY(a,b))")
-        db.execute("INSERT INTO items VALUES (1, 2)")
+    _create_full_pair_domain(path)
     with DataOrchestrator(str(path), provider_name="base", optimize_pragma=False) as orch:
         result = orch.fill_table(
             "items",
             count=1,
             clear_before=True,
-            columns={
-                "a": {"generator": "choice", "params": {"choices": [1]}},
-                "b": {"generator": "choice", "params": {"choices": [2]}},
-            },
+            columns=_fixed_pair_columns(),
             seed=42,
             skip_ai=True,
         )
-        assert result.errors == []
+        assert_empty(result.errors, list)
         assert result.count == 1
         assert orch.query("SELECT a, b FROM items") == [{"a": 1, "b": 2}]
 
 
 def test_append_database_lookup_uses_column_affinity_and_collation(tmp_path: Path) -> None:
     path = tmp_path / "collation.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.execute(
             'CREATE TABLE items ("select" TEXT COLLATE NOCASE NOT NULL, "order" INTEGER NOT NULL, '
             'UNIQUE("select", "order"))'
@@ -197,7 +195,7 @@ def test_append_database_lookup_uses_column_affinity_and_collation(tmp_path: Pat
             seed=1,
             skip_ai=True,
         )
-        assert result.errors == []
+        assert_empty(result.errors, list)
         assert orch.query('SELECT "select", "order" FROM items ORDER BY "select"') == [
             {"select": "alpha", "order": 1},
             {"select": "BETA", "order": 1},
@@ -205,12 +203,6 @@ def test_append_database_lookup_uses_column_affinity_and_collation(tmp_path: Pat
 
 
 def test_derived_backtrack_releases_other_unique_values_of_discarded_row() -> None:
-    from sqlseed.core.column_dag import ColumnConstraints, ColumnNode
-    from sqlseed.core.constraints import ConstraintSolver
-    from sqlseed.core.expression import ExpressionEngine
-    from sqlseed.core.mapper import GeneratorSpec
-    from sqlseed.core.stream import DataStream
-    from sqlseed.generators.base_provider import BaseProvider
 
     nodes = [
         ColumnNode(
@@ -236,16 +228,10 @@ def test_derived_backtrack_releases_other_unique_values_of_discarded_row() -> No
 
 
 def test_composite_keys_with_underscored_columns_remain_independent() -> None:
-    from sqlseed.core.column_dag import ColumnDAG
-    from sqlseed.core.constraints import ConstraintSolver
-    from sqlseed.core.expression import ExpressionEngine
-    from sqlseed.core.mapper import GeneratorSpec
-    from sqlseed.core.stream import DataStream
-    from sqlseed.generators.base_provider import BaseProvider
 
     specs = {
         name: GeneratorSpec(generator_name="choice", params={"choices": [value]})
-        for name, value in [("a_b", 1), ("c", 2), ("a", 1), ("b_c", 2)]
+        for name, value in (("a_b", 1), ("c", 2), ("a", 1), ("b_c", 2))
     }
     stream = DataStream(
         ColumnDAG().build(specs),
@@ -261,11 +247,10 @@ def test_composite_keys_with_underscored_columns_remain_independent() -> None:
 def test_existing_key_checks_remain_bounded_by_consumed_batch(tmp_path: Path, existing: bool) -> None:
     from sqlalchemy import event
 
-    from sqlseed.core.mapper import GeneratorSpec
     from sqlseed.database.sqlalchemy_adapter import SQLAlchemyAdapter
 
     path = tmp_path / "bounded.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.execute("CREATE TABLE items (a INTEGER NOT NULL UNIQUE)")
         if existing:
             db.execute("INSERT INTO items VALUES (42)")
@@ -316,7 +301,7 @@ def test_append_key_checks_match_insert_type_bindings(tmp_path: Path, column_typ
         if column_type == "DATETIME"
         else [Decimal("12.50"), Decimal("23.75")]
     )
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.execute(f"CREATE TABLE items (value {column_type} NOT NULL UNIQUE)")
     with DataOrchestrator(str(path), provider_name="base", optimize_pragma=False) as orch:
         orch.database_adapter.batch_insert("items", iter([{"value": values[0]}]))
@@ -327,18 +312,18 @@ def test_append_key_checks_match_insert_type_bindings(tmp_path: Path, column_typ
             columns={"value": {"generator": "choice", "params": {"choices": values}}},
             skip_ai=True,
         )
-        assert result.errors == []
+        assert_empty(result.errors, list)
         assert result.count == 1
         assert orch.query("SELECT COUNT(DISTINCT value) AS n FROM items") == [{"n": 2}]
 
 
 def test_replayed_seed_prefix_stops_at_finite_retry_budget(tmp_path: Path) -> None:
     path = tmp_path / "replayed.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.execute("CREATE TABLE items (a INTEGER NOT NULL, b INTEGER NOT NULL, PRIMARY KEY(a,b))")
-    columns = {name: {"generator": "integer", "params": {"min_value": 1, "max_value": 10000}} for name in ["a", "b"]}
+    columns = {name: {"generator": "integer", "params": {"min_value": 1, "max_value": 10000}} for name in ("a", "b")}
     with DataOrchestrator(str(path), provider_name="base", optimize_pragma=False) as orch:
-        assert orch.fill_table("items", count=1001, columns=columns, seed=42, skip_ai=True).errors == []
+        assert_empty(orch.fill_table("items", count=1001, columns=columns, seed=42, skip_ai=True).errors, list)
         result = orch.fill_table("items", count=1, columns=columns, seed=42, skip_ai=True)
         assert result.count == 0
         assert len(result.errors) == 1

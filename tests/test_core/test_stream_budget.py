@@ -21,6 +21,14 @@ def make_stream(*, unique: bool = False, **kwargs: Any) -> stream_module.DataStr
     return stream_module.DataStream([node], BaseProvider(), ExpressionEngine(), ConstraintSolver(), **kwargs)
 
 
+def _fixed_pair_nodes() -> list[ColumnNode]:
+    """Make each attempt reuse a single-column key and the same composite pair."""
+    return [
+        ColumnNode("a", GeneratorSpec("choice", {"choices": [1]}), constraints=ColumnConstraints(is_unique=True)),
+        ColumnNode("b", GeneratorSpec("choice", {"choices": [2]})),
+    ]
+
+
 def test_constant_unique_retries_share_one_stream_budget() -> None:
     stream = make_stream(unique=True, max_attempts=12, table_name="items")
     assert next(stream.generate(1)) == [{"code": "private-value"}]
@@ -123,10 +131,7 @@ def test_cancel_after_transform_prevents_yielding_the_row() -> None:
 
 def test_budget_releases_unique_values_from_the_interrupted_row() -> None:
     solver = ConstraintSolver()
-    nodes = [
-        ColumnNode("a", GeneratorSpec("choice", {"choices": [1]}), constraints=ColumnConstraints(is_unique=True)),
-        ColumnNode("b", GeneratorSpec("choice", {"choices": [2]})),
-    ]
+    nodes = _fixed_pair_nodes()
     stream = stream_module.DataStream(nodes, BaseProvider(), ExpressionEngine(), solver, max_attempts=2)
     with pytest.raises(stream_module.GenerationBudgetExceededError):
         next(stream.generate(1))
@@ -149,10 +154,7 @@ def test_cancel_after_transform_releases_composite_and_single_keys() -> None:
             cancelled = False
             raise ValueError("stop once")
 
-    nodes = [
-        ColumnNode("a", GeneratorSpec("choice", {"choices": [1]}), constraints=ColumnConstraints(is_unique=True)),
-        ColumnNode("b", GeneratorSpec("choice", {"choices": [2]})),
-    ]
+    nodes = _fixed_pair_nodes()
     stream = stream_module.DataStream(
         nodes,
         BaseProvider(),

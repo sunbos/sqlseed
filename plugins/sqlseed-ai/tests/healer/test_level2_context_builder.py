@@ -6,6 +6,8 @@ from unittest.mock import MagicMock
 
 from sqlseed_ai.healer.level2_column_healer import Level2ColumnHealer
 
+from tests.assertions import assert_empty
+
 
 def _make_snapshot(tables: dict):
     """Build a fake SchemaSnapshot-like object."""
@@ -38,10 +40,10 @@ def test_build_context_simple_column():
     assert ctx.table_name == "users"
     assert ctx.column_name == "name"
     assert ctx.column_type == "TEXT"
-    assert ctx.check_constraints == []
-    assert ctx.derive_from_sources == []
-    assert ctx.derive_from_downstream == []
-    assert ctx.cross_column_refs == []
+    assert_empty(ctx.check_constraints, list)
+    assert_empty(ctx.derive_from_sources, list)
+    assert_empty(ctx.derive_from_downstream, list)
+    assert_empty(ctx.cross_column_refs, list)
     assert ctx.fk_info is None
 
 
@@ -110,9 +112,7 @@ def test_build_context_with_unique():
     assert ctx.is_unique is True
 
 
-def test_build_context_with_derive_from_source():
-    """derive_from source columns are detected from config (_enrich_with_config)."""
-    healer = Level2ColumnHealer(client=MagicMock(), model="any")
+def _order_total_scenario():
     table = _make_table_meta(
         "orders",
         columns=["id", "subtotal", "tax", "total"],
@@ -132,6 +132,13 @@ def test_build_context_with_derive_from_source():
             }
         ]
     }
+    return snap, config
+
+
+def test_build_context_with_derive_from_source():
+    """derive_from source columns are detected from config (_enrich_with_config)."""
+    healer = Level2ColumnHealer(client=MagicMock(), model="any")
+    snap, config = _order_total_scenario()
     ctx = healer._build_column_context("orders", "total", snap)
     ctx = healer._enrich_with_config(ctx, config)
     src_names = [s[0] for s in ctx.derive_from_sources]
@@ -142,25 +149,7 @@ def test_build_context_with_derive_from_source():
 def test_build_context_with_downstream():
     """derive_from downstream columns are detected from config (_enrich_with_config)."""
     healer = Level2ColumnHealer(client=MagicMock(), model="any")
-    table = _make_table_meta(
-        "orders",
-        columns=["id", "subtotal", "tax", "total"],
-        column_types={"id": "INTEGER", "subtotal": "REAL", "tax": "REAL", "total": "REAL"},
-    )
-    snap = _make_snapshot({"orders": table})
-    config = {
-        "tables": [
-            {
-                "name": "orders",
-                "columns": [
-                    {"name": "id", "generator": "integer"},
-                    {"name": "subtotal", "generator": "random_float"},
-                    {"name": "tax", "generator": "random_float"},
-                    {"name": "total", "derive_from": ["subtotal", "tax"], "expression": "subtotal + tax"},
-                ],
-            }
-        ]
-    }
+    snap, config = _order_total_scenario()
     # subtotal is a source for total → total should appear in downstream.
     ctx = healer._build_column_context("orders", "subtotal", snap)
     ctx = healer._enrich_with_config(ctx, config)

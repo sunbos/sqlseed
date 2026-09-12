@@ -14,8 +14,6 @@ const form = {
   provider: 'mimesis',
   locale: 'zh_CN',
 };
-let locales = null;
-
 // 下拉组件为模块级实例：状态跨页面切换保留，render() 重建时重新挂载 el。
 const kindDd = createDropdown({
   value: form.kind,
@@ -125,7 +123,6 @@ function renderKind(mountedBody) {
 async function loadLocales() {
   try {
     const res = await get('/api/meta/locales');
-    locales = res.locales;
     localeDd.setOptions(
       res.locales.map((l) => ({ value: l.code, label: l.label })),
       res.default,

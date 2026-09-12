@@ -8,12 +8,17 @@ import socket
 import threading
 import time
 from multiprocessing.connection import Connection
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from fastapi import HTTPException
 
 from sqlseed_web.plugin_management import ExecuteRequest, PlanRequest
 from sqlseed_web.worker_control import ControlChannel, ControlError, ControlMessageTooLarge, validate_control_result
+
+if TYPE_CHECKING:
+    import uvicorn
+
+    from sqlseed_web.runtime_lifecycle import RuntimeGate
 
 
 class RemotePluginManager:
@@ -79,6 +84,37 @@ def prepare_runtime_session() -> dict[str, Any]:
         raise
 
 
+def _worker_control(method: str, mode: str, server: uvicorn.Server | None, gate: RuntimeGate) -> dict[str, Any]:
+    if method == "activity":
+        return gate.activity()
+    if method == "prepare":
+        return prepare_runtime_session()
+    if method == "resume":
+        gate.resume()
+        return {}
+    if method == "shutdown":
+        if mode == "business":
+            from sqlseed_web.runtime_session import close_session
+
+            gate.pause_if_idle()
+            close_session()
+        if server is not None:
+            server.should_exit = True
+        return {}
+    raise ValueError("unsupported worker control method")
+
+
+def _drain_worker_runtime(mode: str, gate: RuntimeGate) -> None:
+    """Close admission and finish existing leases before closing database sessions."""
+    gate.close_admission()
+    while any(gate.activity().values()):
+        time.sleep(0.05)
+    if mode == "business":
+        from sqlseed_web.runtime_session import close_session
+
+        close_session()
+
+
 def run_worker(
     listener: socket.socket,
     connection: Connection,
@@ -103,23 +139,7 @@ def run_worker(
     lock_fd = lock_descriptor.detach() if lock_descriptor is not None else None
 
     def control(method: str, params: dict[str, Any]) -> dict[str, Any]:
-        if method == "activity":
-            return runtime_gate.activity()
-        if method == "prepare":
-            return prepare_runtime_session()
-        if method == "resume":
-            runtime_gate.resume()
-            return {}
-        if method == "shutdown":
-            if mode == "business":
-                from sqlseed_web.runtime_session import close_session
-
-                runtime_gate.pause_if_idle()
-                close_session()
-            if server is not None:
-                server.should_exit = True
-            return {}
-        raise ValueError("unsupported worker control method")
+        return _worker_control(method, mode, server, runtime_gate)
 
     channel.start(control)
     try:
@@ -153,13 +173,7 @@ def run_worker(
             if channel.wait_closed(0.1):
                 break
     finally:
-        runtime_gate.close_admission()
-        while any(runtime_gate.activity().values()):
-            time.sleep(0.05)
-        if mode == "business":
-            from sqlseed_web.runtime_session import close_session
-
-            close_session()
+        _drain_worker_runtime(mode, runtime_gate)
         if server is not None:
             server.should_exit = True
         if thread is not None:

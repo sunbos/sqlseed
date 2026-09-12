@@ -14,6 +14,8 @@
 
 - `tmp_db`、`unique_test_db`、`pg_url`、`available_llm_backend` 等由根 [conftest.py](../../../conftest.py) 自动发现；不要再通过 `pytest_plugins` 重复注册。
 - 本地 [conftest.py](conftest.py) 用 importlib 读取根 [tests/conftest.py](../../../tests/conftest.py) 的 helper，并提供 `mediator_ctx`（真实 RawSQLiteAdapter + SchemaInferrer）。helper 复用与 fixture 发现是两种机制。
+- [schema_helpers.py](schema_helpers.py) 共享真实 SQLite schema 的创建与 snapshot；`timestamp_snapshot` 由本地 conftest 提供。`healer/scenario_helpers.py` 仅共享固定产品 CHECK 场景，不替换真实 LLM 调用或断言。
+- 可选性只在 `sqlseed_ai` 顶层检查；顶层导入成功后，内部模块加载失败必须报错，不能用子模块 `importorskip` 掩盖破损安装。
 - 数据库与 schema 使用 `tmp_path` / 内存 SQLite，保持真实 mapper / adapter 计算；不得 mock 数据库层。检查生成配置、错误分类或实际行值，而不只检查调用次数。
 - `RepairExecutor` 的拒绝修复案例必须同时验证配置不变、无 `applied_fixes`、原 violation 进入 `unfixable`；参考 [test_repair_executor.py](test_repair_executor.py)。
 - CHECK 回归覆盖优先级、组合上下界、NULL、负数、列顺序、DATE / DATETIME 和 LIKE 文本；phone 精确长度要同时覆盖初始推断与 Layer 3 repair。

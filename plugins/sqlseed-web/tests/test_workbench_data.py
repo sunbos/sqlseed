@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import hashlib
-import sqlite3
-from contextlib import closing
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
 import pytest
 from fastapi.testclient import TestClient
+from tests.sqlite_helpers import sqlite_connection
 
 from sqlseed_web import api, workbench, workbench_data
 from sqlseed_web.app import create_app
@@ -25,8 +24,8 @@ if TYPE_CHECKING:
     from sqlseed_web.state import Connection
 
 
-@pytest.fixture()
-def data_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[TestClient, UIState]]:
+@pytest.fixture(name="data_client")
+def fixture_data_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[TestClient, UIState]]:
     registry = UIState()
     monkeypatch.setattr(api, "state", registry)
     monkeypatch.setattr(workbench, "state", registry)
@@ -39,10 +38,10 @@ def data_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[tup
         registry.close_connection(conn["conn_id"])
 
 
-@pytest.fixture()
-def database(tmp_path: Path) -> Path:
+@pytest.fixture(name="database")
+def fixture_database(tmp_path: Path) -> Path:
     path = tmp_path / "target.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.executescript(
             "CREATE TABLE records (id INTEGER PRIMARY KEY AUTOINCREMENT, value TEXT NOT NULL, "
             "optional TEXT DEFAULT NULL, payload BLOB);"
@@ -147,7 +146,7 @@ def test_identifiers_are_quoted_and_unknown_tables_do_not_reveal_other_names(dat
 
 def test_encoded_path_and_percent_characters_remain_literal_identifiers(data_client: Any, database: Path) -> None:
     client, registry = data_client
-    with closing(sqlite3.connect(database)) as db, db:
+    with sqlite_connection(database) as db:
         db.execute('CREATE TABLE "segment/data%" ("rate%:value" INTEGER PRIMARY KEY, "text" TEXT)')
         db.execute('INSERT INTO "segment/data%" VALUES (?, ?)', (7, "literal name"))
     response = client.get(endpoint(connect(registry, database), "segment/data%"))
@@ -160,7 +159,7 @@ def test_large_integers_and_nonfinite_numbers_are_readable_without_json_precisio
     data_client: Any, database: Path
 ) -> None:
     client, registry = data_client
-    with closing(sqlite3.connect(database)) as db, db:
+    with sqlite_connection(database) as db:
         db.execute("CREATE TABLE numeric_values (id INTEGER PRIMARY KEY, positive REAL, negative REAL)")
         db.execute("INSERT INTO numeric_values VALUES (?, ?, ?)", (9007199254740993, float("inf"), -float("inf")))
     response = client.get(endpoint(connect(registry, database), "numeric_values"))
@@ -199,7 +198,7 @@ def test_run_data_requires_the_same_target_and_a_table_in_the_run(
     outside = client.get(endpoint(conn, "empty_table"), params={"run_id": run["id"]})
     assert outside.status_code == 403 and outside.json()["detail"]["code"] == "table_outside_run"
     other_path = tmp_path / "another.db"
-    with closing(sqlite3.connect(other_path)) as db, db:
+    with sqlite_connection(other_path) as db:
         db.execute("CREATE TABLE records (id INTEGER PRIMARY KEY, value TEXT)")
     other = connect(registry, other_path)
     wrong_target = client.get(endpoint(other), params={"run_id": run["id"]})
@@ -223,12 +222,12 @@ def test_data_read_does_not_change_rows_schema_sequence_or_database_file(data_cl
     conn = connect(registry, database)
     conn.orchestrator.get_table_names()
     before = hashlib.sha256(database.read_bytes()).hexdigest()
-    with closing(sqlite3.connect(database)) as db, db:
+    with sqlite_connection(database) as db:
         before_dump = list(db.iterdump())
     for table in ("records", "composite", "empty_table", "no_primary"):
         assert client.get(endpoint(conn, table)).status_code == 200
     assert hashlib.sha256(database.read_bytes()).hexdigest() == before
-    with closing(sqlite3.connect(database)) as db, db:
+    with sqlite_connection(database) as db:
         assert list(db.iterdump()) == before_dump
 
 
@@ -262,7 +261,7 @@ def test_refresh_reads_current_rows_and_new_columns_from_the_existing_connection
     conn = connect(registry, database)
     before = client.get(endpoint(conn)).json()
     assert before["total"] == 4
-    with closing(sqlite3.connect(database)) as db, db:
+    with sqlite_connection(database) as db:
         db.execute("ALTER TABLE records ADD COLUMN new_field TEXT DEFAULT 'new value'")
         db.execute("INSERT INTO records (value) VALUES ('later row')")
     after = client.get(endpoint(conn)).json()

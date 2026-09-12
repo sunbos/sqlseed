@@ -1,0 +1,821 @@
+{
+  "commands": {
+    "ai_suggest": {
+      "signature": "(*args: 't.Any', **kwargs: 't.Any') -> 't.Any'",
+      "callback_signature": "(db_path: 'str', table: 'str | None', output: 'str | None', model: 'str | None', api_key: 'str | None', base_url: 'str | None', max_retries: 'int', verify: 'bool', no_cache: 'bool', timeout: 'float', enable_auto_heal: 'bool') -> 'None'",
+      "params": [
+        {
+          "name": "db_path",
+          "param_type_name": "argument",
+          "opts": [
+            "db_path"
+          ],
+          "secondary_opts": [],
+          "type": {
+            "param_type": "String",
+            "name": "text"
+          },
+          "required": true,
+          "nargs": 1,
+          "multiple": false,
+          "default": null,
+          "envvar": null,
+          "help": null
+        },
+        {
+          "name": "table",
+          "param_type_name": "option",
+          "opts": [
+            "--table",
+            "-t"
+          ],
+          "secondary_opts": [],
+          "type": {
+            "param_type": "String",
+            "name": "text"
+          },
+          "required": false,
+          "nargs": 1,
+          "multiple": false,
+          "default": null,
+          "envvar": null,
+          "help": "Target table name (required unless --auto-heal)",
+          "prompt": null,
+          "is_flag": false,
+          "flag_value": null,
+          "count": false,
+          "hidden": false
+        },
+        {
+          "name": "output",
+          "param_type_name": "option",
+          "opts": [
+            "--output",
+            "-o"
+          ],
+          "secondary_opts": [],
+          "type": {
+            "param_type": "String",
+            "name": "text"
+          },
+          "required": false,
+          "nargs": 1,
+          "multiple": false,
+          "default": null,
+          "envvar": null,
+          "help": "Output YAML file path (required unless --auto-heal)",
+          "prompt": null,
+          "is_flag": false,
+          "flag_value": null,
+          "count": false,
+          "hidden": false
+        },
+        {
+          "name": "model",
+          "param_type_name": "option",
+          "opts": [
+            "--model",
+            "-m"
+          ],
+          "secondary_opts": [],
+          "type": {
+            "param_type": "String",
+            "name": "text"
+          },
+          "required": false,
+          "nargs": 1,
+          "multiple": false,
+          "default": null,
+          "envvar": null,
+          "help": "AI model name (default: auto-select based on backend)",
+          "prompt": null,
+          "is_flag": false,
+          "flag_value": null,
+          "count": false,
+          "hidden": false
+        },
+        {
+          "name": "api_key",
+          "param_type_name": "option",
+          "opts": [
+            "--api-key"
+          ],
+          "secondary_opts": [],
+          "type": {
+            "param_type": "String",
+            "name": "text"
+          },
+          "required": false,
+          "nargs": 1,
+          "multiple": false,
+          "default": null,
+          "envvar": "SQLSEED_AI_API_KEY",
+          "help": "AI API key (env: SQLSEED_AI_API_KEY)",
+          "prompt": null,
+          "is_flag": false,
+          "flag_value": null,
+          "count": false,
+          "hidden": false
+        },
+        {
+          "name": "base_url",
+          "param_type_name": "option",
+          "opts": [
+            "--base-url"
+          ],
+          "secondary_opts": [],
+          "type": {
+            "param_type": "String",
+            "name": "text"
+          },
+          "required": false,
+          "nargs": 1,
+          "multiple": false,
+          "default": null,
+          "envvar": "SQLSEED_AI_BASE_URL",
+          "help": "AI API base URL (env: SQLSEED_AI_BASE_URL)",
+          "prompt": null,
+          "is_flag": false,
+          "flag_value": null,
+          "count": false,
+          "hidden": false
+        },
+        {
+          "name": "max_retries",
+          "param_type_name": "option",
+          "opts": [
+            "--max-retries"
+          ],
+          "secondary_opts": [],
+          "type": {
+            "param_type": "Int",
+            "name": "integer"
+          },
+          "required": false,
+          "nargs": 1,
+          "multiple": false,
+          "default": 3,
+          "envvar": null,
+          "help": "Max refinement retries, 0=disable (default: 3)",
+          "prompt": null,
+          "is_flag": false,
+          "flag_value": null,
+          "count": false,
+          "hidden": false
+        },
+        {
+          "name": "verify",
+          "param_type_name": "option",
+          "opts": [
+            "--verify"
+          ],
+          "secondary_opts": [
+            "--no-verify"
+          ],
+          "type": {
+            "param_type": "Bool",
+            "name": "boolean"
+          },
+          "required": false,
+          "nargs": 1,
+          "multiple": false,
+          "default": true,
+          "envvar": null,
+          "help": "Enable AI config self-correction (default: verify)",
+          "prompt": null,
+          "is_flag": true,
+          "flag_value": true,
+          "count": false,
+          "hidden": false
+        },
+        {
+          "name": "no_cache",
+          "param_type_name": "option",
+          "opts": [
+            "--no-cache"
+          ],
+          "secondary_opts": [],
+          "type": {
+            "param_type": "Bool",
+            "name": "boolean"
+          },
+          "required": false,
+          "nargs": 1,
+          "multiple": false,
+          "default": false,
+          "envvar": null,
+          "help": "Skip cached AI configs",
+          "prompt": null,
+          "is_flag": true,
+          "flag_value": true,
+          "count": false,
+          "hidden": false
+        },
+        {
+          "name": "timeout",
+          "param_type_name": "option",
+          "opts": [
+            "--timeout"
+          ],
+          "secondary_opts": [],
+          "type": {
+            "param_type": "Float",
+            "name": "float"
+          },
+          "required": false,
+          "nargs": 1,
+          "multiple": false,
+          "default": 0,
+          "envvar": null,
+          "help": "API call timeout in seconds (0=auto, default: auto)",
+          "prompt": null,
+          "is_flag": false,
+          "flag_value": null,
+          "count": false,
+          "hidden": false
+        },
+        {
+          "name": "enable_auto_heal",
+          "param_type_name": "option",
+          "opts": [
+            "--auto-heal"
+          ],
+          "secondary_opts": [],
+          "type": {
+            "param_type": "Bool",
+            "name": "boolean"
+          },
+          "required": false,
+          "nargs": 1,
+          "multiple": false,
+          "default": false,
+          "envvar": null,
+          "help": "Enable Contract-Driven Self-Healing (Layer 4 LLM healer + progressive degrade). Processes ALL tables; ignores --table/--output.",
+          "prompt": null,
+          "is_flag": true,
+          "flag_value": true,
+          "count": false,
+          "hidden": false
+        }
+      ],
+      "help": "Usage: ai-suggest [OPTIONS] DB_PATH\n\n  Analyze table schema and suggest generation rules via AI.\n\nOptions:\n  -t, --table TEXT        Target table name (required unless --auto-heal)\n  -o, --output TEXT       Output YAML file path (required unless --auto-heal)\n  -m, --model TEXT        AI model name (default: auto-select based on backend)\n  --api-key TEXT          AI API key (env: SQLSEED_AI_API_KEY)\n  --base-url TEXT         AI API base URL (env: SQLSEED_AI_BASE_URL)\n  --max-retries INTEGER   Max refinement retries, 0=disable (default: 3)\n  --verify / --no-verify  Enable AI config self-correction (default: verify)\n  --no-cache              Skip cached AI configs\n  --timeout FLOAT         API call timeout in seconds (0=auto, default: auto)\n  --auto-heal             Enable Contract-Driven Self-Healing (Layer 4 LLM\n                          healer + progressive degrade). Processes ALL tables;\n                          ignores --table/--output.\n  --help                  Show this message and exit.\n"
+    },
+    "ai_analyze": {
+      "signature": "(*args: 't.Any', **kwargs: 't.Any') -> 't.Any'",
+      "callback_signature": "(db_path: 'str | None', db_url: 'str | None', tables: 'str | None', output: 'str | None', no_dependencies: 'bool', max_depth: 'int', model: 'str | None', api_key: 'str | None', base_url: 'str | None', timeout: 'float', log_llm: 'bool' = False, max_retries: 'int' = 2, merge: 'bool' = False) -> 'None'",
+      "params": [
+        {
+          "name": "db_path",
+          "param_type_name": "option",
+          "opts": [
+            "--db"
+          ],
+          "secondary_opts": [],
+          "type": {
+            "param_type": "String",
+            "name": "text"
+          },
+          "required": false,
+          "nargs": 1,
+          "multiple": false,
+          "default": null,
+          "envvar": null,
+          "help": "SQLite database path",
+          "prompt": null,
+          "is_flag": false,
+          "flag_value": null,
+          "count": false,
+          "hidden": false
+        },
+        {
+          "name": "db_url",
+          "param_type_name": "option",
+          "opts": [
+            "--url"
+          ],
+          "secondary_opts": [],
+          "type": {
+            "param_type": "String",
+            "name": "text"
+          },
+          "required": false,
+          "nargs": 1,
+          "multiple": false,
+          "default": null,
+          "envvar": null,
+          "help": "Database URL (alternative to --db)",
+          "prompt": null,
+          "is_flag": false,
+          "flag_value": null,
+          "count": false,
+          "hidden": false
+        },
+        {
+          "name": "tables",
+          "param_type_name": "option",
+          "opts": [
+            "--tables"
+          ],
+          "secondary_opts": [],
+          "type": {
+            "param_type": "String",
+            "name": "text"
+          },
+          "required": false,
+          "nargs": 1,
+          "multiple": false,
+          "default": null,
+          "envvar": null,
+          "help": "Comma-separated table names (default: all tables)",
+          "prompt": null,
+          "is_flag": false,
+          "flag_value": null,
+          "count": false,
+          "hidden": false
+        },
+        {
+          "name": "output",
+          "param_type_name": "option",
+          "opts": [
+            "--output",
+            "-o"
+          ],
+          "secondary_opts": [],
+          "type": {
+            "exists": false,
+            "file_okay": true,
+            "dir_okay": true,
+            "writable": false,
+            "readable": true,
+            "allow_dash": false,
+            "param_type": "Path",
+            "name": "path"
+          },
+          "required": false,
+          "nargs": 1,
+          "multiple": false,
+          "default": null,
+          "envvar": null,
+          "help": "Output YAML file path (default: stdout)",
+          "prompt": null,
+          "is_flag": false,
+          "flag_value": null,
+          "count": false,
+          "hidden": false
+        },
+        {
+          "name": "no_dependencies",
+          "param_type_name": "option",
+          "opts": [
+            "--no-dependencies"
+          ],
+          "secondary_opts": [],
+          "type": {
+            "param_type": "Bool",
+            "name": "boolean"
+          },
+          "required": false,
+          "nargs": 1,
+          "multiple": false,
+          "default": false,
+          "envvar": null,
+          "help": "Skip FK dependency resolution (analyze only specified tables)",
+          "prompt": null,
+          "is_flag": true,
+          "flag_value": true,
+          "count": false,
+          "hidden": false
+        },
+        {
+          "name": "max_depth",
+          "param_type_name": "option",
+          "opts": [
+            "--max-depth"
+          ],
+          "secondary_opts": [],
+          "type": {
+            "min": 0,
+            "max": null,
+            "min_open": false,
+            "max_open": false,
+            "clamp": false,
+            "param_type": "IntRange",
+            "name": "integer range"
+          },
+          "required": false,
+          "nargs": 1,
+          "multiple": false,
+          "default": 5,
+          "envvar": null,
+          "help": "Max FK recursion depth (default: 5)",
+          "prompt": null,
+          "is_flag": false,
+          "flag_value": null,
+          "count": false,
+          "hidden": false
+        },
+        {
+          "name": "model",
+          "param_type_name": "option",
+          "opts": [
+            "--model",
+            "-m"
+          ],
+          "secondary_opts": [],
+          "type": {
+            "param_type": "String",
+            "name": "text"
+          },
+          "required": false,
+          "nargs": 1,
+          "multiple": false,
+          "default": null,
+          "envvar": null,
+          "help": "AI model name (default: auto-select based on backend)",
+          "prompt": null,
+          "is_flag": false,
+          "flag_value": null,
+          "count": false,
+          "hidden": false
+        },
+        {
+          "name": "api_key",
+          "param_type_name": "option",
+          "opts": [
+            "--api-key"
+          ],
+          "secondary_opts": [],
+          "type": {
+            "param_type": "String",
+            "name": "text"
+          },
+          "required": false,
+          "nargs": 1,
+          "multiple": false,
+          "default": null,
+          "envvar": "SQLSEED_AI_API_KEY",
+          "help": "AI API key (env: SQLSEED_AI_API_KEY)",
+          "prompt": null,
+          "is_flag": false,
+          "flag_value": null,
+          "count": false,
+          "hidden": false
+        },
+        {
+          "name": "base_url",
+          "param_type_name": "option",
+          "opts": [
+            "--base-url"
+          ],
+          "secondary_opts": [],
+          "type": {
+            "param_type": "String",
+            "name": "text"
+          },
+          "required": false,
+          "nargs": 1,
+          "multiple": false,
+          "default": null,
+          "envvar": "SQLSEED_AI_BASE_URL",
+          "help": "AI API base URL (env: SQLSEED_AI_BASE_URL)",
+          "prompt": null,
+          "is_flag": false,
+          "flag_value": null,
+          "count": false,
+          "hidden": false
+        },
+        {
+          "name": "timeout",
+          "param_type_name": "option",
+          "opts": [
+            "--timeout"
+          ],
+          "secondary_opts": [],
+          "type": {
+            "param_type": "Float",
+            "name": "float"
+          },
+          "required": false,
+          "nargs": 1,
+          "multiple": false,
+          "default": 0,
+          "envvar": null,
+          "help": "API call timeout in seconds (0=auto, default: auto)",
+          "prompt": null,
+          "is_flag": false,
+          "flag_value": null,
+          "count": false,
+          "hidden": false
+        },
+        {
+          "name": "log_llm",
+          "param_type_name": "option",
+          "opts": [
+            "--log-llm"
+          ],
+          "secondary_opts": [],
+          "type": {
+            "param_type": "Bool",
+            "name": "boolean"
+          },
+          "required": false,
+          "nargs": 1,
+          "multiple": false,
+          "default": false,
+          "envvar": null,
+          "help": "Log full LLM interactions (prompt + response) to JSON files under <cache_root>/ai_logs/. Useful for debugging LLM hallucinations and Rule failures.",
+          "prompt": null,
+          "is_flag": true,
+          "flag_value": true,
+          "count": false,
+          "hidden": false
+        },
+        {
+          "name": "max_retries",
+          "param_type_name": "option",
+          "opts": [
+            "--max-retries"
+          ],
+          "secondary_opts": [],
+          "type": {
+            "param_type": "Int",
+            "name": "integer"
+          },
+          "required": false,
+          "nargs": 1,
+          "multiple": false,
+          "default": 2,
+          "envvar": null,
+          "help": "Max retries for failed table analysis (default: 2). On failure, the table is retried with a fresh LLM call up to this many times.",
+          "prompt": null,
+          "is_flag": false,
+          "flag_value": null,
+          "count": false,
+          "hidden": false
+        },
+        {
+          "name": "merge",
+          "param_type_name": "option",
+          "opts": [
+            "--merge"
+          ],
+          "secondary_opts": [],
+          "type": {
+            "param_type": "Bool",
+            "name": "boolean"
+          },
+          "required": false,
+          "nargs": 1,
+          "multiple": false,
+          "default": false,
+          "envvar": null,
+          "help": "Merge newly generated tables into existing YAML (instead of overwriting). Only tables specified by --tables are replaced; others are kept. Useful for re-generating specific tables without re-analyzing the entire database.",
+          "prompt": null,
+          "is_flag": true,
+          "flag_value": true,
+          "count": false,
+          "hidden": false
+        }
+      ],
+      "help": "Usage: ai-analyze [OPTIONS]\n\n  Analyze database schema via LLM and generate business YAML config.\n\n  Uses the v4 Contract-Driven Self-Healing architecture (AutoHealOrchestrator)\n  by default. The legacy Stage3Validator path has been removed (Phase 4 of v4\n  migration).\n\n  Modes:\n    - Full database: sqlseed ai-analyze --db app.db -o config.yaml\n    - Partial tables: sqlseed ai-analyze --db app.db --tables orders,items -o config.yaml\n    - No dependencies: sqlseed ai-analyze --db app.db --tables orders --no-dependencies -o config.yaml\n    - Merge mode: sqlseed ai-analyze --db app.db --tables orders -o config.yaml --merge\n    - Stdout: sqlseed ai-analyze --db app.db (no -o, prints YAML to stdout)\n\nOptions:\n  --db TEXT                  SQLite database path\n  --url TEXT                 Database URL (alternative to --db)\n  --tables TEXT              Comma-separated table names (default: all tables)\n  -o, --output PATH          Output YAML file path (default: stdout)\n  --no-dependencies          Skip FK dependency resolution (analyze only\n                             specified tables)\n  --max-depth INTEGER RANGE  Max FK recursion depth (default: 5)  [x>=0]\n  -m, --model TEXT           AI model name (default: auto-select based on\n                             backend)\n  --api-key TEXT             AI API key (env: SQLSEED_AI_API_KEY)\n  --base-url TEXT            AI API base URL (env: SQLSEED_AI_BASE_URL)\n  --timeout FLOAT            API call timeout in seconds (0=auto, default: auto)\n  --log-llm                  Log full LLM interactions (prompt + response) to\n                             JSON files under <cache_root>/ai_logs/. Useful for\n                             debugging LLM hallucinations and Rule failures.\n  --max-retries INTEGER      Max retries for failed table analysis (default: 2).\n                             On failure, the table is retried with a fresh LLM\n                             call up to this many times.\n  --merge                    Merge newly generated tables into existing YAML\n                             (instead of overwriting). Only tables specified by\n                             --tables are replaced; others are kept. Useful for\n                             re-generating specific tables without re-analyzing\n                             the entire database.\n  --help                     Show this message and exit.\n"
+    },
+    "auto_heal": {
+      "signature": "(*args: 't.Any', **kwargs: 't.Any') -> 't.Any'",
+      "callback_signature": "(db_path: 'str | None', db_url: 'str | None', config_path: 'str', output_path: 'str | None', model: 'str | None', max_retries: 'int', log_llm: 'bool', api_key: 'str | None', base_url: 'str | None') -> 'None'",
+      "params": [
+        {
+          "name": "db_path",
+          "param_type_name": "option",
+          "opts": [
+            "--db"
+          ],
+          "secondary_opts": [],
+          "type": {
+            "exists": false,
+            "file_okay": true,
+            "dir_okay": true,
+            "writable": false,
+            "readable": true,
+            "allow_dash": false,
+            "param_type": "Path",
+            "name": "path"
+          },
+          "required": false,
+          "nargs": 1,
+          "multiple": false,
+          "default": null,
+          "envvar": null,
+          "help": "SQLite database path (mutually exclusive with --url)",
+          "prompt": null,
+          "is_flag": false,
+          "flag_value": null,
+          "count": false,
+          "hidden": false
+        },
+        {
+          "name": "db_url",
+          "param_type_name": "option",
+          "opts": [
+            "--url"
+          ],
+          "secondary_opts": [],
+          "type": {
+            "param_type": "String",
+            "name": "text"
+          },
+          "required": false,
+          "nargs": 1,
+          "multiple": false,
+          "default": null,
+          "envvar": null,
+          "help": "Database URL (mutually exclusive with --db)",
+          "prompt": null,
+          "is_flag": false,
+          "flag_value": null,
+          "count": false,
+          "hidden": false
+        },
+        {
+          "name": "config_path",
+          "param_type_name": "option",
+          "opts": [
+            "--config"
+          ],
+          "secondary_opts": [],
+          "type": {
+            "exists": false,
+            "file_okay": true,
+            "dir_okay": true,
+            "writable": false,
+            "readable": true,
+            "allow_dash": false,
+            "param_type": "Path",
+            "name": "path"
+          },
+          "required": true,
+          "nargs": 1,
+          "multiple": false,
+          "default": null,
+          "envvar": null,
+          "help": "Existing YAML config to repair",
+          "prompt": null,
+          "is_flag": false,
+          "flag_value": null,
+          "count": false,
+          "hidden": false
+        },
+        {
+          "name": "output_path",
+          "param_type_name": "option",
+          "opts": [
+            "-o",
+            "--output"
+          ],
+          "secondary_opts": [],
+          "type": {
+            "exists": false,
+            "file_okay": true,
+            "dir_okay": true,
+            "writable": false,
+            "readable": true,
+            "allow_dash": false,
+            "param_type": "Path",
+            "name": "path"
+          },
+          "required": false,
+          "nargs": 1,
+          "multiple": false,
+          "default": null,
+          "envvar": null,
+          "help": "Output path for healed YAML (default: <config>_healed.yaml)",
+          "prompt": null,
+          "is_flag": false,
+          "flag_value": null,
+          "count": false,
+          "hidden": false
+        },
+        {
+          "name": "model",
+          "param_type_name": "option",
+          "opts": [
+            "--model",
+            "-m"
+          ],
+          "secondary_opts": [],
+          "type": {
+            "param_type": "String",
+            "name": "text"
+          },
+          "required": false,
+          "nargs": 1,
+          "multiple": false,
+          "default": null,
+          "envvar": null,
+          "help": "LLM model name (default: auto-detect from available backends)",
+          "prompt": null,
+          "is_flag": false,
+          "flag_value": null,
+          "count": false,
+          "hidden": false
+        },
+        {
+          "name": "max_retries",
+          "param_type_name": "option",
+          "opts": [
+            "--max-retries"
+          ],
+          "secondary_opts": [],
+          "type": {
+            "param_type": "Int",
+            "name": "integer"
+          },
+          "required": false,
+          "nargs": 1,
+          "multiple": false,
+          "default": 3,
+          "envvar": null,
+          "help": "Max heal attempts per subgraph (default: 3)",
+          "prompt": null,
+          "is_flag": false,
+          "flag_value": null,
+          "count": false,
+          "hidden": false
+        },
+        {
+          "name": "log_llm",
+          "param_type_name": "option",
+          "opts": [
+            "--log-llm"
+          ],
+          "secondary_opts": [],
+          "type": {
+            "param_type": "Bool",
+            "name": "boolean"
+          },
+          "required": false,
+          "nargs": 1,
+          "multiple": false,
+          "default": false,
+          "envvar": null,
+          "help": "Log full LLM request/response to JSON files under <cache_root>/ai_logs/.",
+          "prompt": null,
+          "is_flag": true,
+          "flag_value": true,
+          "count": false,
+          "hidden": false
+        },
+        {
+          "name": "api_key",
+          "param_type_name": "option",
+          "opts": [
+            "--api-key"
+          ],
+          "secondary_opts": [],
+          "type": {
+            "param_type": "String",
+            "name": "text"
+          },
+          "required": false,
+          "nargs": 1,
+          "multiple": false,
+          "default": null,
+          "envvar": "SQLSEED_AI_API_KEY",
+          "help": "API key for cloud backends (env: SQLSEED_AI_API_KEY)",
+          "prompt": null,
+          "is_flag": false,
+          "flag_value": null,
+          "count": false,
+          "hidden": false
+        },
+        {
+          "name": "base_url",
+          "param_type_name": "option",
+          "opts": [
+            "--base-url"
+          ],
+          "secondary_opts": [],
+          "type": {
+            "param_type": "String",
+            "name": "text"
+          },
+          "required": false,
+          "nargs": 1,
+          "multiple": false,
+          "default": null,
+          "envvar": "SQLSEED_AI_BASE_URL",
+          "help": "Base URL for OpenAI-compatible backend (env: SQLSEED_AI_BASE_URL)",
+          "prompt": null,
+          "is_flag": false,
+          "flag_value": null,
+          "count": false,
+          "hidden": false
+        }
+      ],
+      "help": "Usage: auto-heal [OPTIONS]\n\n  Repair broken YAML config files using LLM-driven self-healing.\n\n  Usage:\n    - sqlseed auto-heal --db app.db --config broken.yaml -o healed.yaml\n    - sqlseed auto-heal --url \"postgresql+psycopg://...\" --config broken.yaml\n\n  After `sqlseed ai-analyze` generates a YAML config, if `sqlseed fill`\n  fails on some tables (CHECK constraint violations, FK violations, etc.),\n  this command repairs the YAML using an LLM + rule-based repair pipeline.\n  The output is a fillable YAML config ready for `sqlseed fill`.\n\nOptions:\n  --db PATH              SQLite database path (mutually exclusive with --url)\n  --url TEXT             Database URL (mutually exclusive with --db)\n  --config PATH          Existing YAML config to repair  [required]\n  -o, --output PATH      Output path for healed YAML (default:\n                         <config>_healed.yaml)\n  -m, --model TEXT       LLM model name (default: auto-detect from available\n                         backends)\n  --max-retries INTEGER  Max heal attempts per subgraph (default: 3)\n  --log-llm              Log full LLM request/response to JSON files under\n                         <cache_root>/ai_logs/.\n  --api-key TEXT         API key for cloud backends (env: SQLSEED_AI_API_KEY)\n  --base-url TEXT        Base URL for OpenAI-compatible backend (env:\n                         SQLSEED_AI_BASE_URL)\n  --help                 Show this message and exit.\n"
+    }
+  },
+  "parsed_input_cases": 216,
+  "decorator_preserves_callback_identity": true,
+  "all_existing_function_and_class_bodies_and_signatures_unchanged": true,
+  "source_sha256": "fd2c73c26382c3a281e4766456421cb98359282d47e8be23eccc1965c1107f17"
+}

@@ -151,16 +151,7 @@ class UniqueAdjuster:
         params.setdefault("max_length", 50)
         params.setdefault("min_length", 1)
         length_bounds = self._string_length_bounds(col_name, column_infos, check_constraints)
-        if length_bounds is not None:
-            cmin, cmax = length_bounds
-            if cmin is not None:
-                params["min_length"] = max(params["min_length"], cmin)
-            if cmax is not None:
-                params["max_length"] = min(params["max_length"], cmax)
-            if params["min_length"] > params["max_length"]:
-                raise ConfigurationError(
-                    f"Column '{col_name}': string length domain has no intersection with schema bounds."
-                )
+        self._constrain_string_lengths(params, col_name, length_bounds)
         max_length = params["max_length"]
 
         charset_size = len(set(resolve_charset(params.get("charset"))))
@@ -210,6 +201,22 @@ class UniqueAdjuster:
             params["max_length"] = params["min_length"]
 
         return replace(spec, params=params)
+
+    @staticmethod
+    def _constrain_string_lengths(
+        params: dict[str, Any], col_name: str, length_bounds: tuple[int | None, int | None] | None
+    ) -> None:
+        """Intersect user string lengths with schema bounds before checking capacity."""
+        if length_bounds is not None:
+            cmin, cmax = length_bounds
+            if cmin is not None:
+                params["min_length"] = max(params["min_length"], cmin)
+            if cmax is not None:
+                params["max_length"] = min(params["max_length"], cmax)
+            if params["min_length"] > params["max_length"]:
+                raise ConfigurationError(
+                    f"Column '{col_name}': string length domain has no intersection with schema bounds."
+                )
 
     @staticmethod
     def _string_length_bounds(

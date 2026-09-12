@@ -1,0 +1,2560 @@
+{
+  "commit": {
+    "author": "SunBo",
+    "authorAvatar": "https://avatars.githubusercontent.com/u/21107549?v=4",
+    "analysisCount": 3,
+    "branch": {
+      "id": 183760,
+      "name": "codex/workbench-candidate"
+    },
+    "datetime": "1789165248000",
+    "errorCount": 45,
+    "errorDiff": 0,
+    "finishedAnalysisCount": 3,
+    "fixFilesCount": null,
+    "hash": "5b0dd07231d7ed9fbc33f924087e1e9dda878100",
+    "id": 667774,
+    "message": "fix(web): preserve preview headers with a single scroll owner",
+    "options": null,
+    "status": 2,
+    "warningCount": 1987,
+    "warningDiff": 0,
+    "updatedAt": "1789165511000"
+  },
+  "raw_reports": [
+    {
+      "errorCount": 37,
+      "id": 2497415,
+      "issues": null,
+      "language": null,
+      "output": "",
+      "status": 3,
+      "tool": "eslint",
+      "toolVersion": "8.57.1",
+      "warningCount": 0
+    },
+    {
+      "errorCount": 0,
+      "id": 2497416,
+      "issues": null,
+      "language": "Python",
+      "output": "",
+      "status": 3,
+      "tool": "jscpd",
+      "toolVersion": "4.0.5",
+      "warningCount": 150
+    },
+    {
+      "errorCount": 8,
+      "id": 2497417,
+      "issues": null,
+      "language": null,
+      "output": "",
+      "status": 3,
+      "tool": "pylint",
+      "toolVersion": "2.17.7",
+      "warningCount": 1837
+    }
+  ],
+  "rule_counts": {
+    "commonIssues": [
+      {
+        "commitIssue": false,
+        "count": 461,
+        "countDiff": 0,
+        "tool": "pylint",
+        "toolVersion": "2.17.7",
+        "isError": false,
+        "name": "redefined-outer-name",
+        "nodeType": "W0621"
+      },
+      {
+        "commitIssue": false,
+        "count": 433,
+        "countDiff": 0,
+        "tool": "pylint",
+        "toolVersion": "2.17.7",
+        "isError": false,
+        "name": "import-outside-toplevel",
+        "nodeType": "C0415"
+      },
+      {
+        "commitIssue": false,
+        "count": 277,
+        "countDiff": 0,
+        "tool": "pylint",
+        "toolVersion": "2.17.7",
+        "isError": false,
+        "name": "confusing-with-statement",
+        "nodeType": "W0124"
+      },
+      {
+        "commitIssue": false,
+        "count": 150,
+        "countDiff": 0,
+        "tool": "jscpd",
+        "toolVersion": "4.0.5",
+        "isError": false,
+        "name": "CodeDuplication",
+        "nodeType": "python"
+      },
+      {
+        "commitIssue": false,
+        "count": 126,
+        "countDiff": 0,
+        "tool": "pylint",
+        "toolVersion": "2.17.7",
+        "isError": false,
+        "name": "unused-argument",
+        "nodeType": "W0613"
+      },
+      {
+        "commitIssue": false,
+        "count": 97,
+        "countDiff": 0,
+        "tool": "pylint",
+        "toolVersion": "2.17.7",
+        "isError": false,
+        "name": "use-implicit-booleaness-not-comparison",
+        "nodeType": "C1803"
+      },
+      {
+        "commitIssue": false,
+        "count": 72,
+        "countDiff": 0,
+        "tool": "pylint",
+        "toolVersion": "2.17.7",
+        "isError": false,
+        "name": "too-complex",
+        "nodeType": "R1260"
+      },
+      {
+        "commitIssue": false,
+        "count": 61,
+        "countDiff": 0,
+        "tool": "pylint",
+        "toolVersion": "2.17.7",
+        "isError": false,
+        "name": "use-set-for-membership",
+        "nodeType": "R6201"
+      },
+      {
+        "commitIssue": false,
+        "count": 53,
+        "countDiff": 0,
+        "tool": "pylint",
+        "toolVersion": "2.17.7",
+        "isError": false,
+        "name": "broad-exception-caught",
+        "nodeType": "W0718"
+      },
+      {
+        "commitIssue": false,
+        "count": 37,
+        "countDiff": 0,
+        "tool": "pylint",
+        "toolVersion": "2.17.7",
+        "isError": false,
+        "name": "too-many-nested-blocks",
+        "nodeType": "R1702"
+      },
+      {
+        "commitIssue": false,
+        "count": 33,
+        "countDiff": 0,
+        "tool": "pylint",
+        "toolVersion": "2.17.7",
+        "isError": false,
+        "name": "wrong-import-order",
+        "nodeType": "C0411"
+      },
+      {
+        "commitIssue": false,
+        "count": 28,
+        "countDiff": 0,
+        "tool": "pylint",
+        "toolVersion": "2.17.7",
+        "isError": false,
+        "name": "consider-using-tuple",
+        "nodeType": "R6102"
+      },
+      {
+        "commitIssue": false,
+        "count": 22,
+        "countDiff": 0,
+        "tool": "pylint",
+        "toolVersion": "2.17.7",
+        "isError": false,
+        "name": "unused-variable",
+        "nodeType": "W0612"
+      },
+      {
+        "commitIssue": false,
+        "count": 20,
+        "countDiff": 0,
+        "tool": "pylint",
+        "toolVersion": "2.17.7",
+        "isError": false,
+        "name": "wrong-import-position",
+        "nodeType": "C0413"
+      },
+      {
+        "commitIssue": false,
+        "count": 18,
+        "countDiff": 0,
+        "tool": "pylint",
+        "toolVersion": "2.17.7",
+        "isError": false,
+        "name": "too-many-locals",
+        "nodeType": "R0914"
+      },
+      {
+        "commitIssue": false,
+        "count": 15,
+        "countDiff": 0,
+        "tool": "pylint",
+        "toolVersion": "2.17.7",
+        "isError": false,
+        "name": "duplicate-code",
+        "nodeType": "R0801"
+      },
+      {
+        "commitIssue": false,
+        "count": 13,
+        "countDiff": 0,
+        "tool": "pylint",
+        "toolVersion": "2.17.7",
+        "isError": false,
+        "name": "unidiomatic-typecheck",
+        "nodeType": "C0123"
+      },
+      {
+        "commitIssue": false,
+        "count": 8,
+        "countDiff": 0,
+        "tool": "pylint",
+        "toolVersion": "2.17.7",
+        "isError": false,
+        "name": "reimported",
+        "nodeType": "W0404"
+      },
+      {
+        "commitIssue": false,
+        "count": 4,
+        "countDiff": 0,
+        "tool": "pylint",
+        "toolVersion": "2.17.7",
+        "isError": false,
+        "name": "too-many-instance-attributes",
+        "nodeType": "R0902"
+      },
+      {
+        "commitIssue": false,
+        "count": 4,
+        "countDiff": 0,
+        "tool": "pylint",
+        "toolVersion": "2.17.7",
+        "isError": false,
+        "name": "unused-import",
+        "nodeType": "W0611"
+      },
+      {
+        "commitIssue": false,
+        "count": 4,
+        "countDiff": 0,
+        "tool": "pylint",
+        "toolVersion": "2.17.7",
+        "isError": false,
+        "name": "redefined-variable-type",
+        "nodeType": "R0204"
+      },
+      {
+        "commitIssue": false,
+        "count": 4,
+        "countDiff": 0,
+        "tool": "pylint",
+        "toolVersion": "2.17.7",
+        "isError": false,
+        "name": "inconsistent-return-statements",
+        "nodeType": "R1710"
+      },
+      {
+        "commitIssue": false,
+        "count": 4,
+        "countDiff": 0,
+        "tool": "pylint",
+        "toolVersion": "2.17.7",
+        "isError": false,
+        "name": "too-many-boolean-expressions",
+        "nodeType": "R0916"
+      },
+      {
+        "commitIssue": false,
+        "count": 4,
+        "countDiff": 0,
+        "tool": "pylint",
+        "toolVersion": "2.17.7",
+        "isError": false,
+        "name": "too-many-branches",
+        "nodeType": "R0912"
+      },
+      {
+        "commitIssue": false,
+        "count": 3,
+        "countDiff": 0,
+        "tool": "pylint",
+        "toolVersion": "2.17.7",
+        "isError": false,
+        "name": "missing-raises-doc",
+        "nodeType": "W9006"
+      },
+      {
+        "commitIssue": false,
+        "count": 3,
+        "countDiff": 0,
+        "tool": "pylint",
+        "toolVersion": "2.17.7",
+        "isError": false,
+        "name": "too-many-statements",
+        "nodeType": "R0915"
+      },
+      {
+        "commitIssue": false,
+        "count": 3,
+        "countDiff": 0,
+        "tool": "pylint",
+        "toolVersion": "2.17.7",
+        "isError": false,
+        "name": "try-except-raise",
+        "nodeType": "W0706"
+      },
+      {
+        "commitIssue": false,
+        "count": 2,
+        "countDiff": 0,
+        "tool": "pylint",
+        "toolVersion": "2.17.7",
+        "isError": false,
+        "name": "global-statement",
+        "nodeType": "W0603"
+      },
+      {
+        "commitIssue": false,
+        "count": 2,
+        "countDiff": 0,
+        "tool": "pylint",
+        "toolVersion": "2.17.7",
+        "isError": false,
+        "name": "cell-var-from-loop",
+        "nodeType": "W0640"
+      },
+      {
+        "commitIssue": false,
+        "count": 2,
+        "countDiff": 0,
+        "tool": "pylint",
+        "toolVersion": "2.17.7",
+        "isError": true,
+        "name": "no-member",
+        "nodeType": "E1101"
+      },
+      {
+        "commitIssue": false,
+        "count": 2,
+        "countDiff": 0,
+        "tool": "pylint",
+        "toolVersion": "2.17.7",
+        "isError": true,
+        "name": "not-an-iterable",
+        "nodeType": "E1133"
+      },
+      {
+        "commitIssue": false,
+        "count": 2,
+        "countDiff": 0,
+        "tool": "pylint",
+        "toolVersion": "2.17.7",
+        "isError": false,
+        "name": "unnecessary-comprehension",
+        "nodeType": "R1721"
+      },
+      {
+        "commitIssue": false,
+        "count": 2,
+        "countDiff": 0,
+        "tool": "pylint",
+        "toolVersion": "2.17.7",
+        "isError": false,
+        "name": "unspecified-encoding",
+        "nodeType": "W1514"
+      },
+      {
+        "commitIssue": false,
+        "count": 2,
+        "countDiff": 0,
+        "tool": "pylint",
+        "toolVersion": "2.17.7",
+        "isError": false,
+        "name": "unnecessary-lambda",
+        "nodeType": "W0108"
+      },
+      {
+        "commitIssue": false,
+        "count": 2,
+        "countDiff": 0,
+        "tool": "pylint",
+        "toolVersion": "2.17.7",
+        "isError": false,
+        "name": "overlapping-except",
+        "nodeType": "W0714"
+      },
+      {
+        "commitIssue": false,
+        "count": 2,
+        "countDiff": 0,
+        "tool": "pylint",
+        "toolVersion": "2.17.7",
+        "isError": false,
+        "name": "consider-using-with",
+        "nodeType": "R1732"
+      },
+      {
+        "commitIssue": false,
+        "count": 2,
+        "countDiff": 0,
+        "tool": "pylint",
+        "toolVersion": "2.17.7",
+        "isError": false,
+        "name": "too-many-return-statements",
+        "nodeType": "R0911"
+      },
+      {
+        "commitIssue": false,
+        "count": 2,
+        "countDiff": 0,
+        "tool": "pylint",
+        "toolVersion": "2.17.7",
+        "isError": false,
+        "name": "too-many-arguments",
+        "nodeType": "R0913"
+      },
+      {
+        "commitIssue": false,
+        "count": 1,
+        "countDiff": 0,
+        "tool": "pylint",
+        "toolVersion": "2.17.7",
+        "isError": true,
+        "name": "syntax-error",
+        "nodeType": "E0001"
+      },
+      {
+        "commitIssue": false,
+        "count": 1,
+        "countDiff": 0,
+        "tool": "pylint",
+        "toolVersion": "2.17.7",
+        "isError": true,
+        "name": "used-before-assignment",
+        "nodeType": "E0601"
+      },
+      {
+        "commitIssue": false,
+        "count": 1,
+        "countDiff": 0,
+        "tool": "pylint",
+        "toolVersion": "2.17.7",
+        "isError": false,
+        "name": "disallowed-name",
+        "nodeType": "C0104"
+      },
+      {
+        "commitIssue": false,
+        "count": 1,
+        "countDiff": 0,
+        "tool": "pylint",
+        "toolVersion": "2.17.7",
+        "isError": false,
+        "name": "using-constant-test",
+        "nodeType": "W0125"
+      },
+      {
+        "commitIssue": false,
+        "count": 1,
+        "countDiff": 0,
+        "tool": "pylint",
+        "toolVersion": "2.17.7",
+        "isError": false,
+        "name": "consider-using-in",
+        "nodeType": "R1714"
+      },
+      {
+        "commitIssue": false,
+        "count": 1,
+        "countDiff": 0,
+        "tool": "pylint",
+        "toolVersion": "2.17.7",
+        "isError": false,
+        "name": "arguments-differ",
+        "nodeType": "W0221"
+      },
+      {
+        "commitIssue": false,
+        "count": 1,
+        "countDiff": 0,
+        "tool": "pylint",
+        "toolVersion": "2.17.7",
+        "isError": false,
+        "name": "dangerous-default-value",
+        "nodeType": "W0102"
+      },
+      {
+        "commitIssue": false,
+        "count": 1,
+        "countDiff": 0,
+        "tool": "pylint",
+        "toolVersion": "2.17.7",
+        "isError": true,
+        "name": "undefined-variable",
+        "nodeType": "E0602"
+      },
+      {
+        "commitIssue": false,
+        "count": 1,
+        "countDiff": 0,
+        "tool": "pylint",
+        "toolVersion": "2.17.7",
+        "isError": false,
+        "name": "unnecessary-dunder-call",
+        "nodeType": "C2801"
+      },
+      {
+        "commitIssue": false,
+        "count": 1,
+        "countDiff": 0,
+        "tool": "pylint",
+        "toolVersion": "2.17.7",
+        "isError": false,
+        "name": "useless-parent-delegation",
+        "nodeType": "W0246"
+      },
+      {
+        "commitIssue": false,
+        "count": 1,
+        "countDiff": 0,
+        "tool": "pylint",
+        "toolVersion": "2.17.7",
+        "isError": true,
+        "name": "not-callable",
+        "nodeType": "E1102"
+      },
+      {
+        "commitIssue": false,
+        "count": 1,
+        "countDiff": 0,
+        "tool": "pylint",
+        "toolVersion": "2.17.7",
+        "isError": false,
+        "name": "bad-builtin",
+        "nodeType": "W0141"
+      },
+      {
+        "commitIssue": false,
+        "count": 1,
+        "countDiff": 0,
+        "tool": "pylint",
+        "toolVersion": "2.17.7",
+        "isError": false,
+        "name": "missing-param-doc",
+        "nodeType": "W9015"
+      },
+      {
+        "commitIssue": false,
+        "count": 1,
+        "countDiff": 0,
+        "tool": "pylint",
+        "toolVersion": "2.17.7",
+        "isError": false,
+        "name": "use-dict-literal",
+        "nodeType": "R1735"
+      },
+      {
+        "commitIssue": false,
+        "count": 1,
+        "countDiff": 0,
+        "tool": "pylint",
+        "toolVersion": "2.17.7",
+        "isError": false,
+        "name": "consider-using-min-builtin",
+        "nodeType": "R1730"
+      },
+      {
+        "commitIssue": false,
+        "count": 1,
+        "countDiff": 0,
+        "tool": "pylint",
+        "toolVersion": "2.17.7",
+        "isError": false,
+        "name": "unnecessary-ellipsis",
+        "nodeType": "W2301"
+      }
+    ],
+    "totalNodes": 54
+  },
+  "file_reports": [
+    {
+      "errorCount": 0,
+      "filePath": "conftest.py",
+      "id": 93322780,
+      "truncated": false,
+      "warningCount": 10
+    },
+    {
+      "errorCount": 0,
+      "filePath": "examples/build_showcase_db.py",
+      "id": 93322781,
+      "truncated": false,
+      "warningCount": 1
+    },
+    {
+      "errorCount": 1,
+      "filePath": "examples/order_workflow/run.py",
+      "id": 93322782,
+      "truncated": false,
+      "warningCount": 2
+    },
+    {
+      "errorCount": 0,
+      "filePath": "examples/scenario_lab/build.py",
+      "id": 93322783,
+      "truncated": false,
+      "warningCount": 10
+    },
+    {
+      "errorCount": 0,
+      "filePath": "examples/scenario_lab/test_fixture.py",
+      "id": 93322784,
+      "truncated": false,
+      "warningCount": 3
+    },
+    {
+      "errorCount": 0,
+      "filePath": "examples/scenario_lab/verify.py",
+      "id": 93322785,
+      "truncated": false,
+      "warningCount": 4
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/mcp-server-sqlseed/tests/test_stdio_progress.py",
+      "id": 93322943,
+      "truncated": false,
+      "warningCount": 2
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/src/sqlseed_ai/__init__.py",
+      "id": 93322879,
+      "truncated": false,
+      "warningCount": 2
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/src/sqlseed_ai/analyzer/_caller.py",
+      "id": 93322735,
+      "truncated": false,
+      "warningCount": 1
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/src/sqlseed_ai/analyzer/_caller.py",
+      "id": 93322882,
+      "truncated": false,
+      "warningCount": 2
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/src/sqlseed_ai/analyzer/_streaming.py",
+      "id": 93322736,
+      "truncated": false,
+      "warningCount": 1
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "id": 93322883,
+      "truncated": true,
+      "warningCount": 94
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/src/sqlseed_ai/cli/ai_commands.py",
+      "id": 93322734,
+      "truncated": true,
+      "warningCount": 6
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/src/sqlseed_ai/cli/ai_commands.py",
+      "id": 93322884,
+      "truncated": true,
+      "warningCount": 20
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/src/sqlseed_ai/contracts/builtin_violations.py",
+      "id": 93322733,
+      "truncated": true,
+      "warningCount": 3
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/src/sqlseed_ai/contracts/builtin_violations.py",
+      "id": 93322885,
+      "truncated": true,
+      "warningCount": 5
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/src/sqlseed_ai/contracts/registry.py",
+      "id": 93322732,
+      "truncated": true,
+      "warningCount": 4
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/src/sqlseed_ai/contracts/registry.py",
+      "id": 93322886,
+      "truncated": true,
+      "warningCount": 1
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/src/sqlseed_ai/healer/_client.py",
+      "id": 93322887,
+      "truncated": true,
+      "warningCount": 1
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/src/sqlseed_ai/healer/candidate_validation.py",
+      "id": 93322888,
+      "truncated": true,
+      "warningCount": 1
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/src/sqlseed_ai/healer/degrader.py",
+      "id": 93322889,
+      "truncated": true,
+      "warningCount": 1
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/src/sqlseed_ai/healer/diff_learner.py",
+      "id": 93322890,
+      "truncated": true,
+      "warningCount": 1
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/src/sqlseed_ai/healer/failure_classifier.py",
+      "id": 93322891,
+      "truncated": true,
+      "warningCount": 1
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/src/sqlseed_ai/healer/level1_subgraph_healer.py",
+      "id": 93322892,
+      "truncated": true,
+      "warningCount": 1
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/src/sqlseed_ai/healer/level2_column_healer.py",
+      "id": 93322730,
+      "truncated": true,
+      "warningCount": 1
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/src/sqlseed_ai/healer/level2_column_healer.py",
+      "id": 93322893,
+      "truncated": true,
+      "warningCount": 5
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/src/sqlseed_ai/healer/level3_compact_healer.py",
+      "id": 93322731,
+      "truncated": true,
+      "warningCount": 1
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/src/sqlseed_ai/healer/level3_compact_healer.py",
+      "id": 93322894,
+      "truncated": true,
+      "warningCount": 2
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/src/sqlseed_ai/healer/orchestrator.py",
+      "id": 93322741,
+      "truncated": true,
+      "warningCount": 2
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/src/sqlseed_ai/healer/orchestrator.py",
+      "id": 93322895,
+      "truncated": true,
+      "warningCount": 1
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/src/sqlseed_ai/healer/subgraph.py",
+      "id": 93322896,
+      "truncated": true,
+      "warningCount": 2
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/src/sqlseed_ai/refiner.py",
+      "id": 93322880,
+      "truncated": true,
+      "warningCount": 9
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/src/sqlseed_ai/repair/executor.py",
+      "id": 93322897,
+      "truncated": true,
+      "warningCount": 1
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/src/sqlseed_ai/repair/strategies.py",
+      "id": 93322729,
+      "truncated": true,
+      "warningCount": 3
+    },
+    {
+      "errorCount": 1,
+      "filePath": "plugins/sqlseed-ai/src/sqlseed_ai/repair/strategies.py",
+      "id": 93322898,
+      "truncated": true,
+      "warningCount": 39
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/src/sqlseed_ai/runtime.py",
+      "id": 93322742,
+      "truncated": true,
+      "warningCount": 1
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/src/sqlseed_ai/runtime.py",
+      "id": 93322881,
+      "truncated": true,
+      "warningCount": 9
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/src/sqlseed_ai/validator/cross_column.py",
+      "id": 93322899,
+      "truncated": true,
+      "warningCount": 3
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/src/sqlseed_ai/validator/schema_snapshot.py",
+      "id": 93322900,
+      "truncated": true,
+      "warningCount": 1
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/src/sqlseed_ai/validator/shadow_fk_scan.py",
+      "id": 93322901,
+      "truncated": true,
+      "warningCount": 5
+    },
+    {
+      "errorCount": 2,
+      "filePath": "plugins/sqlseed-ai/src/sqlseed_ai/validator/single_column.py",
+      "id": 93322902,
+      "truncated": true,
+      "warningCount": 4
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/tests/healer/conftest.py",
+      "id": 93322872,
+      "truncated": true,
+      "warningCount": 5
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/tests/healer/test_failure_classifier.py",
+      "id": 93322873,
+      "truncated": true,
+      "warningCount": 8
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/tests/healer/test_heal_orchestrator_real.py",
+      "id": 93322740,
+      "truncated": true,
+      "warningCount": 2
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/tests/healer/test_heal_orchestrator_real.py",
+      "id": 93322874,
+      "truncated": true,
+      "warningCount": 7
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/tests/healer/test_level1_subgraph_healer_real.py",
+      "id": 93322738,
+      "truncated": true,
+      "warningCount": 1
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/tests/healer/test_level1_subgraph_healer_real.py",
+      "id": 93322875,
+      "truncated": true,
+      "warningCount": 1
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/tests/healer/test_level2_column_healer_real.py",
+      "id": 93322739,
+      "truncated": true,
+      "warningCount": 2
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/tests/healer/test_level2_column_healer_real.py",
+      "id": 93322876,
+      "truncated": true,
+      "warningCount": 2
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/tests/healer/test_level2_context_builder.py",
+      "id": 93322737,
+      "truncated": true,
+      "warningCount": 2
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/tests/healer/test_level2_context_builder.py",
+      "id": 93322877,
+      "truncated": true,
+      "warningCount": 4
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/tests/healer/test_level3_compact_healer_real.py",
+      "id": 93322878,
+      "truncated": true,
+      "warningCount": 2
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/tests/test_ai_commands.py",
+      "id": 93322946,
+      "truncated": true,
+      "warningCount": 9
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/tests/test_ai_plugin.py",
+      "id": 93322947,
+      "truncated": true,
+      "warningCount": 1
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/tests/test_auto_heal_orchestrator.py",
+      "id": 93322948,
+      "truncated": true,
+      "warningCount": 64
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/tests/test_cli_auto_heal.py",
+      "id": 93322949,
+      "truncated": true,
+      "warningCount": 6
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/tests/test_cli_input_contract.py",
+      "id": 93322950,
+      "truncated": true,
+      "warningCount": 13
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/tests/test_contracts_builtin.py",
+      "id": 93322951,
+      "truncated": true,
+      "warningCount": 13
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/tests/test_contracts_matrix.py",
+      "id": 93322952,
+      "truncated": true,
+      "warningCount": 1
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/tests/test_contracts_registry.py",
+      "id": 93322953,
+      "truncated": true,
+      "warningCount": 4
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/tests/test_healer_candidate_contract.py",
+      "id": 93322954,
+      "truncated": true,
+      "warningCount": 15
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/tests/test_healer_degrader.py",
+      "id": 93322765,
+      "truncated": true,
+      "warningCount": 1
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/tests/test_healer_degrader.py",
+      "id": 93322955,
+      "truncated": true,
+      "warningCount": 13
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/tests/test_healer_models.py",
+      "id": 93322956,
+      "truncated": true,
+      "warningCount": 3
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/tests/test_healer_subgraph.py",
+      "id": 93322957,
+      "truncated": true,
+      "warningCount": 1
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/tests/test_nonweb_ai_boundaries.py",
+      "id": 93322958,
+      "truncated": true,
+      "warningCount": 16
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/tests/test_refiner.py",
+      "id": 93322959,
+      "truncated": true,
+      "warningCount": 8
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/tests/test_repair_executor.py",
+      "id": 93322764,
+      "truncated": true,
+      "warningCount": 1
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/tests/test_repair_executor.py",
+      "id": 93322960,
+      "truncated": true,
+      "warningCount": 6
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/tests/test_repair_pipeline.py",
+      "id": 93322763,
+      "truncated": true,
+      "warningCount": 1
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/tests/test_repair_pipeline.py",
+      "id": 93322961,
+      "truncated": true,
+      "warningCount": 5
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/tests/test_repair_strategies.py",
+      "id": 93322962,
+      "truncated": true,
+      "warningCount": 30
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/tests/test_runtime.py",
+      "id": 93322761,
+      "truncated": true,
+      "warningCount": 1
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/tests/test_runtime.py",
+      "id": 93322963,
+      "truncated": true,
+      "warningCount": 18
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/tests/test_schema_snapshot.py",
+      "id": 93322964,
+      "truncated": true,
+      "warningCount": 12
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/tests/test_validator_composite_fk.py",
+      "id": 93322760,
+      "truncated": true,
+      "warningCount": 4
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/tests/test_validator_composite_fk.py",
+      "id": 93322865,
+      "truncated": true,
+      "warningCount": 4
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/tests/test_validator_cross_column.py",
+      "id": 93322759,
+      "truncated": true,
+      "warningCount": 2
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/tests/test_validator_cross_column.py",
+      "id": 93322866,
+      "truncated": true,
+      "warningCount": 7
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/tests/test_validator_dialect_parser.py",
+      "id": 93322867,
+      "truncated": true,
+      "warningCount": 1
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/tests/test_validator_main.py",
+      "id": 93322758,
+      "truncated": true,
+      "warningCount": 5
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/tests/test_validator_main.py",
+      "id": 93322868,
+      "truncated": true,
+      "warningCount": 4
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/tests/test_validator_models.py",
+      "id": 93322869,
+      "truncated": true,
+      "warningCount": 1
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/tests/test_validator_shadow_fk_scan.py",
+      "id": 93322757,
+      "truncated": true,
+      "warningCount": 2
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/tests/test_validator_shadow_fk_scan.py",
+      "id": 93322870,
+      "truncated": true,
+      "warningCount": 15
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-ai/tests/test_validator_single_column.py",
+      "id": 93322871,
+      "truncated": true,
+      "warningCount": 1
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-cli/src/sqlseed_cli/main.py",
+      "id": 93322945,
+      "truncated": true,
+      "warningCount": 2
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-cli/tests/test_config_execution_safety.py",
+      "id": 93322944,
+      "truncated": true,
+      "warningCount": 13
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/__init__.py",
+      "id": 93322841,
+      "truncated": true,
+      "warningCount": 1
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/ai_settings.py",
+      "id": 93322842,
+      "truncated": true,
+      "warningCount": 5
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/api.py",
+      "id": 93322843,
+      "truncated": true,
+      "warningCount": 40
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/app.py",
+      "id": 93322844,
+      "truncated": true,
+      "warningCount": 9
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/managed_worker.py",
+      "id": 93322845,
+      "truncated": true,
+      "warningCount": 10
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/plugin_environment.py",
+      "id": 93322846,
+      "truncated": true,
+      "warningCount": 5
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/plugin_management.py",
+      "id": 93322847,
+      "truncated": true,
+      "warningCount": 3
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/plugin_process.py",
+      "id": 93322848,
+      "truncated": true,
+      "warningCount": 2
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/runtime_session.py",
+      "id": 93322849,
+      "truncated": true,
+      "warningCount": 2
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/settings_environment.py",
+      "id": 93322850,
+      "truncated": true,
+      "warningCount": 4
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/sqlite_target.py",
+      "id": 93322851,
+      "truncated": true,
+      "warningCount": 1
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/state.py",
+      "id": 93322852,
+      "truncated": true,
+      "warningCount": 1
+    },
+    {
+      "errorCount": 1,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/static/js/api.js",
+      "id": 93322687,
+      "truncated": true,
+      "warningCount": 0
+    },
+    {
+      "errorCount": 1,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/static/js/app.js",
+      "id": 93322688,
+      "truncated": true,
+      "warningCount": 0
+    },
+    {
+      "errorCount": 1,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/static/js/dropdown.js",
+      "id": 93322689,
+      "truncated": true,
+      "warningCount": 0
+    },
+    {
+      "errorCount": 1,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/static/js/filepicker.js",
+      "id": 93322690,
+      "truncated": true,
+      "warningCount": 0
+    },
+    {
+      "errorCount": 1,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/static/js/genform.js",
+      "id": 93322691,
+      "truncated": true,
+      "warningCount": 0
+    },
+    {
+      "errorCount": 1,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/static/js/labels.js",
+      "id": 93322692,
+      "truncated": true,
+      "warningCount": 0
+    },
+    {
+      "errorCount": 1,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/static/js/pages/browse.js",
+      "id": 93322693,
+      "truncated": true,
+      "warningCount": 0
+    },
+    {
+      "errorCount": 1,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/static/js/pages/configs.js",
+      "id": 93322694,
+      "truncated": true,
+      "warningCount": 0
+    },
+    {
+      "errorCount": 1,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/static/js/pages/connect.js",
+      "id": 93322695,
+      "truncated": true,
+      "warningCount": 0
+    },
+    {
+      "errorCount": 1,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/static/js/pages/heal.js",
+      "id": 93322696,
+      "truncated": true,
+      "warningCount": 0
+    },
+    {
+      "errorCount": 1,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/static/js/pages/meta.js",
+      "id": 93322697,
+      "truncated": true,
+      "warningCount": 0
+    },
+    {
+      "errorCount": 1,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/static/js/pages/runs.js",
+      "id": 93322698,
+      "truncated": true,
+      "warningCount": 0
+    },
+    {
+      "errorCount": 1,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/static/js/pages/settings.js",
+      "id": 93322699,
+      "truncated": true,
+      "warningCount": 0
+    },
+    {
+      "errorCount": 1,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/static/js/pages/wizard.js",
+      "id": 93322700,
+      "truncated": true,
+      "warningCount": 0
+    },
+    {
+      "errorCount": 1,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/static/js/pages/workbench.js",
+      "id": 93322701,
+      "truncated": true,
+      "warningCount": 0
+    },
+    {
+      "errorCount": 1,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/static/js/tree.js",
+      "id": 93322702,
+      "truncated": true,
+      "warningCount": 0
+    },
+    {
+      "errorCount": 1,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/static/js/workbench/ai-eligibility.js",
+      "id": 93322703,
+      "truncated": true,
+      "warningCount": 0
+    },
+    {
+      "errorCount": 1,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/static/js/workbench/ai-handoff.js",
+      "id": 93322704,
+      "truncated": true,
+      "warningCount": 0
+    },
+    {
+      "errorCount": 1,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/static/js/workbench/ai-stream.js",
+      "id": 93322705,
+      "truncated": true,
+      "warningCount": 0
+    },
+    {
+      "errorCount": 1,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/static/js/workbench/ai.js",
+      "id": 93322706,
+      "truncated": true,
+      "warningCount": 0
+    },
+    {
+      "errorCount": 1,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/static/js/workbench/connection.js",
+      "id": 93322707,
+      "truncated": true,
+      "warningCount": 0
+    },
+    {
+      "errorCount": 1,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/static/js/workbench/date-picker.js",
+      "id": 93322708,
+      "truncated": true,
+      "warningCount": 0
+    },
+    {
+      "errorCount": 1,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/static/js/workbench/dependency-view.js",
+      "id": 93322709,
+      "truncated": true,
+      "warningCount": 0
+    },
+    {
+      "errorCount": 1,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/static/js/workbench/editor.js",
+      "id": 93322710,
+      "truncated": true,
+      "warningCount": 0
+    },
+    {
+      "errorCount": 1,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/static/js/workbench/graph-layout.js",
+      "id": 93322711,
+      "truncated": true,
+      "warningCount": 0
+    },
+    {
+      "errorCount": 1,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/static/js/workbench/graph.js",
+      "id": 93322712,
+      "truncated": true,
+      "warningCount": 0
+    },
+    {
+      "errorCount": 1,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/static/js/workbench/guidance.js",
+      "id": 93322713,
+      "truncated": true,
+      "warningCount": 0
+    },
+    {
+      "errorCount": 1,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/static/js/workbench/model.js",
+      "id": 93322714,
+      "truncated": true,
+      "warningCount": 0
+    },
+    {
+      "errorCount": 1,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/static/js/workbench/plugin-management.js",
+      "id": 93322715,
+      "truncated": true,
+      "warningCount": 0
+    },
+    {
+      "errorCount": 1,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/static/js/workbench/preview-scroll-layout.js",
+      "id": 93322716,
+      "truncated": true,
+      "warningCount": 0
+    },
+    {
+      "errorCount": 1,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/static/js/workbench/preview.js",
+      "id": 93322717,
+      "truncated": true,
+      "warningCount": 0
+    },
+    {
+      "errorCount": 1,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/static/js/workbench/provider-guide.js",
+      "id": 93322718,
+      "truncated": true,
+      "warningCount": 0
+    },
+    {
+      "errorCount": 1,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/static/js/workbench/recovery.js",
+      "id": 93322719,
+      "truncated": true,
+      "warningCount": 0
+    },
+    {
+      "errorCount": 1,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/static/js/workbench/scroll-lock.js",
+      "id": 93322720,
+      "truncated": true,
+      "warningCount": 0
+    },
+    {
+      "errorCount": 1,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/static/js/workbench/session.js",
+      "id": 93322721,
+      "truncated": true,
+      "warningCount": 0
+    },
+    {
+      "errorCount": 1,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/static/js/workbench/table-data.js",
+      "id": 93322722,
+      "truncated": true,
+      "warningCount": 0
+    },
+    {
+      "errorCount": 1,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/static/js/workbench/ui.js",
+      "id": 93322723,
+      "truncated": true,
+      "warningCount": 0
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/supervised_plugins.py",
+      "id": 93322853,
+      "truncated": true,
+      "warningCount": 2
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/supervisor.py",
+      "id": 93322854,
+      "truncated": true,
+      "warningCount": 4
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/workbench_ai_relations.py",
+      "id": 93322857,
+      "truncated": true,
+      "warningCount": 8
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/workbench_ai_stream.py",
+      "id": 93322858,
+      "truncated": true,
+      "warningCount": 2
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/workbench_ai.py",
+      "id": 93322856,
+      "truncated": true,
+      "warningCount": 18
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/workbench_data.py",
+      "id": 93322859,
+      "truncated": true,
+      "warningCount": 3
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/workbench_execution.py",
+      "id": 93322860,
+      "truncated": true,
+      "warningCount": 1
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/workbench_runtime.py",
+      "id": 93322861,
+      "truncated": true,
+      "warningCount": 27
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/workbench_schema.py",
+      "id": 93322862,
+      "truncated": true,
+      "warningCount": 2
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/workbench_store.py",
+      "id": 93322863,
+      "truncated": true,
+      "warningCount": 3
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/workbench.py",
+      "id": 93322855,
+      "truncated": true,
+      "warningCount": 1
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-web/src/sqlseed_web/worker_control.py",
+      "id": 93322864,
+      "truncated": true,
+      "warningCount": 17
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-web/tests/test_api_ai_secrets.py",
+      "id": 93322904,
+      "truncated": true,
+      "warningCount": 1
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-web/tests/test_api_regressions.py",
+      "id": 93322762,
+      "truncated": true,
+      "warningCount": 1
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-web/tests/test_api_regressions.py",
+      "id": 93322905,
+      "truncated": true,
+      "warningCount": 44
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-web/tests/test_api.py",
+      "id": 93322903,
+      "truncated": true,
+      "warningCount": 77
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-web/tests/test_component_availability.py",
+      "id": 93322906,
+      "truncated": true,
+      "warningCount": 26
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-web/tests/test_plugin_management.py",
+      "id": 93322756,
+      "truncated": true,
+      "warningCount": 2
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-web/tests/test_plugin_management.py",
+      "id": 93322907,
+      "truncated": true,
+      "warningCount": 15
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-web/tests/test_plugin_process.py",
+      "id": 93322908,
+      "truncated": true,
+      "warningCount": 2
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-web/tests/test_runtime_lifecycle.py",
+      "id": 93322909,
+      "truncated": true,
+      "warningCount": 18
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-web/tests/test_runtime_session.py",
+      "id": 93322910,
+      "truncated": true,
+      "warningCount": 11
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-web/tests/test_supervised_plugins.py",
+      "id": 93322911,
+      "truncated": true,
+      "warningCount": 12
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-web/tests/test_supervisor.py",
+      "id": 93322912,
+      "truncated": true,
+      "warningCount": 6
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-web/tests/test_web_request_security.py",
+      "id": 93322913,
+      "truncated": true,
+      "warningCount": 4
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-web/tests/test_web_settings.py",
+      "id": 93322755,
+      "truncated": true,
+      "warningCount": 2
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-web/tests/test_web_settings.py",
+      "id": 93322914,
+      "truncated": true,
+      "warningCount": 34
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-web/tests/test_workbench_acceptance.py",
+      "id": 93322753,
+      "truncated": true,
+      "warningCount": 1
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-web/tests/test_workbench_acceptance.py",
+      "id": 93322829,
+      "truncated": true,
+      "warningCount": 19
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-web/tests/test_workbench_ai_relations.py",
+      "id": 93322751,
+      "truncated": true,
+      "warningCount": 5
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-web/tests/test_workbench_ai_relations.py",
+      "id": 93322831,
+      "truncated": true,
+      "warningCount": 27
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-web/tests/test_workbench_ai.py",
+      "id": 93322752,
+      "truncated": true,
+      "warningCount": 7
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-web/tests/test_workbench_ai.py",
+      "id": 93322830,
+      "truncated": true,
+      "warningCount": 62
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-web/tests/test_workbench_concurrency.py",
+      "id": 93322750,
+      "truncated": true,
+      "warningCount": 4
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-web/tests/test_workbench_concurrency.py",
+      "id": 93322832,
+      "truncated": true,
+      "warningCount": 15
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-web/tests/test_workbench_configs.py",
+      "id": 93322833,
+      "truncated": true,
+      "warningCount": 17
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-web/tests/test_workbench_data.py",
+      "id": 93322834,
+      "truncated": true,
+      "warningCount": 39
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-web/tests/test_workbench_execution.py",
+      "id": 93322749,
+      "truncated": true,
+      "warningCount": 6
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-web/tests/test_workbench_execution.py",
+      "id": 93322835,
+      "truncated": true,
+      "warningCount": 43
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-web/tests/test_workbench_runtime.py",
+      "id": 93322754,
+      "truncated": true,
+      "warningCount": 1
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-web/tests/test_workbench_runtime.py",
+      "id": 93322836,
+      "truncated": true,
+      "warningCount": 73
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-web/tests/test_workbench_sample_budget.py",
+      "id": 93322837,
+      "truncated": true,
+      "warningCount": 6
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-web/tests/test_workbench_schema.py",
+      "id": 93322838,
+      "truncated": true,
+      "warningCount": 22
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-web/tests/test_workbench_store.py",
+      "id": 93322839,
+      "truncated": true,
+      "warningCount": 21
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-web/tests/test_workbench_target_identity.py",
+      "id": 93322748,
+      "truncated": true,
+      "warningCount": 2
+    },
+    {
+      "errorCount": 0,
+      "filePath": "plugins/sqlseed-web/tests/test_workbench_target_identity.py",
+      "id": 93322840,
+      "truncated": true,
+      "warningCount": 30
+    },
+    {
+      "errorCount": 0,
+      "filePath": "scripts/analyze_ai_logs.py",
+      "id": 93322786,
+      "truncated": true,
+      "warningCount": 6
+    },
+    {
+      "errorCount": 0,
+      "filePath": "scripts/check_wheel_install.py",
+      "id": 93322787,
+      "truncated": true,
+      "warningCount": 8
+    },
+    {
+      "errorCount": 0,
+      "filePath": "scripts/complex_validation/ai_offline_validation.py",
+      "id": 93322724,
+      "truncated": true,
+      "warningCount": 7
+    },
+    {
+      "errorCount": 0,
+      "filePath": "scripts/complex_validation/ai_offline_validation.py",
+      "id": 93322789,
+      "truncated": true,
+      "warningCount": 33
+    },
+    {
+      "errorCount": 0,
+      "filePath": "scripts/complex_validation/randomized_roundtrip.py",
+      "id": 93322725,
+      "truncated": true,
+      "warningCount": 1
+    },
+    {
+      "errorCount": 1,
+      "filePath": "scripts/complex_validation/randomized_roundtrip.py",
+      "id": 93322779,
+      "truncated": true,
+      "warningCount": 0
+    },
+    {
+      "errorCount": 0,
+      "filePath": "scripts/complex_validation/repro_defects.py",
+      "id": 93322790,
+      "truncated": true,
+      "warningCount": 12
+    },
+    {
+      "errorCount": 0,
+      "filePath": "scripts/complex_validation/repro_roundtrip.py",
+      "id": 93322791,
+      "truncated": true,
+      "warningCount": 1
+    },
+    {
+      "errorCount": 0,
+      "filePath": "scripts/complex_validation/run_validation.py",
+      "id": 93322792,
+      "truncated": true,
+      "warningCount": 8
+    },
+    {
+      "errorCount": 0,
+      "filePath": "scripts/complex_validation/smoke_test.py",
+      "id": 93322726,
+      "truncated": true,
+      "warningCount": 2
+    },
+    {
+      "errorCount": 0,
+      "filePath": "scripts/complex_validation/smoke_test.py",
+      "id": 93322793,
+      "truncated": true,
+      "warningCount": 17
+    },
+    {
+      "errorCount": 0,
+      "filePath": "scripts/complex_validation/yaml_path_validation.py",
+      "id": 93322794,
+      "truncated": true,
+      "warningCount": 2
+    },
+    {
+      "errorCount": 0,
+      "filePath": "scripts/make_test_db.py",
+      "id": 93322788,
+      "truncated": true,
+      "warningCount": 1
+    },
+    {
+      "errorCount": 1,
+      "filePath": "src/sqlseed/config/models.py",
+      "id": 93322922,
+      "truncated": true,
+      "warningCount": 0
+    },
+    {
+      "errorCount": 0,
+      "filePath": "src/sqlseed/core/check_adapt.py",
+      "id": 93322747,
+      "truncated": true,
+      "warningCount": 2
+    },
+    {
+      "errorCount": 0,
+      "filePath": "src/sqlseed/core/check_parser.py",
+      "id": 93322932,
+      "truncated": true,
+      "warningCount": 2
+    },
+    {
+      "errorCount": 0,
+      "filePath": "src/sqlseed/core/column_dag.py",
+      "id": 93322933,
+      "truncated": true,
+      "warningCount": 2
+    },
+    {
+      "errorCount": 1,
+      "filePath": "src/sqlseed/core/expression.py",
+      "id": 93322934,
+      "truncated": true,
+      "warningCount": 1
+    },
+    {
+      "errorCount": 0,
+      "filePath": "src/sqlseed/core/features.py",
+      "id": 93322935,
+      "truncated": true,
+      "warningCount": 8
+    },
+    {
+      "errorCount": 0,
+      "filePath": "src/sqlseed/core/mapper.py",
+      "id": 93322746,
+      "truncated": true,
+      "warningCount": 2
+    },
+    {
+      "errorCount": 0,
+      "filePath": "src/sqlseed/core/mapper.py",
+      "id": 93322936,
+      "truncated": true,
+      "warningCount": 2
+    },
+    {
+      "errorCount": 0,
+      "filePath": "src/sqlseed/core/orchestrator/_generation.py",
+      "id": 93322941,
+      "truncated": true,
+      "warningCount": 7
+    },
+    {
+      "errorCount": 0,
+      "filePath": "src/sqlseed/core/orchestrator/_specs.py",
+      "id": 93322942,
+      "truncated": true,
+      "warningCount": 9
+    },
+    {
+      "errorCount": 0,
+      "filePath": "src/sqlseed/core/relation.py",
+      "id": 93322937,
+      "truncated": true,
+      "warningCount": 8
+    },
+    {
+      "errorCount": 0,
+      "filePath": "src/sqlseed/core/schema.py",
+      "id": 93322938,
+      "truncated": true,
+      "warningCount": 2
+    },
+    {
+      "errorCount": 0,
+      "filePath": "src/sqlseed/core/stream.py",
+      "id": 93322939,
+      "truncated": true,
+      "warningCount": 10
+    },
+    {
+      "errorCount": 0,
+      "filePath": "src/sqlseed/core/unique_adjuster.py",
+      "id": 93322940,
+      "truncated": true,
+      "warningCount": 3
+    },
+    {
+      "errorCount": 0,
+      "filePath": "src/sqlseed/database/_base_adapter.py",
+      "id": 93322923,
+      "truncated": true,
+      "warningCount": 1
+    },
+    {
+      "errorCount": 0,
+      "filePath": "src/sqlseed/database/_bulk_optimizer.py",
+      "id": 93322924,
+      "truncated": true,
+      "warningCount": 1
+    },
+    {
+      "errorCount": 0,
+      "filePath": "src/sqlseed/database/raw_sqlite_adapter.py",
+      "id": 93322925,
+      "truncated": true,
+      "warningCount": 1
+    },
+    {
+      "errorCount": 0,
+      "filePath": "src/sqlseed/database/sqlalchemy_adapter.py",
+      "id": 93322926,
+      "truncated": true,
+      "warningCount": 3
+    },
+    {
+      "errorCount": 0,
+      "filePath": "src/sqlseed/generators/_datetime_utils.py",
+      "id": 93322927,
+      "truncated": true,
+      "warningCount": 2
+    },
+    {
+      "errorCount": 0,
+      "filePath": "src/sqlseed/generators/_dispatch.py",
+      "id": 93322928,
+      "truncated": true,
+      "warningCount": 1
+    },
+    {
+      "errorCount": 0,
+      "filePath": "src/sqlseed/generators/_string_helpers.py",
+      "id": 93322929,
+      "truncated": true,
+      "warningCount": 3
+    },
+    {
+      "errorCount": 0,
+      "filePath": "src/sqlseed/generators/base_provider.py",
+      "id": 93322745,
+      "truncated": true,
+      "warningCount": 4
+    },
+    {
+      "errorCount": 0,
+      "filePath": "src/sqlseed/generators/base_provider.py",
+      "id": 93322930,
+      "truncated": true,
+      "warningCount": 5
+    },
+    {
+      "errorCount": 0,
+      "filePath": "src/sqlseed/generators/faker_provider.py",
+      "id": 93322743,
+      "truncated": true,
+      "warningCount": 4
+    },
+    {
+      "errorCount": 0,
+      "filePath": "src/sqlseed/generators/faker_provider.py",
+      "id": 93322931,
+      "truncated": true,
+      "warningCount": 2
+    },
+    {
+      "errorCount": 0,
+      "filePath": "src/sqlseed/generators/mimesis_provider.py",
+      "id": 93322744,
+      "truncated": true,
+      "warningCount": 8
+    },
+    {
+      "errorCount": 0,
+      "filePath": "tests/test_core/test_append_unique.py",
+      "id": 93322778,
+      "truncated": true,
+      "warningCount": 8
+    },
+    {
+      "errorCount": 0,
+      "filePath": "tests/test_core/test_append_unique.py",
+      "id": 93322801,
+      "truncated": true,
+      "warningCount": 51
+    },
+    {
+      "errorCount": 0,
+      "filePath": "tests/test_core/test_check_adapt.py",
+      "id": 93322802,
+      "truncated": true,
+      "warningCount": 16
+    },
+    {
+      "errorCount": 0,
+      "filePath": "tests/test_core/test_check_length_equality.py",
+      "id": 93322803,
+      "truncated": true,
+      "warningCount": 2
+    },
+    {
+      "errorCount": 0,
+      "filePath": "tests/test_core/test_check_sql_semantics.py",
+      "id": 93322804,
+      "truncated": true,
+      "warningCount": 10
+    },
+    {
+      "errorCount": 0,
+      "filePath": "tests/test_core/test_composite_fk_pair_pool.py",
+      "id": 93322805,
+      "truncated": true,
+      "warningCount": 14
+    },
+    {
+      "errorCount": 0,
+      "filePath": "tests/test_core/test_expression_seed.py",
+      "id": 93322807,
+      "truncated": true,
+      "warningCount": 4
+    },
+    {
+      "errorCount": 0,
+      "filePath": "tests/test_core/test_expression.py",
+      "id": 93322806,
+      "truncated": true,
+      "warningCount": 2
+    },
+    {
+      "errorCount": 0,
+      "filePath": "tests/test_core/test_features.py",
+      "id": 93322808,
+      "truncated": true,
+      "warningCount": 6
+    },
+    {
+      "errorCount": 1,
+      "filePath": "tests/test_core/test_fill_safety_boundaries.py",
+      "id": 93322809,
+      "truncated": true,
+      "warningCount": 13
+    },
+    {
+      "errorCount": 0,
+      "filePath": "tests/test_core/test_generation_error_boundary.py",
+      "id": 93322810,
+      "truncated": true,
+      "warningCount": 4
+    },
+    {
+      "errorCount": 0,
+      "filePath": "tests/test_core/test_generation_partial.py",
+      "id": 93322811,
+      "truncated": true,
+      "warningCount": 1
+    },
+    {
+      "errorCount": 0,
+      "filePath": "tests/test_core/test_native_method_contract.py",
+      "id": 93322812,
+      "truncated": true,
+      "warningCount": 20
+    },
+    {
+      "errorCount": 0,
+      "filePath": "tests/test_core/test_orchestrator_schema_fallback.py",
+      "id": 93322813,
+      "truncated": true,
+      "warningCount": 14
+    },
+    {
+      "errorCount": 0,
+      "filePath": "tests/test_core/test_schema_constraint_regressions.py",
+      "id": 93322777,
+      "truncated": true,
+      "warningCount": 4
+    },
+    {
+      "errorCount": 0,
+      "filePath": "tests/test_core/test_schema_constraint_regressions.py",
+      "id": 93322814,
+      "truncated": true,
+      "warningCount": 28
+    },
+    {
+      "errorCount": 0,
+      "filePath": "tests/test_core/test_self_ref_targets.py",
+      "id": 93322815,
+      "truncated": true,
+      "warningCount": 5
+    },
+    {
+      "errorCount": 0,
+      "filePath": "tests/test_core/test_sqlite_schema_oracles.py",
+      "id": 93322816,
+      "truncated": true,
+      "warningCount": 19
+    },
+    {
+      "errorCount": 0,
+      "filePath": "tests/test_core/test_stream_batch_cleanup.py",
+      "id": 93322817,
+      "truncated": true,
+      "warningCount": 3
+    },
+    {
+      "errorCount": 0,
+      "filePath": "tests/test_core/test_stream_budget.py",
+      "id": 93322775,
+      "truncated": true,
+      "warningCount": 2
+    },
+    {
+      "errorCount": 0,
+      "filePath": "tests/test_core/test_stream_budget.py",
+      "id": 93322818,
+      "truncated": true,
+      "warningCount": 4
+    },
+    {
+      "errorCount": 0,
+      "filePath": "tests/test_core/test_stream.py",
+      "id": 93322776,
+      "truncated": true,
+      "warningCount": 2
+    },
+    {
+      "errorCount": 0,
+      "filePath": "tests/test_core/test_supported_execution_contract.py",
+      "id": 93322819,
+      "truncated": true,
+      "warningCount": 8
+    },
+    {
+      "errorCount": 0,
+      "filePath": "tests/test_core/test_unique_adjuster.py",
+      "id": 93322774,
+      "truncated": true,
+      "warningCount": 2
+    },
+    {
+      "errorCount": 0,
+      "filePath": "tests/test_core/test_unique_adjuster.py",
+      "id": 93322820,
+      "truncated": true,
+      "warningCount": 1
+    },
+    {
+      "errorCount": 0,
+      "filePath": "tests/test_core/test_unique_exclude_integration.py",
+      "id": 93322773,
+      "truncated": true,
+      "warningCount": 8
+    },
+    {
+      "errorCount": 0,
+      "filePath": "tests/test_core/test_unique_exclude_integration.py",
+      "id": 93322821,
+      "truncated": true,
+      "warningCount": 1
+    },
+    {
+      "errorCount": 0,
+      "filePath": "tests/test_core/test_unique_string_capacity.py",
+      "id": 93322772,
+      "truncated": true,
+      "warningCount": 2
+    },
+    {
+      "errorCount": 0,
+      "filePath": "tests/test_core/test_unique_string_capacity.py",
+      "id": 93322822,
+      "truncated": true,
+      "warningCount": 16
+    },
+    {
+      "errorCount": 0,
+      "filePath": "tests/test_database/test_insert_actual_count.py",
+      "id": 93322770,
+      "truncated": true,
+      "warningCount": 1
+    },
+    {
+      "errorCount": 0,
+      "filePath": "tests/test_database/test_insert_actual_count.py",
+      "id": 93322823,
+      "truncated": true,
+      "warningCount": 3
+    },
+    {
+      "errorCount": 0,
+      "filePath": "tests/test_database/test_sqlalchemy_foreign_keys.py",
+      "id": 93322824,
+      "truncated": true,
+      "warningCount": 4
+    },
+    {
+      "errorCount": 0,
+      "filePath": "tests/test_database/test_sqlalchemy_lifecycle_regressions.py",
+      "id": 93322825,
+      "truncated": true,
+      "warningCount": 3
+    },
+    {
+      "errorCount": 0,
+      "filePath": "tests/test_database/test_sqlalchemy_transaction.py",
+      "id": 93322771,
+      "truncated": true,
+      "warningCount": 1
+    },
+    {
+      "errorCount": 0,
+      "filePath": "tests/test_database/test_sqlalchemy_transaction.py",
+      "id": 93322826,
+      "truncated": true,
+      "warningCount": 5
+    },
+    {
+      "errorCount": 0,
+      "filePath": "tests/test_database/test_sqlite_metadata_oracles.py",
+      "id": 93322827,
+      "truncated": true,
+      "warningCount": 5
+    },
+    {
+      "errorCount": 0,
+      "filePath": "tests/test_database/test_supported_schema_boundary.py",
+      "id": 93322828,
+      "truncated": true,
+      "warningCount": 1
+    },
+    {
+      "errorCount": 0,
+      "filePath": "tests/test_generators/_mixin.py",
+      "id": 93322768,
+      "truncated": true,
+      "warningCount": 2
+    },
+    {
+      "errorCount": 0,
+      "filePath": "tests/test_generators/_mixin.py",
+      "id": 93322915,
+      "truncated": true,
+      "warningCount": 3
+    },
+    {
+      "errorCount": 0,
+      "filePath": "tests/test_generators/test_base_provider.py",
+      "id": 93322769,
+      "truncated": true,
+      "warningCount": 2
+    },
+    {
+      "errorCount": 0,
+      "filePath": "tests/test_generators/test_base_provider.py",
+      "id": 93322916,
+      "truncated": true,
+      "warningCount": 2
+    },
+    {
+      "errorCount": 0,
+      "filePath": "tests/test_generators/test_bytes_media.py",
+      "id": 93322917,
+      "truncated": true,
+      "warningCount": 7
+    },
+    {
+      "errorCount": 0,
+      "filePath": "tests/test_generators/test_dispatch_exclude.py",
+      "id": 93322918,
+      "truncated": true,
+      "warningCount": 1
+    },
+    {
+      "errorCount": 0,
+      "filePath": "tests/test_generators/test_faker_provider.py",
+      "id": 93322766,
+      "truncated": true,
+      "warningCount": 1
+    },
+    {
+      "errorCount": 0,
+      "filePath": "tests/test_generators/test_generator_quality_regressions.py",
+      "id": 93322919,
+      "truncated": true,
+      "warningCount": 5
+    },
+    {
+      "errorCount": 0,
+      "filePath": "tests/test_generators/test_mimesis_provider.py",
+      "id": 93322767,
+      "truncated": true,
+      "warningCount": 1
+    },
+    {
+      "errorCount": 0,
+      "filePath": "tests/test_generators/test_mimesis_provider.py",
+      "id": 93322920,
+      "truncated": true,
+      "warningCount": 1
+    },
+    {
+      "errorCount": 0,
+      "filePath": "tests/test_generators/test_parameter_bounds_regressions.py",
+      "id": 93322921,
+      "truncated": true,
+      "warningCount": 8
+    },
+    {
+      "errorCount": 0,
+      "filePath": "tests/test_llm_backend_fixture.py",
+      "id": 93322728,
+      "truncated": true,
+      "warningCount": 2
+    },
+    {
+      "errorCount": 0,
+      "filePath": "tests/test_llm_backend_fixture.py",
+      "id": 93322795,
+      "truncated": true,
+      "warningCount": 1
+    },
+    {
+      "errorCount": 0,
+      "filePath": "tests/test_mapper.py",
+      "id": 93322796,
+      "truncated": true,
+      "warningCount": 3
+    },
+    {
+      "errorCount": 0,
+      "filePath": "tests/test_orchestrator.py",
+      "id": 93322797,
+      "truncated": true,
+      "warningCount": 1
+    },
+    {
+      "errorCount": 0,
+      "filePath": "tests/test_pg_fixture.py",
+      "id": 93322727,
+      "truncated": true,
+      "warningCount": 4
+    },
+    {
+      "errorCount": 0,
+      "filePath": "tests/test_pg_fixture.py",
+      "id": 93322798,
+      "truncated": true,
+      "warningCount": 22
+    },
+    {
+      "errorCount": 0,
+      "filePath": "tests/test_relation.py",
+      "id": 93322799,
+      "truncated": true,
+      "warningCount": 3
+    },
+    {
+      "errorCount": 0,
+      "filePath": "tests/test_showcase_example.py",
+      "id": 93322800,
+      "truncated": true,
+      "warningCount": 3
+    }
+  ],
+  "collection": {
+    "file_report_ids": 278,
+    "messages": 1995,
+    "python_errors": 8,
+    "warnings": 1987,
+    "eslint_errors_with_unavailable_details": 37,
+    "explanation": "All report IDs fetched using public CodeFlow GraphQL. ESLint report IDs return empty source and messages despite one error per file. All Python/jscpd counts match the commit."
+  }
+}

@@ -14,9 +14,10 @@ from urllib.parse import quote
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from tests.sqlite_helpers import sqlite_connection
 
 from sqlseed_web import workbench
-from sqlseed_web.state import ConnectionBusyError, UIState
+from sqlseed_web.state import Connection, ConnectionBusyError, UIState
 from sqlseed_web.workbench_runtime import WorkbenchError, _checked_saved, check_document, normalize_document
 from sqlseed_web.workbench_schema import inspect_connection
 from sqlseed_web.workbench_store import WorkspaceStore
@@ -28,8 +29,15 @@ def historical_key(kind: str, value: str) -> str:
     return hashlib.sha256(encoded.encode()).hexdigest()
 
 
-@pytest.fixture()
-def registry() -> Iterator[UIState]:
+def _assert_shared_write_admission(registry: UIState, one: Connection, two: Connection) -> None:
+    assert len({entry["group_key"] for entry in registry.list_connections()}) == 1
+    registry.create_job(one.conn_id, "workbench", "first")
+    with pytest.raises(ConnectionBusyError, match="此数据库"):
+        registry.create_job(two.conn_id, "workbench", "alias")
+
+
+@pytest.fixture(name="registry")
+def fixture_registry() -> Iterator[UIState]:
     state = UIState()
     yield state
     for job in state.recent_jobs():
@@ -38,8 +46,8 @@ def registry() -> Iterator[UIState]:
         state.close_connection(conn["conn_id"])
 
 
-@pytest.fixture()
-def database(tmp_path: Path) -> Path:
+@pytest.fixture(name="database")
+def fixture_database(tmp_path: Path) -> Path:
     path = tmp_path / "orders with spaces.db"
     # sqlite3's own context manager commits/rolls back but does not close the
     # handle. Release it before aliases rename the file on Windows.
@@ -79,16 +87,13 @@ def test_real_file_aliases_share_configuration_group_and_write_admission(
     assert original["target_key"] == historical_key("sqlite", str(database.resolve()))
     assert equivalent["target_key"] == original["target_key"]
     assert equivalent["target_label"] == str(database.resolve())
-    assert len({entry["group_key"] for entry in registry.list_connections()}) == 1
-    registry.create_job(one.conn_id, "workbench", "first")
-    with pytest.raises(ConnectionBusyError, match="此数据库"):
-        registry.create_job(two.conn_id, "workbench", "alias")
+    _assert_shared_write_admission(registry, one, two)
 
 
 @pytest.mark.parametrize("name", ["identity-shared", ":memory:"])
 def test_named_shared_memory_uses_one_identity_without_ambiguous_legacy_aliases(registry: UIState, name: str) -> None:
     uri = f"file:{name}?mode=memory&cache=shared"
-    with closing(sqlite3.connect(uri, uri=True)) as anchor, anchor:
+    with sqlite_connection(uri, uri=True) as anchor:
         anchor.executescript("CREATE TABLE items(value INTEGER); INSERT INTO items VALUES(7)")
         one = registry.add_connection(f"sqlite:///{uri}&uri=true", provider="base")
         two = registry.add_connection(f"sqlite:///{uri}&uri=true&timeout=10", provider="base")
@@ -97,10 +102,7 @@ def test_named_shared_memory_uses_one_identity_without_ambiguous_legacy_aliases(
         assert first["target_key"] == second["target_key"]
         assert "target_key_aliases" not in first
         assert "target_key_aliases" not in second
-        assert len({entry["group_key"] for entry in registry.list_connections()}) == 1
-        registry.create_job(one.conn_id, "workbench", "first")
-        with pytest.raises(ConnectionBusyError, match="此数据库"):
-            registry.create_job(two.conn_id, "workbench", "alias")
+        _assert_shared_write_admission(registry, one, two)
 
 
 @pytest.mark.parametrize("target", [":memory:", "sqlite:///:memory:", "sqlite:///file:private?mode=memory&uri=true"])
@@ -201,10 +203,8 @@ def test_identical_schema_in_another_database_does_not_authorize_a_saved_draft(
 ) -> None:
     other = tmp_path / "other.db"
     with (
-        closing(sqlite3.connect(database)) as source,
-        source,
-        closing(sqlite3.connect(other)) as destination,
-        destination,
+        sqlite_connection(database) as source,
+        sqlite_connection(other) as destination,
     ):
         source.backup(destination)
     one = registry.add_connection(str(database), provider="base")
@@ -235,7 +235,7 @@ def test_literal_file_prefix_draft_is_never_authorized_for_a_different_uri_datab
     # An absolute path creates the literal filename on both SQLite builds, as
     # SQLAlchemy also does for the non-URI connection below.
     for filename, marker in (("file:catalog.db", 7), ("catalog.db", 99)):
-        with closing(sqlite3.connect(tmp_path / filename, uri=False)) as db, db:
+        with sqlite_connection(tmp_path / filename, uri=False) as db:
             db.execute("CREATE TABLE items(id INTEGER PRIMARY KEY, value INTEGER NOT NULL)")
             db.execute("INSERT INTO items VALUES(1, ?)", (marker,))
     literal = registry.add_connection("sqlite:///file:catalog.db?uri=false", provider="base")
@@ -271,10 +271,8 @@ def test_custom_vfs_is_rejected_before_registering_an_isolated_database_as_the_s
     vfs_uri = ordinary_uri + "&vfs=memdb"
     # Real SQLite verifies the same name with memdb VFS addresses another database.
     with (
-        closing(sqlite3.connect(ordinary_uri, uri=True)) as ordinary,
-        ordinary,
-        closing(sqlite3.connect(vfs_uri, uri=True)) as isolated,
-        isolated,
+        sqlite_connection(ordinary_uri, uri=True) as ordinary,
+        sqlite_connection(vfs_uri, uri=True) as isolated,
     ):
         if memory:
             ordinary.executescript("CREATE TABLE items(value INTEGER); INSERT INTO items VALUES(7)")
@@ -294,10 +292,8 @@ def test_uri_nul_truncation_cannot_disguise_an_isolated_memory_database_as_a_dis
 ) -> None:
     sqlite_uri = f"file:{quote(str(database))}?{query}"
     with (
-        closing(sqlite3.connect(database)) as disk,
-        disk,
-        closing(sqlite3.connect(sqlite_uri, uri=True)) as isolated,
-        isolated,
+        sqlite_connection(database) as disk,
+        sqlite_connection(sqlite_uri, uri=True) as isolated,
     ):
         assert disk.execute("SELECT value FROM items").fetchall() == [(7,)]
         assert isolated.execute("SELECT name FROM sqlite_schema WHERE name='items'").fetchall() == []
@@ -319,11 +315,11 @@ def test_raw_uri_controls_cannot_silently_change_the_database_filename(
     ordinary = tmp_path / "catalog.db"
     different = tmp_path / f"ca{control}talog.db"
     for path, marker in ((ordinary, 7), (different, 99)):
-        with closing(sqlite3.connect(path)) as db, db:
+        with sqlite_connection(path) as db:
             db.execute("CREATE TABLE items(value INTEGER)")
             db.execute("INSERT INTO items VALUES(?)", (marker,))
     raw_uri = f"file:{different}"
-    with closing(sqlite3.connect(raw_uri, uri=True)) as raw, raw:
+    with sqlite_connection(raw_uri, uri=True) as raw:
         assert raw.execute("SELECT value FROM items").fetchall() == [(99,)]
     with pytest.raises(ValueError, match="控制字符"):
         registry.add_connection(f"sqlite:///{raw_uri}?uri=true", provider="base")
@@ -337,10 +333,8 @@ def test_raw_uri_controls_cannot_silently_change_the_database_filename(
 def test_non_utf8_memory_uri_names_are_rejected_instead_of_replaced_by_one_identity(registry: UIState) -> None:
     uris = [f"file:identity-{name}?mode=memory&cache=shared" for name in ("%FF", "%FE")]
     with (
-        closing(sqlite3.connect(uris[0], uri=True)) as first,
-        first,
-        closing(sqlite3.connect(uris[1], uri=True)) as second,
-        second,
+        sqlite_connection(uris[0], uri=True) as first,
+        sqlite_connection(uris[1], uri=True) as second,
     ):
         first.executescript("CREATE TABLE items(value INTEGER); INSERT INTO items VALUES(7)")
         second.executescript("CREATE TABLE items(value INTEGER); INSERT INTO items VALUES(99)")

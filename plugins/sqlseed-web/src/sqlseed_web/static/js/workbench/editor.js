@@ -587,19 +587,22 @@ export function createRuleEditor({table, column, rule, baseline, catalog, draft,
     el.append(advanced);
   }
 
+  function preserveInvalidField(field) {
+    const input = [...el.querySelectorAll('[data-field]')].find(control => control.getAttribute('data-field') === field);
+    if (input && ['INPUT', 'TEXTAREA'].includes(input.tagName)) restoredValues[field] = input.value;
+  }
+
   function preserveDatePresetInvalid() {
     for (const field of errors.keys()) {
       if (['start_date', 'end_date', 'start_year', 'end_year'].includes(field)) continue;
-      const input = [...el.querySelectorAll('[data-field]')].find(control => control.getAttribute('data-field') === field);
-      if (input && ['INPUT', 'TEXTAREA'].includes(input.tagName)) restoredValues[field] = input.value;
+      preserveInvalidField(field);
     }
   }
 
   function preserveSharedInvalid() {
     for (const field of ['constraints', 'null_ratio', 'provider']) {
       if (!errors.has(field)) continue;
-      const input = [...el.querySelectorAll('[data-field]')].find(control => control.getAttribute('data-field') === field);
-      if (input && ['INPUT', 'TEXTAREA'].includes(input.tagName)) restoredValues[field] = input.value;
+      preserveInvalidField(field);
     }
   }
 

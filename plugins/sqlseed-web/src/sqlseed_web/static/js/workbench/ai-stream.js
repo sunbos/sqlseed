@@ -38,7 +38,7 @@ export async function requestAISuggestions(path,request,{signal,onProgress}={}){
     throw invalid();
   }
   try{
-    while(true){
+    for(;;){
       checkAbort();const {value,done}=await reader.read();checkAbort();
       buffer+=done?decoder.decode():decoder.decode(value,{stream:true});
       const lines=buffer.split('\n');buffer=lines.pop();

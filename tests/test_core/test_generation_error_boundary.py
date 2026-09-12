@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import sqlite3
-from contextlib import closing
 from typing import TYPE_CHECKING
 
 import pytest
@@ -11,6 +9,8 @@ import pytest
 from sqlseed.config.models import ColumnConfig
 from sqlseed.core.orchestrator import DataOrchestrator
 from sqlseed.plugins.hookspecs import hookimpl
+from tests.assertions import assert_empty
+from tests.sqlite_helpers import sqlite_connection
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -22,7 +22,7 @@ def _pragmas(orch: DataOrchestrator) -> list[dict[str, object]]:
 
 def test_explicit_null_self_reference_preserves_check_and_old_rows(tmp_path: Path) -> None:
     path = tmp_path / "post_fill_failure.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.executescript(
             "CREATE TABLE nodes (id INTEGER PRIMARY KEY, parent_id INTEGER REFERENCES nodes(id), "
             "label TEXT NOT NULL, CHECK(parent_id IS NULL));"
@@ -42,19 +42,19 @@ def test_explicit_null_self_reference_preserves_check_and_old_rows(tmp_path: Pat
                 ColumnConfig(name="label", generator="choice", params={"choices": ["new"]}),
             ],
         )
-        assert result.errors == []
-        assert orch.query("SELECT id FROM nodes WHERE parent_id IS NOT NULL") == []
+        assert_empty(result.errors, list)
+        assert_empty(orch.query("SELECT id FROM nodes WHERE parent_id IS NOT NULL"), list)
         assert result.count == 10
         assert result.batch_count == 2
         assert orch.get_row_count("nodes") == 12
         assert orch.query("SELECT * FROM nodes WHERE id <= 2 ORDER BY id") == old_rows
-        assert orch.query("PRAGMA foreign_key_check") == []
+        assert_empty(orch.query("PRAGMA foreign_key_check"), list)
         assert _pragmas(orch) == before
 
 
 def test_derived_index_error_reports_failure_and_preserves_committed_batch(tmp_path: Path) -> None:
     path = tmp_path / "expression_failure.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.execute("CREATE TABLE items (id INTEGER PRIMARY KEY, token TEXT, result TEXT)")
     with DataOrchestrator(str(path), provider_name="base") as orch:
         before = _pragmas(orch)
@@ -89,7 +89,7 @@ def test_process_control_exceptions_propagate_and_restore_settings(
             raise exception("stop generation")
 
     path = tmp_path / "interrupted.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.execute("CREATE TABLE items (id INTEGER PRIMARY KEY)")
     with DataOrchestrator(str(path), provider_name="base") as orch:
         before = _pragmas(orch)

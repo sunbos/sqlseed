@@ -5,11 +5,13 @@ from sqlseed.generators.mimesis_provider import MimesisProvider
 from ._mixin import (
     IdentityProviderTestMixin,
     JsonSchemaTestMixin,
+    NativePhoneProviderTestMixin,
     TemporalProviderTestMixin,
 )
 
 
 class TestMimesisProvider(
+    NativePhoneProviderTestMixin,
     JsonSchemaTestMixin,
     IdentityProviderTestMixin,
     TemporalProviderTestMixin,
@@ -25,18 +27,6 @@ class TestMimesisProvider(
         result = self.provider.generate("word")
         assert isinstance(result, str)
         assert len(result) > 0
-
-    def test_phone_default_follows_locale(self) -> None:
-        """默认 phone 按 locale 生成真实号码（非空字符串，含数字）。
-
-        默认 mask=None 走 mimesis 原生 phone_number()，按 locale 输出真实
-        国家格式，不强制统一，保证业务真实性。
-        """
-        for _ in range(20):
-            phone = self.provider.generate("phone")
-            assert isinstance(phone, str)
-            assert len(phone) > 0
-            assert any(c.isdigit() for c in phone)
 
     def test_phone_custom_mask(self) -> None:
         """显式传 mask 参数时按 mask 生成（统一格式的可控覆盖）。"""

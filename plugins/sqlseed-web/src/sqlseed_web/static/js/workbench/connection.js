@@ -252,5 +252,5 @@ function targetDescription(target) {
 function connectionError(message) {
   return String(message || '连接失败，请检查目标及连接参数。')
     .replace(/([\w+.-]+:\/\/)[^\s/@]+@/g, '$1[credentials]@')
-    .replace(/((?:password|sslpassword|token|secret|api_key)=)[^&\s'"\)]+/gi, '$1[redacted]');
+    .replace(/((?:password|sslpassword|token|secret|api_key)=)[^&\s'")]+/gi, '$1[redacted]');
 }

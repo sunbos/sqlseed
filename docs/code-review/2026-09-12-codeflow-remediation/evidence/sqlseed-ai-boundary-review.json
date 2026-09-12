@@ -1,0 +1,229 @@
+{
+  "source": "/tmp/sqlseed-codeflow-lint-current.json",
+  "scope": "AI source outside auto_heal",
+  "broad_count": 4,
+  "records": [
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/analyzer/_caller.py",
+      "line": 108,
+      "function": "LLMCallerMixin._log_llm_interaction",
+      "rule": "broad-exception-caught",
+      "decision": "保留辅助日志失败边界",
+      "reason": "docstring承诺日志禁用或失败返回None。缓存目录创建、JSON编码、文件写入属于附属诊断，任何普通Exception均不得遮蔽已取得的LLM结果或原始业务失败。收窄为某几个I/O异常会缩减这个best-effort合同。BaseException仍自然传播。",
+      "evidence": [
+        "plugins/sqlseed-ai/src/sqlseed_ai/analyzer/_caller.py:64 docstring及try整体",
+        "未找到专门覆盖非I/O日志失败的现有测试；不把此项宣称为测试已覆盖。"
+      ],
+      "fragment": "            )\n            return log_path\n        except Exception as e:\n            logger.warning(\"Failed to log LLM interaction\", error=str(e))\n            return None\n",
+      "sha256": "2ac355b05fa746da74b25f65ea0c926375e10280de630f0990fd95d9c0398ebc"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/refiner.py",
+      "line": 616,
+      "function": "AiConfigRefiner._validate_preview_insert",
+      "rule": "broad-exception-caught",
+      "decision": "保留生成预验的统一错误汇总边界",
+      "reason": "动态SQLAlchemy reflection、Python VARCHAR值转换、dialect/DBAPI bind和INSERT均可能失败；非FK失败统一summarize_error供下一次提示，FK错误按既有规则容忍。transaction.rollback位于finally，普通Exception汇总与BaseException传播/回滚边界分别保留。缩窄捕获会令部分候选预验直接中断refinement而不再产生ErrorSummary。",
+      "evidence": [
+        "plugins/sqlseed-ai/src/sqlseed_ai/AGENTS.md:Refiner使用live schema与preview后errors汇总失败",
+        "plugins/sqlseed-ai/tests/test_refiner.py:TestVarCharLengthValidation",
+        "plugins/sqlseed-ai/tests/test_refiner.py:358 test_date_dry_run_uses_explicit_sqlite_binding，断言实际0写入",
+        "/tmp/sqlseed-ai-outside-diff.py:5个真实SQLite refiner差分，全部检查0持久化行"
+      ],
+      "fragment": "                finally:\n                    transaction.rollback()\n        except Exception as e:\n            err_msg = str(e).lower()\n            is_fk_error = False\n",
+      "sha256": "cdcbd01b6b4dbb74acf11ec7acc45abf927d3edb03c6232172657304770970fa"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/refiner.py",
+      "line": 694,
+      "function": "AiConfigRefiner._check_computed_column_assignments",
+      "rule": "broad-exception-caught",
+      "decision": "保留辅助computed预检的reflection降级",
+      "reason": "代码明确规定reflection失败跳过此预检并依靠后续preview验证；此处不是最终成功判定。SQLAlchemy/dialect反射异常统一回落，收窄会把可降级的预检错误变为入口失败。只捕获Exception，不吞进程控制异常。",
+      "evidence": [
+        "plugins/sqlseed-ai/src/sqlseed_ai/refiner.py:695 Reflection failed注释",
+        "plugins/sqlseed-ai/tests/test_refiner.py:TestComputedColumnValidation两项真实generated-column测试",
+        "无专门证明所有自定义dialect异常的现有测试；边界理由来自明确实现合同。"
+      ],
+      "fragment": "            reflected = Table(table_name, metadata, autoload_with=engine)\n            computed_cols = {col.name for col in reflected.columns if getattr(col, \"computed\", None) is not None}\n        except Exception:\n            # Reflection failed — skip this pre-check and rely on preview-based validation.\n            return None\n",
+      "sha256": "bdf2b65658393746d19af1a74525b0ad26666ef25e4c312c4ab137194ab18b6d"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/repair/executor.py",
+      "line": 92,
+      "function": "RepairExecutor.repair",
+      "rule": "broad-exception-caught",
+      "decision": "保留可注入RepairFn执行边界",
+      "reason": "__init__(strategies:dict[str,RepairFn]|None)允许外部纯函数；其异常种类不能由executor穷举。普通执行/返回配置合并失败记录为unfixable并继续其它violation，不误计applied_fixes。收窄到内建策略当前异常会改变扩展策略合同。BaseException仍传播。",
+      "evidence": [
+        "plugins/sqlseed-ai/src/sqlseed_ai/repair/executor.py:31 __init__可注入strategies",
+        "plugins/sqlseed-ai/src/sqlseed_ai/repair/executor.py:60-98 执行及unfixable记录",
+        "plugins/sqlseed-ai/tests/test_repair_executor.py:test_executor_skips_unknown_strategy",
+        "plugins/sqlseed-ai/tests/test_repair_executor.py:test_executor_does_not_record_noop_fix_as_applied"
+      ],
+      "fragment": "                            )\n                        )\n                    except Exception as e:\n                        logger.warning(\n                            \"Repair strategy failed\",\n                            strategy=strategy_name,",
+      "sha256": "78cbd4a8a4b3b76790e0473aea84cbeed222e3f2231cf8407f7a81ccbbf768d2"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/healer/level1_subgraph_healer.py",
+      "line": 150,
+      "function": "Level1SubgraphHealer.heal",
+      "rule": "try-except-raise",
+      "decision": "保留OSError优先handler",
+      "reason": "合法class MixedNetworkError(OSError, RuntimeError)同时属于网络与recoverable类型；原顺序传播网络异常，删除首handler则会进入recoverable并返回失败Result，违反文档网络传播合同。LLMClient为可注入Protocol，异常不只限SDK内建类。",
+      "evidence": [
+        "/tmp/sqlseed-ai-outside-diff.py:network-routing，共3 Levels×7异常=21差分；包含MixedNetworkError",
+        "plugins/sqlseed-ai/tests/healer/test_failure_classifier.py:test_classify_network_timeout/test_classify_network_connection",
+        "原handler已保留，未添加注释或抑制。"
+      ],
+      "fragment": "                max_tokens=self._max_response_tokens,\n            )\n        except OSError:\n            # Network errors propagate (Section 5.3) — do not degrade.\n            raise\n        except (RuntimeError, AttributeError, ValueError) as exc:",
+      "sha256": "4067cf8a7575c23a6a48bec13653d16cacb1ef819f5707c42476cd2d02f251f5"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/healer/level2_column_healer.py",
+      "line": 274,
+      "function": "Level2ColumnHealer.heal_column",
+      "rule": "try-except-raise",
+      "decision": "保留OSError优先handler",
+      "reason": "合法class MixedNetworkError(OSError, RuntimeError)同时属于网络与recoverable类型；原顺序传播网络异常，删除首handler则会进入recoverable并返回失败Result，违反文档网络传播合同。LLMClient为可注入Protocol，异常不只限SDK内建类。",
+      "evidence": [
+        "/tmp/sqlseed-ai-outside-diff.py:network-routing，共3 Levels×7异常=21差分；包含MixedNetworkError",
+        "plugins/sqlseed-ai/tests/healer/test_failure_classifier.py:test_classify_network_timeout/test_classify_network_connection",
+        "原handler已保留，未添加注释或抑制。"
+      ],
+      "fragment": "                max_tokens=self._max_response_tokens,\n            )\n        except OSError:\n            raise\n        except (RuntimeError, AttributeError, ValueError) as exc:\n            logger.warning(\"Level 2 LLM call failed\", column=column_name, error=str(exc))",
+      "sha256": "ceefdc9a58aa0cc1336b89a5304ade68dd11579c044a36ab1dee649135b80c79"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/healer/level3_compact_healer.py",
+      "line": 123,
+      "function": "Level3CompactHealer.heal_compact",
+      "rule": "try-except-raise",
+      "decision": "保留OSError优先handler",
+      "reason": "合法class MixedNetworkError(OSError, RuntimeError)同时属于网络与recoverable类型；原顺序传播网络异常，删除首handler则会进入recoverable并返回失败Result，违反文档网络传播合同。LLMClient为可注入Protocol，异常不只限SDK内建类。",
+      "evidence": [
+        "/tmp/sqlseed-ai-outside-diff.py:network-routing，共3 Levels×7异常=21差分；包含MixedNetworkError",
+        "plugins/sqlseed-ai/tests/healer/test_failure_classifier.py:test_classify_network_timeout/test_classify_network_connection",
+        "原handler已保留，未添加注释或抑制。"
+      ],
+      "fragment": "                max_tokens=self._max_response_tokens,\n            )\n        except OSError:\n            raise\n        except (RuntimeError, AttributeError, ValueError) as exc:\n            logger.warning(\"Level 3 LLM call failed\", mode=mode, error=str(exc))",
+      "sha256": "eec2846f4148a327e365c318c7bf5151aa08cbdc12e20f823613c6b9c6279b65"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/repair/strategies.py",
+      "line": 569,
+      "function": "_coerce_to_boolean_enum",
+      "rule": "use-set-for-membership",
+      "decision": "保留任意输入的tuple membership",
+      "reason": "ViolationReport.fix_params接收Any；check_values=[[1]]在原tuple比较中返回False并保持原col，换set会TypeError。不能为建议引入新的非法输入异常。",
+      "fragment": "        return col\n    # Boolean int: {0, 1}\n    if all(val in (0, 1) for val in check_values):\n        return {**col, \"generator\": \"boolean\", \"params\": {}}\n    # Boolean string: {'true', 'false'} (any case)\n    lower_values = [str(val).lower() for val in check_values]",
+      "sha256": "b84e12de5a6bd979e9e4b546ad1e9d59b6c117cf7e0fe9a5b95b050cdca3613b"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/validator/single_column.py",
+      "line": 256,
+      "function": "SingleColumnValidator._check_constraint_compliance",
+      "rule": "use-set-for-membership",
+      "decision": "保留未建模generator输入的tuple membership",
+      "reason": "col是dict[str,Any]，gen=[]且存在数值CHECK时原tuple比较为False并返回None，换set将TypeError。该非法不可hash输入已在256个single-check差分中覆盖。",
+      "fragment": "\n        bounds = _extract_range_bounds(check_exprs, col_name)\n        if bounds and gen in (\"integer\", \"random_int\", \"float\", \"random_float\"):\n            params = col.get(\"params\") or {}\n            cur_min = params.get(\"min_value\")\n            cur_max = params.get(\"max_value\")",
+      "sha256": "363d658c08399a537af408c254f1e2ff77a0abc2c57be0000f920df022b1c232"
+    }
+  ],
+  "retained_jscpd": [
+    {
+      "format": "python",
+      "lines": 11,
+      "fragment": ",\n                error=exc,\n                elapsed_seconds=time.monotonic() - start,\n                prompt_tokens=estimated,\n            )\n\n        elapsed = time.monotonic() - start\n        content = resp.choices[0].message.content or \"\"\n\n        if not content.strip():\n            return Level2Result",
+      "tokens": 0,
+      "firstFile": {
+        "name": "plugins/sqlseed-ai/src/sqlseed_ai/healer/level2_column_healer.py",
+        "start": 280,
+        "end": 290,
+        "startLoc": {
+          "line": 280,
+          "column": 12,
+          "position": 1938
+        },
+        "endLoc": {
+          "line": 290,
+          "column": 13,
+          "position": 2021
+        }
+      },
+      "secondFile": {
+        "name": "plugins/sqlseed-ai/src/sqlseed_ai/healer/level3_compact_healer.py",
+        "start": 129,
+        "end": 139,
+        "startLoc": {
+          "line": 129,
+          "column": 5,
+          "position": 907
+        },
+        "endLoc": {
+          "line": 139,
+          "column": 13,
+          "position": 990
+        }
+      },
+      "reason": "片段横跨不同Result构造的尾部、计时与响应读取；Level2.column和Level3.mode/json_repaired结果契约不同，合并会引入泛型结果工厂而不共享业务算法。",
+      "sha256": "409e1e8f75e42dbba65f33fb05e905b9b572f4982adb9cf1d11de0bfa4e6db9b"
+    },
+    {
+      "format": "python",
+      "lines": 10,
+      "fragment": ")\n@click.option(\"--model\", \"-m\", default=None, help=\"AI model name (default: auto-select based on backend)\")\n@click.option(\"--api-key\", envvar=\"SQLSEED_AI_API_KEY\", default=None, help=\"AI API key (env: SQLSEED_AI_API_KEY)\")\n@click.option(\n    \"--base-url\",\n    envvar=\"SQLSEED_AI_BASE_URL\",\n    default=None,\n    help=\"AI API base URL (env: SQLSEED_AI_BASE_URL)\",\n)\n@click.option(\"--timeout\"",
+      "tokens": 0,
+      "firstFile": {
+        "name": "plugins/sqlseed-ai/src/sqlseed_ai/cli/ai_commands.py",
+        "start": 473,
+        "end": 482,
+        "startLoc": {
+          "line": 473,
+          "column": 38,
+          "position": 3716
+        },
+        "endLoc": {
+          "line": 482,
+          "column": 12,
+          "position": 3793
+        }
+      },
+      "secondFile": {
+        "name": "plugins/sqlseed-ai/src/sqlseed_ai/cli/ai_commands.py",
+        "start": 348,
+        "end": 357,
+        "startLoc": {
+          "line": 348,
+          "column": 54,
+          "position": 2747
+        },
+        "endLoc": {
+          "line": 357,
+          "column": 16,
+          "position": 2824
+        }
+      },
+      "reason": "相同Click选项声明属于CLI公开契约；--help三命令与快照完全一致，不改签名或参数顺序消克隆。",
+      "sha256": "eabec3e43a023285df78230290069120c89a9b3acabc3176eb71cf937c7feab0"
+    }
+  ],
+  "verification": {
+    "tarjan": 4166,
+    "tarjan-invalid": 5,
+    "failure-classifier": 340,
+    "recursive-forbidden": 88,
+    "semantic-upgrade": 360,
+    "date-derive": 168,
+    "self-reference": 16,
+    "composite-unique": 45,
+    "single-check": 256,
+    "column-context": 5,
+    "context-enrichment": 40,
+    "registry-load": 36,
+    "candidate-contract": 140,
+    "shadow-fk": 30,
+    "refiner": 5,
+    "network-routing": 21
+  }
+}
