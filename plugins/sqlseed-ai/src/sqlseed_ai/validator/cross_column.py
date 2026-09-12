@@ -8,12 +8,9 @@ Spec reference: Section 4.4.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from sqlseed_ai.validator.models import ConstraintType, ViolationReport
-
-if TYPE_CHECKING:
-    from sqlseed_ai.validator.schema_snapshot import SchemaSnapshot
 
 
 class CrossColumnValidator:
@@ -28,7 +25,6 @@ class CrossColumnValidator:
         self,
         table_config: dict[str, Any],
         table_schema: dict[str, Any],
-        snapshot: SchemaSnapshot,
     ) -> list[ViolationReport]:
         """Return all cross-column violations for the given table config."""
         violations: list[ViolationReport] = []

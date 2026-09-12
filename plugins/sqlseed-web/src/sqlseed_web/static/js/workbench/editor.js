@@ -184,6 +184,11 @@ export function createRuleEditor({
     }
     return '此列没有数据库默认值，省略后写入 NULL（空值）。需要真实内容时，请切换为生成器。';
   }
+  function applyDerivedMode() {
+    delete current.generator;
+    delete current.params;
+    withoutNative(current);
+  }
   function applyMode() {
     if (mode === 'derived') {
       applyDerivedMode();
@@ -198,11 +203,6 @@ export function createRuleEditor({
         ...current.constraints,
         unique: true
       };
-    }
-    function applyDerivedMode() {
-      delete current.generator;
-      delete current.params;
-      withoutNative(current);
     }
     function applyGeneratedMode() {
       delete current.derive_from;
@@ -291,30 +291,32 @@ export function createRuleEditor({
     return control.el;
   }
   function textControl(field, value, validate, apply, {
-    multiline = false,
-    numeric = false,
-    placeholder = '',
-    type,
-    disabled = false
+    type = 'text',
+    ...options
   } = {}) {
-    function textInputAttributes() {
-      if (multiline) {
-        return {
-          rows: '4',
-          spellcheck: 'false'
-        };
-      } else {
-        return {
-          type: type || (numeric ? 'number' : 'text')
-        };
-      }
-    }
-    const control = h(multiline ? 'textarea' : 'input', {
+    return validatedControl('input', field, value, validate, apply, {
+      type,
+      ...options
+    });
+  }
+  function multilineControl(field, value, validate, apply, options = {}) {
+    return validatedControl('textarea', field, value, validate, apply, {
+      rows: '4',
+      spellcheck: 'false',
+      ...options
+    });
+  }
+  function validatedControl(tagName, field, value, validate, apply, {
+    disabled = false,
+    placeholder = '',
+    ...attributes
+  } = {}) {
+    const control = h(tagName, {
       'data-field': field,
       disabled,
       value: Object.hasOwn(restoredValues, field) ? restoredValues[field] : value ?? '',
       placeholder,
-      ...textInputAttributes()
+      ...attributes
     });
     delete restoredValues[field];
     const check = commit => {
@@ -669,11 +671,14 @@ export function createRuleEditor({
     } else {
       defaultHint = `默认：${JSON.stringify(parameter.default)}`;
     }
-    return textControl(parameter.name, raw, text => parseParam(parameter, text), write, {
-      multiline: json,
-      numeric: ['integer', 'number'].includes(parameter.type),
+    const createControl = json ? multilineControl : textControl;
+    const options = {
       placeholder: defaultHint
-    });
+    };
+    if (!json) {
+      options.type = ['integer', 'number'].includes(parameter.type) ? 'number' : 'text';
+    }
+    return createControl(parameter.name, raw, text => parseParam(parameter, text), write, options);
   }
   function renderSource() {
     const entry = entries.get(current.generator);
@@ -866,15 +871,13 @@ export function createRuleEditor({
     }, parsed => {
       current.derive_from = parsed;
     }), '多个字段以英文逗号分隔。'));
-    el.append(row('派生表达式', textControl('expression', current.expression || '', raw => {
+    el.append(row('派生表达式', multilineControl('expression', current.expression || '', raw => {
       if (!raw.trim()) {
         throw new Error('请填写派生表达式。');
       }
       return raw;
     }, parsed => {
       current.expression = parsed;
-    }, {
-      multiline: true
     }), '表达式可用 value 或 row["字段名"]；完整语法由检查配置验证。'));
   }
   function renderForeignKey() {
@@ -1006,8 +1009,7 @@ export function createRuleEditor({
         type: 'object',
         required: false
       };
-      const input = textControl(field, value == null ? '' : JSON.stringify(value, null, 2), raw => parseParam(parameter, raw), update, {
-        multiline: true,
+      const input = multilineControl(field, value == null ? '' : JSON.stringify(value, null, 2), raw => parseParam(parameter, raw), update, {
         placeholder: 'JSON 对象；留空使用默认值'
       });
       advanced.append(row(label, input));

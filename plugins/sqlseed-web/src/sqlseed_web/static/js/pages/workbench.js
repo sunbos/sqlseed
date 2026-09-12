@@ -413,25 +413,25 @@ export async function mount() {
       session.model.saved = null;
     }
   }
-  function adoptSchema(connId, schema) {
-    session = sessions.get(connId);
-    if (!session) {
-      session = new WorkbenchSession(connId, schema, send);
-      sessions.set(connId, session);
-    } else {
-      if (session.model.schema.schema_hash !== schema.schema_hash) {
-        session.model.touch();
-      }
-      session.model.schema = schema;
+}
+function adoptSchema(connId, schema) {
+  session = sessions.get(connId);
+  if (!session) {
+    session = new WorkbenchSession(connId, schema, send);
+    sessions.set(connId, session);
+  } else {
+    if (session.model.schema.schema_hash !== schema.schema_hash) {
+      session.model.touch();
     }
+    session.model.schema = schema;
   }
-  function restorePreviewReturn(previewOrigin) {
-    if (previewOrigin?.scope === 'current' && session.model.view.page === 'preview' && session.model.view.table === previewOrigin.table) {
-      previewReturns.set(session.model, {
-        table: previewOrigin.table,
-        view: previewOrigin.view
-      });
-    }
+}
+function restorePreviewReturn(previewOrigin) {
+  if (previewOrigin?.scope === 'current' && session.model.view.page === 'preview' && session.model.view.table === previewOrigin.table) {
+    previewReturns.set(session.model, {
+      table: previewOrigin.table,
+      view: previewOrigin.view
+    });
   }
 }
 export function unmount() {
@@ -2407,15 +2407,15 @@ async function configSettings() {
       } else {
         return null;
       }
-      function providerUnavailableMessage() {
-        if (providers.statuses?.[draft.provider]?.status === 'import_error') {
-          return `${description.title} 已安装但加载异常，暂不能应用。`;
-        }
-        if (draft.provider === 'mimesis') {
-          return '当前环境未安装 Mimesis，暂不能应用。';
-        }
-        return '当前 Web 服务未提供此引擎，请检查安装环境。';
+    }
+    function providerUnavailableMessage() {
+      if (providers.statuses?.[draft.provider]?.status === 'import_error') {
+        return `${description.title} 已安装但加载异常，暂不能应用。`;
       }
+      if (draft.provider === 'mimesis') {
+        return '当前环境未安装 Mimesis，暂不能应用。';
+      }
+      return '当前 Web 服务未提供此引擎，请检查安装环境。';
     }
     function providerManagementHint() {
       if (!installed && draft.provider === 'mimesis') {

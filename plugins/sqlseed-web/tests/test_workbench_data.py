@@ -98,8 +98,9 @@ def test_reads_bounded_current_records_in_primary_key_order(data_client: Any, da
     assert result["order_by"] == ["id"]
     assert result["table"] == "records"
     assert result["dialect"] == "sqlite"
-    expected_target = _target_identity(conn)
-    assert (result["target_key"], result["target_label"]) == expected_target
+    expected_key, expected_label = _target_identity(conn)
+    assert result["target_key"] == expected_key
+    assert result["target_label"] == expected_label
     assert datetime.fromisoformat(result["read_at"]).tzinfo is not None
     assert [column["name"] for column in result["columns"]] == ["id", "value", "optional", "payload"]
     last = client.get(endpoint(conn), params={"limit": 2, "offset": 3}).json()

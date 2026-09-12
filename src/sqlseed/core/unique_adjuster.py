@@ -24,6 +24,28 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
+def _declared_string_limits(col_name: str, column_infos: list[ColumnInfo] | None) -> list[int]:
+    """Read enforced CHAR/VARCHAR widths independently of CHECK expressions."""
+    upper_bounds: list[int] = []
+    for column in column_infos or []:
+        if (
+            column.name == col_name
+            and (match := re.fullmatch(r"(?:VAR)?CHAR\((\d+)\)", column.type.upper())) is not None
+        ):
+            upper_bounds.append(int(match[1]))
+    return upper_bounds
+
+
+def _integer_check_endpoints(parsed: ParsedCheck) -> tuple[int | None, int | None]:
+    """Round inclusive/exclusive numeric endpoints onto the integer grid."""
+    lower = upper = None
+    if parsed.min_value is not None:
+        lower = math.floor(parsed.min_value) + 1 if parsed.min_exclusive else math.ceil(parsed.min_value)
+    if parsed.max_value is not None:
+        upper = math.ceil(parsed.max_value) - 1 if parsed.max_exclusive else math.floor(parsed.max_value)
+    return lower, upper
+
+
 class UniqueAdjuster:
     """Uniqueness adjuster: adjusts generator spec parameters for unique constraint columns.
 
@@ -236,7 +258,7 @@ class UniqueAdjuster:
 
         lower_bounds: list[int] = []
         upper_bounds: list[int] = []
-        upper_bounds.extend(UniqueAdjuster._declared_string_limits(col_name, column_infos))
+        upper_bounds.extend(_declared_string_limits(col_name, column_infos))
         for check in check_constraints or []:
             parsed = CheckConstraintParser.parse(col_name, check.expression)
             if parsed is None or parsed.kind != "length_range":
@@ -248,18 +270,6 @@ class UniqueAdjuster:
         if not lower_bounds and not upper_bounds:
             return None
         return max(lower_bounds, default=None), min(upper_bounds, default=None)
-
-    @staticmethod
-    def _declared_string_limits(col_name: str, column_infos: list[ColumnInfo] | None) -> list[int]:
-        """Read enforced CHAR/VARCHAR widths independently of CHECK expressions."""
-        upper_bounds: list[int] = []
-        for column in column_infos or []:
-            if (
-                column.name == col_name
-                and (match := re.fullmatch(r"(?:VAR)?CHAR\((\d+)\)", column.type.upper())) is not None
-            ):
-                upper_bounds.append(int(match[1]))
-        return upper_bounds
 
     def _adjust_integer(
         self,
@@ -327,7 +337,7 @@ class UniqueAdjuster:
             parsed = CheckConstraintParser.parse(col_name, chk.expression)
             if parsed is None or parsed.kind != "range":
                 continue
-            lower, upper = UniqueAdjuster._integer_check_endpoints(parsed)
+            lower, upper = _integer_check_endpoints(parsed)
             if lower is not None:
                 lower_bounds.append(lower)
             if upper is not None:
@@ -337,16 +347,6 @@ class UniqueAdjuster:
         if cmin is None and cmax is None:
             return None
         return cmin, cmax
-
-    @staticmethod
-    def _integer_check_endpoints(parsed: ParsedCheck) -> tuple[int | None, int | None]:
-        """Round inclusive/exclusive numeric endpoints onto the integer grid."""
-        lower = upper = None
-        if parsed.min_value is not None:
-            lower = math.floor(parsed.min_value) + 1 if parsed.min_exclusive else math.ceil(parsed.min_value)
-        if parsed.max_value is not None:
-            upper = math.ceil(parsed.max_value) - 1 if parsed.max_exclusive else math.floor(parsed.max_value)
-        return lower, upper
 
     def _adjust_choice(
         self,

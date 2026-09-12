@@ -25,6 +25,65 @@ export function createDropdown({
   label,
   labelledBy
 }) {
+  function navigateOptions(e, expanded, move, printable) {
+    const enabled = enabledIndices();
+    const position = enabled.indexOf(state.active);
+    if (e.key === 'Home' || !expanded && e.key === 'ArrowUp') {
+      setActive(enabled[0] ?? -1);
+    } else if (e.key === 'End') {
+      setActive(enabled.at(-1) ?? -1);
+    } else if (move && (expanded || e.key.startsWith('Page'))) {
+      let delta;
+      if (e.key === 'PageDown') {
+        delta = 10;
+      } else if (e.key === 'PageUp') {
+        delta = -10;
+      } else if (e.key === 'ArrowDown') {
+        delta = 1;
+      } else {
+        delta = -1;
+      }
+      setActive(enabled[Math.max(0, Math.min(enabled.length - 1, position + delta))] ?? -1);
+    } else if (printable) {
+      searchOptions(e, enabled, position);
+    }
+    function searchOptions(e, enabled, position) {
+      const now = Date.now();
+      searchText = now - searchTime > 700 ? e.key : searchText + e.key;
+      searchTime = now;
+      const chars = [...searchText.toLocaleLowerCase()];
+      const repeated = chars.every(character => character === chars[0]);
+      const prefix = repeated ? chars[0] : chars.join('');
+      const start = Math.max(0, position + (prefix.length === 1 ? 1 : 0));
+      for (let offset = 0; offset < enabled.length; offset++) {
+        const index = enabled[(start + offset) % enabled.length];
+        if (String(state.options[index].label).toLocaleLowerCase().startsWith(prefix)) {
+          setActive(index);
+          break;
+        }
+      }
+    }
+  }
+
+  function dismissKey(e, expanded) {
+    if (e.key === 'Tab') {
+      if (expanded) {
+        chooseActive(false);
+      }
+      return true; // Keep the browser's normal forward/backward focus movement.
+    }
+    if (e.key === 'Escape') {
+      if (expanded) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        close();
+        btn.focus();
+      }
+      return true;
+    }
+    return false;
+  }
+
   const state = {
     value: '',
     options: [],
@@ -139,63 +198,6 @@ export function createDropdown({
       return;
     }
     navigateOptions(e, expanded, move, printable);
-    function navigateOptions(e, expanded, move, printable) {
-      const enabled = enabledIndices();
-      const position = enabled.indexOf(state.active);
-      if (e.key === 'Home' || !expanded && e.key === 'ArrowUp') {
-        setActive(enabled[0] ?? -1);
-      } else if (e.key === 'End') {
-        setActive(enabled.at(-1) ?? -1);
-      } else if (move && (expanded || e.key.startsWith('Page'))) {
-        let delta;
-        if (e.key === 'PageDown') {
-          delta = 10;
-        } else if (e.key === 'PageUp') {
-          delta = -10;
-        } else if (e.key === 'ArrowDown') {
-          delta = 1;
-        } else {
-          delta = -1;
-        }
-        setActive(enabled[Math.max(0, Math.min(enabled.length - 1, position + delta))] ?? -1);
-      } else if (printable) {
-        searchOptions(e, enabled, position);
-      }
-      function searchOptions(e, enabled, position) {
-        const now = Date.now();
-        searchText = now - searchTime > 700 ? e.key : searchText + e.key;
-        searchTime = now;
-        const chars = [...searchText.toLocaleLowerCase()];
-        const repeated = chars.every(character => character === chars[0]);
-        const prefix = repeated ? chars[0] : chars.join('');
-        const start = Math.max(0, position + (prefix.length === 1 ? 1 : 0));
-        for (let offset = 0; offset < enabled.length; offset++) {
-          const index = enabled[(start + offset) % enabled.length];
-          if (String(state.options[index].label).toLocaleLowerCase().startsWith(prefix)) {
-            setActive(index);
-            break;
-          }
-        }
-      }
-    }
-    function dismissKey(e, expanded) {
-      if (e.key === 'Tab') {
-        if (expanded) {
-          chooseActive(false);
-        }
-        return true; // Keep the browser's normal forward/backward focus movement.
-      }
-      if (e.key === 'Escape') {
-        if (expanded) {
-          e.preventDefault();
-          e.stopImmediatePropagation();
-          close();
-          btn.focus();
-        }
-        return true;
-      }
-      return false;
-    }
     function acceptsKeyEvent(e) {
       if (destroyed || btn.disabled || e.isComposing || e.ctrlKey || e.metaKey) {
         return false;

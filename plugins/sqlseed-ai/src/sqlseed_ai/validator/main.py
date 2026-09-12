@@ -66,7 +66,7 @@ class FastValidator:
                 table_schema = {"columns": [], "constraints": []}
             row_count = table_config.get("count", default_count)
             all_violations.extend(self._single.validate(table_config, table_schema, row_count))
-            all_violations.extend(self._cross.validate(table_config, table_schema, snapshot))
+            all_violations.extend(self._cross.validate(table_config, table_schema))
 
         if (report := self._check_fill_error(fill_error, dialect, snapshot, batch)) is not None:
             all_violations.append(report)

@@ -863,7 +863,7 @@ class SQLAlchemyAdapter:
             name = chk.get("name") or ""
             expression = chk.get("sqltext") or ""
             # Extract candidate identifiers and filter against keywords.
-            identifiers = re.findall(r"[A-Za-z_][A-Za-z0-9_]*", expression)
+            identifiers = re.findall(r"[A-Za-z_]\w*", expression, re.ASCII)
             cols = tuple(i for i in identifiers if i.lower() not in sql_keywords)
             result.append(
                 CheckConstraintInfo(

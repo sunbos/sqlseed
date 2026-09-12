@@ -734,7 +734,7 @@ export function openAIAssistant({
         throw new Error('数据库结构已变化，请刷新后重新分析。');
       }
       if (!Array.isArray(result.suggestions)) {
-        throw new Error('AI 建议格式不正确，请重试。');
+        throw new TypeError('AI 建议格式不正确，请重试。');
       }
       acceptSuggestions(result);
       renderSuggestionGroups();
