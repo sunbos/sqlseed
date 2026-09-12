@@ -5,10 +5,10 @@ from __future__ import annotations
 import os
 import sys
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
-from tests.assertions import assert_empty
 
 from sqlseed_web.plugin_environment import EnvironmentLock
 from sqlseed_web.plugin_process import run_installer
@@ -20,44 +20,41 @@ def test_installer_keeps_environment_locked_after_parent_descriptor_closes(tmp_p
     lock.acquire()
     ready = threading.Event()
     finish = tmp_path / "finish"
-    results: list[int] = []
-    failures: list[Exception] = []
     descriptor = lock.fileno()
     script = (
         "import pathlib,sys,time; print('ready',flush=True)\nwhile not "
         "pathlib.Path(sys.argv[1]).exists(): time.sleep(.01)"
     )
 
-    def run() -> None:
+    def run() -> int:
         try:
-            results.append(
-                run_installer(
-                    [sys.executable, "-c", script, str(finish)],
-                    lambda text: ready.set(),
-                    timeout=10,
-                    lock_descriptor=descriptor,
-                )
+            return run_installer(
+                [sys.executable, "-c", script, str(finish)],
+                lambda text: ready.set(),
+                timeout=10,
+                lock_descriptor=descriptor,
             )
-        except Exception as exc:  # noqa: BLE001
-            # Forward arbitrary thread failures to the test assertion instead of losing them.
-            failures.append(exc)
+        finally:
             ready.set()
 
-    thread = threading.Thread(target=run)
-    thread.start()
+    executor = ThreadPoolExecutor(max_workers=1)
+    future = executor.submit(run)
     contender = EnvironmentLock(tmp_path, exclusive=True)
     try:
         assert ready.wait(5)
-        assert_empty(failures, list)
+        if future.done():
+            future.result()
         lock.release()
         with pytest.raises(RuntimeError):
             contender.acquire()
     finally:
         finish.touch()
-        thread.join(15)
-        lock.release()
-        contender.release()
-    assert not thread.is_alive()
-    assert results == [0]
+        executor.shutdown(wait=False, cancel_futures=True)
+        try:
+            result = future.result(timeout=15)
+        finally:
+            lock.release()
+            contender.release()
+    assert result == 0
     contender.acquire()
     contender.release()

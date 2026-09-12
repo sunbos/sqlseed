@@ -1,0 +1,33 @@
+{
+  "change": "Share SQLite schema setup and adapter ownership in tests/test_database/conftest.py, with two function-scope yield fixtures. Close also runs if adapter.connect fails.",
+  "files": [
+    {
+      "path": "tests/test_database/test_insert_actual_count.py",
+      "schema_literal_unchanged": true,
+      "test_body_ast_unchanged": [
+        "test_mixed_ignored_inserts_exclude_trigger_side_effects",
+        "test_later_batch_error_rolls_back_actual_inserts_and_trigger_effects",
+        "test_actual_counts_share_explicit_transaction"
+      ],
+      "sha256": "995361f9209ee011945746a52ce31813532f520ba55a2baf80a309d589e158c8"
+    },
+    {
+      "path": "tests/test_database/test_sqlalchemy_transaction.py",
+      "schema_literal_unchanged": true,
+      "test_body_ast_unchanged": [
+        "test_transaction_queries_and_insert_calls_share_uncommitted_rows",
+        "test_late_batch_failure_rolls_back_deletes_rows_and_sequence_reset",
+        "test_nested_transaction_is_rejected_and_outer_transaction_can_rollback",
+        "test_deferred_foreign_key_failure_on_commit_restores_original_data"
+      ],
+      "sha256": "8ded77805e547bb5312ef09ddee87bb6a001cf3c85bf30fc7d290ac4775b3996"
+    }
+  ],
+  "pytest": "7 passed in 0.42s; ResourceWarning/PytestUnraisableExceptionWarning are errors",
+  "ruff": "passed",
+  "pylint_217": "No findings in the shared helper and both test modules",
+  "new_self_proving_tests": false,
+  "pytest_final": "337 passed, 1 skipped (Docker unavailable) in 3.69s; entire tests/test_database; ResourceWarning and PytestUnraisableExceptionWarning are errors.",
+  "fixture_source_sha256": "d0f6c4cb475f562daad9729575de89babfaac54468cf72e2dde03d59844a7229",
+  "jscpd": "Original database fixture/import pair eliminated in full-repository scan; entire scan now 7 pairs."
+}

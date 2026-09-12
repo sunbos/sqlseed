@@ -1,0 +1,12 @@
+{
+  "change": "Only a missing top-level httpx package, RequestError, and non-200 responses make the LM Studio probe unavailable. Unexpected errors and missing internal dependencies propagate instead of skipping real-LLM tests.",
+  "intentional_behavior_change": true,
+  "red": "2 failed (ValueError and RuntimeError swallowed), 3 passed",
+  "green": "5 passed; 101 healer tests passed with 6 real LM Studio skips",
+  "mock_scope": "HTTP availability probe only; does not simulate an LLM response or count as a real-LLM result",
+  "pylint": "0 findings in both modified files",
+  "source_sha256": {
+    "plugins/sqlseed-ai/tests/healer/conftest.py": "85febaf53179cfded93cdbc36016c450a554f126abfed51a816d58b3287bf7b4",
+    "plugins/sqlseed-ai/tests/healer/test_llm_availability.py": "144146b82e876575e07fe2e5bebbe67d6a048af1e68b77ab7767ccee7f0ef4c3"
+  }
+}

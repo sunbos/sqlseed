@@ -1,0 +1,91 @@
+.......ssssssssssssssssssssssssssssssss................................. [  2%]
+........................................................................ [  4%]
+........................................................................ [  6%]
+........................................................................ [  8%]
+........................................................................ [ 10%]
+........................................................................ [ 12%]
+........................................................................ [ 14%]
+........................................................................ [ 16%]
+........................................................................ [ 18%]
+........................................................................ [ 20%]
+........................................................................ [ 22%]
+........................................................................ [ 24%]
+........................................................................ [ 27%]
+........s............................................................... [ 29%]
+........................................................................ [ 31%]
+...............................s........................................ [ 33%]
+........................................................................ [ 35%]
+........................................................................ [ 37%]
+........................................................................ [ 39%]
+........................................................................ [ 41%]
+........................................................................ [ 43%]
+........................................................................ [ 45%]
+........................................................................ [ 47%]
+........................................................................ [ 49%]
+........................................................................ [ 52%]
+........................................................................ [ 54%]
+...................................................................ss... [ 56%]
+........................................................................ [ 58%]
+........................................................................ [ 60%]
+.............................................................sss.s...... [ 62%]
+.ss..................................................................... [ 64%]
+........................................................................ [ 66%]
+........................................................................ [ 68%]
+........................................................................ [ 70%]
+.......................ss............................................... [ 72%]
+........................................................................ [ 74%]
+........................................................................ [ 77%]
+........................................................................ [ 79%]
+........................................................................ [ 81%]
+......sss............................................................... [ 83%]
+........................................................................ [ 85%]
+........................................................................ [ 87%]
+........................................................................ [ 89%]
+........................................................................ [ 91%]
+........................................................................ [ 93%]
+........................................................................ [ 95%]
+........................................................................ [ 97%]
+........................................................................ [ 99%]
+...                                                                      [100%]
+=========================== short test summary info ============================
+SKIPPED [1] tests/integration/test_pg_bulk_integrity.py:15: Docker Unix endpoint is unavailable: /Users/sunbo/.docker/run/docker.sock: [Errno 2] No such file or directory
+SKIPPED [1] tests/integration/test_pg_bulk_integrity.py:31: Docker Unix endpoint is unavailable: /Users/sunbo/.docker/run/docker.sock: [Errno 2] No such file or directory
+SKIPPED [4] tests/integration/test_pg_bulk_integrity.py:54: Docker Unix endpoint is unavailable: /Users/sunbo/.docker/run/docker.sock: [Errno 2] No such file or directory
+SKIPPED [4] tests/integration/test_pg_case_sensitive_schema.py:21: Docker Unix endpoint is unavailable: /Users/sunbo/.docker/run/docker.sock: [Errno 2] No such file or directory
+SKIPPED [2] tests/integration/test_pg_driver_selection.py:18: Docker Unix endpoint is unavailable: /Users/sunbo/.docker/run/docker.sock: [Errno 2] No such file or directory
+SKIPPED [1] tests/integration/test_pg_insert_actual_count.py:12: Docker Unix endpoint is unavailable: /Users/sunbo/.docker/run/docker.sock: [Errno 2] No such file or directory
+SKIPPED [1] tests/integration/test_pg_insert_actual_count.py:28: Docker Unix endpoint is unavailable: /Users/sunbo/.docker/run/docker.sock: [Errno 2] No such file or directory
+SKIPPED [1] tests/integration/test_pg_integration.py:21: Docker Unix endpoint is unavailable: /Users/sunbo/.docker/run/docker.sock: [Errno 2] No such file or directory
+SKIPPED [1] tests/integration/test_pg_integration.py:28: Docker Unix endpoint is unavailable: /Users/sunbo/.docker/run/docker.sock: [Errno 2] No such file or directory
+SKIPPED [1] tests/integration/test_pg_integration.py:37: Docker Unix endpoint is unavailable: /Users/sunbo/.docker/run/docker.sock: [Errno 2] No such file or directory
+SKIPPED [1] tests/integration/test_pg_integration.py:56: Docker Unix endpoint is unavailable: /Users/sunbo/.docker/run/docker.sock: [Errno 2] No such file or directory
+SKIPPED [1] tests/integration/test_pg_integration.py:71: Docker Unix endpoint is unavailable: /Users/sunbo/.docker/run/docker.sock: [Errno 2] No such file or directory
+SKIPPED [1] tests/integration/test_pg_integration.py:86: Docker Unix endpoint is unavailable: /Users/sunbo/.docker/run/docker.sock: [Errno 2] No such file or directory
+SKIPPED [1] tests/integration/test_pg_integration.py:103: Docker Unix endpoint is unavailable: /Users/sunbo/.docker/run/docker.sock: [Errno 2] No such file or directory
+SKIPPED [1] tests/integration/test_pg_integration.py:119: Docker Unix endpoint is unavailable: /Users/sunbo/.docker/run/docker.sock: [Errno 2] No such file or directory
+SKIPPED [1] tests/integration/test_pg_integration.py:141: Docker Unix endpoint is unavailable: /Users/sunbo/.docker/run/docker.sock: [Errno 2] No such file or directory
+SKIPPED [1] tests/integration/test_pg_integration.py:154: Docker Unix endpoint is unavailable: /Users/sunbo/.docker/run/docker.sock: [Errno 2] No such file or directory
+SKIPPED [1] tests/integration/test_pg_integration.py:184: Docker Unix endpoint is unavailable: /Users/sunbo/.docker/run/docker.sock: [Errno 2] No such file or directory
+SKIPPED [1] tests/integration/test_pg_integration.py:220: Docker Unix endpoint is unavailable: /Users/sunbo/.docker/run/docker.sock: [Errno 2] No such file or directory
+SKIPPED [1] tests/integration/test_url_e2e.py:39: Docker Unix endpoint is unavailable: /Users/sunbo/.docker/run/docker.sock: [Errno 2] No such file or directory
+SKIPPED [1] tests/integration/test_url_e2e.py:50: Docker Unix endpoint is unavailable: /Users/sunbo/.docker/run/docker.sock: [Errno 2] No such file or directory
+SKIPPED [1] tests/integration/test_url_e2e.py:56: Docker Unix endpoint is unavailable: /Users/sunbo/.docker/run/docker.sock: [Errno 2] No such file or directory
+SKIPPED [1] tests/integration/test_url_e2e.py:71: Docker Unix endpoint is unavailable: /Users/sunbo/.docker/run/docker.sock: [Errno 2] No such file or directory
+SKIPPED [1] tests/integration/test_url_e2e.py:122: Docker Unix endpoint is unavailable: /Users/sunbo/.docker/run/docker.sock: [Errno 2] No such file or directory
+SKIPPED [1] tests/integration/test_url_e2e.py:130: Docker Unix endpoint is unavailable: /Users/sunbo/.docker/run/docker.sock: [Errno 2] No such file or directory
+SKIPPED [1] tests/test_database/test_sqlalchemy_adapter_url.py:108: Docker Unix endpoint is unavailable: /Users/sunbo/.docker/run/docker.sock: [Errno 2] No such file or directory
+SKIPPED [1] tests/test_generators/test_bytes_media.py:70: Pillow not installed
+SKIPPED [1] plugins/mcp-server-sqlseed/tests/test_server.py:101: Docker Unix endpoint is unavailable: /Users/sunbo/.docker/run/docker.sock: [Errno 2] No such file or directory
+SKIPPED [1] plugins/mcp-server-sqlseed/tests/test_server.py:114: Docker Unix endpoint is unavailable: /Users/sunbo/.docker/run/docker.sock: [Errno 2] No such file or directory
+SKIPPED [1] plugins/sqlseed-ai/tests/healer/test_heal_orchestrator_real.py:92: LM Studio not available at http://localhost:1234
+SKIPPED [1] plugins/sqlseed-ai/tests/healer/test_heal_orchestrator_real.py:108: LM Studio not available at http://localhost:1234
+SKIPPED [1] plugins/sqlseed-ai/tests/healer/test_level1_subgraph_healer_real.py:19: LM Studio not available at http://localhost:1234
+SKIPPED [1] plugins/sqlseed-ai/tests/healer/test_level2_column_healer_real.py:30: LM Studio not available at http://localhost:1234
+SKIPPED [1] plugins/sqlseed-ai/tests/healer/test_level3_compact_healer_real.py:46: LM Studio not available at http://localhost:1234
+SKIPPED [1] plugins/sqlseed-ai/tests/healer/test_level3_compact_healer_real.py:60: LM Studio not available at http://localhost:1234
+SKIPPED [1] plugins/sqlseed-ai/tests/test_ai_plugin.py:454: Docker Unix endpoint is unavailable: /Users/sunbo/.docker/run/docker.sock: [Errno 2] No such file or directory
+SKIPPED [1] plugins/sqlseed-ai/tests/test_ai_plugin.py:483: Docker Unix endpoint is unavailable: /Users/sunbo/.docker/run/docker.sock: [Errno 2] No such file or directory
+SKIPPED [1] plugins/sqlseed-ai/tests/test_mcp.py:84: sqlseed-ai API key not configured
+SKIPPED [1] plugins/sqlseed-ai/tests/test_mcp.py:93: sqlseed-ai API key not configured
+SKIPPED [1] plugins/sqlseed-ai/tests/test_mcp.py:108: sqlseed-ai API key not configured
+3412 passed, 47 skipped in 308.66s (0:05:08)

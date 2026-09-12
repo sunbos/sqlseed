@@ -1,0 +1,14 @@
+...FF                                                                    [100%]
+=================================== FAILURES ===================================
+_____________ test_probe_errors_do_not_skip_real_llm_tests[error0] _____________
+plugins/sqlseed-ai/tests/healer/test_llm_availability.py:34: in test_probe_errors_do_not_skip_real_llm_tests
+    with pytest.raises(type(error)) as caught:
+E   Failed: DID NOT RAISE ValueError
+_____________ test_probe_errors_do_not_skip_real_llm_tests[error1] _____________
+plugins/sqlseed-ai/tests/healer/test_llm_availability.py:34: in test_probe_errors_do_not_skip_real_llm_tests
+    with pytest.raises(type(error)) as caught:
+E   Failed: DID NOT RAISE RuntimeError
+=========================== short test summary info ============================
+FAILED plugins/sqlseed-ai/tests/healer/test_llm_availability.py::test_probe_errors_do_not_skip_real_llm_tests[error0]
+FAILED plugins/sqlseed-ai/tests/healer/test_llm_availability.py::test_probe_errors_do_not_skip_real_llm_tests[error1]
+2 failed, 3 passed in 0.47s

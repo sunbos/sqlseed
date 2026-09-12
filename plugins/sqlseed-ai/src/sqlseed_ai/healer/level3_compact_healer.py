@@ -14,6 +14,7 @@ import re
 import time
 from typing import TYPE_CHECKING, Any, Literal
 
+from sqlseed_ai.healer._llm_call import call_llm
 from sqlseed_ai.healer.models import Level3Result
 
 from sqlseed._utils.logger import get_logger
@@ -110,8 +111,8 @@ class Level3CompactHealer:
         estimated = len(system_prompt) // 4 + len(user_prompt) // 4
         start = time.monotonic()
 
-        try:
-            resp = self._client.chat_completions_create(
+        outcome = call_llm(
+            lambda: self._client.chat_completions_create(
                 model=self._model,
                 messages=[
                     {"role": "system", "content": system_prompt},
@@ -119,21 +120,21 @@ class Level3CompactHealer:
                 ],
                 temperature=self._temperature,
                 max_tokens=self._max_response_tokens,
-            )
-        except OSError:
-            raise
-        except (RuntimeError, AttributeError, ValueError) as exc:
-            logger.warning("Level 3 LLM call failed", mode=mode, error=str(exc))
+            ),
+            started_at=start,
+            on_failure=lambda exc: logger.warning("Level 3 LLM call failed", mode=mode, error=str(exc)),
+        )
+        if outcome.error is not None:
             return Level3Result(
                 success=False,
                 mode=mode,
-                error=exc,
-                elapsed_seconds=time.monotonic() - start,
+                error=outcome.error,
+                elapsed_seconds=outcome.elapsed_seconds,
                 prompt_tokens=estimated,
             )
 
-        elapsed = time.monotonic() - start
-        content = resp.choices[0].message.content or ""
+        elapsed = outcome.elapsed_seconds
+        content = outcome.response.choices[0].message.content or ""
 
         if not content.strip():
             return Level3Result(

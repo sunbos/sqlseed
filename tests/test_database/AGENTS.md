@@ -4,7 +4,7 @@
 
 ## 入口与本地约束
 
-- `conftest.py` 提供 `sa_adapter`（基于 tmp_db）与 `empty_sa_adapter`（空 SQLite）。全局 `tmp_db` / `raw_adapter` 来自仓库根 fixture。
+- `conftest.py` 提供 `sa_adapter`（基于 tmp_db）与 `empty_sa_adapter`（空 SQLite），以及受影响行数场景的 `counts_database`、原子事务场景的 `transaction_database`；后两者共享 schema 建立与 adapter 关闭的上下文，并由 yield fixture 管理清理。全局 `tmp_db` / `raw_adapter` 来自仓库根 fixture。
 - `test_adapter_contract.py` 与 `test_sqlalchemy_adapter.py` 验证真实 adapter 契约；`test_raw_sqlite_adapter.py` 保留测试 adapter 的行为。
 - `test_sqlalchemy_adapter_boundary.py` / `test_sqlalchemy_adapter_url.py` 覆盖错误路径与 URL 模式。SQLite URL 测试不需要 Docker，真实 PostgreSQL 用例位于 `tests/integration/`。
 - `test_helpers.py` 覆盖索引查询、采样和 batch insert；用真实 SQLite 校验实际数据库结果。

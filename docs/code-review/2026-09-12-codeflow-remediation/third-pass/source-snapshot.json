@@ -1,0 +1,21 @@
+{
+  "base_commit": "ef7b2795370873c915b9d1c9b50b59c6ac7016fb",
+  "files": {
+    "plugins/sqlseed-ai/src/sqlseed_ai/analyzer/_caller.py": "396a5e8a544c085008c6e022477ec89440a584b05d4771966ecad2df7c7061a9",
+    "plugins/sqlseed-ai/src/sqlseed_ai/analyzer/_streaming.py": "f26ca5249e6786cdaeb100d7ef9d10b502058770a1fe0112ab4ef494b5f32c48",
+    "plugins/sqlseed-ai/src/sqlseed_ai/healer/_llm_call.py": "56fc9c95bfcdd8d9e5cefb1548a60a68eabfdcac66d1ae2d2b3e9124349935e5",
+    "plugins/sqlseed-ai/src/sqlseed_ai/healer/level1_subgraph_healer.py": "1146d7a7df65c2dcc9b30af1660918200c03eb20211217e60f3630154ab1a7de",
+    "plugins/sqlseed-ai/src/sqlseed_ai/healer/level2_column_healer.py": "6e3eb2d6eda673f6423820d8d346150729d31ade286968e8deafe37d29f19c07",
+    "plugins/sqlseed-ai/src/sqlseed_ai/healer/level3_compact_healer.py": "dd7e25d81ef936fad6bbf233b6b54005979e891ffa5098d8707e4075288c9057",
+    "plugins/sqlseed-ai/tests/healer/conftest.py": "85febaf53179cfded93cdbc36016c450a554f126abfed51a816d58b3287bf7b4",
+    "plugins/sqlseed-ai/tests/healer/test_llm_availability.py": "144146b82e876575e07fe2e5bebbe67d6a048af1e68b77ab7767ccee7f0ef4c3",
+    "plugins/sqlseed-ai/tests/healer/test_llm_call_boundary.py": "f19337f934acd462b7ad4084e5ef1af52e7262ecc890e6a1250650423e77fe4f",
+    "plugins/sqlseed-ai/tests/test_ai_caller.py": "5bd4d6a85193ed75a4c04837c87b947fd92987a925e8c67188e0bf54952016d0",
+    "plugins/sqlseed-web/tests/test_plugin_process.py": "6acbd5ff3409a206490bd865ce0bc76f81b177bf2158744c1887338ea5476958",
+    "tests/test_core/test_stream_budget.py": "da6badb543722e7bb149adc996904c0765830cd69d0170d756043972d7946095",
+    "tests/test_database/AGENTS.md": "11a556cf025ce5418a6bccb1385c6e19b7f7156856517996009e76e8e5407253",
+    "tests/test_database/conftest.py": "d0f6c4cb475f562daad9729575de89babfaac54468cf72e2dde03d59844a7229",
+    "tests/test_database/test_insert_actual_count.py": "995361f9209ee011945746a52ce31813532f520ba55a2baf80a309d589e158c8",
+    "tests/test_database/test_sqlalchemy_transaction.py": "8ded77805e547bb5312ef09ddee87bb6a001cf3c85bf30fc7d290ac4775b3996"
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "changed_source": [
+    "plugins/sqlseed-ai/src/sqlseed_ai/analyzer/_caller.py",
+    "plugins/sqlseed-ai/src/sqlseed_ai/analyzer/_streaming.py"
+  ],
+  "changed_tests": [
+    "plugins/sqlseed-ai/tests/test_ai_caller.py"
+  ],
+  "pytest": "87 passed in 2.23s",
+  "new_logging_regressions_before_refactor": "5 passed in 1.74s",
+  "ruff": "check and format pass for all three changed files",
+  "mypy": "Success: no issues found in 2 source files",
+  "pylint": "Only original logging W0718 remains (line108 ->85); no new diagnostics in both sources or changed test",
+  "jscpd_analyzer_scope": {
+    "before": 1,
+    "after": 0
+  },
+  "equivalence": {
+    "original_logging_ast_unchanged": true,
+    "all_original_runtime_method_asts_unchanged": true,
+    "caller_module_global_ast_unchanged": true,
+    "signature_kwdefaults_annotations_equal": true,
+    "actual_logging_globals": "sqlseed_ai.analyzer._caller.__dict__",
+    "shared_function_identity": true,
+    "checked_attribute_resolution_count": 28,
+    "checked_callable_count": 27,
+    "resolution_identity_differences": [],
+    "old_mro": [
+      "SchemaAnalyzer",
+      "LLMCallerMixin",
+      "StreamingHandlerMixin",
+      "ToolCallingMixin",
+      "ContextBuilderMixin",
+      "JsonParserMixin",
+      "object"
+    ],
+    "actual_mro": [
+      "SchemaAnalyzer",
+      "LLMCallerMixin",
+      "StreamingHandlerMixin",
+      "_InteractionLoggingMixin",
+      "ToolCallingMixin",
+      "ContextBuilderMixin",
+      "JsonParserMixin",
+      "object"
+    ]
+  },
+  "frozen": true
+}
