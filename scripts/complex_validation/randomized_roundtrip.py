@@ -24,6 +24,7 @@ import string
 import sys
 import time
 from pathlib import Path
+from typing import NamedTuple
 
 if __package__:
     from ._checks import CheckRecorder
@@ -41,7 +42,7 @@ check = CheckRecorder(report_passes=False)
 # ---------------------------------------------------------------------------
 # Random schema fabricator
 # ---------------------------------------------------------------------------
-# Semantic column catalog: name -> (type, kind). Kinds drive CHECK inference
+# Semantic column catalog: name -> (SQL type, kind, metadata). Kinds drive CHECK inference
 # that is ALIGNED with core's mapper semantic domain, so every generated
 # value satisfies the constraint (no fabricated semantic contradictions).
 #   num   : integer range CHECK (mapper range from EXACT_MATCH_PARAMS)
@@ -51,27 +52,35 @@ check = CheckRecorder(report_passes=False)
 #   date  : no CHECK (datetime/date generator)
 #   blob  : BLOB, no CHECK
 #   fk    : INTEGER reference, no CHECK
+class _CatalogColumn(NamedTuple):
+    """SQL type, semantic kind, and optional CHECK bounds or choices."""
+
+    sql_type: str
+    kind: str
+    metadata: tuple[int, int] | tuple[str, ...] | None
+
+
 _COL_CATALOG = {
-    "age": ("INTEGER", "num", (18, 65)),
-    "qty": ("INTEGER", "num", (1, 100)),
-    "score": ("INTEGER", "num", (0, 100)),
-    "year": ("INTEGER", "num", (2000, 2026)),
-    "price": ("REAL", "dec", None),
-    "amount": ("NUMERIC", "dec", None),
-    "rating": ("REAL", "dec", None),
-    "gender": ("TEXT", "enum", ("male", "female", "other")),
-    "priority": ("TEXT", "enum", ("low", "medium", "high")),
-    "role": ("TEXT", "enum", ("admin", "user", "guest")),
-    "status": ("TEXT", "enum", ("active", "inactive", "banned")),
-    "email": ("TEXT", "text", None),
-    "note": ("TEXT", "text", None),
-    "name": ("TEXT", "text", None),
-    "title": ("TEXT", "text", None),
-    "description": ("TEXT", "text", None),
-    "created_at": ("DATETIME", "date", None),
-    "updated_at": ("DATETIME", "date", None),
-    "order_date": ("DATE", "date", None),
-    "blobdata": ("BLOB", "blob", None),
+    "age": _CatalogColumn("INTEGER", "num", (18, 65)),
+    "qty": _CatalogColumn("INTEGER", "num", (1, 100)),
+    "score": _CatalogColumn("INTEGER", "num", (0, 100)),
+    "year": _CatalogColumn("INTEGER", "num", (2000, 2026)),
+    "price": _CatalogColumn("REAL", "dec", None),
+    "amount": _CatalogColumn("NUMERIC", "dec", None),
+    "rating": _CatalogColumn("REAL", "dec", None),
+    "gender": _CatalogColumn("TEXT", "enum", ("male", "female", "other")),
+    "priority": _CatalogColumn("TEXT", "enum", ("low", "medium", "high")),
+    "role": _CatalogColumn("TEXT", "enum", ("admin", "user", "guest")),
+    "status": _CatalogColumn("TEXT", "enum", ("active", "inactive", "banned")),
+    "email": _CatalogColumn("TEXT", "text", None),
+    "note": _CatalogColumn("TEXT", "text", None),
+    "name": _CatalogColumn("TEXT", "text", None),
+    "title": _CatalogColumn("TEXT", "text", None),
+    "description": _CatalogColumn("TEXT", "text", None),
+    "created_at": _CatalogColumn("DATETIME", "date", None),
+    "updated_at": _CatalogColumn("DATETIME", "date", None),
+    "order_date": _CatalogColumn("DATE", "date", None),
+    "blobdata": _CatalogColumn("BLOB", "blob", None),
 }
 _ENUM_COLS = [c for c, (_, k, _v) in _COL_CATALOG.items() if k == "enum"]
 
@@ -150,10 +159,10 @@ def fabricate(seed: int, rng: random.Random) -> list[TableSpec]:
     names = [f"t{i}" for i in range(n_tables)]
     tables = [TableSpec(n) for n in names]
 
-    for i in range(len(tables)):
+    for i, table in enumerate(tables):
         n_cols = rng.randint(2, 4)
-        tables[i].columns.append(ColumnSpec("id", "INTEGER", False, False))
-        tables[i].pk = ["id"]
+        table.columns.append(ColumnSpec("id", "INTEGER", False, False))
+        table.pk = ["id"]
         used = {"id"}
         # Table row count (mirrors counts_for): table i gets 20 + i*7 rows.
         count = 20 + i * 7
@@ -176,7 +185,7 @@ def fabricate(seed: int, rng: random.Random) -> list[TableSpec]:
                 else:
                     unique = True
             nullable = rng.random() < 0.3
-            tables[i].columns.append(_mk_col(rng, name, nullable, unique))
+            table.columns.append(_mk_col(rng, name, nullable, unique))
 
     # FK edges: each non-root table gets 0-2 FK to earlier tables (acyclic).
     for i in range(1, n_tables):

@@ -265,8 +265,7 @@ class AIConfig(BaseModel):
         # Select default model based on backend
         if self.backend in (AIBackend.LM_STUDIO, AIBackend.OLLAMA):
             # For local inference, try to auto-detect available models
-            detected = self._detect_local_model()
-            if detected:
+            if detected := self._detect_local_model():
                 logger.info("Auto-detected local model", model=detected, backend=self.backend.value)
                 return detected
             # Fallback to compact model for local inference (platform-specific ID)

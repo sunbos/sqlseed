@@ -175,8 +175,7 @@ def _has_cross_column_check(col_name: str, constraints: list[dict[str, Any]]) ->
     for c in constraints:
         if c.get("type") != "check":
             continue
-        expr = c.get("expression", "")
-        if not expr:
+        if not (expr := c.get("expression", "")):
             continue
         # Normalize PG expression (strip ::type casts)
         expr = _normalize_pg_check_expr(expr)
@@ -209,8 +208,7 @@ def _has_cross_column_check(col_name: str, constraints: list[dict[str, Any]]) ->
             "false",
         }
         col_refs = tokens - sql_keywords - {col_name.lower()}
-        col_refs = {t for t in col_refs if not t.isdigit()}
-        if col_refs:
+        if col_refs := {t for t in col_refs if not t.isdigit()}:
             return True
     return False
 
@@ -247,8 +245,7 @@ def _get_exact_length_check(
     for c in constraints:
         if c.get("type") != "check":
             continue
-        expr = c.get("expression", "")
-        if not expr:
+        if not (expr := c.get("expression", "")):
             continue
         m = re.match(
             rf"^\s*LENGTH\s*\(\s*{col}\s*\)\s*=\s*(\d+)\s*$",
@@ -276,8 +273,7 @@ def _infer_unique_column_config(
       pattern ``{PREFIX}-{sequence:04d}`` derived from the column name.
     """
     t = col_type.upper()
-    is_text = any(k in t for k in ("VARCHAR", "TEXT", "CHAR", "CLOB"))
-    if not is_text:
+    if not any(k in t for k in ("VARCHAR", "TEXT", "CHAR", "CLOB")):
         return None
     if "email" in col_name.lower():
         return {"generator": "email", "params": {}}
@@ -311,8 +307,7 @@ def _normalize_pg_check_expr(expr: str) -> str:
     #    e.g., "delta = (abs(version_from) * abs(version_to))"
     #    → "delta = abs(version_from) * abs(version_to)"
     #    Uses balanced-paren check to avoid stripping function-call parens.
-    m_eq = re.match(r"^(\s*\w+\s*=\s*)\((.+)\)\s*$", expr)
-    if m_eq:
+    if m_eq := re.match(r"^(\s*\w+\s*=\s*)\((.+)\)\s*$", expr):
         prefix = m_eq.group(1)
         inner = m_eq.group(2)
         depth = 0
@@ -359,8 +354,7 @@ def _is_single_column_check(
     """Select nonempty CHECKs mentioning this column and no sibling column."""
     if constraint.get("type") != "check":
         return False
-    expr = constraint.get("expression", "")
-    if not expr:
+    if not (expr := constraint.get("expression", "")):
         return False
     if not re.search(rf"\b{re.escape(col_name)}\b", expr, re.IGNORECASE):
         return False
@@ -445,8 +439,7 @@ def _infer_from_check_constraints(
     for constraint in constraints:
         if not _is_single_column_check(col_name, constraint, all_columns):
             continue
-        result = _parse_single_column_check(col_name, constraint.get("expression", ""))
-        if result is None:
+        if (result := _parse_single_column_check(col_name, constraint.get("expression", ""))) is None:
             continue
         gen, params = result
         # Enum/format patterns fully constrain the value space and retain
@@ -496,8 +489,7 @@ def _parse_single_column_check(
     # Normalize PG expression (strip ::type casts and outer parens).
     expr = _normalize_pg_check_expr(expr)
     col = re.escape(col_name)
-    nullable_result = _parse_nullable_check(col_name, expr, col)
-    if nullable_result is not None:
+    if (nullable_result := _parse_nullable_check(col_name, expr, col)) is not None:
         return nullable_result
 
     # Keep the original pattern order: formats and enums precede ranges.
@@ -511,8 +503,7 @@ def _parse_single_column_check(
         _parse_check_upper_bound,
         _parse_check_nonzero,
     ):
-        result = parse(col, expr)
-        if result is not None:
+        if (result := parse(col, expr)) is not None:
             return result
     return None
 
@@ -536,8 +527,7 @@ def _parse_nullable_check(col_name: str, expr: str, col: str) -> tuple[str, dict
         # Strip surrounding parentheses if present (e.g., "(col >= 1 AND col <= 10)")
         if inner.startswith("(") and inner.endswith(")"):
             inner = inner[1:-1].strip()
-        result = _parse_single_column_check(col_name, inner)
-        if result is not None:
+        if (result := _parse_single_column_check(col_name, inner)) is not None:
             return result
     return None
 
@@ -667,8 +657,7 @@ def _parse_check_enum(col: str, expr: str) -> tuple[str, dict[str, Any]] | None:
     )
     if m:
         choices_str = m.group(1)
-        choices = re.findall(r"'([^']*)'", choices_str)
-        if choices:
+        if choices := re.findall(r"'([^']*)'", choices_str):
             return ("choice", {"choices": choices})
 
     # Pattern: col = ANY (ARRAY['a'::text, 'b'::text, ...]) — PostgreSQL
@@ -686,12 +675,10 @@ def _parse_check_enum(col: str, expr: str) -> tuple[str, dict[str, Any]] | None:
     if m:
         inner = m.group(1)
         # Extract quoted string values (strip ::type casts)
-        choices = re.findall(r"'([^']*)'", inner)
-        if choices:
+        if choices := re.findall(r"'([^']*)'", inner):
             return ("choice", {"choices": choices})
         # Parse complete numeric literals, preserving signs and decimal values.
-        numeric_choices = _parse_numeric_array_literals(inner)
-        if numeric_choices:
+        if numeric_choices := _parse_numeric_array_literals(inner):
             if (
                 len(numeric_choices) == 2
                 and all(isinstance(n, int) for n in numeric_choices)

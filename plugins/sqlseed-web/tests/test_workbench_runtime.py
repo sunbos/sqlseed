@@ -143,7 +143,8 @@ def test_run_executes_saved_parent_first_plan_with_derived_columns(connection: C
     with sqlite_connection(connection.target) as db:
         assert (
             db.execute(
-                "SELECT COUNT(*) FROM children JOIN parents ON parents.id = children.parent_id WHERE amount=7 AND doubled=14"
+                "SELECT COUNT(*) FROM children JOIN parents ON parents.id = children.parent_id WHERE "
+                "amount=7 AND doubled=14"
             ).fetchone()[0]
             == 4
         )
@@ -155,7 +156,8 @@ def test_partial_failure_stops_later_tables_and_reports_committed_batches(
 ) -> None:
     with sqlite_connection(connection.target) as db:
         db.executescript(
-            "CREATE TRIGGER reject_later BEFORE INSERT ON parents WHEN (SELECT COUNT(*) FROM parents) >= 2 BEGIN SELECT RAISE(ABORT, 'second batch rejected'); END;"
+            "CREATE TRIGGER reject_later BEFORE INSERT ON parents WHEN (SELECT COUNT(*) FROM "
+            "parents) >= 2 BEGIN SELECT RAISE(ABORT, 'second batch rejected'); END;"
         )
     config = document()
     config["tables"][1].update(count=4, batch_size=2)
@@ -188,7 +190,8 @@ def test_cross_table_cycle_and_column_cycle_are_rejected(connection: Connection)
 
     with sqlite_connection(connection.target) as db:
         db.executescript(
-            "CREATE TABLE a(id INTEGER PRIMARY KEY, bid INTEGER REFERENCES b(id)); CREATE TABLE b(id INTEGER PRIMARY KEY, aid INTEGER REFERENCES a(id));"
+            "CREATE TABLE a(id INTEGER PRIMARY KEY, bid INTEGER REFERENCES b(id)); CREATE TABLE "
+            "b(id INTEGER PRIMARY KEY, aid INTEGER REFERENCES a(id));"
         )
     schema = inspect_connection(connection)
     cycle = check_document(connection, {"tables": [{"name": "a"}, {"name": "b"}]}, schema["schema_hash"])

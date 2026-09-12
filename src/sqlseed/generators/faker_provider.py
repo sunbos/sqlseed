@@ -96,8 +96,7 @@ class FakerProvider(NativeProvider):
             if resolved is not None:
                 self._faker_attrs[gen_type] = resolved
                 continue
-            base_impl = getattr(BaseProvider, f"_gen_{gen_type}", None)
-            if base_impl is None:
+            if (base_impl := getattr(BaseProvider, f"_gen_{gen_type}", None)) is None:
                 continue
             self.__dict__[f"_gen_{gen_type}"] = MethodType(base_impl, self)
             missing.append(gen_type)

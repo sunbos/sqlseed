@@ -67,8 +67,7 @@ def normalize_column_input(*, data: dict[str, Any], known_fields: Collection[str
         )
         result.pop("type")
 
-    derive_from = result.get("derive_from")
-    if derive_from:
+    if result.get("derive_from"):
         return result
 
     nested_params = result.pop("params", None)

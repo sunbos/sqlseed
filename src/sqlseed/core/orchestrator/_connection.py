@@ -112,8 +112,7 @@ class ConnectionMixin:
 
     @property
     def _relation(self) -> RelationResolver:
-        rel = self._core.relation
-        if rel is None:
+        if (rel := self._core.relation) is None:
             raise RuntimeError("RelationResolver not initialized. Call _ensure_connected() first.")
         return rel
 
@@ -147,8 +146,7 @@ class ConnectionMixin:
 
     @property
     def _unique_adjuster(self) -> UniqueAdjuster:
-        adj = self._ext.unique_adjuster
-        if adj is None:
+        if (adj := self._ext.unique_adjuster) is None:
             raise RuntimeError("UniqueAdjuster not initialized. Call _ensure_connected() first.")
         return adj
 

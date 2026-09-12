@@ -586,8 +586,7 @@ class BaseProvider(GeneratorDispatchMixin):
         # by the allocator after a string is garbage-collected, causing two
         # unrelated templates to share a counter. The string value is a stable,
         # deterministic key.
-        seq_key = template
-        if seq_key not in self._template_seq:
+        if (seq_key := template) not in self._template_seq:
             self._template_seq[seq_key] = sequence_start - sequence_step
 
         self._template_seq[seq_key] += sequence_step
@@ -598,8 +597,7 @@ class BaseProvider(GeneratorDispatchMixin):
         # {sequence} or {sequence:format}
         # Use a sentinel-safe approach: temporarily replace {sequence:XXd} with formatted value
         def _replace_sequence(match: re.Match[str]) -> str:
-            fmt = match.group(1)
-            if fmt:
+            if fmt := match.group(1):
                 # Strip leading colon: ":04d" -> "04d"
                 return format(seq_val, fmt.lstrip(":"))
             return str(seq_val)
@@ -613,8 +611,7 @@ class BaseProvider(GeneratorDispatchMixin):
         # {random_string:N}
         while "{random_string:" in result:
             start = result.index("{random_string:")
-            end = result.find("}", start)
-            if end == -1:
+            if (end := result.find("}", start)) == -1:
                 raise ValueError(f"Malformed template — unmatched '{{' in: {template!r}")
             n = int(result[start + len("{random_string:") : end])
             charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
@@ -624,8 +621,7 @@ class BaseProvider(GeneratorDispatchMixin):
         # {random_digits:N}
         while "{random_digits:" in result:
             start = result.index("{random_digits:")
-            end = result.find("}", start)
-            if end == -1:
+            if (end := result.find("}", start)) == -1:
                 raise ValueError(f"Malformed template — unmatched '{{' in: {template!r}")
             n = int(result[start + len("{random_digits:") : end])
             replacement = "".join(str(self._rng.randint(0, 9)) for _ in range(n))
@@ -634,8 +630,7 @@ class BaseProvider(GeneratorDispatchMixin):
         # {random_int:MIN-MAX}
         while "{random_int:" in result:
             start = result.index("{random_int:")
-            end = result.find("}", start)
-            if end == -1:
+            if (end := result.find("}", start)) == -1:
                 raise ValueError(f"Malformed template — unmatched '{{' in: {template!r}")
             range_spec = result[start + len("{random_int:") : end]
             min_v, max_v = range_spec.split("-")

@@ -53,8 +53,7 @@ def test_native_method_remains_active_for_all_unique_rows(tmp_path: Path, genera
     oracle.seed_instance(42)
     expected: list[str] = []
     while len(expected) < 15:
-        value = oracle.lexify(text="?")
-        if value not in expected:
+        if (value := oracle.lexify(text="?")) not in expected:
             expected.append(value)
     config = ColumnConfig(name="label", generator=generator, faker_method="lexify", native_params={"text": "?"})
     with DataOrchestrator(str(path), provider_name="faker", locale="en_US", optimize_pragma=False) as orch:

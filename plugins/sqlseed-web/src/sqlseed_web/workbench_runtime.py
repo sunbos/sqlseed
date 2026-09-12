@@ -67,8 +67,7 @@ def _redact_query_credentials(message: str) -> str:
             r"password|passwd|pwd|secret|token|credential|key|passfile", key, re.IGNORECASE
         ):
             continue
-        value = value_pattern.match(message, cursor)
-        if value is not None:
+        if (value := value_pattern.match(message, cursor)) is not None:
             parts.extend((message[copied:cursor], "***"))
             cursor = copied = value.end()
     return "".join(parts) + message[copied:]
@@ -107,10 +106,8 @@ def _identity(target: str) -> str:
 
 
 def _reject_extra(value: Any, fields: Any, path: str) -> None:
-    if isinstance(value, dict):
-        extra = set(value) - set(fields)
-        if extra:
-            raise WorkbenchError(f"{path} 包含未知字段：{', '.join(sorted(extra))}", code="unknown_field")
+    if isinstance(value, dict) and (extra := set(value) - set(fields)):
+        raise WorkbenchError(f"{path} 包含未知字段：{', '.join(sorted(extra))}", code="unknown_field")
 
 
 def _validate_keys(raw: dict[str, Any]) -> None:
@@ -197,8 +194,7 @@ def _layers(dependencies: dict[str, set[str]]) -> tuple[list[str], list[list[str
     pending = {name: set(parents) for name, parents in dependencies.items()}
     layers: list[list[str]] = []
     while pending:
-        layer = [name for name, parents in pending.items() if not parents]
-        if not layer:
+        if not (layer := [name for name, parents in pending.items() if not parents]):
             break
         layers.append(layer)
         for name in layer:
@@ -233,8 +229,7 @@ def _runtime_columns(config: GeneratorConfig, table: TableConfig, orch: DataOrch
     applicable exact/pattern rule, including its normal name and type priority.
     """
     columns = list(table.columns)
-    mappings = config.custom_column_mappings
-    if mappings is None:
+    if (mappings := config.custom_column_mappings) is None:
         return columns
     configured = {column.name for column in columns}
     for info in orch.get_column_info(table.name):
@@ -285,15 +280,17 @@ def _unique_domain_issues(
     is_unique = [column.name] in single_unique or bool(column.constraints and column.constraints.unique)
     if is_unique and column.null_ratio == 0:
         choices = column.params.get("choices", column.params.get("weighted_choices"))
-        if column.generator in {"choice", "weighted_choice"} and isinstance(choices, (list, dict)):
-            available = len({_hash(value) for value in choices})
-            if available < table.count:
-                _issue(
-                    issues,
-                    "unique_domain_exhausted",
-                    f"显式候选值只有 {available} 个，无法生成 {table.count} 个唯一值",
-                    **context,
-                )
+        if (
+            column.generator in {"choice", "weighted_choice"}
+            and isinstance(choices, (list, dict))
+            and (available := len({_hash(value) for value in choices})) < table.count
+        ):
+            _issue(
+                issues,
+                "unique_domain_exhausted",
+                f"显式候选值只有 {available} 个，无法生成 {table.count} 个唯一值",
+                **context,
+            )
         minimum, maximum = column.params.get("min_value"), column.params.get("max_value")
         if (
             column.generator == "integer"
@@ -347,8 +344,7 @@ def _table_column_issues(
             )
         if column.generator and column.generator not in known:
             _issue(issues, "unknown_generator", f"未知 generator：{column.generator}", **context)
-        info = columns.get(column.name)
-        if info is None:
+        if (info := columns.get(column.name)) is None:
             _issue(issues, "unknown_column", "列已不存在，请刷新 schema 并修正配置", **context)
             continue
         _unique_domain_issues(column, table, metadata, context, issues)
@@ -992,8 +988,7 @@ def _fill_replacement_tables(
             "batch_count": result.batch_count,
             "elapsed": result.elapsed,
         }
-        violations = orch.query(f"PRAGMA foreign_key_check({quote_identifier(table.name)})")
-        if violations:
+        if orch.query(f"PRAGMA foreign_key_check({quote_identifier(table.name)})"):
             raise WorkbenchError(f"{table.name} 生成后的外键检查未通过")
     return staged
 

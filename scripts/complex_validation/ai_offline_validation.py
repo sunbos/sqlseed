@@ -190,13 +190,18 @@ def section_b() -> None:
         }]
     }
     v = validator.validate(clean_cfg, snapshot)
-    check("B1 clean config passes validation", v.is_clean, f"violations={[(x.columns, x.fix_hint) for x in v.violations]}")
+    check(
+        "B1 clean config passes validation",
+        v.is_clean,
+        f"violations={[(x.columns, x.fix_hint) for x in v.violations]}",
+    )
 
     broken_cfg = {
         "tables": [{
             "name": "users", "count": 30,
             "columns": [
-                {"name": "created_at", "generator": "integer"},          # crash: integer@DATETIME? (only TIMESTAMP covered) -> may be clean
+                # crash: integer@DATETIME? (only TIMESTAMP covered) -> may be clean
+                {"name": "created_at", "generator": "integer"},
                 {"name": "status", "generator": "integer"},               # crash: integer@TEXT? semantic
                 {"name": "age", "generator": "random_float"},             # coerce_float_to_int
             ],
@@ -222,8 +227,14 @@ def section_b() -> None:
     # Dialect parser: normalize a raw sqlite IntegrityError into a report.
     with closing(sqlite3.connect(db)) as con:
         try:
-            con.execute("INSERT INTO users (user_id, email, status, age, created_at) VALUES (1, 'a@b.c', 'active', 30, '2024-01-01')")
-            con.execute("INSERT INTO users (user_id, email, status, age, created_at) VALUES (2, 'a@b.c', 'active', 30, '2024-01-01')")
+            con.execute(
+                "INSERT INTO users (user_id, email, status, age, created_at) "
+                "VALUES (1, 'a@b.c', 'active', 30, '2024-01-01')"
+            )
+            con.execute(
+                "INSERT INTO users (user_id, email, status, age, created_at) "
+                "VALUES (2, 'a@b.c', 'active', 30, '2024-01-01')"
+            )
             con.commit()
             check("B4 dialect parser (setup insert must fail)", False, "no IntegrityError raised")
         except sqlite3.IntegrityError as e:
@@ -390,7 +401,9 @@ def section_e() -> None:
     ok, detail = fill_with_config(fixed, db, "e3")
     con = sqlite3.connect(db)
     n = con.execute("SELECT COUNT(*) FROM users").fetchone()[0]
-    bad_status = con.execute("SELECT COUNT(*) FROM users WHERE status NOT IN ('active','inactive','banned')").fetchone()[0]
+    bad_status = con.execute(
+        "SELECT COUNT(*) FROM users WHERE status NOT IN ('active','inactive','banned')"
+    ).fetchone()[0]
     bad_age = con.execute("SELECT COUNT(*) FROM users WHERE age < 18 OR age > 120").fetchone()[0]
     con.close()
     check("E3 repaired config fills with CHECK compliance",

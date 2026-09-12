@@ -47,8 +47,7 @@ def _strip_channel_prefix(content: str) -> str:
     Returns content unchanged when no ``<channel|>`` marker is found, so
     non-Gemma models (OpenAI, Anthropic, etc.) are unaffected.
     """
-    idx = content.rfind(_CHANNEL_END_MARKER)
-    if idx < 0:
+    if (idx := content.rfind(_CHANNEL_END_MARKER)) < 0:
         return content
     return content[idx + len(_CHANNEL_END_MARKER) :].strip()
 
@@ -67,16 +66,13 @@ def _try_direct_parse(content: str) -> dict[str, Any] | None:
 
 def _try_markdown_fence_parse(content: str) -> dict[str, Any] | None:
     """Strategy 2: Strip markdown code fences (```json\n{...}\n```)."""
-    open_idx = content.find("```")
-    if open_idx < 0:
+    if (open_idx := content.find("```")) < 0:
         return None
     after_open = content[open_idx + 3 :]
-    nl_pos = after_open.find("\n")
-    if nl_pos < 0:
+    if (nl_pos := after_open.find("\n")) < 0:
         return None
     content_start = nl_pos + 1
-    close_idx = after_open.find("```", content_start)
-    if close_idx < 0:
+    if (close_idx := after_open.find("```", content_start)) < 0:
         return None
     fence_content = after_open[content_start:close_idx].strip()
     try:
@@ -100,8 +96,7 @@ def _try_raw_decode(content: str) -> dict[str, Any] | None:
     missing the final ``}`` or ``]`` characters even when stopReason is
     "eosFound". We try a small set of suffix combinations to recover.
     """
-    first_brace = content.find("{")
-    if first_brace < 0:
+    if (first_brace := content.find("{")) < 0:
         return None
     decoder = json.JSONDecoder()
     # Try parsing as-is first (complete JSON embedded in prose).

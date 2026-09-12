@@ -95,8 +95,7 @@ class ProviderRegistry:
         Raises:
             ValueError: Raised when the given name is not registered.
         """
-        provider_name = name or self._default_name
-        if provider_name not in self._providers:
+        if (provider_name := name or self._default_name) not in self._providers:
             available = ", ".join(self._providers.keys())
             raise ValueError(f"Provider '{provider_name}' not found. Available: {available}")
         return self._providers[provider_name]

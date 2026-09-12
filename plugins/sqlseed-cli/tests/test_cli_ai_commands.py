@@ -43,12 +43,10 @@ if TYPE_CHECKING:
 
 # Detect whether sqlseed-ai is installed (controls a few test paths).
 # Using find_spec avoids importing the package just to probe availability.
-_AI_PLUGIN_AVAILABLE: bool = importlib.util.find_spec("sqlseed_ai") is not None
-
 # Import the real AIBackend enum when available so that backend comparisons
 # (``config.backend in (AIBackend.LM_STUDIO, ...)``) work against real enum
 # values rather than MagicMock instances (whose ``__eq__`` returns False).
-if _AI_PLUGIN_AVAILABLE:
+if _AI_PLUGIN_AVAILABLE := importlib.util.find_spec("sqlseed_ai") is not None:
     from sqlseed_ai.config import AIBackend
 
 

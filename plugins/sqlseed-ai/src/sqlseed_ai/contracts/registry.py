@@ -210,8 +210,7 @@ class LearnedContractsRegistry:
     @staticmethod
     def _is_safe_entry(entry: dict[str, Any]) -> bool:
         """Defense 7 re-check at load time."""
-        strategy = entry.get("fix_strategy", "")
-        if strategy not in SAFE_FIX_STRATEGIES:
+        if (entry.get("fix_strategy", "")) not in SAFE_FIX_STRATEGIES:
             return False
         fix_params = entry.get("fix_params", {}) or {}
         return all(key not in FORBIDDEN_PERSIST_KEYS for key in fix_params)

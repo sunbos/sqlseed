@@ -69,8 +69,7 @@ def _detect_environment() -> RuntimeEnv:
         # get_ipython() is injected by IPython/Jupyter at runtime; it's not
         # available at type-check time. Use builtins lookup to avoid a
         # name-defined suppression directive.
-        shell = getattr(builtins, "get_ipython", lambda: None)()
-        if shell is None:
+        if (shell := getattr(builtins, "get_ipython", lambda: None)()) is None:
             return "terminal"
     except (ImportError, NameError):
         return "terminal"
@@ -89,8 +88,7 @@ def _is_jupyter_shell(shell: Any) -> bool:
     - DatabricksShell (Databricks notebook)
     - IPKernelApp in shell config (Kaggle, Papermill, etc.)
     """
-    shell_class = type(shell).__name__
-    if shell_class == "ZMQInteractiveShell":
+    if (shell_class := type(shell).__name__) == "ZMQInteractiveShell":
         return True
     if "google.colab" in str(type(shell).__module__):
         return True
@@ -347,8 +345,7 @@ class TqdmNotebookBackend(ProgressBackend):
 
     def update(self, task_id: Any, *, advance: int = 0, description: str | None = None) -> None:
         """Advance and/or update the description of a tqdm task."""
-        pbar = self._ensure_bar(task_id)
-        if pbar is None:
+        if (pbar := self._ensure_bar(task_id)) is None:
             return
         if description is not None:
             pbar.set_description(description)
@@ -358,8 +355,7 @@ class TqdmNotebookBackend(ProgressBackend):
     def remove_task(self, task_id: Any) -> None:
         """Close and remove the tqdm bar associated with *task_id*."""
         self._pending.pop(task_id, None)
-        pbar = self._bars.pop(task_id, None)
-        if pbar is not None:
+        if (pbar := self._bars.pop(task_id, None)) is not None:
             pbar.close()
 
 
@@ -397,9 +393,7 @@ def create_progress(*, disable: bool = False) -> ProgressBackend:
     if disable:
         return NullProgressBackend()
 
-    env = _detect_environment()
-
-    if env == "jupyter":
+    if (_detect_environment()) == "jupyter":
         if _check_tqdm():
             return TqdmNotebookBackend()
         logger.warning(
@@ -407,8 +401,7 @@ def create_progress(*, disable: bool = False) -> ProgressBackend:
         )
         return NullProgressBackend()
 
-    ascii_only = not _can_render_unicode()
-    if ascii_only:
+    if ascii_only := not _can_render_unicode():
         logger.debug("Console encoding does not support Unicode progress characters — using ASCII-safe layout")
 
     if _PROGRESS_CLASS is None:

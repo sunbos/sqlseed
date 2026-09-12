@@ -118,13 +118,11 @@ def _infer_cross_column_config(
         _infer_conditional_null_with_sibling,
         _infer_conditional_range_priority,
     ):
-        inferred = infer(context)
-        if inferred is not None:
+        if (inferred := infer(context)) is not None:
             return inferred
 
     for constraint in sorted(constraints, key=_cross_constraint_sort_key):
-        inferred = _infer_cross_column_check(context, constraint)
-        if inferred is not None:
+        if (inferred := _infer_cross_column_check(context, constraint)) is not None:
             return inferred
     return None
 
@@ -169,8 +167,7 @@ def _infer_cross_column_check(context: _CrossColumnContext, c: dict[str, Any]) -
     constraints = context.constraints
     if c.get("type") != "check":
         return None
-    expr = c.get("expression", "")
-    if not expr:
+    if not (expr := c.get("expression", "")):
         return None
     # Check if col_name appears in the expression
     if not re.search(rf"\b{col}\b", expr, re.IGNORECASE):
@@ -257,8 +254,7 @@ def _infer_cross_column_check(context: _CrossColumnContext, c: dict[str, Any]) -
         _match_literal_or_threshold,
         _match_enum_or_null,
     ):
-        inferred = match(context, c)
-        if inferred is not None:
+        if (inferred := match(context, c)) is not None:
             return inferred
     return None
 
@@ -319,7 +315,6 @@ def _infer_self_reference_condition(context: _CrossColumnContext) -> dict[str, A
     col_name = context.col_name
     constraints = context.constraints
     col = context.col
-    self_ref_fk_cols = context.self_ref_fk_cols
     # FK (always NULL at fill time) and constraint is
     # ``col1 = VALUE OR col2 IS NOT NULL``, col1 must be VALUE.
     # Since col2 is always NULL, ``col2 IS NOT NULL`` is always FALSE, so
@@ -327,7 +322,7 @@ def _infer_self_reference_condition(context: _CrossColumnContext) -> dict[str, A
     # This must be a PRE-LOOP scan because it applies to col1 (not col2), and
     # the per-constraint loop might match a less restrictive pattern first.
     # e.g., org_type = 'root' OR parent_id IS NOT NULL (parent_id is self-ref FK)
-    if self_ref_fk_cols:
+    if self_ref_fk_cols := context.self_ref_fk_cols:
         for c in constraints:
             if c.get("type") != "check":
                 continue
@@ -399,8 +394,7 @@ def _infer_nullable_three_way_comparison(context: _CrossColumnContext) -> dict[s
     lower_bound_literal_p1b, upper_bound_literal_p1b = _find_nullable_literal_bounds(context)
     bounds = _NullableComparisonBounds(lower_bound_col_p1b, lower_bound_literal_p1b, upper_bound_literal_p1b)
     for c in constraints:
-        inferred = _match_bounded_nullable_three_way(context, c, bounds)
-        if inferred is not None:
+        if (inferred := _match_bounded_nullable_three_way(context, c, bounds)) is not None:
             return inferred
     return None
 
@@ -774,8 +768,7 @@ def _match_inclusive_lower(context: _CrossColumnContext, c: dict[str, Any]) -> d
     expr = c.get("expression", "")
     # Pattern 2: col >= other_col (standalone, no NULL escape)
     # e.g., due_date >= invoice_date
-    m = re.match(rf"^\s*{col}\s*>=\s*(\w+)\s*$", expr, re.IGNORECASE)
-    if m:
+    if m := re.match(rf"^\s*{col}\s*>=\s*(\w+)\s*$", expr, re.IGNORECASE):
         other_col = m.group(1)
         if other_col in col_set and other_col != col_name:
             if is_date_col:
@@ -808,8 +801,7 @@ def _match_exclusive_lower(context: _CrossColumnContext, c: dict[str, Any]) -> d
     # For float columns (e.g., unit_price > cost_price): multiply by a
     # factor > 1 to guarantee strict inequality.
     # For int columns: add a positive offset.
-    m = re.match(rf"^\s*{col}\s*>\s*(\w+)\s*$", expr, re.IGNORECASE)
-    if m:
+    if m := re.match(rf"^\s*{col}\s*>\s*(\w+)\s*$", expr, re.IGNORECASE):
         other_col = m.group(1)
         if other_col in col_set and other_col != col_name:
             if is_date_col or _is_date_column(other_col):
@@ -849,8 +841,7 @@ def _match_inclusive_upper(context: _CrossColumnContext, c: dict[str, Any]) -> d
     # Note: float multiplication assumes positive source values (typical
     # for money/amount columns). For mixed-sign columns, the
     # ConstraintSolver's retry mechanism handles edge cases.
-    m = re.match(rf"^\s*{col}\s*<=\s*(\w+)\s*$", expr, re.IGNORECASE)
-    if m:
+    if m := re.match(rf"^\s*{col}\s*<=\s*(\w+)\s*$", expr, re.IGNORECASE):
         other_col = m.group(1)
         if other_col in col_set and other_col != col_name:
             if is_date_col or _is_date_column(other_col):
@@ -1032,8 +1023,7 @@ def _match_inclusive_literal_lower_exclusive_column_upper(
         x_str_8e, other_col_8e = m.group(1), m.group(2)
         if other_col_8e in col_set and other_col_8e != col_name:
             if is_float_type:
-                lower_float = float(x_str_8e)
-                if lower_float == 0:
+                if (lower_float := float(x_str_8e)) == 0:
                     return {
                         "derive_from": other_col_8e,
                         "expression": "value * random_float(0.0, 0.99)",
@@ -1063,8 +1053,7 @@ def _match_exclusive_upper(context: _CrossColumnContext, c: dict[str, Any]) -> d
     # For float columns (positive values): multiply by factor in [0.1, 0.9]
     #   (always strictly less than source).
     # For int columns: subtract a positive offset (>= 1).
-    m = re.match(rf"^\s*{col}\s*<\s*(\w+)\s*$", expr, re.IGNORECASE)
-    if m:
+    if m := re.match(rf"^\s*{col}\s*<\s*(\w+)\s*$", expr, re.IGNORECASE):
         other_col = m.group(1)
         if other_col in col_set and other_col != col_name:
             if is_date_col or _is_date_column(other_col):
@@ -1104,14 +1093,11 @@ def _match_column_inequality(context: _CrossColumnContext, c: dict[str, Any]) ->
     # e.g., base_currency != quote_currency (both IN ('CNY','USD','EUR','HKD'))
     #   → 'USD' if value == 'CNY' else 'EUR' if value == 'USD' else ...
     other_col_p6: str | None = None
-    m_p6 = re.match(rf"^\s*{col}\s*!=\s*(\w+)\s*$", expr, re.IGNORECASE)
-    if m_p6:
+    if m_p6 := re.match(rf"^\s*{col}\s*!=\s*(\w+)\s*$", expr, re.IGNORECASE):
         other_col_p6 = m_p6.group(1)
-    else:
-        # Reversed form: other_col != col
-        m_p6_rev = re.match(rf"^\s*(\w+)\s*!=\s*{col}\s*$", expr, re.IGNORECASE)
-        if m_p6_rev:
-            other_col_p6 = m_p6_rev.group(1)
+    # Reversed form: other_col != col
+    elif m_p6_rev := re.match(rf"^\s*(\w+)\s*!=\s*{col}\s*$", expr, re.IGNORECASE):
+        other_col_p6 = m_p6_rev.group(1)
     if other_col_p6 and other_col_p6 in col_set and other_col_p6 != col_name:
         # Cycle prevention: only apply Pattern 6 to the column that comes
         # LATER in the column list. The constraint ``col != other_col`` is
@@ -1865,8 +1851,7 @@ def _match_literal_or_enum(context: _CrossColumnContext, c: dict[str, Any]) -> d
         val_str, other_col, values_str = m.group(1), m.group(2), m.group(3)
         if other_col in col_set and other_col != col_name:
             # Parse the values: 'a', 'b', 'c' → ['a', 'b', 'c']
-            values = re.findall(r"'([^']*)'", values_str)
-            if not values:
+            if not (values := re.findall(r"'([^']*)'", values_str)):
                 values = re.findall(r'"([^"]*)"', values_str)
             if values:
                 is_float_p26 = "." in val_str
@@ -1913,8 +1898,7 @@ def _match_conditional_enum(context: _CrossColumnContext, c: dict[str, Any]) -> 
         )
         if cond_col_p26b in col_set and cond_col_p26b != col_name:
             # Parse the values: 'a', 'b', 'c' → ['a', 'b', 'c']
-            values_p26b = re.findall(r"'([^']*)'", values_str_p26b)
-            if not values_p26b:
+            if not (values_p26b := re.findall(r"'([^']*)'", values_str_p26b)):
                 values_p26b = re.findall(r'"([^"]*)"', values_str_p26b)
             if values_p26b:
                 py_list_p26b = "[" + ", ".join(f"'{v}'" for v in values_p26b) + "]"
@@ -1951,19 +1935,21 @@ def _match_conditional_enum_equalities(context: _CrossColumnContext, c: dict[str
     if m:
         cond_col_p26c = m.group(1)
         val_str_p26c = m.group(2)
-        if cond_col_p26c in col_set and cond_col_p26c != col_name:
-            # Extract all quoted values after the OR keywords
-            all_values_p26c = re.findall(rf"{col}\s*=\s*'([^']+)'", expr, re.IGNORECASE)
-            if all_values_p26c:
-                py_list_p26c = "[" + ", ".join(f"'{v}'" for v in all_values_p26c) + "]"
-                first_val_p26c = all_values_p26c[0]
-                return {
-                    "derive_from": cond_col_p26c,
-                    "expression": (
-                        f"{py_list_p26c}[random_int(0, {len(all_values_p26c) - 1})] "
-                        f"if value == '{val_str_p26c}' else '{first_val_p26c}'"
-                    ),
-                }
+        # Extract all quoted values after the OR keywords.
+        if (
+            cond_col_p26c in col_set
+            and cond_col_p26c != col_name
+            and (all_values_p26c := re.findall(rf"{col}\s*=\s*'([^']+)'", expr, re.IGNORECASE))
+        ):
+            py_list_p26c = "[" + ", ".join(f"'{v}'" for v in all_values_p26c) + "]"
+            first_val_p26c = all_values_p26c[0]
+            return {
+                "derive_from": cond_col_p26c,
+                "expression": (
+                    f"{py_list_p26c}[random_int(0, {len(all_values_p26c) - 1})] "
+                    f"if value == '{val_str_p26c}' else '{first_val_p26c}'"
+                ),
+            }
     return None
 
 
@@ -2110,8 +2096,7 @@ def _match_conditional_string_mapping(
     for c_p37s in constraints:
         if c_p37s.get("type") != "check":
             continue
-        expr_p37s = c_p37s.get("expression", "")
-        if not expr_p37s:
+        if not (expr_p37s := c_p37s.get("expression", "")):
             continue
         m_p37s = re.match(
             rf"^\s*(\w+)\s*!=\s*'([^']+)'\s+OR\s+{col}\s*=\s*'([^']*)'\s*$",
@@ -2690,8 +2675,7 @@ def _match_conditional_positive_or_null(context: _CrossColumnContext, c: dict[st
         )
         if other_col_p32 in col_set and other_col_p32 != col_name:
             threshold_p32 = float(threshold_str_p32)
-            values_p32 = re.findall(r"'([^']*)'", values_str_p32)
-            if not values_p32:
+            if not (values_p32 := re.findall(r"'([^']*)'", values_str_p32)):
                 values_p32 = re.findall(r'"([^"]*)"', values_str_p32)
             if values_p32:
                 py_list_p32 = "[" + ", ".join(f"'{v}'" for v in values_p32) + "]"
@@ -2734,8 +2718,7 @@ def _match_conditional_arithmetic(context: _CrossColumnContext, c: dict[str, Any
             m.group(7),
         )
         if type_col_p33 in col_set and base_col_p33 in col_set and amt_col_p33 in col_set and base_col_p33 != col_name:
-            set1_vals = re.findall(r"'([^']*)'", set1_str)
-            if not set1_vals:
+            if not (set1_vals := re.findall(r"'([^']*)'", set1_str)):
                 set1_vals = re.findall(r'"([^"]*)"', set1_str)
             if set1_vals:
                 py_list1_p33 = "[" + ", ".join(f"'{v}'" for v in set1_vals) + "]"
@@ -2977,8 +2960,7 @@ def _match_enum_or_null(context: _CrossColumnContext, c: dict[str, Any]) -> dict
                 # Always NULL — satisfies both Pattern 35 and Pattern 1
                 return {"generator": "datetime", "params": {}, "null_ratio": 1.0}
             # Non-date: derive from col1, None when not in set
-            values_p35 = re.findall(r"'([^']*)'", values_str_p35)
-            if not values_p35:
+            if not (values_p35 := re.findall(r"'([^']*)'", values_str_p35)):
                 values_p35 = re.findall(r'"([^"]*)"', values_str_p35)
             if values_p35:
                 py_list_p35 = "[" + ", ".join(f"'{v}'" for v in values_p35) + "]"
@@ -3055,8 +3037,7 @@ def _build_conditional_priority_range(
     # ``min(result, max_val)`` / ``max(result, min_val)`` to
     # enforce both Pattern 27 clause ranges AND column-level
     # bounds simultaneously. ``min``/``max`` are in SAFE_FUNCTIONS.
-    col_check = _infer_from_check_constraints(col_name, constraints, all_columns)
-    if col_check is not None:
+    if (col_check := _infer_from_check_constraints(col_name, constraints, all_columns)) is not None:
         _ck_gen, ck_params = col_check
         max_val = ck_params.get("max_value")
         min_val = ck_params.get("min_value")
@@ -3221,8 +3202,7 @@ def _collect_conditional_numeric_branches(
     for c_p37 in constraints:
         if c_p37.get("type") != "check":
             continue
-        expr_p37 = c_p37.get("expression", "")
-        if not expr_p37:
+        if not (expr_p37 := c_p37.get("expression", "")):
             continue
         m_p37 = re.match(
             rf"^\s*(\w+)\s*!=\s*'([^']+)'\s+OR\s+{col}\s*(>=|<=|>|<|!=)\s*(-?[0-9]+(?:\.[0-9]+)?)\s*$",
@@ -3303,12 +3283,10 @@ def _find_equality_fallback_bounds(context: _CrossColumnContext) -> tuple[float 
             range_max = float(m_combined.group(2))
             break
         # Separate lower: col >= X
-        m_low = re.match(rf"^\s*{col}\s*>=\s*(-?\d+(?:\.\d+)?)\s*$", rc_expr, re.IGNORECASE)
-        if m_low:
+        if m_low := re.match(rf"^\s*{col}\s*>=\s*(-?\d+(?:\.\d+)?)\s*$", rc_expr, re.IGNORECASE):
             range_min = float(m_low.group(1))
         # Separate upper: col <= Y
-        m_up = re.match(rf"^\s*{col}\s*<=\s*(-?\d+(?:\.\d+)?)\s*$", rc_expr, re.IGNORECASE)
-        if m_up:
+        if m_up := re.match(rf"^\s*{col}\s*<=\s*(-?\d+(?:\.\d+)?)\s*$", rc_expr, re.IGNORECASE):
             range_max = float(m_up.group(1))
     return range_min, range_max
 
@@ -3360,8 +3338,7 @@ def _minimum_date_comparison_days(context: _CrossColumnContext, c: dict[str, Any
         if m_p41_diff:
             diff_op = m_p41_diff.group(1)
             diff_n = int(m_p41_diff.group(2))
-            bound = diff_n if diff_op == ">=" else diff_n + 1
-            if bound > min_days_p41:
+            if (bound := diff_n if diff_op == ">=" else diff_n + 1) > min_days_p41:
                 min_days_p41 = bound
     # DATE-vs-DATETIME compensation: when the target column
     # is DATE-only (no time component) and the source column

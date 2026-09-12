@@ -97,8 +97,7 @@ class CheckAdapter:
         for col_name, cc in user_configs.items():
             if not self._is_source_mode(cc):
                 continue
-            parsed = CheckConstraintParser.parse_all(col_name, check_expressions)
-            if parsed is None:
+            if (parsed := CheckConstraintParser.parse_all(col_name, check_expressions)) is None:
                 continue  # 跨列 / 无法解析 → 保持原样，交 AI/人工
             self._adapt_column(cc, parsed)
 
@@ -113,7 +112,7 @@ class CheckAdapter:
         if parsed.kind == "range" and generator in _RANGE_GENERATORS:
             self._clamp_range(cc, params, parsed, integer=generator in _INT_RANGE_GENERATORS)
         elif parsed.kind == "choice" and generator in _CHOICE_GENERATORS:
-            self._clamp_choices(cc, params, parsed, weighted=(generator == "weighted_choice"))
+            self._clamp_choices(cc, params, parsed, weighted=generator == "weighted_choice")
         elif parsed.kind == "length_range" and generator in _LENGTH_GENERATORS:
             self._clamp_length(cc, params, parsed)
 
@@ -187,8 +186,7 @@ class CheckAdapter:
             params["choices"] = allowed
             logger.info("check_adopt", column=cc.name, choices=allowed)
             return
-        intersection = [c for c in user_choices if c in allowed]
-        if not intersection:
+        if not (intersection := [c for c in user_choices if c in allowed]):
             self._raise_no_intersection(cc, parsed, repr(user_choices))
         if len(intersection) != len(user_choices):
             dropped = [c for c in user_choices if c not in allowed]
@@ -213,8 +211,7 @@ class CheckAdapter:
         choices = params.get("choices")
 
         if isinstance(weighted_choices, dict) and weighted_choices:
-            intersection = {v: w for v, w in weighted_choices.items() if v in allowed}
-            if not intersection:
+            if not (intersection := {v: w for v, w in weighted_choices.items() if v in allowed}):
                 self._raise_no_intersection(cc, parsed, repr(weighted_choices))
             if len(intersection) != len(weighted_choices):
                 dropped = [v for v in weighted_choices if v not in allowed]
@@ -226,8 +223,7 @@ class CheckAdapter:
             dict_form = [c for c in choices if isinstance(c, dict) and "value" in c]
             if len(dict_form) != len(choices):
                 return  # 非标量/字典混排等未文档化形态 → 保持原样
-            kept = [c for c in dict_form if c["value"] in allowed]
-            if not kept:
+            if not (kept := [c for c in dict_form if c["value"] in allowed]):
                 self._raise_no_intersection(cc, parsed, repr(choices))
             if len(kept) != len(dict_form):
                 dropped = [c["value"] for c in dict_form if c["value"] not in allowed]

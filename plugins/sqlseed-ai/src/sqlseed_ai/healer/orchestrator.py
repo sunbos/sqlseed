@@ -140,9 +140,8 @@ class HealOrchestrator:
                     return degraded_result
                 current_config = candidate
                 val_result = self._validator.validate(current_config, self._snapshot)
-                new_violations = self._extract_violations(val_result)
 
-                if not new_violations:
+                if not (new_violations := self._extract_violations(val_result)):
                     heal_result = HealResult(
                         config=current_config,
                         success=True,
@@ -172,8 +171,7 @@ class HealOrchestrator:
                 continue
 
             # Failure — classify and route.
-            ftype = result.failure_type
-            if ftype == FailureType.NETWORK:
+            if (result.failure_type) == FailureType.NETWORK:
                 raise RuntimeError(f"LLM network error: {result.error}")
 
             # For non-network failures, the routing is handled inside
@@ -262,9 +260,8 @@ class HealOrchestrator:
         """
         # Pre-judgment: skip Level 1 if prompt too large.
         l1_prompt = self._level1.build_prompt(task, violations, config)
-        skip_l1 = self._context_detector.should_skip_level1(l1_prompt.system_prompt + l1_prompt.user_prompt)
 
-        if not skip_l1:
+        if not self._context_detector.should_skip_level1(l1_prompt.system_prompt + l1_prompt.user_prompt):
             # Level 1: subgraph-level.
             l1_result = self._level1.heal(task, violations, config)
             l1_ftype = (
@@ -435,8 +432,7 @@ class HealOrchestrator:
         the deterministic inference, which is structurally correct even if
         semantically suboptimal.
         """
-        failed_cols = self._collect_failed_columns(violations)
-        if not failed_cols:
+        if not (failed_cols := self._collect_failed_columns(violations)):
             return HealResult(
                 config=config,
                 success=False,
@@ -481,16 +477,14 @@ class HealOrchestrator:
         orig_tables = {t["name"]: t for t in original_config.get("tables", [])}
         for table_cfg in new_config.get("tables", []):
             table_name = table_cfg.get("name", "")
-            orig_table = orig_tables.get(table_name)
-            if not orig_table:
+            if not (orig_table := orig_tables.get(table_name)):
                 continue
             orig_cols = {c["name"]: c for c in orig_table.get("columns", [])}
             for col in table_cfg.get("columns", []):
                 col_name = col.get("name", "")
                 if col_name not in failed_set and f"{table_name}:{col_name}" not in failed_set:
                     continue
-                orig_col = orig_cols.get(col_name)
-                if not orig_col:
+                if not (orig_col := orig_cols.get(col_name)):
                     continue
                 # Restore deterministic inference fields
                 for field_name in ("generator", "params", "derive_from", "expression"):
@@ -513,8 +507,7 @@ class HealOrchestrator:
         new_config = copy.deepcopy(config)
         patch_tables = {t["name"]: t for t in patch.get("tables", [])}
         for table_cfg in new_config.get("tables", []):
-            name = table_cfg["name"]
-            if name not in patch_tables:
+            if (name := table_cfg["name"]) not in patch_tables:
                 continue
             patch_cols = {c["name"]: c for c in patch_tables[name].get("columns", [])}
             new_columns = []
@@ -549,8 +542,7 @@ class HealOrchestrator:
             for c in v.columns:
                 if not c:
                     continue
-                key = f"{table}:{c}" if table else c
-                if key not in seen:
+                if (key := f"{table}:{c}" if table else c) not in seen:
                     seen.append(key)
         return seen
 

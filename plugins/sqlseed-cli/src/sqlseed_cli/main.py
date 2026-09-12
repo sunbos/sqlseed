@@ -58,8 +58,7 @@ def _fill_from_config_cmd(config_path: str, *, clear_before: bool = False, **kwa
     table_count = len(config.tables)
     click.echo(f"Loading config: {config_path} ({table_count} table(s))")
 
-    any_clear = clear_before or any(tc.clear_before for tc in config.tables)
-    if not any_clear:
+    if not (clear_before or any(tc.clear_before for tc in config.tables)):
         click.echo("Note: Data will be appended. Use --clear to reset tables before generation.")
 
     results = fill_from_config(config_path, clear_before=clear_before, **kwargs)
@@ -299,8 +298,7 @@ def _execute_config_fill(options: FillOptions, config_path: str) -> None:
 
 
 def _execute_fill(options: FillOptions) -> None:
-    config_path = options.config_path
-    if config_path:
+    if config_path := options.config_path:
         _execute_config_fill(options, config_path)
         return
 
@@ -467,8 +465,7 @@ def _inspect_table(orch: Any, tbl: str, show_mapping: bool, console: Any) -> Non
             "\u2713" if col.is_autoincrement else "",
         ]
         if show_mapping and generator_specs:
-            spec = generator_specs.get(col.name)
-            if spec:
+            if spec := generator_specs.get(col.name):
                 row_data.extend([spec.generator_name, str(spec.params)])
             else:
                 row_data.extend(["skip", "{}"])
@@ -497,8 +494,7 @@ def inspect(db_path: str | None, table: str | None, show_mapping: bool, db_url: 
     """
     if db_path and db_url:
         raise click.UsageError("Cannot specify both positional db_path and --url. Use one or the other.")
-    target = db_url or db_path
-    if not target:
+    if not (target := db_url or db_path):
         raise click.UsageError("db_path or --url is required.")
     try:
         with DataOrchestrator(target) as orch:

@@ -69,8 +69,7 @@ def sqlite_target(target: str, conn_id: str) -> SQLiteTarget | None:
         return None
     dialect: Dialect = SQLiteDialect_pysqlite()
     args, options = dialect.create_connect_args(url)
-    filename = str(args[0])
-    if filename in {"", ":memory:"}:
+    if (filename := str(args[0])) in {"", ":memory:"}:
         return SQLiteTarget("sqlite-memory", conn_id)
     if options.get("uri") and filename.startswith("file:"):
         filename, query = _sqlite_uri_parts(filename)

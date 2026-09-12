@@ -32,13 +32,11 @@ class OscillationDetector:
 
     def check_and_record(self, violations: list[ViolationReport]) -> bool:
         """Return True if oscillation detected, else record and return False."""
-        current = frozenset((col, v.severity) for v in violations for col in v.columns)
-        if current in self._history:
+        if (current := frozenset((col, v.severity) for v in violations for col in v.columns)) in self._history:
             logger.warning("Oscillation detected", history_len=len(self._history))
             return True
         for hist in self._history:
-            overlap = len(current & hist) / max(len(current), 1)
-            if overlap >= self._partial_threshold:
+            if (overlap := len(current & hist) / max(len(current), 1)) >= self._partial_threshold:
                 logger.warning("Partial oscillation detected", overlap=overlap)
                 return True
         self._history.append(current)

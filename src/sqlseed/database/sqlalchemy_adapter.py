@@ -760,8 +760,7 @@ class SQLAlchemyAdapter:
         except NoSuchTableError:
             constraints = []
         for uc in constraints:
-            col_names = tuple(c or "" for c in uc.get("column_names", []))
-            if not col_names:
+            if not (col_names := tuple(c or "" for c in uc.get("column_names", []))):
                 continue
             if col_names not in seen:
                 seen.add(col_names)
@@ -785,18 +784,16 @@ class SQLAlchemyAdapter:
         """Supplement reflection with complete single-column SQLite UNIQUE indexes."""
         try:
             for idx in fetch_index_info(self.execute, table_name):
-                if idx.unique and not idx.is_partial and len(idx.columns) == 1:
-                    key = idx.columns
-                    if key not in seen:
-                        seen.add(key)
-                        result.append(
-                            IndexInfo(
-                                name=idx.name,
-                                table=table_name,
-                                columns=idx.columns,
-                                unique=True,
-                            )
+                if idx.unique and not idx.is_partial and len(idx.columns) == 1 and (key := idx.columns) not in seen:
+                    seen.add(key)
+                    result.append(
+                        IndexInfo(
+                            name=idx.name,
+                            table=table_name,
+                            columns=idx.columns,
+                            unique=True,
                         )
+                    )
         except (SQLAlchemyError, ValueError, RuntimeError, OSError):
             logger.debug("Failed to detect SQLite UNIQUE auto-indexes via PRAGMA", table_name=table_name)
 
@@ -899,14 +896,12 @@ class SQLAlchemyAdapter:
         table_name = self._resolve_table_name(table_name)
 
         dialect = self.dialect
-        all_columns = self.get_column_info(table_name)
         # Return an empty list when the table does not exist or has no columns (consistent with RawSQLiteAdapter)
-        if not all_columns:
+        if not (all_columns := self.get_column_info(table_name)):
             return []
         if columns is not None:
             projection_set = set(columns)
-            selected = [c for c in all_columns if c.name in projection_set]
-            if not selected:
+            if not (selected := [c for c in all_columns if c.name in projection_set]):
                 return []
         else:
             selected = all_columns
@@ -932,8 +927,7 @@ class SQLAlchemyAdapter:
         Raises:
             RuntimeError: Raised when the target table does not exist.
         """
-        table_name = self._resolve_table_name(table_name)
-        if table_name in self._table_cache:
+        if (table_name := self._resolve_table_name(table_name)) in self._table_cache:
             return self._table_cache[table_name]
 
         engine = self._get_engine()

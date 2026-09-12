@@ -1,0 +1,4325 @@
+{
+  "scope": "Observed CodeFlow analysis cannot resolve declared dependencies; no environment install logs available. Isolated Pylint 2.17.7 proves the bounded dependency/path adaptation.",
+  "tool": "/tmp/sqlseed-codeflow-pylint217/bin/pylint",
+  "implementation_evidence": [
+    {
+      "path": "/tmp/sqlseed-codeflow-pylint217/lib/python3.11/site-packages/pylint/checkers/imports.py",
+      "lines": [
+        87,
+        154,
+        483,
+        853
+      ],
+      "finding": "_get_imported_module calls do_import_module first; on AstroidBuildingError, _ignore_import_failure matches literal dotted prefixes in ignored_modules. It does not disable internal checks or prevent parsing. The import checker does not implement fnmatch."
+    },
+    {
+      "path": "/tmp/sqlseed-codeflow-pylint217/lib/python3.11/site-packages/pylint/lint/expand_modules.py",
+      "lines": [
+        39
+      ],
+      "finding": "First containing source-root determines namespace. Specific package source roots must precede repository root."
+    },
+    {
+      "path": "/tmp/sqlseed-codeflow-pylint217/lib/python3.11/site-packages/pylint/lint/pylinter.py",
+      "lines": [
+        685
+      ],
+      "finding": "Only discovered roots for linted files are added to sys.path; source-roots alone does not make sibling package imports resolvable."
+    },
+    {
+      "path": "/tmp/sqlseed-codeflow-pylint217/lib/python3.11/site-packages/pylint/config/config_initialization.py",
+      "lines": [
+        49
+      ],
+      "finding": "init-hook executes before extension loading. Proposed hook only imports sys and adds explicitly declared local source paths; no external imports, credential access, subprocesses or installs."
+    }
+  ],
+  "proposed_configuration": {
+    "source-roots": "\nsrc,\nplugins/sqlseed-cli/src,\nplugins/sqlseed-ai/src,\nplugins/mcp-server-sqlseed/src,\nplugins/sqlseed-web/src,\n.",
+    "init-hook": "import sys; sys.path[:0] = ['src', 'plugins/sqlseed-cli/src', 'plugins/sqlseed-ai/src', 'plugins/mcp-server-sqlseed/src', 'plugins/sqlseed-web/src', '.', 'scripts/complex_validation', 'examples/scenario_lab', 'examples']",
+    "ignored-modules": "\nclick,\ndocker,\nfaker,\nfastapi,\nhttpx,\nhypothesis,\nmcp,\nmsvcrt,\nopenai,\npackaging,\npluggy,\npydantic,\npytest,\npywintypes,\nrequests,\nrich,\nrstr,\nsimpleeval,\nsqlalchemy,\nsqlglot,\nstarlette,\nstructlog,\ntestcontainers,\ntomli,\ntqdm,\ntyping_extensions,\nuvicorn,\nwinerror,\nyaml"
+  },
+  "direct_dependency_module_inventory": [
+    {
+      "module": "click",
+      "distributions": [
+        "click"
+      ],
+      "directly_declared": [
+        "click"
+      ],
+      "transitively_locked": [],
+      "declarations": [
+        {
+          "manifest": "plugins/sqlseed-cli/pyproject.toml",
+          "group": "dependencies",
+          "requirement": "click>=8.0"
+        }
+      ],
+      "imports": [
+        {
+          "path": "plugins/sqlseed-ai/src/sqlseed_ai/cli/ai_commands.py",
+          "line": 19,
+          "module": "click"
+        },
+        {
+          "path": "plugins/sqlseed-ai/tests/test_ai_commands.py",
+          "line": 19,
+          "module": "click.testing"
+        },
+        {
+          "path": "plugins/sqlseed-ai/tests/test_cli_auto_heal.py",
+          "line": 7,
+          "module": "click.testing"
+        },
+        {
+          "path": "plugins/sqlseed-ai/tests/test_cli_input_contract.py",
+          "line": 10,
+          "module": "click.testing"
+        },
+        {
+          "path": "plugins/sqlseed-ai/tests/test_runtime.py",
+          "line": 161,
+          "module": "click.testing"
+        },
+        {
+          "path": "plugins/sqlseed-cli/src/sqlseed_cli/main.py",
+          "line": 17,
+          "module": "click"
+        },
+        {
+          "path": "plugins/sqlseed-cli/tests/test_cli.py",
+          "line": 11,
+          "module": "click.testing"
+        },
+        {
+          "path": "plugins/sqlseed-cli/tests/test_cli_ai_commands.py",
+          "line": 24,
+          "module": "click"
+        },
+        {
+          "path": "plugins/sqlseed-cli/tests/test_cli_ai_commands.py",
+          "line": 27,
+          "module": "click.testing"
+        },
+        {
+          "path": "plugins/sqlseed-cli/tests/test_cli_yaml_priority.py",
+          "line": 8,
+          "module": "click.testing"
+        },
+        {
+          "path": "plugins/sqlseed-cli/tests/test_config_execution_safety.py",
+          "line": 9,
+          "module": "click.testing"
+        },
+        {
+          "path": "plugins/sqlseed-cli/tests/test_snapshot_transform.py",
+          "line": 10,
+          "module": "click.testing"
+        },
+        {
+          "path": "scripts/complex_validation/smoke_test.py",
+          "line": 99,
+          "module": "click.testing"
+        },
+        {
+          "path": "tests/integration/test_ai_real_llm.py",
+          "line": 37,
+          "module": "click.testing"
+        },
+        {
+          "path": "tests/integration/test_pg_driver_selection.py",
+          "line": 8,
+          "module": "click.testing"
+        },
+        {
+          "path": "tests/integration/test_url_e2e.py",
+          "line": 9,
+          "module": "click.testing"
+        }
+      ]
+    },
+    {
+      "module": "faker",
+      "distributions": [
+        "faker"
+      ],
+      "directly_declared": [
+        "faker"
+      ],
+      "transitively_locked": [],
+      "declarations": [
+        {
+          "manifest": "pyproject.toml",
+          "group": "dependencies",
+          "requirement": "faker>=30.0"
+        }
+      ],
+      "imports": [
+        {
+          "path": "tests/test_core/test_native_method_contract.py",
+          "line": 9,
+          "module": "faker"
+        },
+        {
+          "path": "tests/test_generators/test_generator_quality_regressions.py",
+          "line": 108,
+          "module": "faker"
+        }
+      ]
+    },
+    {
+      "module": "fastapi",
+      "distributions": [
+        "fastapi"
+      ],
+      "directly_declared": [
+        "fastapi"
+      ],
+      "transitively_locked": [],
+      "declarations": [
+        {
+          "manifest": "plugins/sqlseed-web/pyproject.toml",
+          "group": "dependencies",
+          "requirement": "fastapi>=0.110"
+        }
+      ],
+      "imports": [
+        {
+          "path": "plugins/sqlseed-web/src/sqlseed_web/api.py",
+          "line": 32,
+          "module": "fastapi"
+        },
+        {
+          "path": "plugins/sqlseed-web/src/sqlseed_web/app.py",
+          "line": 12,
+          "module": "fastapi"
+        },
+        {
+          "path": "plugins/sqlseed-web/src/sqlseed_web/app.py",
+          "line": 13,
+          "module": "fastapi.exception_handlers"
+        },
+        {
+          "path": "plugins/sqlseed-web/src/sqlseed_web/app.py",
+          "line": 14,
+          "module": "fastapi.exceptions"
+        },
+        {
+          "path": "plugins/sqlseed-web/src/sqlseed_web/app.py",
+          "line": 15,
+          "module": "fastapi.responses"
+        },
+        {
+          "path": "plugins/sqlseed-web/src/sqlseed_web/app.py",
+          "line": 16,
+          "module": "fastapi.staticfiles"
+        },
+        {
+          "path": "plugins/sqlseed-web/src/sqlseed_web/managed_worker.py",
+          "line": 13,
+          "module": "fastapi"
+        },
+        {
+          "path": "plugins/sqlseed-web/src/sqlseed_web/plugin_management.py",
+          "line": 17,
+          "module": "fastapi"
+        },
+        {
+          "path": "plugins/sqlseed-web/src/sqlseed_web/runtime_lifecycle.py",
+          "line": 10,
+          "module": "fastapi"
+        },
+        {
+          "path": "plugins/sqlseed-web/src/sqlseed_web/runtime_session.py",
+          "line": 8,
+          "module": "fastapi"
+        },
+        {
+          "path": "plugins/sqlseed-web/src/sqlseed_web/settings_environment.py",
+          "line": 19,
+          "module": "fastapi"
+        },
+        {
+          "path": "plugins/sqlseed-web/src/sqlseed_web/supervised_plugins.py",
+          "line": 9,
+          "module": "fastapi"
+        },
+        {
+          "path": "plugins/sqlseed-web/src/sqlseed_web/supervisor.py",
+          "line": 13,
+          "module": "fastapi"
+        },
+        {
+          "path": "plugins/sqlseed-web/src/sqlseed_web/workbench.py",
+          "line": 10,
+          "module": "fastapi"
+        },
+        {
+          "path": "plugins/sqlseed-web/src/sqlseed_web/workbench.py",
+          "line": 11,
+          "module": "fastapi.encoders"
+        },
+        {
+          "path": "plugins/sqlseed-web/src/sqlseed_web/workbench_ai.py",
+          "line": 12,
+          "module": "fastapi"
+        },
+        {
+          "path": "plugins/sqlseed-web/src/sqlseed_web/workbench_ai.py",
+          "line": 13,
+          "module": "fastapi.responses"
+        },
+        {
+          "path": "plugins/sqlseed-web/src/sqlseed_web/workbench_ai_stream.py",
+          "line": 13,
+          "module": "fastapi"
+        },
+        {
+          "path": "plugins/sqlseed-web/src/sqlseed_web/workbench_ai_stream.py",
+          "line": 14,
+          "module": "fastapi.responses"
+        },
+        {
+          "path": "plugins/sqlseed-web/src/sqlseed_web/workbench_data.py",
+          "line": 13,
+          "module": "fastapi"
+        },
+        {
+          "path": "plugins/sqlseed-web/src/sqlseed_web/workbench_data.py",
+          "line": 14,
+          "module": "fastapi.encoders"
+        },
+        {
+          "path": "plugins/sqlseed-web/src/sqlseed_web/workbench_schema.py",
+          "line": 19,
+          "module": "fastapi.encoders"
+        },
+        {
+          "path": "plugins/sqlseed-web/src/sqlseed_web/worker_control.py",
+          "line": 14,
+          "module": "fastapi"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_api_ai_secrets.py",
+          "line": 8,
+          "module": "fastapi"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_api_ai_secrets.py",
+          "line": 9,
+          "module": "fastapi.testclient"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_api_regressions.py",
+          "line": 17,
+          "module": "fastapi.testclient"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_component_availability.py",
+          "line": 15,
+          "module": "fastapi"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_component_availability.py",
+          "line": 16,
+          "module": "fastapi.testclient"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_plugin_management.py",
+          "line": 19,
+          "module": "fastapi.testclient"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_runtime_lifecycle.py",
+          "line": 10,
+          "module": "fastapi"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_runtime_session.py",
+          "line": 9,
+          "module": "fastapi"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_supervised_plugins.py",
+          "line": 12,
+          "module": "fastapi"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_web_request_security.py",
+          "line": 9,
+          "module": "fastapi.testclient"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_web_settings.py",
+          "line": 23,
+          "module": "fastapi.testclient"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_workbench_acceptance.py",
+          "line": 9,
+          "module": "fastapi.testclient"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_workbench_ai.py",
+          "line": 14,
+          "module": "fastapi"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_workbench_ai.py",
+          "line": 15,
+          "module": "fastapi.testclient"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_workbench_ai_relations.py",
+          "line": 13,
+          "module": "fastapi"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_workbench_ai_relations.py",
+          "line": 14,
+          "module": "fastapi.testclient"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_workbench_concurrency.py",
+          "line": 12,
+          "module": "fastapi"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_workbench_concurrency.py",
+          "line": 13,
+          "module": "fastapi.testclient"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_workbench_configs.py",
+          "line": 13,
+          "module": "fastapi.testclient"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_workbench_data.py",
+          "line": 11,
+          "module": "fastapi.testclient"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_workbench_execution.py",
+          "line": 12,
+          "module": "fastapi"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_workbench_execution.py",
+          "line": 13,
+          "module": "fastapi.testclient"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_workbench_runtime.py",
+          "line": 209,
+          "module": "fastapi"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_workbench_runtime.py",
+          "line": 210,
+          "module": "fastapi.testclient"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_workbench_runtime.py",
+          "line": 346,
+          "module": "fastapi"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_workbench_runtime.py",
+          "line": 347,
+          "module": "fastapi.testclient"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_workbench_sample_budget.py",
+          "line": 10,
+          "module": "fastapi"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_workbench_target_identity.py",
+          "line": 15,
+          "module": "fastapi"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_workbench_target_identity.py",
+          "line": 16,
+          "module": "fastapi.testclient"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/workbench_test_helpers.py",
+          "line": 9,
+          "module": "fastapi.testclient"
+        }
+      ]
+    },
+    {
+      "module": "httpx",
+      "distributions": [
+        "httpx"
+      ],
+      "directly_declared": [
+        "httpx"
+      ],
+      "transitively_locked": [],
+      "declarations": [
+        {
+          "manifest": "plugins/sqlseed-ai/pyproject.toml",
+          "group": "dependencies",
+          "requirement": "httpx>=0.24.0"
+        },
+        {
+          "manifest": "plugins/sqlseed-web/pyproject.toml",
+          "group": "dev",
+          "requirement": "httpx>=0.27"
+        }
+      ],
+      "imports": [
+        {
+          "path": "plugins/sqlseed-ai/src/sqlseed_ai/_client.py",
+          "line": 10,
+          "module": "httpx"
+        },
+        {
+          "path": "plugins/sqlseed-ai/tests/healer/conftest.py",
+          "line": 21,
+          "module": "httpx"
+        },
+        {
+          "path": "plugins/sqlseed-ai/tests/test_ai_client.py",
+          "line": 13,
+          "module": "httpx"
+        },
+        {
+          "path": "plugins/sqlseed-ai/tests/test_runtime.py",
+          "line": 10,
+          "module": "httpx"
+        },
+        {
+          "path": "plugins/sqlseed-web/src/sqlseed_web/api.py",
+          "line": 49,
+          "module": "httpx"
+        },
+        {
+          "path": "plugins/sqlseed-web/src/sqlseed_web/api.py",
+          "line": 459,
+          "module": "httpx"
+        },
+        {
+          "path": "plugins/sqlseed-web/src/sqlseed_web/workbench_ai.py",
+          "line": 173,
+          "module": "httpx"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_api.py",
+          "line": 356,
+          "module": "httpx"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_api.py",
+          "line": 398,
+          "module": "httpx"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_supervisor.py",
+          "line": 12,
+          "module": "httpx"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_web_settings.py",
+          "line": 21,
+          "module": "httpx"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_workbench_ai.py",
+          "line": 233,
+          "module": "httpx"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/workbench_test_helpers.py",
+          "line": 7,
+          "module": "httpx"
+        },
+        {
+          "path": "tests/llm_helpers.py",
+          "line": 7,
+          "module": "httpx"
+        }
+      ]
+    },
+    {
+      "module": "hypothesis",
+      "distributions": [
+        "hypothesis"
+      ],
+      "directly_declared": [
+        "hypothesis"
+      ],
+      "transitively_locked": [],
+      "declarations": [
+        {
+          "manifest": "plugins/sqlseed-ai/pyproject.toml",
+          "group": "dev",
+          "requirement": "hypothesis>=6.100"
+        }
+      ],
+      "imports": [
+        {
+          "path": "plugins/sqlseed-ai/tests/property/test_matrix_completeness.py",
+          "line": 15,
+          "module": "hypothesis"
+        },
+        {
+          "path": "plugins/sqlseed-ai/tests/property/test_matrix_completeness.py",
+          "line": 16,
+          "module": "hypothesis"
+        }
+      ]
+    },
+    {
+      "module": "mcp",
+      "distributions": [
+        "mcp"
+      ],
+      "directly_declared": [
+        "mcp"
+      ],
+      "transitively_locked": [],
+      "declarations": [
+        {
+          "manifest": "plugins/mcp-server-sqlseed/pyproject.toml",
+          "group": "dependencies",
+          "requirement": "mcp>=1.0,<2"
+        },
+        {
+          "manifest": "plugins/sqlseed-ai/pyproject.toml",
+          "group": "mcp",
+          "requirement": "mcp>=1.0,<2"
+        }
+      ],
+      "imports": [
+        {
+          "path": "plugins/mcp-server-sqlseed/src/mcp_server_sqlseed/server.py",
+          "line": 15,
+          "module": "mcp.server.fastmcp"
+        },
+        {
+          "path": "plugins/sqlseed-ai/src/sqlseed_ai/mcp.py",
+          "line": 28,
+          "module": "mcp.server.fastmcp"
+        }
+      ]
+    },
+    {
+      "module": "openai",
+      "distributions": [
+        "openai"
+      ],
+      "directly_declared": [
+        "openai"
+      ],
+      "transitively_locked": [],
+      "declarations": [
+        {
+          "manifest": "plugins/sqlseed-ai/pyproject.toml",
+          "group": "dependencies",
+          "requirement": "openai>=1.0"
+        }
+      ],
+      "imports": [
+        {
+          "path": "plugins/sqlseed-ai/src/sqlseed_ai/_client.py",
+          "line": 11,
+          "module": "openai"
+        },
+        {
+          "path": "plugins/sqlseed-ai/src/sqlseed_ai/runtime.py",
+          "line": 42,
+          "module": "openai"
+        },
+        {
+          "path": "plugins/sqlseed-ai/tests/healer/conftest.py",
+          "line": 44,
+          "module": "openai"
+        },
+        {
+          "path": "plugins/sqlseed-ai/tests/test_ai_analyzer_streaming.py",
+          "line": 26,
+          "module": "openai"
+        },
+        {
+          "path": "plugins/sqlseed-ai/tests/test_ai_caller.py",
+          "line": 27,
+          "module": "openai"
+        },
+        {
+          "path": "plugins/sqlseed-ai/tests/test_ai_plugin.py",
+          "line": 19,
+          "module": "openai"
+        },
+        {
+          "path": "plugins/sqlseed-ai/tests/test_ai_tool_calling.py",
+          "line": 18,
+          "module": "openai"
+        },
+        {
+          "path": "plugins/sqlseed-ai/tests/test_auto_heal_orchestrator.py",
+          "line": 1747,
+          "module": "openai.types.chat"
+        },
+        {
+          "path": "plugins/sqlseed-ai/tests/test_runtime.py",
+          "line": 67,
+          "module": "openai"
+        },
+        {
+          "path": "plugins/sqlseed-ai/tests/test_runtime.py",
+          "line": 202,
+          "module": "openai.types.chat"
+        },
+        {
+          "path": "tests/llm_helpers.py",
+          "line": 11,
+          "module": "openai"
+        },
+        {
+          "path": "tests/llm_helpers.py",
+          "line": 16,
+          "module": "openai"
+        }
+      ]
+    },
+    {
+      "module": "packaging",
+      "distributions": [
+        "packaging"
+      ],
+      "directly_declared": [
+        "packaging"
+      ],
+      "transitively_locked": [],
+      "declarations": [
+        {
+          "manifest": "plugins/sqlseed-web/pyproject.toml",
+          "group": "dependencies",
+          "requirement": "packaging>=23.2"
+        }
+      ],
+      "imports": [
+        {
+          "path": "plugins/sqlseed-web/src/sqlseed_web/plugin_environment.py",
+          "line": 15,
+          "module": "packaging.requirements"
+        },
+        {
+          "path": "plugins/sqlseed-web/src/sqlseed_web/plugin_environment.py",
+          "line": 16,
+          "module": "packaging.utils"
+        },
+        {
+          "path": "plugins/sqlseed-web/src/sqlseed_web/plugin_environment.py",
+          "line": 17,
+          "module": "packaging.version"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_plugin_management.py",
+          "line": 20,
+          "module": "packaging.requirements"
+        },
+        {
+          "path": "tests/test_package_boundaries.py",
+          "line": 11,
+          "module": "packaging.requirements"
+        },
+        {
+          "path": "tests/test_package_boundaries.py",
+          "line": 12,
+          "module": "packaging.version"
+        }
+      ]
+    },
+    {
+      "module": "pluggy",
+      "distributions": [
+        "pluggy"
+      ],
+      "directly_declared": [
+        "pluggy"
+      ],
+      "transitively_locked": [],
+      "declarations": [
+        {
+          "manifest": "pyproject.toml",
+          "group": "dependencies",
+          "requirement": "pluggy>=1.3"
+        }
+      ],
+      "imports": [
+        {
+          "path": "src/sqlseed/plugins/hookspecs.py",
+          "line": 10,
+          "module": "pluggy"
+        },
+        {
+          "path": "src/sqlseed/plugins/manager.py",
+          "line": 7,
+          "module": "pluggy"
+        },
+        {
+          "path": "tests/test_plugins/test_hookspecs.py",
+          "line": 3,
+          "module": "pluggy"
+        }
+      ]
+    },
+    {
+      "module": "pydantic",
+      "distributions": [
+        "pydantic"
+      ],
+      "directly_declared": [
+        "pydantic"
+      ],
+      "transitively_locked": [],
+      "declarations": [
+        {
+          "manifest": "pyproject.toml",
+          "group": "dependencies",
+          "requirement": "pydantic>=2.0"
+        }
+      ],
+      "imports": [
+        {
+          "path": "plugins/mcp-server-sqlseed/src/mcp_server_sqlseed/config.py",
+          "line": 5,
+          "module": "pydantic"
+        },
+        {
+          "path": "plugins/mcp-server-sqlseed/tests/test_config.py",
+          "line": 11,
+          "module": "pydantic"
+        },
+        {
+          "path": "plugins/sqlseed-ai/src/sqlseed_ai/config.py",
+          "line": 19,
+          "module": "pydantic"
+        },
+        {
+          "path": "plugins/sqlseed-ai/src/sqlseed_ai/errors.py",
+          "line": 18,
+          "module": "pydantic"
+        },
+        {
+          "path": "plugins/sqlseed-ai/src/sqlseed_ai/healer/candidate_validation.py",
+          "line": 13,
+          "module": "pydantic"
+        },
+        {
+          "path": "plugins/sqlseed-ai/src/sqlseed_ai/refiner.py",
+          "line": 20,
+          "module": "pydantic"
+        },
+        {
+          "path": "plugins/sqlseed-cli/src/sqlseed_cli/main.py",
+          "line": 18,
+          "module": "pydantic"
+        },
+        {
+          "path": "plugins/sqlseed-web/src/sqlseed_web/ai_settings.py",
+          "line": 13,
+          "module": "pydantic"
+        },
+        {
+          "path": "plugins/sqlseed-web/src/sqlseed_web/api.py",
+          "line": 33,
+          "module": "pydantic"
+        },
+        {
+          "path": "plugins/sqlseed-web/src/sqlseed_web/plugin_management.py",
+          "line": 18,
+          "module": "pydantic"
+        },
+        {
+          "path": "plugins/sqlseed-web/src/sqlseed_web/workbench.py",
+          "line": 12,
+          "module": "pydantic"
+        },
+        {
+          "path": "plugins/sqlseed-web/src/sqlseed_web/workbench_ai.py",
+          "line": 14,
+          "module": "pydantic"
+        },
+        {
+          "path": "plugins/sqlseed-web/src/sqlseed_web/workbench_ai_relations.py",
+          "line": 10,
+          "module": "pydantic"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_component_availability.py",
+          "line": 17,
+          "module": "pydantic"
+        },
+        {
+          "path": "src/sqlseed/config/models.py",
+          "line": 18,
+          "module": "pydantic"
+        },
+        {
+          "path": "tests/test_config/test_normalization_and_save_regressions.py",
+          "line": 7,
+          "module": "pydantic"
+        },
+        {
+          "path": "tests/test_refiner.py",
+          "line": 10,
+          "module": "pydantic"
+        }
+      ]
+    },
+    {
+      "module": "pytest",
+      "distributions": [
+        "pytest"
+      ],
+      "directly_declared": [
+        "pytest"
+      ],
+      "transitively_locked": [],
+      "declarations": [
+        {
+          "manifest": "pyproject.toml",
+          "group": "dev",
+          "requirement": "pytest>=8.0"
+        },
+        {
+          "manifest": "plugins/sqlseed-ai/pyproject.toml",
+          "group": "dev",
+          "requirement": "pytest>=7.0"
+        },
+        {
+          "manifest": "plugins/sqlseed-web/pyproject.toml",
+          "group": "dev",
+          "requirement": "pytest>=8.0"
+        }
+      ],
+      "imports": [
+        {
+          "path": "conftest.py",
+          "line": 36,
+          "module": "pytest"
+        },
+        {
+          "path": "examples/scenario_lab/test_fixture.py",
+          "line": 8,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/mcp-server-sqlseed/tests/conftest.py",
+          "line": 17,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/mcp-server-sqlseed/tests/test_config.py",
+          "line": 9,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/mcp-server-sqlseed/tests/test_server.py",
+          "line": 16,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/mcp-server-sqlseed/tests/test_stdio_progress.py",
+          "line": 9,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/mcp-server-sqlseed/tests/test_validate_db_path.py",
+          "line": 7,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/mcp-server-sqlseed/tests/test_yaml_execution_validation.py",
+          "line": 9,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-ai/tests/conftest.py",
+          "line": 24,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-ai/tests/healer/conftest.py",
+          "line": 14,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-ai/tests/healer/test_failure_classifier.py",
+          "line": 7,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-ai/tests/healer/test_heal_orchestrator_real.py",
+          "line": 15,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-ai/tests/healer/test_level2_column_healer_real.py",
+          "line": 12,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-ai/tests/test_ai_analyzer_streaming.py",
+          "line": 16,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-ai/tests/test_ai_caller.py",
+          "line": 18,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-ai/tests/test_ai_client.py",
+          "line": 14,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-ai/tests/test_ai_commands.py",
+          "line": 18,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-ai/tests/test_ai_config.py",
+          "line": 12,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-ai/tests/test_ai_errors.py",
+          "line": 10,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-ai/tests/test_ai_hardware.py",
+          "line": 19,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-ai/tests/test_ai_json_utils.py",
+          "line": 13,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-ai/tests/test_ai_model_selector.py",
+          "line": 10,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-ai/tests/test_ai_plugin.py",
+          "line": 8,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-ai/tests/test_ai_plugin_init.py",
+          "line": 13,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-ai/tests/test_ai_prompts_tools.py",
+          "line": 13,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-ai/tests/test_ai_tool_calling.py",
+          "line": 15,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-ai/tests/test_auto_heal_orchestrator.py",
+          "line": 7,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-ai/tests/test_auto_heal_time_budget.py",
+          "line": 5,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-ai/tests/test_cli_auto_heal.py",
+          "line": 6,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-ai/tests/test_cli_input_contract.py",
+          "line": 8,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-ai/tests/test_healer_candidate_contract.py",
+          "line": 9,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-ai/tests/test_healer_degrader.py",
+          "line": 7,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-ai/tests/test_mcp.py",
+          "line": 17,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-ai/tests/test_nonweb_ai_boundaries.py",
+          "line": 10,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-ai/tests/test_prompts_p0_p3.py",
+          "line": 14,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-ai/tests/test_refiner.py",
+          "line": 14,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-ai/tests/test_runtime.py",
+          "line": 11,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-ai/tests/test_schema_snapshot.py",
+          "line": 7,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-ai/tests/test_validator_composite_fk.py",
+          "line": 7,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-ai/tests/test_validator_main.py",
+          "line": 8,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-ai/tests/test_validator_shadow_fk_scan.py",
+          "line": 10,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-cli/tests/test_cli.py",
+          "line": 9,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-cli/tests/test_cli_ai_commands.py",
+          "line": 25,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-cli/tests/test_cli_yaml_priority.py",
+          "line": 6,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-cli/tests/test_config_execution_safety.py",
+          "line": 7,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-cli/tests/test_snapshot_transform.py",
+          "line": 16,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/conftest.py",
+          "line": 7,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_api.py",
+          "line": 12,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_api_ai_secrets.py",
+          "line": 7,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_api_regressions.py",
+          "line": 15,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_component_availability.py",
+          "line": 14,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_plugin_management.py",
+          "line": 18,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_plugin_process.py",
+          "line": 10,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_runtime_lifecycle.py",
+          "line": 9,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_runtime_session.py",
+          "line": 8,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_supervised_plugins.py",
+          "line": 11,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_supervisor.py",
+          "line": 13,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_web_request_security.py",
+          "line": 8,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_web_settings.py",
+          "line": 22,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_workbench_acceptance.py",
+          "line": 8,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_workbench_ai.py",
+          "line": 13,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_workbench_ai_relations.py",
+          "line": 12,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_workbench_concurrency.py",
+          "line": 11,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_workbench_configs.py",
+          "line": 11,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_workbench_data.py",
+          "line": 10,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_workbench_execution.py",
+          "line": 11,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_workbench_runtime.py",
+          "line": 10,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_workbench_sample_budget.py",
+          "line": 9,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_workbench_schema.py",
+          "line": 13,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_workbench_store.py",
+          "line": 10,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_workbench_target_identity.py",
+          "line": 14,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_worker_control.py",
+          "line": 9,
+          "module": "pytest"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/workbench_test_helpers.py",
+          "line": 8,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/_helpers.py",
+          "line": 14,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/benchmarks/bench_fill.py",
+          "line": 6,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/integration/conftest.py",
+          "line": 3,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/integration/test_ai_real_llm.py",
+          "line": 35,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/integration/test_pg_bulk_integrity.py",
+          "line": 5,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/integration/test_pg_case_sensitive_schema.py",
+          "line": 8,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/integration/test_pg_driver_selection.py",
+          "line": 7,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/integration/test_pg_insert_actual_count.py",
+          "line": 5,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/integration/test_pg_integration.py",
+          "line": 7,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/integration/test_url_e2e.py",
+          "line": 7,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/llm_helpers.py",
+          "line": 8,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_architecture.py",
+          "line": 31,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_assertions.py",
+          "line": 5,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_config/test_loader.py",
+          "line": 9,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_config/test_models.py",
+          "line": 8,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_config/test_normalization_and_save_regressions.py",
+          "line": 6,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_config/test_snapshot.py",
+          "line": 6,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_core/conftest.py",
+          "line": 5,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_core/test_append_unique.py",
+          "line": 7,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_core/test_check_adapt.py",
+          "line": 7,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_core/test_check_length_equality.py",
+          "line": 8,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_core/test_check_sql_semantics.py",
+          "line": 8,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_core/test_column_dag.py",
+          "line": 3,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_core/test_composite_fk_pair_pool.py",
+          "line": 132,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_core/test_connection_lifecycle.py",
+          "line": 7,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_core/test_enrichment.py",
+          "line": 7,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_core/test_expression.py",
+          "line": 5,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_core/test_expression_failures.py",
+          "line": 8,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_core/test_expression_seed.py",
+          "line": 9,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_core/test_expression_typed_lookup.py",
+          "line": 9,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_core/test_features.py",
+          "line": 10,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_core/test_fill_safety_boundaries.py",
+          "line": 8,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_core/test_generation_error_boundary.py",
+          "line": 7,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_core/test_native_method_contract.py",
+          "line": 8,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_core/test_orchestrator_schema_fallback.py",
+          "line": 13,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_core/test_plugin_mediator.py",
+          "line": 17,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_core/test_schema_constraint_regressions.py",
+          "line": 7,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_core/test_sqlite_schema_oracles.py",
+          "line": 9,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_core/test_stream.py",
+          "line": 6,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_core/test_stream_batch_cleanup.py",
+          "line": 7,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_core/test_stream_budget.py",
+          "line": 7,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_core/test_supported_execution_contract.py",
+          "line": 8,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_core/test_transform.py",
+          "line": 5,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_core/test_unique_adjuster.py",
+          "line": 8,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_core/test_unique_exclude_integration.py",
+          "line": 28,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_core/test_unique_string_capacity.py",
+          "line": 7,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_database/conftest.py",
+          "line": 16,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_database/test_adapter_contract.py",
+          "line": 8,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_database/test_dialect.py",
+          "line": 18,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_database/test_helpers.py",
+          "line": 12,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_database/test_insert_actual_count.py",
+          "line": 7,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_database/test_sql_safe.py",
+          "line": 3,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_database/test_sqlalchemy_adapter.py",
+          "line": 15,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_database/test_sqlalchemy_adapter_boundary.py",
+          "line": 8,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_database/test_sqlalchemy_adapter_url.py",
+          "line": 7,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_database/test_sqlalchemy_foreign_keys.py",
+          "line": 8,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_database/test_sqlalchemy_lifecycle_regressions.py",
+          "line": 10,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_database/test_sqlalchemy_transaction.py",
+          "line": 7,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_database/test_sqlite_date_bindings.py",
+          "line": 10,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_database/test_sqlite_metadata_oracles.py",
+          "line": 8,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_database/test_sqlite_schema.py",
+          "line": 14,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_database/test_supported_schema_boundary.py",
+          "line": 10,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_doc_sync.py",
+          "line": 16,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_generators/test_bytes_media.py",
+          "line": 13,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_generators/test_dependency_availability_regressions.py",
+          "line": 8,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_generators/test_generator_quality_regressions.py",
+          "line": 9,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_generators/test_parameter_bounds_regressions.py",
+          "line": 3,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_generators/test_registry.py",
+          "line": 5,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_generators/test_string_helpers.py",
+          "line": 12,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_hardware.py",
+          "line": 6,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_llm_backend_fixture.py",
+          "line": 11,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_mapper_camelcase.py",
+          "line": 3,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_mapper_param_contract.py",
+          "line": 9,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_orchestrator.py",
+          "line": 8,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_order_workflow.py",
+          "line": 12,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_package_boundaries.py",
+          "line": 10,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_pg_fixture.py",
+          "line": 12,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_refiner.py",
+          "line": 9,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_result.py",
+          "line": 3,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_showcase_example.py",
+          "line": 12,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_sqlite_helpers.py",
+          "line": 8,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_url_connection.py",
+          "line": 7,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_utils/test_logger.py",
+          "line": 19,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_utils/test_metrics.py",
+          "line": 3,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_utils/test_paths.py",
+          "line": 9,
+          "module": "pytest"
+        },
+        {
+          "path": "tests/test_utils/test_progress.py",
+          "line": 8,
+          "module": "pytest"
+        }
+      ]
+    },
+    {
+      "module": "rich",
+      "distributions": [
+        "rich"
+      ],
+      "directly_declared": [
+        "rich"
+      ],
+      "transitively_locked": [],
+      "declarations": [
+        {
+          "manifest": "plugins/sqlseed-cli/pyproject.toml",
+          "group": "dependencies",
+          "requirement": "rich>=13.0"
+        }
+      ],
+      "imports": [
+        {
+          "path": "examples/quick_demo.py",
+          "line": 22,
+          "module": "rich.console"
+        },
+        {
+          "path": "examples/quick_demo.py",
+          "line": 23,
+          "module": "rich.progress"
+        },
+        {
+          "path": "examples/quick_demo.py",
+          "line": 24,
+          "module": "rich.table"
+        },
+        {
+          "path": "plugins/sqlseed-ai/src/sqlseed_ai/cli/ai_commands.py",
+          "line": 21,
+          "module": "rich.console"
+        },
+        {
+          "path": "plugins/sqlseed-ai/src/sqlseed_ai/cli/ai_commands.py",
+          "line": 22,
+          "module": "rich.live"
+        },
+        {
+          "path": "plugins/sqlseed-ai/src/sqlseed_ai/cli/ai_commands.py",
+          "line": 23,
+          "module": "rich.text"
+        },
+        {
+          "path": "plugins/sqlseed-cli/src/sqlseed_cli/main.py",
+          "line": 19,
+          "module": "rich.console"
+        },
+        {
+          "path": "plugins/sqlseed-cli/src/sqlseed_cli/main.py",
+          "line": 20,
+          "module": "rich.table"
+        }
+      ]
+    },
+    {
+      "module": "rstr",
+      "distributions": [
+        "rstr"
+      ],
+      "directly_declared": [
+        "rstr"
+      ],
+      "transitively_locked": [],
+      "declarations": [
+        {
+          "manifest": "pyproject.toml",
+          "group": "dependencies",
+          "requirement": "rstr>=3.2"
+        }
+      ],
+      "imports": [
+        {
+          "path": "src/sqlseed/generators/base_provider.py",
+          "line": 18,
+          "module": "rstr"
+        }
+      ]
+    },
+    {
+      "module": "simpleeval",
+      "distributions": [
+        "simpleeval"
+      ],
+      "directly_declared": [
+        "simpleeval"
+      ],
+      "transitively_locked": [],
+      "declarations": [
+        {
+          "manifest": "pyproject.toml",
+          "group": "dependencies",
+          "requirement": "simpleeval>=1.0"
+        }
+      ],
+      "imports": [
+        {
+          "path": "plugins/sqlseed-ai/tests/test_ai_errors.py",
+          "line": 11,
+          "module": "simpleeval"
+        },
+        {
+          "path": "src/sqlseed/core/expression.py",
+          "line": 19,
+          "module": "simpleeval"
+        },
+        {
+          "path": "tests/test_core/test_expression.py",
+          "line": 6,
+          "module": "simpleeval"
+        }
+      ]
+    },
+    {
+      "module": "sqlalchemy",
+      "distributions": [
+        "sqlalchemy"
+      ],
+      "directly_declared": [
+        "sqlalchemy"
+      ],
+      "transitively_locked": [],
+      "declarations": [
+        {
+          "manifest": "pyproject.toml",
+          "group": "dependencies",
+          "requirement": "sqlalchemy>=2.0"
+        }
+      ],
+      "imports": [
+        {
+          "path": "plugins/mcp-server-sqlseed/tests/test_server.py",
+          "line": 19,
+          "module": "sqlalchemy"
+        },
+        {
+          "path": "plugins/sqlseed-ai/src/sqlseed_ai/ai_mediator.py",
+          "line": 26,
+          "module": "sqlalchemy.exc"
+        },
+        {
+          "path": "plugins/sqlseed-ai/src/sqlseed_ai/refiner.py",
+          "line": 36,
+          "module": "sqlalchemy"
+        },
+        {
+          "path": "plugins/sqlseed-ai/src/sqlseed_ai/refiner.py",
+          "line": 632,
+          "module": "sqlalchemy"
+        },
+        {
+          "path": "plugins/sqlseed-ai/src/sqlseed_ai/refiner.py",
+          "line": 597,
+          "module": "sqlalchemy"
+        },
+        {
+          "path": "plugins/sqlseed-ai/src/sqlseed_ai/refiner.py",
+          "line": 682,
+          "module": "sqlalchemy"
+        },
+        {
+          "path": "plugins/sqlseed-ai/src/sqlseed_ai/validator/schema_snapshot.py",
+          "line": 75,
+          "module": "sqlalchemy"
+        },
+        {
+          "path": "plugins/sqlseed-ai/src/sqlseed_ai/validator/shadow_fk_scan.py",
+          "line": 146,
+          "module": "sqlalchemy"
+        },
+        {
+          "path": "plugins/sqlseed-cli/tests/test_cli.py",
+          "line": 12,
+          "module": "sqlalchemy.exc"
+        },
+        {
+          "path": "plugins/sqlseed-web/src/sqlseed_web/api.py",
+          "line": 34,
+          "module": "sqlalchemy.exc"
+        },
+        {
+          "path": "plugins/sqlseed-web/src/sqlseed_web/sqlite_target.py",
+          "line": 11,
+          "module": "sqlalchemy.dialects.sqlite.pysqlite"
+        },
+        {
+          "path": "plugins/sqlseed-web/src/sqlseed_web/sqlite_target.py",
+          "line": 12,
+          "module": "sqlalchemy.engine"
+        },
+        {
+          "path": "plugins/sqlseed-web/src/sqlseed_web/state.py",
+          "line": 28,
+          "module": "sqlalchemy.engine"
+        },
+        {
+          "path": "plugins/sqlseed-web/src/sqlseed_web/workbench_runtime.py",
+          "line": 16,
+          "module": "sqlalchemy.engine"
+        },
+        {
+          "path": "plugins/sqlseed-web/src/sqlseed_web/workbench_runtime.py",
+          "line": 17,
+          "module": "sqlalchemy.exc"
+        },
+        {
+          "path": "plugins/sqlseed-web/src/sqlseed_web/workbench_schema.py",
+          "line": 20,
+          "module": "sqlalchemy.engine"
+        },
+        {
+          "path": "plugins/sqlseed-web/src/sqlseed_web/workbench_schema.py",
+          "line": 21,
+          "module": "sqlalchemy.exc"
+        },
+        {
+          "path": "plugins/sqlseed-web/src/sqlseed_web/workbench_schema.py",
+          "line": 29,
+          "module": "sqlalchemy.engine.reflection"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_workbench_runtime.py",
+          "line": 319,
+          "module": "sqlalchemy.exc"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_workbench_schema.py",
+          "line": 14,
+          "module": "sqlalchemy.exc"
+        },
+        {
+          "path": "src/sqlseed/config/loader.py",
+          "line": 14,
+          "module": "sqlalchemy"
+        },
+        {
+          "path": "src/sqlseed/config/loader.py",
+          "line": 15,
+          "module": "sqlalchemy.exc"
+        },
+        {
+          "path": "src/sqlseed/core/enrichment.py",
+          "line": 13,
+          "module": "sqlalchemy.exc"
+        },
+        {
+          "path": "src/sqlseed/core/orchestrator/_generation.py",
+          "line": 18,
+          "module": "sqlalchemy.exc"
+        },
+        {
+          "path": "src/sqlseed/core/orchestrator/_query.py",
+          "line": 14,
+          "module": "sqlalchemy.exc"
+        },
+        {
+          "path": "src/sqlseed/core/plugin_mediator.py",
+          "line": 19,
+          "module": "sqlalchemy.exc"
+        },
+        {
+          "path": "src/sqlseed/core/relation.py",
+          "line": 14,
+          "module": "sqlalchemy.exc"
+        },
+        {
+          "path": "src/sqlseed/core/schema.py",
+          "line": 12,
+          "module": "sqlalchemy.exc"
+        },
+        {
+          "path": "src/sqlseed/database/_bulk_optimizer.py",
+          "line": 16,
+          "module": "sqlalchemy.exc"
+        },
+        {
+          "path": "src/sqlseed/database/_dialect.py",
+          "line": 14,
+          "module": "sqlalchemy.exc"
+        },
+        {
+          "path": "src/sqlseed/database/sqlalchemy_adapter.py",
+          "line": 27,
+          "module": "sqlalchemy"
+        },
+        {
+          "path": "src/sqlseed/database/sqlalchemy_adapter.py",
+          "line": 28,
+          "module": "sqlalchemy.engine"
+        },
+        {
+          "path": "src/sqlseed/database/sqlalchemy_adapter.py",
+          "line": 29,
+          "module": "sqlalchemy.exc"
+        },
+        {
+          "path": "src/sqlseed/database/sqlalchemy_adapter.py",
+          "line": 47,
+          "module": "sqlalchemy.engine"
+        },
+        {
+          "path": "src/sqlseed/database/sqlalchemy_adapter.py",
+          "line": 48,
+          "module": "sqlalchemy.engine.reflection"
+        },
+        {
+          "path": "tests/_helpers.py",
+          "line": 8,
+          "module": "sqlalchemy"
+        },
+        {
+          "path": "tests/integration/test_pg_bulk_integrity.py",
+          "line": 6,
+          "module": "sqlalchemy.exc"
+        },
+        {
+          "path": "tests/integration/test_pg_driver_selection.py",
+          "line": 9,
+          "module": "sqlalchemy.engine"
+        },
+        {
+          "path": "tests/integration/test_pg_integration.py",
+          "line": 8,
+          "module": "sqlalchemy"
+        },
+        {
+          "path": "tests/integration/test_url_e2e.py",
+          "line": 10,
+          "module": "sqlalchemy"
+        },
+        {
+          "path": "tests/test_config/test_loader.py",
+          "line": 10,
+          "module": "sqlalchemy.exc"
+        },
+        {
+          "path": "tests/test_core/test_append_unique.py",
+          "line": 248,
+          "module": "sqlalchemy"
+        },
+        {
+          "path": "tests/test_database/test_dialect.py",
+          "line": 19,
+          "module": "sqlalchemy.exc"
+        },
+        {
+          "path": "tests/test_database/test_insert_actual_count.py",
+          "line": 8,
+          "module": "sqlalchemy.exc"
+        },
+        {
+          "path": "tests/test_database/test_sqlalchemy_adapter_url.py",
+          "line": 8,
+          "module": "sqlalchemy.exc"
+        },
+        {
+          "path": "tests/test_database/test_sqlalchemy_foreign_keys.py",
+          "line": 9,
+          "module": "sqlalchemy.exc"
+        },
+        {
+          "path": "tests/test_database/test_sqlalchemy_lifecycle_regressions.py",
+          "line": 11,
+          "module": "sqlalchemy.exc"
+        },
+        {
+          "path": "tests/test_database/test_sqlalchemy_transaction.py",
+          "line": 8,
+          "module": "sqlalchemy.exc"
+        },
+        {
+          "path": "tests/test_database/test_supported_schema_boundary.py",
+          "line": 11,
+          "module": "sqlalchemy"
+        }
+      ]
+    },
+    {
+      "module": "sqlglot",
+      "distributions": [
+        "sqlglot"
+      ],
+      "directly_declared": [
+        "sqlglot"
+      ],
+      "transitively_locked": [],
+      "declarations": [
+        {
+          "manifest": "pyproject.toml",
+          "group": "dependencies",
+          "requirement": "sqlglot>=25.0"
+        }
+      ],
+      "imports": [
+        {
+          "path": "plugins/sqlseed-web/src/sqlseed_web/workbench_ai_relations.py",
+          "line": 11,
+          "module": "sqlglot"
+        },
+        {
+          "path": "plugins/sqlseed-web/src/sqlseed_web/workbench_ai_relations.py",
+          "line": 12,
+          "module": "sqlglot.errors"
+        },
+        {
+          "path": "src/sqlseed/core/check_parser.py",
+          "line": 22,
+          "module": "sqlglot"
+        },
+        {
+          "path": "src/sqlseed/core/check_parser.py",
+          "line": 23,
+          "module": "sqlglot.errors"
+        }
+      ]
+    },
+    {
+      "module": "structlog",
+      "distributions": [
+        "structlog"
+      ],
+      "directly_declared": [
+        "structlog"
+      ],
+      "transitively_locked": [],
+      "declarations": [
+        {
+          "manifest": "pyproject.toml",
+          "group": "dependencies",
+          "requirement": "structlog>=24.0"
+        }
+      ],
+      "imports": [
+        {
+          "path": "src/sqlseed/_utils/logger.py",
+          "line": 24,
+          "module": "structlog"
+        },
+        {
+          "path": "tests/test_core/test_unique_adjuster.py",
+          "line": 9,
+          "module": "structlog.testing"
+        },
+        {
+          "path": "tests/test_utils/test_logger.py",
+          "line": 20,
+          "module": "structlog"
+        }
+      ]
+    },
+    {
+      "module": "testcontainers",
+      "distributions": [
+        "testcontainers"
+      ],
+      "directly_declared": [
+        "testcontainers"
+      ],
+      "transitively_locked": [],
+      "declarations": [
+        {
+          "manifest": "pyproject.toml",
+          "group": "all",
+          "requirement": "testcontainers>=4.0"
+        },
+        {
+          "manifest": "pyproject.toml",
+          "group": "dev",
+          "requirement": "testcontainers>=4.0"
+        }
+      ],
+      "imports": [
+        {
+          "path": "conftest.py",
+          "line": 41,
+          "module": "testcontainers.community.postgres"
+        },
+        {
+          "path": "conftest.py",
+          "line": 183,
+          "module": "testcontainers.core.docker_client"
+        },
+        {
+          "path": "conftest.py",
+          "line": 261,
+          "module": "testcontainers.core.docker_client"
+        },
+        {
+          "path": "conftest.py",
+          "line": 45,
+          "module": "testcontainers.postgres"
+        }
+      ]
+    },
+    {
+      "module": "tqdm",
+      "distributions": [
+        "tqdm"
+      ],
+      "directly_declared": [
+        "tqdm"
+      ],
+      "transitively_locked": [],
+      "declarations": [
+        {
+          "manifest": "pyproject.toml",
+          "group": "notebook",
+          "requirement": "tqdm>=4.66"
+        },
+        {
+          "manifest": "pyproject.toml",
+          "group": "all",
+          "requirement": "tqdm>=4.66"
+        },
+        {
+          "manifest": "pyproject.toml",
+          "group": "dev",
+          "requirement": "tqdm>=4.66"
+        }
+      ],
+      "imports": [
+        {
+          "path": "src/sqlseed/_utils/progress.py",
+          "line": 21,
+          "module": "tqdm.auto"
+        }
+      ]
+    },
+    {
+      "module": "typing_extensions",
+      "distributions": [
+        "typing-extensions"
+      ],
+      "directly_declared": [
+        "typing-extensions"
+      ],
+      "transitively_locked": [],
+      "declarations": [
+        {
+          "manifest": "pyproject.toml",
+          "group": "dependencies",
+          "requirement": "typing_extensions>=4.4"
+        }
+      ],
+      "imports": [
+        {
+          "path": "src/sqlseed/config/models.py",
+          "line": 19,
+          "module": "typing_extensions"
+        },
+        {
+          "path": "src/sqlseed/database/_base_adapter.py",
+          "line": 7,
+          "module": "typing_extensions"
+        },
+        {
+          "path": "src/sqlseed/database/sqlalchemy_adapter.py",
+          "line": 49,
+          "module": "typing_extensions"
+        },
+        {
+          "path": "tests/test_core/test_fill_safety_boundaries.py",
+          "line": 19,
+          "module": "typing_extensions"
+        }
+      ]
+    },
+    {
+      "module": "uvicorn",
+      "distributions": [
+        "uvicorn"
+      ],
+      "directly_declared": [
+        "uvicorn"
+      ],
+      "transitively_locked": [],
+      "declarations": [
+        {
+          "manifest": "plugins/sqlseed-web/pyproject.toml",
+          "group": "dependencies",
+          "requirement": "uvicorn>=0.29"
+        }
+      ],
+      "imports": [
+        {
+          "path": "plugins/sqlseed-web/src/sqlseed_web/app.py",
+          "line": 211,
+          "module": "uvicorn"
+        },
+        {
+          "path": "plugins/sqlseed-web/src/sqlseed_web/managed_worker.py",
+          "line": 19,
+          "module": "uvicorn"
+        },
+        {
+          "path": "plugins/sqlseed-web/src/sqlseed_web/managed_worker.py",
+          "line": 127,
+          "module": "uvicorn"
+        }
+      ]
+    },
+    {
+      "module": "yaml",
+      "distributions": [
+        "pyyaml"
+      ],
+      "directly_declared": [
+        "pyyaml"
+      ],
+      "transitively_locked": [],
+      "declarations": [
+        {
+          "manifest": "pyproject.toml",
+          "group": "dependencies",
+          "requirement": "pyyaml>=6.0"
+        },
+        {
+          "manifest": "plugins/sqlseed-web/pyproject.toml",
+          "group": "dependencies",
+          "requirement": "pyyaml>=6.0"
+        }
+      ],
+      "imports": [
+        {
+          "path": "examples/order_workflow/run.py",
+          "line": 17,
+          "module": "yaml"
+        },
+        {
+          "path": "examples/scenario_lab/verify.py",
+          "line": 14,
+          "module": "yaml"
+        },
+        {
+          "path": "plugins/mcp-server-sqlseed/src/mcp_server_sqlseed/server.py",
+          "line": 14,
+          "module": "yaml"
+        },
+        {
+          "path": "plugins/mcp-server-sqlseed/tests/test_server.py",
+          "line": 17,
+          "module": "yaml"
+        },
+        {
+          "path": "plugins/mcp-server-sqlseed/tests/test_yaml_execution_validation.py",
+          "line": 10,
+          "module": "yaml"
+        },
+        {
+          "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+          "line": 34,
+          "module": "yaml"
+        },
+        {
+          "path": "plugins/sqlseed-ai/src/sqlseed_ai/cli/ai_commands.py",
+          "line": 20,
+          "module": "yaml"
+        },
+        {
+          "path": "plugins/sqlseed-ai/src/sqlseed_ai/mcp.py",
+          "line": 25,
+          "module": "yaml"
+        },
+        {
+          "path": "plugins/sqlseed-ai/src/sqlseed_ai/validator/schema_snapshot.py",
+          "line": 19,
+          "module": "yaml"
+        },
+        {
+          "path": "plugins/sqlseed-ai/tests/test_auto_heal_orchestrator.py",
+          "line": 8,
+          "module": "yaml"
+        },
+        {
+          "path": "plugins/sqlseed-ai/tests/test_cli_input_contract.py",
+          "line": 9,
+          "module": "yaml"
+        },
+        {
+          "path": "plugins/sqlseed-ai/tests/test_healer_candidate_contract.py",
+          "line": 10,
+          "module": "yaml"
+        },
+        {
+          "path": "plugins/sqlseed-cli/tests/test_cli.py",
+          "line": 10,
+          "module": "yaml"
+        },
+        {
+          "path": "plugins/sqlseed-cli/tests/test_cli_ai_commands.py",
+          "line": 26,
+          "module": "yaml"
+        },
+        {
+          "path": "plugins/sqlseed-cli/tests/test_cli_yaml_priority.py",
+          "line": 7,
+          "module": "yaml"
+        },
+        {
+          "path": "plugins/sqlseed-cli/tests/test_config_execution_safety.py",
+          "line": 8,
+          "module": "yaml"
+        },
+        {
+          "path": "plugins/sqlseed-cli/tests/test_snapshot_transform.py",
+          "line": 9,
+          "module": "yaml"
+        },
+        {
+          "path": "plugins/sqlseed-web/src/sqlseed_web/api.py",
+          "line": 31,
+          "module": "yaml"
+        },
+        {
+          "path": "plugins/sqlseed-web/src/sqlseed_web/workbench.py",
+          "line": 9,
+          "module": "yaml"
+        },
+        {
+          "path": "plugins/sqlseed-web/src/sqlseed_web/workbench_runtime.py",
+          "line": 15,
+          "module": "yaml"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_api_regressions.py",
+          "line": 16,
+          "module": "yaml"
+        },
+        {
+          "path": "plugins/sqlseed-web/tests/test_workbench_configs.py",
+          "line": 12,
+          "module": "yaml"
+        },
+        {
+          "path": "scripts/complex_validation/ai_offline_validation.py",
+          "line": 108,
+          "module": "yaml"
+        },
+        {
+          "path": "scripts/complex_validation/randomized_roundtrip.py",
+          "line": 266,
+          "module": "yaml"
+        },
+        {
+          "path": "scripts/complex_validation/repro_defects.py",
+          "line": 62,
+          "module": "yaml"
+        },
+        {
+          "path": "scripts/complex_validation/smoke_test.py",
+          "line": 170,
+          "module": "yaml"
+        },
+        {
+          "path": "scripts/complex_validation/smoke_test.py",
+          "line": 221,
+          "module": "yaml"
+        },
+        {
+          "path": "src/sqlseed/config/loader.py",
+          "line": 13,
+          "module": "yaml"
+        },
+        {
+          "path": "src/sqlseed/config/snapshot.py",
+          "line": 15,
+          "module": "yaml"
+        },
+        {
+          "path": "tests/_helpers.py",
+          "line": 9,
+          "module": "yaml"
+        },
+        {
+          "path": "tests/integration/test_ai_real_llm.py",
+          "line": 36,
+          "module": "yaml"
+        },
+        {
+          "path": "tests/integration/test_url_e2e.py",
+          "line": 8,
+          "module": "yaml"
+        },
+        {
+          "path": "tests/test_config/test_models.py",
+          "line": 9,
+          "module": "yaml"
+        },
+        {
+          "path": "tests/test_public_api.py",
+          "line": 6,
+          "module": "yaml"
+        },
+        {
+          "path": "tests/test_url_connection.py",
+          "line": 8,
+          "module": "yaml"
+        }
+      ]
+    }
+  ],
+  "ci_dependency_modules": {
+    "docker": {
+      "distribution": "docker",
+      "via": "testcontainers",
+      "provenance": ".github/requirements-ci.txt"
+    },
+    "requests": {
+      "distribution": "requests",
+      "via": "docker/testcontainers",
+      "provenance": ".github/requirements-ci.txt"
+    },
+    "starlette": {
+      "distribution": "starlette",
+      "via": "fastapi",
+      "provenance": ".github/requirements-ci.txt"
+    },
+    "tomli": {
+      "distribution": "tomli",
+      "via": "Python 3.10 TOML reader; conditional CI lock",
+      "provenance": ".github/requirements-ci.txt"
+    },
+    "pywintypes": {
+      "distribution": "pywin32",
+      "via": "Windows Docker/testcontainers; conditional CI lock",
+      "provenance": ".github/requirements-ci.txt"
+    },
+    "winerror": {
+      "distribution": "pywin32",
+      "via": "Windows Docker/testcontainers; conditional CI lock",
+      "provenance": ".github/requirements-ci.txt"
+    }
+  },
+  "explicit_exclusions": {
+    "PIL": "No manifest or CI requirement; existing try/except ImportError provides a genuine PNG fallback, so not allowlisted.",
+    "build": "examples/scenario_lab/verify.py resolves same-directory build.py; CI build distribution is unrelated and must not justify ignoring this internal import.",
+    "_checks/build_demo_db/corpus/run_validation/validate/examples": "Internal script or namespace imports, not external dependencies."
+  },
+  "limitations_and_guards": [
+    "ignored-modules is not no-parse and cannot verify missing third-party APIs in a dependency-free service. CI installs declared dependencies, runs strict typing, tests, and wheel checks.",
+    "Relative ImportFrom passes its unqualified module to the ignore matcher, so from .pytest import absent is masked by ignored-modules=pytest. This observed limitation requires a repository AST guard against any relative import whose first module component is allowlisted.",
+    "Bare script imports can refer to same-directory modules. A repository AST guard rejects allowlisted names that resolve to script/example sibling .py files or package directories. Package-qualified siblings such as sqlseed_ai.mcp do not shadow external top-level imports.",
+    "Allowlist entries must be exact top-level identifiers, never glob patterns or internal source package names; every entry has a manifest or CI lock distribution mapping.",
+    "All commands run from repository root, matching CI. Relative init-hook/source-roots paths are not portable to arbitrary cwd; no unreliable __file__ or Pylint-private globals are used.",
+    "The configuration does not disable E0401, E0611 or an import checker/category and does not change rule thresholds/source ignores."
+  ],
+  "experiments": {
+    "bare-probe": {
+      "argv": [
+        "/tmp/sqlseed-codeflow-pylint217/bin/pylint",
+        "--rcfile",
+        "/tmp/sqlseed-pylint-import-study-kykqkgin/bare.pylintrc",
+        "--disable=all",
+        "--enable=import-error,no-name-in-module,relative-beyond-top-level",
+        "--output-format=json",
+        "/tmp/sqlseed-pylint-import-study-kykqkgin/plugins/sqlseed-ai/src/sqlseed_ai/probe.py"
+      ],
+      "cwd": "/tmp/sqlseed-pylint-import-study-kykqkgin",
+      "exit": 2,
+      "messages": [
+        {
+          "line": 2,
+          "symbol": "import-error",
+          "message": "Unable to import 'sqlseed.core'",
+          "module": "sqlseed_ai.probe"
+        },
+        {
+          "line": 3,
+          "symbol": "import-error",
+          "message": "Unable to import 'requests'",
+          "module": "sqlseed_ai.probe"
+        },
+        {
+          "line": 4,
+          "symbol": "import-error",
+          "message": "Unable to import 'requests.sessions'",
+          "module": "sqlseed_ai.probe"
+        },
+        {
+          "line": 5,
+          "symbol": "import-error",
+          "message": "Unable to import 'pytest'",
+          "module": "sqlseed_ai.probe"
+        },
+        {
+          "line": 6,
+          "symbol": "import-error",
+          "message": "Unable to import 'not_declared_external'",
+          "module": "sqlseed_ai.probe"
+        },
+        {
+          "line": 7,
+          "symbol": "import-error",
+          "message": "Unable to import 'sqlseed.core.missing'",
+          "module": "sqlseed_ai.probe"
+        },
+        {
+          "line": 8,
+          "symbol": "import-error",
+          "message": "Unable to import 'sqlseed.core'",
+          "module": "sqlseed_ai.probe"
+        },
+        {
+          "line": 9,
+          "symbol": "import-error",
+          "message": "Unable to import 'sqlseed_ai.pytest'",
+          "module": "sqlseed_ai.probe"
+        },
+        {
+          "line": 10,
+          "symbol": "import-error",
+          "message": "Unable to import 'sqlseed_ai.missing_sibling'",
+          "module": "sqlseed_ai.probe"
+        }
+      ],
+      "assertions": "PASS: exact diagnostic line/symbol set"
+    },
+    "bare-test_probe": {
+      "argv": [
+        "/tmp/sqlseed-codeflow-pylint217/bin/pylint",
+        "--rcfile",
+        "/tmp/sqlseed-pylint-import-study-kykqkgin/bare.pylintrc",
+        "--disable=all",
+        "--enable=import-error,no-name-in-module,relative-beyond-top-level",
+        "--output-format=json",
+        "/tmp/sqlseed-pylint-import-study-kykqkgin/plugins/sqlseed-ai/tests/test_probe.py"
+      ],
+      "cwd": "/tmp/sqlseed-pylint-import-study-kykqkgin",
+      "exit": 2,
+      "messages": [
+        {
+          "line": 2,
+          "symbol": "import-error",
+          "message": "Unable to import 'tests.sqlite_helpers'",
+          "module": "tests.test_probe"
+        },
+        {
+          "line": 2,
+          "symbol": "no-name-in-module",
+          "message": "No name 'sqlite_helpers' in module 'tests'",
+          "module": "tests.test_probe"
+        },
+        {
+          "line": 4,
+          "symbol": "import-error",
+          "message": "Unable to import 'tests.missing_helper'",
+          "module": "tests.test_probe"
+        },
+        {
+          "line": 5,
+          "symbol": "import-error",
+          "message": "Unable to import 'pytest'",
+          "module": "tests.test_probe"
+        }
+      ],
+      "assertions": "PASS: exact diagnostic line/symbol set"
+    },
+    "ignored-only-probe": {
+      "argv": [
+        "/tmp/sqlseed-codeflow-pylint217/bin/pylint",
+        "--rcfile",
+        "/tmp/sqlseed-pylint-import-study-kykqkgin/ignored-only.pylintrc",
+        "--disable=all",
+        "--enable=import-error,no-name-in-module,relative-beyond-top-level",
+        "--output-format=json",
+        "/tmp/sqlseed-pylint-import-study-kykqkgin/plugins/sqlseed-ai/src/sqlseed_ai/probe.py"
+      ],
+      "cwd": "/tmp/sqlseed-pylint-import-study-kykqkgin",
+      "exit": 2,
+      "messages": [
+        {
+          "line": 2,
+          "symbol": "import-error",
+          "message": "Unable to import 'sqlseed.core'",
+          "module": "sqlseed_ai.probe"
+        },
+        {
+          "line": 6,
+          "symbol": "import-error",
+          "message": "Unable to import 'not_declared_external'",
+          "module": "sqlseed_ai.probe"
+        },
+        {
+          "line": 7,
+          "symbol": "import-error",
+          "message": "Unable to import 'sqlseed.core.missing'",
+          "module": "sqlseed_ai.probe"
+        },
+        {
+          "line": 8,
+          "symbol": "import-error",
+          "message": "Unable to import 'sqlseed.core'",
+          "module": "sqlseed_ai.probe"
+        },
+        {
+          "line": 10,
+          "symbol": "import-error",
+          "message": "Unable to import 'sqlseed_ai.missing_sibling'",
+          "module": "sqlseed_ai.probe"
+        }
+      ],
+      "assertions": "PASS: exact diagnostic line/symbol set"
+    },
+    "ignored-only-test_probe": {
+      "argv": [
+        "/tmp/sqlseed-codeflow-pylint217/bin/pylint",
+        "--rcfile",
+        "/tmp/sqlseed-pylint-import-study-kykqkgin/ignored-only.pylintrc",
+        "--disable=all",
+        "--enable=import-error,no-name-in-module,relative-beyond-top-level",
+        "--output-format=json",
+        "/tmp/sqlseed-pylint-import-study-kykqkgin/plugins/sqlseed-ai/tests/test_probe.py"
+      ],
+      "cwd": "/tmp/sqlseed-pylint-import-study-kykqkgin",
+      "exit": 2,
+      "messages": [
+        {
+          "line": 2,
+          "symbol": "import-error",
+          "message": "Unable to import 'tests.sqlite_helpers'",
+          "module": "tests.test_probe"
+        },
+        {
+          "line": 2,
+          "symbol": "no-name-in-module",
+          "message": "No name 'sqlite_helpers' in module 'tests'",
+          "module": "tests.test_probe"
+        },
+        {
+          "line": 4,
+          "symbol": "import-error",
+          "message": "Unable to import 'tests.missing_helper'",
+          "module": "tests.test_probe"
+        }
+      ],
+      "assertions": "PASS: exact diagnostic line/symbol set"
+    },
+    "wildcard-ignored-probe": {
+      "argv": [
+        "/tmp/sqlseed-codeflow-pylint217/bin/pylint",
+        "--rcfile",
+        "/tmp/sqlseed-pylint-import-study-kykqkgin/wildcard-ignored.pylintrc",
+        "--disable=all",
+        "--enable=import-error,no-name-in-module,relative-beyond-top-level",
+        "--output-format=json",
+        "/tmp/sqlseed-pylint-import-study-kykqkgin/plugins/sqlseed-ai/src/sqlseed_ai/probe.py"
+      ],
+      "cwd": "/tmp/sqlseed-pylint-import-study-kykqkgin",
+      "exit": 2,
+      "messages": [
+        {
+          "line": 2,
+          "symbol": "import-error",
+          "message": "Unable to import 'sqlseed.core'",
+          "module": "sqlseed_ai.probe"
+        },
+        {
+          "line": 3,
+          "symbol": "import-error",
+          "message": "Unable to import 'requests'",
+          "module": "sqlseed_ai.probe"
+        },
+        {
+          "line": 4,
+          "symbol": "import-error",
+          "message": "Unable to import 'requests.sessions'",
+          "module": "sqlseed_ai.probe"
+        },
+        {
+          "line": 5,
+          "symbol": "import-error",
+          "message": "Unable to import 'pytest'",
+          "module": "sqlseed_ai.probe"
+        },
+        {
+          "line": 6,
+          "symbol": "import-error",
+          "message": "Unable to import 'not_declared_external'",
+          "module": "sqlseed_ai.probe"
+        },
+        {
+          "line": 7,
+          "symbol": "import-error",
+          "message": "Unable to import 'sqlseed.core.missing'",
+          "module": "sqlseed_ai.probe"
+        },
+        {
+          "line": 8,
+          "symbol": "import-error",
+          "message": "Unable to import 'sqlseed.core'",
+          "module": "sqlseed_ai.probe"
+        },
+        {
+          "line": 9,
+          "symbol": "import-error",
+          "message": "Unable to import 'sqlseed_ai.pytest'",
+          "module": "sqlseed_ai.probe"
+        },
+        {
+          "line": 10,
+          "symbol": "import-error",
+          "message": "Unable to import 'sqlseed_ai.missing_sibling'",
+          "module": "sqlseed_ai.probe"
+        }
+      ],
+      "assertions": "PASS: exact diagnostic line/symbol set"
+    },
+    "wildcard-ignored-test_probe": {
+      "argv": [
+        "/tmp/sqlseed-codeflow-pylint217/bin/pylint",
+        "--rcfile",
+        "/tmp/sqlseed-pylint-import-study-kykqkgin/wildcard-ignored.pylintrc",
+        "--disable=all",
+        "--enable=import-error,no-name-in-module,relative-beyond-top-level",
+        "--output-format=json",
+        "/tmp/sqlseed-pylint-import-study-kykqkgin/plugins/sqlseed-ai/tests/test_probe.py"
+      ],
+      "cwd": "/tmp/sqlseed-pylint-import-study-kykqkgin",
+      "exit": 2,
+      "messages": [
+        {
+          "line": 2,
+          "symbol": "import-error",
+          "message": "Unable to import 'tests.sqlite_helpers'",
+          "module": "tests.test_probe"
+        },
+        {
+          "line": 2,
+          "symbol": "no-name-in-module",
+          "message": "No name 'sqlite_helpers' in module 'tests'",
+          "module": "tests.test_probe"
+        },
+        {
+          "line": 4,
+          "symbol": "import-error",
+          "message": "Unable to import 'tests.missing_helper'",
+          "module": "tests.test_probe"
+        },
+        {
+          "line": 5,
+          "symbol": "import-error",
+          "message": "Unable to import 'pytest'",
+          "module": "tests.test_probe"
+        }
+      ],
+      "assertions": "PASS: exact diagnostic line/symbol set"
+    },
+    "source-roots-only-probe": {
+      "argv": [
+        "/tmp/sqlseed-codeflow-pylint217/bin/pylint",
+        "--rcfile",
+        "/tmp/sqlseed-pylint-import-study-kykqkgin/source-roots-only.pylintrc",
+        "--disable=all",
+        "--enable=import-error,no-name-in-module,relative-beyond-top-level",
+        "--output-format=json",
+        "/tmp/sqlseed-pylint-import-study-kykqkgin/plugins/sqlseed-ai/src/sqlseed_ai/probe.py"
+      ],
+      "cwd": "/tmp/sqlseed-pylint-import-study-kykqkgin",
+      "exit": 2,
+      "messages": [
+        {
+          "line": 2,
+          "symbol": "import-error",
+          "message": "Unable to import 'sqlseed.core'",
+          "module": "sqlseed_ai.probe"
+        },
+        {
+          "line": 6,
+          "symbol": "import-error",
+          "message": "Unable to import 'not_declared_external'",
+          "module": "sqlseed_ai.probe"
+        },
+        {
+          "line": 7,
+          "symbol": "import-error",
+          "message": "Unable to import 'sqlseed.core.missing'",
+          "module": "sqlseed_ai.probe"
+        },
+        {
+          "line": 8,
+          "symbol": "import-error",
+          "message": "Unable to import 'sqlseed.core'",
+          "module": "sqlseed_ai.probe"
+        },
+        {
+          "line": 10,
+          "symbol": "import-error",
+          "message": "Unable to import 'sqlseed_ai.missing_sibling'",
+          "module": "sqlseed_ai.probe"
+        }
+      ],
+      "assertions": "PASS: exact diagnostic line/symbol set"
+    },
+    "source-roots-only-test_probe": {
+      "argv": [
+        "/tmp/sqlseed-codeflow-pylint217/bin/pylint",
+        "--rcfile",
+        "/tmp/sqlseed-pylint-import-study-kykqkgin/source-roots-only.pylintrc",
+        "--disable=all",
+        "--enable=import-error,no-name-in-module,relative-beyond-top-level",
+        "--output-format=json",
+        "/tmp/sqlseed-pylint-import-study-kykqkgin/plugins/sqlseed-ai/tests/test_probe.py"
+      ],
+      "cwd": "/tmp/sqlseed-pylint-import-study-kykqkgin",
+      "exit": 2,
+      "messages": [
+        {
+          "line": 4,
+          "symbol": "import-error",
+          "message": "Unable to import 'plugins.sqlseed-ai.tests.missing_helper'",
+          "module": "plugins.sqlseed-ai.tests.test_probe"
+        }
+      ],
+      "assertions": "PASS: exact diagnostic line/symbol set"
+    },
+    "sys-path-hook-probe": {
+      "argv": [
+        "/tmp/sqlseed-codeflow-pylint217/bin/pylint",
+        "--rcfile",
+        "/tmp/sqlseed-pylint-import-study-kykqkgin/sys-path-hook.pylintrc",
+        "--disable=all",
+        "--enable=import-error,no-name-in-module,relative-beyond-top-level",
+        "--output-format=json",
+        "/tmp/sqlseed-pylint-import-study-kykqkgin/plugins/sqlseed-ai/src/sqlseed_ai/probe.py"
+      ],
+      "cwd": "/tmp/sqlseed-pylint-import-study-kykqkgin",
+      "exit": 2,
+      "messages": [
+        {
+          "line": 6,
+          "symbol": "import-error",
+          "message": "Unable to import 'not_declared_external'",
+          "module": "sqlseed_ai.probe"
+        },
+        {
+          "line": 7,
+          "symbol": "import-error",
+          "message": "Unable to import 'sqlseed.core.missing'",
+          "module": "sqlseed_ai.probe"
+        },
+        {
+          "line": 7,
+          "symbol": "no-name-in-module",
+          "message": "No name 'missing' in module 'sqlseed.core'",
+          "module": "sqlseed_ai.probe"
+        },
+        {
+          "line": 8,
+          "symbol": "no-name-in-module",
+          "message": "No name 'missing_member' in module 'sqlseed.core'",
+          "module": "sqlseed_ai.probe"
+        },
+        {
+          "line": 10,
+          "symbol": "import-error",
+          "message": "Unable to import 'sqlseed_ai.missing_sibling'",
+          "module": "sqlseed_ai.probe"
+        }
+      ],
+      "assertions": "PASS: exact diagnostic line/symbol set"
+    },
+    "sys-path-hook-test_probe": {
+      "argv": [
+        "/tmp/sqlseed-codeflow-pylint217/bin/pylint",
+        "--rcfile",
+        "/tmp/sqlseed-pylint-import-study-kykqkgin/sys-path-hook.pylintrc",
+        "--disable=all",
+        "--enable=import-error,no-name-in-module,relative-beyond-top-level",
+        "--output-format=json",
+        "/tmp/sqlseed-pylint-import-study-kykqkgin/plugins/sqlseed-ai/tests/test_probe.py"
+      ],
+      "cwd": "/tmp/sqlseed-pylint-import-study-kykqkgin",
+      "exit": 2,
+      "messages": [
+        {
+          "line": 2,
+          "symbol": "import-error",
+          "message": "Unable to import 'tests.sqlite_helpers'",
+          "module": "tests.test_probe"
+        },
+        {
+          "line": 2,
+          "symbol": "no-name-in-module",
+          "message": "No name 'sqlite_helpers' in module 'tests'",
+          "module": "tests.test_probe"
+        },
+        {
+          "line": 4,
+          "symbol": "import-error",
+          "message": "Unable to import 'tests.missing_helper'",
+          "module": "tests.test_probe"
+        }
+      ],
+      "assertions": "PASS: exact diagnostic line/symbol set"
+    },
+    "hook-with-source-roots-probe": {
+      "argv": [
+        "/tmp/sqlseed-codeflow-pylint217/bin/pylint",
+        "--rcfile",
+        "/tmp/sqlseed-pylint-import-study-kykqkgin/hook-with-source-roots.pylintrc",
+        "--disable=all",
+        "--enable=import-error,no-name-in-module,relative-beyond-top-level",
+        "--output-format=json",
+        "/tmp/sqlseed-pylint-import-study-kykqkgin/plugins/sqlseed-ai/src/sqlseed_ai/probe.py"
+      ],
+      "cwd": "/tmp/sqlseed-pylint-import-study-kykqkgin",
+      "exit": 2,
+      "messages": [
+        {
+          "line": 6,
+          "symbol": "import-error",
+          "message": "Unable to import 'not_declared_external'",
+          "module": "sqlseed_ai.probe"
+        },
+        {
+          "line": 7,
+          "symbol": "import-error",
+          "message": "Unable to import 'sqlseed.core.missing'",
+          "module": "sqlseed_ai.probe"
+        },
+        {
+          "line": 7,
+          "symbol": "no-name-in-module",
+          "message": "No name 'missing' in module 'sqlseed.core'",
+          "module": "sqlseed_ai.probe"
+        },
+        {
+          "line": 8,
+          "symbol": "no-name-in-module",
+          "message": "No name 'missing_member' in module 'sqlseed.core'",
+          "module": "sqlseed_ai.probe"
+        },
+        {
+          "line": 10,
+          "symbol": "import-error",
+          "message": "Unable to import 'sqlseed_ai.missing_sibling'",
+          "module": "sqlseed_ai.probe"
+        }
+      ],
+      "assertions": "PASS: exact diagnostic line/symbol set"
+    },
+    "hook-with-source-roots-test_probe": {
+      "argv": [
+        "/tmp/sqlseed-codeflow-pylint217/bin/pylint",
+        "--rcfile",
+        "/tmp/sqlseed-pylint-import-study-kykqkgin/hook-with-source-roots.pylintrc",
+        "--disable=all",
+        "--enable=import-error,no-name-in-module,relative-beyond-top-level",
+        "--output-format=json",
+        "/tmp/sqlseed-pylint-import-study-kykqkgin/plugins/sqlseed-ai/tests/test_probe.py"
+      ],
+      "cwd": "/tmp/sqlseed-pylint-import-study-kykqkgin",
+      "exit": 2,
+      "messages": [
+        {
+          "line": 4,
+          "symbol": "import-error",
+          "message": "Unable to import 'plugins.sqlseed-ai.tests.missing_helper'",
+          "module": "plugins.sqlseed-ai.tests.test_probe"
+        }
+      ],
+      "assertions": "PASS: exact diagnostic line/symbol set"
+    },
+    "final-relative-paths-probe": {
+      "argv": [
+        "/tmp/sqlseed-codeflow-pylint217/bin/pylint",
+        "--rcfile",
+        "/tmp/sqlseed-pylint-import-study-kykqkgin/final-relative-paths.pylintrc",
+        "--disable=all",
+        "--enable=import-error,no-name-in-module,relative-beyond-top-level",
+        "--output-format=json",
+        "/tmp/sqlseed-pylint-import-study-kykqkgin/plugins/sqlseed-ai/src/sqlseed_ai/probe.py"
+      ],
+      "cwd": "/tmp/sqlseed-pylint-import-study-kykqkgin",
+      "exit": 2,
+      "messages": [
+        {
+          "line": 6,
+          "symbol": "import-error",
+          "message": "Unable to import 'not_declared_external'",
+          "module": "sqlseed_ai.probe"
+        },
+        {
+          "line": 7,
+          "symbol": "import-error",
+          "message": "Unable to import 'sqlseed.core.missing'",
+          "module": "sqlseed_ai.probe"
+        },
+        {
+          "line": 7,
+          "symbol": "no-name-in-module",
+          "message": "No name 'missing' in module 'sqlseed.core'",
+          "module": "sqlseed_ai.probe"
+        },
+        {
+          "line": 8,
+          "symbol": "no-name-in-module",
+          "message": "No name 'missing_member' in module 'sqlseed.core'",
+          "module": "sqlseed_ai.probe"
+        },
+        {
+          "line": 10,
+          "symbol": "import-error",
+          "message": "Unable to import 'sqlseed_ai.missing_sibling'",
+          "module": "sqlseed_ai.probe"
+        }
+      ],
+      "assertions": "PASS: exact diagnostic line/symbol set"
+    },
+    "final-relative-paths-test_probe": {
+      "argv": [
+        "/tmp/sqlseed-codeflow-pylint217/bin/pylint",
+        "--rcfile",
+        "/tmp/sqlseed-pylint-import-study-kykqkgin/final-relative-paths.pylintrc",
+        "--disable=all",
+        "--enable=import-error,no-name-in-module,relative-beyond-top-level",
+        "--output-format=json",
+        "/tmp/sqlseed-pylint-import-study-kykqkgin/plugins/sqlseed-ai/tests/test_probe.py"
+      ],
+      "cwd": "/tmp/sqlseed-pylint-import-study-kykqkgin",
+      "exit": 2,
+      "messages": [
+        {
+          "line": 4,
+          "symbol": "import-error",
+          "message": "Unable to import 'plugins.sqlseed-ai.tests.missing_helper'",
+          "module": "plugins.sqlseed-ai.tests.test_probe"
+        }
+      ],
+      "assertions": "PASS: exact diagnostic line/symbol set"
+    }
+  },
+  "experiment_count": 14,
+  "repository_edits": {
+    "files": [
+      ".pylintrc",
+      "tests/test_codeflow_config.py",
+      "scripts/complex_validation/__init__.py",
+      "examples/scenario_lab/__init__.py"
+    ],
+    "unchanged": "dependency manifests, rule disables, design thresholds and application behavior",
+    "sha256": {
+      ".pylintrc": "3d3d69aa0d2db7d68f26334e1415e439c1da6b0deca22eb8fbb4c3cfa3126b2a",
+      "tests/test_codeflow_config.py": "166fcf79503d9acbfac7b56eaa09b677858e5ab232d6a6e81e174e25ade5201c",
+      "scripts/complex_validation/__init__.py": "cde301cc417e035a51b519f6213a97303a4bc8b0cf08d5422d86f2e5025f8fe4",
+      "examples/scenario_lab/__init__.py": "49278f96b0d08c8064d9dd4f20a32addc9896d75c0023a683326a95b0c4765d5"
+    }
+  },
+  "configuration": {
+    "source-roots": "\nsrc,\nplugins/sqlseed-cli/src,\nplugins/sqlseed-ai/src,\nplugins/mcp-server-sqlseed/src,\nplugins/sqlseed-web/src,\n.",
+    "init-hook": "import sys; sys.path[:0] = ['src', 'plugins/sqlseed-cli/src', 'plugins/sqlseed-ai/src', 'plugins/mcp-server-sqlseed/src', 'plugins/sqlseed-web/src', '.', 'scripts/complex_validation', 'examples/scenario_lab', 'examples']",
+    "ignored-modules": "\nclick,\ndocker,\nfaker,\nfastapi,\nhttpx,\nhypothesis,\nmcp,\nmsvcrt,\nopenai,\npackaging,\npluggy,\npydantic,\npytest,\npywintypes,\nrequests,\nrich,\nrstr,\nsimpleeval,\nsqlalchemy,\nsqlglot,\nstarlette,\nstructlog,\ntestcontainers,\ntomli,\ntqdm,\ntyping_extensions,\nuvicorn,\nwinerror,\nyaml"
+  },
+  "windows_stdlib_modules": {
+    "msvcrt": "sys.stdlib_module_names; Windows C-runtime module, separately verified from distribution provenance"
+  },
+  "final_checks": {
+    "pytest": {
+      "argv": [
+        "/tmp/sqlseed-codeflow-venv/bin/python",
+        "-m",
+        "pytest",
+        "tests/test_codeflow_config.py",
+        "-q"
+      ],
+      "cwd": "/Users/sunbo/Desktop/sqlseed",
+      "exit": 0,
+      "stdout": "....                                                                     [100%]\n4 passed in 1.97s\n",
+      "stderr": ""
+    },
+    "ruff": {
+      "argv": [
+        "/tmp/sqlseed-codeflow-venv/bin/ruff",
+        "check",
+        "tests/test_codeflow_config.py"
+      ],
+      "cwd": "/Users/sunbo/Desktop/sqlseed",
+      "exit": 0,
+      "stdout": "All checks passed!\n",
+      "stderr": ""
+    },
+    "format": {
+      "argv": [
+        "/tmp/sqlseed-codeflow-venv/bin/ruff",
+        "format",
+        "--check",
+        "tests/test_codeflow_config.py"
+      ],
+      "cwd": "/Users/sunbo/Desktop/sqlseed",
+      "exit": 0,
+      "stdout": "1 file already formatted\n",
+      "stderr": ""
+    },
+    "pylint": {
+      "argv": [
+        "/tmp/sqlseed-codeflow-pylint217/bin/pylint",
+        "--rcfile=.pylintrc",
+        "--output-format=json",
+        "tests/test_codeflow_config.py"
+      ],
+      "cwd": "/Users/sunbo/Desktop/sqlseed",
+      "exit": 0,
+      "stdout": "[]\n",
+      "stderr": ""
+    },
+    "diff-check": {
+      "argv": [
+        "git",
+        "diff",
+        "--check",
+        "--",
+        ".pylintrc",
+        "tests/test_codeflow_config.py"
+      ],
+      "cwd": "/Users/sunbo/Desktop/sqlseed",
+      "exit": 0,
+      "stdout": "",
+      "stderr": ""
+    }
+  },
+  "remote_import_coverage": {
+    "count": 329,
+    "uncovered": [],
+    "source": "/tmp/sqlseed-codeflow-postpush-all-issues.json"
+  },
+  "policy_guard_matrix": {
+    "runner": "/tmp/sqlseed_verify_config_guards.py",
+    "cases": [
+      {
+        "case": "baseline",
+        "expected": "accept",
+        "result": "PASS",
+        "failures": [],
+        "fixture_root": "/tmp/sqlseed-pylint-import-study-kykqkgin/policy-guard-matrix-t4m_7inh/baseline"
+      },
+      {
+        "case": "internal-allowlist",
+        "expected": "reject",
+        "result": "PASS",
+        "failures": [
+          {
+            "check": "test_codeflow_external_imports_have_dependency_provenance",
+            "assertion": ""
+          }
+        ],
+        "fixture_root": "/tmp/sqlseed-pylint-import-study-kykqkgin/policy-guard-matrix-t4m_7inh/internal-allowlist"
+      },
+      {
+        "case": "wildcard-allowlist",
+        "expected": "reject",
+        "result": "PASS",
+        "failures": [
+          {
+            "check": "test_codeflow_external_imports_have_dependency_provenance",
+            "assertion": ""
+          }
+        ],
+        "fixture_root": "/tmp/sqlseed-pylint-import-study-kykqkgin/policy-guard-matrix-t4m_7inh/wildcard-allowlist"
+      },
+      {
+        "case": "global-import-error-disable",
+        "expected": "reject",
+        "result": "PASS",
+        "failures": [
+          {
+            "check": "test_codeflow_config_matches_modern_pylint_policy",
+            "assertion": ""
+          }
+        ],
+        "fixture_root": "/tmp/sqlseed-pylint-import-study-kykqkgin/policy-guard-matrix-t4m_7inh/global-import-error-disable"
+      },
+      {
+        "case": "missing-source-root",
+        "expected": "reject",
+        "result": "PASS",
+        "failures": [
+          {
+            "check": "test_codeflow_source_paths_match_distributable_packages",
+            "assertion": ""
+          }
+        ],
+        "fixture_root": "/tmp/sqlseed-pylint-import-study-kykqkgin/policy-guard-matrix-t4m_7inh/missing-source-root"
+      },
+      {
+        "case": "additional-hook-code",
+        "expected": "reject",
+        "result": "PASS",
+        "failures": [
+          {
+            "check": "test_codeflow_source_paths_match_distributable_packages",
+            "assertion": ""
+          }
+        ],
+        "fixture_root": "/tmp/sqlseed-pylint-import-study-kykqkgin/policy-guard-matrix-t4m_7inh/additional-hook-code"
+      },
+      {
+        "case": "missing-manifest-dependency",
+        "expected": "reject",
+        "result": "PASS",
+        "failures": [
+          {
+            "check": "test_codeflow_external_imports_have_dependency_provenance",
+            "assertion": "('faker', 'faker', 'pyproject.toml')"
+          }
+        ],
+        "fixture_root": "/tmp/sqlseed-pylint-import-study-kykqkgin/policy-guard-matrix-t4m_7inh/missing-manifest-dependency"
+      },
+      {
+        "case": "relative-external-name",
+        "expected": "reject",
+        "result": "PASS",
+        "failures": [
+          {
+            "check": "test_codeflow_external_exceptions_cannot_hide_local_imports",
+            "assertion": "External import exceptions would hide internal imports:\nsrc/sqlseed/probe.py:1: requests"
+          }
+        ],
+        "fixture_root": "/tmp/sqlseed-pylint-import-study-kykqkgin/policy-guard-matrix-t4m_7inh/relative-external-name"
+      },
+      {
+        "case": "bare-script-local-name",
+        "expected": "reject",
+        "result": "PASS",
+        "failures": [
+          {
+            "check": "test_codeflow_external_imports_have_dependency_provenance",
+            "assertion": ""
+          },
+          {
+            "check": "test_codeflow_external_exceptions_cannot_hide_local_imports",
+            "assertion": "External import exceptions would hide internal imports:\nexamples/probe.py:1: requests"
+          }
+        ],
+        "fixture_root": "/tmp/sqlseed-pylint-import-study-kykqkgin/policy-guard-matrix-t4m_7inh/bare-script-local-name"
+      },
+      {
+        "case": "package-sibling-external-name",
+        "expected": "accept",
+        "result": "PASS",
+        "failures": [],
+        "fixture_root": "/tmp/sqlseed-pylint-import-study-kykqkgin/policy-guard-matrix-t4m_7inh/package-sibling-external-name"
+      },
+      {
+        "case": "missing-script-package",
+        "expected": "reject",
+        "result": "PASS",
+        "failures": [
+          {
+            "check": "test_codeflow_source_paths_match_distributable_packages",
+            "assertion": ""
+          }
+        ],
+        "fixture_root": "/tmp/sqlseed-pylint-import-study-kykqkgin/policy-guard-matrix-t4m_7inh/missing-script-package"
+      },
+      {
+        "case": "script-paths-after-site",
+        "expected": "reject",
+        "result": "PASS",
+        "failures": [
+          {
+            "check": "test_codeflow_source_paths_match_distributable_packages",
+            "assertion": ""
+          }
+        ],
+        "fixture_root": "/tmp/sqlseed-pylint-import-study-kykqkgin/policy-guard-matrix-t4m_7inh/script-paths-after-site"
+      }
+    ]
+  },
+  "repository_import_probe": {
+    "argv": [
+      "/tmp/sqlseed-codeflow-pylint217/bin/pylint",
+      "--rcfile=.pylintrc",
+      "--disable=all",
+      "--enable=import-error,no-name-in-module,relative-beyond-top-level",
+      "--output-format=json",
+      "conftest.py",
+      "tests/test_codeflow_config.py",
+      "plugins/sqlseed-ai/tests/test_validator_main.py",
+      "plugins/sqlseed-web/src/sqlseed_web/runtime_lifecycle.py",
+      "plugins/sqlseed-cli/src/sqlseed_cli/main.py",
+      "plugins/mcp-server-sqlseed/src/mcp_server_sqlseed/server.py"
+    ],
+    "cwd": "/Users/sunbo/Desktop/sqlseed",
+    "exit": 0,
+    "messages": []
+  },
+  "namespace_probe": {
+    "argv": [
+      "/tmp/sqlseed-codeflow-pylint217/bin/pylint",
+      "--rcfile=.pylintrc",
+      "--disable=all",
+      "--enable=import-error,no-name-in-module,relative-beyond-top-level",
+      "--output-format=json",
+      "examples/scenario_lab/verify.py",
+      "plugins/sqlseed-web/src/sqlseed_web/plugin_environment.py",
+      "plugins/sqlseed-web/tests/test_workbench_acceptance.py",
+      "plugins/sqlseed-web/tests/test_workbench_ai.py",
+      "plugins/sqlseed-web/tests/test_workbench_ai_relations.py",
+      "plugins/sqlseed-web/tests/test_workbench_runtime.py",
+      "scripts/complex_validation/ai_offline_validation.py",
+      "scripts/complex_validation/randomized_roundtrip.py",
+      "scripts/complex_validation/run_validation.py",
+      "scripts/complex_validation/smoke_test.py"
+    ],
+    "cwd": "/Users/sunbo/Desktop/sqlseed",
+    "exit": 2,
+    "messages": [
+      {
+        "type": "error",
+        "module": "examples.scenario_lab.verify",
+        "obj": "",
+        "line": 22,
+        "column": 4,
+        "endLine": 22,
+        "endColumn": 42,
+        "path": "examples/scenario_lab/verify.py",
+        "symbol": "import-error",
+        "message": "Unable to import 'build'",
+        "message-id": "E0401"
+      },
+      {
+        "type": "error",
+        "module": "examples.scenario_lab.verify",
+        "obj": "",
+        "line": 23,
+        "column": 4,
+        "endLine": 23,
+        "endColumn": 42,
+        "path": "examples/scenario_lab/verify.py",
+        "symbol": "import-error",
+        "message": "Unable to import 'validate'",
+        "message-id": "E0401"
+      },
+      {
+        "type": "error",
+        "module": "ai_offline_validation",
+        "obj": "",
+        "line": 32,
+        "column": 4,
+        "endLine": 32,
+        "endColumn": 38,
+        "path": "scripts/complex_validation/ai_offline_validation.py",
+        "symbol": "relative-beyond-top-level",
+        "message": "Attempted relative import beyond top-level package",
+        "message-id": "E0402"
+      },
+      {
+        "type": "error",
+        "module": "ai_offline_validation",
+        "obj": "",
+        "line": 34,
+        "column": 4,
+        "endLine": 34,
+        "endColumn": 37,
+        "path": "scripts/complex_validation/ai_offline_validation.py",
+        "symbol": "import-error",
+        "message": "Unable to import '_checks'",
+        "message-id": "E0401"
+      },
+      {
+        "type": "error",
+        "module": "randomized_roundtrip",
+        "obj": "",
+        "line": 30,
+        "column": 4,
+        "endLine": 30,
+        "endColumn": 38,
+        "path": "scripts/complex_validation/randomized_roundtrip.py",
+        "symbol": "relative-beyond-top-level",
+        "message": "Attempted relative import beyond top-level package",
+        "message-id": "E0402"
+      },
+      {
+        "type": "error",
+        "module": "randomized_roundtrip",
+        "obj": "",
+        "line": 31,
+        "column": 4,
+        "endLine": 31,
+        "endColumn": 51,
+        "path": "scripts/complex_validation/randomized_roundtrip.py",
+        "symbol": "relative-beyond-top-level",
+        "message": "Attempted relative import beyond top-level package",
+        "message-id": "E0402"
+      },
+      {
+        "type": "error",
+        "module": "randomized_roundtrip",
+        "obj": "",
+        "line": 33,
+        "column": 4,
+        "endLine": 33,
+        "endColumn": 37,
+        "path": "scripts/complex_validation/randomized_roundtrip.py",
+        "symbol": "import-error",
+        "message": "Unable to import '_checks'",
+        "message-id": "E0401"
+      },
+      {
+        "type": "error",
+        "module": "run_validation",
+        "obj": "",
+        "line": 27,
+        "column": 4,
+        "endLine": 27,
+        "endColumn": 46,
+        "path": "scripts/complex_validation/run_validation.py",
+        "symbol": "relative-beyond-top-level",
+        "message": "Attempted relative import beyond top-level package",
+        "message-id": "E0402"
+      },
+      {
+        "type": "error",
+        "module": "run_validation",
+        "obj": "",
+        "line": 29,
+        "column": 4,
+        "endLine": 29,
+        "endColumn": 45,
+        "path": "scripts/complex_validation/run_validation.py",
+        "symbol": "import-error",
+        "message": "Unable to import 'corpus'",
+        "message-id": "E0401"
+      },
+      {
+        "type": "error",
+        "module": "smoke_test",
+        "obj": "",
+        "line": 24,
+        "column": 4,
+        "endLine": 24,
+        "endColumn": 38,
+        "path": "scripts/complex_validation/smoke_test.py",
+        "symbol": "relative-beyond-top-level",
+        "message": "Attempted relative import beyond top-level package",
+        "message-id": "E0402"
+      },
+      {
+        "type": "error",
+        "module": "smoke_test",
+        "obj": "",
+        "line": 26,
+        "column": 4,
+        "endLine": 26,
+        "endColumn": 37,
+        "path": "scripts/complex_validation/smoke_test.py",
+        "symbol": "import-error",
+        "message": "Unable to import '_checks'",
+        "message-id": "E0401"
+      }
+    ]
+  },
+  "remaining_work_for_parent": "No unresolved import-environment adaptation items. Repository-wide final gates and remote rerun remain parent-owned. Preserve the documented baseline scenario_lab 3-column FK failure; do not weaken that boundary.",
+  "script_namespace_proposal": {
+    "status": "Adopted in repository with docstring + future-only package markers; three script paths appended within sys.path[:0] ahead of site-packages.",
+    "package_markers": [
+      "scripts/complex_validation/__init__.py",
+      "examples/scenario_lab/__init__.py"
+    ],
+    "script_search_paths": [
+      "scripts/complex_validation",
+      "examples/scenario_lab",
+      "examples"
+    ],
+    "hook_order": "Extend the local sys.path[:0] list, before third-party site paths; do not add these directories to source-roots",
+    "pylint": [
+      {
+        "target": "scripts/complex_validation/ai_offline_validation.py",
+        "argv": [
+          "/tmp/sqlseed-codeflow-pylint217/bin/pylint",
+          "--rcfile=.pylintrc",
+          "--disable=all",
+          "--enable=import-error,no-name-in-module,relative-beyond-top-level",
+          "--output-format=json",
+          "scripts/complex_validation/ai_offline_validation.py"
+        ],
+        "cwd": "/tmp/sqlseed-pylint-import-study-kykqkgin/script-namespace-k_90tnzp",
+        "exit": 0,
+        "messages": [],
+        "stderr": ""
+      },
+      {
+        "target": "scripts/complex_validation/randomized_roundtrip.py",
+        "argv": [
+          "/tmp/sqlseed-codeflow-pylint217/bin/pylint",
+          "--rcfile=.pylintrc",
+          "--disable=all",
+          "--enable=import-error,no-name-in-module,relative-beyond-top-level",
+          "--output-format=json",
+          "scripts/complex_validation/randomized_roundtrip.py"
+        ],
+        "cwd": "/tmp/sqlseed-pylint-import-study-kykqkgin/script-namespace-k_90tnzp",
+        "exit": 0,
+        "messages": [],
+        "stderr": ""
+      },
+      {
+        "target": "scripts/complex_validation/run_validation.py",
+        "argv": [
+          "/tmp/sqlseed-codeflow-pylint217/bin/pylint",
+          "--rcfile=.pylintrc",
+          "--disable=all",
+          "--enable=import-error,no-name-in-module,relative-beyond-top-level",
+          "--output-format=json",
+          "scripts/complex_validation/run_validation.py"
+        ],
+        "cwd": "/tmp/sqlseed-pylint-import-study-kykqkgin/script-namespace-k_90tnzp",
+        "exit": 0,
+        "messages": [],
+        "stderr": ""
+      },
+      {
+        "target": "scripts/complex_validation/smoke_test.py",
+        "argv": [
+          "/tmp/sqlseed-codeflow-pylint217/bin/pylint",
+          "--rcfile=.pylintrc",
+          "--disable=all",
+          "--enable=import-error,no-name-in-module,relative-beyond-top-level",
+          "--output-format=json",
+          "scripts/complex_validation/smoke_test.py"
+        ],
+        "cwd": "/tmp/sqlseed-pylint-import-study-kykqkgin/script-namespace-k_90tnzp",
+        "exit": 0,
+        "messages": [],
+        "stderr": ""
+      },
+      {
+        "target": "examples/scenario_lab/build.py",
+        "argv": [
+          "/tmp/sqlseed-codeflow-pylint217/bin/pylint",
+          "--rcfile=.pylintrc",
+          "--disable=all",
+          "--enable=import-error,no-name-in-module,relative-beyond-top-level",
+          "--output-format=json",
+          "examples/scenario_lab/build.py"
+        ],
+        "cwd": "/tmp/sqlseed-pylint-import-study-kykqkgin/script-namespace-k_90tnzp",
+        "exit": 0,
+        "messages": [],
+        "stderr": ""
+      },
+      {
+        "target": "examples/scenario_lab/validate.py",
+        "argv": [
+          "/tmp/sqlseed-codeflow-pylint217/bin/pylint",
+          "--rcfile=.pylintrc",
+          "--disable=all",
+          "--enable=import-error,no-name-in-module,relative-beyond-top-level",
+          "--output-format=json",
+          "examples/scenario_lab/validate.py"
+        ],
+        "cwd": "/tmp/sqlseed-pylint-import-study-kykqkgin/script-namespace-k_90tnzp",
+        "exit": 0,
+        "messages": [],
+        "stderr": ""
+      },
+      {
+        "target": "examples/scenario_lab/verify.py",
+        "argv": [
+          "/tmp/sqlseed-codeflow-pylint217/bin/pylint",
+          "--rcfile=.pylintrc",
+          "--disable=all",
+          "--enable=import-error,no-name-in-module,relative-beyond-top-level",
+          "--output-format=json",
+          "examples/scenario_lab/verify.py"
+        ],
+        "cwd": "/tmp/sqlseed-pylint-import-study-kykqkgin/script-namespace-k_90tnzp",
+        "exit": 0,
+        "messages": [],
+        "stderr": ""
+      },
+      {
+        "target": "examples/quick_demo.py",
+        "argv": [
+          "/tmp/sqlseed-codeflow-pylint217/bin/pylint",
+          "--rcfile=.pylintrc",
+          "--disable=all",
+          "--enable=import-error,no-name-in-module,relative-beyond-top-level",
+          "--output-format=json",
+          "examples/quick_demo.py"
+        ],
+        "cwd": "/tmp/sqlseed-pylint-import-study-kykqkgin/script-namespace-k_90tnzp",
+        "exit": 2,
+        "messages": [
+          {
+            "type": "error",
+            "module": "examples.quick_demo",
+            "obj": "",
+            "line": 21,
+            "column": 0,
+            "endLine": 21,
+            "endColumn": 45,
+            "path": "examples/quick_demo.py",
+            "symbol": "import-error",
+            "message": "Unable to import 'build_demo_db'",
+            "message-id": "E0401"
+          }
+        ],
+        "stderr": ""
+      }
+    ],
+    "entrypoints": [
+      {
+        "path": "scripts/complex_validation/ai_offline_validation.py",
+        "mode": "module",
+        "scope": "Actual module/file loading with runpy; __main__ guard deliberately not invoked, avoiding long-running validation work.",
+        "argv": [
+          "/tmp/sqlseed-codeflow-venv/bin/python",
+          "-c",
+          "import runpy; namespace=runpy.run_module('scripts.complex_validation.ai_offline_validation',run_name=\"__probe__\",alter_sys=True); assert namespace[\"__package__\"] == 'scripts.complex_validation'; assert callable(namespace[\"main\"]); print(namespace[\"__file__\"],namespace[\"__package__\"])"
+        ],
+        "cwd": "/tmp/sqlseed-pylint-import-study-kykqkgin/script-namespace-k_90tnzp",
+        "exit": 0,
+        "stdout": "/private/tmp/sqlseed-pylint-import-study-kykqkgin/script-namespace-k_90tnzp/scripts/complex_validation/ai_offline_validation.py scripts.complex_validation\n",
+        "stderr": ""
+      },
+      {
+        "path": "scripts/complex_validation/ai_offline_validation.py",
+        "mode": "direct-file",
+        "scope": "Actual module/file loading with runpy; __main__ guard deliberately not invoked, avoiding long-running validation work.",
+        "argv": [
+          "/tmp/sqlseed-codeflow-venv/bin/python",
+          "-c",
+          "import runpy,sys; from pathlib import Path; path=Path('scripts/complex_validation/ai_offline_validation.py').resolve(); sys.path.insert(0,str(path.parent)); namespace=runpy.run_path(str(path),run_name=\"__probe__\"); assert namespace[\"__package__\"] == \"\"; assert callable(namespace[\"main\"]); print(namespace[\"__file__\"],\"direct-file package empty\")"
+        ],
+        "cwd": "/tmp/sqlseed-pylint-import-study-kykqkgin/script-namespace-k_90tnzp",
+        "exit": 0,
+        "stdout": "/private/tmp/sqlseed-pylint-import-study-kykqkgin/script-namespace-k_90tnzp/scripts/complex_validation/ai_offline_validation.py direct-file package empty\n",
+        "stderr": ""
+      },
+      {
+        "path": "scripts/complex_validation/randomized_roundtrip.py",
+        "mode": "module",
+        "scope": "Actual module/file loading with runpy; __main__ guard deliberately not invoked, avoiding long-running validation work.",
+        "argv": [
+          "/tmp/sqlseed-codeflow-venv/bin/python",
+          "-c",
+          "import runpy; namespace=runpy.run_module('scripts.complex_validation.randomized_roundtrip',run_name=\"__probe__\",alter_sys=True); assert namespace[\"__package__\"] == 'scripts.complex_validation'; assert callable(namespace[\"main\"]); print(namespace[\"__file__\"],namespace[\"__package__\"])"
+        ],
+        "cwd": "/tmp/sqlseed-pylint-import-study-kykqkgin/script-namespace-k_90tnzp",
+        "exit": 0,
+        "stdout": "/private/tmp/sqlseed-pylint-import-study-kykqkgin/script-namespace-k_90tnzp/scripts/complex_validation/randomized_roundtrip.py scripts.complex_validation\n",
+        "stderr": ""
+      },
+      {
+        "path": "scripts/complex_validation/randomized_roundtrip.py",
+        "mode": "direct-file",
+        "scope": "Actual module/file loading with runpy; __main__ guard deliberately not invoked, avoiding long-running validation work.",
+        "argv": [
+          "/tmp/sqlseed-codeflow-venv/bin/python",
+          "-c",
+          "import runpy,sys; from pathlib import Path; path=Path('scripts/complex_validation/randomized_roundtrip.py').resolve(); sys.path.insert(0,str(path.parent)); namespace=runpy.run_path(str(path),run_name=\"__probe__\"); assert namespace[\"__package__\"] == \"\"; assert callable(namespace[\"main\"]); print(namespace[\"__file__\"],\"direct-file package empty\")"
+        ],
+        "cwd": "/tmp/sqlseed-pylint-import-study-kykqkgin/script-namespace-k_90tnzp",
+        "exit": 0,
+        "stdout": "/private/tmp/sqlseed-pylint-import-study-kykqkgin/script-namespace-k_90tnzp/scripts/complex_validation/randomized_roundtrip.py direct-file package empty\n",
+        "stderr": ""
+      },
+      {
+        "path": "scripts/complex_validation/run_validation.py",
+        "mode": "module",
+        "scope": "Actual module/file loading with runpy; __main__ guard deliberately not invoked, avoiding long-running validation work.",
+        "argv": [
+          "/tmp/sqlseed-codeflow-venv/bin/python",
+          "-c",
+          "import runpy; namespace=runpy.run_module('scripts.complex_validation.run_validation',run_name=\"__probe__\",alter_sys=True); assert namespace[\"__package__\"] == 'scripts.complex_validation'; assert callable(namespace[\"main\"]); print(namespace[\"__file__\"],namespace[\"__package__\"])"
+        ],
+        "cwd": "/tmp/sqlseed-pylint-import-study-kykqkgin/script-namespace-k_90tnzp",
+        "exit": 0,
+        "stdout": "/private/tmp/sqlseed-pylint-import-study-kykqkgin/script-namespace-k_90tnzp/scripts/complex_validation/run_validation.py scripts.complex_validation\n",
+        "stderr": ""
+      },
+      {
+        "path": "scripts/complex_validation/run_validation.py",
+        "mode": "direct-file",
+        "scope": "Actual module/file loading with runpy; __main__ guard deliberately not invoked, avoiding long-running validation work.",
+        "argv": [
+          "/tmp/sqlseed-codeflow-venv/bin/python",
+          "-c",
+          "import runpy,sys; from pathlib import Path; path=Path('scripts/complex_validation/run_validation.py').resolve(); sys.path.insert(0,str(path.parent)); namespace=runpy.run_path(str(path),run_name=\"__probe__\"); assert namespace[\"__package__\"] == \"\"; assert callable(namespace[\"main\"]); print(namespace[\"__file__\"],\"direct-file package empty\")"
+        ],
+        "cwd": "/tmp/sqlseed-pylint-import-study-kykqkgin/script-namespace-k_90tnzp",
+        "exit": 0,
+        "stdout": "/private/tmp/sqlseed-pylint-import-study-kykqkgin/script-namespace-k_90tnzp/scripts/complex_validation/run_validation.py direct-file package empty\n",
+        "stderr": ""
+      },
+      {
+        "path": "scripts/complex_validation/smoke_test.py",
+        "mode": "module",
+        "scope": "Actual module/file loading with runpy; __main__ guard deliberately not invoked, avoiding long-running validation work.",
+        "argv": [
+          "/tmp/sqlseed-codeflow-venv/bin/python",
+          "-c",
+          "import runpy; namespace=runpy.run_module('scripts.complex_validation.smoke_test',run_name=\"__probe__\",alter_sys=True); assert namespace[\"__package__\"] == 'scripts.complex_validation'; assert callable(namespace[\"main\"]); print(namespace[\"__file__\"],namespace[\"__package__\"])"
+        ],
+        "cwd": "/tmp/sqlseed-pylint-import-study-kykqkgin/script-namespace-k_90tnzp",
+        "exit": 0,
+        "stdout": "/private/tmp/sqlseed-pylint-import-study-kykqkgin/script-namespace-k_90tnzp/scripts/complex_validation/smoke_test.py scripts.complex_validation\n",
+        "stderr": ""
+      },
+      {
+        "path": "scripts/complex_validation/smoke_test.py",
+        "mode": "direct-file",
+        "scope": "Actual module/file loading with runpy; __main__ guard deliberately not invoked, avoiding long-running validation work.",
+        "argv": [
+          "/tmp/sqlseed-codeflow-venv/bin/python",
+          "-c",
+          "import runpy,sys; from pathlib import Path; path=Path('scripts/complex_validation/smoke_test.py').resolve(); sys.path.insert(0,str(path.parent)); namespace=runpy.run_path(str(path),run_name=\"__probe__\"); assert namespace[\"__package__\"] == \"\"; assert callable(namespace[\"main\"]); print(namespace[\"__file__\"],\"direct-file package empty\")"
+        ],
+        "cwd": "/tmp/sqlseed-pylint-import-study-kykqkgin/script-namespace-k_90tnzp",
+        "exit": 0,
+        "stdout": "/private/tmp/sqlseed-pylint-import-study-kykqkgin/script-namespace-k_90tnzp/scripts/complex_validation/smoke_test.py direct-file package empty\n",
+        "stderr": ""
+      },
+      {
+        "path": "examples/scenario_lab/build.py",
+        "mode": "module",
+        "scope": "Actual module/file loading with runpy; __main__ guard deliberately not invoked, avoiding long-running validation work.",
+        "argv": [
+          "/tmp/sqlseed-codeflow-venv/bin/python",
+          "-c",
+          "import runpy; namespace=runpy.run_module('examples.scenario_lab.build',run_name=\"__probe__\",alter_sys=True); assert namespace[\"__package__\"] == 'examples.scenario_lab'; assert callable(namespace[\"main\"]); print(namespace[\"__file__\"],namespace[\"__package__\"])"
+        ],
+        "cwd": "/tmp/sqlseed-pylint-import-study-kykqkgin/script-namespace-k_90tnzp",
+        "exit": 0,
+        "stdout": "/private/tmp/sqlseed-pylint-import-study-kykqkgin/script-namespace-k_90tnzp/examples/scenario_lab/build.py examples.scenario_lab\n",
+        "stderr": ""
+      },
+      {
+        "path": "examples/scenario_lab/build.py",
+        "mode": "direct-file",
+        "scope": "Actual module/file loading with runpy; __main__ guard deliberately not invoked, avoiding long-running validation work.",
+        "argv": [
+          "/tmp/sqlseed-codeflow-venv/bin/python",
+          "-c",
+          "import runpy,sys; from pathlib import Path; path=Path('examples/scenario_lab/build.py').resolve(); sys.path.insert(0,str(path.parent)); namespace=runpy.run_path(str(path),run_name=\"__probe__\"); assert namespace[\"__package__\"] == \"\"; assert callable(namespace[\"main\"]); print(namespace[\"__file__\"],\"direct-file package empty\")"
+        ],
+        "cwd": "/tmp/sqlseed-pylint-import-study-kykqkgin/script-namespace-k_90tnzp",
+        "exit": 0,
+        "stdout": "/private/tmp/sqlseed-pylint-import-study-kykqkgin/script-namespace-k_90tnzp/examples/scenario_lab/build.py direct-file package empty\n",
+        "stderr": ""
+      },
+      {
+        "path": "examples/scenario_lab/validate.py",
+        "mode": "module",
+        "scope": "Actual module/file loading with runpy; __main__ guard deliberately not invoked, avoiding long-running validation work.",
+        "argv": [
+          "/tmp/sqlseed-codeflow-venv/bin/python",
+          "-c",
+          "import runpy; namespace=runpy.run_module('examples.scenario_lab.validate',run_name=\"__probe__\",alter_sys=True); assert namespace[\"__package__\"] == 'examples.scenario_lab'; assert callable(namespace[\"main\"]); print(namespace[\"__file__\"],namespace[\"__package__\"])"
+        ],
+        "cwd": "/tmp/sqlseed-pylint-import-study-kykqkgin/script-namespace-k_90tnzp",
+        "exit": 0,
+        "stdout": "/private/tmp/sqlseed-pylint-import-study-kykqkgin/script-namespace-k_90tnzp/examples/scenario_lab/validate.py examples.scenario_lab\n",
+        "stderr": ""
+      },
+      {
+        "path": "examples/scenario_lab/validate.py",
+        "mode": "direct-file",
+        "scope": "Actual module/file loading with runpy; __main__ guard deliberately not invoked, avoiding long-running validation work.",
+        "argv": [
+          "/tmp/sqlseed-codeflow-venv/bin/python",
+          "-c",
+          "import runpy,sys; from pathlib import Path; path=Path('examples/scenario_lab/validate.py').resolve(); sys.path.insert(0,str(path.parent)); namespace=runpy.run_path(str(path),run_name=\"__probe__\"); assert namespace[\"__package__\"] == \"\"; assert callable(namespace[\"main\"]); print(namespace[\"__file__\"],\"direct-file package empty\")"
+        ],
+        "cwd": "/tmp/sqlseed-pylint-import-study-kykqkgin/script-namespace-k_90tnzp",
+        "exit": 0,
+        "stdout": "/private/tmp/sqlseed-pylint-import-study-kykqkgin/script-namespace-k_90tnzp/examples/scenario_lab/validate.py direct-file package empty\n",
+        "stderr": ""
+      },
+      {
+        "path": "examples/scenario_lab/verify.py",
+        "mode": "module",
+        "scope": "Actual module/file loading with runpy; __main__ guard deliberately not invoked, avoiding long-running validation work.",
+        "argv": [
+          "/tmp/sqlseed-codeflow-venv/bin/python",
+          "-c",
+          "import runpy; namespace=runpy.run_module('examples.scenario_lab.verify',run_name=\"__probe__\",alter_sys=True); assert namespace[\"__package__\"] == 'examples.scenario_lab'; assert callable(namespace[\"main\"]); print(namespace[\"__file__\"],namespace[\"__package__\"])"
+        ],
+        "cwd": "/tmp/sqlseed-pylint-import-study-kykqkgin/script-namespace-k_90tnzp",
+        "exit": 0,
+        "stdout": "/private/tmp/sqlseed-pylint-import-study-kykqkgin/script-namespace-k_90tnzp/examples/scenario_lab/verify.py examples.scenario_lab\n",
+        "stderr": ""
+      },
+      {
+        "path": "examples/scenario_lab/verify.py",
+        "mode": "direct-file",
+        "scope": "Actual module/file loading with runpy; __main__ guard deliberately not invoked, avoiding long-running validation work.",
+        "argv": [
+          "/tmp/sqlseed-codeflow-venv/bin/python",
+          "-c",
+          "import runpy,sys; from pathlib import Path; path=Path('examples/scenario_lab/verify.py').resolve(); sys.path.insert(0,str(path.parent)); namespace=runpy.run_path(str(path),run_name=\"__probe__\"); assert namespace[\"__package__\"] == \"\"; assert callable(namespace[\"main\"]); print(namespace[\"__file__\"],\"direct-file package empty\")"
+        ],
+        "cwd": "/tmp/sqlseed-pylint-import-study-kykqkgin/script-namespace-k_90tnzp",
+        "exit": 0,
+        "stdout": "/private/tmp/sqlseed-pylint-import-study-kykqkgin/script-namespace-k_90tnzp/examples/scenario_lab/verify.py direct-file package empty\n",
+        "stderr": ""
+      },
+      {
+        "path": "examples/scenario_lab/build.py",
+        "mode": "python-m",
+        "argv": [
+          "/tmp/sqlseed-codeflow-venv/bin/python",
+          "-m",
+          "examples.scenario_lab.build",
+          "--help"
+        ],
+        "cwd": "/tmp/sqlseed-pylint-import-study-kykqkgin/script-namespace-k_90tnzp",
+        "exit": 0,
+        "stdout": "usage: build.py [-h] [--output OUTPUT] [--next-available]\n\n构建独立业务夹具；已有目标文件绝不覆盖，不调用数据生成或网络。\n\noptions:\n  -h, --help        show this help message and exit\n  --output OUTPUT   目标存在时默认拒绝覆盖\n  --next-available  目标存在时另取 _2、_3 等新文件名\n",
+        "stderr": ""
+      },
+      {
+        "path": "examples/scenario_lab/build.py",
+        "mode": "python-file",
+        "argv": [
+          "/tmp/sqlseed-codeflow-venv/bin/python",
+          "examples/scenario_lab/build.py",
+          "--help"
+        ],
+        "cwd": "/tmp/sqlseed-pylint-import-study-kykqkgin/script-namespace-k_90tnzp",
+        "exit": 0,
+        "stdout": "usage: build.py [-h] [--output OUTPUT] [--next-available]\n\n构建独立业务夹具；已有目标文件绝不覆盖，不调用数据生成或网络。\n\noptions:\n  -h, --help        show this help message and exit\n  --output OUTPUT   目标存在时默认拒绝覆盖\n  --next-available  目标存在时另取 _2、_3 等新文件名\n",
+        "stderr": ""
+      },
+      {
+        "path": "examples/scenario_lab/validate.py",
+        "mode": "python-m",
+        "argv": [
+          "/tmp/sqlseed-codeflow-venv/bin/python",
+          "-m",
+          "examples.scenario_lab.validate",
+          "--help"
+        ],
+        "cwd": "/tmp/sqlseed-pylint-import-study-kykqkgin/script-namespace-k_90tnzp",
+        "exit": 0,
+        "stdout": "usage: validate.py [-h] database\n\n只读核验 SQLite 约束和 SQL CHECK 无法表达的跨表业务规则。\n\npositional arguments:\n  database\n\noptions:\n  -h, --help  show this help message and exit\n",
+        "stderr": ""
+      },
+      {
+        "path": "examples/scenario_lab/validate.py",
+        "mode": "python-file",
+        "argv": [
+          "/tmp/sqlseed-codeflow-venv/bin/python",
+          "examples/scenario_lab/validate.py",
+          "--help"
+        ],
+        "cwd": "/tmp/sqlseed-pylint-import-study-kykqkgin/script-namespace-k_90tnzp",
+        "exit": 0,
+        "stdout": "usage: validate.py [-h] database\n\n只读核验 SQLite 约束和 SQL CHECK 无法表达的跨表业务规则。\n\npositional arguments:\n  database\n\noptions:\n  -h, --help  show this help message and exit\n",
+        "stderr": ""
+      },
+      {
+        "path": "examples/scenario_lab/verify.py",
+        "mode": "python-m",
+        "argv": [
+          "/tmp/sqlseed-codeflow-venv/bin/python",
+          "-m",
+          "examples.scenario_lab.verify",
+          "--help"
+        ],
+        "cwd": "/tmp/sqlseed-pylint-import-study-kykqkgin/script-namespace-k_90tnzp",
+        "exit": 0,
+        "stdout": "usage: verify.py [-h] [--source SOURCE] [--web]\n\n在临时副本上运行真实 core；--web 加测正式 Web 结构、预览与压力边界。\n\noptions:\n  -h, --help       show this help message and exit\n  --source SOURCE  只读打开此库，所有生成发生在临时副本\n  --web            同时调用已安装 sqlseed-web 的真实 schema/check 实现\n",
+        "stderr": ""
+      },
+      {
+        "path": "examples/scenario_lab/verify.py",
+        "mode": "python-file",
+        "argv": [
+          "/tmp/sqlseed-codeflow-venv/bin/python",
+          "examples/scenario_lab/verify.py",
+          "--help"
+        ],
+        "cwd": "/tmp/sqlseed-pylint-import-study-kykqkgin/script-namespace-k_90tnzp",
+        "exit": 0,
+        "stdout": "usage: verify.py [-h] [--source SOURCE] [--web]\n\n在临时副本上运行真实 core；--web 加测正式 Web 结构、预览与压力边界。\n\noptions:\n  -h, --help       show this help message and exit\n  --source SOURCE  只读打开此库，所有生成发生在临时副本\n  --web            同时调用已安装 sqlseed-web 的真实 schema/check 实现\n",
+        "stderr": ""
+      }
+    ],
+    "external_name_priority": [
+      {
+        "mode": "appended-after-site",
+        "target": "examples/scenario_lab/verify.py",
+        "argv": [
+          "/tmp/sqlseed-codeflow-pylint217/bin/pylint",
+          "--rcfile=.pylintrc",
+          "--disable=all",
+          "--enable=import-error,no-name-in-module,relative-beyond-top-level",
+          "--output-format=json",
+          "examples/scenario_lab/verify.py"
+        ],
+        "cwd": "/tmp/sqlseed-pylint-import-study-kykqkgin/script-namespace-k_90tnzp",
+        "PYTHONPATH": "/tmp/sqlseed-pylint-import-study-kykqkgin/script-namespace-k_90tnzp/foreign-site",
+        "exit": 2,
+        "messages": [
+          {
+            "type": "error",
+            "module": "examples.scenario_lab.verify",
+            "obj": "",
+            "line": 22,
+            "column": 4,
+            "endLine": 22,
+            "endColumn": 42,
+            "path": "examples/scenario_lab/verify.py",
+            "symbol": "no-name-in-module",
+            "message": "No name 'HERE' in module 'build'",
+            "message-id": "E0611"
+          },
+          {
+            "type": "error",
+            "module": "examples.scenario_lab.verify",
+            "obj": "",
+            "line": 22,
+            "column": 4,
+            "endLine": 22,
+            "endColumn": 42,
+            "path": "examples/scenario_lab/verify.py",
+            "symbol": "no-name-in-module",
+            "message": "No name 'build_database' in module 'build'",
+            "message-id": "E0611"
+          }
+        ],
+        "stderr": ""
+      },
+      {
+        "mode": "appended-after-site",
+        "target": "examples/quick_demo.py",
+        "argv": [
+          "/tmp/sqlseed-codeflow-pylint217/bin/pylint",
+          "--rcfile=.pylintrc",
+          "--disable=all",
+          "--enable=import-error,no-name-in-module,relative-beyond-top-level",
+          "--output-format=json",
+          "examples/quick_demo.py"
+        ],
+        "cwd": "/tmp/sqlseed-pylint-import-study-kykqkgin/script-namespace-k_90tnzp",
+        "PYTHONPATH": "/tmp/sqlseed-pylint-import-study-kykqkgin/script-namespace-k_90tnzp/foreign-site",
+        "exit": 2,
+        "messages": [
+          {
+            "type": "error",
+            "module": "examples.quick_demo",
+            "obj": "",
+            "line": 21,
+            "column": 0,
+            "endLine": 21,
+            "endColumn": 45,
+            "path": "examples/quick_demo.py",
+            "symbol": "import-error",
+            "message": "Unable to import 'build_demo_db'",
+            "message-id": "E0401"
+          }
+        ],
+        "stderr": ""
+      },
+      {
+        "mode": "local-prefix",
+        "target": "examples/scenario_lab/verify.py",
+        "argv": [
+          "/tmp/sqlseed-codeflow-pylint217/bin/pylint",
+          "--rcfile=.pylintrc",
+          "--disable=all",
+          "--enable=import-error,no-name-in-module,relative-beyond-top-level",
+          "--output-format=json",
+          "examples/scenario_lab/verify.py"
+        ],
+        "cwd": "/tmp/sqlseed-pylint-import-study-kykqkgin/script-namespace-k_90tnzp",
+        "PYTHONPATH": "/tmp/sqlseed-pylint-import-study-kykqkgin/script-namespace-k_90tnzp/foreign-site",
+        "exit": 0,
+        "messages": [],
+        "stderr": ""
+      },
+      {
+        "mode": "local-prefix",
+        "target": "examples/quick_demo.py",
+        "argv": [
+          "/tmp/sqlseed-codeflow-pylint217/bin/pylint",
+          "--rcfile=.pylintrc",
+          "--disable=all",
+          "--enable=import-error,no-name-in-module,relative-beyond-top-level",
+          "--output-format=json",
+          "examples/quick_demo.py"
+        ],
+        "cwd": "/tmp/sqlseed-pylint-import-study-kykqkgin/script-namespace-k_90tnzp",
+        "PYTHONPATH": "/tmp/sqlseed-pylint-import-study-kykqkgin/script-namespace-k_90tnzp/foreign-site",
+        "exit": 0,
+        "messages": [],
+        "stderr": ""
+      }
+    ],
+    "evidence_directory": "/tmp/sqlseed-pylint-import-study-kykqkgin/script-namespace-k_90tnzp",
+    "landed_script_imports": [
+      {
+        "target": "scripts/complex_validation/ai_offline_validation.py",
+        "argv": [
+          "/tmp/sqlseed-codeflow-pylint217/bin/pylint",
+          "--rcfile=.pylintrc",
+          "--disable=all",
+          "--enable=import-error,no-name-in-module,relative-beyond-top-level",
+          "--output-format=json",
+          "scripts/complex_validation/ai_offline_validation.py"
+        ],
+        "cwd": "/Users/sunbo/Desktop/sqlseed",
+        "exit": 0,
+        "messages": [],
+        "stderr": ""
+      },
+      {
+        "target": "scripts/complex_validation/randomized_roundtrip.py",
+        "argv": [
+          "/tmp/sqlseed-codeflow-pylint217/bin/pylint",
+          "--rcfile=.pylintrc",
+          "--disable=all",
+          "--enable=import-error,no-name-in-module,relative-beyond-top-level",
+          "--output-format=json",
+          "scripts/complex_validation/randomized_roundtrip.py"
+        ],
+        "cwd": "/Users/sunbo/Desktop/sqlseed",
+        "exit": 0,
+        "messages": [],
+        "stderr": ""
+      },
+      {
+        "target": "scripts/complex_validation/run_validation.py",
+        "argv": [
+          "/tmp/sqlseed-codeflow-pylint217/bin/pylint",
+          "--rcfile=.pylintrc",
+          "--disable=all",
+          "--enable=import-error,no-name-in-module,relative-beyond-top-level",
+          "--output-format=json",
+          "scripts/complex_validation/run_validation.py"
+        ],
+        "cwd": "/Users/sunbo/Desktop/sqlseed",
+        "exit": 0,
+        "messages": [],
+        "stderr": ""
+      },
+      {
+        "target": "scripts/complex_validation/smoke_test.py",
+        "argv": [
+          "/tmp/sqlseed-codeflow-pylint217/bin/pylint",
+          "--rcfile=.pylintrc",
+          "--disable=all",
+          "--enable=import-error,no-name-in-module,relative-beyond-top-level",
+          "--output-format=json",
+          "scripts/complex_validation/smoke_test.py"
+        ],
+        "cwd": "/Users/sunbo/Desktop/sqlseed",
+        "exit": 0,
+        "messages": [],
+        "stderr": ""
+      },
+      {
+        "target": "examples/scenario_lab/build.py",
+        "argv": [
+          "/tmp/sqlseed-codeflow-pylint217/bin/pylint",
+          "--rcfile=.pylintrc",
+          "--disable=all",
+          "--enable=import-error,no-name-in-module,relative-beyond-top-level",
+          "--output-format=json",
+          "examples/scenario_lab/build.py"
+        ],
+        "cwd": "/Users/sunbo/Desktop/sqlseed",
+        "exit": 0,
+        "messages": [],
+        "stderr": ""
+      },
+      {
+        "target": "examples/scenario_lab/validate.py",
+        "argv": [
+          "/tmp/sqlseed-codeflow-pylint217/bin/pylint",
+          "--rcfile=.pylintrc",
+          "--disable=all",
+          "--enable=import-error,no-name-in-module,relative-beyond-top-level",
+          "--output-format=json",
+          "examples/scenario_lab/validate.py"
+        ],
+        "cwd": "/Users/sunbo/Desktop/sqlseed",
+        "exit": 0,
+        "messages": [],
+        "stderr": ""
+      },
+      {
+        "target": "examples/scenario_lab/verify.py",
+        "argv": [
+          "/tmp/sqlseed-codeflow-pylint217/bin/pylint",
+          "--rcfile=.pylintrc",
+          "--disable=all",
+          "--enable=import-error,no-name-in-module,relative-beyond-top-level",
+          "--output-format=json",
+          "examples/scenario_lab/verify.py"
+        ],
+        "cwd": "/Users/sunbo/Desktop/sqlseed",
+        "exit": 0,
+        "messages": [],
+        "stderr": ""
+      },
+      {
+        "target": "examples/quick_demo.py",
+        "argv": [
+          "/tmp/sqlseed-codeflow-pylint217/bin/pylint",
+          "--rcfile=.pylintrc",
+          "--disable=all",
+          "--enable=import-error,no-name-in-module,relative-beyond-top-level",
+          "--output-format=json",
+          "examples/quick_demo.py"
+        ],
+        "cwd": "/Users/sunbo/Desktop/sqlseed",
+        "exit": 0,
+        "messages": [],
+        "stderr": ""
+      }
+    ],
+    "landed_real_entrypoints": [
+      {
+        "mode": "module",
+        "module": "build",
+        "argv": [
+          "/tmp/sqlseed-codeflow-venv/bin/python",
+          "-m",
+          "examples.scenario_lab.build",
+          "--help"
+        ],
+        "cwd": "/Users/sunbo/Desktop/sqlseed",
+        "exit": 0,
+        "stdout": "usage: build.py [-h] [--output OUTPUT] [--next-available]\n\n构建独立业务夹具；已有目标文件绝不覆盖，不调用数据生成或网络。\n\noptions:\n  -h, --help        show this help message and exit\n  --output OUTPUT   目标存在时默认拒绝覆盖\n  --next-available  目标存在时另取 _2、_3 等新文件名\n",
+        "stderr": ""
+      },
+      {
+        "mode": "direct-file",
+        "module": "build",
+        "argv": [
+          "/tmp/sqlseed-codeflow-venv/bin/python",
+          "examples/scenario_lab/build.py",
+          "--help"
+        ],
+        "cwd": "/Users/sunbo/Desktop/sqlseed",
+        "exit": 0,
+        "stdout": "usage: build.py [-h] [--output OUTPUT] [--next-available]\n\n构建独立业务夹具；已有目标文件绝不覆盖，不调用数据生成或网络。\n\noptions:\n  -h, --help        show this help message and exit\n  --output OUTPUT   目标存在时默认拒绝覆盖\n  --next-available  目标存在时另取 _2、_3 等新文件名\n",
+        "stderr": ""
+      },
+      {
+        "mode": "module",
+        "module": "validate",
+        "argv": [
+          "/tmp/sqlseed-codeflow-venv/bin/python",
+          "-m",
+          "examples.scenario_lab.validate",
+          "--help"
+        ],
+        "cwd": "/Users/sunbo/Desktop/sqlseed",
+        "exit": 0,
+        "stdout": "usage: validate.py [-h] database\n\n只读核验 SQLite 约束和 SQL CHECK 无法表达的跨表业务规则。\n\npositional arguments:\n  database\n\noptions:\n  -h, --help  show this help message and exit\n",
+        "stderr": ""
+      },
+      {
+        "mode": "direct-file",
+        "module": "validate",
+        "argv": [
+          "/tmp/sqlseed-codeflow-venv/bin/python",
+          "examples/scenario_lab/validate.py",
+          "--help"
+        ],
+        "cwd": "/Users/sunbo/Desktop/sqlseed",
+        "exit": 0,
+        "stdout": "usage: validate.py [-h] database\n\n只读核验 SQLite 约束和 SQL CHECK 无法表达的跨表业务规则。\n\npositional arguments:\n  database\n\noptions:\n  -h, --help  show this help message and exit\n",
+        "stderr": ""
+      },
+      {
+        "mode": "module",
+        "module": "verify",
+        "argv": [
+          "/tmp/sqlseed-codeflow-venv/bin/python",
+          "-m",
+          "examples.scenario_lab.verify",
+          "--help"
+        ],
+        "cwd": "/Users/sunbo/Desktop/sqlseed",
+        "exit": 0,
+        "stdout": "usage: verify.py [-h] [--source SOURCE] [--web]\n\n在临时副本上运行真实 core；--web 加测正式 Web 结构、预览与压力边界。\n\noptions:\n  -h, --help       show this help message and exit\n  --source SOURCE  只读打开此库，所有生成发生在临时副本\n  --web            同时调用已安装 sqlseed-web 的真实 schema/check 实现\n",
+        "stderr": ""
+      },
+      {
+        "mode": "direct-file",
+        "module": "verify",
+        "argv": [
+          "/tmp/sqlseed-codeflow-venv/bin/python",
+          "examples/scenario_lab/verify.py",
+          "--help"
+        ],
+        "cwd": "/Users/sunbo/Desktop/sqlseed",
+        "exit": 0,
+        "stdout": "usage: verify.py [-h] [--source SOURCE] [--web]\n\n在临时副本上运行真实 core；--web 加测正式 Web 结构、预览与压力边界。\n\noptions:\n  -h, --help       show this help message and exit\n  --source SOURCE  只读打开此库，所有生成发生在临时副本\n  --web            同时调用已安装 sqlseed-web 的真实 schema/check 实现\n",
+        "stderr": ""
+      }
+    ]
+  },
+  "status": "Implemented and frozen; parent may begin repository-wide gates.",
+  "landed_validation": {
+    "config_pytest": "4 passed; latest combined invocation also passes all four config tests",
+    "scope_pytest": {
+      "argv": [
+        "/tmp/sqlseed-codeflow-venv/bin/python",
+        "-m",
+        "pytest",
+        "tests/test_codeflow_config.py",
+        "examples/scenario_lab/test_fixture.py",
+        "-q"
+      ],
+      "result": "8 passed, 1 failed",
+      "stdout": "........F                                                                [100%]\n=================================== FAILURES ===================================\n_________ test_baseline_real_generation_and_web_boundaries_use_a_copy __________\n\ntmp_path = PosixPath('/private/var/folders/cl/xphppvtj3qx0n89rkx8tzyd80000gn/T/pytest-of-sunbo/pytest-123/test_baseline_real_generation_0')\n\n    def test_baseline_real_generation_and_web_boundaries_use_a_copy(tmp_path: Path) -> None:\n        \"\"\"真实 core 写入 38 行，Web 拒绝压力范围，原夹具保持不变。\"\"\"\n        pytest.importorskip(\"sqlseed_web\")\n        from examples.scenario_lab.verify import verify\n    \n        source = build_database(tmp_path / \"source.db\")\n        before = source.read_bytes()\n>       report = verify(source=source, web=True)\n                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n\nexamples/scenario_lab/test_fixture.py:92: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \nexamples/scenario_lab/verify.py:53: in verify\n    schema = inspect_connection(conn)\n             ^^^^^^^^^^^^^^^^^^^^^^^^\nplugins/sqlseed-web/src/sqlseed_web/workbench_schema.py:173: in inspect_connection\n    tables = [_table_schema(conn, adapter, inspector, name) for name in table_names]\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nplugins/sqlseed-web/src/sqlseed_web/workbench_schema.py:173: in <listcomp>\n    tables = [_table_schema(conn, adapter, inspector, name) for name in table_names]\n              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nplugins/sqlseed-web/src/sqlseed_web/workbench_schema.py:151: in _table_schema\n    for column, spec in conn.orchestrator.get_column_mapping(name).items()\n                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nsrc/sqlseed/core/orchestrator/_query.py:207: in get_column_mapping\n    specs, _, _, _ = self._resolve_specs(\nsrc/sqlseed/core/orchestrator/_specs.py:132: in _resolve_specs\n    self._relation.validate_generation_schema(table_name)\n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\nself = <sqlseed.core.relation.RelationResolver object at 0x11156d990>\ntable_name = 'orders'\n\n    def validate_generation_schema(self, table_name: str) -> None:\n        \"\"\"Reject unsupported FK shapes before generation or clearing any rows.\"\"\"\n        for fk in self.get_foreign_keys(table_name):\n            if fk.ref_schema is not None:\n                raise ConfigurationError(\n                    f\"Table '{table_name}': schema-qualified foreign key \"\n                    f\"{fk.column} -> {fk.ref_schema}.{fk.ref_table}.{fk.ref_column} is not supported. \"\n                    \"Use unqualified tables in the connection's default schema.\"\n                )\n        dialect_name = getattr(getattr(self._db, \"dialect\", None), \"name\", \"sqlite\")\n        for columns in self._get_composite_fk_groups(table_name).values():\n            if dialect_name == \"postgresql\":\n                raise ConfigurationError(\n                    f\"Table '{table_name}': PostgreSQL composite foreign key is not supported; \"\n                    \"complete tuple sampling is currently available only for two-column SQLite foreign keys.\"\n                )\n            if len(columns) > 2:\n                names = \", \".join(column for column, _, _ in columns)\n>               raise ConfigurationError(\n                    f\"Table '{table_name}': {len(columns)}-column composite foreign key \"\n                    f\"({names}) is not supported; complete tuple sampling is only available \"\n                    \"for two-column SQLite foreign keys. No rows were changed by this preflight.\"\n                )\nE               sqlseed.generators._protocol.ConfigurationError: Table 'orders': 3-column composite foreign key (tenant_id, customer_id, shipping_address_id) is not supported; complete tuple sampling is only available for two-column SQLite foreign keys. No rows were changed by this preflight.\n\nsrc/sqlseed/core/relation.py:146: ConfigurationError\n----------------------------- Captured stderr call -----------------------------\n\u001b[2m2026-09-12T13:45:24.114665Z\u001b[0m [\u001b[33m\u001b[1mwarning  \u001b[0m] \u001b[1mZero-config mode for table 'customers' generates data by column type only and does NOT guarantee CHECK-constraint compliance (columns: credit_limit_cents). For business-compliant data, use AI analysis (ai-analyze) or a hand-written YAML config.\u001b[0m\n\u001b[2m2026-09-12T13:45:24.176848Z\u001b[0m [\u001b[33m\u001b[1mwarning  \u001b[0m] \u001b[1mZero-config mode for table 'inventory' generates data by column type only and does NOT guarantee CHECK-constraint compliance (columns: on_hand, reserved, reorder_point). For business-compliant data, use AI analysis (ai-analyze) or a hand-written YAML config.\u001b[0m\n\u001b[2m2026-09-12T13:45:24.240608Z\u001b[0m [\u001b[33m\u001b[1mwarning  \u001b[0m] \u001b[1mZero-config mode for table 'order_items' generates data by column type only and does NOT guarantee CHECK-constraint compliance (columns: line_no, quantity, unit_price_cents, discount_cents). For business-compliant data, use AI analysis (ai-analyze) or a hand-written YAML config.\u001b[0m\n=========================== short test summary info ============================\nFAILED examples/scenario_lab/test_fixture.py::test_baseline_real_generation_and_web_boundaries_use_a_copy\n1 failed, 8 passed in 4.56s\n",
+      "known_baseline_failure": "examples/scenario_lab/test_fixture.py::test_baseline_real_generation_and_web_boundaries_use_a_copy: workbench_schema._table_schema -> get_column_mapping -> validate_generation_schema rejects orders 3-column composite FK. Parent previously reproduced at original 5b0dd07; recorded in docs/code-review/2026-09-12-codeflow-redefined-outer-name/PROGRESS.md:51. Outside this namespace/configuration task."
+    },
+    "ruff": "3 files check and format passed",
+    "pylint_217_full_profile": [],
+    "pylint_217_script_imports": "8 individual scripts: E0401/E0402/E0611 all zero",
+    "git_diff_check": "PASS"
+  }
+}

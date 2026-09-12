@@ -62,7 +62,8 @@ def fixture_ai_client(
     with sqlite_connection(path) as db:
         db.executescript(
             "CREATE TABLE users(id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT NOT NULL UNIQUE);"
-            "CREATE TABLE orders(id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER REFERENCES users(id), amount REAL NOT NULL, doubled REAL);"
+            "CREATE TABLE orders(id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER REFERENCES "
+            "users(id), amount REAL NOT NULL, doubled REAL);"
             "INSERT INTO users(email) VALUES ('private-person@example.test');"
         )
     registry = UIState()

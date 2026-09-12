@@ -115,8 +115,7 @@ class PragmaOptimizer:
         self._execute("PRAGMA cache_size = -32000")
         self._execute("PRAGMA mmap_size = 536870912")
         # page_size only takes effect on empty databases; log if it may not apply
-        current_page_size = self._fetch_pragma("page_size")
-        if current_page_size != "4096":
+        if (current_page_size := self._fetch_pragma("page_size")) != "4096":
             logger.debug(
                 "PRAGMA page_size change may not take effect on existing database",
                 current=current_page_size,

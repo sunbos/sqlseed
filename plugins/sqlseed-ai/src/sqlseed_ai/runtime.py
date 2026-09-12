@@ -42,8 +42,7 @@ def build_llm_client(ai_config: AIConfig) -> OpenAICompatAdapter:
     from openai import OpenAI
     from sqlseed_ai.healer._client import OpenAICompatAdapter
 
-    resolved_key = ai_config.resolve_api_key()
-    if not resolved_key:
+    if not (resolved_key := ai_config.resolve_api_key()):
         raise ValueError("AI API key not configured. Set SQLSEED_AI_API_KEY or OPENAI_API_KEY.")
     base = ai_config.resolve_base_url() or "https://api.openai.com/v1"
     raw_client = OpenAI(api_key=resolved_key, base_url=base, timeout=ai_config.timeout or None)

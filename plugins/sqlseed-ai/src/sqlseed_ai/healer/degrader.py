@@ -75,8 +75,7 @@ class ProgressiveDegrader:
             expanded_failed = self._expand_composite_groups(failed_columns, column_groups, table_name)
 
             for col_name, reason in expanded_failed.items():
-                key = (table_name, col_name)
-                if key in visited:
+                if (table_name, col_name) in visited:
                     continue
                 self._cascade_degrade(
                     table_name=table_name,
@@ -137,8 +136,7 @@ class ProgressiveDegrader:
         Section 14.2: ``visited`` is the dual-layer safety net that
         guarantees termination even if the ``_degraded`` marker is bypassed.
         """
-        key = (table_name, col_name)
-        if key in visited:
+        if (key := (table_name, col_name)) in visited:
             return
         visited.add(key)
 

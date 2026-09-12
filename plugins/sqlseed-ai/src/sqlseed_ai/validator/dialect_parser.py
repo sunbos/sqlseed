@@ -102,14 +102,12 @@ class DialectErrorParser:
         snapshot: SchemaSnapshot | None,
     ) -> ViolationReport | None:
         """Parse PostgreSQL error via diag.constraint_name + constraint_map."""
-        diag = getattr(error, "diag", None)
-        if diag is None:
+        if (diag := getattr(error, "diag", None)) is None:
             return None
         constraint_name = getattr(diag, "constraint_name", None)
         if constraint_name is None or snapshot is None:
             return None
-        info = snapshot.constraint_map.get(constraint_name)
-        if info is None:
+        if (info := snapshot.constraint_map.get(constraint_name)) is None:
             return None
         return ViolationReport(
             table=table or getattr(diag, "table_name", "") or "",

@@ -23,7 +23,10 @@ def test_installer_keeps_environment_locked_after_parent_descriptor_closes(tmp_p
     results: list[int] = []
     failures: list[Exception] = []
     descriptor = lock.fileno()
-    script = "import pathlib,sys,time; print('ready',flush=True)\nwhile not pathlib.Path(sys.argv[1]).exists(): time.sleep(.01)"
+    script = (
+        "import pathlib,sys,time; print('ready',flush=True)\nwhile not "
+        "pathlib.Path(sys.argv[1]).exists(): time.sleep(.01)"
+    )
 
     def run() -> None:
         try:

@@ -68,8 +68,7 @@ def _find_marker_claims(marker_name: str) -> list[tuple[Path, str]]:
     claims: list[tuple[Path, str]] = []
     for doc_path in _find_doc_files():
         text = _read(doc_path)
-        value = _extract_marker_value(text, marker_name)
-        if value is not None:
+        if (value := _extract_marker_value(text, marker_name)) is not None:
             claims.append((doc_path, value))
     return claims
 
@@ -148,11 +147,9 @@ def _extract_number_before_keyword(text: str, keywords: list[str]) -> list[str]:
         kw_lower = kw.lower()
         pos = 0
         while True:
-            idx = text_lower.find(kw_lower, pos)
-            if idx == -1:
+            if (idx := text_lower.find(kw_lower, pos)) == -1:
                 break
-            num = _read_number_before(text, idx)
-            if num is not None:
+            if (num := _read_number_before(text, idx)) is not None:
                 results.append(num)
             pos = idx + len(kw)
     return results
@@ -166,8 +163,7 @@ def _get_config_fields(cls_name: str) -> set[str]:
     code = _read(ROOT / "src" / "sqlseed" / "config" / "models.py")
     # Find the class body using string operations
     marker = f"class {cls_name}"
-    start = code.find(marker)
-    if start == -1:
+    if (start := code.find(marker)) == -1:
         return set()
     next_class = code.find("\nclass ", start + len(marker))
     body = code[start:] if next_class == -1 else code[start:next_class]
@@ -178,8 +174,7 @@ def _get_config_fields(cls_name: str) -> set[str]:
         if not stripped or stripped.startswith("#") or stripped.startswith("class "):
             continue
         # Check for "field_name:" pattern (field definition)
-        colon_idx = stripped.find(":")
-        if colon_idx > 0:
+        if (colon_idx := stripped.find(":")) > 0:
             field_name = stripped[:colon_idx].strip()
             if field_name.isidentifier() and not field_name.startswith("_"):
                 fields.add(field_name)
@@ -370,6 +365,29 @@ class TestCodeExamples:
 
 class TestPatternMatchRules:
     """Verify pattern match rule count matches documentation."""
+
+    def test_extracts_complete_patterns_from_multiline_literals(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Formatting a regex across literals must preserve its value and rule count."""
+        mapper_path = tmp_path / "src" / "sqlseed" / "core" / "mapper.py"
+        mapper_path.parent.mkdir(parents=True)
+        mapper_path.write_text(
+            'raise RuntimeError("Fact extraction must not import source modules")\n'
+            "class ColumnMapper:\n"
+            "    PATTERN_MATCH_RULES: tuple = (\n"
+            "        (\n"
+            '            r"^user_"\n'
+            '            r"[0-9]+$",\n'
+            '            "integer", {},\n'
+            "        ),\n"
+            '        (r"^email$", "email", {"description": r"not a rule"}),\n'
+            "    )\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(_fact_extractors, "ROOT", tmp_path)
+
+        assert get_pattern_match_rules() == [(r"^user_[0-9]+$",), (r"^email$",)]
 
     def test_count_in_docs(self):
         rules = get_pattern_match_rules()

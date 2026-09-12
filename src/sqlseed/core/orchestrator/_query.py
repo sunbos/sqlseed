@@ -255,8 +255,7 @@ class QueryMixin:
         """
         self._ensure_connected()
         cursor = self.execute(sql, params)
-        row = cursor.fetchone()
-        if row is None:
+        if (row := cursor.fetchone()) is None:
             return None
         columns = [desc[0] for desc in cursor.description]
         return dict(zip(columns, row, strict=True))

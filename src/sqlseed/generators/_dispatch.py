@@ -93,8 +93,7 @@ class GeneratorDispatchMixin:
             generated value — the caller's ``ConstraintSolver.try_register``
             will detect the duplicate and trigger backtracking.
         """
-        method_name = self.GENERATOR_MAP.get(type_name)
-        if method_name is None:
+        if (method_name := self.GENERATOR_MAP.get(type_name)) is None:
             raise UnknownGeneratorError(type_name)
         method = getattr(self, method_name)
 

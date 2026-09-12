@@ -242,8 +242,7 @@ class AiConfigRefiner:
             initial_messages = self._analyzer.build_initial_messages(schema_ctx, compact=compact, ultra_compact=ultra)
             messages = initial_messages + state.messages_history
             try:
-                config_dict = call_fn(messages)
-                if not config_dict:
+                if not (config_dict := call_fn(messages)):
                     return None, ErrorSummary(
                         error_type="empty_config",
                         message="LLM returned empty result",
@@ -340,9 +339,8 @@ class AiConfigRefiner:
         Returns:
             config_dict if valid, None if validation failed (state updated for next retry).
         """
-        val_error = self._validate_config(orch, table_name, config_dict)
 
-        if val_error is None:
+        if (val_error := self._validate_config(orch, table_name, config_dict)) is None:
             logger.info("AI config validated successfully", table_name=table_name, attempts=attempt + 1)
             if cache_success:
                 self._cache_successful_config(table_name, config_dict, schema_hash)
@@ -386,13 +384,11 @@ class AiConfigRefiner:
             call_fn: Function that takes messages and returns config dict or raises.
             on_progress: Optional progress callback (streaming only).
         """
-        if not no_cache:
-            cached = self.get_cached_config(table_name, schema_hash)
-            if cached is not None:
-                logger.info("Using cached AI config", table_name=table_name)
-                if on_progress:
-                    on_progress("done", {"tokens": 0, "model": "cached"})
-                return cached
+        if not no_cache and (cached := self.get_cached_config(table_name, schema_hash)) is not None:
+            logger.info("Using cached AI config", table_name=table_name)
+            if on_progress:
+                on_progress("done", {"tokens": 0, "model": "cached"})
+            return cached
 
         resolved_compact = self._resolve_use_compact(use_compact)
         state = _RetryState()
@@ -571,8 +567,7 @@ class AiConfigRefiner:
         # preview_data will never contain them — making the downstream dry-run
         # insert unable to detect this class of misconfiguration. We surface
         # it explicitly here by reflecting the schema before preview.
-        computed_err = self._check_computed_column_assignments(orch, table_name, table_config)
-        if computed_err is not None:
+        if (computed_err := self._check_computed_column_assignments(orch, table_name, table_config)) is not None:
             return computed_err
 
         try:
@@ -677,11 +672,9 @@ class AiConfigRefiner:
             :class:`ErrorSummary` if a generator is assigned to a computed
             column, otherwise ``None``.
         """
-        db_adapter = getattr(orch, "_db", None)
-        if db_adapter is None:
+        if (db_adapter := getattr(orch, "_db", None)) is None:
             return None
-        engine = getattr(db_adapter, "_engine", None)
-        if engine is None:
+        if (engine := getattr(db_adapter, "_engine", None)) is None:
             # RawSQLiteAdapter (test-only) — skip this pre-check.
             return None
 
@@ -833,8 +826,7 @@ class AiConfigRefiner:
         try:
             cache_file = self._cache_path(table_name)
             if not cache_file.exists():
-                legacy = self._legacy_cache_path(table_name)
-                if legacy is None:
+                if (legacy := self._legacy_cache_path(table_name)) is None:
                     return None
                 cache_file = legacy
             if cache_file.resolve().parent != self._cache_dir.resolve():

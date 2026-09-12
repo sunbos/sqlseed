@@ -89,11 +89,9 @@ def _parse_weekday_string(value: str) -> frozenset[int] | None:
 
 def _normalize_weekday_numbers(value: Iterable[int]) -> frozenset[int] | None:
     """Validate integer day values and collapse empty or complete sets to all days."""
-    days = frozenset(int(d) for d in value)
-    if not days:
+    if not (days := frozenset(int(d) for d in value)):
         return None
-    bad = sorted(d for d in days if d < 0 or d > 6)
-    if bad:
+    if bad := sorted(d for d in days if d < 0 or d > 6):
         raise DateRangeError(f"weekdays: day numbers must be 0 (Mon) - 6 (Sun), got {bad}")
     if days == ALL_WEEKDAYS:
         return None
@@ -163,8 +161,7 @@ def random_date(rng: random.Random, start: date, end: date, weekdays: frozenset[
     narrow filters (``weekdays=[2]`` over a short range) and could loop
     forever on an unsatisfiable one.
     """
-    span = (end - start).days
-    if span < 0:
+    if (span := (end - start).days) < 0:
         raise DateRangeError(f"empty date range: {start} > {end}")
     if weekdays is None:
         return start + timedelta(days=rng.randint(0, span))
@@ -174,15 +171,13 @@ def random_date(rng: random.Random, start: date, end: date, weekdays: frozenset[
     start_wd = start.weekday()
     full_weeks, remainder = divmod(span + 1, 7)
     tail_hits = [i for i in range(remainder) if (start_wd + i) % 7 in weekdays]
-    total = full_weeks * per_week + len(tail_hits)
-    if total == 0:
+    if (total := full_weeks * per_week + len(tail_hits)) == 0:
         raise DateRangeError(
             f"no date in {start}..{end} matches weekdays {sorted(weekdays)} "
             "(Mon=0 … Sun=6) — widen the range or relax the filter"
         )
 
-    k = rng.randrange(total)
-    if k < full_weeks * per_week:
+    if (k := rng.randrange(total)) < full_weeks * per_week:
         week, idx = divmod(k, per_week)
         offset = week * 7 + ((allowed[idx] - start_wd) % 7)
     else:
@@ -197,8 +192,7 @@ def random_time(rng: random.Random, start_time: time, end_time: time) -> time:
     and microsecond noise (``T10:21:03.895011``) carries no meaning.
     """
     lo = start_time.hour * 3600 + start_time.minute * 60 + start_time.second
-    hi = end_time.hour * 3600 + end_time.minute * 60 + end_time.second
-    if hi < lo:
+    if (hi := end_time.hour * 3600 + end_time.minute * 60 + end_time.second) < lo:
         raise DateRangeError(f"empty time range: {start_time} > {end_time}")
     seconds = rng.randint(lo, hi)
     return time(seconds // 3600, (seconds % 3600) // 60, seconds % 60)
@@ -217,7 +211,6 @@ def resolve_time_bounds(
     if all_day:
         return DEFAULT_START_TIME, DEFAULT_END_TIME
     lo = parse_iso_time(start_time) or DEFAULT_START_TIME
-    hi = parse_iso_time(end_time) or DEFAULT_END_TIME
-    if hi < lo:
+    if (hi := parse_iso_time(end_time) or DEFAULT_END_TIME) < lo:
         raise DateRangeError(f"empty time range: {lo} > {hi}")
     return lo, hi

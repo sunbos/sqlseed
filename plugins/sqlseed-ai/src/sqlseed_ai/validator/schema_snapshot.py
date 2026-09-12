@@ -171,8 +171,7 @@ class SchemaSnapshot:
         cmap: dict[str, ConstraintInfo] = {}
         for table in self.tables.values():
             for c in table.constraints:
-                name = c.get("name")
-                if not name:
+                if not (name := c.get("name")):
                     continue
                 ctype_map = {
                     "unique": ConstraintType.UNIQUE,
@@ -190,8 +189,7 @@ class SchemaSnapshot:
 
     def get_column_type(self, table: str, column: str) -> str:
         """Return the column type string, or 'ANY' if unknown."""
-        t = self.tables.get(table)
-        if t is None:
+        if (t := self.tables.get(table)) is None:
             return "ANY"
         return t.column_types.get(column, "ANY")
 

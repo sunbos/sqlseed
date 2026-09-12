@@ -215,11 +215,9 @@ class SpecResolverMixin:
         # CHECK constraint inference (range, length, choices).
         _fallback_generators = {"string", "integer", "float", "boolean", "choice"}
         for col_info in column_infos:
-            col_name = col_info.name
-            if col_name in user_configs:
+            if (col_name := col_info.name) in user_configs:
                 continue
-            current_spec = generator_specs.get(col_name)
-            if current_spec is None:
+            if (current_spec := generator_specs.get(col_name)) is None:
                 continue
             # Enum-CHECK hard truth (2026-08-30): ANY generator (name-rule
             # or fallback) on a column with a CHECK IN (...) enum is
@@ -305,8 +303,7 @@ class SpecResolverMixin:
             if not isinstance(expr, str):
                 continue
             expr = prefix.sub("", expr)
-            m = equality.match(expr)
-            if m:
+            if m := equality.match(expr):
                 return int(m.group(1))
         return None
 
@@ -404,8 +401,7 @@ class SpecResolverMixin:
         def exists(values: dict[str, Any]) -> bool:
             if callable(typed_check):
                 return bool(typed_check(table_name, values))
-            columns = tuple(values)
-            if columns not in queries:
+            if (columns := tuple(values)) not in queries:
                 predicate = " AND ".join(f"{quote_identifier(col)} = {placeholder}" for col in columns)
                 where = f" WHERE {predicate}" if predicate else ""
                 queries[columns] = f"SELECT 1 FROM {quoted_table}{where} LIMIT 1"
@@ -494,8 +490,7 @@ class SpecResolverMixin:
                 for ck in check_constraints:
                     expr_ck = ck.expression.strip()
                     # Match ``col1 (op) col2`` for cross-column comparisons
-                    m_ck = re.match(r"^(\w+)\s*(!=|>=|<=|>|<)\s*(\w+)\s*$", expr_ck, re.IGNORECASE)
-                    if not m_ck:
+                    if not (m_ck := re.match(r"^(\w+)\s*(!=|>=|<=|>|<)\s*(\w+)\s*$", expr_ck, re.IGNORECASE)):
                         # ``col1 IS NULL OR col1 OP col2`` — nullable ordered
                         # comparison, very common in real schemas (shipped_date,
                         # return_date, discharge_date, to_date, ...). NULL passes

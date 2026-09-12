@@ -120,11 +120,9 @@ class LLMCallerMixin:
         not just the first one. Returns the actual local model ID if found,
         or None if no suitable fallback exists.
         """
-        config = self._config
-        if config is None:
+        if (config := self._config) is None:
             raise RuntimeError("AIConfig must be initialized before checking local fallback")
-        all_local = config.detect_all_local_models()
-        if not all_local:
+        if not (all_local := config.detect_all_local_models()):
             return None
 
         # Build a normalized->actual mapping of all local models
@@ -133,22 +131,19 @@ class LLMCallerMixin:
             local_map[_normalize_model_id(m)] = m
 
         # Check if the next fallback model is available locally
-        next_norm = _normalize_model_id(next_model)
-        if next_norm in local_map:
+        if (next_norm := _normalize_model_id(next_model)) in local_map:
             return local_map[next_norm]
 
         # Check if the only local model is the one that just failed
         current_norm = _normalize_model_id(current_model or "")
-        available_others = [v for k, v in local_map.items() if k != current_norm]
-        if not available_others:
+        if not ([v for k, v in local_map.items() if k != current_norm]):
             # Only one model and it's the one that failed
             return None
 
         # Walk the fallback chain and find the first available local model
         candidate: str | None = next_model
         while candidate is not None:
-            cand_norm = _normalize_model_id(candidate)
-            if cand_norm in local_map:
+            if (cand_norm := _normalize_model_id(candidate)) in local_map:
                 return local_map[cand_norm]
             candidate = select_next_gemma_model(candidate)
 
@@ -185,8 +180,7 @@ class LLMCallerMixin:
                     attempt=attempt + 1,
                 )
 
-                next_model = select_next_gemma_model(current_model or "", backend=self._config.backend)
-                if next_model is None:
+                if (next_model := select_next_gemma_model(current_model or "", backend=self._config.backend)) is None:
                     raise RuntimeError(
                         f"LLM API call failed after trying {attempt + 1} model(s). "
                         f"Last error (model={current_model}): {e}"
@@ -194,8 +188,7 @@ class LLMCallerMixin:
 
                 # For local backends, verify the fallback model is actually available.
                 if self._config.backend in (AIBackend.LM_STUDIO, AIBackend.OLLAMA):
-                    actual_model = self._find_local_fallback_model(current_model, next_model)
-                    if actual_model is None:
+                    if (actual_model := self._find_local_fallback_model(current_model, next_model)) is None:
                         raise RuntimeError(
                             f"No other model available on local backend besides {current_model}. "
                             f"Consider using a smaller model or increasing --timeout. "

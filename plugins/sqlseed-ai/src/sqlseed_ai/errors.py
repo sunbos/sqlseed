@@ -64,8 +64,7 @@ def summarize_error(exc: Exception) -> ErrorSummary:
         _try_file_error,
     ]
     for handler in handlers:
-        result = handler(exc)
-        if result is not None:
+        if (result := handler(exc)) is not None:
             return result
     return _default_error(exc)
 

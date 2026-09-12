@@ -103,8 +103,7 @@ class ExpressionEngine:
     def _get_functions(self) -> dict[str, Any]:
         """Build the functions dict, conditionally including ``lookup``."""
         funcs = dict(self.SAFE_FUNCTIONS)
-        rng = self._rng
-        if rng is not None:
+        if (rng := self._rng) is not None:
             funcs.update(
                 {
                     "random_float": lambda min_val, max_val: rng.uniform(float(min_val), float(max_val)),
@@ -159,11 +158,9 @@ class ExpressionEngine:
             The scalar value of ``column`` for the row whose
             ``key_column == key``, or ``None`` if no such row exists.
         """
-        cache_key = (table, column, key, key_column)
-        if cache_key in self._lookup_cache:
+        if (cache_key := (table, column, key, key_column)) in self._lookup_cache:
             return self._lookup_cache[cache_key]
-        adapter = self._db_adapter
-        if adapter is None:
+        if (adapter := self._db_adapter) is None:
             raise RuntimeError("Expression lookup requires a database adapter")
         typed_lookup = getattr(adapter, "_lookup_value", None)
         if callable(typed_lookup):
@@ -183,8 +180,7 @@ class ExpressionEngine:
         return result
 
     def _is_simple_expression(self, expression: str) -> bool:
-        stripped = expression.strip()
-        if not stripped:
+        if not (stripped := expression.strip()):
             return True
         if stripped in {"value", "row"} or stripped.startswith("value[") or stripped.startswith("row["):
             return True
@@ -220,7 +216,7 @@ class ExpressionEngine:
         evaluator.names = context
         self._configure_evaluator(evaluator)
         result_container: list[Any] = [None]
-        error_container: list[Exception | None] = [None]
+        errors: list[Exception] = []
 
         def _eval() -> None:
             try:
@@ -228,7 +224,7 @@ class ExpressionEngine:
             except Exception as e:
                 # Preserve the calling-thread contract for arithmetic, lookup
                 # and adapter failures; an unhandled worker error is not NULL.
-                error_container[0] = e
+                errors.append(e)
 
         # daemon=True ensures the thread cannot block interpreter shutdown
         # if simpleeval gets stuck (deep recursion / infinite loop). The
@@ -241,8 +237,7 @@ class ExpressionEngine:
         if thread.is_alive():
             raise ExpressionTimeoutError(f"Expression evaluation timed out after {self._timeout}s: {expression[:100]}")
 
-        error = error_container[0]
-        if error is not None:
-            raise error
+        if errors:
+            raise errors[0]
 
         return result_container[0]

@@ -202,7 +202,8 @@ class ColumnMapper:
         (r".*_code$", "string", {"min_length": 6, "max_length": 12, "charset": "alphanumeric"}),
         # Person-name contexts: explicit human-related prefixes → real person names.
         (
-            r".*(?:user|customer|employee|member|author|student|teacher|patient|person|contact|owner|admin|guest|subscriber)_name$",
+            r".*(?:user|customer|employee|member|author|student|teacher|patient|"
+            r"person|contact|owner|admin|guest|subscriber)_name$",
             "name",
             {},
         ),
@@ -429,8 +430,7 @@ class ColumnMapper:
         # ordering, the L1b heuristic would skip the column and the YAML
         # config would be silently ignored, causing NOT NULL failures on
         # composite PK columns that are NOT autoincrement.
-        user_spec = self._map_from_user_config(user_config)
-        if user_spec:
+        if user_spec := self._map_from_user_config(user_config):
             self._inherit_rule_params(column_name, user_spec)
             return user_spec
 
@@ -459,8 +459,7 @@ class ColumnMapper:
 
     def _inherit_rule_params(self, column_name: str, user_spec: GeneratorSpec) -> None:
         """Merge compatible rule defaults without overriding explicit user bounds."""
-        exact_match = self._match_exact(column_name) or self._match_pattern(column_name)
-        if exact_match:
+        if exact_match := self._match_exact(column_name) or self._match_pattern(column_name):
             # Only string/text share length parameters. Sentence accepts
             # neither lengths nor charset, and text does not accept charset.
             same_group = False
@@ -511,16 +510,13 @@ class ColumnMapper:
         if column_info.is_primary_key and "INT" in column_type:
             return self._type_faithful_fallback(column_type)
 
-        exact_match = self._match_exact(column_name)
-        if exact_match:
+        if exact_match := self._match_exact(column_name):
             return exact_match
 
-        default_spec = self._map_from_default(column_info, column_type, enrich, force_type_infer)
-        if default_spec:
+        if default_spec := self._map_from_default(column_info, column_type, enrich, force_type_infer):
             return default_spec
 
-        pattern_match = self._match_pattern(column_name)
-        if pattern_match:
+        if pattern_match := self._match_pattern(column_name):
             return pattern_match
 
         return self._match_snake_retry_or_fallback(column_info, column_name, column_type, enrich, force_type_infer)
@@ -544,13 +540,10 @@ class ColumnMapper:
         pylint's too-many-return-statements threshold. The strategy order is
         preserved exactly as documented in CLAUDE.md.
         """
-        snake_name = self._to_snake_case(column_info.name)
-        if snake_name != column_name:
-            snake_exact = self._match_exact(snake_name)
-            if snake_exact:
+        if (snake_name := self._to_snake_case(column_info.name)) != column_name:
+            if snake_exact := self._match_exact(snake_name):
                 return snake_exact
-            snake_pattern = self._match_pattern(snake_name)
-            if snake_pattern:
+            if snake_pattern := self._match_pattern(snake_name):
                 return snake_pattern
 
         fallback_spec = self._map_from_default(

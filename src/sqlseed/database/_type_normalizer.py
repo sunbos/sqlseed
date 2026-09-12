@@ -107,8 +107,7 @@ class TypeNormalizer:
         if not raw_type or not raw_type.strip():
             return NormalizedType(base="TEXT", params=(), raw=raw_type)
 
-        match = _TYPE_PARAMS_RE.match(raw_type.strip())
-        if not match:
+        if not (match := _TYPE_PARAMS_RE.match(raw_type.strip())):
             return NormalizedType(base=raw_type.upper(), params=(), raw=raw_type)
 
         base_raw = match.group(1).strip().lower()
@@ -142,8 +141,7 @@ class TypeNormalizer:
 
         params: list[int] = []
         for raw_part in params_str.split(","):
-            part = raw_part.strip()
-            if not part:
+            if not (part := raw_part.strip()):
                 continue
             try:
                 params.append(int(part))

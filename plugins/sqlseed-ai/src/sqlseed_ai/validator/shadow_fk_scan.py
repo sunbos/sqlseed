@@ -76,8 +76,7 @@ class ShadowFKScanner:
         # whose FK columns intersect with the batch keys. When ``report.table``
         # is set but missing from snapshot, noop (preserve existing behavior).
         if report.table:
-            table_meta = self._snapshot.tables.get(report.table)
-            if table_meta is None:
+            if (table_meta := self._snapshot.tables.get(report.table)) is None:
                 return report
             candidate_tables: list[Any] = [table_meta]
         else:
@@ -102,8 +101,7 @@ class ShadowFKScanner:
             parent_pk_set = self._load_parent_pk_set(parent_table, parent_cols[0])
             for fk_col in fk_cols:
                 generated_values = {row.get(fk_col) for row in batch if row.get(fk_col) is not None}
-                offending = generated_values - parent_pk_set
-                if offending:
+                if offending := generated_values - parent_pk_set:
                     logger.info(
                         "Shadow FK scan localized offender",
                         table=table_meta.name,

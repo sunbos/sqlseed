@@ -508,8 +508,7 @@ def verify(db_path: Path) -> None:
 
     # ---- 2. FK 完整性 ----
     print("\n[2] 外键完整性（PRAGMA foreign_key_check）")
-    fk_violations = conn.execute("PRAGMA foreign_key_check").fetchall()
-    if fk_violations:
+    if (fk_violations := conn.execute("PRAGMA foreign_key_check").fetchall()):
         for v in fk_violations[:10]:
             print(f"    违反: 表={v[0]} rowid={v[1]} 父表={v[2]} fkid={v[3]}")
         print(f"    共 {len(fk_violations)} 处违反")

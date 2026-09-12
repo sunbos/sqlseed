@@ -252,10 +252,8 @@ class ContextBuilderMixin:
             distinct = profile.get("distinct_count", "?")
             null_ratio = profile.get("null_ratio", 0)
             lines.append(f"- {col}: {distinct} distinct values, {null_ratio:.1%} null")
-            top_values = profile.get("top_values", [])
-            if top_values:
+            if top_values := profile.get("top_values", []):
                 top_str = ", ".join(f"{tv['value']}({tv['frequency']:.0%})" for tv in top_values[:3])
                 lines.append(f"  Top values: {top_str}")
-            vr = profile.get("value_range")
-            if vr:
+            if vr := profile.get("value_range"):
                 lines.append(f"  Range: [{vr['min']}, {vr['max']}]")

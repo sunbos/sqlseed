@@ -26,8 +26,7 @@ def _parse_max_length(type_str: str) -> int | None:
     """Parse max_length from type string like 'VARCHAR(255)' -> 255."""
     import re
 
-    match = re.match(r"^\s*\w+\s*\(\s*(\d+)\s*\)", type_str, re.IGNORECASE)
-    if match:
+    if match := re.match(r"^\s*\w+\s*\(\s*(\d+)\s*\)", type_str, re.IGNORECASE):
         return int(match.group(1))
     return None
 
@@ -183,8 +182,7 @@ class StructuralFeatureExtractor:
         tables_to_analyze = self._resolve_scope(table_names)
         tables = [self._extract_table_common(name) for name in tables_to_analyze]
         # Dialect-specific extensions fill Protocol gaps
-        dialect_specific = self._extract_dialect_specific(tables_to_analyze)
-        if dialect_specific:
+        if dialect_specific := self._extract_dialect_specific(tables_to_analyze):
             self._merge_dialect_specific(tables, dialect_specific)
         schema_hash = self._compute_schema_hash(tables)
         return StructuralFeatures(
@@ -317,8 +315,7 @@ class StructuralFeatureExtractor:
         for table_name in tables:
             ddl = self._read_sqlite_ddl(table_name)
             table_features = self._sqlite_ddl_features(ddl) if ddl else {}
-            index_predicates = self._sqlite_index_predicates(table_name)
-            if index_predicates:
+            if index_predicates := self._sqlite_index_predicates(table_name):
                 table_features["index_predicates"] = index_predicates
             if table_features:
                 features[table_name] = table_features
@@ -439,13 +436,11 @@ class StructuralFeatureExtractor:
         if "on_conflict" in table_features:
             table.on_conflict = table_features["on_conflict"]
         # collation / partial_predicate filled per-column/per-index
-        col_collations = table_features.get("column_collations", {})
-        if col_collations:
+        if col_collations := table_features.get("column_collations", {}):
             for col in table.columns:
                 if col.name in col_collations:
                     col.collation = col_collations[col.name]
-        index_predicates = table_features.get("index_predicates", {})
-        if index_predicates:
+        if index_predicates := table_features.get("index_predicates", {}):
             for idx in table.indexes:
                 if idx.name in index_predicates:
                     idx.partial_predicate = index_predicates[idx.name]

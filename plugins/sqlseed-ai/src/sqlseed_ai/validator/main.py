@@ -56,8 +56,7 @@ class FastValidator:
         default_count = config.get("default_count", 1000)
 
         for table_config in config.get("tables", []):
-            table_meta = snapshot.tables.get(table_config["name"])
-            if table_meta is not None:
+            if (table_meta := snapshot.tables.get(table_config["name"])) is not None:
                 table_schema: dict[str, Any] = {
                     "columns": [{"name": c, "type": table_meta.column_types[c]} for c in table_meta.columns],
                     "constraints": table_meta.constraints,
@@ -68,27 +67,27 @@ class FastValidator:
             all_violations.extend(self._single.validate(table_config, table_schema, row_count))
             all_violations.extend(self._cross.validate(table_config, table_schema, snapshot))
 
-        if fill_error is not None:
-            report = DialectErrorParser.parse(fill_error, dialect, table=None, snapshot=snapshot)
-            if report is not None:
-                # Section 14.3: shadow scan for SQLite FK with empty columns
-                if (
-                    report.constraint_type == ConstraintType.FK
-                    and not report.columns
-                    and dialect == "sqlite"
-                    and batch is not None
-                ):
-                    scanner = ShadowFKScanner(db_path=self._db_path, snapshot=snapshot, url=self._url)
-                    report = scanner.scan(report, batch)
-                all_violations.append(report)
+        if (
+            fill_error is not None
+            and (report := DialectErrorParser.parse(fill_error, dialect, table=None, snapshot=snapshot)) is not None
+        ):
+            # Section 14.3: shadow scan for SQLite FK with empty columns
+            if (
+                report.constraint_type == ConstraintType.FK
+                and not report.columns
+                and dialect == "sqlite"
+                and batch is not None
+            ):
+                scanner = ShadowFKScanner(db_path=self._db_path, snapshot=snapshot, url=self._url)
+                report = scanner.scan(report, batch)
+            all_violations.append(report)
 
         groups = self._composite_fk.identify_groups(snapshot)
         for group in groups:
             for table_config in config.get("tables", []):
                 if table_config["name"] == group.parent_table:
                     continue
-                v = self._composite_fk.validate_group(group, table_config)
-                if v is not None:
+                if (v := self._composite_fk.validate_group(group, table_config)) is not None:
                     all_violations.append(v)
 
         return ValidationResult(violations=all_violations, column_groups=groups)

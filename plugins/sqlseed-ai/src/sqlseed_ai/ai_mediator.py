@@ -173,8 +173,7 @@ def apply_ai_suggestions(
     if not _has_unmatched_cols(column_infos, specs):
         return specs
 
-    ctx = _build_ai_context(db, schema, table_name)
-    if ctx is None:
+    if (ctx := _build_ai_context(db, schema, table_name)) is None:
         return specs
 
     ai_result = analyze_fn(

@@ -54,8 +54,7 @@ class CrossColumnValidator:
         guards against crashes when the table is missing from the snapshot.
         """
         result: list[ViolationReport] = []
-        table_meta = snapshot.tables.get(table_config["name"])
-        if table_meta is None:
+        if (table_meta := snapshot.tables.get(table_config["name"])) is None:
             return result
         for fk in table_meta.foreign_keys:
             fk_cols = fk.get("columns") or []
@@ -70,8 +69,7 @@ class CrossColumnValidator:
                 if col_config is None:
                     continue
                 params = col_config.get("params") or {}
-                max_val = params.get("max_value")
-                if max_val is None:
+                if (params.get("max_value")) is None:
                     continue
                 # Optimistic: only flag if max_val exceeds a reasonable bound
                 # (precise parent PK range check requires DB query; defer to LLM Healer)
@@ -97,8 +95,7 @@ class CrossColumnValidator:
             return result
 
         for col in table_config.get("columns", []):
-            col_name = col.get("name", "")
-            if col_name not in composite_only:
+            if (col_name := col.get("name", "")) not in composite_only:
                 continue
             constraints = col.get("constraints") or {}
             if isinstance(constraints, dict) and constraints.get("unique"):
@@ -155,8 +152,7 @@ class CrossColumnValidator:
         result: list[ViolationReport] = []
         cols_by_name = {c.get("name"): c for c in table_config.get("columns", [])}
         for col_name, col in cols_by_name.items():
-            derive_from = col.get("derive_from")
-            if not derive_from:
+            if not (derive_from := col.get("derive_from")):
                 continue
             derive_from_list = [derive_from] if isinstance(derive_from, str) else list(derive_from)
             for src in derive_from_list:
@@ -172,20 +168,17 @@ class CrossColumnValidator:
                         )
                     )
                 # Check 2-cycle: col derives from src, src derives from col
-                src_col = cols_by_name.get(src)
-                if src_col:
-                    src_df = src_col.get("derive_from")
-                    if src_df:
-                        src_df_list = [src_df] if isinstance(src_df, str) else list(src_df)
-                        if col_name in src_df_list:
-                            result.append(
-                                ViolationReport(
-                                    table=table_config["name"],
-                                    columns=[col_name, src],
-                                    constraint_type=ConstraintType.CHECK,
-                                    severity="crash",
-                                    fix_hint="break_derive_from_cycle",
-                                    fix_params={"columns": [col_name, src]},
-                                )
+                if (src_col := cols_by_name.get(src)) and (src_df := src_col.get("derive_from")):
+                    src_df_list = [src_df] if isinstance(src_df, str) else list(src_df)
+                    if col_name in src_df_list:
+                        result.append(
+                            ViolationReport(
+                                table=table_config["name"],
+                                columns=[col_name, src],
+                                constraint_type=ConstraintType.CHECK,
+                                severity="crash",
+                                fix_hint="break_derive_from_cycle",
+                                fix_params={"columns": [col_name, src]},
                             )
+                        )
         return result

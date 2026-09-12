@@ -136,8 +136,7 @@ def _request_errors(orch: DataOrchestrator) -> tuple[type[Exception], ...]:
     # execute/query use native DBAPI cursors, whose errors are not wrapped
     # by SQLAlchemy. Read the already-loaded driver, without importing an
     # optional PostgreSQL dependency or opening another connection.
-    engine = getattr(orch.database_adapter, "_engine", None)
-    if engine is not None:
+    if (engine := getattr(orch.database_adapter, "_engine", None)) is not None:
         error_type = engine.dialect.loaded_dbapi.Error
         if isinstance(error_type, type) and issubclass(error_type, Exception):
             errors += (error_type,)
@@ -172,8 +171,7 @@ def _serialize(value: Any) -> Any:
 
 def _yaml_to_config_dict(yaml_text: str) -> dict[str, Any]:
     """Parse YAML into a plain dict; empty input -> empty dict."""
-    text = (yaml_text or "").strip()
-    if not text:
+    if not (text := (yaml_text or "").strip()):
         return {}
     try:
         parsed = yaml.safe_load(text)
@@ -235,8 +233,7 @@ def _generator_param_schema() -> dict[str, list[str]]:
     provider = BaseProvider()
     schema: dict[str, list[str]] = {}
     for name in GeneratorDispatchMixin.GENERATOR_MAP:
-        method = getattr(provider, f"_gen_{name}", None)
-        if method is None:
+        if (method := getattr(provider, f"_gen_{name}", None)) is None:
             schema[name] = []
             continue
         params = [p for p in inspect.signature(method).parameters if p != "self"]
@@ -467,21 +464,17 @@ def ai_test_connection() -> dict[str, Any]:
             # Local servers: reachability is the whole story; no key needed.
             resp = httpx.get(probe_url, timeout=5)
             _local_ai_probe_result(result, resp, base)
+        elif not (key := cfg.resolve_api_key()):
+            result["ok"] = False
+            result["message"] = "在线后端需要 API Key：请在 AI 配置面板填写，或设置 GOOGLE_API_KEY / OPENAI_API_KEY。"
         else:
-            key = cfg.resolve_api_key()
-            if not key:
-                result["ok"] = False
-                result["message"] = (
-                    "在线后端需要 API Key：请在 AI 配置面板填写，或设置 GOOGLE_API_KEY / OPENAI_API_KEY。"
-                )
-            else:
-                resp = httpx.get(probe_url, headers={"Authorization": f"Bearer {key}"}, timeout=8)
-                result["ok"] = resp.status_code == 200
-                result["message"] = (
-                    "在线后端连通且 Key 有效。"
-                    if result["ok"]
-                    else f"在线后端拒绝：HTTP {resp.status_code}（检查 Key / Base URL）。"
-                )
+            resp = httpx.get(probe_url, headers={"Authorization": f"Bearer {key}"}, timeout=8)
+            result["ok"] = resp.status_code == 200
+            result["message"] = (
+                "在线后端连通且 Key 有效。"
+                if result["ok"]
+                else f"在线后端拒绝：HTTP {resp.status_code}（检查 Key / Base URL）。"
+            )
     except Exception:  # noqa: BLE001 — connectivity probe
         result["ok"] = False
         result["message"] = "无法连接 AI 服务，请检查地址、认证和服务状态。"
@@ -509,8 +502,7 @@ def meta_info() -> dict[str, Any]:
 def connect_db(req: ConnectRequest) -> dict[str, Any]:
     if bool(req.db_path) == bool(req.url):
         raise HTTPException(status_code=422, detail="provide exactly one of db_path / url")
-    target = req.db_path or req.url
-    if target is None:  # unreachable; narrows the type for mypy strict
+    if (target := req.db_path or req.url) is None:  # unreachable; narrows the type for mypy strict
         raise HTTPException(status_code=422, detail="empty connection target")
     conn: Any = None
     try:
@@ -636,8 +628,7 @@ def table_schema(conn_id: str, table: str) -> dict[str, Any]:
     orch = _conn_or_404(conn_id)
     try:
         validate_table_name(table)
-        columns = _serialize(orch.get_column_info(table))
-        if not columns:
+        if not (columns := _serialize(orch.get_column_info(table))):
             raise ValueError(f"Table '{table}' does not exist")
         fks = _serialize(orch.get_foreign_keys(table))
         skippable = sorted(orch.get_skippable_columns(table))
@@ -693,8 +684,7 @@ def table_yaml_template(conn_id: str, table: str) -> dict[str, Any]:
     target = state.get_connection(conn_id).target
     columns: dict[str, Any] = {}
     for col, spec in specs.items():
-        gen = spec.generator_name
-        if gen in {"skip", "__enrich__"}:
+        if (gen := spec.generator_name) in {"skip", "__enrich__"}:
             continue
         entry: dict[str, Any] = {"generator": gen}
         if spec.params:

@@ -134,13 +134,11 @@ class EnrichmentEngine:
         Returns:
             The updated specs dictionary.
         """
-        has_enrich = any(s.generator_name == "__enrich__" for s in specs.values())
-        if not has_enrich:
+        if not any(s.generator_name == "__enrich__" for s in specs.values()):
             return specs
 
         unique_columns = unique_columns or set()
-        row_count = self._db.get_row_count(table_name)
-        if row_count == 0:
+        if (row_count := self._db.get_row_count(table_name)) == 0:
             skipped_count = sum(1 for s in specs.values() if s.generator_name == "__enrich__")
             logger.warning(
                 "Enrich mode skipped: table is empty, falling back to skip",
