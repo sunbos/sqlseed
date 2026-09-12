@@ -4,8 +4,8 @@
 
 ## 当前状态
 
-- 基线 762 项中，730 项已通过源码或测试整改；31 项有[逐项误报复核依据](false-positive-review.md)，尚待服务端登记；1 项按用户要求暂缓。
-- 首次复扫后另有 15 个新告警已整改，包括函数作用域、编辑器控件分工、异常类型和内部未使用参数；同时补全 1 个原有测试断言。两项哈希误报换了 key，映射见[复扫账本](followup-ledger.csv)。源码整改仍待下一轮云端确认。
+- 基线 762 项中，730 项已通过源码或测试整改，`4f315e0` 云端复扫已确认不再出现在未解决列表；31 项有[逐项误报复核依据](false-positive-review.md)，尚待服务端登记；1 项按用户要求暂缓。
+- 首次复扫后另有 15 个新告警已整改并经云端确认，包括函数作用域、编辑器控件分工、异常类型和内部未使用参数；同时补全 1 个原有测试断言。两项哈希误报换了 key，映射见[复扫账本](followup-ledger.csv)。
 - `fill` 参数数量告警 `AaCOzaRHkcuVuZeQceBV` 经用户明确要求留待后续共同评审，保留 OPEN，不登记 False Positive 或 Accepted。未使用源码抑制注释。
 - Windows 的 deadline 相等边界已在 `01b1584152aa1fc9f1135ea6add6fb1ab8c303be` 修复，云端 Windows job `103605398190` 通过。
 - `7fda56e5c8e1574e4b1919e9f430fcf4c9ed54ff` 的 [CI run 34716148288](https://github.com/sunbos/sqlseed/actions/runs/34716148288) 全部 9 个 job 通过，docs-sync 也通过。Python 3.12 的 Codecov 上传成功，之前的 `Repository not found` 已不再复现；保留 `fail_ci_if_error: true` 和 OIDC，未修改上传流程。
@@ -37,3 +37,11 @@ Sonar [Automatic analysis 文档](https://docs.sonarsource.com/sonarqube-cloud/a
 ## 首次云端复扫
 
 提交 `7fda56e5c8e1574e4b1919e9f430fcf4c9ed54ff` 的 SonarCloud 分析已完成：未解决项从 762 降至 52，其中包含重构后出现的新告警。第二轮已整改其中 20 项，预计仍需登记 31 个误报并保留 1 项用户暂缓告警；具体剩余数须以下一次分析为准。CodeFlow 三个分析器均完成，0 errors / 0 warnings。SonarCloud 误报登记尚未执行，浏览器连接仍失败，当前无法使用已登录会话。
+
+## 第二次云端复扫
+
+提交 `4f315e05ffafdc12216f5bc83ca5ddb5d047815e` 的 SonarCloud 分析确认剩余 32 项：31 个逐项复核的误报和 1 个用户暂缓的 S107，与预期 key 集合完全一致，没有新增问题。CodeFlow 三个分析器完成，0 errors / 0 warnings。Quality Gate 仍因未登记的 1 个 bug 和 5 个 vulnerability 误报失败；维护性 A、重复率 0%、安全热点审查 100% 已通过。
+
+该提交的 GitHub CI 有 8 个 job 通过，包括 Windows、Python 3.10/3.12/3.13、PostgreSQL integration、packages 和 Codecov 上传。macOS 失败于测试清理阶段重复 `killpg`：测试已验证子孙进程释放继承的 flock，又重复向原进程组发信号，收到 EPERM 后跳过后续锁释放，连带下一测试出现资源告警。Apple [XNU 的 killpg1 实现](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/kern_sig.c) 会过滤 zombie 进程，现存组没有可发送对象时可返回 EPERM。修复范围限于测试清理：保留真实进程与继承锁验证，成功后不重复 kill，失败时仍传播信号权限错误，并保证释放锁。
+
+新增参数化用例先在旧代码稳定复现重复信号错误与未关闭资源，再验证修复。真实活进程权限拒绝探针确认 EPERM 原样传播、父进程的两个锁描述符关闭，子孙进程仍持有继承锁直至探针显式终止它。修改后 Web 全部 487 个 Python 测试通过，ResourceWarning 与 PytestUnraisableExceptionWarning 仍作为错误；Ruff、format、Pylint、doc-sync 和 MkDocs strict 通过。产品源码与此前验证过的五包 wheel 源文件保持一致，待下一提交的云端 macOS 复核。
