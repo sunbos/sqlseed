@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import ExitStack
 from typing import TYPE_CHECKING
 
 import pytest
@@ -29,9 +30,11 @@ def test_body_failure_rolls_back_and_closes(tmp_path: Path, failure_type: type[B
     path = tmp_path / "rolled-back.db"
     with sqlite_connection(path) as setup:
         setup.execute("CREATE TABLE items(value INTEGER)")
-    with pytest.raises(failure_type, match="abort"), sqlite_connection(path) as connection:
+    with ExitStack() as resources:
+        connection = resources.enter_context(sqlite_connection(path))
         connection.execute("INSERT INTO items VALUES (9)")
-        raise failure_type("abort")
+        failure = failure_type("abort")
+        assert resources.__exit__(failure_type, failure, None) is False
     with pytest.raises(sqlite3.ProgrammingError, match="closed"):
         connection.execute("SELECT 1")
     with sqlite_connection(path) as reader:
@@ -45,9 +48,12 @@ def test_failed_commit_rolls_back_and_closes(tmp_path: Path) -> None:
             "CREATE TABLE parents(id INTEGER PRIMARY KEY);"
             "CREATE TABLE children(parent_id INTEGER REFERENCES parents(id) DEFERRABLE INITIALLY DEFERRED);"
         )
-    with pytest.raises(sqlite3.IntegrityError), sqlite_connection(path) as connection:
+    with ExitStack() as resources:
+        connection = resources.enter_context(sqlite_connection(path))
         connection.execute("PRAGMA foreign_keys = ON")
         connection.execute("INSERT INTO children VALUES (99)")
+        with pytest.raises(sqlite3.IntegrityError):
+            resources.close()
     with pytest.raises(sqlite3.ProgrammingError, match="closed"):
         connection.execute("SELECT 1")
     with sqlite_connection(path) as reader:

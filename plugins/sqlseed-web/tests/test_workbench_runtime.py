@@ -69,8 +69,9 @@ def test_invalid_target_generator_column_and_schema_are_rejected(connection: Con
     from sqlseed_web.workbench_runtime import WorkbenchError, check_document, normalize_document
     from sqlseed_web.workbench_schema import inspect_connection
 
+    wrong_target = {**document(), "db_path": "/other.db"}
     with pytest.raises(WorkbenchError, match="目标"):
-        normalize_document(connection, {**document(), "db_path": "/other.db"})
+        normalize_document(connection, wrong_target)
     schema = inspect_connection(connection)
     config = document()
     config["tables"][0]["columns"] = [{"name": "gone", "generator": "imaginary"}]
@@ -409,7 +410,8 @@ def test_check_hash_changes_when_parent_values_change_at_same_row_count(connecti
     with sqlite_connection(connection.target) as db:
         db.execute("UPDATE parents SET id=2")
     after = check_document(connection, document(), schema["schema_hash"])
-    assert before["ok"] and after["ok"]
+    assert before["ok"]
+    assert after["ok"]
     assert before["config_hash"] != after["config_hash"]
 
 

@@ -316,6 +316,16 @@ def _write_target(conn: Connection) -> frozenset[str]:
     return frozenset({_normalize_target(conn.target)})
 
 
+def _postgres_endpoint_keys(host: str, address: str, port: str, database: str) -> set[str]:
+    keys: set[str] = set()
+    # Socket paths are case sensitive; DNS hostnames are not. Missing
+    # host/service remains an unresolved local endpoint, never a DNS lookup.
+    for endpoint in {host, address} - {""} or {"<default>"}:
+        endpoint = str(Path(endpoint).resolve()) if endpoint.startswith("/") else endpoint.lower()
+        keys.add(json.dumps(["postgresql", endpoint, int(port or "5432"), database]))
+    return keys
+
+
 def _postgres_write_targets(url: URL) -> frozenset[str]:
     """Use SQLAlchemy's libpq argument rules, including query host overrides."""
     dialect = url.set(drivername="postgresql+psycopg2").get_dialect()()
@@ -330,11 +340,7 @@ def _postgres_write_targets(url: URL) -> frozenset[str]:
         host = hosts[index] if index < len(hosts) else ""
         address = addresses[index] if index < len(addresses) else ""
         port = ports[index] if index < len(ports) else ports[0]
-        # Socket paths are case sensitive; DNS hostnames are not. Missing
-        # host/service remains an unresolved local endpoint, never a DNS lookup.
-        for endpoint in {host, address} - {""} or {"<default>"}:
-            endpoint = str(Path(endpoint).resolve()) if endpoint.startswith("/") else endpoint.lower()
-            keys.add(json.dumps(["postgresql", endpoint, int(port or "5432"), database]))
+        keys.update(_postgres_endpoint_keys(host, address, port, database))
     return frozenset(keys)
 
 

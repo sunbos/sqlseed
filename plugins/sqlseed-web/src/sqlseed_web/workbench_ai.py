@@ -7,6 +7,7 @@ import re
 from collections.abc import Callable
 from copy import deepcopy
 from datetime import date, datetime, time, timezone
+from http import HTTPStatus
 from typing import TYPE_CHECKING, Any, Literal
 
 from fastapi import APIRouter, HTTPException, Request
@@ -143,7 +144,9 @@ def settings() -> dict[str, Any]:
         }
 
 
-@router.post("/config")
+@router.post(
+    "/config", responses={422: {"description": HTTPStatus(422).phrase}, 503: {"description": HTTPStatus(503).phrase}}
+)
 def save_settings(body: SettingsRequest) -> dict[str, Any]:
     try:
         save_preferences(state, body)
@@ -564,6 +567,33 @@ def _suggestions(
     return {"schema_hash": schema["schema_hash"], "suggestions": accepted, "rejected": rejected}
 
 
+def _resolve_default_mappings(
+    conn: Connection, document: dict[str, Any], schema_tables: dict[str, Any], names: list[str]
+) -> None:
+    # Reflection reflects the connection's zero-config mapping. Resolve
+    # DEFAULT-bearing tables against this document as custom mappings and
+    # enrichment may change whether the database actually supplies a value.
+    default_tables = {
+        name for name in names if any(col.get("default") is not None for col in schema_tables[name]["columns"])
+    }
+    if default_tables:
+        config = bind_document(conn, document)
+        with DataOrchestrator.from_config(config) as orch:
+            for table_config in config.tables:
+                if table_config.name not in default_tables:
+                    continue
+                specs, _, _, _ = orch._resolve_specs(
+                    table_config.name,
+                    table_config.count,
+                    None,
+                    _runtime_columns(config, table_config, orch),
+                    table_config.enrich,
+                )
+                schema_tables[table_config.name]["mapping"] = {
+                    name: {"generator_name": spec.generator_name} for name, spec in specs.items()
+                }
+
+
 def _analysis_schema(conn: Connection, body: EligibilityRequest, names: list[str] | None = None) -> dict[str, Any]:
     """Resolve the complete candidate once for both eligibility and suggestions."""
     schema = inspect_connection(conn)
@@ -592,32 +622,11 @@ def _analysis_schema(conn: Connection, body: EligibilityRequest, names: list[str
     # This is an analysis-only candidate. The original generation selection
     # and every unselected advanced draft remain owned by the client.
     body.document = normalize_document(conn, document)
-    # Reflection reflects the connection's zero-config mapping. Resolve
-    # DEFAULT-bearing tables against this document as custom mappings and
-    # enrichment may change whether the database actually supplies a value.
-    default_tables = {
-        name for name in names if any(col.get("default") is not None for col in schema_tables[name]["columns"])
-    }
-    if default_tables:
-        config = bind_document(conn, body.document)
-        with DataOrchestrator.from_config(config) as orch:
-            for table_config in config.tables:
-                if table_config.name not in default_tables:
-                    continue
-                specs, _, _, _ = orch._resolve_specs(
-                    table_config.name,
-                    table_config.count,
-                    None,
-                    _runtime_columns(config, table_config, orch),
-                    table_config.enrich,
-                )
-                schema_tables[table_config.name]["mapping"] = {
-                    name: {"generator_name": spec.generator_name} for name, spec in specs.items()
-                }
+    _resolve_default_mappings(conn, body.document, schema_tables, names)
     return schema
 
 
-@router.post("/eligibility")
+@router.post("/eligibility", responses={503: {"description": HTTPStatus(503).phrase}})
 def eligibility(body: EligibilityRequest) -> dict[str, Any]:
     """Resolve DEFAULT modes without an LLM, generated samples or parent values."""
     try:
@@ -855,7 +864,15 @@ def _analyze(
         return result
 
 
-@router.post("/suggest", response_model=None)
+@router.post(
+    "/suggest",
+    response_model=None,
+    responses={
+        502: {"description": HTTPStatus(502).phrase},
+        503: {"description": HTTPStatus(503).phrase},
+        504: {"description": HTTPStatus(504).phrase},
+    },
+)
 async def suggest(body: SuggestRequest, request: Request) -> dict[str, Any] | Response:
     try:
         config = _effective_config().model_copy(deep=True)

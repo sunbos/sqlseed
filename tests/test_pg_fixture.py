@@ -76,8 +76,9 @@ def test_owned_container_is_stopped_when_startup_fails(monkeypatch: pytest.Monke
             stopped.append(True)
 
     monkeypatch.setattr(shared, "PostgresContainer", FailedContainer)
+    service = shared.pg_url.__wrapped__()
     with pytest.raises(ValueError, match="invalid database startup configuration"):
-        next(shared.pg_url.__wrapped__())
+        next(service)
     assert stopped == [True]
 
 

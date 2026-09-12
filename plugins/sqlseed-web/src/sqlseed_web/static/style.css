@@ -42,6 +42,8 @@ button,input {
 button {
   cursor: pointer;
   color: inherit;
+  border: 0;
+  background: none;
 }
 button:disabled {
   cursor: default;
@@ -49,10 +51,6 @@ button:disabled {
 button:focus-visible,input:focus-visible {
   outline: 3px solid #74b7c9;
   outline-offset: 3px;
-}
-button {
-  border: 0;
-  background: none;
 }
 svg {
   display: block;
@@ -192,6 +190,8 @@ h1 {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 .btn {
   min-height: 35px;
@@ -254,6 +254,10 @@ h1 {
   gap: 9px;
   font-size: 13px;
   font-weight: 600;
+  padding: 0;
+  text-align: left;
+  width: 100%;
+  min-height: 30px;
 }
 .source-head svg {
   color: var(--navy);
@@ -262,6 +266,9 @@ h1 {
   font-size: 11px;
   color: var(--muted);
   margin: 5px 0 0 27px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
 }
 .sidebar-label {
   display: flex;
@@ -364,6 +371,7 @@ h1 {
   margin: 0;
   font-family: var(--mono);
   letter-spacing: -.3px;
+  overflow-wrap: anywhere;
 }
 .table-title .desc {
   font-size: 12px;
@@ -425,6 +433,13 @@ h1 {
   gap: 6px;
   font-size: 11px;
   color: #617682;
+  padding: 4px 8px;
+  border: 1px solid #cedbe1;
+  border-radius: 8px;
+  background: #fff;
+  min-height: 30px;
+  margin-bottom: 4px;
+  transition: border-color .15s,box-shadow .15s;
 }
 .search .icon {
   width: 14px;
@@ -436,8 +451,10 @@ h1 {
   background: transparent;
   font-size: 11px;
   outline-offset: 0;
-  padding: 5px 0;
   color: var(--ink);
+  min-width: 0;
+  padding: 0;
+  border-radius: 5px;
 }
 .sample-guide {
   display: flex;
@@ -810,8 +827,9 @@ h1 {
   margin-bottom: 8px;
 }
 .drawer-head h2 {
-  font: 600 20px var(--mono);
+  font: 600 17px var(--mono);
   margin: 0;
+  overflow-wrap: anywhere;
 }
 .close {
   font-size: 21px;
@@ -822,7 +840,7 @@ h1 {
 .drawer-subtitle {
   font-size: 12px;
   color: var(--muted);
-  margin-bottom: 27px;
+  margin-bottom: 18px;
 }
 .control {
   display: block;
@@ -877,6 +895,7 @@ h1 {
   display: flex;
   gap: 8px;
   padding-top: 24px;
+  flex-shrink: 0;
 }
 .drawer-footer .btn {
   flex: 1;
@@ -1332,7 +1351,7 @@ h1 {
   }
 }
 [hidden] {
-  display: none!important;
+  display: none !important;
 }
 .title-button {
   display: flex;
@@ -1350,10 +1369,6 @@ h1 {
 }
 .title-button:hover {
   color: var(--teal);
-}
-.source-head {
-  padding: 0;
-  text-align: left;
 }
 .source-head:hover {
   color: var(--teal);
@@ -1373,6 +1388,7 @@ h1 {
   padding: 0;
   font-size: 11px;
   color: var(--muted);
+  min-height: 26px;
 }
 .selection-actions button:hover {
   text-decoration: underline;
@@ -1402,6 +1418,7 @@ h1 {
   min-width: 0;
   padding: 10px 8px;
   background: none;
+  flex: 1;
 }
 .table-entry.active .table-button {
   color: var(--teal);
@@ -1618,12 +1635,13 @@ select:focus-visible {
 }
 .graph-footer {
   display: flex;
-  align-items: center;
   justify-content: space-between;
   gap: 16px;
-  font-size: 11px;
-  border-top: 1px solid var(--line);
-  padding-top: 14px;
+  border: 0;
+  font-size: 10px;
+  align-items: flex-start;
+  line-height: 1.8;
+  padding-top: 9px;
 }
 .execution-layers {
   display: flex;
@@ -1656,10 +1674,10 @@ select:focus-visible {
   line-height: 1.8!important;
 }
 .summary-modal {
-  width: min(620px,calc(100% - 36px));
   max-height: calc(100vh - 38px);
   display: flex;
   flex-direction: column;
+  width: min(760px,calc(100% - 36px));
 }
 .summary-modal #summary-content {
   overflow: auto;
@@ -1727,9 +1745,6 @@ select:focus-visible {
   color: #84939b;
   background: #f0f3f4;
 }
-.table-title h2 {
-  overflow-wrap: anywhere;
-}
 @media(max-width:1000px) {
   .table-entry .table-button {
     padding-left: 5px;
@@ -1754,7 +1769,6 @@ select:focus-visible {
     gap: 7px;
   }
   .graph-footer {
-    align-items: flex-start;
     flex-direction: column;
   }
   .panel-heading {
@@ -1860,26 +1874,9 @@ select:focus-visible {
   height: 32px;
   cursor: pointer;
 }
-.selection-actions button {
-  min-height: 26px;
-}
 .side-tools button.active {
   color: var(--teal);
   background: #e1eee9;
-  border-radius: 5px;
-}
-.search {
-  padding: 4px 8px;
-  border: 1px solid #cedbe1;
-  border-radius: 8px;
-  background: #fff;
-  min-height: 30px;
-  margin-bottom: 4px;
-  transition: border-color .15s,box-shadow .15s;
-}
-.search input {
-  min-width: 0;
-  padding: 0;
   border-radius: 5px;
 }
 .search input:focus-visible {
@@ -1964,7 +1961,7 @@ select:focus-visible {
   margin-top: 3px;
 }
 .database-graph {
-  padding-top: 17px;
+  padding-top: 0;
 }
 .graph-toolbar {
   display: flex;
@@ -2054,9 +2051,10 @@ select:focus-visible {
   min-width: 38px;
   text-align: center;
   font: 10px var(--mono);
+  cursor: help;
 }
 .graph-tools .graph-scale-note {
-  font: 10px sans-serif;
+  font: 9px sans-serif;
   margin-right: 6px;
 }
 .graph-tools button[aria-pressed=true] {
@@ -2135,13 +2133,6 @@ select:focus-visible {
   stroke: #fafcfc;
   stroke-width: 4px;
   stroke-linejoin: round;
-}
-.graph-footer {
-  border: 0;
-  font-size: 10px;
-  align-items: flex-start;
-  line-height: 1.8;
-  padding-top: 9px;
 }
 .graph-footer>span {
   max-width: 75%;
@@ -2339,24 +2330,11 @@ select:focus-visible {
   stroke-dasharray: 2 2;
 }
 /* The relation canvas and its inspector share one workbench context. */
-.source-note {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
 .source-info {
   padding: 0 3px;
   min-width: 24px;
   min-height: 24px;
   color: var(--muted);
-}
-.source-head {
-  width: 100%;
-  min-height: 30px;
-}
-.heading-actions {
-  flex-wrap: wrap;
-  justify-content: flex-end;
 }
 .graph-workspace {
   display: grid;
@@ -2398,8 +2376,8 @@ select:focus-visible {
 }
 .inspector-body {
   padding: 14px;
-  max-height: 475px;
   overflow: auto;
+  max-height: 390px;
 }
 .inspector-body .graph-inspector {
   border: 0;
@@ -2499,9 +2477,6 @@ select:focus-visible {
 .graph-workspace .graph-tools {
   gap: 3px;
 }
-.graph-tools .graph-scale-note {
-  font-size: 9px;
-}
 .graph-workspace.expanded .inspector-body {
   max-height: 340px;
 }
@@ -2512,16 +2487,6 @@ select:focus-visible {
   overflow: auto;
   min-height: 0;
   padding: 0 3px 8px;
-}
-.drawer-head h2 {
-  font-size: 17px;
-  overflow-wrap: anywhere;
-}
-.drawer-subtitle {
-  margin-bottom: 18px;
-}
-.drawer-footer {
-  flex-shrink: 0;
 }
 .generator-heading {
   display: flex;
@@ -2614,9 +2579,6 @@ select:focus-visible {
   .graph-workspace {
     grid-template-columns: minmax(0,1fr);
   }
-  .inspector-body {
-    max-height: 330px;
-  }
   .graph-field-list {
     grid-template-columns: repeat(auto-fit,minmax(175px,1fr));
   }
@@ -2660,20 +2622,17 @@ select:focus-visible {
 .prototype-scene .demo-choice-group {
   margin: 0;
 }
-.table-entry .table-button {
-  flex: 1;
-}
 .table-graph-shortcut {
-  flex: 0 0 26px;
+  flex: 0 0 28px;
   width: 26px;
-  height: 30px;
   padding: 5px;
   color: #648078;
   border-radius: 5px;
+  height: 32px;
 }
 .table-graph-shortcut .icon {
-  width: 14px;
-  height: 14px;
+  width: 17px;
+  height: 17px;
 }
 .table-graph-shortcut:hover {
   background: #d3e7df;
@@ -2762,6 +2721,9 @@ select:focus-visible {
   font-size: 11px;
   overflow-wrap: anywhere;
   max-width: 100%;
+  border: 1px solid transparent;
+  text-align: left;
+  cursor: pointer;
 }
 .dependency-card.informational {
   background: #f4f9f7;
@@ -2825,12 +2787,6 @@ select:focus-visible {
   font-size: 11px;
   margin: 7px 0 0;
 }
-.summary-modal {
-  width: min(760px,calc(100% - 36px));
-}
-.inspector-body {
-  max-height: 390px;
-}
 .graph-workspace.expanded .inspector-actions {
   display: flex;
   align-items: center;
@@ -2868,14 +2824,6 @@ select:focus-visible {
 }
 .table-entry .table-button:focus-visible {
   outline-offset: 0;
-}
-.table-graph-shortcut {
-  height: 32px;
-  flex-basis: 28px;
-}
-.table-graph-shortcut .icon {
-  width: 17px;
-  height: 17px;
 }
 .sample.timestamp {
   display: grid;
@@ -2960,9 +2908,6 @@ select:focus-visible {
 .graph-tools button:disabled:hover {
   background: #fff;
 }
-.graph-tools #graph-zoom-label {
-  cursor: help;
-}
 @media(max-width:760px) {
   .table-graph-shortcut {
     display: block;
@@ -3013,14 +2958,6 @@ select:focus-visible {
   color: var(--muted);
   margin: 0;
 }
-.database-graph {
-  padding-top: 0;
-}
-.execution-tables button {
-  border: 1px solid transparent;
-  text-align: left;
-  cursor: pointer;
-}
 .execution-tables button:hover {
   border-color: #a8cabb;
   background: #e4f1e9;
@@ -3046,9 +2983,6 @@ select:focus-visible {
 }
 
 /* Product shell and shared controls. One visual system; no route theme toggle. */
-[hidden] {
-  display: none !important;
-}
 textarea {
   font: inherit;
   color: inherit;

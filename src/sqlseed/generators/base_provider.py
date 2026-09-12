@@ -23,6 +23,10 @@ from sqlseed.generators._string_helpers import generate_random_string
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+_RANDOM_STRING_FIELD = "{random_string:"
+_RANDOM_DIGITS_FIELD = "{random_digits:"
+_RANDOM_INT_FIELD = "{random_int:"
+
 
 class BaseProvider(GeneratorDispatchMixin):
     """Built-in data generator with no external dependencies.
@@ -493,30 +497,30 @@ class BaseProvider(GeneratorDispatchMixin):
         # Replace custom placeholders first (not in default str.format spec)
         result = template
         # {random_string:N}
-        while "{random_string:" in result:
-            start = result.index("{random_string:")
+        while _RANDOM_STRING_FIELD in result:
+            start = result.index(_RANDOM_STRING_FIELD)
             if (end := result.find("}", start)) == -1:
                 raise ValueError(f"Malformed template — unmatched '{{' in: {template!r}")
-            n = int(result[start + len("{random_string:") : end])
+            n = int(result[start + len(_RANDOM_STRING_FIELD) : end])
             charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
             replacement = "".join(self._rng.choice(charset) for _ in range(n))
             result = result[:start] + replacement + result[end + 1 :]
 
         # {random_digits:N}
-        while "{random_digits:" in result:
-            start = result.index("{random_digits:")
+        while _RANDOM_DIGITS_FIELD in result:
+            start = result.index(_RANDOM_DIGITS_FIELD)
             if (end := result.find("}", start)) == -1:
                 raise ValueError(f"Malformed template — unmatched '{{' in: {template!r}")
-            n = int(result[start + len("{random_digits:") : end])
+            n = int(result[start + len(_RANDOM_DIGITS_FIELD) : end])
             replacement = "".join(str(self._rng.randint(0, 9)) for _ in range(n))
             result = result[:start] + replacement + result[end + 1 :]
 
         # {random_int:MIN-MAX}
-        while "{random_int:" in result:
-            start = result.index("{random_int:")
+        while _RANDOM_INT_FIELD in result:
+            start = result.index(_RANDOM_INT_FIELD)
             if (end := result.find("}", start)) == -1:
                 raise ValueError(f"Malformed template — unmatched '{{' in: {template!r}")
-            range_spec = result[start + len("{random_int:") : end]
+            range_spec = result[start + len(_RANDOM_INT_FIELD) : end]
             min_v, max_v = range_spec.split("-")
             replacement = str(self._rng.randint(int(min_v), int(max_v)))
             result = result[:start] + replacement + result[end + 1 :]

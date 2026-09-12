@@ -77,16 +77,16 @@ test('calendar is a modal body portal with a single focused grid day', async () 
 
 test('arrows, week boundaries and month/year paging preserve calendar dates across leap years', async () => {
   const ui = harness(); await ui.picker.button.click();
-  const expect = value => assert.equal(ui.document.activeElement.getAttribute('data-date'), value);
-  await ui.key('ArrowRight'); expect('2024-03-01');
-  await ui.key('ArrowUp'); expect('2024-02-23');
-  await ui.key('ArrowDown'); expect('2024-03-01');
-  await ui.key('Home'); expect('2024-02-26');
-  await ui.key('End'); expect('2024-03-03');
-  await ui.key('PageUp'); expect('2024-02-03');
-  await ui.key('PageDown', {shiftKey: true}); expect('2025-02-03');
-  await ui.key('PageUp', {shiftKey: true}); expect('2024-02-03');
-  await ui.key('ArrowLeft'); expect('2024-02-02');
+  const assertFocusedDate = value => assert.equal(ui.document.activeElement.getAttribute('data-date'), value);
+  await ui.key('ArrowRight'); assertFocusedDate('2024-03-01');
+  await ui.key('ArrowUp'); assertFocusedDate('2024-02-23');
+  await ui.key('ArrowDown'); assertFocusedDate('2024-03-01');
+  await ui.key('Home'); assertFocusedDate('2024-02-26');
+  await ui.key('End'); assertFocusedDate('2024-03-03');
+  await ui.key('PageUp'); assertFocusedDate('2024-02-03');
+  await ui.key('PageDown', {shiftKey: true}); assertFocusedDate('2025-02-03');
+  await ui.key('PageUp', {shiftKey: true}); assertFocusedDate('2024-02-03');
+  await ui.key('ArrowLeft'); assertFocusedDate('2024-02-02');
   assert.deepEqual(ui.changes, []);
 });
 

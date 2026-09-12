@@ -59,7 +59,14 @@
       "source_pairs_after": 0,
       "combined_source_and_new_test_pairs_after": 0,
       "combined_report": "/tmp/sqlseed-llm-call-jscpd-combined/jscpd-report.json",
-      "configuration": "Unchanged default mild/minLines=5/minTokens=50/maxLines=1000/maxSize=100kb"
+      "configuration": {
+        "changed": false,
+        "mode": "mild",
+        "min_lines": 5,
+        "min_tokens": 50,
+        "max_lines": 1000,
+        "max_size_kb": 100
+      }
     },
     "ast": {
       "passed": true,

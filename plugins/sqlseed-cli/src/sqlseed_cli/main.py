@@ -30,10 +30,11 @@ from sqlseed.config.models import GeneratorConfig, ProviderType, TableConfig
 from sqlseed.config.snapshot import SnapshotManager
 from sqlseed.core.orchestrator import DataOrchestrator
 
+CONFLICTING_DATABASE_OPTIONS = "Cannot specify both positional db_path and --url. Use one or the other."
+
 logger = get_logger(__name__)
 
-# Redact credentials (user:pass@) in database URLs so error messages never
-# leak secrets, e.g. "postgresql://admin:s3cret@host/db" -> "postgresql://***:***@host/db".
+# Redact the username and password in database URLs before displaying errors.
 _CREDENTIAL_PATTERN = re.compile(r"://[^:@/\s]+:[^@/\s]+@")
 
 
@@ -255,7 +256,7 @@ def fill(**kwargs: Any) -> None:
 
     # Validate that db_path and --url are mutually exclusive
     if db_path and db_url:
-        raise click.UsageError("Cannot specify both positional db_path and --url. Use one or the other.")
+        raise click.UsageError(CONFLICTING_DATABASE_OPTIONS)
     if config_path and (db_path or db_url):
         raise click.UsageError(
             "Cannot combine --config with positional db_path or --url. Set db_path or url in the config file."
@@ -392,7 +393,7 @@ def preview(
     - --url flag: sqlseed preview --url "postgresql://..." -t users
     """
     if db_path and db_url:
-        raise click.UsageError("Cannot specify both positional db_path and --url. Use one or the other.")
+        raise click.UsageError(CONFLICTING_DATABASE_OPTIONS)
     if not db_path and not db_url:
         raise click.UsageError("db_path or --url is required.")
 
@@ -493,7 +494,7 @@ def inspect(db_path: str | None, table: str | None, show_mapping: bool, db_url: 
     - --url flag: sqlseed inspect --url "postgresql://..."
     """
     if db_path and db_url:
-        raise click.UsageError("Cannot specify both positional db_path and --url. Use one or the other.")
+        raise click.UsageError(CONFLICTING_DATABASE_OPTIONS)
     if not (target := db_url or db_path):
         raise click.UsageError("db_path or --url is required.")
     try:

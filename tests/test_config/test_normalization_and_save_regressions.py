@@ -42,15 +42,19 @@ def test_unsupported_save_formats_do_not_truncate_existing_files(tmp_path: Path,
     path = tmp_path / f"existing{suffix}"
     original = b"existing contents must survive rejected saves"
     path.write_bytes(original)
+    config = GeneratorConfig(db_path="app.db")
+    path_string = str(path)
     with pytest.raises(ValueError, match="Unsupported"):
-        save_config(GeneratorConfig(db_path="app.db"), str(path))
+        save_config(config, path_string)
     assert path.read_bytes() == original
 
 
 def test_unsupported_save_format_does_not_create_directories_or_files(tmp_path: Path) -> None:
     path = tmp_path / "new-directory" / "config.unsupported"
+    config = GeneratorConfig(db_path="app.db")
+    path_string = str(path)
     with pytest.raises(ValueError, match="Unsupported"):
-        save_config(GeneratorConfig(db_path="app.db"), str(path))
+        save_config(config, path_string)
     assert not path.parent.exists()
 
 

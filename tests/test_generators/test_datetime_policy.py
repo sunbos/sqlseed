@@ -137,9 +137,8 @@ def test_ai_candidate_validation_reads_generator_annotations_without_drawing(kin
     parameter, value = ("all_day", False) if kind == "time" else ("start_year", 2024)
     before_rng = provider._rng.getstate()
     _validate_builtin_params(ColumnConfig(name="value", generator=kind, params={parameter: value}), "items", method)
+    column_config = ColumnConfig(name="value", generator=kind, params={parameter: "invalid"})
     with pytest.raises(ValueError, match=r"invalid .* params"):
-        _validate_builtin_params(
-            ColumnConfig(name="value", generator=kind, params={parameter: "invalid"}), "items", method
-        )
+        _validate_builtin_params(column_config, "items", method)
     assert provider._counter == 0
     assert provider._rng.getstate() == before_rng

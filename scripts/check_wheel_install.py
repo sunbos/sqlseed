@@ -16,15 +16,31 @@ import tempfile
 import time
 from contextlib import closing
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.error import HTTPError
+from urllib.parse import quote
 from urllib.request import Request, urlopen
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 def require(condition: bool, message: str) -> None:
     """Fail the smoke check with an actionable error."""
     if not condition:
         raise RuntimeError(message)
+
+
+def _wait_for_run(read_json: Callable[[str], Any], run_id: str) -> Any:
+    """Poll a single run using its encoded identifier and a bounded deadline."""
+    path = f"/api/workbench/runs/{quote(run_id, safe='')}"
+    deadline = time.monotonic() + 15
+    while True:
+        run = read_json(path)
+        if run["status"] not in {"queued", "running"}:
+            return run
+        require(time.monotonic() < deadline, "Workbench generation did not finish")
+        time.sleep(0.02)
 
 
 def main() -> None:
@@ -104,7 +120,7 @@ def main() -> None:
                 with request(path, payload, base) as response:
                     return json.load(response)
 
-            schema = read_json(f"/api/workbench/connections/{conn_id}/schema")
+            schema = read_json(f"/api/workbench/connections/{quote(conn_id, safe='')}/schema")
             draft = read_json(
                 "/api/workbench/drafts",
                 {
@@ -136,13 +152,7 @@ def main() -> None:
                     "config_hash": checked["config_hash"],
                 },
             )
-            deadline = time.monotonic() + 15
-            while True:
-                run = read_json(f"/api/workbench/runs/{started['id']}")
-                if run["status"] not in {"queued", "running"}:
-                    break
-                require(time.monotonic() < deadline, "Workbench generation did not finish")
-                time.sleep(0.02)
+            run = _wait_for_run(read_json, started["id"])
             require(run["status"] == "done" and run["rows_inserted"] == 5, f"Workbench generation failed: {run}")
             with closing(sqlite3.connect(database)) as connection:
                 count = connection.execute("SELECT count(*) FROM users").fetchone()[0]

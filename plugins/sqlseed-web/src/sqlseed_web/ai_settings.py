@@ -188,23 +188,34 @@ def resolve_settings(
     key_service = override.get("_api_key_service", _service(config))
     if draft is not None:
         _apply(config, {key: str(getattr(draft, key)) for key in _FIELDS})
-        sources.update({key: "draft" for key in _FIELDS})
-    final_service = _service(config)
-    if draft is not None and draft.clear_api_key:
-        pass
-    elif draft is not None and draft.api_key:
-        config.api_key = draft.api_key
-        sources["api_key"] = "draft"
-    elif override.get("api_key") and final_service and key_service == final_service:
-        config.api_key = override["api_key"]
-        sources["api_key"] = "session"
-    elif not override.get("_api_key_cleared") and env.api_key and final_service and _service(env) == final_service:
-        config.api_key = env.api_key
-        sources["api_key"] = "environment"
+        sources.update(dict.fromkeys(_FIELDS, "draft"))
+    config.api_key, sources["api_key"] = _select_credential(env, override, draft, _service(config), key_service)
     # Validate environment endpoints too, before an SDK can receive credentials.
     if config.base_url:
         config.base_url = http_endpoint(config.base_url)
     return credential_snapshot(config), sources
+
+
+def _select_credential(
+    env: AIConfig,
+    override: dict[str, str],
+    draft: SettingsRequest | None,
+    final_service: str,
+    key_service: str,
+) -> tuple[str | None, str]:
+    """Choose one credential only after the final service binding is known."""
+    if draft is not None:
+        if draft.clear_api_key:
+            return None, "none"
+        if draft.api_key:
+            return draft.api_key, "draft"
+    if not final_service:
+        return None, "none"
+    if override.get("api_key") and key_service == final_service:
+        return override["api_key"], "session"
+    if not override.get("_api_key_cleared") and env.api_key and _service(env) == final_service:
+        return env.api_key, "environment"
+    return None, "none"
 
 
 def _write_preferences(values: dict[str, str]) -> None:

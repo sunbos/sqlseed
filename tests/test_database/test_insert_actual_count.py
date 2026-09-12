@@ -27,8 +27,9 @@ def test_later_batch_error_rolls_back_actual_inserts_and_trigger_effects(
     counts_database: tuple[Path, SQLAlchemyAdapter],
 ) -> None:
     _, adapter = counts_database
+    rows = iter({"value": v} for v in (1, 2, 3, -1))
     with pytest.raises(IntegrityError):
-        adapter.batch_insert("items", iter({"value": v} for v in (1, 2, 3, -1)), batch_size=2)
+        adapter.batch_insert("items", rows, batch_size=2)
     assert adapter.get_column_values("items", "value") == [9]
     assert adapter.get_row_count("audit") == 0
 

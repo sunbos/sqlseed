@@ -37,7 +37,7 @@ logger = get_logger(__name__)
 # line like "  name: employee_id" (typical of column-analysis prompts emitted
 # by the sqlseed-ai plugin). The column identifier must start with a letter or
 # underscore followed by word characters.
-_COLUMN_NAME_RE = re.compile(r"^\s*name:\s*([A-Za-z_][A-Za-z0-9_]*)", re.MULTILINE)
+_COLUMN_NAME_RE = re.compile(r"^\s*name:\s*([A-Za-z_](?a:\w)*)", re.MULTILINE)
 
 # Time histogram buckets: (label, lower_inclusive, upper_exclusive_or_None).
 # The last bucket uses upper=None to mean "no upper bound".
@@ -519,9 +519,7 @@ def build_report(state: AnalysisState) -> dict[str, Any]:
             "total_input_chars": state.total_input_chars,
             "total_output_chars": state.total_output_chars,
             "input_output_ratio": (
-                round(state.total_input_chars / state.total_output_chars, 3)
-                if state.total_output_chars > 0
-                else 0.0
+                round(state.total_input_chars / state.total_output_chars, 3) if state.total_output_chars > 0 else 0.0
             ),
             "top_system_prompts": _top_prompts(state.system_prompts, top_n=_TOP_PROMPTS),
             "top_user_prompts": _top_prompts(state.user_prompts, top_n=_TOP_PROMPTS),
@@ -555,16 +553,42 @@ def _render_breakdown_table(title: str, rows: list[dict[str, Any]], name_header:
         lines.append("  (no entries)")
         lines.append("")
         return lines
-    lines.append(
-        f"  {name_header:<30} {'CALLS':>8} {'TOTAL_TIME':>12} "
-        f"{'AVG_TIME':>12} {'MAX_TIME':>12}"
-    )
+    lines.append(f"  {name_header:<30} {'CALLS':>8} {'TOTAL_TIME':>12} {'AVG_TIME':>12} {'MAX_TIME':>12}")
     for r in rows:
         lines.append(
             f"  {r['name']:<30} {r['count']:>8} {_fmt_time(r['total_time']):>12} "
             f"{_fmt_time(r['avg_time']):>12} {_fmt_time(r['max_time']):>12}"
         )
     lines.append("")
+    return lines
+
+
+def _render_token_usage(tw: dict[str, Any]) -> list[str]:
+    """Render request/response sizes and their largest prompt examples."""
+    lines: list[str] = []
+    lines.append("5. TOKEN WASTE ANALYSIS")
+    lines.append("-" * 80)
+    lines.append(f"  Total input chars:   {tw['total_input_chars']}")
+    lines.append(f"  Total output chars:  {tw['total_output_chars']}")
+    lines.append(f"  Input/output ratio:  {tw['input_output_ratio']:.2f}")
+    lines.append("")
+    for label, key in (
+        ("largest system prompts", "top_system_prompts"),
+        ("largest user prompts", "top_user_prompts"),
+        ("largest responses", "top_responses"),
+    ):
+        items = tw[key]
+        lines.append(f"  Top {len(items)} {label}:")
+        if not items:
+            lines.append("    (none)")
+        for i, p in enumerate(items, 1):
+            table_lbl = p["table"] or "(none)"
+            col_lbl = p["column"] or "(none)"
+            lines.append(f"    {i}. [{p['char_count']} chars] table={table_lbl}, column={col_lbl}")
+            lines.append(f"       file: {p['file_name']}")
+            lines.append(f"       preview: {p['preview']!r}")
+        lines.append("")
+
     return lines
 
 
@@ -620,38 +644,10 @@ def render_text(report: dict[str, Any]) -> str:
     else:
         lines.append(f"  {'TABLE':<25} {'COLUMN':<25} {'COUNT':>6} {'TOTAL_TIME':>12}")
         for r in rc_rows:
-            lines.append(
-                f"  {r['table']:<25} {r['column']:<25} {r['count']:>6} "
-                f"{_fmt_time(r['total_time']):>12}"
-            )
+            lines.append(f"  {r['table']:<25} {r['column']:<25} {r['count']:>6} {_fmt_time(r['total_time']):>12}")
     lines.append("")
 
-    # 5. Token Waste
-    tw = report["token_waste"]
-    lines.append("5. TOKEN WASTE ANALYSIS")
-    lines.append("-" * 80)
-    lines.append(f"  Total input chars:   {tw['total_input_chars']}")
-    lines.append(f"  Total output chars:  {tw['total_output_chars']}")
-    lines.append(f"  Input/output ratio:  {tw['input_output_ratio']:.2f}")
-    lines.append("")
-    for label, key in (
-        ("largest system prompts", "top_system_prompts"),
-        ("largest user prompts", "top_user_prompts"),
-        ("largest responses", "top_responses"),
-    ):
-        items = tw[key]
-        lines.append(f"  Top {len(items)} {label}:")
-        if not items:
-            lines.append("    (none)")
-        for i, p in enumerate(items, 1):
-            table_lbl = p["table"] or "(none)"
-            col_lbl = p["column"] or "(none)"
-            lines.append(
-                f"    {i}. [{p['char_count']} chars] table={table_lbl}, column={col_lbl}"
-            )
-            lines.append(f"       file: {p['file_name']}")
-            lines.append(f"       preview: {p['preview']!r}")
-        lines.append("")
+    lines.extend(_render_token_usage(report["token_waste"]))
 
     # 6. Failure Patterns
     fp = report["failure_patterns"]
@@ -709,8 +705,7 @@ def main(argv: list[str] | None = None) -> int:
         "--log-dir",
         type=Path,
         default=None,
-        help="Directory containing JSON log files. "
-        "Defaults to get_cache_dir('ai_logs').",
+        help="Directory containing JSON log files. Defaults to get_cache_dir('ai_logs').",
     )
     parser.add_argument(
         "--output",

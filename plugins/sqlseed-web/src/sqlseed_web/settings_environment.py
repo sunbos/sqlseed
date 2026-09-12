@@ -18,6 +18,8 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, Request
 
+_AI_CONFIG_MODULE = "sqlseed_ai.config"
+
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
 # The pre-0.2.4 release line lacks the workbench/runtime interfaces. Include
@@ -234,7 +236,7 @@ def ai_import_failure() -> dict[str, Any]:
 
 def _require_ai_contract() -> None:
     """Check interfaces without creating clients, reading settings or calling a model."""
-    config = importlib.import_module("sqlseed_ai.config").AIConfig
+    config = importlib.import_module(_AI_CONFIG_MODULE).AIConfig
     if not {"tool_calling_protocol", "log_llm_interactions"}.issubset(config.model_fields):
         raise ImportError("AI configuration interface is incompatible")
     analyzer = importlib.import_module("sqlseed_ai.analyzer").SchemaAnalyzer
@@ -267,15 +269,14 @@ def package_availability(distribution: str, module: str, *, metadata_only: bool 
             available = True
         except ImportError:
             available = False
-    status = (
-        "not_installed"
-        if not installed
-        else "installed"
-        if metadata_only
-        else "available"
-        if available
-        else "import_error"
-    )
+    if not installed:
+        status = "not_installed"
+    elif metadata_only:
+        status = "installed"
+    elif available:
+        status = "available"
+    else:
+        status = "import_error"
     messages = {
         "installed": "已安装；服务恢复后验证运行状态",
         "available": "当前 Python 环境已安装且可导入",
@@ -292,7 +293,7 @@ def package_availability(distribution: str, module: str, *, metadata_only: bool 
 
 
 def require_ai_available() -> None:
-    if not package_availability("sqlseed-ai", "sqlseed_ai.config")["available"]:
+    if not package_availability("sqlseed-ai", _AI_CONFIG_MODULE)["available"]:
         raise ImportError("AI component is unavailable")
 
 
@@ -351,7 +352,7 @@ def environment(request: Request) -> dict[str, Any]:
         "packages": [
             _package("core", "Core", "sqlseed", "sqlseed", installer, metadata_only=metadata_only),
             _package("web", "Web", "sqlseed-web", "sqlseed_web.app", installer, metadata_only=metadata_only),
-            _package("ai", "AI", "sqlseed-ai", "sqlseed_ai.config", installer, metadata_only=metadata_only),
+            _package("ai", "AI", "sqlseed-ai", _AI_CONFIG_MODULE, installer, metadata_only=metadata_only),
             _package("cli", "CLI", "sqlseed-cli", "sqlseed_cli.main", installer, metadata_only=metadata_only),
             _package(
                 "mcp", "MCP", "mcp-server-sqlseed", "mcp_server_sqlseed.server", installer, metadata_only=metadata_only

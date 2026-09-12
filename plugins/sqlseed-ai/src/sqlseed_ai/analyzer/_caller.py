@@ -186,21 +186,7 @@ class LLMCallerMixin(_InteractionLoggingMixin):
                     attempt=attempt + 1,
                 )
 
-                if (next_model := select_next_gemma_model(current_model or "", backend=self._config.backend)) is None:
-                    raise RuntimeError(
-                        f"LLM API call failed after trying {attempt + 1} model(s). "
-                        f"Last error (model={current_model}): {e}"
-                    ) from e
-
-                # For local backends, verify the fallback model is actually available.
-                if self._config.backend in (AIBackend.LM_STUDIO, AIBackend.OLLAMA):
-                    if (actual_model := self._find_local_fallback_model(current_model, next_model)) is None:
-                        raise RuntimeError(
-                            f"No other model available on local backend besides {current_model}. "
-                            f"Consider using a smaller model or increasing --timeout. "
-                            f"Last error: {e}"
-                        ) from e
-                    next_model = actual_model
+                next_model = self._select_fallback_model(current_model, attempt, e, self._config.backend)
 
                 logger.warning(
                     "Falling back to next Gemma 4 model",
@@ -210,6 +196,24 @@ class LLMCallerMixin(_InteractionLoggingMixin):
                 current_model = next_model
 
         raise RuntimeError(f"LLM API call failed after {_MAX_FALLBACK_ATTEMPTS} fallback attempts")
+
+    def _select_fallback_model(self, current_model: str, attempt: int, error: Exception, backend: AIBackend) -> str:
+        """Select the next model and require local availability before retrying."""
+        if (next_model := select_next_gemma_model(current_model or "", backend=backend)) is None:
+            raise RuntimeError(
+                f"LLM API call failed after trying {attempt + 1} model(s). Last error (model={current_model}): {error}"
+            ) from error
+
+        # For local backends, verify the fallback model is actually available.
+        if backend in (AIBackend.LM_STUDIO, AIBackend.OLLAMA):
+            if (actual_model := self._find_local_fallback_model(current_model, next_model)) is None:
+                raise RuntimeError(
+                    f"No other model available on local backend besides {current_model}. "
+                    f"Consider using a smaller model or increasing --timeout. "
+                    f"Last error: {error}"
+                ) from error
+            next_model = actual_model
+        return next_model
 
     def call_llm(
         self,

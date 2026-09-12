@@ -77,7 +77,6 @@ class Level3CompactHealer:
         task: SubgraphTask,
         violations: list[ViolationReport],
         parent_config: dict[str, Any],
-        mode: Literal["compact", "ultra_compact"],
     ) -> str:
         """Build a compact user prompt."""
         relevant = [v for v in violations if v.table in task.tables]
@@ -107,7 +106,7 @@ class Level3CompactHealer:
         Returns Level3Result. Network errors are re-raised (Section 5.3).
         """
         system_prompt = _COMPACT_SYSTEM_PROMPT if mode == "compact" else _ULTRA_COMPACT_SYSTEM_PROMPT
-        user_prompt = self._build_user_prompt(task, violations, parent_config, mode)
+        user_prompt = self._build_user_prompt(task, violations, parent_config)
         estimated = len(system_prompt) // 4 + len(user_prompt) // 4
         start = time.monotonic()
 

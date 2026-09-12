@@ -247,17 +247,13 @@ class TestAISqlseedPluginHookRealLLM:
         )
 
         # Reset the cached analyzer so the singleton rebuilds with the new env
-        ai_plugin_singleton._analyzer = None
+        monkeypatch.setattr(ai_plugin_singleton, "_analyzer", None)
 
         with DataOrchestrator(tmp_db, provider_name="base") as orch:
             orch._ensure_connected()
             schema_ctx = orch.get_schema_context("users")
 
-        try:
-            result = ai_plugin_singleton.sqlseed_ai_analyze_table(**schema_ctx)
-        finally:
-            # Always reset the cache afterward so we don't leak state into other tests
-            ai_plugin_singleton._analyzer = None
+        result = ai_plugin_singleton.sqlseed_ai_analyze_table(**schema_ctx)
 
         # The hookimpl contract: dict on success, None on recoverable failure
         assert result is None or isinstance(result, dict), f"hookimpl must return dict|None, got {type(result)}"

@@ -122,9 +122,12 @@ def test_schema_only_context_and_reviewed_patch(ai_client: Any, monkeypatch: pyt
     assert suggestion["before"]["params"]["min_value"] == 1
     assert suggestion["reason"] == "金额应使用合理的小数范围"
     prompt = json.dumps(captured)
-    assert "private-person" not in prompt and "private-target" not in prompt
-    assert "row_count" not in prompt and "_ref_values" not in prompt
-    assert "users" in prompt and "foreign_keys" in prompt
+    assert "private-person" not in prompt
+    assert "private-target" not in prompt
+    assert "row_count" not in prompt
+    assert "_ref_values" not in prompt
+    assert "users" in prompt
+    assert "foreign_keys" in prompt
     assert registry.get_connection(payload["conn_id"]).orchestrator.get_row_count("orders") == 0
 
 
@@ -171,14 +174,16 @@ def test_untrusted_response_and_failure_do_not_echo_model_or_secrets(
     client, _, payload = ai_client
     monkeypatch.setattr(workbench_ai, "_call_model", lambda messages, **kwargs: {"suggestions": "private-secret"})
     response = client.post("/api/workbench/ai/suggest", json=payload)
-    assert response.status_code == 502 and "private-secret" not in response.text
+    assert response.status_code == 502
+    assert "private-secret" not in response.text
 
     def fail(messages: Any, **kwargs: Any) -> dict[str, Any]:
         raise RuntimeError("API key private-secret")
 
     monkeypatch.setattr(workbench_ai, "_call_model", fail)
     response = client.post("/api/workbench/ai/suggest", json=payload)
-    assert response.status_code == 502 and "private-secret" not in response.text
+    assert response.status_code == 502
+    assert "private-secret" not in response.text
 
 
 def test_ai_config_never_echoes_key_and_blank_preserves_it(ai_client: Any, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -204,13 +209,15 @@ def test_ai_config_never_echoes_key_and_blank_preserves_it(ai_client: Any, monke
             "api_key": "private-key",
         },
     )
-    assert configured.status_code == 200 and configured.json()["ready"]
+    assert configured.status_code == 200
+    assert configured.json()["ready"]
     assert "private-key" not in configured.text
     response = client.post(
         "/api/workbench/ai/config",
         json={"backend": "openai_compat", "model": "next-model", "base_url": "https://example.test/v1", "api_key": ""},
     )
-    assert response.json()["ready"] and registry.get_ai_override()["api_key"] == "private-key"
+    assert response.json()["ready"]
+    assert registry.get_ai_override()["api_key"] == "private-key"
     assert "private-key" not in client.get("/api/workbench/ai/config").text
     assert client.post("/api/workbench/ai/config", json={"backend": "invalid"}).status_code == 422
 
@@ -476,8 +483,10 @@ def test_candidate_failure_exposes_unique_domain_issue(ai_client: Any, monkeypat
     )
     validation = response.json()["validation"]
     issue = next(issue for issue in validation["issues"] if issue["code"] == "unique_domain_exhausted")
-    assert issue["table"] == "users" and issue["column"] == "email"
-    assert "100" in issue["message"] and "1" in issue["message"]
+    assert issue["table"] == "users"
+    assert issue["column"] == "email"
+    assert "100" in issue["message"]
+    assert "1" in issue["message"]
     assert response.json()["suggestions"] == []
 
 
@@ -493,11 +502,13 @@ def test_prompt_explains_real_pattern_template_and_base_phone_semantics(ai_clien
     entries = {entry["id"]: entry for entry in context["generators"]}
     assert "ORD-[0-9]{8}" in json.dumps(entries["pattern"])
     assert "{random_digits:11}" in json.dumps(entries["template"])
-    assert "mask" in context["provider_guidance"] and "base" in context["provider_guidance"].lower()
+    assert "mask" in context["provider_guidance"]
+    assert "base" in context["provider_guidance"].lower()
     assert context["existing_constraints"] == [
         {"table": "orders", "column": "amount", "constraints": column["constraints"]}
     ]
-    assert "private-record" not in json.dumps(messages) and "private-file" not in json.dumps(messages)
+    assert "private-record" not in json.dumps(messages)
+    assert "private-file" not in json.dumps(messages)
 
 
 @pytest.mark.parametrize("params", [{}, {"pattern": ""}, {"pattern": None, "regex": None}, {"pattern": "["}])
@@ -520,8 +531,10 @@ def test_candidate_check_failure_identifies_column_without_sample_value(
     )
     validation = response.json()["validation"]
     issue = next(issue for issue in validation["issues"] if issue["code"] == "sample_check_failed")
-    assert issue["table"] == "orders" and issue["column"] == "phone"
-    assert "11" in issue["message"] and "长度" in issue["message"]
+    assert issue["table"] == "orders"
+    assert issue["column"] == "phone"
+    assert "11" in issue["message"]
+    assert "长度" in issue["message"]
     assert "000-0000-0001" not in response.text
 
 
@@ -576,7 +589,8 @@ def test_model_failure_is_safe_and_has_actionable_error_code(
         assert response.status_code == 504
         error = response.json()["detail"]
     assert error["code"] == "ai_model_timeout"
-    assert "超时" in error["message"] and "private-key" not in response.text
+    assert "超时" in error["message"]
+    assert "private-key" not in response.text
 
 
 @pytest.mark.parametrize("spec_version", ["2.3", "2.4"])
@@ -652,7 +666,8 @@ def test_stream_deadline_reports_timeout_keeps_gate_and_skips_preview(
         response = client.post("/api/workbench/ai/suggest", json=payload, headers={"Accept": "application/x-ndjson"})
         events = [json.loads(line) for line in response.text.splitlines()]
         assert entered.is_set()
-        assert events[-1]["type"] == "error" and events[-1]["code"] == "ai_timeout"
+        assert events[-1]["type"] == "error"
+        assert events[-1]["code"] == "ai_timeout"
         assert operations[0].cancelled.is_set()
         assert client.post("/api/workbench/ai/suggest", json=payload).status_code == 409
     finally:
@@ -691,7 +706,8 @@ def test_model_http_errors_are_specific_without_response_content(
     response = client.post("/api/workbench/ai/suggest", json=payload)
     assert response.status_code == 502
     assert response.json()["detail"]["code"] == code
-    assert "secret-provider" not in response.text and "sensitive" not in response.text
+    assert "secret-provider" not in response.text
+    assert "sensitive" not in response.text
 
 
 def test_analysis_pins_service_configuration_before_context_work(
@@ -755,9 +771,12 @@ def test_rejected_rule_identifies_known_field_and_safe_parameter_reason(
     response = client.post("/api/workbench/ai/suggest", json=payload)
     assert response.status_code == 200, response.text
     rejected = response.json()["rejected"]
-    assert "orders.amount" in rejected[0] and "正则表达式无效" in rejected[0]
-    assert "orders.id" in rejected[2] and "保持原规则" in rejected[2]
-    assert "private-" not in response.text and "secret-table" not in response.text
+    assert "orders.amount" in rejected[0]
+    assert "正则表达式无效" in rejected[0]
+    assert "orders.id" in rejected[2]
+    assert "保持原规则" in rejected[2]
+    assert "private-" not in response.text
+    assert "secret-table" not in response.text
 
 
 def test_ai_sample_budget_allows_three_rows_of_a_wide_table(ai_client: Any, monkeypatch: pytest.MonkeyPatch) -> None:

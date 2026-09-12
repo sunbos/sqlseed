@@ -61,8 +61,11 @@ def test_other_guards_and_noninteger_literals_are_not_reinterpreted(expression: 
 def test_equality_and_inequality_remain_distinct() -> None:
     equal = CheckConstraintParser.parse("phone", "LENGTH(phone) = 11")
     minimum = CheckConstraintParser.parse("phone", "LENGTH(phone) >= 11")
-    assert equal is not None and equal.min_length == equal.max_length == 11
-    assert minimum is not None and minimum.min_length == 11 and minimum.max_length is None
+    assert equal is not None
+    assert equal.min_length == equal.max_length == 11
+    assert minimum is not None
+    assert minimum.min_length == 11
+    assert minimum.max_length is None
 
 
 def test_nullable_check_guard_does_not_override_not_null(tmp_path: Path) -> None:
@@ -81,4 +84,5 @@ def test_nullable_length_equality_adapts_real_string_parameters() -> None:
 
 def test_length_equality_merges_with_other_checks() -> None:
     parsed = CheckConstraintParser.parse_all("phone", ["LENGTH(phone) >= 5", "phone IS NULL OR LENGTH(phone) = 11"])
-    assert parsed is not None and parsed.min_length == parsed.max_length == 11
+    assert parsed is not None
+    assert parsed.min_length == parsed.max_length == 11

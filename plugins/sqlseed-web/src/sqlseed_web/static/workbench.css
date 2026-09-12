@@ -111,7 +111,7 @@
 .rule-editor .generator-all input {
   width: 13px; height: 13px; min-width: 13px; margin: 0; accent-color: var(--teal);
 }
-.rule-editor .generator-options button { text-align: left; color: var(--ink); }
+.rule-editor .generator-options button { text-align: left; color: var(--ink); min-width:0; overflow-wrap:anywhere; padding:10px 12px; }
 .rule-editor .generator-options .editor-note { grid-column: 1 / -1; }
 .rule-editor .editor-note { margin-top: 10px; }
 .rule-editor .column-constraints { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 14px; }
@@ -174,8 +174,8 @@
 .wb-setting-tile strong { grid-row:2; font:600 14px var(--mono); }
 .wb-setting-tile span { grid-column:2; grid-row:1 / 3; align-self:center; font-size:12px; color:var(--teal); }
 .wb-setting-tile:hover { border-color:var(--teal); }
-.wb-page .selection-actions { display:flex; gap:8px; padding:0 9px 12px; }
-.wb-page .wb-sidebar .sidebar-label { margin-left:9px; margin-right:9px; }
+.wb-page .selection-actions { display:flex; gap:8px; padding:0 8px 10px; }
+.wb-page .wb-sidebar .sidebar-label { margin-left:9px; margin-right:9px; margin-top:16px; margin-bottom:10px; }
 .wb-page .selection-actions .btn { padding:6px 10px; min-height:30px; border:1px solid var(--line); border-radius:6px; background:var(--paper); font-size:12px; }
 .wb-page .wb-field-name { cursor:pointer; text-decoration:underline; text-decoration-color:var(--line); text-underline-offset:4px; }
 .wb-source-card { padding:12px; border:1px solid var(--line); border-radius:7px; margin:10px 0; font-size:12px; overflow-wrap:anywhere; background:#f7faf9; }
@@ -199,7 +199,6 @@
 .wb-weekday-options label { display:flex; gap:5px; align-items:center; font-size:12px; }
 .rule-editor details { border:1px solid var(--line); border-radius:7px; padding:12px; margin:16px 0; }
 .rule-editor details > summary { cursor:pointer; font-weight:600; }
-.rule-editor .generator-options button { min-width:0; overflow-wrap:anywhere; }
 .connection-group { border:1px solid var(--line); border-radius:8px; padding:14px; margin:12px 0; }
 .connection-group-heading { display:flex; justify-content:space-between; gap:12px; align-items:center; }
 .connection-target { font-size:11px; color:var(--muted); overflow-wrap:anywhere; margin:7px 0 12px; }
@@ -247,7 +246,6 @@
 .wb-ai-scope label { display:flex; align-items:center; gap:7px; }
 .wb-ai-scope input { width:15px; height:15px; margin:0; }
 .rule-editor .generator-options { grid-template-columns:1fr; max-height:310px; padding:4px; gap:8px; }
-.rule-editor .generator-options button { padding:10px 12px; }
 .rule-editor .generator-options .wb-generator-example { font:11px/1.6 var(--mono); color:var(--teal); margin-top:5px; }
 .rule-editor .generator-options .wb-generator-purpose { font-size:12px; line-height:1.6; }
 @media(max-width:600px) { .wb-ai-settings-form { grid-template-columns:1fr; } }
@@ -355,8 +353,6 @@
 .wb-page .wb-content { border:1px solid var(--line); border-radius:10px; background:var(--paper); overflow:hidden; min-width:0; }
 .wb-page .wb-sidebar .source { padding:0 8px 12px; }
 .wb-page .wb-sidebar .source-note { margin-top:6px; }
-.wb-page .wb-sidebar .sidebar-label { margin-top:16px; margin-bottom:10px; }
-.wb-page .selection-actions { padding:0 8px 10px; }
 .wb-page .wb-table-search { display:flex; margin:0 8px 10px; width:auto; min-width:0; }
 .wb-page .wb-table-search input { width:100%; min-width:0; }
 .wb-page .wb-table-list { max-height:360px; min-height:0; overflow:auto; }

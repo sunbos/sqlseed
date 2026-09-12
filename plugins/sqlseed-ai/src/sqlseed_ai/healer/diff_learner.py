@@ -135,17 +135,10 @@ class DiffLearner:
 def _scan_forbidden_value(obj: Any) -> bool:
     """Visit nested mappings/lists in order and stop at the first forbidden value."""
     if isinstance(obj, dict):
-        for k, v in obj.items():
-            if k in FORBIDDEN_PERSIST_KEYS:
-                return True
-            if _scan_forbidden_value(v):
-                return True
-    elif isinstance(obj, list):
-        for item in obj:
-            if _scan_forbidden_value(item):
-                return True
-    elif isinstance(obj, str):
+        return any(key in FORBIDDEN_PERSIST_KEYS or _scan_forbidden_value(value) for key, value in obj.items())
+    if isinstance(obj, list):
+        return any(_scan_forbidden_value(item) for item in obj)
+    if isinstance(obj, str):
         lowered = obj.lower()
-        if any(s in lowered for s in _DANGEROUS_SUBSTRINGS):
-            return True
+        return any(s in lowered for s in _DANGEROUS_SUBSTRINGS)
     return False

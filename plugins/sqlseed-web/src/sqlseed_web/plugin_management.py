@@ -64,7 +64,7 @@ def guard_request(request: Request, manager: ManagementService) -> None:
     """Check transport-derived client, literal Host, same Origin, and a per-process nonce."""
     hosts = request.headers.getlist("host")
     try:
-        parsed = urlsplit(f"http://{hosts[0]}") if len(hosts) == 1 else None
+        parsed = urlsplit(f"//{hosts[0]}") if len(hosts) == 1 else None
         valid_host = parsed is not None and parsed.hostname is not None and _loopback(parsed.hostname)
         valid_host = valid_host and parsed is not None and not parsed.username and not parsed.password
         valid_host = valid_host and parsed is not None and not parsed.path and not parsed.query and not parsed.fragment

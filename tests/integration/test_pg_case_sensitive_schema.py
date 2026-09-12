@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+from contextlib import ExitStack
+from functools import partial
 from typing import TYPE_CHECKING
 
 import pytest
@@ -29,7 +31,7 @@ def test_pg_case_colliding_columns_are_rejected_before_writes(pg_url: str, tmp_p
         ).close()
         adapter.execute("INSERT INTO case_guard_items VALUES(1,2)").close()
         try:
-            with pytest.raises(ConfigurationError, match=r"ASCII case.*not supported"):
+            with ExitStack() as resources:
                 if mode == "config":
                     path = tmp_path / "case_guard.json"
                     path.write_text(
@@ -45,13 +47,19 @@ def test_pg_case_colliding_columns_are_rejected_before_writes(pg_url: str, tmp_p
                         ),
                         encoding="utf-8",
                     )
-                    fill_from_config(str(path), clear_before=True)
+                    operation = partial(fill_from_config, str(path), clear_before=True)
                 else:
-                    with DataOrchestrator(pg_url, provider_name="base", optimize_pragma=False) as orch:
-                        if mode == "preview":
-                            orch.preview_table("case_guard_items", count=1, seed=42)
-                        else:
-                            orch.fill_table("case_guard_items", count=1, clear_before=mode == "clear", skip_ai=True)
+                    orch = resources.enter_context(
+                        DataOrchestrator(pg_url, provider_name="base", optimize_pragma=False)
+                    )
+                    if mode == "preview":
+                        operation = partial(orch.preview_table, "case_guard_items", count=1, seed=42)
+                    else:
+                        operation = partial(
+                            orch.fill_table, "case_guard_items", count=1, clear_before=mode == "clear", skip_ai=True
+                        )
+                with pytest.raises(ConfigurationError, match=r"ASCII case.*not supported"):
+                    operation()
             assert adapter.get_sample_rows("case_guard_first") == [{"value": 777}]
             assert adapter.get_sample_rows("case_guard_items") == [{"A": 1, "a": 2}]
         finally:

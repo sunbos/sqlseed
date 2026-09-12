@@ -58,6 +58,7 @@ if TYPE_CHECKING:
     from sqlseed_ai.validator.schema_snapshot import TableMeta
 
 logger = get_logger(__name__)
+_TYPE_PARAMETERS_PATTERN = r"\(.*\)"
 
 
 # Valid generator names accepted by the orchestrator's safety net. Includes:
@@ -104,17 +105,23 @@ def _infer_locale(snapshot: SchemaSnapshot) -> str:
     _phone_length_re = re.compile(r"LENGTH\s*\(\s*(\w+)\s*\)\s*=\s*(\d+)")
     for table_meta in snapshot.tables.values():
         for constraint in table_meta.constraints:
-            if constraint.get("type") != "check":
-                continue
-            expr = constraint.get("expression", "")
-            if not isinstance(expr, str):
-                continue
-            if match := _phone_length_re.search(expr):
-                col_name = match.group(1)
-                length = int(match.group(2))
-                if _is_phone_like(col_name) and length == 11:
-                    return "zh_CN"
+            if _is_chinese_phone_constraint(constraint, _phone_length_re):
+                return "zh_CN"
     return "en_US"
+
+
+def _is_chinese_phone_constraint(constraint: dict[str, Any], length_pattern: re.Pattern[str]) -> bool:
+    """Recognize an eleven-digit phone CHECK while preserving conversion errors."""
+    if constraint.get("type") != "check":
+        return False
+    expr = constraint.get("expression", "")
+    if not isinstance(expr, str):
+        return False
+    if (match := length_pattern.search(expr)) is None:
+        return False
+    col_name = match.group(1)
+    length = int(match.group(2))
+    return _is_phone_like(col_name) and length == 11
 
 
 def _debug(msg: str) -> None:
@@ -192,7 +199,7 @@ class AutoHealOrchestrator:
         config = self._build_run_root_config(snapshot, initial_config)
         input_violations: set[tuple[str, str]] = set()
         self._process_run_subgraphs(
-            _RunPhaseContext(config, snapshot, original_hash, budget, subgraphs, initial_tables, input_violations)
+            _RunPhaseContext(config, snapshot, budget, subgraphs, initial_tables, input_violations)
         )
         config = self._align_run_broken_edges(config, broken_edges)
         self._verify_run_schema_hash(original_hash)
@@ -297,24 +304,29 @@ class AutoHealOrchestrator:
         # ``min_threshold > 100.0``, ``random_float(value, 100.0)`` fails.
         # Capping ``min_threshold``'s ``max_value`` to ``100.0`` fixes this.
         for tcfg in config.get("tables", []):
-            columns_rc = tcfg.get("columns", [])
-            col_map_rc: dict[str, dict[str, Any]] = {c.get("name", ""): c for c in columns_rc}
-            for c_rc in columns_rc:
-                expr_rc = str(c_rc.get("expression", ""))
-                derive_from_rc = c_rc.get("derive_from", "")
-                if not derive_from_rc or not expr_rc:
-                    continue
-                # Match ``random_float(value, LITERAL)`` where LITERAL is a number
-                if (m_rc := re.search(r"random_float\(value,\s*([\d.]+)\)", expr_rc)) is None:
-                    continue
-                literal_max_rc = float(m_rc.group(1))
-                if (src_col_rc := col_map_rc.get(derive_from_rc)) is None:
-                    continue
-                src_params_rc = src_col_rc.get("params") or {}
-                src_max_rc = src_params_rc.get("max_value")
-                if src_max_rc is not None and float(src_max_rc) > literal_max_rc:
-                    src_params_rc["max_value"] = literal_max_rc
-                    src_col_rc["params"] = src_params_rc
+            self._cap_table_derived_range_sources(tcfg)
+
+    @staticmethod
+    def _cap_table_derived_range_sources(tcfg: dict[str, Any]) -> None:
+        """Cap source maxima against literal upper bounds in this table's derived expressions."""
+        columns_rc = tcfg.get("columns", [])
+        col_map_rc: dict[str, dict[str, Any]] = {c.get("name", ""): c for c in columns_rc}
+        for c_rc in columns_rc:
+            expr_rc = str(c_rc.get("expression", ""))
+            derive_from_rc = c_rc.get("derive_from", "")
+            if not derive_from_rc or not expr_rc:
+                continue
+            # Match ``random_float(value, LITERAL)`` where LITERAL is a number
+            if (m_rc := re.search(r"random_float\(value,\s*([\d.]+)\)", expr_rc)) is None:
+                continue
+            literal_max_rc = float(m_rc.group(1))
+            if (src_col_rc := col_map_rc.get(derive_from_rc)) is None:
+                continue
+            src_params_rc = src_col_rc.get("params") or {}
+            src_max_rc = src_params_rc.get("max_value")
+            if src_max_rc is not None and float(src_max_rc) > literal_max_rc:
+                src_params_rc["max_value"] = literal_max_rc
+                src_col_rc["params"] = src_params_rc
 
     def _apply_complex_check_null_fallbacks(self, config: dict[str, Any], snapshot: SchemaSnapshot) -> None:
 
@@ -541,7 +553,6 @@ class AutoHealOrchestrator:
     def _process_run_subgraph(self, context: _RunPhaseContext, sg_idx: int, sg_tables: list[str]) -> None:
         config = context.config
         snapshot = context.snapshot
-        original_hash = context.original_hash
         budget = context.budget
         subgraphs = context.subgraphs
         initial_tables = context.initial_tables
@@ -580,7 +591,7 @@ class AutoHealOrchestrator:
         # Layer 3 + Layer 4: repair + heal
         if self._verbose:
             _debug("[ai-analyze]   invoking Layer 3 (repair) + Layer 4 (LLM heal) ...")
-        result = self._heal_subgraph(sg_config, sg_tables, violations, snapshot, original_hash, budget)
+        result = self._heal_subgraph(sg_config, sg_tables, violations, snapshot)
         config["tables"].extend(result.get("tables", []))
         self._report_run_degraded_columns(result)
 
@@ -727,32 +738,45 @@ class AutoHealOrchestrator:
         if (meta := snapshot.tables.get(table_name)) is None:
             return
         for c_p27_src in meta.constraints:
-            if c_p27_src.get("type") != "check":
+            if (source := self._conditional_range_source(c_p27_src)) is None:
                 continue
-            expr_p27_src = c_p27_src.get("expression", "")
-            if " OR " not in expr_p27_src or " AND " not in expr_p27_src:
-                continue
-            # Find all clauses: other_col = 'Vi' AND target_col OP Xi
-            clause_re_src = (
-                r"(\w+)\s*=\s*'([^']+)'\s+AND\s+(\w+)\s*"
-                r"(>=|<=|>|<)\s*(-?[0-9]+(?:\.[0-9]+)?)"
-            )
-            clauses_src = re.findall(clause_re_src, expr_p27_src)
-            if len(clauses_src) < 2:
-                continue
-            src_col_p27 = clauses_src[0][0]
-            # All clauses must reference the same source column
-            if not all(cl[0] == src_col_p27 for cl in clauses_src):
-                continue
-            allowed_values = [cl[1] for cl in clauses_src]
+            src_col_p27, allowed_values = source
             # Find the source column in the config and constrain its choices
             for col_cfg in tcfg.get("columns", []):
                 if col_cfg.get("name") == src_col_p27 and col_cfg.get("generator") == "choice":
-                    old_choices = col_cfg.get("params", {}).get("choices", [])
-                    # Only keep choices that are in the allowed values
-                    new_choices = [v for v in old_choices if v in allowed_values]
-                    if new_choices and len(new_choices) < len(old_choices):
-                        col_cfg["params"]["choices"] = new_choices
+                    self._restrict_conditional_source_choices(col_cfg, allowed_values)
+
+    @staticmethod
+    def _conditional_range_source(constraint: dict[str, Any]) -> tuple[str, list[str]] | None:
+        """Recognize a common status source across at least two conditional range clauses."""
+        if constraint.get("type") != "check":
+            return None
+        expr_p27_src = constraint.get("expression", "")
+        if " OR " not in expr_p27_src or " AND " not in expr_p27_src:
+            return None
+        # Find all clauses: other_col = 'Vi' AND target_col OP Xi
+        clause_re_src = (
+            r"(\w+)\s*=\s*'([^']+)'\s+AND\s+(\w+)\s*"
+            r"(>=|<=|>|<)\s*(-?[0-9]+(?:\.[0-9]+)?)"
+        )
+        clauses_src = re.findall(clause_re_src, expr_p27_src)
+        if len(clauses_src) < 2:
+            return None
+        src_col_p27 = clauses_src[0][0]
+        # All clauses must reference the same source column
+        if not all(cl[0] == src_col_p27 for cl in clauses_src):
+            return None
+        allowed_values = [cl[1] for cl in clauses_src]
+        return src_col_p27, allowed_values
+
+    @staticmethod
+    def _restrict_conditional_source_choices(col_cfg: dict[str, Any], allowed_values: list[str]) -> None:
+        """Keep the nonempty subset of source choices covered by conditional ranges."""
+        old_choices = col_cfg.get("params", {}).get("choices", [])
+        # Only keep choices that are in the allowed values
+        new_choices = [v for v in old_choices if v in allowed_values]
+        if new_choices and len(new_choices) < len(old_choices):
+            col_cfg["params"]["choices"] = new_choices
 
     def _stabilize_table_real_arithmetic(self, tcfg: dict[str, Any], snapshot: SchemaSnapshot) -> None:
         table_name_r = tcfg.get("name", "")
@@ -803,12 +827,10 @@ class AutoHealOrchestrator:
         self_ref_fk_cols_sn7: set[str] = set()
         for fk_sn7 in meta_sn7.foreign_keys:
             if fk_sn7.get("ref_table") == table_name_sn7:
-                for fc_sn7 in fk_sn7.get("columns", []):
-                    self_ref_fk_cols_sn7.add(fc_sn7)
+                self_ref_fk_cols_sn7.update(fk_sn7.get("columns", []))
         fk_cols_set_sn7: set[str] = set()
         for fk_sn7 in meta_sn7.foreign_keys:
-            for fc_sn7 in fk_sn7.get("columns", []):
-                fk_cols_set_sn7.add(fc_sn7)
+            fk_cols_set_sn7.update(fk_sn7.get("columns", []))
         # Build derive_from dependency map: source_col -> [dependent_cols]
         derive_dependents_sn7: dict[str, list[str]] = {}
         for c_dep in tcfg_sn7.get("columns", []):
@@ -822,14 +844,16 @@ class AutoHealOrchestrator:
     def _collect_timedelta_sources(self, tcfg: dict[str, Any], meta: TableMeta | None) -> dict[str, str]:
         timedelta_sources: dict[str, str] = {}  # col_name -> "date"|"datetime"
         for _c in tcfg.get("columns", []):
-            if _c.get("derive_from") and "timedelta" in str(_c.get("expression", "")):
-                src = _c["derive_from"]
-                if isinstance(src, str) and src not in timedelta_sources:
-                    src_type = (meta.column_types.get(src, "") if meta else "") or ""
-                    if _is_date_only_type(src_type):
-                        timedelta_sources[src] = "date"
-                    else:
-                        timedelta_sources[src] = "datetime"
+            if not _c.get("derive_from") or "timedelta" not in str(_c.get("expression", "")):
+                continue
+            src = _c["derive_from"]
+            if not isinstance(src, str) or src in timedelta_sources:
+                continue
+            src_type = (meta.column_types.get(src, "") if meta else "") or ""
+            if _is_date_only_type(src_type):
+                timedelta_sources[src] = "date"
+            else:
+                timedelta_sources[src] = "datetime"
         return timedelta_sources
 
     def _collect_state_machine_dates(self, meta: TableMeta | None) -> dict[str, tuple[str, set[str]]]:
@@ -857,44 +881,56 @@ class AutoHealOrchestrator:
         while _changed:
             _changed = False
             for date_col, (_sc, all_vals) in state_machine_dates.items():
-                # set 是可变对象：用别名做 |= 原地合并即写回字典中的集合，
-                # 避免直接改写 for 循环变量（PLW2901）。
-                merged_vals = all_vals
-                for dep_col, src_col in _date_deps.items():
-                    if src_col == date_col and dep_col in state_machine_dates:
-                        dep_vals = state_machine_dates[dep_col][1]
-                        before = len(merged_vals)
-                        merged_vals |= dep_vals
-                        if len(merged_vals) > before:
-                            _changed = True
+                if self._merge_required_statuses(date_col, all_vals, _date_deps, state_machine_dates):
+                    _changed = True
         return state_machine_dates
+
+    @staticmethod
+    def _merge_required_statuses(
+        date_col: str,
+        merged_vals: set[str],
+        date_deps: dict[str, str],
+        state_machine_dates: dict[str, tuple[str, set[str]]],
+    ) -> bool:
+        """Propagate dependent status values into one date column's existing set."""
+        changed = False
+        for dep_col, src_col in date_deps.items():
+            if src_col != date_col or dep_col not in state_machine_dates:
+                continue
+            dep_vals = state_machine_dates[dep_col][1]
+            before = len(merged_vals)
+            merged_vals |= dep_vals
+            if len(merged_vals) > before:
+                changed = True
+        return changed
 
     def _collect_phone_length_constraints(self, meta: TableMeta | None) -> dict[str, int]:
         phone_length_constraints: dict[str, int] = {}
-        if meta is not None:
-            for ctr in meta.constraints:
-                if ctr.get("type") != "check":
-                    continue
-                expr_pl = ctr.get("expression", "")
-                if not isinstance(expr_pl, str):
-                    continue
-                # Use search (not match) because the LENGTH constraint
-                # may have a prefix like ``phone IS NULL OR``.
-                m_pl = re.search(
-                    r"LENGTH\s*\(\s*(\w+)\s*\)\s*=\s*(\d+)",
+        if meta is None:
+            return phone_length_constraints
+        for ctr in meta.constraints:
+            if ctr.get("type") != "check":
+                continue
+            expr_pl = ctr.get("expression", "")
+            if not isinstance(expr_pl, str):
+                continue
+            # Use search (not match) because the LENGTH constraint
+            # may have a prefix like ``phone IS NULL OR``.
+            m_pl = re.search(
+                r"LENGTH\s*\(\s*(\w+)\s*\)\s*=\s*(\d+)",
+                expr_pl,
+                re.IGNORECASE,
+            )
+            if m_pl:
+                phone_length_constraints[m_pl.group(1)] = int(m_pl.group(2))
+            else:
+                m_pl_ge = re.search(
+                    r"LENGTH\s*\(\s*(\w+)\s*\)\s*>=\s*(\d+)",
                     expr_pl,
                     re.IGNORECASE,
                 )
-                if m_pl:
-                    phone_length_constraints[m_pl.group(1)] = int(m_pl.group(2))
-                else:
-                    m_pl_ge = re.search(
-                        r"LENGTH\s*\(\s*(\w+)\s*\)\s*>=\s*(\d+)",
-                        expr_pl,
-                        re.IGNORECASE,
-                    )
-                    if m_pl_ge:
-                        phone_length_constraints[m_pl_ge.group(1)] = int(m_pl_ge.group(2))
+                if m_pl_ge:
+                    phone_length_constraints[m_pl_ge.group(1)] = int(m_pl_ge.group(2))
         return phone_length_constraints
 
     def _normalize_generated_column(self, context: _ColumnRuleContext, c: dict[str, Any]) -> None:
@@ -1022,6 +1058,26 @@ class AutoHealOrchestrator:
             c["params"] = _strip_invalid_params(params, gen)
         gen, params = self._preserve_unique_exact_length(context, c, gen, has_derive, params)
 
+    @staticmethod
+    def _collect_conditional_null_values(meta_sn7: TableMeta, col_name_upper_sn7: str) -> dict[str, set[str]]:
+        """Union the conditional IN sets that permit a target column to be NULL."""
+        allowed_values_per_col_sn7: dict[str, set[str]] = {}
+        for constraint_cn in meta_sn7.constraints:
+            if constraint_cn.get("type") != "check":
+                continue
+            expr_cn_norm = _normalize_pg_check_expr(constraint_cn.get("expression", ""))
+            for m_in_null in re.finditer(
+                rf"(\w+)\s+IN\s*\(([^)]+)\)\s+AND\s+{col_name_upper_sn7}\s+IS\s+NULL",
+                expr_cn_norm,
+                re.IGNORECASE,
+            ):
+                cond_col_cn = m_in_null.group(1)
+                values_str_cn = m_in_null.group(2)
+                if not (values_cn := re.findall(r"'([^']*)'", values_str_cn)):
+                    values_cn = [v.strip() for v in values_str_cn.split(",")]
+                allowed_values_per_col_sn7.setdefault(cond_col_cn, set()).update(values_cn)
+        return allowed_values_per_col_sn7
+
     def _upgrade_restored_timedelta_sources(self, tcfg: dict[str, Any], meta: TableMeta | None) -> None:
         # Second-pass timedelta source upgrade: the pre-scan at the
         # top of this table loop collects timedelta source columns
@@ -1140,35 +1196,33 @@ class AutoHealOrchestrator:
     ) -> bool:
         meta = context.meta
         state_machine_dates = context.state_machine_dates
-        if meta is not None and col_name_sm in state_machine_dates and not has_derive:
-            status_col_sm, required_vals_sm = state_machine_dates[col_name_sm]
-            col_type_sm = meta.column_types.get(col_name_sm, "")
-            is_date_sm = _is_date_column(col_name_sm) or "DATE" in col_type_sm.upper() or "TIME" in col_type_sm.upper()
-            if is_date_sm:
-                # Find a base date column to derive from
-                base_col_sm: str | None = None
-                for bc in ("created_at", "updated_at", "opened_at", "added_at"):
-                    if bc in meta.columns and bc != col_name_sm:
-                        base_col_sm = bc
-                        break
-                if base_col_sm is None:
-                    # Fall back to any other date column
-                    for other_col in meta.columns:
-                        if other_col != col_name_sm and _is_date_column(other_col):
-                            base_col_sm = other_col
-                            break
-                if base_col_sm is not None:
-                    vals_repr = ", ".join(f"'{v}'" for v in sorted(required_vals_sm))
-                    c.pop("generator", None)
-                    c.pop("params", None)
-                    c.pop("null_ratio", None)
-                    c["derive_from"] = base_col_sm
-                    c["expression"] = (
-                        f"None if row['{status_col_sm}'] not in ({vals_repr}) "
-                        f"else value + timedelta(hours=random_int(1, 168))"
-                    )
-                    has_derive = True
-        return has_derive
+        if meta is None or col_name_sm not in state_machine_dates or has_derive:
+            return has_derive
+        status_col_sm, required_vals_sm = state_machine_dates[col_name_sm]
+        col_type_sm = meta.column_types.get(col_name_sm, "")
+        is_date_sm = _is_date_column(col_name_sm) or "DATE" in col_type_sm.upper() or "TIME" in col_type_sm.upper()
+        if not is_date_sm:
+            return has_derive
+        if (base_col_sm := self._state_machine_date_anchor(meta, col_name_sm)) is None:
+            return has_derive
+        vals_repr = ", ".join(f"'{v}'" for v in sorted(required_vals_sm))
+        c.pop("generator", None)
+        c.pop("params", None)
+        c.pop("null_ratio", None)
+        c["derive_from"] = base_col_sm
+        c["expression"] = (
+            f"None if row['{status_col_sm}'] not in ({vals_repr}) else value + timedelta(hours=random_int(1, 168))"
+        )
+        return True
+
+    @staticmethod
+    def _state_machine_date_anchor(meta: TableMeta, col_name: str) -> str | None:
+        """Prefer conventional event timestamps before another date-named column."""
+        for candidate in ("created_at", "updated_at", "opened_at", "added_at"):
+            if candidate in meta.columns and candidate != col_name:
+                return candidate
+        # Fall back to any other date column, in captured schema order.
+        return next((column for column in meta.columns if column != col_name and _is_date_column(column)), None)
 
     def _guard_state_machine_expression(
         self, context: _ColumnRuleContext, c: dict[str, Any], has_derive: bool, col_name_sm: str
@@ -1414,7 +1468,7 @@ class AutoHealOrchestrator:
                 # UNIQUE, use ``template`` with a Chinese prefix so
                 # the generated names are guaranteed unique AND
                 # locale-appropriate (e.g., ``品牌0001``).
-                gen = self._choose_entity_name_generator(context, c, gen, col_name_ctx, tbl_lower)
+                gen = self._choose_entity_name_generator(context, c, col_name_ctx, tbl_lower)
         return gen
 
     def _repair_unique_template_generator(
@@ -1433,30 +1487,32 @@ class AutoHealOrchestrator:
         # on ``name`` columns and replaces them with ``catch_phrase``.
         # Decision test: any database where the LLM used a NAME-
         # template for an entity name column benefits.
-        if not has_derive and gen == "template":
-            tmpl_params = c.get("params", {})
-            tmpl_str = tmpl_params.get("template", "") if isinstance(tmpl_params, dict) else ""
-            if isinstance(tmpl_str, str) and tmpl_str.startswith("NAME-") and (c.get("name", "")) == "name":
-                # Locale-aware: zh_CN should not use catch_phrase
-                # (English-only under zh_CN locale).
-                cur_locale_nm = config.get("locale", "en_US") or "en_US"
-                if cur_locale_nm.lower().startswith("zh"):
-                    tbl_lower_nm = table_name.lower()
-                    _zh_prefix = "名称"
-                    if any(p in tbl_lower_nm for p in ("brand", "store", "shop")):
-                        _zh_prefix = "品牌"
-                    elif "categor" in tbl_lower_nm:
-                        _zh_prefix = "分类"
-                    elif "product" in tbl_lower_nm:
-                        _zh_prefix = "产品"
-                    c["generator"] = "template"
-                    c["params"] = {"template": f"{_zh_prefix}{{sequence:0{req_digits}d}}"}
-                    gen = "template"
-                else:
-                    c["generator"] = "catch_phrase"
-                    c.pop("params", None)
-                    c["params"] = {}
-                    gen = "catch_phrase"
+        if has_derive or gen != "template":
+            return gen
+        tmpl_params = c.get("params", {})
+        tmpl_str = tmpl_params.get("template", "") if isinstance(tmpl_params, dict) else ""
+        if not isinstance(tmpl_str, str) or not tmpl_str.startswith("NAME-") or c.get("name", "") != "name":
+            return gen
+        # Locale-aware: zh_CN should not use catch_phrase
+        # (English-only under zh_CN locale).
+        cur_locale_nm = config.get("locale", "en_US") or "en_US"
+        if cur_locale_nm.lower().startswith("zh"):
+            tbl_lower_nm = table_name.lower()
+            _zh_prefix = "名称"
+            if any(p in tbl_lower_nm for p in ("brand", "store", "shop")):
+                _zh_prefix = "品牌"
+            elif "categor" in tbl_lower_nm:
+                _zh_prefix = "分类"
+            elif "product" in tbl_lower_nm:
+                _zh_prefix = "产品"
+            c["generator"] = "template"
+            c["params"] = {"template": f"{_zh_prefix}{{sequence:0{req_digits}d}}"}
+            gen = "template"
+        else:
+            c["generator"] = "catch_phrase"
+            c.pop("params", None)
+            c["params"] = {}
+            gen = "catch_phrase"
         return gen
 
     def _repair_phone_bounds(self, context: _ColumnRuleContext, c: dict[str, Any], gen: Any, has_derive: bool) -> None:
@@ -1472,24 +1528,26 @@ class AutoHealOrchestrator:
         # CHECK constraint where the LLM added ``country_code: true``
         # benefits — without this, fill fails with
         # ``CHECK constraint failed: LENGTH(phone) = 11``.
-        if not has_derive and gen == "phone" and meta is not None:
-            phone_params = c.get("params", {})
-            if isinstance(phone_params, dict) and phone_params.get("country_code"):
-                col_name_ph = c.get("name", "")
-                for ctr in meta.constraints:
-                    if ctr.get("type") != "check":
-                        continue
-                    ctr_expr = ctr.get("expression", "")
-                    # Check if this CHECK constrains this phone column to 11
-                    if (
-                        isinstance(ctr_expr, str)
-                        and "LENGTH" in ctr_expr
-                        and col_name_ph in ctr_expr
-                        and "=11" in ctr_expr.replace(" ", "")
-                        and _is_phone_like(col_name_ph)
-                    ):
-                        c["params"] = {}
-                        break
+        if has_derive or gen != "phone" or meta is None:
+            return
+        phone_params = c.get("params", {})
+        if not isinstance(phone_params, dict) or not phone_params.get("country_code"):
+            return
+        col_name_ph = c.get("name", "")
+        for ctr in meta.constraints:
+            if ctr.get("type") != "check":
+                continue
+            ctr_expr = ctr.get("expression", "")
+            # Check if this CHECK constrains this phone column to 11
+            if (
+                isinstance(ctr_expr, str)
+                and "LENGTH" in ctr_expr
+                and col_name_ph in ctr_expr
+                and "=11" in ctr_expr.replace(" ", "")
+                and _is_phone_like(col_name_ph)
+            ):
+                c["params"] = {}
+                break
 
     def _repair_unconstrained_fk_fallback(
         self, context: _ColumnRuleContext, c: dict[str, Any], gen: Any, has_derive: bool
@@ -1522,8 +1580,7 @@ class AutoHealOrchestrator:
                 # is NOT an actual foreign key.
                 fk_cols_biz: set[str] = set()
                 for fk_biz in meta.foreign_keys:
-                    for fc_biz in fk_biz.get("columns", []):
-                        fk_cols_biz.add(fc_biz)
+                    fk_cols_biz.update(fk_biz.get("columns", []))
                 if col_name_biz not in fk_cols_biz:
                     c["generator"] = "template"
                     c["params"] = {"template": biz_id_templates[col_name_biz]}
@@ -1544,23 +1601,25 @@ class AutoHealOrchestrator:
         # Note: we do NOT switch to the ``phone`` generator because
         # faker's zh_CN phone_number() includes dashes/spaces that
         # violate LENGTH=11 (e.g., "138-1234-5678" has LENGTH=13).
-        if not has_derive and gen == "pattern" and meta is not None:
-            col_name_ph = c.get("name", "")
-            if _is_phone_like(col_name_ph):
-                for ctr in meta.constraints:
-                    if ctr.get("type") != "check":
-                        continue
-                    ctr_expr = ctr.get("expression", "")
-                    if (
-                        isinstance(ctr_expr, str)
-                        and "LENGTH" in ctr_expr
-                        and col_name_ph in ctr_expr
-                        and "=11" in ctr_expr.replace(" ", "")
-                    ):
-                        c["generator"] = "pattern"
-                        c["params"] = {"regex": r"^1[3-9]\d{9}$"}
-                        gen = "pattern"
-                        break
+        if has_derive or gen != "pattern" or meta is None:
+            return gen
+        col_name_ph = c.get("name", "")
+        if not _is_phone_like(col_name_ph):
+            return gen
+        for ctr in meta.constraints:
+            if ctr.get("type") != "check":
+                continue
+            ctr_expr = ctr.get("expression", "")
+            if (
+                isinstance(ctr_expr, str)
+                and "LENGTH" in ctr_expr
+                and col_name_ph in ctr_expr
+                and "=11" in ctr_expr.replace(" ", "")
+            ):
+                c["generator"] = "pattern"
+                c["params"] = {"regex": r"^1[3-9]\d{9}$"}
+                gen = "pattern"
+                break
         return gen
 
     def _normalize_currency_precision(
@@ -1603,30 +1662,31 @@ class AutoHealOrchestrator:
         # Decision test: any database with these column names benefits
         # — without this, the database stores values that no real
         # frontend form would ever submit.
-        if not has_derive and generator_name(gen) in CANONICAL_NUMERIC_GENERATORS:
-            semantic_max_values: dict[str, int | float] = {
-                "sort_order": 999,
-                "points_balance": 100000,
-                "balance_after": 100000,
-                "stock_qty": 10000,
-                "low_stock_threshold": 100,
-                "total_spent": 999999.99,
-                "refunded_qty": 99,
-                "weight_kg": 99.99,
-            }
-            # Cart/order quantity: CHECK often allows up to 999, but
-            # real frontend forms cap at 99.
-            if (_col_name_lower == "quantity" and "cart" in table_name.lower()) or (
-                _col_name_lower == "quantity" and "order_item" in table_name.lower()
-            ):
-                semantic_max_values["quantity"] = 99
-            if _col_name_lower in semantic_max_values:
-                _sem_max = semantic_max_values[_col_name_lower]
-                cur_params_sem = c.get("params")
-                if isinstance(cur_params_sem, dict):
-                    _cur_max = cur_params_sem.get("max_value")
-                    if _cur_max is None or _cur_max > _sem_max:
-                        cur_params_sem["max_value"] = _sem_max
+        if has_derive or generator_name(gen) not in CANONICAL_NUMERIC_GENERATORS:
+            return
+        semantic_max_values: dict[str, int | float] = {
+            "sort_order": 999,
+            "points_balance": 100000,
+            "balance_after": 100000,
+            "stock_qty": 10000,
+            "low_stock_threshold": 100,
+            "total_spent": 999999.99,
+            "refunded_qty": 99,
+            "weight_kg": 99.99,
+        }
+        # Cart/order quantity: CHECK often allows up to 999, but
+        # real frontend forms cap at 99.
+        if (_col_name_lower == "quantity" and "cart" in table_name.lower()) or (
+            _col_name_lower == "quantity" and "order_item" in table_name.lower()
+        ):
+            semantic_max_values["quantity"] = 99
+        if _col_name_lower in semantic_max_values:
+            _sem_max = semantic_max_values[_col_name_lower]
+            cur_params_sem = c.get("params")
+            if isinstance(cur_params_sem, dict):
+                _cur_max = cur_params_sem.get("max_value")
+                if _cur_max is None or _cur_max > _sem_max:
+                    cur_params_sem["max_value"] = _sem_max
 
     def _limit_integer_scale(
         self, context: _ColumnRuleContext, c: dict[str, Any], gen: Any, has_derive: bool, _col_name_lower: str
@@ -1651,7 +1711,7 @@ class AutoHealOrchestrator:
             and (col_name_rt := c.get("name", "")) in meta.column_types
         ):
             col_type_rt = meta.column_types.get(col_name_rt, "")
-            base_type_rt = re.sub(r"\(.*\)", "", col_type_rt.upper()).strip()
+            base_type_rt = re.sub(_TYPE_PARAMETERS_PATTERN, "", col_type_rt.upper()).strip()
             if base_type_rt in {"REAL", "FLOAT", "DOUBLE", "DOUBLE PRECISION", "NUMERIC", "DECIMAL"}:
                 c["generator"] = "float"
                 gen = "float"
@@ -1795,7 +1855,7 @@ class AutoHealOrchestrator:
             and (col_name_pg := c.get("name", "")) in meta.column_types
         ):
             col_type_pg = meta.column_types.get(col_name_pg, "")
-            base_type_pg = re.sub(r"\(.*\)", "", col_type_pg.upper()).strip()
+            base_type_pg = re.sub(_TYPE_PARAMETERS_PATTERN, "", col_type_pg.upper()).strip()
             is_pg_array = base_type_pg.endswith("[]") or base_type_pg == "ARRAY"
             is_pg_specific = base_type_pg in {"INTERVAL", "TSVECTOR", "TSTZRANGE"}
             # ARRAY types: always override (the string '{}' from
@@ -1880,47 +1940,54 @@ class AutoHealOrchestrator:
         self, context: _ColumnRuleContext, c: dict[str, Any], gen: Any, has_derive: bool, params: Any
     ) -> Any:
         meta = context.meta
-        if not gen and not has_derive:
-            col_name = c.get("name", "")
-            # Infer generator from params when possible
-            if "min_length" in params or "max_length" in params:
-                gen = "string"
-            elif "choices" in params:
-                gen = "choice"
-            elif "template" in params:
-                gen = "template"
-            elif "min_value" in params or "max_value" in params:
-                mv = params.get("min_value")
-                sample = mv if mv is not None else params.get("max_value")
-                gen = "float" if isinstance(sample, float) else "integer"
-            elif meta and col_name in meta.columns:
-                # Delegate to Core ColumnMapper for semantic name
-                # matching (same fix as Step 4 in
-                # _build_subgraph_config). When the LLM strips the
-                # generator field AND no params are available to
-                # infer from, the previous code used
-                # _placeholder_generator(col_type) which returned
-                # "string" for ALL TEXT columns — producing random
-                # gibberish for email, username, avatar_url, etc.
-                # Using ColumnMapper ensures semantic generators are
-                # picked even in this post-LLM repair path.
-                col_type = meta.column_types.get(col_name, "TEXT")
-                col_info = ColumnInfo(
-                    name=col_name,
-                    type=col_type,
-                    nullable=True,
-                    default=None,
-                    is_primary_key=False,
-                    is_autoincrement=False,
-                )
-                spec = _get_column_mapper().map_column(col_info)
-                if (gen := spec.generator_name) == "skip":
-                    gen = _placeholder_generator(col_type)
-                if gen == "string" and _is_date_column(col_name):
-                    gen = "datetime"
-            if gen:
-                c["generator"] = gen
+        if gen or has_derive:
+            return gen
+        col_name = c.get("name", "")
+        if (inferred := self._generator_from_existing_params(params)) is not None:
+            gen = inferred
+        elif meta and col_name in meta.columns:
+            # Delegate to Core ColumnMapper for semantic name
+            # matching (same fix as Step 4 in
+            # _build_subgraph_config). When the LLM strips the
+            # generator field AND no params are available to
+            # infer from, the previous code used
+            # _placeholder_generator(col_type) which returned
+            # "string" for ALL TEXT columns — producing random
+            # gibberish for email, username, avatar_url, etc.
+            # Using ColumnMapper ensures semantic generators are
+            # picked even in this post-LLM repair path.
+            col_type = meta.column_types.get(col_name, "TEXT")
+            col_info = ColumnInfo(
+                name=col_name,
+                type=col_type,
+                nullable=True,
+                default=None,
+                is_primary_key=False,
+                is_autoincrement=False,
+            )
+            spec = _get_column_mapper().map_column(col_info)
+            if (gen := spec.generator_name) == "skip":
+                gen = _placeholder_generator(col_type)
+            if gen == "string" and _is_date_column(col_name):
+                gen = "datetime"
+        if gen:
+            c["generator"] = gen
         return gen
+
+    @staticmethod
+    def _generator_from_existing_params(params: Any) -> str | None:
+        """Infer source-mode dispatch from existing parameter keys, in priority order."""
+        if "min_length" in params or "max_length" in params:
+            return "string"
+        if "choices" in params:
+            return "choice"
+        if "template" in params:
+            return "template"
+        if "min_value" in params or "max_value" in params:
+            minimum = params.get("min_value")
+            sample = minimum if minimum is not None else params.get("max_value")
+            return "float" if isinstance(sample, float) else "integer"
+        return None
 
     def _reapply_single_column_checks(
         self, context: _ColumnRuleContext, c: dict[str, Any], gen: Any, has_derive: bool, params: Any
@@ -1971,58 +2038,35 @@ class AutoHealOrchestrator:
             # are floats like ``0.0``, ``0.5``).
             gen, params = self._upgrade_checked_float_generator(meta, c, gen, params, col_name)
             if (inferred := _infer_from_check_constraints(col_name, meta.constraints, meta.columns)) is not None:
-                inf_gen, inf_params = inferred
-                if inf_gen == gen and inf_params and not params:
-                    # Case 1: generators agree AND current params
-                    # are empty — apply inferred params. Only
-                    # fires when params is empty to avoid
-                    # replacing L3 exact match params (e.g.,
-                    # ``quantity`` has ``min_value: 1,
-                    # max_value: 100`` from L3; CHECK
-                    # ``quantity > 0`` would infer only
-                    # ``min_value: 1``, losing ``max_value``).
-                    c["params"] = inf_params
-                    params = inf_params
-                elif inf_gen in {"boolean", "choice"} and gen != inf_gen:
-                    # Case 2: LLM picked wrong generator for an
-                    # IN-constrained column. Override with the
-                    # correct boolean/choice generator.
-                    c["generator"] = inf_gen
-                    c["params"] = inf_params
-                    gen = inf_gen
-                    params = inf_params
-                elif inf_gen == "pattern" and _has_like_constraint(col_name, meta.constraints):
-                    # Case 3: column has a LIKE CHECK constraint
-                    # (e.g., ``start_time LIKE '__:__'``). Only a
-                    # ``pattern`` generator can guarantee the
-                    # format — ``datetime``/``string`` generators
-                    # produce values that violate the LIKE CHECK.
-                    c["generator"] = inf_gen
-                    c["params"] = inf_params
-                    gen = inf_gen
-                    params = inf_params
-                elif inf_gen == "choice" and gen == "choice" and inf_params and "choices" in inf_params:
-                    # Case 4: IN-constraint override. Both
-                    # generators are ``choice`` but the current
-                    # choices (from L3 exact match or LLM) don't
-                    # match the IN-constraint values. The IN
-                    # constraint is authoritative — override.
-                    # Example: L3 gives ``choices: [0, 1]`` but
-                    # CHECK says ``status IN ('active', ...)``.
-                    c["params"] = inf_params
-                    params = inf_params
-                elif inf_gen == gen and inf_params and params:
-                    # Case 5: LLM provided params that CONFLICT
-                    # with CHECK constraints. The LLM may set
-                    # min_value/max_value that violate the CHECK
-                    # (e.g., ``min_value: 0`` when CHECK requires
-                    # ``>= 60 AND <= 250``). The CHECK constraint
-                    # is authoritative — override conflicting
-                    # bounds with the CHECK-inferred values.
-                    # Non-conflicting bounds are preserved (e.g.,
-                    # if LLM set ``max_value: 200`` and CHECK
-                    # allows ``<= 250``, keep 200).
-                    params = self._merge_authoritative_numeric_bounds(c, inf_params, params)
+                gen, params = self._apply_inferred_column_check(c, meta, col_name, gen, params, inferred)
+        return gen, params
+
+    def _apply_inferred_column_check(
+        self,
+        column: dict[str, Any],
+        meta: TableMeta,
+        col_name: str,
+        gen: Any,
+        params: Any,
+        inferred: tuple[str, dict[str, Any]],
+    ) -> tuple[Any, Any]:
+        """Restore CHECK parameters, enum/LIKE dispatch, or conflicting numeric bounds."""
+        inf_gen, inf_params = inferred
+        # Cases 1 and 4: empty matching parameters and authoritative choice sets
+        # share one replacement. Keep a nonempty numeric domain for Case 5.
+        if inf_gen == gen and inf_params and (not params or (inf_gen == "choice" and "choices" in inf_params)):
+            column["params"] = inf_params
+            return gen, inf_params
+        # Cases 2 and 3: enum or LIKE hard truth replaces incompatible dispatch.
+        if (inf_gen in {"boolean", "choice"} and gen != inf_gen) or (
+            inf_gen == "pattern" and _has_like_constraint(col_name, meta.constraints)
+        ):
+            column["generator"] = inf_gen
+            column["params"] = inf_params
+            return inf_gen, inf_params
+        # Case 5: preserve valid user bounds; only replace those conflicting with CHECK.
+        if inf_gen == gen and inf_params and params:
+            params = self._merge_authoritative_numeric_bounds(column, inf_params, params)
         return gen, params
 
     def _restore_cross_column_derivation(
@@ -2063,8 +2107,7 @@ class AutoHealOrchestrator:
             # _infer_cross_column_config for Pattern 30).
             fk_cols_set_55: set[str] = set()
             for fk in meta.foreign_keys:
-                for fc in fk.get("columns", []):
-                    fk_cols_set_55.add(fc)
+                fk_cols_set_55.update(fk.get("columns", []))
             cross_result = _infer_cross_column_config(
                 col_name,
                 meta.constraints,
@@ -2156,80 +2199,29 @@ class AutoHealOrchestrator:
         return _date_deps
 
     def _choose_entity_name_generator(
-        self, context: _ColumnRuleContext, c: dict[str, Any], gen: Any, col_name_ctx: str, tbl_lower: str
-    ) -> Any:
-        config = context.config
-        req_digits = context.req_digits
-        meta = context.meta
-        cur_locale = config.get("locale", "en_US") or "en_US"
-        _is_zh = cur_locale.lower().startswith("zh")
-        # Brand/store names are company names — frontends
-        # display them as "Nike", "Apple Store", not as
-        # "Reactive upward-trending capability".
-        company_table_patterns = (
-            "brand",
-            "store",
-            "shop",
-            "supplier",
-            "vendor",
-            "merchant",
-            "retailer",
-        )
-        if any(p in tbl_lower for p in company_table_patterns):
-            _unique_cols_comp = _get_unique_columns(meta.constraints) if meta else set()
-            if col_name_ctx in _unique_cols_comp:
-                if _is_zh:
-                    # zh_CN + UNIQUE: template with Chinese
-                    # prefix guarantees uniqueness without
-                    # relying on catch_phrase (English-only).
-                    c["generator"] = "template"
-                    c["params"] = {"template": f"品牌{{sequence:0{req_digits}d}}"}
-                    gen = "template"
-                else:
-                    # en_US + UNIQUE: catch_phrase has high
-                    # entropy and supports English locale.
-                    c["generator"] = "catch_phrase"
-                    c["params"] = {}
-                    gen = "catch_phrase"
-            else:
-                # Non-UNIQUE: company() supports zh_CN and
-                # produces realistic Chinese company names.
-                c["generator"] = "company"
-                c["params"] = {}
-                gen = "company"
-        # Category names are simple nouns — frontends
-        # display them as "Electronics", "Books", not as
-        # "Centralized optimizing knowledgebase".
+        self, context: _ColumnRuleContext, c: dict[str, Any], col_name_ctx: str, tbl_lower: str
+    ) -> str:
+        """Choose locale-aware entity names with explicit UNIQUE-safe alternatives."""
+        cur_locale = context.config.get("locale", "en_US") or "en_US"
+        is_chinese = cur_locale.lower().startswith("zh")
+        company_table_patterns = ("brand", "store", "shop", "supplier", "vendor", "merchant", "retailer")
+        # Company/word support zh_CN directly; English-only catch_phrase needs
+        # a sequence template when both Chinese locale and uniqueness are required.
+        if any(pattern in tbl_lower for pattern in company_table_patterns):
+            prefix, ordinary_generator = "品牌", "company"
         elif "categor" in tbl_lower:
-            _unique_cols_cat = _get_unique_columns(meta.constraints) if meta else set()
-            if col_name_ctx in _unique_cols_cat:
-                if _is_zh:
-                    # zh_CN + UNIQUE: Chinese-prefixed
-                    # template guarantees uniqueness.
-                    c["generator"] = "template"
-                    c["params"] = {"template": f"分类{{sequence:0{req_digits}d}}"}
-                    gen = "template"
-                else:
-                    c["generator"] = "catch_phrase"
-                    c["params"] = {}
-                    gen = "catch_phrase"
-            else:
-                # word() supports zh_CN (returns Chinese
-                # words like "电子", "图书").
-                c["generator"] = "word"
-                c["params"] = {}
-                gen = "word"
+            prefix, ordinary_generator = "分类", "word"
         else:
-            # products and other entities
-            _unique_cols_ent = _get_unique_columns(meta.constraints) if meta else set()
-            if col_name_ctx in _unique_cols_ent and _is_zh:
-                c["generator"] = "template"
-                c["params"] = {"template": f"产品{{sequence:0{req_digits}d}}"}
-                gen = "template"
-            else:
-                c["generator"] = "catch_phrase"
-                c["params"] = {}
-                gen = "catch_phrase"
+            prefix, ordinary_generator = "产品", "catch_phrase"
+        unique_columns = _get_unique_columns(context.meta.constraints) if context.meta else set()
+        if col_name_ctx in unique_columns and is_chinese:
+            gen = "template"
+            params = {"template": f"{prefix}{{sequence:0{context.req_digits}d}}"}
+        else:
+            gen = "catch_phrase" if col_name_ctx in unique_columns else ordinary_generator
+            params = {}
+        c["generator"] = gen
+        c["params"] = params
         return gen
 
     def _upgrade_checked_float_generator(
@@ -2283,7 +2275,7 @@ class AutoHealOrchestrator:
             if col_name_r not in meta_r.column_types:
                 continue
             col_type_r = meta_r.column_types.get(col_name_r, "")
-            if (re.sub(r"\(.*\)", "", col_type_r.upper()).strip()) != "REAL":
+            if (re.sub(_TYPE_PARAMETERS_PATTERN, "", col_type_r.upper()).strip()) != "REAL":
                 continue
             expr_r = str(c_r.get("expression", ""))
             # Detect arithmetic on value or row[] refs (but not in
@@ -2499,19 +2491,22 @@ class AutoHealOrchestrator:
             # Use regex to split on top-level OR (not inside parens)
             clauses_sn = re.split(r"\bOR\b", expr_sn, flags=re.IGNORECASE)
             for clause_raw_sn in clauses_sn:
-                clause_sn = clause_raw_sn.strip().strip("()")
-                # Find cond_col = 'V' patterns
-                if not (cond_matches := re.findall(r"(\w+)\s*=\s*'([^']+)'", clause_sn)):
-                    continue
-                # Find col IS NULL patterns
-                if not (null_matches := re.findall(r"(\w+)\s+IS\s+NULL", clause_sn, re.IGNORECASE)):
-                    continue
-                for cond_col_sn, cond_val_sn in cond_matches:
-                    for null_col_sn in null_matches:
-                        if null_col_sn.upper() == cond_col_sn.upper():
-                            continue
-                        null_triggers.setdefault(null_col_sn, {}).setdefault(cond_col_sn, set()).add(cond_val_sn)
+                self._collect_clause_null_triggers(clause_raw_sn, null_triggers)
         return null_triggers
+
+    @staticmethod
+    def _collect_clause_null_triggers(clause: str, null_triggers: dict[str, dict[str, set[str]]]) -> None:
+        """Accumulate status equality/NULL pairs from one already separated OR clause."""
+        clause_sn = clause.strip().strip("()")
+        # Start only at a word boundary so a failed long identifier is scanned once.
+        if not (cond_matches := re.findall(r"\b(\w+)\s*=\s*'([^']+)'", clause_sn)):
+            return
+        if not (null_matches := re.findall(r"\b(\w+)\s+IS\s+NULL", clause_sn, re.IGNORECASE)):
+            return
+        for cond_col_sn, cond_val_sn in cond_matches:
+            for null_col_sn in null_matches:
+                if null_col_sn.upper() != cond_col_sn.upper():
+                    null_triggers.setdefault(null_col_sn, {}).setdefault(cond_col_sn, set()).add(cond_val_sn)
 
     def _apply_column_status_null(
         self,
@@ -2666,8 +2661,7 @@ class AutoHealOrchestrator:
     def _collect_table_fk_column_names(self, meta_c: TableMeta) -> set[str]:
         fk_cols_set_c: set[str] = set()
         for fk_c in meta_c.foreign_keys:
-            for fc_c in fk_c.get("columns", []):
-                fk_cols_set_c.add(fc_c)
+            fk_cols_set_c.update(fk_c.get("columns", []))
         return fk_cols_set_c
 
     def _find_status_datetime_anchor(
@@ -2832,21 +2826,7 @@ class AutoHealOrchestrator:
         # claim_type IN ('medical','accident',
         # 'property_damage','theft') for
         # approved_amount = NULL (excluding 'death').
-        allowed_values_per_col_sn7: dict[str, set[str]] = {}
-        for constraint_cn in meta_sn7.constraints:
-            if constraint_cn.get("type") != "check":
-                continue
-            expr_cn_norm = _normalize_pg_check_expr(constraint_cn.get("expression", ""))
-            for m_in_null in re.finditer(
-                rf"(\w+)\s+IN\s*\(([^)]+)\)\s+AND\s+{col_name_upper_sn7}\s+IS\s+NULL",
-                expr_cn_norm,
-                re.IGNORECASE,
-            ):
-                cond_col_cn = m_in_null.group(1)
-                values_str_cn = m_in_null.group(2)
-                if not (values_cn := re.findall(r"'([^']*)'", values_str_cn)):
-                    values_cn = [v.strip() for v in values_str_cn.split(",")]
-                allowed_values_per_col_sn7.setdefault(cond_col_cn, set()).update(values_cn)
+        allowed_values_per_col_sn7 = self._collect_conditional_null_values(meta_sn7, col_name_upper_sn7)
         for cond_col_cn, allowed_cn in allowed_values_per_col_sn7.items():
             for c_cond in tcfg_sn7.get("columns", []):
                 if c_cond.get("name") != cond_col_cn:
@@ -2956,8 +2936,6 @@ class AutoHealOrchestrator:
         sg_tables: list[str],
         violations: list[Any],
         snapshot: SchemaSnapshot,
-        schema_hash: str,
-        budget: TimeBudgetController,
     ) -> dict[str, Any]:
         """Run Layer 3 + Layer 4 healing for a single subgraph."""
         # Layer 3: local rule-based repair (cheap, deterministic). Runs
@@ -3296,7 +3274,6 @@ def _infer_cross_column_config(
 class _RunPhaseContext:
     config: dict[str, Any]
     snapshot: SchemaSnapshot
-    original_hash: str
     budget: TimeBudgetController
     subgraphs: list[list[str]]
     initial_tables: dict[str, dict[str, Any]] | None

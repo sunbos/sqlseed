@@ -23,6 +23,8 @@ from urllib.parse import parse_qsl, unquote, urlsplit
 
 from sqlseed_web.workbench_execution import normalize_execution
 
+_SELECT_DRAFT = "SELECT payload FROM workspace_drafts WHERE id = ?"
+
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
@@ -130,6 +132,19 @@ def _snapshot(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _validate_run_table(table: Any) -> str:
+    if not isinstance(table, dict):
+        # Payload validation uses ValueError, which the HTTP boundary handles consistently.
+        raise ValueError("Each run table must be an object")  # noqa: TRY004
+    count = table.get("count", table.get("requested_count"))
+    if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+        raise ValueError("Run table count must be a nonnegative integer")
+    table_status = table.get("status", "queued")
+    if not isinstance(table_status, str) or table_status not in _RUN_STATUSES | {"not_run"}:
+        raise ValueError("Unknown run table status")
+    return _text(table, "name")
+
+
 def _validate_run(record: dict[str, Any]) -> None:
     """Validate bounded run status and table progress before persistence."""
     status = record.get("status")
@@ -140,22 +155,28 @@ def _validate_run(record: dict[str, Any]) -> None:
         raise ValueError(f"tables must be a list of at most {_MAX_TABLES} entries")
     names: set[str] = set()
     for table in tables:
-        if not isinstance(table, dict):
-            # Payload validation uses ValueError, which the HTTP boundary handles consistently.
-            raise ValueError("Each run table must be an object")  # noqa: TRY004
-        if (name := _text(table, "name")) in names:
+        if (name := _validate_run_table(table)) in names:
             raise ValueError("Run table names must be unique")
         names.add(name)
-        count = table.get("count", table.get("requested_count"))
-        if isinstance(count, bool) or not isinstance(count, int) or count < 0:
-            raise ValueError("Run table count must be a nonnegative integer")
-        table_status = table.get("status", "queued")
-        if not isinstance(table_status, str) or table_status not in _RUN_STATUSES | {"not_run"}:
-            raise ValueError("Unknown run table status")
     for progress in (record, *tables):
         inserted = progress.get("rows_inserted", 0)
         if inserted is not None and (isinstance(inserted, bool) or not isinstance(inserted, int) or inserted < 0):
             raise ValueError("rows_inserted must be a nonnegative integer or null")
+
+
+def _set_run_identity(record: dict[str, Any], payload: dict[str, Any]) -> None:
+    """Validate immutable run identifiers and timestamps independently of progress."""
+    run_id = payload.get("id", str(uuid.uuid4()))
+    _text({"id": run_id}, "id", 128)
+    revision = payload.get("revision")
+    if revision is not None and (isinstance(revision, bool) or not isinstance(revision, int) or revision < 1):
+        raise ValueError("revision must be a positive integer or null")
+    if (draft_id := payload.get("draft_id")) is not None:
+        _text({"draft_id": draft_id}, "draft_id", 128)
+    created_at = payload.get("created_at", time.time())
+    if isinstance(created_at, bool) or not isinstance(created_at, (int, float)) or created_at < 0:
+        raise ValueError("created_at must be a nonnegative timestamp")
+    record.update(id=run_id, draft_id=draft_id, revision=revision, created_at=created_at)
 
 
 def _run_snapshot(payload: dict[str, Any]) -> dict[str, Any]:
@@ -168,17 +189,7 @@ def _run_snapshot(payload: dict[str, Any]) -> dict[str, Any]:
     if record["execution"]["mode"] == "replace_selected" and not plan_hash:
         raise ValueError("replacement execution requires an immutable plan_hash")
     record["plan_hash"] = plan_hash
-    run_id = payload.get("id", str(uuid.uuid4()))
-    _text({"id": run_id}, "id", 128)
-    revision = payload.get("revision")
-    if revision is not None and (isinstance(revision, bool) or not isinstance(revision, int) or revision < 1):
-        raise ValueError("revision must be a positive integer or null")
-    if (draft_id := payload.get("draft_id")) is not None:
-        _text({"draft_id": draft_id}, "draft_id", 128)
-    created_at = payload.get("created_at", time.time())
-    if isinstance(created_at, bool) or not isinstance(created_at, (int, float)) or created_at < 0:
-        raise ValueError("created_at must be a nonnegative timestamp")
-    record.update(id=run_id, draft_id=draft_id, revision=revision, created_at=created_at)
+    _set_run_identity(record, payload)
     for key in ("name", "config_hash"):
         if key in payload:
             record[key] = _text(payload, key)
@@ -298,7 +309,7 @@ class WorkspaceStore:
     def get_draft(self, draft_id: str) -> dict[str, Any]:
         """Return a detached draft snapshot, raising KeyError for an unknown id."""
         with self._connection() as db:
-            row = db.execute("SELECT payload FROM workspace_drafts WHERE id = ?", (draft_id,)).fetchone()
+            row = db.execute(_SELECT_DRAFT, (draft_id,)).fetchone()
         if row is None:
             raise KeyError(draft_id)
         return _decode(row[0])
@@ -316,7 +327,7 @@ class WorkspaceStore:
     @staticmethod
     def _draft_at_revision(db: sqlite3.Connection, draft_id: str, expected_revision: int) -> dict[str, Any]:
         """Read the displayed draft inside its caller's serialized write transaction."""
-        if (row := db.execute("SELECT payload FROM workspace_drafts WHERE id = ?", (draft_id,)).fetchone()) is None:
+        if (row := db.execute(_SELECT_DRAFT, (draft_id,)).fetchone()) is None:
             raise KeyError(draft_id)
         record = _decode(row[0])
         if (
@@ -368,8 +379,7 @@ class WorkspaceStore:
         try:
             with self._connection(write=True) as db:
                 if require_current_draft:
-                    row = db.execute("SELECT payload FROM workspace_drafts WHERE id = ?", (draft_id,)).fetchone()
-                    if row is None:
+                    if (row := db.execute(_SELECT_DRAFT, (draft_id,)).fetchone()) is None:
                         raise KeyError(draft_id)
                     draft = _decode(row[0])
                     snapshot_fields = ("revision", "document", "schema_hash", "target_key")

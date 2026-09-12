@@ -3,84 +3,92 @@
 export const store = {
   connId: null,
   target: null,
-  tables: [],
+  tables: []
 };
-
 export async function api(path, options = {}) {
   const res = await fetch(path, {
-    headers: { 'Content-Type': 'application/json' },
-    ...options,
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    ...options
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const detail=body.detail;
-    const message=typeof detail==='string'?detail:Array.isArray(detail)
-      ?detail.map(item=>`${(item.loc || []).join('.')}: ${item.msg || JSON.stringify(item)}`).join('；')
-      :detail?.message || (detail?JSON.stringify(detail):`HTTP ${res.status}`);
-    const error=new Error(message);error.status=res.status;error.detail=detail;throw error;
+    const detail = body.detail;
+    const message = httpErrorMessage(detail, res.status, true);
+    const error = new Error(message);
+    error.status = res.status;
+    error.detail = detail;
+    throw error;
   }
   return body;
 }
-
-export const post = (path, data) =>
-  api(path, { method: 'POST', body: JSON.stringify(data) });
-export const send = (path, data, method = 'POST') =>
-  api(path, { method, body: JSON.stringify(data) });
-export const get = (path) => api(path);
-export const del = (path) => api(path, { method: 'DELETE' });
+export const post = (path, data) => api(path, {
+  method: 'POST',
+  body: JSON.stringify(data)
+});
+export const send = (path, data, method = 'POST') => api(path, {
+  method,
+  body: JSON.stringify(data)
+});
+export const get = path => api(path);
+export const del = path => api(path, {
+  method: 'DELETE'
+});
 
 // ---- tiny DOM helpers -----------------------------------------------------
 
 export const h = (tag, attrs = {}, ...children) => {
   const el = document.createElement(tag);
-  for (const [k, v] of Object.entries(attrs)) {
-    if (k === 'class') el.className = v;
-    else if (k === 'onclick') el.onclick = v;
-    else if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
-    else if (k === 'value') el.value = v;
-    else if (k === 'checked') el.checked = v;
-    else if (typeof v === 'boolean') {
-      // 布尔属性（disabled 等）：false 必须移除属性——
-      // setAttribute('disabled', false) 会因属性存在而仍判定为禁用。
-      if (v) el.setAttribute(k, '');
-      else el.removeAttribute(k);
-    }
-    else el.setAttribute(k, v);
-  }
+  applyAttributes(el, attrs);
   for (const c of children.flat(Infinity)) {
-    if (c == null) continue;
+    if (c == null) {
+      continue;
+    }
     el.append(c.nodeType ? c : document.createTextNode(c));
   }
   return el;
 };
-
-export const clear = (el) => { while (el.firstChild) el.removeChild(el.firstChild); };
-
-export function table(headers, rows, { monoCols = [] } = {}) {
-  const thead = h('thead', {}, h('tr', {}, ...headers.map((t) => h('th', {}, t))));
+export const clear = el => {
+  while (el.firstChild) {
+    el.firstChild.remove();
+  }
+};
+export function table(headers, rows, {
+  monoCols = []
+} = {}) {
+  const thead = h('thead', {}, h('tr', {}, ...headers.map(t => h('th', {}, t))));
   const tbody = h('tbody');
   for (const row of rows) {
-    tbody.append(h('tr', {}, ...row.map((cell, i) =>
-      h('td', monoCols.includes(i) ? { class: 'mono' } : {}, cell ?? ''))));
+    tbody.append(h('tr', {}, ...row.map((cell, i) => h('td', monoCols.includes(i) ? {
+      class: 'mono'
+    } : {}, cell ?? ''))));
   }
   return h('table', {}, thead, tbody);
 }
-
 export function msg(text, kind = 'err') {
-  return h('div', { class: `msg ${kind}` }, text);
+  return h('div', {
+    class: `msg ${kind}`
+  }, text);
 }
-
 export function fmt(v) {
-  if (v === null || v === undefined) return '';
-  if (typeof v === 'object') return JSON.stringify(v);
+  if (v === null || v === undefined) {
+    return '';
+  }
+  if (typeof v === 'object') {
+    return JSON.stringify(v);
+  }
   return String(v);
 }
-
 export function setConnBadge() {
   const label = document.getElementById('connection-label');
-  if (label) label.textContent = store.connId ? safeTargetLabel(store.target) : '连接数据库';
+  if (label) {
+    label.textContent = store.connId ? safeTargetLabel(store.target) : '连接数据库';
+  }
   const badge = document.getElementById('conn-badge');
-  if (!badge) return;
+  if (!badge) {
+    return;
+  }
   if (store.connId) {
     badge.className = 'badge ok';
     badge.textContent = store.target || store.connId;
@@ -92,16 +100,19 @@ export function setConnBadge() {
 
 /** Display identity only; omit URL userinfo and query parameters. */
 export function safeTargetLabel(target) {
-  if (!target) return '已连接数据库';
+  if (!target) {
+    return '已连接数据库';
+  }
   const text = String(target);
   if (text.includes('://')) {
     try {
       const url = new URL(text);
-      return `${url.hostname}${url.port ? `:${url.port}` : ''}${decodeURIComponent(url.pathname)}`;
-    } catch { return '已连接数据库'; }
+      return `${url.hostname}${url.port ? ":" + url.port : ''}${decodeURIComponent(url.pathname)}`;
+    } catch {
+      return '已连接数据库';
+    }
   }
-  return /^(?:[\\/]|[A-Za-z]:[\\/])/.test(text)
-    ? text.split(/[\\/]/).filter(Boolean).at(-1) || text : text;
+  return /^(?:[\\/]|[A-Za-z]:[\\/])/.test(text) ? text.split(/[\\/]/).findLast(Boolean) || text : text;
 }
 
 // ---- 跨刷新恢复 ------------------------------------------------------------
@@ -112,7 +123,6 @@ export function safeTargetLabel(target) {
 const CONN_KEY = 'sqlseed.connId';
 let connectionChoiceVersion = 0;
 let explicitlyDisconnected = false;
-
 export function rememberConnId(connId) {
   connectionChoiceVersion++;
   explicitlyDisconnected = connId === '';
@@ -122,7 +132,6 @@ export function rememberConnId(connId) {
     /* 隐私模式等下 localStorage 不可用——恢复失败也只是退回手动连接，不值得报错 */
   }
 }
-
 export function forgetConnId() {
   connectionChoiceVersion++;
   explicitlyDisconnected = false;
@@ -138,7 +147,9 @@ export function forgetConnId() {
  * @returns {Promise<boolean>} 恢复成功与否（失败时 store 保持原样）
  */
 export async function restoreConnection() {
-  if (explicitlyDisconnected) return false;
+  if (explicitlyDisconnected) {
+    return false;
+  }
   const originalConnection = store.connId;
   const originalChoiceVersion = connectionChoiceVersion;
   const current = () => store.connId === originalConnection && connectionChoiceVersion === originalChoiceVersion;
@@ -150,28 +161,68 @@ export async function restoreConnection() {
   }
   // An empty stored id is an explicit user disconnect, not a missing history.
   // Preserve that choice even when other server-side sessions remain open.
-  if (remembered === '') return false;
+  if (remembered === '') {
+    return false;
+  }
   try {
     const res = await get('/api/connections');
-    if (!current()) return Boolean(store.connId);
+    if (!current()) {
+      return Boolean(store.connId);
+    }
     const list = res.connections || [];
-    const pick = list.find((c) => c.conn_id === remembered)
-      || list.find((c) => c.group_index === 1)
-      || list[0];
+    const pick = list.find(c => c.conn_id === remembered) || list.find(c => c.group_index === 1) || list[0];
     if (!pick) {
       forgetConnId();
       return false;
     }
     const detail = await get(`/api/connections/${pick.conn_id}/tables`);
-    if (!current()) return Boolean(store.connId);
+    if (!current()) {
+      return Boolean(store.connId);
+    }
     store.connId = pick.conn_id;
     store.target = String(detail.target || '').includes('://') ? safeTargetLabel(detail.target) : detail.target;
     store.tables = detail.tables;
     setConnBadge();
     return true;
   } catch {
-    if (!current()) return Boolean(store.connId);
+    if (!current()) {
+      return Boolean(store.connId);
+    }
     forgetConnId();
     return false;
   }
+}
+function applyAttributes(el, attrs) {
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === 'class') {
+      el.className = v;
+    } else if (k === 'onclick') {
+      el.onclick = v;
+    } else if (k.startsWith('on')) {
+      el.addEventListener(k.slice(2), v);
+    } else if (k === 'value') {
+      el.value = v;
+    } else if (k === 'checked') {
+      el.checked = v;
+    } else if (typeof v === 'boolean') {
+      // 布尔属性（disabled 等）：false 必须移除属性——
+      // setAttribute('disabled', false) 会因属性存在而仍判定为禁用。
+      if (v) {
+        el.setAttribute(k, '');
+      } else {
+        el.removeAttribute(k);
+      }
+    } else {
+      el.setAttribute(k, v);
+    }
+  }
+}
+export function httpErrorMessage(detail, status, stringifyUnknown = false) {
+  if (typeof detail === 'string') { return detail; }
+  if (Array.isArray(detail)) {
+    return detail.map(item => `${(item.loc || []).join('.')}: ${item.msg || JSON.stringify(item)}`).join('；');
+  }
+  if (detail?.message) { return detail.message; }
+  if (stringifyUnknown && detail) { return JSON.stringify(detail); }
+  return `HTTP ${status}`;
 }

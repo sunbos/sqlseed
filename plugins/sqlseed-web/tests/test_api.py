@@ -126,7 +126,9 @@ class TestFsBrowse:
         # DB files and dirs are listed by default; other files filtered out.
         assert names == {"pickme.db", "subdir"}
         db_entry = next(e for e in body["entries"] if e["name"] == "pickme.db")
-        assert db_entry["is_db"] is True and db_entry["is_dir"] is False and db_entry["size"] == 0
+        assert db_entry["is_db"] is True
+        assert db_entry["is_dir"] is False
+        assert db_entry["size"] == 0
 
     def test_browse_all_files_flag(self, client: TestClient, tmp_path: Path) -> None:
         (tmp_path / "notes.txt").write_text("x")

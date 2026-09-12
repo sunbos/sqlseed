@@ -47,8 +47,9 @@ class TestSQLAlchemyAdapterBoundary:
 
     def test_batch_insert_nonexistent_table_raises_runtime_error(self, sa_adapter: SQLAlchemyAdapter) -> None:
         """Non-existent table raises RuntimeError (not NoSuchTableError)."""
+        rows = iter([{"id": 1}])
         with pytest.raises(RuntimeError):
-            sa_adapter.batch_insert("nonexistent_table", iter([{"id": 1}]))
+            sa_adapter.batch_insert("nonexistent_table", rows)
 
     def test_operation_after_close_raises(self, tmp_db: str) -> None:
         """After close, calling get_table_names raises RuntimeError."""

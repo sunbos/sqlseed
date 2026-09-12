@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import random
 import sqlite3
-import string
 import sys
 import time
 from pathlib import Path
@@ -90,6 +89,8 @@ _ENUM_COLS = [c for c, (_, k, _v) in _COL_CATALOG.items() if k == "enum"]
 
 
 class ColumnSpec:
+    """Describe a generated column and its SQLite DDL constraints."""
+
     def __init__(self, name: str, col_type: str, nullable: bool, unique: bool):
         self.name = name
         self.type = col_type
@@ -97,7 +98,9 @@ class ColumnSpec:
         self.unique = unique
         self.check: str | None = None
         self.default: str | None = None
+
     def ddl(self) -> str:
+        """Render this schema definition as a SQLite DDL fragment."""
         parts = [f'"{self.name}" {self.type}']
         if not self.nullable:
             parts.append("NOT NULL")
@@ -108,31 +111,36 @@ class ColumnSpec:
         if self.check:
             parts.append(f"CHECK {self.check}")
         return " ".join(parts)
+
     def __repr__(self) -> str:  # pragma: no cover - debug aid
         return f"<Col {self.name} {self.type} nn={not self.nullable} uniq={self.unique}>"
 
 
 class TableSpec:
+    """Describe a generated table and its foreign-key relationships."""
+
     def __init__(self, name: str):
         self.name = name
         self.columns: list[ColumnSpec] = []
         self.pk: list[str] = []
         self.fk: list[tuple[str, str, str]] = []  # (col, ref_table, ref_col)
         self.ref_by: list[str] = []  # tables referencing us (for 2-pass fill)
+
     def ddl(self) -> str:
-        parts = [f"CREATE TABLE \"{self.name}\" ("]
+        """Render this schema definition as a SQLite DDL fragment."""
+        parts = [f'CREATE TABLE "{self.name}" (']
         defs = [c.ddl() for c in self.columns]
         if self.pk:
             primary_key = ", ".join(f'"{column}"' for column in self.pk)
             defs.append(f"PRIMARY KEY ({primary_key})")
         for col, rt, rc in self.fk:
-            defs.append(f"FOREIGN KEY (\"{col}\") REFERENCES \"{rt}\"(\"{rc}\")")
+            defs.append(f'FOREIGN KEY ("{col}") REFERENCES "{rt}"("{rc}")')
         parts.append(", ".join(defs))
         parts.append(")")
         return " ".join(parts)
 
 
-def _mk_col(rng: random.Random, name: str, nullable: bool, unique: bool) -> ColumnSpec:
+def _mk_col(name: str, nullable: bool, unique: bool) -> ColumnSpec:
     col_type, kind, meta = _COL_CATALOG[name]
     c = ColumnSpec(name, col_type, nullable, unique)
     if kind == "num":
@@ -152,7 +160,7 @@ def _pick_col(rng: random.Random, used: set[str]) -> str:
     return rng.choice(cands)
 
 
-def fabricate(seed: int, rng: random.Random) -> list[TableSpec]:
+def fabricate(rng: random.Random) -> list[TableSpec]:
     """Build a random acyclic FK graph with N tables (2-5).
 
     Every column is a semantically-consistent (name, type, CHECK) triple, so
@@ -189,7 +197,7 @@ def fabricate(seed: int, rng: random.Random) -> list[TableSpec]:
                 else:
                     unique = True
             nullable = rng.random() < 0.3
-            table.columns.append(_mk_col(rng, name, nullable, unique))
+            table.columns.append(_mk_col(name, nullable, unique))
 
     # FK edges: each non-root table gets 0-2 FK to earlier tables (acyclic).
     for i in range(1, n_tables):
@@ -204,13 +212,15 @@ def fabricate(seed: int, rng: random.Random) -> list[TableSpec]:
 
 
 def counts_for(tables: list[TableSpec]) -> dict[str, int]:
+    """Assign a reproducible row count to each generated table."""
     return {t.name: 20 + i * 7 for i, t in enumerate(tables)}
 
 
 # ---------------------------------------------------------------------------
 # L1: sqlseed core zero-config fill
 # ---------------------------------------------------------------------------
-def l1_core(db: Path, tables: list[TableSpec], counts: dict[str, int], seed: int) -> bool:
+def l1_core(db: Path, counts: dict[str, int], seed: int) -> bool:
+    """Fill a generated schema through Core and verify its stored rows."""
     import sqlseed
 
     ok = True
@@ -242,6 +252,7 @@ def _verify_all(db: Path, counts: dict[str, int], tag: str) -> bool:
 # L2: sqlseed-ai FastValidator + RepairPipeline offline
 # ---------------------------------------------------------------------------
 def l2_ai(db: Path, seed: int) -> bool:
+    """Repair a generated configuration offline and verify its stored rows."""
     from sqlseed_ai.contracts.builtin_violations import BUILTIN_VIOLATIONS
     from sqlseed_ai.contracts.matrix import ContractResolver
     from sqlseed_ai.repair.pipeline import RepairPipeline
@@ -254,7 +265,8 @@ def l2_ai(db: Path, seed: int) -> bool:
     # Build a naive LLM-style config (generic generators) to stress the
     # contract matrix + repair pipeline against the random schema.
     tables = [
-        r[0] for r in sqlite3.connect(db).execute(
+        r[0]
+        for r in sqlite3.connect(db).execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
         )
     ]
@@ -293,13 +305,14 @@ def l2_ai(db: Path, seed: int) -> bool:
     except (ConfigurationError, ValueError, RuntimeError, OSError, SQLAlchemyError) as e:
         print(f"  [L2] ai-repaired fill failed: {type(e).__name__}: {e}")
         return False
-    return _verify_all(db, {t: 25 for t in tables}, "L2-ai")
+    return _verify_all(db, dict.fromkeys(tables, 25), "L2-ai")
 
 
 # ---------------------------------------------------------------------------
 # L3: MCP tools generate_yaml + execute_fill
 # ---------------------------------------------------------------------------
-def l3_mcp(db: Path, tables: list[TableSpec], seed: int) -> bool:
+def l3_mcp(db: Path, tables: list[TableSpec]) -> bool:
+    """Generate and execute MCP configurations for each schema table."""
     from mcp_server_sqlseed.server import sqlseed_execute_fill, sqlseed_generate_yaml
 
     ok = True
@@ -320,6 +333,7 @@ def l3_mcp(db: Path, tables: list[TableSpec], seed: int) -> bool:
 
 # ---------------------------------------------------------------------------
 def main() -> int:
+    """Run reproducible schema rounds through Core, AI repair, and MCP."""
     seed = int(sys.argv[1]) if len(sys.argv) > 1 else 20260805
     rounds = int(sys.argv[2]) if len(sys.argv) > 2 else 3
     rng = random.Random(seed)
@@ -328,7 +342,7 @@ def main() -> int:
     for r in range(rounds):
         r_seed = rng.randint(0, 10**9)
         r_rng = random.Random(r_seed)
-        tables = fabricate(r_seed, r_rng)
+        tables = fabricate(r_rng)
         counts = counts_for(tables)
         db = DB_DIR / f"rand_r{r}.db"
         build_db(db, [t.ddl() for t in tables])
@@ -339,7 +353,7 @@ def main() -> int:
         # L1 core (fresh db)
         db_l1 = DB_DIR / f"rand_r{r}_core.db"
         build_db(db_l1, [t.ddl() for t in tables])
-        check(f"L1-core round{r}", l1_core(db_l1, tables, counts, r_seed))
+        check(f"L1-core round{r}", l1_core(db_l1, counts, r_seed))
 
         # L2 ai (fresh db)
         db_l2 = DB_DIR / f"rand_r{r}_ai.db"
@@ -349,10 +363,10 @@ def main() -> int:
         # L3 mcp (fresh db)
         db_l3 = DB_DIR / f"rand_r{r}_mcp.db"
         build_db(db_l3, [t.ddl() for t in tables])
-        check(f"L3-mcp round{r}", l3_mcp(db_l3, tables, r_seed))
+        check(f"L3-mcp round{r}", l3_mcp(db_l3, tables))
 
     print("\n" + "=" * 70)
-    print(f"TOTAL: {check.passed} passed, {check.failed} failed  ({time.perf_counter()-t0:.1f}s)")
+    print(f"TOTAL: {check.passed} passed, {check.failed} failed  ({time.perf_counter() - t0:.1f}s)")
     if check.failures:
         print("failed:", ", ".join(check.failures))
     print("=" * 70)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from functools import partial
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -30,19 +31,21 @@ def test_three_column_fk_is_rejected_without_changing_existing_rows(tmp_path: Pa
             "INSERT INTO children VALUES(1,10,100);"
         )
     with DataOrchestrator(str(path), provider_name="base", optimize_pragma=False) as orch:
+        if mode == "preview":
+            operation = partial(orch.preview_table, "children", count=5, seed=42)
+        else:
+            operation = partial(
+                orch.fill_table,
+                "children",
+                count=5,
+                batch_size=1,
+                seed=42,
+                clear_before=mode in {"clear", "enrich_clear"},
+                enrich=mode == "enrich_clear",
+                skip_ai=True,
+            )
         with pytest.raises(ConfigurationError, match=r"children.*3-column composite foreign key.*not supported"):
-            if mode == "preview":
-                orch.preview_table("children", count=5, seed=42)
-            else:
-                orch.fill_table(
-                    "children",
-                    count=5,
-                    batch_size=1,
-                    seed=42,
-                    clear_before=mode in {"clear", "enrich_clear"},
-                    enrich=mode == "enrich_clear",
-                    skip_ai=True,
-                )
+            operation()
         assert orch.query("SELECT * FROM children") == [{"a": 1, "b": 10, "c": 100}]
         assert orch.query("SELECT * FROM parents ORDER BY a") == [
             {"a": 1, "b": 10, "c": 100},
@@ -132,7 +135,8 @@ def test_schema_preflight_database_error_returns_failed_result(tmp_path: Path) -
                 result = orch.fill_table("items", count=1, clear_before=True, skip_ai=True)
                 assert result.count == 0
                 assert result.batch_count == 0
-                assert result.errors and "database is locked" in result.errors[0]
+                assert result.errors
+                assert "database is locked" in result.errors[0]
             finally:
                 blocker.rollback()
         assert orch.query("SELECT * FROM items") == [{"value": 777}]

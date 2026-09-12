@@ -120,8 +120,9 @@ def test_runtime_missing_credentials_raises_value_error_without_console_output(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     runtime = importlib.import_module("sqlseed_ai.runtime")
+    config = AIConfig(backend=AIBackend.OPENAI_COMPAT, base_url="https://example.invalid/v1")
     with pytest.raises(ValueError, match="AI API key not configured") as error:
-        runtime.build_llm_client(AIConfig(backend=AIBackend.OPENAI_COMPAT, base_url="https://example.invalid/v1"))
+        runtime.build_llm_client(config)
     assert "--auto-heal" not in str(error.value)
     assert capsys.readouterr() == ("", "")
 
@@ -136,8 +137,9 @@ def test_runtime_missing_sdk_is_an_import_error(monkeypatch: pytest.MonkeyPatch)
         return original_import(name, *args, **kwargs)
 
     monkeypatch.setattr(builtins, "__import__", without_sdk)
+    config = AIConfig(backend=AIBackend.OLLAMA, model="fixed-model")
     with pytest.raises(ImportError, match="OpenAI SDK unavailable"):
-        runtime.build_llm_client(AIConfig(backend=AIBackend.OLLAMA, model="fixed-model"))
+        runtime.build_llm_client(config)
 
 
 def test_runtime_client_close_releases_sdk_transport() -> None:

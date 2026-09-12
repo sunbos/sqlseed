@@ -135,7 +135,8 @@ def test_draft_probe_uses_draft_and_does_not_save(settings_client: Any, monkeypa
     assert requests[0][1]["headers"]["Authorization"] == "Bearer draft-secret"
     assert result.json()["models"] == ["draft-model"]
     assert datetime.fromisoformat(result.json()["checked_at"]).tzinfo is not None
-    assert path.read_bytes() == before_disk and registry.get_ai_override() == before_memory
+    assert path.read_bytes() == before_disk
+    assert registry.get_ai_override() == before_memory
     assert "secret" not in result.text
     assert client.post("/api/workbench/ai/test").json()["ok"] is True
     assert requests[-1][0] == configured()["base_url"] + "/models"
@@ -214,7 +215,8 @@ def test_probe_failure_is_redacted(settings_client: Any, monkeypatch: pytest.Mon
     assert result.json()["ok"] is False
     assert result.json()["models"] == []
     assert result.json()["checked_at"]
-    assert "private-token" not in result.text and "password" not in result.text
+    assert "private-token" not in result.text
+    assert "password" not in result.text
 
 
 def test_environment_uses_current_interpreter_and_distribution_metadata(settings_client: Any) -> None:
@@ -226,7 +228,8 @@ def test_environment_uses_current_interpreter_and_distribution_metadata(settings
     packages = {item["id"]: item for item in result["packages"]}
     assert set(packages) == {"core", "cli", "web", "ai", "mcp"}
     assert packages["web"]["version"] == metadata.version("sqlseed-web")
-    assert packages["core"]["installed"] is True and packages["core"]["available"] is True
+    assert packages["core"]["installed"] is True
+    assert packages["core"]["available"] is True
     assert {item["id"] for item in result["providers"]} == {"base", "faker", "mimesis"}
     assert result["python"]["implementation"] == platform.python_implementation()
     for item in result["packages"] + result["providers"]:
@@ -263,7 +266,8 @@ def test_environment_explains_component_roles_and_real_dependencies(settings_cli
         assert "sqlseed[mimesis]" in items["mimesis"]["install_command"]
     assert items["base"]["install_command"] is None
     assert all(item["description"] and item["guidance"] for item in items.values())
-    assert "sqlseed" in items["faker"]["guidance"] and "必需" in items["faker"]["guidance"]
+    assert "sqlseed" in items["faker"]["guidance"]
+    assert "必需" in items["faker"]["guidance"]
     assert "AI" in items["cli"]["guidance"]
     assert not path.exists()
 
@@ -398,8 +402,10 @@ def test_missing_required_provider_is_an_environment_repair_not_optional_install
     monkeypatch.setattr(importlib, "import_module", import_module)
     response = client.get("/api/settings/environment")
     faker = next(item for item in response.json()["providers"] if item["id"] == "faker")
-    assert faker["requirement"] == "required" and faker["status"] == "not_installed"
-    assert "必需依赖缺失" in faker["guidance"] and "修复" in faker["guidance"]
+    assert faker["requirement"] == "required"
+    assert faker["status"] == "not_installed"
+    assert "必需依赖缺失" in faker["guidance"]
+    assert "修复" in faker["guidance"]
     assert "private-provider-secret" not in response.text
 
 
@@ -438,8 +444,10 @@ def test_ai_settings_distinguish_missing_package_from_import_failure(
         assert ("加载异常" if installed else "尚未安装") in result["message"]
         if installed:
             assert "尚未安装" not in result["message"]
-        assert "private-import-secret" not in response.text and "password" not in response.text
-    assert not path.exists() and registry.get_ai_override() == {}
+        assert "private-import-secret" not in response.text
+        assert "password" not in response.text
+    assert not path.exists()
+    assert registry.get_ai_override() == {}
 
 
 def test_available_ai_settings_report_availability_independently_of_readiness(settings_client: Any) -> None:
@@ -447,7 +455,8 @@ def test_available_ai_settings_report_availability_independently_of_readiness(se
     client, _, _ = settings_client
     result = client.get("/api/workbench/ai/config").json()
     assert result["availability_status"] == "available"
-    assert result["available"] is True and result["ready"] is False
+    assert result["available"] is True
+    assert result["ready"] is False
 
 
 def test_missing_optional_packages_and_broken_imports_remain_readable(
@@ -476,8 +485,10 @@ def test_missing_optional_packages_and_broken_imports_remain_readable(
     assert response.status_code == 200
     result = response.json()
     packages = {item["id"]: item for item in result["packages"]}
-    assert packages["ai"]["status"] == "not_installed" and packages["ai"]["available"] is False
-    assert packages["mcp"]["status"] == "import_error" and packages["mcp"]["available"] is False
+    assert packages["ai"]["status"] == "not_installed"
+    assert packages["ai"]["available"] is False
+    assert packages["mcp"]["status"] == "import_error"
+    assert packages["mcp"]["available"] is False
     assert "private-missing-secret" not in response.text
     assert "private-broken-secret" not in response.text
     assert client.get("/api/health").json() == {"status": "ok"}
@@ -562,7 +573,8 @@ def test_draft_return_to_environment_service_reuses_its_key_without_saving(
     draft = client.post("/api/workbench/ai/test", json=configured())
     assert draft.json()["ok"] is True
     assert requests == [(configured()["base_url"] + "/models", "Bearer environment-service-key")]
-    assert path.read_bytes() == before_disk and registry.get_ai_override() == before_memory
+    assert path.read_bytes() == before_disk
+    assert registry.get_ai_override() == before_memory
     saved = client.post("/api/workbench/ai/config", json=configured()).json()
     assert saved["effective"]["api_key_present"] is True
     assert saved["sources"]["api_key"] == "environment"

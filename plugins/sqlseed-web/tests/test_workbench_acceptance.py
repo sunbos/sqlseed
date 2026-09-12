@@ -113,7 +113,8 @@ def test_http_save_reopen_check_preview_run_and_history(workspace_client: TestCl
     conn_id, schema = _connect(client, target_path)
     original = _document()
     draft = _save(client, conn_id, schema, original)
-    assert "db_path" not in draft["document"] and "url" not in draft["document"]
+    assert "db_path" not in draft["document"]
+    assert "url" not in draft["document"]
     original["tables"][0]["count"] = 99
 
     reopened = client.get(f"/api/workbench/drafts/{draft['id']}")
@@ -122,7 +123,8 @@ def test_http_save_reopen_check_preview_run_and_history(workspace_client: TestCl
     assert reopened.json()["view_state"]["graphMode"] == "paths"
     checked = _check(client, conn_id, draft)
     preview = _check(client, conn_id, draft, "preview")
-    assert checked["ok"] and preview["ok"], (checked, preview)
+    assert checked["ok"], (checked, preview)
+    assert preview["ok"], (checked, preview)
     assert checked["order"] == ["parents", "children"]
     assert not preview["preview_complete"]
     assert len(preview["samples"]["parents"]) == 3

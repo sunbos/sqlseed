@@ -69,6 +69,20 @@ def _intersect_bounds(user_lo: Any, user_hi: Any, lo: int | float | None, hi: in
     return new_lo, new_hi
 
 
+def _align_numeric_bound(
+    value: Any, *, boundary: float | None, exclusive: bool, integer: bool, precision: Any, lower: bool
+) -> Any:
+    """Move an intersected bound to the generator's nearest valid grid point."""
+    if value is None:
+        return None
+    strict = exclusive and boundary is not None and value == boundary
+    if not integer:
+        return _float_grid_bound(value, int(precision), lower=lower, exclusive=strict)
+    if lower:
+        return math.floor(value) + 1 if strict else math.ceil(value)
+    return math.ceil(value) - 1 if strict else math.floor(value)
+
+
 class CheckAdapter:
     """用 CHECK 既定事实钳制用户配置的生成值域。
 
@@ -141,18 +155,12 @@ class CheckAdapter:
         #   故取域内首/末精度网格点。直接加减step会误删窄域合法值：
         #   0.005 < x < 0.015，precision=2 时仍可生成0.01。
         precision = params.get("precision", 2)
-        if new_lo is not None:
-            exclusive = parsed.min_exclusive and lo is not None and new_lo == lo
-            if integer:
-                new_lo = math.floor(new_lo) + 1 if exclusive else math.ceil(new_lo)
-            else:
-                new_lo = _float_grid_bound(new_lo, int(precision), lower=True, exclusive=exclusive)
-        if new_hi is not None:
-            exclusive = parsed.max_exclusive and hi is not None and new_hi == hi
-            if integer:
-                new_hi = math.ceil(new_hi) - 1 if exclusive else math.floor(new_hi)
-            else:
-                new_hi = _float_grid_bound(new_hi, int(precision), lower=False, exclusive=exclusive)
+        new_lo = _align_numeric_bound(
+            new_lo, boundary=lo, exclusive=parsed.min_exclusive, integer=integer, precision=precision, lower=True
+        )
+        new_hi = _align_numeric_bound(
+            new_hi, boundary=hi, exclusive=parsed.max_exclusive, integer=integer, precision=precision, lower=False
+        )
 
         if new_lo is not None and new_hi is not None and new_lo > new_hi:
             self._raise_no_intersection(cc, parsed, f"[{user_lo}, {user_hi}]")
@@ -232,7 +240,7 @@ class CheckAdapter:
             return
 
         # 裸 weighted_choice：采用 CHECK 枚举 + 均匀权重（静默补全）。
-        params["weighted_choices"] = {v: 1 for v in allowed}
+        params["weighted_choices"] = dict.fromkeys(allowed, 1)
         logger.info("check_adopt", column=cc.name, weighted_choices=params["weighted_choices"])
 
     # ----------------------------------------------------------------- length

@@ -61,15 +61,18 @@ def test_importable_legacy_ai_is_unavailable_before_any_model_request(
     client = component_client[0]
     components = client.get("/api/settings/environment").json()["packages"]
     ai = next(component for component in components if component["id"] == "ai")
-    assert ai["installed"] is True and ai["available"] is False
+    assert ai["installed"] is True
+    assert ai["available"] is False
     assert ai["status"] == "import_error"
     result = client.get("/api/workbench/ai/config").json()
-    assert result["available"] is False and result["recovery_action"] == "repair"
+    assert result["available"] is False
+    assert result["recovery_action"] == "repair"
     response = client.post(
         "/api/workbench/ai/suggest",
         json={"conn_id": "unused", "schema_hash": "unused", "document": {}, "tables": ["users"]},
     )
-    assert response.status_code == 503 and response.json()["detail"]["code"] == "ai_unavailable"
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "ai_unavailable"
     assert "private-legacy-runtime" not in response.text
 
 
@@ -146,10 +149,12 @@ def test_ai_uninstall_disables_cached_code_but_retains_ordinary_settings(
     preferences.write_text(json.dumps(saved))
     registry.set_ai_override({"api_key": "private-secret", "model": "session-model"})
     result = client.get("/api/workbench/ai/config").json()
-    assert result["available"] is False and result["ready"] is False
+    assert result["available"] is False
+    assert result["ready"] is False
     assert result["availability_status"] == "not_installed"
     assert result["effective"] == {**saved, "model": "session-model", "api_key_present": False}
-    assert result["component_id"] == "ai" and result["recovery_action"] == "install"
+    assert result["component_id"] == "ai"
+    assert result["recovery_action"] == "install"
     assert "private-secret" not in str(result)
     for url in ("/api/meta/ai", "/api/ai/config"):
         legacy = client.get(url).json()
@@ -170,7 +175,8 @@ def test_ai_uninstall_disables_cached_code_but_retains_ordinary_settings(
         response = client.post(url, json=payload)
         assert response.status_code == 503, response.text
         error = response.json()["detail"]
-        assert error["code"] == "ai_unavailable" and error["recovery_action"] == "install"
+        assert error["code"] == "ai_unavailable"
+        assert error["recovery_action"] == "install"
     assert json.loads(preferences.read_text()) == saved
     assert registry.get_ai_override()["api_key"] == "private-secret"
 
@@ -205,10 +211,13 @@ def test_installed_broken_components_offer_repair_without_exposing_import_error(
     result = client.get("/api/workbench/ai/config").json()
     assert result["availability_status"] == "import_error"
     assert result["recovery_action"] == "repair"
-    assert result["available"] is False and "加载异常" in result["message"]
-    assert "private-password" not in str(result) and "user:secret" not in str(result)
+    assert result["available"] is False
+    assert "加载异常" in result["message"]
+    assert "private-password" not in str(result)
+    assert "user:secret" not in str(result)
     packages = {item["id"]: item for item in client.get("/api/settings/environment").json()["packages"]}
-    assert packages["mcp"]["status"] == "import_error" and packages["mcp"]["available"] is False
+    assert packages["mcp"]["status"] == "import_error"
+    assert packages["mcp"]["available"] is False
     statuses = client.get("/api/meta/providers").json()["statuses"]
     assert statuses["mimesis"]["status"] == "import_error"
 
@@ -219,7 +228,8 @@ def test_missing_ai_preferences_redact_credential_bearing_environment_url(
     monkeypatch.setenv("SQLSEED_AI_BASE_URL", "https://user:private-password@example.test/v1?token=private-token")
     result = component_client[0].get("/api/workbench/ai/config").json()
     assert result["effective"]["base_url"] == ""
-    assert "private-password" not in str(result) and "private-token" not in str(result)
+    assert "private-password" not in str(result)
+    assert "private-token" not in str(result)
 
 
 @pytest.mark.parametrize("installed", [False, True])

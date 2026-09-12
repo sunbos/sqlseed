@@ -25,6 +25,7 @@ import importlib
 import inspect
 from contextlib import closing
 from dataclasses import asdict, is_dataclass
+from http import HTTPStatus
 from typing import TYPE_CHECKING, Any
 
 import yaml
@@ -289,7 +290,14 @@ def meta_dialects() -> dict[str, Any]:
     }
 
 
-@router.get("/fs/browse")
+@router.get(
+    "/fs/browse",
+    responses={
+        400: {"description": HTTPStatus(400).phrase},
+        403: {"description": HTTPStatus(403).phrase},
+        404: {"description": HTTPStatus(404).phrase},
+    },
+)
 def fs_browse(path: str | None = None, all_files: bool = False) -> dict[str, Any]:
     """List a local directory for the file picker modal.
 
@@ -385,7 +393,7 @@ def ai_config_get() -> dict[str, Any]:
     }
 
 
-@router.post("/ai/config")
+@router.post("/ai/config", responses={422: {"description": HTTPStatus(422).phrase}})
 def ai_config_set(req: AIConfigRequest) -> dict[str, Any]:
     """Store session-level AI overrides (backend/model/key/base_url)."""
     # An empty legacy request still resets only the in-memory overrides.
@@ -473,7 +481,10 @@ def meta_info() -> dict[str, Any]:
 # --------------------------------------------------------------------------
 
 
-@router.post("/connections")
+@router.post(
+    "/connections",
+    responses={400: {"description": HTTPStatus(400).phrase}, 422: {"description": HTTPStatus(422).phrase}},
+)
 def connect_db(req: ConnectRequest) -> dict[str, Any]:
     if bool(req.db_path) == bool(req.url):
         raise HTTPException(status_code=422, detail="provide exactly one of db_path / url")
@@ -505,7 +516,10 @@ def connect_db(req: ConnectRequest) -> dict[str, Any]:
     }
 
 
-@router.get("/connections/{conn_id}/tables")
+@router.get(
+    "/connections/{conn_id}/tables",
+    responses={400: {"description": HTTPStatus(400).phrase}, 404: {"description": HTTPStatus(404).phrase}},
+)
 def list_tables(conn_id: str) -> dict[str, Any]:
     """Table summary for an existing connection.
 
@@ -540,7 +554,10 @@ def list_connections() -> dict[str, Any]:
     return {"connections": state.list_connections()}
 
 
-@router.delete("/connections/{conn_id}")
+@router.delete(
+    "/connections/{conn_id}",
+    responses={404: {"description": HTTPStatus(404).phrase}, 409: {"description": HTTPStatus(409).phrase}},
+)
 def close_db(conn_id: str) -> dict[str, Any]:
     try:
         state.close_connection(conn_id)
@@ -570,7 +587,7 @@ def jobs() -> dict[str, Any]:
     }
 
 
-@router.get("/jobs/{job_id}")
+@router.get("/jobs/{job_id}", responses={404: {"description": HTTPStatus(404).phrase}})
 def job_status(job_id: str) -> dict[str, Any]:
     try:
         job = state.job_snapshot(job_id)
@@ -600,7 +617,10 @@ def job_status(job_id: str) -> dict[str, Any]:
 # --------------------------------------------------------------------------
 
 
-@router.get("/connections/{conn_id}/tables/{table}/schema")
+@router.get(
+    "/connections/{conn_id}/tables/{table}/schema",
+    responses={400: {"description": HTTPStatus(400).phrase}, 404: {"description": HTTPStatus(404).phrase}},
+)
 def table_schema(conn_id: str, table: str) -> dict[str, Any]:
     orch = _conn_or_404(conn_id)
     try:
@@ -625,7 +645,10 @@ def table_schema(conn_id: str, table: str) -> dict[str, Any]:
     }
 
 
-@router.get("/connections/{conn_id}/topo-order")
+@router.get(
+    "/connections/{conn_id}/topo-order",
+    responses={400: {"description": HTTPStatus(400).phrase}, 404: {"description": HTTPStatus(404).phrase}},
+)
 def topo_order(conn_id: str, tables: str | None = None) -> dict[str, Any]:
     """FK-topological table order (referenced tables first) — the wizard's
     "表生成顺序" (参考工具 parity). Defaults to all tables of the connection."""
@@ -638,7 +661,10 @@ def topo_order(conn_id: str, tables: str | None = None) -> dict[str, Any]:
     return {"tables": order}
 
 
-@router.get("/connections/{conn_id}/tables/{table}/mapping")
+@router.get(
+    "/connections/{conn_id}/tables/{table}/mapping",
+    responses={400: {"description": HTTPStatus(400).phrase}, 404: {"description": HTTPStatus(404).phrase}},
+)
 def table_mapping(conn_id: str, table: str) -> dict[str, Any]:
     orch = _conn_or_404(conn_id)
     try:
@@ -649,7 +675,10 @@ def table_mapping(conn_id: str, table: str) -> dict[str, Any]:
     return {"table": table, "mapping": {col: _serialize(spec) for col, spec in specs.items()}}
 
 
-@router.get("/connections/{conn_id}/tables/{table}/yaml-template")
+@router.get(
+    "/connections/{conn_id}/tables/{table}/yaml-template",
+    responses={400: {"description": HTTPStatus(400).phrase}, 404: {"description": HTTPStatus(404).phrase}},
+)
 def table_yaml_template(conn_id: str, table: str) -> dict[str, Any]:
     """Generate a fillable YAML skeleton from the inferred mapping."""
     orch = _conn_or_404(conn_id)
@@ -682,7 +711,14 @@ def table_yaml_template(conn_id: str, table: str) -> dict[str, Any]:
 # --------------------------------------------------------------------------
 
 
-@router.post("/connections/{conn_id}/preview")
+@router.post(
+    "/connections/{conn_id}/preview",
+    responses={
+        400: {"description": HTTPStatus(400).phrase},
+        404: {"description": HTTPStatus(404).phrase},
+        409: {"description": HTTPStatus(409).phrase},
+    },
+)
 def preview_rows(conn_id: str, req: PreviewRequest) -> dict[str, Any]:
     orch = _conn_or_404(conn_id)
     try:
@@ -704,7 +740,14 @@ def preview_rows(conn_id: str, req: PreviewRequest) -> dict[str, Any]:
     return {"table": req.table, "rows": _serialize(rows)}
 
 
-@router.post("/connections/{conn_id}/fill")
+@router.post(
+    "/connections/{conn_id}/fill",
+    responses={
+        404: {"description": HTTPStatus(404).phrase},
+        409: {"description": HTTPStatus(409).phrase},
+        503: {"description": HTTPStatus(503).phrase},
+    },
+)
 def start_fill(conn_id: str, req: FillRequest) -> dict[str, Any]:
     _conn_or_404(conn_id)
     try:
@@ -722,7 +765,10 @@ def start_fill(conn_id: str, req: FillRequest) -> dict[str, Any]:
     return {"job_id": job.job_id, "table": req.table, "count": req.count}
 
 
-@router.get("/connections/{conn_id}/tables/{table}/rows")
+@router.get(
+    "/connections/{conn_id}/tables/{table}/rows",
+    responses={400: {"description": HTTPStatus(400).phrase}, 404: {"description": HTTPStatus(404).phrase}},
+)
 def table_rows(conn_id: str, table: str, limit: int = 50, offset: int = 0) -> dict[str, Any]:
     orch = _conn_or_404(conn_id)
     try:
@@ -739,7 +785,14 @@ class QueryRequest(BaseModel):
     sql: str
 
 
-@router.post("/connections/{conn_id}/query")
+@router.post(
+    "/connections/{conn_id}/query",
+    responses={
+        400: {"description": HTTPStatus(400).phrase},
+        404: {"description": HTTPStatus(404).phrase},
+        422: {"description": HTTPStatus(422).phrase},
+    },
+)
 def run_query(conn_id: str, req: QueryRequest) -> dict[str, Any]:
     """Read-only SQL console: SELECT statements only."""
     statement = (req.sql or "").strip().rstrip(";")
@@ -769,7 +822,7 @@ def config_parse(req: YamlRequest) -> dict[str, Any]:
     return {"valid": True, "config": _serialize(config_to_dict(cfg))}
 
 
-@router.post("/config/serialize")
+@router.post("/config/serialize", responses={422: {"description": HTTPStatus(422).phrase}})
 def config_serialize(req: YamlRequest) -> dict[str, Any]:
     data = _yaml_to_config_dict(req.yaml)
     return {"yaml": yaml.safe_dump(data, sort_keys=False, allow_unicode=True)}
@@ -827,7 +880,14 @@ def _build_snapshot(conn_id: str) -> Any:
     return SchemaSnapshot(db_path=conn.target)
 
 
-@router.post("/connections/{conn_id}/heal/validate")
+@router.post(
+    "/connections/{conn_id}/heal/validate",
+    responses={
+        404: {"description": HTTPStatus(404).phrase},
+        422: {"description": HTTPStatus(422).phrase},
+        503: {"description": HTTPStatus(503).phrase},
+    },
+)
 def heal_validate(conn_id: str, req: HealValidateRequest) -> dict[str, Any]:
     _require_sqlseed_ai()
     _conn_or_404(conn_id)
@@ -861,7 +921,14 @@ def heal_validate(conn_id: str, req: HealValidateRequest) -> dict[str, Any]:
     }
 
 
-@router.post("/connections/{conn_id}/heal/repair")
+@router.post(
+    "/connections/{conn_id}/heal/repair",
+    responses={
+        404: {"description": HTTPStatus(404).phrase},
+        422: {"description": HTTPStatus(422).phrase},
+        503: {"description": HTTPStatus(503).phrase},
+    },
+)
 def heal_repair(conn_id: str, req: YamlRequest) -> dict[str, Any]:
     _require_sqlseed_ai()
     _conn_or_404(conn_id)
@@ -1006,7 +1073,14 @@ def _run_auto_heal_job(conn_id: str, job_id: str, req: AutoHealRequest) -> None:
             logger.error("auto-heal job failed", job_id=job_id, error=error)
 
 
-@router.post("/connections/{conn_id}/heal/auto")
+@router.post(
+    "/connections/{conn_id}/heal/auto",
+    responses={
+        404: {"description": HTTPStatus(404).phrase},
+        409: {"description": HTTPStatus(409).phrase},
+        503: {"description": HTTPStatus(503).phrase},
+    },
+)
 def heal_auto(conn_id: str, req: AutoHealRequest) -> dict[str, Any]:
     _require_sqlseed_ai()
     _conn_or_404(conn_id)

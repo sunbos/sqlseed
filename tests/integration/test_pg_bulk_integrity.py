@@ -19,8 +19,9 @@ def test_pg_bulk_optimization_preserves_foreign_keys(pg_url: str) -> None:
         adapter.execute("CREATE TABLE bulk_fk_children(id INTEGER REFERENCES bulk_fk_parents(id))").close()
         try:
             adapter.optimize_for_bulk_write(20000)
+            rows = iter([{"id": 999}])
             with pytest.raises(IntegrityError, match="foreign key constraint"):
-                adapter.batch_insert("bulk_fk_children", iter([{"id": 999}]))
+                adapter.batch_insert("bulk_fk_children", rows)
             assert adapter.get_row_count("bulk_fk_children") == 0
         finally:
             adapter.restore_settings()

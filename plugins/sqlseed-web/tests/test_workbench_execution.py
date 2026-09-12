@@ -137,7 +137,9 @@ def test_preflight_is_readonly_and_lists_reverse_dependency_clear_order(
     plan = plan_execution(
         **args, execution={"mode": "replace_selected", "reset_identity": True}, registry=registry, store=store
     )
-    assert plan["ok"] and plan["atomic"] and plan["reset_identity_supported"]
+    assert plan["ok"]
+    assert plan["atomic"]
+    assert plan["reset_identity_supported"]
     assert plan["delete_order"] == ["children", "parents"]
     assert plan["clear_tables"] == [{"name": "children", "row_count": 1}, {"name": "parents", "row_count": 1}]
     assert len(plan["plan_hash"]) == 64
@@ -161,10 +163,13 @@ def test_clear_and_reset_are_separate_and_foreign_keys_use_new_transaction_rows(
     )
     assert run["status"] == "done", run
     assert run["rows_inserted"] == 7
-    assert run["execution"] == execution and run["plan_hash"] == plan["plan_hash"]
+    assert run["execution"] == execution
+    assert run["plan_hash"] == plan["plan_hash"]
     rows = contents(conn)
-    assert rows["parents"][0][0] == first_parent and len(rows["parents"]) == 4
-    assert rows["children"][0][0] == first_child and len(rows["children"]) == 3
+    assert rows["parents"][0][0] == first_parent
+    assert len(rows["parents"]) == 4
+    assert rows["children"][0][0] == first_child
+    assert len(rows["children"]) == 3
     assert {row[1] for row in rows["children"]} <= {row[0] for row in rows["parents"]}
     assert rows["unrelated"] == [(7, "keep")]
     with sqlite_connection(conn.target) as db:
@@ -215,7 +220,8 @@ def test_late_generated_batch_failure_restores_every_original_row_and_sequence(
     before = contents(conn)
     execution = {"mode": "replace_selected", "reset_identity": True}
     run = run_replacement(registry, store, args, execution)
-    assert run["status"] == "error" and run["rows_inserted"] == 0
+    assert run["status"] == "error"
+    assert run["rows_inserted"] == 0
     assert run["result"]["rolled_back"] is True
     assert run["row_counts_exact"] is True
     assert all(table["rows_inserted"] == 0 for table in run["tables"])
@@ -230,7 +236,9 @@ def test_default_run_remains_append_and_replace_requires_current_plan_hash(
     registry, conn, store = target
     args, _ = prepared(conn, store)
     plan = plan_execution(**args, registry=registry, store=store)
-    assert plan["mode"] == "append" and not plan["atomic"] and plan["clear_tables"] == []
+    assert plan["mode"] == "append"
+    assert not plan["atomic"]
+    assert plan["clear_tables"] == []
     with pytest.raises(WorkbenchError, match="计划|确认"):
         start_run(**args, execution={"mode": "replace_selected"}, plan_hash="old", registry=registry, store=store)
     run = wait_run(registry, store, start_run(**args, registry=registry, store=store))
@@ -263,14 +271,16 @@ def test_only_child_replacement_reads_unselected_parent_keys_without_modifying_p
     args, _ = prepared(conn, store, [{"name": "children", "count": 5, "batch_size": 2}])
     execution = {"mode": "replace_selected", "reset_identity": True}
     plan = plan_execution(**args, execution=execution, registry=registry, store=store)
-    assert plan["ok"] and plan["delete_order"] == ["children"]
+    assert plan["ok"]
+    assert plan["delete_order"] == ["children"]
     run = wait_run(
         registry,
         store,
         start_run(**args, execution=execution, plan_hash=plan["plan_hash"], registry=registry, store=store),
     )
     rows = contents(conn)
-    assert run["status"] == "done" and run["rows_inserted"] == 5
+    assert run["status"] == "done"
+    assert run["rows_inserted"] == 5
     assert rows["parents"] == [(40, "old")]
     assert rows["children"] == [(number, 40) for number in range(1, 6)]
 
@@ -305,10 +315,12 @@ def test_worker_rechecks_after_writer_lock_and_before_any_delete(
         store,
         start_run(**args, execution=execution, plan_hash=plan["plan_hash"], registry=registry, store=store),
     )
-    assert run["status"] == "error" and run["rows_inserted"] == 0
+    assert run["status"] == "error"
+    assert run["rows_inserted"] == 0
     rows = contents(conn)
     assert rows["parents"] == ([(40, "old"), (42, "concurrent")] if change == "rows" else [(40, "old")])
-    assert rows["children"] == [(60, 40)] and rows["unrelated"] == [(7, "keep")]
+    assert rows["children"] == [(60, 40)]
+    assert rows["unrelated"] == [(7, "keep")]
 
 
 @pytest.mark.parametrize(
@@ -326,7 +338,8 @@ def test_replacement_blocks_unbounded_side_effects_and_removed_enrichment_source
     args, _ = prepared(conn, store, [{"name": "children", "count": 2, "enrich": feature == "enrich"}])
     before = contents(conn)
     plan = plan_execution(**args, execution={"mode": "replace_selected"}, registry=registry, store=store)
-    assert not plan["ok"] and any(issue["code"] == code for issue in plan["issues"])
+    assert not plan["ok"]
+    assert any(issue["code"] == code for issue in plan["issues"])
     assert contents(conn) == before
 
 
@@ -362,7 +375,8 @@ def test_plain_integer_rowid_warning_and_postgresql_capability_gate(
     registry, conn, store = target
     args, draft = prepared(conn, store, [{"name": "unrelated", "count": 2}])
     plan = plan_execution(**args, execution={"mode": "replace_selected"}, registry=registry, store=store)
-    assert plan["ok"] and not plan["reset_identity_supported"]
+    assert plan["ok"]
+    assert not plan["reset_identity_supported"]
     assert any(issue["code"] == "rowid_restarts_on_clear" for issue in plan["issues"])
     # Capability policy only: this does not claim PostgreSQL integration.
     schema = inspect_connection(conn) | {"dialect": "postgresql"}
@@ -374,7 +388,8 @@ def test_plain_integer_rowid_warning_and_postgresql_capability_gate(
         {"mode": "replace_selected", "reset_identity": False},
         args["config_hash"],
     )
-    assert not denied["ok"] and not denied["atomic"]
+    assert not denied["ok"]
+    assert not denied["atomic"]
     assert any(issue["code"] == "replacement_not_supported" for issue in denied["issues"])
 
 
@@ -397,14 +412,16 @@ def test_http_execution_plan_binding_and_run_options(
             == 422
         )
         plan = client.post("/api/workbench/execution-plan", json=args | {"execution": execution})
-        assert plan.status_code == 200 and plan.json()["ok"]
+        assert plan.status_code == 200
+        assert plan.json()["ok"]
         assert client.post("/api/workbench/runs", json=args | {"execution": execution}).status_code == 409
         accepted = client.post(
             "/api/workbench/runs", json=args | {"execution": execution, "plan_hash": plan.json()["plan_hash"]}
         )
         assert accepted.status_code == 202
         run = wait_run(registry, store, accepted.json())
-        assert run["status"] == "done" and run["execution"] == execution
+        assert run["status"] == "done"
+        assert run["execution"] == execution
 
 
 def test_running_tables_never_report_uncommitted_batches_as_committed(
@@ -433,7 +450,8 @@ def test_running_tables_never_report_uncommitted_batches_as_committed(
         store,
         start_run(**args, execution=execution, plan_hash=plan["plan_hash"], registry=registry, store=store),
     )
-    assert run["status"] == "done" and run["rows_inserted"] == 7
+    assert run["status"] == "done"
+    assert run["rows_inserted"] == 7
     assert run["result"] == {"atomic": True, "committed": True, "rolled_back": False}
     assert len(snapshots) == 2
     assert all(table["status"] == "running" for table in snapshots[-1]["tables"])

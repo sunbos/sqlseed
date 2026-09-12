@@ -518,12 +518,10 @@ def verify(db_path: Path) -> None:
 
     # ---- 3. 派生列正确性 ----
     print("\n[3] 派生列正确性")
-    # orders.total_amount = subtotal - discount_amount + shipping_fee
     bad_orders = conn.execute(
         "SELECT COUNT(*) FROM orders WHERE ABS(total_amount - (subtotal - discount_amount + shipping_fee)) > 0.001"
     ).fetchone()[0]
     print(f"    orders.total_amount 计算错误: {bad_orders} 行")
-    # order_items.total_price = unit_price * quantity
     bad_items = conn.execute(
         "SELECT COUNT(*) FROM order_items WHERE ABS(total_price - unit_price * quantity) > 0.001"
     ).fetchone()[0]

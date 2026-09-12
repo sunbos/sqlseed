@@ -23,7 +23,7 @@ _STATIC_DIR = Path(__file__).parent / "static"
 
 def _loopback_host_forbidden(hosts: list[str], forbidden: bool) -> bool:
     try:
-        host = urlsplit(f"http://{hosts[0]}") if len(hosts) == 1 else None
+        host = urlsplit(f"//{hosts[0]}") if len(hosts) == 1 else None
         forbidden = forbidden or host is None or not _loopback(host.hostname or "")
         if host is not None:
             forbidden = forbidden or bool(host.username or host.password or host.path or host.query or host.fragment)

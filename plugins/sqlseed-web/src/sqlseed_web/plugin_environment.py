@@ -58,8 +58,9 @@ def _venv_directory_restriction(prefix: Path) -> str | None:
                 if not location.is_dir() or not os.access(location, os.W_OK) or not location.stat().st_mode & 0o222:
                     reason = "当前 Python 环境不可写，请使用原环境管理工具。"
         if reason is None:
-            with tempfile.TemporaryFile(dir=prefix):
-                pass
+            with tempfile.TemporaryFile(dir=prefix) as probe:
+                probe.write(b"sqlseed environment write probe")
+                probe.flush()
     except (OSError, UnicodeError):
         reason = "无法验证当前 Python 环境的写入权限。"
     return reason

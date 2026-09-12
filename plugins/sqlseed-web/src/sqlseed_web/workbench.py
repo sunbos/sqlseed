@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Any
+from http import HTTPStatus
+from typing import Annotated, Any
 
 import yaml
 from fastapi import APIRouter, HTTPException, Query
@@ -90,19 +91,40 @@ def _request_errors() -> Iterator[None]:
         raise HTTPException(422, detail={"code": "request_failed", "message": public_error(exc)}) from exc
 
 
-@router.get("/connections/{conn_id}/schema")
+@router.get(
+    "/connections/{conn_id}/schema",
+    responses={
+        404: {"description": HTTPStatus(404).phrase},
+        409: {"description": HTTPStatus(409).phrase},
+        422: {"description": HTTPStatus(422).phrase},
+    },
+)
 def connection_schema(conn_id: str) -> dict[str, Any]:
     with _request_errors(), state.connection_operation(conn_id) as conn:
         return inspect_connection(conn)
 
 
-@router.get("/generators")
+@router.get(
+    "/generators",
+    responses={
+        404: {"description": HTTPStatus(404).phrase},
+        409: {"description": HTTPStatus(409).phrase},
+        422: {"description": HTTPStatus(422).phrase},
+    },
+)
 def generators() -> dict[str, Any]:
     with _request_errors():
         return generator_catalog()
 
 
-@router.get("/drafts")
+@router.get(
+    "/drafts",
+    responses={
+        404: {"description": HTTPStatus(404).phrase},
+        409: {"description": HTTPStatus(409).phrase},
+        422: {"description": HTTPStatus(422).phrase},
+    },
+)
 def list_drafts(conn_id: str | None = None) -> list[dict[str, Any]]:
     with _request_errors():
         target_key = None
@@ -133,41 +155,90 @@ def _save_draft(body: DraftRequest, draft_id: str | None = None, revision: int |
         )
 
 
-@router.post("/drafts")
+@router.post(
+    "/drafts",
+    responses={
+        404: {"description": HTTPStatus(404).phrase},
+        409: {"description": HTTPStatus(409).phrase},
+        422: {"description": HTTPStatus(422).phrase},
+    },
+)
 def create_draft(body: DraftRequest) -> dict[str, Any]:
     return _save_draft(body)
 
 
-@router.get("/drafts/{draft_id}")
+@router.get(
+    "/drafts/{draft_id}",
+    responses={
+        404: {"description": HTTPStatus(404).phrase},
+        409: {"description": HTTPStatus(409).phrase},
+        422: {"description": HTTPStatus(422).phrase},
+    },
+)
 def get_draft(draft_id: str) -> dict[str, Any]:
     with _request_errors():
         return get_store().get_draft(draft_id)
 
 
-@router.put("/drafts/{draft_id}")
+@router.put(
+    "/drafts/{draft_id}",
+    responses={
+        404: {"description": HTTPStatus(404).phrase},
+        409: {"description": HTTPStatus(409).phrase},
+        422: {"description": HTTPStatus(422).phrase},
+    },
+)
 def update_draft(draft_id: str, body: DraftUpdateRequest) -> dict[str, Any]:
     return _save_draft(body, draft_id, body.revision)
 
 
-@router.patch("/drafts/{draft_id}")
+@router.patch(
+    "/drafts/{draft_id}",
+    responses={
+        404: {"description": HTTPStatus(404).phrase},
+        409: {"description": HTTPStatus(409).phrase},
+        422: {"description": HTTPStatus(422).phrase},
+    },
+)
 def rename_draft(draft_id: str, body: DraftNameRequest) -> dict[str, Any]:
     with _request_errors():
         return get_store().rename_draft(draft_id, body.name, expected_revision=body.revision)
 
 
-@router.post("/drafts/{draft_id}/copy")
+@router.post(
+    "/drafts/{draft_id}/copy",
+    responses={
+        404: {"description": HTTPStatus(404).phrase},
+        409: {"description": HTTPStatus(409).phrase},
+        422: {"description": HTTPStatus(422).phrase},
+    },
+)
 def copy_draft(draft_id: str, body: DraftNameRequest) -> dict[str, Any]:
     with _request_errors():
         return get_store().copy_draft(draft_id, body.name, expected_revision=body.revision)
 
 
-@router.delete("/drafts/{draft_id}")
-def delete_draft(draft_id: str, revision: int = Query(ge=1)) -> dict[str, Any]:
+@router.delete(
+    "/drafts/{draft_id}",
+    responses={
+        404: {"description": HTTPStatus(404).phrase},
+        409: {"description": HTTPStatus(409).phrase},
+        422: {"description": HTTPStatus(422).phrase},
+    },
+)
+def delete_draft(draft_id: str, revision: Annotated[int, Query(ge=1)]) -> dict[str, Any]:
     with _request_errors():
         return get_store().delete_draft(draft_id, expected_revision=revision)
 
 
-@router.get("/drafts/{draft_id}/export")
+@router.get(
+    "/drafts/{draft_id}/export",
+    responses={
+        404: {"description": HTTPStatus(404).phrase},
+        409: {"description": HTTPStatus(409).phrase},
+        422: {"description": HTTPStatus(422).phrase},
+    },
+)
 def export_draft(draft_id: str) -> dict[str, Any]:
     """Export the saved document without reopening a business database."""
     with _request_errors():
@@ -181,13 +252,27 @@ def export_draft(draft_id: str) -> dict[str, Any]:
         }
 
 
-@router.post("/parse")
+@router.post(
+    "/parse",
+    responses={
+        404: {"description": HTTPStatus(404).phrase},
+        409: {"description": HTTPStatus(409).phrase},
+        422: {"description": HTTPStatus(422).phrase},
+    },
+)
 def parse(body: ParseRequest) -> dict[str, Any]:
     with _request_errors(), state.connection_operation(body.conn_id) as conn:
         return {"document": parse_document(conn, body.text)}
 
 
-@router.post("/export")
+@router.post(
+    "/export",
+    responses={
+        404: {"description": HTTPStatus(404).phrase},
+        409: {"description": HTTPStatus(409).phrase},
+        422: {"description": HTTPStatus(422).phrase},
+    },
+)
 def export(body: DocumentRequest) -> dict[str, Any]:
     with _request_errors(), state.connection_operation(body.conn_id) as conn:
         return export_document(conn, body.document)
@@ -200,17 +285,38 @@ def _check(body: CheckRequest, *, include_preview: bool) -> dict[str, Any]:
         return encoded
 
 
-@router.post("/check")
+@router.post(
+    "/check",
+    responses={
+        404: {"description": HTTPStatus(404).phrase},
+        409: {"description": HTTPStatus(409).phrase},
+        422: {"description": HTTPStatus(422).phrase},
+    },
+)
 def check(body: CheckRequest) -> dict[str, Any]:
     return _check(body, include_preview=False)
 
 
-@router.post("/preview")
+@router.post(
+    "/preview",
+    responses={
+        404: {"description": HTTPStatus(404).phrase},
+        409: {"description": HTTPStatus(409).phrase},
+        422: {"description": HTTPStatus(422).phrase},
+    },
+)
 def preview(body: CheckRequest) -> dict[str, Any]:
     return _check(body, include_preview=True)
 
 
-@router.post("/execution-plan")
+@router.post(
+    "/execution-plan",
+    responses={
+        404: {"description": HTTPStatus(404).phrase},
+        409: {"description": HTTPStatus(409).phrase},
+        422: {"description": HTTPStatus(422).phrase},
+    },
+)
 def execution_plan(body: RunRequest) -> dict[str, Any]:
     with _request_errors():
         return plan_execution(
@@ -225,7 +331,15 @@ def execution_plan(body: RunRequest) -> dict[str, Any]:
         )
 
 
-@router.post("/runs", status_code=202)
+@router.post(
+    "/runs",
+    status_code=202,
+    responses={
+        404: {"description": HTTPStatus(404).phrase},
+        409: {"description": HTTPStatus(409).phrase},
+        422: {"description": HTTPStatus(422).phrase},
+    },
+)
 def create_run(body: RunRequest) -> dict[str, Any]:
     with _request_errors():
         return start_run(
@@ -241,13 +355,27 @@ def create_run(body: RunRequest) -> dict[str, Any]:
         )
 
 
-@router.get("/runs")
-def list_runs(limit: int = Query(default=50, ge=1, le=200)) -> list[dict[str, Any]]:
+@router.get(
+    "/runs",
+    responses={
+        404: {"description": HTTPStatus(404).phrase},
+        409: {"description": HTTPStatus(409).phrase},
+        422: {"description": HTTPStatus(422).phrase},
+    },
+)
+def list_runs(limit: Annotated[int, Query(ge=1, le=200)] = 50) -> list[dict[str, Any]]:
     with _request_errors():
         return get_store().list_runs(limit=limit)
 
 
-@router.get("/runs/{run_id}")
+@router.get(
+    "/runs/{run_id}",
+    responses={
+        404: {"description": HTTPStatus(404).phrase},
+        409: {"description": HTTPStatus(409).phrase},
+        422: {"description": HTTPStatus(422).phrase},
+    },
+)
 def get_run(run_id: str) -> dict[str, Any]:
     with _request_errors():
         return get_store().get_run(run_id)

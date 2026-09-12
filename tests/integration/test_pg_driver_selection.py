@@ -33,7 +33,8 @@ def test_pg_plain_and_explicit_driver_urls_preserve_target_and_generate(pg_url: 
             assert len(samples) == 3
             assert adapter.get_row_count("driver_url_audit") == 0
             result = sqlseed.fill(url=target, table="driver_url_audit", count=3, provider="base", skip_ai=True)
-            assert result.count == 3 and not result.errors
+            assert result.count == 3
+            assert not result.errors
             invocation = CliRunner().invoke(
                 cli, ["fill", "--url", target, "-t", "driver_url_audit", "-n", "2", "--provider", "base"]
             )

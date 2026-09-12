@@ -8,7 +8,7 @@ import signal
 import subprocess
 import tempfile
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from typing import IO
 
 from sqlseed._utils.daemon_task import DaemonTask
@@ -28,13 +28,11 @@ def _sanitized(text: str) -> str:
     return "".join(character for character in text if character in "\n\t" or ord(character) >= 32)
 
 
-def _read_installer_output(stream: IO[bytes], output: Callable[[str], None]) -> None:
-    remaining = OUTPUT_LIMIT
+def _installer_lines(stream: IO[bytes]) -> Iterator[tuple[bytes, int]]:
+    """Drain complete lines, dropping an oversized line through its newline."""
     pending = b""
     dropping_line = False
     while chunk := os.read(stream.fileno(), 1024):
-        if remaining <= 0:
-            continue
         if dropping_line:
             if b"\n" not in chunk:
                 continue
@@ -49,13 +47,22 @@ def _read_installer_output(stream: IO[bytes], output: Callable[[str], None]) -> 
                 pending = b""
                 dropping_line = True
                 line = b"[overlong installer output omitted]"
-            if clean := _sanitized(line.decode("utf-8", errors="replace"))[: min(remaining, 2000)]:
-                output(clean)
-                remaining -= len(clean)
+            yield line, 2000
+    if pending:
+        # A final partial line retains the existing overall-budget truncation.
+        yield pending, OUTPUT_LIMIT
+
+
+def _read_installer_output(stream: IO[bytes], output: Callable[[str], None]) -> None:
+    remaining = OUTPUT_LIMIT
+    for line, line_limit in _installer_lines(stream):
+        if remaining <= 0:
+            continue
+        if clean := _sanitized(line.decode("utf-8", errors="replace"))[: min(remaining, line_limit)]:
+            output(clean)
+            remaining -= len(clean)
         if remaining <= 0:
             output("输出已达到长度上限，后续输出已省略。")
-    if remaining > 0 and pending:
-        output(_sanitized(pending.decode("utf-8", errors="replace"))[:remaining])
 
 
 def run_installer(

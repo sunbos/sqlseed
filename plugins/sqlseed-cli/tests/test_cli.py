@@ -165,7 +165,8 @@ class TestCLIFill:
         conn.close()
         assert len(rows) == 5
         for (name,) in rows:
-            assert isinstance(name, str) and name
+            assert isinstance(name, str)
+            assert name
             assert name == name.upper()
 
     def test_fill_with_snapshot(self, tmp_db, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

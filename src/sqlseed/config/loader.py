@@ -20,6 +20,8 @@ from sqlseed.config.models import GeneratorConfig, TableConfig
 logger = get_logger(__name__)
 
 _DEFAULT_TEMPLATE_COUNT = 1000
+_YAML_SUFFIXES = frozenset({".yaml", ".yml"})
+_CONFIG_SUFFIXES = _YAML_SUFFIXES | {".json"}
 
 
 def _read_table_names(target: str) -> list[str]:
@@ -75,7 +77,7 @@ def load_config(path: str) -> GeneratorConfig:
 
     suffix = config_path.suffix.lower()
     with open(config_path, encoding="utf-8") as f:
-        if suffix in {".yaml", ".yml"}:
+        if suffix in _YAML_SUFFIXES:
             raw = yaml.safe_load(f)
         elif suffix == ".json":
             raw = json.load(f)
@@ -103,13 +105,13 @@ def save_config(config: GeneratorConfig, path: str) -> None:
         ValueError: Unsupported format
     """
     config_path = Path(path)
-    if (suffix := config_path.suffix.lower()) not in {".yaml", ".yml", ".json"}:
+    if (suffix := config_path.suffix.lower()) not in _CONFIG_SUFFIXES:
         raise ValueError(f"Unsupported configuration file format: {suffix}")
 
     # Validate and encode completely before opening the destination: rejected
     # formats or unencodable values must not truncate a previous configuration.
     data = config.model_dump(mode="json")
-    if suffix in {".yaml", ".yml"}:
+    if suffix in _YAML_SUFFIXES:
         serialized = yaml.dump(data, default_flow_style=False, allow_unicode=True, sort_keys=False)
     else:
         serialized = json.dumps(data, indent=2, ensure_ascii=False)

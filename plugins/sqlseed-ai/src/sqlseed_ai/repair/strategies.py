@@ -280,14 +280,7 @@ def _normalize_params(col: dict[str, Any], v: ViolationReport, ctx: dict[str, An
     if params is None or isinstance(params, dict):
         # Match Core's accepted input shapes before applying the whitelist:
         # otherwise type aliases and flat keys become unchecked params later.
-        new_col = normalize_column_input(data=new_col, known_fields=ColumnConfig.model_fields.keys())
-        # Preserve explicit empty params and repair audit metadata. They are
-        # not generator arguments, and normalization must not erase them.
-        if params == {}:
-            new_col.setdefault("params", {})
-        for key in ("_degraded", "degrade_reason"):
-            if key in col:
-                new_col[key] = col[key]
+        new_col = _normalize_source_shape(new_col)
         params = new_col.get("params")
         gen = new_col.get("generator", "")
     if gen == "weighted_choice" and isinstance(params, dict):
@@ -301,6 +294,17 @@ def _normalize_params(col: dict[str, Any], v: ViolationReport, ctx: dict[str, An
     if isinstance(params, dict):
         new_col["params"] = _strip_invalid_params(params, gen)
     return new_col
+
+
+def _normalize_source_shape(column: dict[str, Any]) -> dict[str, Any]:
+    """Normalize Core aliases while retaining explicit empty params and repair audit data."""
+    normalized = normalize_column_input(data=column, known_fields=ColumnConfig.model_fields.keys())
+    if column.get("params") == {}:
+        normalized.setdefault("params", {})
+    for key in ("_degraded", "degrade_reason"):
+        if key in column:
+            normalized[key] = column[key]
+    return normalized
 
 
 def _break_derive_from_cycle(col: dict[str, Any], v: ViolationReport, ctx: dict[str, Any]) -> dict[str, Any]:
@@ -531,7 +535,7 @@ def _upgrade_phone_to_pattern(col: dict[str, Any], v: ViolationReport, ctx: dict
 
     gen = col.get("generator")
     if gen == "phone":
-        if params := col.get("params") or {}:
+        if col.get("params"):
             return col  # Don't touch phone with explicit params
         return {**col, "generator": "pattern", "params": {"regex": _NANP_PHONE_REGEX}}
     if gen == "string":
@@ -677,6 +681,13 @@ def _align_check_bounds(col: dict[str, Any], v: ViolationReport, ctx: dict[str, 
         params["min_value"] = check_min
     if check_max is not None and (current_max is None or current_max > check_max):
         params["max_value"] = check_max
+    _reanchor_inverted_bounds(params, check_min, check_max)
+    new_col["params"] = params
+    return new_col
+
+
+def _reanchor_inverted_bounds(params: dict[str, Any], check_min: Any, check_max: Any) -> None:
+    """Re-anchor a range wholly outside its CHECK bounds after one-sided tightening."""
     final_min = params.get("min_value")
     final_max = params.get("max_value")
     if final_min is not None and final_max is not None and final_min > final_max:
@@ -687,8 +698,6 @@ def _align_check_bounds(col: dict[str, Any], v: ViolationReport, ctx: dict[str, 
             params["max_value"] = final_min
         elif check_max is not None:
             params["min_value"] = final_max
-    new_col["params"] = params
-    return new_col
 
 
 # === Task 2.11: Rule #35 — strip_generator_from_derive_from ===

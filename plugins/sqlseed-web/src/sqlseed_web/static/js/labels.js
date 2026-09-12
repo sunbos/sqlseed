@@ -178,7 +178,7 @@ export function groupGenerators(names) {
     groups.push({ title: cat.title, names: hit, pending: hit.length === 0 });
   }
   if (remaining.size) {
-    groups.push({ title: '其他', names: [...remaining].sort(), pending: false });
+    groups.push({ title: '其他', names: [...remaining].sort((left, right) => left < right ? -1 : Number(left > right)), pending: false });
   }
   return groups;
 }
@@ -187,9 +187,9 @@ export function groupGenerators(names) {
 export function colAnnotation(col, spec, fkCols) {
   if (fkCols.has(col.name)) return '外键';
   if (col.is_primary_key && col.is_autoincrement) return '序列';
-  if (spec && spec.generator_name && spec.generator_name !== 'skip') {
+  if (spec?.generator_name && spec.generator_name !== 'skip') {
     return genLabel(spec.generator_name);
   }
-  if (spec && spec.generator_name === 'skip' && !col.is_primary_key) return '默认值';
+  if (spec?.generator_name === 'skip' && !col.is_primary_key) return '默认值';
   return null;
 }

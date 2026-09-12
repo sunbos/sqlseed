@@ -60,8 +60,8 @@ def _extract_range_bounds(exprs: list[str], col_name: str) -> dict[str, int | fl
     range operator is found.
     """
     col = re.escape(col_name)
-    min_val: int | float | None = None
-    max_val: int | float | None = None
+    lower_bounds: list[int | float] = []
+    upper_bounds: list[int | float] = []
     for expr in exprs:
         m = re.search(
             rf"\b{col}\s+BETWEEN\s+(-?\d+(?:\.\d+)?)\s+AND\s+(-?\d+(?:\.\d+)?)",
@@ -70,21 +70,19 @@ def _extract_range_bounds(exprs: list[str], col_name: str) -> dict[str, int | fl
         )
         if m:
             lo, hi = _to_num(m.group(1)), _to_num(m.group(2))
-            min_val = lo if min_val is None else max(min_val, lo)
-            max_val = hi if max_val is None else min(max_val, hi)
+            lower_bounds.append(lo)
+            upper_bounds.append(hi)
         if m := re.search(rf"\b{col}\s+>=\s*(-?\d+(?:\.\d+)?)", expr, re.IGNORECASE):
-            v = _to_num(m.group(1))
-            min_val = v if min_val is None else max(min_val, v)
+            lower_bounds.append(_to_num(m.group(1)))
         if m := re.search(rf"\b{col}\s+<=\s*(-?\d+(?:\.\d+)?)", expr, re.IGNORECASE):
-            v = _to_num(m.group(1))
-            max_val = v if max_val is None else min(max_val, v)
-    if min_val is None and max_val is None:
+            upper_bounds.append(_to_num(m.group(1)))
+    if not lower_bounds and not upper_bounds:
         return None
     result: dict[str, int | float] = {}
-    if min_val is not None:
-        result["min_value"] = min_val
-    if max_val is not None:
-        result["max_value"] = max_val
+    if lower_bounds:
+        result["min_value"] = max(lower_bounds)
+    if upper_bounds:
+        result["max_value"] = min(upper_bounds)
     return result
 
 
@@ -241,32 +239,33 @@ class SingleColumnValidator:
         if not (check_exprs := self._column_check_expressions(col_name, constraints)):
             return None
 
-        enum_values: list[int | float | str] = []
-        for expr in check_exprs:
-            if enum_values := _extract_enum_values(expr, col_name) or []:
-                break
+        enum_values = next(
+            (values for expr in check_exprs if (values := _extract_enum_values(expr, col_name))),
+            None,
+        )
         if enum_values:
             return self._enum_compliance(gen, enum_values, table_name, col_name)
 
         bounds = _extract_range_bounds(check_exprs, col_name)
-        if bounds and generator_name(gen) in NUMERIC_GENERATORS:
-            params = col.get("params") or {}
-            cur_min = params.get("min_value")
-            cur_max = params.get("max_value")
-            conflict = False
-            if "min_value" in bounds and (cur_min is None or cur_min < bounds["min_value"]):
-                conflict = True
-            if "max_value" in bounds and (cur_max is None or cur_max > bounds["max_value"]):
-                conflict = True
-            if conflict:
-                return ViolationReport(
-                    table=table_name,
-                    columns=[col_name],
-                    constraint_type=ConstraintType.CHECK,
-                    severity="semantic_error",
-                    fix_hint="align_check_bounds",
-                    fix_params=bounds.copy(),
-                )
+        if not bounds or generator_name(gen) not in NUMERIC_GENERATORS:
+            return None
+        params = col.get("params") or {}
+        cur_min = params.get("min_value")
+        cur_max = params.get("max_value")
+        conflict = False
+        if "min_value" in bounds and (cur_min is None or cur_min < bounds["min_value"]):
+            conflict = True
+        if "max_value" in bounds and (cur_max is None or cur_max > bounds["max_value"]):
+            conflict = True
+        if conflict:
+            return ViolationReport(
+                table=table_name,
+                columns=[col_name],
+                constraint_type=ConstraintType.CHECK,
+                severity="semantic_error",
+                fix_hint="align_check_bounds",
+                fix_params=bounds.copy(),
+            )
         return None
 
     @staticmethod

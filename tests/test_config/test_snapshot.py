@@ -69,8 +69,10 @@ class TestSnapshotManager:
     def test_load_rejects_non_mapping(self, tmp_path: Path, contents: str) -> None:
         path = tmp_path / "invalid.yaml"
         path.write_text(contents, encoding="utf-8")
+        manager = self._make_manager(tmp_path)
+        path_string = str(path)
         with pytest.raises(ValueError, match="mapping"):
-            self._make_manager(tmp_path).load(str(path))
+            manager.load(path_string)
 
     def test_replay_removed(self, tmp_path: Any) -> None:
         """SnapshotManager.replay() was removed (H5: config→core reverse dependency).

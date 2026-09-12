@@ -17,8 +17,9 @@ from sqlseed.generators.base_provider import BaseProvider
 @pytest.mark.parametrize("batch_size", [0, -1, True, 1.5])
 def test_invalid_batch_size_is_rejected_without_yielding(batch_size: Any) -> None:
     stream = DataStream([], BaseProvider(), ExpressionEngine(), ConstraintSolver(), max_attempts=1)
+    batches = stream.generate(1, batch_size=batch_size)
     with pytest.raises(ValueError, match="batch_size"):
-        next(stream.generate(1, batch_size=batch_size))
+        next(batches)
 
 
 @pytest.mark.parametrize("stop", ["cancel", "budget"])
@@ -56,8 +57,9 @@ def test_discarded_batch_releases_original_keys_but_keeps_delivered_batch(stop: 
         composite_unique_constraints=[["code", "kind"]],
     )
     assert next(stream.generate(1)) == [{"code": "transformed", "kind": 1}]
+    batches = stream.generate(2)
     with pytest.raises(GenerationCancelledError if stop == "cancel" else GenerationBudgetExceededError):
-        next(stream.generate(2))
+        next(batches)
     assert rows == 2
     assert not solver.try_register("code", "1", is_unique=True).is_registered
     assert solver.try_register("code", "2", is_unique=True).is_registered
@@ -80,8 +82,9 @@ def test_provider_configuration_error_releases_current_partial_row() -> None:
     stream = DataStream(nodes, BaseProvider(), ExpressionEngine(), solver)
     assert next(stream.generate(1)) == [{"code": "1", "bad": 1}]
     bad.params["unsupported"] = True
+    batches = stream.generate(1)
     with pytest.raises(ConfigurationError):
-        next(stream.generate(1))
+        next(batches)
     assert not solver.try_register("code", "1", is_unique=True).is_registered
     assert solver.try_register("code", "2", is_unique=True).is_registered
 
@@ -104,7 +107,8 @@ def test_constraint_type_error_releases_current_composite_registration() -> None
     )
     key = "__composite__('a', 'b')"
     assert solver.check_and_register_composite(key, (2, "prior"))
+    batches = stream.generate(1)
     with pytest.raises(ConfigurationError):
-        next(stream.generate(1))
+        next(batches)
     assert not solver.check_and_register_composite(key, (2, "prior"))
     assert solver.check_and_register_composite(key, (1, "text"))

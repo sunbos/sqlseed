@@ -20,8 +20,6 @@ Exit code 0 iff all checks pass.
 
 from __future__ import annotations
 
-import json
-import re
 import sqlite3
 import sys
 from contextlib import closing
@@ -36,6 +34,9 @@ if __package__:
     from ._checks import CheckRecorder
 else:
     from _checks import CheckRecorder
+
+COUNT_USERS_SQL = "SELECT COUNT(*) FROM users"
+MCP_ERROR_MARKER = "# Error"
 
 DB_DIR = Path(__file__).resolve().parent / "dbs"
 DB_DIR.mkdir(exist_ok=True)
@@ -56,6 +57,7 @@ def _user_columns(
 
 
 def build_db(path: Path, ddl: list[str]) -> Path:
+    """Create a fresh SQLite database from the supplied schema statements."""
     if path.exists():
         path.unlink()
     con = sqlite3.connect(path)
@@ -127,6 +129,7 @@ def fill_with_config(cfg: dict[str, Any], db: Path, tag: str) -> tuple[bool, str
 # A. Layer 1 — contract matrix
 # ---------------------------------------------------------------------------
 def section_a() -> None:
+    """Check contract resolution specificity and learned overrides."""
     print("\n[A] Layer 1 ContractResolver")
     from sqlseed_ai.contracts.builtin_violations import BUILTIN_VIOLATIONS
     from sqlseed_ai.contracts.matrix import ContractResolver, ContractViolation, ViolationKind
@@ -135,16 +138,20 @@ def section_a() -> None:
     check("A1 builtin matrix non-trivial size", len(BUILTIN_VIOLATIONS) >= 15, f"size={len(BUILTIN_VIOLATIONS)}")
 
     v = resolver.check("integer", "TIMESTAMP", frozenset(), {})
-    check("A2 integer@TIMESTAMP crash -> datetime",
-          v is not None and v.fix_strategy == "switch_generator" and v.fix_params.get("target") == "datetime")
+    check(
+        "A2 integer@TIMESTAMP crash -> datetime",
+        v is not None and v.fix_strategy == "switch_generator" and v.fix_params.get("target") == "datetime",
+    )
 
     v = resolver.check("email", "TEXT", frozenset(), {})
     check("A3 unlisted combo defaults COMPATIBLE", v is None)
 
     # Specificity: exact match beats wildcard ANY.
     v = resolver.check("string", "INTEGER", frozenset(), {})
-    check("A4 string@INTEGER exact beats ANY wildcard",
-          v is not None and v.kind == ViolationKind.CRASH and v.fix_params.get("target") == "integer")
+    check(
+        "A4 string@INTEGER exact beats ANY wildcard",
+        v is not None and v.kind == ViolationKind.CRASH and v.fix_params.get("target") == "integer",
+    )
 
     # Learned overrides builtin with the same identity.
     learned = {
@@ -160,22 +167,30 @@ def section_a() -> None:
     }
     resolver2 = ContractResolver(BUILTIN_VIOLATIONS, learned)
     v = resolver2.check("integer", "TIMESTAMP", frozenset(), {})
-    check("A5 learned violation overrides builtin",
-          v is not None and v.fix_params.get("target") == "string", f"got={v and v.fix_params}")
+    check(
+        "A5 learned violation overrides builtin",
+        v is not None and v.fix_params.get("target") == "string",
+        f"got={v and v.fix_params}",
+    )
 
     # Predicate gating: code-like name triggers, plain name does not.
-    v_code = resolver.check("choice", "ANY", frozenset({"UNIQUE"}),
-                            {"name": "order_code", "row_count": 100, "pool_size": 200})
-    v_plain = resolver.check("choice", "ANY", frozenset({"UNIQUE"}),
-                             {"name": "status", "row_count": 100, "pool_size": 200})
-    check("A6 predicate gating (code-like vs plain)",
-          v_code is not None and v_code.fix_strategy == "upgrade_to_template" and v_plain is None)
+    v_code = resolver.check(
+        "choice", "ANY", frozenset({"UNIQUE"}), {"name": "order_code", "row_count": 100, "pool_size": 200}
+    )
+    v_plain = resolver.check(
+        "choice", "ANY", frozenset({"UNIQUE"}), {"name": "status", "row_count": 100, "pool_size": 200}
+    )
+    check(
+        "A6 predicate gating (code-like vs plain)",
+        v_code is not None and v_code.fix_strategy == "upgrade_to_template" and v_plain is None,
+    )
 
 
 # ---------------------------------------------------------------------------
 # B. Layer 2 — FastValidator
 # ---------------------------------------------------------------------------
 def section_b() -> None:
+    """Validate column generators and dialect-aware contract rules."""
     print("\n[B] Layer 2 FastValidator")
     from sqlseed_ai.contracts.builtin_violations import BUILTIN_VIOLATIONS
     from sqlseed_ai.contracts.matrix import ContractResolver
@@ -189,10 +204,13 @@ def section_b() -> None:
     validator = FastValidator(resolver, db_path=str(db))
 
     clean_cfg = {
-        "tables": [{
-            "name": "users", "count": 30,
-            "columns": _user_columns(),
-        }]
+        "tables": [
+            {
+                "name": "users",
+                "count": 30,
+                "columns": _user_columns(),
+            }
+        ]
     }
     v = validator.validate(clean_cfg, snapshot)
     check(
@@ -202,32 +220,40 @@ def section_b() -> None:
     )
 
     broken_cfg = {
-        "tables": [{
-            "name": "users", "count": 30,
-            "columns": [
-                # crash: integer@DATETIME? (only TIMESTAMP covered) -> may be clean
-                {"name": "created_at", "generator": "integer"},
-                {"name": "status", "generator": "integer"},               # crash: integer@TEXT? semantic
-                {"name": "age", "generator": "random_float"},             # coerce_float_to_int
-            ],
-        }]
+        "tables": [
+            {
+                "name": "users",
+                "count": 30,
+                "columns": [
+                    # crash: integer@DATETIME? (only TIMESTAMP covered) -> may be clean
+                    {"name": "created_at", "generator": "integer"},
+                    {"name": "status", "generator": "integer"},  # crash: integer@TEXT? semantic
+                    {"name": "age", "generator": "random_float"},  # coerce_float_to_int
+                ],
+            }
+        ]
     }
     v = validator.validate(broken_cfg, snapshot)
     hints = {(x.columns[0], x.fix_hint) for x in v.violations}
-    check("B2 broken config flagged (age coerce)",
-          ("age", "coerce_float_to_int") in hints, f"hints={sorted(hints)}")
+    check("B2 broken config flagged (age coerce)", ("age", "coerce_float_to_int") in hints, f"hints={sorted(hints)}")
 
     # Cardinality: choice pool smaller than row count on UNIQUE column.
     card_cfg = {
-        "tables": [{
-            "name": "users", "count": 30,
-            "columns": [{"name": "email", "generator": "choice", "params": {"choices": ["a@x.com", "b@x.com"]}}],
-        }]
+        "tables": [
+            {
+                "name": "users",
+                "count": 30,
+                "columns": [{"name": "email", "generator": "choice", "params": {"choices": ["a@x.com", "b@x.com"]}}],
+            }
+        ]
     }
     v = validator.validate(card_cfg, snapshot)
     uniq = [x for x in v.violations if x.severity == "unique_unsatisfiable"]
-    check("B3 UNIQUE cardinality check (pool 2 < 30 rows)", len(uniq) >= 1,
-          f"violations={[(x.columns, x.severity) for x in v.violations]}")
+    check(
+        "B3 UNIQUE cardinality check (pool 2 < 30 rows)",
+        len(uniq) >= 1,
+        f"violations={[(x.columns, x.severity) for x in v.violations]}",
+    )
 
     # Dialect parser: normalize a raw sqlite IntegrityError into a report.
     with closing(sqlite3.connect(db)) as con:
@@ -244,14 +270,18 @@ def section_b() -> None:
             check("B4 dialect parser (setup insert must fail)", False, "no IntegrityError raised")
         except sqlite3.IntegrityError as e:
             report = DialectErrorParser.parse(e, dialect="sqlite", table="users", snapshot=None)
-            check("B4 dialect parser normalizes UNIQUE IntegrityError",
-                  report is not None and report.constraint_type.name == "UNIQUE" and "email" in report.columns,
-                  f"report={report}")
+            check(
+                "B4 dialect parser normalizes UNIQUE IntegrityError",
+                report is not None and report.constraint_type.name == "UNIQUE" and "email" in report.columns,
+                f"report={report}",
+            )
+
 
 # ---------------------------------------------------------------------------
 # C. Layer 3 — RepairPipeline
 # ---------------------------------------------------------------------------
 def section_c() -> None:
+    """Repair invalid configurations without calling an LLM."""
     print("\n[C] Layer 3 RepairPipeline")
     from sqlseed_ai.contracts.builtin_violations import BUILTIN_VIOLATIONS
     from sqlseed_ai.contracts.matrix import ContractResolver
@@ -265,25 +295,32 @@ def section_c() -> None:
     pipeline = RepairPipeline(resolver, db_path=str(db))
 
     broken = {
-        "tables": [{
-            "name": "users", "count": 30,
-            "columns": _user_columns(age_generator="random_float", created_at_generator="integer"),
-        }]
+        "tables": [
+            {
+                "name": "users",
+                "count": 30,
+                "columns": _user_columns(age_generator="random_float", created_at_generator="integer"),
+            }
+        ]
     }
     new_cfg, result = pipeline.run(broken, snapshot)
     fixed_strategies = {f.fix_strategy for f in result.applied_fixes}
-    check("C1 pipeline repairs random_float+integer crashes",
-          {"coerce_float_to_int", "switch_generator"} <= fixed_strategies and not result.unfixable,
-          f"fixed={fixed_strategies} unfixable={result.unfixable}")
+    check(
+        "C1 pipeline repairs random_float+integer crashes",
+        {"coerce_float_to_int", "switch_generator"} <= fixed_strategies and not result.unfixable,
+        f"fixed={fixed_strategies} unfixable={result.unfixable}",
+    )
 
     gens = {c["name"]: c.get("generator") for t in new_cfg["tables"] for c in t["columns"]}
-    check("C2 repaired generators are core-registered",
-          gens.get("age") == "integer" and gens.get("created_at") == "datetime",
-          f"gens={gens}")
+    check(
+        "C2 repaired generators are core-registered",
+        gens.get("age") == "integer" and gens.get("created_at") == "datetime",
+        f"gens={gens}",
+    )
 
     ok, detail = fill_with_config(new_cfg, db, "c2")
     con = sqlite3.connect(db)
-    n = con.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+    n = con.execute(COUNT_USERS_SQL).fetchone()[0]
     con.close()
     check("C3 repaired config fills 30 users", ok and n == 30, f"{detail} rows={n}")
 
@@ -291,13 +328,25 @@ def section_c() -> None:
     from sqlseed_ai.repair.strategies import REPAIR_STRATEGIES
     from sqlseed_ai.validator.models import ConstraintType, ViolationReport
 
-    col = {"name": "age", "generator": "integer",
-           "params": {"min_value": 0, "max_value": 9, "bogus_param": True, "length": 3}}
-    v = ViolationReport(table="t", columns=["age"], constraint_type=ConstraintType.CHECK,
-                        severity="semantic_error", fix_hint="normalize_params", fix_params={})
+    col = {
+        "name": "age",
+        "generator": "integer",
+        "params": {"min_value": 0, "max_value": 9, "bogus_param": True, "length": 3},
+    }
+    v = ViolationReport(
+        table="t",
+        columns=["age"],
+        constraint_type=ConstraintType.CHECK,
+        severity="semantic_error",
+        fix_hint="normalize_params",
+        fix_params={},
+    )
     stripped = REPAIR_STRATEGIES["normalize_params"](col, v, {})
-    check("C4 normalize_params strips non-whitelist params",
-          stripped["params"] == {"min_value": 0, "max_value": 9}, f"params={stripped['params']}")
+    check(
+        "C4 normalize_params strips non-whitelist params",
+        stripped["params"] == {"min_value": 0, "max_value": 9},
+        f"params={stripped['params']}",
+    )
 
     # LLM-name normalization: random_float/random_int are expression functions, not
     # core generators. The matrix must catch them on EVERY numeric column family,
@@ -307,14 +356,17 @@ def section_c() -> None:
     snap2 = SchemaSnapshot(db_path=str(db2))
     pipeline2 = RepairPipeline(resolver, db_path=str(db2))
     llm_cfg = {
-        "tables": [{
-            "name": "m", "count": 10,
-            "columns": [
-                {"name": "price", "generator": "random_float", "params": {"min_value": 0, "max_value": 99}},
-                {"name": "qty", "generator": "random_int", "params": {"min_value": 0, "max_value": 99}},
-                {"name": "amount", "generator": "random_float"},
-            ],
-        }]
+        "tables": [
+            {
+                "name": "m",
+                "count": 10,
+                "columns": [
+                    {"name": "price", "generator": "random_float", "params": {"min_value": 0, "max_value": 99}},
+                    {"name": "qty", "generator": "random_int", "params": {"min_value": 0, "max_value": 99}},
+                    {"name": "amount", "generator": "random_float"},
+                ],
+            }
+        ]
     }
     v2 = FastValidator(resolver, db_path=str(db2)).validate(llm_cfg, snap2)
     flagged = {(v.columns[0], v.fix_hint) for v in v2.violations}
@@ -324,17 +376,22 @@ def section_c() -> None:
     con = sqlite3.connect(db2)
     n2 = con.execute("SELECT COUNT(*) FROM m").fetchone()[0]
     con.close()
-    check("C5 LLM-style names (random_float/random_int) on REAL/INT/NUMERIC: caught, repaired, filled",
-          len(v2.violations) == 3 and not fix_res.unfixable
-          and gens == {"price": "float", "qty": "integer", "amount": "float"}
-          and ok and n2 == 10,
-          f"flagged={flagged} gens={gens} {detail} rows={n2}")
+    check(
+        "C5 LLM-style names (random_float/random_int) on REAL/INT/NUMERIC: caught, repaired, filled",
+        len(v2.violations) == 3
+        and not fix_res.unfixable
+        and gens == {"price": "float", "qty": "integer", "amount": "float"}
+        and ok
+        and n2 == 10,
+        f"flagged={flagged} gens={gens} {detail} rows={n2}",
+    )
 
 
 # ---------------------------------------------------------------------------
 # D. Layer 4 — ProgressiveDegrader
 # ---------------------------------------------------------------------------
 def section_d() -> None:
+    """Check progressive degradation preserves inferred constraints."""
     print("\n[D] Layer 4 ProgressiveDegrader")
     from sqlseed_ai.healer.degrader import ProgressiveDegrader
     from sqlseed_ai.healer.models import DegradeReason
@@ -345,37 +402,52 @@ def section_d() -> None:
     degrader = ProgressiveDegrader(snapshot)
 
     cfg = {
-        "tables": [{
-            "name": "users", "count": 30,
-            "columns": [
-                {"name": "email", "generator": "email"},
-                {"name": "status", "generator": "choice",
-                 "params": {"choices": ["active", "inactive", "banned"]},
-                 "faker_method": "random_element", "native_params": {"elements": ["active"]}},
-                {"name": "age", "generator": "integer", "params": {"min_value": 18, "max_value": 120}},
-            ],
-        }]
+        "tables": [
+            {
+                "name": "users",
+                "count": 30,
+                "columns": [
+                    {"name": "email", "generator": "email"},
+                    {
+                        "name": "status",
+                        "generator": "choice",
+                        "params": {"choices": ["active", "inactive", "banned"]},
+                        "faker_method": "random_element",
+                        "native_params": {"elements": ["active"]},
+                    },
+                    {"name": "age", "generator": "integer", "params": {"min_value": 18, "max_value": 120}},
+                ],
+            }
+        ]
     }
     new_cfg, applied = degrader.degrade(cfg, {"status": DegradeReason.LLM_FAILURE}, [])
     status_col = next(c for t in new_cfg["tables"] for c in t["columns"] if c["name"] == "status")
     check("D1 degraded column marked _degraded", status_col.get("_degraded") is True)
-    check("D2 LLM-native fields stripped",
-          "faker_method" not in status_col and "native_params" not in status_col,
-          f"keys={sorted(status_col)}")
-    check("D3 CHECK-inferred generator/params preserved",
-          status_col.get("generator") == "choice"
-          and status_col.get("params", {}).get("choices") == ["active", "inactive", "banned"],
-          f"col={status_col}")
+    check(
+        "D2 LLM-native fields stripped",
+        "faker_method" not in status_col and "native_params" not in status_col,
+        f"keys={sorted(status_col)}",
+    )
+    check(
+        "D3 CHECK-inferred generator/params preserved",
+        status_col.get("generator") == "choice"
+        and status_col.get("params", {}).get("choices") == ["active", "inactive", "banned"],
+        f"col={status_col}",
+    )
     other = next(c for t in new_cfg["tables"] for c in t["columns"] if c["name"] == "age")
     check("D4 untouched columns keep their spec", other.get("generator") == "integer" and "_degraded" not in other)
-    check("D5 applied fixes recorded", len(applied) >= 1 and applied[0].fix_strategy == "progressive_degrade",
-          f"applied={[(a.columns, a.fix_strategy) for a in applied]}")
+    check(
+        "D5 applied fixes recorded",
+        len(applied) >= 1 and applied[0].fix_strategy == "progressive_degrade",
+        f"applied={[(a.columns, a.fix_strategy) for a in applied]}",
+    )
 
 
 # ---------------------------------------------------------------------------
 # E. Layer 5 — deterministic CHECK inference + L3 convergence
 # ---------------------------------------------------------------------------
 def section_e() -> None:
+    """Verify deterministic CHECK inference converges through auto-healing."""
     print("\n[E] Layer 5 AutoHeal deterministic inference")
     from sqlseed_ai.contracts.builtin_violations import BUILTIN_VIOLATIONS
     from sqlseed_ai.contracts.matrix import ContractResolver
@@ -391,35 +463,44 @@ def section_e() -> None:
     # AutoHealOrchestrator._build_subgraph_config produces before any LLM call):
     # choice with the CHECK enum, integer within the CHECK range.
     inferred = {
-        "tables": [{
-            "name": "users", "count": 25,
-            "columns": _user_columns(email_generator="string"),
-        }]
+        "tables": [
+            {
+                "name": "users",
+                "count": 25,
+                "columns": _user_columns(email_generator="string"),
+            }
+        ]
     }
     FastValidator(resolver, db_path=str(db)).validate(inferred, snapshot)
     fixed, res = RepairPipeline(resolver, db_path=str(db)).run(inferred, snapshot)
     v2 = FastValidator(resolver, db_path=str(db)).validate(fixed, snapshot)
-    check("E1 inferred config converges after L3 repair",
-          v2.is_clean, f"remaining={[(x.columns, x.fix_hint) for x in v2.violations]}")
+    check(
+        "E1 inferred config converges after L3 repair",
+        v2.is_clean,
+        f"remaining={[(x.columns, x.fix_hint) for x in v2.violations]}",
+    )
     check("E2 no unfixable violations", not res.unfixable, f"unfixable={res.unfixable}")
 
     ok, detail = fill_with_config(fixed, db, "e3")
     con = sqlite3.connect(db)
-    n = con.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+    n = con.execute(COUNT_USERS_SQL).fetchone()[0]
     bad_status = con.execute(
         "SELECT COUNT(*) FROM users WHERE status NOT IN ('active','inactive','banned')"
     ).fetchone()[0]
     bad_age = con.execute("SELECT COUNT(*) FROM users WHERE age < 18 OR age > 120").fetchone()[0]
     con.close()
-    check("E3 repaired config fills with CHECK compliance",
-          ok and n == 25 and bad_status == 0 and bad_age == 0,
-          f"{detail} rows={n} bad_status={bad_status} bad_age={bad_age}")
+    check(
+        "E3 repaired config fills with CHECK compliance",
+        ok and n == 25 and bad_status == 0 and bad_age == 0,
+        f"{detail} rows={n} bad_status={bad_status} bad_age={bad_age}",
+    )
 
 
 # ---------------------------------------------------------------------------
 # F. MCP tools — rule-driven YAML generation + fill round-trip
 # ---------------------------------------------------------------------------
 def section_f() -> None:
+    """Exercise MCP configuration generation, filling, and failure handling."""
     print("\n[F] MCP tools round-trip")
     try:
         from mcp_server_sqlseed.server import sqlseed_execute_fill, sqlseed_generate_yaml
@@ -430,47 +511,62 @@ def section_f() -> None:
     db = build_db(DB_DIR / "shop_f.db", SHOP_DDL)
 
     users_yaml = sqlseed_generate_yaml(db_path=str(db), table_name="users")
-    check("F1 generate_yaml(users) returns YAML",
-          "# Error" not in users_yaml and "users" in users_yaml, f"out={users_yaml[:160]}")
+    check(
+        "F1 generate_yaml(users) returns YAML",
+        MCP_ERROR_MARKER not in users_yaml and "users" in users_yaml,
+        f"out={users_yaml[:160]}",
+    )
 
     orders_yaml = sqlseed_generate_yaml(db_path=str(db), table_name="orders")
-    check("F2 generate_yaml(orders) returns YAML",
-          "# Error" not in orders_yaml and "orders" in orders_yaml, f"out={orders_yaml[:160]}")
+    check(
+        "F2 generate_yaml(orders) returns YAML",
+        MCP_ERROR_MARKER not in orders_yaml and "orders" in orders_yaml,
+        f"out={orders_yaml[:160]}",
+    )
 
     r1 = sqlseed_execute_fill(db_path=str(db), table_name="users", count=30, yaml_config=users_yaml)
-    check("F3 execute_fill(users, 30) succeeds",
-          isinstance(r1, dict) and r1.get("count") == 30 and not r1.get("errors"),
-          f"result={str(r1)[:200]}")
+    check(
+        "F3 execute_fill(users, 30) succeeds",
+        isinstance(r1, dict) and r1.get("count") == 30 and not r1.get("errors"),
+        f"result={str(r1)[:200]}",
+    )
 
     r2 = sqlseed_execute_fill(db_path=str(db), table_name="orders", count=50, yaml_config=orders_yaml)
-    check("F4 execute_fill(orders, 50) succeeds",
-          isinstance(r2, dict) and r2.get("count") == 50 and not r2.get("errors"),
-          f"result={str(r2)[:200]}")
+    check(
+        "F4 execute_fill(orders, 50) succeeds",
+        isinstance(r2, dict) and r2.get("count") == 50 and not r2.get("errors"),
+        f"result={str(r2)[:200]}",
+    )
 
     con = sqlite3.connect(db)
-    users_n = con.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+    users_n = con.execute(COUNT_USERS_SQL).fetchone()[0]
     orders_n = con.execute("SELECT COUNT(*) FROM orders").fetchone()[0]
     fk_orphans = con.execute("PRAGMA foreign_key_check").fetchall()
     bad_status = con.execute(
         "SELECT COUNT(*) FROM users WHERE status NOT IN ('active','inactive','banned')"
     ).fetchone()[0]
     con.close()
-    check("F5 round-trip rows + FK + CHECK enum integrity",
-          users_n == 30 and orders_n == 50 and len(fk_orphans) == 0 and bad_status == 0,
-          f"users={users_n} orders={orders_n} orphans={len(fk_orphans)} bad_status={bad_status}")
+    check(
+        "F5 round-trip rows + FK + CHECK enum integrity",
+        users_n == 30 and orders_n == 50 and len(fk_orphans) == 0 and bad_status == 0,
+        f"users={users_n} orders={orders_n} orphans={len(fk_orphans)} bad_status={bad_status}",
+    )
 
     # Safety: unknown table must be rejected, not crash or fill anything.
     bad = sqlseed_generate_yaml(db_path=str(db), table_name="no_such_table")
-    check("F6 generate_yaml rejects unknown table", "# Error" in bad, f"out={bad[:160]}")
+    check("F6 generate_yaml rejects unknown table", MCP_ERROR_MARKER in bad, f"out={bad[:160]}")
 
     # Safety: unwritable db target must be rejected by _validate_db_target.
     bad2 = sqlseed_execute_fill(db_path="/nonexistent_dir_xyz/nope.db", table_name="users", count=1)
-    check("F7 execute_fill rejects unwritable target",
-          isinstance(bad2, dict) and ("error" in bad2 or "errors" in bad2),
-          f"result={str(bad2)[:200]}")
+    check(
+        "F7 execute_fill rejects unwritable target",
+        isinstance(bad2, dict) and ("error" in bad2 or "errors" in bad2),
+        f"result={str(bad2)[:200]}",
+    )
 
 
 def main() -> int:
+    """Run all offline AI validation layers and return their combined status."""
     print("=" * 70)
     print("sqlseed-ai offline validation (no LLM backend required)")
     print("=" * 70)

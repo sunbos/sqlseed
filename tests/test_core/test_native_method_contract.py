@@ -81,11 +81,12 @@ def test_unknown_native_method_fails_instead_of_silently_generating(
     with sqlite_connection(path) as db:
         db.execute("CREATE TABLE items(label TEXT)")
     config = ColumnConfig(name="label", generator=generator, faker_method="does_not_exist_sqlseed")
+    progress = NullProgressBackend()
     with (
         DataOrchestrator(str(path), provider_name="faker", optimize_pragma=False) as orch,
         pytest.raises(ConfigurationError, match="does_not_exist_sqlseed"),
     ):
-        orch.fill_table("items", count=1, column_configs=[config], skip_ai=True, progress=NullProgressBackend())
+        orch.fill_table("items", count=1, column_configs=[config], skip_ai=True, progress=progress)
     with sqlite_connection(path) as db:
         assert db.execute("SELECT COUNT(*) FROM items").fetchone()[0] == 0
 

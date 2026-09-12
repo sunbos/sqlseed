@@ -25,13 +25,8 @@ const NO_PREVIEW_GENS = new Set(['bytes']);
 
 // 参数控件形态：显式列举而非用 /min|max|length/ 之类的名字正则匹配——
 // precision、start_year 曾因此被误渲染成文本框。
-const NUMERIC_PARAMS = new Set([
-  'min_value', 'max_value', 'min_length', 'max_length', 'precision', 'length',
-  'width', 'height', 'start_year', 'end_year', 'sequence_start', 'sequence_step',
-  'n', 'num_words', 'value',
-]);
+const NUMERIC_PARAMS = new Set(['min_value', 'max_value', 'min_length', 'max_length', 'precision', 'length', 'width', 'height', 'start_year', 'end_year', 'sequence_start', 'sequence_step', 'n', 'num_words', 'value']);
 const TEXTAREA_PARAMS = new Set(['pattern', 'regex', 'template']);
-
 const PARAM_PLACEHOLDERS = {
   charset: '留空 = 默认字符集（字母/数字/空格/_/-）',
   mask: '号码模板，如 1##-####-####（# 为随机数字）',
@@ -44,22 +39,22 @@ const PARAM_PLACEHOLDERS = {
   start_year: '2000',
   end_year: '2026',
   min_length: '1',
-  max_length: '100',
+  max_length: '100'
 };
 
 // 图像格式：核心 _gen_bytes 仅识别 png / jpeg（jpeg 需 Pillow，否则回退 PNG），
 // 用下拉代替自由文本输入，避免写入无效值。
-const IMAGE_FORMATS = [
-  { value: 'png', label: 'PNG' },
-  { value: 'jpeg', label: 'JPEG（需安装 Pillow，否则回退 PNG）' },
-];
+const IMAGE_FORMATS = [{
+  value: 'png',
+  label: 'PNG'
+}, {
+  value: 'jpeg',
+  label: 'JPEG（需安装 Pillow，否则回退 PNG）'
+}];
 
 // 日期时间三件套（参考工具 日期/时间/日期时间面板）。
 // 参数在面板上的排列顺序：精确日期优先，年份作为兼容项靠后。
-const PARAM_ORDER = [
-  'start_date', 'end_date', 'all_day', 'start_time', 'end_time', 'weekdays',
-  'start_year', 'end_year',
-];
+const PARAM_ORDER = ['start_date', 'end_date', 'all_day', 'start_time', 'end_time', 'weekdays', 'start_year', 'end_year'];
 // 有了精确日期参数后，年份参数降级为「旧配置兼容回退」：核心仍接受
 // start_year / end_year（旧 YAML 继续生效），但仅在 start_date / end_date 未提供时生效。
 // 面板不再暴露它们——两套边界并排会让人不知道谁优先。
@@ -71,7 +66,7 @@ const HIDDEN_PARAMS = {
   datetime: new Set(['start_year', 'end_year']),
   timestamp: new Set(['start_year', 'end_year']),
   pattern: new Set(['regex']),
-  weighted_choice: new Set(['choices']),
+  weighted_choice: new Set(['choices'])
 };
 
 // 日期类生成器：AI 回填的 YAML 经常整个省略 params（LLM 倾向不写可选字段，
@@ -87,13 +82,18 @@ const WEEKDAY_LABELS = ['一', '二', '三', '四', '五', '六', '日'];
 // 400ms 防抖预览就会发一个注定失败的请求。与其闪一条「预览失败」，不如提示待填。
 const REQUIRED_PARAMS = {
   choice: ['choices'],
-  weighted_choice: ['weighted_choices'],
+  weighted_choice: ['weighted_choices']
 };
-const WEEKDAY_MODES = [
-  { value: 'all', label: '全部' },
-  { value: 'workdays', label: '工作日' },
-  { value: 'custom', label: '自定义' },
-];
+const WEEKDAY_MODES = [{
+  value: 'all',
+  label: '全部'
+}, {
+  value: 'workdays',
+  label: '工作日'
+}, {
+  value: 'custom',
+  label: '自定义'
+}];
 
 /**
  * @param {object} opts
@@ -104,19 +104,25 @@ const WEEKDAY_MODES = [
  *   cfg 为该列的 ColumnConfig 形状（generator/params/null_ratio/constraints），
  *   null 表示跟随零配置推断。
  */
-export function createGenForm({ connId, meta, uniqueColumnsOf, foreignKeysOf, onChange }) {
-  const el = h('div', { class: 'genform' });
+export function createGenForm({
+  connId,
+  meta,
+  uniqueColumnsOf,
+  foreignKeysOf,
+  onChange
+}) {
+  const el = h('div', {
+    class: 'genform'
+  });
   let current = null; // {table, col, colInfo, inferred, zeroConfig}
-  let form = {};      // {generator, params, null_ratio, unique, constraints, options}
+  let form = {}; // {generator, params, null_ratio, unique, constraints, options}
   let previewBox = null; // 当前预览容器（render() 时更新）
   let previewTimer = null;
   let paramsHolder = null; // 参数区容器（保留引用，不按 section 顺序查找）
   let bytesModeState = null; // bytes 双模式的显式选择（'image'|'folder'|null=按参数推导）
   // 数据库唯一列查询回调（wizard 注入）：table → Set<column>。缺省视为空集。
   const uniqueColsOf = uniqueColumnsOf || (() => new Set());
-  const foreignKeys = () => current
-    ? (foreignKeysOf?.(current.table) || []).filter((fk) => fk.column === current.col)
-    : [];
+  const foreignKeys = () => current ? (foreignKeysOf?.(current.table) || []).filter(fk => fk.column === current.col) : [];
   let nullPctInput = null; // NULL 百分比输入框（勾选框切换时联动禁用态）
   // 本轮 render() 创建的 dropdown。render() 会整体重建 DOM，若不先 destroy，
   // 旧的 scroll/mousedown 监听会残留在 document 上（面板开着被丢弃时）。
@@ -129,10 +135,9 @@ export function createGenForm({ connId, meta, uniqueColumnsOf, foreignKeysOf, on
     if (previewTimer) clearTimeout(previewTimer);
     previewTimer = setTimeout(() => {
       previewTimer = null;
-      if (current && previewBox && previewBox.isConnected) doPreview(previewBox);
+      if (current && previewBox?.isConnected) doPreview(previewBox);
     }, 400);
   }
-
   function cleanParams() {
     const out = {};
     for (const [k, v] of Object.entries(form.params)) {
@@ -145,20 +150,14 @@ export function createGenForm({ connId, meta, uniqueColumnsOf, foreignKeysOf, on
   /** 组装单列 ColumnConfig（emit 与预览共用，避免两处规则漂移）。 */
   function buildCfg() {
     if (foreignKeys().length && !isDbGenerated()) {
-      // 由 schema 解析引用关系；不把运行时缓存的父表值或导入的普通生成器参数写回配置。
-      // 使用解析型生成器，保留核心对空父表、可空外键及自引用的处理。
-      const cfg = { generator: 'foreign_key_or_integer', params: { ...form.params } };
-      if (form.null_ratio > 0 && !dbNotNull()) cfg.null_ratio = form.null_ratio / 100;
-      const constraints = { ...form.constraints };
-      // 复合主键成员并非单列唯一；只补充 schema 明确报告的单列唯一约束。
-      if (uniqueColsOf(current.table)?.has(current.col)) constraints.unique = true;
-      if (Object.keys(constraints).length) cfg.constraints = constraints;
-      return cfg;
+      return foreignKeyConfig();
     }
     // 派生列走 ColumnConfig 的 derived 模式（derive_from + expression），
     // 与 generator 互斥——退化成 generator 会静默改写 AI 的配置，并在参与
     // 跨列 CHECK 时因类型不匹配直接预览失败。
-    const cfg = { ...form.options };
+    const cfg = {
+      ...form.options
+    };
     if (form.derived) {
       cfg.derive_from = form.derived;
       if (form.expression) cfg.expression = form.expression;
@@ -166,20 +165,39 @@ export function createGenForm({ connId, meta, uniqueColumnsOf, foreignKeysOf, on
       cfg.generator = form.generator;
       cfg.params = cleanParams();
     }
-    const constraints = { ...form.constraints };
+    const constraints = {
+      ...form.constraints
+    };
     // form.null_ratio 是 0–100 百分比；核心 ColumnConfig.null_ratio 是 0–1
     // 小数（le=1.0）——发送前必须除以 100，否则 preview/fill 直接 422。
     // 数据库硬约束兜底：NOT NULL 强制不带 null_ratio；数据库唯一强制 unique。
     if (form.null_ratio > 0 && !dbNotNull()) cfg.null_ratio = form.null_ratio / 100;
-    if (dbUnique() || (!NO_UNIQUE_GENS.has(form.generator) && form.unique)) {
+    if (dbUnique() || !NO_UNIQUE_GENS.has(form.generator) && form.unique) {
       constraints.unique = true;
     } else {
       delete constraints.unique;
     }
     if (Object.keys(constraints).length) cfg.constraints = constraints;
     return cfg;
+    function foreignKeyConfig() {
+      // 由 schema 解析引用关系；不把运行时缓存的父表值或导入的普通生成器参数写回配置。
+      // 使用解析型生成器，保留核心对空父表、可空外键及自引用的处理。
+      const cfg = {
+        generator: 'foreign_key_or_integer',
+        params: {
+          ...form.params
+        }
+      };
+      if (form.null_ratio > 0 && !dbNotNull()) cfg.null_ratio = form.null_ratio / 100;
+      const constraints = {
+        ...form.constraints
+      };
+      // 复合主键成员并非单列唯一；只补充 schema 明确报告的单列唯一约束。
+      if (uniqueColsOf(current.table)?.has(current.col)) constraints.unique = true;
+      if (Object.keys(constraints).length) cfg.constraints = constraints;
+      return cfg;
+    }
   }
-
   function emit() {
     if (!current || !onChange) return;
     onChange(current.table, current.col, buildCfg());
@@ -190,7 +208,6 @@ export function createGenForm({ connId, meta, uniqueColumnsOf, foreignKeysOf, on
     dropdowns.push(dd);
     return dd;
   }
-
   function render(preview = true) {
     if (previewTimer) clearTimeout(previewTimer);
     previewTimer = null;
@@ -203,16 +220,23 @@ export function createGenForm({ connId, meta, uniqueColumnsOf, foreignKeysOf, on
     dropdowns = [];
     clear(el);
     if (!current) {
-      el.append(h('div', { class: 'muted', style: 'padding:24px' }, '在左侧树中选择一列以配置生成器。'));
+      el.append(h('div', {
+        class: 'muted',
+        style: 'padding:24px'
+      }, '在左侧树中选择一列以配置生成器。'));
       return;
     }
-    const { col, colInfo } = current;
-    el.append(
-      h('div', { class: 'genform-head' },
-        h('div', { class: 'genform-title' }, col),
-        h('div', { class: 'muted' }, `${colInfo.type}${colInfo.nullable ? '' : ' NOT NULL'}${colInfo.is_primary_key ? ' · PK' : ''}`),
-      ),
-    );
+    const {
+      col,
+      colInfo
+    } = current;
+    el.append(h('div', {
+      class: 'genform-head'
+    }, h('div', {
+      class: 'genform-title'
+    }, col), h('div', {
+      class: 'muted'
+    }, `${colInfo.type}${colInfo.nullable ? '' : ' NOT NULL'}${colInfo.is_primary_key ? ' · PK' : ''}`)));
 
     // 外键身份来自数据库，不能被 AI、导入配置或 NULL 比例编辑改成普通生成器。
     if (foreignKeys().length && !isDbGenerated()) {
@@ -222,60 +246,32 @@ export function createGenForm({ connId, meta, uniqueColumnsOf, foreignKeysOf, on
 
     // 派生列：没有生成器可配（与 derived 模式互斥），直接展示派生来源。
     if (form.derived) {
-      const src = Array.isArray(form.derived) ? form.derived.join('、') : form.derived;
-      el.append(
-        formRow('派生自', h('span', {}, src || '—')),
-        form.expression ? formRow('表达式', h('span', { class: 'mono' }, form.expression)) : null,
-        h('div', { class: 'genform-section' },
-          h('div', { class: 'msg warn' },
-            '该列由其它列派生（derive_from），与「生成器」互斥，属性面板不可编辑。'
-            + '要改回普通生成器，请点下方「重置属性」。'),
-        ),
-      );
-      // 预览仍可用（派生结果来自源列），直接渲染，跳过参数区与通用区。
-      const out = h('div', { class: 'genform-preview' });
-      previewBox = out;
-      el.append(h('div', { class: 'genform-section' }, formRow('预览', out)));
-      if (preview) doPreview(out);
-      el.append(h('div', { class: 'genform-section' },
-        h('button', { class: 'small', onclick: reset }, '重置属性')));
-      return;
+      return renderDerivedConfig();
     }
 
     // ② 自增主键（序列）列：值由数据库生成，sqlseed 跳过不生成（mapper 最高
     // 优先级），任何用户配置都不会生效——整个属性面板锁定为只读，避免「能改
     // 但改了没用」的误导。
     if (isDbGenerated()) {
-      el.append(
-        h('div', { class: 'msg warn', style: 'margin:8px 0' },
-          '该列是自增主键（序列）：值由数据库自动生成，sqlseed 跳过不生成，'
-          + '无需也不可配置。'),
-        h('div', { class: 'genform-section' },
-          formRow('预览', h('span', { class: 'muted' }, '由数据库自增生成，不预览'))),
-      );
+      el.append(h('div', {
+        class: 'msg warn',
+        style: 'margin:8px 0'
+      }, '该列是自增主键（序列）：值由数据库自动生成，sqlseed 跳过不生成，' + '无需也不可配置。'), h('div', {
+        class: 'genform-section'
+      }, formRow('预览', h('span', {
+        class: 'muted'
+      }, '由数据库自增生成，不预览'))));
       return;
     }
 
     // ③ 生成器下拉：7 类分组（通用/个人/支付/商业/位置/产品/电脑）。
     // 未实现的组（支付/产品）渲染为禁用占位项，等 P2 生成器就绪后自动可选。
-    const genOpts = [];
-    for (const grp of groupGenerators(meta.names)) {
-      if (grp.pending) {
-        genOpts.push({
-          value: `__pending_${grp.title}`, label: PENDING_GROUP_HINT,
-          group: grp.title, disabled: true,
-        });
-        continue;
-      }
-      for (const name of grp.names) {
-        genOpts.push({ value: name, label: `${genLabel(name)}（${name}）`, group: grp.title });
-      }
-    }
+    const genOpts = generatorOptions();
     const genSel = track(createDropdown({
       value: form.generator,
       options: genOpts,
       width: '260px',
-      onChange: (v) => {
+      onChange: v => {
         if (v === form.generator) return;
         form.generator = v;
         form.params = {};
@@ -289,12 +285,14 @@ export function createGenForm({ connId, meta, uniqueColumnsOf, foreignKeysOf, on
         render(false);
         emit();
         schedulePreview();
-      },
+      }
     }));
     el.append(formRow('生成器', genSel.el));
 
     // ③ 类型专属参数区
-    paramsHolder = h('div', { class: 'genform-params' });
+    paramsHolder = h('div', {
+      class: 'genform-params'
+    });
     el.append(paramsHolder);
     renderParams();
 
@@ -302,16 +300,18 @@ export function createGenForm({ connId, meta, uniqueColumnsOf, foreignKeysOf, on
     if (NO_PREVIEW_GENS.has(form.generator)) {
       previewBox = null; // 图像或二进制面板没有预览区
     } else {
-      const previewOut = h('div', { class: 'genform-preview' });
+      const previewOut = h('div', {
+        class: 'genform-preview'
+      });
       previewBox = previewOut;
-      el.append(
-        h('div', { class: 'genform-section' },
-          formRow('预览', h('div', { class: 'row genform-inline' },
-            previewOut,
-            h('button', { class: 'small', onclick: () => doPreview(previewOut) }, '刷新'),
-          )),
-        ),
-      );
+      el.append(h('div', {
+        class: 'genform-section'
+      }, formRow('预览', h('div', {
+        class: 'row genform-inline'
+      }, previewOut, h('button', {
+        class: 'small',
+        onclick: () => doPreview(previewOut)
+      }, '刷新')))));
       if (preview) doPreview(previewOut);
     }
 
@@ -319,34 +319,95 @@ export function createGenForm({ connId, meta, uniqueColumnsOf, foreignKeysOf, on
     renderCommon();
 
     // ⑥ 重置属性（参考工具：面板底部独立按钮）
-    el.append(h('div', { class: 'genform-section' },
-      h('button', { class: 'small', onclick: reset }, '重置属性'),
-    ));
+    el.append(h('div', {
+      class: 'genform-section'
+    }, h('button', {
+      class: 'small',
+      onclick: reset
+    }, '重置属性')));
+    function renderDerivedConfig() {
+      const src = Array.isArray(form.derived) ? form.derived.join('、') : form.derived;
+      el.append(formRow('派生自', h('span', {}, src || '—')), form.expression ? formRow('表达式', h('span', {
+        class: 'mono'
+      }, form.expression)) : null, h('div', {
+        class: 'genform-section'
+      }, h('div', {
+        class: 'msg warn'
+      }, '该列由其它列派生（derive_from），与「生成器」互斥，属性面板不可编辑。' + '要改回普通生成器，请点下方「重置属性」。')));
+      // 预览仍可用（派生结果来自源列），直接渲染，跳过参数区与通用区。
+      const out = h('div', {
+        class: 'genform-preview'
+      });
+      previewBox = out;
+      el.append(h('div', {
+        class: 'genform-section'
+      }, formRow('预览', out)));
+      if (preview) doPreview(out);
+      el.append(h('div', {
+        class: 'genform-section'
+      }, h('button', {
+        class: 'small',
+        onclick: reset
+      }, '重置属性')));
+      return;
+    }
+    function generatorOptions() {
+      const genOpts = [];
+      for (const grp of groupGenerators(meta.names)) {
+        if (grp.pending) {
+          genOpts.push({
+            value: `__pending_${grp.title}`,
+            label: PENDING_GROUP_HINT,
+            group: grp.title,
+            disabled: true
+          });
+          continue;
+        }
+        for (const name of grp.names) {
+          genOpts.push({
+            value: name,
+            label: `${genLabel(name)}（${name}）`,
+            group: grp.title
+          });
+        }
+      }
+      return genOpts;
+    }
   }
-
   function renderCommon() {
     const pctInput = h('input', {
-      type: 'number', class: 'num-input', value: form.null_ratio || DEFAULT_PERCENT,
-      min: 0, max: 100,
+      type: 'number',
+      class: 'num-input',
+      value: form.null_ratio || DEFAULT_PERCENT,
+      min: 0,
+      max: 100,
       disabled: dbNotNull() || form.null_ratio <= 0,
-      oninput: (e) => { form.null_ratio = +e.target.value; emit(); schedulePreview(); },
+      oninput: e => {
+        form.null_ratio = +e.target.value;
+        emit();
+        schedulePreview();
+      }
     });
     nullPctInput = pctInput;
     const notNull = dbNotNull();
     const common = [
-      // 行标签即属性名（参考工具 同款两栏网格），控件只放勾选框本身。
-      formRow('包含 NULL 值', h('input', {
-        type: 'checkbox', checked: form.null_ratio > 0 && !notNull,
-        disabled: notNull, // 数据库 NOT NULL：不可配置（配了必 IntegrityError）
-        onchange: (e) => {
-          form.null_ratio = e.target.checked ? DEFAULT_PERCENT : 0;
-          renderNull(); emit(); schedulePreview();
-        },
-      })),
-      formRow('百分比', pctInput),
-    ];
+    // 行标签即属性名（参考工具 同款两栏网格），控件只放勾选框本身。
+    formRow('包含 NULL 值', h('input', {
+      type: 'checkbox',
+      checked: form.null_ratio > 0 && !notNull,
+      disabled: notNull,
+      // 数据库 NOT NULL：不可配置（配了必 IntegrityError）
+      onchange: e => {
+        form.null_ratio = e.target.checked ? DEFAULT_PERCENT : 0;
+        renderNull();
+        emit();
+        schedulePreview();
+      }
+    })), formRow('百分比', pctInput)];
     if (notNull) {
-      common.push(formRow('', h('span', { class: 'muted' }, '数据库约束:NOT NULL,不允许 NULL 值')));
+      common.push(formRow('', h('span', {
+        class: 'muted'
+      }, '数据库约束:NOT NULL,不允许 NULL 值')));
     }
     // 数据库唯一约束优先于「该生成器隐藏设置唯一」的裁剪规则：
     // 约束是硬性的，隐藏会让用户失去知情权（即使核心 unique_adjuster 会兜底）。
@@ -356,61 +417,85 @@ export function createGenForm({ connId, meta, uniqueColumnsOf, foreignKeysOf, on
         type: 'checkbox',
         checked: dbUniq || !!form.unique,
         disabled: dbUniq,
-        onchange: (e) => { form.unique = e.target.checked; emit(); schedulePreview(); },
+        onchange: e => {
+          form.unique = e.target.checked;
+          emit();
+          schedulePreview();
+        }
       })));
       if (dbUniq) {
-        common.push(formRow('', h('span', { class: 'muted' }, '数据库约束:UNIQUE,必须唯一')));
+        common.push(formRow('', h('span', {
+          class: 'muted'
+        }, '数据库约束:UNIQUE,必须唯一')));
       }
     }
-    el.append(h('div', { class: 'genform-section' }, ...common));
+    el.append(h('div', {
+      class: 'genform-section'
+    }, ...common));
   }
-
   function renderForeignKey(preview) {
     const refs = foreignKeys();
-    const selfRef = refs.some((fk) => fk.ref_table === current.table);
-    el.append(
-      formRow('引用列', h('span', { class: 'mono' },
-        refs.map((fk) => `${fk.ref_table}.${fk.ref_column}`).join('、'))),
-      h('div', { class: 'msg warn', style: 'margin:8px 0' },
-        '该列是外键，非空值从引用列中选取，不能切换为普通生成器。'
-        + (selfRef ? '这是同一张表内的自引用关系。' : '生成数据时需先准备被引用表中的记录。')),
-    );
-    const out = h('div', { class: 'genform-preview' });
+    const selfRef = refs.some(fk => fk.ref_table === current.table);
+    el.append(formRow('引用列', h('span', {
+      class: 'mono'
+    }, refs.map(fk => `${fk.ref_table}.${fk.ref_column}`).join('、'))), h('div', {
+      class: 'msg warn',
+      style: 'margin:8px 0'
+    }, '该列是外键，非空值从引用列中选取，不能切换为普通生成器。' + (selfRef ? '这是同一张表内的自引用关系。' : '生成数据时需先准备被引用表中的记录。')));
+    const out = h('div', {
+      class: 'genform-preview'
+    });
     previewBox = out;
-    el.append(h('div', { class: 'genform-section' },
-      formRow('预览', h('div', { class: 'row genform-inline' },
-        out, h('button', { class: 'small', onclick: () => doPreview(out) }, '刷新')))));
+    el.append(h('div', {
+      class: 'genform-section'
+    }, formRow('预览', h('div', {
+      class: 'row genform-inline'
+    }, out, h('button', {
+      class: 'small',
+      onclick: () => doPreview(out)
+    }, '刷新')))));
     if (preview) doPreview(out);
     if (!dbNotNull()) {
       const pct = h('input', {
-        type: 'number', class: 'num-input', min: 0, max: 100,
+        type: 'number',
+        class: 'num-input',
+        min: 0,
+        max: 100,
         value: form.null_ratio > 0 ? form.null_ratio : '',
-        placeholder: '0', disabled: form.null_ratio <= 0,
-        oninput: (e) => {
+        placeholder: '0',
+        disabled: form.null_ratio <= 0,
+        oninput: e => {
           form.null_ratio = e.target.value === '' ? 0 : +e.target.value;
-          emit(); schedulePreview();
-        },
+          emit();
+          schedulePreview();
+        }
       });
-      el.append(h('div', { class: 'genform-section' },
-        formRow('包含 NULL 值', h('input', {
-          type: 'checkbox', checked: form.null_ratio > 0,
-          onchange: (e) => {
-            form.null_ratio = e.target.checked ? DEFAULT_PERCENT : 0;
-            pct.value = form.null_ratio > 0 ? form.null_ratio : '';
-            pct.disabled = form.null_ratio <= 0;
-            emit(); schedulePreview();
-          },
-        })),
-        formRow('百分比', pct),
-        h('div', { class: 'muted' }, selfRef
-          ? '首次向空表生成数据时，会先留空再建立表内关联，最终空值比例受初始化过程影响。'
-          : '引用列没有可用值时，可空外键会先生成 NULL；填充被引用表后才能建立关联。')));
+      el.append(h('div', {
+        class: 'genform-section'
+      }, formRow('包含 NULL 值', h('input', {
+        type: 'checkbox',
+        checked: form.null_ratio > 0,
+        onchange: e => {
+          form.null_ratio = e.target.checked ? DEFAULT_PERCENT : 0;
+          pct.value = form.null_ratio > 0 ? form.null_ratio : '';
+          pct.disabled = form.null_ratio <= 0;
+          emit();
+          schedulePreview();
+        }
+      })), formRow('百分比', pct), h('div', {
+        class: 'muted'
+      }, selfRef ? '首次向空表生成数据时，会先留空再建立表内关联，最终空值比例受初始化过程影响。' : '引用列没有可用值时，可空外键会先生成 NULL；填充被引用表后才能建立关联。')));
     } else {
-      el.append(h('div', { class: 'genform-section muted' },
-        '数据库约束：NOT NULL，不允许空值；引用列必须有可用记录。'));
+      el.append(h('div', {
+        class: 'genform-section muted'
+      }, '数据库约束：NOT NULL，不允许空值；引用列必须有可用记录。'));
     }
-    el.append(h('div', { class: 'genform-section' },
-      h('button', { class: 'small', onclick: reset }, '重置属性')));
+    el.append(h('div', {
+      class: 'genform-section'
+    }, h('button', {
+      class: 'small',
+      onclick: reset
+    }, '重置属性')));
   }
 
   /** NULL 勾选框联动：未勾选时百分比输入框禁用（参考工具 同款行为）。 */
@@ -432,11 +517,13 @@ export function createGenForm({ connId, meta, uniqueColumnsOf, foreignKeysOf, on
       delete p.regex;
     }
     if (form.generator === 'weighted_choice' && !p.weighted_choices) {
+      normalizeWeightedChoices();
+    }
+    function normalizeWeightedChoices() {
       if (Array.isArray(p.choices) && p.choices.length) {
         const obj = {};
         for (const c of p.choices) {
-          if (c && typeof c === 'object') obj[c.value] = c.weight ?? 1;
-          else obj[c] = 1; // 等权字符串
+          if (c && typeof c === 'object') obj[c.value] = c.weight ?? 1;else obj[c] = 1; // 等权字符串
         }
         p.weighted_choices = obj;
       }
@@ -463,13 +550,14 @@ export function createGenForm({ connId, meta, uniqueColumnsOf, foreignKeysOf, on
   function isDbGenerated() {
     return !!(current?.colInfo?.is_primary_key && current?.colInfo?.is_autoincrement);
   }
-
   function renderParams() {
     if (!paramsHolder) return;
     clear(paramsHolder);
     const paramNames = meta.params?.[form.generator] || [];
     if (!paramNames.length) {
-      paramsHolder.append(formRow('', h('span', { class: 'muted' }, '该生成器无可配置参数')));
+      paramsHolder.append(formRow('', h('span', {
+        class: 'muted'
+      }, '该生成器无可配置参数')));
       return;
     }
     // bytes（图像或二进制）双模式：参考工具 同款「图像生成器 / 从文件夹随机选择」
@@ -486,7 +574,7 @@ export function createGenForm({ connId, meta, uniqueColumnsOf, foreignKeysOf, on
     }
     // 按 参考工具 面板顺序排列；未列入 PARAM_ORDER 的参数保持签名原始顺序。
     const hidden = HIDDEN_PARAMS[form.generator];
-    const ordered = [...paramNames].filter((p) => !hidden?.has(p)).sort((a, b) => {
+    const ordered = [...paramNames].filter(p => !hidden?.has(p)).sort((a, b) => {
       const ia = PARAM_ORDER.indexOf(a);
       const ib = PARAM_ORDER.indexOf(b);
       if (ia === -1 && ib === -1) return 0;
@@ -502,19 +590,21 @@ export function createGenForm({ connId, meta, uniqueColumnsOf, foreignKeysOf, on
   // bytes 双模式参数分组（顺序即 参考工具 面板顺序）。
   const BYTES_MODE_PARAMS = {
     image: ['width', 'height', 'image_format'],
-    folder: ['folder', 'extensions'],
+    folder: ['folder', 'extensions']
   };
-  const BYTES_MODE_LABELS = [
-    { value: 'image', label: '图像生成器' },
-    { value: 'folder', label: '从文件夹随机选择' },
-  ];
+  const BYTES_MODE_LABELS = [{
+    value: 'image',
+    label: '图像生成器'
+  }, {
+    value: 'folder',
+    label: '从文件夹随机选择'
+  }];
 
   /** bytes 当前模式：显式选择优先，未选过时回退到参数推导（folder 非空 → folder，
    *  与核心 _gen_bytes 的 folder 优先判定一致）。 */
   function bytesMode() {
     return bytesModeState || (form.params.folder ? 'folder' : 'image');
   }
-
   function switchBytesMode(mode) {
     if (mode === bytesMode()) return;
     bytesModeState = mode;
@@ -530,16 +620,20 @@ export function createGenForm({ connId, meta, uniqueColumnsOf, foreignKeysOf, on
     emit();
     schedulePreview();
   }
-
   function bytesModeRow() {
     const mode = bytesMode();
-    const radios = h('div', { class: 'genform-radios' });
+    const radios = h('div', {
+      class: 'genform-radios'
+    });
     for (const m of BYTES_MODE_LABELS) {
-      radios.append(h('label', { class: 'genform-check' },
-        h('input', {
-          type: 'radio', name: 'genform-bytes-mode', checked: mode === m.value,
-          onchange: () => switchBytesMode(m.value),
-        }), m.label));
+      radios.append(h('label', {
+        class: 'genform-check'
+      }, h('input', {
+        type: 'radio',
+        name: 'genform-bytes-mode',
+        checked: mode === m.value,
+        onchange: () => switchBytesMode(m.value)
+      }), m.label));
     }
     return formRow('模式', radios);
   }
@@ -575,19 +669,127 @@ export function createGenForm({ connId, meta, uniqueColumnsOf, foreignKeysOf, on
   function dbUnique() {
     if (current?.colInfo?.is_primary_key) return true;
     const cols = uniqueColsOf(current?.table);
-    return !!(cols && cols.has && current?.col && cols.has(current.col));
+    return !!(cols?.has && current?.col && cols.has(current.col));
   }
-
-
   function paramInput(name) {
     const val = form.params[name] ?? '';
-    const commit = (v) => { form.params[name] = v; emit(); schedulePreview(); };
+    const commit = v => {
+      form.params[name] = v;
+      emit();
+      schedulePreview();
+    };
     if (name === 'schema') {
-      const error = h('div', { class: 'msg err', role: 'alert', hidden: true });
+      return schemaInput();
+    }
+    if (name === 'choices' || name === 'weighted_choices') {
+      return choiceInput();
+    }
+    // 正则 / 模板：多行文本编辑区。
+    if (TEXTAREA_PARAMS.has(name)) {
+      return h('textarea', {
+        class: 'grow',
+        rows: name === 'template' ? '2' : '3',
+        spellcheck: 'false',
+        placeholder: PARAM_PLACEHOLDERS[name] || '',
+        oninput: e => commit(e.target.value)
+      }, String(val ?? ''));
+    }
+    // 日期 / 时间 / 星期：参考工具 日期、时间、日期时间三件套面板。
+    if (name === 'start_date' || name === 'end_date') {
+      return h('input', {
+        type: 'date',
+        class: 'grow',
+        value: val || '',
+        oninput: e => commit(e.target.value)
+      });
+    }
+    if (name === 'start_time' || name === 'end_time') {
+      return h('input', {
+        type: 'time',
+        class: 'grow',
+        value: val || '',
+        step: 1,
+        // step=1 让秒可选
+        'data-time-param': name,
+        disabled: form.params.all_day !== false,
+        // 「一整天」勾选时不参与
+        oninput: e => commit(e.target.value)
+      });
+    }
+    if (name === 'all_day') {
+      return h('input', {
+        type: 'checkbox',
+        checked: form.params.all_day !== false,
+        // 参考工具 默认勾选「一整天」
+        onchange: e => {
+          commit(e.target.checked);
+          syncTimeInputs();
+        }
+      });
+    }
+    if (name === 'weekdays') {
+      return weekdayControl(commit);
+    }
+    if (NUMERIC_PARAMS.has(name)) {
+      return numericInput();
+    }
+    if (name === 'extensions') {
+      // 逗号分隔列表（如 png,jpg），发送前解析为数组
+      return h('input', {
+        class: 'grow',
+        value: Array.isArray(val) ? val.join(',') : val || '',
+        placeholder: PARAM_PLACEHOLDERS.extensions,
+        oninput: e => commit(e.target.value.split(',').map(s => s.trim()).filter(Boolean))
+      });
+    }
+    if (name === 'image_format') {
+      return track(createDropdown({
+        value: val || 'png',
+        options: IMAGE_FORMATS,
+        width: '240px',
+        onChange: v => commit(v)
+      })).el;
+    }
+    if (name === 'folder') {
+      // 目录走服务端浏览（浏览器不暴露绝对路径）——选完直接回填并触发预览。
+      const input = h('input', {
+        class: 'grow',
+        value: val || '',
+        placeholder: PARAM_PLACEHOLDERS.folder,
+        oninput: e => commit(e.target.value)
+      });
+      return h('div', {
+        class: 'genform-field'
+      }, input, h('button', {
+        class: 'small',
+        onclick: () => openFilePicker({
+          mode: 'dir',
+          startPath: val || undefined,
+          onPick: p => {
+            input.value = p;
+            commit(p);
+          }
+        })
+      }, '选择文件夹'));
+    }
+    return h('input', {
+      class: 'grow',
+      value: val,
+      placeholder: PARAM_PLACEHOLDERS[name] || '',
+      oninput: e => commit(e.target.value)
+    });
+    function schemaInput() {
+      const error = h('div', {
+        class: 'msg err',
+        role: 'alert',
+        hidden: true
+      });
       const input = h('textarea', {
-        class: 'grow', rows: '5', spellcheck: 'false',
+        class: 'grow',
+        rows: '5',
+        spellcheck: 'false',
         placeholder: PARAM_PLACEHOLDERS.schema,
-        oninput: (e) => {
+        oninput: e => {
           let parsed;
           try {
             const text = e.target.value.trim();
@@ -612,11 +814,13 @@ export function createGenForm({ connId, meta, uniqueColumnsOf, foreignKeysOf, on
           error.hidden = true;
           input.removeAttribute('aria-invalid');
           commit(parsed);
-        },
+        }
       }, typeof val === 'string' ? val : JSON.stringify(val, null, 2));
-      return h('div', { class: 'genform-field-col' }, input, error);
+      return h('div', {
+        class: 'genform-field-col'
+      }, input, error);
     }
-    if (name === 'choices' || name === 'weighted_choices') {
+    function choiceInput() {
       // 参考工具 式：每行一个值；加权枚举支持每行「值:权重」。
       let text;
       if (Array.isArray(val)) {
@@ -627,62 +831,32 @@ export function createGenForm({ connId, meta, uniqueColumnsOf, foreignKeysOf, on
         text = typeof val === 'string' ? val : '';
       }
       return h('textarea', {
-        class: 'grow', rows: '4', spellcheck: 'false',
+        class: 'grow',
+        rows: '4',
+        spellcheck: 'false',
         placeholder: name === 'choices' ? '每行一个值，如:\nengineer\nmanager' : '每行一个「值:权重」，如:\nactive:80\nsuspended:15',
-        oninput: (e) => {
-          const lines = e.target.value.split('\n').map((s) => s.trim()).filter(Boolean);
+        oninput: e => {
+          const lines = e.target.value.split('\n').map(s => s.trim()).filter(Boolean);
           if (name === 'choices') {
             commit(lines);
           } else {
             const obj = {};
             for (const line of lines) {
               const idx = line.lastIndexOf(':');
-              if (idx > 0) obj[line.slice(0, idx)] = Number(line.slice(idx + 1)) || 0;
-              else obj[line] = 1;
+              if (idx > 0) obj[line.slice(0, idx)] = Number(line.slice(idx + 1)) || 0;else obj[line] = 1;
             }
             commit(obj);
           }
-        },
+        }
       }, text);
     }
-    // 正则 / 模板：多行文本编辑区。
-    if (TEXTAREA_PARAMS.has(name)) {
-      return h('textarea', {
-        class: 'grow', rows: name === 'template' ? '2' : '3', spellcheck: 'false',
-        placeholder: PARAM_PLACEHOLDERS[name] || '',
-        oninput: (e) => commit(e.target.value),
-      }, String(val ?? ''));
-    }
-    // 日期 / 时间 / 星期：参考工具 日期、时间、日期时间三件套面板。
-    if (name === 'start_date' || name === 'end_date') {
-      return h('input', {
-        type: 'date', class: 'grow', value: val || '',
-        oninput: (e) => commit(e.target.value),
-      });
-    }
-    if (name === 'start_time' || name === 'end_time') {
-      return h('input', {
-        type: 'time', class: 'grow', value: val || '', step: 1, // step=1 让秒可选
-        'data-time-param': name,
-        disabled: form.params.all_day !== false, // 「一整天」勾选时不参与
-        oninput: (e) => commit(e.target.value),
-      });
-    }
-    if (name === 'all_day') {
-      return h('input', {
-        type: 'checkbox',
-        checked: form.params.all_day !== false, // 参考工具 默认勾选「一整天」
-        onchange: (e) => { commit(e.target.checked); syncTimeInputs(); },
-      });
-    }
-    if (name === 'weekdays') {
-      return weekdayControl(commit);
-    }
-    if (NUMERIC_PARAMS.has(name)) {
+    function numericInput() {
       const attrs = {
-        type: 'number', class: 'num-input', value: val,
+        type: 'number',
+        class: 'num-input',
+        value: val,
         placeholder: PARAM_PLACEHOLDERS[name] || '',
-        oninput: (e) => commit(e.target.value === '' ? undefined : +e.target.value),
+        oninput: e => commit(e.target.value === '' ? undefined : +e.target.value)
       };
       // 年份加合法区间（datetime.year 必须落在 1–9999）。没有边界时很容易
       // 敲出 1396 这类荒谬年份——值本身合法，生成结果却完全跑偏。
@@ -692,45 +866,6 @@ export function createGenForm({ connId, meta, uniqueColumnsOf, foreignKeysOf, on
       }
       return h('input', attrs);
     }
-    if (name === 'extensions') {
-      // 逗号分隔列表（如 png,jpg），发送前解析为数组
-      return h('input', {
-        class: 'grow', value: Array.isArray(val) ? val.join(',') : (val || ''),
-        placeholder: PARAM_PLACEHOLDERS.extensions,
-        oninput: (e) => commit(e.target.value.split(',').map((s) => s.trim()).filter(Boolean)),
-      });
-    }
-    if (name === 'image_format') {
-      return track(createDropdown({
-        value: val || 'png',
-        options: IMAGE_FORMATS,
-        width: '240px',
-        onChange: (v) => commit(v),
-      })).el;
-    }
-    if (name === 'folder') {
-      // 目录走服务端浏览（浏览器不暴露绝对路径）——选完直接回填并触发预览。
-      const input = h('input', {
-        class: 'grow', value: val || '',
-        placeholder: PARAM_PLACEHOLDERS.folder,
-        oninput: (e) => commit(e.target.value),
-      });
-      return h('div', { class: 'genform-field' },
-        input,
-        h('button', {
-          class: 'small',
-          onclick: () => openFilePicker({
-            mode: 'dir',
-            startPath: val || undefined,
-            onPick: (p) => { input.value = p; commit(p); },
-          }),
-        }, '选择文件夹'),
-      );
-    }
-    return h('input', {
-      class: 'grow', value: val, placeholder: PARAM_PLACEHOLDERS[name] || '',
-      oninput: (e) => commit(e.target.value),
-    });
   }
 
   /**
@@ -739,47 +874,65 @@ export function createGenForm({ connId, meta, uniqueColumnsOf, foreignKeysOf, on
    */
   function weekdayControl(commit) {
     const val = form.params.weekdays;
-    const mode = val === 'workdays' ? 'workdays' : (Array.isArray(val) ? 'custom' : 'all');
-    const radios = h('div', { class: 'genform-radios' });
-    const box = h('div', { class: 'genform-weekdays' });
+    let mode;
+    if (val === 'workdays') {
+      mode = 'workdays';
+    } else if (Array.isArray(val)) {
+      mode = 'custom';
+    } else {
+      mode = 'all';
+    }
+    const radios = h('div', {
+      class: 'genform-radios'
+    });
+    const box = h('div', {
+      class: 'genform-weekdays'
+    });
     for (const m of WEEKDAY_MODES) {
-      radios.append(h('label', { class: 'genform-check' },
-        h('input', {
-          type: 'radio', name: 'genform-weekday-mode', checked: mode === m.value,
-          onchange: () => {
-            commit(m.value === 'custom' ? [] : m.value);
-            box.style.display = m.value === 'custom' ? 'flex' : 'none';
-          },
-        }), m.label));
+      radios.append(h('label', {
+        class: 'genform-check'
+      }, h('input', {
+        type: 'radio',
+        name: 'genform-weekday-mode',
+        checked: mode === m.value,
+        onchange: () => {
+          commit(m.value === 'custom' ? [] : m.value);
+          box.style.display = m.value === 'custom' ? 'flex' : 'none';
+        }
+      }), m.label));
     }
     const days = new Set(Array.isArray(val) ? val : []);
     for (let i = 0; i < 7; i++) {
-      box.append(h('label', { class: 'genform-check' },
-        h('input', {
-          type: 'checkbox', checked: days.has(i),
-          onchange: (e) => {
-            const next = new Set(Array.isArray(form.params.weekdays) ? form.params.weekdays : []);
-            if (e.target.checked) next.add(i); else next.delete(i);
-            commit([...next].sort((x, y) => x - y));
-          },
-        }), WEEKDAY_LABELS[i]));
+      box.append(h('label', {
+        class: 'genform-check'
+      }, h('input', {
+        type: 'checkbox',
+        checked: days.has(i),
+        onchange: e => {
+          const next = new Set(Array.isArray(form.params.weekdays) ? form.params.weekdays : []);
+          if (e.target.checked) next.add(i);else next.delete(i);
+          commit([...next].sort((x, y) => x - y));
+        }
+      }), WEEKDAY_LABELS[i]));
     }
     box.style.display = mode === 'custom' ? 'flex' : 'none';
-    return h('div', { class: 'genform-field-col' }, radios, box);
+    return h('div', {
+      class: 'genform-field-col'
+    }, radios, box);
   }
-
   function formRow(labelText, control) {
-    return h('div', { class: 'genform-row' },
-      h('label', { class: 'genform-label' }, labelText ? `${labelText}:` : ''),
-      control,
-    );
+    return h('div', {
+      class: 'genform-row'
+    }, h('label', {
+      class: 'genform-label'
+    }, labelText ? `${labelText}:` : ''), control);
   }
 
   /** 该生成器缺哪个必填参数（无必填返回 null）。 */
   function missingRequired() {
     const req = REQUIRED_PARAMS[form.generator];
     if (!req) return null;
-    const missing = req.filter((k) => {
+    const missing = req.filter(k => {
       const v = form.params[k];
       if (Array.isArray(v)) return v.length === 0;
       if (v && typeof v === 'object') return Object.keys(v).length === 0;
@@ -787,7 +940,6 @@ export function createGenForm({ connId, meta, uniqueColumnsOf, foreignKeysOf, on
     });
     return missing.length ? missing : null;
   }
-
   async function doPreview(out) {
     if (!current) return;
     if (paramErrors.size) {
@@ -799,20 +951,30 @@ export function createGenForm({ connId, meta, uniqueColumnsOf, foreignKeysOf, on
     if (missing) {
       // 空参请求注定失败（如 choice 缺候选值），提示待填而不是闪一条报错。
       clear(out);
-      out.append(h('span', { class: 'muted' }, `待填写：${missing.map(paramLabel).join('、')}`));
+      out.append(h('span', {
+        class: 'muted'
+      }, `待填写：${missing.map(paramLabel).join('、')}`));
       return;
     }
     clear(out);
-    out.append(h('span', { class: 'muted' }, '…'));
+    out.append(h('span', {
+      class: 'muted'
+    }, '…'));
     try {
       // 预览必须带 NULL/唯一，否则勾选后预览永远显示不出空值（实测发现）。
       const cfg = buildCfg();
       const res = await post(`/api/connections/${connId}/preview`, {
-        table: current.table, count: 3, columns: { [current.col]: cfg },
+        table: current.table,
+        count: 3,
+        columns: {
+          [current.col]: cfg
+        }
       });
       clear(out);
-      const vals = res.rows.map((r) => r[current.col]);
-      out.append(h('span', { class: 'genform-preview-val' }, vals.map(String).join('、') || '（空）'));
+      const vals = res.rows.map(r => r[current.col]);
+      out.append(h('span', {
+        class: 'genform-preview-val'
+      }, vals.map(String).join('、') || '（空）'));
     } catch (e) {
       clear(out);
       out.append(msg(`预览失败：${e.message}`));
@@ -829,7 +991,6 @@ export function createGenForm({ connId, meta, uniqueColumnsOf, foreignKeysOf, on
     render();
     emit();
   }
-
   function fromInferred(spec) {
     // 保留面板未提供编辑器的 ColumnConfig 字段，参数编辑不应重写这些设置。
     const options = {};
@@ -838,51 +999,68 @@ export function createGenForm({ connId, meta, uniqueColumnsOf, foreignKeysOf, on
     }
     const common = {
       options,
-      constraints: { ...spec?.constraints },
+      constraints: {
+        ...spec?.constraints
+      },
       // 核心为 0–1，UI 为 0–100；保留小数，避免未编辑比例时发生精度损失。
       null_ratio: (spec?.null_ratio || 0) * 100,
-      unique: !!spec?.constraints?.unique,
+      unique: !!spec?.constraints?.unique
     };
     if (foreignKeys().length && !isDbGenerated()) {
       const params = {};
       if (['random', 'coverage'].includes(spec?.params?.strategy)) params.strategy = spec.params.strategy;
-      return { ...common, options: {}, generator: 'foreign_key_or_integer', params };
+      return {
+        ...common,
+        options: {},
+        generator: 'foreign_key_or_integer',
+        params
+      };
     }
     // 派生列（AI 常为 shipped_at 一类配 derive_from）必须原样保留：ColumnConfig
     // 的 derived 模式与 generator 互斥，退化成 generator 会静默改写 AI 配置，
     // 且该列一旦参与跨列 CHECK 就因类型不匹配而预览失败。
-    if (spec && spec.derive_from) {
+    if (spec?.derive_from) {
       return {
         ...common,
         generator: '',
         derived: spec.derive_from,
         expression: spec.expression || '',
-        params: {},
+        params: {}
       };
     }
-    if (!spec || spec.generator_name === 'skip' || spec.generator_name === 'foreign_key'
-      || spec.generator_name === 'foreign_key_or_integer' || spec.generator_name === '__enrich__') {
-      return { ...common, generator: 'string', params: {} };
+    if (!spec || spec.generator_name === 'skip' || spec.generator_name === 'foreign_key' || spec.generator_name === 'foreign_key_or_integer' || spec.generator_name === '__enrich__') {
+      return {
+        ...common,
+        generator: 'string',
+        params: {}
+      };
     }
     return {
       ...common,
       generator: spec.generator_name || spec.generator || 'string',
-      params: { ...spec.params },
+      params: {
+        ...spec.params
+      }
     };
   }
-
   return {
     el,
     /** 选中一列：inferred 为当前配置，zeroConfig 为零配置推断的 GeneratorSpec。 */
     setColumn(table, col, colInfo, inferred, zeroConfig) {
       // zeroConfig 是该列的零配置推断结果，作为「重置属性」的回落基线
       // （inferred 可能已被 AI/加载的配置覆盖）。
-      current = { table, col, colInfo, inferred, zeroConfig };
+      current = {
+        table,
+        col,
+        colInfo,
+        inferred,
+        zeroConfig
+      };
       bytesModeState = null;
       form = fromInferred(inferred);
       normalizeAliasParams();
       applyDateDefaults();
       render();
-    },
+    }
   };
 }

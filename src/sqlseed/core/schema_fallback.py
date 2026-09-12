@@ -146,17 +146,22 @@ class SchemaFallbackGenerator:
             return GeneratorSpec(generator_name=gen_name, params=config.params)
 
         if parsed.kind == "length_range":
-            params: dict[str, Any] = {}
-            if parsed.min_length is not None:
-                params["min_length"] = parsed.min_length
-            if parsed.max_length is not None:
-                params["max_length"] = parsed.max_length
-            type_length = _parse_length_from_type(column.type)
-            if type_length and "max_length" in params:
-                params["max_length"] = min(params["max_length"], type_length)
-            params["charset"] = "alphanumeric"
-            return GeneratorSpec(generator_name="string", params=params)
+            return self._fallback_from_length_check(column, parsed)
         return None
+
+    @staticmethod
+    def _fallback_from_length_check(column: ColumnInfo, parsed: ParsedCheck) -> GeneratorSpec:
+        """Intersect CHECK lengths with a declared SQL character width."""
+        params: dict[str, Any] = {}
+        if parsed.min_length is not None:
+            params["min_length"] = parsed.min_length
+        if parsed.max_length is not None:
+            params["max_length"] = parsed.max_length
+        type_length = _parse_length_from_type(column.type)
+        if type_length and "max_length" in params:
+            params["max_length"] = min(params["max_length"], type_length)
+        params["charset"] = "alphanumeric"
+        return GeneratorSpec(generator_name="string", params=params)
 
     def _fallback_from_type(
         self,

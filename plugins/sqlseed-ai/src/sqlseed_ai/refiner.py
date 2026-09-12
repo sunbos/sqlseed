@@ -401,11 +401,7 @@ class AiConfigRefiner:
             config_dict, error = self._try_prompt_levels(schema_ctx, state, resolved_compact, call_fn)
 
             if config_dict is None:
-                if error is not None:
-                    state.last_error_type, state.same_error_count = self._check_repeated_error(
-                        error, state.last_error_type, state.same_error_count
-                    )
-                    self._handle_generation_failure(error, attempt, max_retries)
+                self._record_generation_failure(error, state, attempt, max_retries)
                 continue
 
             # config_dict is not None -- validate it
@@ -427,6 +423,16 @@ class AiConfigRefiner:
                 return result
 
         raise AISuggestionFailedError("Unexpected state")
+
+    def _record_generation_failure(
+        self, error: ErrorSummary | None, state: _RetryState, attempt: int, max_retries: int
+    ) -> None:
+        """Update repeated-error state before applying the generation retry policy."""
+        if error is not None:
+            state.last_error_type, state.same_error_count = self._check_repeated_error(
+                error, state.last_error_type, state.same_error_count
+            )
+            self._handle_generation_failure(error, attempt, max_retries)
 
     def generate_and_refine(
         self,
@@ -834,21 +840,26 @@ class AiConfigRefiner:
                 return None
             if cache_file.exists():
                 entry = json.loads(cache_file.read_text(encoding="utf-8"))
-                if isinstance(entry, dict) and "_meta" in entry:
-                    cached_hash = entry["_meta"].get("schema_hash", "")
-                    if schema_hash and cached_hash != schema_hash:
-                        logger.debug(
-                            "Cache schema hash mismatch, invalidating",
-                            table_name=table_name,
-                            cached_hash=cached_hash,
-                            current_hash=schema_hash,
-                        )
-                        return None
-                    config = entry.get("config")
-                    if isinstance(config, dict) and entry["_meta"].get("cache_format") != 2:
-                        _sanitize_names(config)
-                    return config
-                return entry if isinstance(entry, dict) else None
+                return self._decode_cached_config(entry, table_name, schema_hash)
         except (OSError, ValueError) as e:
             logger.debug("Failed to read AI config cache", error=str(e))
         return None
+
+    @staticmethod
+    def _decode_cached_config(entry: Any, table_name: str, schema_hash: str | None) -> dict[str, Any] | None:
+        """Validate a cache entry's schema hash and preserve legacy-name normalization."""
+        if isinstance(entry, dict) and "_meta" in entry:
+            cached_hash = entry["_meta"].get("schema_hash", "")
+            if schema_hash and cached_hash != schema_hash:
+                logger.debug(
+                    "Cache schema hash mismatch, invalidating",
+                    table_name=table_name,
+                    cached_hash=cached_hash,
+                    current_hash=schema_hash,
+                )
+                return None
+            config = entry.get("config")
+            if isinstance(config, dict) and entry["_meta"].get("cache_format") != 2:
+                _sanitize_names(config)
+            return config
+        return entry if isinstance(entry, dict) else None

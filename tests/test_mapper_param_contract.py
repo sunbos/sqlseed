@@ -68,12 +68,9 @@ def test_explicit_invalid_sentence_params_are_still_rejected(tmp_path: Path, pro
     db_path = tmp_path / "invalid-generator-contract.db"
     with closing(sqlite3.connect(db_path)) as conn:
         conn.execute("CREATE TABLE users (bio TEXT NOT NULL)")
+    column_configs = [ColumnConfig(name="bio", generator="sentence", params={"min_length": 5})]
     with (
         DataOrchestrator(str(db_path), provider_name=provider) as orch,
         pytest.raises(ConfigurationError, match="unexpected keyword argument 'min_length'"),
     ):
-        orch.preview_table(
-            "users",
-            count=1,
-            column_configs=[ColumnConfig(name="bio", generator="sentence", params={"min_length": 5})],
-        )
+        orch.preview_table("users", count=1, column_configs=column_configs)

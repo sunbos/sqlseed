@@ -19,7 +19,7 @@
 .config-card-heading { display:flex; align-items:baseline; gap:10px; }
 .config-card h2 { margin:0; font-size:16px; line-height:1.5; overflow-wrap:anywhere; }
 .config-revision { flex-shrink:0; color:var(--muted); font-family:var(--mono); font-size:12px; }
-.config-target { display:flex; align-items:center; gap:7px; margin:7px 0; color:var(--muted); overflow-wrap:anywhere; word-break:break-word; }
+.config-target { display:flex; align-items:center; gap:7px; margin:7px 0; color:var(--muted); overflow-wrap:anywhere; }
 .config-target svg { flex-shrink:0; width:15px; height:15px; }
 .config-facts { margin:7px 0 0; font-size:12px; }
 .config-updated { margin:4px 0 0; font-size:12px; }

@@ -145,7 +145,8 @@ def test_valid_candidate_preserves_native_derived_and_constraints(pipeline, labe
     output = Path(snapshot.db_path).with_suffix(".yaml")
     output.write_text(yaml.safe_dump({"db_path": snapshot.db_path, **result.config}), encoding="utf-8")
     written = fill_from_config(output)
-    assert written[0].errors == [] and written[0].count == 2
+    assert written[0].errors == []
+    assert written[0].count == 2
     with sqlite_connection(snapshot.db_path) as db:
         rows = db.execute("SELECT value, label FROM items").fetchall()
     assert [row[0] for row in rows] == [7, 7]

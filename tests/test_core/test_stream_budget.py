@@ -32,14 +32,17 @@ def _fixed_pair_nodes() -> list[ColumnNode]:
 def test_constant_unique_retries_share_one_stream_budget() -> None:
     stream = make_stream(unique=True, max_attempts=12, table_name="items")
     assert next(stream.generate(1)) == [{"code": "private-value"}]
+    batches = stream.generate(1)
     with pytest.raises(RuntimeError, match=r"attempt budget.*12") as caught:
-        next(stream.generate(1))
+        next(batches)
     assert caught.type is stream_module.GenerationBudgetExceededError
     assert caught.value.limit == 12
     assert caught.value.table == "items"
     assert caught.value.column == "code"
     assert caught.value.generator == "choice"
-    assert "items" in str(caught.value) and "code" in str(caught.value) and "choice" in str(caught.value)
+    assert "items" in str(caught.value)
+    assert "code" in str(caught.value)
+    assert "choice" in str(caught.value)
     assert "private-value" not in str(caught.value)
 
 
@@ -53,8 +56,9 @@ def test_cross_column_row_retries_consume_budget() -> None:
         inequality_constraints=[("a", "b", "<")],
         max_attempts=9,
     )
+    batches = stream.generate(1)
     with pytest.raises(RuntimeError, match=r"attempt budget.*9"):
-        next(stream.generate(1))
+        next(batches)
 
 
 def test_skip_only_rows_cannot_bypass_budget() -> None:
@@ -74,8 +78,9 @@ def test_skip_only_rows_cannot_bypass_budget() -> None:
 
 def test_default_stream_and_other_streams_are_unaffected() -> None:
     limited = make_stream(max_attempts=1)
+    batches = limited.generate(1)
     with pytest.raises(RuntimeError, match="attempt budget"):
-        next(limited.generate(1))
+        next(batches)
     normal = make_stream()
     assert len(next(normal.generate(1001))) == 1001
     assert next(make_stream(max_attempts=2).generate(1)) == [{"code": "private-value"}]
@@ -98,8 +103,9 @@ def test_cancel_guard_interrupts_unique_retry_and_preserves_reason() -> None:
             raise reason
 
     stream = make_stream(unique=True, cancel_check=cancel_check)
+    batches = stream.generate(2)
     with pytest.raises(RuntimeError) as caught:
-        next(stream.generate(2))
+        next(batches)
     assert caught.type is stream_module.GenerationCancelledError
     assert caught.value.__cause__ is reason
     assert calls == 8
@@ -125,16 +131,18 @@ def test_cancel_after_transform_prevents_yielding_the_row() -> None:
         transform_fn=transform,
         cancel_check=cancel_check,
     )
+    batches = stream.generate(1)
     with pytest.raises(RuntimeError, match="cancelled"):
-        next(stream.generate(1))
+        next(batches)
 
 
 def test_budget_releases_unique_values_from_the_interrupted_row() -> None:
     solver = ConstraintSolver()
     nodes = _fixed_pair_nodes()
     stream = stream_module.DataStream(nodes, BaseProvider(), ExpressionEngine(), solver, max_attempts=2)
+    batches = stream.generate(1)
     with pytest.raises(stream_module.GenerationBudgetExceededError):
-        next(stream.generate(1))
+        next(batches)
     assert solver.try_register("a", 1, is_unique=True).is_registered
 
 
@@ -165,6 +173,7 @@ def test_cancel_after_transform_releases_composite_and_single_keys() -> None:
         max_attempts=9,
         cancel_check=cancel_check,
     )
+    batches = stream.generate(1)
     with pytest.raises(stream_module.GenerationCancelledError):
-        next(stream.generate(1))
+        next(batches)
     assert next(stream.generate(1)) == [{"a": 1, "b": 2}]

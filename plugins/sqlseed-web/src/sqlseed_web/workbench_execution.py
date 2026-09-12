@@ -45,32 +45,40 @@ def _enrichment_issues(config: GeneratorConfig) -> list[dict[str, Any]]:
     return issues
 
 
+def _incoming_replacement_issues(
+    name: str, table: dict[str, Any], selected: set[str], sqlite: bool
+) -> list[dict[str, Any]]:
+    issues: list[dict[str, Any]] = []
+    for fk in table["foreign_keys"]:
+        if fk["ref_schema"] not in (None, "main") and sqlite:
+            continue
+        if fk["ref_table"] not in selected:
+            continue
+        if name not in selected:
+            issues.append(
+                _plan_issue(
+                    "external_incoming_fk",
+                    f"未选表 {name} 引用 {fk['ref_table']}，清空会影响所选范围外的数据；请一并选择相关表或使用追加。",
+                    table=name,
+                )
+            )
+        elif name == fk["ref_table"] and not fk["nullable"]:
+            issues.append(
+                _plan_issue(
+                    "self_reference_after_clear",
+                    f"{name} 的自引用字段不可空，清空后没有可用首条来源，不能安全重建。",
+                    table=name,
+                )
+            )
+    return issues
+
+
 def _table_replacement_issues(
     tables: dict[str, Any], selected: set[str], sqlite: bool, execution: dict[str, Any]
 ) -> list[dict[str, Any]]:
     issues: list[dict[str, Any]] = []
     for name, table in tables.items():
-        for fk in table["foreign_keys"]:
-            if fk["ref_schema"] not in (None, "main") and sqlite:
-                continue
-            if fk["ref_table"] not in selected:
-                continue
-            if name not in selected:
-                issues.append(
-                    _plan_issue(
-                        "external_incoming_fk",
-                        f"未选表 {name} 引用 {fk['ref_table']}，清空会影响所选范围外的数据；请一并选择相关表或使用追加。",
-                        table=name,
-                    )
-                )
-            elif name == fk["ref_table"] and not fk["nullable"]:
-                issues.append(
-                    _plan_issue(
-                        "self_reference_after_clear",
-                        f"{name} 的自引用字段不可空，清空后没有可用首条来源，不能安全重建。",
-                        table=name,
-                    )
-                )
+        issues.extend(_incoming_replacement_issues(name, table, selected, sqlite))
         if (
             name in selected
             and not execution["reset_identity"]

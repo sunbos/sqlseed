@@ -197,7 +197,8 @@ def test_other_sessions_can_read_and_other_targets_can_generate(
         assert saved_configs.json()[0]["id"] == body["draft_id"]
         parallel = registry.add_connection(f"sqlite:///{conn.target}", provider="faker", locale="zh_CN")
         preview = client.post("/api/workbench/preview", json={**check_body, "conn_id": parallel.conn_id})
-        assert preview.status_code == 200 and preview.json()["ok"], preview.text
+        assert preview.status_code == 200, preview.text
+        assert preview.json()["ok"], preview.text
         assert registry.get_connection(parallel.conn_id).provider == "faker"
         assert registry.get_connection(conn.conn_id).provider == "base"
         other_path = Path(conn.target).with_name("independent.db")

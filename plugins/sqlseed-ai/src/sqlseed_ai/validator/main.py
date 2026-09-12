@@ -16,6 +16,7 @@ from sqlseed_ai.validator.single_column import SingleColumnValidator
 
 if TYPE_CHECKING:
     from sqlseed_ai.contracts.matrix import ContractResolver
+    from sqlseed_ai.validator.models import ViolationReport
     from sqlseed_ai.validator.schema_snapshot import SchemaSnapshot
 
 
@@ -67,19 +68,7 @@ class FastValidator:
             all_violations.extend(self._single.validate(table_config, table_schema, row_count))
             all_violations.extend(self._cross.validate(table_config, table_schema, snapshot))
 
-        if (
-            fill_error is not None
-            and (report := DialectErrorParser.parse(fill_error, dialect, table=None, snapshot=snapshot)) is not None
-        ):
-            # Section 14.3: shadow scan for SQLite FK with empty columns
-            if (
-                report.constraint_type == ConstraintType.FK
-                and not report.columns
-                and dialect == "sqlite"
-                and batch is not None
-            ):
-                scanner = ShadowFKScanner(db_path=self._db_path, snapshot=snapshot, url=self._url)
-                report = scanner.scan(report, batch)
+        if (report := self._check_fill_error(fill_error, dialect, snapshot, batch)) is not None:
             all_violations.append(report)
 
         groups = self._composite_fk.identify_groups(snapshot)
@@ -91,3 +80,23 @@ class FastValidator:
                     all_violations.append(v)
 
         return ValidationResult(violations=all_violations, column_groups=groups)
+
+    def _check_fill_error(
+        self,
+        error: Exception | None,
+        dialect: str,
+        snapshot: SchemaSnapshot,
+        batch: list[dict[str, Any]] | None,
+    ) -> ViolationReport | None:
+        """Parse a database failure and localize unresolved SQLite FK columns."""
+        if error is None or (report := DialectErrorParser.parse(error, dialect, table=None, snapshot=snapshot)) is None:
+            return None
+        if (
+            report.constraint_type == ConstraintType.FK
+            and not report.columns
+            and dialect == "sqlite"
+            and batch is not None
+        ):
+            scanner = ShadowFKScanner(db_path=self._db_path, snapshot=snapshot, url=self._url)
+            report = scanner.scan(report, batch)
+        return report

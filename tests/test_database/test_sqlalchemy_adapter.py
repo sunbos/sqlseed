@@ -195,7 +195,8 @@ class TestSQLAlchemyAdapterData:
         sa_adapter_with_data.batch_insert("users", data)
         cursor = sa_adapter_with_data.execute("SELECT MAX(id) FROM users")
         max_id_before = cursor.fetchone()[0]
-        assert max_id_before is not None and max_id_before > 0
+        assert max_id_before is not None
+        assert max_id_before > 0
 
         # 清空表（应重置 sqlite_sequence）
         sa_adapter_with_data.clear_table("users")

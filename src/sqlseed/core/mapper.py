@@ -459,38 +459,32 @@ class ColumnMapper:
 
     def _inherit_rule_params(self, column_name: str, user_spec: GeneratorSpec) -> None:
         """Merge compatible rule defaults without overriding explicit user bounds."""
-        if exact_match := self._match_exact(column_name) or self._match_pattern(column_name):
-            # Only string/text share length parameters. Sentence accepts
-            # neither lengths nor charset, and text does not accept charset.
-            same_group = False
-            if exact_match.generator_name == user_spec.generator_name:
-                same_group = True
-            else:
-                string_generators = {"string", "text"}
-                if exact_match.generator_name in string_generators and user_spec.generator_name in string_generators:
-                    same_group = True
-
-            if same_group:
-                merged_params = dict(exact_match.params)
-                if exact_match.generator_name != user_spec.generator_name:
-                    merged_params = {
-                        key: value for key, value in merged_params.items() if key in {"min_length", "max_length"}
-                    }
-                merged_params.update(user_spec.params)
-                # Resolve min_length/max_length conflicts that would crash
-                # string/text generators (rng.randint raises ValueError
-                # when min > max). This happens when the user supplies a
-                # min_length larger than the rule's max_length.
-                min_len = merged_params.get("min_length")
-                max_len = merged_params.get("max_length")
-                if (
-                    isinstance(min_len, int)
-                    and isinstance(max_len, int)
-                    and min_len > max_len
-                    and "max_length" not in user_spec.params
-                ):
-                    merged_params.pop("max_length", None)
-                user_spec.params = merged_params
+        if (exact_match := self._match_exact(column_name) or self._match_pattern(column_name)) is None:
+            return
+        # Only string/text share length parameters. Sentence accepts neither
+        # lengths nor charset, and text does not accept charset.
+        same_generator = exact_match.generator_name == user_spec.generator_name
+        string_generators = {"string", "text"}
+        if not same_generator and not (
+            exact_match.generator_name in string_generators and user_spec.generator_name in string_generators
+        ):
+            return
+        merged_params = dict(exact_match.params)
+        if not same_generator:
+            merged_params = {key: value for key, value in merged_params.items() if key in {"min_length", "max_length"}}
+        merged_params.update(user_spec.params)
+        # An explicit lower bound may invalidate an inherited upper bound.
+        # Keep explicit user maxima so normal runtime validation still applies.
+        min_len = merged_params.get("min_length")
+        max_len = merged_params.get("max_length")
+        if (
+            isinstance(min_len, int)
+            and isinstance(max_len, int)
+            and min_len > max_len
+            and "max_length" not in user_spec.params
+        ):
+            merged_params.pop("max_length", None)
+        user_spec.params = merged_params
 
     def _map_fallback(
         self,

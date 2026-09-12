@@ -61,18 +61,29 @@ def validate_candidate(config: dict[str, Any], snapshot: SchemaSnapshot) -> None
         for column in table.columns:
             if column.name not in meta.columns:
                 raise ValueError(f"Config validation: unknown column {table.name}.{column.name}")
-            if column.derive_from or not column.generator or column.generator in _CORE_GENERATORS:
-                continue
-            if (provider_name := column.provider or model.provider) == ProviderType.CUSTOM:
-                continue
-            if (method_name := GeneratorDispatchMixin.GENERATOR_MAP.get(column.generator)) is None:
-                raise ValueError(f"Config validation: unknown generator {column.generator!r}")
-            provider = registry.ensure_provider(provider_name.value)
-            if provider_name not in configured:
-                provider.set_locale(model.locale)
-                configured.add(provider_name)
-            method = getattr(provider, method_name)
-            _validate_builtin_params(column, table.name, method)
+            _validate_candidate_column(column, table.name, model, registry, configured)
+
+
+def _validate_candidate_column(
+    column: ColumnConfig,
+    table_name: str,
+    model: GeneratorConfig,
+    registry: ProviderRegistry,
+    configured: set[ProviderType],
+) -> None:
+    """Check one builtin source while sharing provider setup across the candidate."""
+    if column.derive_from or not column.generator or column.generator in _CORE_GENERATORS:
+        return
+    if (provider_name := column.provider or model.provider) == ProviderType.CUSTOM:
+        return
+    if (method_name := GeneratorDispatchMixin.GENERATOR_MAP.get(column.generator)) is None:
+        raise ValueError(f"Config validation: unknown generator {column.generator!r}")
+    provider = registry.ensure_provider(provider_name.value)
+    if provider_name not in configured:
+        provider.set_locale(model.locale)
+        configured.add(provider_name)
+    method = getattr(provider, method_name)
+    _validate_builtin_params(column, table_name, method)
 
 
 def _validate_builtin_params(column: ColumnConfig, table_name: str, method: Callable[..., Any]) -> None:
