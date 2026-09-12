@@ -102,7 +102,7 @@ class HealOrchestrator:
         table_name = task.tables[0] if task.tables else ""
 
         for round_num in range(1, self._max_rounds + 1):
-            if time.monotonic() - start > self._time_budget:
+            if time.monotonic() - start >= self._time_budget:
                 logger.warning("HealOrchestrator time budget exhausted", budget=self._time_budget)
                 degraded_result = self._degrade_and_return(
                     current_config,
