@@ -157,9 +157,8 @@ def sqlseed_gemma4_analyze(
             schema_ctx = orch.get_schema_context(table_name)
 
         analyzer = SchemaAnalyzer(config=ai_config)
-        result = analyzer.analyze_table_from_ctx(**schema_ctx)
 
-        if not result:
+        if not (result := analyzer.analyze_table_from_ctx(**schema_ctx)):
             return {"error": "Gemma 4 analysis returned no result. Check API key and model availability."}
 
         logger.info("Gemma 4 analysis completed", table_name=table_name, model=ai_config.model)

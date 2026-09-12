@@ -101,12 +101,10 @@ def sync_file(path: Path, facts: dict[str, object], check_only: bool) -> list[st
         name = match.group(2)
         old_content = match.group(3)
         end_tag = match.group(4)
-        formatter = FACT_FORMATTERS.get(name)
-        if formatter is None:
+        if (formatter := FACT_FORMATTERS.get(name)) is None:
             print(f"WARNING: Unknown marker '{name}' in {path} — skipping")
             return match.group(0)  # Unknown marker, leave unchanged
-        new_content = formatter(facts)
-        if new_content != old_content:
+        if (new_content := formatter(facts)) != old_content:
             changes.append(name)
         return begin_tag + new_content + end_tag
 
@@ -128,8 +126,7 @@ def main() -> int:
     all_changes: list[tuple[Path, list[str]]] = []
 
     for md_file in find_markdown_files():
-        changes = sync_file(md_file, facts, args.check)
-        if changes:
+        if (changes := sync_file(md_file, facts, args.check)):
             all_changes.append((md_file, changes))
 
     if all_changes:

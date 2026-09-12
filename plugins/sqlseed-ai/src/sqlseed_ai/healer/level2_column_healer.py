@@ -90,8 +90,7 @@ class Level2ColumnHealer:
         - Cross-column CHECK related columns
         - FK info (if column is a FK)
         """
-        meta = snapshot.tables.get(table_name)
-        if meta is None:
+        if (meta := snapshot.tables.get(table_name)) is None:
             return ColumnContext(
                 table_name=table_name,
                 column_name=column_name,
@@ -159,8 +158,7 @@ class Level2ColumnHealer:
         for c in meta.constraints:
             if c.get("type") != "check":
                 continue
-            expr = c.get("expression", "")
-            if not expr:
+            if not (expr := c.get("expression", "")):
                 continue
             if not re.search(rf"\b{re.escape(column_name)}\b", expr, re.IGNORECASE):
                 continue

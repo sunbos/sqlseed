@@ -30,8 +30,7 @@ def get_cache_dir(subdir: str = "") -> Path:
         Absolute ``Path`` to the cache directory (may not exist on disk).
     """
     # SQLSEED_CACHE_DIR takes highest priority and overrides all platform defaults.
-    env_root = os.environ.get(_CACHE_DIR_ENV)
-    if env_root:
+    if env_root := os.environ.get(_CACHE_DIR_ENV):
         root = Path(env_root)
     elif sys.platform == "win32":
         root = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local")) / "sqlseed"

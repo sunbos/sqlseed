@@ -103,8 +103,7 @@ def generate(config_path: Path) -> list[dict[str, Any]]:
         {"table": result.table_name, "count": result.count, "batches": result.batch_count, "errors": result.errors}
         for result in results
     ]
-    errors = [f"{result.table_name}: {error}" for result in results for error in result.errors]
-    if errors:
+    if (errors := [f"{result.table_name}: {error}" for result in results for error in result.errors]):
         raise RuntimeError("; ".join(errors))
     return summaries
 

@@ -1,11 +1,12 @@
 """Shared fact extractors for doc-sync.
 
-Importable by scripts/sync_docs.py. Uses pure string operations
+Importable by scripts/sync_docs.py. Uses source parsing
 (no imports of sqlseed internals) to avoid circular dependencies.
 """
 
 from __future__ import annotations
 
+import ast
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -20,11 +21,9 @@ def _read(path: Path) -> str:
 
 def _extract_quoted_key(line: str) -> str | None:
     """Extract the first quoted key from a line like '  "name": ...'."""
-    first_q = line.find('"')
-    if first_q == -1:
+    if (first_q := line.find('"')) == -1:
         return None
-    second_q = line.find('"', first_q + 1)
-    if second_q == -1:
+    if (second_q := line.find('"', first_q + 1)) == -1:
         return None
     return line[first_q + 1 : second_q]
 
@@ -35,11 +34,9 @@ def get_generator_types() -> set[str]:
     names: set[str] = set()
     marker = '"_gen_'
     for line in code.splitlines():
-        idx = line.find(marker)
-        if idx == -1:
+        if (idx := line.find(marker)) == -1:
             continue
-        key = _extract_quoted_key(line[:idx])
-        if key:
+        if key := _extract_quoted_key(line[:idx]):
             names.add(key)
     return names
 
@@ -66,40 +63,26 @@ def get_exact_match_rules() -> dict[str, str]:
 
 
 def get_pattern_match_rules() -> list[tuple[str, ...]]:
-    """Extract pattern match rules from mapper.
-
-    Counts rules by detecting the regex pattern (r"...") which every
-    rule has exactly one of. Handles multi-line tuples.
-    """
+    """Extract complete regex values in declaration order without importing mapper."""
     code = _read(ROOT / "src" / "sqlseed" / "core" / "mapper.py")
-    rules: list[tuple[str, ...]] = []
-    in_tuple = False
-    for line in code.splitlines():
-        stripped = line.strip()
-        if "PATTERN_MATCH_RULES" in line and "=" in line:
-            in_tuple = True
+    for node in ast.walk(ast.parse(code)):
+        if not isinstance(node, ast.AnnAssign):
             continue
-        if not in_tuple:
+        if not isinstance(node.target, ast.Name) or node.target.id != "PATTERN_MATCH_RULES":
             continue
-        if stripped == ")":
-            break
-        idx = stripped.find('r"')
-        if idx != -1:
-            second_q = stripped.find('"', idx + 2)
-            if second_q != -1:
-                rules.append((stripped[idx + 2 : second_q],))
-    return rules
+        if node.value is None:
+            return []
+        return [(pattern,) for pattern, _generator, _params in ast.literal_eval(node.value)]
+    return []
 
 
 def get_safe_functions() -> set[str]:
     """Extract function names from ExpressionEngine.SAFE_FUNCTIONS."""
     code = _read(ROOT / "src" / "sqlseed" / "core" / "expression.py")
     marker = "SAFE_FUNCTIONS"
-    start = code.find(marker)
-    if start == -1:
+    if (start := code.find(marker)) == -1:
         return set()
-    brace_start = code.find("{", start)
-    if brace_start == -1:
+    if (brace_start := code.find("{", start)) == -1:
         return set()
     brace_end = code.find("}", brace_start)
     body = code[brace_start + 1 : brace_end] if brace_end != -1 else code[brace_start + 1 :]
@@ -125,11 +108,8 @@ def get_enum_name_patterns() -> list[str]:
             continue
         if stripped == "]":
             break
-        first_q = stripped.find('"')
-        if first_q != -1:
-            second_q = stripped.find('"', first_q + 1)
-            if second_q != -1:
-                patterns.append(stripped[first_q + 1 : second_q])
+        if (first_q := stripped.find('"')) != -1 and (second_q := stripped.find('"', first_q + 1)) != -1:
+            patterns.append(stripped[first_q + 1 : second_q])
     return patterns
 
 
@@ -139,8 +119,7 @@ def get_hook_names() -> set[str]:
     hooks: set[str] = set()
     marker = "def sqlseed_"
     for line in code.splitlines():
-        idx = line.find(marker)
-        if idx == -1:
+        if (idx := line.find(marker)) == -1:
             continue
         rest = line[idx + len(marker) :]
         name = "sqlseed_"
@@ -179,8 +158,7 @@ def get_mcp_tool_names() -> list[str]:
         for j in range(i + 1, min(i + 5, len(lines))):
             def_line = lines[j].strip()
             if def_line.startswith("def ") or def_line.startswith("async def "):
-                name = _extract_func_name(def_line)
-                if name:
+                if name := _extract_func_name(def_line):
                     tools.append(name)
                 break
     return tools

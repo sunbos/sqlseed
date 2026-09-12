@@ -56,19 +56,16 @@ def validate_candidate(config: dict[str, Any], snapshot: SchemaSnapshot) -> None
     registry = ProviderRegistry()
     configured: set[ProviderType] = set()
     for table in model.tables:
-        meta = snapshot.tables.get(table.name)
-        if meta is None:
+        if (meta := snapshot.tables.get(table.name)) is None:
             raise ValueError(f"Config validation: unknown table {table.name}")
         for column in table.columns:
             if column.name not in meta.columns:
                 raise ValueError(f"Config validation: unknown column {table.name}.{column.name}")
             if column.derive_from or not column.generator or column.generator in _CORE_GENERATORS:
                 continue
-            provider_name = column.provider or model.provider
-            if provider_name == ProviderType.CUSTOM:
+            if (provider_name := column.provider or model.provider) == ProviderType.CUSTOM:
                 continue
-            method_name = GeneratorDispatchMixin.GENERATOR_MAP.get(column.generator)
-            if method_name is None:
+            if (method_name := GeneratorDispatchMixin.GENERATOR_MAP.get(column.generator)) is None:
                 raise ValueError(f"Config validation: unknown generator {column.generator!r}")
             provider = registry.ensure_provider(provider_name.value)
             if provider_name not in configured:

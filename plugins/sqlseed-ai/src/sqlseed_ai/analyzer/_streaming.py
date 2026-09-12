@@ -272,11 +272,11 @@ class StreamingHandlerMixin:
         # "gemma4" and "openai" share the same OpenAI-style tools wire format;
         # the server-side interpretation differs (Gemma 4 special tokens vs.
         # standard OpenAI function calling).
-        protocol = self._config.resolve_tool_calling_protocol()
-        if protocol in {"gemma4", "openai"}:
-            result = self._try_tool_calling(client, kwargs)
-            if result is not None:
-                return result
+        if (
+            self._config.resolve_tool_calling_protocol() in {"gemma4", "openai"}
+            and (result := self._try_tool_calling(client, kwargs)) is not None
+        ):
+            return result
 
         # Try JSON mode for cloud backends; skip for local backends
         if self._config.backend in (AIBackend.GOOGLE_AI_STUDIO, AIBackend.OPENAI_COMPAT):

@@ -282,7 +282,10 @@ def test_environment_rejects_unsafe_install_targets(
 def test_installer_output_is_bounded_redacted_and_timeout_is_real(tmp_path: Path) -> None:
     module = importlib.import_module("sqlseed_web.plugin_process")
     output: list[str] = []
-    code = "import time; print('https://user:secret@example.test/path?token=private', flush=True); print('x'*100000, flush=True); time.sleep(10)"
+    code = (
+        "import time; print('https://user:secret@example.test/path?token=private', "
+        "flush=True); print('x'*100000, flush=True); time.sleep(10)"
+    )
     result = module.run_installer([sys.executable, "-c", code], output.append, timeout=0.15)
     assert result == -1
     text = json.dumps(output, ensure_ascii=False)
@@ -404,7 +407,8 @@ def test_real_installer_installs_and_uninstalls_only_in_a_temporary_venv(tmp_pat
     files = {
         "mimesis/__init__.py": "__version__ = '0.0.1'\n",
         "mimesis-0.0.1.dist-info/METADATA": "Metadata-Version: 2.1\nName: mimesis\nVersion: 0.0.1\n",
-        "mimesis-0.0.1.dist-info/WHEEL": "Wheel-Version: 1.0\nGenerator: sqlseed-test\nRoot-Is-Purelib: true\nTag: py3-none-any\n",
+        "mimesis-0.0.1.dist-info/WHEEL": "Wheel-Version: 1.0\nGenerator: sqlseed-test\nRoot-Is-Purelib: true\nTag: "
+        "py3-none-any\n",
     }
     files["mimesis-0.0.1.dist-info/RECORD"] = (
         "".join(f"{name},,\n" for name in files) + "mimesis-0.0.1.dist-info/RECORD,,\n"

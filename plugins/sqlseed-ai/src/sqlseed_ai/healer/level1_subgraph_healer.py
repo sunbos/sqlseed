@@ -107,8 +107,7 @@ class Level1SubgraphHealer:
             for col in table_cfg.get("columns", []):
                 gen = col.get("generator", "<none>")
                 params = col.get("params", {})
-                derive = col.get("derive_from")
-                if derive:
+                if derive := col.get("derive_from"):
                     lines.append(f"  - {col['name']}: derive_from={derive}, expr={col.get('expression')}")
                 else:
                     lines.append(f"  - {col['name']}: generator={gen}, params={params}")

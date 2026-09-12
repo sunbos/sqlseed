@@ -6,7 +6,7 @@ v8 整体重建已完成；当前细化以 [可用性与 AI 辅助计划](../../
 
 ## 模块与 API 边界
 
-- [app.py](app.py)：`create_app()` 挂载旧 `/api`、`/api/workbench` 与 `/api/workbench/ai` router、`/static` 与 `/`；`/api/health` 也在这里。保留静态资源 `Cache-Control: no-cache`，本项目没有 asset hashing。
+- [app.py](app.py) 保留公开 `create_app` 和 console `main` 入口；[_application.py](_application.py) 实现工厂、中间件及 lifespan，挂载旧 `/api`、`/api/workbench` 与 `/api/workbench/ai` router、`/static`、`/` 和 `/api/health`。Managed worker 直接使用工厂模块，避免经 console 启动入口反向依赖 supervisor。保留静态资源 `Cache-Control: no-cache`，本项目没有 asset hashing。
 - [api.py](api.py)：原有 endpoints；[state.py](state.py)：进程内 `UIState` singleton、连接、AI 会话覆盖与 jobs。
 - [workbench.py](workbench.py) 是正式工作台 HTTP 契约；[workbench_schema.py](workbench_schema.py) 提供成组外键、完整约束、结构 hash 与签名生成的参数目录；[workbench_runtime.py](workbench_runtime.py) 提供确定性检查、预览和服务端顺序执行；[workbench_store.py](workbench_store.py) 保存版本化草稿及固定运行快照。
 - `/api/meta/*` 提供 generators/params、hooks、providers、AI 状态、locales、dialects；不要复制 core 计数。参数来自 `BaseProvider._gen_*` 签名，pluggy firstresult 标记读 `fn.sqlseed_spec`。

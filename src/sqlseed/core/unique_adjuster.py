@@ -93,8 +93,7 @@ class UniqueAdjuster:
         type-faithful fallback itself yields "skip"/"autoincrement" (e.g.,
         unresolvable types), the original spec is kept untouched.
         """
-        col_info = next((c for c in (column_infos or []) if c.name == col_name), None)
-        if col_info is None:
+        if (col_info := next((c for c in (column_infos or []) if c.name == col_name), None)) is None:
             return specs
         if col_info.is_primary_key or col_info.default is not None or not col_info.nullable:
             return specs
@@ -115,8 +114,7 @@ class UniqueAdjuster:
         """Choose a CHECK-valid domain for inferred defaults, not user ranges."""
         if fallback.generator_name != "integer":
             return fallback
-        bounds = self._check_range_bounds(col_name, check_constraints)
-        if bounds is None:
+        if (bounds := self._check_range_bounds(col_name, check_constraints)) is None:
             return fallback
         cmin, cmax = bounds
         params = dict(fallback.params)
@@ -154,8 +152,7 @@ class UniqueAdjuster:
         self._constrain_string_lengths(params, col_name, length_bounds)
         max_length = params["max_length"]
 
-        charset_size = len(set(resolve_charset(params.get("charset"))))
-        if charset_size < 2:
+        if (charset_size := len(set(resolve_charset(params.get("charset"))))) < 2:
             min_length = params["min_length"]
             capacity = max_length - min_length + 1 if charset_size == 1 else int(min_length == max_length == 0)
             if spec.null_ratio == 0 and count > capacity:
@@ -230,10 +227,11 @@ class UniqueAdjuster:
         lower_bounds: list[int] = []
         upper_bounds: list[int] = []
         for column in column_infos or []:
-            if column.name == col_name:
-                match = re.fullmatch(r"(?:VAR)?CHAR\((\d+)\)", column.type.upper())
-                if match is not None:
-                    upper_bounds.append(int(match[1]))
+            if (
+                column.name == col_name
+                and (match := re.fullmatch(r"(?:VAR)?CHAR\((\d+)\)", column.type.upper())) is not None
+            ):
+                upper_bounds.append(int(match[1]))
         for check in check_constraints or []:
             parsed = CheckConstraintParser.parse(col_name, check.expression)
             if parsed is None or parsed.kind != "length_range":
@@ -269,8 +267,7 @@ class UniqueAdjuster:
         """
         params = dict(spec.params)
         min_val, max_val = self._integer_bounds(params)
-        bounds = self._check_range_bounds(col_name, check_constraints)
-        if bounds is not None:
+        if (bounds := self._check_range_bounds(col_name, check_constraints)) is not None:
             cmin, cmax = bounds
             if cmin is not None:
                 min_val = max(min_val, cmin)
@@ -336,17 +333,15 @@ class UniqueAdjuster:
     ) -> dict[str, GeneratorSpec]:
         """Adjust choice column: fall back to type inference and recursively adjust when choices are insufficient."""
         choices = spec.params.get("choices", [])
-        if len(choices) < count:
-            col_info = next((c for c in (column_infos or []) if c.name == col_name), None)
-            if col_info:
-                fallback = self._mapper.map_column(col_info, force_type_infer=True)
-                if fallback.generator_name not in {"skip", "choice"}:
-                    fallback = self._bound_integer_fallback(fallback, col_name, count, check_constraints)
-                    specs[col_name] = replace(
-                        spec,
-                        generator_name=fallback.generator_name,
-                        params=fallback.params,
-                        provider=fallback.provider,
-                    )
-                    specs = self.adjust(specs, {col_name}, count, column_infos, check_constraints)
+        if len(choices) < count and (col_info := next((c for c in (column_infos or []) if c.name == col_name), None)):
+            fallback = self._mapper.map_column(col_info, force_type_infer=True)
+            if fallback.generator_name not in {"skip", "choice"}:
+                fallback = self._bound_integer_fallback(fallback, col_name, count, check_constraints)
+                specs[col_name] = replace(
+                    spec,
+                    generator_name=fallback.generator_name,
+                    params=fallback.params,
+                    provider=fallback.provider,
+                )
+                specs = self.adjust(specs, {col_name}, count, column_infos, check_constraints)
         return specs

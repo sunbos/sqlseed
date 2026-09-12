@@ -392,7 +392,8 @@ def test_database_cross_column_check_groups_independent_generator_patches(
     conn = registry.get_connection(payload["conn_id"])
     with sqlite_connection(conn.target) as db:
         db.execute(
-            "CREATE TABLE ranges(lower_bound INTEGER NOT NULL, upper_bound INTEGER NOT NULL, CHECK(upper_bound >= lower_bound))"
+            "CREATE TABLE ranges(lower_bound INTEGER NOT NULL, upper_bound INTEGER NOT NULL, "
+            "CHECK(upper_bound >= lower_bound))"
         )
     payload.update(
         schema_hash=inspect_connection(conn)["schema_hash"],

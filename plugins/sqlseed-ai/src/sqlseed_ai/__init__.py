@@ -222,8 +222,7 @@ class AISqlseedPlugin:
         if column_infos:
             date_cols: set[str] = set()
             for col in column_infos:
-                col_type = str(getattr(col, "type", "")).upper()
-                if col_type == "DATE":
+                if (str(getattr(col, "type", "")).upper()) == "DATE":
                     col_name = getattr(col, "name", "")
                     if isinstance(col_name, str) and col_name:
                         date_cols.add(col_name)
@@ -263,8 +262,7 @@ class AISqlseedPlugin:
 
         Returns the modified row, or ``None`` if no modification was needed.
         """
-        date_cols = self._date_columns_cache.get(table_name)
-        if not date_cols:
+        if not (date_cols := self._date_columns_cache.get(table_name)):
             return None
         modified = False
         for col_name in date_cols:

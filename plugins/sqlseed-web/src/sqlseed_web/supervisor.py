@@ -127,8 +127,7 @@ class Supervisor:
         return dict(self._restoration)
 
     def _stop_worker(self) -> None:
-        process = self.process
-        if process is None:
+        if (process := self.process) is None:
             return
         if process.is_alive():
             if not self._shutdown_requested:

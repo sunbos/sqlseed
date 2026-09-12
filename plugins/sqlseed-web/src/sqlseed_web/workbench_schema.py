@@ -38,8 +38,7 @@ def _digest(value: Any) -> str:
 
 def _target_identity(conn: Connection) -> tuple[str, str]:
     """Normalize physical targets and omit userinfo and query values from labels."""
-    sqlite = sqlite_target(conn.target, conn.conn_id)
-    if sqlite is not None:
+    if (sqlite := sqlite_target(conn.target, conn.conn_id)) is not None:
         return _digest([sqlite.kind, sqlite.value]), sqlite.label
     url = make_url(conn.target)
     dialect = url.get_backend_name()

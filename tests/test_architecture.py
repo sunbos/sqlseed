@@ -249,9 +249,8 @@ class TestProductionIsolation:
         offenders: list[str] = []
         for py_file in SRC_ROOT.rglob("*.py"):
             rel = py_file.relative_to(SRC_ROOT)
-            rel_posix = rel.as_posix()
             # Allowed: database/__init__.py (re-export), database/raw_sqlite_adapter.py (definition)
-            if rel_posix in {"database/__init__.py", "database/raw_sqlite_adapter.py"}:
+            if (rel_posix := rel.as_posix()) in {"database/__init__.py", "database/raw_sqlite_adapter.py"}:
                 continue
             try:
                 tree = ast.parse(py_file.read_text(encoding="utf-8"))

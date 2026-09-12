@@ -251,8 +251,7 @@ def _docker_transport_unavailable(error: Exception) -> bool:
     ):
         return False
     if sys.platform == "win32":
-        unavailable = _windows_pipe_unavailable(chain)
-        if unavailable is not None:
+        if (unavailable := _windows_pipe_unavailable(chain)) is not None:
             return unavailable
     return any(_transport_cause_unavailable(cause) for cause in chain)
 
@@ -272,8 +271,7 @@ def pg_url() -> Generator[str, None, None]:
 
     PG_TEST_URL is supplied by CI; only containers created here are stopped here.
     """
-    external_url = os.environ.get("PG_TEST_URL")
-    if external_url:
+    if (external_url := os.environ.get("PG_TEST_URL")):
         yield external_url
         return
     if PostgresContainer is None:
@@ -307,8 +305,7 @@ def _preferred_ollama_model(models: set[str]) -> str | None:
     for preferred in ("gemma4:26b", "gemma4:31b", "gemma4:e4b", "gemma4:12b"):
         if preferred in models:
             return preferred
-        variants = sorted(model for model in models if model.startswith(f"{preferred}-"))
-        if variants:
+        if (variants := sorted(model for model in models if model.startswith(f"{preferred}-"))):
             return variants[0]
     return None
 
@@ -325,8 +322,7 @@ def available_llm_backend() -> dict[str, str]:
         with urllib.request.urlopen("http://localhost:11434/api/tags", timeout=2) as resp:
             tags = json.loads(resp.read())
             models = {name for m in tags.get("models", []) if isinstance(name := m.get("name"), str)}
-            model = _preferred_ollama_model(models)
-            if model is not None:
+            if (model := _preferred_ollama_model(models)) is not None:
                 return {"backend": "ollama", "model": model}
             pytest.fail(
                 "Ollama is running but no Gemma 4 model has been pulled. Please run:\n"

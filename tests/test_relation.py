@@ -33,8 +33,7 @@ class _FakeDB:
         # ignored here since the fake already returns only PK/FK columns.
         del columns
         fk_columns = {fk.column for fk in self._fks}
-        all_columns = set(self._primary_keys) | fk_columns
-        if not all_columns:
+        if not (all_columns := set(self._primary_keys) | fk_columns):
             return []
         return [{col: val for col in all_columns} for val in self._column_values[:limit]]
 

@@ -31,8 +31,7 @@ def _add_single_unique_indexes(unique_cols: set[str], indexes: Iterable[IndexInf
 
 def _add_composite_key(columns: Sequence[str], composite: list[list[str]], seen: set[tuple[str, ...]]) -> None:
     """Preserve discovery order and column order while deduplicating keys."""
-    key = tuple(columns)
-    if key not in seen:
+    if (key := tuple(columns)) not in seen:
         seen.add(key)
         composite.append(list(columns))
 
@@ -211,9 +210,8 @@ class SchemaInferrer:
         """
         self._validate(table_name)
         columns = self.get_column_info(table_name)
-        row_count = self._db.get_row_count(table_name)
 
-        if row_count == 0:
+        if (row_count := self._db.get_row_count(table_name)) == 0:
             return []
 
         profiles: list[dict[str, Any]] = []

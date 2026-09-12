@@ -143,8 +143,7 @@ def _validate_run(record: dict[str, Any]) -> None:
         if not isinstance(table, dict):
             # Payload validation uses ValueError, which the HTTP boundary handles consistently.
             raise ValueError("Each run table must be an object")  # noqa: TRY004
-        name = _text(table, "name")
-        if name in names:
+        if (name := _text(table, "name")) in names:
             raise ValueError("Run table names must be unique")
         names.add(name)
         count = table.get("count", table.get("requested_count"))
@@ -174,8 +173,7 @@ def _run_snapshot(payload: dict[str, Any]) -> dict[str, Any]:
     revision = payload.get("revision")
     if revision is not None and (isinstance(revision, bool) or not isinstance(revision, int) or revision < 1):
         raise ValueError("revision must be a positive integer or null")
-    draft_id = payload.get("draft_id")
-    if draft_id is not None:
+    if (draft_id := payload.get("draft_id")) is not None:
         _text({"draft_id": draft_id}, "draft_id", 128)
     created_at = payload.get("created_at", time.time())
     if isinstance(created_at, bool) or not isinstance(created_at, (int, float)) or created_at < 0:
@@ -225,8 +223,7 @@ class WorkspaceStore:
         with self._connection() as db:
             db.execute("PRAGMA journal_mode = WAL")
         with self._connection(write=True) as db:
-            version = db.execute("PRAGMA user_version").fetchone()[0]
-            if version not in (0, _SCHEMA_VERSION):
+            if (version := db.execute("PRAGMA user_version").fetchone()[0]) not in (0, _SCHEMA_VERSION):
                 raise RuntimeError(f"Unsupported workspace schema version {version}; expected {_SCHEMA_VERSION}")
             db.execute(
                 "CREATE TABLE IF NOT EXISTS workspace_drafts ("
@@ -319,8 +316,7 @@ class WorkspaceStore:
     @staticmethod
     def _draft_at_revision(db: sqlite3.Connection, draft_id: str, expected_revision: int) -> dict[str, Any]:
         """Read the displayed draft inside its caller's serialized write transaction."""
-        row = db.execute("SELECT payload FROM workspace_drafts WHERE id = ?", (draft_id,)).fetchone()
-        if row is None:
+        if (row := db.execute("SELECT payload FROM workspace_drafts WHERE id = ?", (draft_id,)).fetchone()) is None:
             raise KeyError(draft_id)
         record = _decode(row[0])
         if (
@@ -392,8 +388,7 @@ class WorkspaceStore:
         if set(changes).difference(_RUN_MUTABLE_FIELDS):
             raise ValueError("Cannot update immutable run snapshot fields")
         with self._connection(write=True) as db:
-            row = db.execute("SELECT payload FROM workspace_runs WHERE id = ?", (run_id,)).fetchone()
-            if row is None:
+            if (row := db.execute("SELECT payload FROM workspace_runs WHERE id = ?", (run_id,)).fetchone()) is None:
                 raise KeyError(run_id)
             record = _decode(row[0])
             original_tables = [

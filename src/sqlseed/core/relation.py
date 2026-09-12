@@ -187,8 +187,7 @@ class RelationResolver:
         result: list[str] = []
 
         while remaining:
-            ready = [t for t in table_names if t in remaining and not pending_deps[t]]
-            if not ready:
+            if not (ready := [t for t in table_names if t in remaining and not pending_deps[t]]):
                 breaker = self._pick_cycle_breaker(table_names, remaining)
                 logger.warning(
                     "Circular FK dependency detected, breaking cycle",
@@ -221,8 +220,7 @@ class RelationResolver:
         for table in table_names:
             if table not in remaining:
                 continue
-            fks = self.get_foreign_keys(table)
-            if not fks:
+            if not (fks := self.get_foreign_keys(table)):
                 continue
             # Check if any FK points to another remaining table and the
             # FK column is nullable. Self-referencing FKs are skipped
@@ -328,13 +326,11 @@ class RelationResolver:
             The list preserves the ``seq`` order (column order within the FK).
             Empty dict if no composite FKs exist or the PRAGMA query fails.
         """
-        cached = self._composite_fk_cache.get(table_name)
-        if cached is not None:
+        if (cached := self._composite_fk_cache.get(table_name)) is not None:
             return cached
 
         result: dict[int, list[tuple[str, str, str]]] = {}
-        fks = self.get_foreign_keys(table_name)
-        if not fks:
+        if not (fks := self.get_foreign_keys(table_name)):
             self._composite_fk_cache[table_name] = result
             return result
         if any(fk.constraint_id is not None for fk in fks):
@@ -394,8 +390,7 @@ class RelationResolver:
         pair need not satisfy additional CHECK constraints on the child.
         """
         self.validate_generation_schema(table_name)
-        composite_groups = self._get_composite_fk_groups(table_name)
-        if not composite_groups:
+        if not (composite_groups := self._get_composite_fk_groups(table_name)):
             return specs
 
         for cols in composite_groups.values():
@@ -471,8 +466,7 @@ class RelationResolver:
         column_types: dict[str, str] | None = None,
         unique_columns: set[str] | None = None,
     ) -> GeneratorSpec:
-        fk_info = self.get_fk_info(table_name, col_name)
-        if fk_info:
+        if fk_info := self.get_fk_info(table_name, col_name):
             ref_values = self.resolve_foreign_key_values(table_name, col_name)
             # Empty parent + nullable column: when the FK target table has no
             # rows yet (either because it's a self-referencing FK and the table
@@ -513,8 +507,7 @@ class RelationResolver:
             )
             return _make_fk_pool_spec(col_name, pool_values, spec)
 
-        col_type = (column_types or {}).get(col_name, "")
-        if not col_type:
+        if not (col_type := (column_types or {}).get(col_name, "")):
             logger.debug(
                 "Column type not found, falling back to integer",
                 table_name=table_name,
@@ -581,10 +574,8 @@ class RelationResolver:
             spec = specs[col_name]
             if not self._prepare_fk_upgrade(table_name, col_name, spec, specs):
                 continue
-            fk_info = self.get_fk_info(table_name, col_name)
-            if fk_info is None:
+            if (fk_info := self.get_fk_info(table_name, col_name)) is None:
                 continue
-            ref_values = self.resolve_foreign_key_values(table_name, col_name)
             # Empty parent handling: when the parent table is the same as the
             # current table (self-referencing FK, e.g.,
             # ``departments.parent_id REFERENCES departments(id)``), or when a
@@ -599,11 +590,10 @@ class RelationResolver:
             # violations while preserving data integrity. A two-pass approach
             # (insert then update) would produce richer hierarchies but
             # requires orchestrator-level changes.
-            if not ref_values:
+            if not (ref_values := self.resolve_foreign_key_values(table_name, col_name)):
                 if not column_info_map:
                     column_info_map = {c.name: c.nullable for c in self._db.get_column_info(table_name)}
-                col_nullable = column_info_map.get(col_name, True)
-                if col_nullable:
+                if column_info_map.get(col_name, True):
                     specs[col_name] = GeneratorSpec(
                         generator_name="foreign_key",
                         params={
@@ -827,17 +817,14 @@ class RelationResolver:
 
         if not self._shared_pool.has(col_name):
             if self._shared_pool.has(source_col):
-                pool_values = self._shared_pool.get(source_col)
-                if pool_values:
+                if pool_values := self._shared_pool.get(source_col):
                     self._shared_pool.merge(col_name, pool_values)
             else:
                 with contextlib.suppress(ValueError, OSError, RuntimeError, SAOperationalError):
-                    values = self._db.get_column_values(source_table, source_col, limit=10000)
-                    if values:
+                    if values := self._db.get_column_values(source_table, source_col, limit=10000):
                         self._shared_pool.merge(col_name, values)
 
-        pool_values = self._shared_pool.get(col_name)
-        if not pool_values:
+        if not (pool_values := self._shared_pool.get(col_name)):
             return
 
         specs[col_name] = _make_fk_pool_spec(col_name, pool_values, spec)
@@ -882,8 +869,7 @@ class RelationResolver:
             if not self._shared_pool.has(col_name):
                 continue
 
-            is_unique = unique_columns is not None and col_name in unique_columns
-            if is_unique:
+            if unique_columns is not None and col_name in unique_columns:
                 logger.debug(
                     "Skipping implicit association for UNIQUE non-FK column",
                     table_name=table_name,
@@ -891,8 +877,7 @@ class RelationResolver:
                 )
                 continue
 
-            pool_values = self._shared_pool.get(col_name)
-            if not pool_values:
+            if not (pool_values := self._shared_pool.get(col_name)):
                 continue
 
             specs[col_name] = _make_fk_pool_spec(col_name, pool_values, spec)
@@ -950,8 +935,7 @@ class RelationResolver:
             if col_name not in pk_columns and col_name not in fk_columns:
                 continue
             # Extract per-column values from the batch-fetched sample rows.
-            values = [row[col_name] for row in sample_rows if col_name in row]
-            if values:
+            if values := [row[col_name] for row in sample_rows if col_name in row]:
                 self._shared_pool.merge(col_name, values)
                 if spec.generator_name in {"skip", "autoincrement"} and col_name in pk_columns:
                     logger.debug(

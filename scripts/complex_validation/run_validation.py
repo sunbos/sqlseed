@@ -85,8 +85,7 @@ def extract_checks(create_sql: str) -> list[str]:
             i += 1
         if i >= len(create_sql) or create_sql[i] != "(":
             continue
-        body = _check_body(create_sql, i)
-        if body is not None:
+        if (body := _check_body(create_sql, i)) is not None:
             exprs.append(body)
     return exprs
 
@@ -112,8 +111,7 @@ def fill_db(db_path: Path, counts: dict) -> tuple[dict[str, str], float, int]:
     with sqlseed.connect(str(db_path)) as orch:
         order = orch.get_topological_table_order(orch.get_table_names())
         for table in order:
-            n = counts.get(table, DEFAULT_COUNT)
-            if n is None:
+            if (n := counts.get(table, DEFAULT_COUNT)) is None:
                 continue
             try:
                 orch.fill_table(table, count=n, seed=SEED, batch_size=5000)
@@ -123,7 +121,9 @@ def fill_db(db_path: Path, counts: dict) -> tuple[dict[str, str], float, int]:
     return errors, time.perf_counter() - t_start, rows
 
 
-def _verify_check_constraints(con: sqlite3.Connection, tables: dict[str, str], counts: dict, checks: list[CheckResult]) -> None:
+def _verify_check_constraints(
+    con: sqlite3.Connection, tables: dict[str, str], counts: dict, checks: list[CheckResult]
+) -> None:
     # D3 CHECK re-evaluation (independent of insert-time enforcement)
     for t, sql in tables.items():
         if counts.get(t, DEFAULT_COUNT) is None:
@@ -137,7 +137,9 @@ def _verify_check_constraints(con: sqlite3.Connection, tables: dict[str, str], c
             checks.append(CheckResult("D3-check", t, bad == 0, f"NOT ({expr[:70]}) -> {bad}"))
 
 
-def _verify_unique_notnull(con: sqlite3.Connection, tables: dict[str, str], counts: dict, checks: list[CheckResult]) -> None:
+def _verify_unique_notnull(
+    con: sqlite3.Connection, tables: dict[str, str], counts: dict, checks: list[CheckResult]
+) -> None:
     # D4 UNIQUE duplicates + NOT NULL violations
     for t in tables:
         if counts.get(t, DEFAULT_COUNT) is None:
@@ -240,8 +242,7 @@ def main() -> int:
     all_ok = True
 
     def dim_status(report: DbReport, prefixes: tuple[str, ...]) -> str:
-        sel = [c for c in report.checks if c.dim in prefixes]
-        if not sel:
+        if not (sel := [c for c in report.checks if c.dim in prefixes]):
             return "-"
         bad = sum(1 for c in sel if not c.ok)
         return "ok" if bad == 0 else f"FAIL/{bad}"

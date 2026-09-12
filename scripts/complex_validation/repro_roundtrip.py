@@ -39,5 +39,9 @@ def run_case(name: str, ddl: str, count: int, seed: int = 42) -> None:
 run_case("age_u", 'CREATE TABLE age_u (id INTEGER PRIMARY KEY, age INTEGER UNIQUE NOT NULL)', 27)
 run_case("score_u", 'CREATE TABLE score_u (id INTEGER PRIMARY KEY, score INTEGER UNIQUE NOT NULL)', 27)
 run_case("qty_u", 'CREATE TABLE qty_u (id INTEGER PRIMARY KEY, qty INTEGER UNIQUE NOT NULL)', 27)
-run_case("role_c", "CREATE TABLE role_c (id INTEGER PRIMARY KEY, role TEXT NOT NULL CHECK (role IN ('admin','user','guest')))", 27)
+run_case(
+    "role_c",
+    "CREATE TABLE role_c (id INTEGER PRIMARY KEY, role TEXT NOT NULL CHECK (role IN ('admin','user','guest')))",
+    27,
+)
 run_case("year_u", 'CREATE TABLE year_u (id INTEGER PRIMARY KEY, year INTEGER UNIQUE NOT NULL)', 27)

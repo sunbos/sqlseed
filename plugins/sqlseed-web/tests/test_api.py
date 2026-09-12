@@ -304,7 +304,10 @@ class TestPreviewFill:
 
 class TestConfig:
     def test_yaml_roundtrip(self, client: TestClient) -> None:
-        yaml_text = "db_path: app.db\ntables:\n  - name: users\n    count: 5\n    columns:\n      - name: email\n        generator: email\n"
+        yaml_text = (
+            "db_path: app.db\ntables:\n  - name: users\n    count: 5\n    columns:\n      - name: "
+            "email\n        generator: email\n"
+        )
         res = client.post("/api/config/parse", json={"yaml": yaml_text})
         body = res.json()
         assert body["valid"] is True
@@ -474,7 +477,8 @@ class TestHeal:
         pytest.importorskip("sqlseed_ai")
         yaml_text = (
             "db_path: x.db\ntables:\n  - name: orders\n    count: 10\n"
-            "    columns:\n      - name: amount\n        generator: random_float\n        params: {min_value: -10.0, max_value: -5.0}\n"
+            "    columns:\n      - name: amount\n        generator: random_float\n        params: "
+            "{min_value: -10.0, max_value: -5.0}\n"
         )
         res = client.post(f"/api/connections/{conn_id}/heal/{endpoint}", json={"yaml": yaml_text})
         body = res.json()

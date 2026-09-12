@@ -179,8 +179,7 @@ class PluginManager:
             if body.action == "uninstall":
                 if package is None:
                     raise _reject("此组件尚未安装。")
-                users = plugin_environment.required_by(distribution, packages)
-                if users:
+                if users := plugin_environment.required_by(distribution, packages):
                     raise _reject(f"由 {', '.join(users)} 使用，请先卸载这些可选组件。")
             self._snapshot = packages
             self._plan = {
@@ -276,8 +275,7 @@ class PluginManager:
                 target = operation_plan["distribution"]
                 expected_target = target in after if operation_plan["action"] == "install" else target not in after
                 preserved = all(after.get(name) == package for name, package in before.items() if name != target)
-                succeeded = result == 0 and expected_target and preserved
-                if succeeded:
+                if succeeded := result == 0 and expected_target and preserved:
                     message = "组件操作完成；请停止维护服务并正常重启 Web 验证。"
                 elif result == 0:
                     message = "安装工具已退出，但组件元数据核验未通过；请检查环境并重启 Web。"

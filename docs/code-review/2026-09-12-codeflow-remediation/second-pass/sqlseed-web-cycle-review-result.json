@@ -1,0 +1,52 @@
+{
+  "source_hashes": {
+    "_application.py": "696f4bd0de5cb535cce9876d1f3354326517f657bb7cfa71b1fa4dd795097f1e",
+    "app.py": "b0d8217e5490a0320972270bf8b8a4b5ce9ddb80fdc03bf60e844c9501c16c74",
+    "managed_worker.py": "b5628429962eee0514ff66a51f9b9c84c9e998515ee57e0bf2ab13c896ea879d"
+  },
+  "baseline_path": "/tmp/sqlseed-app-before-factory-split.py",
+  "function_asts_equal": [
+    "_loopback_host_forbidden",
+    "_business_request_forbidden",
+    "_maintenance_response",
+    "_configure_middleware",
+    "create_app",
+    "main"
+  ],
+  "factory_import_asts_equal": true,
+  "worker_ast_equal_except_one_import_module": [
+    129
+  ],
+  "public_reexport_identity": true,
+  "signature": "(*, manage_plugins: 'bool' = False, management_service: 'ManagementService | None' = None, supervised_worker: 'bool' = False) -> 'FastAPI'",
+  "static_directory": "/Users/sunbo/Desktop/sqlseed/plugins/sqlseed-web/src/sqlseed_web/static",
+  "route_middleware_openapi_modes": [
+    {
+      "manage_plugins": false,
+      "supervised_worker": false,
+      "routes": 13,
+      "middlewares": 2
+    },
+    {
+      "manage_plugins": false,
+      "supervised_worker": true,
+      "routes": 13,
+      "middlewares": 3
+    },
+    {
+      "manage_plugins": true,
+      "supervised_worker": false,
+      "routes": 9,
+      "middlewares": 2
+    },
+    {
+      "manage_plugins": true,
+      "supervised_worker": true,
+      "routes": 9,
+      "middlewares": 2
+    }
+  ],
+  "http_differential_cases": 160,
+  "http_differences": 0,
+  "network_listener_started": false
+}

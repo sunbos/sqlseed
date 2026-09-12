@@ -150,8 +150,7 @@ class CheckConstraintParser:
             表达式以可确定性解析的单列字面量模式约束 target_column 时返回
             ParsedCheck；否则返回 None（包括跨列约束与完全无法解析的输入）。
         """
-        tree = _parse_expression(expression)
-        if tree is None:
+        if (tree := _parse_expression(expression)) is None:
             return None
 
         target = target_column.translate(_ASCII_CASE_FOLD)
@@ -176,8 +175,7 @@ class CheckConstraintParser:
         Returns:
             合取后的 ParsedCheck；全部不可解析时返回 None。
         """
-        trees = [tree for expression in expressions if (tree := _parse_expression(expression)) is not None]
-        if not trees:
+        if not (trees := [tree for expression in expressions if (tree := _parse_expression(expression)) is not None]):
             return None
         combined = trees[0]
         for tree in trees[1:]:
@@ -191,8 +189,7 @@ class CheckConstraintParser:
         基于 AST 的精确标识符匹配，无子串误报（'price' 不会匹配
         'unit_price'）。表达式无法解析时返回 False。
         """
-        tree = _parse_expression(expression)
-        if tree is None:
+        if (tree := _parse_expression(expression)) is None:
             return False
         known = {col.translate(_ASCII_CASE_FOLD) for col in all_columns}
         referenced = {col.name.translate(_ASCII_CASE_FOLD) for col in tree.find_all(exp.Column) if col.name}
@@ -225,8 +222,7 @@ def _node_bounds(node: exp.Expression, target: str) -> list[_Bound]:
 def _parse_expression(expression: str) -> exp.Expression | None:
     """剥离可选的 CHECK 前缀并用 sqlglot（sqlite 方言）解析约束体。"""
     text = expression.strip()
-    match = CheckConstraintParser._CHECK_INNER_RE.match(text)
-    if match:
+    if match := CheckConstraintParser._CHECK_INNER_RE.match(text):
         text = match.group("inner").strip()
     if not text:
         return None
@@ -415,8 +411,7 @@ def _comparison_bound(node: exp.Expression, target: str) -> _Bound | None:
     strict = isinstance(node, (exp.GT, exp.LT))
     is_lower_op = isinstance(node, (exp.GT, exp.GTE))
     # 方向一：col OP lit（列在左，方向原样）。
-    bound = _side_bound(left, right, target, is_lower=is_lower_op, strict=strict)
-    if bound is not None:
+    if (bound := _side_bound(left, right, target, is_lower=is_lower_op, strict=strict)) is not None:
         return bound
     # 方向二：lit OP col（列在右，比较方向翻转）。
     return _side_bound(right, left, target, is_lower=not is_lower_op, strict=strict)

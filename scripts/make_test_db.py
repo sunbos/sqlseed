@@ -130,13 +130,24 @@ def build() -> sqlite3.Connection:
     conn.execute("PRAGMA foreign_keys = ON")
     for ddl in SCHEMA:
         conn.execute(ddl)
-    conn.executemany("INSERT INTO users (username,email,phone,status,balance,signup_date,bio) VALUES (?,?,?,?,?,?,?)", SEED["users"])
-    conn.executemany("INSERT INTO products (sku,name,category,price,stock,is_active,created_at) VALUES (?,?,?,?,?,?,?)", SEED["products"])
-    conn.executemany("INSERT INTO orders (user_id,order_no,status,amount,created_at,shipped_at) VALUES (?,?,?,?,?,?)", SEED["orders"])
+    conn.executemany(
+        "INSERT INTO users (username,email,phone,status,balance,signup_date,bio) VALUES (?,?,?,?,?,?,?)",
+        SEED["users"],
+    )
+    conn.executemany(
+        "INSERT INTO products (sku,name,category,price,stock,is_active,created_at) VALUES (?,?,?,?,?,?,?)",
+        SEED["products"],
+    )
+    conn.executemany(
+        "INSERT INTO orders (user_id,order_no,status,amount,created_at,shipped_at) VALUES (?,?,?,?,?,?)",
+        SEED["orders"],
+    )
     # order_items: fix the placeholder row to satisfy CHECK (quantity>=1, price>0)
     items = [row if row[0] != 6 or row[2] != 0 else (6, 5, 2, 99.50) for row in SEED["order_items"]]
     conn.executemany("INSERT INTO order_items (order_id,product_id,quantity,unit_price) VALUES (?,?,?,?)", items)
-    conn.executemany("INSERT INTO employees (name,manager_id,title,salary,hired_at) VALUES (?,?,?,?,?)", SEED["employees"])
+    conn.executemany(
+        "INSERT INTO employees (name,manager_id,title,salary,hired_at) VALUES (?,?,?,?,?)", SEED["employees"]
+    )
     conn.commit()
     return conn
 
@@ -163,20 +174,50 @@ def validate(conn: sqlite3.Connection) -> list[tuple[str, bool, str]]:
         ("CHECK enum rejected", "INSERT INTO users (username,email,status) VALUES ('x','x@x.com','bogus')", ()),
         ("CHECK range rejected (price<=0)", "INSERT INTO products (sku,name,price) VALUES ('S-x','x',-1)", ()),
         ("CHECK range rejected (price>max)", "INSERT INTO products (sku,name,price) VALUES ('S-y','y',100001)", ()),
-        ("CHECK length rejected (phone!=11)", "INSERT INTO users (username,phone,status) VALUES ('z','12345','active')", ()),
+        (
+            "CHECK length rejected (phone!=11)",
+            "INSERT INTO users (username,phone,status) VALUES ('z','12345','active')",
+            (),
+        ),
         ("UNIQUE rejected (username)", "INSERT INTO users (username,status) VALUES ('alice_w','active')", ()),
         ("UNIQUE rejected (sku)", "INSERT INTO products (sku,name,price) VALUES ('SKU-0001','dup',1)", ()),
-        ("FK rejected (bad user_id)", "INSERT INTO orders (user_id,created_at) VALUES (99999,'2024-01-01 00:00:00')", ()),
+        (
+            "FK rejected (bad user_id)",
+            "INSERT INTO orders (user_id,created_at) VALUES (99999,'2024-01-01 00:00:00')",
+            (),
+        ),
         ("FK rejected (self-ref bad)", "UPDATE employees SET manager_id = 999 WHERE id = 5", ()),
-        ("Cross-column CHECK rejected", "INSERT INTO orders (user_id,created_at,shipped_at) VALUES (1,'2024-06-01 10:00:00','2024-05-01 10:00:00')", ()),
-        ("Composite PK rejected (dup)", "INSERT INTO order_items (order_id,product_id,quantity,unit_price) VALUES (1,1,2,9.9)", ()),
-        ("CHECK quantity rejected", "INSERT INTO order_items (order_id,product_id,quantity,unit_price) VALUES (1,3,0,9.9)", ()),
+        (
+            "Cross-column CHECK rejected",
+            "INSERT INTO orders (user_id,created_at,shipped_at) "
+            "VALUES (1,'2024-06-01 10:00:00','2024-05-01 10:00:00')",
+            (),
+        ),
+        (
+            "Composite PK rejected (dup)",
+            "INSERT INTO order_items (order_id,product_id,quantity,unit_price) VALUES (1,1,2,9.9)",
+            (),
+        ),
+        (
+            "CHECK quantity rejected",
+            "INSERT INTO order_items (order_id,product_id,quantity,unit_price) VALUES (1,3,0,9.9)",
+            (),
+        ),
     ]
     for label, sql, params in checks:
         results.append((label, must_fail(conn, sql, params), "rejected as expected"))
 
-    counts = {t: conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] for t in ("users", "products", "orders", "order_items", "employees")}
-    results.append(("seed row counts", counts == {"users": 5, "products": 8, "orders": 6, "order_items": 10, "employees": 6}, str(counts)))
+    counts = {
+        t: conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
+        for t in ("users", "products", "orders", "order_items", "employees")
+    }
+    results.append(
+        (
+            "seed row counts",
+            counts == {"users": 5, "products": 8, "orders": 6, "order_items": 10, "employees": 6},
+            str(counts),
+        )
+    )
     return results
 
 

@@ -1,0 +1,264 @@
+{
+  "reviewed_at_utc": "2026-09-12T14:35:14.390237+00:00",
+  "reviewer": "/root/review_core_refactors",
+  "scope": "只读独立复核第二轮mutation；使用隔离copy cwd及/tmp/sqlseed-codeflow-venv/bin/python -m mutmut show逐条读取8项。未运行apply/run，未改source/tests/config/userenv或旧证据。新行为探针只将baseline/88/100源码编译到内存。",
+  "isolation_copy": "/var/folders/cl/xphppvtj3qx0n89rkx8tzyd80000gn/T/sqlseed-codeflow-mutation-postpush-y5_sd_jp",
+  "source_sha256": "4532f18e390075685e77d302720ed04fd8c944a0be5916168b520c219781e35c",
+  "main_worktree_same_source": true,
+  "worktree_head_at_review": "064854c9c90a9b890e58a314fbe5d8fba69d1508",
+  "run_result": {
+    "total": 236,
+    "killed": 228,
+    "survived": 8,
+    "timeout": 0,
+    "suspicious": 0,
+    "skipped": 0,
+    "raw_log_status": "⠼ 236/236  🎉 228  ⏰ 0  🤔 0  🙁 8  🔇 0",
+    "make_exit": "Error 2 (survivors remain; not an automatic zero-survivor gate pass)"
+  },
+  "decision": "8项全部与上一轮已提交幸存变异逐条对应，增删行完全相同；未发现新增幸存类别、新的必补行为测试缺口或可证明应修的真实行为缺陷。保留逐项接受结论，不宣称严格等价或零幸存。",
+  "strict_equivalence_claim": false,
+  "mapping": {
+    "84": 87,
+    "85": 88,
+    "88": 91,
+    "100": 103,
+    "114": 117,
+    "130": 133,
+    "149": 152,
+    "186": 190
+  },
+  "items": [
+    {
+      "id": 84,
+      "prior_id": 87,
+      "path": "src/sqlseed/core/unique_adjuster.py",
+      "line": 160,
+      "category": "diagnostic_text",
+      "kind": "ConfigurationError message",
+      "identical_removed_and_added_lines_to_committed_prior_diff": true,
+      "strictly_equivalent": false,
+      "accept_as_individually_reviewed_survivor": true,
+      "new_demonstrated_contract_violation": false,
+      "reason": "仅改变可观察诊断文本；异常类型、触发条件、插值参数、容量计算及生成控制流均不变。无需为杀死XX文案变异新增逐字快照测试。",
+      "diff": "--- src/sqlseed/core/unique_adjuster.py\n+++ src/sqlseed/core/unique_adjuster.py\n@@ -157,7 +157,7 @@\n             capacity = max_length - min_length + 1 if charset_size == 1 else int(min_length == max_length == 0)\n             if spec.null_ratio == 0 and count > capacity:\n                 raise ConfigurationError(\n-                    f\"Column '{col_name}': {charset_size}-character domain cannot provide {count} UNIQUE strings \"\n+                    f\"XXColumn '{col_name}': {charset_size}-character domain cannot provide {count} UNIQUE strings XX\"\n                     f\"within lengths [{min_length}, {max_length}].\"\n                 )\n             return replace(spec, params=params)\n\n"
+    },
+    {
+      "id": 85,
+      "prior_id": 88,
+      "path": "src/sqlseed/core/unique_adjuster.py",
+      "line": 161,
+      "category": "diagnostic_text",
+      "kind": "ConfigurationError message",
+      "identical_removed_and_added_lines_to_committed_prior_diff": true,
+      "strictly_equivalent": false,
+      "accept_as_individually_reviewed_survivor": true,
+      "new_demonstrated_contract_violation": false,
+      "reason": "仅改变可观察诊断文本；异常类型、触发条件、插值参数、容量计算及生成控制流均不变。无需为杀死XX文案变异新增逐字快照测试。",
+      "diff": "--- src/sqlseed/core/unique_adjuster.py\n+++ src/sqlseed/core/unique_adjuster.py\n@@ -158,7 +158,7 @@\n             if spec.null_ratio == 0 and count > capacity:\n                 raise ConfigurationError(\n                     f\"Column '{col_name}': {charset_size}-character domain cannot provide {count} UNIQUE strings \"\n-                    f\"within lengths [{min_length}, {max_length}].\"\n+                    f\"XXwithin lengths [{min_length}, {max_length}].XX\"\n                 )\n             return replace(spec, params=params)\n \n\n"
+    },
+    {
+      "id": 88,
+      "prior_id": 91,
+      "path": "src/sqlseed/core/unique_adjuster.py",
+      "line": 165,
+      "category": "sampling_headroom",
+      "kind": null,
+      "identical_removed_and_added_lines_to_committed_prior_diff": true,
+      "strictly_equivalent": false,
+      "accept_as_individually_reviewed_survivor": true,
+      "new_demonstrated_contract_violation": false,
+      "reason": "50→51提高2%采样余量，临界处会改变长度及seeded output，但不减少字符域容量，仍受schema硬上限约束。本轮重现count9二进制长度12→13；没有发现新的UNIQUE/CHECK/NULL合同违例。",
+      "diff": "--- src/sqlseed/core/unique_adjuster.py\n+++ src/sqlseed/core/unique_adjuster.py\n@@ -162,7 +162,7 @@\n                 )\n             return replace(spec, params=params)\n \n-        target_capacity = count * count * 50\n+        target_capacity = count * count * 51\n         min_needed = math.ceil(math.log(target_capacity) / math.log(charset_size))\n         current_min = params[\"min_length\"]\n         if length_bounds is not None and length_bounds[1] is not None:\n\n"
+    },
+    {
+      "id": 100,
+      "prior_id": 103,
+      "path": "src/sqlseed/core/unique_adjuster.py",
+      "line": 174,
+      "category": "bounded_capacity_equality",
+      "kind": null,
+      "identical_removed_and_added_lines_to_committed_prior_diff": true,
+      "strictly_equivalent": false,
+      "accept_as_individually_reviewed_survivor": true,
+      "new_demonstrated_contract_violation": false,
+      "reason": "仅最长长度容量等号边界改变分支。设b>=2、合法区间[m,M]且count=b**M，全区间容量sum(b**k)>=count，保留更短合法长度不会新造成容量不足。重现count4、二进制长度1..2由2..2变1..2；不是严格等价。",
+      "diff": "--- src/sqlseed/core/unique_adjuster.py\n+++ src/sqlseed/core/unique_adjuster.py\n@@ -171,7 +171,7 @@\n             # A power at least 2**count.bit_length() already exceeds count;\n             # cap the exponent so a huge declared width never builds a huge integer.\n             longest_capacity = charset_size ** min(max_length, count.bit_length())\n-            if count <= longest_capacity:\n+            if count < longest_capacity:\n                 params[\"min_length\"] = min(max_length, max(current_min, min_needed))\n             else:\n                 capacity = (longest_capacity * charset_size - charset_size**current_min) // (charset_size - 1)\n\n"
+    },
+    {
+      "id": 114,
+      "prior_id": 117,
+      "path": "src/sqlseed/core/unique_adjuster.py",
+      "line": 180,
+      "category": "diagnostic_text",
+      "kind": "ConfigurationError message",
+      "identical_removed_and_added_lines_to_committed_prior_diff": true,
+      "strictly_equivalent": false,
+      "accept_as_individually_reviewed_survivor": true,
+      "new_demonstrated_contract_violation": false,
+      "reason": "仅改变可观察诊断文本；异常类型、触发条件、插值参数、容量计算及生成控制流均不变。无需为杀死XX文案变异新增逐字快照测试。",
+      "diff": "--- src/sqlseed/core/unique_adjuster.py\n+++ src/sqlseed/core/unique_adjuster.py\n@@ -177,7 +177,7 @@\n                 capacity = (longest_capacity * charset_size - charset_size**current_min) // (charset_size - 1)\n                 if spec.null_ratio == 0 and count > capacity:\n                     raise ConfigurationError(\n-                        f\"Column '{col_name}': lengths [{current_min}, {max_length}] cannot fit {count} UNIQUE strings.\"\n+                        f\"XXColumn '{col_name}': lengths [{current_min}, {max_length}] cannot fit {count} UNIQUE strings.XX\"\n                     )\n             return replace(spec, params=params)\n         params[\"min_length\"] = max(current_min, min_needed)\n\n"
+    },
+    {
+      "id": 130,
+      "prior_id": 133,
+      "path": "src/sqlseed/core/unique_adjuster.py",
+      "line": 192,
+      "category": "diagnostic_text",
+      "kind": "debug log message",
+      "identical_removed_and_added_lines_to_committed_prior_diff": true,
+      "strictly_equivalent": false,
+      "accept_as_individually_reviewed_survivor": true,
+      "new_demonstrated_contract_violation": false,
+      "reason": "仅改变可观察诊断文本；异常类型、触发条件、插值参数、容量计算及生成控制流均不变。无需为杀死XX文案变异新增逐字快照测试。",
+      "diff": "--- src/sqlseed/core/unique_adjuster.py\n+++ src/sqlseed/core/unique_adjuster.py\n@@ -189,7 +189,7 @@\n                 min_needed = math.ceil(math.log(target_capacity) / math.log(charset_size))\n                 params[\"min_length\"] = max(current_min, min_needed)\n             logger.debug(\n-                \"Expanded string length from %d to %d for UNIQUE sampling with count=%d\",\n+                \"XXExpanded string length from %d to %d for UNIQUE sampling with count=%dXX\",\n                 max_length,\n                 params[\"min_length\"],\n                 count,\n\n"
+    },
+    {
+      "id": 149,
+      "prior_id": 152,
+      "path": "src/sqlseed/core/unique_adjuster.py",
+      "line": 215,
+      "category": "diagnostic_text",
+      "kind": "ConfigurationError message",
+      "identical_removed_and_added_lines_to_committed_prior_diff": true,
+      "strictly_equivalent": false,
+      "accept_as_individually_reviewed_survivor": true,
+      "new_demonstrated_contract_violation": false,
+      "reason": "仅改变可观察诊断文本；异常类型、触发条件、插值参数、容量计算及生成控制流均不变。无需为杀死XX文案变异新增逐字快照测试。",
+      "diff": "--- src/sqlseed/core/unique_adjuster.py\n+++ src/sqlseed/core/unique_adjuster.py\n@@ -212,7 +212,7 @@\n                 params[\"max_length\"] = min(params[\"max_length\"], cmax)\n             if params[\"min_length\"] > params[\"max_length\"]:\n                 raise ConfigurationError(\n-                    f\"Column '{col_name}': string length domain has no intersection with schema bounds.\"\n+                    f\"XXColumn '{col_name}': string length domain has no intersection with schema bounds.XX\"\n                 )\n \n     @staticmethod\n\n"
+    },
+    {
+      "id": 186,
+      "prior_id": 190,
+      "path": "src/sqlseed/core/unique_adjuster.py",
+      "line": 278,
+      "category": "diagnostic_text",
+      "kind": "ConfigurationError message",
+      "identical_removed_and_added_lines_to_committed_prior_diff": true,
+      "strictly_equivalent": false,
+      "accept_as_individually_reviewed_survivor": true,
+      "new_demonstrated_contract_violation": false,
+      "reason": "仅改变可观察诊断文本；异常类型、触发条件、插值参数、容量计算及生成控制流均不变。无需为杀死XX文案变异新增逐字快照测试。",
+      "diff": "--- src/sqlseed/core/unique_adjuster.py\n+++ src/sqlseed/core/unique_adjuster.py\n@@ -275,7 +275,7 @@\n                 max_val = min(max_val, cmax)\n             if spec.null_ratio == 0 and count > max_val - min_val + 1:\n                 raise ConfigurationError(\n-                    f\"Column '{col_name}': integer range [{min_val}, {max_val}] cannot provide {count} UNIQUE values.\"\n+                    f\"XXColumn '{col_name}': integer range [{min_val}, {max_val}] cannot provide {count} UNIQUE values.XX\"\n                 )\n         else:\n             max_val = max(max_val, min_val + count * 10)\n\n"
+    }
+  ],
+  "independent_verification": {
+    "committed_prior_review_matches_tmp_copy": true,
+    "prior_source_sha256_confirmed": "3722238418f26a9918c818e8b54f52e961339a2338424c4c70c49ea68a437b36",
+    "source_delta_from_prior": "6处assignment-expression/短路条件整理；8条mutant增删行未改变。",
+    "fresh_boundary_probe": {
+      "isolated_import_root": "/var/folders/cl/xphppvtj3qx0n89rkx8tzyd80000gn/T/sqlseed-codeflow-mutation-postpush-y5_sd_jp",
+      "source_sha256": "4532f18e390075685e77d302720ed04fd8c944a0be5916168b520c219781e35c",
+      "in_memory_mutants_only": true,
+      "counterexamples": {
+        "88": {
+          "count": 9,
+          "params": {
+            "min_length": 1,
+            "max_length": 1,
+            "charset": "01"
+          },
+          "bounded": false,
+          "outcomes": {
+            "baseline": {
+              "params": {
+                "min_length": 12,
+                "max_length": 12,
+                "charset": "01"
+              },
+              "null_ratio": 0
+            },
+            "88": {
+              "params": {
+                "min_length": 13,
+                "max_length": 13,
+                "charset": "01"
+              },
+              "null_ratio": 0
+            }
+          }
+        },
+        "100": {
+          "count": 4,
+          "params": {
+            "min_length": 1,
+            "max_length": 2,
+            "charset": "01"
+          },
+          "bounded": true,
+          "outcomes": {
+            "baseline": {
+              "params": {
+                "min_length": 2,
+                "max_length": 2,
+                "charset": "01"
+              },
+              "null_ratio": 0
+            },
+            "100": {
+              "params": {
+                "min_length": 1,
+                "max_length": 2,
+                "charset": "01"
+              },
+              "null_ratio": 0
+            }
+          }
+        }
+      },
+      "bounded_matrix": {
+        "cases": 270,
+        "variant_evaluations": 810,
+        "charset_sizes": [
+          2,
+          3,
+          5
+        ],
+        "upper_lengths": [
+          0,
+          4
+        ],
+        "null_ratios": [
+          0,
+          0.5,
+          1
+        ],
+        "counts": "longest-length equality and full-interval capacity+1",
+        "differences_from_baseline": {
+          "88": 0,
+          "100": 90
+        },
+        "contract_violations": 0,
+        "oracles": [
+          "finite full-interval capacity",
+          "nonnullable excess rejection",
+          "hard length interval",
+          "null ratio preserved",
+          "remaining nonnullable domain capacity",
+          "input params unchanged"
+        ]
+      }
+    },
+    "show_source_sha256_unchanged": true
+  },
+  "test_recommendation": [
+    "继续维护实际容量、字符域、schema硬长度、NULL和真实UNIQUE行数测试；现有相关测试已覆盖这些方向。",
+    "不新增仅匹配XX文案或强制启发式系数50的测试；这不会建立有用的产品行为合同。",
+    "等号边界可以测试实际行数、唯一性和允许长度，但这样的合理测试不会区分两种合法分布。"
+  ],
+  "limitations": [
+    "本轮未重跑全仓测试、mutmut run、真实SQLite生成或PostgreSQL；上轮4次真实SQLite结果属于历史证据，不冒充本轮运行。",
+    "本轮270个有界输入×3版本=810次真实参数计算；有限探针不等于穷举输入域或性能证明。",
+    "变异88、100会改变参数/采样分布/seeded output；接受survivor不授权将其应用到要求行为保持的源码。",
+    "6处文案变异包括5处ConfigurationError诊断与1处debug日志，不能笼统称为6处日志。"
+  ],
+  "evidence": [
+    "/tmp/sqlseed-codeflow-mutation-postpush-location.txt",
+    "/tmp/sqlseed-codeflow-mutation-postpush-results.txt",
+    "/tmp/sqlseed-codeflow-mutation-postpush.log",
+    "/tmp/sqlseed-codeflow-mutation-postpush-diffs.json",
+    "/tmp/sqlseed-codeflow-mutation-postpush-probe.json",
+    "/Users/sunbo/Desktop/sqlseed/docs/code-review/2026-09-12-codeflow-remediation/evidence/sqlseed-codeflow-mutation-final-diffs.txt",
+    "/Users/sunbo/Desktop/sqlseed/docs/code-review/2026-09-12-codeflow-remediation/evidence/sqlseed-codeflow-mutation-review.json"
+  ]
+}

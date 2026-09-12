@@ -1,0 +1,66 @@
+{
+  "status": "complete; assigned files frozen for parent review/staging",
+  "files": {
+    "plugins/sqlseed-web/src/sqlseed_web/workbench_ai.py": "de9389e7fa92915590992db33a2b79da55c82cdad6c2f68f2206d95f97e5cad0",
+    "plugins/sqlseed-web/src/sqlseed_web/workbench_ai_relations.py": "bf33c1f3e9eba925a68f9e889749abbf356605f569c78759fded7cfede809522",
+    "plugins/sqlseed-web/tests/test_api.py": "dbdb91554a5f785356134f2c8762e6c62687606c4bd34b15347a61669bdff1e8",
+    "plugins/sqlseed-web/tests/test_plugin_management.py": "9a3c1bf10a5e3bb25c0528da56a0b369ba0cb588fead01eb0f21fdfcee7045fd",
+    "plugins/sqlseed-web/tests/test_plugin_process.py": "c880642a9bc9d0a4b4b08262e5aaa7031ccf73bcb21037695beeebd19fafc623",
+    "plugins/sqlseed-web/tests/test_workbench_ai.py": "7bce6f0ff723879f62c56fa9ceaa9db7ef0f96408b17a5a8b2152a5d1f7a3749",
+    "plugins/sqlseed-web/tests/test_workbench_ai_relations.py": "829521d347ca8f0b13a12e5e4d49651a04655c1765fd8da97e10cc47823ad0ec",
+    "plugins/sqlseed-web/tests/test_workbench_execution.py": "abb2ab943c134c7fdc8e5ae2c7770549298a75475e1acc51a072b4ef1ad92283",
+    "plugins/sqlseed-web/tests/test_workbench_runtime.py": "900de2b142a312732e79e4e7bdc366fdb4352b948db96e7cc8e50f4dcab5f610",
+    "scripts/complex_validation/ai_offline_validation.py": "d13bee6f8ea426e0b3423dc95f78df5f2126834d5a2b64e795af4d1ceecf05e6",
+    "scripts/complex_validation/randomized_roundtrip.py": "51591b6e42ca9af0431d308396c0f8813c026ddbefca5c76c368ffbadc080bd2",
+    "scripts/complex_validation/repro_roundtrip.py": "0f062c23cdd6ad7ee887e23deacac3a311ce3fdaffe567cb1533150b16fe9191",
+    "scripts/complex_validation/run_validation.py": "7cf3f67ff91c4f89799be59849eb44f36c85044d99235b1633130f942ef87156",
+    "scripts/complex_validation/yaml_path_validation.py": "871a17fe4774ed54c6c2bf0ee76c5f0e5ddb93c22f039c1474593121979ec3fa",
+    "scripts/make_test_db.py": "9468348fc08ba16e37b4c402dd1e2efc6193b1917e9498e79a1beec3a92bf4ae",
+    "src/sqlseed/core/check_adapt.py": "dec2baf57d3733ecdc3283b4ca159cbea011dc95af3e2a347d5c31d939891748",
+    "src/sqlseed/core/mapper.py": "95322f36be69d4eb6033d029d99f20a635adcd20f65ac96ffbd7ad8c4dd132e1",
+    "src/sqlseed/core/stream.py": "bad815d1f1f6371775284ee8097122fb0807b4cfc3e1d07708a0510473ca97be",
+    "scripts/_fact_extractors.py": "afc86bfc44067f4f9ff95cd0a29c13d6e0bbbff913daa3eb7fbd6a0e07b5e72c",
+    "tests/test_doc_sync.py": "00ee4644fb25d699281902fca71cc35c99df3c617a0ddf761856ad7716a8a229"
+  },
+  "format_changes": {
+    "files": 18,
+    "line_too_long_removed": 51,
+    "missing_final_newline_removed": 2,
+    "superfluous_parens_removed": 5,
+    "AST_identical_before_and_after_pure_format": true,
+    "evidence": "/tmp/sqlseed-codeflow-format-summary.json"
+  },
+  "randomized_script_changes": {
+    "catalog": "private NamedTuple with identical tuple values/order/indexing/unpacking; deliberate tuple subclass type/repr change",
+    "fabricate": "enumerate(tables), same RNG draw and table order",
+    "fixed_seeds": 1000,
+    "tables": 3485,
+    "columns": 16169,
+    "foreign_keys": 2169,
+    "RNG_draws": 53265,
+    "schema_and_RNG_trace_and_state_equal": true,
+    "evidence": "/tmp/sqlseed-codeflow-randomized-diff-summary.json"
+  },
+  "doc_extractor_fix": {
+    "problem": "Old parser counted two raw string literal fragments as two regex rules after AST-preserving line wrap.",
+    "solution": "Parse source AST and literal-evaluate PATTERN_MATCH_RULES without importing mapper.",
+    "regression": "Observed new implicit-concat test fail before implementation, then pass.",
+    "baseline_and_current_complete_regex_values_identical": 29,
+    "unrelated_short_circuit_merge_cases": 5461,
+    "evidence": "/tmp/sqlseed-codeflow-pattern-extractor-summary.json"
+  },
+  "validation": {
+    "Pylint_2_17_7_five_target_symbols": "0 findings across all20assignedfiles",
+    "Pylint_4_0_8_five_target_symbols": "0 findings before final existing helper style cleanup",
+    "Ruff_source_tests": "12 original source/test format files passed; helper and doc-sync test passed after cleanup",
+    "doc_sync": "18 passed",
+    "sync_docs_check": "All markers are up to date",
+    "git_diff_check": "passed"
+  },
+  "limits": [
+    "No full repository tests rerun; parent owns full gate.",
+    "Remaining Ruff findings in randomized_roundtrip.py were verified identical before/after; script is outside parent full Ruff target and unrelated issues not altered.",
+    "No generated documentation values, user unrelated files, app.py, rule config, git index or remote state changed."
+  ],
+  "environment_report": "/tmp/sqlseed-codeflow-environment-review.json"
+}

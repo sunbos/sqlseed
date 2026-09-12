@@ -235,8 +235,7 @@ class AnalysisState:
 
 def _add_to_group(stats: dict[str, GroupStats], key: str, elapsed: float) -> None:
     """Helper to record an observation under a string key."""
-    group = stats.get(key)
-    if group is None:
+    if (group := stats.get(key)) is None:
         group = GroupStats()
         stats[key] = group
     group.add(elapsed)
@@ -250,13 +249,11 @@ def _add_to_repeat(
     file_name: str,
 ) -> None:
     """Helper to record an observation under a (table, column) key."""
-    group = stats.get(key)
-    if group is None:
+    if (group := stats.get(key)) is None:
         group = GroupStats()
         stats[key] = group
     group.add(elapsed)
-    file_list = files.get(key)
-    if file_list is None:
+    if (file_list := files.get(key)) is None:
         file_list = []
         files[key] = file_list
     file_list.append(file_name)
@@ -270,8 +267,7 @@ def _add_to_repeat(
 def _record_failure_patterns(response: str, column_name: str, file_name: str, state: AnalysisState) -> None:
     """Classify malformed and cross-column responses after recording their token costs."""
     # --- Failure patterns ---
-    parsed = _parse_json_response(response)
-    if parsed is None:
+    if (parsed := _parse_json_response(response)) is None:
         state.malformed_json.record(file_name)
         return
 
@@ -280,8 +276,7 @@ def _record_failure_patterns(response: str, column_name: str, file_name: str, st
         state.null_generator.record(file_name)
 
     # derive_from: non-null, non-empty value (cross-column derivation).
-    derive_value = parsed.get("derive_from")
-    if derive_value:
+    if parsed.get("derive_from"):
         state.derive_from.record(file_name)
 
     # column mismatch: response column differs from the requested column.
@@ -390,8 +385,7 @@ def analyze_logs(log_dir: Path) -> AnalysisState:
     if not log_dir.exists():
         logger.warning("log_dir_not_found", log_dir=str(log_dir))
         return state
-    files = sorted(log_dir.glob("*.json"))
-    if not files:
+    if not (files := sorted(log_dir.glob("*.json"))):
         logger.warning("no_log_files_found", log_dir=str(log_dir))
         return state
     for path in files:
@@ -621,8 +615,7 @@ def render_text(report: dict[str, Any]) -> str:
     rc = report["repeat_calls"]
     lines.append(f"4. REPEAT CALL DETECTION (top {rc['top_n']} by count, self-correction loops)")
     lines.append("-" * 80)
-    rc_rows = rc["rows"]
-    if not rc_rows:
+    if not (rc_rows := rc["rows"]):
         lines.append("  (no repeated column calls detected)")
     else:
         lines.append(f"  {'TABLE':<25} {'COLUMN':<25} {'COUNT':>6} {'TOTAL_TIME':>12}")

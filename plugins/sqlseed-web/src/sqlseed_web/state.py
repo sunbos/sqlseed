@@ -119,8 +119,7 @@ class UIState:
     def get_connection(self, conn_id: str) -> Connection:
         """Return a registered connection or reject an expired identifier."""
         with self._global_lock:
-            conn = self._conns.get(conn_id)
-            if conn is None:
+            if (conn := self._conns.get(conn_id)) is None:
                 raise UnknownConnectionError(f"unknown connection: {conn_id}")
             return conn
 
@@ -191,8 +190,7 @@ class UIState:
         also fails promptly instead of deadlocking the non-reentrant lock.
         """
         with self._global_lock:
-            conn = self._conns.get(conn_id)
-            if conn is None:
+            if (conn := self._conns.get(conn_id)) is None:
                 raise UnknownConnectionError(f"unknown connection: {conn_id}")
             if job_id is not None:
                 job = self._jobs.get(job_id)
@@ -227,8 +225,7 @@ class UIState:
     def create_job(self, conn_id: str, kind: str, label: str) -> Job:
         """Reserve a live connection for a job before its worker is started."""
         with self._global_lock:
-            conn = self._conns.get(conn_id)
-            if conn is None:
+            if (conn := self._conns.get(conn_id)) is None:
                 raise UnknownConnectionError(f"unknown connection: {conn_id}")
             self._check_job_admission(conn, write=kind in {"fill", "workbench"})
             if self._conn_locks[conn_id].locked() and self._operation_owners.get(conn_id) != threading.get_ident():
@@ -240,8 +237,7 @@ class UIState:
     def get_job(self, job_id: str) -> Job:
         """Return a job to its worker; HTTP readers should use a snapshot."""
         with self._global_lock:
-            job = self._jobs.get(job_id)
-            if job is None:
+            if (job := self._jobs.get(job_id)) is None:
                 raise KeyError(f"unknown job: {job_id}")
             return job
 
@@ -266,8 +262,7 @@ class UIState:
     def job_snapshot(self, job_id: str) -> Job:
         """Read terminal state and its result from the same publication."""
         with self._global_lock:
-            job = self._jobs.get(job_id)
-            if job is None:
+            if (job := self._jobs.get(job_id)) is None:
                 raise KeyError(f"unknown job: {job_id}")
             return replace(job, result=dict(job.result))
 
@@ -284,8 +279,7 @@ def _normalize_target(target: str, conn_id: str = "") -> str:
     and private memory uses the registered connection id. Network grouping is
     display-only; PostgreSQL write admission separately resolves URL endpoints.
     """
-    sqlite = sqlite_target(target, conn_id)
-    if sqlite is not None:
+    if (sqlite := sqlite_target(target, conn_id)) is not None:
         return sqlite.key
     scheme, rest = target.split("://", 1)
     if "@" in rest:
@@ -301,8 +295,7 @@ def _write_target(conn: Connection) -> frozenset[str]:
     driver/SSL options do not change the write target. SQLite URI filenames
     must use DBAPI semantics, including named shared-memory databases.
     """
-    sqlite = sqlite_target(conn.target, conn.conn_id)
-    if sqlite is not None:
+    if (sqlite := sqlite_target(conn.target, conn.conn_id)) is not None:
         return frozenset({sqlite.key})
     url = make_url(conn.target)
     if url.get_backend_name() == "postgresql":

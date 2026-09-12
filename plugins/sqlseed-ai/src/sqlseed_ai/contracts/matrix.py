@@ -150,8 +150,7 @@ class ContractResolver:
             for v in violations:
                 if v.generator != generator:
                     continue
-                specificity = self._match_specificity(v, column_type, constraints)
-                if specificity is None:
+                if (specificity := self._match_specificity(v, column_type, constraints)) is None:
                     continue
                 # Conditional violations need predicate evaluation
                 if v.predicate is not None and not v.predicate(config):

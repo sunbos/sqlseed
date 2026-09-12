@@ -70,8 +70,7 @@ def _get_ram_windows() -> tuple[float, float] | None:
 
         stat = MEMORYSTATUSEX()
         # ctypes.windll only exists on Windows; use getattr for cross-platform safety
-        windll = getattr(ctypes, "windll", None)
-        if windll is None:
+        if (windll := getattr(ctypes, "windll", None)) is None:
             return None
         windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat))
         return (
@@ -238,8 +237,7 @@ def _detect_gpu_macos() -> list[dict[str, Any]]:
 
 def _detect_gpus() -> list[dict[str, Any]]:
     """Detect GPUs. Tries nvidia-smi first, then platform-specific fallbacks."""
-    gpus = _detect_gpu_nvidia()
-    if gpus:
+    if gpus := _detect_gpu_nvidia():
         return gpus
 
     if platform.system() == "Darwin":
@@ -326,8 +324,7 @@ def evaluate_model_status(
         "insufficient" — hardware does not meet minimum specs
         "cloud_only"   — not applicable for local inference
     """
-    req = MODEL_REQUIREMENTS.get(model_id)
-    if not req:
+    if not (req := MODEL_REQUIREMENTS.get(model_id)):
         return "cloud_only"
 
     max_vram = hw.get("max_vram_gb", 0)

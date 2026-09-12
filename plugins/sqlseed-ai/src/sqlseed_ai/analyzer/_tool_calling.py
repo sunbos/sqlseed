@@ -73,20 +73,18 @@ class ToolCallingMixin:
         if not choice.message.tool_calls:
             return None
         for tool_call in choice.message.tool_calls:
-            if tool_call.function.name == "analyze_schema":
-                args_str = tool_call.function.arguments
-                if args_str:
-                    try:
-                        result: dict[str, Any] | None = json.loads(args_str)
-                        logger.info(
-                            "Native function calling succeeded",
-                            tool="analyze_schema",
-                            protocol=self._config.tool_calling_protocol if self._config else "gemma4",
-                            model=self._config.model if self._config else "unknown",
-                        )
-                        return result
-                    except json.JSONDecodeError:
-                        logger.debug("Failed to parse tool call arguments", args=args_str[:200])
+            if tool_call.function.name == "analyze_schema" and (args_str := tool_call.function.arguments):
+                try:
+                    result: dict[str, Any] | None = json.loads(args_str)
+                    logger.info(
+                        "Native function calling succeeded",
+                        tool="analyze_schema",
+                        protocol=self._config.tool_calling_protocol if self._config else "gemma4",
+                        model=self._config.model if self._config else "unknown",
+                    )
+                    return result
+                except json.JSONDecodeError:
+                    logger.debug("Failed to parse tool call arguments", args=args_str[:200])
         return None
 
     def _try_tool_calling(self, client: Any, kwargs: dict[str, Any]) -> dict[str, Any] | None:
@@ -117,8 +115,7 @@ class ToolCallingMixin:
 
             choice = response.choices[0]
 
-            result = self._extract_tool_call_result(choice)
-            if result is not None:
+            if (result := self._extract_tool_call_result(choice)) is not None:
                 return result
 
             # If no tool call was made but we have text content, parse it

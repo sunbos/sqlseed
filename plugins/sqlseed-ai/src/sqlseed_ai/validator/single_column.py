@@ -71,12 +71,10 @@ def _extract_range_bounds(exprs: list[str], col_name: str) -> dict[str, int | fl
             lo, hi = _to_num(m.group(1)), _to_num(m.group(2))
             min_val = lo if min_val is None else max(min_val, lo)
             max_val = hi if max_val is None else min(max_val, hi)
-        m = re.search(rf"\b{col}\s+>=\s*(-?\d+(?:\.\d+)?)", expr, re.IGNORECASE)
-        if m:
+        if m := re.search(rf"\b{col}\s+>=\s*(-?\d+(?:\.\d+)?)", expr, re.IGNORECASE):
             v = _to_num(m.group(1))
             min_val = v if min_val is None else max(min_val, v)
-        m = re.search(rf"\b{col}\s+<=\s*(-?\d+(?:\.\d+)?)", expr, re.IGNORECASE)
-        if m:
+        if m := re.search(rf"\b{col}\s+<=\s*(-?\d+(?:\.\d+)?)", expr, re.IGNORECASE):
             v = _to_num(m.group(1))
             max_val = v if max_val is None else min(max_val, v)
     if min_val is None and max_val is None:
@@ -135,19 +133,17 @@ class SingleColumnValidator:
                         fix_params=violation.fix_params,
                     )
                 )
-            if "UNIQUE" in constraints:
-                cardinality = self._compute_cardinality(col, row_count)
-                if cardinality < row_count:
-                    violations.append(
-                        ViolationReport(
-                            table=table_config["name"],
-                            columns=[col_name],
-                            constraint_type=ConstraintType.UNIQUE,
-                            severity="unique_unsatisfiable",
-                            fix_hint="upgrade_to_template",
-                            fix_params={"reason": f"cardinality {cardinality} < row_count {row_count}"},
-                        )
+            if "UNIQUE" in constraints and (cardinality := self._compute_cardinality(col, row_count)) < row_count:
+                violations.append(
+                    ViolationReport(
+                        table=table_config["name"],
+                        columns=[col_name],
+                        constraint_type=ConstraintType.UNIQUE,
+                        severity="unique_unsatisfiable",
+                        fix_hint="upgrade_to_template",
+                        fix_params={"reason": f"cardinality {cardinality} < row_count {row_count}"},
                     )
+                )
             check_violation = self._check_constraint_compliance(col, col_name, table_config["name"], table_schema)
             if check_violation is not None:
                 violations.append(check_violation)
@@ -246,8 +242,7 @@ class SingleColumnValidator:
 
         enum_values: list[int | float | str] = []
         for expr in check_exprs:
-            enum_values = _extract_enum_values(expr, col_name) or []
-            if enum_values:
+            if enum_values := _extract_enum_values(expr, col_name) or []:
                 break
         if enum_values:
             return self._enum_compliance(gen, enum_values, table_name, col_name)

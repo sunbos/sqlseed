@@ -103,8 +103,7 @@ def save_config(config: GeneratorConfig, path: str) -> None:
         ValueError: Unsupported format
     """
     config_path = Path(path)
-    suffix = config_path.suffix.lower()
-    if suffix not in {".yaml", ".yml", ".json"}:
+    if (suffix := config_path.suffix.lower()) not in {".yaml", ".yml", ".json"}:
         raise ValueError(f"Unsupported configuration file format: {suffix}")
 
     # Validate and encode completely before opening the destination: rejected
@@ -163,8 +162,7 @@ def generate_template(
             )
         )
     else:
-        connection_target = url if url else db_path
-        if connection_target is None:
+        if (connection_target := url if url else db_path) is None:
             raise ValueError("Either db_path or url must be provided.")
 
         try:

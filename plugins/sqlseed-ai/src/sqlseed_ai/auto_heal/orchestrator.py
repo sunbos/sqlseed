@@ -102,8 +102,7 @@ def _infer_locale(snapshot: SchemaSnapshot) -> str:
             expr = constraint.get("expression", "")
             if not isinstance(expr, str):
                 continue
-            match = _phone_length_re.search(expr)
-            if match:
+            if match := _phone_length_re.search(expr):
                 col_name = match.group(1)
                 length = int(match.group(2))
                 if _is_phone_like(col_name) and length == 11:
@@ -299,12 +298,10 @@ class AutoHealOrchestrator:
                 if not derive_from_rc or not expr_rc:
                     continue
                 # Match ``random_float(value, LITERAL)`` where LITERAL is a number
-                m_rc = re.search(r"random_float\(value,\s*([\d.]+)\)", expr_rc)
-                if m_rc is None:
+                if (m_rc := re.search(r"random_float\(value,\s*([\d.]+)\)", expr_rc)) is None:
                     continue
                 literal_max_rc = float(m_rc.group(1))
-                src_col_rc = col_map_rc.get(derive_from_rc)
-                if src_col_rc is None:
+                if (src_col_rc := col_map_rc.get(derive_from_rc)) is None:
                     continue
                 src_params_rc = src_col_rc.get("params") or {}
                 src_max_rc = src_params_rc.get("max_value")
@@ -484,8 +481,7 @@ class AutoHealOrchestrator:
             raise ValueError("max_depth must be >= 0")
         if tables is not None:
             selected = set(tables)
-            unknown = selected - snapshot.tables.keys()
-            if unknown:
+            if unknown := selected - snapshot.tables.keys():
                 raise ValueError(f"Unknown tables: {', '.join(sorted(unknown))}")
             frontier = selected.copy()
             for _ in range(max_depth if include_dependencies else 0):
@@ -721,8 +717,7 @@ class AutoHealOrchestrator:
 
     def _restrict_table_conditional_sources(self, tcfg: dict[str, Any], snapshot: SchemaSnapshot) -> None:
         table_name = tcfg.get("name", "")
-        meta = snapshot.tables.get(table_name)
-        if meta is None:
+        if (meta := snapshot.tables.get(table_name)) is None:
             return
         for c_p27_src in meta.constraints:
             if c_p27_src.get("type") != "check":
@@ -754,8 +749,7 @@ class AutoHealOrchestrator:
 
     def _stabilize_table_real_arithmetic(self, tcfg: dict[str, Any], snapshot: SchemaSnapshot) -> None:
         table_name_r = tcfg.get("name", "")
-        meta_r = snapshot.tables.get(table_name_r)
-        if meta_r is None:
+        if (meta_r := snapshot.tables.get(table_name_r)) is None:
             return
         columns_r = tcfg.get("columns", [])
         col_map_r: dict[str, dict[str, Any]] = {c.get("name", ""): c for c in columns_r}
@@ -764,8 +758,7 @@ class AutoHealOrchestrator:
         # Convert source columns from float to integer
         for derived_col_r in real_derived_cols_r:
             source_cols_r: list[str] = []
-            derive_from_r = derived_col_r.get("derive_from", "")
-            if derive_from_r:
+            if derive_from_r := derived_col_r.get("derive_from", ""):
                 source_cols_r.append(derive_from_r)
             expr_r = derived_col_r.get("expression", "")
             for m_r in re.finditer(r"row\['([^']+)'\]", expr_r):
@@ -777,16 +770,14 @@ class AutoHealOrchestrator:
 
     def _apply_table_complex_check_nulls(self, tcfg: dict[str, Any], snapshot: SchemaSnapshot) -> None:
         table_name_c = tcfg.get("name", "")
-        meta_c = snapshot.tables.get(table_name_c)
-        if meta_c is None:
+        if (meta_c := snapshot.tables.get(table_name_c)) is None:
             return
         for c_c in tcfg.get("columns", []):
             self._apply_column_complex_check_null(tcfg, meta_c, c_c)
 
     def _apply_table_status_nulls(self, tcfg_sn: dict[str, Any], snapshot: SchemaSnapshot) -> None:
         table_name_sn = tcfg_sn.get("name", "")
-        meta_sn = snapshot.tables.get(table_name_sn)
-        if meta_sn is None:
+        if (meta_sn := snapshot.tables.get(table_name_sn)) is None:
             return
         columns_sn = tcfg_sn.get("columns", [])
         col_map_sn: dict[str, dict[str, Any]] = {c.get("name", ""): c for c in columns_sn}
@@ -799,8 +790,7 @@ class AutoHealOrchestrator:
 
     def _enforce_table_notnull_checks(self, tcfg_sn7: dict[str, Any], snapshot: SchemaSnapshot) -> None:
         table_name_sn7 = tcfg_sn7.get("name", "")
-        meta_sn7 = snapshot.tables.get(table_name_sn7)
-        if meta_sn7 is None:
+        if (meta_sn7 := snapshot.tables.get(table_name_sn7)) is None:
             return
         # Compute self-ref FK columns for this table (Step 0 logic mirror)
         self_ref_fk_cols_sn7: set[str] = set()
@@ -902,7 +892,6 @@ class AutoHealOrchestrator:
 
     def _normalize_generated_column(self, context: _ColumnRuleContext, c: dict[str, Any]) -> None:
         _strip_invalid_params = context._strip_invalid_params
-        gen = c.get("generator")
         # Treat ``?`` placeholder as missing generator. The LLM
         # sometimes emits ``generator: '?'`` when it cannot decide
         # (especially for nullable columns like ``closed_at``). The
@@ -914,7 +903,7 @@ class AutoHealOrchestrator:
         # downstream missing-generator repair path (line 256:
         # ``if not gen and not has_derive``) kicks in and delegates
         # to the Core ColumnMapper for semantic name matching.
-        if gen in {"?", ""}:
+        if (gen := c.get("generator")) in {"?", ""}:
             gen = None
             c.pop("generator", None)
         gen = self._repair_phone_length_generator(context, c, gen)
@@ -1350,8 +1339,7 @@ class AutoHealOrchestrator:
                     # Apply EXACT_MATCH_PARAMS if available (e.g.,
                     # ``latitude`` has min/max_value from
                     # EXACT_MATCH_PARAMS).
-                    semantic_params = mapper_sd.EXACT_MATCH_PARAMS.get(col_name_sd, {})
-                    if semantic_params:
+                    if semantic_params := mapper_sd.EXACT_MATCH_PARAMS.get(col_name_sd, {}):
                         c["params"] = dict(semantic_params)
                     else:
                         c["params"] = {}
@@ -1378,45 +1366,48 @@ class AutoHealOrchestrator:
         #     "Books" — not multi-word catch phrases)
         #   - products and other entities → ``catch_phrase`` (multi-
         #     word descriptive phrases are acceptable for products)
-        if not has_derive and gen in ("name", "catch_phrase", "template") and meta is not None:
-            col_name_ctx = c.get("name", "")
-            if col_name_ctx == "name":
-                tbl_lower = table_name.lower()
-                # Entity table patterns: tables whose ``name`` column
-                # represents a business entity name, not a person name.
-                entity_table_patterns = (
-                    "product",
-                    "store",
-                    "shop",
-                    "brand",
-                    "categor",
-                    "warehouse",
-                    "supplier",
-                    "vendor",
-                    "course",
-                    "project",
-                    "asset",
-                    "equip",
-                    "depart",
-                    "module",
-                    "menu",
-                    "page",
-                    "topic",
-                    "channel",
-                    "plan",
-                )
-                if any(p in tbl_lower for p in entity_table_patterns):
-                    # Locale-aware entity name generation.
-                    # ``catch_phrase`` does NOT support zh_CN locale —
-                    # Faker silently falls back to English output, which
-                    # is semantically wrong for a Chinese-locale YAML
-                    # (brands.name showing "Reactive upward-trending
-                    # capability" instead of a Chinese brand name).
-                    # When the locale is zh_CN and the name column is
-                    # UNIQUE, use ``template`` with a Chinese prefix so
-                    # the generated names are guaranteed unique AND
-                    # locale-appropriate (e.g., ``品牌0001``).
-                    gen = self._choose_entity_name_generator(context, c, gen, col_name_ctx, tbl_lower)
+        if (
+            not has_derive
+            and gen in ("name", "catch_phrase", "template")
+            and meta is not None
+            and (col_name_ctx := c.get("name", "")) == "name"
+        ):
+            tbl_lower = table_name.lower()
+            # Entity table patterns: tables whose ``name`` column
+            # represents a business entity name, not a person name.
+            entity_table_patterns = (
+                "product",
+                "store",
+                "shop",
+                "brand",
+                "categor",
+                "warehouse",
+                "supplier",
+                "vendor",
+                "course",
+                "project",
+                "asset",
+                "equip",
+                "depart",
+                "module",
+                "menu",
+                "page",
+                "topic",
+                "channel",
+                "plan",
+            )
+            if any(p in tbl_lower for p in entity_table_patterns):
+                # Locale-aware entity name generation.
+                # ``catch_phrase`` does NOT support zh_CN locale —
+                # Faker silently falls back to English output, which
+                # is semantically wrong for a Chinese-locale YAML
+                # (brands.name showing "Reactive upward-trending
+                # capability" instead of a Chinese brand name).
+                # When the locale is zh_CN and the name column is
+                # UNIQUE, use ``template`` with a Chinese prefix so
+                # the generated names are guaranteed unique AND
+                # locale-appropriate (e.g., ``品牌0001``).
+                gen = self._choose_entity_name_generator(context, c, gen, col_name_ctx, tbl_lower)
         return gen
 
     def _repair_unique_template_generator(
@@ -1438,29 +1429,27 @@ class AutoHealOrchestrator:
         if not has_derive and gen == "template":
             tmpl_params = c.get("params", {})
             tmpl_str = tmpl_params.get("template", "") if isinstance(tmpl_params, dict) else ""
-            if isinstance(tmpl_str, str) and tmpl_str.startswith("NAME-"):
-                col_name_tmpl = c.get("name", "")
-                if col_name_tmpl == "name":
-                    # Locale-aware: zh_CN should not use catch_phrase
-                    # (English-only under zh_CN locale).
-                    cur_locale_nm = config.get("locale", "en_US") or "en_US"
-                    if cur_locale_nm.lower().startswith("zh"):
-                        tbl_lower_nm = table_name.lower()
-                        _zh_prefix = "名称"
-                        if any(p in tbl_lower_nm for p in ("brand", "store", "shop")):
-                            _zh_prefix = "品牌"
-                        elif "categor" in tbl_lower_nm:
-                            _zh_prefix = "分类"
-                        elif "product" in tbl_lower_nm:
-                            _zh_prefix = "产品"
-                        c["generator"] = "template"
-                        c["params"] = {"template": f"{_zh_prefix}{{sequence:0{req_digits}d}}"}
-                        gen = "template"
-                    else:
-                        c["generator"] = "catch_phrase"
-                        c.pop("params", None)
-                        c["params"] = {}
-                        gen = "catch_phrase"
+            if isinstance(tmpl_str, str) and tmpl_str.startswith("NAME-") and (c.get("name", "")) == "name":
+                # Locale-aware: zh_CN should not use catch_phrase
+                # (English-only under zh_CN locale).
+                cur_locale_nm = config.get("locale", "en_US") or "en_US"
+                if cur_locale_nm.lower().startswith("zh"):
+                    tbl_lower_nm = table_name.lower()
+                    _zh_prefix = "名称"
+                    if any(p in tbl_lower_nm for p in ("brand", "store", "shop")):
+                        _zh_prefix = "品牌"
+                    elif "categor" in tbl_lower_nm:
+                        _zh_prefix = "分类"
+                    elif "product" in tbl_lower_nm:
+                        _zh_prefix = "产品"
+                    c["generator"] = "template"
+                    c["params"] = {"template": f"{_zh_prefix}{{sequence:0{req_digits}d}}"}
+                    gen = "template"
+                else:
+                    c["generator"] = "catch_phrase"
+                    c.pop("params", None)
+                    c["params"] = {}
+                    gen = "catch_phrase"
         return gen
 
     def _repair_phone_bounds(self, context: _ColumnRuleContext, c: dict[str, Any], gen: Any, has_derive: bool) -> None:
@@ -1648,21 +1637,24 @@ class AutoHealOrchestrator:
         # Decision test: any REAL column with ``integer`` generator
         # benefits — without this, price/amount columns store whole
         # numbers instead of decimals.
-        if not has_derive and gen == "integer" and meta is not None:
-            col_name_rt = c.get("name", "")
-            if col_name_rt in meta.column_types:
-                col_type_rt = meta.column_types.get(col_name_rt, "")
-                base_type_rt = re.sub(r"\(.*\)", "", col_type_rt.upper()).strip()
-                if base_type_rt in {"REAL", "FLOAT", "DOUBLE", "DOUBLE PRECISION", "NUMERIC", "DECIMAL"}:
-                    c["generator"] = "float"
-                    gen = "float"
-                    # Preserve existing params, add precision for currency cols
-                    cur_params_rt = c.get("params")
-                    if not isinstance(cur_params_rt, dict):
-                        cur_params_rt = {}
-                        c["params"] = cur_params_rt
-                    if any(k in _col_name_lower for k in _CURRENCY_NAME_KEYWORDS) and "precision" not in cur_params_rt:
-                        cur_params_rt["precision"] = 2
+        if (
+            not has_derive
+            and gen == "integer"
+            and meta is not None
+            and (col_name_rt := c.get("name", "")) in meta.column_types
+        ):
+            col_type_rt = meta.column_types.get(col_name_rt, "")
+            base_type_rt = re.sub(r"\(.*\)", "", col_type_rt.upper()).strip()
+            if base_type_rt in {"REAL", "FLOAT", "DOUBLE", "DOUBLE PRECISION", "NUMERIC", "DECIMAL"}:
+                c["generator"] = "float"
+                gen = "float"
+                # Preserve existing params, add precision for currency cols
+                cur_params_rt = c.get("params")
+                if not isinstance(cur_params_rt, dict):
+                    cur_params_rt = {}
+                    c["params"] = cur_params_rt
+                if any(k in _col_name_lower for k in _CURRENCY_NAME_KEYWORDS) and "precision" not in cur_params_rt:
+                    cur_params_rt["precision"] = 2
         return gen
 
     def _default_coupon_null_ratio(
@@ -1789,25 +1781,28 @@ class AutoHealOrchestrator:
         # This is conservative: it only fires for source-mode columns
         # (no ``derive_from``) and only for the known PG-specific
         # types.
-        if not has_derive and gen is not None and meta is not None:
-            col_name_pg = c.get("name", "")
-            if col_name_pg in meta.column_types:
-                col_type_pg = meta.column_types.get(col_name_pg, "")
-                base_type_pg = re.sub(r"\(.*\)", "", col_type_pg.upper()).strip()
-                is_pg_array = base_type_pg.endswith("[]") or base_type_pg == "ARRAY"
-                is_pg_specific = base_type_pg in {"INTERVAL", "TSVECTOR", "TSTZRANGE"}
-                # ARRAY types: always override (the string '{}' from
-                # choice generator doesn't work with PG parameterized
-                # queries; null_ratio=1.0 is the safe fallback).
-                # PG-specific types: override only when the LLM picked
-                # a wrong generator (not already ``choice``).
-                if is_pg_array or (is_pg_specific and gen != "choice"):
-                    spec = _get_column_mapper()._type_faithful_fallback(col_type_pg.upper())
-                    c["generator"] = spec.generator_name
-                    c["params"] = dict(spec.params)
-                    if spec.null_ratio > 0:
-                        c["null_ratio"] = spec.null_ratio
-                    gen = spec.generator_name
+        if (
+            not has_derive
+            and gen is not None
+            and meta is not None
+            and (col_name_pg := c.get("name", "")) in meta.column_types
+        ):
+            col_type_pg = meta.column_types.get(col_name_pg, "")
+            base_type_pg = re.sub(r"\(.*\)", "", col_type_pg.upper()).strip()
+            is_pg_array = base_type_pg.endswith("[]") or base_type_pg == "ARRAY"
+            is_pg_specific = base_type_pg in {"INTERVAL", "TSVECTOR", "TSTZRANGE"}
+            # ARRAY types: always override (the string '{}' from
+            # choice generator doesn't work with PG parameterized
+            # queries; null_ratio=1.0 is the safe fallback).
+            # PG-specific types: override only when the LLM picked
+            # a wrong generator (not already ``choice``).
+            if is_pg_array or (is_pg_specific and gen != "choice"):
+                spec = _get_column_mapper()._type_faithful_fallback(col_type_pg.upper())
+                c["generator"] = spec.generator_name
+                c["params"] = dict(spec.params)
+                if spec.null_ratio > 0:
+                    c["null_ratio"] = spec.null_ratio
+                gen = spec.generator_name
         return gen
 
     def _recover_missing_template_params(
@@ -1845,8 +1840,7 @@ class AutoHealOrchestrator:
                 def _upgrade_seq(m: re.Match[str], digits: int = req_digits) -> str:
                     return f"{{sequence:0{digits}d}}" if int(m.group(1)) < digits else m.group(0)
 
-                upgraded = re.sub(r"\{sequence:0(\d)d\}", _upgrade_seq, tmpl)
-                if upgraded != tmpl:
+                if (upgraded := re.sub(r"\{sequence:0(\d)d\}", _upgrade_seq, tmpl)) != tmpl:
                     params["template"] = upgraded
                     c["params"] = params
 
@@ -1871,8 +1865,7 @@ class AutoHealOrchestrator:
                 # Fix ``X_-{sequence`` → ``X-{sequence``
                 cleaned = cleaned.replace("_-{sequence", "-{sequence")
                 # Fix ``X_-{`` (other placeholders) → ``X-{``
-                cleaned = cleaned.replace("_-{", "-{")
-                if cleaned != tmpl_cl:
+                if (cleaned := cleaned.replace("_-{", "-{")) != tmpl_cl:
                     params["template"] = cleaned
                     c["params"] = params
 
@@ -1914,8 +1907,7 @@ class AutoHealOrchestrator:
                     is_autoincrement=False,
                 )
                 spec = _get_column_mapper().map_column(col_info)
-                gen = spec.generator_name
-                if gen == "skip":
+                if (gen := spec.generator_name) == "skip":
                     gen = _placeholder_generator(col_type)
                 if gen == "string" and _is_date_column(col_name):
                     gen = "datetime"
@@ -1959,74 +1951,71 @@ class AutoHealOrchestrator:
         #      string IN constraints would fail at fill time because
         #      the L3 exact match ``choices: [0, 1]`` produces integers
         #      that violate ``CHECK (status IN ('active', ...))``.
-        if not has_derive and gen and meta is not None:
-            col_name = c.get("name", "")
-            if col_name in meta.columns:
-                # Upgrade integer→float when the column type is
-                # REAL/FLOAT but the LLM picked ``integer`` (e.g.,
-                # ``interest_rate REAL CHECK (interest_rate >= 0.0
-                # AND interest_rate <= 0.5)`` — LLM sets
-                # ``generator: integer, max_value: 100``, violating
-                # the CHECK at fill time). This upgrade must happen
-                # BEFORE _infer_from_check_constraints so the
-                # ``inf_gen == gen`` check in Case 5 below can match
-                # (inf_gen is ``float`` because the CHECK literals
-                # are floats like ``0.0``, ``0.5``).
-                gen, params = self._upgrade_checked_float_generator(meta, c, gen, params, col_name)
-                inferred = _infer_from_check_constraints(col_name, meta.constraints, meta.columns)
-                if inferred is not None:
-                    inf_gen, inf_params = inferred
-                    if inf_gen == gen and inf_params and not params:
-                        # Case 1: generators agree AND current params
-                        # are empty — apply inferred params. Only
-                        # fires when params is empty to avoid
-                        # replacing L3 exact match params (e.g.,
-                        # ``quantity`` has ``min_value: 1,
-                        # max_value: 100`` from L3; CHECK
-                        # ``quantity > 0`` would infer only
-                        # ``min_value: 1``, losing ``max_value``).
-                        c["params"] = inf_params
-                        params = inf_params
-                    elif inf_gen in {"boolean", "choice"} and gen != inf_gen:
-                        # Case 2: LLM picked wrong generator for an
-                        # IN-constrained column. Override with the
-                        # correct boolean/choice generator.
-                        c["generator"] = inf_gen
-                        c["params"] = inf_params
-                        gen = inf_gen
-                        params = inf_params
-                    elif inf_gen == "pattern" and _has_like_constraint(col_name, meta.constraints):
-                        # Case 3: column has a LIKE CHECK constraint
-                        # (e.g., ``start_time LIKE '__:__'``). Only a
-                        # ``pattern`` generator can guarantee the
-                        # format — ``datetime``/``string`` generators
-                        # produce values that violate the LIKE CHECK.
-                        c["generator"] = inf_gen
-                        c["params"] = inf_params
-                        gen = inf_gen
-                        params = inf_params
-                    elif inf_gen == "choice" and gen == "choice" and inf_params and "choices" in inf_params:
-                        # Case 4: IN-constraint override. Both
-                        # generators are ``choice`` but the current
-                        # choices (from L3 exact match or LLM) don't
-                        # match the IN-constraint values. The IN
-                        # constraint is authoritative — override.
-                        # Example: L3 gives ``choices: [0, 1]`` but
-                        # CHECK says ``status IN ('active', ...)``.
-                        c["params"] = inf_params
-                        params = inf_params
-                    elif inf_gen == gen and inf_params and params:
-                        # Case 5: LLM provided params that CONFLICT
-                        # with CHECK constraints. The LLM may set
-                        # min_value/max_value that violate the CHECK
-                        # (e.g., ``min_value: 0`` when CHECK requires
-                        # ``>= 60 AND <= 250``). The CHECK constraint
-                        # is authoritative — override conflicting
-                        # bounds with the CHECK-inferred values.
-                        # Non-conflicting bounds are preserved (e.g.,
-                        # if LLM set ``max_value: 200`` and CHECK
-                        # allows ``<= 250``, keep 200).
-                        params = self._merge_authoritative_numeric_bounds(c, inf_params, params)
+        if not has_derive and gen and meta is not None and (col_name := c.get("name", "")) in meta.columns:
+            # Upgrade integer→float when the column type is
+            # REAL/FLOAT but the LLM picked ``integer`` (e.g.,
+            # ``interest_rate REAL CHECK (interest_rate >= 0.0
+            # AND interest_rate <= 0.5)`` — LLM sets
+            # ``generator: integer, max_value: 100``, violating
+            # the CHECK at fill time). This upgrade must happen
+            # BEFORE _infer_from_check_constraints so the
+            # ``inf_gen == gen`` check in Case 5 below can match
+            # (inf_gen is ``float`` because the CHECK literals
+            # are floats like ``0.0``, ``0.5``).
+            gen, params = self._upgrade_checked_float_generator(meta, c, gen, params, col_name)
+            if (inferred := _infer_from_check_constraints(col_name, meta.constraints, meta.columns)) is not None:
+                inf_gen, inf_params = inferred
+                if inf_gen == gen and inf_params and not params:
+                    # Case 1: generators agree AND current params
+                    # are empty — apply inferred params. Only
+                    # fires when params is empty to avoid
+                    # replacing L3 exact match params (e.g.,
+                    # ``quantity`` has ``min_value: 1,
+                    # max_value: 100`` from L3; CHECK
+                    # ``quantity > 0`` would infer only
+                    # ``min_value: 1``, losing ``max_value``).
+                    c["params"] = inf_params
+                    params = inf_params
+                elif inf_gen in {"boolean", "choice"} and gen != inf_gen:
+                    # Case 2: LLM picked wrong generator for an
+                    # IN-constrained column. Override with the
+                    # correct boolean/choice generator.
+                    c["generator"] = inf_gen
+                    c["params"] = inf_params
+                    gen = inf_gen
+                    params = inf_params
+                elif inf_gen == "pattern" and _has_like_constraint(col_name, meta.constraints):
+                    # Case 3: column has a LIKE CHECK constraint
+                    # (e.g., ``start_time LIKE '__:__'``). Only a
+                    # ``pattern`` generator can guarantee the
+                    # format — ``datetime``/``string`` generators
+                    # produce values that violate the LIKE CHECK.
+                    c["generator"] = inf_gen
+                    c["params"] = inf_params
+                    gen = inf_gen
+                    params = inf_params
+                elif inf_gen == "choice" and gen == "choice" and inf_params and "choices" in inf_params:
+                    # Case 4: IN-constraint override. Both
+                    # generators are ``choice`` but the current
+                    # choices (from L3 exact match or LLM) don't
+                    # match the IN-constraint values. The IN
+                    # constraint is authoritative — override.
+                    # Example: L3 gives ``choices: [0, 1]`` but
+                    # CHECK says ``status IN ('active', ...)``.
+                    c["params"] = inf_params
+                    params = inf_params
+                elif inf_gen == gen and inf_params and params:
+                    # Case 5: LLM provided params that CONFLICT
+                    # with CHECK constraints. The LLM may set
+                    # min_value/max_value that violate the CHECK
+                    # (e.g., ``min_value: 0`` when CHECK requires
+                    # ``>= 60 AND <= 250``). The CHECK constraint
+                    # is authoritative — override conflicting
+                    # bounds with the CHECK-inferred values.
+                    # Non-conflicting bounds are preserved (e.g.,
+                    # if LLM set ``max_value: 200`` and CHECK
+                    # allows ``<= 250``, keep 200).
+                    params = self._merge_authoritative_numeric_bounds(c, inf_params, params)
         return gen, params
 
     def _restore_cross_column_derivation(
@@ -2061,43 +2050,37 @@ class AutoHealOrchestrator:
         # ``cross_result.get("null_ratio", 0.0) < 1.0`` AFTER
         # inference — if the deterministic code also wants
         # ``null_ratio=1.0``, we don't override.
-        if not has_derive and meta is not None:
-            col_name = c.get("name", "")
-            if col_name in meta.columns:
-                col_type = meta.column_types.get(col_name, "TEXT")
-                # Rebuild fk_cols_set for this table (needed by
-                # _infer_cross_column_config for Pattern 30).
-                fk_cols_set_55: set[str] = set()
-                for fk in meta.foreign_keys:
-                    for fc in fk.get("columns", []):
-                        fk_cols_set_55.add(fc)
-                cross_result = _infer_cross_column_config(
-                    col_name,
-                    meta.constraints,
-                    meta.columns,
-                    col_type,
-                    fk_cols_set_55,
-                    column_types=meta.column_types,
-                )
-                if (
-                    cross_result is not None
-                    and "derive_from" in cross_result
-                    and cross_result.get("null_ratio", 0.0) < 1.0
-                ):
-                    # Restore derive_from — remove any source-mode keys
-                    # that the LLM set (generator, params, null_ratio,
-                    # provider) to avoid Pydantic ValidationError
-                    # (mutual exclusivity: derive_from + null_ratio is
-                    # invalid). ``null_ratio`` MUST be popped because
-                    # the LLM may have set it to 1.0, and leaving it
-                    # alongside ``derive_from`` would cause a
-                    # ValidationError at config load time.
-                    c.pop("generator", None)
-                    c.pop("params", None)
-                    c.pop("null_ratio", None)
-                    c.pop("provider", None)
-                    c.update(cross_result)
-                    has_derive = True
+        if not has_derive and meta is not None and (col_name := c.get("name", "")) in meta.columns:
+            col_type = meta.column_types.get(col_name, "TEXT")
+            # Rebuild fk_cols_set for this table (needed by
+            # _infer_cross_column_config for Pattern 30).
+            fk_cols_set_55: set[str] = set()
+            for fk in meta.foreign_keys:
+                for fc in fk.get("columns", []):
+                    fk_cols_set_55.add(fc)
+            cross_result = _infer_cross_column_config(
+                col_name,
+                meta.constraints,
+                meta.columns,
+                col_type,
+                fk_cols_set_55,
+                column_types=meta.column_types,
+            )
+            if cross_result is not None and "derive_from" in cross_result and cross_result.get("null_ratio", 0.0) < 1.0:
+                # Restore derive_from — remove any source-mode keys
+                # that the LLM set (generator, params, null_ratio,
+                # provider) to avoid Pydantic ValidationError
+                # (mutual exclusivity: derive_from + null_ratio is
+                # invalid). ``null_ratio`` MUST be popped because
+                # the LLM may have set it to 1.0, and leaving it
+                # alongside ``derive_from`` would cause a
+                # ValidationError at config load time.
+                c.pop("generator", None)
+                c.pop("params", None)
+                c.pop("null_ratio", None)
+                c.pop("provider", None)
+                c.update(cross_result)
+                has_derive = True
         return has_derive
 
     def _preserve_unique_exact_length(
@@ -2112,17 +2095,16 @@ class AutoHealOrchestrator:
         # CHECK constraint. Convert to ``pattern`` with
         # ``[A-Za-z0-9]{N}`` which the unique adjuster does NOT
         # touch (uniqueness handled by ConstraintSolver backtracking).
-        if not has_derive and gen == "string" and meta is not None:
-            col_name = c.get("name", "")
-            if col_name in meta.columns:
-                unique_cols_set = _get_unique_columns(meta.constraints)
-                if col_name in unique_cols_set:
-                    exact_n = _get_exact_length_check(col_name, meta.constraints)
-                    if exact_n is not None:
-                        c["generator"] = "pattern"
-                        c["params"] = {"regex": f"[A-Za-z0-9]{{{exact_n}}}"}
-                        gen = "pattern"
-                        params = c["params"]
+        if not has_derive and gen == "string" and meta is not None and (col_name := c.get("name", "")) in meta.columns:
+            unique_cols_set = _get_unique_columns(meta.constraints)
+            if (
+                col_name in unique_cols_set
+                and (exact_n := _get_exact_length_check(col_name, meta.constraints)) is not None
+            ):
+                c["generator"] = "pattern"
+                c["params"] = {"regex": f"[A-Za-z0-9]{{{exact_n}}}"}
+                gen = "pattern"
+                params = c["params"]
         return gen, params
 
     def _collect_direct_date_requirements(self, meta: TableMeta) -> dict[str, tuple[str, set[str]]]:
@@ -2142,8 +2124,7 @@ class AutoHealOrchestrator:
             if m_sm:
                 status_col_sm = m_sm.group(1)
                 status_val_sm = m_sm.group(2)
-                date_col_sm = m_sm.group(3)
-                if date_col_sm not in _direct_reqs:
+                if (date_col_sm := m_sm.group(3)) not in _direct_reqs:
                     _direct_reqs[date_col_sm] = (status_col_sm, set())
                 _direct_reqs[date_col_sm][1].add(status_val_sm)
         return _direct_reqs
@@ -2295,8 +2276,7 @@ class AutoHealOrchestrator:
             if col_name_r not in meta_r.column_types:
                 continue
             col_type_r = meta_r.column_types.get(col_name_r, "")
-            base_type_r = re.sub(r"\(.*\)", "", col_type_r.upper()).strip()
-            if base_type_r != "REAL":
+            if (re.sub(r"\(.*\)", "", col_type_r.upper()).strip()) != "REAL":
                 continue
             expr_r = str(c_r.get("expression", ""))
             # Detect arithmetic on value or row[] refs (but not in
@@ -2306,8 +2286,7 @@ class AutoHealOrchestrator:
         return real_derived_cols_r
 
     def _stabilize_real_source_column(self, col_map_r: dict[str, dict[str, Any]], src_name_r: str) -> None:
-        src_col_r = col_map_r.get(src_name_r)
-        if src_col_r is None:
+        if (src_col_r := col_map_r.get(src_name_r)) is None:
             return
         src_gen_r = src_col_r.get("generator")
         src_params_r = src_col_r.get("params") or {}
@@ -2337,8 +2316,7 @@ class AutoHealOrchestrator:
             # range CHECK with max_value < 1.0 (e.g., interest
             # rate 0.0-0.5, commission_rate 0.0-0.1). If so,
             # skip the integer conversion.
-            src_max_value_r = float(src_params_r.get("max_value", 999))
-            if src_max_value_r < 1.0:
+            if (float(src_params_r.get("max_value", 999))) < 1.0:
                 # Small-range float column — keep as float to
                 # preserve CHECK compliance. The REAL precision
                 # issue only matters for large-value arithmetic
@@ -2369,21 +2347,18 @@ class AutoHealOrchestrator:
         if c_c.get("null_ratio", 0) >= 1.0:
             return
         # Skip autoincrement and FK columns
-        gen_c = c_c.get("generator")
-        if gen_c in ("autoincrement", "foreign_key_or_integer"):
+        if c_c.get("generator") in ("autoincrement", "foreign_key_or_integer"):
             return
         if col_name_c not in meta_c.columns:
             return
         col_name_upper_c = col_name_c.upper()
         # Skip if ANY CHECK requires this column to be NOT NULL
         # (setting null_ratio=1.0 would violate those CHECKs)
-        requires_not_null_c = self._requires_nonnull_check(meta_c, col_name_upper_c)
-        if requires_not_null_c:
+        if self._requires_nonnull_check(meta_c, col_name_upper_c):
             return
         # Check for complex conditional CHECK (OR + IS NULL + cross-column)
         # that no pattern matched
-        has_complex_check_c = self._has_unhandled_conditional_null_check(meta_c, col_name_c, col_name_upper_c)
-        if has_complex_check_c:
+        if self._has_unhandled_conditional_null_check(meta_c, col_name_c, col_name_upper_c):
             # Before forcing null_ratio=1.0, check if the pattern
             # engine (_infer_cross_column_config) can match this
             # column's CHECK. If it can, the pattern already
@@ -2449,8 +2424,7 @@ class AutoHealOrchestrator:
         for constraint_c in meta_c.constraints:
             if constraint_c.get("type") != "check":
                 continue
-            expr_c = constraint_c.get("expression", "")
-            if not expr_c:
+            if not (expr_c := constraint_c.get("expression", "")):
                 continue
             expr_c_norm = _normalize_pg_check_expr(expr_c)
             expr_c_upper = expr_c_norm.upper()
@@ -2520,12 +2494,10 @@ class AutoHealOrchestrator:
             for clause_raw_sn in clauses_sn:
                 clause_sn = clause_raw_sn.strip().strip("()")
                 # Find cond_col = 'V' patterns
-                cond_matches = re.findall(r"(\w+)\s*=\s*'([^']+)'", clause_sn)
-                if not cond_matches:
+                if not (cond_matches := re.findall(r"(\w+)\s*=\s*'([^']+)'", clause_sn)):
                     continue
                 # Find col IS NULL patterns
-                null_matches = re.findall(r"(\w+)\s+IS\s+NULL", clause_sn, re.IGNORECASE)
-                if not null_matches:
+                if not (null_matches := re.findall(r"(\w+)\s+IS\s+NULL", clause_sn, re.IGNORECASE)):
                     continue
                 for cond_col_sn, cond_val_sn in cond_matches:
                     for null_col_sn in null_matches:
@@ -2542,15 +2514,13 @@ class AutoHealOrchestrator:
         col_sn: str,
         triggers_sn: dict[str, set[str]],
     ) -> None:
-        c_sn = col_map_sn.get(col_sn)
-        if c_sn is None:
+        if (c_sn := col_map_sn.get(col_sn)) is None:
             return
         # Skip if column already has null_ratio=1.0
         if c_sn.get("null_ratio", 0) >= 1.0:
             return
         # Skip autoincrement and FK columns
-        gen_sn = c_sn.get("generator")
-        if gen_sn in ("autoincrement", "foreign_key_or_integer"):
+        if c_sn.get("generator") in ("autoincrement", "foreign_key_or_integer"):
             return
         # Only one cond_col supported (multiple cond_cols on same col
         # would require nested ternary — rare and complex)
@@ -2574,8 +2544,7 @@ class AutoHealOrchestrator:
                 c_sn["expression"] = new_expr_sn
         else:
             # Case 2: col has no derive_from — find anchor datetime column
-            anchor_col_sn = self._find_status_datetime_anchor(columns_sn, meta_sn, col_sn, cond_col_sn)
-            if anchor_col_sn is None:
+            if (anchor_col_sn := self._find_status_datetime_anchor(columns_sn, meta_sn, col_sn, cond_col_sn)) is None:
                 return
             # Set derive_from: cond_col, expression returns None for
             # trigger values, else anchor + random timedelta
@@ -2593,8 +2562,7 @@ class AutoHealOrchestrator:
         fk_cols_set_sn7 = context.fk_cols_set_sn7
         if c_sn7.get("null_ratio", 0) < 1.0:
             return
-        col_name_sn7 = c_sn7.get("name", "")
-        if col_name_sn7 not in meta_sn7.columns:
+        if (col_name_sn7 := c_sn7.get("name", "")) not in meta_sn7.columns:
             return
         col_name_upper_sn7 = col_name_sn7.upper()
         is_self_ref_fk_sn7 = col_name_sn7 in self_ref_fk_cols_sn7
@@ -2700,8 +2668,7 @@ class AutoHealOrchestrator:
     ) -> str | None:
         anchor_col_sn = None
         for ac_sn in columns_sn:
-            ac_name_sn = ac_sn.get("name", "")
-            if ac_name_sn in (col_sn, cond_col_sn):
+            if (ac_name_sn := ac_sn.get("name", "")) in (col_sn, cond_col_sn):
                 continue
             ac_type_sn = meta_sn.column_types.get(ac_name_sn, "")
             ac_gen_sn = ac_sn.get("generator")
@@ -2756,8 +2723,7 @@ class AutoHealOrchestrator:
         # status to exclude {'approved','settled'}, restrict
         # claim_type to {'medical','accident',
         # 'property_damage','theft'} (exclude 'death').
-        p30b_notin_matched_sn7 = self._restore_notin_null_escape(context, c_sn7, col_name_upper_sn7)
-        if not p30b_notin_matched_sn7:
+        if not self._restore_notin_null_escape(context, c_sn7, col_name_upper_sn7):
             # No Pattern 30b NOT IN matched — set a safe
             # non-NULL default. But PRESERVE any existing
             # generator+params that were set by earlier steps
@@ -2771,33 +2737,31 @@ class AutoHealOrchestrator:
                 # Column already has a valid generator+params —
                 # keep them, just ensure null_ratio is cleared.
                 pass
+            elif col_name_sn7 in fk_cols_set_sn7:
+                c_sn7["generator"] = "foreign_key_or_integer"
+                c_sn7["params"] = {}
+            elif "INT" in col_type_sn7.upper():
+                c_sn7["generator"] = "integer"
+                c_sn7["params"] = {"min_value": 0}
+            elif any(k in col_type_sn7.upper() for k in ("REAL", "FLOAT", "DOUBLE", "DECIMAL", "NUMERIC")):
+                c_sn7["generator"] = "float"
+                # Use 0.01 (not 0.0) to satisfy ``> 0.0`` CHECKs
+                c_sn7["params"] = {"min_value": 0.01}
+            elif any(k in col_type_sn7.upper() for k in ("DATETIME", "TIMESTAMP")):
+                # DATETIME/TIMESTAMP must be checked before
+                # DATE because "DATE" is a substring of
+                # "DATETIME". Without this branch, DATE-type
+                # columns fall through to ``generator: string``
+                # which is semantically wrong (e.g.,
+                # guaranteed_delivery DATE → string "abc").
+                c_sn7["generator"] = "datetime"
+                c_sn7["params"] = {}
+            elif "DATE" in col_type_sn7.upper():
+                c_sn7["generator"] = "date"
+                c_sn7["params"] = {}
             else:
-                is_fk_sn7 = col_name_sn7 in fk_cols_set_sn7
-                if is_fk_sn7:
-                    c_sn7["generator"] = "foreign_key_or_integer"
-                    c_sn7["params"] = {}
-                elif "INT" in col_type_sn7.upper():
-                    c_sn7["generator"] = "integer"
-                    c_sn7["params"] = {"min_value": 0}
-                elif any(k in col_type_sn7.upper() for k in ("REAL", "FLOAT", "DOUBLE", "DECIMAL", "NUMERIC")):
-                    c_sn7["generator"] = "float"
-                    # Use 0.01 (not 0.0) to satisfy ``> 0.0`` CHECKs
-                    c_sn7["params"] = {"min_value": 0.01}
-                elif any(k in col_type_sn7.upper() for k in ("DATETIME", "TIMESTAMP")):
-                    # DATETIME/TIMESTAMP must be checked before
-                    # DATE because "DATE" is a substring of
-                    # "DATETIME". Without this branch, DATE-type
-                    # columns fall through to ``generator: string``
-                    # which is semantically wrong (e.g.,
-                    # guaranteed_delivery DATE → string "abc").
-                    c_sn7["generator"] = "datetime"
-                    c_sn7["params"] = {}
-                elif "DATE" in col_type_sn7.upper():
-                    c_sn7["generator"] = "date"
-                    c_sn7["params"] = {}
-                else:
-                    c_sn7["generator"] = "string"
-                    c_sn7["params"] = {"min_length": 1, "max_length": 50}
+                c_sn7["generator"] = "string"
+                c_sn7["params"] = {"min_length": 1, "max_length": 50}
 
     def _restore_notin_null_escape(
         self, context: _NotNullRuleContext, c_sn7: dict[str, Any], col_name_upper_sn7: str
@@ -2843,10 +2807,8 @@ class AutoHealOrchestrator:
             if c_cond.get("name") != cond_col_sn7:
                 continue
             cur_choices = c_cond.get("params", {}).get("choices")
-            if isinstance(cur_choices, list):
-                filtered = [v for v in cur_choices if v not in not_in_values_sn7]
-                if filtered:
-                    c_cond["params"]["choices"] = filtered
+            if isinstance(cur_choices, list) and (filtered := [v for v in cur_choices if v not in not_in_values_sn7]):
+                c_cond["params"]["choices"] = filtered
             break
 
     def _restrict_conditional_null_values(
@@ -2875,8 +2837,7 @@ class AutoHealOrchestrator:
             ):
                 cond_col_cn = m_in_null.group(1)
                 values_str_cn = m_in_null.group(2)
-                values_cn = re.findall(r"'([^']*)'", values_str_cn)
-                if not values_cn:
+                if not (values_cn := re.findall(r"'([^']*)'", values_str_cn)):
                     values_cn = [v.strip() for v in values_str_cn.split(",")]
                 allowed_values_per_col_sn7.setdefault(cond_col_cn, set()).update(values_cn)
         for cond_col_cn, allowed_cn in allowed_values_per_col_sn7.items():
@@ -2884,10 +2845,8 @@ class AutoHealOrchestrator:
                 if c_cond.get("name") != cond_col_cn:
                     continue
                 cur_choices = c_cond.get("params", {}).get("choices")
-                if isinstance(cur_choices, list):
-                    filtered = [v for v in cur_choices if v in allowed_cn]
-                    if filtered:
-                        c_cond["params"]["choices"] = filtered
+                if isinstance(cur_choices, list) and (filtered := [v for v in cur_choices if v in allowed_cn]):
+                    c_cond["params"]["choices"] = filtered
                 break
 
     def _upgrade_restored_timedelta_source(
@@ -2915,8 +2874,7 @@ class AutoHealOrchestrator:
         graph: dict[str, list[str]] = {t: [] for t in snapshot.tables}
         for table_name, meta in snapshot.tables.items():
             for fk in meta.foreign_keys:
-                ref_table = fk.get("ref_table")
-                if ref_table:
+                if ref_table := fk.get("ref_table"):
                     graph.setdefault(table_name, []).append(ref_table)
                     graph.setdefault(ref_table, [])
         return graph
@@ -2941,8 +2899,7 @@ class AutoHealOrchestrator:
         """
         sg_config: dict[str, Any] = {"tables": []}
         for table_name in tables:
-            meta = snapshot.tables.get(table_name)
-            if meta is None:
+            if (meta := snapshot.tables.get(table_name)) is None:
                 continue
             sg_config["tables"].append(_build_initial_table_config(table_name, meta, snapshot))
         return sg_config
@@ -3011,8 +2968,7 @@ class AutoHealOrchestrator:
             # config may be mutated in-place by RepairExecutor.
             sg_config, _ = repair_pipe.run(sg_config, snapshot)
             # Re-validate to check if Layer 3 resolved all violations.
-            remaining = self._validate(sg_config, snapshot)
-            if not remaining:
+            if not (remaining := self._validate(sg_config, snapshot)):
                 if self._verbose:
                     _debug("[ai-analyze]     Layer 3 (repair) resolved all violations — skipping LLM")
                 return sg_config  # Layer 3 fixed everything
@@ -3119,14 +3075,11 @@ def _build_initial_column_config(
     if cross_config is not None:
         return {"name": col_name, **cross_config}
     # Step 2: single-column CHECKs precede generic UNIQUE/name inference.
-    inferred = _infer_from_check_constraints(col_name, meta.constraints, meta.columns)
-    if inferred is not None:
+    if (inferred := _infer_from_check_constraints(col_name, meta.constraints, meta.columns)) is not None:
         return _adapt_initial_check_column(col_name, col_type, col_name in unique_columns, inferred)
     # Step 3: preserve the UNIQUE generator fallback after CHECK inference.
-    if col_name in unique_columns:
-        unique_config = _infer_unique_column_config(col_name, col_type)
-        if unique_config is not None:
-            return {"name": col_name, **unique_config}
+    if col_name in unique_columns and (unique_config := _infer_unique_column_config(col_name, col_type)) is not None:
+        return {"name": col_name, **unique_config}
     return _map_initial_column(col_name, col_type)
 
 

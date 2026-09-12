@@ -116,8 +116,7 @@ class SchemaFallbackGenerator:
             return None
 
         # Try CHECK constraint-based fallback first (more specific).
-        check_spec = self._fallback_from_check(column, check_constraints)
-        if check_spec is not None:
+        if (check_spec := self._fallback_from_check(column, check_constraints)) is not None:
             return check_spec
 
         # Fall back to type-driven generation.
@@ -130,8 +129,7 @@ class SchemaFallbackGenerator:
     ) -> GeneratorSpec | None:
         """Generate spec from single-column CHECK constraints."""
         expressions = [chk.expression for chk in check_constraints]
-        parsed = CheckConstraintParser.parse_all(column.name, expressions)
-        if parsed is None:
+        if (parsed := CheckConstraintParser.parse_all(column.name, expressions)) is None:
             return None
 
         if parsed.kind == "choice":
@@ -180,10 +178,8 @@ class SchemaFallbackGenerator:
                 break
 
         params: dict[str, Any] = {}
-        if gen_name == "string":
-            length = _parse_length_from_type(type_str)
-            if length:
-                params["max_length"] = length
+        if gen_name == "string" and (length := _parse_length_from_type(type_str)):
+            params["max_length"] = length
 
         # Prefer longer UNIQUE strings within the declared type width.
         # UniqueAdjuster plans sampling headroom without widening hard bounds.

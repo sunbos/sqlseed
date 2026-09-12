@@ -1,0 +1,4479 @@
+{
+  "assignment_pairs": 366,
+  "condition_kinds": {
+    "Compare": 206,
+    "Name": 88,
+    "UnaryOp": 72
+  },
+  "witnesses": [
+    {
+      "path": "conftest.py",
+      "assignment_line": 254,
+      "condition_line": 255,
+      "name": "unavailable",
+      "scope": "_docker_transport_unavailable",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "_windows_pipe_unavailable(chain)"
+    },
+    {
+      "path": "conftest.py",
+      "assignment_line": 275,
+      "condition_line": 276,
+      "name": "external_url",
+      "scope": "pg_url",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "os.environ.get('PG_TEST_URL')"
+    },
+    {
+      "path": "conftest.py",
+      "assignment_line": 310,
+      "condition_line": 311,
+      "name": "variants",
+      "scope": "_preferred_ollama_model",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "sorted((model for model in models if model.startswith(f'{preferred}-')))"
+    },
+    {
+      "path": "conftest.py",
+      "assignment_line": 328,
+      "condition_line": 329,
+      "name": "model",
+      "scope": "available_llm_backend",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "_preferred_ollama_model(models)"
+    },
+    {
+      "path": "examples/build_showcase_db.py",
+      "assignment_line": 511,
+      "condition_line": 512,
+      "name": "fk_violations",
+      "scope": "verify",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "conn.execute('PRAGMA foreign_key_check').fetchall()"
+    },
+    {
+      "path": "examples/order_workflow/run.py",
+      "assignment_line": 106,
+      "condition_line": 107,
+      "name": "errors",
+      "scope": "generate",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "[f'{result.table_name}: {error}' for result in results for error in result.errors]"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/__init__.py",
+      "assignment_line": 225,
+      "condition_line": 226,
+      "name": "col_type",
+      "scope": "AISqlseedPlugin.sqlseed_apply_ai_suggestions",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "str(getattr(col, 'type', '')).upper()"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/__init__.py",
+      "assignment_line": 266,
+      "condition_line": 267,
+      "name": "date_cols",
+      "scope": "AISqlseedPlugin.sqlseed_transform_row",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._date_columns_cache.get(table_name)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/_hardware.py",
+      "assignment_line": 73,
+      "condition_line": 74,
+      "name": "windll",
+      "scope": "_get_ram_windows",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "getattr(ctypes, 'windll', None)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/_hardware.py",
+      "assignment_line": 241,
+      "condition_line": 242,
+      "name": "gpus",
+      "scope": "_detect_gpus",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "_detect_gpu_nvidia()"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/_hardware.py",
+      "assignment_line": 329,
+      "condition_line": 330,
+      "name": "req",
+      "scope": "evaluate_model_status",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "MODEL_REQUIREMENTS.get(model_id)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/_json_utils.py",
+      "assignment_line": 50,
+      "condition_line": 51,
+      "name": "idx",
+      "scope": "_strip_channel_prefix",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "content.rfind(_CHANNEL_END_MARKER)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/_json_utils.py",
+      "assignment_line": 70,
+      "condition_line": 71,
+      "name": "open_idx",
+      "scope": "_try_markdown_fence_parse",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "content.find('```')"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/_json_utils.py",
+      "assignment_line": 74,
+      "condition_line": 75,
+      "name": "nl_pos",
+      "scope": "_try_markdown_fence_parse",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "after_open.find('\\n')"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/_json_utils.py",
+      "assignment_line": 78,
+      "condition_line": 79,
+      "name": "close_idx",
+      "scope": "_try_markdown_fence_parse",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "after_open.find('```', content_start)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/_json_utils.py",
+      "assignment_line": 103,
+      "condition_line": 104,
+      "name": "first_brace",
+      "scope": "_try_raw_decode",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "content.find('{')"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/_model_selector.py",
+      "assignment_line": 39,
+      "condition_line": 40,
+      "name": "ollama_match",
+      "scope": "_normalize_model_id",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "re.match('^gemma4:(.+)$', result)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/ai_mediator.py",
+      "assignment_line": 176,
+      "condition_line": 177,
+      "name": "ctx",
+      "scope": "apply_ai_suggestions",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "_build_ai_context(db, schema, table_name)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/analyzer/_caller.py",
+      "assignment_line": 123,
+      "condition_line": 124,
+      "name": "config",
+      "scope": "LLMCallerMixin._find_local_fallback_model",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._config"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/analyzer/_caller.py",
+      "assignment_line": 126,
+      "condition_line": 127,
+      "name": "all_local",
+      "scope": "LLMCallerMixin._find_local_fallback_model",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "config.detect_all_local_models()"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/analyzer/_caller.py",
+      "assignment_line": 136,
+      "condition_line": 137,
+      "name": "next_norm",
+      "scope": "LLMCallerMixin._find_local_fallback_model",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "_normalize_model_id(next_model)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/analyzer/_caller.py",
+      "assignment_line": 142,
+      "condition_line": 143,
+      "name": "available_others",
+      "scope": "LLMCallerMixin._find_local_fallback_model",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "[v for k, v in local_map.items() if k != current_norm]"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/analyzer/_caller.py",
+      "assignment_line": 150,
+      "condition_line": 151,
+      "name": "cand_norm",
+      "scope": "LLMCallerMixin._find_local_fallback_model",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "_normalize_model_id(candidate)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/analyzer/_caller.py",
+      "assignment_line": 188,
+      "condition_line": 189,
+      "name": "next_model",
+      "scope": "LLMCallerMixin._call_with_fallback",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "select_next_gemma_model(current_model or '', backend=self._config.backend)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/analyzer/_caller.py",
+      "assignment_line": 197,
+      "condition_line": 198,
+      "name": "actual_model",
+      "scope": "LLMCallerMixin._call_with_fallback",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._find_local_fallback_model(current_model, next_model)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/analyzer/_context.py",
+      "assignment_line": 255,
+      "condition_line": 256,
+      "name": "top_values",
+      "scope": "ContextBuilderMixin._append_distribution_info",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "profile.get('top_values', [])"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/analyzer/_context.py",
+      "assignment_line": 259,
+      "condition_line": 260,
+      "name": "vr",
+      "scope": "ContextBuilderMixin._append_distribution_info",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "profile.get('value_range')"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/analyzer/_streaming.py",
+      "assignment_line": 275,
+      "condition_line": 276,
+      "name": "protocol",
+      "scope": "StreamingHandlerMixin._send_llm_request",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._config.resolve_tool_calling_protocol()"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/analyzer/_streaming.py",
+      "assignment_line": 277,
+      "condition_line": 278,
+      "name": "result",
+      "scope": "StreamingHandlerMixin._send_llm_request",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._try_tool_calling(client, kwargs)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/analyzer/_tool_calling.py",
+      "assignment_line": 77,
+      "condition_line": 78,
+      "name": "args_str",
+      "scope": "ToolCallingMixin._extract_tool_call_result",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "tool_call.function.arguments"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/analyzer/_tool_calling.py",
+      "assignment_line": 120,
+      "condition_line": 121,
+      "name": "result",
+      "scope": "ToolCallingMixin._try_tool_calling",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._extract_tool_call_result(choice)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/_check_inference.py",
+      "assignment_line": 178,
+      "condition_line": 179,
+      "name": "expr",
+      "scope": "_has_cross_column_check",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "c.get('expression', '')"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/_check_inference.py",
+      "assignment_line": 212,
+      "condition_line": 213,
+      "name": "col_refs",
+      "scope": "_has_cross_column_check",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "{t for t in col_refs if not t.isdigit()}"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/_check_inference.py",
+      "assignment_line": 250,
+      "condition_line": 251,
+      "name": "expr",
+      "scope": "_get_exact_length_check",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "c.get('expression', '')"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/_check_inference.py",
+      "assignment_line": 279,
+      "condition_line": 280,
+      "name": "is_text",
+      "scope": "_infer_unique_column_config",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "any((k in t for k in ('VARCHAR', 'TEXT', 'CHAR', 'CLOB')))"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/_check_inference.py",
+      "assignment_line": 314,
+      "condition_line": 315,
+      "name": "m_eq",
+      "scope": "_normalize_pg_check_expr",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "re.match('^(\\\\s*\\\\w+\\\\s*=\\\\s*)\\\\((.+)\\\\)\\\\s*$', expr)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/_check_inference.py",
+      "assignment_line": 362,
+      "condition_line": 363,
+      "name": "expr",
+      "scope": "_is_single_column_check",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "constraint.get('expression', '')"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/_check_inference.py",
+      "assignment_line": 448,
+      "condition_line": 449,
+      "name": "result",
+      "scope": "_infer_from_check_constraints",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "_parse_single_column_check(col_name, constraint.get('expression', ''))"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/_check_inference.py",
+      "assignment_line": 499,
+      "condition_line": 500,
+      "name": "nullable_result",
+      "scope": "_parse_single_column_check",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "_parse_nullable_check(col_name, expr, col)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/_check_inference.py",
+      "assignment_line": 514,
+      "condition_line": 515,
+      "name": "result",
+      "scope": "_parse_single_column_check",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "parse(col, expr)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/_check_inference.py",
+      "assignment_line": 539,
+      "condition_line": 540,
+      "name": "result",
+      "scope": "_parse_nullable_check",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "_parse_single_column_check(col_name, inner)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/_check_inference.py",
+      "assignment_line": 670,
+      "condition_line": 671,
+      "name": "choices",
+      "scope": "_parse_check_enum",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "re.findall(\"'([^']*)'\", choices_str)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/_check_inference.py",
+      "assignment_line": 689,
+      "condition_line": 690,
+      "name": "choices",
+      "scope": "_parse_check_enum",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "re.findall(\"'([^']*)'\", inner)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/_check_inference.py",
+      "assignment_line": 693,
+      "condition_line": 694,
+      "name": "numeric_choices",
+      "scope": "_parse_check_enum",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "_parse_numeric_array_literals(inner)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/_cross_column_checks.py",
+      "assignment_line": 121,
+      "condition_line": 122,
+      "name": "inferred",
+      "scope": "_infer_cross_column_config",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "infer(context)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/_cross_column_checks.py",
+      "assignment_line": 126,
+      "condition_line": 127,
+      "name": "inferred",
+      "scope": "_infer_cross_column_config",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "_infer_cross_column_check(context, constraint)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/_cross_column_checks.py",
+      "assignment_line": 172,
+      "condition_line": 173,
+      "name": "expr",
+      "scope": "_infer_cross_column_check",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "c.get('expression', '')"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/_cross_column_checks.py",
+      "assignment_line": 260,
+      "condition_line": 261,
+      "name": "inferred",
+      "scope": "_infer_cross_column_check",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "match(context, c)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/_cross_column_checks.py",
+      "assignment_line": 322,
+      "condition_line": 330,
+      "name": "self_ref_fk_cols",
+      "scope": "_infer_self_reference_condition",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "context.self_ref_fk_cols"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/_cross_column_checks.py",
+      "assignment_line": 402,
+      "condition_line": 403,
+      "name": "inferred",
+      "scope": "_infer_nullable_three_way_comparison",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "_match_bounded_nullable_three_way(context, c, bounds)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/_cross_column_checks.py",
+      "assignment_line": 777,
+      "condition_line": 778,
+      "name": "m",
+      "scope": "_match_inclusive_lower",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "re.match(f'^\\\\s*{col}\\\\s*>=\\\\s*(\\\\w+)\\\\s*$', expr, re.IGNORECASE)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/_cross_column_checks.py",
+      "assignment_line": 811,
+      "condition_line": 812,
+      "name": "m",
+      "scope": "_match_exclusive_lower",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "re.match(f'^\\\\s*{col}\\\\s*>\\\\s*(\\\\w+)\\\\s*$', expr, re.IGNORECASE)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/_cross_column_checks.py",
+      "assignment_line": 852,
+      "condition_line": 853,
+      "name": "m",
+      "scope": "_match_inclusive_upper",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "re.match(f'^\\\\s*{col}\\\\s*<=\\\\s*(\\\\w+)\\\\s*$', expr, re.IGNORECASE)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/_cross_column_checks.py",
+      "assignment_line": 1035,
+      "condition_line": 1036,
+      "name": "lower_float",
+      "scope": "_match_inclusive_literal_lower_exclusive_column_upper",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "float(x_str_8e)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/_cross_column_checks.py",
+      "assignment_line": 1066,
+      "condition_line": 1067,
+      "name": "m",
+      "scope": "_match_exclusive_upper",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "re.match(f'^\\\\s*{col}\\\\s*<\\\\s*(\\\\w+)\\\\s*$', expr, re.IGNORECASE)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/_cross_column_checks.py",
+      "assignment_line": 1107,
+      "condition_line": 1108,
+      "name": "m_p6",
+      "scope": "_match_column_inequality",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "re.match(f'^\\\\s*{col}\\\\s*!=\\\\s*(\\\\w+)\\\\s*$', expr, re.IGNORECASE)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/_cross_column_checks.py",
+      "assignment_line": 1112,
+      "condition_line": 1113,
+      "name": "m_p6_rev",
+      "scope": "_match_column_inequality",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "re.match(f'^\\\\s*(\\\\w+)\\\\s*!=\\\\s*{col}\\\\s*$', expr, re.IGNORECASE)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/_cross_column_checks.py",
+      "assignment_line": 1868,
+      "condition_line": 1869,
+      "name": "values",
+      "scope": "_match_literal_or_enum",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "re.findall(\"'([^']*)'\", values_str)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/_cross_column_checks.py",
+      "assignment_line": 1916,
+      "condition_line": 1917,
+      "name": "values_p26b",
+      "scope": "_match_conditional_enum",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "re.findall(\"'([^']*)'\", values_str_p26b)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/_cross_column_checks.py",
+      "assignment_line": 1956,
+      "condition_line": 1957,
+      "name": "all_values_p26c",
+      "scope": "_match_conditional_enum_equalities",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "re.findall(f\"{col}\\\\s*=\\\\s*'([^']+)'\", expr, re.IGNORECASE)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/_cross_column_checks.py",
+      "assignment_line": 2113,
+      "condition_line": 2114,
+      "name": "expr_p37s",
+      "scope": "_match_conditional_string_mapping",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "c_p37s.get('expression', '')"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/_cross_column_checks.py",
+      "assignment_line": 2693,
+      "condition_line": 2694,
+      "name": "values_p32",
+      "scope": "_match_conditional_positive_or_null",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "re.findall(\"'([^']*)'\", values_str_p32)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/_cross_column_checks.py",
+      "assignment_line": 2737,
+      "condition_line": 2738,
+      "name": "set1_vals",
+      "scope": "_match_conditional_arithmetic",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "re.findall(\"'([^']*)'\", set1_str)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/_cross_column_checks.py",
+      "assignment_line": 2980,
+      "condition_line": 2981,
+      "name": "values_p35",
+      "scope": "_match_enum_or_null",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "re.findall(\"'([^']*)'\", values_str_p35)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/_cross_column_checks.py",
+      "assignment_line": 3058,
+      "condition_line": 3059,
+      "name": "col_check",
+      "scope": "_build_conditional_priority_range",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "_infer_from_check_constraints(col_name, constraints, all_columns)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/_cross_column_checks.py",
+      "assignment_line": 3224,
+      "condition_line": 3225,
+      "name": "expr_p37",
+      "scope": "_collect_conditional_numeric_branches",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "c_p37.get('expression', '')"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/_cross_column_checks.py",
+      "assignment_line": 3306,
+      "condition_line": 3307,
+      "name": "m_low",
+      "scope": "_find_equality_fallback_bounds",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "re.match(f'^\\\\s*{col}\\\\s*>=\\\\s*(-?\\\\d+(?:\\\\.\\\\d+)?)\\\\s*$', rc_expr, re.IGNORECASE)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/_cross_column_checks.py",
+      "assignment_line": 3310,
+      "condition_line": 3311,
+      "name": "m_up",
+      "scope": "_find_equality_fallback_bounds",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "re.match(f'^\\\\s*{col}\\\\s*<=\\\\s*(-?\\\\d+(?:\\\\.\\\\d+)?)\\\\s*$', rc_expr, re.IGNORECASE)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/_cross_column_checks.py",
+      "assignment_line": 3363,
+      "condition_line": 3364,
+      "name": "bound",
+      "scope": "_minimum_date_comparison_days",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "diff_n if diff_op == '>=' else diff_n + 1"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "assignment_line": 105,
+      "condition_line": 106,
+      "name": "match",
+      "scope": "_infer_locale",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "_phone_length_re.search(expr)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "assignment_line": 302,
+      "condition_line": 303,
+      "name": "m_rc",
+      "scope": "AutoHealOrchestrator._cap_derived_range_sources",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "re.search('random_float\\\\(value,\\\\s*([\\\\d.]+)\\\\)', expr_rc)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "assignment_line": 306,
+      "condition_line": 307,
+      "name": "src_col_rc",
+      "scope": "AutoHealOrchestrator._cap_derived_range_sources",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "col_map_rc.get(derive_from_rc)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "assignment_line": 487,
+      "condition_line": 488,
+      "name": "unknown",
+      "scope": "AutoHealOrchestrator._select_run_fk_graph",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "selected - snapshot.tables.keys()"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "assignment_line": 724,
+      "condition_line": 725,
+      "name": "meta",
+      "scope": "AutoHealOrchestrator._restrict_table_conditional_sources",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "snapshot.tables.get(table_name)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "assignment_line": 757,
+      "condition_line": 758,
+      "name": "meta_r",
+      "scope": "AutoHealOrchestrator._stabilize_table_real_arithmetic",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "snapshot.tables.get(table_name_r)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "assignment_line": 767,
+      "condition_line": 768,
+      "name": "derive_from_r",
+      "scope": "AutoHealOrchestrator._stabilize_table_real_arithmetic",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "derived_col_r.get('derive_from', '')"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "assignment_line": 780,
+      "condition_line": 781,
+      "name": "meta_c",
+      "scope": "AutoHealOrchestrator._apply_table_complex_check_nulls",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "snapshot.tables.get(table_name_c)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "assignment_line": 788,
+      "condition_line": 789,
+      "name": "meta_sn",
+      "scope": "AutoHealOrchestrator._apply_table_status_nulls",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "snapshot.tables.get(table_name_sn)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "assignment_line": 802,
+      "condition_line": 803,
+      "name": "meta_sn7",
+      "scope": "AutoHealOrchestrator._enforce_table_notnull_checks",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "snapshot.tables.get(table_name_sn7)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "assignment_line": 905,
+      "condition_line": 917,
+      "name": "gen",
+      "scope": "AutoHealOrchestrator._normalize_generated_column",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "c.get('generator')"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "assignment_line": 1353,
+      "condition_line": 1354,
+      "name": "semantic_params",
+      "scope": "AutoHealOrchestrator._repair_string_check_generator",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "mapper_sd.EXACT_MATCH_PARAMS.get(col_name_sd, {})"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "assignment_line": 1382,
+      "condition_line": 1383,
+      "name": "col_name_ctx",
+      "scope": "AutoHealOrchestrator._repair_fixed_length_semantic_generator",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "c.get('name', '')"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "assignment_line": 1442,
+      "condition_line": 1443,
+      "name": "col_name_tmpl",
+      "scope": "AutoHealOrchestrator._repair_unique_template_generator",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "c.get('name', '')"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "assignment_line": 1652,
+      "condition_line": 1653,
+      "name": "col_name_rt",
+      "scope": "AutoHealOrchestrator._limit_integer_scale",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "c.get('name', '')"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "assignment_line": 1793,
+      "condition_line": 1794,
+      "name": "col_name_pg",
+      "scope": "AutoHealOrchestrator._preserve_check_enum_generator",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "c.get('name', '')"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "assignment_line": 1848,
+      "condition_line": 1849,
+      "name": "upgraded",
+      "scope": "AutoHealOrchestrator._resize_sequence_template",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "re.sub('\\\\{sequence:0(\\\\d)d\\\\}', _upgrade_seq, tmpl)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "assignment_line": 1874,
+      "condition_line": 1875,
+      "name": "cleaned",
+      "scope": "AutoHealOrchestrator._repair_template_character_sets",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "cleaned.replace('_-{', '-{')"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "assignment_line": 1917,
+      "condition_line": 1918,
+      "name": "gen",
+      "scope": "AutoHealOrchestrator._infer_missing_column_generator",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "spec.generator_name"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "assignment_line": 1963,
+      "condition_line": 1964,
+      "name": "col_name",
+      "scope": "AutoHealOrchestrator._reapply_single_column_checks",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "c.get('name', '')"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "assignment_line": 1976,
+      "condition_line": 1977,
+      "name": "inferred",
+      "scope": "AutoHealOrchestrator._reapply_single_column_checks",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "_infer_from_check_constraints(col_name, meta.constraints, meta.columns)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "assignment_line": 2065,
+      "condition_line": 2066,
+      "name": "col_name",
+      "scope": "AutoHealOrchestrator._restore_cross_column_derivation",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "c.get('name', '')"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "assignment_line": 2116,
+      "condition_line": 2117,
+      "name": "col_name",
+      "scope": "AutoHealOrchestrator._preserve_unique_exact_length",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "c.get('name', '')"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "assignment_line": 2120,
+      "condition_line": 2121,
+      "name": "exact_n",
+      "scope": "AutoHealOrchestrator._preserve_unique_exact_length",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "_get_exact_length_check(col_name, meta.constraints)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "assignment_line": 2145,
+      "condition_line": 2146,
+      "name": "date_col_sm",
+      "scope": "AutoHealOrchestrator._collect_direct_date_requirements",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "m_sm.group(3)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "assignment_line": 2298,
+      "condition_line": 2299,
+      "name": "base_type_r",
+      "scope": "AutoHealOrchestrator._collect_real_arithmetic_columns",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "re.sub('\\\\(.*\\\\)', '', col_type_r.upper()).strip()"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "assignment_line": 2309,
+      "condition_line": 2310,
+      "name": "src_col_r",
+      "scope": "AutoHealOrchestrator._stabilize_real_source_column",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "col_map_r.get(src_name_r)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "assignment_line": 2340,
+      "condition_line": 2341,
+      "name": "src_max_value_r",
+      "scope": "AutoHealOrchestrator._stabilize_real_source_column",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "float(src_params_r.get('max_value', 999))"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "assignment_line": 2372,
+      "condition_line": 2373,
+      "name": "gen_c",
+      "scope": "AutoHealOrchestrator._apply_column_complex_check_null",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "c_c.get('generator')"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "assignment_line": 2380,
+      "condition_line": 2381,
+      "name": "requires_not_null_c",
+      "scope": "AutoHealOrchestrator._apply_column_complex_check_null",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._requires_nonnull_check(meta_c, col_name_upper_c)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "assignment_line": 2385,
+      "condition_line": 2386,
+      "name": "has_complex_check_c",
+      "scope": "AutoHealOrchestrator._apply_column_complex_check_null",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._has_unhandled_conditional_null_check(meta_c, col_name_c, col_name_upper_c)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "assignment_line": 2452,
+      "condition_line": 2453,
+      "name": "expr_c",
+      "scope": "AutoHealOrchestrator._has_unhandled_conditional_null_check",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "constraint_c.get('expression', '')"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "assignment_line": 2523,
+      "condition_line": 2524,
+      "name": "cond_matches",
+      "scope": "AutoHealOrchestrator._collect_status_null_triggers",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "re.findall(\"(\\\\w+)\\\\s*=\\\\s*'([^']+)'\", clause_sn)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "assignment_line": 2527,
+      "condition_line": 2528,
+      "name": "null_matches",
+      "scope": "AutoHealOrchestrator._collect_status_null_triggers",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "re.findall('(\\\\w+)\\\\s+IS\\\\s+NULL', clause_sn, re.IGNORECASE)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "assignment_line": 2545,
+      "condition_line": 2546,
+      "name": "c_sn",
+      "scope": "AutoHealOrchestrator._apply_column_status_null",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "col_map_sn.get(col_sn)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "assignment_line": 2552,
+      "condition_line": 2553,
+      "name": "gen_sn",
+      "scope": "AutoHealOrchestrator._apply_column_status_null",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "c_sn.get('generator')"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "assignment_line": 2577,
+      "condition_line": 2578,
+      "name": "anchor_col_sn",
+      "scope": "AutoHealOrchestrator._apply_column_status_null",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._find_status_datetime_anchor(columns_sn, meta_sn, col_sn, cond_col_sn)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "assignment_line": 2596,
+      "condition_line": 2597,
+      "name": "col_name_sn7",
+      "scope": "AutoHealOrchestrator._enforce_column_notnull_check",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "c_sn7.get('name', '')"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "assignment_line": 2703,
+      "condition_line": 2704,
+      "name": "ac_name_sn",
+      "scope": "AutoHealOrchestrator._find_status_datetime_anchor",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "ac_sn.get('name', '')"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "assignment_line": 2759,
+      "condition_line": 2760,
+      "name": "p30b_notin_matched_sn7",
+      "scope": "AutoHealOrchestrator._restore_nonnull_fallback",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._restore_notin_null_escape(context, c_sn7, col_name_upper_sn7)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "assignment_line": 2775,
+      "condition_line": 2776,
+      "name": "is_fk_sn7",
+      "scope": "AutoHealOrchestrator._restore_nonnull_fallback",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "col_name_sn7 in fk_cols_set_sn7"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "assignment_line": 2847,
+      "condition_line": 2848,
+      "name": "filtered",
+      "scope": "AutoHealOrchestrator._exclude_null_escape_values",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "[v for v in cur_choices if v not in not_in_values_sn7]"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "assignment_line": 2878,
+      "condition_line": 2879,
+      "name": "values_cn",
+      "scope": "AutoHealOrchestrator._restrict_conditional_null_values",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "re.findall(\"'([^']*)'\", values_str_cn)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "assignment_line": 2888,
+      "condition_line": 2889,
+      "name": "filtered",
+      "scope": "AutoHealOrchestrator._restrict_conditional_null_values",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "[v for v in cur_choices if v in allowed_cn]"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "assignment_line": 2918,
+      "condition_line": 2919,
+      "name": "ref_table",
+      "scope": "AutoHealOrchestrator._build_fk_graph",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "fk.get('ref_table')"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "assignment_line": 2944,
+      "condition_line": 2945,
+      "name": "meta",
+      "scope": "AutoHealOrchestrator._build_subgraph_config",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "snapshot.tables.get(table_name)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "assignment_line": 3014,
+      "condition_line": 3015,
+      "name": "remaining",
+      "scope": "AutoHealOrchestrator._heal_subgraph",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._validate(sg_config, snapshot)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "assignment_line": 3122,
+      "condition_line": 3123,
+      "name": "inferred",
+      "scope": "_build_initial_column_config",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "_infer_from_check_constraints(col_name, meta.constraints, meta.columns)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "assignment_line": 3127,
+      "condition_line": 3128,
+      "name": "unique_config",
+      "scope": "_build_initial_column_config",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "_infer_unique_column_config(col_name, col_type)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/config.py",
+      "assignment_line": 268,
+      "condition_line": 269,
+      "name": "detected",
+      "scope": "AIConfig.resolve_model",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._detect_local_model()"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/contracts/matrix.py",
+      "assignment_line": 153,
+      "condition_line": 154,
+      "name": "specificity",
+      "scope": "ContractResolver.check",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._match_specificity(v, column_type, constraints)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/contracts/registry.py",
+      "assignment_line": 213,
+      "condition_line": 214,
+      "name": "strategy",
+      "scope": "LearnedContractsRegistry._is_safe_entry",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "entry.get('fix_strategy', '')"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/errors.py",
+      "assignment_line": 67,
+      "condition_line": 68,
+      "name": "result",
+      "scope": "summarize_error",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "handler(exc)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/healer/candidate_validation.py",
+      "assignment_line": 59,
+      "condition_line": 60,
+      "name": "meta",
+      "scope": "validate_candidate",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "snapshot.tables.get(table.name)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/healer/candidate_validation.py",
+      "assignment_line": 67,
+      "condition_line": 68,
+      "name": "provider_name",
+      "scope": "validate_candidate",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "column.provider or model.provider"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/healer/candidate_validation.py",
+      "assignment_line": 70,
+      "condition_line": 71,
+      "name": "method_name",
+      "scope": "validate_candidate",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "GeneratorDispatchMixin.GENERATOR_MAP.get(column.generator)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/healer/degrader.py",
+      "assignment_line": 78,
+      "condition_line": 79,
+      "name": "key",
+      "scope": "ProgressiveDegrader.degrade",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "(table_name, col_name)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/healer/degrader.py",
+      "assignment_line": 140,
+      "condition_line": 141,
+      "name": "key",
+      "scope": "ProgressiveDegrader._cascade_degrade",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "(table_name, col_name)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/healer/level1_subgraph_healer.py",
+      "assignment_line": 110,
+      "condition_line": 111,
+      "name": "derive",
+      "scope": "Level1SubgraphHealer.build_prompt",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "col.get('derive_from')"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/healer/level2_column_healer.py",
+      "assignment_line": 93,
+      "condition_line": 94,
+      "name": "meta",
+      "scope": "Level2ColumnHealer._build_column_context",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "snapshot.tables.get(table_name)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/healer/level2_column_healer.py",
+      "assignment_line": 162,
+      "condition_line": 163,
+      "name": "expr",
+      "scope": "Level2ColumnHealer._column_check_context",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "c.get('expression', '')"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/healer/orchestrator.py",
+      "assignment_line": 143,
+      "condition_line": 145,
+      "name": "new_violations",
+      "scope": "HealOrchestrator.heal",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._extract_violations(val_result)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/healer/orchestrator.py",
+      "assignment_line": 175,
+      "condition_line": 176,
+      "name": "ftype",
+      "scope": "HealOrchestrator.heal",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "result.failure_type"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/healer/orchestrator.py",
+      "assignment_line": 265,
+      "condition_line": 267,
+      "name": "skip_l1",
+      "scope": "HealOrchestrator._try_one_round",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._context_detector.should_skip_level1(l1_prompt.system_prompt + l1_prompt.user_prompt)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/healer/orchestrator.py",
+      "assignment_line": 438,
+      "condition_line": 439,
+      "name": "failed_cols",
+      "scope": "HealOrchestrator._degrade_and_return",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._collect_failed_columns(violations)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/healer/orchestrator.py",
+      "assignment_line": 484,
+      "condition_line": 485,
+      "name": "orig_table",
+      "scope": "HealOrchestrator._restore_failed_columns",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "orig_tables.get(table_name)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/healer/orchestrator.py",
+      "assignment_line": 492,
+      "condition_line": 493,
+      "name": "orig_col",
+      "scope": "HealOrchestrator._restore_failed_columns",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "orig_cols.get(col_name)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/healer/orchestrator.py",
+      "assignment_line": 516,
+      "condition_line": 517,
+      "name": "name",
+      "scope": "HealOrchestrator._merge_patch",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "table_cfg['name']"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/healer/orchestrator.py",
+      "assignment_line": 552,
+      "condition_line": 553,
+      "name": "key",
+      "scope": "HealOrchestrator._collect_failed_columns",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "f'{table}:{c}' if table else c"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/healer/oscillation.py",
+      "assignment_line": 35,
+      "condition_line": 36,
+      "name": "current",
+      "scope": "OscillationDetector.check_and_record",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "frozenset(((col, v.severity) for v in violations for col in v.columns))"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/healer/oscillation.py",
+      "assignment_line": 40,
+      "condition_line": 41,
+      "name": "overlap",
+      "scope": "OscillationDetector.check_and_record",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "len(current & hist) / max(len(current), 1)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/mcp.py",
+      "assignment_line": 160,
+      "condition_line": 162,
+      "name": "result",
+      "scope": "sqlseed_gemma4_analyze",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "analyzer.analyze_table_from_ctx(**schema_ctx)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/refiner.py",
+      "assignment_line": 245,
+      "condition_line": 246,
+      "name": "config_dict",
+      "scope": "AiConfigRefiner._try_prompt_levels",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "call_fn(messages)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/refiner.py",
+      "assignment_line": 343,
+      "condition_line": 345,
+      "name": "val_error",
+      "scope": "AiConfigRefiner._handle_validation_result",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._validate_config(orch, table_name, config_dict)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/refiner.py",
+      "assignment_line": 390,
+      "condition_line": 391,
+      "name": "cached",
+      "scope": "AiConfigRefiner._run_refinement_loop",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self.get_cached_config(table_name, schema_hash)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/refiner.py",
+      "assignment_line": 574,
+      "condition_line": 575,
+      "name": "computed_err",
+      "scope": "AiConfigRefiner._validate_config",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._check_computed_column_assignments(orch, table_name, table_config)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/refiner.py",
+      "assignment_line": 680,
+      "condition_line": 681,
+      "name": "db_adapter",
+      "scope": "AiConfigRefiner._check_computed_column_assignments",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "getattr(orch, '_db', None)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/refiner.py",
+      "assignment_line": 683,
+      "condition_line": 684,
+      "name": "engine",
+      "scope": "AiConfigRefiner._check_computed_column_assignments",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "getattr(db_adapter, '_engine', None)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/refiner.py",
+      "assignment_line": 836,
+      "condition_line": 837,
+      "name": "legacy",
+      "scope": "AiConfigRefiner.get_cached_config",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._legacy_cache_path(table_name)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/repair/executor.py",
+      "assignment_line": 63,
+      "condition_line": 71,
+      "name": "after",
+      "scope": "RepairExecutor.repair",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._strategies[strategy_name](col, violation, ctx)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/repair/strategies.py",
+      "assignment_line": 95,
+      "condition_line": 96,
+      "name": "whitelist",
+      "scope": "_strip_invalid_params",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "_GENERATOR_PARAM_WHITELIST.get(generator)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/repair/strategies.py",
+      "assignment_line": 144,
+      "condition_line": 145,
+      "name": "length_n",
+      "scope": "_semantic_upgrade",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "_extract_length_check(name, ctx)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/repair/strategies.py",
+      "assignment_line": 247,
+      "condition_line": 248,
+      "name": "table_schema",
+      "scope": "_upgrade_to_template",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "ctx.get('table_schema')"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/repair/strategies.py",
+      "assignment_line": 446,
+      "condition_line": 447,
+      "name": "key",
+      "scope": "_cap_future_end_year",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "future_bound_key(params, cap)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/repair/strategies.py",
+      "assignment_line": 502,
+      "condition_line": 503,
+      "name": "lower",
+      "scope": "_is_phone_like",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "name.lower()"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/repair/strategies.py",
+      "assignment_line": 533,
+      "condition_line": 534,
+      "name": "length_n",
+      "scope": "_upgrade_phone_to_pattern",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "_extract_length_check(name, ctx)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/repair/strategies.py",
+      "assignment_line": 539,
+      "condition_line": 540,
+      "name": "params",
+      "scope": "_upgrade_phone_to_pattern",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "col.get('params') or {}"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/repair/strategies.py",
+      "assignment_line": 565,
+      "condition_line": 566,
+      "name": "check_values",
+      "scope": "_coerce_to_boolean_enum",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "v.fix_params.get('check_values') or []"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/repair/strategies.py",
+      "assignment_line": 606,
+      "condition_line": 607,
+      "name": "check_values",
+      "scope": "_coerce_to_text_enum",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "v.fix_params.get('check_values') or []"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/repair/strategies.py",
+      "assignment_line": 762,
+      "condition_line": 763,
+      "name": "is_date",
+      "scope": "_strip_invalid_date_derive_from",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "_looks_like_date_column(col_name, generators)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/runtime.py",
+      "assignment_line": 45,
+      "condition_line": 46,
+      "name": "resolved_key",
+      "scope": "build_llm_client",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "ai_config.resolve_api_key()"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/validator/cross_column.py",
+      "assignment_line": 57,
+      "condition_line": 58,
+      "name": "table_meta",
+      "scope": "CrossColumnValidator._check_fk_integrity",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "snapshot.tables.get(table_config['name'])"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/validator/cross_column.py",
+      "assignment_line": 73,
+      "condition_line": 74,
+      "name": "max_val",
+      "scope": "CrossColumnValidator._check_fk_integrity",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "params.get('max_value')"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/validator/cross_column.py",
+      "assignment_line": 100,
+      "condition_line": 101,
+      "name": "col_name",
+      "scope": "CrossColumnValidator._check_composite_unique",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "col.get('name', '')"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/validator/cross_column.py",
+      "assignment_line": 158,
+      "condition_line": 159,
+      "name": "derive_from",
+      "scope": "CrossColumnValidator._check_derive_from_dag",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "col.get('derive_from')"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/validator/cross_column.py",
+      "assignment_line": 175,
+      "condition_line": 176,
+      "name": "src_col",
+      "scope": "CrossColumnValidator._check_derive_from_dag",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "cols_by_name.get(src)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/validator/cross_column.py",
+      "assignment_line": 177,
+      "condition_line": 178,
+      "name": "src_df",
+      "scope": "CrossColumnValidator._check_derive_from_dag",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "src_col.get('derive_from')"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/validator/dialect_parser.py",
+      "assignment_line": 105,
+      "condition_line": 106,
+      "name": "diag",
+      "scope": "DialectErrorParser._parse_postgresql",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "getattr(error, 'diag', None)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/validator/dialect_parser.py",
+      "assignment_line": 111,
+      "condition_line": 112,
+      "name": "info",
+      "scope": "DialectErrorParser._parse_postgresql",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "snapshot.constraint_map.get(constraint_name)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/validator/main.py",
+      "assignment_line": 59,
+      "condition_line": 60,
+      "name": "table_meta",
+      "scope": "FastValidator.validate",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "snapshot.tables.get(table_config['name'])"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/validator/main.py",
+      "assignment_line": 72,
+      "condition_line": 73,
+      "name": "report",
+      "scope": "FastValidator.validate",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "DialectErrorParser.parse(fill_error, dialect, table=None, snapshot=snapshot)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/validator/main.py",
+      "assignment_line": 90,
+      "condition_line": 91,
+      "name": "v",
+      "scope": "FastValidator.validate",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._composite_fk.validate_group(group, table_config)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/validator/schema_snapshot.py",
+      "assignment_line": 174,
+      "condition_line": 175,
+      "name": "name",
+      "scope": "SchemaSnapshot._build_constraint_map",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "c.get('name')"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/validator/schema_snapshot.py",
+      "assignment_line": 193,
+      "condition_line": 194,
+      "name": "t",
+      "scope": "SchemaSnapshot.get_column_type",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self.tables.get(table)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/validator/shadow_fk_scan.py",
+      "assignment_line": 79,
+      "condition_line": 80,
+      "name": "table_meta",
+      "scope": "ShadowFKScanner.scan",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._snapshot.tables.get(report.table)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/validator/shadow_fk_scan.py",
+      "assignment_line": 105,
+      "condition_line": 106,
+      "name": "offending",
+      "scope": "ShadowFKScanner._scan_table_foreign_keys",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "generated_values - parent_pk_set"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/validator/single_column.py",
+      "assignment_line": 74,
+      "condition_line": 75,
+      "name": "m",
+      "scope": "_extract_range_bounds",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "re.search(f'\\\\b{col}\\\\s+>=\\\\s*(-?\\\\d+(?:\\\\.\\\\d+)?)', expr, re.IGNORECASE)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/validator/single_column.py",
+      "assignment_line": 78,
+      "condition_line": 79,
+      "name": "m",
+      "scope": "_extract_range_bounds",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "re.search(f'\\\\b{col}\\\\s+<=\\\\s*(-?\\\\d+(?:\\\\.\\\\d+)?)', expr, re.IGNORECASE)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/validator/single_column.py",
+      "assignment_line": 139,
+      "condition_line": 140,
+      "name": "cardinality",
+      "scope": "SingleColumnValidator.validate",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._compute_cardinality(col, row_count)"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/validator/single_column.py",
+      "assignment_line": 249,
+      "condition_line": 250,
+      "name": "enum_values",
+      "scope": "SingleColumnValidator._check_constraint_compliance",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "_extract_enum_values(expr, col_name) or []"
+    },
+    {
+      "path": "plugins/sqlseed-cli/src/sqlseed_cli/main.py",
+      "assignment_line": 61,
+      "condition_line": 62,
+      "name": "any_clear",
+      "scope": "_fill_from_config_cmd",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "clear_before or any((tc.clear_before for tc in config.tables))"
+    },
+    {
+      "path": "plugins/sqlseed-cli/src/sqlseed_cli/main.py",
+      "assignment_line": 302,
+      "condition_line": 303,
+      "name": "config_path",
+      "scope": "_execute_fill",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "options.config_path"
+    },
+    {
+      "path": "plugins/sqlseed-cli/src/sqlseed_cli/main.py",
+      "assignment_line": 470,
+      "condition_line": 471,
+      "name": "spec",
+      "scope": "_inspect_table",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "generator_specs.get(col.name)"
+    },
+    {
+      "path": "plugins/sqlseed-cli/src/sqlseed_cli/main.py",
+      "assignment_line": 500,
+      "condition_line": 501,
+      "name": "target",
+      "scope": "inspect",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "db_url or db_path"
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/ai_settings.py",
+      "assignment_line": 41,
+      "condition_line": 42,
+      "name": "value",
+      "scope": "http_endpoint",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "value.strip()"
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/ai_settings.py",
+      "assignment_line": 79,
+      "condition_line": 80,
+      "name": "configured",
+      "scope": "settings_path",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "os.environ.get('SQLSEED_WEB_SETTINGS_PATH')"
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/api.py",
+      "assignment_line": 139,
+      "condition_line": 140,
+      "name": "engine",
+      "scope": "_request_errors",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "getattr(orch.database_adapter, '_engine', None)"
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/api.py",
+      "assignment_line": 175,
+      "condition_line": 176,
+      "name": "text",
+      "scope": "_yaml_to_config_dict",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "(yaml_text or '').strip()"
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/api.py",
+      "assignment_line": 238,
+      "condition_line": 239,
+      "name": "method",
+      "scope": "_generator_param_schema",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "getattr(provider, f'_gen_{name}', None)"
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/api.py",
+      "assignment_line": 471,
+      "condition_line": 472,
+      "name": "key",
+      "scope": "ai_test_connection",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "cfg.resolve_api_key()"
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/api.py",
+      "assignment_line": 512,
+      "condition_line": 513,
+      "name": "target",
+      "scope": "connect_db",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "req.db_path or req.url"
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/api.py",
+      "assignment_line": 639,
+      "condition_line": 640,
+      "name": "columns",
+      "scope": "table_schema",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "_serialize(orch.get_column_info(table))"
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/api.py",
+      "assignment_line": 696,
+      "condition_line": 697,
+      "name": "gen",
+      "scope": "table_yaml_template",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "spec.generator_name"
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/app.py",
+      "assignment_line": 57,
+      "condition_line": 58,
+      "name": "forbidden",
+      "scope": "_maintenance_response",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "_business_request_forbidden(request, supervised_worker)"
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/plugin_management.py",
+      "assignment_line": 182,
+      "condition_line": 183,
+      "name": "users",
+      "scope": "PluginManager.plan",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "plugin_environment.required_by(distribution, packages)"
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/plugin_management.py",
+      "assignment_line": 279,
+      "condition_line": 280,
+      "name": "succeeded",
+      "scope": "PluginManager._run",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "result == 0 and expected_target and preserved"
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/plugin_process.py",
+      "assignment_line": 51,
+      "condition_line": 52,
+      "name": "clean",
+      "scope": "_read_installer_output",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "_sanitized(line.decode('utf-8', errors='replace'))[:min(remaining, 2000)]"
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/plugin_process.py",
+      "assignment_line": 84,
+      "condition_line": 85,
+      "name": "stream",
+      "scope": "run_installer",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "process.stdout"
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/sqlite_target.py",
+      "assignment_line": 72,
+      "condition_line": 73,
+      "name": "filename",
+      "scope": "sqlite_target",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "str(args[0])"
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/state.py",
+      "assignment_line": 122,
+      "condition_line": 123,
+      "name": "conn",
+      "scope": "UIState.get_connection",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._conns.get(conn_id)"
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/state.py",
+      "assignment_line": 194,
+      "condition_line": 195,
+      "name": "conn",
+      "scope": "UIState.connection_operation",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._conns.get(conn_id)"
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/state.py",
+      "assignment_line": 230,
+      "condition_line": 231,
+      "name": "conn",
+      "scope": "UIState.create_job",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._conns.get(conn_id)"
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/state.py",
+      "assignment_line": 243,
+      "condition_line": 244,
+      "name": "job",
+      "scope": "UIState.get_job",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._jobs.get(job_id)"
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/state.py",
+      "assignment_line": 269,
+      "condition_line": 270,
+      "name": "job",
+      "scope": "UIState.job_snapshot",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._jobs.get(job_id)"
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/state.py",
+      "assignment_line": 287,
+      "condition_line": 288,
+      "name": "sqlite",
+      "scope": "_normalize_target",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "sqlite_target(target, conn_id)"
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/state.py",
+      "assignment_line": 304,
+      "condition_line": 305,
+      "name": "sqlite",
+      "scope": "_write_target",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "sqlite_target(conn.target, conn.conn_id)"
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/supervisor.py",
+      "assignment_line": 130,
+      "condition_line": 131,
+      "name": "process",
+      "scope": "Supervisor._stop_worker",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self.process"
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/workbench_ai.py",
+      "assignment_line": 226,
+      "condition_line": 227,
+      "name": "parents",
+      "scope": "_messages",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "{edge['source'] for edge in schema['edges'] if edge['target'] in included}"
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/workbench_ai_relations.py",
+      "assignment_line": 277,
+      "condition_line": 278,
+      "name": "parsed",
+      "scope": "validate_sample_checks",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "CheckConstraintParser.parse(column['name'], check['expression'])"
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/workbench_runtime.py",
+      "assignment_line": 70,
+      "condition_line": 71,
+      "name": "value",
+      "scope": "_redact_query_credentials",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "value_pattern.match(message, cursor)"
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/workbench_runtime.py",
+      "assignment_line": 111,
+      "condition_line": 112,
+      "name": "extra",
+      "scope": "_reject_extra",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "set(value) - set(fields)"
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/workbench_runtime.py",
+      "assignment_line": 200,
+      "condition_line": 201,
+      "name": "layer",
+      "scope": "_layers",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "[name for name, parents in pending.items() if not parents]"
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/workbench_runtime.py",
+      "assignment_line": 236,
+      "condition_line": 237,
+      "name": "mappings",
+      "scope": "_runtime_columns",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "config.custom_column_mappings"
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/workbench_runtime.py",
+      "assignment_line": 289,
+      "condition_line": 290,
+      "name": "available",
+      "scope": "_unique_domain_issues",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "len({_hash(value) for value in choices})"
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/workbench_runtime.py",
+      "assignment_line": 350,
+      "condition_line": 351,
+      "name": "info",
+      "scope": "_table_column_issues",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "columns.get(column.name)"
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/workbench_runtime.py",
+      "assignment_line": 995,
+      "condition_line": 996,
+      "name": "violations",
+      "scope": "_fill_replacement_tables",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "orch.query(f'PRAGMA foreign_key_check({quote_identifier(table.name)})')"
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/workbench_schema.py",
+      "assignment_line": 41,
+      "condition_line": 42,
+      "name": "sqlite",
+      "scope": "_target_identity",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "sqlite_target(conn.target, conn.conn_id)"
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/workbench_store.py",
+      "assignment_line": 146,
+      "condition_line": 147,
+      "name": "name",
+      "scope": "_validate_run",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "_text(table, 'name')"
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/workbench_store.py",
+      "assignment_line": 177,
+      "condition_line": 178,
+      "name": "draft_id",
+      "scope": "_run_snapshot",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "payload.get('draft_id')"
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/workbench_store.py",
+      "assignment_line": 228,
+      "condition_line": 229,
+      "name": "version",
+      "scope": "WorkspaceStore._initialize",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "db.execute('PRAGMA user_version').fetchone()[0]"
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/workbench_store.py",
+      "assignment_line": 322,
+      "condition_line": 323,
+      "name": "row",
+      "scope": "WorkspaceStore._draft_at_revision",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "db.execute('SELECT payload FROM workspace_drafts WHERE id = ?', (draft_id,)).fetchone()"
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/workbench_store.py",
+      "assignment_line": 395,
+      "condition_line": 396,
+      "name": "row",
+      "scope": "WorkspaceStore.update_run",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "db.execute('SELECT payload FROM workspace_runs WHERE id = ?', (run_id,)).fetchone()"
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/worker_control.py",
+      "assignment_line": 110,
+      "condition_line": 111,
+      "name": "pending",
+      "scope": "ControlChannel._read",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._pending.get(message['id'])"
+    },
+    {
+      "path": "scripts/_fact_extractors.py",
+      "assignment_line": 23,
+      "condition_line": 24,
+      "name": "first_q",
+      "scope": "_extract_quoted_key",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "line.find('\"')"
+    },
+    {
+      "path": "scripts/_fact_extractors.py",
+      "assignment_line": 26,
+      "condition_line": 27,
+      "name": "second_q",
+      "scope": "_extract_quoted_key",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "line.find('\"', first_q + 1)"
+    },
+    {
+      "path": "scripts/_fact_extractors.py",
+      "assignment_line": 38,
+      "condition_line": 39,
+      "name": "idx",
+      "scope": "get_generator_types",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "line.find(marker)"
+    },
+    {
+      "path": "scripts/_fact_extractors.py",
+      "assignment_line": 41,
+      "condition_line": 42,
+      "name": "key",
+      "scope": "get_generator_types",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "_extract_quoted_key(line[:idx])"
+    },
+    {
+      "path": "scripts/_fact_extractors.py",
+      "assignment_line": 86,
+      "condition_line": 87,
+      "name": "idx",
+      "scope": "get_pattern_match_rules",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "stripped.find('r\"')"
+    },
+    {
+      "path": "scripts/_fact_extractors.py",
+      "assignment_line": 88,
+      "condition_line": 89,
+      "name": "second_q",
+      "scope": "get_pattern_match_rules",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "stripped.find('\"', idx + 2)"
+    },
+    {
+      "path": "scripts/_fact_extractors.py",
+      "assignment_line": 98,
+      "condition_line": 99,
+      "name": "start",
+      "scope": "get_safe_functions",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "code.find(marker)"
+    },
+    {
+      "path": "scripts/_fact_extractors.py",
+      "assignment_line": 101,
+      "condition_line": 102,
+      "name": "brace_start",
+      "scope": "get_safe_functions",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "code.find('{', start)"
+    },
+    {
+      "path": "scripts/_fact_extractors.py",
+      "assignment_line": 128,
+      "condition_line": 129,
+      "name": "first_q",
+      "scope": "get_enum_name_patterns",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "stripped.find('\"')"
+    },
+    {
+      "path": "scripts/_fact_extractors.py",
+      "assignment_line": 130,
+      "condition_line": 131,
+      "name": "second_q",
+      "scope": "get_enum_name_patterns",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "stripped.find('\"', first_q + 1)"
+    },
+    {
+      "path": "scripts/_fact_extractors.py",
+      "assignment_line": 142,
+      "condition_line": 143,
+      "name": "idx",
+      "scope": "get_hook_names",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "line.find(marker)"
+    },
+    {
+      "path": "scripts/_fact_extractors.py",
+      "assignment_line": 182,
+      "condition_line": 183,
+      "name": "name",
+      "scope": "get_mcp_tool_names",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "_extract_func_name(def_line)"
+    },
+    {
+      "path": "scripts/analyze_ai_logs.py",
+      "assignment_line": 238,
+      "condition_line": 239,
+      "name": "group",
+      "scope": "_add_to_group",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "stats.get(key)"
+    },
+    {
+      "path": "scripts/analyze_ai_logs.py",
+      "assignment_line": 253,
+      "condition_line": 254,
+      "name": "group",
+      "scope": "_add_to_repeat",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "stats.get(key)"
+    },
+    {
+      "path": "scripts/analyze_ai_logs.py",
+      "assignment_line": 258,
+      "condition_line": 259,
+      "name": "file_list",
+      "scope": "_add_to_repeat",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "files.get(key)"
+    },
+    {
+      "path": "scripts/analyze_ai_logs.py",
+      "assignment_line": 273,
+      "condition_line": 274,
+      "name": "parsed",
+      "scope": "_record_failure_patterns",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "_parse_json_response(response)"
+    },
+    {
+      "path": "scripts/analyze_ai_logs.py",
+      "assignment_line": 283,
+      "condition_line": 284,
+      "name": "derive_value",
+      "scope": "_record_failure_patterns",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "parsed.get('derive_from')"
+    },
+    {
+      "path": "scripts/analyze_ai_logs.py",
+      "assignment_line": 393,
+      "condition_line": 394,
+      "name": "files",
+      "scope": "analyze_logs",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "sorted(log_dir.glob('*.json'))"
+    },
+    {
+      "path": "scripts/analyze_ai_logs.py",
+      "assignment_line": 624,
+      "condition_line": 625,
+      "name": "rc_rows",
+      "scope": "render_text",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "rc['rows']"
+    },
+    {
+      "path": "scripts/complex_validation/run_validation.py",
+      "assignment_line": 88,
+      "condition_line": 89,
+      "name": "body",
+      "scope": "extract_checks",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "_check_body(create_sql, i)"
+    },
+    {
+      "path": "scripts/complex_validation/run_validation.py",
+      "assignment_line": 115,
+      "condition_line": 116,
+      "name": "n",
+      "scope": "fill_db",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "counts.get(table, DEFAULT_COUNT)"
+    },
+    {
+      "path": "scripts/complex_validation/run_validation.py",
+      "assignment_line": 243,
+      "condition_line": 244,
+      "name": "sel",
+      "scope": "main.dim_status",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "[c for c in report.checks if c.dim in prefixes]"
+    },
+    {
+      "path": "scripts/sync_docs.py",
+      "assignment_line": 104,
+      "condition_line": 105,
+      "name": "formatter",
+      "scope": "sync_file.replacer",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "FACT_FORMATTERS.get(name)"
+    },
+    {
+      "path": "scripts/sync_docs.py",
+      "assignment_line": 108,
+      "condition_line": 109,
+      "name": "new_content",
+      "scope": "sync_file.replacer",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "formatter(facts)"
+    },
+    {
+      "path": "scripts/sync_docs.py",
+      "assignment_line": 131,
+      "condition_line": 132,
+      "name": "changes",
+      "scope": "main",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "sync_file(md_file, facts, args.check)"
+    },
+    {
+      "path": "src/sqlseed/_utils/paths.py",
+      "assignment_line": 33,
+      "condition_line": 34,
+      "name": "env_root",
+      "scope": "get_cache_dir",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "os.environ.get(_CACHE_DIR_ENV)"
+    },
+    {
+      "path": "src/sqlseed/_utils/progress.py",
+      "assignment_line": 72,
+      "condition_line": 73,
+      "name": "shell",
+      "scope": "_detect_environment",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "getattr(builtins, 'get_ipython', lambda: None)()"
+    },
+    {
+      "path": "src/sqlseed/_utils/progress.py",
+      "assignment_line": 92,
+      "condition_line": 93,
+      "name": "shell_class",
+      "scope": "_is_jupyter_shell",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "type(shell).__name__"
+    },
+    {
+      "path": "src/sqlseed/_utils/progress.py",
+      "assignment_line": 350,
+      "condition_line": 351,
+      "name": "pbar",
+      "scope": "TqdmNotebookBackend.update",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._ensure_bar(task_id)"
+    },
+    {
+      "path": "src/sqlseed/_utils/progress.py",
+      "assignment_line": 361,
+      "condition_line": 362,
+      "name": "pbar",
+      "scope": "TqdmNotebookBackend.remove_task",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._bars.pop(task_id, None)"
+    },
+    {
+      "path": "src/sqlseed/_utils/progress.py",
+      "assignment_line": 400,
+      "condition_line": 402,
+      "name": "env",
+      "scope": "create_progress",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "_detect_environment()"
+    },
+    {
+      "path": "src/sqlseed/_utils/progress.py",
+      "assignment_line": 410,
+      "condition_line": 411,
+      "name": "ascii_only",
+      "scope": "create_progress",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "not _can_render_unicode()"
+    },
+    {
+      "path": "src/sqlseed/config/loader.py",
+      "assignment_line": 106,
+      "condition_line": 107,
+      "name": "suffix",
+      "scope": "save_config",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "config_path.suffix.lower()"
+    },
+    {
+      "path": "src/sqlseed/config/loader.py",
+      "assignment_line": 166,
+      "condition_line": 167,
+      "name": "connection_target",
+      "scope": "generate_template",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "url if url else db_path"
+    },
+    {
+      "path": "src/sqlseed/config/models.py",
+      "assignment_line": 70,
+      "condition_line": 71,
+      "name": "derive_from",
+      "scope": "normalize_column_input",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "result.get('derive_from')"
+    },
+    {
+      "path": "src/sqlseed/core/check_adapt.py",
+      "assignment_line": 100,
+      "condition_line": 101,
+      "name": "parsed",
+      "scope": "CheckAdapter.adapt_user_configs",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "CheckConstraintParser.parse_all(col_name, check_expressions)"
+    },
+    {
+      "path": "src/sqlseed/core/check_adapt.py",
+      "assignment_line": 190,
+      "condition_line": 191,
+      "name": "intersection",
+      "scope": "CheckAdapter._clamp_choices",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "[c for c in user_choices if c in allowed]"
+    },
+    {
+      "path": "src/sqlseed/core/check_adapt.py",
+      "assignment_line": 216,
+      "condition_line": 217,
+      "name": "intersection",
+      "scope": "CheckAdapter._clamp_weighted",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "{v: w for v, w in weighted_choices.items() if v in allowed}"
+    },
+    {
+      "path": "src/sqlseed/core/check_adapt.py",
+      "assignment_line": 229,
+      "condition_line": 230,
+      "name": "kept",
+      "scope": "CheckAdapter._clamp_weighted",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "[c for c in dict_form if c['value'] in allowed]"
+    },
+    {
+      "path": "src/sqlseed/core/check_parser.py",
+      "assignment_line": 153,
+      "condition_line": 154,
+      "name": "tree",
+      "scope": "CheckConstraintParser.parse",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "_parse_expression(expression)"
+    },
+    {
+      "path": "src/sqlseed/core/check_parser.py",
+      "assignment_line": 179,
+      "condition_line": 180,
+      "name": "trees",
+      "scope": "CheckConstraintParser.parse_all",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "[tree for expression in expressions if (tree := _parse_expression(expression)) is not None]"
+    },
+    {
+      "path": "src/sqlseed/core/check_parser.py",
+      "assignment_line": 194,
+      "condition_line": 195,
+      "name": "tree",
+      "scope": "CheckConstraintParser.is_cross_column",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "_parse_expression(expression)"
+    },
+    {
+      "path": "src/sqlseed/core/check_parser.py",
+      "assignment_line": 228,
+      "condition_line": 229,
+      "name": "match",
+      "scope": "_parse_expression",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "CheckConstraintParser._CHECK_INNER_RE.match(text)"
+    },
+    {
+      "path": "src/sqlseed/core/check_parser.py",
+      "assignment_line": 418,
+      "condition_line": 419,
+      "name": "bound",
+      "scope": "_comparison_bound",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "_side_bound(left, right, target, is_lower=is_lower_op, strict=strict)"
+    },
+    {
+      "path": "src/sqlseed/core/enrichment.py",
+      "assignment_line": 137,
+      "condition_line": 138,
+      "name": "has_enrich",
+      "scope": "EnrichmentEngine.apply",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "any((s.generator_name == '__enrich__' for s in specs.values()))"
+    },
+    {
+      "path": "src/sqlseed/core/enrichment.py",
+      "assignment_line": 142,
+      "condition_line": 143,
+      "name": "row_count",
+      "scope": "EnrichmentEngine.apply",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._db.get_row_count(table_name)"
+    },
+    {
+      "path": "src/sqlseed/core/expression.py",
+      "assignment_line": 106,
+      "condition_line": 107,
+      "name": "rng",
+      "scope": "ExpressionEngine._get_functions",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._rng"
+    },
+    {
+      "path": "src/sqlseed/core/expression.py",
+      "assignment_line": 162,
+      "condition_line": 163,
+      "name": "cache_key",
+      "scope": "ExpressionEngine._lookup",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "(table, column, key, key_column)"
+    },
+    {
+      "path": "src/sqlseed/core/expression.py",
+      "assignment_line": 165,
+      "condition_line": 166,
+      "name": "adapter",
+      "scope": "ExpressionEngine._lookup",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._db_adapter"
+    },
+    {
+      "path": "src/sqlseed/core/expression.py",
+      "assignment_line": 186,
+      "condition_line": 187,
+      "name": "stripped",
+      "scope": "ExpressionEngine._is_simple_expression",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "expression.strip()"
+    },
+    {
+      "path": "src/sqlseed/core/expression.py",
+      "assignment_line": 244,
+      "condition_line": 245,
+      "name": "error",
+      "scope": "ExpressionEngine.evaluate",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "error_container[0]"
+    },
+    {
+      "path": "src/sqlseed/core/features.py",
+      "assignment_line": 29,
+      "condition_line": 30,
+      "name": "match",
+      "scope": "_parse_max_length",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "re.match('^\\\\s*\\\\w+\\\\s*\\\\(\\\\s*(\\\\d+)\\\\s*\\\\)', type_str, re.IGNORECASE)"
+    },
+    {
+      "path": "src/sqlseed/core/features.py",
+      "assignment_line": 186,
+      "condition_line": 187,
+      "name": "dialect_specific",
+      "scope": "StructuralFeatureExtractor.extract",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._extract_dialect_specific(tables_to_analyze)"
+    },
+    {
+      "path": "src/sqlseed/core/features.py",
+      "assignment_line": 320,
+      "condition_line": 321,
+      "name": "index_predicates",
+      "scope": "StructuralFeatureExtractor._extract_sqlite_specific",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._sqlite_index_predicates(table_name)"
+    },
+    {
+      "path": "src/sqlseed/core/features.py",
+      "assignment_line": 442,
+      "condition_line": 443,
+      "name": "col_collations",
+      "scope": "StructuralFeatureExtractor._merge_table_dialect_features",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "table_features.get('column_collations', {})"
+    },
+    {
+      "path": "src/sqlseed/core/features.py",
+      "assignment_line": 447,
+      "condition_line": 448,
+      "name": "index_predicates",
+      "scope": "StructuralFeatureExtractor._merge_table_dialect_features",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "table_features.get('index_predicates', {})"
+    },
+    {
+      "path": "src/sqlseed/core/mapper.py",
+      "assignment_line": 432,
+      "condition_line": 433,
+      "name": "user_spec",
+      "scope": "ColumnMapper.map_column",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._map_from_user_config(user_config)"
+    },
+    {
+      "path": "src/sqlseed/core/mapper.py",
+      "assignment_line": 462,
+      "condition_line": 463,
+      "name": "exact_match",
+      "scope": "ColumnMapper._inherit_rule_params",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._match_exact(column_name) or self._match_pattern(column_name)"
+    },
+    {
+      "path": "src/sqlseed/core/mapper.py",
+      "assignment_line": 514,
+      "condition_line": 515,
+      "name": "exact_match",
+      "scope": "ColumnMapper._map_fallback",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._match_exact(column_name)"
+    },
+    {
+      "path": "src/sqlseed/core/mapper.py",
+      "assignment_line": 518,
+      "condition_line": 519,
+      "name": "default_spec",
+      "scope": "ColumnMapper._map_fallback",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._map_from_default(column_info, column_type, enrich, force_type_infer)"
+    },
+    {
+      "path": "src/sqlseed/core/mapper.py",
+      "assignment_line": 522,
+      "condition_line": 523,
+      "name": "pattern_match",
+      "scope": "ColumnMapper._map_fallback",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._match_pattern(column_name)"
+    },
+    {
+      "path": "src/sqlseed/core/mapper.py",
+      "assignment_line": 547,
+      "condition_line": 548,
+      "name": "snake_name",
+      "scope": "ColumnMapper._match_snake_retry_or_fallback",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._to_snake_case(column_info.name)"
+    },
+    {
+      "path": "src/sqlseed/core/mapper.py",
+      "assignment_line": 549,
+      "condition_line": 550,
+      "name": "snake_exact",
+      "scope": "ColumnMapper._match_snake_retry_or_fallback",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._match_exact(snake_name)"
+    },
+    {
+      "path": "src/sqlseed/core/mapper.py",
+      "assignment_line": 552,
+      "condition_line": 553,
+      "name": "snake_pattern",
+      "scope": "ColumnMapper._match_snake_retry_or_fallback",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._match_pattern(snake_name)"
+    },
+    {
+      "path": "src/sqlseed/core/orchestrator/_connection.py",
+      "assignment_line": 115,
+      "condition_line": 116,
+      "name": "rel",
+      "scope": "ConnectionMixin._relation",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._core.relation"
+    },
+    {
+      "path": "src/sqlseed/core/orchestrator/_connection.py",
+      "assignment_line": 150,
+      "condition_line": 151,
+      "name": "adj",
+      "scope": "ConnectionMixin._unique_adjuster",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._ext.unique_adjuster"
+    },
+    {
+      "path": "src/sqlseed/core/orchestrator/_generation.py",
+      "assignment_line": 457,
+      "condition_line": 458,
+      "name": "self_ref_fks",
+      "scope": "GenerationMixin._post_fill_self_ref_fks",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "[fk for fk in fks if fk.ref_table == table_name]"
+    },
+    {
+      "path": "src/sqlseed/core/orchestrator/_generation.py",
+      "assignment_line": 461,
+      "condition_line": 462,
+      "name": "pk_cols",
+      "scope": "GenerationMixin._post_fill_self_ref_fks",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._db.get_primary_keys(table_name)"
+    },
+    {
+      "path": "src/sqlseed/core/orchestrator/_generation.py",
+      "assignment_line": 488,
+      "condition_line": 489,
+      "name": "non_null_values",
+      "scope": "GenerationMixin._self_ref_condition_values",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "_extract_non_null_values(cond_col, null_val, checks)"
+    },
+    {
+      "path": "src/sqlseed/core/orchestrator/_generation.py",
+      "assignment_line": 531,
+      "condition_line": 532,
+      "name": "ref_value",
+      "scope": "GenerationMixin._update_self_ref_column",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "ref_values[rng.randint(0, i - 1)]"
+    },
+    {
+      "path": "src/sqlseed/core/orchestrator/_query.py",
+      "assignment_line": 258,
+      "condition_line": 259,
+      "name": "row",
+      "scope": "QueryMixin.fetch_one",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "cursor.fetchone()"
+    },
+    {
+      "path": "src/sqlseed/core/orchestrator/_specs.py",
+      "assignment_line": 218,
+      "condition_line": 219,
+      "name": "col_name",
+      "scope": "SpecResolverMixin._enhance_fallback_specs",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "col_info.name"
+    },
+    {
+      "path": "src/sqlseed/core/orchestrator/_specs.py",
+      "assignment_line": 221,
+      "condition_line": 222,
+      "name": "current_spec",
+      "scope": "SpecResolverMixin._enhance_fallback_specs",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "generator_specs.get(col_name)"
+    },
+    {
+      "path": "src/sqlseed/core/orchestrator/_specs.py",
+      "assignment_line": 308,
+      "condition_line": 309,
+      "name": "m",
+      "scope": "SpecResolverMixin._check_exact_length",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "equality.match(expr)"
+    },
+    {
+      "path": "src/sqlseed/core/orchestrator/_specs.py",
+      "assignment_line": 407,
+      "condition_line": 408,
+      "name": "columns",
+      "scope": "SpecResolverMixin._existing_key_checker.exists",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "tuple(values)"
+    },
+    {
+      "path": "src/sqlseed/core/orchestrator/_specs.py",
+      "assignment_line": 497,
+      "condition_line": 498,
+      "name": "m_ck",
+      "scope": "SpecResolverMixin._get_inequality_constraints",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "re.match('^(\\\\w+)\\\\s*(!=|>=|<=|>|<)\\\\s*(\\\\w+)\\\\s*$', expr_ck, re.IGNORECASE)"
+    },
+    {
+      "path": "src/sqlseed/core/relation.py",
+      "assignment_line": 190,
+      "condition_line": 191,
+      "name": "ready",
+      "scope": "RelationResolver.topological_sort",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "[t for t in table_names if t in remaining and (not pending_deps[t])]"
+    },
+    {
+      "path": "src/sqlseed/core/relation.py",
+      "assignment_line": 224,
+      "condition_line": 225,
+      "name": "fks",
+      "scope": "RelationResolver._pick_cycle_breaker",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self.get_foreign_keys(table)"
+    },
+    {
+      "path": "src/sqlseed/core/relation.py",
+      "assignment_line": 331,
+      "condition_line": 332,
+      "name": "cached",
+      "scope": "RelationResolver._get_composite_fk_groups",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._composite_fk_cache.get(table_name)"
+    },
+    {
+      "path": "src/sqlseed/core/relation.py",
+      "assignment_line": 336,
+      "condition_line": 337,
+      "name": "fks",
+      "scope": "RelationResolver._get_composite_fk_groups",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self.get_foreign_keys(table_name)"
+    },
+    {
+      "path": "src/sqlseed/core/relation.py",
+      "assignment_line": 397,
+      "condition_line": 398,
+      "name": "composite_groups",
+      "scope": "RelationResolver.resolve_composite_fks",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._get_composite_fk_groups(table_name)"
+    },
+    {
+      "path": "src/sqlseed/core/relation.py",
+      "assignment_line": 474,
+      "condition_line": 475,
+      "name": "fk_info",
+      "scope": "RelationResolver._resolve_fk_or_integer_spec",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self.get_fk_info(table_name, col_name)"
+    },
+    {
+      "path": "src/sqlseed/core/relation.py",
+      "assignment_line": 516,
+      "condition_line": 517,
+      "name": "col_type",
+      "scope": "RelationResolver._resolve_fk_or_integer_spec",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "(column_types or {}).get(col_name, '')"
+    },
+    {
+      "path": "src/sqlseed/core/relation.py",
+      "assignment_line": 584,
+      "condition_line": 585,
+      "name": "fk_info",
+      "scope": "RelationResolver._upgrade_fk_constrained_columns",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self.get_fk_info(table_name, col_name)"
+    },
+    {
+      "path": "src/sqlseed/core/relation.py",
+      "assignment_line": 587,
+      "condition_line": 602,
+      "name": "ref_values",
+      "scope": "RelationResolver._upgrade_fk_constrained_columns",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self.resolve_foreign_key_values(table_name, col_name)"
+    },
+    {
+      "path": "src/sqlseed/core/relation.py",
+      "assignment_line": 605,
+      "condition_line": 606,
+      "name": "col_nullable",
+      "scope": "RelationResolver._upgrade_fk_constrained_columns",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "column_info_map.get(col_name, True)"
+    },
+    {
+      "path": "src/sqlseed/core/relation.py",
+      "assignment_line": 830,
+      "condition_line": 831,
+      "name": "pool_values",
+      "scope": "RelationResolver._apply_single_association",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._shared_pool.get(source_col)"
+    },
+    {
+      "path": "src/sqlseed/core/relation.py",
+      "assignment_line": 835,
+      "condition_line": 836,
+      "name": "values",
+      "scope": "RelationResolver._apply_single_association",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._db.get_column_values(source_table, source_col, limit=10000)"
+    },
+    {
+      "path": "src/sqlseed/core/relation.py",
+      "assignment_line": 839,
+      "condition_line": 840,
+      "name": "pool_values",
+      "scope": "RelationResolver._apply_single_association",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._shared_pool.get(col_name)"
+    },
+    {
+      "path": "src/sqlseed/core/relation.py",
+      "assignment_line": 885,
+      "condition_line": 886,
+      "name": "is_unique",
+      "scope": "RelationResolver.resolve_implicit_associations",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "unique_columns is not None and col_name in unique_columns"
+    },
+    {
+      "path": "src/sqlseed/core/relation.py",
+      "assignment_line": 894,
+      "condition_line": 895,
+      "name": "pool_values",
+      "scope": "RelationResolver.resolve_implicit_associations",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._shared_pool.get(col_name)"
+    },
+    {
+      "path": "src/sqlseed/core/relation.py",
+      "assignment_line": 953,
+      "condition_line": 954,
+      "name": "values",
+      "scope": "RelationResolver.register_shared_pool",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "[row[col_name] for row in sample_rows if col_name in row]"
+    },
+    {
+      "path": "src/sqlseed/core/schema.py",
+      "assignment_line": 34,
+      "condition_line": 35,
+      "name": "key",
+      "scope": "_add_composite_key",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "tuple(columns)"
+    },
+    {
+      "path": "src/sqlseed/core/schema.py",
+      "assignment_line": 214,
+      "condition_line": 216,
+      "name": "row_count",
+      "scope": "SchemaInferrer.profile_column_distribution",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._db.get_row_count(table_name)"
+    },
+    {
+      "path": "src/sqlseed/core/schema_fallback.py",
+      "assignment_line": 119,
+      "condition_line": 120,
+      "name": "check_spec",
+      "scope": "SchemaFallbackGenerator.fallback_for_column",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._fallback_from_check(column, check_constraints)"
+    },
+    {
+      "path": "src/sqlseed/core/schema_fallback.py",
+      "assignment_line": 133,
+      "condition_line": 134,
+      "name": "parsed",
+      "scope": "SchemaFallbackGenerator._fallback_from_check",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "CheckConstraintParser.parse_all(column.name, expressions)"
+    },
+    {
+      "path": "src/sqlseed/core/schema_fallback.py",
+      "assignment_line": 184,
+      "condition_line": 185,
+      "name": "length",
+      "scope": "SchemaFallbackGenerator._fallback_from_type",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "_parse_length_from_type(type_str)"
+    },
+    {
+      "path": "src/sqlseed/core/stream.py",
+      "assignment_line": 571,
+      "condition_line": 572,
+      "name": "violated",
+      "scope": "DataStream._check_row_inequalities",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "_violates_inequality(v1, v2, op, col1, col2)"
+    },
+    {
+      "path": "src/sqlseed/core/stream.py",
+      "assignment_line": 749,
+      "condition_line": 750,
+      "name": "native_result",
+      "scope": "DataStream._apply_generator",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._try_native_method(spec)"
+    },
+    {
+      "path": "src/sqlseed/core/stream.py",
+      "assignment_line": 806,
+      "condition_line": 807,
+      "name": "result",
+      "scope": "DataStream._try_native_method",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._try_faker_native(spec.native_faker_method, native_params)"
+    },
+    {
+      "path": "src/sqlseed/core/stream.py",
+      "assignment_line": 810,
+      "condition_line": 811,
+      "name": "result",
+      "scope": "DataStream._try_native_method",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._try_mimesis_native(spec.native_mimesis_method, native_params)"
+    },
+    {
+      "path": "src/sqlseed/core/stream.py",
+      "assignment_line": 828,
+      "condition_line": 829,
+      "name": "faker_obj",
+      "scope": "DataStream._try_faker_native",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "getattr(self._provider, '_faker', None)"
+    },
+    {
+      "path": "src/sqlseed/core/stream.py",
+      "assignment_line": 852,
+      "condition_line": 853,
+      "name": "generic_obj",
+      "scope": "DataStream._try_mimesis_native",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "getattr(self._provider, '_generic', None)"
+    },
+    {
+      "path": "src/sqlseed/core/stream.py",
+      "assignment_line": 858,
+      "condition_line": 859,
+      "name": "obj",
+      "scope": "DataStream._try_mimesis_native",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "getattr(obj, part, None)"
+    },
+    {
+      "path": "src/sqlseed/core/stream.py",
+      "assignment_line": 900,
+      "condition_line": 901,
+      "name": "ref_values",
+      "scope": "DataStream._handle_foreign_key",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "spec.params.get('_ref_values', [])"
+    },
+    {
+      "path": "src/sqlseed/core/stream.py",
+      "assignment_line": 905,
+      "condition_line": 906,
+      "name": "available",
+      "scope": "DataStream._handle_foreign_key",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "[v for v in ref_values if v not in exclude_values]"
+    },
+    {
+      "path": "src/sqlseed/core/stream.py",
+      "assignment_line": 928,
+      "condition_line": 929,
+      "name": "queue",
+      "scope": "DataStream._coverage_pick",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._coverage_queues.get(id(spec))"
+    },
+    {
+      "path": "src/sqlseed/core/unique_adjuster.py",
+      "assignment_line": 96,
+      "condition_line": 97,
+      "name": "col_info",
+      "scope": "UniqueAdjuster._adjust_skip_unique",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "next((c for c in column_infos or [] if c.name == col_name), None)"
+    },
+    {
+      "path": "src/sqlseed/core/unique_adjuster.py",
+      "assignment_line": 118,
+      "condition_line": 119,
+      "name": "bounds",
+      "scope": "UniqueAdjuster._bound_integer_fallback",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._check_range_bounds(col_name, check_constraints)"
+    },
+    {
+      "path": "src/sqlseed/core/unique_adjuster.py",
+      "assignment_line": 157,
+      "condition_line": 158,
+      "name": "charset_size",
+      "scope": "UniqueAdjuster._adjust_string",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "len(set(resolve_charset(params.get('charset'))))"
+    },
+    {
+      "path": "src/sqlseed/core/unique_adjuster.py",
+      "assignment_line": 234,
+      "condition_line": 235,
+      "name": "match",
+      "scope": "UniqueAdjuster._string_length_bounds",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "re.fullmatch('(?:VAR)?CHAR\\\\((\\\\d+)\\\\)', column.type.upper())"
+    },
+    {
+      "path": "src/sqlseed/core/unique_adjuster.py",
+      "assignment_line": 272,
+      "condition_line": 273,
+      "name": "bounds",
+      "scope": "UniqueAdjuster._adjust_integer",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._check_range_bounds(col_name, check_constraints)"
+    },
+    {
+      "path": "src/sqlseed/core/unique_adjuster.py",
+      "assignment_line": 340,
+      "condition_line": 341,
+      "name": "col_info",
+      "scope": "UniqueAdjuster._adjust_choice",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "next((c for c in column_infos or [] if c.name == col_name), None)"
+    },
+    {
+      "path": "src/sqlseed/database/_type_normalizer.py",
+      "assignment_line": 110,
+      "condition_line": 111,
+      "name": "match",
+      "scope": "TypeNormalizer.normalize",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "_TYPE_PARAMS_RE.match(raw_type.strip())"
+    },
+    {
+      "path": "src/sqlseed/database/_type_normalizer.py",
+      "assignment_line": 145,
+      "condition_line": 146,
+      "name": "part",
+      "scope": "TypeNormalizer._parse_params",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "raw_part.strip()"
+    },
+    {
+      "path": "src/sqlseed/database/optimizer.py",
+      "assignment_line": 118,
+      "condition_line": 119,
+      "name": "current_page_size",
+      "scope": "PragmaOptimizer._apply_aggressive",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._fetch_pragma('page_size')"
+    },
+    {
+      "path": "src/sqlseed/database/sqlalchemy_adapter.py",
+      "assignment_line": 763,
+      "condition_line": 764,
+      "name": "col_names",
+      "scope": "SQLAlchemyAdapter.get_unique_constraints",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "tuple((c or '' for c in uc.get('column_names', [])))"
+    },
+    {
+      "path": "src/sqlseed/database/sqlalchemy_adapter.py",
+      "assignment_line": 789,
+      "condition_line": 790,
+      "name": "key",
+      "scope": "SQLAlchemyAdapter._append_sqlite_unique_constraints",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "idx.columns"
+    },
+    {
+      "path": "src/sqlseed/database/sqlalchemy_adapter.py",
+      "assignment_line": 902,
+      "condition_line": 904,
+      "name": "all_columns",
+      "scope": "SQLAlchemyAdapter.get_sample_rows",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self.get_column_info(table_name)"
+    },
+    {
+      "path": "src/sqlseed/database/sqlalchemy_adapter.py",
+      "assignment_line": 908,
+      "condition_line": 909,
+      "name": "selected",
+      "scope": "SQLAlchemyAdapter.get_sample_rows",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "[c for c in all_columns if c.name in projection_set]"
+    },
+    {
+      "path": "src/sqlseed/database/sqlalchemy_adapter.py",
+      "assignment_line": 935,
+      "condition_line": 936,
+      "name": "table_name",
+      "scope": "SQLAlchemyAdapter._get_table",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self._resolve_table_name(table_name)"
+    },
+    {
+      "path": "src/sqlseed/generators/_datetime_utils.py",
+      "assignment_line": 92,
+      "condition_line": 93,
+      "name": "days",
+      "scope": "_normalize_weekday_numbers",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "frozenset((int(d) for d in value))"
+    },
+    {
+      "path": "src/sqlseed/generators/_datetime_utils.py",
+      "assignment_line": 95,
+      "condition_line": 96,
+      "name": "bad",
+      "scope": "_normalize_weekday_numbers",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "sorted((d for d in days if d < 0 or d > 6))"
+    },
+    {
+      "path": "src/sqlseed/generators/_datetime_utils.py",
+      "assignment_line": 166,
+      "condition_line": 167,
+      "name": "span",
+      "scope": "random_date",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "(end - start).days"
+    },
+    {
+      "path": "src/sqlseed/generators/_datetime_utils.py",
+      "assignment_line": 177,
+      "condition_line": 178,
+      "name": "total",
+      "scope": "random_date",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "full_weeks * per_week + len(tail_hits)"
+    },
+    {
+      "path": "src/sqlseed/generators/_datetime_utils.py",
+      "assignment_line": 184,
+      "condition_line": 185,
+      "name": "k",
+      "scope": "random_date",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "rng.randrange(total)"
+    },
+    {
+      "path": "src/sqlseed/generators/_datetime_utils.py",
+      "assignment_line": 200,
+      "condition_line": 201,
+      "name": "hi",
+      "scope": "random_time",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "end_time.hour * 3600 + end_time.minute * 60 + end_time.second"
+    },
+    {
+      "path": "src/sqlseed/generators/_datetime_utils.py",
+      "assignment_line": 220,
+      "condition_line": 221,
+      "name": "hi",
+      "scope": "resolve_time_bounds",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "parse_iso_time(end_time) or DEFAULT_END_TIME"
+    },
+    {
+      "path": "src/sqlseed/generators/_dispatch.py",
+      "assignment_line": 96,
+      "condition_line": 97,
+      "name": "method_name",
+      "scope": "GeneratorDispatchMixin.generate",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "self.GENERATOR_MAP.get(type_name)"
+    },
+    {
+      "path": "src/sqlseed/generators/base_provider.py",
+      "assignment_line": 589,
+      "condition_line": 590,
+      "name": "seq_key",
+      "scope": "BaseProvider._gen_template",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "template"
+    },
+    {
+      "path": "src/sqlseed/generators/base_provider.py",
+      "assignment_line": 601,
+      "condition_line": 602,
+      "name": "fmt",
+      "scope": "BaseProvider._gen_template._replace_sequence",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "match.group(1)"
+    },
+    {
+      "path": "src/sqlseed/generators/base_provider.py",
+      "assignment_line": 616,
+      "condition_line": 617,
+      "name": "end",
+      "scope": "BaseProvider._replace_random_template_fields",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "result.find('}', start)"
+    },
+    {
+      "path": "src/sqlseed/generators/base_provider.py",
+      "assignment_line": 627,
+      "condition_line": 628,
+      "name": "end",
+      "scope": "BaseProvider._replace_random_template_fields",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "result.find('}', start)"
+    },
+    {
+      "path": "src/sqlseed/generators/base_provider.py",
+      "assignment_line": 637,
+      "condition_line": 638,
+      "name": "end",
+      "scope": "BaseProvider._replace_random_template_fields",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "result.find('}', start)"
+    },
+    {
+      "path": "src/sqlseed/generators/faker_provider.py",
+      "assignment_line": 99,
+      "condition_line": 100,
+      "name": "base_impl",
+      "scope": "FakerProvider._install_locale_fallbacks",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "getattr(BaseProvider, f'_gen_{gen_type}', None)"
+    },
+    {
+      "path": "src/sqlseed/generators/registry.py",
+      "assignment_line": 98,
+      "condition_line": 99,
+      "name": "provider_name",
+      "scope": "ProviderRegistry.get",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "name or self._default_name"
+    },
+    {
+      "path": "tests/test_architecture.py",
+      "assignment_line": 252,
+      "condition_line": 254,
+      "name": "rel_posix",
+      "scope": "TestProductionIsolation.test_raw_sqlite_adapter_not_imported_in_production_logic",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "rel.as_posix()"
+    },
+    {
+      "path": "tests/test_core/test_native_method_contract.py",
+      "assignment_line": 56,
+      "condition_line": 57,
+      "name": "value",
+      "scope": "test_native_method_remains_active_for_all_unique_rows",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "oracle.lexify(text='?')"
+    },
+    {
+      "path": "tests/test_doc_sync.py",
+      "assignment_line": 71,
+      "condition_line": 72,
+      "name": "value",
+      "scope": "_find_marker_claims",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "_extract_marker_value(text, marker_name)"
+    },
+    {
+      "path": "tests/test_doc_sync.py",
+      "assignment_line": 151,
+      "condition_line": 152,
+      "name": "idx",
+      "scope": "_extract_number_before_keyword",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "text_lower.find(kw_lower, pos)"
+    },
+    {
+      "path": "tests/test_doc_sync.py",
+      "assignment_line": 154,
+      "condition_line": 155,
+      "name": "num",
+      "scope": "_extract_number_before_keyword",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "_read_number_before(text, idx)"
+    },
+    {
+      "path": "tests/test_doc_sync.py",
+      "assignment_line": 169,
+      "condition_line": 170,
+      "name": "start",
+      "scope": "_get_config_fields",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "code.find(marker)"
+    },
+    {
+      "path": "tests/test_doc_sync.py",
+      "assignment_line": 181,
+      "condition_line": 182,
+      "name": "colon_idx",
+      "scope": "_get_config_fields",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "stripped.find(':')"
+    },
+    {
+      "path": "tests/test_relation.py",
+      "assignment_line": 36,
+      "condition_line": 37,
+      "name": "all_columns",
+      "scope": "_FakeDB.get_sample_rows",
+      "first_evaluated_operand": true,
+      "same_statement_list": true,
+      "rhs": "set(self._primary_keys) | fk_columns"
+    }
+  ],
+  "unused_temporaries": [
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/__init__.py",
+      "name": "col_type",
+      "scope": "AISqlseedPlugin.sqlseed_apply_ai_suggestions",
+      "load_count_including_nested_scopes": 1,
+      "store_count_including_nested_scopes": 1,
+      "locals_vars_eval_exec_calls": false,
+      "global_nonlocal_directives": false
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/analyzer/_caller.py",
+      "name": "available_others",
+      "scope": "LLMCallerMixin._find_local_fallback_model",
+      "load_count_including_nested_scopes": 1,
+      "store_count_including_nested_scopes": 1,
+      "locals_vars_eval_exec_calls": false,
+      "global_nonlocal_directives": false
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/analyzer/_streaming.py",
+      "name": "protocol",
+      "scope": "StreamingHandlerMixin._send_llm_request",
+      "load_count_including_nested_scopes": 1,
+      "store_count_including_nested_scopes": 1,
+      "locals_vars_eval_exec_calls": false,
+      "global_nonlocal_directives": false
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/_check_inference.py",
+      "name": "is_text",
+      "scope": "_infer_unique_column_config",
+      "load_count_including_nested_scopes": 1,
+      "store_count_including_nested_scopes": 1,
+      "locals_vars_eval_exec_calls": false,
+      "global_nonlocal_directives": false
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "name": "col_name_tmpl",
+      "scope": "AutoHealOrchestrator._repair_unique_template_generator",
+      "load_count_including_nested_scopes": 1,
+      "store_count_including_nested_scopes": 1,
+      "locals_vars_eval_exec_calls": false,
+      "global_nonlocal_directives": false
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "name": "base_type_r",
+      "scope": "AutoHealOrchestrator._collect_real_arithmetic_columns",
+      "load_count_including_nested_scopes": 1,
+      "store_count_including_nested_scopes": 1,
+      "locals_vars_eval_exec_calls": false,
+      "global_nonlocal_directives": false
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "name": "src_max_value_r",
+      "scope": "AutoHealOrchestrator._stabilize_real_source_column",
+      "load_count_including_nested_scopes": 1,
+      "store_count_including_nested_scopes": 1,
+      "locals_vars_eval_exec_calls": false,
+      "global_nonlocal_directives": false
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "name": "gen_c",
+      "scope": "AutoHealOrchestrator._apply_column_complex_check_null",
+      "load_count_including_nested_scopes": 1,
+      "store_count_including_nested_scopes": 1,
+      "locals_vars_eval_exec_calls": false,
+      "global_nonlocal_directives": false
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "name": "requires_not_null_c",
+      "scope": "AutoHealOrchestrator._apply_column_complex_check_null",
+      "load_count_including_nested_scopes": 1,
+      "store_count_including_nested_scopes": 1,
+      "locals_vars_eval_exec_calls": false,
+      "global_nonlocal_directives": false
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "name": "has_complex_check_c",
+      "scope": "AutoHealOrchestrator._apply_column_complex_check_null",
+      "load_count_including_nested_scopes": 1,
+      "store_count_including_nested_scopes": 1,
+      "locals_vars_eval_exec_calls": false,
+      "global_nonlocal_directives": false
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "name": "gen_sn",
+      "scope": "AutoHealOrchestrator._apply_column_status_null",
+      "load_count_including_nested_scopes": 1,
+      "store_count_including_nested_scopes": 1,
+      "locals_vars_eval_exec_calls": false,
+      "global_nonlocal_directives": false
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "name": "p30b_notin_matched_sn7",
+      "scope": "AutoHealOrchestrator._restore_nonnull_fallback",
+      "load_count_including_nested_scopes": 1,
+      "store_count_including_nested_scopes": 1,
+      "locals_vars_eval_exec_calls": false,
+      "global_nonlocal_directives": false
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "name": "is_fk_sn7",
+      "scope": "AutoHealOrchestrator._restore_nonnull_fallback",
+      "load_count_including_nested_scopes": 1,
+      "store_count_including_nested_scopes": 1,
+      "locals_vars_eval_exec_calls": false,
+      "global_nonlocal_directives": false
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/contracts/registry.py",
+      "name": "strategy",
+      "scope": "LearnedContractsRegistry._is_safe_entry",
+      "load_count_including_nested_scopes": 1,
+      "store_count_including_nested_scopes": 1,
+      "locals_vars_eval_exec_calls": false,
+      "global_nonlocal_directives": false
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/healer/degrader.py",
+      "name": "key",
+      "scope": "ProgressiveDegrader.degrade",
+      "load_count_including_nested_scopes": 1,
+      "store_count_including_nested_scopes": 1,
+      "locals_vars_eval_exec_calls": false,
+      "global_nonlocal_directives": false
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/healer/orchestrator.py",
+      "name": "ftype",
+      "scope": "HealOrchestrator.heal",
+      "load_count_including_nested_scopes": 1,
+      "store_count_including_nested_scopes": 1,
+      "locals_vars_eval_exec_calls": false,
+      "global_nonlocal_directives": false
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/healer/orchestrator.py",
+      "name": "skip_l1",
+      "scope": "HealOrchestrator._try_one_round",
+      "load_count_including_nested_scopes": 1,
+      "store_count_including_nested_scopes": 1,
+      "locals_vars_eval_exec_calls": false,
+      "global_nonlocal_directives": false
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/validator/cross_column.py",
+      "name": "max_val",
+      "scope": "CrossColumnValidator._check_fk_integrity",
+      "load_count_including_nested_scopes": 1,
+      "store_count_including_nested_scopes": 1,
+      "locals_vars_eval_exec_calls": false,
+      "global_nonlocal_directives": false
+    },
+    {
+      "path": "plugins/sqlseed-cli/src/sqlseed_cli/main.py",
+      "name": "any_clear",
+      "scope": "_fill_from_config_cmd",
+      "load_count_including_nested_scopes": 1,
+      "store_count_including_nested_scopes": 1,
+      "locals_vars_eval_exec_calls": false,
+      "global_nonlocal_directives": false
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/app.py",
+      "name": "forbidden",
+      "scope": "_maintenance_response",
+      "load_count_including_nested_scopes": 1,
+      "store_count_including_nested_scopes": 1,
+      "locals_vars_eval_exec_calls": false,
+      "global_nonlocal_directives": false
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/workbench_runtime.py",
+      "name": "violations",
+      "scope": "_fill_replacement_tables",
+      "load_count_including_nested_scopes": 1,
+      "store_count_including_nested_scopes": 1,
+      "locals_vars_eval_exec_calls": false,
+      "global_nonlocal_directives": false
+    },
+    {
+      "path": "src/sqlseed/_utils/progress.py",
+      "name": "env",
+      "scope": "create_progress",
+      "load_count_including_nested_scopes": 1,
+      "store_count_including_nested_scopes": 1,
+      "locals_vars_eval_exec_calls": false,
+      "global_nonlocal_directives": false
+    },
+    {
+      "path": "src/sqlseed/config/models.py",
+      "name": "derive_from",
+      "scope": "normalize_column_input",
+      "load_count_including_nested_scopes": 1,
+      "store_count_including_nested_scopes": 1,
+      "locals_vars_eval_exec_calls": false,
+      "global_nonlocal_directives": false
+    },
+    {
+      "path": "src/sqlseed/core/enrichment.py",
+      "name": "has_enrich",
+      "scope": "EnrichmentEngine.apply",
+      "load_count_including_nested_scopes": 1,
+      "store_count_including_nested_scopes": 1,
+      "locals_vars_eval_exec_calls": false,
+      "global_nonlocal_directives": false
+    },
+    {
+      "path": "src/sqlseed/core/relation.py",
+      "name": "col_nullable",
+      "scope": "RelationResolver._upgrade_fk_constrained_columns",
+      "load_count_including_nested_scopes": 1,
+      "store_count_including_nested_scopes": 1,
+      "locals_vars_eval_exec_calls": false,
+      "global_nonlocal_directives": false
+    },
+    {
+      "path": "src/sqlseed/core/relation.py",
+      "name": "is_unique",
+      "scope": "RelationResolver.resolve_implicit_associations",
+      "load_count_including_nested_scopes": 1,
+      "store_count_including_nested_scopes": 1,
+      "locals_vars_eval_exec_calls": false,
+      "global_nonlocal_directives": false
+    },
+    {
+      "path": "src/sqlseed/core/stream.py",
+      "name": "violated",
+      "scope": "DataStream._check_row_inequalities",
+      "load_count_including_nested_scopes": 1,
+      "store_count_including_nested_scopes": 1,
+      "locals_vars_eval_exec_calls": false,
+      "global_nonlocal_directives": false
+    },
+    {
+      "path": "scripts/analyze_ai_logs.py",
+      "name": "derive_value",
+      "scope": "_record_failure_patterns",
+      "load_count_including_nested_scopes": 1,
+      "store_count_including_nested_scopes": 1,
+      "locals_vars_eval_exec_calls": false,
+      "global_nonlocal_directives": false
+    }
+  ],
+  "files": [
+    {
+      "path": "conftest.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "67d29832863d589ce3ec9203b6821ea721622714477e5ebaf7075f7738538294"
+    },
+    {
+      "path": "examples/build_showcase_db.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "44f0a0852bb7795e75f90ef567c61040ad049c3e6266ae654c8f55b5b5dfc6b1"
+    },
+    {
+      "path": "examples/order_workflow/run.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "0eda5b19f3604cfb27c44d8f29a6783ce7744b86a95ee887e318806729769f34"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/__init__.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "17e68b5908de999e0ed0ff403a94d53904e3913fb7555b69a8d05f825b0157df"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/_hardware.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "d7f9c5beef15d569e69548265fe05fa5252376f5de3d2f6a3ea5735941f5067b"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/_json_utils.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "edeec7461cf36304d808d769d119837e170c98d0abbfe2b708c8e4f158d2e1e9"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/_model_selector.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "271d8c4235373a21b0b869c8829c0a743eff47ad2f9ef57d6f96b8e6ea678ea7"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/ai_mediator.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "194a0a4ae8850c25a6b31e700df4d6e5925f19e73a8bdbfb340fb8eb516dafaf"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/analyzer/_caller.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "17e236034cc6b8728a80b51164fca51ea0ba9ee7fbfc9ae5bb19078b528cf1a5"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/analyzer/_context.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "fdad37f2581b0ee8889ca9a17608d4faaba8cb91a6d3af16a9ae321342cd0be1"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/analyzer/_streaming.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "f2facbe3f6dd70bce883d72a0cad3764368fe2f73023ee0712782980e38721c2"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/analyzer/_tool_calling.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "ed8b2e563dafc5827e1bc7b85c381c4d3fe445dad5ae274d1d5d87d690e1ce45"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/_check_inference.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "12d0d546107445d9d50311488008f2ddd1580c5687495c15bd1c893edfac3f30"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/_cross_column_checks.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "3b999d39f69863d142bd243b31246a87a5a46b8fd74963741a808b1fd65a9010"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "69b0793d8ac711cca02a4b7cebf86fdef579ed3a0d35aa46aacf6fe13ca644a7"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/config.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "b61675e79a7c0a77f0216697f458bac7a9500a7c852b548cce032a1360fc8664"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/contracts/matrix.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "0e27f2a1d7b0617f9d9934a9e72bf56b7be2ca7840bd5dc17d5117c0556f7775"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/contracts/registry.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "d265c4a0294d13db5e418e339b401b52c4dcc8cb9a8378107832114432251f94"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/errors.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "65302af937a997fd05566f99c33de0ccdad85f3fb2919ff75194aadcd3c4600b"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/healer/candidate_validation.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "2c3d4465f9bd0d5d39acb5617e413cb385f14f65d2e6fe605cbf525b74d2dbba"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/healer/degrader.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "14f735d7fada3e1f6d98322c23c9f8660647ac9b3317027fcc845910a7497655"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/healer/level1_subgraph_healer.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "571e7ed15aab31f27273aed1a6e9f4c353816ef7164217d2bdabf241e396c3f7"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/healer/level2_column_healer.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "e519f312f0db8f781fd1c488f95936be733f77eb6c1d6bf4ff39e3c8025a0045"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/healer/orchestrator.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "9e80ba5d9911fe0c52e310eff2503920a59e8c69a2c4241757f032990170dc27"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/healer/oscillation.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "e818d5aedc52bc17624799f6f021da5fdafa870e7763d7584bf09d4bb87237e1"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/mcp.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "d5a86976af313801313110dcf9dde6e9f77a3912bc53432f48add5e70c09dcb3"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/refiner.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "029f4c4a89a6e17c8d84c546959ed8bcd22e742b28649102dd68c4dfcd850036"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/repair/executor.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "36172f2d7c84a4c956c32d2e51a405b048894f5b9b2a77a965e38505ba1e8219"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/repair/strategies.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "4a9ec1815b52db42f916de5f8d170d45d874c4bdae1f259c1f3b32e285ea141d"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/runtime.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "ae235535799699e1a9d93fd775be14794ef45405b90f0fb11d376ad5e1b4b290"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/validator/cross_column.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "8e5fbd25c7f1626d68297331ef113f375ed44cb42492e55fe14417d945f8fa93"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/validator/dialect_parser.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "1c72357360a01e03ce17b6ecb3fe081df805eccb82eeb49adc09450a96a23011"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/validator/main.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "b2f94f57b15db9fb4c2b202761b5049cf355649ad223baf41a2bacf6c9c2daa9"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/validator/schema_snapshot.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "75b217851497b592a0c15fd314bd0a446575b269625a5c7dbe090948b0419cf8"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/validator/shadow_fk_scan.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "d046d8842a910bfbaa8f12cb9776c41f1c7b70da55f57d11b70dfb962194f260"
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/validator/single_column.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "a2cd913c31122c3dce50c4bc866daac6eff595dec4658f076bc33020453e1b02"
+    },
+    {
+      "path": "plugins/sqlseed-cli/src/sqlseed_cli/main.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "1263ce7b41f8f0bfca3101b5951e20f6542ff3e3954a8cbe0741f717fde2292a"
+    },
+    {
+      "path": "plugins/sqlseed-cli/tests/test_cli_ai_commands.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "7416603be56adefa953fd705d0d8b9edef1d7c22bae0b0e2428282e1b16714a4"
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/ai_settings.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "4e96bd25605f2e489634e7e70df72d7b5fb3a6a4ec83b7c8ab2c275f2eebbdd5"
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/api.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "837c934de369be4692f4e02fdc8e19f297059ab8d831c64f512fd0f22337c8d5"
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/app.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "b0d8217e5490a0320972270bf8b8a4b5ce9ddb80fdc03bf60e844c9501c16c74"
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/plugin_management.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "1f0128562e85f12068888b7e1c877b457c223ec7391fff1d4b0c5b0d67946ac1"
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/plugin_process.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "f21242388cf1bd180f729790e1a7c5dd35cf38838facd3ae93b882345b8c5c8d"
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/sqlite_target.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "875ebb0d3d218d294357df27d04734fdce2a92aaaa9c651d2a6481edd062b91a"
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/state.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "2c0b710712fff13cd3d6761dded276b9295c920e0a78deae207d9d6e60e14440"
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/supervisor.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "8ff21aac05b1f013c56549cf6dc603ca5ca600633969a98404420ddf86548e02"
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/workbench_ai.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "de9389e7fa92915590992db33a2b79da55c82cdad6c2f68f2206d95f97e5cad0"
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/workbench_ai_relations.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "bf33c1f3e9eba925a68f9e889749abbf356605f569c78759fded7cfede809522"
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/workbench_runtime.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "9eefc067bf0bc310b501879da92fb2fcd8df8fa566488d2c4c8551995a53ed7c"
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/workbench_schema.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "cc9a0c64d23093398c846bf0d9e10af3d4ac2a3967bada216ded6358e3040d0f"
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/workbench_store.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "e8bf20ec5a6be6375cab44920641288c6036362fa4315174b993d40e6f2e811e"
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/worker_control.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "8846c6ec6d0387a669133f82fd09ab0c9528cfb3ca4f5d1c3788cfd01a0ab896"
+    },
+    {
+      "path": "scripts/_fact_extractors.py",
+      "canonical_ast_equal": false,
+      "diff_file": "/tmp/sqlseed-walrus-independent-diffs/scripts___fact_extractors.py.diff",
+      "current_sha256": "afc86bfc44067f4f9ff95cd0a29c13d6e0bbbff913daa3eb7fbd6a0e07b5e72c"
+    },
+    {
+      "path": "scripts/analyze_ai_logs.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "09822dbd955fd2bfc55ffaf0e471b76735ad95dbc5a3a774653a307a445b5538"
+    },
+    {
+      "path": "scripts/complex_validation/run_validation.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "7cf3f67ff91c4f89799be59849eb44f36c85044d99235b1633130f942ef87156"
+    },
+    {
+      "path": "scripts/sync_docs.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "420a87a3eec108042a6448600d62dba3298e2a1e8d94db34ae92ab05f2865ca9"
+    },
+    {
+      "path": "src/sqlseed/_utils/paths.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "7e547483cc24808be501cb93fd8f38a94f37399b58340e537f3abcc0e9f9b323"
+    },
+    {
+      "path": "src/sqlseed/_utils/progress.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "054f8e8e12d5178acfcc30c00556fc42947d8b44e43c966b93aea35aa20436c7"
+    },
+    {
+      "path": "src/sqlseed/config/loader.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "f13d6169a713ac978a46d7f4e1e54fc45e74b16b5e34f58c3ecc59fd0d457bb4"
+    },
+    {
+      "path": "src/sqlseed/config/models.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "8aaaa8c4c82a9d1946af1be67a3cba4bfdfa72749b78ac7c55d8af3376051a15"
+    },
+    {
+      "path": "src/sqlseed/core/check_adapt.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "dec2baf57d3733ecdc3283b4ca159cbea011dc95af3e2a347d5c31d939891748"
+    },
+    {
+      "path": "src/sqlseed/core/check_parser.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "88f0629ddade6ea1e2445669a73f6724d4f09624fea2506851ec6ad386fcc80e"
+    },
+    {
+      "path": "src/sqlseed/core/enrichment.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "8492efcc38ab92029921e62bde53e139337f563e12353481f5c6fa69452858bb"
+    },
+    {
+      "path": "src/sqlseed/core/expression.py",
+      "canonical_ast_equal": false,
+      "diff_file": "/tmp/sqlseed-walrus-independent-diffs/src__sqlseed__core__expression.py.diff",
+      "current_sha256": "87ff03857371d23792c109d052d74b18a4520fc2f55984edb65cce083b9e8354"
+    },
+    {
+      "path": "src/sqlseed/core/features.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "eea02837525adc82747d815e09b9e041a556430c127b1cc4f3275387dd578baf"
+    },
+    {
+      "path": "src/sqlseed/core/mapper.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "95322f36be69d4eb6033d029d99f20a635adcd20f65ac96ffbd7ad8c4dd132e1"
+    },
+    {
+      "path": "src/sqlseed/core/orchestrator/_connection.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "8c2aadc6052cb9b2363e5af0d832a4fd56f3d51f3d29f0d285a63856b5e23d38"
+    },
+    {
+      "path": "src/sqlseed/core/orchestrator/_generation.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "6aba1d405795ff5a4dc3081b8e1fe1275af6714391a94edc3713b21847f64c12"
+    },
+    {
+      "path": "src/sqlseed/core/orchestrator/_query.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "a8c552943fdfcde7f7a1b506ae969262c8f81d3590b34dcd4c4e7e14386b5eef"
+    },
+    {
+      "path": "src/sqlseed/core/orchestrator/_specs.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "ae5afbdfb773e4d6166da65e5d2cba754b5607a2107c971705a2ab5a105cb8fe"
+    },
+    {
+      "path": "src/sqlseed/core/relation.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "29cf9e727e94bffd8c1948f6e9bca6a18eccfd9f66f51f75f63d3767f6d47178"
+    },
+    {
+      "path": "src/sqlseed/core/schema.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "96a80b96a492bb5b22c6083c4b662742505ee113a073b4eb33493fdd3b93eb99"
+    },
+    {
+      "path": "src/sqlseed/core/schema_fallback.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "b8d3c298e336be7a3a75bcd9496fcd68b640440bb703d11e4a900e0913a39a9f"
+    },
+    {
+      "path": "src/sqlseed/core/stream.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "bad815d1f1f6371775284ee8097122fb0807b4cfc3e1d07708a0510473ca97be"
+    },
+    {
+      "path": "src/sqlseed/core/unique_adjuster.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "4532f18e390075685e77d302720ed04fd8c944a0be5916168b520c219781e35c"
+    },
+    {
+      "path": "src/sqlseed/database/_type_normalizer.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "8f8f29afb490e99b3c1b397d075be877ea4901816a525b050d661caf7eea6d2d"
+    },
+    {
+      "path": "src/sqlseed/database/optimizer.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "fd35e7350915a181d2a7c2e17fb57c79fef8fcf89e0e2ced9a38b9a938846e2c"
+    },
+    {
+      "path": "src/sqlseed/database/sqlalchemy_adapter.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "a443b8e5c397cff272fdff7404be22f0aad234c4328133d5826523da1fe2e8da"
+    },
+    {
+      "path": "src/sqlseed/generators/_datetime_utils.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "5ca566be349f1bfd84c7f5b700ce8c585d13f79394ac6700d549d255fb774dc4"
+    },
+    {
+      "path": "src/sqlseed/generators/_dispatch.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "b630c418f366ff430122f46636d2f6c2068f7d94fb4b799fc461adfd295148dc"
+    },
+    {
+      "path": "src/sqlseed/generators/base_provider.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "a4fa26524740ffe32185320d719c803588e74a7f452e2e29b625efc1cfe84818"
+    },
+    {
+      "path": "src/sqlseed/generators/faker_provider.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "be77a690a8d12d9114f17244ad59fa977aa0655ce0feddff515904676dd42ec9"
+    },
+    {
+      "path": "src/sqlseed/generators/registry.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "9d18a96c0e91f23fc615448059ca9dd2c3194ed2cf5d4ae4c8da7780556c6149"
+    },
+    {
+      "path": "tests/test_architecture.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "a5a3c1c372927cc44a29ae0be5e405fd42b22138114f5ea8f7faaaee14c5b8a2"
+    },
+    {
+      "path": "tests/test_core/test_native_method_contract.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "11a8f321d54cb2e8cb92003e4615112c9be022d63c58d5a6b464e742371333e1"
+    },
+    {
+      "path": "tests/test_doc_sync.py",
+      "canonical_ast_equal": false,
+      "diff_file": "/tmp/sqlseed-walrus-independent-diffs/tests__test_doc_sync.py.diff",
+      "current_sha256": "00ee4644fb25d699281902fca71cc35c99df3c617a0ddf761856ad7716a8a229"
+    },
+    {
+      "path": "tests/test_relation.py",
+      "canonical_ast_equal": true,
+      "diff_file": null,
+      "current_sha256": "13d763eeb94ea6e0a04ffc221d2ce6a58a61fd2002c0bdc77f821a8a2f551755"
+    }
+  ],
+  "equal_files": 84,
+  "mismatched_files": [
+    {
+      "path": "scripts/_fact_extractors.py",
+      "canonical_ast_equal": false,
+      "diff_file": "/tmp/sqlseed-walrus-independent-diffs/scripts___fact_extractors.py.diff",
+      "current_sha256": "afc86bfc44067f4f9ff95cd0a29c13d6e0bbbff913daa3eb7fbd6a0e07b5e72c"
+    },
+    {
+      "path": "src/sqlseed/core/expression.py",
+      "canonical_ast_equal": false,
+      "diff_file": "/tmp/sqlseed-walrus-independent-diffs/src__sqlseed__core__expression.py.diff",
+      "current_sha256": "87ff03857371d23792c109d052d74b18a4520fc2f55984edb65cce083b9e8354"
+    },
+    {
+      "path": "tests/test_doc_sync.py",
+      "canonical_ast_equal": false,
+      "diff_file": "/tmp/sqlseed-walrus-independent-diffs/tests__test_doc_sync.py.diff",
+      "current_sha256": "00ee4644fb25d699281902fca71cc35c99df3c617a0ddf761856ad7716a8a229"
+    }
+  ],
+  "current_hash_check": {
+    "changed_since_review": []
+  },
+  "remaining_difference_classification": {
+    "scripts/_fact_extractors.py": "Separately reviewed AST fact extraction implementation; excluded by parent scope.",
+    "tests/test_doc_sync.py": "Companion fact-extraction regression; excluded by parent scope.",
+    "src/sqlseed/core/expression.py": "Error sentinel replaced by list[Exception]; independently reviewed and exercised in real-thread differential probes."
+  },
+  "original_preconversion_snapshot_asts_equal_pushed_commit": true,
+  "conclusion": "No unexpected assignment-expression, short-circuit, evaluation-count, closure, or exception-propagation regression found within reviewed scope."
+}

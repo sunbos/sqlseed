@@ -92,8 +92,7 @@ _GENERATOR_PARAM_WHITELIST: dict[str, set[str]] = {
 
 def _strip_invalid_params(params: dict[str, Any], generator: str) -> dict[str, Any]:
     """Remove params not in the generator's whitelist."""
-    whitelist = _GENERATOR_PARAM_WHITELIST.get(generator)
-    if whitelist is None:
+    if (whitelist := _GENERATOR_PARAM_WHITELIST.get(generator)) is None:
         return params
     return {k: v for k, v in params.items() if k in whitelist}
 
@@ -140,14 +139,12 @@ def _semantic_upgrade(col: dict[str, Any], v: ViolationReport, ctx: dict[str, An
         # Blind-spot fix: phone-like column with LENGTH CHECK → pattern with
         # [0-9]{N} instead of phone generator. This satisfies both the semantic
         # requirement (digits-only, phone-like) and the LENGTH CHECK (exact N).
-        if new_gen == "phone":
-            length_n = _extract_length_check(name, ctx)
-            if length_n is not None:
-                new_col["generator"] = "pattern"
-                new_col["params"] = {"regex": f"[0-9]{{{length_n}}}"}
-                new_col.pop("derive_from", None)
-                new_col.pop("expression", None)
-                return new_col
+        if new_gen == "phone" and (length_n := _extract_length_check(name, ctx)) is not None:
+            new_col["generator"] = "pattern"
+            new_col["params"] = {"regex": f"[0-9]{{{length_n}}}"}
+            new_col.pop("derive_from", None)
+            new_col.pop("expression", None)
+            return new_col
         new_col["generator"] = new_gen
     # else: keep existing generator (e.g., "string")
     new_col.pop("params", None)
@@ -244,8 +241,7 @@ def _upgrade_to_template(col: dict[str, Any], v: ViolationReport, ctx: dict[str,
     # Skip columns with CHECK constraints — the template generator would
     # override CHECK-based inference (e.g., day_of_week BETWEEN 0 AND 6 should
     # produce integers, not "DAY-0001" strings).
-    table_schema = ctx.get("table_schema")
-    if table_schema:
+    if table_schema := ctx.get("table_schema"):
         col_name = col.get("name", "")
         for c in table_schema.constraints:
             if c.get("type") != "check":
@@ -443,8 +439,7 @@ def _cap_future_end_year(col: dict[str, Any], v: ViolationReport, ctx: dict[str,
     if not isinstance(params, dict):
         return col
     cap = datetime.now().year + 1
-    key = future_bound_key(params, cap)
-    if key is None:
+    if (key := future_bound_key(params, cap)) is None:
         return col
     new_col = {**col}
     new_params = dict(params)
@@ -499,8 +494,7 @@ def _is_phone_like(name: str) -> bool:
     """Heuristic: column name looks like a phone number field."""
     if not name:
         return False
-    lower = name.lower()
-    if lower in _PHONE_NAME_KEYWORDS:
+    if (lower := name.lower()) in _PHONE_NAME_KEYWORDS:
         return True
     return any(lower.endswith(suffix) for suffix in ("_phone", "_mobile", "_tel", "_telephone"))
 
@@ -530,14 +524,12 @@ def _upgrade_phone_to_pattern(col: dict[str, Any], v: ViolationReport, ctx: dict
 
     # LENGTH(col) = N CHECK → N-digit pattern (not NANP: 14 chars violates
     # constraints like LENGTH(phone) = 11).
-    length_n = _extract_length_check(name, ctx)
-    if length_n is not None:
+    if (length_n := _extract_length_check(name, ctx)) is not None:
         return {**col, "generator": "pattern", "params": {"regex": f"[0-9]{{{length_n}}}"}}
 
     gen = col.get("generator")
     if gen == "phone":
-        params = col.get("params") or {}
-        if params:
+        if params := col.get("params") or {}:
             return col  # Don't touch phone with explicit params
         return {**col, "generator": "pattern", "params": {"regex": _NANP_PHONE_REGEX}}
     if gen == "string":
@@ -562,8 +554,7 @@ def _coerce_to_boolean_enum(col: dict[str, Any], v: ViolationReport, ctx: dict[s
     If all values are 'true'/'false' (str), switch to ``choice`` with
     those values.
     """
-    check_values = v.fix_params.get("check_values") or []
-    if not check_values:
+    if not (check_values := v.fix_params.get("check_values") or []):
         return col
     # Boolean int: {0, 1}
     if all(val in (0, 1) for val in check_values):
@@ -603,8 +594,7 @@ def _coerce_to_text_enum(col: dict[str, Any], v: ViolationReport, ctx: dict[str,
 
     No-op when check_values are integers (handled by Rule #32 boolean_enum).
     """
-    check_values = v.fix_params.get("check_values") or []
-    if not check_values:
+    if not (check_values := v.fix_params.get("check_values") or []):
         return col
     # Only handle string values (Rule #32 handles 0/1 integers)
     if not all(isinstance(val, str) for val in check_values):
@@ -759,8 +749,7 @@ def _strip_invalid_date_derive_from(col: dict[str, Any], v: ViolationReport, ctx
     if isinstance(sources, str):
         sources = [sources]
 
-    is_date = _looks_like_date_column(col_name, generators)
-    if not is_date:
+    if not (is_date := _looks_like_date_column(col_name, generators)):
         for s in sources:
             if isinstance(s, str) and _looks_like_date_column(s, generators):
                 is_date = True

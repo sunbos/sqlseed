@@ -126,7 +126,7 @@ def run_worker(
     """Spawn target: the parent owns signals, listener lifetime, and package state."""
     import uvicorn
 
-    from sqlseed_web.app import create_app
+    from sqlseed_web._application import create_app
     from sqlseed_web.runtime_lifecycle import runtime_gate
 
     signal.signal(signal.SIGINT, signal.SIG_IGN)

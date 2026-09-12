@@ -265,7 +265,8 @@ def _validate_sample_value(table: str, column: str, parsed: ParsedCheck, value: 
         raise SampleCheckError(
             table,
             column,
-            f"生成值长度不满足 CHECK（最少 {parsed.min_length if parsed.min_length is not None else 0}，最多 {parsed.max_length if parsed.max_length is not None else '不限'}）",
+            f"生成值长度不满足 CHECK（最少 {parsed.min_length if parsed.min_length is not None else 0}，"
+            f"最多 {parsed.max_length if parsed.max_length is not None else '不限'}）",
         )
 
 
@@ -274,8 +275,7 @@ def validate_sample_checks(schema: dict[str, Any], samples: dict[str, Any]) -> N
     for table in schema["tables"]:
         for column in table["columns"]:
             for check in table["checks"]:
-                parsed = CheckConstraintParser.parse(column["name"], check["expression"])
-                if parsed is None:
+                if (parsed := CheckConstraintParser.parse(column["name"], check["expression"])) is None:
                     continue
                 for row in samples.get(table["name"], []):
                     _validate_sample_value(table["name"], column["name"], parsed, row.get(column["name"]))

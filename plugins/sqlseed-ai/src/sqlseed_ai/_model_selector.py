@@ -36,8 +36,7 @@ def _normalize_model_id(model_id: str) -> str:
 
     # Convert Ollama format: "gemma4:xxb" → "gemma-4-xxb"
     # e.g., "gemma4:e4b" → "gemma-4-e4b", "gemma4:26b" → "gemma-4-26b"
-    ollama_match = re.match(r"^gemma4:(.+)$", result)
-    if ollama_match:
+    if ollama_match := re.match(r"^gemma4:(.+)$", result):
         result = f"gemma-4-{ollama_match.group(1)}"
 
     # Strip provider prefix (e.g., "google/" from LM Studio/OpenRouter IDs)

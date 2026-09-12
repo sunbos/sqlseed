@@ -107,8 +107,7 @@ class ControlChannel:
                         self._send({"id": message["id"], "error": {"status_code": 503, "detail": "服务控制通道繁忙。"}})
                 else:
                     with self._lock:
-                        pending = self._pending.get(message["id"])
-                        if pending:
+                        if pending := self._pending.get(message["id"]):
                             pending[1].update(message)
                             pending[0].set()
         except (OSError, EOFError, ValueError, TypeError, RuntimeError):

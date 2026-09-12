@@ -48,8 +48,7 @@ def _read_installer_output(stream: BinaryIO, output: Callable[[str], None]) -> N
                 pending = b""
                 dropping_line = True
                 line = b"[overlong installer output omitted]"
-            clean = _sanitized(line.decode("utf-8", errors="replace"))[: min(remaining, 2000)]
-            if clean:
+            if clean := _sanitized(line.decode("utf-8", errors="replace"))[: min(remaining, 2000)]:
                 output(clean)
                 remaining -= len(clean)
         if remaining <= 0:
@@ -81,8 +80,7 @@ def run_installer(
             # process is still changing packages. It closes on process exit.
             pass_fds=(lock_descriptor,) if os.name != "nt" and lock_descriptor is not None else (),
         )
-        stream = process.stdout
-        if stream is None:
+        if (stream := process.stdout) is None:
             process.kill()
             process.wait()
             raise RuntimeError("无法读取安装工具输出。")

@@ -101,13 +101,13 @@ class SupervisedPluginManager(PluginManager):
                     stage=stage, status="running", message=message, service_ready=False, restart_required=False
                 )
 
-    def _run(self, plan: dict[str, Any], before: dict[str, InstalledPackage]) -> None:
+    def _run(self, operation_plan: dict[str, Any], before: dict[str, InstalledPackage]) -> None:
         try:
             self.controller.enter_maintenance()
-            self._stage("installing", "正在安装组件。" if plan["action"] == "install" else "正在卸载组件。")
+            self._stage("installing", "正在安装组件。" if operation_plan["action"] == "install" else "正在卸载组件。")
             if plugin_environment.installed_packages(self.environment.prefix) != before:
                 raise RuntimeError("environment changed before installation")
-            super()._run(plan, before)
+            super()._run(operation_plan, before)
             with self._lock:
                 if self._task is not None:
                     self._package_status = self._task["status"]

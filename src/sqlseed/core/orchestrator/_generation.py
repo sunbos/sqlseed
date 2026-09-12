@@ -119,8 +119,8 @@ def _extract_non_null_values(
         if m:
             raw = m.group(1)
             # Try string values first: 'V1', 'V2', ...
-            values: list[str | int] = re.findall(r"'([^']+)'", raw)
-            if not values:
+            values: list[str | int]
+            if not (values := re.findall(r"'([^']+)'", raw)):
                 # No string values found — try integer values: 1, 2, 3, ...
                 values = [int(v) for v in re.findall(r"\b(\d+)\b", raw)]
             return [v for v in values if v != null_val]
@@ -454,12 +454,10 @@ class GenerationMixin:
         values are NULL, producing unrealistic flat data.
         """
         fks = self._relation.get_foreign_keys(table_name)
-        self_ref_fks = [fk for fk in fks if fk.ref_table == table_name]
-        if not self_ref_fks:
+        if not (self_ref_fks := [fk for fk in fks if fk.ref_table == table_name]):
             return
 
-        pk_cols = self._db.get_primary_keys(table_name)
-        if not pk_cols:
+        if not (pk_cols := self._db.get_primary_keys(table_name)):
             return
         pk_col = pk_cols[0]
 
@@ -484,21 +482,23 @@ class GenerationMixin:
         """Find allowed condition values, using existing rows when CHECK has no enum."""
         cond_col, null_val = _detect_cond_column(fk_col, checks)
         non_null_values: list[str | int] = []
-        if cond_col and null_val is not None:
-            non_null_values = _extract_non_null_values(cond_col, null_val, checks)
-            if not non_null_values:
-                existing = self.query(
-                    f"SELECT DISTINCT {quote_identifier(cond_col)} AS v "
-                    f"FROM {quote_identifier(table_name)} "
-                    f"WHERE {quote_identifier(cond_col)} IS NOT NULL "
-                    f"AND {quote_identifier(cond_col)} != {ph}",
-                    (null_val,),
-                )
-                # Preserve the CHECK literal type in values sampled for UPDATE.
-                if isinstance(null_val, int):
-                    non_null_values = [int(r["v"]) for r in existing]
-                else:
-                    non_null_values = [str(r["v"]) for r in existing]
+        if (
+            cond_col
+            and null_val is not None
+            and not (non_null_values := _extract_non_null_values(cond_col, null_val, checks))
+        ):
+            existing = self.query(
+                f"SELECT DISTINCT {quote_identifier(cond_col)} AS v "
+                f"FROM {quote_identifier(table_name)} "
+                f"WHERE {quote_identifier(cond_col)} IS NOT NULL "
+                f"AND {quote_identifier(cond_col)} != {ph}",
+                (null_val,),
+            )
+            # Preserve the CHECK literal type in values sampled for UPDATE.
+            if isinstance(null_val, int):
+                non_null_values = [int(r["v"]) for r in existing]
+            else:
+                non_null_values = [str(r["v"]) for r in existing]
         return cond_col, non_null_values
 
     def _update_self_ref_column(
@@ -528,8 +528,7 @@ class GenerationMixin:
         for i, pk_val in enumerate(pk_values):
             if i == 0 or rng.random() > 0.7:
                 continue
-            ref_value = ref_values[rng.randint(0, i - 1)]
-            if ref_value is None:
+            if (ref_value := ref_values[rng.randint(0, i - 1)]) is None:
                 continue
 
             if cond_col and non_null_values:

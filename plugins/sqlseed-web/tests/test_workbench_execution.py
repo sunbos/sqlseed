@@ -25,7 +25,8 @@ def fixture_target(tmp_path: Path) -> Iterator[tuple[UIState, Connection, Worksp
     with sqlite_connection(path) as db:
         db.executescript(
             "CREATE TABLE parents(id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT UNIQUE NOT NULL);"
-            "CREATE TABLE children(id INTEGER PRIMARY KEY AUTOINCREMENT, parent_id INTEGER NOT NULL REFERENCES parents(id));"
+            "CREATE TABLE children(id INTEGER PRIMARY KEY AUTOINCREMENT, parent_id INTEGER NOT "
+            "NULL REFERENCES parents(id));"
             "CREATE TABLE unrelated(id INTEGER PRIMARY KEY, content TEXT);"
             "INSERT INTO parents VALUES(40,'old');INSERT INTO children VALUES(60,40);"
             "INSERT INTO unrelated VALUES(7,'keep');"
@@ -181,7 +182,9 @@ def test_external_incoming_fk_blocks_clearing_even_with_cascade(
     registry, conn, store = target
     with sqlite_connection(conn.target) as db:
         db.executescript(
-            f"DROP TABLE children; CREATE TABLE children(id INTEGER PRIMARY KEY AUTOINCREMENT, parent_id INTEGER REFERENCES parents(id) ON DELETE {action}); INSERT INTO children VALUES(60,40);"
+            "DROP TABLE children; CREATE TABLE children(id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            f"parent_id INTEGER REFERENCES parents(id) ON DELETE {action}); "
+            "INSERT INTO children VALUES(60,40);"
         )
     args, _ = prepared(
         conn, store, [{"name": "parents", "count": 1, "columns": [{"name": "code", "generator": "uuid"}]}]
@@ -204,7 +207,9 @@ def test_late_generated_batch_failure_restores_every_original_row_and_sequence(
     registry, conn, store = target
     with sqlite_connection(conn.target) as db:
         db.executescript(
-            "DELETE FROM children; DROP TABLE parents; CREATE TABLE parents(id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT UNIQUE NOT NULL CHECK(code <> 'new-4')); INSERT INTO parents VALUES(40,'old'); INSERT INTO children VALUES(60,40);"
+            "DELETE FROM children; DROP TABLE parents; CREATE TABLE parents(id INTEGER PRIMARY KEY "
+            "AUTOINCREMENT, code TEXT UNIQUE NOT NULL CHECK(code <> 'new-4')); INSERT INTO parents "
+            "VALUES(40,'old'); INSERT INTO children VALUES(60,40);"
         )
     args, _ = prepared(conn, store)
     before = contents(conn)
@@ -332,7 +337,9 @@ def test_sqlite_nullable_self_reference_uses_new_ids_and_deferred_updates(
     registry, conn, store = target
     with sqlite_connection(conn.target) as db:
         db.executescript(
-            "CREATE TABLE employees(id INTEGER PRIMARY KEY AUTOINCREMENT, manager_id INTEGER REFERENCES employees(id)); INSERT INTO employees VALUES(90,NULL); INSERT INTO employees VALUES(91,90);"
+            "CREATE TABLE employees(id INTEGER PRIMARY KEY AUTOINCREMENT, manager_id INTEGER "
+            "REFERENCES employees(id)); INSERT INTO employees VALUES(90,NULL); INSERT INTO "
+            "employees VALUES(91,90);"
         )
     args, _ = prepared(conn, store, [{"name": "employees", "count": 8, "batch_size": 3}])
     execution = {"mode": "replace_selected", "reset_identity": True}
@@ -440,7 +447,9 @@ def test_existing_self_reference_restrict_blocks_before_delete(
     registry, conn, store = target
     with sqlite_connection(conn.target) as db:
         db.executescript(
-            "CREATE TABLE employees(id INTEGER PRIMARY KEY AUTOINCREMENT, manager_id INTEGER REFERENCES employees(id) ON DELETE RESTRICT); INSERT INTO employees VALUES(90,NULL); INSERT INTO employees VALUES(91,90);"
+            "CREATE TABLE employees(id INTEGER PRIMARY KEY AUTOINCREMENT, manager_id INTEGER "
+            "REFERENCES employees(id) ON DELETE RESTRICT); INSERT INTO employees VALUES(90,NULL); "
+            "INSERT INTO employees VALUES(91,90);"
         )
     args, _ = prepared(conn, store, [{"name": "employees", "count": 8}])
     plan = plan_execution(**args, execution={"mode": "replace_selected"}, registry=registry, store=store)

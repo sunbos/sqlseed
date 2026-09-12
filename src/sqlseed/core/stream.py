@@ -76,12 +76,12 @@ def _violates_inequality(v1: Any, v2: Any, op: str, col1: str, col2: str) -> boo
         if op == "!=":
             return bool(v1 == v2)
         if op == ">":
-            return not (v1 > v2)
+            return not v1 > v2
         if op == "<":
-            return not (v1 < v2)
+            return not v1 < v2
         if op == ">=":
-            return not (v1 >= v2)
-        return not (v1 <= v2)
+            return not v1 >= v2
+        return not v1 <= v2
     except TypeError as err:
         raise ConfigurationError(
             f"cross-column CHECK '{col1} {op} {col2}' cannot be enforced: "
@@ -568,8 +568,7 @@ class DataStream:
                 v2 = row.get(col2)
                 if v1 is None or v2 is None:
                     continue
-                violated = _violates_inequality(v1, v2, op, col1, col2)
-                if violated:
+                if _violates_inequality(v1, v2, op, col1, col2):
                     self._rollback_row_constraints(row, generated_values, registered_composites)
                     bt_idx = self._find_node_index(col2)
                     return False, bt_idx
@@ -746,8 +745,7 @@ class DataStream:
         # Native methods do not accept exclude_values. The surrounding solver
         # still checks each candidate, so UNIQUE must not switch later rows to
         # a different generator after the first native value is registered.
-        native_result = self._try_native_method(spec)
-        if native_result is not _NATIVE_MISS:
+        if (native_result := self._try_native_method(spec)) is not _NATIVE_MISS:
             return native_result
         native_method = (
             spec.native_faker_method
@@ -802,14 +800,18 @@ class DataStream:
             The value produced by the native method, or ``_NATIVE_MISS``.
         """
         native_params = spec.native_params or {}
-        if spec.native_faker_method and self._provider.name == "faker":
-            result = self._try_faker_native(spec.native_faker_method, native_params)
-            if result is not _NATIVE_MISS:
-                return result
-        if spec.native_mimesis_method and self._provider.name == "mimesis":
-            result = self._try_mimesis_native(spec.native_mimesis_method, native_params)
-            if result is not _NATIVE_MISS:
-                return result
+        if (
+            spec.native_faker_method
+            and self._provider.name == "faker"
+            and (result := self._try_faker_native(spec.native_faker_method, native_params)) is not _NATIVE_MISS
+        ):
+            return result
+        if (
+            spec.native_mimesis_method
+            and self._provider.name == "mimesis"
+            and (result := self._try_mimesis_native(spec.native_mimesis_method, native_params)) is not _NATIVE_MISS
+        ):
+            return result
         return _NATIVE_MISS
 
     def _try_faker_native(self, method_name: str, native_params: dict[str, Any]) -> Any:
@@ -825,8 +827,7 @@ class DataStream:
         Returns:
             The value produced by the faker method, or ``_NATIVE_MISS``.
         """
-        faker_obj = getattr(self._provider, "_faker", None)
-        if faker_obj is None:
+        if (faker_obj := getattr(self._provider, "_faker", None)) is None:
             return _NATIVE_MISS
         method = getattr(faker_obj, method_name, None)
         if method is None or not callable(method):
@@ -849,14 +850,12 @@ class DataStream:
         Returns:
             The value produced by the mimesis method, or ``_NATIVE_MISS``.
         """
-        generic_obj = getattr(self._provider, "_generic", None)
-        if generic_obj is None:
+        if (generic_obj := getattr(self._provider, "_generic", None)) is None:
             return _NATIVE_MISS
         parts = method_path.split(".")
         obj = generic_obj
         for part in parts:
-            obj = getattr(obj, part, None)
-            if obj is None:
+            if (obj := getattr(obj, part, None)) is None:
                 return _NATIVE_MISS
         if obj is None or not callable(obj):
             return _NATIVE_MISS
@@ -897,13 +896,11 @@ class DataStream:
         Returns:
             The foreign-key value.
         """
-        ref_values = spec.params.get("_ref_values", [])
-        if ref_values:
+        if ref_values := spec.params.get("_ref_values", []):
             if exclude_values:
                 # UNIQUE 外键：不放回采样优先于 coverage——exclude 过滤天然
                 # 保证唯一，而 coverage 的轮次重复会破坏 UNIQUE。
-                available = [v for v in ref_values if v not in exclude_values]
-                if available:
+                if available := [v for v in ref_values if v not in exclude_values]:
                     return self._rng.choice(available)
                 # All ref_values exhausted — fall through to fallback. The
                 # resulting value will likely fail the UNIQUE constraint,
@@ -925,8 +922,7 @@ class DataStream:
         （如枚举型维表引用）。队列按 spec 身份隔离，同一 spec 的多批次共享
         同一队列——跨批次依然保证覆盖。
         """
-        queue = self._coverage_queues.get(id(spec))
-        if not queue:
+        if not (queue := self._coverage_queues.get(id(spec))):
             queue = list(ref_values)
             self._rng.shuffle(queue)
             self._coverage_queues[id(spec)] = queue

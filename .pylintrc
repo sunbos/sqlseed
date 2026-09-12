@@ -1,12 +1,62 @@
 # CodeFlow's documented configuration entry point is a repository-root .pylintrc:
 # https://www.getcodeflow.com/pylint-configuration.html
-# Mirror the existing policy in pyproject.toml; do not add exclusions here.
+# Mirror the existing message policy in pyproject.toml; check environment
+# adaptation separately without broadening message or source exclusions.
 # CodeFlow reports Pylint 2.17.7, which predates R0917 (introduced in 3.3).
 # The modern configuration retains that rule's existing policy and is selected
 # with pylint --rcfile=pyproject.toml. Default discovery prefers this file.
-# tests/test_codeflow_config.py guards shared options and the version exception.
+# tests/test_codeflow_config.py guards shared policy and import boundaries.
 
 [MAIN]
+# The observed CodeFlow analysis cannot resolve declared dependencies. Resolve
+# the five local source trees and pytest's importlib namespaces from the
+# repository root without importing project code or running installers.
+source-roots=
+    src,
+    plugins/sqlseed-cli/src,
+    plugins/sqlseed-ai/src,
+    plugins/mcp-server-sqlseed/src,
+    plugins/sqlseed-web/src,
+    .
+# Direct-file script imports resolve their own helpers before third-party names
+# such as build. Keep these search paths out of source-roots so package-mode
+# relative imports retain their scripts/examples namespace.
+init-hook=import sys; sys.path[:0] = ['src', 'plugins/sqlseed-cli/src', 'plugins/sqlseed-ai/src', 'plugins/mcp-server-sqlseed/src', 'plugins/sqlseed-web/src', '.', 'scripts/complex_validation', 'examples/scenario_lab', 'examples']
+
+# Only declared third-party imports and Windows' msvcrt may be unavailable.
+# tests/test_codeflow_config.py checks manifest/CI-lock or platform-stdlib
+# provenance and rejects internal collisions; import-error remains enabled.
+ignored-modules=
+    click,
+    docker,
+    faker,
+    fastapi,
+    httpx,
+    hypothesis,
+    mcp,
+    msvcrt,
+    openai,
+    packaging,
+    pluggy,
+    pydantic,
+    pytest,
+    pywintypes,
+    requests,
+    rich,
+    rstr,
+    simpleeval,
+    sqlalchemy,
+    sqlglot,
+    starlette,
+    structlog,
+    testcontainers,
+    tomli,
+    tqdm,
+    typing_extensions,
+    uvicorn,
+    winerror,
+    yaml
+
 # Preserve the extension checkers observed in CodeFlow's 5b0dd07 analysis.
 # A custom rc file must not silently drop their findings. The published service
 # defaults do not explain how these plugins are loaded, so keep them explicit.

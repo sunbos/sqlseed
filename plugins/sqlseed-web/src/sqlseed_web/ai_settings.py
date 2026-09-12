@@ -38,8 +38,7 @@ def _validate_endpoint_components(parsed: SplitResult) -> None:
 
 def http_endpoint(value: str) -> str:
     """Accept plain HTTP endpoints, never URL-embedded credentials or tokens."""
-    value = value.strip()
-    if not value:
+    if not (value := value.strip()):
         return value
     try:
         parsed = urlsplit(value)
@@ -76,8 +75,7 @@ class SettingsRequest(BaseModel):
 
 def settings_path() -> Path:
     """Follow the workspace data directory, with an independent path override."""
-    configured = os.environ.get("SQLSEED_WEB_SETTINGS_PATH")
-    if configured:
+    if configured := os.environ.get("SQLSEED_WEB_SETTINGS_PATH"):
         return Path(configured).expanduser().resolve()
     workspace = os.environ.get("SQLSEED_WEB_WORKSPACE_PATH")
     return (Path(workspace).expanduser().resolve() if workspace else _default_path()).with_name("settings.json")
