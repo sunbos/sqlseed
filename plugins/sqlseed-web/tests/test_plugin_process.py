@@ -8,6 +8,7 @@ import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import ExitStack
 from pathlib import Path
 
 import pytest
@@ -88,15 +89,28 @@ def test_installer_reaps_child_when_output_worker_cannot_start(
 
 
 @pytest.mark.skipif(os.name == "nt", reason="Managed package operations require POSIX process groups")
+@pytest.mark.parametrize("reject_repeated_signal", [False, True])
 def test_output_start_failure_kills_descendant_after_installer_parent_exits(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, recorded_processes: list[subprocess.Popen[bytes]]
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    recorded_processes: list[subprocess.Popen[bytes]],
+    reject_repeated_signal: bool,
 ) -> None:
+    import errno
     import signal
 
+    original_killpg = os.killpg
+    signaled_groups: set[int] = set()
+
+    def kill_group(group: int, requested_signal: int) -> None:
+        if reject_repeated_signal and group in signaled_groups:
+            raise PermissionError(errno.EPERM, "cannot signal an already terminated process group")
+        original_killpg(group, requested_signal)
+        signaled_groups.add(group)
+
+    monkeypatch.setattr(os, "killpg", kill_group)
     lock = EnvironmentLock(tmp_path, exclusive=True)
     contender = EnvironmentLock(tmp_path, exclusive=True)
-    lock.acquire()
-    descriptor = lock.fileno()
     children = recorded_processes
 
     def fail_start(self: threading.Thread) -> None:
@@ -108,24 +122,34 @@ def test_output_start_failure_kills_descendant_after_installer_parent_exits(
         "subprocess.Popen([sys.executable,'-c','import time; time.sleep(30)'],pass_fds=(descriptor,))"
     )
     monkeypatch.setattr(threading.Thread, "start", fail_start)
-    try:
-        with pytest.raises(RuntimeError, match="after installer exited"):
-            run_installer(
-                [sys.executable, "-c", script, str(descriptor)], lambda text: None, lock_descriptor=descriptor
-            )
-        lock.release()
-        _wait_for_environment_lock(contender)
-    finally:
-        for process in children:
-            try:
-                os.killpg(process.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            process.wait()
-            if process.stdout is not None:
-                process.stdout.close()
-        lock.release()
-        contender.release()
+    with ExitStack() as cleanup:
+        cleanup.callback(lock.release)
+        cleanup.callback(contender.release)
+        lock.acquire()
+        descriptor = lock.fileno()
+        descendants_exited = False
+        try:
+            with pytest.raises(RuntimeError, match="after installer exited"):
+                run_installer(
+                    [sys.executable, "-c", script, str(descriptor)], lambda text: None, lock_descriptor=descriptor
+                )
+            lock.release()
+            _wait_for_environment_lock(contender)
+            # The sleeping descendant retains its inherited descriptor until
+            # termination. Reacquiring flock proves it no longer owns the lock.
+            descendants_exited = True
+        finally:
+            for process in children:
+                try:
+                    if not descendants_exited:
+                        try:
+                            os.killpg(process.pid, signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
+                    process.wait(timeout=5)
+                finally:
+                    if process.stdout is not None:
+                        process.stdout.close()
 
 
 def _wait_for_environment_lock(lock: EnvironmentLock) -> None:
