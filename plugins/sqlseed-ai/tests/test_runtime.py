@@ -197,7 +197,10 @@ def test_cli_releases_owned_client_on_success_and_failure(
         sdk_client.close()
 
 
-def test_runtime_healer_repairs_real_schema_with_fixed_model_response(tmp_path: Path) -> None:
+@pytest.mark.parametrize("budget,elapsed,exhausted", [(0.0, 0.0, True), (5.0, 5.0, True), (5.0, 4.0, False)])
+def test_runtime_healer_repairs_real_schema_with_fixed_model_response(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, budget: float, elapsed: float, exhausted: bool
+) -> None:
     runtime = importlib.import_module("sqlseed_ai.runtime")
     from openai.types.chat import ChatCompletion
     from sqlseed_ai.contracts.builtin_violations import BUILTIN_VIOLATIONS
@@ -260,9 +263,16 @@ def test_runtime_healer_repairs_real_schema_with_fixed_model_response(tmp_path: 
     assert degraded.total_attempts == 0
 
     expired = runtime.build_heal_orchestrator(
-        AIConfig(model="fixed-model"), FixedClient(), snapshot, validator, time_budget_seconds=0
+        AIConfig(model="fixed-model"), FixedClient(), snapshot, validator, time_budget_seconds=budget
     )
+    ticks = iter((100.0, 100.0 + elapsed))
+    monkeypatch.setattr("sqlseed_ai.healer.orchestrator.time.monotonic", lambda: next(ticks, 100.0 + elapsed))
     timed_out = expired.heal(SubgraphTask(task_id="items", tables=["items"]), violations, broken)
-    assert timed_out.level_used == 4
-    assert not timed_out.attempts
-    assert {reason.value for reason in timed_out.degrade_reasons.values()} == {"time_budget_exhausted"}
+    if exhausted:
+        assert timed_out.level_used == 4
+        assert not timed_out.attempts
+        assert {reason.value for reason in timed_out.degrade_reasons.values()} == {"time_budget_exhausted"}
+    else:
+        assert timed_out.success
+        assert timed_out.level_used == 1
+        assert validator.validate(timed_out.config, snapshot).is_clean
