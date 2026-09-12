@@ -24,6 +24,17 @@ _NATIVE_EXCEPTION_PARAMS = [
 ]
 
 
+def _attempt_string_node_with_probe(node: ColumnNode) -> dict[str, Any]:
+    """Run real node generation and expose the exclusion arguments it computed."""
+    provider = MagicMock()
+    provider.generate.return_value = "val"
+    provider.name = "base"
+    stream = make_stream([node], provider)
+    success, _ = stream._attempt_node_generation(node, {}, {})
+    assert success is True
+    return provider.generate.call_args.kwargs
+
+
 class TestDataStream:
     def _create_stream(self, specs: Any, seed: int = 42) -> Any:
         dag = ColumnDAG()
@@ -817,15 +828,7 @@ class TestAttemptNodeGenerationExcludeValues:
             constraints=ColumnConstraints(is_unique=True, max_retries=5),
         )
 
-        provider = MagicMock()
-        provider.generate.return_value = "val"
-        provider.name = "base"
-
-        stream = make_stream([node], provider)
-        success, _ = stream._attempt_node_generation(node, {}, {})
-
-        assert success is True
-        call_kwargs = provider.generate.call_args.kwargs
+        call_kwargs = _attempt_string_node_with_probe(node)
         # exclude_values should be an empty set (UNIQUE column → always pass the seen set)
         assert "exclude_values" in call_kwargs
         assert call_kwargs["exclude_values"] == set()
@@ -838,15 +841,7 @@ class TestAttemptNodeGenerationExcludeValues:
             constraints=ColumnConstraints(is_unique=False, max_retries=5),
         )
 
-        provider = MagicMock()
-        provider.generate.return_value = "val"
-        provider.name = "base"
-
-        stream = make_stream([node], provider)
-        success, _ = stream._attempt_node_generation(node, {}, {})
-
-        assert success is True
-        call_kwargs = provider.generate.call_args.kwargs
+        call_kwargs = _attempt_string_node_with_probe(node)
         # exclude_values should be None (non-UNIQUE column → no exclusion needed)
         assert call_kwargs.get("exclude_values") is None
 

@@ -21,6 +21,17 @@ def _fixtures() -> Any:
     return module
 
 
+def _ollama_fixtures(monkeypatch: pytest.MonkeyPatch, models: list[Any]) -> Any:
+    """Supply the discovery response while exercising the real selector."""
+    fixtures = _fixtures()
+    monkeypatch.setattr(
+        fixtures.urllib.request,
+        "urlopen",
+        lambda *args, **kwargs: io.BytesIO(json.dumps({"models": [{"name": name} for name in models]}).encode()),
+    )
+    return fixtures
+
+
 @pytest.mark.parametrize(
     ("models", "expected"),
     [
@@ -36,12 +47,7 @@ def _fixtures() -> Any:
     ],
 )
 def test_ollama_fixture_selects_an_actual_model_id(models: Any, expected: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    fixtures = _fixtures()
-    monkeypatch.setattr(
-        fixtures.urllib.request,
-        "urlopen",
-        lambda *args, **kwargs: io.BytesIO(json.dumps({"models": [{"name": name} for name in models]}).encode()),
-    )
+    fixtures = _ollama_fixtures(monkeypatch, models)
     result = fixtures.available_llm_backend.__wrapped__()
     assert result == {"backend": "ollama", "model": expected}
     assert result["model"] in models
@@ -49,12 +55,7 @@ def test_ollama_fixture_selects_an_actual_model_id(models: Any, expected: str, m
 
 @pytest.mark.parametrize("name", ["gemma4:31billion", "gemma4:26b2", "other/gemma4:26b", "gemma3:26b"])
 def test_ollama_fixture_does_not_match_unrelated_prefixes(name: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    fixtures = _fixtures()
-    monkeypatch.setattr(
-        fixtures.urllib.request,
-        "urlopen",
-        lambda *args, **kwargs: io.BytesIO(json.dumps({"models": [{"name": name}]}).encode()),
-    )
+    fixtures = _ollama_fixtures(monkeypatch, [name])
     with pytest.raises(pytest.fail.Exception, match="no Gemma 4 model"):
         fixtures.available_llm_backend.__wrapped__()
 

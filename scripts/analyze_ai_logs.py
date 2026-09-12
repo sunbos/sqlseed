@@ -267,6 +267,29 @@ def _add_to_repeat(
 # ---------------------------------------------------------------------------
 
 
+def _record_failure_patterns(response: str, column_name: str, file_name: str, state: AnalysisState) -> None:
+    """Classify malformed and cross-column responses after recording their token costs."""
+    # --- Failure patterns ---
+    parsed = _parse_json_response(response)
+    if parsed is None:
+        state.malformed_json.record(file_name)
+        return
+
+    # null generator: explicitly set to null (cross-column derivation signal).
+    if "generator" in parsed and parsed["generator"] is None:
+        state.null_generator.record(file_name)
+
+    # derive_from: non-null, non-empty value (cross-column derivation).
+    derive_value = parsed.get("derive_from")
+    if derive_value:
+        state.derive_from.record(file_name)
+
+    # column mismatch: response column differs from the requested column.
+    resp_column = _coerce_str(parsed.get("column"))
+    if column_name and resp_column and resp_column != column_name:
+        state.column_mismatch.record(file_name)
+
+
 def analyze_file(path: Path, state: AnalysisState) -> None:
     """Process a single log file and update *state* in place.
 
@@ -358,25 +381,7 @@ def analyze_file(path: Path, state: AnalysisState) -> None:
         )
     )
 
-    # --- Failure patterns ---
-    parsed = _parse_json_response(response)
-    if parsed is None:
-        state.malformed_json.record(path.name)
-        return
-
-    # null generator: explicitly set to null (cross-column derivation signal).
-    if "generator" in parsed and parsed["generator"] is None:
-        state.null_generator.record(path.name)
-
-    # derive_from: non-null, non-empty value (cross-column derivation).
-    derive_value = parsed.get("derive_from")
-    if derive_value:
-        state.derive_from.record(path.name)
-
-    # column mismatch: response column differs from the requested column.
-    resp_column = _coerce_str(parsed.get("column"))
-    if column_name and resp_column and resp_column != column_name:
-        state.column_mismatch.record(path.name)
+    _record_failure_patterns(response, column_name, path.name, state)
 
 
 def analyze_logs(log_dir: Path) -> AnalysisState:
@@ -636,11 +641,11 @@ def render_text(report: dict[str, Any]) -> str:
     lines.append(f"  Total output chars:  {tw['total_output_chars']}")
     lines.append(f"  Input/output ratio:  {tw['input_output_ratio']:.2f}")
     lines.append("")
-    for label, key in [
+    for label, key in (
         ("largest system prompts", "top_system_prompts"),
         ("largest user prompts", "top_user_prompts"),
         ("largest responses", "top_responses"),
-    ]:
+    ):
         items = tw[key]
         lines.append(f"  Top {len(items)} {label}:")
         if not items:
@@ -664,12 +669,12 @@ def render_text(report: dict[str, Any]) -> str:
     lines.append(f"  Malformed JSON responses:    {fp['malformed_json']['count']}")
     lines.append(f"  Column name mismatches:      {fp['column_mismatch']['count']}")
     lines.append("")
-    for name, label in [
+    for name, label in (
         ("null_generator", "Null generator"),
         ("derive_from", "Derive_from"),
         ("malformed_json", "Malformed JSON"),
         ("column_mismatch", "Column mismatch"),
-    ]:
+    ):
         pat = fp[name]
         if pat["examples"]:
             lines.append(f"  Examples ({label}):")
@@ -684,8 +689,8 @@ def render_text(report: dict[str, Any]) -> str:
     max_count = max((b["count"] for b in hist), default=0)
     for bucket in hist:
         bar_width = (bucket["count"] * 40 // max_count) if max_count > 0 else 0
-        bar = "#" * bar_width
-        lines.append(f"  {bucket['label']:<10} {bucket['count']:>6}  {bar}")
+        histogram_bar = "#" * bar_width
+        lines.append(f"  {bucket['label']:<10} {bucket['count']:>6}  {histogram_bar}")
     lines.append("")
     lines.append(sep)
 

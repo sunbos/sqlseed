@@ -7,6 +7,8 @@ from sqlseed_ai.contracts.matrix import ContractResolver
 from sqlseed_ai.validator.models import ConstraintType
 from sqlseed_ai.validator.single_column import SingleColumnValidator
 
+from tests.assertions import assert_empty
+
 
 def _make_table_config(columns):
     return {"name": "t", "columns": columns}
@@ -59,7 +61,7 @@ def test_validate_passes_compatible_combo():
     config = _make_table_config([{"name": "id", "generator": "integer"}])
     schema = _make_schema({"id": "INTEGER"})
     violations = validator.validate(config, schema["t"], row_count=100)
-    assert violations == []
+    assert_empty(violations, list)
 
 
 def test_compute_cardinality_choice():

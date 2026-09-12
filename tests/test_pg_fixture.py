@@ -12,10 +12,37 @@ from threading import Event, Thread
 import pytest
 
 import conftest as shared
+from tests.assertions import assert_empty
 
 
-@pytest.fixture
-def docker_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+def _install_available_container(monkeypatch: pytest.MonkeyPatch, lifecycle: list[str]) -> None:
+    """Record lifecycle events while the real endpoint probe remains in use."""
+
+    class AvailableContainer:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            lifecycle.append("constructed")
+
+        def start(self) -> None:
+            lifecycle.append("started")
+
+        def get_connection_url(self) -> str:
+            return "postgresql+psycopg2://localhost/isolated_test"
+
+        def stop(self) -> None:
+            lifecycle.append("stopped")
+
+    monkeypatch.setattr(shared, "PostgresContainer", AvailableContainer)
+
+
+def _use_isolated_docker_host(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Use an explicit SDK test endpoint without a daemon capability probe."""
+    monkeypatch.delenv("PG_TEST_URL", raising=False)
+    monkeypatch.setenv("DOCKER_HOST", "tcp://fixture.example:2375")
+    monkeypatch.setattr(shared, "_check_docker_daemon", lambda: None)
+
+
+@pytest.fixture(name="docker_environment")
+def fixture_docker_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     docker_client = pytest.importorskip("testcontainers.core.docker_client")
     monkeypatch.setattr(docker_client.c, "tc_properties_get_tc_host", lambda: None)
 
@@ -90,20 +117,7 @@ def test_unix_probe_closes_connection_and_owned_container_still_runs(monkeypatch
     monkeypatch.setattr(shared, "_check_docker_daemon", lambda: None)
     lifecycle = []
 
-    class AvailableContainer:
-        def __init__(self, *args: object, **kwargs: object) -> None:
-            lifecycle.append("constructed")
-
-        def start(self) -> None:
-            lifecycle.append("started")
-
-        def get_connection_url(self) -> str:
-            return "postgresql+psycopg2://localhost/isolated_test"
-
-        def stop(self) -> None:
-            lifecycle.append("stopped")
-
-    monkeypatch.setattr(shared, "PostgresContainer", AvailableContainer)
+    _install_available_container(monkeypatch, lifecycle)
     with (
         TemporaryDirectory(prefix="sqpg-") as directory,
         monkeypatch.context() as context,
@@ -155,9 +169,7 @@ def test_non_transport_failure_is_not_treated_as_unavailable(monkeypatch: pytest
     from docker.errors import DockerException
 
     failure = DockerException(message) if message.startswith("Invalid response") else ValueError(message)
-    monkeypatch.delenv("PG_TEST_URL", raising=False)
-    monkeypatch.setenv("DOCKER_HOST", "tcp://fixture.example:2375")
-    monkeypatch.setattr(shared, "_check_docker_daemon", lambda: None)
+    _use_isolated_docker_host(monkeypatch)
 
     class BrokenContainer:
         def __init__(self, *args: object, **kwargs: object) -> None:
@@ -187,9 +199,7 @@ def test_wrapped_authentication_and_permission_errors_remain_failures(
         import pywintypes
 
         causes["permission"] = pywintypes.error(5, "CreateFile", "Access is denied.")
-    monkeypatch.delenv("PG_TEST_URL", raising=False)
-    monkeypatch.setenv("DOCKER_HOST", "tcp://fixture.example:2375")
-    monkeypatch.setattr(shared, "_check_docker_daemon", lambda: None)
+    _use_isolated_docker_host(monkeypatch)
 
     class BrokenContainer:
         def __init__(self, *args: object, **kwargs: object) -> None:
@@ -201,8 +211,8 @@ def test_wrapped_authentication_and_permission_errors_remain_failures(
         next(service)
 
 
-@pytest.fixture
-def docker_info_endpoint(monkeypatch: pytest.MonkeyPatch, docker_environment: None):
+@pytest.fixture(name="docker_info_endpoint")
+def fixture_docker_info_endpoint(monkeypatch: pytest.MonkeyPatch, docker_environment: None):
     """Exercise the real SDK over HTTP and observe its connection closing."""
     import json
 
@@ -227,8 +237,8 @@ def docker_info_endpoint(monkeypatch: pytest.MonkeyPatch, docker_environment: No
             super().finish()
             disconnected.set()
 
-        def log_message(self, message: str, *args: object) -> None:
-            pass
+        def log_message(self, *args: object, **kwargs: object) -> None:
+            """Discard HTTP logs during the fixture's requests."""
 
     with ThreadingHTTPServer(("127.0.0.1", 0), DockerInfoHandler) as server:
         worker = Thread(target=server.serve_forever)
@@ -250,26 +260,13 @@ def test_daemon_capability_uses_server_os_and_closes_client(
     response["body"] = {"OSType": daemon_os} if daemon_os else {}
     lifecycle = []
 
-    class AvailableContainer:
-        def __init__(self, *args: object, **kwargs: object) -> None:
-            lifecycle.append("constructed")
-
-        def start(self) -> None:
-            lifecycle.append("started")
-
-        def get_connection_url(self) -> str:
-            return "postgresql+psycopg2://localhost/isolated_test"
-
-        def stop(self) -> None:
-            lifecycle.append("stopped")
-
-    monkeypatch.setattr(shared, "PostgresContainer", AvailableContainer)
+    _install_available_container(monkeypatch, lifecycle)
     service = shared.pg_url.__wrapped__()
     try:
         if daemon_os == "windows":
             with pytest.raises(pytest.skip.Exception, match="Linux Docker daemon"):
                 next(service)
-            assert lifecycle == []
+            assert_empty(lifecycle, list)
         else:
             assert next(service) == "postgresql+psycopg://localhost/isolated_test"
     finally:

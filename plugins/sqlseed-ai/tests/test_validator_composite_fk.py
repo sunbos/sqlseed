@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import sqlite3
-from contextlib import closing
 from typing import TYPE_CHECKING
 
 import pytest
@@ -11,14 +9,26 @@ from sqlseed_ai.validator.composite_fk import CompositeFKCoordinator
 from sqlseed_ai.validator.models import ColumnGroup
 from sqlseed_ai.validator.schema_snapshot import SchemaSnapshot
 
+from tests.assertions import assert_empty
+from tests.sqlite_helpers import sqlite_connection
+
 if TYPE_CHECKING:
     from pathlib import Path
 
 
-@pytest.fixture
-def db_with_composite_fk(tmp_path: Path) -> Path:
+def _order_fk_group() -> ColumnGroup:
+    return ColumnGroup(
+        group_id="g1",
+        columns=["shop_id", "user_id"],
+        parent_table="shop_users",
+        parent_columns=["shop_id", "user_id"],
+    )
+
+
+@pytest.fixture(name="db_with_composite_fk")
+def fixture_db_with_composite_fk(tmp_path: Path) -> Path:
     path = tmp_path / "test.db"
-    with closing(sqlite3.connect(str(path))) as conn, conn:
+    with sqlite_connection(str(path)) as conn:
         conn.executescript(
             """
             CREATE TABLE shop_users (shop_id INTEGER, user_id INTEGER,
@@ -44,12 +54,7 @@ def test_identify_groups_finds_composite_fk(db_with_composite_fk: Path):
 
 def test_validate_group_flags_misaligned_generators():
     coord = CompositeFKCoordinator()
-    g = ColumnGroup(
-        group_id="g1",
-        columns=["shop_id", "user_id"],
-        parent_table="shop_users",
-        parent_columns=["shop_id", "user_id"],
-    )
+    g = _order_fk_group()
     table_config = {
         "name": "orders",
         "columns": [
@@ -65,12 +70,7 @@ def test_validate_group_flags_misaligned_generators():
 
 def test_validate_group_passes_when_aligned():
     coord = CompositeFKCoordinator()
-    g = ColumnGroup(
-        group_id="g1",
-        columns=["shop_id", "user_id"],
-        parent_table="shop_users",
-        parent_columns=["shop_id", "user_id"],
-    )
+    g = _order_fk_group()
     table_config = {
         "name": "orders",
         "columns": [
@@ -82,12 +82,7 @@ def test_validate_group_passes_when_aligned():
 
 
 def test_coordinate_degrade_returns_all_group_cols():
-    g = ColumnGroup(
-        group_id="g1",
-        columns=["shop_id", "user_id"],
-        parent_table="shop_users",
-        parent_columns=["shop_id", "user_id"],
-    )
+    g = _order_fk_group()
     coord = CompositeFKCoordinator()
     degraded = coord.coordinate_degrade(g, "shop_id")
     assert set(degraded) == {"shop_id", "user_id"}
@@ -96,7 +91,7 @@ def test_coordinate_degrade_returns_all_group_cols():
 def test_identify_groups_returns_empty_when_no_composite_fk(tmp_path: Path):
     """Tables with only single-column FKs produce no groups."""
     path = tmp_path / "test.db"
-    with closing(sqlite3.connect(str(path))) as conn, conn:
+    with sqlite_connection(str(path)) as conn:
         conn.executescript(
             """
             CREATE TABLE users (id INTEGER PRIMARY KEY);
@@ -107,17 +102,12 @@ def test_identify_groups_returns_empty_when_no_composite_fk(tmp_path: Path):
     snapshot = SchemaSnapshot(db_path=str(path))
     coord = CompositeFKCoordinator()
     groups = coord.identify_groups(snapshot)
-    assert groups == []
+    assert_empty(groups, list)
 
 
 def test_coordinate_degrade_returns_single_when_not_in_group():
     """When degraded_col is not in the group, only that column degrades."""
-    g = ColumnGroup(
-        group_id="g1",
-        columns=["shop_id", "user_id"],
-        parent_table="shop_users",
-        parent_columns=["shop_id", "user_id"],
-    )
+    g = _order_fk_group()
     coord = CompositeFKCoordinator()
     degraded = coord.coordinate_degrade(g, "other_col")
     assert degraded == ["other_col"]
@@ -126,12 +116,7 @@ def test_coordinate_degrade_returns_single_when_not_in_group():
 def test_validate_group_returns_none_when_columns_missing():
     """When table_config doesn't include all group columns, validate returns None."""
     coord = CompositeFKCoordinator()
-    g = ColumnGroup(
-        group_id="g1",
-        columns=["shop_id", "user_id"],
-        parent_table="shop_users",
-        parent_columns=["shop_id", "user_id"],
-    )
+    g = _order_fk_group()
     table_config = {
         "name": "orders",
         "columns": [

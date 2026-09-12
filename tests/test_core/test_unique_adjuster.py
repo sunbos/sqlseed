@@ -24,6 +24,14 @@ def _checks(*expressions: str) -> list[CheckConstraintInfo]:
     return [CheckConstraintInfo(name="", table="items", columns=(), expression=expr) for expr in expressions]
 
 
+def _adjust_nullable_rank(expression: str) -> GeneratorSpec:
+    """Infer a five-value unique integer domain from a nullable skip mapping."""
+    column = _make_col_info("rank", "INTEGER", nullable=True)
+    return UniqueAdjuster(ColumnMapper()).adjust(
+        {"rank": GeneratorSpec(generator_name="skip")}, {"rank"}, 5, [column], _checks(expression)
+    )["rank"]
+
+
 class TestUniqueAdjuster:
     @pytest.mark.parametrize("generator,params", [("string", {"min_length": 0, "max_length": 0}), ("integer", {})])
     def test_zero_rows_need_no_domain_adjustment(self, generator: str, params: dict[str, int]) -> None:
@@ -647,14 +655,7 @@ class TestAdjustFallbackChecks:
         ],
     )
     def test_nullable_skip_infers_integer_inside_check_domain(self, expression: str, expected: tuple[int, int]) -> None:
-        column = _make_col_info("rank", "INTEGER", nullable=True)
-        result = UniqueAdjuster(ColumnMapper()).adjust(
-            {"rank": GeneratorSpec(generator_name="skip")},
-            {"rank"},
-            5,
-            [column],
-            _checks(expression),
-        )["rank"]
+        result = _adjust_nullable_rank(expression)
 
         assert result.generator_name == "integer"
         assert result.params == {"min_value": expected[0], "max_value": expected[1]}
@@ -666,14 +667,7 @@ class TestAdjustFallbackChecks:
     def test_nullable_one_sided_check_outside_default_domain_retains_usable_range(
         self, expression: str, bound_name: str, bound: int
     ) -> None:
-        column = _make_col_info("rank", "INTEGER", nullable=True)
-        result = UniqueAdjuster(ColumnMapper()).adjust(
-            {"rank": GeneratorSpec(generator_name="skip")},
-            {"rank"},
-            5,
-            [column],
-            _checks(expression),
-        )["rank"]
+        result = _adjust_nullable_rank(expression)
 
         assert result.generator_name == "integer"
         assert result.params[bound_name] == bound
@@ -832,7 +826,7 @@ class TestAdjustedStringBehavior:
     ) -> None:
         specs = {
             name: GeneratorSpec(generator_name="string", params={"min_length": 1, "max_length": 1, "charset": charset})
-            for name, charset in [("canonical_code", canonical), ("alias_code", alias)]
+            for name, charset in (("canonical_code", canonical), ("alias_code", alias))
         }
         adjusted = UniqueAdjuster(ColumnMapper()).adjust(specs, set(specs), count)
         canonical_params = adjusted["canonical_code"].params

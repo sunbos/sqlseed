@@ -22,7 +22,7 @@ from sqlseed._utils.logger import get_logger
 if TYPE_CHECKING:
     from sqlseed_ai.healer._client import LLMClient
     from sqlseed_ai.validator.models import ViolationReport
-    from sqlseed_ai.validator.schema_snapshot import SchemaSnapshot
+    from sqlseed_ai.validator.schema_snapshot import SchemaSnapshot, TableMeta
 
 logger = get_logger(__name__)
 
@@ -107,27 +107,8 @@ class Level2ColumnHealer:
             )
 
         col_type = meta.column_types.get(column_name, "TEXT")
-        all_columns = meta.columns
 
-        # Collect CHECK constraints this column participates in.
-        col_checks: list[dict[str, Any]] = []
-        cross_column_refs: list[tuple[str, str]] = []
-        for c in meta.constraints:
-            if c.get("type") != "check":
-                continue
-            expr = c.get("expression", "")
-            if not expr:
-                continue
-            if not re.search(rf"\b{re.escape(column_name)}\b", expr, re.IGNORECASE):
-                continue
-            col_checks.append(c)
-            # Find cross-column references (other columns in the same expr).
-            for other in all_columns:
-                if other == column_name:
-                    continue
-                if re.search(rf"\b{re.escape(other)}\b", expr, re.IGNORECASE):
-                    other_type = meta.column_types.get(other, "TEXT")
-                    cross_column_refs.append((other, other_type))
+        col_checks, cross_column_refs = self._column_check_context(meta, column_name)
 
         # Detect UNIQUE.
         is_unique = False
@@ -168,6 +149,32 @@ class Level2ColumnHealer:
             fk_info=fk_info,
         )
 
+    @staticmethod
+    def _column_check_context(meta: TableMeta, column_name: str) -> tuple[list[dict[str, Any]], list[tuple[str, str]]]:
+        """Collect matching CHECKs and cross-column references in schema order."""
+        all_columns = meta.columns
+        # Collect CHECK constraints this column participates in.
+        col_checks: list[dict[str, Any]] = []
+        cross_column_refs: list[tuple[str, str]] = []
+        for c in meta.constraints:
+            if c.get("type") != "check":
+                continue
+            expr = c.get("expression", "")
+            if not expr:
+                continue
+            if not re.search(rf"\b{re.escape(column_name)}\b", expr, re.IGNORECASE):
+                continue
+            col_checks.append(c)
+            # Find cross-column references (other columns in the same expr).
+            for other in all_columns:
+                if other == column_name:
+                    continue
+                if re.search(rf"\b{re.escape(other)}\b", expr, re.IGNORECASE):
+                    other_type = meta.column_types.get(other, "TEXT")
+                    cross_column_refs.append((other, other_type))
+
+        return col_checks, cross_column_refs
+
     def _enrich_with_config(
         self,
         context: ColumnContext,
@@ -178,29 +185,28 @@ class Level2ColumnHealer:
             if table_cfg.get("name") != context.table_name:
                 continue
             for col in table_cfg.get("columns", []):
-                col_name = col.get("name", "")
-                # If this column derives from others, record sources.
-                if col_name == context.column_name and col.get("derive_from"):
-                    sources = col.get("derive_from")
-                    if isinstance(sources, str):
-                        sources = [sources]
-                    for src in sources:
-                        src_type = "TEXT"
-                        # Look up source column type in the same table.
-                        for c2 in table_cfg.get("columns", []):
-                            if c2.get("name") == src:
-                                # We don't have column_types in config; use
-                                # the snapshot type if available (set by caller).
-                                pass
-                        context.derive_from_sources.append((src, src_type))
-                # If another column derives from THIS column, record downstream.
-                if col.get("derive_from"):
-                    sources = col.get("derive_from")
-                    if isinstance(sources, str):
-                        sources = [sources]
-                    if context.column_name in sources and col_name != context.column_name:
-                        context.derive_from_downstream.append(col_name)
+                self._enrich_column_dependencies(context, col, table_cfg)
         return context
+
+    @staticmethod
+    def _enrich_column_dependencies(context: ColumnContext, col: dict[str, Any], table_cfg: dict[str, Any]) -> None:
+        """Append explicit source and downstream dependencies without changing their order."""
+        col_name = col.get("name", "")
+        if not (sources := col.get("derive_from")):
+            return
+        if isinstance(sources, str):
+            sources = [sources]
+        if col_name == context.column_name:
+            for src in sources:
+                src_type = "TEXT"
+                # Preserve the existing config traversal; config carries no
+                # source SQL types, so the established default stays TEXT.
+                for source_column in table_cfg.get("columns", []):
+                    if source_column.get("name") == src:
+                        pass
+                context.derive_from_sources.append((src, src_type))
+        if context.column_name in sources and col_name != context.column_name:
+            context.derive_from_downstream.append(col_name)
 
     def _build_prompt(
         self,

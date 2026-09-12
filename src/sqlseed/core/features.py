@@ -313,79 +313,90 @@ class StructuralFeatureExtractor:
 
         Uses sqlite_master.sql DDL parsing (no extra Protocol methods needed).
         """
-        import re
-
         features: dict[str, Any] = {}
         for table_name in tables:
-            table_features: dict[str, Any] = {}
-            # Read DDL from sqlite_master
-            try:
-                result = self.adapter.execute(
-                    "SELECT sql FROM sqlite_master WHERE type='table' AND name=?",
-                    (table_name,),
-                )
-                rows = result.fetchall() if hasattr(result, "fetchall") else []
-                ddl = rows[0][0] if rows and rows[0] else ""
-            except Exception:
-                ddl = ""
-
-            if ddl:
-                # STRICT table
-                if re.search(r"\bSTRICT\b", ddl, re.IGNORECASE):
-                    table_features["is_strict"] = True
-                # WITHOUT ROWID
-                if re.search(r"\bWITHOUT\s+ROWID\b", ddl, re.IGNORECASE):
-                    table_features["is_without_rowid"] = True
-                # ON CONFLICT clause (rare)
-                on_conflict_match = re.search(
-                    r"\bON\s+CONFLICT\s+(ROLLBACK|ABORT|FAIL|IGNORE|REPLACE)\b",
-                    ddl,
-                    re.IGNORECASE,
-                )
-                if on_conflict_match:
-                    table_features["on_conflict"] = on_conflict_match.group(1).upper()
-
-                # Per-column COLLATE
-                col_collations: dict[str, str] = {}
-                # Match: column_name TYPE ... COLLATE COLLATION_NAME
-                # Skip CONSTRAINT keyword to avoid table-level constraints
-                col_pattern = re.compile(
-                    r'"?(\w+)"?\s+\w+(?:\s*\([^)]*\))?'
-                    r"(?:\s+(?:NOT\s+NULL|NULL|PRIMARY\s+KEY|UNIQUE|DEFAULT\s+\S+))*"
-                    r"\s+COLLATE\s+(\w+)",
-                    re.IGNORECASE,
-                )
-                for match in col_pattern.finditer(ddl):
-                    col_name = match.group(1)
-                    collation = match.group(2).upper()
-                    col_collations[col_name] = collation
-                if col_collations:
-                    table_features["column_collations"] = col_collations
-
-            # Partial index predicates via PRAGMA index_list
-            index_predicates: dict[str, str] = {}
-            try:
-                from sqlseed._utils.sql_safe import quote_identifier
-
-                safe_table = quote_identifier(table_name)
-                result = self.adapter.execute(f"PRAGMA index_list({safe_table})")
-                rows = result.fetchall() if hasattr(result, "fetchall") else []
-                for row in rows:
-                    # row: (seq, name, unique, origin, partial)
-                    if len(row) >= 5 and row[4]:
-                        idx_name = row[1]
-                        partial = row[4]
-                        if isinstance(partial, str) and partial.strip():
-                            index_predicates[idx_name] = partial
-            except Exception:
-                pass
+            ddl = self._read_sqlite_ddl(table_name)
+            table_features = self._sqlite_ddl_features(ddl) if ddl else {}
+            index_predicates = self._sqlite_index_predicates(table_name)
             if index_predicates:
                 table_features["index_predicates"] = index_predicates
-
             if table_features:
                 features[table_name] = table_features
-
         return DialectSpecificFeatures(dialect="sqlite", features=features)
+
+    def _read_sqlite_ddl(self, table_name: str) -> Any:
+        """Read an optional DDL string through the adapter's result protocol."""
+        try:
+            result = self.adapter.execute(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name=?",
+                (table_name,),
+            )
+            rows = result.fetchall() if hasattr(result, "fetchall") else []
+            ddl = rows[0][0] if rows and rows[0] else ""
+        except Exception:
+            ddl = ""
+
+        return ddl
+
+    @staticmethod
+    def _sqlite_ddl_features(ddl: str) -> dict[str, Any]:
+        """Extract table flags and per-column collations from available DDL."""
+        import re
+
+        table_features: dict[str, Any] = {}
+        # STRICT table
+        if re.search(r"\bSTRICT\b", ddl, re.IGNORECASE):
+            table_features["is_strict"] = True
+        # WITHOUT ROWID
+        if re.search(r"\bWITHOUT\s+ROWID\b", ddl, re.IGNORECASE):
+            table_features["is_without_rowid"] = True
+        # ON CONFLICT clause (rare)
+        on_conflict_match = re.search(
+            r"\bON\s+CONFLICT\s+(ROLLBACK|ABORT|FAIL|IGNORE|REPLACE)\b",
+            ddl,
+            re.IGNORECASE,
+        )
+        if on_conflict_match:
+            table_features["on_conflict"] = on_conflict_match.group(1).upper()
+
+        # Per-column COLLATE
+        col_collations: dict[str, str] = {}
+        # Match: column_name TYPE ... COLLATE COLLATION_NAME
+        # Skip CONSTRAINT keyword to avoid table-level constraints
+        col_pattern = re.compile(
+            r'"?(\w+)"?\s+\w+(?:\s*\([^)]*\))?'
+            r"(?:\s+(?:NOT\s+NULL|NULL|PRIMARY\s+KEY|UNIQUE|DEFAULT\s+\S+))*"
+            r"\s+COLLATE\s+(\w+)",
+            re.IGNORECASE,
+        )
+        for match in col_pattern.finditer(ddl):
+            col_name = match.group(1)
+            collation = match.group(2).upper()
+            col_collations[col_name] = collation
+        if col_collations:
+            table_features["column_collations"] = col_collations
+
+        return table_features
+
+    def _sqlite_index_predicates(self, table_name: str) -> dict[str, str]:
+        """Accumulate any partial-index predicates exposed by the adapter."""
+        index_predicates: dict[str, str] = {}
+        try:
+            from sqlseed._utils.sql_safe import quote_identifier
+
+            safe_table = quote_identifier(table_name)
+            result = self.adapter.execute(f"PRAGMA index_list({safe_table})")
+            rows = result.fetchall() if hasattr(result, "fetchall") else []
+            for row in rows:
+                # row: (seq, name, unique, origin, partial)
+                if len(row) >= 5 and row[4]:
+                    idx_name = row[1]
+                    partial = row[4]
+                    if isinstance(partial, str) and partial.strip():
+                        index_predicates[idx_name] = partial
+        except Exception:
+            pass
+        return index_predicates
 
     def _extract_postgresql_specific(self, tables: list[str]) -> DialectSpecificFeatures:
         """PostgreSQL-specific: SEQUENCE, EXCLUSION, PARTITION, INHERITANCE, COLLATION.
@@ -416,23 +427,28 @@ class StructuralFeatureExtractor:
         features = dialect_specific.features
         for table in tables:
             table_features = features.get(table.name, {})
-            if "is_strict" in table_features:
-                table.is_strict = table_features["is_strict"]
-            if "is_without_rowid" in table_features:
-                table.is_without_rowid = table_features["is_without_rowid"]
-            if "on_conflict" in table_features:
-                table.on_conflict = table_features["on_conflict"]
-            # collation / partial_predicate filled per-column/per-index
-            col_collations = table_features.get("column_collations", {})
-            if col_collations:
-                for col in table.columns:
-                    if col.name in col_collations:
-                        col.collation = col_collations[col.name]
-            index_predicates = table_features.get("index_predicates", {})
-            if index_predicates:
-                for idx in table.indexes:
-                    if idx.name in index_predicates:
-                        idx.partial_predicate = index_predicates[idx.name]
+            self._merge_table_dialect_features(table, table_features)
+
+    @staticmethod
+    def _merge_table_dialect_features(table: TableFeatures, table_features: dict[str, Any]) -> None:
+        """Apply one table's dialect flags, collations and index predicates."""
+        if "is_strict" in table_features:
+            table.is_strict = table_features["is_strict"]
+        if "is_without_rowid" in table_features:
+            table.is_without_rowid = table_features["is_without_rowid"]
+        if "on_conflict" in table_features:
+            table.on_conflict = table_features["on_conflict"]
+        # collation / partial_predicate filled per-column/per-index
+        col_collations = table_features.get("column_collations", {})
+        if col_collations:
+            for col in table.columns:
+                if col.name in col_collations:
+                    col.collation = col_collations[col.name]
+        index_predicates = table_features.get("index_predicates", {})
+        if index_predicates:
+            for idx in table.indexes:
+                if idx.name in index_predicates:
+                    idx.partial_predicate = index_predicates[idx.name]
 
     def _compute_schema_hash(self, tables: list[TableFeatures]) -> str:
         """Compute stable hash of schema for cache key."""

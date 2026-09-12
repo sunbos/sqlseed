@@ -92,6 +92,15 @@ FORBIDDEN_PERSIST_KEYS = frozenset(
 )
 
 
+def _registry_items(data: object) -> list[dict[str, Any]]:
+    """Read supported list/wrapped formats without accepting non-object entries."""
+    if isinstance(data, list):
+        return [entry for entry in data if isinstance(entry, dict)]
+    if isinstance(data, dict) and isinstance(data.get("contracts"), list):
+        return [entry for entry in data["contracts"] if isinstance(entry, dict)]
+    return []
+
+
 class LearnedContractsRegistry:
     """Local JSON-persisted learned contracts registry.
 
@@ -154,19 +163,7 @@ class LearnedContractsRegistry:
         """
         self._path.parent.mkdir(parents=True, exist_ok=True)
         data = [c.to_dict() for c in contracts]
-        fd, tmp_path = tempfile.mkstemp(
-            prefix=f"{self._path.name}.",
-            suffix=".tmp",
-            dir=str(self._path.parent),
-        )
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2, default=str, ensure_ascii=False)
-            os.replace(tmp_path, self._path)
-        except Exception:
-            with contextlib.suppress(OSError):
-                os.unlink(tmp_path)
-            raise
+        self._write_document(data)
 
     def load(self, schema_hash: str | None = None) -> list[ContractViolation]:
         """Load contracts from the registry, optionally filtered by schema_hash.
@@ -180,8 +177,7 @@ class LearnedContractsRegistry:
         if not self._path.exists():
             return []
         try:
-            raw = self._path.read_text(encoding="utf-8")
-            data = json.loads(raw)
+            data = self._read_document()
         except (json.JSONDecodeError, OSError) as exc:
             logger.warning(
                 "Failed to load learned contracts registry",
@@ -190,11 +186,7 @@ class LearnedContractsRegistry:
             )
             return []
 
-        items: list[dict[str, Any]] = []
-        if isinstance(data, list):
-            items = [e for e in data if isinstance(e, dict)]
-        elif isinstance(data, dict) and isinstance(data.get("contracts"), list):
-            items = [e for e in data["contracts"] if isinstance(e, dict)]
+        items = _registry_items(data)
 
         contracts: list[ContractViolation] = []
         for entry in items:
@@ -233,12 +225,8 @@ class LearnedContractsRegistry:
         if not self._path.exists():
             return
         try:
-            data = json.loads(self._path.read_text(encoding="utf-8"))
-            items: list[dict[str, Any]] = []
-            if isinstance(data, list):
-                items = [e for e in data if isinstance(e, dict)]
-            elif isinstance(data, dict) and isinstance(data.get("contracts"), list):
-                items = [e for e in data["contracts"] if isinstance(e, dict)]
+            data = self._read_document()
+            items = _registry_items(data)
             for item in items:
                 if not self._is_safe_entry(item):
                     continue
@@ -261,6 +249,14 @@ class LearnedContractsRegistry:
             "contracts": [v.to_dict() for v in self._contracts],
         }
         self._path.parent.mkdir(parents=True, exist_ok=True)
+        self._write_document(data)
+
+    def _read_document(self) -> Any:
+        """Decode registry JSON while callers retain their separate recovery policies."""
+        return json.loads(self._path.read_text(encoding="utf-8"))
+
+    def _write_document(self, data: list[dict[str, Any]] | dict[str, Any]) -> None:
+        """Atomically replace either registry format and clean up failed temporary writes."""
         fd, tmp_path = tempfile.mkstemp(
             prefix=f"{self._path.name}.",
             suffix=".tmp",

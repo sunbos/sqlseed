@@ -13,13 +13,14 @@ from typing import TYPE_CHECKING
 import pytest
 
 from sqlseed.core.orchestrator import DataOrchestrator
+from tests.assertions import assert_empty
 
 if TYPE_CHECKING:
     from pathlib import Path
 
 
-@pytest.fixture
-def db_with_check_constraint(tmp_path: Path) -> str:
+@pytest.fixture(name="db_with_check_constraint")
+def fixture_db_with_check_constraint(tmp_path: Path) -> str:
     """Database with VARCHAR column + CHECK length constraint.
 
     Schema:
@@ -137,8 +138,8 @@ class TestSchemaFallbackIntegration:
             assert 8 <= len(code) <= 20, f"CHECK violation: code={code!r} len={len(code)}"
 
 
-@pytest.fixture
-def db_with_title_enum(tmp_path: Path) -> str:
+@pytest.fixture(name="db_with_title_enum")
+def fixture_db_with_title_enum(tmp_path: Path) -> str:
     """Database where an EXACT-rule column carries a CHECK IN enum.
 
     Schema mirrors the live defect found via sqlseed-web on
@@ -192,7 +193,7 @@ class TestNameRuleEnumCheckHardTruth:
         with DataOrchestrator(db_with_title_enum, provider_name="base") as orch:
             result = orch.fill_table("employees", count=20)
         assert result.count == 20
-        assert result.errors == []
+        assert_empty(result.errors, list)
 
         conn = sqlite3.connect(db_with_title_enum)
         rows = conn.execute("SELECT title FROM employees").fetchall()
@@ -216,8 +217,8 @@ class TestNameRuleEnumCheckHardTruth:
         assert note_spec.generator_name == "sentence"
 
 
-@pytest.fixture
-def db_with_phone_length(tmp_path: Path) -> str:
+@pytest.fixture(name="db_with_phone_length")
+def fixture_db_with_phone_length(tmp_path: Path) -> str:
     """Database where the phone name-rule column carries a LENGTH CHECK.
 
     Mirrors the live sqlseed-web demo defect: EXACT_MATCH_RULES maps
@@ -270,7 +271,7 @@ class TestLengthCheckHardTruth:
         with DataOrchestrator(db_with_phone_length, provider_name="mimesis") as orch:
             result = orch.fill_table("users", count=20)
         assert result.count == 20
-        assert result.errors == []
+        assert_empty(result.errors, list)
 
         conn = sqlite3.connect(db_with_phone_length)
         rows = conn.execute("SELECT phone FROM users").fetchall()

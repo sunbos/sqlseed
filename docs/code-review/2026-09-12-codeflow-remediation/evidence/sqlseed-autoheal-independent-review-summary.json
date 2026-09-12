@@ -1,0 +1,80 @@
+{
+  "reviewer": "audit_baseline (did not implement auto_heal)",
+  "read_only_repo": true,
+  "baseline": "/tmp/sqlseed-ai-check-refactor-before.py",
+  "baseline_sha256": "b081cb32098689d1ac0fd7e1ae941109a81375ab830a23e2e866095e5588e3a0",
+  "baseline_delta_from_head": "only original typing declaration + three unused assignments removed (1 added/4 removed lines)",
+  "structural_findings": [],
+  "independent_validation": {
+    "counts": {
+      "cross_cases": 14000,
+      "direct_original_full_run_cases": 2434
+    },
+    "unique_real_snapshot_configs": 38,
+    "failures": []
+  },
+  "numeric_any_finding": {
+    "status": "resolved by root; independently verified",
+    "file": "/Users/sunbo/Desktop/sqlseed/plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/_check_inference.py",
+    "line_at_review": 735,
+    "function": "_parse_numeric_array_literals",
+    "reproductions": {
+      "1e400": "old None; current choice [inf]",
+      "-1e400": "old None; current choice [-inf]",
+      "1e-400": "current choice [0.0]",
+      "9007199254740993.0": "current choice [9007199254740992.0]"
+    },
+    "impact": "valid finite PostgreSQL NUMERIC array literals become different values; generated choices cannot satisfy original equality",
+    "reference": "https://www.postgresql.org/docs/current/datatype-numeric.html#DATATYPE-NUMERIC-DECIMAL",
+    "recommendation": "decline numeric ARRAY inference if an int/float configuration value cannot preserve the numeric literal; retain normal signed-int and representable decimal/scientific cases"
+  },
+  "reviewed_invariants": [
+    "scope/initial_config deepcopy and database override before validation",
+    "selected tables/dependency depth and FK splitting order",
+    "initial validate -> heal -> append -> broken-edge align -> schema-hash guard -> normalization -> final validation -> YAML",
+    "FK-specific inference before cross-check before single-check before UNIQUE/name mapping",
+    "ordered cross-CHECK pre-scans and 64 matchers; no direct RNG draw introduced",
+    "generated expression strings, parameter Python types and dict/alias mutation structure"
+  ],
+  "coverage_limits": [
+    "No live PostgreSQL reflection/NUMERIC insert oracle; PG literal range semantics verified against official docs.",
+    "Full-run supplementary differential uses actual captured SQLite snapshots plus deterministic validation/snapshot seams; it does not simulate nondeterministic LLM/network concurrency or wall-clock expiry races.",
+    "No claim of exhaustive regex-language equivalence; mixed-pattern corpus and invalid-expression variants bounded at 14000.",
+    "Relies on parent full 3361-passed/47-skipped and mypy154 gates rather than repeating them."
+  ],
+  "files_at_initial_review": {
+    "/Users/sunbo/Desktop/sqlseed/plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py": "76d19a24080f65ad7e5e4d26c48889a14ced5977fb5180e233488136b26bf9dd",
+    "/Users/sunbo/Desktop/sqlseed/plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/_check_inference.py": "0a2f3f9112d43612473ac367917264177e476e78f22d34a36fa28c658456049b",
+    "/Users/sunbo/Desktop/sqlseed/plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/_cross_column_checks.py": "ea3991c12f73c052f80c837cc86fd51e2fa740efc968e2780a52b725b49ff0be"
+  },
+  "numeric_fix_verification": {
+    "literal_count": 14029,
+    "counts": {
+      "accepted_ints": 2004,
+      "accepted_floats": 4229,
+      "declined": 7796,
+      "roundtrips": 6233
+    },
+    "failures": [],
+    "mixed_invalid_arrays": 18,
+    "boolean_kind_checks": {
+      "integer_boolean": [
+        "boolean",
+        {}
+      ],
+      "decimal_zero_one": [
+        "choice",
+        {
+          "choices": [
+            0.0,
+            1.0
+          ]
+        }
+      ]
+    },
+    "yaml_roundtrip_verified": true,
+    "source_sha256": "90700e1e6be632e7e94bcacf518b9de898639503292ddbe71a7dc7871a9c0b9f"
+  },
+  "targeted_pytest": "21 passed, 185 deselected in 1.94s",
+  "unresolved_findings": []
+}

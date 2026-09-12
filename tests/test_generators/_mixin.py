@@ -90,6 +90,18 @@ class IdentityProviderTestMixin:
         assert len(result) > 0
 
 
+class NativePhoneProviderTestMixin:
+    provider: Any
+
+    def test_phone_default_follows_locale(self) -> None:
+        """Native locale phone formats remain nonempty strings containing digits."""
+        for _ in range(20):
+            phone = self.provider.generate("phone")
+            assert isinstance(phone, str)
+            assert len(phone) > 0
+            assert any(c.isdigit() for c in phone)
+
+
 class TemporalProviderTestMixin:
     provider: Any
 

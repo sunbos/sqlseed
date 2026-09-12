@@ -37,13 +37,13 @@ def test_database_rejects_cross_tenant_keys_and_invalid_amounts_and_dates(tmp_pa
     build_database(path)
     with sqlite3.connect(path) as db:
         db.execute("PRAGMA foreign_keys=ON")
-        for statement in [
+        for statement in (
             "UPDATE orders SET tenant_id=2 WHERE id=1101",
             "UPDATE order_items SET discount_cents=999999 WHERE id=1201",
             "UPDATE orders SET promised_at='2020-01-01' WHERE id=1101",
             "UPDATE inventory SET reserved=on_hand+1 WHERE tenant_id=1",
             "UPDATE orders SET total_cents=1 WHERE id=1101",
-        ]:
+        ):
             with pytest.raises(sqlite3.DatabaseError):
                 db.execute(statement)
             db.rollback()
@@ -57,7 +57,7 @@ def test_seed_has_composite_edges_nullable_cycle_generated_and_wide_table(tmp_pa
     with sqlite3.connect(path) as db:
         assert len(db.execute('PRAGMA table_xinfo("orders")').fetchall()) >= 25
         assert len(db.execute('PRAGMA table_xinfo("tags")').fetchall()) == 2
-        assert any(row[6] in (2, 3) for row in db.execute('PRAGMA table_xinfo("order_items")'))
+        assert any(row[6] in {2, 3} for row in db.execute('PRAGMA table_xinfo("order_items")'))
         assert (
             db.execute(
                 "SELECT COUNT(*) FROM shipments s JOIN shipment_events e "

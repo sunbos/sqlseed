@@ -169,6 +169,21 @@ class DataStream:
         # not present in the DAG (e.g., autoincrement PKs that are skipped).
         # Build a list of (key_name, column_list) pairs for fast lookup.
         node_names = {n.name for n in dag_nodes}
+        self._configure_composite_constraints(node_names, composite_unique_constraints)
+        self._configure_inequality_constraints(node_names, inequality_constraints)
+
+        self._rng = random.Random(seed)
+        if seed is not None:
+            self._provider.set_seed(seed)
+        # FK coverage 采样策略的每列状态：spec 身份 → 待弹出的父值队列。
+        # 队列打乱后逐个弹出，弹尽后重新打乱——保证每个父值在一轮内被
+        # 引用恰好一次（覆盖式），轮与轮之间顺序随机。
+        self._coverage_queues: dict[int, list[Any]] = {}
+
+    def _configure_composite_constraints(
+        self, node_names: set[str], composite_unique_constraints: list[list[str]] | None
+    ) -> None:
+        """Retain enforceable column lists and their unambiguous composite keys."""
         self._composite_unique: list[tuple[str, list[str]]] = []
         if composite_unique_constraints:
             for cols in composite_unique_constraints:
@@ -183,9 +198,12 @@ class DataStream:
                     key_name = f"__composite__{tuple(cols)!r}"
                     self._composite_unique.append((key_name, cols))
 
-        # Normalize inequality constraints: only keep tuples where both columns
-        # are in the DAG. When violated, the row is retried.
-        # Each tuple is (col1, col2, op) where op is !=, >, <, >=, <=.
+    def _configure_inequality_constraints(
+        self,
+        node_names: set[str],
+        inequality_constraints: list[tuple[str, str, str]] | list[tuple[str, str]] | None,
+    ) -> None:
+        """Keep DAG-local comparisons, preserving the legacy two-column form."""
         self._inequality: list[tuple[str, str, str]] = []
         if inequality_constraints:
             for item in inequality_constraints:
@@ -198,14 +216,6 @@ class DataStream:
                     continue
                 if col1 in node_names and col2 in node_names:
                     self._inequality.append((col1, col2, op))
-
-        self._rng = random.Random(seed)
-        if seed is not None:
-            self._provider.set_seed(seed)
-        # FK coverage 采样策略的每列状态：spec 身份 → 待弹出的父值队列。
-        # 队列打乱后逐个弹出，弹尽后重新打乱——保证每个父值在一轮内被
-        # 引用恰好一次（覆盖式），轮与轮之间顺序随机。
-        self._coverage_queues: dict[int, list[Any]] = {}
 
     def _check_cancelled(self) -> None:
         if self._cancel_check is not None:
@@ -299,25 +309,7 @@ class DataStream:
             The value generated for the node.
         """
         if node.is_derived and node.expression:
-            # Use derive_from_sources (explicit derive_from only) — NOT
-            # depends_on (which also includes implicit row['col_name']
-            # references for DAG ordering). This ensures a single-source
-            # derive like ``derive_from: registration_fee`` with expression
-            # ``value + row['lab_fee']`` keeps ``value`` as a scalar.
-            deps = node.derive_from_sources
-            if len(deps) <= 1:
-                # Single-column derive: value is scalar (backward compatible)
-                ctx = {"row": row, "value": row.get(deps[0]) if deps else None}
-            else:
-                # Multi-column derive: value is a list of source values.
-                # Users can reference via value[0], value[1] or row['col_name'].
-                ctx = {"row": row, "value": [row.get(d) for d in deps]}
-            try:
-                return self._expr_engine.evaluate(node.expression, ctx)
-            except (ValueError, SyntaxError) as exc:
-                raise GenerationError(f"Expression evaluation failed: {exc}") from exc
-            except (TypeError, AttributeError) as exc:
-                raise ConfigurationError(f"Expression misconfigured: {exc}") from exc
+            return self._evaluate_derived_expression(node.expression, node.derive_from_sources, row)
 
         spec = node.generator_spec
         pairs = spec.params.get("_ref_pairs")
@@ -344,6 +336,24 @@ class DataStream:
             raise ConfigurationError(f"Generator '{node.generator_spec.generator_name}' misconfigured: {exc}") from exc
         except (ValueError, OverflowError) as exc:
             raise GenerationError(f"Generator '{node.generator_spec.generator_name}' value error: {exc}") from exc
+
+    def _evaluate_derived_expression(self, expression: str, sources: list[str], row: dict[str, Any]) -> Any:
+        """Evaluate explicit derive sources with the established scalar/list context.
+
+        Implicit row references affect DAG ordering without changing ``value``.
+        Expression syntax/value failures remain retriable; type and attribute
+        failures remain configuration errors.
+        """
+        if len(sources) <= 1:
+            context = {"row": row, "value": row.get(sources[0]) if sources else None}
+        else:
+            context = {"row": row, "value": [row.get(source) for source in sources]}
+        try:
+            return self._expr_engine.evaluate(expression, context)
+        except (ValueError, SyntaxError) as exc:
+            raise GenerationError(f"Expression evaluation failed: {exc}") from exc
+        except (TypeError, AttributeError) as exc:
+            raise ConfigurationError(f"Expression misconfigured: {exc}") from exc
 
     def _rollback_source_columns(
         self, source_columns: list[str], row: dict[str, Any], generated_values: dict[str, Any]
@@ -516,39 +526,42 @@ class DataStream:
                 self._handle_col_failure(backtrack_to, row, generated_values)
                 return False, backtrack_to
 
-        # Composite UNIQUE enforcement: after all columns are generated, check
-        # each composite UNIQUE constraint. If any tuple collides, roll back
-        # the row's single-column registrations and trigger a retry. This is
-        # the core fix for the "composite UNIQUE never enforced" gap — without
-        # this, the constraint solver's ``check_and_register_composite()`` is
-        # never called, and composite UNIQUE violations only surface at INSERT
-        # time as IntegrityError (fatal, no retry).
         registered_composites = self._current_row_composites
+        succeeded, constraint_backtrack = self._register_row_composites(row, generated_values, registered_composites)
+        if not succeeded:
+            return False, constraint_backtrack
+        succeeded, constraint_backtrack = self._check_row_inequalities(row, generated_values, registered_composites)
+        if not succeeded:
+            return False, constraint_backtrack
+        return True, backtrack_to
+
+    def _register_row_composites(
+        self,
+        row: dict[str, Any],
+        generated_values: dict[str, Any],
+        registered_composites: list[tuple[str, tuple[Any, ...]]],
+    ) -> tuple[bool, int | None]:
+        """Register complete UNIQUE tuples, rolling back only this row on collision."""
         if self._composite_unique:
             for key_name, cols in self._composite_unique:
                 composite_tuple = tuple(row.get(c) for c in cols)
                 if not self._constraint_solver.check_and_register_composite(key_name, composite_tuple, columns=cols):
-                    for registered_key, registered_tuple in registered_composites:
-                        self._constraint_solver.unregister_composite(registered_key, registered_tuple)
-                    registered_composites.clear()
                     # Collision: roll back all single-column registrations and
                     # retry the whole row. Use the first composite column as
                     # the backtracking target so the retry regenerates it.
-                    for col, val in generated_values.items():
-                        self._constraint_solver.unregister(col, val)
-                    generated_values.clear()
-                    row.clear()
+                    self._rollback_row_constraints(row, generated_values, registered_composites)
                     bt_idx = self._find_node_index(cols[0])
                     return False, bt_idx
                 registered_composites.append((key_name, composite_tuple))
+        return True, None
 
-        # Inequality CHECK enforcement: after all columns are generated, check
-        # each ``col1 OP col2`` constraint. If violated, roll back and retry.
-        # This handles the case where both columns are independently-sampled
-        # (e.g., origin_wh_id and dest_wh_id both referencing warehouses with
-        # ``CHECK(origin_wh_id != dest_wh_id)``, or start_time and end_time
-        # with LIKE constraints that block derive_from and
-        # ``CHECK(end_time > start_time)``).
+    def _check_row_inequalities(
+        self,
+        row: dict[str, Any],
+        generated_values: dict[str, Any],
+        registered_composites: list[tuple[str, tuple[Any, ...]]],
+    ) -> tuple[bool, int | None]:
+        """Check independently sampled column pairs after composite registration."""
         if self._inequality:
             for col1, col2, op in self._inequality:
                 v1 = row.get(col1)
@@ -557,17 +570,25 @@ class DataStream:
                     continue
                 violated = _violates_inequality(v1, v2, op, col1, col2)
                 if violated:
-                    for registered_key, registered_tuple in registered_composites:
-                        self._constraint_solver.unregister_composite(registered_key, registered_tuple)
-                    registered_composites.clear()
-                    for col, val in generated_values.items():
-                        self._constraint_solver.unregister(col, val)
-                    generated_values.clear()
-                    row.clear()
+                    self._rollback_row_constraints(row, generated_values, registered_composites)
                     bt_idx = self._find_node_index(col2)
                     return False, bt_idx
+        return True, None
 
-        return True, backtrack_to
+    def _rollback_row_constraints(
+        self,
+        row: dict[str, Any],
+        generated_values: dict[str, Any],
+        registered_composites: list[tuple[str, tuple[Any, ...]]],
+    ) -> None:
+        """Release accepted composite keys before this row's single-column keys."""
+        for registered_key, registered_tuple in registered_composites:
+            self._constraint_solver.unregister_composite(registered_key, registered_tuple)
+        registered_composites.clear()
+        for col, val in generated_values.items():
+            self._constraint_solver.unregister(col, val)
+        generated_values.clear()
+        row.clear()
 
     def _generate_row(self, *, row_idx: int) -> dict[str, Any]:
         """Generate a single row, including the retry and backtracking mechanism.
@@ -585,6 +606,8 @@ class DataStream:
         Raises:
             RuntimeError: Raised when constraints cannot be satisfied after the
                 maximum number of retries.
+            BaseException: Propagates generation or finalization failures after
+                releasing the interrupted row's constraint registrations.
         """
         max_total_retries = MAX_ROW_RETRIES
         total_retries = 0
@@ -624,15 +647,7 @@ class DataStream:
                 continue
 
             if generated_values or not any(not n.is_skip for n in self._nodes):
-                try:
-                    self._check_cancelled()
-                    final_row = self._finalize_row(row, row_idx, total_retries)
-                    self._check_cancelled()
-                    self._last_row_registrations = generated_values
-                    return final_row
-                except BaseException:
-                    self._unregister_row(generated_values)
-                    raise
+                return self._finalize_registered_row(row, row_idx, total_retries, generated_values)
 
             if total_retries <= 3:
                 logger.debug(
@@ -643,6 +658,24 @@ class DataStream:
                 )
             total_retries += 1
 
+        raise self._row_retry_error(max_total_retries)
+
+    def _finalize_registered_row(
+        self, row: dict[str, Any], row_idx: int, total_retries: int, generated_values: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Finalize between cancellation checks, releasing original keys on any interruption."""
+        try:
+            self._check_cancelled()
+            final_row = self._finalize_row(row, row_idx, total_retries)
+            self._check_cancelled()
+            self._last_row_registrations = generated_values
+            return final_row
+        except BaseException:
+            self._unregister_row(generated_values)
+            raise
+
+    def _row_retry_error(self, max_total_retries: int) -> RuntimeError:
+        """Describe retry exhaustion without claiming the UNIQUE value space is exhausted."""
         non_skip_nodes = [n.name for n in self._nodes if not n.is_skip]
         unique_nodes = [
             f"{n.name}(generator={n.generator_spec.generator_name!r})"
@@ -657,7 +690,7 @@ class DataStream:
                 " Reusing a seed may replay existing keys. Reaching the retry limit"
                 " does not establish that the UNIQUE value space is exhausted."
             )
-        raise RuntimeError(
+        return RuntimeError(
             f"Failed to generate row satisfying all constraints after {max_total_retries} retries. "
             f"Non-skip columns: {non_skip_nodes}.{detail}"
         )
@@ -707,17 +740,8 @@ class DataStream:
         Returns:
             The generated value.
         """
-        if spec.null_ratio > 0:
-            if not nullable:
-                # NOT NULL column with null_ratio > 0 — producing NULL would
-                # violate the constraint. Log a warning and fall through to
-                # generate a real value instead.
-                logger.warning(
-                    "Column is NOT NULL but null_ratio > 0; suppressing null generation",
-                    null_ratio=spec.null_ratio,
-                )
-            elif self._rng.random() < spec.null_ratio:
-                return None
+        if self._should_emit_null(spec, nullable):
+            return None
 
         # Native methods do not accept exclude_values. The surrounding solver
         # still checks each candidate, so UNIQUE must not switch later rows to
@@ -751,6 +775,18 @@ class DataStream:
                 return self._handle_foreign_key(spec, exclude_values=exclude_values)
 
             raise
+
+    def _should_emit_null(self, spec: GeneratorSpec, nullable: bool) -> bool:
+        """Apply NULL probability only when allowed, preserving warning and RNG order."""
+        if spec.null_ratio > 0:
+            if not nullable:
+                logger.warning(
+                    "Column is NOT NULL but null_ratio > 0; suppressing null generation",
+                    null_ratio=spec.null_ratio,
+                )
+            elif self._rng.random() < spec.null_ratio:
+                return True
+        return False
 
     def _try_native_method(self, spec: GeneratorSpec) -> Any:
         """Attempt a native method call.

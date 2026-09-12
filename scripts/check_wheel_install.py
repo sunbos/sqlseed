@@ -49,12 +49,12 @@ def main() -> None:
         os.environ["SQLSEED_WEB_WORKSPACE_PATH"] = str(root / "workspace.sqlite3")
         os.environ["SQLSEED_WEB_SETTINGS_PATH"] = str(root / "settings.json")
         database = root / "sample.db"
-        with closing(sqlite3.connect(database)) as connection, connection:
+        with closing(sqlite3.connect(database)) as connection:
             connection.execute("CREATE TABLE users(id INTEGER PRIMARY KEY, name TEXT NOT NULL)")
             connection.execute("CREATE TABLE web_users(id INTEGER PRIMARY KEY, name TEXT NOT NULL)")
         result = sqlseed.fill(str(database), table="users", count=5, provider="base", skip_ai=True)
         require(result.count == 5 and not result.errors, f"Wheel generation failed: {result}")
-        with closing(sqlite3.connect(database)) as connection, connection:
+        with closing(sqlite3.connect(database)) as connection:
             original_rows = connection.execute("SELECT id, name FROM users ORDER BY id").fetchall()
 
         supervisor = Supervisor(port=0)
@@ -124,7 +124,7 @@ def main() -> None:
             preview = read_json("/api/workbench/preview", inputs)
             require(checked["ok"] and preview["ok"], f"Workbench validation failed: {checked}, {preview}")
             require(len(preview["samples"]["web_users"]) == 3, "Workbench preview returned the wrong row count")
-            with closing(sqlite3.connect(database)) as connection, connection:
+            with closing(sqlite3.connect(database)) as connection:
                 require(connection.execute("SELECT count(*) FROM web_users").fetchone()[0] == 0, "Preview wrote data")
             started = read_json(
                 "/api/workbench/runs",
@@ -144,7 +144,7 @@ def main() -> None:
                 require(time.monotonic() < deadline, "Workbench generation did not finish")
                 time.sleep(0.02)
             require(run["status"] == "done" and run["rows_inserted"] == 5, f"Workbench generation failed: {run}")
-            with closing(sqlite3.connect(database)) as connection, connection:
+            with closing(sqlite3.connect(database)) as connection:
                 count = connection.execute("SELECT count(*) FROM users").fetchone()[0]
                 require(count == 5, "Reading the workbench changed generated data")
                 require(

@@ -13,7 +13,7 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
-from sqlseed_ai.contracts.builtin_violations import future_bound_key
+from sqlseed_ai.contracts.builtin_violations import _is_code_like, future_bound_key
 from sqlseed_ai.validator.models import ViolationReport
 
 from sqlseed.config.models import ColumnConfig, normalize_column_input
@@ -134,21 +134,7 @@ def _semantic_upgrade(col: dict[str, Any], v: ViolationReport, ctx: dict[str, An
     """
     name = col.get("name", "")
     name_lower = name.lower()
-    new_gen: str | None = None
-    if "email" in name_lower:
-        new_gen = "email"
-    elif name_lower in ("phone", "mobile", "telephone", "tel"):
-        new_gen = "phone"
-    elif "url" in name_lower or "website" in name_lower:
-        new_gen = "url"
-    elif "uuid" in name_lower or "guid" in name_lower:
-        new_gen = "uuid"
-    elif name_lower in ("description", "desc", "comment", "note"):
-        new_gen = "sentence"
-    elif name_lower.endswith("_name") or name_lower == "name":
-        new_gen = "name"
-    elif name_lower in ("merchant", "company") or "company" in name_lower:
-        new_gen = "company"
+    new_gen = _semantic_generator(name_lower)
     new_col = {**col}
     if new_gen is not None:
         # Blind-spot fix: phone-like column with LENGTH CHECK → pattern with
@@ -166,6 +152,30 @@ def _semantic_upgrade(col: dict[str, Any], v: ViolationReport, ctx: dict[str, An
     # else: keep existing generator (e.g., "string")
     new_col.pop("params", None)
     return new_col
+
+
+def _semantic_generator(name_lower: str) -> str | None:
+    """Select the first matching semantic name rule in the existing priority order."""
+    if "email" in name_lower:
+        return "email"
+    match name_lower:
+        case "phone" | "mobile" | "telephone" | "tel":
+            return "phone"
+    if "url" in name_lower or "website" in name_lower:
+        return "url"
+    if "uuid" in name_lower or "guid" in name_lower:
+        return "uuid"
+    match name_lower:
+        case "description" | "desc" | "comment" | "note":
+            return "sentence"
+    if name_lower.endswith("_name") or name_lower == "name":
+        return "name"
+    match name_lower:
+        case "merchant" | "company":
+            return "company"
+    if "company" in name_lower:
+        return "company"
+    return None
 
 
 def _extract_length_check(col_name: str, ctx: dict[str, Any]) -> int | None:
@@ -340,13 +350,7 @@ def _isolate_date_ranges(col: dict[str, Any], v: ViolationReport, ctx: dict[str,
 
 def _fix_self_reference(col: dict[str, Any], v: ViolationReport, ctx: dict[str, Any]) -> dict[str, Any]:
     """Strip derive_from + expression when column self-references."""
-    new_col = {**col}
-    new_col["derive_from"] = None
-    new_col["expression"] = None
-    if "generator" not in new_col:
-        col_type = ctx.get("column_type", "TEXT")
-        new_col["generator"] = "integer" if "INT" in col_type.upper() else "string"
-    return new_col
+    return _break_derive_from_cycle(col, v, ctx)
 
 
 def _coerce_float_to_int(col: dict[str, Any], v: ViolationReport, ctx: dict[str, Any]) -> dict[str, Any]:
@@ -452,11 +456,7 @@ def _cap_future_end_year(col: dict[str, Any], v: ViolationReport, ctx: dict[str,
 # === Task 2.3: Rule #25 — downgrade_text_to_string ===
 def _is_code_like_column(name: str) -> bool:
     """Heuristic: column name looks like a code/identifier (Rule #25 helper)."""
-    if not name:
-        return False
-    lower = name.lower()
-    suffixes = ("_code", "code", "_id", "sku", "_no", "number", "_key")
-    return any(lower.endswith(s) for s in suffixes) or lower in ("code", "sku", "isbn")
+    return _is_code_like(name)
 
 
 def _downgrade_text_to_string(col: dict[str, Any], v: ViolationReport, ctx: dict[str, Any]) -> dict[str, Any]:
@@ -752,12 +752,7 @@ def _strip_invalid_date_derive_from(col: dict[str, Any], v: ViolationReport, ctx
 
     # Build generator map from ctx (table_config) for source column lookup
     table_config = ctx.get("table_config") or {}
-    generators: dict[str, str | None] = {}
-    for c in table_config.get("columns", []):
-        if isinstance(c, dict):
-            n = c.get("name", "")
-            g = c.get("generator")
-            generators[n] = g if isinstance(g, str) else None
+    generators = _configured_generators(table_config)
 
     col_name = col.get("name", "")
     sources = col["derive_from"]
@@ -781,6 +776,17 @@ def _strip_invalid_date_derive_from(col: dict[str, Any], v: ViolationReport, ctx
     if not new_col.get("generator"):
         new_col["generator"] = "datetime"
     return new_col
+
+
+def _configured_generators(table_config: dict[str, Any]) -> dict[str, str | None]:
+    """Retain named source generators for date dependency classification."""
+    generators: dict[str, str | None] = {}
+    for c in table_config.get("columns", []):
+        if isinstance(c, dict):
+            n = c.get("name", "")
+            g = c.get("generator")
+            generators[n] = g if isinstance(g, str) else None
+    return generators
 
 
 REPAIR_STRATEGIES: dict[str, RepairFn] = {

@@ -73,7 +73,7 @@ def _check_ai_enabled() -> bool:
     import os
 
     val = os.environ.get("SQLSEED_AI_ENABLED", "").lower().strip()
-    return val in ("1", "true", "yes", "on")
+    return val in {"1", "true", "yes", "on"}
 
 
 _SIMPLE_COL_RE = re.compile(

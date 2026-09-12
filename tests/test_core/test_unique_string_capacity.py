@@ -2,23 +2,32 @@
 
 from __future__ import annotations
 
-import sqlite3
-from contextlib import closing
 from typing import TYPE_CHECKING
 
 import pytest
 
 from sqlseed.core.orchestrator import DataOrchestrator
 from sqlseed.generators._protocol import ConfigurationError
+from tests.assertions import assert_empty
+from tests.sqlite_helpers import sqlite_connection
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from sqlseed.core.result import GenerationResult
+
+
+def _fill_string_codes(orch: DataOrchestrator, count: int, params: dict[str, object]) -> GenerationResult:
+    """Generate a seeded code batch while each test supplies its exact character domain."""
+    return orch.fill_table(
+        "items", count=count, seed=42, skip_ai=True, columns={"code": {"generator": "string", "params": params}}
+    )
 
 
 @pytest.mark.parametrize("column_type,count", [("INT8", 256), ("INT16", 65536)])
 def test_sqlite_integer_type_names_do_not_imply_bit_capacity(tmp_path: Path, column_type: str, count: int) -> None:
     path = tmp_path / "integer_capacity.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.execute(f"CREATE TABLE items(code {column_type} NOT NULL UNIQUE)")
         db.executemany("INSERT INTO items VALUES (?)", ((value,) for value in range(count)))
         assert db.execute("SELECT COUNT(DISTINCT code) FROM items").fetchone() == (count,)
@@ -29,7 +38,7 @@ def test_impossible_nonnullable_integer_request_is_rejected_before_generation(
     tmp_path: Path, clear_before: bool
 ) -> None:
     path = tmp_path / "bounded_integer_capacity.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.execute("CREATE TABLE items(code INTEGER NOT NULL UNIQUE CHECK(code BETWEEN 10 AND 12))")
         db.execute("INSERT INTO items VALUES (10)")
     with DataOrchestrator(str(path), provider_name="base", optimize_pragma=False) as orch:
@@ -47,7 +56,7 @@ def test_impossible_nonnullable_integer_request_is_rejected_before_generation(
 
 def test_nullable_integer_unique_can_generate_more_rows_than_nonnull_values(tmp_path: Path) -> None:
     path = tmp_path / "nullable_integer_capacity.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.execute("CREATE TABLE items(code INTEGER UNIQUE CHECK(code BETWEEN 10 AND 12))")
     with DataOrchestrator(str(path), provider_name="base", optimize_pragma=False) as orch:
         result = orch.fill_table(
@@ -60,7 +69,7 @@ def test_nullable_integer_unique_can_generate_more_rows_than_nonnull_values(tmp_
         rows = orch.query("SELECT code FROM items")
         values = [row["code"] for row in rows if row["code"] is not None]
         assert result.count == 8
-        assert result.errors == []
+        assert_empty(result.errors, list)
         assert len(values) == len(set(values))
         assert set(values) <= {10, 11, 12}
         assert any(row["code"] is None for row in rows)
@@ -69,7 +78,7 @@ def test_nullable_integer_unique_can_generate_more_rows_than_nonnull_values(tmp_
 @pytest.mark.parametrize("enrich", [False, True])
 def test_valid_clear_reuses_integer_domain_and_resolves_self_fk_from_new_rows(tmp_path: Path, enrich: bool) -> None:
     path = tmp_path / "clear_integer_capacity.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.execute(
             "CREATE TABLE items(id INTEGER PRIMARY KEY, code INTEGER NOT NULL UNIQUE CHECK(code BETWEEN 10 AND 12), "
             "parent_id INTEGER REFERENCES items(id))"
@@ -87,29 +96,23 @@ def test_valid_clear_reuses_integer_domain_and_resolves_self_fk_from_new_rows(tm
         )
         rows = orch.query("SELECT id, code, parent_id FROM items")
         ids = {row["id"] for row in rows}
-        assert result.errors == []
+        assert_empty(result.errors, list)
         assert result.count == 3
         assert {row["code"] for row in rows} == {10, 11, 12}
         assert 9000 not in ids
         assert all(row["parent_id"] is None or row["parent_id"] in ids for row in rows)
         assert any(row["parent_id"] is not None for row in rows)
-        assert orch.query("PRAGMA foreign_key_check") == []
+        assert_empty(orch.query("PRAGMA foreign_key_check"), list)
 
 
 @pytest.mark.parametrize("charset", ["01", "000111"])
 def test_small_custom_charset_generates_requested_unique_rows(tmp_path: Path, charset: str) -> None:
     path = tmp_path / "binary_codes.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.execute("CREATE TABLE items(code TEXT NOT NULL UNIQUE)")
     with DataOrchestrator(str(path), provider_name="base", optimize_pragma=False) as orch:
-        result = orch.fill_table(
-            "items",
-            count=1000,
-            seed=42,
-            skip_ai=True,
-            columns={"code": {"generator": "string", "params": {"charset": charset, "max_length": 1}}},
-        )
-        assert result.errors == []
+        result = _fill_string_codes(orch, 1000, {"charset": charset, "max_length": 1})
+        assert_empty(result.errors, list)
         assert result.count == 1000
         rows = orch.query("SELECT code FROM items")
         assert len({row["code"] for row in rows}) == 1000
@@ -119,18 +122,12 @@ def test_small_custom_charset_generates_requested_unique_rows(tmp_path: Path, ch
 @pytest.mark.parametrize("count", [69, 70, 1000])
 def test_supported_string_batch_fits_database_length_check(tmp_path: Path, count: int) -> None:
     path = tmp_path / "three_character_codes.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.execute("CREATE TABLE items(code TEXT NOT NULL UNIQUE CHECK(LENGTH(code) <= 3))")
     with DataOrchestrator(str(path), provider_name="base", optimize_pragma=False) as orch:
-        result = orch.fill_table(
-            "items",
-            count=count,
-            seed=42,
-            skip_ai=True,
-            columns={"code": {"generator": "string", "params": {"charset": "alphanumeric", "max_length": 3}}},
-        )
+        result = _fill_string_codes(orch, count, {"charset": "alphanumeric", "max_length": 3})
         rows = orch.query("SELECT code FROM items")
-        assert result.errors == []
+        assert_empty(result.errors, list)
         assert result.count == count
         assert len({row["code"] for row in rows}) == count
         assert all(len(row["code"]) <= 3 for row in rows)
@@ -138,7 +135,7 @@ def test_supported_string_batch_fits_database_length_check(tmp_path: Path, count
 
 def test_bounded_binary_strings_reject_exhausted_domain_before_clear(tmp_path: Path) -> None:
     path = tmp_path / "binary_capacity.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.execute("CREATE TABLE items(code TEXT NOT NULL UNIQUE CHECK(LENGTH(code) BETWEEN 1 AND 2))")
         db.execute("INSERT INTO items VALUES ('0')")
     with DataOrchestrator(str(path), provider_name="base", optimize_pragma=False) as orch:
@@ -159,7 +156,7 @@ def test_bounded_binary_strings_reject_exhausted_domain_before_clear(tmp_path: P
 @pytest.mark.parametrize("charset", ["01", "z"])
 def test_nullable_bounded_strings_can_exceed_nonnull_capacity(tmp_path: Path, charset: str) -> None:
     path = tmp_path / "nullable_string_capacity.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.execute("CREATE TABLE items(code TEXT UNIQUE CHECK(LENGTH(code) BETWEEN 1 AND 2))")
     with DataOrchestrator(str(path), provider_name="base", optimize_pragma=False) as orch:
         result = orch.fill_table(
@@ -178,7 +175,7 @@ def test_nullable_bounded_strings_can_exceed_nonnull_capacity(tmp_path: Path, ch
         rows = orch.query("SELECT code FROM items")
         nonnull = [row["code"] for row in rows if row["code"] is not None]
         assert result.count == 12
-        assert result.errors == []
+        assert_empty(result.errors, list)
         assert len(nonnull) == len(set(nonnull))
         assert all(1 <= len(value) <= 2 for value in nonnull)
         assert any(row["code"] is None for row in rows)
@@ -189,24 +186,15 @@ def test_degenerate_charset_uses_existing_finite_length_domain(
     tmp_path: Path, charset: str, min_length: int, max_length: int, count: int
 ) -> None:
     path = tmp_path / "finite_codes.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.execute(
             f"CREATE TABLE items(code TEXT NOT NULL UNIQUE CHECK(LENGTH(code) BETWEEN {min_length} AND {max_length}))"
         )
     with DataOrchestrator(str(path), provider_name="base", optimize_pragma=False) as orch:
-        result = orch.fill_table(
-            "items",
-            count=count,
-            seed=42,
-            skip_ai=True,
-            columns={
-                "code": {
-                    "generator": "string",
-                    "params": {"charset": charset, "min_length": min_length, "max_length": max_length},
-                }
-            },
+        result = _fill_string_codes(
+            orch, count, {"charset": charset, "min_length": min_length, "max_length": max_length}
         )
-        assert result.errors == []
+        assert_empty(result.errors, list)
         assert result.count == count
         assert sorted(row["code"] for row in orch.query("SELECT code FROM items")) == [
             "a" * length for length in range(min_length, max_length + 1)
@@ -218,18 +206,10 @@ def test_degenerate_charset_insufficient_domain_is_explicit_and_keeps_rows(
     tmp_path: Path, charset: str, count: int
 ) -> None:
     path = tmp_path / "invalid_codes.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.execute("CREATE TABLE items(code TEXT NOT NULL UNIQUE)")
         db.execute("INSERT INTO items VALUES('sentinel')")
     with DataOrchestrator(str(path), provider_name="base", optimize_pragma=False) as orch:
         with pytest.raises(ConfigurationError, match=r"character.*UNIQUE"):
-            orch.fill_table(
-                "items",
-                count=count,
-                seed=42,
-                skip_ai=True,
-                columns={
-                    "code": {"generator": "string", "params": {"charset": charset, "min_length": 1, "max_length": 5}}
-                },
-            )
+            _fill_string_codes(orch, count, {"charset": charset, "min_length": 1, "max_length": 5})
         assert orch.query("SELECT code FROM items") == [{"code": "sentinel"}]

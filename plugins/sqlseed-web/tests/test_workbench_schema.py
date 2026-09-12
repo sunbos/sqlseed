@@ -6,7 +6,7 @@ import importlib
 import inspect
 import json
 import sqlite3
-from contextlib import closing, nullcontext
+from contextlib import nullcontext
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
@@ -14,6 +14,7 @@ import pytest
 from sqlalchemy.exc import SAWarning
 from sqlseed.generators._dispatch import GeneratorDispatchMixin
 from sqlseed.generators.base_provider import BaseProvider
+from tests.sqlite_helpers import sqlite_connection
 
 from sqlseed_web.state import Connection, UIState
 
@@ -28,10 +29,10 @@ def _workbench() -> ModuleType:
     return importlib.import_module("sqlseed_web.workbench_schema")
 
 
-@pytest.fixture()
-def connection(tmp_path: Path) -> Iterator[Connection]:
+@pytest.fixture(name="connection")
+def fixture_connection(tmp_path: Path) -> Iterator[Connection]:
     path = tmp_path / "workbench.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.executescript("""
             CREATE TABLE accounts (
                 tenant INTEGER NOT NULL,
@@ -70,7 +71,7 @@ def _tables(schema: dict[str, Any]) -> dict[str, dict[str, Any]]:
 def test_partial_unique_is_not_a_global_rule_and_accepts_outside_predicate_rows(connection: Connection) -> None:
     from sqlseed_web.workbench_runtime import check_document
 
-    with closing(sqlite3.connect(connection.target)) as db, db:
+    with sqlite_connection(connection.target) as db:
         db.executescript(
             "CREATE TABLE archived_items(code TEXT NOT NULL, archived INTEGER NOT NULL);"
             "CREATE UNIQUE INDEX active_code ON archived_items(code) WHERE archived = 0;"
@@ -108,13 +109,13 @@ def test_partial_unique_is_not_a_global_rule_and_accepts_outside_predicate_rows(
 
 
 def test_changing_only_partial_index_predicate_changes_schema_hash(connection: Connection) -> None:
-    with closing(sqlite3.connect(connection.target)) as db, db:
+    with sqlite_connection(connection.target) as db:
         db.executescript(
             "CREATE TABLE archived_items(code TEXT NOT NULL, archived INTEGER NOT NULL);"
             "CREATE UNIQUE INDEX active_code ON archived_items(code) WHERE archived = 0;"
         )
     before = _workbench().inspect_connection(connection)
-    with closing(sqlite3.connect(connection.target)) as db, db:
+    with sqlite_connection(connection.target) as db:
         db.executescript(
             "DROP INDEX active_code; CREATE UNIQUE INDEX active_code ON archived_items(code) WHERE archived = 1;"
         )
@@ -177,7 +178,7 @@ def test_schema_hash_ignores_data_and_changes_after_ddl_with_existing_caches(con
     after_data = module.inspect_connection(connection)
     assert before["schema_hash"] == after_data["schema_hash"]
     assert _tables(after_data)["accounts"]["row_count"] == 2
-    with closing(sqlite3.connect(connection.target)) as db, db:
+    with sqlite_connection(connection.target) as db:
         db.execute("ALTER TABLE accounts ADD COLUMN added TEXT")
         db.execute("CREATE TABLE new_table (id INTEGER PRIMARY KEY)")
     after_ddl = module.inspect_connection(connection)
@@ -207,7 +208,7 @@ def test_schema_refresh_invalidates_cached_dependency_order(connection: Connecti
     module = _workbench()
     module.inspect_connection(connection)
     assert connection.orchestrator.get_topological_table_order(["entries", "accounts"]) == ["accounts", "entries"]
-    with closing(sqlite3.connect(connection.target)) as db, db:
+    with sqlite_connection(connection.target) as db:
         db.execute("DROP TABLE entries")
         db.execute("CREATE TABLE entries (id INTEGER PRIMARY KEY)")
     schema = module.inspect_connection(connection)
@@ -270,7 +271,7 @@ def test_sqlite_rowid_alias_is_a_distinct_fact_from_explicit_autoincrement(
     tmp_path: Path, declaration: str, suffix: str, is_rowid_alias: bool, is_autoincrement: bool
 ) -> None:
     path = tmp_path / "rowid-facts.sqlite3"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.execute(f"CREATE TABLE example ({declaration}){suffix}")
     registry = UIState()
     conn = registry.add_connection(str(path), provider="base")
@@ -287,7 +288,7 @@ def test_sqlite_rowid_alias_is_a_distinct_fact_from_explicit_autoincrement(
         assert column["is_autoincrement"] is is_autoincrement
         assert all(not other["is_rowid_alias"] for other in table["columns"] if other["name"] != "id")
         assert table["row_count"] == 0
-        with closing(sqlite3.connect(path)) as db, db:
+        with sqlite_connection(path) as db:
             try:
                 db.execute("INSERT INTO example DEFAULT VALUES")
             except sqlite3.IntegrityError:
@@ -303,7 +304,7 @@ def test_implicit_rowid_keeps_core_generator_overrides_while_explicit_autoincrem
     from sqlseed.config.models import ColumnConfig
 
     path = tmp_path / "rowid-rules.sqlite3"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.executescript(
             "CREATE TABLE implicit_id(id INTEGER PRIMARY KEY,value TEXT);"
             "CREATE TABLE explicit_id(id INTEGER PRIMARY KEY AUTOINCREMENT,value TEXT);"
@@ -323,7 +324,7 @@ def test_implicit_rowid_keeps_core_generator_overrides_while_explicit_autoincrem
         implicit_result = conn.orchestrator.fill_table("implicit_id", count=1, column_configs=rules, skip_ai=True)
         explicit_result = conn.orchestrator.fill_table("explicit_id", count=1, column_configs=rules, skip_ai=True)
         assert not implicit_result.errors and not explicit_result.errors
-        with closing(sqlite3.connect(path)) as db, db:
+        with sqlite_connection(path) as db:
             assert 42 <= db.execute("SELECT id FROM implicit_id").fetchone()[0] <= 99
             assert db.execute("SELECT id FROM explicit_id").fetchone()[0] == 1
     finally:

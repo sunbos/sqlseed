@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import sqlite3
-from contextlib import closing
 from typing import TYPE_CHECKING
 
 import pytest
 from sqlalchemy.exc import IntegrityError
 
 from sqlseed.database.sqlalchemy_adapter import SQLAlchemyAdapter
+from tests.sqlite_helpers import sqlite_connection
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -17,7 +16,7 @@ if TYPE_CHECKING:
 
 def database(tmp_path: Path) -> tuple[Path, SQLAlchemyAdapter]:
     path = tmp_path / "counts.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.executescript(
             "CREATE TABLE items(value INTEGER NOT NULL UNIQUE CHECK(value>0));"
             "CREATE TABLE audit(value INTEGER);"
@@ -37,7 +36,7 @@ def test_mixed_ignored_inserts_exclude_trigger_side_effects(tmp_path: Path) -> N
     try:
         assert adapter.batch_insert("items", iter({"value": v} for v in (1, 2, 1, 3)), batch_size=2) == 2
         assert adapter.get_row_count("items") == 3
-        with closing(sqlite3.connect(path)) as db, db:
+        with sqlite_connection(path) as db:
             assert db.execute("SELECT value FROM audit ORDER BY value").fetchall() == [(2,), (2,), (3,), (3,)]
     finally:
         adapter.close()
@@ -59,7 +58,7 @@ def test_actual_counts_share_explicit_transaction(tmp_path: Path) -> None:
     try:
         with adapter.transaction():
             assert adapter.batch_insert("items", iter([{"value": 1}, {"value": 2}])) == 1
-            with closing(sqlite3.connect(path)) as db, db:
+            with sqlite_connection(path) as db:
                 assert db.execute("SELECT value FROM items").fetchall() == [(9,)]
         assert adapter.get_row_count("items") == 2
     finally:

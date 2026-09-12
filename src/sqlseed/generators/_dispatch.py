@@ -110,9 +110,10 @@ class GeneratorDispatchMixin:
         # Some generators may produce unhashable values (dict/list). Try set
         # membership first (O(1)); on TypeError fall back to a list view so
         # the ``in`` check uses linear comparison instead of crashing.
-        exclude_seq: set[Any] | list[Any]
         try:
-            exclude_seq = set(exclude_values) if not isinstance(exclude_values, set) else exclude_values
+            exclude_seq: set[Any] | list[Any] = (
+                set(exclude_values) if not isinstance(exclude_values, set) else exclude_values
+            )
         except TypeError:
             exclude_seq = list(exclude_values)
         for _ in range(MAX_GENERATE_RETRIES):

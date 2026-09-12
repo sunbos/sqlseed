@@ -193,21 +193,21 @@ def export(body: DocumentRequest) -> dict[str, Any]:
         return export_document(conn, body.document)
 
 
-def _check(body: CheckRequest, *, preview: bool) -> dict[str, Any]:
+def _check(body: CheckRequest, *, include_preview: bool) -> dict[str, Any]:
     with _request_errors(), state.connection_operation(body.conn_id) as conn:
-        result = check_document(conn, body.document, body.schema_hash, count=body.count, preview=preview)
+        result = check_document(conn, body.document, body.schema_hash, count=body.count, preview=include_preview)
         encoded: dict[str, Any] = jsonable_encoder(result, custom_encoder={bytes: lambda value: value.hex()})
         return encoded
 
 
 @router.post("/check")
 def check(body: CheckRequest) -> dict[str, Any]:
-    return _check(body, preview=False)
+    return _check(body, include_preview=False)
 
 
 @router.post("/preview")
 def preview(body: CheckRequest) -> dict[str, Any]:
-    return _check(body, preview=True)
+    return _check(body, include_preview=True)
 
 
 @router.post("/execution-plan")

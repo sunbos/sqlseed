@@ -21,11 +21,12 @@ sqlseed-ai is an optional dependency: heal endpoints degrade to
 
 from __future__ import annotations
 
+import importlib
 import inspect
 import sqlite3
 from contextlib import closing
 from dataclasses import asdict, is_dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
 from fastapi import APIRouter, HTTPException
@@ -43,6 +44,9 @@ from sqlseed_web.ai_settings import SettingsRequest, credential_snapshot, resolv
 from sqlseed_web.runtime_lifecycle import start_background
 from sqlseed_web.settings_environment import ai_import_failure, provider_availability, require_ai_available
 from sqlseed_web.state import ConnectionBusyError, UnknownConnectionError, state
+
+if TYPE_CHECKING:
+    import httpx
 
 logger = get_logger(__name__)
 
@@ -424,6 +428,20 @@ def ai_config_set(req: AIConfigRequest) -> dict[str, Any]:
     return ai_config_get()
 
 
+def _local_ai_probe_result(result: dict[str, Any], response: httpx.Response, base: str) -> None:
+    """Describe local reachability, preserving a successful probe with malformed model metadata."""
+    result["ok"] = response.status_code == 200
+    if result["ok"]:
+        try:
+            result["models"] = [str(model.get("id")) for model in response.json().get("data", []) if model.get("id")]
+        except (ValueError, AttributeError):
+            pass
+        model_hint = f"可用模型：{', '.join(result['models'])}" if result["models"] else "未列出模型"
+        result["message"] = f"本地服务可达（{base}）。无需 API Key。{model_hint}"
+    else:
+        result["message"] = f"本地服务响应异常：HTTP {response.status_code}"
+
+
 @router.post("/ai/test-connection")
 def ai_test_connection() -> dict[str, Any]:
     """Ping the effective AI backend and return a friendly status.
@@ -445,19 +463,10 @@ def ai_test_connection() -> dict[str, Any]:
 
         base = cfg.resolve_base_url()
         probe_url = base.rstrip("/") + "/models"
-        if backend in ("ollama", "lm_studio"):
+        if backend in {"ollama", "lm_studio"}:
             # Local servers: reachability is the whole story; no key needed.
             resp = httpx.get(probe_url, timeout=5)
-            result["ok"] = resp.status_code == 200
-            if result["ok"]:
-                try:
-                    result["models"] = [str(m.get("id")) for m in resp.json().get("data", []) if m.get("id")]
-                except (ValueError, AttributeError):
-                    pass
-                model_hint = f"可用模型：{', '.join(result['models'])}" if result["models"] else "未列出模型"
-                result["message"] = f"本地服务可达（{base}）。无需 API Key。{model_hint}"
-            else:
-                result["message"] = f"本地服务响应异常：HTTP {resp.status_code}"
+            _local_ai_probe_result(result, resp, base)
         else:
             key = cfg.resolve_api_key()
             if not key:
@@ -685,7 +694,7 @@ def table_yaml_template(conn_id: str, table: str) -> dict[str, Any]:
     columns: dict[str, Any] = {}
     for col, spec in specs.items():
         gen = spec.generator_name
-        if gen in ("skip", "__enrich__"):
+        if gen in {"skip", "__enrich__"}:
             continue
         entry: dict[str, Any] = {"generator": gen}
         if spec.params:
@@ -823,10 +832,18 @@ def config_to_dict(cfg: GeneratorConfig) -> dict[str, Any]:
 # --------------------------------------------------------------------------
 
 
-def _require_sqlseed_ai() -> Any:
+def _require_ai_export(module_name: str, export_name: str) -> None:
+    module = importlib.import_module(module_name)
+    try:
+        getattr(module, export_name)
+    except AttributeError as exc:
+        raise ImportError(f"Required AI export is unavailable: {module_name}.{export_name}") from exc
+
+
+def _require_sqlseed_ai() -> None:
     try:
         require_ai_available()
-        from sqlseed_ai.contracts.builtin_violations import BUILTIN_VIOLATIONS  # noqa: F401
+        _require_ai_export("sqlseed_ai.contracts.builtin_violations", "BUILTIN_VIOLATIONS")
     except ImportError as exc:
         raise HTTPException(
             status_code=503,
@@ -1021,7 +1038,7 @@ def heal_auto(conn_id: str, req: AutoHealRequest) -> dict[str, Any]:
     _require_sqlseed_ai()
     _conn_or_404(conn_id)
     try:
-        from sqlseed_ai.runtime import build_ai_config  # noqa: F401
+        _require_ai_export("sqlseed_ai.runtime", "build_ai_config")
     except ImportError as exc:
         raise HTTPException(status_code=503, detail=ai_import_failure()) from exc
     try:

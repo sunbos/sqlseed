@@ -22,8 +22,10 @@ from sqlseed_ai.healer.level2_column_healer import Level2ColumnHealer
 from sqlseed_ai.healer.level3_compact_healer import Level3CompactHealer
 from sqlseed_ai.healer.models import SubgraphTask
 from sqlseed_ai.healer.orchestrator import HealOrchestrator
-from sqlseed_ai.validator.models import ConstraintType, ValidationResult, ViolationReport
+from sqlseed_ai.validator.models import ValidationResult
 from sqlseed_ai.validator.schema_snapshot import SchemaSnapshot
+
+from .scenario_helpers import product_price_config, product_price_violation
 
 
 class _StubValidator:
@@ -46,45 +48,16 @@ class _StubValidator:
         batch: list[dict[str, Any]] | None = None,
     ) -> ValidationResult:
         if self._always_violate:
-            return ValidationResult(violations=[_make_violation()], column_groups=[])
+            return ValidationResult(violations=[product_price_violation()], column_groups=[])
         return ValidationResult(violations=[], column_groups=[])
-
-
-def _make_violation() -> ViolationReport:
-    return ViolationReport(
-        table="products",
-        columns=["price"],
-        constraint_type=ConstraintType.CHECK,
-        severity="semantic_error",
-        raw_expression="price > 0",
-        message="CHECK constraint failed: price > 0",
-    )
 
 
 def _make_task() -> SubgraphTask:
     return SubgraphTask(task_id="t1", tables=["products"])
 
 
-def _make_config() -> dict:
-    return {
-        "tables": [
-            {
-                "name": "products",
-                "columns": [
-                    {"name": "id", "generator": "integer"},
-                    {
-                        "name": "price",
-                        "generator": "random_float",
-                        "params": {"min_value": -10, "max_value": 100},
-                    },
-                ],
-            }
-        ]
-    }
-
-
-@pytest.fixture
-def snapshot_with_products(tmp_path):
+@pytest.fixture(name="snapshot_with_products")
+def fixture_snapshot_with_products(tmp_path):
     """Build a real SQLite DB with a products table (CHECK price > 0)."""
     db_path = str(tmp_path / "test_orch.db")
     conn = sqlite3.connect(db_path)
@@ -123,7 +96,7 @@ def test_orchestrator_heal_flow_real(llm_client, llm_model, snapshot_with_produc
     assert on structure, not on exact success/failure.
     """
     orch = _build_orchestrator(llm_client, llm_model, snapshot_with_products, always_violate=False)
-    result = orch.heal(_make_task(), [_make_violation()], _make_config())
+    result = orch.heal(_make_task(), [product_price_violation()], product_price_config())
 
     assert isinstance(result.success, bool)
     assert result.level_used >= 0
@@ -139,7 +112,7 @@ def test_orchestrator_degrade_on_persistent_violations_real(llm_client, llm_mode
     must exhaust its retry budget and degrade via ProgressiveDegrader.
     """
     orch = _build_orchestrator(llm_client, llm_model, snapshot_with_products, always_violate=True)
-    result = orch.heal(_make_task(), [_make_violation()], _make_config())
+    result = orch.heal(_make_task(), [product_price_violation()], product_price_config())
 
     assert result.success is False
     assert result.level_used == 4

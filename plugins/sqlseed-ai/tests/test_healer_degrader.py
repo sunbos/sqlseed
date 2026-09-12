@@ -2,31 +2,30 @@
 
 from __future__ import annotations
 
-import sqlite3
-from contextlib import closing
 from typing import TYPE_CHECKING
 
 import pytest
 from sqlseed_ai.healer.degrader import ProgressiveDegrader
 from sqlseed_ai.healer.models import DegradeReason
 from sqlseed_ai.validator.models import ColumnGroup
-from sqlseed_ai.validator.schema_snapshot import SchemaSnapshot
+
+from .schema_helpers import snapshot_from_ddl
 
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from sqlseed_ai.validator.schema_snapshot import SchemaSnapshot
 
-@pytest.fixture
-def snapshot(tmp_path: Path) -> SchemaSnapshot:
-    path = tmp_path / "t.db"
-    with closing(sqlite3.connect(str(path))) as conn, conn:
-        conn.executescript(
-            """
-            CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT);
-            CREATE TABLE orders (id INTEGER PRIMARY KEY, user_id INTEGER REFERENCES users(id));
-            """
-        )
-    return SchemaSnapshot(db_path=str(path))
+
+@pytest.fixture(name="snapshot")
+def fixture_snapshot(tmp_path: Path) -> SchemaSnapshot:
+    return snapshot_from_ddl(
+        tmp_path / "t.db",
+        """
+        CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT);
+        CREATE TABLE orders (id INTEGER PRIMARY KEY, user_id INTEGER REFERENCES users(id));
+        """,
+    )
 
 
 def test_degrade_preserves_successful_columns(snapshot):

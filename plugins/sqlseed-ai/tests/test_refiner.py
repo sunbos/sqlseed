@@ -8,13 +8,14 @@ detection relies on real SQLAlchemy schema reflection.
 from __future__ import annotations
 
 import sqlite3
-from contextlib import closing
 from datetime import date, datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
 import pytest
 
 from sqlseed.core.orchestrator import DataOrchestrator
+from tests.assertions import assert_empty
+from tests.sqlite_helpers import sqlite_connection
 
 try:
     from sqlseed_ai.analyzer import SchemaAnalyzer
@@ -27,8 +28,8 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
-@pytest.fixture
-def db_with_generated_column(tmp_path: Path) -> Path:
+@pytest.fixture(name="db_with_generated_column")
+def fixture_db_with_generated_column(tmp_path: Path) -> Path:
     """Create a SQLite DB with a ``GENERATED ALWAYS AS (...) STORED`` column.
 
     Mirrors the ``order_items`` schema used in complex_biz.db so the test
@@ -228,7 +229,7 @@ class TestRule14ParamStripping:
         }
         refiner._apply_rule_14_param_stripping(config)
         params = config["columns"][0]["params"]
-        assert params == {}, f"Expected empty params, got {params}"
+        assert_empty(params, dict)
 
     def test_keeps_valid_params_for_string_generator(self, tmp_path: Path) -> None:
         """string generator accepts min_length/max_length — must be kept."""
@@ -255,7 +256,7 @@ class TestRule14ParamStripping:
     ) -> None:
         """Aliases and flat params must pass through the same generator whitelist."""
         db_path = tmp_path / "shapes.db"
-        with closing(sqlite3.connect(db_path)) as conn, conn:
+        with sqlite_connection(db_path) as conn:
             conn.execute("CREATE TABLE codes (code TEXT NOT NULL CHECK(code = 'ZZZZ'))")
         params = {"min_length": 4, "max_length": 4, "charset": "Z", "pattern": "[A-Z]{4}"}
         column = {"name": "code", generator_key: "string"}
@@ -269,7 +270,7 @@ class TestRule14ParamStripping:
         with DataOrchestrator(str(db_path)) as orch:
             error = refiner._validate_config(orch, "codes", config)
         assert error is None
-        with closing(sqlite3.connect(db_path)) as conn, conn:
+        with sqlite_connection(db_path) as conn:
             assert conn.execute("SELECT COUNT(*) FROM codes").fetchone() == (0,)
 
     def test_corrects_singular_choice_to_choices(self, tmp_path: Path) -> None:
@@ -320,7 +321,7 @@ class TestRule14ParamStripping:
             ]
         }
         refiner._apply_rule_14_param_stripping(config)
-        assert config["tables"][0]["columns"][0]["params"] == {}
+        assert_empty(config["tables"][0]["columns"][0]["params"], dict)
         assert config["tables"][1]["columns"][0]["params"] == {"min_length": 1, "max_length": 10}
 
     def test_no_op_for_unknown_shape(self, tmp_path: Path) -> None:
@@ -364,7 +365,7 @@ def test_date_dry_run_uses_explicit_sqlite_binding(
         if value_kind == "date"
         else datetime(2024, 2, 29, 12, 34, 56, 123456, tzinfo=timezone(timedelta(hours=5, minutes=30)))
     )
-    with closing(sqlite3.connect(db_path)) as conn, conn:
+    with sqlite_connection(db_path) as conn:
         conn.execute(f"CREATE TABLE events (created_at {sql_type} NOT NULL)")
         # Validate the stored representation after binding, without CHECK
         # inference replacing the date generator's values before insertion.
@@ -381,5 +382,5 @@ def test_date_dry_run_uses_explicit_sqlite_binding(
     with DataOrchestrator(str(db_path)) as orch:
         error = refiner._validate_config(orch, "events", config)
     assert error is None
-    with closing(sqlite3.connect(db_path)) as conn, conn:
+    with sqlite_connection(db_path) as conn:
         assert conn.execute("SELECT COUNT(*) FROM events").fetchone() == (0,)

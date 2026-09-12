@@ -301,9 +301,9 @@ class TestOrchestratorIntegration:
         vals = [r[0] for r in conn.execute("SELECT status FROM t").fetchall()]
         conn.close()
         assert len(vals) == 200
-        assert all(v in ("active", "inactive") for v in vals)
+        assert all(v in {"active", "inactive"} for v in vals)
 
-    def test_zero_config_emits_boundary_notice(self, tmp_path: Any) -> None:
+    def test_zero_config_emits_boundary_notice(self, tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> None:
         """零配置 + 有 CHECK → 能力边界声明只覆盖仍为类型近似的列。
 
         Enum CHECKs (``status IN (...)``) 已被 _resolve_specs 的硬真相协调
@@ -320,15 +320,9 @@ class TestOrchestratorIntegration:
                 checks = orch._db.get_check_constraints("t")
                 captured: list[str] = []
 
-                def _capture(msg: str, *a: Any, _c: list[str] = captured, **k: Any) -> None:
-                    _c.append(msg)
-
-                orig = specs_mod.logger.warning
-                specs_mod.logger.warning = _capture  # type: ignore[assignment]
-                try:
+                with monkeypatch.context() as patch:
+                    patch.setattr(specs_mod.logger, "warning", captured.append)
                     orch._declare_zero_config_check_boundary("t", checks)
-                finally:
-                    specs_mod.logger.warning = orig  # type: ignore[assignment]
                 assert captured, f"locale={locale} 应产生声明"
                 assert needle in captured[0]
                 assert "age" in captured[0]

@@ -1,6 +1,6 @@
 # auto_heal：顶层修复与 CHECK 推断
 
-继承 [AI 运行时规则](../AGENTS.md)。[orchestrator.py](orchestrator.py) 同时承载流水线和确定性 CHECK 推断；其 `Pattern N` / `Round N` 注释是回归定位词，修改前先搜索编号及相邻分支，不能当作历史临时代码删除。
+继承 [AI 运行时规则](../AGENTS.md)。[orchestrator.py](orchestrator.py) 承载修复流水线及初始配置生成，并保留原有 CHECK helper 调用入口；纯单列 CHECK、SQL 规范化与共享谓词在 [_check_inference.py](_check_inference.py)，跨列 CHECK 的优先扫描、顺序 matcher 和表达式构造在 [_cross_column_checks.py](_cross_column_checks.py)。依赖保持 `orchestrator → cross-column checks → single-column inference`，纯推断模块不得反向导入 orchestrator。各文件的 `Pattern N` / `Round N` 注释是回归定位词，修改前先搜索编号及相邻分支，不能当作历史临时代码删除。
 
 ## 流水线不可变条件
 
@@ -17,6 +17,7 @@
 - 单列 enum / boolean CHECK 决定值域；例如 `title IN (...)` 不能落入 `title → sentence` 的名称规则。Core 的单列 enum hard truth 也要保持，不通过 AI 配置绕过它。
 - `_infer_from_check_constraints()` 合并所有单列数值 / 长度边界：下限取 MAX、上限取 MIN，必要时 integer → float；不要命中第一个范围就返回。
 - `_normalize_constraints()` 负责 PostgreSQL casts 与外层括号规范化，新增模式要验证规范化后的 SQL，也要覆盖原始 SQLite 表达式。
+- `ANY (ARRAY[...])` 的数字 literal 必须保留符号及十进制值；浮点转换发生溢出、下溢或序列化精度丢失时不推断候选值，不能生成 Infinity、零或舍入后的替代值。
 - 条件 OR 约束优先于范围 AND；OR 中含 `IN (...)` 的约束优先于普通 `IS NULL OR`。保留多 CHECK 的 pre-loop scans，否则单个分支可能提前吞掉组合条件。
 - 修改 Pattern 1 / 1b / 19 等关系规则时检查负数、上下界、列顺序、NULL 与依赖环；日期规则同时检查 DATE 与 DATETIME，不能只依赖 `_time` / `_date` 名称后缀。
 

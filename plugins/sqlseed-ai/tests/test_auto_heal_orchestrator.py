@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import sqlite3
-from contextlib import closing
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
@@ -17,14 +15,16 @@ from sqlseed_ai.auto_heal.orchestrator import (
     _like_to_regex,
 )
 
+from tests.sqlite_helpers import sqlite_connection
+
 if TYPE_CHECKING:
     from pathlib import Path
 
 
-@pytest.fixture
-def simple_db(tmp_path: Path) -> Path:
+@pytest.fixture(name="simple_db")
+def fixture_simple_db(tmp_path: Path) -> Path:
     path = tmp_path / "simple.db"
-    with closing(sqlite3.connect(str(path))) as conn, conn:
+    with sqlite_connection(str(path)) as conn:
         conn.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT UNIQUE)")
     return path
 
@@ -97,11 +97,11 @@ def test_run_verifies_schema_hash_at_write_time(simple_db: Path):
 # --- Step 5.5 safety net tests ---
 
 
-@pytest.fixture
-def unique_length_db(tmp_path: Path) -> Path:
+@pytest.fixture(name="unique_length_db")
+def fixture_unique_length_db(tmp_path: Path) -> Path:
     """DB with UNIQUE + LENGTH(N) CHECK columns (the conflict case)."""
     path = tmp_path / "unique_len.db"
-    with closing(sqlite3.connect(str(path))) as conn, conn:
+    with sqlite_connection(str(path)) as conn:
         conn.execute(
             """
             CREATE TABLE codes (
@@ -364,7 +364,7 @@ def test_pattern_28_integer_value_variant():
     result = _infer_cross_column_config("priority", constraints, ["priority", "is_system"], "INTEGER")
     assert result is not None
     # Pattern 34 returns generator + params (not derive_from)
-    assert result.get("generator") in ("integer", "float")
+    assert result.get("generator") in {"integer", "float"}
     assert result["params"].get("max_value") is not None
     assert result["params"]["max_value"] <= 100
 
@@ -419,7 +419,7 @@ def test_exclusive_both_bounds_float():
     constraints = [{"type": "check", "expression": "value > 0.0 AND value < 1.0"}]
     result = _infer_from_check_constraints("value", constraints, ["value"])
     assert result is not None
-    _gen, params = result
+    _, params = result
     assert params["min_value"] == 0.01
     assert params["max_value"] == 0.99
 
@@ -503,6 +503,217 @@ def test_pattern_8e_inclusive_lower_exclusive_upper_column_float_zero():
     assert result["derive_from"] == "coverage_amount"
     assert "random_float(0.0, 0.99)" in result["expression"]
     assert "value *" in result["expression"]
+
+
+@pytest.mark.parametrize(
+    ("expression", "expected"),
+    [
+        ("LENGTH(value) >= 2", ("string", {"min_length": 2})),
+        ("LENGTH(value) > 2", ("string", {"min_length": 3})),
+        ("LENGTH(value) = 2", ("string", {"min_length": 2, "max_length": 2})),
+        ("LENGTH(value) <= 5", ("string", {"max_length": 5})),
+        ("LENGTH(value) < 5", ("string", {"max_length": 4})),
+        ("value LIKE 'A__' AND LENGTH(value) = 3", ("pattern", {"regex": "^A[A-Za-z0-9]{2}$"})),
+        ("LENGTH(value) = 3 AND value LIKE 'A__'", ("pattern", {"regex": "^A[A-Za-z0-9]{2}$"})),
+        ("value LIKE 'A__'", ("pattern", {"regex": "^A[A-Za-z0-9]{2}$"})),
+        ("value LIKE 'A%' AND LENGTH(value) = 3", None),
+        ("value LIKE 'A__' AND LENGTH(value) = 4", None),
+        ("value IN ('a', 'b')", ("choice", {"choices": ["a", "b"]})),
+        ("value IN (1, 0)", ("boolean", {})),
+        ("value IN (1, 2, 3)", ("choice", {"choices": [1, 2, 3]})),
+        ("value BETWEEN -2 AND 8", ("integer", {"min_value": -2, "max_value": 8})),
+        ("value BETWEEN -2.5 AND 8.5", ("float", {"min_value": -2.5, "max_value": 8.5})),
+        ("value >= -2 AND value <= 8", ("integer", {"min_value": -2, "max_value": 8})),
+        ("value >= -2.5 AND value <= 8.5", ("float", {"min_value": -2.5, "max_value": 8.5})),
+        ("value > -2 AND value < 8", ("integer", {"min_value": -1, "max_value": 7})),
+        ("value > -2.5 AND value < 8.5", ("float", {"min_value": -2.49, "max_value": 8.49})),
+        ("value > -2 AND value <= 8", ("integer", {"min_value": -1, "max_value": 8})),
+        ("value > -2.5 AND value <= 8.5", ("float", {"min_value": -2.49, "max_value": 8.5})),
+        ("value >= -2 AND value < 8", ("integer", {"min_value": -2, "max_value": 7})),
+        ("value >= -2.5 AND value < 8.5", ("float", {"min_value": -2.5, "max_value": 8.49})),
+        ("value >= -2", ("integer", {"min_value": -2})),
+        ("value >= -2.5", ("float", {"min_value": -2.5})),
+        ("value > -2", ("integer", {"min_value": -1})),
+        ("value > -2.5", ("float", {"min_value": -2.49})),
+        ("value <= 8", ("integer", {"max_value": 8})),
+        ("value <= 8.5", ("float", {"max_value": 8.5})),
+        ("value < 8", ("integer", {"max_value": 7})),
+        ("value < 8.5", ("float", {"max_value": 8.49})),
+        ("value != 0", ("integer", {"min_value": 1})),
+        ("value != 0.0", ("float", {"min_value": 0.01})),
+        ("value != 2", None),
+        ("value IS NULL OR LENGTH(value) = 3", ("string", {"min_length": 3, "max_length": 3})),
+        ("value IS NULL OR (value >= 1 AND value <= 9)", ("integer", {"min_value": 1, "max_value": 9})),
+    ],
+)
+def test_single_column_check_inference_boundaries(tmp_path: Path, expression: str, expected: tuple | None) -> None:
+    """Reflect real SQLite CHECKs before checking inferred values and bounds."""
+    from sqlseed_ai.validator.schema_snapshot import SchemaSnapshot
+
+    path = tmp_path / "single-check.db"
+    with sqlite_connection(path) as connection:
+        connection.execute(f"CREATE TABLE items(value TEXT, CHECK ({expression}))")
+    table = SchemaSnapshot(db_path=str(path)).tables["items"]
+    assert _infer_from_check_constraints("value", table.constraints, table.columns) == expected
+
+
+@pytest.mark.parametrize(
+    ("expressions", "expected"),
+    [
+        (["value >= 0", "value <= 100", "value >= 3", "value <= 90"], ("integer", {"min_value": 3, "max_value": 90})),
+        (["value <= 100", "value >= 0"], ("integer", {"max_value": 100, "min_value": 0})),
+        (
+            ["value >= 0 AND value <= 10", "value >= 1.5", "value <= 8.5"],
+            ("float", {"min_value": 1.5, "max_value": 8.5}),
+        ),
+        (["value >= 0.5", "value <= 8"], ("float", {"min_value": 0.5, "max_value": 8})),
+        (
+            ["LENGTH(value) >= 1", "LENGTH(value) <= 10", "LENGTH(value) >= 3", "LENGTH(value) <= 8"],
+            ("string", {"min_length": 3, "max_length": 8}),
+        ),
+        (["LENGTH(value) <= 8", "LENGTH(value) >= 3"], ("string", {"max_length": 8, "min_length": 3})),
+        (["value >= 0", "value IN (1, 2)"], ("choice", {"choices": [1, 2]})),
+        (["value IN (0, 1)", "value >= 0"], ("boolean", {})),
+        (["other >= 0", "value < other", "value > 2"], ("integer", {"min_value": 3})),
+    ],
+)
+def test_single_column_check_merges_tightest_bounds(tmp_path: Path, expressions: list[str], expected: tuple) -> None:
+    """Merge independent reflected CHECKs without losing bounds or enum priority."""
+    from sqlseed_ai.validator.schema_snapshot import SchemaSnapshot
+
+    path = tmp_path / "merged-checks.db"
+    checks = ", ".join(f"CHECK ({expression})" for expression in expressions)
+    with sqlite_connection(path) as connection:
+        connection.execute(f"CREATE TABLE items(value NUMERIC, other INTEGER, {checks})")
+    table = SchemaSnapshot(db_path=str(path)).tables["items"]
+    assert _infer_from_check_constraints("value", table.constraints, table.columns) == expected
+
+
+@pytest.mark.parametrize(
+    ("expression", "expected"),
+    [
+        ("value = ANY (ARRAY['active'::text, 'inactive'::text])", ("choice", {"choices": ["active", "inactive"]})),
+        ("value = ANY (ARRAY[0, 1])", ("boolean", {})),
+        ("value = ANY (ARRAY[2, 3])", ("choice", {"choices": [2, 3]})),
+        ("value = ANY (ARRAY[-2, -1])", ("choice", {"choices": [-2, -1]})),
+        ("value = ANY (ARRAY[-2::integer, +3::integer])", ("choice", {"choices": [-2, 3]})),
+        ("value = ANY (ARRAY[-2.5, 3.25])", ("choice", {"choices": [-2.5, 3.25]})),
+        ("value = ANY (ARRAY[-2e1, +3E-1])", ("choice", {"choices": [-20.0, 0.3]})),
+        ("value = ANY (ARRAY[0.0, 1.0])", ("choice", {"choices": [0.0, 1.0]})),
+        ("value = ANY (ARRAY[1e308, 1e-308])", ("choice", {"choices": [1e308, 1e-308]})),
+        ("value = ANY (ARRAY[9007199254740993])", ("choice", {"choices": [9007199254740993]})),
+        ("value = ANY (ARRAY[1e400])", None),
+        ("value = ANY (ARRAY[-1e400])", None),
+        ("value = ANY (ARRAY[1e-400])", None),
+        ("value = ANY (ARRAY[-1e-400])", None),
+        ("value = ANY (ARRAY[9007199254740993.0])", None),
+        ("value = ANY (ARRAY[0.10000000000000001])", None),
+        ("value = ANY (ARRAY[1e999999999999999999999999])", None),
+        ("value = ANY (ARRAY[other + 2, 3])", None),
+        ("value = ANY (ARRAY[2, NULL])", None),
+    ],
+)
+def test_postgres_single_column_any_check_normalization(expression: str, expected: tuple | None) -> None:
+    """Recognize PostgreSQL enum spellings without requiring a live server."""
+    constraints = [{"type": "check", "expression": expression}]
+    assert _infer_from_check_constraints("value", constraints, ["value"]) == expected
+
+
+@pytest.mark.parametrize(
+    ("column_type", "choices"),
+    [("INTEGER", [-2, -1]), ("REAL", [-2.5, -0.5])],
+)
+def test_postgres_numeric_any_choices_satisfy_sqlite_enum(tmp_path: Path, column_type: str, choices: list) -> None:
+    """PostgreSQL numeric choices retain values accepted by the equivalent SQL CHECK."""
+    from sqlseed import fill
+
+    literals = ", ".join(str(value) for value in choices)
+    inferred = _infer_from_check_constraints(
+        "value", [{"type": "check", "expression": f"value = ANY (ARRAY[{literals}])"}], ["value"]
+    )
+    assert inferred == ("choice", {"choices": choices})
+    path = tmp_path / "numeric-enum.db"
+    with sqlite_connection(path) as connection:
+        connection.execute(f"CREATE TABLE items (value {column_type} NOT NULL CHECK (value IN ({literals})))")
+    result = fill(
+        str(path),
+        table="items",
+        count=20,
+        provider="base",
+        seed=42,
+        columns={"value": {"generator": inferred[0], "params": inferred[1]}},
+    )
+    assert result.count == 20
+    with sqlite_connection(path) as connection:
+        values = {row[0] for row in connection.execute("SELECT value FROM items")}
+    assert values == set(choices)
+
+
+@pytest.mark.parametrize("mode", ["derived", "with_anchor", "without_anchor"])
+def test_status_null_normalization_preserves_datetime_anchor(tmp_path: Path, mode: str) -> None:
+    """Multi-clause NULL triggers preserve an existing expression or use a real date anchor."""
+    from sqlseed_ai.validator.schema_snapshot import SchemaSnapshot
+
+    path = tmp_path / "status-null.db"
+    with sqlite_connection(path) as connection:
+        connection.execute(
+            "CREATE TABLE events (status TEXT, created_at DATETIME, started_at DATETIME, "
+            "CHECK ((status = 'scheduled' AND started_at IS NULL) OR "
+            "(status = 'started' AND started_at IS NOT NULL)))"
+        )
+    column = (
+        {"name": "started_at", "derive_from": "created_at", "expression": "value"}
+        if mode == "derived"
+        else {"name": "started_at", "generator": "datetime", "params": {}}
+    )
+    columns = [{"name": "status", "generator": "choice", "params": {"choices": ["scheduled", "started"]}}, column]
+    if mode != "without_anchor":
+        columns.insert(1, {"name": "created_at", "generator": "datetime"})
+    config = {"tables": [{"name": "events", "columns": columns}]}
+    orchestrator = AutoHealOrchestrator(db_path=str(path), heal_orchestrator=None, validator=None)
+    orchestrator._apply_status_null_conditions(config, SchemaSnapshot(db_path=str(path)))
+    if mode == "derived":
+        assert column["expression"] == "None if row.get('status') in ('scheduled') else (value)"
+        assert column["derive_from"] == "created_at"
+    elif mode == "with_anchor":
+        assert column["derive_from"] == "status"
+        assert column["expression"] == (
+            "None if value in ('scheduled') else row['created_at'] + timedelta(days=random_int(0, 30))"
+        )
+        assert "params" not in column
+    else:
+        assert column == {"name": "started_at", "generator": "datetime", "params": {}}
+
+
+def test_initial_subgraph_preserves_fk_and_column_priorities(tmp_path: Path) -> None:
+    """Initial config respects circular FK, CHECK adaptations and requested order."""
+    from sqlseed_ai.validator.schema_snapshot import SchemaSnapshot
+
+    path = tmp_path / "initial-config.db"
+    with sqlite_connection(path) as connection:
+        connection.executescript(
+            "CREATE TABLE first(id INTEGER PRIMARY KEY, second_id INTEGER REFERENCES second(id));"
+            "CREATE TABLE second(id INTEGER PRIMARY KEY, first_id INTEGER REFERENCES first(id));"
+            "CREATE TABLE items(phone TEXT CHECK(length(phone) >= 7), "
+            "price REAL CHECK(price > 0), unique_phone TEXT UNIQUE CHECK(length(unique_phone) = 3));"
+        )
+    snapshot = SchemaSnapshot(db_path=str(path))
+    orchestrator = AutoHealOrchestrator(db_path=str(path), heal_orchestrator=None, validator=None)
+    result = orchestrator._build_subgraph_config(["missing", "second", "first", "items"], snapshot)
+    assert [table["name"] for table in result["tables"]] == ["second", "first", "items"]
+    assert _find_column(result, "first", "second_id")["null_ratio"] == 1.0
+    assert _find_column(result, "second", "first_id")["null_ratio"] == 1.0
+    assert _find_column(result, "items", "phone") == {"name": "phone", "generator": "phone", "params": {}}
+    assert _find_column(result, "items", "price") == {
+        "name": "price",
+        "generator": "float",
+        "params": {"min_value": 1},
+    }
+    assert _find_column(result, "items", "unique_phone") == {
+        "name": "unique_phone",
+        "generator": "pattern",
+        "params": {"regex": "[A-Za-z0-9]{3}"},
+    }
 
 
 def test_pattern_8e_inclusive_lower_exclusive_upper_column_float_positive():
@@ -773,8 +984,8 @@ def test_pattern_36_does_not_match_single_bound():
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture
-def semantic_db(tmp_path: Path) -> Path:
+@pytest.fixture(name="semantic_db")
+def fixture_semantic_db(tmp_path: Path) -> Path:
     """DB with semantically-named TEXT columns but NO CHECK constraints.
 
     These columns previously got ``generator: string`` (random gibberish)
@@ -783,7 +994,7 @@ def semantic_db(tmp_path: Path) -> Path:
     exact match rules + 29 pattern rules for semantic column name matching.
     """
     path = tmp_path / "semantic.db"
-    with closing(sqlite3.connect(str(path))) as conn, conn:
+    with sqlite_connection(str(path)) as conn:
         conn.execute(
             """
             CREATE TABLE profiles (
@@ -1047,7 +1258,7 @@ def _run_with_missing_template_param(db_path: Path) -> dict:
     """
     # These are the columns whose generated templates are under test; they
     # must exist in the real schema rather than only in a mocked config.
-    with closing(sqlite3.connect(db_path)) as db, db:
+    with sqlite_connection(db_path) as db:
         for name in ("user_code", "order_no", "cert_no"):
             db.execute(f'ALTER TABLE profiles ADD COLUMN "{name}" TEXT')
     mock_healer = MagicMock()
@@ -1114,11 +1325,11 @@ def test_step55_missing_template_param_cert_no(semantic_db: Path):
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture
-def self_ref_fk_db(tmp_path: Path) -> Path:
+@pytest.fixture(name="self_ref_fk_db")
+def fixture_self_ref_fk_db(tmp_path: Path) -> Path:
     """DB with a self-referencing FK (categories.parent_id → categories.id)."""
     path = tmp_path / "self_ref.db"
-    with closing(sqlite3.connect(str(path))) as conn, conn:
+    with sqlite_connection(str(path)) as conn:
         conn.execute(
             """
             CREATE TABLE categories (
@@ -1186,11 +1397,11 @@ def test_step0_non_self_ref_fk_not_affected(simple_db: Path):
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture
-def phone_length_db(tmp_path: Path) -> Path:
+@pytest.fixture(name="phone_length_db")
+def fixture_phone_length_db(tmp_path: Path) -> Path:
     """DB with phone column that has LENGTH(phone) = 11 CHECK constraint."""
     path = tmp_path / "phone_len.db"
-    with closing(sqlite3.connect(str(path))) as conn, conn:
+    with sqlite_connection(str(path)) as conn:
         conn.execute(
             """
             CREATE TABLE users (
@@ -1203,11 +1414,11 @@ def phone_length_db(tmp_path: Path) -> Path:
     return path
 
 
-@pytest.fixture
-def phone_length_not_null_db(tmp_path: Path) -> Path:
+@pytest.fixture(name="phone_length_not_null_db")
+def fixture_phone_length_not_null_db(tmp_path: Path) -> Path:
     """DB with NOT NULL phone column that has LENGTH(phone) = 11 CHECK."""
     path = tmp_path / "phone_len_nn.db"
-    with closing(sqlite3.connect(str(path))) as conn, conn:
+    with sqlite_connection(str(path)) as conn:
         conn.execute(
             """
             CREATE TABLE contacts (
@@ -1280,7 +1491,7 @@ def test_step2_non_phone_with_length_check_keeps_string(tmp_path: Path):
     ``max_length`` config.
     """
     path = tmp_path / "code_len.db"
-    with closing(sqlite3.connect(str(path))) as conn, conn:
+    with sqlite_connection(str(path)) as conn:
         conn.execute(
             """
             CREATE TABLE items (
@@ -1506,11 +1717,11 @@ def test_infer_cross_column_timedelta_for_real_datetime():
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture
-def like_time_db(tmp_path: Path) -> Path:
+@pytest.fixture(name="like_time_db")
+def fixture_like_time_db(tmp_path: Path) -> Path:
     """DB with time-string columns (LIKE '__:__') and a cross-column CHECK."""
     path = tmp_path / "like_time.db"
-    with closing(sqlite3.connect(str(path))) as conn, conn:
+    with sqlite_connection(str(path)) as conn:
         conn.execute(
             """
             CREATE TABLE shifts (
@@ -1545,7 +1756,7 @@ def _finalize_fixed_candidate(path: Path, candidate: dict, monkeypatch: pytest.M
     class FixedClient:
         calls = 0
 
-        def chat_completions_create(self, *, model: str, **kwargs: object) -> ChatCompletion:
+        def chat_completions_create(self, *, model: str, **_kwargs: object) -> ChatCompletion:
             self.calls += 1
             return ChatCompletion.model_validate(
                 {
@@ -1636,7 +1847,7 @@ def test_step55_preserves_derive_from_for_real_datetime(
     from sqlseed import fill_from_config
 
     path = tmp_path / "datetime.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.execute(
             "CREATE TABLE events (id INTEGER PRIMARY KEY AUTOINCREMENT, "
             "start_dt DATETIME NOT NULL, end_dt DATETIME, "
@@ -1664,7 +1875,7 @@ def test_step55_preserves_derive_from_for_real_datetime(
     output.write_text(yaml.safe_dump(config))
     result = fill_from_config(output)
     assert result[0].count == 3 and result[0].errors == []
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         assert db.execute("SELECT count(*) FROM events WHERE end_dt >= start_dt").fetchone()[0] == 3
 
 
@@ -1686,7 +1897,7 @@ def test_step55_strips_generator_when_derive_from_present(tmp_path: Path):
     any database where the LLM emits both modes, not just R3.
     """
     path = tmp_path / "mixed_mode.db"
-    with closing(sqlite3.connect(str(path))) as conn, conn:
+    with sqlite_connection(str(path)) as conn:
         conn.execute(
             """
             CREATE TABLE shipments (

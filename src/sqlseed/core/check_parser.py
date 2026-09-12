@@ -61,6 +61,60 @@ class _Bound(NamedTuple):
     strict: bool
 
 
+@dataclass
+class _CheckConstraints:
+    """Accumulate conjunctive choices and bounds for one target column."""
+
+    choices: list[Any] | None = None
+    lower: tuple[float, bool] | None = None
+    upper: tuple[float, bool] | None = None
+    min_length: int | None = None
+    max_length: int | None = None
+
+    def add_bound(self, bound: _Bound) -> None:
+        """Merge one numeric or integer-length bound without SQL coercion."""
+        if bound.kind == "range":
+            if bound.is_lower:
+                self.lower = _merge_bound(self.lower, bound.value, strict=bound.strict, is_lower=True)
+            else:
+                self.upper = _merge_bound(self.upper, bound.value, strict=bound.strict, is_lower=False)
+        elif (
+            isinstance(bound.value, int)
+            and (length_value := _tighten_length(bound.value, strict=bound.strict, is_lower=bound.is_lower)) >= 0
+        ):
+            if bound.is_lower:
+                self.min_length = length_value if self.min_length is None else max(self.min_length, length_value)
+            else:
+                self.max_length = length_value if self.max_length is None else min(self.max_length, length_value)
+
+    def result(self, target_column: str) -> ParsedCheck | None:
+        """Preserve the result priority: choice, length range, then numeric range."""
+        if self.choices is not None:
+            choices = [
+                value
+                for value in self.choices
+                if _choice_in_bounds(value, self.lower, self.upper, self.min_length, self.max_length)
+            ]
+            return ParsedCheck(column=target_column, kind="choice", choices=tuple(choices))
+        if self.min_length is not None or self.max_length is not None:
+            return ParsedCheck(
+                column=target_column,
+                kind="length_range",
+                min_length=self.min_length,
+                max_length=self.max_length,
+            )
+        if self.lower is not None or self.upper is not None:
+            return ParsedCheck(
+                column=target_column,
+                kind="range",
+                min_value=self.lower[0] if self.lower is not None else None,
+                max_value=self.upper[0] if self.upper is not None else None,
+                min_exclusive=self.lower[1] if self.lower is not None else False,
+                max_exclusive=self.upper[1] if self.upper is not None else False,
+            )
+        return None
+
+
 class CheckConstraintParser:
     """将单列 CHECK 约束解析为生成器提示。
 
@@ -101,87 +155,15 @@ class CheckConstraintParser:
             return None
 
         target = target_column.translate(_ASCII_CASE_FOLD)
-        choices: list[Any] | None = None
-        lower: tuple[float, bool] | None = None  # (下界值, 是否严格)
-        upper: tuple[float, bool] | None = None  # (上界值, 是否严格)
-        min_length: int | None = None
-        max_length: int | None = None
-
+        constraints = _CheckConstraints()
         for conjunct in _flatten_and(tree):
             node = _unwrap_nullable_length_equality(_unwrap(conjunct), target)
-
-            # 可空精确长度保护已剥离；其余 OR 只处理同列等值析取。
-            if isinstance(node, exp.Or):
-                values = _or_choice_values(node, target)
-                if values is not None:
-                    choices = _intersect_choices(choices, values)
+            if (values := _node_choice_values(node, target)) is not None:
+                constraints.choices = _intersect_choices(constraints.choices, values)
                 continue
-
-            # col IN (lit, ...)：全部为纯字面量才可确定；子查询/表达式降级。
-            if isinstance(node, exp.In):
-                values = _in_choice_values(node, target)
-                if values is not None:
-                    choices = _intersect_choices(choices, values)
-                continue
-
-            bounds: list[_Bound] = []
-            # col = lit：单值枚举；length(col) = N：相等的长度上下界。
-            if isinstance(node, exp.EQ):
-                matched, value = _eq_choice_value(node, target)
-                if matched:
-                    choices = _intersect_choices(choices, [value])
-                    continue
-                equality_bounds = _length_equality_bounds(node, target)
-                if equality_bounds is not None:
-                    bounds.extend(equality_bounds)
-
-            # col BETWEEN lo AND hi / length(col) BETWEEN lo AND hi（含双边界）。
-            # col OP lit / lit OP col / length(col) OP lit（单边界）。
-            if isinstance(node, exp.Between):
-                pair = _between_bounds(node, target)
-                if pair is not None:
-                    bounds.extend(pair)
-            else:
-                single = _comparison_bound(node, target)
-                if single is not None:
-                    bounds.append(single)
-
-            for bound in bounds:
-                if bound.kind == "range":
-                    value, strict = bound.value, bound.strict
-                    if bound.is_lower:
-                        lower = _merge_bound(lower, value, strict=strict, is_lower=True)
-                    else:
-                        upper = _merge_bound(upper, value, strict=strict, is_lower=False)
-                elif isinstance(bound.value, int):
-                    length_value = _tighten_length(bound.value, strict=bound.strict, is_lower=bound.is_lower)
-                    if length_value >= 0:
-                        if bound.is_lower:
-                            min_length = length_value if min_length is None else max(min_length, length_value)
-                        else:
-                            max_length = length_value if max_length is None else min(max_length, length_value)
-
-        # 结果类型优先级与历史行为一致：choice > length_range > range。
-        if choices is not None:
-            choices = [v for v in choices if _choice_in_bounds(v, lower, upper, min_length, max_length)]
-            return ParsedCheck(column=target_column, kind="choice", choices=tuple(choices))
-        if min_length is not None or max_length is not None:
-            return ParsedCheck(
-                column=target_column,
-                kind="length_range",
-                min_length=min_length,
-                max_length=max_length,
-            )
-        if lower is not None or upper is not None:
-            return ParsedCheck(
-                column=target_column,
-                kind="range",
-                min_value=lower[0] if lower is not None else None,
-                max_value=upper[0] if upper is not None else None,
-                min_exclusive=lower[1] if lower is not None else False,
-                max_exclusive=upper[1] if upper is not None else False,
-            )
-        return None
+            for bound in _node_bounds(node, target):
+                constraints.add_bound(bound)
+        return constraints.result(target_column)
 
     @staticmethod
     def parse_all(target_column: str, expressions: list[str]) -> ParsedCheck | None:
@@ -215,6 +197,29 @@ class CheckConstraintParser:
         known = {col.translate(_ASCII_CASE_FOLD) for col in all_columns}
         referenced = {col.name.translate(_ASCII_CASE_FOLD) for col in tree.find_all(exp.Column) if col.name}
         return len(referenced & known) >= 2
+
+
+def _node_choice_values(node: exp.Expression, target: str) -> list[Any] | None:
+    """Recognize only literal equality, IN, and same-column equality OR choices."""
+    if isinstance(node, exp.Or):
+        return _or_choice_values(node, target)
+    if isinstance(node, exp.In):
+        return _in_choice_values(node, target)
+    if isinstance(node, exp.EQ):
+        matched, value = _eq_choice_value(node, target)
+        if matched:
+            return [value]
+    return None
+
+
+def _node_bounds(node: exp.Expression, target: str) -> list[_Bound]:
+    """Extract exact lengths, BETWEEN pairs, or a single comparison bound."""
+    if isinstance(node, exp.EQ):
+        return list(_length_equality_bounds(node, target) or ())
+    if isinstance(node, exp.Between):
+        return list(_between_bounds(node, target) or ())
+    single = _comparison_bound(node, target)
+    return [single] if single is not None else []
 
 
 def _parse_expression(expression: str) -> exp.Expression | None:
@@ -448,7 +453,7 @@ def _intersect_choices(current: list[Any] | None, values: list[Any]) -> list[Any
     if current is None:
         return list(dict.fromkeys(values))
     intersection = [v for v in current if v in values]
-    if not intersection and any(isinstance(v, str) for v in [*current, *values]):
+    if not intersection and any(isinstance(v, str) for v in (*current, *values)):
         return current
     return intersection
 

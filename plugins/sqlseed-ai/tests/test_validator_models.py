@@ -9,6 +9,8 @@ from sqlseed_ai.validator.models import (
     ViolationReport,
 )
 
+from tests.assertions import assert_empty
+
 
 def test_violation_report_defaults():
     v = ViolationReport(
@@ -21,7 +23,7 @@ def test_violation_report_defaults():
     assert v.constraint_name is None
     assert v.is_composite is False
     assert v.fix_hint is None
-    assert v.fix_params == {}
+    assert_empty(v.fix_params, dict)
     assert v.source == "validation"
     assert v.message is None
 

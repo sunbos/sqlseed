@@ -22,6 +22,104 @@ from sqlseed_web.settings_environment import router as settings_router
 _STATIC_DIR = Path(__file__).parent / "static"
 
 
+def _loopback_host_forbidden(hosts: list[str], forbidden: bool) -> bool:
+    try:
+        host = urlsplit(f"http://{hosts[0]}") if len(hosts) == 1 else None
+        forbidden = forbidden or host is None or not _loopback(host.hostname or "")
+        if host is not None:
+            forbidden = forbidden or bool(host.username or host.password or host.path or host.query or host.fragment)
+            _ = host.port
+    except ValueError:
+        forbidden = True
+    return forbidden
+
+
+def _business_request_forbidden(request: Request, supervised_worker: bool) -> bool:
+    hosts, origins = request.headers.getlist("host"), request.headers.getlist("origin")
+    expected = f"{request.url.scheme}://{hosts[0]}" if len(hosts) == 1 else None
+    forbidden = expected is None or len(origins) > 1 or bool(origins and origins[0] != expected)
+    forbidden = forbidden or request.headers.get("sec-fetch-site") == "cross-site"
+    # The default launcher owns a loopback listener. Do not let a DNS
+    # rebinding Host turn it into an attacker's apparently same-origin API.
+    # External ASGI deployments retain their own Host/proxy policy.
+    server = request.scope.get("server")
+    if supervised_worker and server and _loopback(server[0]):
+        forbidden = _loopback_host_forbidden(hosts, forbidden)
+    return forbidden
+
+
+def _maintenance_response(
+    request: Request, manager: ManagementService, manage_plugins: bool, supervised_worker: bool
+) -> JSONResponse | None:
+    path = request.url.path
+    management_path = path.startswith("/api/settings/plugins/")
+    if path.startswith("/api/") and not management_path and not manage_plugins:
+        forbidden = _business_request_forbidden(request, supervised_worker)
+        if forbidden:
+            return JSONResponse(
+                status_code=403,
+                content={"detail": {"code": "cross_origin_forbidden", "message": "业务请求必须来自当前工作台页面。"}},
+            )
+    if (
+        manage_plugins
+        and path.startswith("/api/")
+        and not (management_path or path in {"/api/settings/environment", "/api/health"})
+    ):
+        return JSONResponse(
+            status_code=503,
+            content={
+                "detail": {
+                    "code": "plugin_maintenance",
+                    "message": (
+                        "组件操作进行中，业务服务将自动恢复。"
+                        if supervised_worker
+                        else "当前服务处于插件维护模式；请正常重启 Web 后使用工作台。"
+                    ),
+                }
+            },
+        )
+    if management_path or manage_plugins:
+        try:
+            guard_request(request, manager)
+        except HTTPException as exc:
+            return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+    return None
+
+
+def _configure_middleware(
+    app: FastAPI, manager: ManagementService, manage_plugins: bool, supervised_worker: bool
+) -> None:
+    if supervised_worker and not manage_plugins:
+        from sqlseed_web.runtime_lifecycle import RuntimeAdmissionMiddleware
+
+        app.add_middleware(RuntimeAdmissionMiddleware)
+
+    # no-cache for the ES-module frontend: this app has no build pipeline or
+    # asset hashing, so browser-cached stale JS silently breaks new deploys
+    # (modules were observed serving 304-fresh while a cached sibling served
+    # old code). Always revalidate against the server instead.
+    @app.middleware("http")
+    async def _no_cache_static(request: Any, call_next: Any) -> Any:
+        response = await call_next(request)
+        path = request.url.path
+        if path == "/" or path.startswith("/static"):
+            response.headers["Cache-Control"] = "no-cache"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Content-Security-Policy"] = "frame-ancestors 'none'"
+        return response
+
+    @app.middleware("http")
+    async def _maintenance_admission(request: Request, call_next: Any) -> Any:
+        management_path = request.url.path.startswith("/api/settings/plugins/")
+        if (failure := _maintenance_response(request, manager, manage_plugins, supervised_worker)) is not None:
+            return failure
+        response = await call_next(request)
+        if management_path or manage_plugins:
+            response.headers["Cache-Control"] = "no-store"
+            response.headers["X-Frame-Options"] = "DENY"
+        return response
+
+
 def create_app(
     *,
     manage_plugins: bool = False,
@@ -49,84 +147,7 @@ def create_app(
     )
     app.state.plugin_manager = manager
     app.state.metadata_only = manage_plugins
-    if supervised_worker and not manage_plugins:
-        from sqlseed_web.runtime_lifecycle import RuntimeAdmissionMiddleware
-
-        app.add_middleware(RuntimeAdmissionMiddleware)
-
-    # no-cache for the ES-module frontend: this app has no build pipeline or
-    # asset hashing, so browser-cached stale JS silently breaks new deploys
-    # (modules were observed serving 304-fresh while a cached sibling served
-    # old code). Always revalidate against the server instead.
-    @app.middleware("http")
-    async def _no_cache_static(request: Any, call_next: Any) -> Any:
-        response = await call_next(request)
-        path = request.url.path
-        if path == "/" or path.startswith("/static"):
-            response.headers["Cache-Control"] = "no-cache"
-        response.headers["X-Frame-Options"] = "DENY"
-        response.headers["Content-Security-Policy"] = "frame-ancestors 'none'"
-        return response
-
-    @app.middleware("http")
-    async def _maintenance_admission(request: Request, call_next: Any) -> Any:
-        path = request.url.path
-        management_path = path.startswith("/api/settings/plugins/")
-        if path.startswith("/api/") and not management_path and not manage_plugins:
-            hosts, origins = request.headers.getlist("host"), request.headers.getlist("origin")
-            expected = f"{request.url.scheme}://{hosts[0]}" if len(hosts) == 1 else None
-            forbidden = expected is None or len(origins) > 1 or bool(origins and origins[0] != expected)
-            forbidden = forbidden or request.headers.get("sec-fetch-site") == "cross-site"
-            # The default launcher owns a loopback listener. Do not let a DNS
-            # rebinding Host turn it into an attacker's apparently same-origin API.
-            # External ASGI deployments retain their own Host/proxy policy.
-            server = request.scope.get("server")
-            if supervised_worker and server and _loopback(server[0]):
-                try:
-                    host = urlsplit(f"http://{hosts[0]}") if len(hosts) == 1 else None
-                    forbidden = forbidden or host is None or not _loopback(host.hostname or "")
-                    if host is not None:
-                        forbidden = forbidden or bool(
-                            host.username or host.password or host.path or host.query or host.fragment
-                        )
-                        _ = host.port
-                except ValueError:
-                    forbidden = True
-            if forbidden:
-                return JSONResponse(
-                    status_code=403,
-                    content={
-                        "detail": {"code": "cross_origin_forbidden", "message": "业务请求必须来自当前工作台页面。"}
-                    },
-                )
-        if (
-            manage_plugins
-            and path.startswith("/api/")
-            and not (management_path or path in {"/api/settings/environment", "/api/health"})
-        ):
-            return JSONResponse(
-                status_code=503,
-                content={
-                    "detail": {
-                        "code": "plugin_maintenance",
-                        "message": (
-                            "组件操作进行中，业务服务将自动恢复。"
-                            if supervised_worker
-                            else "当前服务处于插件维护模式；请正常重启 Web 后使用工作台。"
-                        ),
-                    }
-                },
-            )
-        if management_path or manage_plugins:
-            try:
-                guard_request(request, manager)
-            except HTTPException as exc:
-                return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
-        response = await call_next(request)
-        if management_path or manage_plugins:
-            response.headers["Cache-Control"] = "no-store"
-            response.headers["X-Frame-Options"] = "DENY"
-        return response
+    _configure_middleware(app, manager, manage_plugins, supervised_worker)
 
     @app.exception_handler(RequestValidationError)
     async def settings_validation_error(request: Any, exc: RequestValidationError) -> Any:

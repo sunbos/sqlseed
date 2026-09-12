@@ -54,6 +54,11 @@ class FailureClassifier:
             if "validation" in err_msg or "constraint" in err_msg:
                 return FailureType.SEMANTIC
 
+        return self._classify_network_error(error)
+
+    @staticmethod
+    def _classify_network_error(error: Exception | None) -> FailureType:
+        """Apply network checks only after the higher-priority failure categories."""
         # 5. Check for network errors.
         if isinstance(error, TimeoutError | ConnectionError | OSError):
             return FailureType.NETWORK

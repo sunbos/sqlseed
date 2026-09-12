@@ -3,26 +3,27 @@
 from __future__ import annotations
 
 import json
-import sqlite3
-from contextlib import closing
+from importlib import import_module
 from typing import TYPE_CHECKING
 
 import pytest
 import yaml
-from openai.types.chat import ChatCompletion
+
+from tests.sqlite_helpers import sqlite_connection
 
 if TYPE_CHECKING:
     from pathlib import Path
 
 pytest.importorskip("sqlseed_ai")
 
-from sqlseed_ai.config import AIConfig
-from sqlseed_ai.contracts.builtin_violations import BUILTIN_VIOLATIONS
-from sqlseed_ai.contracts.matrix import ContractResolver
-from sqlseed_ai.healer.models import SubgraphTask
-from sqlseed_ai.runtime import build_heal_orchestrator
-from sqlseed_ai.validator.main import FastValidator
-from sqlseed_ai.validator.schema_snapshot import SchemaSnapshot
+AIConfig = import_module("sqlseed_ai.config").AIConfig
+BUILTIN_VIOLATIONS = import_module("sqlseed_ai.contracts.builtin_violations").BUILTIN_VIOLATIONS
+ContractResolver = import_module("sqlseed_ai.contracts.matrix").ContractResolver
+SubgraphTask = import_module("sqlseed_ai.healer.models").SubgraphTask
+build_heal_orchestrator = import_module("sqlseed_ai.runtime").build_heal_orchestrator
+FastValidator = import_module("sqlseed_ai.validator.main").FastValidator
+SchemaSnapshot = import_module("sqlseed_ai.validator.schema_snapshot").SchemaSnapshot
+ChatCompletion = import_module("openai.types.chat").ChatCompletion
 
 
 class FixedClient:
@@ -30,7 +31,7 @@ class FixedClient:
         self.responses = iter(responses)
         self.calls = 0
 
-    def chat_completions_create(self, *, model: str, **kwargs: object) -> ChatCompletion:
+    def chat_completions_create(self, *, model: str, **_kwargs: object) -> ChatCompletion:
         self.calls += 1
         return ChatCompletion.model_validate(
             {
@@ -52,10 +53,10 @@ class FixedClient:
         )
 
 
-@pytest.fixture
-def pipeline(tmp_path: Path):
+@pytest.fixture(name="pipeline")
+def fixture_pipeline(tmp_path: Path):
     path = tmp_path / "candidates.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.execute("CREATE TABLE items(value INTEGER NOT NULL, label TEXT)")
     snapshot = SchemaSnapshot(db_path=str(path))
     validator = FastValidator(ContractResolver(set(BUILTIN_VIOLATIONS), set()), db_path=str(path))
@@ -142,10 +143,10 @@ def test_valid_candidate_preserves_native_derived_and_constraints(pipeline, labe
     assert result.config["tables"][0]["columns"] == patch["tables"][0]["columns"]
     assert validator.validate(result.config, snapshot).is_clean
     output = Path(snapshot.db_path).with_suffix(".yaml")
-    output.write_text(yaml.safe_dump({"db_path": snapshot.db_path, **result.config}))
+    output.write_text(yaml.safe_dump({"db_path": snapshot.db_path, **result.config}), encoding="utf-8")
     written = fill_from_config(output)
     assert written[0].errors == [] and written[0].count == 2
-    with closing(sqlite3.connect(snapshot.db_path)) as db, db:
+    with sqlite_connection(snapshot.db_path) as db:
         rows = db.execute("SELECT value, label FROM items").fetchall()
     assert [row[0] for row in rows] == [7, 7]
     if label.get("derive_from"):

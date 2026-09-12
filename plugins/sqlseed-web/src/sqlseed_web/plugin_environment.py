@@ -12,9 +12,9 @@ from importlib import metadata
 from pathlib import Path
 from typing import IO, Any
 
-from packaging.requirements import InvalidRequirement, Requirement
+from packaging.requirements import Requirement
 from packaging.utils import canonicalize_name
-from packaging.version import InvalidVersion, Version
+from packaging.version import Version
 
 from sqlseed_web.settings_environment import AI_INSTALL_REQUIREMENT, _installer
 
@@ -37,6 +37,34 @@ class Environment:
     reason: str | None
 
 
+def _venv_directory_restriction(prefix: Path) -> str | None:
+    """Check isolation and write access, retaining the last applicable restriction."""
+    reason = None
+    try:
+        configuration = (prefix / "pyvenv.cfg").read_text(encoding="utf-8")
+        if re.search(r"include-system-site-packages\s*=\s*true", configuration, re.IGNORECASE):
+            reason = "共享系统 site-packages 的环境不支持界面管理。"
+        locations = {
+            prefix,
+            Path(sysconfig.get_path("purelib")).resolve(),
+            Path(sysconfig.get_path("platlib")).resolve(),
+        }
+        for location in locations:
+            if not location.is_relative_to(prefix):
+                reason = "Python 安装目录位于 virtualenv 之外，不支持界面管理。"
+            else:
+                if (location / "EXTERNALLY-MANAGED").exists():
+                    reason = "此环境由外部工具管理，请使用原环境管理工具。"
+                if not location.is_dir() or not os.access(location, os.W_OK) or not location.stat().st_mode & 0o222:
+                    reason = "当前 Python 环境不可写，请使用原环境管理工具。"
+        if reason is None:
+            with tempfile.TemporaryFile(dir=prefix):
+                pass
+    except (OSError, UnicodeError):
+        reason = "无法验证当前 Python 环境的写入权限。"
+    return reason
+
+
 def _environment() -> Environment:
     prefix = Path(sys.prefix).resolve()
     reason = None
@@ -47,28 +75,7 @@ def _environment() -> Environment:
     elif (prefix / "EXTERNALLY-MANAGED").exists():
         reason = "此环境由外部工具管理，请使用原环境管理工具。"
     else:
-        try:
-            configuration = (prefix / "pyvenv.cfg").read_text(encoding="utf-8")
-            if re.search(r"include-system-site-packages\s*=\s*true", configuration, re.IGNORECASE):
-                reason = "共享系统 site-packages 的环境不支持界面管理。"
-            locations = {
-                prefix,
-                Path(sysconfig.get_path("purelib")).resolve(),
-                Path(sysconfig.get_path("platlib")).resolve(),
-            }
-            for location in locations:
-                if not location.is_relative_to(prefix):
-                    reason = "Python 安装目录位于 virtualenv 之外，不支持界面管理。"
-                else:
-                    if (location / "EXTERNALLY-MANAGED").exists():
-                        reason = "此环境由外部工具管理，请使用原环境管理工具。"
-                    if not location.is_dir() or not os.access(location, os.W_OK) or not location.stat().st_mode & 0o222:
-                        reason = "当前 Python 环境不可写，请使用原环境管理工具。"
-            if reason is None:
-                with tempfile.TemporaryFile(dir=prefix):
-                    pass
-        except (OSError, UnicodeError):
-            reason = "无法验证当前 Python 环境的写入权限。"
+        reason = _venv_directory_restriction(prefix)
     installer = _installer()
     if reason is None and installer.tool is None:
         reason = "当前 Python 环境没有可用的 pip 或 uv；请使用原环境管理工具。"
@@ -154,7 +161,7 @@ def installed_packages(prefix: Path) -> dict[str, InstalledPackage]:
             result[normalized] = item
         if not {"sqlseed", "sqlseed-web", "faker"}.issubset(result):
             raise ValueError("required distribution metadata is absent")
-    except (OSError, ValueError, InvalidRequirement, InvalidVersion, KeyError, TypeError) as exc:
+    except (OSError, ValueError, KeyError, TypeError) as exc:
         raise RuntimeError("已安装组件的元数据无法安全解析；请先修复当前 Python 环境。") from exc
     return result
 

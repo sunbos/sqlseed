@@ -8,7 +8,7 @@ import tempfile
 from pathlib import Path
 from threading import RLock
 from typing import TYPE_CHECKING, Any, Literal
-from urllib.parse import urlsplit
+from urllib.parse import SplitResult, urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
@@ -24,6 +24,18 @@ _FIELDS = ("backend", "model", "base_url")
 _SETTINGS_LOCK = RLock()
 
 
+def _validate_endpoint_components(parsed: SplitResult) -> None:
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+    ):
+        raise ValueError
+    if parsed.query or parsed.fragment:
+        raise ValueError
+
+
 def http_endpoint(value: str) -> str:
     """Accept plain HTTP endpoints, never URL-embedded credentials or tokens."""
     value = value.strip()
@@ -31,14 +43,9 @@ def http_endpoint(value: str) -> str:
         return value
     try:
         parsed = urlsplit(value)
+        _validate_endpoint_components(parsed)
         if (
-            parsed.scheme not in {"http", "https"}
-            or not parsed.hostname
-            or parsed.username is not None
-            or parsed.password is not None
-            or parsed.query
-            or parsed.fragment
-            or any(char.isspace() or ord(char) < 32 for char in value)
+            any(char.isspace() or ord(char) < 32 for char in value)
             or "\\" in value
             or (parsed.port is not None and parsed.port < 1)
         ):
@@ -271,4 +278,4 @@ def set_session_preferences(registry: UIState, values: dict[str, str | None]) ->
             candidate["_api_key_service"] = _service(config)
         if body.api_key:
             candidate.pop("_api_key_cleared", None)
-        registry.set_ai_override({key: value for key, value in candidate.items()})
+        registry.set_ai_override(dict(candidate))

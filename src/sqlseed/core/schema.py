@@ -15,9 +15,34 @@ from sqlseed._utils.logger import get_logger
 from sqlseed._utils.sql_safe import validate_table_name
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable, Sequence
+
     from sqlseed.database._protocol import ColumnInfo, DatabaseAdapter, ForeignKeyInfo, IndexInfo
 
 logger = get_logger(__name__)
+
+
+def _add_single_unique_indexes(unique_cols: set[str], indexes: Iterable[IndexInfo]) -> None:
+    """Accumulate only complete, single-column unique indexes."""
+    for index in indexes:
+        if index.unique and not index.is_partial and len(index.columns) == 1:
+            unique_cols.add(index.columns[0])
+
+
+def _add_composite_key(columns: Sequence[str], composite: list[list[str]], seen: set[tuple[str, ...]]) -> None:
+    """Preserve discovery order and column order while deduplicating keys."""
+    key = tuple(columns)
+    if key not in seen:
+        seen.add(key)
+        composite.append(list(columns))
+
+
+def _add_composite_unique_indexes(
+    composite: list[list[str]], seen: set[tuple[str, ...]], indexes: Iterable[IndexInfo]
+) -> None:
+    for index in indexes:
+        if index.unique and not index.is_partial and len(index.columns) > 1:
+            _add_composite_key(index.columns, composite, seen)
 
 
 class SchemaInferrer:
@@ -89,17 +114,13 @@ class SchemaInferrer:
         unique_cols: set[str] = set()
         try:
             indexes = self.get_index_info(table_name)
-            for idx in indexes:
-                if idx.unique and not idx.is_partial and len(idx.columns) == 1:
-                    unique_cols.add(idx.columns[0])
+            _add_single_unique_indexes(unique_cols, indexes)
         except (ValueError, RuntimeError, OSError, SAOperationalError):
             logger.debug("Failed to detect unique constraints from indexes", table_name=table_name)
 
         try:
             unique_constraints = self._db.get_unique_constraints(table_name)
-            for uc in unique_constraints:
-                if uc.unique and not uc.is_partial and len(uc.columns) == 1:
-                    unique_cols.add(uc.columns[0])
+            _add_single_unique_indexes(unique_cols, unique_constraints)
         except (ValueError, RuntimeError, OSError, SAOperationalError):
             logger.debug("Failed to detect unique constraints from get_unique_constraints", table_name=table_name)
 
@@ -145,12 +166,7 @@ class SchemaInferrer:
         seen: set[tuple[str, ...]] = set()
         try:
             indexes = self.get_index_info(table_name)
-            for idx in indexes:
-                if idx.unique and not idx.is_partial and len(idx.columns) > 1:
-                    key = tuple(idx.columns)
-                    if key not in seen:
-                        seen.add(key)
-                        composite.append(list(idx.columns))
+            _add_composite_unique_indexes(composite, seen, indexes)
         except (ValueError, RuntimeError, OSError, SAOperationalError):
             logger.debug(
                 "Failed to detect composite UNIQUE constraints from indexes",
@@ -158,12 +174,7 @@ class SchemaInferrer:
             )
         try:
             unique_constraints = self._db.get_unique_constraints(table_name)
-            for uc in unique_constraints:
-                if uc.unique and not uc.is_partial and len(uc.columns) > 1:
-                    key = tuple(uc.columns)
-                    if key not in seen:
-                        seen.add(key)
-                        composite.append(list(uc.columns))
+            _add_composite_unique_indexes(composite, seen, unique_constraints)
         except (ValueError, RuntimeError, OSError, SAOperationalError):
             logger.debug(
                 "Failed to detect composite UNIQUE constraints from unique_constraints",
@@ -174,10 +185,7 @@ class SchemaInferrer:
             # 已覆盖；SQLAlchemy 适配器对 SQLite 不上报 PK 索引，必须在此补充。
             pks = self._db.get_primary_keys(table_name)
             if len(pks) > 1:
-                key = tuple(pks)
-                if key not in seen:
-                    seen.add(key)
-                    composite.append(list(pks))
+                _add_composite_key(pks, composite, seen)
         except (ValueError, RuntimeError, OSError, SAOperationalError):
             logger.debug(
                 "Failed to detect composite UNIQUE constraints from primary keys",

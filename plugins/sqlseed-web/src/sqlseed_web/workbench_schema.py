@@ -121,7 +121,7 @@ def _table_schema(conn: Connection, adapter: SQLAlchemyAdapter, inspector: Inspe
             column["is_rowid_alias"] = column["name"] == rowid_alias
     unique: dict[tuple[str, ...], dict[str, Any]] = {}
     indexes = adapter.get_index_info(name)
-    for constraint in [*adapter.get_unique_constraints(name), *indexes]:
+    for constraint in (*adapter.get_unique_constraints(name), *indexes):
         if constraint.unique and constraint.columns and not getattr(constraint, "is_partial", False):
             unique.setdefault(constraint.columns, {"name": constraint.name, "columns": list(constraint.columns)})
     table: dict[str, Any] = {

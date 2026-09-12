@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import sqlite3
-from contextlib import closing
 from typing import TYPE_CHECKING
 
 from sqlseed.core.orchestrator import DataOrchestrator
+from tests.assertions import assert_empty
+from tests.sqlite_helpers import sqlite_connection
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
 def test_self_reference_to_unique_non_primary_column(tmp_path: Path) -> None:
     path = tmp_path / "self_ref.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.execute(
             "CREATE TABLE nodes (id INTEGER PRIMARY KEY, code INTEGER NOT NULL UNIQUE, "
             "parent_code INTEGER REFERENCES nodes(code))"
@@ -34,12 +34,12 @@ def test_self_reference_to_unique_non_primary_column(tmp_path: Path) -> None:
         for node in nodes:
             if node["parent_code"] is not None:
                 assert node["parent_code"] in {previous["code"] for previous in nodes if previous["id"] < node["id"]}
-        assert orch.query("PRAGMA foreign_key_check") == []
+        assert_empty(orch.query("PRAGMA foreign_key_check"), list)
 
 
 def test_self_reference_conditional_zero_root_value(tmp_path: Path) -> None:
     path = tmp_path / "zero_root.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.execute(
             "CREATE TABLE nodes (id INTEGER PRIMARY KEY, parent_id INTEGER REFERENCES nodes(id), "
             "kind INTEGER NOT NULL, CHECK(kind IN (0, 1)), "
@@ -61,13 +61,14 @@ def test_self_reference_postpass_is_seeded_without_changing_global_random(tmp_pa
     try:
         for index in range(2):
             path = tmp_path / f"seeded_{index}.db"
-            with closing(sqlite3.connect(path)) as db, db:
+            with sqlite_connection(path) as db:
                 db.execute("CREATE TABLE nodes(id INTEGER PRIMARY KEY,parent_id INTEGER REFERENCES nodes(id))")
             with DataOrchestrator(str(path), provider_name="base", optimize_pragma=False) as orch:
                 result = orch.fill_table("nodes", count=30, seed=42, skip_ai=True)
-                assert result.errors == [] and result.count == 30
+                assert_empty(result.errors, list)
+                assert result.count == 30
                 snapshots.append(orch.query("SELECT * FROM nodes ORDER BY id"))
-                assert orch.query("PRAGMA foreign_key_check") == []
+                assert_empty(orch.query("PRAGMA foreign_key_check"), list)
         assert snapshots[0] == snapshots[1]
         assert random.getstate() == global_state
     finally:

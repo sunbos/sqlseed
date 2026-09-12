@@ -51,7 +51,20 @@ def _is_code_like(name: str) -> bool:
         return False
     lower = name.lower()
     suffixes = ("_code", "code", "_id", "sku", "_no", "number", "_key")
-    return any(lower.endswith(s) for s in suffixes) or lower in ("code", "sku", "isbn")
+    return any(lower.endswith(s) for s in suffixes) or lower in {"code", "sku", "isbn"}
+
+
+def _needs_phone_pattern(cfg: dict[str, Any]) -> bool:
+    """Identify phone columns for the shared phone/string format repair rule."""
+    return cfg.get("name", "").lower() in {
+        "phone",
+        "mobile",
+        "telephone",
+        "tel",
+        "cell",
+        "cellphone",
+        "contact_number",
+    } or cfg.get("name", "").lower().endswith(("_phone", "_mobile", "_tel", "_telephone"))
 
 
 BUILTIN_VIOLATIONS: set[ContractViolation] = {
@@ -267,7 +280,7 @@ BUILTIN_VIOLATIONS: set[ContractViolation] = {
         constraints=frozenset(),
         kind=ViolationKind.SEMANTIC_ERROR,
         fix_strategy="semantic_upgrade",
-        predicate=lambda cfg: cfg.get("name", "").lower() in ("description", "desc", "comment", "note"),
+        predicate=lambda cfg: cfg.get("name", "").lower() in {"description", "desc", "comment", "note"},
     ),
     ContractViolation(
         generator="string",
@@ -283,7 +296,7 @@ BUILTIN_VIOLATIONS: set[ContractViolation] = {
         constraints=frozenset(),
         kind=ViolationKind.SEMANTIC_ERROR,
         fix_strategy="semantic_upgrade",
-        predicate=lambda cfg: cfg.get("name", "").lower() in ("phone", "mobile", "telephone", "tel"),
+        predicate=lambda cfg: cfg.get("name", "").lower() in {"phone", "mobile", "telephone", "tel"},
     ),
     # === Cardinality: choice with insufficient pool on UNIQUE ===
     ContractViolation(
@@ -301,11 +314,7 @@ BUILTIN_VIOLATIONS: set[ContractViolation] = {
         constraints=frozenset(),
         kind=ViolationKind.SEMANTIC_ERROR,
         fix_strategy="upgrade_phone_to_pattern",
-        predicate=lambda cfg: (
-            cfg.get("name", "").lower()
-            in ("phone", "mobile", "telephone", "tel", "cell", "cellphone", "contact_number")
-            or cfg.get("name", "").lower().endswith(("_phone", "_mobile", "_tel", "_telephone"))
-        ),
+        predicate=_needs_phone_pattern,
     ),
     ContractViolation(
         generator="string",
@@ -313,11 +322,7 @@ BUILTIN_VIOLATIONS: set[ContractViolation] = {
         constraints=frozenset(),
         kind=ViolationKind.SEMANTIC_ERROR,
         fix_strategy="upgrade_phone_to_pattern",
-        predicate=lambda cfg: (
-            cfg.get("name", "").lower()
-            in ("phone", "mobile", "telephone", "tel", "cell", "cellphone", "contact_number")
-            or cfg.get("name", "").lower().endswith(("_phone", "_mobile", "_tel", "_telephone"))
-        ),
+        predicate=_needs_phone_pattern,
     ),
     # === Rule #25: text on UNIQUE code-like column → string ===
     ContractViolation(

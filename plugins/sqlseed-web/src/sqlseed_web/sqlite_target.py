@@ -33,6 +33,28 @@ class SQLiteTarget:
         return "SQLite :memory:"
 
 
+def _sqlite_uri_parts(filename: str) -> tuple[str, dict[str, list[str]]]:
+    """Decode URI components only after rejecting SQLite/Python parsing ambiguities."""
+    # urlsplit strips these raw controls, whereas SQLite retains them.
+    # Require percent encoding rather than identifying a different file.
+    if any(control in filename for control in "\t\r\n"):
+        raise ValueError("SQLite URI 含原始控制字符；请对文件名中的 TAB、CR、LF 使用百分号编码")
+    uri = urlsplit(filename)
+    try:
+        filename = unquote(uri.path, errors="strict")
+        query = parse_qs(uri.query, keep_blank_values=True, errors="strict")
+    except UnicodeDecodeError as exc:
+        # Replacement decoding would collapse distinct byte filenames.
+        raise ValueError("SQLite URI 使用了无效 UTF-8 编码；请使用有效 UTF-8 文件名和参数") from exc
+    # SQLite truncates URI strings at decoded NUL; Python does not. An
+    # apparent file target can otherwise become a memory database or VFS.
+    if "\x00" in filename or any("\x00" in text for key, values in query.items() for text in (key, *values)):
+        raise ValueError("SQLite URI 不支持 NUL 字符；请检查路径和查询参数中的百分号编码")
+    if "vfs" in query:
+        raise ValueError("Web 暂不支持 SQLite 自定义 VFS；请使用默认 VFS 的文件或内存连接")
+    return filename, query
+
+
 def sqlite_target(target: str, conn_id: str) -> SQLiteTarget | None:
     """Resolve only SQLite; do not confuse URI options with ordinary filenames.
 
@@ -51,23 +73,7 @@ def sqlite_target(target: str, conn_id: str) -> SQLiteTarget | None:
     if filename in {"", ":memory:"}:
         return SQLiteTarget("sqlite-memory", conn_id)
     if options.get("uri") and filename.startswith("file:"):
-        # urlsplit strips these raw controls, whereas SQLite retains them.
-        # Require percent encoding rather than identifying a different file.
-        if any(control in filename for control in "\t\r\n"):
-            raise ValueError("SQLite URI 含原始控制字符；请对文件名中的 TAB、CR、LF 使用百分号编码")
-        uri = urlsplit(filename)
-        try:
-            filename = unquote(uri.path, errors="strict")
-            query = parse_qs(uri.query, keep_blank_values=True, errors="strict")
-        except UnicodeDecodeError as exc:
-            # Replacement decoding would collapse distinct byte filenames.
-            raise ValueError("SQLite URI 使用了无效 UTF-8 编码；请使用有效 UTF-8 文件名和参数") from exc
-        # SQLite truncates URI strings at decoded NUL; Python does not. An
-        # apparent file target can otherwise become a memory database or VFS.
-        if "\x00" in filename or any("\x00" in text for key, values in query.items() for text in (key, *values)):
-            raise ValueError("SQLite URI 不支持 NUL 字符；请检查路径和查询参数中的百分号编码")
-        if "vfs" in query:
-            raise ValueError("Web 暂不支持 SQLite 自定义 VFS；请使用默认 VFS 的文件或内存连接")
+        filename, query = _sqlite_uri_parts(filename)
         if not filename:
             return SQLiteTarget("sqlite-memory", conn_id)
         if filename == ":memory:" or query.get("mode") == ["memory"]:

@@ -54,3 +54,11 @@ def mediator_ctx(tmp_path: Any):
     ctx = MediatorContext(adapter, schema)
     yield ctx
     adapter.close()
+
+
+@pytest.fixture(name="timestamp_snapshot")
+def fixture_timestamp_snapshot(tmp_path: Any):
+    """A timestamp column shared by deterministic repair executor/pipeline tests."""
+    from .schema_helpers import snapshot_from_ddl
+
+    return snapshot_from_ddl(tmp_path / "t.db", "CREATE TABLE t (id INTEGER PRIMARY KEY, created_at TIMESTAMP)")

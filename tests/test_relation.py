@@ -10,6 +10,7 @@ from sqlseed.core.relation import RelationResolver, SharedPool
 from sqlseed.database._protocol import ForeignKeyInfo
 from sqlseed.database.raw_sqlite_adapter import RawSQLiteAdapter
 from tests._helpers import fill_from_config_and_verify_fk
+from tests.assertions import assert_empty
 
 
 class _FakeDB:
@@ -194,7 +195,7 @@ class TestRelationResolver:
     def test_resolve_foreign_key_values_no_match(self, raw_adapter) -> None:
         resolver = RelationResolver(raw_adapter)
         values = resolver.resolve_foreign_key_values("orders", "nonexistent_col")
-        assert values == []
+        assert_empty(values, list)
 
     def test_resolve_foreign_key_values(self, raw_adapter_with_data) -> None:
         resolver = RelationResolver(raw_adapter_with_data)
@@ -322,7 +323,7 @@ class TestRelationResolver:
         try:
             resolver = RelationResolver(adapter)
             targets = resolver._get_composite_fk_targets("orders")
-            assert targets == {}
+            assert_empty(targets, dict)
         finally:
             adapter.close()
 
@@ -488,7 +489,7 @@ class TestSharedPool:
 
     def test_get_nonexistent(self) -> None:
         pool = SharedPool()
-        assert pool.get("nonexistent") == []
+        assert_empty(pool.get("nonexistent"), list)
 
     def test_merge_deduplicates(self) -> None:
         pool = SharedPool()

@@ -25,25 +25,17 @@ import sys
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from run_validation import build_db, verify_db  # noqa: E402  (reuse harness)
+if __package__:
+    from ._checks import CheckRecorder
+    from .run_validation import build_db, verify_db
+else:
+    from _checks import CheckRecorder
+    from run_validation import build_db, verify_db
 
 DB_DIR = Path(__file__).resolve().parent / "dbs"
 DB_DIR.mkdir(parents=True, exist_ok=True)
 
-PASS = 0
-FAIL = 0
-FAILURES: list[str] = []
-
-
-def check(name: str, ok: bool, detail: str = "") -> None:
-    global PASS, FAIL
-    if ok:
-        PASS += 1
-    else:
-        FAIL += 1
-        FAILURES.append(name)
-        print(f"  [FAIL] {name}  {detail}")
+check = CheckRecorder(report_passes=False)
 
 
 # ---------------------------------------------------------------------------
@@ -118,7 +110,8 @@ class TableSpec:
         parts = [f"CREATE TABLE \"{self.name}\" ("]
         defs = [c.ddl() for c in self.columns]
         if self.pk:
-            defs.append(f"PRIMARY KEY ({', '.join(f'\"{c}\"' for c in self.pk)})")
+            primary_key = ", ".join(f'"{column}"' for column in self.pk)
+            defs.append(f"PRIMARY KEY ({primary_key})")
         for col, rt, rc in self.fk:
             defs.append(f"FOREIGN KEY (\"{col}\") REFERENCES \"{rt}\"(\"{rc}\")")
         parts.append(", ".join(defs))
@@ -157,7 +150,7 @@ def fabricate(seed: int, rng: random.Random) -> list[TableSpec]:
     names = [f"t{i}" for i in range(n_tables)]
     tables = [TableSpec(n) for n in names]
 
-    for i, t in enumerate(tables):
+    for i in range(len(tables)):
         n_cols = rng.randint(2, 4)
         tables[i].columns.append(ColumnSpec("id", "INTEGER", False, False))
         tables[i].pk = ["id"]
@@ -188,7 +181,7 @@ def fabricate(seed: int, rng: random.Random) -> list[TableSpec]:
     # FK edges: each non-root table gets 0-2 FK to earlier tables (acyclic).
     for i in range(1, n_tables):
         n_fk = rng.randint(0, 2)
-        cands = [j for j in range(i)]
+        cands = list(range(i))
         rng.shuffle(cands)
         for j in cands[:n_fk]:
             col = ColumnSpec(f"{tables[j].name}_id", "INTEGER", True, False)
@@ -254,19 +247,19 @@ def l2_ai(db: Path, seed: int) -> bool:
     for t in tables:
         cols = []
         for r in con.execute(f'PRAGMA table_info("{t}")'):
-            name, ctype, nn, default = r[1], r[2], r[3], r[4]
+            name, ctype = r[1], r[2]
             if ctype.upper() == "INTEGER":
                 cols.append({"name": name, "generator": "integer", "params": {"min_value": 0, "max_value": 999}})
-            elif ctype.upper() in ("REAL", "NUMERIC", "DECIMAL", "FLOAT", "DOUBLE"):
+            elif ctype.upper() in {"REAL", "NUMERIC", "DECIMAL", "FLOAT", "DOUBLE"}:
                 cols.append({"name": name, "generator": "float", "params": {"min_value": 0, "max_value": 999}})
-            elif ctype.upper() in ("BLOB", "BOOLEAN"):
+            elif ctype.upper() in {"BLOB", "BOOLEAN"}:
                 cols.append({"name": name, "generator": "string"})
             else:
                 cols.append({"name": name, "generator": "string"})
         cfg["tables"].append({"name": t, "count": 25, "columns": cols})
     con.close()
 
-    v = FastValidator(resolver, db_path=str(db)).validate(cfg, snapshot)
+    FastValidator(resolver, db_path=str(db)).validate(cfg, snapshot)
     fixed, _res = RepairPipeline(resolver, db_path=str(db)).run(cfg, snapshot)
 
     # Emit repaired YAML and fill via core.
@@ -339,11 +332,11 @@ def main() -> int:
         check(f"L3-mcp round{r}", l3_mcp(db_l3, tables, r_seed))
 
     print("\n" + "=" * 70)
-    print(f"TOTAL: {PASS} passed, {FAIL} failed  ({time.perf_counter()-t0:.1f}s)")
-    if FAILURES:
-        print("failed:", ", ".join(FAILURES))
+    print(f"TOTAL: {check.passed} passed, {check.failed} failed  ({time.perf_counter()-t0:.1f}s)")
+    if check.failures:
+        print("failed:", ", ".join(check.failures))
     print("=" * 70)
-    return 0 if FAIL == 0 else 1
+    return 0 if check.failed == 0 else 1
 
 
 if __name__ == "__main__":

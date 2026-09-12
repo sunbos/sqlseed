@@ -115,7 +115,7 @@ def main() -> int:
     con = sqlite3.connect(DB_PATH)
     checks: list[tuple[str, bool, str]] = []
 
-    counts = {t: con.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] for t in ["users", "products", "orders", "order_items"]}
+    counts = {t: con.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] for t in ("users", "products", "orders", "order_items")}
     checks.append(("Y0-rows+fill", fill_ok and counts == {"users": 50, "products": 30, "orders": 100, "order_items": 200}, str(counts)))
 
     bad = con.execute(

@@ -2,27 +2,35 @@
 
 from __future__ import annotations
 
-import sqlite3
-from contextlib import closing
 from typing import TYPE_CHECKING
 
 import pytest
 
 from sqlseed.core.check_parser import CheckConstraintParser
 from sqlseed.core.orchestrator import DataOrchestrator
+from tests.assertions import assert_empty
+from tests.sqlite_helpers import sqlite_connection
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from sqlseed.config.models import ColumnConfig
+    from sqlseed.core.result import GenerationResult
+
+
+def _fill_configured_column(orch: DataOrchestrator, column: ColumnConfig) -> GenerationResult:
+    """Exercise the full one-row fill boundary using the test's invalid column rules."""
+    return orch.fill_table("items", count=1, seed=42, skip_ai=True, column_configs=[column])
 
 
 @pytest.mark.parametrize("sql_type", ["INT", "BIGINT", "INTEGER"])
 def test_sqlite_non_rowid_integer_primary_keys_get_values(tmp_path: Path, sql_type: str) -> None:
     path = tmp_path / "pk.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.execute(f"CREATE TABLE items (id {sql_type} NOT NULL PRIMARY KEY)")
     with DataOrchestrator(str(path), provider_name="base", optimize_pragma=False) as orch:
         result = orch.fill_table("items", count=5, seed=42, skip_ai=True)
-        assert result.errors == []
+        assert_empty(result.errors, list)
         assert orch.query("SELECT COUNT(id) AS n, COUNT(DISTINCT id) AS d FROM items") == [{"n": 5, "d": 5}]
 
 
@@ -31,12 +39,12 @@ def test_sqlite_non_rowid_integer_primary_keys_get_values(tmp_path: Path, sql_ty
 def test_conjoined_check_enums_are_intersected(tmp_path: Path, separate: bool, explicit: bool) -> None:
     path = tmp_path / "enum.db"
     checks = "CHECK(x IN (1,2)), CHECK(x IN (2,3))" if separate else "CHECK(x IN (1,2) AND x IN (2,3))"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.execute(f"CREATE TABLE items (x INTEGER NOT NULL, {checks})")
     columns = {"x": {"generator": "choice", "params": {"choices": [1, 2, 3]}}} if explicit else None
     with DataOrchestrator(str(path), provider_name="base", optimize_pragma=False) as orch:
         result = orch.fill_table("items", count=10, seed=42, columns=columns, skip_ai=True)
-        assert result.errors == []
+        assert_empty(result.errors, list)
         assert orch.query("SELECT x FROM items") == [{"x": 2}] * 10
 
 
@@ -46,12 +54,12 @@ def test_strict_check_bounds_follow_column_domain(
     tmp_path: Path, sql_type: str, generator: str, explicit: bool
 ) -> None:
     path = tmp_path / "bounds.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.execute(f"CREATE TABLE items (x {sql_type} NOT NULL CHECK(x > 0 AND x < 3))")
     columns = {"x": {"generator": generator}} if explicit else None
     with DataOrchestrator(str(path), provider_name="base", optimize_pragma=False) as orch:
         result = orch.fill_table("items", count=50, seed=42, columns=columns, skip_ai=True)
-        assert result.errors == []
+        assert_empty(result.errors, list)
         rows = orch.query("SELECT x FROM items")
         assert all(0 < row["x"] < 3 for row in rows)
         if generator == "float":
@@ -78,7 +86,7 @@ def test_user_numeric_constraints_are_enforced(tmp_path: Path, derived: bool) ->
     from sqlseed.config.models import ColumnConfig
 
     path = tmp_path / "configured.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.execute("CREATE TABLE items (source INTEGER NOT NULL, x INTEGER NOT NULL)")
     x = (
         ColumnConfig(name="x", derive_from="source", expression="value", constraints={"min_value": 10, "max_value": 20})
@@ -101,7 +109,7 @@ def test_user_numeric_constraints_are_enforced(tmp_path: Path, derived: bool) ->
                 x,
             ],
         )
-        assert result.errors == []
+        assert_empty(result.errors, list)
         rows = orch.query("SELECT source, x FROM items")
         assert all(10 <= row["x"] <= 20 for row in rows)
         if derived:
@@ -112,7 +120,7 @@ def test_user_regex_constraint_is_enforced(tmp_path: Path) -> None:
     from sqlseed.config.models import ColumnConfig
 
     path = tmp_path / "regex.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.execute("CREATE TABLE items (x TEXT NOT NULL)")
     with DataOrchestrator(str(path), provider_name="base", optimize_pragma=False) as orch:
         result = orch.fill_table(
@@ -126,7 +134,7 @@ def test_user_regex_constraint_is_enforced(tmp_path: Path) -> None:
                 )
             ],
         )
-        assert result.errors == []
+        assert_empty(result.errors, list)
         assert orch.query("SELECT x FROM items") == [{"x": "OK1"}] * 5
 
 
@@ -145,23 +153,23 @@ def test_mapper_preserves_explicit_invalid_length_bounds() -> None:
 
 def test_strict_integer_unique_check_bounds_are_not_widened(tmp_path: Path) -> None:
     path = tmp_path / "strict_unique.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.execute("CREATE TABLE items (x INTEGER NOT NULL UNIQUE CHECK(x > 0 AND x < 3))")
     with DataOrchestrator(str(path), provider_name="base", optimize_pragma=False) as orch:
         specs, _, _, _ = orch._resolve_specs("items", 2, {"x": {"generator": "integer"}}, None, False)
         assert specs["x"].params == {"min_value": 1, "max_value": 2}
         result = orch.fill_table("items", count=2, seed=42, columns={"x": {"generator": "integer"}}, skip_ai=True)
-        assert result.errors == []
+        assert_empty(result.errors, list)
         assert sorted(row["x"] for row in orch.query("SELECT x FROM items")) == [1, 2]
 
 
 def test_nullable_unique_fallback_honors_strict_integer_bounds(tmp_path: Path) -> None:
     path = tmp_path / "nullable_unique.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.execute("CREATE TABLE items (x INTEGER UNIQUE CHECK(x > 0 AND x < 3))")
     with DataOrchestrator(str(path), provider_name="base", optimize_pragma=False) as orch:
         result = orch.fill_table("items", count=2, seed=42, skip_ai=True)
-        assert result.errors == []
+        assert_empty(result.errors, list)
         assert sorted(row["x"] for row in orch.query("SELECT x FROM items")) == [1, 2]
 
 
@@ -170,18 +178,18 @@ def test_nullable_unique_fallback_honors_strict_integer_bounds(tmp_path: Path) -
 )
 def test_nullable_unique_fallback_uses_check_domain_outside_default_range(tmp_path: Path, check: str) -> None:
     path = tmp_path / "outside_range.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.execute(f"CREATE TABLE items(rank INTEGER UNIQUE CHECK({check}))")
     with DataOrchestrator(str(path), provider_name="base", optimize_pragma=False) as orch:
         result = orch.fill_table("items", count=5, seed=42, skip_ai=True)
-        assert result.errors == []
+        assert_empty(result.errors, list)
         assert result.count == 5
         assert orch.query("SELECT COUNT(rank) AS n, COUNT(DISTINCT rank) AS d FROM items") == [{"n": 5, "d": 5}]
 
 
 def test_choice_type_fallback_preserves_numeric_check_range(tmp_path: Path) -> None:
     path = tmp_path / "choice_range.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.execute("CREATE TABLE items(rank INTEGER NOT NULL DEFAULT 18 UNIQUE CHECK(rank >= 18 AND rank <= 65))")
     with DataOrchestrator(str(path), provider_name="base", optimize_pragma=False) as orch:
         result = orch.fill_table(
@@ -191,7 +199,7 @@ def test_choice_type_fallback_preserves_numeric_check_range(tmp_path: Path) -> N
             skip_ai=True,
             columns={"rank": {"generator": "choice", "params": {"choices": [18]}}},
         )
-        assert result.errors == []
+        assert_empty(result.errors, list)
         assert result.count == 5
         assert orch.query("SELECT COUNT(rank) AS n, COUNT(DISTINCT rank) AS d FROM items") == [{"n": 5, "d": 5}]
 
@@ -200,22 +208,17 @@ def test_unsatisfiable_user_constraint_fails_without_writes(tmp_path: Path) -> N
     from sqlseed.config.models import ColumnConfig
 
     path = tmp_path / "impossible.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.execute("CREATE TABLE items (x INTEGER NOT NULL)")
     with DataOrchestrator(str(path), provider_name="base", optimize_pragma=False) as orch:
-        result = orch.fill_table(
-            "items",
-            count=1,
-            seed=42,
-            skip_ai=True,
-            column_configs=[
-                ColumnConfig(
-                    name="x",
-                    generator="choice",
-                    params={"choices": [5]},
-                    constraints={"min_value": 10, "max_retries": 1},
-                )
-            ],
+        result = _fill_configured_column(
+            orch,
+            ColumnConfig(
+                name="x",
+                generator="choice",
+                params={"choices": [5]},
+                constraints={"min_value": 10, "max_retries": 1},
+            ),
         )
         assert result.count == 0
         assert len(result.errors) == 1
@@ -227,17 +230,11 @@ def test_invalid_constraint_regex_fails_clearly(tmp_path: Path) -> None:
     from sqlseed.config.models import ColumnConfig
 
     path = tmp_path / "invalid_regex.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.execute("CREATE TABLE items (x TEXT NOT NULL)")
     with DataOrchestrator(str(path), provider_name="base", optimize_pragma=False) as orch:
-        result = orch.fill_table(
-            "items",
-            count=1,
-            seed=42,
-            skip_ai=True,
-            column_configs=[
-                ColumnConfig(name="x", generator="choice", params={"choices": ["test"]}, constraints={"regex": "["})
-            ],
+        result = _fill_configured_column(
+            orch, ColumnConfig(name="x", generator="choice", params={"choices": ["test"]}, constraints={"regex": "["})
         )
         assert result.count == 0
         assert len(result.errors) == 1
@@ -255,4 +252,4 @@ def test_disjoint_check_choices_preserve_empty_non_null_domain() -> None:
     parsed = CheckConstraintParser.parse_all("x", ["x IN (1)", "x IN (2)"])
     assert parsed is not None
     assert parsed.kind == "choice"
-    assert parsed.choices == ()
+    assert_empty(parsed.choices, tuple)

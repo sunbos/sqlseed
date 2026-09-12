@@ -139,7 +139,7 @@ async def analysis_response(conn_id: str, run: Analysis, request: Request) -> di
     if "application/x-ndjson" in request.headers.get("accept", ""):
         # ASGI < 2.4 is watched by StreamingResponse itself. Newer ASGI
         # relies on send errors, so poll disconnect while the model is silent.
-        spec = tuple(map(int, request.scope.get("asgi", {}).get("spec_version", "2.0").split(".")))
+        spec = tuple(int(part) for part in request.scope.get("asgi", {}).get("spec_version", "2.0").split("."))
         watched_request = request if spec >= (2, 4) else None
         return StreamingResponse(
             operation.ndjson(watched_request),

@@ -10,6 +10,7 @@ import tempfile
 import threading
 import time
 from collections.abc import Callable
+from typing import BinaryIO
 
 OUTPUT_LIMIT = 24_000
 
@@ -24,6 +25,37 @@ def _sanitized(text: str) -> str:
         if len(value) >= 6 and re.search(r"(?i)(key|token|password|secret|credential)", name):
             text = text.replace(value, "[敏感信息已隐藏]")
     return "".join(character for character in text if character in "\n\t" or ord(character) >= 32)
+
+
+def _read_installer_output(stream: BinaryIO, output: Callable[[str], None]) -> None:
+    remaining = OUTPUT_LIMIT
+    pending = b""
+    dropping_line = False
+    while chunk := os.read(stream.fileno(), 1024):
+        if remaining <= 0:
+            continue
+        if dropping_line:
+            if b"\n" not in chunk:
+                continue
+            _, chunk = chunk.split(b"\n", 1)
+            dropping_line = False
+        pending += chunk
+        while b"\n" in pending or len(pending) > 4096:
+            if b"\n" in pending:
+                line, pending = pending.split(b"\n", 1)
+            else:
+                # Discard overlong lines as a whole: do not reveal split credentials/URLs.
+                pending = b""
+                dropping_line = True
+                line = b"[overlong installer output omitted]"
+            clean = _sanitized(line.decode("utf-8", errors="replace"))[: min(remaining, 2000)]
+            if clean:
+                output(clean)
+                remaining -= len(clean)
+        if remaining <= 0:
+            output("输出已达到长度上限，后续输出已省略。")
+    if remaining > 0 and pending:
+        output(_sanitized(pending.decode("utf-8", errors="replace"))[:remaining])
 
 
 def run_installer(
@@ -55,37 +87,9 @@ def run_installer(
             process.wait()
             raise RuntimeError("无法读取安装工具输出。")
 
-        def read() -> None:
-            remaining = OUTPUT_LIMIT
-            pending = b""
-            dropping_line = False
-            while chunk := os.read(stream.fileno(), 1024):
-                if remaining <= 0:
-                    continue
-                if dropping_line:
-                    if b"\n" not in chunk:
-                        continue
-                    _, chunk = chunk.split(b"\n", 1)
-                    dropping_line = False
-                pending += chunk
-                while b"\n" in pending or len(pending) > 4096:
-                    if b"\n" in pending:
-                        line, pending = pending.split(b"\n", 1)
-                    else:
-                        # Discard overlong lines as a whole: do not reveal split credentials/URLs.
-                        pending = b""
-                        dropping_line = True
-                        line = b"[overlong installer output omitted]"
-                    clean = _sanitized(line.decode("utf-8", errors="replace"))[: min(remaining, 2000)]
-                    if clean:
-                        output(clean)
-                        remaining -= len(clean)
-                if remaining <= 0:
-                    output("输出已达到长度上限，后续输出已省略。")
-            if remaining > 0 and pending:
-                output(_sanitized(pending.decode("utf-8", errors="replace"))[:remaining])
-
-        reader = threading.Thread(target=read, daemon=True, name="sqlseed-plugin-output")
+        reader = threading.Thread(
+            target=_read_installer_output, args=(stream, output), daemon=True, name="sqlseed-plugin-output"
+        )
         reader.start()
         deadline = time.monotonic() + timeout
         try:

@@ -13,8 +13,8 @@ from sqlseed_web import runtime_lifecycle, workbench_ai_stream
 from sqlseed_web.runtime_lifecycle import RuntimeAdmissionMiddleware, RuntimeGate, start_background
 
 
-@pytest.fixture()
-def gate(monkeypatch: pytest.MonkeyPatch) -> RuntimeGate:
+@pytest.fixture(name="gate")
+def fixture_gate(monkeypatch: pytest.MonkeyPatch) -> RuntimeGate:
     value = RuntimeGate()
     monkeypatch.setattr(runtime_lifecycle, "runtime_gate", value)
     return value
@@ -172,18 +172,18 @@ def test_paused_middleware_admits_management_only_and_resume_restores_business(g
 
         wrapper = RuntimeAdmissionMiddleware(application)
         gate.pause_if_idle()
-        for path, status in [
+        messages: list[dict[str, Any]] = []
+
+        async def send(message: dict[str, Any]) -> None:
+            messages.append(message)
+
+        for path, status in (
             ("/api/settings/plugins/management", 204),
             ("/api/workbench/preview", 503),
             ("/static/app.js", 503),
             ("/api/settings/plugins-extra", 503),
-        ]:
-            messages: list[dict[str, Any]] = []
-
-            async def send(message: dict[str, Any]) -> None:
-                # The middleware call is fully awaited before the next loop iteration.
-                messages.append(message)  # noqa: B023
-
+        ):
+            messages.clear()
             await wrapper({"type": "http", "path": path}, receive, send)
             assert messages[0]["status"] == status
         assert calls == ["/api/settings/plugins/management"]

@@ -613,7 +613,7 @@ def test_strip_invalid_date_derive_from_strips_non_timedelta_expression():
     assert "derive_from" not in result or result["derive_from"] is None
     assert "expression" not in result or result["expression"] is None
     # Generator should remain (or be reset to date/datetime)
-    assert result.get("generator") in ("date", "datetime", None)
+    assert result.get("generator") in {"date", "datetime", None}
 
 
 def test_strip_invalid_date_derive_from_keeps_timedelta_expression():

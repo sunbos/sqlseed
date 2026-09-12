@@ -1,0 +1,30 @@
+Checking
+/tmp/sqlseed-codeflow-packages-bp87t1jx/dist/mcp_server_sqlseed-0.2.4.dev255+g5b
+0dd0723.d20260912-py3-none-any.whl: PASSED
+Checking
+/tmp/sqlseed-codeflow-packages-bp87t1jx/dist/sqlseed-0.2.4.dev255+g5b0dd0723.d20
+260912-py3-none-any.whl: PASSED
+Checking
+/tmp/sqlseed-codeflow-packages-bp87t1jx/dist/sqlseed_ai-0.2.4.dev255+g5b0dd0723.
+d20260912-py3-none-any.whl: PASSED
+Checking
+/tmp/sqlseed-codeflow-packages-bp87t1jx/dist/sqlseed_cli-0.2.4.dev255+g5b0dd0723
+.d20260912-py3-none-any.whl: PASSED
+Checking
+/tmp/sqlseed-codeflow-packages-bp87t1jx/dist/sqlseed_web-0.2.4.dev255+g5b0dd0723
+.d20260912-py3-none-any.whl: PASSED
+Checking
+/tmp/sqlseed-codeflow-packages-bp87t1jx/dist/mcp_server_sqlseed-0.2.4.dev255+g5b
+0dd0723.d20260912.tar.gz: PASSED
+Checking
+/tmp/sqlseed-codeflow-packages-bp87t1jx/dist/sqlseed-0.2.4.dev255+g5b0dd0723.d20
+260912.tar.gz: PASSED
+Checking
+/tmp/sqlseed-codeflow-packages-bp87t1jx/dist/sqlseed_ai-0.2.4.dev255+g5b0dd0723.
+d20260912.tar.gz: PASSED
+Checking
+/tmp/sqlseed-codeflow-packages-bp87t1jx/dist/sqlseed_cli-0.2.4.dev255+g5b0dd0723
+.d20260912.tar.gz: PASSED
+Checking
+/tmp/sqlseed-codeflow-packages-bp87t1jx/dist/sqlseed_web-0.2.4.dev255+g5b0dd0723
+.d20260912.tar.gz: PASSED

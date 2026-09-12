@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-import sqlite3
-from contextlib import closing
+from importlib import import_module
 from typing import TYPE_CHECKING
 
 import pytest
@@ -11,13 +10,14 @@ import yaml
 from click.testing import CliRunner
 
 from tests._helpers import clear_llm_env
+from tests.sqlite_helpers import sqlite_connection
 
 if TYPE_CHECKING:
     from pathlib import Path
 
 pytest.importorskip("sqlseed_ai")
 
-from sqlseed_ai.cli import ai_commands
+ai_commands = import_module("sqlseed_ai.cli.ai_commands")
 
 
 @pytest.fixture(autouse=True)
@@ -26,7 +26,7 @@ def offline_client(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("SQLSEED_AI_BACKEND", "ollama")
 
     class NoNetworkClient:
-        def chat_completions_create(self, **kwargs: object) -> None:
+        def chat_completions_create(self, **_kwargs: object) -> None:
             pytest.fail("deterministic CLI regression unexpectedly requested a model")
 
         def close(self) -> None:
@@ -35,10 +35,10 @@ def offline_client(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(ai_commands, "_build_llm_client", lambda config: NoNetworkClient())
 
 
-@pytest.fixture
-def schema(tmp_path: Path) -> Path:
+@pytest.fixture(name="schema")
+def fixture_schema(tmp_path: Path) -> Path:
     path = tmp_path / "input.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.executescript(
             "CREATE TABLE grandparent(id INTEGER PRIMARY KEY);"
             "CREATE TABLE parent(id INTEGER PRIMARY KEY, grandparent_id INTEGER REFERENCES grandparent(id));"
@@ -214,7 +214,7 @@ def test_auto_heal_preserves_explicit_native_derived_and_constraint_rules(tmp_pa
     from sqlseed import fill_from_config
 
     path = tmp_path / "explicit.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.execute("CREATE TABLE entries(value INTEGER, doubled INTEGER, token_uuid TEXT, native_text TEXT)")
     columns = [
         {"name": "value", "generator": "integer", "params": {"min_value": 7, "max_value": 7}},
@@ -241,6 +241,6 @@ def test_auto_heal_preserves_explicit_native_derived_and_constraint_rules(tmp_pa
     assert len(outcome) == 1
     assert outcome[0].errors == []
     assert outcome[0].count == 2
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         rows = db.execute("SELECT value, doubled, token_uuid, native_text FROM entries").fetchall()
     assert all(row[:3] == (7, 14, "explicit-rule") and len(row[3]) == 2 for row in rows)

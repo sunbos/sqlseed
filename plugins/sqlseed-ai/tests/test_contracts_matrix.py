@@ -10,6 +10,8 @@ from sqlseed_ai.contracts.matrix import (
     ViolationKind,
 )
 
+from tests.assertions import assert_empty
+
 
 def test_contract_violation_to_dict_round_trip():
     v = ContractViolation(
@@ -24,7 +26,7 @@ def test_contract_violation_to_dict_round_trip():
     d = v.to_dict()
     assert d["generator"] == "integer"
     assert d["column_type"] == "TIMESTAMP"
-    assert d["constraints"] == []
+    assert_empty(d["constraints"], list)
     assert d["kind"] == "crash"
     assert d["fix_strategy"] == "switch_generator"
     assert d["fix_params"] == {"target": "datetime"}

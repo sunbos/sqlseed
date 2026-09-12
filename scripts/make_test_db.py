@@ -173,7 +173,7 @@ def validate(conn: sqlite3.Connection) -> list[tuple[str, bool, str]]:
         ("CHECK quantity rejected", "INSERT INTO order_items (order_id,product_id,quantity,unit_price) VALUES (1,3,0,9.9)", ()),
     ]
     for label, sql, params in checks:
-        results.append((label, must_fail(conn, sql, params), "rejected as expected" if True else ""))
+        results.append((label, must_fail(conn, sql, params), "rejected as expected"))
 
     counts = {t: conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] for t in ("users", "products", "orders", "order_items", "employees")}
     results.append(("seed row counts", counts == {"users": 5, "products": 8, "orders": 6, "order_items": 10, "employees": 6}, str(counts)))

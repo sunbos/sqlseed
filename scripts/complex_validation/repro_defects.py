@@ -55,7 +55,7 @@ def defect_a() -> bool:
     }
     v = FastValidator(resolver, db_path=str(db)).validate(cfg, snapshot)
     flagged = {(x.columns[0], x.fix_hint) for x in v.violations}
-    fixed_cfg, _res = RepairPipeline(resolver, db_path=str(db)).run(cfg, snapshot)
+    fixed_cfg, _ = RepairPipeline(resolver, db_path=str(db)).run(cfg, snapshot)
     gens = {c["name"]: c.get("generator") for t in fixed_cfg["tables"] for c in t["columns"]}
 
     # Try filling with the repaired config.
@@ -114,7 +114,7 @@ def defect_b() -> bool:
     ssn_distinct = con.execute("SELECT COUNT(DISTINCT ssn) FROM people").fetchone()[0]
     con.close()
     print(f"  rows={total} ssn: NULL={ssn_null} distinct={ssn_distinct} | badge_no: NULL={badge_null}")
-    present = ssn_null == total or badge_null == total
+    present = total in (ssn_null, badge_null)
     print(f"  => defect B {'REPRODUCED' if present else 'NOT present'}")
     return present
 

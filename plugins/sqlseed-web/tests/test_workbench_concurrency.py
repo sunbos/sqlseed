@@ -2,29 +2,57 @@
 
 from __future__ import annotations
 
-import sqlite3
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import closing
 from pathlib import Path
 from typing import Any
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from tests.sqlite_helpers import sqlite_connection
 
 from sqlseed_web import api, runtime_lifecycle, workbench, workbench_runtime
-from sqlseed_web.state import ConnectionBusyError, UIState
+from sqlseed_web.state import Connection, ConnectionBusyError, UIState
 from sqlseed_web.workbench_runtime import check_document, normalize_document
 from sqlseed_web.workbench_schema import inspect_connection
 from sqlseed_web.workbench_store import RevisionConflict, WorkspaceStore
 
 
-@pytest.fixture()
-def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
+def _pause_worker(
+    monkeypatch: pytest.MonkeyPatch, conn_id: str | None = None
+) -> tuple[threading.Event, threading.Event]:
+    entered, release = threading.Event(), threading.Event()
+    original = workbench_runtime.execute_run
+
+    def delayed(*args: Any, **kwargs: Any) -> Any:
+        if conn_id is None or args[1] == conn_id:
+            entered.set()
+            if not release.wait(5):
+                raise RuntimeError("worker test gate timed out")
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(workbench_runtime, "execute_run", delayed)
+    return entered, release
+
+
+def _assert_marker_write_lock(registry: UIState, one: Connection, two: Connection) -> None:
+    assert one.orchestrator.get_row_count("marker") == two.orchestrator.get_row_count("marker") == 1
+    job = registry.create_job(one.conn_id, "workbench", "first")
+    try:
+        with pytest.raises(ConnectionBusyError, match="此数据库"):
+            registry.create_job(two.conn_id, "workbench", "second")
+    finally:
+        registry.complete_job(job.job_id)
+        registry.close_connection(one.conn_id)
+        registry.close_connection(two.conn_id)
+
+
+@pytest.fixture(name="workspace")
+def fixture_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     path = tmp_path / "target.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.execute("CREATE TABLE items(id INTEGER PRIMARY KEY AUTOINCREMENT, value INTEGER NOT NULL)")
     registry = UIState()
     conn = registry.add_connection(str(path), provider="base")
@@ -134,16 +162,7 @@ def test_only_one_write_is_reserved_for_the_same_physical_target(
     second_connection: bool,
 ) -> None:
     client, registry, store, conn, _, body = workspace
-    entered, release = threading.Event(), threading.Event()
-    original = workbench_runtime.execute_run
-
-    def delayed(*args: Any, **kwargs: Any) -> Any:
-        entered.set()
-        if not release.wait(5):
-            raise RuntimeError("worker test gate timed out")
-        return original(*args, **kwargs)
-
-    monkeypatch.setattr(workbench_runtime, "execute_run", delayed)
+    entered, release = _pause_worker(monkeypatch)
     first = client.post("/api/workbench/runs", json=body)
     assert first.status_code == 202, first.text
     try:
@@ -160,7 +179,7 @@ def test_only_one_write_is_reserved_for_the_same_physical_target(
         release.set()
         wait_jobs(registry)
     assert store.get_run(first.json()["id"])["status"] == "done"
-    with closing(sqlite3.connect(conn.target)) as db, db:
+    with sqlite_connection(conn.target) as db:
         assert db.execute("SELECT id,value FROM items ORDER BY id").fetchall() == [(1, 7), (2, 7)]
 
 
@@ -168,17 +187,7 @@ def test_other_sessions_can_read_and_other_targets_can_generate(
     workspace: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client, registry, store, conn, check_body, body = workspace
-    entered, release = threading.Event(), threading.Event()
-    original = workbench_runtime.execute_run
-
-    def delayed(*args: Any, **kwargs: Any) -> Any:
-        if args[1] == conn.conn_id:
-            entered.set()
-            if not release.wait(5):
-                raise RuntimeError("worker test gate timed out")
-        return original(*args, **kwargs)
-
-    monkeypatch.setattr(workbench_runtime, "execute_run", delayed)
+    entered, release = _pause_worker(monkeypatch, conn.conn_id)
     first = client.post("/api/workbench/runs", json=body)
     assert first.status_code == 202, first.text
     try:
@@ -192,7 +201,7 @@ def test_other_sessions_can_read_and_other_targets_can_generate(
         assert registry.get_connection(parallel.conn_id).provider == "faker"
         assert registry.get_connection(conn.conn_id).provider == "base"
         other_path = Path(conn.target).with_name("independent.db")
-        with closing(sqlite3.connect(other_path)) as db, db:
+        with sqlite_connection(other_path) as db:
             db.execute("CREATE TABLE items(id INTEGER PRIMARY KEY AUTOINCREMENT, value INTEGER NOT NULL)")
         other = registry.add_connection(str(other_path), provider="base")
         other_schema = inspect_connection(other)
@@ -213,7 +222,7 @@ def test_other_sessions_can_read_and_other_targets_can_generate(
             time.sleep(0.01)
         assert store.get_run(second.json()["id"])["status"] == "done"
         assert store.get_run(first.json()["id"])["status"] == "queued"
-        with closing(sqlite3.connect(other_path)) as db, db:
+        with sqlite_connection(other_path) as db:
             assert db.execute("SELECT value FROM items").fetchall() == [(7,), (7,)]
     finally:
         release.set()
@@ -331,7 +340,7 @@ def test_sqlite_file_aliases_share_write_admission(tmp_path: Path, alias: str) -
     from urllib.parse import quote
 
     path = tmp_path / "database with spaces.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.execute("CREATE TABLE marker(value TEXT)")
         db.execute("INSERT INTO marker VALUES ('same physical database')")
     if alias == "uri":
@@ -343,36 +352,20 @@ def test_sqlite_file_aliases_share_write_admission(tmp_path: Path, alias: str) -
     registry = UIState()
     one = registry.add_connection(str(path), provider="base")
     two = registry.add_connection(target, provider="base")
-    assert one.orchestrator.get_row_count("marker") == two.orchestrator.get_row_count("marker") == 1
-    job = registry.create_job(one.conn_id, "workbench", "first")
-    try:
-        with pytest.raises(ConnectionBusyError, match="此数据库"):
-            registry.create_job(two.conn_id, "workbench", "second")
-    finally:
-        registry.complete_job(job.job_id)
-        registry.close_connection(one.conn_id)
-        registry.close_connection(two.conn_id)
+    _assert_marker_write_lock(registry, one, two)
 
 
 @pytest.mark.parametrize("database", ["shared-admission", ":memory:"])
 def test_real_shared_memory_uri_cannot_reserve_two_writers(database: str) -> None:
     uri = f"file:{database}?mode=memory&cache=shared"
-    with closing(sqlite3.connect(uri, uri=True)) as anchor, anchor:
+    with sqlite_connection(uri, uri=True) as anchor:
         anchor.execute("CREATE TABLE marker(value TEXT)")
         anchor.execute("INSERT INTO marker VALUES ('shared')")
         anchor.commit()
         registry = UIState()
         one = registry.add_connection(f"sqlite:///{uri}&uri=true", provider="base")
         two = registry.add_connection(f"sqlite:///{uri}&uri=true&timeout=10", provider="base")
-        assert one.orchestrator.get_row_count("marker") == two.orchestrator.get_row_count("marker") == 1
-        job = registry.create_job(one.conn_id, "workbench", "first")
-        try:
-            with pytest.raises(ConnectionBusyError, match="此数据库"):
-                registry.create_job(two.conn_id, "workbench", "second")
-        finally:
-            registry.complete_job(job.job_id)
-            registry.close_connection(one.conn_id)
-            registry.close_connection(two.conn_id)
+        _assert_marker_write_lock(registry, one, two)
 
 
 def test_private_memory_sessions_keep_independent_write_admission() -> None:

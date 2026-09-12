@@ -13,7 +13,6 @@ import subprocess
 import sys
 import time
 from collections.abc import Iterator
-from contextlib import closing
 from datetime import datetime
 from importlib import metadata
 from pathlib import Path
@@ -22,14 +21,29 @@ from typing import Any
 import httpx
 import pytest
 from fastapi.testclient import TestClient
+from tests.assertions import assert_empty
+from tests.sqlite_helpers import sqlite_connection
 
 from sqlseed_web import api, settings_environment, workbench_ai
 from sqlseed_web.app import create_app
 from sqlseed_web.state import UIState
 
 
-@pytest.fixture()
-def settings_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[TestClient, UIState, Path]]:
+def _record_model_requests(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    requests: list[str] = []
+
+    def probe(url: str, **kwargs: Any) -> httpx.Response:
+        requests.append(url)
+        return httpx.Response(200, json={"data": []})
+
+    monkeypatch.setattr(httpx, "get", probe)
+    return requests
+
+
+@pytest.fixture(name="settings_client")
+def fixture_settings_client(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[tuple[TestClient, UIState, Path]]:
     # Tests replace the probe clock and subprocess boundary. A previous test's
     # cached result can otherwise match the same interpreter and 30-second slot.
     settings_environment._probe_version.cache_clear()
@@ -138,16 +152,10 @@ def test_draft_probe_never_sends_old_key_to_new_host(
         monkeypatch.setenv("SQLSEED_AI_BASE_URL", configured()["base_url"])
     else:
         client.post("/api/workbench/ai/config", json=configured(api_key="private-old-key"))
-    requests: list[str] = []
-
-    def probe(url: str, **kwargs: Any) -> httpx.Response:
-        requests.append(url)
-        return httpx.Response(200, json={"data": []})
-
-    monkeypatch.setattr(httpx, "get", probe)
+    requests = _record_model_requests(monkeypatch)
     response = client.post("/api/workbench/ai/test", json=configured(base_url="https://other.example.test/v1"))
     assert response.json()["ok"] is False
-    assert requests == []
+    assert_empty(requests, list)
 
 
 def test_clear_key_blocks_environment_fallback_in_session(
@@ -487,15 +495,9 @@ def test_legacy_endpoints_share_saved_settings_and_scoped_credentials(
     assert legacy["effective"]["api_key_present"] is False
     assert client.get("/api/meta/ai").json()["api_key_present"] is False
     assert not any(key.startswith("_") for key in legacy["override"])
-    requests: list[str] = []
-
-    def probe(url: str, **kwargs: Any) -> httpx.Response:
-        requests.append(url)
-        return httpx.Response(200, json={"data": []})
-
-    monkeypatch.setattr(httpx, "get", probe)
+    requests = _record_model_requests(monkeypatch)
     assert client.post("/api/ai/test-connection").json()["ok"] is False
-    assert requests == []
+    assert_empty(requests, list)
 
 
 def test_legacy_settings_cannot_transfer_session_secret_to_another_host(settings_client: Any) -> None:
@@ -511,13 +513,12 @@ def test_legacy_auto_heal_cannot_reuse_env_key_for_request_endpoint(
     settings_client: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     pytest.importorskip("sqlseed_ai")
-    import sqlite3
 
     from sqlseed_ai import runtime
 
     _, registry, _ = settings_client
     path = tmp_path / "auto-heal.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
     connection = registry.add_connection(str(path), provider="base")
     job = registry.create_job(connection.conn_id, "auto_heal", "credential isolation")
@@ -536,7 +537,7 @@ def test_legacy_auto_heal_cannot_reuse_env_key_for_request_endpoint(
             job.job_id,
             api.AutoHealRequest(base_url="https://other.example.test/v1", model="test-model"),
         )
-        assert keys == []
+        assert_empty(keys, list)
         assert "not configured" in registry.get_job(job.job_id).error
     finally:
         registry.close_connection(connection.conn_id)

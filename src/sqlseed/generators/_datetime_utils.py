@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     # Only needed for annotations (``from __future__ import annotations``
     # defers their evaluation), so keep it out of the runtime import set.
     import random
+    from collections.abc import Iterable
 
 #: Monday=0 … Sunday=6 (``date.weekday()`` convention).
 WORKDAYS = frozenset({0, 1, 2, 3, 4})
@@ -63,20 +64,31 @@ def normalize_weekdays(
     if value is None:
         return None
     if isinstance(value, str):
-        token = value.strip().lower()
-        if token in ("", "all", "*"):
-            return None
-        if token == "workdays":
-            return WORKDAYS
-        if token == "weekend":
-            return WEEKEND
-        parts = [p for p in token.replace(" ", "").split(",") if p]
-        try:
-            value = [int(p) for p in parts]
-        except ValueError as err:
-            raise DateRangeError(
-                f"weekdays: expected 'all' / 'workdays' / 'weekend' / a comma list of 0-6, got {value!r}"
-            ) from err
+        return _parse_weekday_string(value)
+    return _normalize_weekday_numbers(value)
+
+
+def _parse_weekday_string(value: str) -> frozenset[int] | None:
+    """Resolve named modes or parse the existing comma-separated day syntax."""
+    token = value.strip().lower()
+    if token in {"", "all", "*"}:
+        return None
+    if token == "workdays":
+        return WORKDAYS
+    if token == "weekend":
+        return WEEKEND
+    parts = [part for part in token.replace(" ", "").split(",") if part]
+    try:
+        days = [int(part) for part in parts]
+    except ValueError as err:
+        raise DateRangeError(
+            f"weekdays: expected 'all' / 'workdays' / 'weekend' / a comma list of 0-6, got {value!r}"
+        ) from err
+    return _normalize_weekday_numbers(days)
+
+
+def _normalize_weekday_numbers(value: Iterable[int]) -> frozenset[int] | None:
+    """Validate integer day values and collapse empty or complete sets to all days."""
     days = frozenset(int(d) for d in value)
     if not days:
         return None

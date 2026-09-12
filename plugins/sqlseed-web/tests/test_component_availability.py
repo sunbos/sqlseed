@@ -6,7 +6,6 @@ import importlib
 import json
 import sys
 from collections.abc import Iterator
-from contextlib import closing
 from importlib import metadata
 from pathlib import Path
 from types import ModuleType
@@ -16,6 +15,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import create_model
+from tests.assertions import assert_empty
+from tests.sqlite_helpers import sqlite_connection
 
 from sqlseed_web import api, settings_environment, workbench_ai
 from sqlseed_web.state import UIState
@@ -72,8 +73,10 @@ def test_importable_legacy_ai_is_unavailable_before_any_model_request(
     assert "private-legacy-runtime" not in response.text
 
 
-@pytest.fixture
-def component_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[TestClient, UIState, Path]]:
+@pytest.fixture(name="component_client")
+def fixture_component_client(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[tuple[TestClient, UIState, Path]]:
     registry = UIState()
     monkeypatch.setattr(api, "state", registry)
     monkeypatch.setattr(workbench_ai, "state", registry)
@@ -88,8 +91,8 @@ def component_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterato
         yield client, registry, preferences
 
 
-@pytest.fixture
-def absent_optional_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.fixture(name="absent_optional_metadata")
+def fixture_absent_optional_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
     original = metadata.version
 
     def version(name: str) -> str:
@@ -120,8 +123,8 @@ def test_absent_metadata_wins_over_importable_editable_module(
         assert components[name]["status"] == "not_installed"
 
 
-@pytest.fixture
-def cached_ai_source(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+@pytest.fixture(name="cached_ai_source")
+def fixture_cached_ai_source(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """Model an editable path inherited before uninstall, without installing a package."""
     source = Path(__file__).resolve().parents[2] / "sqlseed-ai" / "src"
     previous = {name for name in sys.modules if name == "sqlseed_ai" or name.startswith("sqlseed_ai.")}
@@ -223,7 +226,6 @@ def test_missing_ai_preferences_redact_credential_bearing_environment_url(
 def test_missing_provider_keeps_document_but_blocks_preview_with_recovery_context(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, installed: bool
 ) -> None:
-    import sqlite3
 
     from sqlseed_web.workbench_runtime import check_document, normalize_document
     from sqlseed_web.workbench_schema import inspect_connection
@@ -245,7 +247,7 @@ def test_missing_provider_keeps_document_but_blocks_preview_with_recovery_contex
     monkeypatch.setattr(metadata, "version", version)
     monkeypatch.setattr(importlib, "import_module", broken)
     path = tmp_path / "provider.db"
-    with closing(sqlite3.connect(path)) as database, database:
+    with sqlite_connection(path) as database:
         database.execute("CREATE TABLE users(id INTEGER PRIMARY KEY, name TEXT)")
     registry = UIState()
     conn = registry.add_connection(str(path), provider="base")
@@ -254,7 +256,8 @@ def test_missing_provider_keeps_document_but_blocks_preview_with_recovery_contex
         normalized = normalize_document(conn, document)
         assert normalized["provider"] == "mimesis"
         result = check_document(conn, document, inspect_connection(conn)["schema_hash"], preview=True)
-        assert result["ok"] is False and result["samples"] == {}
+        assert result["ok"] is False
+        assert_empty(result["samples"], dict)
         issue = next(issue for issue in result["issues"] if issue["code"].startswith("provider_"))
         assert issue["code"] == ("provider_import_error" if installed else "provider_not_installed")
         assert issue["component_id"] == "mimesis"

@@ -4,18 +4,18 @@ from __future__ import annotations
 
 import os
 import runpy
-import sqlite3
 import stat
 import tempfile
-from contextlib import closing
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from tests.sqlite_helpers import sqlite_connection
 
-@pytest.fixture
-def showcase(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+
+@pytest.fixture(name="showcase")
+def fixture_showcase(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     """Keep real temporary allocations within the test-owned directory."""
     monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
     return runpy.run_path(str(Path(__file__).resolve().parents[1] / "examples" / "build_showcase_db.py"))
@@ -31,7 +31,7 @@ def test_showcase_databases_have_private_independent_paths(showcase: dict[str, A
         if os.name != "nt":
             assert stat.S_IMODE(path.parent.stat().st_mode) == 0o700
         showcase["build_schema"](path)
-        with closing(sqlite3.connect(path)) as connection, connection:
+        with sqlite_connection(path) as connection:
             tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
             assert {"organizations", "departments", "categories"} <= tables
     assert first.is_file() and second.is_file()

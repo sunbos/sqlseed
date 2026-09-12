@@ -431,42 +431,7 @@ class ColumnMapper:
         # composite PK columns that are NOT autoincrement.
         user_spec = self._map_from_user_config(user_config)
         if user_spec:
-            exact_match = self._match_exact(column_name) or self._match_pattern(column_name)
-            if exact_match:
-                # Only string/text share length parameters. Sentence accepts
-                # neither lengths nor charset, and text does not accept charset.
-                same_group = False
-                if exact_match.generator_name == user_spec.generator_name:
-                    same_group = True
-                else:
-                    string_generators = {"string", "text"}
-                    if (
-                        exact_match.generator_name in string_generators
-                        and user_spec.generator_name in string_generators
-                    ):
-                        same_group = True
-
-                if same_group:
-                    merged_params = dict(exact_match.params)
-                    if exact_match.generator_name != user_spec.generator_name:
-                        merged_params = {
-                            key: value for key, value in merged_params.items() if key in {"min_length", "max_length"}
-                        }
-                    merged_params.update(user_spec.params)
-                    # Resolve min_length/max_length conflicts that would crash
-                    # string/text generators (rng.randint raises ValueError
-                    # when min > max). This happens when the user supplies a
-                    # min_length larger than the rule's max_length.
-                    min_len = merged_params.get("min_length")
-                    max_len = merged_params.get("max_length")
-                    if (
-                        isinstance(min_len, int)
-                        and isinstance(max_len, int)
-                        and min_len > max_len
-                        and "max_length" not in user_spec.params
-                    ):
-                        merged_params.pop("max_length", None)
-                    user_spec.params = merged_params
+            self._inherit_rule_params(column_name, user_spec)
             return user_spec
 
         # Preserve null_ratio from user config even when no generator is
@@ -491,6 +456,42 @@ class ColumnMapper:
         if user_null_ratio > 0:
             return replace(spec, null_ratio=user_null_ratio)
         return spec
+
+    def _inherit_rule_params(self, column_name: str, user_spec: GeneratorSpec) -> None:
+        """Merge compatible rule defaults without overriding explicit user bounds."""
+        exact_match = self._match_exact(column_name) or self._match_pattern(column_name)
+        if exact_match:
+            # Only string/text share length parameters. Sentence accepts
+            # neither lengths nor charset, and text does not accept charset.
+            same_group = False
+            if exact_match.generator_name == user_spec.generator_name:
+                same_group = True
+            else:
+                string_generators = {"string", "text"}
+                if exact_match.generator_name in string_generators and user_spec.generator_name in string_generators:
+                    same_group = True
+
+            if same_group:
+                merged_params = dict(exact_match.params)
+                if exact_match.generator_name != user_spec.generator_name:
+                    merged_params = {
+                        key: value for key, value in merged_params.items() if key in {"min_length", "max_length"}
+                    }
+                merged_params.update(user_spec.params)
+                # Resolve min_length/max_length conflicts that would crash
+                # string/text generators (rng.randint raises ValueError
+                # when min > max). This happens when the user supplies a
+                # min_length larger than the rule's max_length.
+                min_len = merged_params.get("min_length")
+                max_len = merged_params.get("max_length")
+                if (
+                    isinstance(min_len, int)
+                    and isinstance(max_len, int)
+                    and min_len > max_len
+                    and "max_length" not in user_spec.params
+                ):
+                    merged_params.pop("max_length", None)
+                user_spec.params = merged_params
 
     def _map_fallback(
         self,
@@ -589,30 +590,30 @@ class ColumnMapper:
         # match is still safer).
         if base_type in self.TYPE_FALLBACK_RULES:
             gen, default_params = self.TYPE_FALLBACK_RULES[base_type]
-            params = dict(default_params)
-            if max_length is not None:
-                if gen == "string":
-                    params["min_length"] = 1
-                    params["max_length"] = max_length
-                elif gen == "bytes":
-                    params["length"] = max_length
-            return GeneratorSpec(generator_name=gen, params=params)
+            return self._fallback_spec_with_length(gen, default_params, max_length)
 
         # Prefix match fallback: handles parameterized types like
         # ``VARCHAR(255)`` (base_type ``VARCHAR`` matches rule ``VARCHAR``)
         # and dialect variants like ``INTEGER`` matching ``INT``.
         for type_prefix, (gen, default_params) in self.TYPE_FALLBACK_RULES.items():
             if base_type.startswith(type_prefix):
-                params = dict(default_params)
-                if max_length is not None:
-                    if gen == "string":
-                        params["min_length"] = 1
-                        params["max_length"] = max_length
-                    elif gen == "bytes":
-                        params["length"] = max_length
-                return GeneratorSpec(generator_name=gen, params=params)
+                return self._fallback_spec_with_length(gen, default_params, max_length)
 
         return GeneratorSpec(generator_name="string", params={"min_length": 5, "max_length": 50})
+
+    @staticmethod
+    def _fallback_spec_with_length(
+        generator: str, default_params: dict[str, Any], max_length: int | None
+    ) -> GeneratorSpec:
+        """Copy a type rule and apply the declared string or byte length."""
+        params = dict(default_params)
+        if max_length is not None:
+            if generator == "string":
+                params["min_length"] = 1
+                params["max_length"] = max_length
+            elif generator == "bytes":
+                params["length"] = max_length
+        return GeneratorSpec(generator_name=generator, params=params)
 
     def map_columns(
         self,

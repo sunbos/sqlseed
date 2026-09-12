@@ -9,6 +9,8 @@ from sqlseed_ai.healer.models import (
     SubgraphTask,
 )
 
+from tests.assertions import assert_empty
+
 
 def test_degrade_reason_enum_values():
     assert DegradeReason.LLM_TIMEOUT.value == "llm_timeout"
@@ -18,7 +20,7 @@ def test_degrade_reason_enum_values():
 def test_subgraph_task_defaults():
     task = SubgraphTask(task_id="t1", tables=["users"])
     assert task.is_scc is False
-    assert task.parent_context == {}
+    assert_empty(task.parent_context, dict)
 
 
 def test_heal_result_defaults():
@@ -30,7 +32,7 @@ def test_heal_result_defaults():
     )
     assert r.total_attempts == 0
     assert r.total_elapsed == 0.0
-    assert r.learned_contracts == []
+    assert_empty(r.learned_contracts, list)
 
 
 def test_heal_attempt_optional_error():
@@ -42,7 +44,7 @@ def test_heal_attempt_optional_error():
         token_estimate=100,
     )
     assert attempt.error_message is None
-    assert attempt.applied_fixes == []
+    assert_empty(attempt.applied_fixes, list)
     assert attempt.failure_type is None
 
 

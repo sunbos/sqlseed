@@ -6,6 +6,8 @@ from sqlseed_ai.healer.subgraph import (
     broken_edges_from_split,
 )
 
+from tests.assertions import assert_empty
+
 
 def _fk_graph(edges: list[tuple[str, str]]) -> dict[str, list[str]]:
     graph: dict[str, list[str]] = {}
@@ -68,7 +70,7 @@ def test_megacluster_no_break_for_small_scc():
     subgraphs, broken = splitter.split(graph)
     assert len(subgraphs) == 1
     assert set(subgraphs[0]) == {"a", "b", "c"}
-    assert broken == []
+    assert_empty(broken, list)
 
 
 def test_broken_edges_recorded_for_post_repair():

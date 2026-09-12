@@ -17,6 +17,8 @@ from sqlseed.generators._dispatch import GeneratorDispatchMixin
 from sqlseed.generators.registry import ProviderRegistry
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from sqlseed_ai.validator.schema_snapshot import SchemaSnapshot
 
 
@@ -73,13 +75,22 @@ def validate_candidate(config: dict[str, Any], snapshot: SchemaSnapshot) -> None
                 provider.set_locale(model.locale)
                 configured.add(provider_name)
             method = getattr(provider, method_name)
-            try:
-                bound = inspect.signature(method).bind(**column.params)
-                hints = get_type_hints(method)
-                for name, value in bound.arguments.items():
-                    annotation = hints.get(name, Any)
-                    TypeAdapter(annotation).validate_python(value, strict=True)
-            except (TypeError, ValueError) as exc:
-                raise ValueError(
-                    f"Config validation: invalid {column.generator} params for {table.name}.{column.name}: {exc}"
-                ) from exc
+            _validate_builtin_params(column, table.name, method)
+
+
+def _validate_builtin_params(column: ColumnConfig, table_name: str, method: Callable[..., Any]) -> None:
+    """Validate bound builtin arguments without executing the generator.
+
+    Raises:
+        ValueError: When parameter binding or strict type validation fails.
+    """
+    try:
+        bound = inspect.signature(method).bind(**column.params)
+        hints = get_type_hints(method)
+        for name, value in bound.arguments.items():
+            annotation = hints.get(name, Any)
+            TypeAdapter(annotation).validate_python(value, strict=True)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"Config validation: invalid {column.generator} params for {table_name}.{column.name}: {exc}"
+        ) from exc

@@ -96,4 +96,4 @@ class TestGenerateExcludeValues:
         # Value space is {1, 2}, exclude both
         val = provider.generate("integer", min_value=1, max_value=2, exclude_values={1, 2})
         # Generator should still return a value (either 1 or 2)
-        assert val in (1, 2)
+        assert val in {1, 2}

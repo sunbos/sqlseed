@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import sqlite3
-from contextlib import closing
 from typing import TYPE_CHECKING
 
 import pytest
 from sqlalchemy.exc import IntegrityError
 
 from sqlseed.database.sqlalchemy_adapter import SQLAlchemyAdapter
+from tests.sqlite_helpers import sqlite_connection
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -17,7 +16,7 @@ if TYPE_CHECKING:
 
 def database(tmp_path: Path) -> tuple[Path, SQLAlchemyAdapter]:
     path = tmp_path / "atomic.db"
-    with closing(sqlite3.connect(path)) as db, db:
+    with sqlite_connection(path) as db:
         db.executescript(
             "CREATE TABLE parents(id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT UNIQUE);"
             "CREATE TABLE children(id INTEGER PRIMARY KEY, parent_id INTEGER REFERENCES parents(id));"
@@ -42,9 +41,9 @@ def test_transaction_queries_and_insert_calls_share_uncommitted_rows(tmp_path: P
             assert adapter.get_column_info("parents")[0].is_autoincrement
             adapter.batch_insert("children", iter([{"parent_id": parent}]))
             adapter.execute('UPDATE "parents" SET "code" = ?', ("updated",)).close()
-            with closing(sqlite3.connect(path)) as db, db:
+            with sqlite_connection(path) as db:
                 assert db.execute("SELECT code FROM parents").fetchall() == [("old",)]
-        with closing(sqlite3.connect(path)) as db, db:
+        with sqlite_connection(path) as db:
             assert db.execute("SELECT id,code FROM parents").fetchall() == [(41, "updated")]
             assert db.execute("SELECT parent_id FROM children").fetchall() == [(41,)]
     finally:
@@ -63,7 +62,7 @@ def test_late_batch_failure_rolls_back_deletes_rows_and_sequence_reset(tmp_path:
             adapter.batch_insert("parents", iter([{"code": "new"}]))
             adapter.batch_insert("parents", iter([{"code": "new"}]))
         assert adapter.bulk_optimizer is optimizer
-        with closing(sqlite3.connect(path)) as db, db:
+        with sqlite_connection(path) as db:
             assert db.execute("SELECT id,code FROM parents").fetchall() == [(40, "old")]
             assert db.execute("SELECT * FROM children").fetchall() == [(1, 40)]
             assert db.execute("SELECT seq FROM sqlite_sequence WHERE name='parents'").fetchone()[0] == 40
@@ -98,7 +97,7 @@ def test_deferred_foreign_key_failure_on_commit_restores_original_data(tmp_path:
             adapter.execute("DELETE FROM parents").close()
             assert adapter.batch_insert("children", iter([{"id": 2, "parent_id": 999}])) == 1
             assert adapter.get_column_values("children", "parent_id") == [999]
-        with closing(sqlite3.connect(path)) as db, db:
+        with sqlite_connection(path) as db:
             assert db.execute("SELECT * FROM children").fetchall() == [(1, 40)]
             assert db.execute("SELECT * FROM parents").fetchall() == [(40, "old")]
         assert adapter.get_row_count("parents") == 1

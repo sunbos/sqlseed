@@ -12,8 +12,8 @@ import pytest
 from fastapi import HTTPException
 
 
-@pytest.fixture
-def managed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
+@pytest.fixture(name="managed")
+def fixture_managed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     environment = importlib.import_module("sqlseed_web.plugin_environment")
     module = importlib.import_module("sqlseed_web.supervised_plugins")
     root = tmp_path / "venv"
@@ -134,7 +134,7 @@ def test_supervisor_detects_a_dead_worker_and_keeps_a_recovery_page(
     supervisor.process = DeadProcess()
     supervisor.mode = "business"
     modes: list[str] = []
-    monkeypatch.setattr(supervisor, "_spawn", lambda mode: modes.append(mode))
+    monkeypatch.setattr(supervisor, "_spawn", modes.append)
     supervisor.ensure_worker()
     assert modes == ["maintenance"]
     assert manager.status()["phase"] == "recovery_failed"
@@ -177,7 +177,7 @@ def test_supervised_ordinary_web_starts_when_environment_is_not_manageable(
         supervisor.manager, "start", lambda: pytest.fail("unsupported environment cannot acquire a lock")
     )
     modes: list[str] = []
-    monkeypatch.setattr(supervisor, "_spawn", lambda mode: modes.append(mode))
+    monkeypatch.setattr(supervisor, "_spawn", modes.append)
     try:
         supervisor.start()
         assert modes == ["business"]

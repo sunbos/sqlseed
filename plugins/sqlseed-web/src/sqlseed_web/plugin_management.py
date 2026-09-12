@@ -205,11 +205,11 @@ class PluginManager:
         with self._lock:
             if reason := self._reason():
                 raise _reject(reason)
-            plan = self._plan
+            operation_plan = self._plan
             if (
-                plan is None
-                or not hmac.compare_digest(plan["plan_id"], body.plan_id)
-                or time.monotonic() > plan["expires_at"]
+                operation_plan is None
+                or not hmac.compare_digest(operation_plan["plan_id"], body.plan_id)
+                or time.monotonic() > operation_plan["expires_at"]
             ):
                 raise _reject("操作计划已失效，请重新查看并确认。")
             try:
@@ -221,8 +221,8 @@ class PluginManager:
                 raise _reject("Python 环境已发生变化，请重新查看并确认操作计划。")
             self._task = {
                 "task_id": secrets.token_urlsafe(24),
-                "component_id": plan["component_id"],
-                "action": plan["action"],
+                "component_id": operation_plan["component_id"],
+                "action": operation_plan["action"],
                 "status": "running",
                 "output": [],
                 "message": "正在准备环境操作。",
@@ -231,7 +231,7 @@ class PluginManager:
             }
             self._plan = None
             self._worker = threading.Thread(
-                target=self._run, args=(plan, current), daemon=False, name="sqlseed-plugin-install"
+                target=self._run, args=(operation_plan, current), daemon=False, name="sqlseed-plugin-install"
             )
             try:
                 self._worker.start()
@@ -251,7 +251,7 @@ class PluginManager:
             if self._task is not None and len(self._task["output"]) < 200:
                 self._task["output"].append(text[:2000])
 
-    def _run(self, plan: dict[str, Any], before: dict[str, InstalledPackage]) -> None:
+    def _run(self, operation_plan: dict[str, Any], before: dict[str, InstalledPackage]) -> None:
         result = None
         succeeded = False
         message = "组件操作失败；请检查输出并使用原环境管理工具修复。"
@@ -263,7 +263,7 @@ class PluginManager:
                     encoding="utf-8",
                 )
                 arguments = plugin_environment.installer_arguments(
-                    self.environment, plan["action"], plan["distribution"], constraints
+                    self.environment, operation_plan["action"], operation_plan["distribution"], constraints
                 )
                 with self._lock:
                     self.restart_required = True
@@ -273,8 +273,8 @@ class PluginManager:
                     raise RuntimeError("环境锁已失效，未执行安装工具。")
                 result = run_installer(arguments, self._output, lock_descriptor=self._environment_lock.fileno())
                 after = plugin_environment.installed_packages(self.environment.prefix)
-                target = plan["distribution"]
-                expected_target = target in after if plan["action"] == "install" else target not in after
+                target = operation_plan["distribution"]
+                expected_target = target in after if operation_plan["action"] == "install" else target not in after
                 preserved = all(after.get(name) == package for name, package in before.items() if name != target)
                 succeeded = result == 0 and expected_target and preserved
                 if succeeded:

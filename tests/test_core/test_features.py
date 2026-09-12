@@ -131,8 +131,8 @@ def test_structural_features_has_schema_hash_and_dialect():
     assert sf.dialect_specific is None
 
 
-@pytest.fixture
-def tmp_users_db(tmp_path: Path) -> Iterator[RawSQLiteAdapter]:
+@pytest.fixture(name="tmp_users_db")
+def fixture_tmp_users_db(tmp_path: Path) -> Iterator[RawSQLiteAdapter]:
     """Create a small users/orders DB for feature extraction tests."""
     db_path = tmp_path / "test.db"
     conn = sqlite3.connect(str(db_path))

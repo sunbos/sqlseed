@@ -117,6 +117,12 @@ class ConnectionTarget:
     db_path: str | None
     db_url: str | None
 
+    def api_target(self) -> tuple[str | None, str | None]:
+        """Resolve URL precedence into the mutually exclusive core arguments."""
+        if self.db_url:
+            return None, self.db_url
+        return self.db_path, None
+
 
 @dataclass(frozen=True)
 class FillGeneratorConfig:
@@ -270,28 +276,32 @@ def fill(**kwargs: Any) -> None:
     _execute_fill(options)
 
 
+def _execute_config_fill(options: FillOptions, config_path: str) -> None:
+    logger.debug("Using config-driven generation", config_path=config_path)
+    context = click.get_current_context()
+    config_overrides = {
+        name: value
+        for name, value in (
+            ("provider", options.generator.provider),
+            ("locale", options.generator.locale),
+            ("batch_size", options.generator.batch_size),
+        )
+        if context.get_parameter_source(name) is not click.core.ParameterSource.DEFAULT
+    }
+    _fill_from_config_cmd(
+        config_path,
+        clear_before=options.flags.clear,
+        skip_ai=options.flags.no_ai,
+        count=options.count,
+        seed=options.generator.seed,
+        **config_overrides,
+    )
+
+
 def _execute_fill(options: FillOptions) -> None:
     config_path = options.config_path
     if config_path:
-        logger.debug("Using config-driven generation", config_path=config_path)
-        context = click.get_current_context()
-        config_overrides = {
-            name: value
-            for name, value in (
-                ("provider", options.generator.provider),
-                ("locale", options.generator.locale),
-                ("batch_size", options.generator.batch_size),
-            )
-            if context.get_parameter_source(name) is not click.core.ParameterSource.DEFAULT
-        }
-        _fill_from_config_cmd(
-            config_path,
-            clear_before=options.flags.clear,
-            skip_ai=options.flags.no_ai,
-            count=options.count,
-            seed=options.generator.seed,
-            **config_overrides,
-        )
+        _execute_config_fill(options, config_path)
         return
 
     if not options.table:
@@ -301,12 +311,7 @@ def _execute_fill(options: FillOptions) -> None:
 
     # Resolve connection target: db_url takes precedence over db_path.
     # api_fill's db_path and url are mutually exclusive; pass None for the unused one.
-    if options.connection.db_url:
-        fill_db_path: str | None = None
-        fill_url: str | None = options.connection.db_url
-    else:
-        fill_db_path = options.connection.db_path
-        fill_url = None
+    fill_db_path, fill_url = options.connection.api_target()
 
     if not (fill_db_path or fill_url):
         raise click.UsageError("db_path or --url is required when not using --config")
@@ -547,6 +552,22 @@ def init(config_path: str, db: str | None, db_url: str | None) -> None:
     click.echo(f"Configuration template saved to: {config_path}")
 
 
+def _load_replay_config(snapshot_path: str) -> tuple[dict[str, Any], GeneratorConfig]:
+    manager = SnapshotManager()
+    try:
+        data = manager.load(snapshot_path)
+    except FileNotFoundError as exc:
+        raise click.UsageError(f"Snapshot file not found: {snapshot_path}") from exc
+    except (ValueError, KeyError) as exc:
+        raise click.UsageError(_redact_credentials(f"Invalid snapshot file format: {exc}")) from exc
+
+    try:
+        config = GeneratorConfig(**data["config"])
+    except (pydantic.ValidationError, KeyError, TypeError) as exc:
+        raise click.UsageError(_redact_credentials(f"Invalid config in snapshot: {exc}")) from exc
+    return data, config
+
+
 @cli.command()
 @click.argument("snapshot_path")
 def replay(snapshot_path: str) -> None:
@@ -560,18 +581,7 @@ def replay(snapshot_path: str) -> None:
     if ".." in Path(snapshot_path).parts and not resolved_path.is_relative_to(cache_dir):
         raise click.UsageError("snapshot path must be within cache directory")
 
-    manager = SnapshotManager()
-    try:
-        data = manager.load(snapshot_path)
-    except FileNotFoundError as exc:
-        raise click.UsageError(f"Snapshot file not found: {snapshot_path}") from exc
-    except (ValueError, KeyError) as exc:
-        raise click.UsageError(_redact_credentials(f"Invalid snapshot file format: {exc}")) from exc
-
-    try:
-        config = GeneratorConfig(**data["config"])
-    except (pydantic.ValidationError, KeyError, TypeError) as exc:
-        raise click.UsageError(_redact_credentials(f"Invalid config in snapshot: {exc}")) from exc
+    data, config = _load_replay_config(snapshot_path)
 
     try:
         table_name = data["table_name"]
