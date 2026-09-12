@@ -8,10 +8,12 @@ import secrets
 import socket
 import threading
 from collections.abc import Callable
+from concurrent.futures import Future
 from multiprocessing.connection import Connection
 from typing import Any
 
 from fastapi import HTTPException
+from sqlseed._utils.daemon_task import DaemonTask
 
 MAX_MESSAGE_BYTES = 2_000_000
 Handler = Callable[[str, dict[str, Any]], dict[str, Any]]
@@ -51,7 +53,7 @@ class ControlChannel:
         self._lock = threading.Lock()
         self._closed = threading.Event()
         self._pending: dict[str, tuple[threading.Event, dict[str, Any]]] = {}
-        self._slots = threading.BoundedSemaphore(8)
+        self._answers: dict[str, Future[dict[str, Any]] | None] = {}
 
     def start(self, handler: Handler) -> None:
         self._handler = handler
@@ -101,9 +103,7 @@ class ControlChannel:
                 if "method" in message:
                     if not isinstance(message["method"], str) or not isinstance(message.get("params"), dict):
                         raise ValueError("invalid control request")
-                    if self._slots.acquire(blocking=False):
-                        threading.Thread(target=self._answer, args=(message,), daemon=True).start()
-                    else:
+                    if not self._start_answer(message):
                         self._send({"id": message["id"], "error": {"status_code": 503, "detail": "服务控制通道繁忙。"}})
                 else:
                     with self._lock:
@@ -113,14 +113,31 @@ class ControlChannel:
         except (OSError, EOFError, ValueError, TypeError, RuntimeError):
             self.close()
 
-    def _answer(self, message: dict[str, Any]) -> None:
-        response: dict[str, Any] = {"id": message["id"]}
-        try:
-            response["result"] = self._handler(message["method"], message["params"])
-        except (HTTPException, ControlError) as exc:
-            response["error"] = {"status_code": exc.status_code, "detail": exc.detail}
-        except Exception:  # noqa: BLE001
-            # The IPC boundary must return a bounded error without exposing handler secrets.
+    def _start_answer(self, message: dict[str, Any]) -> bool:
+        """Own each bounded reply from reservation through response publication."""
+        identifier = message["id"]
+        with self._lock:
+            if len(self._answers) >= 8 or identifier in self._answers:
+                return False
+            self._answers[identifier] = None
+            try:
+                self._answers[identifier] = DaemonTask(
+                    lambda: self._handler(message["method"], message["params"]),
+                    name="sqlseed-control-answer",
+                    on_done=lambda task: self._answer(identifier, task),
+                )
+            except BaseException:
+                self._answers.pop(identifier, None)
+                raise
+        return True
+
+    def _answer(self, identifier: str, task: Future[dict[str, Any]]) -> None:
+        response: dict[str, Any] = {"id": identifier}
+        if (error := task.exception()) is None:
+            response["result"] = task.result()
+        elif isinstance(error, (HTTPException, ControlError)):
+            response["error"] = {"status_code": error.status_code, "detail": error.detail}
+        else:
             response["error"] = {"status_code": 503, "detail": "控制请求未完成，请检查服务状态。"}
         try:
             self._send(response)
@@ -128,7 +145,7 @@ class ControlChannel:
             try:
                 self._send(
                     {
-                        "id": message["id"],
+                        "id": identifier,
                         "error": {
                             "status_code": 503,
                             "detail": {
@@ -143,7 +160,8 @@ class ControlChannel:
         except (OSError, RuntimeError):
             pass
         finally:
-            self._slots.release()
+            with self._lock:
+                self._answers.pop(identifier, None)
 
     def close(self) -> None:
         with self._lock:

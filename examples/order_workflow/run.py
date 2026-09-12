@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from sqlalchemy.exc import SQLAlchemyError
 
 from sqlseed import connect, fill_from_config
 from sqlseed.generators import ConfigurationError
@@ -103,7 +104,7 @@ def generate(config_path: Path) -> list[dict[str, Any]]:
         {"table": result.table_name, "count": result.count, "batches": result.batch_count, "errors": result.errors}
         for result in results
     ]
-    if (errors := [f"{result.table_name}: {error}" for result in results for error in result.errors]):
+    if errors := [f"{result.table_name}: {error}" for result in results for error in result.errors]:
         raise RuntimeError("; ".join(errors))
     return summaries
 
@@ -228,7 +229,15 @@ def main() -> int:
     args = parser.parse_args()
     try:
         report = run_workflow(args.output_dir)
-    except Exception as error:
+    except (
+        OSError,
+        sqlite3.Error,
+        SQLAlchemyError,
+        ConfigurationError,
+        RuntimeError,
+        ValueError,
+        yaml.YAMLError,
+    ) as error:
         parser.exit(1, f"订单示例失败：{type(error).__name__}: {error}\n")
     print(f"生成并验证 {sum(report['validation']['row_counts'].values())} 行，两个新库逻辑数据一致。")
     print(f"数据库：{report['artifacts']['database']}")

@@ -259,6 +259,19 @@ class UIState:
             job.finished_at = time.time()
             job.status = "error" if error else "done"
 
+    @contextmanager
+    def job_completion(self, job_id: str) -> Iterator[None]:
+        """A worker must publish a terminal state even when a programming error escapes."""
+        try:
+            yield
+        finally:
+            with self._global_lock:
+                job = self._jobs[job_id]
+                if job.status == "running":
+                    job.error = "后台任务意外终止，请检查服务日志后重试。"
+                    job.finished_at = time.time()
+                    job.status = "error"
+
     def job_snapshot(self, job_id: str) -> Job:
         """Read terminal state and its result from the same publication."""
         with self._global_lock:

@@ -26,6 +26,10 @@ import time
 from pathlib import Path
 from typing import NamedTuple
 
+from sqlalchemy.exc import SQLAlchemyError
+
+from sqlseed.generators._protocol import ConfigurationError
+
 if __package__:
     from ._checks import CheckRecorder
     from .run_validation import build_db, verify_db
@@ -214,8 +218,11 @@ def l1_core(db: Path, tables: list[TableSpec], counts: dict[str, int], seed: int
         order = orch.get_topological_table_order(orch.get_table_names())
         for t in order:
             try:
-                orch.fill_table(t, count=counts[t], seed=seed, batch_size=1000)
-            except Exception as e:  # noqa: BLE001
+                result = orch.fill_table(t, count=counts[t], seed=seed, batch_size=1000)
+                if result.errors:
+                    print(f"  [L1] core fill failed on {t}: {result.errors}")
+                    ok = False
+            except (ConfigurationError, ValueError, RuntimeError, OSError, SQLAlchemyError) as e:
                 print(f"  [L1] core fill failed on {t}: {type(e).__name__}: {e}")
                 ok = False
     return ok and _verify_all(db, counts, "L1-core")
@@ -273,13 +280,17 @@ def l2_ai(db: Path, seed: int) -> bool:
 
     # Emit repaired YAML and fill via core.
     import yaml
+
     from sqlseed import fill_from_config
 
     out = DB_DIR / f"_rand_{seed}_ai.yaml"
     out.write_text(yaml.safe_dump({**fixed, "db_path": str(db)}))
     try:
-        fill_from_config(str(out))
-    except Exception as e:  # noqa: BLE001
+        results = fill_from_config(str(out))
+        if errors := [error for result in results for error in result.errors]:
+            print(f"  [L2] ai-repaired fill failed: {errors}")
+            return False
+    except (ConfigurationError, ValueError, RuntimeError, OSError, SQLAlchemyError) as e:
         print(f"  [L2] ai-repaired fill failed: {type(e).__name__}: {e}")
         return False
     return _verify_all(db, {t: 25 for t in tables}, "L2-ai")

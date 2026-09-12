@@ -6,6 +6,7 @@ import ast
 import hashlib
 import json
 import re
+import sqlite3
 import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, replace
@@ -17,6 +18,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.exc import StatementError
 from sqlseed._utils.logger import get_logger
 from sqlseed._utils.sql_safe import quote_identifier
+from sqlseed._utils.type_checks import has_exact_type
 from sqlseed.config.models import (
     ColumnAssociation,
     ColumnConfig,
@@ -35,6 +37,7 @@ from sqlseed.core.stream import GenerationBudgetExceededError, GenerationCancell
 from sqlseed.database.sqlalchemy_adapter import SQLAlchemyAdapter
 from sqlseed.generators._dispatch import GeneratorDispatchMixin
 
+from sqlseed_web.operation_errors import generation_errors
 from sqlseed_web.runtime_lifecycle import start_background
 from sqlseed_web.settings_environment import package_availability
 from sqlseed_web.state import Connection, UIState, state
@@ -695,8 +698,7 @@ def _preview_tables(
                 generator=exc.generator,
                 attempt_limit=exc.limit,
             )
-        except Exception as exc:  # noqa: BLE001
-            # Generator/provider failures become sanitized, table-specific validation issues.
+        except generation_errors(orch) as exc:
             _issue(issues, "generation_invalid", public_error(exc), table=name)
 
 
@@ -711,6 +713,7 @@ def _check_generation(
     tables = {table["name"]: table for table in schema["tables"]}
     _column_issues(config, tables, issues)
     normalized = config.model_dump(mode="json", exclude={"db_path", "url"})
+    orch: DataOrchestrator | None = None
     try:
         with DataOrchestrator.from_config(config) as orch:
             options.guard()
@@ -726,8 +729,7 @@ def _check_generation(
                 _preview_tables(config, tables, order, deferred, orch, result, options)
     except GenerationCancelledError as exc:
         raise exc.reason from None
-    except Exception as exc:  # noqa: BLE001
-        # The validation boundary reports arbitrary adapter failures without SQL or credentials.
+    except generation_errors(orch) as exc:
         _issue(issues, "validation_failed", public_error(exc))
 
 
@@ -750,7 +752,7 @@ def check_document(
         cancel_check()
     if not 1 <= count <= 100:
         raise WorkbenchError("预览 count 必须在 1–100 之间")
-    if sample_max_attempts is not None and (type(sample_max_attempts) is not int or sample_max_attempts <= 0):
+    if sample_max_attempts is not None and (not has_exact_type(sample_max_attempts, int) or sample_max_attempts <= 0):
         raise WorkbenchError("sample_max_attempts 必须为正整数或 None")
 
     options = _PreviewOptions(count, preview, sample_max_attempts, cancel_check)
@@ -917,8 +919,7 @@ def start_run(
     except Exception as exc:
         try:
             store.update_run(run["id"], {"status": "error", "errors": [public_error(exc)], "finished_at": time.time()})
-        except Exception:  # noqa: BLE001
-            # A secondary persistence failure must still release the reserved job below.
+        except (KeyError, ValueError, RuntimeError, OSError, sqlite3.Error):
             logger.error("Failed to persist workbench startup failure", run_id=run["id"])
         finally:
             registry.complete_job(job.job_id, error=public_error(exc))
@@ -1029,8 +1030,7 @@ def _run_snapshot_failure(
     try:
         if store is not None:
             store.update_run(run_id, {"status": "error", "errors": [error], "finished_at": time.time()})
-    except Exception:  # noqa: BLE001
-        # Secondary storage failures must not prevent releasing the job in finally.
+    except (KeyError, ValueError, RuntimeError, OSError, sqlite3.Error):
         logger.error("Workbench run snapshot unavailable", run_id=run_id)
     finally:
         registry.complete_job(job_id, error=error)
@@ -1115,54 +1115,78 @@ def _publish_run_terminal(
     terminal: dict[str, Any],
     progress: _RunProgress,
 ) -> None:
+    persisted = False
+    persistence_error = "运行终态保存意外中断，请检查服务日志。"
     try:
         store.update_run(run_id, terminal)
-    except Exception as exc:  # noqa: BLE001
-        # Terminal persistence failures must still publish and release the in-memory job.
+        persisted = True
+    except (KeyError, ValueError, RuntimeError, OSError, sqlite3.Error) as exc:
         persistence_error = f"无法保存运行终态：{public_error(exc)}"
-        progress.errors.append(persistence_error)
-        terminal["status"] = "error"
-        logger.error("Failed to persist workbench run", run_id=run_id, error=persistence_error)
-        # A bounded second publication handles a record-validation failure.
-        # If storage itself is unavailable, the interrupted-run recovery on
-        # the next server start remains authoritative for the persisted run.
-        try:
-            store.update_run(run_id, {"status": "error", "error": persistence_error, "finished_at": time.time()})
-        except Exception:  # noqa: BLE001
-            # The bounded fallback must release the job even when storage remains unavailable.
-            logger.error("Workbench run storage unavailable", run_id=run_id)
     finally:
-        registry.complete_job(
-            job_id, result=terminal, error="; ".join(progress.errors) or None, rows_inserted=progress.rows_inserted
-        )
+        try:
+            if not persisted:
+                progress.errors.append(persistence_error)
+                terminal["status"] = "error"
+                logger.error("Failed to persist workbench run", run_id=run_id, error=persistence_error)
+                _persist_failed_terminal(store, run_id, persistence_error)
+        finally:
+            registry.complete_job(
+                job_id, result=terminal, error="; ".join(progress.errors) or None, rows_inserted=progress.rows_inserted
+            )
+
+
+def _persist_failed_terminal(store: WorkspaceStore, run_id: str, error: str) -> None:
+    """Try one minimal error record; the next startup recovers unavailable storage."""
+    try:
+        store.update_run(run_id, {"status": "error", "error": error, "errors": [error], "finished_at": time.time()})
+    except (KeyError, ValueError, RuntimeError, OSError, sqlite3.Error):
+        logger.error("Workbench run storage unavailable", run_id=run_id)
 
 
 def execute_run(
     run_id: str, conn_id: str, job_id: str, *, registry: UIState = state, store: WorkspaceStore | None = None
 ) -> None:
     """Run a frozen plan under the connection lock; persist each completed table."""
-    try:
-        store = store or get_store()
-        run = store.get_run(run_id)
-    except Exception as exc:  # noqa: BLE001
-        _run_snapshot_failure(run_id, job_id, store, registry, exc)
-        return
+    with registry.job_completion(job_id):
+        run = None
+        try:
+            store = store or get_store()
+            run = store.get_run(run_id)
+        except (KeyError, ValueError, RuntimeError, OSError, sqlite3.Error) as exc:
+            _run_snapshot_failure(run_id, job_id, store, registry, exc)
+            return
+        finally:
+            if run is None and registry.job_snapshot(job_id).status == "running":
+                _run_snapshot_failure(run_id, job_id, store, registry, RuntimeError("运行快照读取意外中断。"))
+        _execute_loaded_run(run, conn_id, job_id, registry, store)
+
+
+def _execute_loaded_run(
+    run: dict[str, Any], conn_id: str, job_id: str, registry: UIState, store: WorkspaceStore
+) -> None:
+    run_id = run["id"]
     tables = run["tables"]
     progress = _RunProgress(rows_inserted=0, errors=[])
     started = time.monotonic()
     replacing = run.get("execution", {}).get("mode") == "replace_selected"
     outcome: dict[str, Any] = {"atomic": replacing, "committed": False, "rolled_back": False}
+    conn: Connection | None = None
+    finished = False
     try:
         with registry.connection_operation(conn_id, job_id=job_id) as conn:
             config = _current_run_config(conn, run)
             store.update_run(run_id, {"status": "running", "started_at": time.time()})
             if replacing:
                 progress.rows_inserted = _execute_replacement(conn, run, store, tables, outcome)
-                return
-            _append_run_tables(config, run_id, store, tables, progress)
-    except Exception as exc:  # noqa: BLE001
+            else:
+                _append_run_tables(config, run_id, store, tables, progress)
+        finished = True
+    except generation_errors(conn.orchestrator if conn is not None else None, additional=(KeyError,)) as exc:
         _run_execution_failure(exc, tables, progress, outcome, replacing)
+        finished = True
     finally:
+        if not finished:
+            _run_execution_failure(RuntimeError("运行意外终止，请检查服务日志。"), tables, progress, outcome, replacing)
         _publish_run_terminal(
             run_id, job_id, registry, store, _run_terminal(tables, progress, started, outcome, replacing), progress
         )

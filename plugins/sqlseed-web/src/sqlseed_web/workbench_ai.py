@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field
+from sqlseed._utils.type_checks import has_exact_type
 from sqlseed.config.models import ColumnConfig
 from sqlseed.core.orchestrator import DataOrchestrator
 from sqlseed.generators._datetime_utils import normalize_weekdays, parse_iso_date, parse_iso_time
@@ -167,11 +168,13 @@ def save_settings(body: SettingsRequest) -> dict[str, Any]:
 def test_backend(body: SettingsRequest | None = None) -> dict[str, Any]:
     result: dict[str, Any] = {"ok": False, "models": [], "checked_at": datetime.now(timezone.utc).isoformat()}
     try:
+        import httpx
+    except ImportError:
+        return {**result, **ai_import_failure()}
+    try:
         config = resolve_settings(state, body)[0] if body is not None else _effective_config()
         if not config.resolve_api_key():
             return {**result, "message": "在线 AI 服务需要当前服务的 API Key；本地 Ollama / LM Studio 无需填写。"}
-        import httpx
-
         response = httpx.get(
             config.resolve_base_url().rstrip("/") + "/models",
             headers={"Authorization": f"Bearer {config.resolve_api_key()}"},
@@ -191,8 +194,7 @@ def test_backend(body: SettingsRequest | None = None) -> dict[str, Any]:
         }
     except ImportError:
         return {**result, **ai_import_failure()}
-    except Exception:  # noqa: BLE001
-        # The service-probe boundary must not expose credentials from client errors.
+    except (httpx.HTTPError, OSError, ValueError, RuntimeError):
         return {**result, "message": "无法连接 AI 服务，请检查服务是否启动，以及地址和认证设置。"}
 
 
@@ -381,9 +383,9 @@ def _validate_parameter_value(value: Any, meta: dict[str, Any]) -> None:
     kind = meta["type"]
     valid = {
         "string": isinstance(value, str),
-        "integer": type(value) is int,
-        "number": type(value) in (float, int),
-        "boolean": type(value) is bool,
+        "integer": has_exact_type(value, int),
+        "number": has_exact_type(value, float) or has_exact_type(value, int),
+        "boolean": has_exact_type(value, bool),
         "array": isinstance(value, list),
         "object": isinstance(value, dict),
     }.get(kind, True)

@@ -11,6 +11,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 from datetime import datetime
+from numbers import Number
 from typing import Any
 
 from sqlseed_ai.contracts.builtin_violations import _is_code_like, future_bound_key
@@ -20,6 +21,7 @@ from sqlseed.config.models import ColumnConfig, normalize_column_input
 
 RepairFn = Callable[[dict[str, Any], ViolationReport, dict[str, Any]], dict[str, Any]]
 
+_BOOLEAN_NUMERIC_VALUES: frozenset[object] = frozenset({0, 1})
 
 # Whitelist of safe params for each generator (Rule #14 Layer 3).
 # Aligned with actual generator signatures in
@@ -557,7 +559,7 @@ def _coerce_to_boolean_enum(col: dict[str, Any], v: ViolationReport, ctx: dict[s
     if not (check_values := v.fix_params.get("check_values") or []):
         return col
     # Boolean int: {0, 1}
-    if all(val in (0, 1) for val in check_values):
+    if all(isinstance(val, Number) and val in _BOOLEAN_NUMERIC_VALUES for val in check_values):
         return {**col, "generator": "boolean", "params": {}}
     # Boolean string: {'true', 'false'} (any case)
     lower_values = [str(val).lower() for val in check_values]

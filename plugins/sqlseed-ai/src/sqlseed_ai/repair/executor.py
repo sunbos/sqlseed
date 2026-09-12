@@ -7,6 +7,7 @@ Spec reference: Section 5.5.
 
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import TYPE_CHECKING, Any
 
 from sqlseed_ai.repair.models import AppliedFix, RepairResult
@@ -39,7 +40,11 @@ class RepairExecutor:
         violations: list[ViolationReport],
         snapshot: SchemaSnapshot,
     ) -> RepairResult:
-        """Apply repair strategies to violations, sorted by severity."""
+        """Apply strategies to isolated candidates, committing only completed repairs.
+
+        Invalid values, types, missing required keys and arithmetic failures
+        reject the candidate. Other strategy failures propagate to the caller.
+        """
         applied_fixes: list[AppliedFix] = []
         unfixable: list[ViolationReport] = []
         sorted_violations = self._sort_by_severity(violations)
@@ -53,7 +58,7 @@ class RepairExecutor:
                     continue
                 cols_to_fix = self._expand_composite_cols(violation, table_config)
                 for col in cols_to_fix:
-                    before = {**col}
+                    before = deepcopy(col)
                     ctx: dict[str, Any] = {
                         "table_schema": snapshot.tables.get(violation.table),
                         "table_config": table_config,
@@ -67,14 +72,11 @@ class RepairExecutor:
                         # as a successful repair, inflating fix_count and
                         # breaking the pipeline's partial-fix re-validation
                         # heuristic (``len(applied_fixes) < len(violations)``).
-                        if (after := self._strategies[strategy_name](col, violation, ctx)) == before:
+                        if (after := self._strategies[strategy_name](deepcopy(col), violation, ctx)) == before:
                             unfixable.append(violation)
                             continue
-                        # ``after`` may be the same object as ``col`` (when a
-                        # strategy returns ``col`` unchanged to skip repair).
-                        # We must copy it before clearing ``col``, otherwise
-                        # ``col.clear()`` also clears ``after`` and the column
-                        # becomes an empty dict ``{}`` in the output YAML.
+                        # Copy the completed candidate before replacing the
+                        # live column, retaining the returned value for audit.
                         after_copy = dict(after)
                         col.clear()
                         col.update(after_copy)
@@ -88,7 +90,7 @@ class RepairExecutor:
                                 violation_kind=violation.severity,
                             )
                         )
-                    except Exception as e:
+                    except (ValueError, TypeError, KeyError, ArithmeticError) as e:
                         logger.warning(
                             "Repair strategy failed",
                             strategy=strategy_name,

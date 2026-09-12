@@ -24,7 +24,7 @@ v8 整体重建已完成；当前细化以 [可用性与 AI 辅助计划](../../
 - URI 文件路径须经平台路径转换；Windows 的 `/C:/...` 与普通 `C:\...` 指向同一文件。百分号只解码一次，文件名中的字面 `%41` 不能被误识别为 `A`；真实文件别名回归覆盖空格、百分号及编码盘符。
 - fills 在后台线程运行，通过 `state.connection_operation(conn_id, job_id=...)` 领取已预留的任务；交互请求不排队等待连接锁，忙碌立即返回 HTTP 409。不得让同一 orchestrator 并发 `fill_table()`。
 - `create_job()` 原子预留连接；同一数据库目标只能有一个填充任务，其他数据库可并行。SQLite 规范路径、file URI 和共享内存身份；PostgreSQL 只规范 URL 中已知端点及有效参数，不宣称识别 DNS 别名、service 或代理后的物理身份。worker 初始化、启动或终态持久化失败也必须释放任务占用。
-- job 终态通过 `complete_job()` 原子发布 result、错误、行数和完成时间；非空 `GenerationResult.errors` 必须发布 error，不能报告成功。
+- job 终态通过 `complete_job()` 原子发布 result、错误、行数和完成时间；非空 `GenerationResult.errors` 必须发布 error，不能报告成功。后台入口持有 `UIState.job_completion()`，未知程序错误继续传播，但必须在 finally 发布失败并释放占用；工作台的快照读取、执行和终态保存中断也不能留下 running 或误报 done。
 - 创建任务与关闭连接受同一状态锁协调；排队/执行中的任务阻止关闭（HTTP 409），已失效连接的 worker 必须进入 error 终态。HTTP polling 使用任务快照。
 - `GenerationResult.count` 是写入行数；`Job.rows_inserted` 是 Web 层字段。旧 `/api` fill 进度来自行数差值轮询，是近似值，不是核心进度 callback；不能把这种进度方案用于正式工作台的精确提交结果。
 - SQL 标识符用 `validate_table_name()` + `quote_identifier()`；`run_query()` 当前只接受单条 SELECT，修改查询接口时保留该边界。

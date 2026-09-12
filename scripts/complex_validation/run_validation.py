@@ -23,6 +23,8 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from sqlseed.generators._protocol import ConfigurationError
+
 if __package__:
     from .corpus import DEFAULT_COUNT, SCHEMAS
 else:
@@ -114,9 +116,11 @@ def fill_db(db_path: Path, counts: dict) -> tuple[dict[str, str], float, int]:
             if (n := counts.get(table, DEFAULT_COUNT)) is None:
                 continue
             try:
-                orch.fill_table(table, count=n, seed=SEED, batch_size=5000)
-                rows += n
-            except Exception as exc:  # noqa: BLE001 - record and continue
+                result = orch.fill_table(table, count=n, seed=SEED, batch_size=5000)
+                rows += result.count
+                if result.errors:
+                    errors[table] = "; ".join(result.errors)[:300]
+            except (ConfigurationError, ValueError) as exc:
                 errors[table] = f"{type(exc).__name__}: {exc}"[:300]
     return errors, time.perf_counter() - t_start, rows
 

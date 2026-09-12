@@ -9,6 +9,7 @@
 - [base_provider.py](base_provider.py)：`_gen_<type>()` 的共同实现；[faker_provider.py](faker_provider.py)、[mimesis_provider.py](mimesis_provider.py) 覆盖有真实 locale 数据的能力。
 - [registry.py](registry.py)：provider 注册、按需加载与 `sqlseed` entry point 发现；需区分返回的 provider class/instance 与其他插件对象。
 - 日期/时间、字符串与 JSON 公用逻辑分别在 [_datetime_utils.py](_datetime_utils.py)、[_string_helpers.py](_string_helpers.py)、[_json_helpers.py](_json_helpers.py)。
+- [_datetime_methods.py](_datetime_methods.py) 用普通函数 factory 绑定日期方法的计数政策，保留完整关键字签名和 `get_type_hints()`。Base 实现即使绑定到 native 实例也推进 placeholder counter；native 实现不推进。`timestamp` 必须动态委托实例当前的 `_gen_datetime`，不能直接 alias 某一固定函数。
 
 ## 合约与可复现性
 

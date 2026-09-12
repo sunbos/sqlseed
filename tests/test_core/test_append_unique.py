@@ -11,7 +11,7 @@ from sqlseed.core.constraints import ConstraintSolver
 from sqlseed.core.expression import ExpressionEngine
 from sqlseed.core.mapper import GeneratorSpec
 from sqlseed.core.orchestrator import DataOrchestrator
-from sqlseed.core.stream import DataStream
+from sqlseed.core.stream import DataStream, _RowReservations
 from sqlseed.generators.base_provider import BaseProvider
 from tests.assertions import assert_empty
 from tests.sqlite_helpers import sqlite_connection
@@ -91,10 +91,10 @@ def test_composite_registration_rolls_back_when_a_later_constraint_fails() -> No
         solver,
         composite_unique_constraints=[["a", "b"], ["b", "c"]],
     )
-    assert stream._attempt_row_generation({}, {})[0] is False
+    assert stream._attempt_row_generation(_RowReservations({}, {}))[0] is False
     specs["c"].params["choices"] = [4]
     row: dict[str, object] = {}
-    assert stream._attempt_row_generation(row, {})[0] is True
+    assert stream._attempt_row_generation(_RowReservations(row, {}))[0] is True
     assert row == {"a": 1, "b": 2, "c": 4}
     # A collision must never unregister a tuple belonging to an earlier row.
     assert solver.check_and_register_composite("__composite__('b', 'c')", (2, 3)) is False
@@ -114,10 +114,10 @@ def test_composite_registration_rolls_back_when_check_fails() -> None:
         composite_unique_constraints=[["a", "b"]],
         inequality_constraints=[("a", "c", "<")],
     )
-    assert stream._attempt_row_generation({}, {})[0] is False
+    assert stream._attempt_row_generation(_RowReservations({}, {}))[0] is False
     specs["c"].params["choices"] = [3]
     row: dict[str, object] = {}
-    assert stream._attempt_row_generation(row, {})[0] is True
+    assert stream._attempt_row_generation(_RowReservations(row, {}))[0] is True
     assert row == {"a": 1, "b": 2, "c": 3}
 
 

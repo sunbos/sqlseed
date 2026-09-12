@@ -1,0 +1,94 @@
+{
+  "base_commit": "34fa7b236bc965e34c191c30fbb71d0808c8cfbd",
+  "baseline_codeflow": {
+    "analyses_complete": 3,
+    "errors": 0,
+    "warnings": 88
+  },
+  "pytest": {
+    "passed": 3484,
+    "skipped": 47,
+    "seconds": 187.68,
+    "exit_code": 0,
+    "command": "pytest --tb=short -q -W error::ResourceWarning -W error::pytest.PytestUnraisableExceptionWarning",
+    "log": "pytest.log"
+  },
+  "pylint": {
+    "version": "2.17.7",
+    "files": 426,
+    "messages": 0,
+    "exit_code": 0,
+    "configuration": ".pylintrc"
+  },
+  "eslint": {
+    "version": "8.57.1",
+    "files": 37,
+    "errors": 0,
+    "warnings": 0,
+    "exit_code": 0
+  },
+  "jscpd": {
+    "version": "4.0.5",
+    "files": 434,
+    "clones": 0,
+    "duplicated_lines": 0,
+    "exit_code": 0
+  },
+  "ruff": {
+    "check": "passed",
+    "formatted_files": 432,
+    "format_check": "passed"
+  },
+  "mypy": {
+    "source_files": 163,
+    "result": "passed"
+  },
+  "import_linter": {
+    "kept": 3,
+    "broken": 0
+  },
+  "doc_markers": "all up to date",
+  "standalone_smoke": {
+    "passed": 14,
+    "failed": 0
+  },
+  "independent_review": {
+    "core_tests_passed": 38,
+    "web_failure_regressions_passed": 8,
+    "blocking_findings_remaining": 0
+  },
+  "differential": {
+    "date_calls": 41280,
+    "date_differences": 0,
+    "stream_cases": 960,
+    "stream_differences": 0,
+    "generator_catalog_equal": true
+  },
+  "unchanged_scan_configuration": {
+    ".pylintrc": "3d3d69aa0d2db7d68f26334e1415e439c1da6b0deca22eb8fbb4c3cfa3126b2a",
+    ".eslintrc.json": "185197547ff8739623985279e5aed908e99d13f4f5e1425de9cbaa5259b152ab",
+    "pyproject.toml": "bfe2de5b003978d610551c4b184eb5112a09bdb8f4fcf6377722003bbe39896b"
+  },
+  "known_external_and_historical_limits": [
+    "47 tests skipped for Docker/PostgreSQL, LM Studio, API key or Pillow availability; see full log.",
+    "Previous mutation audit: 228 killed / 8 survived; unique_adjuster source and mutation settings unchanged in this pass.",
+    "Previous CI Codecov upload Repository not found is outside CodeFlow remediation; no account/upload policy changes."
+  ],
+  "packages": {
+    "sdists": 5,
+    "wheels": 5,
+    "twine_strict": "passed",
+    "full_installed_smoke": "passed",
+    "minimal_installed_smoke": "passed",
+    "packaged_files_byte_equal": 225,
+    "source_files_byte_equal": 215,
+    "packaged_instruction_files_byte_equal": 10,
+    "source_snapshot_unchanged": true,
+    "user_environment_unchanged": true,
+    "mkdocs_strict": "passed",
+    "locked_dependencies": {
+      "full": 139,
+      "minimal": 23
+    }
+  }
+}

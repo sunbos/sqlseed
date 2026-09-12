@@ -8,6 +8,7 @@
 | --- | --- |
 | 列映射优先级 | [mapper.py](mapper.py)：`ColumnMapper`、`GeneratorSpec` |
 | schema 与唯一性分类 | [schema.py](schema.py)：`SchemaInferrer`；[features.py](features.py)：跨数据库结构特征 |
+| 可选 adapter metadata | [schema_metadata.py](schema_metadata.py)：统一读取失败类型，保留原异常链，由调用方选择降级或失败 |
 | 单列 CHECK | [check_parser.py](check_parser.py)、[check_adapt.py](check_adapt.py)、[schema_fallback.py](schema_fallback.py) |
 | FK、shared pool、表排序 | [relation.py](relation.py)：`RelationResolver`、`SharedPool` |
 | derived columns 与表达式 | [column_dag.py](column_dag.py)、[expression.py](expression.py) |

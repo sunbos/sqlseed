@@ -258,3 +258,11 @@ def test_runtime_healer_repairs_real_schema_with_fixed_model_response(tmp_path: 
     degraded = no_rounds.heal(SubgraphTask(task_id="items", tables=["items"]), violations, broken)
     assert degraded.level_used == 4
     assert degraded.total_attempts == 0
+
+    expired = runtime.build_heal_orchestrator(
+        AIConfig(model="fixed-model"), FixedClient(), snapshot, validator, time_budget_seconds=0
+    )
+    timed_out = expired.heal(SubgraphTask(task_id="items", tables=["items"]), violations, broken)
+    assert timed_out.level_used == 4
+    assert not timed_out.attempts
+    assert {reason.value for reason in timed_out.degrade_reasons.values()} == {"time_budget_exhausted"}

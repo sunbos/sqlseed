@@ -20,6 +20,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+from sqlseed.generators._protocol import ConfigurationError
+
 if __package__:
     from ._checks import CheckRecorder
 else:
@@ -90,7 +92,7 @@ def s2_provider_compatibility() -> None:
             con.close()
             check(f"S2 provider={provider} fills 50 unique-email rows", n == 50 and dup == 0,
                   f"n={n} dup={dup}")
-        except Exception as e:  # noqa: BLE001
+        except (ConfigurationError, ValueError, sqlite3.Error) as e:
             check(f"S2 provider={provider} fills 50 unique-email rows", False, f"{type(e).__name__}: {e}")
 
 
@@ -123,14 +125,12 @@ def s4_boundary_counts() -> None:
         check("S4 count=0 rejected loudly", False, "no exception")
     except ValueError:
         check("S4 count=0 rejected loudly", True)
-    except Exception as e:  # noqa: BLE001
-        check("S4 count=0 rejected loudly", False, f"wrong type: {type(e).__name__}: {e}")
 
     try:
         sqlseed.fill(str(db), table="users", count=1, seed=1)
         n1 = sqlite3.connect(db).execute("SELECT COUNT(*) FROM users").fetchone()[0]
         check("S4 count=1 inserts exactly one", n1 == 1, f"n={n1}")
-    except Exception as e:  # noqa: BLE001
+    except (ConfigurationError, ValueError, sqlite3.Error) as e:
         check("S4 count=1 inserts exactly one", False, f"{type(e).__name__}: {e}")
 
 

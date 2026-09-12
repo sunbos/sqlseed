@@ -30,12 +30,12 @@ from sqlseed_ai.healer.oscillation import OscillationDetector
 from sqlseed._utils.logger import get_logger
 
 if TYPE_CHECKING:
-    from sqlseed_ai.healer.context_detector import ContextWindowDetector
-    from sqlseed_ai.healer.degrader import ProgressiveDegrader
-    from sqlseed_ai.healer.failure_classifier import FailureClassifier
-    from sqlseed_ai.healer.level1_subgraph_healer import Level1SubgraphHealer
-    from sqlseed_ai.healer.level2_column_healer import Level2ColumnHealer
-    from sqlseed_ai.healer.level3_compact_healer import Level3CompactHealer
+    from sqlseed_ai.healer import context_detector as context_detection
+    from sqlseed_ai.healer import degrader as degradation
+    from sqlseed_ai.healer import failure_classifier as classification
+    from sqlseed_ai.healer import level1_subgraph_healer as subgraph_healing
+    from sqlseed_ai.healer import level2_column_healer as column_healing
+    from sqlseed_ai.healer import level3_compact_healer as compact_healing
     from sqlseed_ai.validator.models import ViolationReport
     from sqlseed_ai.validator.schema_snapshot import SchemaSnapshot
 
@@ -49,12 +49,12 @@ class HealOrchestrator:
         self,
         *,
         snapshot: SchemaSnapshot,
-        context_detector: ContextWindowDetector,
-        failure_classifier: FailureClassifier,
-        level1: Level1SubgraphHealer,
-        level2: Level2ColumnHealer,
-        level3: Level3CompactHealer,
-        degrader: ProgressiveDegrader,
+        context_detector: context_detection.ContextWindowDetector,
+        failure_classifier: classification.FailureClassifier,
+        level1: subgraph_healing.Level1SubgraphHealer,
+        level2: column_healing.Level2ColumnHealer,
+        level3: compact_healing.Level3CompactHealer,
+        degrader: degradation.ProgressiveDegrader,
         validator: Any,  # FastValidator
         schema_hash: str = "",
         max_rounds: int = 3,

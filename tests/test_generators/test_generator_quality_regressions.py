@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 
+from sqlseed._utils.type_checks import has_exact_type
 from sqlseed.generators.base_provider import BaseProvider
 from sqlseed.generators.faker_provider import FakerProvider
 from sqlseed.generators.mimesis_provider import MimesisProvider
@@ -79,9 +80,9 @@ def test_faker_json_schema_uses_shared_recursive_types(locale: str) -> None:
     for sample in samples:
         value = json.loads(sample)
         assert set(value) == {"count", "nested", "details"}
-        assert type(value["count"]) is int
-        assert value["nested"] and all(type(item) is bool for item in value["nested"])
-        assert type(value["details"]["label"]) is str
+        assert has_exact_type(value["count"], int)
+        assert value["nested"] and all(has_exact_type(item, bool) for item in value["nested"])
+        assert has_exact_type(value["details"]["label"], str)
     repeated = _provider(FakerProvider, locale)
     assert samples == [repeated.generate("json", schema=schema) for _ in range(25)]
 

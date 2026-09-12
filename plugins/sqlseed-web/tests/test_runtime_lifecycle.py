@@ -228,5 +228,30 @@ def test_cancelled_http_request_releases_only_the_request_lease(gate: RuntimeGat
         asyncio.run(scenario())
     finally:
         release.set()
-        operation.thread.join(5)
+        operation.task.wait(5)
     assert gate.pause_if_idle()["ai_analyses"] == 0
+
+
+def test_analysis_worker_fatal_exit_publishes_one_error_and_releases_admission(gate: RuntimeGate) -> None:
+    class WorkerStopped(BaseException):
+        pass
+
+    def run(progress: Any, check: Any) -> dict[str, Any]:
+        raise WorkerStopped("private-runtime-secret")
+
+    operation = workbench_ai_stream.AnalysisOperation("fatal-analysis", run)
+    assert operation.task.wait(3)
+
+    async def events() -> list[dict[str, Any]]:
+        return [event async for event in operation.events()]
+
+    result = asyncio.run(events())
+    assert len(result) == 1
+    assert result[0]["type"] == "error"
+    assert result[0]["code"] == "ai_analysis_failed"
+    assert "private-runtime-secret" not in str(result)
+    assert gate.pause_if_idle()["ai_analyses"] == 0
+    gate.resume()
+    retry = workbench_ai_stream.AnalysisOperation("fatal-analysis", lambda progress, check: {"ok": True})
+    assert retry.task.wait(3)
+    assert retry.queue.get_nowait() == {"type": "result", "result": {"ok": True}}

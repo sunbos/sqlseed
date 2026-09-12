@@ -21,6 +21,10 @@ import sys
 import tempfile
 from pathlib import Path
 
+from sqlalchemy.exc import SQLAlchemyError
+
+from sqlseed.generators._protocol import ConfigurationError
+
 OUT_DIR = Path(tempfile.mkdtemp(prefix="sqlseed_repro_"))
 
 
@@ -67,8 +71,10 @@ def defect_a() -> bool:
     yaml_path.write_text(yaml.safe_dump({**fixed_cfg, "db_path": str(db)}))
     crash = None
     try:
-        fill_from_config(str(yaml_path))
-    except Exception as e:  # noqa: BLE001 - repro script
+        results = fill_from_config(str(yaml_path))
+        if errors := [error for result in results for error in result.errors]:
+            crash = "; ".join(errors)
+    except (ConfigurationError, ValueError, RuntimeError, OSError, SQLAlchemyError) as e:
         crash = f"{type(e).__name__}: {e}"
     con = sqlite3.connect(db)
     rows = con.execute("SELECT COUNT(*) FROM m").fetchone()[0]

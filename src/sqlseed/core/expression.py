@@ -12,12 +12,12 @@ from __future__ import annotations
 import ast
 import random
 import re
-import threading
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import simpleeval
 
+from sqlseed._utils.daemon_task import DaemonTask
 from sqlseed._utils.logger import get_logger
 from sqlseed._utils.sql_safe import quote_identifier
 
@@ -215,29 +215,8 @@ class ExpressionEngine:
         evaluator.functions = self._get_functions()
         evaluator.names = context
         self._configure_evaluator(evaluator)
-        result_container: list[Any] = [None]
-        errors: list[Exception] = []
-
-        def _eval() -> None:
-            try:
-                result_container[0] = evaluator.eval(expression)
-            except Exception as e:
-                # Preserve the calling-thread contract for arithmetic, lookup
-                # and adapter failures; an unhandled worker error is not NULL.
-                errors.append(e)
-
-        # daemon=True ensures the thread cannot block interpreter shutdown
-        # if simpleeval gets stuck (deep recursion / infinite loop). The
-        # thread is abandoned on timeout and will be cleaned up by the OS
-        # when the process exits.
-        thread = threading.Thread(target=_eval, daemon=True)
-        thread.start()
-        thread.join(timeout=self._timeout)
-
-        if thread.is_alive():
+        task = DaemonTask(lambda: evaluator.eval(expression), name="sqlseed-expression")
+        if not task.wait(self._timeout):
             raise ExpressionTimeoutError(f"Expression evaluation timed out after {self._timeout}s: {expression[:100]}")
 
-        if errors:
-            raise errors[0]
-
-        return result_container[0]
+        return task.result()

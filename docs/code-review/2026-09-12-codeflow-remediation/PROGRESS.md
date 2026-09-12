@@ -2,15 +2,19 @@
 
 目标分支：`codex/workbench-candidate`。远端基线：`5b0dd07231d7ed9fbc33f924087e1e9dda878100`。本记录中的本地结果不能替代推送后的 CodeFlow 报告。
 
+## 第四轮继续整改
+
+用户指出 `34fa7b236bc965e34c191c30fbb71d0808c8cfbd` 仍有 88 条告警后，本轮重新评估了第三轮保留项。第三轮的保留结论不再作为当前结论，具体实现与最终核验见 [第四轮记录](fourth-pass/README.md)。下文前三轮数据保留为历史证据。
+
 ## 范围与处理原则
 
 用户要求按最佳实践尽可能消除错误、警告，避免依赖抑制注释。本轮修复实现、拆分复杂职责、复用资源管理与实际测试逻辑；没有增加规则排除或调高既有阈值。`.pylintrc` 将 `pyproject.toml` 中已经存在的项目政策适配给 CodeFlow 使用的 Pylint 2.17.7，并保留远端曾输出告警的 extension checkers；对应一致性测试防止配置漂移。ESLint 使用现代 JavaScript module 配置，保留 recommended 规则。
 
 任务前用户已有的 `.sonarcloud.properties`、`docs/candidate-validation.md` 和其他无关设计文档不属于本次提交。AI orchestrator 和 Web runtime 中已有的局部清理在重构中保留。
 
-## 扫描结果（最终源码远端复验）
+## 前三轮扫描结果（历史）
 
-| 检查 | 原始基线 | 第一轮 `064854c` | 第二轮 `ef7b279` | 最终源码 `218ab14` |
+| 检查 | 原始基线 | 第一轮 `064854c` | 第二轮 `ef7b279` | 第三轮源码 `218ab14` |
 | --- | --- | --- | --- | --- |
 | CodeFlow 远端总数 | 45 errors + 1987 warnings | 338 errors + 531 warnings | 0 errors + 101 warnings | **0 errors + 88 warnings** |
 | ESLint 8.57.1 | 37 个 error，具体文本不可读 | 0 errors / 0 warnings | 0 errors / 0 warnings | 0 errors / 0 warnings |
@@ -61,7 +65,7 @@
 
 第三轮全仓本地检查为 **0 errors、74 条 Pylint 提示**，jscpd 为 **7 组、75 行、0.09%**。推送 `218ab14db47dcbc9c9a450f8d6b0e6d233854fac` 后，3 个远端分析全部完成：**0 errors、88 warnings**，38 个报告、88 条完整消息无截断；74 条 Pylint 的位置、规则和消息与本地完全一致，jscpd 为 14 条文件端提示。见 [远端原始明细](third-pass/remote-issues.json) 和 [计数核对](third-pass/remote-summary.json)。
 
-其余 74 条分别是 51 条顶层/可选能力异常边界、11 条精确类型合同、10 条保留不可哈希输入语义的成员判断、2 条手工资源所有权提示；逐项位置和理由见 [最新清单](third-pass/retained-findings-current.json)。剩余 clone 涉及明确的 generator 签名、两阶段流式状态传递和运行时/类型声明的组件依赖，未用动态签名或单用途包装层换取计数下降。
+其余 74 条分别是 51 条顶层/可选能力异常边界、11 条精确类型合同、10 条保留不可哈希输入语义的成员判断、2 条手工资源所有权提示；逐项位置和理由见 [第三轮清单](third-pass/retained-findings-current.json)。剩余 clone 涉及明确的 generator 签名、两阶段流式状态传递和运行时/类型声明的组件依赖，未用动态签名或单用途包装层换取计数下降。
 
 最新验证与独立审阅见 `third-pass/`。更大的领域异常层、进程所有者重构等方案已评估；目前没有足够的行为或维护收益来证明应为静态提示实施这些架构变更。未新增规则禁用、提高阈值或添加逐行抑制。
 
@@ -85,7 +89,7 @@
 
 ## 远端状态
 
-三轮源码均已推送并采集完整 CodeFlow 结果。最终源码提交为 `218ab14db47dcbc9c9a450f8d6b0e6d233854fac`；后续仅补充验证记录。远端 errors 已清零，warnings 保留 88 条，不能将其描述为所有告警清零。
+截至第三轮，源码已推送并采集完整 CodeFlow 结果。第三轮源码提交为 `218ab14db47dcbc9c9a450f8d6b0e6d233854fac`；后续仅补充验证记录。第三轮远端 errors 已清零，warnings 保留 88 条，该历史结果不代表第四轮状态。
 
 基线 PR CI 的 Python 3.12 测试实际通过（3306 passed、22 skipped）；该 job 因 Codecov 上传返回 `Repository not found` 而失败，与测试断言无关，详见 `evidence/sqlseed-baseline-ci-review.json`。
 

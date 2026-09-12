@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import random
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from sqlseed._utils.logger import get_logger
+from sqlseed._utils.type_checks import has_exact_type
 from sqlseed.generators._protocol import ConfigurationError, GenerationError, UnknownGeneratorError
 
 if TYPE_CHECKING:
@@ -56,6 +58,25 @@ class GenerationCancelledError(RuntimeError):
     def __init__(self, reason: Exception) -> None:
         super().__init__("Generation cancelled by the caller")
         self.reason = reason
+
+
+@dataclass
+class _RowReservations:
+    """Own the current row's accepted keys until finalization or rollback."""
+
+    row: dict[str, Any]
+    generated_values: dict[str, Any]
+    composites: list[tuple[str, tuple[Any, ...]]] = field(default_factory=list)
+
+    def rollback(self, solver: ConstraintSolver) -> None:
+        """Release accepted composite keys before this row's single-column keys."""
+        for key, values in self.composites:
+            solver.unregister_composite(key, values)
+        self.composites.clear()
+        for column, value in self.generated_values.items():
+            solver.unregister(column, value)
+        self.generated_values.clear()
+        self.row.clear()
 
 
 def _violates_inequality(v1: Any, v2: Any, op: str, col1: str, col2: str) -> bool:
@@ -150,7 +171,7 @@ class DataStream:
                 a provider or expression while its call is running.
             table_name: Optional diagnostic context; never includes row values.
         """
-        if max_attempts is not None and (type(max_attempts) is not int or max_attempts <= 0):
+        if max_attempts is not None and (not has_exact_type(max_attempts, int) or max_attempts <= 0):
             raise ValueError("max_attempts must be a positive integer or None")
         self._max_attempts = max_attempts
         self._attempts = 0
@@ -159,7 +180,6 @@ class DataStream:
         self._last_attempt_node: ColumnNode | None = None
         self._last_row_registrations: dict[str, Any] = {}
         self._selected_fk_pairs: dict[str, tuple[Any, Any]] = {}
-        self._current_row_composites: list[tuple[str, tuple[Any, ...]]] = []
         self._nodes = dag_nodes
         self._provider = provider
         self._expr_engine = expr_engine
@@ -256,7 +276,7 @@ class DataStream:
         Yields:
             A list of generated rows for each batch. Each row is a dict mapping column names to values.
         """
-        if type(batch_size) is not int or batch_size <= 0:
+        if not has_exact_type(batch_size, int) or batch_size <= 0:
             raise ValueError("batch_size must be a positive integer")
         generated = 0
         while generated < count:
@@ -492,7 +512,7 @@ class DataStream:
             logger.warning("transform_fn is not callable, skipping transformation")
         return row
 
-    def _attempt_row_generation(self, row: dict[str, Any], generated_values: dict[str, Any]) -> tuple[bool, int | None]:
+    def _attempt_row_generation(self, reservations: _RowReservations) -> tuple[bool, int | None]:
         """Attempt to generate an entire row.
 
         Iterates over nodes in DAG order, generating column by column, and handles
@@ -504,14 +524,15 @@ class DataStream:
         single-column registrations are rolled back and the row is retried.
 
         Args:
-            row: The current row data.
-            generated_values: The current generated-values dict.
+            reservations: The current row and its accepted constraint keys.
 
         Returns:
             A tuple ``(success, backtrack_to)`` where ``success`` indicates whether
             generation succeeded and ``backtrack_to`` is the target node index for
             backtracking or ``None``.
         """
+        row = reservations.row
+        generated_values = reservations.generated_values
         backtrack_to: int | None = None
         for idx, node in enumerate(self._nodes):
             if node.is_skip or (backtrack_to is not None and idx < backtrack_to):
@@ -526,68 +547,42 @@ class DataStream:
                 self._handle_col_failure(backtrack_to, row, generated_values)
                 return False, backtrack_to
 
-        registered_composites = self._current_row_composites
-        succeeded, constraint_backtrack = self._register_row_composites(row, generated_values, registered_composites)
+        succeeded, constraint_backtrack = self._register_row_composites(reservations)
         if not succeeded:
             return False, constraint_backtrack
-        succeeded, constraint_backtrack = self._check_row_inequalities(row, generated_values, registered_composites)
+        succeeded, constraint_backtrack = self._check_row_inequalities(reservations)
         if not succeeded:
             return False, constraint_backtrack
         return True, backtrack_to
 
-    def _register_row_composites(
-        self,
-        row: dict[str, Any],
-        generated_values: dict[str, Any],
-        registered_composites: list[tuple[str, tuple[Any, ...]]],
-    ) -> tuple[bool, int | None]:
+    def _register_row_composites(self, reservations: _RowReservations) -> tuple[bool, int | None]:
         """Register complete UNIQUE tuples, rolling back only this row on collision."""
         if self._composite_unique:
             for key_name, cols in self._composite_unique:
-                composite_tuple = tuple(row.get(c) for c in cols)
+                composite_tuple = tuple(reservations.row.get(c) for c in cols)
                 if not self._constraint_solver.check_and_register_composite(key_name, composite_tuple, columns=cols):
                     # Collision: roll back all single-column registrations and
                     # retry the whole row. Use the first composite column as
                     # the backtracking target so the retry regenerates it.
-                    self._rollback_row_constraints(row, generated_values, registered_composites)
+                    reservations.rollback(self._constraint_solver)
                     bt_idx = self._find_node_index(cols[0])
                     return False, bt_idx
-                registered_composites.append((key_name, composite_tuple))
+                reservations.composites.append((key_name, composite_tuple))
         return True, None
 
-    def _check_row_inequalities(
-        self,
-        row: dict[str, Any],
-        generated_values: dict[str, Any],
-        registered_composites: list[tuple[str, tuple[Any, ...]]],
-    ) -> tuple[bool, int | None]:
+    def _check_row_inequalities(self, reservations: _RowReservations) -> tuple[bool, int | None]:
         """Check independently sampled column pairs after composite registration."""
         if self._inequality:
             for col1, col2, op in self._inequality:
-                v1 = row.get(col1)
-                v2 = row.get(col2)
+                v1 = reservations.row.get(col1)
+                v2 = reservations.row.get(col2)
                 if v1 is None or v2 is None:
                     continue
                 if _violates_inequality(v1, v2, op, col1, col2):
-                    self._rollback_row_constraints(row, generated_values, registered_composites)
+                    reservations.rollback(self._constraint_solver)
                     bt_idx = self._find_node_index(col2)
                     return False, bt_idx
         return True, None
-
-    def _rollback_row_constraints(
-        self,
-        row: dict[str, Any],
-        generated_values: dict[str, Any],
-        registered_composites: list[tuple[str, tuple[Any, ...]]],
-    ) -> None:
-        """Release accepted composite keys before this row's single-column keys."""
-        for registered_key, registered_tuple in registered_composites:
-            self._constraint_solver.unregister_composite(registered_key, registered_tuple)
-        registered_composites.clear()
-        for col, val in generated_values.items():
-            self._constraint_solver.unregister(col, val)
-        generated_values.clear()
-        row.clear()
 
     def _generate_row(self, *, row_idx: int) -> dict[str, Any]:
         """Generate a single row, including the retry and backtracking mechanism.
@@ -616,18 +611,15 @@ class DataStream:
             row: dict[str, Any] = {}
             generated_values: dict[str, Any] = {}
             self._selected_fk_pairs.clear()
-            self._current_row_composites = []
+            reservations = _RowReservations(row, generated_values)
 
             try:
-                success, backtrack_to = self._attempt_row_generation(row, generated_values)
+                success, backtrack_to = self._attempt_row_generation(reservations)
             except BaseException:
                 # Every interrupted current row is uncommitted. Track only the
                 # composite keys actually accepted, so a later check failure
                 # cannot unregister a colliding key belonging to a prior row.
-                for key, values in self._current_row_composites:
-                    self._constraint_solver.unregister_composite(key, values)
-                self._current_row_composites.clear()
-                self._handle_col_failure(None, row, generated_values)
+                reservations.rollback(self._constraint_solver)
                 raise
 
             if backtrack_to is not None:

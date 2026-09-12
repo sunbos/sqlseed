@@ -32,6 +32,13 @@ from functools import lru_cache
 from typing import TYPE_CHECKING, Any
 
 import yaml
+from sqlseed_ai._generator_names import (
+    CANONICAL_NUMERIC_GENERATORS,
+    DATE_GENERATORS,
+    RELATION_GENERATORS,
+    generator_name,
+    needs_typed_source,
+)
 from sqlseed_ai.auto_heal import _check_inference, _cross_column_checks
 from sqlseed_ai.auto_heal.time_budget import TimeBudgetController
 from sqlseed_ai.healer.post_repair import BrokenEdgeAligner
@@ -903,7 +910,7 @@ class AutoHealOrchestrator:
         # downstream missing-generator repair path (line 256:
         # ``if not gen and not has_derive``) kicks in and delegates
         # to the Core ColumnMapper for semantic name matching.
-        if (gen := c.get("generator")) in {"?", ""}:
+        if (gen := generator_name(c.get("generator"))) in {None, "?", ""}:
             gen = None
             c.pop("generator", None)
         gen = self._repair_phone_length_generator(context, c, gen)
@@ -1077,7 +1084,7 @@ class AutoHealOrchestrator:
         # for -: 'str' and 'datetime.timedelta'`` because the string
         # generator produces ``str`` values, not date objects.
         col_name_55 = c.get("name", "")
-        if col_name_55 in timedelta_sources and gen in (None, "string"):
+        if col_name_55 in timedelta_sources and needs_typed_source(gen):
             target_gen = timedelta_sources[col_name_55]
             # Skip if this column already has derive_from.
             # Derived-mode columns don't need a generator — the
@@ -1225,7 +1232,7 @@ class AutoHealOrchestrator:
         # param-based inference. This is a generic LLM-output
         # cleanup that benefits any database where the LLM
         # hallucinates a non-existent generator name.
-        if gen is not None and gen not in _VALID_GENERATORS:
+        if gen is not None and generator_name(gen) not in _VALID_GENERATORS:
             gen = None
             c.pop("generator", None)
         return gen
@@ -1324,7 +1331,7 @@ class AutoHealOrchestrator:
         # Decision test: any database with semantic column names
         # (country_code, email, url, phone, etc.) where the LLM
         # downgraded them to generic strings benefits.
-        if not has_derive and gen in ("string", "catch_phrase") and meta is not None:
+        if not has_derive and generator_name(gen) in {"string", "catch_phrase"} and meta is not None:
             col_name_sd = c.get("name", "").lower()
             if col_name_sd and not _has_like_constraint(c.get("name", ""), meta.constraints):
                 mapper_sd = _get_column_mapper()
@@ -1368,7 +1375,7 @@ class AutoHealOrchestrator:
         #     word descriptive phrases are acceptable for products)
         if (
             not has_derive
-            and gen in ("name", "catch_phrase", "template")
+            and generator_name(gen) in {"name", "catch_phrase", "template"}
             and meta is not None
             and (col_name_ctx := c.get("name", "")) == "name"
         ):
@@ -1596,7 +1603,7 @@ class AutoHealOrchestrator:
         # Decision test: any database with these column names benefits
         # — without this, the database stores values that no real
         # frontend form would ever submit.
-        if not has_derive and gen in ("integer", "float"):
+        if not has_derive and generator_name(gen) in CANONICAL_NUMERIC_GENERATORS:
             semantic_max_values: dict[str, int | float] = {
                 "sort_order": 999,
                 "points_balance": 100000,
@@ -2347,7 +2354,7 @@ class AutoHealOrchestrator:
         if c_c.get("null_ratio", 0) >= 1.0:
             return
         # Skip autoincrement and FK columns
-        if c_c.get("generator") in ("autoincrement", "foreign_key_or_integer"):
+        if generator_name(c_c.get("generator")) in RELATION_GENERATORS:
             return
         if col_name_c not in meta_c.columns:
             return
@@ -2520,7 +2527,7 @@ class AutoHealOrchestrator:
         if c_sn.get("null_ratio", 0) >= 1.0:
             return
         # Skip autoincrement and FK columns
-        if c_sn.get("generator") in ("autoincrement", "foreign_key_or_integer"):
+        if generator_name(c_sn.get("generator")) in RELATION_GENERATORS:
             return
         # Only one cond_col supported (multiple cond_cols on same col
         # would require nested ternary — rare and complex)
@@ -2683,7 +2690,7 @@ class AutoHealOrchestrator:
                     "TIMESTAMP WITHOUT TIME ZONE",
                     "TIMESTAMP WITH TIME ZONE",
                 }
-                and ac_gen_sn in ("datetime", "date")
+                and generator_name(ac_gen_sn) in DATE_GENERATORS
                 and ac_sn.get("null_ratio", 0) < 1.0
             ):
                 anchor_col_sn = ac_name_sn
@@ -2857,7 +2864,7 @@ class AutoHealOrchestrator:
                 continue
             source_generator = source.get("generator")
             # A derived source must retain its existing dependency.
-            if source_generator in (None, "string") and not source.get("derive_from"):
+            if needs_typed_source(source_generator) and not source.get("derive_from"):
                 source_type = (meta.column_types.get(source_name, "") if meta else "") or ""
                 source["generator"] = "date" if _is_date_only_type(source_type) else "datetime"
                 source.pop("params", None)
