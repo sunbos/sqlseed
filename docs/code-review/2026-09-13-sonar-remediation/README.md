@@ -4,18 +4,18 @@
 
 ## 当前状态
 
-- 基线 762 项中，730 项已通过源码或测试整改，`4f315e0` 云端复扫已确认不再出现在未解决列表；31 项有[逐项误报复核依据](false-positive-review.md)，尚待服务端登记；1 项按用户要求暂缓。
+- 基线 762 项中，730 项已通过源码或测试整改，`4f315e0` 云端复扫已确认不再出现在未解决列表；31 项已逐项登记 False Positive，并经独立 GET 核验状态、完整评论和源码哈希，依据见[误报复核记录](false-positive-review.md)；1 项按用户要求暂缓。
 - 首次复扫后另有 15 个新告警已整改并经云端确认，包括函数作用域、编辑器控件分工、异常类型和内部未使用参数；同时补全 1 个原有测试断言。两项哈希误报换了 key，映射见[复扫账本](followup-ledger.csv)。
 - `fill` 参数数量告警 `AaCOzaRHkcuVuZeQceBV` 经用户明确要求留待后续共同评审，保留 OPEN，不登记 False Positive 或 Accepted。未使用源码抑制注释。
 - Windows 的 deadline 相等边界已在 `01b1584152aa1fc9f1135ea6add6fb1ab8c303be` 修复，云端 Windows job `103605398190` 通过。
-- `7fda56e5c8e1574e4b1919e9f430fcf4c9ed54ff` 的 [CI run 34716148288](https://github.com/sunbos/sqlseed/actions/runs/34716148288) 全部 9 个 job 通过，docs-sync 也通过。Python 3.12 的 Codecov 上传成功，之前的 `Repository not found` 已不再复现；保留 `fail_ci_if_error: true` 和 OIDC，未修改上传流程。
-- 同一提交的 CodeFlow 三个分析器已完成，0 errors / 0 warnings；第二轮源码还须再次云端确认。
+- 前轮提交 `7fda56e5c8e1574e4b1919e9f430fcf4c9ed54ff` 的 [CI run 34716148288](https://github.com/sunbos/sqlseed/actions/runs/34716148288) 全部 9 个 job 通过，docs-sync 也通过。Python 3.12 的 Codecov 上传成功，之前的 `Repository not found` 已不再复现；保留 `fail_ci_if_error: true` 和 OIDC，未修改上传流程。
+- 验证源 SHA 为 `9ed768958f9ccd41bcdb2fbb36834b89d5051ec0`：11 个 GitHub checks 全部成功，CodeFlow 状态成功且无问题，Sonar Quality Gate 为 OK。macOS 清理修复已通过云端验证，详见下方最终核验。
 
 ## 有效分析范围
 
-Sonar API 已核对 PR #10 的全部 590 个文件：262 个测试文件均为 `UTS`，生产源文件为 `FIL`。测试识别正常。项目公开设置没有返回 Python 版本配置；默认分支 `main` 中没有 `.sonarcloud.properties`，候选分支中的文件不能作为已生效证明。
+Sonar API 已核对 PR #10 的全部 590 个文件：262 个测试文件均为 `UTS`，生产源文件为 `FIL`。测试识别正常。前期项目公开设置没有返回 Python 版本配置；当时默认分支 `main` 中没有 `.sonarcloud.properties`，候选分支中的文件不能作为已生效证明。
 
-Sonar [Automatic analysis 文档](https://docs.sonarsource.com/sonarqube-cloud/advanced-setup/automatic-analysis) 说明额外文件配置读取默认分支，也允许在项目设置中指定部分参数。后续需在已认证服务中核对并设置 Python 3.10–3.13，不通过移出源文件、排除告警文件或降低 Quality Gate 消除问题。
+Sonar [Automatic analysis 文档](https://docs.sonarsource.com/sonarqube-cloud/advanced-setup/automatic-analysis) 说明额外文件配置读取默认分支，也允许在项目设置中指定部分参数。已通过登录后的项目设置 UI 保存 Python 版本 `3.10,3.11,3.12,3.13`；保存后尚未完成重新分析核验，不能据此认定 Python 版本警告已经消失。未通过移出源文件、排除告警文件或降低 Quality Gate 消除问题。
 
 ## 本地验证
 
@@ -36,7 +36,7 @@ Sonar [Automatic analysis 文档](https://docs.sonarsource.com/sonarqube-cloud/a
 
 ## 首次云端复扫
 
-提交 `7fda56e5c8e1574e4b1919e9f430fcf4c9ed54ff` 的 SonarCloud 分析已完成：未解决项从 762 降至 52，其中包含重构后出现的新告警。第二轮已整改其中 20 项，预计仍需登记 31 个误报并保留 1 项用户暂缓告警；具体剩余数须以下一次分析为准。CodeFlow 三个分析器均完成，0 errors / 0 warnings。SonarCloud 误报登记尚未执行，浏览器连接仍失败，当前无法使用已登录会话。
+提交 `7fda56e5c8e1574e4b1919e9f430fcf4c9ed54ff` 的 SonarCloud 分析已完成：未解决项从 762 降至 52，其中包含重构后出现的新告警。第二轮已整改其中 20 项，预计仍需登记 31 个误报并保留 1 项用户暂缓告警；当时的具体剩余数仍须以下一次分析为准。CodeFlow 三个分析器均完成，0 errors / 0 warnings。当时 SonarCloud 误报尚未登记，浏览器连接失败，无法使用已登录会话。
 
 ## 第二次云端复扫
 
@@ -44,4 +44,12 @@ Sonar [Automatic analysis 文档](https://docs.sonarsource.com/sonarqube-cloud/a
 
 该提交的 GitHub CI 有 8 个 job 通过，包括 Windows、Python 3.10/3.12/3.13、PostgreSQL integration、packages 和 Codecov 上传。macOS 失败于测试清理阶段重复 `killpg`：测试已验证子孙进程释放继承的 flock，又重复向原进程组发信号，收到 EPERM 后跳过后续锁释放，连带下一测试出现资源告警。Apple [XNU 的 killpg1 实现](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/kern_sig.c) 会过滤 zombie 进程，现存组没有可发送对象时可返回 EPERM。修复范围限于测试清理：保留真实进程与继承锁验证，成功后不重复 kill，失败时仍传播信号权限错误，并保证释放锁。
 
-新增参数化用例先在旧代码稳定复现重复信号错误与未关闭资源，再验证修复。真实活进程权限拒绝探针确认 EPERM 原样传播、父进程的两个锁描述符关闭，子孙进程仍持有继承锁直至探针显式终止它。修改后 Web 全部 487 个 Python 测试通过，ResourceWarning 与 PytestUnraisableExceptionWarning 仍作为错误；Ruff、format、Pylint、doc-sync 和 MkDocs strict 通过。产品源码与此前验证过的五包 wheel 源文件保持一致，待下一提交的云端 macOS 复核。
+新增参数化用例先在旧代码稳定复现重复信号错误与未关闭资源，再验证修复。真实活进程权限拒绝探针确认 EPERM 原样传播、父进程的两个锁描述符关闭，子孙进程仍持有继承锁直至探针显式终止它。修改后 Web 全部 487 个 Python 测试通过，ResourceWarning 与 PytestUnraisableExceptionWarning 仍作为错误；Ruff、format、Pylint、doc-sync 和 MkDocs strict 通过。产品源码与此前验证过的五包 wheel 源文件保持一致，当时待下一提交的云端 macOS 复核；后续结果见下方。
+
+## 最终远端核验
+
+验证源 SHA 为 `9ed768958f9ccd41bcdb2fbb36834b89d5051ec0`，Sonar 分析时间为 2026-09-12 21:01:32 UTC。2026-09-12 22:24:43 UTC 的独立只读 GET 核验确认：31 项均为 `FALSE_POSITIVE`，每项已提交的完整评论与复核 manifest 完全一致，源文件 SHA-256 均匹配；[Quality Gate](https://sonarcloud.io/dashboard?id=sunbos_sqlseed&pullRequest=10) 为 OK。`AaCOzaRHkcuVuZeQceBV`（`python:S107`）仍为 OPEN。账本使用 `verified_false_positive`；两条复扫换 key 记录是同一误报的映射，不增加 31 项总数。
+
+同一 SHA 的 [CI](https://github.com/sunbos/sqlseed/actions/runs/34718765177) 和 [doc-sync](https://github.com/sunbos/sqlseed/actions/runs/34718765110) 均成功；连同 SonarCloud Code Analysis，共 11 个 GitHub checks 全部成功。其中 [macOS job](https://github.com/sunbos/sqlseed/actions/runs/34718765177/job/103620769777) 已验证测试清理修复。[CodeFlow](https://app.getcodeflow.com/github/sunbos/sqlseed/pull-requests/10) 的独立 commit status 为 success，结果为无问题。
+
+核验依据为 `ui-registration-verification.json` 与 `final-github-check-runs.json`、`final-github-status.json`、`final-github-runs.json`。Python 版本设置的保存发生于本次分析之后；其重新分析结果仍待核对，不包含在上述通过结论中。
