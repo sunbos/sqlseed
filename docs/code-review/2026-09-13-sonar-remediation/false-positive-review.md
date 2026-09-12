@@ -1,8 +1,8 @@
 # SonarCloud 误报复核依据
 
-本记录只包含独立复核确认的 31 个误报；服务端尚未登记。原先另外 4 个候选已有等价的源码改进，已撤回误报建议。公开 API `sqlseed.fill` 的 S107 参数数量告警由用户明确要求暂缓，保持 OPEN，不在此列表。
+本记录只包含独立复核确认的 31 个误报，现已逐项通过 UI 登记为 False Positive，并完成独立只读 GET 核验。原先另外 4 个候选已有等价的源码改进，已撤回误报建议。公开 API `sqlseed.fill` 的 S107 参数数量告警由用户明确要求暂缓，保持 OPEN，不在此列表。
 
-登记前必须核对 PR #10 最新分析 SHA、issue key、规则及源文件。下列两条 JavaScript 哈希问题在 `7fda56e` 复扫后换了 key，其他 key 不变。登记使用逐项英文依据，不能以批量无理由的方式关闭告警。
+验证源 SHA 为 `9ed768958f9ccd41bcdb2fbb36834b89d5051ec0`。2026-09-12 22:24:43 UTC 的核验确认，全部 31 项的 issue key、规则、源文件 SHA-256、False Positive 状态和完整英文评论均与复核 manifest 一致；账本状态为 `verified_false_positive`。下列两条 JavaScript 哈希问题在 `7fda56e` 复扫后换了 key，其他 key 不变；换 key 映射不增加误报总数。以下逐项依据即已提交评论的原文。
 
 ## AaCRco4dtyo-iTRYo9q_
 
