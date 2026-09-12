@@ -231,17 +231,9 @@ class SpecResolverMixin:
             # values differ from the CHECK enum (e.g. ``gender`` rule
             # says ['male','female','other'] but CHECK says IN ('M','F'))
             # is re-pointed to the CHECK values. Same values → untouched.
-            if current_spec.generator_name != "skip":
-                enum_choices = self._check_enum_choices(col_name, check_constraints)
-                if enum_choices is not None and not (
-                    current_spec.generator_name == "choice" and current_spec.params.get("choices") == enum_choices
-                ):
-                    generator_specs[col_name] = GeneratorSpec(
-                        generator_name="choice",
-                        params={"choices": enum_choices},
-                        null_ratio=current_spec.null_ratio,
-                    )
-                    continue
+            if (enum_spec := self._enum_check_override(col_name, current_spec, check_constraints)) is not None:
+                generator_specs[col_name] = enum_spec
+                continue
             # Length-CHECK hard truth (2026-08-30): a phone-like column
             # with a deterministic ``LENGTH(col) = N`` CHECK cannot use
             # the ``phone`` generator — providers emit locale-formatted
@@ -267,6 +259,18 @@ class SpecResolverMixin:
                 continue
             if (enhanced := fallback.fallback_for_column(col_info, check_constraints, unique_list)) is not None:
                 generator_specs[col_name] = enhanced
+
+    def _enum_check_override(
+        self, col_name: str, current_spec: GeneratorSpec, check_constraints: list[Any]
+    ) -> GeneratorSpec | None:
+        """Reconcile a generated column against literal enum CHECK hard truth."""
+        if current_spec.generator_name == "skip":
+            return None
+        if (choices := self._check_enum_choices(col_name, check_constraints)) is None:
+            return None
+        if current_spec.generator_name == "choice" and current_spec.params.get("choices") == choices:
+            return None
+        return GeneratorSpec(generator_name="choice", params={"choices": choices}, null_ratio=current_spec.null_ratio)
 
     @staticmethod
     def _check_enum_choices(col_name: str, check_constraints: list[Any]) -> list[Any] | None:

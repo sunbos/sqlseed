@@ -17,6 +17,16 @@ from sqlseed_ai.auto_heal._check_inference import (
     _range_expr_for_op,
 )
 
+_SINGLE_QUOTED_VALUE = "'([^']*)'"
+_DOUBLE_QUOTED_VALUE = '"([^"]*)"'
+_SQL_AND = " AND "
+_INTEGER_ABOVE_SOURCE = "value + random_int(1, 100)"
+_INTEGER_BELOW_SOURCE = "value - random_int(1, 100)"
+_FLOAT_ABOVE_SOURCE = "value + random_float(0.01, 100.0)"
+_INTEGER_AT_OR_ABOVE_SOURCE = "value + random_int(0, 100)"
+_FLOAT_BELOW_SOURCE = "value - random_float(0.01, 100.0)"
+_INTEGER_AT_OR_BELOW_SOURCE = "value - random_int(0, 100)"
+
 
 def _infer_cross_column_config(
     col_name: str,
@@ -150,7 +160,7 @@ def _cross_constraint_sort_key(c: dict[str, Any]) -> tuple[int, int]:
         return (2, 0)
     expr = c.get("expression", "")
     # Conditional constraints (with OR) get priority 0
-    if re.search(r"\s+OR\s+", expr, re.IGNORECASE):
+    if re.search(r"(?<=\s)OR(?=\s)", expr, re.IGNORECASE):
         # Secondary: constraints with ``IN (...)`` are more restrictive
         # (they force a specific NULL/value for non-matching cases)
         if re.search(r"\bIN\s*\(", expr, re.IGNORECASE):
@@ -322,40 +332,48 @@ def _infer_self_reference_condition(context: _CrossColumnContext) -> dict[str, A
     # This must be a PRE-LOOP scan because it applies to col1 (not col2), and
     # the per-constraint loop might match a less restrictive pattern first.
     # e.g., org_type = 'root' OR parent_id IS NOT NULL (parent_id is self-ref FK)
-    if self_ref_fk_cols := context.self_ref_fk_cols:
-        for c in constraints:
-            if c.get("type") != "check":
-                continue
-            expr_p40 = c.get("expression", "")
-            m_p40 = re.match(
-                rf"^\s*{col}\s*=\s*'([^']+)'\s+OR\s+(\w+)\s+IS\s+NOT\s+NULL\s*$",
-                expr_p40,
-                re.IGNORECASE,
-            )
-            if m_p40:
-                val_p40 = m_p40.group(1)
-                other_col_p40 = m_p40.group(2)
-                if other_col_p40 in self_ref_fk_cols and other_col_p40 != col_name:
-                    return {
-                        "generator": "choice",
-                        "params": {"choices": [val_p40]},
-                    }
-            # Pattern 40 (int variant): col = INT_VALUE OR other_col IS NOT NULL
-            # e.g., level = 1 OR parent_id IS NOT NULL (parent_id is self-ref FK)
-            # Same semantics as the string variant but with an unquoted integer.
-            m_p40_int = re.match(
-                rf"^\s*{col}\s*=\s*(\d+)\s+OR\s+(\w+)\s+IS\s+NOT\s+NULL\s*$",
-                expr_p40,
-                re.IGNORECASE,
-            )
-            if m_p40_int:
-                val_p40_int = int(m_p40_int.group(1))
-                other_col_p40_int = m_p40_int.group(2)
-                if other_col_p40_int in self_ref_fk_cols and other_col_p40_int != col_name:
-                    return {
-                        "generator": "choice",
-                        "params": {"choices": [val_p40_int]},
-                    }
+    if not (self_ref_fk_cols := context.self_ref_fk_cols):
+        return None
+    for c in constraints:
+        if c.get("type") != "check":
+            continue
+        if inferred := _match_self_reference_literal(col_name, col, self_ref_fk_cols, c.get("expression", "")):
+            return inferred
+    return None
+
+
+def _match_self_reference_literal(
+    col_name: str, col: str, self_ref_fk_cols: set[str], expr_p40: str
+) -> dict[str, Any] | None:
+    m_p40 = re.match(
+        rf"^\s*{col}\s*=\s*'([^']+)'\s+OR\s+(\w+)\s+IS\s+NOT\s+NULL\s*$",
+        expr_p40,
+        re.IGNORECASE,
+    )
+    if m_p40:
+        val_p40 = m_p40.group(1)
+        other_col_p40 = m_p40.group(2)
+        if other_col_p40 in self_ref_fk_cols and other_col_p40 != col_name:
+            return {
+                "generator": "choice",
+                "params": {"choices": [val_p40]},
+            }
+    # Pattern 40 (int variant): col = INT_VALUE OR other_col IS NOT NULL
+    # e.g., level = 1 OR parent_id IS NOT NULL (parent_id is self-ref FK)
+    # Same semantics as the string variant but with an unquoted integer.
+    m_p40_int = re.match(
+        rf"^\s*{col}\s*=\s*(\d+)\s+OR\s+(\w+)\s+IS\s+NOT\s+NULL\s*$",
+        expr_p40,
+        re.IGNORECASE,
+    )
+    if m_p40_int:
+        val_p40_int = int(m_p40_int.group(1))
+        other_col_p40_int = m_p40_int.group(2)
+        if other_col_p40_int in self_ref_fk_cols and other_col_p40_int != col_name:
+            return {
+                "generator": "choice",
+                "params": {"choices": [val_p40_int]},
+            }
     return None
 
 
@@ -485,7 +503,7 @@ def _infer_conditional_range_priority(context: _CrossColumnContext) -> dict[str,
         if c_p27_pre.get("type") != "check":
             continue
         expr_p27_pre = c_p27_pre.get("expression", "")
-        if " OR " not in expr_p27_pre or " AND " not in expr_p27_pre:
+        if " OR " not in expr_p27_pre or _SQL_AND not in expr_p27_pre:
             continue
         if not re.search(rf"\b{col}\b", expr_p27_pre, re.IGNORECASE):
             continue
@@ -494,20 +512,21 @@ def _infer_conditional_range_priority(context: _CrossColumnContext) -> dict[str,
             r"(>=|<=|>|<)\s*(-?[0-9]+(?:\.[0-9]+)?)"
         )
         clauses_p27_pre = re.findall(clause_re_p27_pre, expr_p27_pre)
-        if len(clauses_p27_pre) >= 2:
-            other_col_p27_pre = clauses_p27_pre[0][0]
-            if (
-                other_col_p27_pre in col_set
-                and other_col_p27_pre != col_name
-                and all(cl[0] == other_col_p27_pre for cl in clauses_p27_pre)
-            ):
-                # Guard: count enum assignments vs col comparisons. If
-                # comparisons > assignments, it's Pattern 36 (dual bounds).
-                enum_count = len(re.findall(rf"{other_col_p27_pre}\s*=\s*'[^']+'", expr_p27_pre, re.IGNORECASE))
-                col_cmp_count = len(re.findall(rf"\b{col}\s*(>=|<=|>|<)\s*", expr_p27_pre, re.IGNORECASE))
-                if col_cmp_count > enum_count:
-                    continue  # Pattern 36 — skip, let per-loop Pattern 36 handle it
-                return _build_conditional_priority_range(context, other_col_p27_pre, clauses_p27_pre)
+        if len(clauses_p27_pre) < 2:
+            continue
+        other_col_p27_pre = clauses_p27_pre[0][0]
+        if (
+            other_col_p27_pre not in col_set
+            or other_col_p27_pre == col_name
+            or not all(cl[0] == other_col_p27_pre for cl in clauses_p27_pre)
+        ):
+            continue
+        # Guard: count enum assignments vs col comparisons. If
+        # comparisons > assignments, it's Pattern 36 (dual bounds).
+        enum_count = len(re.findall(rf"{other_col_p27_pre}\s*=\s*'[^']+'", expr_p27_pre, re.IGNORECASE))
+        if len(re.findall(rf"\b{col}\s*(>=|<=|>|<)\s*", expr_p27_pre, re.IGNORECASE)) > enum_count:
+            continue  # Pattern 36 — skip, let per-loop Pattern 36 handle it
+        return _build_conditional_priority_range(context, other_col_p27_pre, clauses_p27_pre)
     return None
 
 
@@ -783,7 +802,7 @@ def _match_inclusive_lower(context: _CrossColumnContext, c: dict[str, Any]) -> d
                 }
             return {
                 "derive_from": other_col,
-                "expression": "value + random_int(1, 100)",
+                "expression": _INTEGER_ABOVE_SOURCE,
             }
     return None
 
@@ -816,7 +835,7 @@ def _match_exclusive_lower(context: _CrossColumnContext, c: dict[str, Any]) -> d
                 }
             return {
                 "derive_from": other_col,
-                "expression": "value + random_int(1, 100)",
+                "expression": _INTEGER_ABOVE_SOURCE,
             }
     return None
 
@@ -1068,7 +1087,7 @@ def _match_exclusive_upper(context: _CrossColumnContext, c: dict[str, Any]) -> d
                 }
             return {
                 "derive_from": other_col,
-                "expression": "value - random_int(1, 100)",
+                "expression": _INTEGER_BELOW_SOURCE,
             }
     return None
 
@@ -1098,43 +1117,44 @@ def _match_column_inequality(context: _CrossColumnContext, c: dict[str, Any]) ->
     # Reversed form: other_col != col
     elif m_p6_rev := re.match(rf"^\s*(\w+)\s*!=\s*{col}\s*$", expr, re.IGNORECASE):
         other_col_p6 = m_p6_rev.group(1)
-    if other_col_p6 and other_col_p6 in col_set and other_col_p6 != col_name:
-        # Cycle prevention: only apply Pattern 6 to the column that comes
-        # LATER in the column list. The constraint ``col != other_col`` is
-        # symmetric — both columns match (one via direct form, the other via
-        # reversed form). Without this check, both columns would derive_from
-        # each other, creating a circular dependency that crashes the DAG.
-        # By only applying to the later column, the earlier column is the
-        # source (generated first), and the later column derives from it.
-        col_idx_p6 = all_columns.index(col_name) if col_name in all_columns else -1
-        other_idx_p6 = all_columns.index(other_col_p6) if other_col_p6 in all_columns else -1
-        # UNIQUE-constraint guard: when col and other_col are BOTH part of
-        # the same UNIQUE constraint, the deterministic expression
-        # ``value - 1 if value > 1 else value + 1`` maps each other_col
-        # value to exactly one col value. This limits the number of unique
-        # (other_col, col) pairs to the number of distinct other_col values,
-        # making large fills impossible (e.g., 1000 routes with 1000
-        # warehouses — after 500 rows, collision probability is 50%).
-        # Skip Pattern 6 and let the ConstraintSolver handle the ``!=``
-        # constraint via retry logic with independent random FK sampling.
-        p6_unique_conflict = any(
-            uc.get("type") == "unique" and col_name in uc.get("columns", []) and other_col_p6 in uc.get("columns", [])
-            for uc in constraints
-        )
-        should_apply_p6 = col_idx_p6 > other_idx_p6 and not p6_unique_conflict
-        if should_apply_p6 and is_int_type:
-            return {
-                "derive_from": other_col_p6,
-                "expression": "value - 1 if value > 1 else value + 1",
-            }
-        # TEXT columns: build a rotation ternary from the IN set.
-        # Scan constraints for ``col IN ('v1', 'v2', ...)`` to extract
-        # valid values, then cycle: each value maps to the next, last
-        # maps to first. This guarantees result != value for any value
-        # in the set.
-        if should_apply_p6 and col_type.upper() in {"TEXT", "VARCHAR", "CHAR"}:
-            return _build_inequality_enum_rotation(context, other_col_p6)
-    return None
+    if not other_col_p6 or other_col_p6 not in col_set or other_col_p6 == col_name:
+        return None
+    # Cycle prevention: only apply Pattern 6 to the column that comes
+    # LATER in the column list. The constraint ``col != other_col`` is
+    # symmetric — both columns match (one via direct form, the other via
+    # reversed form). Without this check, both columns would derive_from
+    # each other, creating a circular dependency that crashes the DAG.
+    # By only applying to the later column, the earlier column is the
+    # source (generated first), and the later column derives from it.
+    col_idx_p6 = all_columns.index(col_name) if col_name in all_columns else -1
+    other_idx_p6 = all_columns.index(other_col_p6) if other_col_p6 in all_columns else -1
+    # UNIQUE-constraint guard: when col and other_col are BOTH part of
+    # the same UNIQUE constraint, the deterministic expression
+    # ``value - 1 if value > 1 else value + 1`` maps each other_col
+    # value to exactly one col value. This limits the number of unique
+    # (other_col, col) pairs to the number of distinct other_col values,
+    # making large fills impossible (e.g., 1000 routes with 1000
+    # warehouses — after 500 rows, collision probability is 50%).
+    # Skip Pattern 6 and let the ConstraintSolver handle the ``!=``
+    # constraint via retry logic with independent random FK sampling.
+    p6_unique_conflict = any(
+        uc.get("type") == "unique" and col_name in uc.get("columns", []) and other_col_p6 in uc.get("columns", [])
+        for uc in constraints
+    )
+    should_apply_p6 = col_idx_p6 > other_idx_p6 and not p6_unique_conflict
+    if should_apply_p6 and is_int_type:
+        return {
+            "derive_from": other_col_p6,
+            "expression": "value - 1 if value > 1 else value + 1",
+        }
+    # TEXT columns: build a rotation ternary from the IN set.
+    # Scan constraints for ``col IN ('v1', 'v2', ...)`` to extract
+    # valid values, then cycle: each value maps to the next, last
+    # maps to first. This guarantees result != value for any value
+    # in the set.
+    if not should_apply_p6 or col_type.upper() not in {"TEXT", "VARCHAR", "CHAR"}:
+        return None
+    return _build_inequality_enum_rotation(context, other_col_p6)
 
 
 def _match_conditional_integer_equality(context: _CrossColumnContext, c: dict[str, Any]) -> dict[str, Any] | None:
@@ -1442,56 +1462,57 @@ def _match_reverse_sum(context: _CrossColumnContext, c: dict[str, Any]) -> dict[
         if m:
             # Reverse ordering groups: (op, col1, total) — note the swap!
             op, other_col, total_col = m.group(1), m.group(2), m.group(3)
-    if m and other_col in col_set and total_col in col_set and total_col != col_name:
-        # Cycle prevention: the constraint ``col1 + col2 = total`` is
-        # symmetric — both addends match Pattern 19 (one via first
-        # ordering, the other via reverse). Without this check, both
-        # would derive_from total and reference each other, creating a
-        # circular dependency that crashes the DAG. By only applying
-        # the ``total - other`` expression to the LATER column, the
-        # earlier column becomes the source (generated first).
-        col_idx_p19 = all_columns.index(col_name) if col_name in all_columns else -1
-        other_idx_p19 = all_columns.index(other_col) if other_col in all_columns else -1
-        if col_idx_p19 > other_idx_p19:
-            # col1 + col = col2 → col = col2 - col1
-            # col1 - col = col2 → col = col1 - col2
-            # col + col1 = col2 → col = col2 - col1
-            # col - col1 = col2 → col = col2 + col1
-            if op == "+":
-                return {
-                    "derive_from": total_col,
-                    "expression": f"value - row['{other_col}']",
-                }
-            # op == "-"
-            return {
-                "derive_from": total_col,
-                "expression": f"row['{other_col}'] - value",
-            }
-        # col is the EARLIER addend. Derive it from total as an
-        # integer fraction so that col ∈ [0, total] (when total >= 0).
-        # This guarantees the LATER addend (total - col) is also in
-        # [0, total], satisfying both ``col >= 0`` and
-        # ``other_col >= 0`` CHECK constraints. Only applies to
-        # addition (``col + other = total``); subtraction variants
-        # (``col - other = total``) don't have the same non-negativity
-        # guarantee, so we skip and let other patterns handle them.
-        #
-        # Uses ``random_int`` (not ``random_float``) to guarantee the
-        # CHECK ``col1 + col2 = total`` holds EXACTLY in IEEE 754
-        # floating point. Integers up to 2^53 are exactly representable
-        # in double precision, and ``int + (float - int) = float`` is
-        # exact for normal-range floats (the integer only affects the
-        # integer part, leaving the fractional bits untouched). With
-        # ``random_float``, the multiplication ``total * frac``
-        # introduces rounding, and ``frac*total + (total - frac*total)``
-        # may differ from ``total`` by 1 ULP, failing the ``=``
-        # CHECK on REAL columns.
+    if not m or other_col not in col_set or total_col not in col_set or (total_col == col_name):
+        return None
+    # Cycle prevention: the constraint ``col1 + col2 = total`` is
+    # symmetric — both addends match Pattern 19 (one via first
+    # ordering, the other via reverse). Without this check, both
+    # would derive_from total and reference each other, creating a
+    # circular dependency that crashes the DAG. By only applying
+    # the ``total - other`` expression to the LATER column, the
+    # earlier column becomes the source (generated first).
+    col_idx_p19 = all_columns.index(col_name) if col_name in all_columns else -1
+    other_idx_p19 = all_columns.index(other_col) if other_col in all_columns else -1
+    if col_idx_p19 > other_idx_p19:
+        # col1 + col = col2 → col = col2 - col1
+        # col1 - col = col2 → col = col1 - col2
+        # col + col1 = col2 → col = col2 - col1
+        # col - col1 = col2 → col = col2 + col1
         if op == "+":
             return {
                 "derive_from": total_col,
-                "expression": "random_int(0, max(0, int(value)))",
+                "expression": f"value - row['{other_col}']",
             }
-    return None
+        # op == "-"
+        return {
+            "derive_from": total_col,
+            "expression": f"row['{other_col}'] - value",
+        }
+    # col is the EARLIER addend. Derive it from total as an
+    # integer fraction so that col ∈ [0, total] (when total >= 0).
+    # This guarantees the LATER addend (total - col) is also in
+    # [0, total], satisfying both ``col >= 0`` and
+    # ``other_col >= 0`` CHECK constraints. Only applies to
+    # addition (``col + other = total``); subtraction variants
+    # (``col - other = total``) don't have the same non-negativity
+    # guarantee, so we skip and let other patterns handle them.
+    #
+    # Uses ``random_int`` (not ``random_float``) to guarantee the
+    # CHECK ``col1 + col2 = total`` holds EXACTLY in IEEE 754
+    # floating point. Integers up to 2^53 are exactly representable
+    # in double precision, and ``int + (float - int) = float`` is
+    # exact for normal-range floats (the integer only affects the
+    # integer part, leaving the fractional bits untouched). With
+    # ``random_float``, the multiplication ``total * frac``
+    # introduces rounding, and ``frac*total + (total - frac*total)``
+    # may differ from ``total`` by 1 ULP, failing the ``=``
+    # CHECK on REAL columns.
+    if op != "+":
+        return None
+    return {
+        "derive_from": total_col,
+        "expression": "random_int(0, max(0, int(value)))",
+    }
 
 
 def _match_range_indicator(context: _CrossColumnContext, c: dict[str, Any]) -> dict[str, Any] | None:
@@ -1548,27 +1569,28 @@ def _match_average(context: _CrossColumnContext, c: dict[str, Any]) -> dict[str,
         expr,
         re.IGNORECASE,
     )
-    if m:
-        col1, col2, col3_opt, n_str = m.group(1), m.group(2), m.group(3), m.group(4)
-        if col1 in col_set and col2 in col_set and col1 != col_name:
-            n_val: float | int = float(n_str) if "." in n_str else int(n_str)
-            # Wrap in int() for INTEGER columns to match SQLite's
-            # integer division semantics in CHECK constraints.
-            int_wrap = "int" if is_int_type else ""
-            if col3_opt and col3_opt in col_set:
-                # Three-column average: (value + row[col2] + row[col3]) / N
-                inner = f"(value + row['{col2}'] + row['{col3_opt}']) / {n_val}"
-                return {
-                    "derive_from": col1,
-                    "expression": f"{int_wrap}({inner})" if int_wrap else inner,
-                }
-            # Two-column average: (value + row[col2]) / N
-            inner = f"(value + row['{col2}']) / {n_val}"
-            return {
-                "derive_from": col1,
-                "expression": f"{int_wrap}({inner})" if int_wrap else inner,
-            }
-    return None
+    if not m:
+        return None
+    col1, col2, col3_opt, n_str = m.group(1), m.group(2), m.group(3), m.group(4)
+    if col1 not in col_set or col2 not in col_set or col1 == col_name:
+        return None
+    n_val: float | int = float(n_str) if "." in n_str else int(n_str)
+    # Wrap in int() for INTEGER columns to match SQLite's
+    # integer division semantics in CHECK constraints.
+    int_wrap = "int" if is_int_type else ""
+    if col3_opt and col3_opt in col_set:
+        # Three-column average: (value + row[col2] + row[col3]) / N
+        inner = f"(value + row['{col2}'] + row['{col3_opt}']) / {n_val}"
+        return {
+            "derive_from": col1,
+            "expression": f"{int_wrap}({inner})" if int_wrap else inner,
+        }
+    # Two-column average: (value + row[col2]) / N
+    inner = f"(value + row['{col2}']) / {n_val}"
+    return {
+        "derive_from": col1,
+        "expression": f"{int_wrap}({inner})" if int_wrap else inner,
+    }
 
 
 def _match_multiplier_upper(context: _CrossColumnContext, c: dict[str, Any]) -> dict[str, Any] | None:
@@ -1680,27 +1702,21 @@ def _match_literal_or_comparison(context: _CrossColumnContext, c: dict[str, Any]
         expr,
         re.IGNORECASE,
     )
-    if m:
-        val_str, op, other_col = m.group(1), m.group(2), m.group(3)
-        if other_col in col_set and other_col != col_name:
-            is_float_p24 = "." in val_str
-            val_num_p24: float | int = float(val_str) if is_float_p24 else int(val_str)
-            # Build expression that produces VALUE or a compliant value.
-            # Use addition/subtraction (NOT multiplication) for float comparisons —
-            # multiplication reverses inequality for negative values.
-            if op == ">":
-                comp_expr = "value + random_float(0.01, 100.0)" if is_float_p24 else "value + random_int(1, 100)"
-            elif op == ">=":
-                comp_expr = "value + random_float(0, 100.0)" if is_float_p24 else "value + random_int(0, 100)"
-            elif op == "<":
-                comp_expr = "value - random_float(0.01, 100.0)" if is_float_p24 else "value - random_int(1, 100)"
-            else:  # <=
-                comp_expr = "value - random_float(0, 100.0)" if is_float_p24 else "value - random_int(0, 100)"
-            return {
-                "derive_from": other_col,
-                "expression": f"{val_num_p24} if random_int(0, 1) == 0 else {comp_expr}",
-            }
-    return None
+    if not m:
+        return None
+    val_str, op, other_col = m.group(1), m.group(2), m.group(3)
+    if other_col not in col_set or other_col == col_name:
+        return None
+    is_float_p24 = "." in val_str
+    val_num_p24: float | int = float(val_str) if is_float_p24 else int(val_str)
+    # Build expression that produces VALUE or a compliant value.
+    # Use addition/subtraction (NOT multiplication) for float comparisons —
+    # multiplication reverses inequality for negative values.
+    comp_expr = _numeric_comparison_expression(op, is_float_p24)
+    return {
+        "derive_from": other_col,
+        "expression": f"{val_num_p24} if random_int(0, 1) == 0 else {comp_expr}",
+    }
 
 
 def _match_conditional_comparison(context: _CrossColumnContext, c: dict[str, Any]) -> dict[str, Any] | None:
@@ -1725,54 +1741,48 @@ def _match_conditional_comparison(context: _CrossColumnContext, c: dict[str, Any
         expr,
         re.IGNORECASE,
     )
-    if m:
-        cond_col_p24b, val_str_p24b, op_p24b, other_col_p24b = (
-            m.group(1),
-            m.group(2),
-            m.group(3),
-            m.group(4),
+    if not m:
+        return None
+    cond_col_p24b, val_str_p24b, op_p24b, other_col_p24b = (
+        m.group(1),
+        m.group(2),
+        m.group(3),
+        m.group(4),
+    )
+    if other_col_p24b not in col_set or other_col_p24b == col_name or cond_col_p24b not in col_set:
+        return None
+    # Cross-constraint cap: if there's also a ``col <= other_col``
+    # or ``col < other_col`` constraint on the same column referencing
+    # the same other_col, the comparison expression must NOT exceed
+    # other_col. When op is >= or >, use ``value`` (exact equality)
+    # to satisfy both >= and <= simultaneously.
+    # e.g., ``status != 'paid' OR paid_amount >= total_amount`` +
+    #       ``paid_amount <= total_amount`` → paid_amount == total_amount
+    has_upper_cap = any(
+        re.match(
+            rf"^\s*{col}\s*(<=|<)\s*{other_col_p24b}\s*$",
+            c2.get("expression", ""),
+            re.IGNORECASE,
         )
-        if other_col_p24b in col_set and other_col_p24b != col_name and cond_col_p24b in col_set:
-            # Cross-constraint cap: if there's also a ``col <= other_col``
-            # or ``col < other_col`` constraint on the same column referencing
-            # the same other_col, the comparison expression must NOT exceed
-            # other_col. When op is >= or >, use ``value`` (exact equality)
-            # to satisfy both >= and <= simultaneously.
-            # e.g., ``status != 'paid' OR paid_amount >= total_amount`` +
-            #       ``paid_amount <= total_amount`` → paid_amount == total_amount
-            has_upper_cap = any(
-                re.match(
-                    rf"^\s*{col}\s*(<=|<)\s*{other_col_p24b}\s*$",
-                    c2.get("expression", ""),
-                    re.IGNORECASE,
-                )
-                for c2 in constraints
-                if c2.get("type") == "check"
-            )
-            if has_upper_cap and op_p24b in {">=", ">"}:
-                # Exact equality satisfies both >= and <= constraints
-                comp_expr_p24b = "value"
-            elif op_p24b == ">":
-                # Addition (not multiplication) — see Pattern 1b pre-loop scan comment.
-                comp_expr_p24b = "value + random_float(0.01, 100.0)" if is_float_type else "value + random_int(1, 100)"
-            elif op_p24b == ">=":
-                comp_expr_p24b = "value + random_float(0, 100.0)" if is_float_type else "value + random_int(0, 100)"
-            elif op_p24b == "<":
-                comp_expr_p24b = "value - random_float(0.01, 100.0)" if is_float_type else "value - random_int(1, 100)"
-            else:  # <=
-                comp_expr_p24b = "value - random_float(0, 100.0)" if is_float_type else "value - random_int(0, 100)"
-            # Derive from other_col; reference cond_col via row dict.
-            # When cond_col == VALUE: produce compliant value.
-            # When cond_col != VALUE: 50% compliant, 50% safe zero.
-            safe_expr = "0.0" if is_float_type else "0"
-            return {
-                "derive_from": other_col_p24b,
-                "expression": (
-                    f"{comp_expr_p24b} if row['{cond_col_p24b}'] == '{val_str_p24b}' "
-                    f"else ({comp_expr_p24b} if random_int(0, 1) == 0 else {safe_expr})"
-                ),
-            }
-    return None
+        for c2 in constraints
+        if c2.get("type") == "check"
+    )
+    if has_upper_cap and op_p24b in {">=", ">"}:
+        # Exact equality satisfies both >= and <= constraints
+        comp_expr_p24b = "value"
+    else:
+        comp_expr_p24b = _numeric_comparison_expression(op_p24b, is_float_type)
+    # Derive from other_col; reference cond_col via row dict.
+    # When cond_col == VALUE: produce compliant value.
+    # When cond_col != VALUE: 50% compliant, 50% safe zero.
+    safe_expr = "0.0" if is_float_type else "0"
+    return {
+        "derive_from": other_col_p24b,
+        "expression": (
+            f"{comp_expr_p24b} if row['{cond_col_p24b}'] == '{val_str_p24b}' "
+            f"else ({comp_expr_p24b} if random_int(0, 1) == 0 else {safe_expr})"
+        ),
+    }
 
 
 def _match_product_with_offset(context: _CrossColumnContext, c: dict[str, Any]) -> dict[str, Any] | None:
@@ -1847,28 +1857,30 @@ def _match_literal_or_enum(context: _CrossColumnContext, c: dict[str, Any]) -> d
         expr,
         re.IGNORECASE,
     )
-    if m:
-        val_str, other_col, values_str = m.group(1), m.group(2), m.group(3)
-        if other_col in col_set and other_col != col_name:
-            # Parse the values: 'a', 'b', 'c' → ['a', 'b', 'c']
-            if not (values := re.findall(r"'([^']*)'", values_str)):
-                values = re.findall(r'"([^"]*)"', values_str)
-            if values:
-                is_float_p26 = "." in val_str
-                val_num_p26: float | int = float(val_str) if is_float_p26 else int(val_str)
-                # Build Python list literal: ['captain', 'first_officer']
-                py_list = "[" + ", ".join(f"'{v}'" for v in values) + "]"
-                # For int/boolean columns, use (1-VALUE); for float,
-                # use a random positive amount when allowed.
-                if is_float_p26:
-                    non_val_expr = "random_float(0.01, 100.0)"
-                else:
-                    non_val_expr = str(1 - val_num_p26) if val_num_p26 in {0, 1} else "0"
-                return {
-                    "derive_from": other_col,
-                    "expression": f"{non_val_expr} if value in {py_list} else {val_num_p26}",
-                }
-    return None
+    if not m:
+        return None
+    val_str, other_col, values_str = m.group(1), m.group(2), m.group(3)
+    if other_col not in col_set or other_col == col_name:
+        return None
+    # Parse the values: 'a', 'b', 'c' → ['a', 'b', 'c']
+    if not (values := re.findall(_SINGLE_QUOTED_VALUE, values_str)):
+        values = re.findall(_DOUBLE_QUOTED_VALUE, values_str)
+    if not values:
+        return None
+    is_float_p26 = "." in val_str
+    val_num_p26: float | int = float(val_str) if is_float_p26 else int(val_str)
+    # Build Python list literal: ['captain', 'first_officer']
+    py_list = "[" + ", ".join(f"'{v}'" for v in values) + "]"
+    # For int/boolean columns, use (1-VALUE); for float,
+    # use a random positive amount when allowed.
+    if is_float_p26:
+        non_val_expr = "random_float(0.01, 100.0)"
+    else:
+        non_val_expr = str(1 - val_num_p26) if val_num_p26 in {0, 1} else "0"
+    return {
+        "derive_from": other_col,
+        "expression": f"{non_val_expr} if value in {py_list} else {val_num_p26}",
+    }
 
 
 def _match_conditional_enum(context: _CrossColumnContext, c: dict[str, Any]) -> dict[str, Any] | None:
@@ -1898,8 +1910,8 @@ def _match_conditional_enum(context: _CrossColumnContext, c: dict[str, Any]) -> 
         )
         if cond_col_p26b in col_set and cond_col_p26b != col_name:
             # Parse the values: 'a', 'b', 'c' → ['a', 'b', 'c']
-            if not (values_p26b := re.findall(r"'([^']*)'", values_str_p26b)):
-                values_p26b = re.findall(r'"([^"]*)"', values_str_p26b)
+            if not (values_p26b := re.findall(_SINGLE_QUOTED_VALUE, values_str_p26b)):
+                values_p26b = re.findall(_DOUBLE_QUOTED_VALUE, values_str_p26b)
             if values_p26b:
                 py_list_p26b = "[" + ", ".join(f"'{v}'" for v in values_p26b) + "]"
                 first_val_p26b = values_p26b[0]
@@ -1974,48 +1986,36 @@ def _match_conditional_dual_ranges(context: _CrossColumnContext, c: dict[str, An
     # Handles newlines/multi-whitespace in CHECK expressions by normalizing
     # before the guard check (SQLite stores table-level CHECKs with newlines).
     expr_norm = re.sub(r"\s+", " ", expr).strip()
-    if " OR " in expr_norm and " AND " in expr_norm:
-        clause_re_36 = (
-            rf"\(?\s*(\w+)\s*=\s*'([^']+)'\s+AND\s+{col}\s*"
-            r"(>=|>)\s*(-?[0-9]+(?:\.[0-9]+)?)\s+AND\s+"
-            rf"{col}\s*(<=|<)\s*(-?[0-9]+(?:\.[0-9]+)?)\s*\)?"
-        )
-        clauses_36 = re.findall(clause_re_36, expr)
-        if len(clauses_36) >= 2:
-            other_col_p36 = clauses_36[0][0]
-            if (
-                other_col_p36 in col_set
-                and other_col_p36 != col_name
-                and all(cl[0] == other_col_p36 for cl in clauses_36)
-            ):
-                parts_p36: list[str] = []
-                for _oc, vi, lo_op, lo_str, up_op, up_str in clauses_36[:-1]:
-                    lo = float(lo_str)
-                    up = float(up_str)
-                    # Adjust for exclusive bounds
-                    if lo_op == ">":
-                        lo += 0.01 if is_float_type else 1
-                    if up_op == "<":
-                        up -= 0.01 if is_float_type else 1
-                    rand_e = f"random_float({lo}, {up})" if is_float_type else f"random_int({int(lo)}, {int(up)})"
-                    parts_p36.append(f"{rand_e} if value == '{vi}'")
-                # Last clause is the fallback
-                _oc, _vi, lo_op, lo_str, up_op, up_str = clauses_36[-1]
-                lo = float(lo_str)
-                up = float(up_str)
-                if lo_op == ">":
-                    lo += 0.01 if is_float_type else 1
-                if up_op == "<":
-                    up -= 0.01 if is_float_type else 1
-                last_rand_36 = f"random_float({lo}, {up})" if is_float_type else f"random_int({int(lo)}, {int(up)})"
-                expr_chain_36 = last_rand_36
-                for idx in range(len(parts_p36) - 1, -1, -1):
-                    expr_chain_36 = f"{parts_p36[idx]} else ({expr_chain_36})"
-                return {
-                    "derive_from": other_col_p36,
-                    "expression": expr_chain_36,
-                }
-    return None
+    if " OR " not in expr_norm or _SQL_AND not in expr_norm:
+        return None
+    clause_re_36 = (
+        rf"\(?\s*(\w+)\s*=\s*'([^']+)'\s+AND\s+{col}\s*"
+        r"(>=|>)\s*(-?[0-9]+(?:\.[0-9]+)?)\s+AND\s+"
+        rf"{col}\s*(<=|<)\s*(-?[0-9]+(?:\.[0-9]+)?)\s*\)?"
+    )
+    clauses_36 = re.findall(clause_re_36, expr)
+    if len(clauses_36) < 2:
+        return None
+    other_col_p36 = clauses_36[0][0]
+    if (
+        other_col_p36 not in col_set
+        or other_col_p36 == col_name
+        or (not all(cl[0] == other_col_p36 for cl in clauses_36))
+    ):
+        return None
+    parts_p36: list[str] = []
+    for clause in clauses_36[:-1]:
+        rand_e = _dual_bound_random_expression(clause, is_float_type)
+        parts_p36.append(f"{rand_e} if value == '{clause[1]}'")
+    # Last clause is the fallback.
+    last_rand_36 = _dual_bound_random_expression(clauses_36[-1], is_float_type)
+    expr_chain_36 = last_rand_36
+    for idx in range(len(parts_p36) - 1, -1, -1):
+        expr_chain_36 = f"{parts_p36[idx]} else ({expr_chain_36})"
+    return {
+        "derive_from": other_col_p36,
+        "expression": expr_chain_36,
+    }
 
 
 def _match_conditional_ranges(context: _CrossColumnContext, c: dict[str, Any]) -> dict[str, Any] | None:
@@ -2038,45 +2038,44 @@ def _match_conditional_ranges(context: _CrossColumnContext, c: dict[str, Any]) -
     # inequality); ``< X`` produces ``random_float(0.01, X-0.01)``.
     # Uses ``expr_norm`` (whitespace-normalized) for the guard check to
     # handle SQLite table-level CHECKs stored with newlines.
-    if " OR " in expr_norm and " AND " in expr_norm:
-        clause_re = (
-            rf"(\w+)\s*=\s*'([^']+)'\s+AND\s+{col}\s*"
-            r"(>=|<=|>|<)\s*(-?[0-9]+(?:\.[0-9]+)?)"
-        )
-        clauses = re.findall(clause_re, expr)
-        # Require at least 2 clauses AND that the whole expr is exactly
-        # the OR-chain (no extra terms). Each clause: (other_col, Vi, OPi, Xi).
-        if len(clauses) >= 2:
-            # Verify all clauses reference the SAME other column
-            other_col_p27 = clauses[0][0]
-            if other_col_p27 in col_set and other_col_p27 != col_name and all(cl[0] == other_col_p27 for cl in clauses):
-                # Build nested ternary: ``rand_a if value=='V1' else (rand_b if value=='V2' else rand_c)``
-                # Last clause is the fallback.
-                parts_p27: list[str] = []
-                for _other, vi, opi, xi in clauses[:-1]:
-                    xi_num = float(xi)
-                    rand_expr = _range_expr_for_op(opi, xi_num)
-                    parts_p27.append(f"{rand_expr} if value == '{vi}'")
-                _other, _last_vi, last_op, last_xi = clauses[-1]
-                last_rand = _range_expr_for_op(last_op, float(last_xi))
-                # Chain with ``else (next)`` and final ``else <fallback>``
-                expr_chain = last_rand
-                for idx in range(len(parts_p27) - 1, -1, -1):
-                    expr_chain = f"{parts_p27[idx]} else ({expr_chain})"
-                return {
-                    "derive_from": other_col_p27,
-                    "expression": expr_chain,
-                }
-    return None
+    if " OR " not in expr_norm or _SQL_AND not in expr_norm:
+        return None
+    clause_re = (
+        rf"(\w+)\s*=\s*'([^']+)'\s+AND\s+{col}\s*"
+        r"(>=|<=|>|<)\s*(-?[0-9]+(?:\.[0-9]+)?)"
+    )
+    clauses = re.findall(clause_re, expr)
+    # Require at least 2 clauses AND that the whole expr is exactly
+    # the OR-chain (no extra terms). Each clause: (other_col, Vi, OPi, Xi).
+    if len(clauses) < 2:
+        return None
+    # Verify all clauses reference the SAME other column
+    other_col_p27 = clauses[0][0]
+    if other_col_p27 not in col_set or other_col_p27 == col_name or (not all(cl[0] == other_col_p27 for cl in clauses)):
+        return None
+    # Build nested ternary: ``rand_a if value=='V1' else (rand_b if value=='V2' else rand_c)``
+    # Last clause is the fallback.
+    parts_p27: list[str] = []
+    for _other, vi, opi, xi in clauses[:-1]:
+        xi_num = float(xi)
+        rand_expr = _range_expr_for_op(opi, xi_num)
+        parts_p27.append(f"{rand_expr} if value == '{vi}'")
+    _other, _last_vi, last_op, last_xi = clauses[-1]
+    last_rand = _range_expr_for_op(last_op, float(last_xi))
+    # Chain with ``else (next)`` and final ``else <fallback>``
+    expr_chain = last_rand
+    for idx in range(len(parts_p27) - 1, -1, -1):
+        expr_chain = f"{parts_p27[idx]} else ({expr_chain})"
+    return {
+        "derive_from": other_col_p27,
+        "expression": expr_chain,
+    }
 
 
 def _match_conditional_string_mapping(
     context: _CrossColumnContext, _constraint: dict[str, Any]
 ) -> dict[str, Any] | None:
-    col_name = context.col_name
     constraints = context.constraints
-    col = context.col
-    col_set = context.col_set
     # Pattern 37 string variant: multiple ``col1 != VALUE_i OR col = 'VALUE2_i'``
     # on same column (multi-conditional cross-column with string equality).
     # When 2+ separate CHECK constraints constrain the SAME target column
@@ -2094,40 +2093,52 @@ def _match_conditional_string_mapping(
     p37s_branches: list[tuple[str, str]] = []
     p37s_other_col: str | None = None
     for c_p37s in constraints:
-        if c_p37s.get("type") != "check":
+        if (branch := _match_conditional_string_clause(context, c_p37s)) is None:
             continue
-        if not (expr_p37s := c_p37s.get("expression", "")):
-            continue
-        m_p37s = re.match(
-            rf"^\s*(\w+)\s*!=\s*'([^']+)'\s+OR\s+{col}\s*=\s*'([^']*)'\s*$",
-            expr_p37s,
-            re.IGNORECASE,
-        )
-        if not m_p37s:
-            continue
-        other_p37s, val_p37s, eq_val_p37s = (
-            m_p37s.group(1),
-            m_p37s.group(2),
-            m_p37s.group(3),
-        )
-        if other_p37s not in col_set or other_p37s == col_name:
-            continue
+        other_p37s, val_p37s, eq_val_p37s = branch
         if p37s_other_col is None:
             p37s_other_col = other_p37s
         elif p37s_other_col != other_p37s:
             continue
         p37s_branches.append((val_p37s, eq_val_p37s))
-    if p37s_other_col is not None and len(p37s_branches) >= 2:
-        # Build nested ternary: 'V2_1' if value == 'V1' else ('V2_2' if value == 'V2' else (... else default))
-        default_p37s = f"'{p37s_branches[0][1]}'"
-        expr_p37s_final = default_p37s
-        for val_p37s, eq_val_p37s in reversed(p37s_branches):
-            expr_p37s_final = f"'{eq_val_p37s}' if value == '{val_p37s}' else ({expr_p37s_final})"
-        return {
-            "derive_from": p37s_other_col,
-            "expression": expr_p37s_final,
-        }
-    return None
+    if p37s_other_col is None or len(p37s_branches) < 2:
+        return None
+    # Build nested ternary: 'V2_1' if value == 'V1' else ('V2_2' if value == 'V2' else (... else default))
+    default_p37s = f"'{p37s_branches[0][1]}'"
+    expr_p37s_final = default_p37s
+    for val_p37s, eq_val_p37s in reversed(p37s_branches):
+        expr_p37s_final = f"'{eq_val_p37s}' if value == '{val_p37s}' else ({expr_p37s_final})"
+    return {
+        "derive_from": p37s_other_col,
+        "expression": expr_p37s_final,
+    }
+
+
+def _match_conditional_string_clause(
+    context: _CrossColumnContext, constraint: dict[str, Any]
+) -> tuple[str, str, str] | None:
+    col_name = context.col_name
+    col = context.col
+    col_set = context.col_set
+    if constraint.get("type") != "check":
+        return None
+    if not (expr_p37s := constraint.get("expression", "")):
+        return None
+    m_p37s = re.match(
+        rf"^\s*(\w+)\s*!=\s*'([^']+)'\s+OR\s+{col}\s*=\s*'([^']*)'\s*$",
+        expr_p37s,
+        re.IGNORECASE,
+    )
+    if not m_p37s:
+        return None
+    other_p37s, val_p37s, eq_val_p37s = (
+        m_p37s.group(1),
+        m_p37s.group(2),
+        m_p37s.group(3),
+    )
+    if other_p37s not in col_set or other_p37s == col_name:
+        return None
+    return other_p37s, val_p37s, eq_val_p37s
 
 
 def _match_conditional_numeric_mapping(
@@ -2235,39 +2246,40 @@ def _match_conditional_positive(context: _CrossColumnContext, c: dict[str, Any])
         expr,
         re.IGNORECASE,
     )
-    if m:
-        other_col_p28, val_str_p28, threshold_str = m.group(1), m.group(2), m.group(3)
-        if other_col_p28 in col_set and other_col_p28 != col_name:
-            threshold = float(threshold_str)
-            # When col1 == VALUE: col2 must be > threshold. Use
-            # threshold+0.01 as the lower bound (epsilon for strict >).
-            positive_expr = f"random_float({threshold + 0.01}, {threshold + 100.0})"
-            # Check for other CHECKs that constrain col <= other_col
-            # or col < other_col (cross-column upper bound). If found,
-            # cap the positive expression to respect the upper bound.
-            for other_c_p28 in constraints:
-                if other_c_p28 is c:
-                    continue
-                if other_c_p28.get("type") != "check":
-                    continue
-                other_expr_p28 = other_c_p28.get("expression", "")
-                m_upper_p28 = re.search(
-                    rf"{col}\s*(<=|<)\s*(\w+)",
-                    other_expr_p28,
-                    re.IGNORECASE,
-                )
-                if m_upper_p28:
-                    upper_col_p28 = m_upper_p28.group(2)
-                    if upper_col_p28 in col_set and upper_col_p28 != col_name:
-                        positive_expr = f"min({positive_expr}, row['{upper_col_p28}'])"
-                        break
-            # When col1 != VALUE: col2 can be 0 (or any value >= 0).
-            zero_expr = "0.0"
-            return {
-                "derive_from": other_col_p28,
-                "expression": f"{positive_expr} if value == '{val_str_p28}' else {zero_expr}",
-            }
-    return None
+    if not m:
+        return None
+    other_col_p28, val_str_p28, threshold_str = m.group(1), m.group(2), m.group(3)
+    if other_col_p28 not in col_set or other_col_p28 == col_name:
+        return None
+    threshold = float(threshold_str)
+    # When col1 == VALUE: col2 must be > threshold. Use
+    # threshold+0.01 as the lower bound (epsilon for strict >).
+    positive_expr = f"random_float({threshold + 0.01}, {threshold + 100.0})"
+    # Check for other CHECKs that constrain col <= other_col
+    # or col < other_col (cross-column upper bound). If found,
+    # cap the positive expression to respect the upper bound.
+    for other_c_p28 in constraints:
+        if other_c_p28 is c:
+            continue
+        if other_c_p28.get("type") != "check":
+            continue
+        other_expr_p28 = other_c_p28.get("expression", "")
+        m_upper_p28 = re.search(
+            rf"{col}\s*(<=|<)\s*(\w+)",
+            other_expr_p28,
+            re.IGNORECASE,
+        )
+        if m_upper_p28:
+            upper_col_p28 = m_upper_p28.group(2)
+            if upper_col_p28 in col_set and upper_col_p28 != col_name:
+                positive_expr = f"min({positive_expr}, row['{upper_col_p28}'])"
+                break
+    # When col1 != VALUE: col2 can be 0 (or any value >= 0).
+    zero_expr = "0.0"
+    return {
+        "derive_from": other_col_p28,
+        "expression": f"{positive_expr} if value == '{val_str_p28}' else {zero_expr}",
+    }
 
 
 def _match_absolute_left_arithmetic(context: _CrossColumnContext, c: dict[str, Any]) -> dict[str, Any] | None:
@@ -2396,8 +2408,6 @@ def _match_conditional_null_value(context: _CrossColumnContext, c: dict[str, Any
     col_name = context.col_name
     col = context.col
     col_set = context.col_set
-    is_float_type = context.is_float_type
-    is_fk_column = context.is_fk_column
     expr = c.get("expression", "")
     # Pattern 30: col1 != VALUE OR col IS NULL (conditional NULL — when
     # col1 == VALUE, col must be NULL; otherwise col can be anything)
@@ -2430,7 +2440,7 @@ def _match_conditional_null_value(context: _CrossColumnContext, c: dict[str, Any
             # When col1 != VALUE: col = a safe default (0 for int, 0.0 for float)
             # For FK columns: always None (0 is never a valid FK id)
             null_expr = "None"
-            non_null_expr = "None" if is_fk_column else ("0.0" if is_float_type else "0")
+            non_null_expr = _conditional_fallback_literal(context, "None")
             return {
                 "derive_from": other_col_p30,
                 "expression": f"{null_expr} if value == '{val_str_p30}' else {non_null_expr}",
@@ -2442,8 +2452,6 @@ def _match_conditional_nonnull(context: _CrossColumnContext, c: dict[str, Any]) 
     col_name = context.col_name
     col = context.col
     col_set = context.col_set
-    is_float_type = context.is_float_type
-    is_fk_column = context.is_fk_column
     expr = c.get("expression", "")
     # Pattern 30b: col1 = VALUE OR col IS NOT NULL (reverse of Pattern 30 —
     # when col1 == VALUE, col can be anything including NULL; when col1 !=
@@ -2474,7 +2482,7 @@ def _match_conditional_nonnull(context: _CrossColumnContext, c: dict[str, Any]) 
             # When col1 != VALUE: col = non-NULL
             # For FK columns: use 1 (first autoincrement id, valid after first row)
             # For non-FK columns: use 0 (int) or 0.0 (float)
-            non_null_expr_p30b = "1" if is_fk_column else ("0.0" if is_float_type else "0")
+            non_null_expr_p30b = _conditional_fallback_literal(context, "1")
             return {
                 "derive_from": other_col_p30b,
                 "expression": f"None if value == '{val_str_p30b}' else {non_null_expr_p30b}",
@@ -2486,8 +2494,6 @@ def _match_conditional_integer_nonnull(context: _CrossColumnContext, c: dict[str
     col_name = context.col_name
     col = context.col
     col_set = context.col_set
-    is_float_type = context.is_float_type
-    is_fk_column = context.is_fk_column
     expr = c.get("expression", "")
     # Pattern 30b (int variant): col1 = INTEGER_VALUE OR col IS NOT NULL
     # e.g., level = 1 OR parent_id IS NOT NULL
@@ -2502,7 +2508,7 @@ def _match_conditional_integer_nonnull(context: _CrossColumnContext, c: dict[str
     if m_int_p30b:
         other_col_p30b_int, val_int_p30b = m_int_p30b.group(1), m_int_p30b.group(2)
         if other_col_p30b_int in col_set and other_col_p30b_int != col_name:
-            non_null_expr_p30b_int = "1" if is_fk_column else ("0.0" if is_float_type else "0")
+            non_null_expr_p30b_int = _conditional_fallback_literal(context, "1")
             return {
                 "derive_from": other_col_p30b_int,
                 "expression": f"None if value == {val_int_p30b} else {non_null_expr_p30b_int}",
@@ -2538,7 +2544,7 @@ def _match_conditional_not_in_nonnull(context: _CrossColumnContext, c: dict[str,
         values_str_p30b_notin = m_notin_p30b.group(2)
         if other_col_p30b_notin in col_set and other_col_p30b_notin != col_name:
             # Parse the value list: 'v1', 'v2', ...
-            values_p30b_notin = re.findall(r"'([^']*)'", values_str_p30b_notin)
+            values_p30b_notin = re.findall(_SINGLE_QUOTED_VALUE, values_str_p30b_notin)
             values_repr_p30b_notin = ", ".join(f"'{v}'" for v in values_p30b_notin)
             if is_fk_column:
                 non_null_expr_p30b_notin = "1"
@@ -2581,32 +2587,38 @@ def _match_conditional_numeric_equality(context: _CrossColumnContext, c: dict[st
         expr,
         re.IGNORECASE,
     )
-    if m:
-        other_col_p31, val_str_p31, eq_val_str = m.group(1), m.group(2), m.group(3)
-        if other_col_p31 in col_set and other_col_p31 != col_name:
-            is_float_p31 = "." in eq_val_str
-            eq_val: float | int = float(eq_val_str) if is_float_p31 else int(eq_val_str)
-            # Scan all constraints for a range CHECK on this column:
-            # ``col >= X AND col <= Y`` or ``col >= X`` / ``col <= Y`` (separate)
-            range_min, range_max = _find_equality_fallback_bounds(context)
-            # Build rand_expr using range bounds if available
-            if is_float_p31:
-                lo = max(0.01, range_min) if range_min is not None else 0.01
-                hi = min(100.0, range_max) if range_max is not None else 100.0
-                if lo > hi:
-                    lo, hi = hi, lo
-                rand_expr = f"random_float({lo}, {hi})"
-            else:
-                lo_i = max(1, int(range_min)) if range_min is not None else 1
-                hi_i = min(100, int(range_max)) if range_max is not None else 100
-                if lo_i > hi_i:
-                    lo_i, hi_i = hi_i, lo_i
-                rand_expr = f"random_int({lo_i}, {hi_i})"
-            return {
-                "derive_from": other_col_p31,
-                "expression": f"{eq_val} if value == '{val_str_p31}' else {rand_expr}",
-            }
-    return None
+    if not m:
+        return None
+    other_col_p31, val_str_p31, eq_val_str = m.group(1), m.group(2), m.group(3)
+    if other_col_p31 not in col_set or other_col_p31 == col_name:
+        return None
+    is_float_p31 = "." in eq_val_str
+    eq_val: float | int = float(eq_val_str) if is_float_p31 else int(eq_val_str)
+    # Scan all constraints for a range CHECK on this column:
+    # ``col >= X AND col <= Y`` or ``col >= X`` / ``col <= Y`` (separate)
+    range_min, range_max = _find_equality_fallback_bounds(context)
+    rand_expr = _equality_random_expression(is_float_p31, range_min, range_max)
+    return {
+        "derive_from": other_col_p31,
+        "expression": f"{eq_val} if value == '{val_str_p31}' else {rand_expr}",
+    }
+
+
+def _equality_random_expression(is_float: bool, range_min: float | None, range_max: float | None) -> str:
+    # Build rand_expr using range bounds if available
+    if is_float:
+        lo = max(0.01, range_min) if range_min is not None else 0.01
+        hi = min(100.0, range_max) if range_max is not None else 100.0
+        if lo > hi:
+            lo, hi = hi, lo
+        rand_expr = f"random_float({lo}, {hi})"
+    else:
+        lo_i = max(1, int(range_min)) if range_min is not None else 1
+        hi_i = min(100, int(range_max)) if range_max is not None else 100
+        if lo_i > hi_i:
+            lo_i, hi_i = hi_i, lo_i
+        rand_expr = f"random_int({lo_i}, {hi_i})"
+    return rand_expr
 
 
 def _match_bounded_multiplier(context: _CrossColumnContext, c: dict[str, Any]) -> dict[str, Any] | None:
@@ -2675,8 +2687,8 @@ def _match_conditional_positive_or_null(context: _CrossColumnContext, c: dict[st
         )
         if other_col_p32 in col_set and other_col_p32 != col_name:
             threshold_p32 = float(threshold_str_p32)
-            if not (values_p32 := re.findall(r"'([^']*)'", values_str_p32)):
-                values_p32 = re.findall(r'"([^"]*)"', values_str_p32)
+            if not (values_p32 := re.findall(_SINGLE_QUOTED_VALUE, values_str_p32)):
+                values_p32 = re.findall(_DOUBLE_QUOTED_VALUE, values_str_p32)
             if values_p32:
                 py_list_p32 = "[" + ", ".join(f"'{v}'" for v in values_p32) + "]"
                 # When col1 == VALUE: col = random positive (> threshold)
@@ -2718,8 +2730,8 @@ def _match_conditional_arithmetic(context: _CrossColumnContext, c: dict[str, Any
             m.group(7),
         )
         if type_col_p33 in col_set and base_col_p33 in col_set and amt_col_p33 in col_set and base_col_p33 != col_name:
-            if not (set1_vals := re.findall(r"'([^']*)'", set1_str)):
-                set1_vals = re.findall(r'"([^"]*)"', set1_str)
+            if not (set1_vals := re.findall(_SINGLE_QUOTED_VALUE, set1_str)):
+                set1_vals = re.findall(_DOUBLE_QUOTED_VALUE, set1_str)
             if set1_vals:
                 py_list1_p33 = "[" + ", ".join(f"'{v}'" for v in set1_vals) + "]"
                 # When type IN set1: col = base + amount (op1)
@@ -2758,40 +2770,41 @@ def _match_conditional_upper(context: _CrossColumnContext, c: dict[str, Any]) ->
         expr,
         re.IGNORECASE,
     )
-    if m:
-        other_col_p34, _val_str_p34, op_p34, x_str_p34 = (
-            m.group(1),
-            m.group(2),
-            m.group(3),
-            m.group(4),
-        )
-        if other_col_p34 in col_set and other_col_p34 != col_name:
-            is_float_p34 = "." in x_str_p34
-            x_val_p34 = float(x_str_p34)
-            # Get single-column params (e.g., min_value from `balance >= -10000.0`)
-            # to preserve the lower bound that would otherwise be lost when
-            # cross-column inference overrides single-column inference.
-            single_p34 = _infer_from_check_constraints(col_name, constraints, all_columns)
-            if op_p34 == "<":
-                # Exclusive: max must be < X, so set max_value = X - epsilon
-                if is_float_p34:
-                    params_p34: dict[str, Any] = {"max_value": x_val_p34 - 0.01}
-                    gen_p34 = "float"
-                else:
-                    params_p34 = {"max_value": int(x_val_p34) - 1}
-                    gen_p34 = "integer"
-            elif is_float_p34:
-                # Inclusive: max can be = X, so set max_value = X
-                params_p34 = {"max_value": x_val_p34}
-                gen_p34 = "float"
-            else:
-                params_p34 = {"max_value": int(x_val_p34)}
-                gen_p34 = "integer"
-            # Merge single-column lower bound if available
-            if single_p34 and single_p34[1].get("min_value") is not None:
-                params_p34["min_value"] = single_p34[1]["min_value"]
-            return {"generator": gen_p34, "params": params_p34}
-    return None
+    if not m:
+        return None
+    other_col_p34, _val_str_p34, op_p34, x_str_p34 = (
+        m.group(1),
+        m.group(2),
+        m.group(3),
+        m.group(4),
+    )
+    if other_col_p34 not in col_set or other_col_p34 == col_name:
+        return None
+    is_float_p34 = "." in x_str_p34
+    x_val_p34 = float(x_str_p34)
+    # Get single-column params (e.g., min_value from `balance >= -10000.0`)
+    # to preserve the lower bound that would otherwise be lost when
+    # cross-column inference overrides single-column inference.
+    single_p34 = _infer_from_check_constraints(col_name, constraints, all_columns)
+    if op_p34 == "<":
+        # Exclusive: max must be < X, so set max_value = X - epsilon
+        if is_float_p34:
+            params_p34: dict[str, Any] = {"max_value": x_val_p34 - 0.01}
+            gen_p34 = "float"
+        else:
+            params_p34 = {"max_value": int(x_val_p34) - 1}
+            gen_p34 = "integer"
+    elif is_float_p34:
+        # Inclusive: max can be = X, so set max_value = X
+        params_p34 = {"max_value": x_val_p34}
+        gen_p34 = "float"
+    else:
+        params_p34 = {"max_value": int(x_val_p34)}
+        gen_p34 = "integer"
+    # Merge single-column lower bound if available
+    if single_p34 and single_p34[1].get("min_value") is not None:
+        params_p34["min_value"] = single_p34[1]["min_value"]
+    return {"generator": gen_p34, "params": params_p34}
 
 
 def _match_conditional_integer_upper(context: _CrossColumnContext, c: dict[str, Any]) -> dict[str, Any] | None:
@@ -2812,34 +2825,35 @@ def _match_conditional_integer_upper(context: _CrossColumnContext, c: dict[str, 
         expr,
         re.IGNORECASE,
     )
-    if m:
-        other_col_p34b, _val_str_p34b, op_p34b, x_str_p34b = (
-            m.group(1),
-            m.group(2),
-            m.group(3),
-            m.group(4),
-        )
-        if other_col_p34b in col_set and other_col_p34b != col_name:
-            is_float_p34b = "." in x_str_p34b
-            x_val_p34b = float(x_str_p34b)
-            single_p34b = _infer_from_check_constraints(col_name, constraints, all_columns)
-            if op_p34b == "<":
-                if is_float_p34b:
-                    params_p34b: dict[str, Any] = {"max_value": x_val_p34b - 0.01}
-                    gen_p34b = "float"
-                else:
-                    params_p34b = {"max_value": int(x_val_p34b) - 1}
-                    gen_p34b = "integer"
-            elif is_float_p34b:
-                params_p34b = {"max_value": x_val_p34b}
-                gen_p34b = "float"
-            else:
-                params_p34b = {"max_value": int(x_val_p34b)}
-                gen_p34b = "integer"
-            if single_p34b and single_p34b[1].get("min_value") is not None:
-                params_p34b["min_value"] = single_p34b[1]["min_value"]
-            return {"generator": gen_p34b, "params": params_p34b}
-    return None
+    if not m:
+        return None
+    other_col_p34b, _val_str_p34b, op_p34b, x_str_p34b = (
+        m.group(1),
+        m.group(2),
+        m.group(3),
+        m.group(4),
+    )
+    if other_col_p34b not in col_set or other_col_p34b == col_name:
+        return None
+    is_float_p34b = "." in x_str_p34b
+    x_val_p34b = float(x_str_p34b)
+    single_p34b = _infer_from_check_constraints(col_name, constraints, all_columns)
+    if op_p34b == "<":
+        if is_float_p34b:
+            params_p34b: dict[str, Any] = {"max_value": x_val_p34b - 0.01}
+            gen_p34b = "float"
+        else:
+            params_p34b = {"max_value": int(x_val_p34b) - 1}
+            gen_p34b = "integer"
+    elif is_float_p34b:
+        params_p34b = {"max_value": x_val_p34b}
+        gen_p34b = "float"
+    else:
+        params_p34b = {"max_value": int(x_val_p34b)}
+        gen_p34b = "integer"
+    if single_p34b and single_p34b[1].get("min_value") is not None:
+        params_p34b["min_value"] = single_p34b[1]["min_value"]
+    return {"generator": gen_p34b, "params": params_p34b}
 
 
 def _match_conditional_integer_positive(context: _CrossColumnContext, c: dict[str, Any]) -> dict[str, Any] | None:
@@ -2897,38 +2911,39 @@ def _match_literal_or_threshold(context: _CrossColumnContext, c: dict[str, Any])
         expr,
         re.IGNORECASE,
     )
-    if m:
-        val_str_p28c, other_col_p28c, op_p28c, threshold_str_p28c = (
-            m.group(1),
-            m.group(2),
-            m.group(3),
-            m.group(4),
-        )
-        if other_col_p28c in col_set and other_col_p28c != col_name:
-            is_float_p28c = "." in val_str_p28c or "." in threshold_str_p28c
-            val_num_p28c: float | int = float(val_str_p28c) if "." in val_str_p28c else int(val_str_p28c)
-            threshold_p28c = float(threshold_str_p28c)
-            # Build the "comparison NOT satisfied" condition — when this
-            # is true, col must be VALUE (first OR branch is the only way
-            # to satisfy the CHECK).
-            if op_p28c == ">":
-                fail_cond_p28c = f"value <= {threshold_p28c}"
-            elif op_p28c == ">=":
-                fail_cond_p28c = f"value < {threshold_p28c}"
-            elif op_p28c == "<":
-                fail_cond_p28c = f"value >= {threshold_p28c}"
-            else:  # <=
-                fail_cond_p28c = f"value > {threshold_p28c}"
-            # When comparison is satisfied, col can be any value (use a
-            # random value in a reasonable range; VALUE itself also
-            # satisfies the CHECK via the first OR branch, so the random
-            # range can include VALUE).
-            random_expr_p28c = "random_float(0.0, 100.0)" if is_float_p28c else "random_int(0, 100)"
-            return {
-                "derive_from": other_col_p28c,
-                "expression": f"{val_num_p28c} if {fail_cond_p28c} else {random_expr_p28c}",
-            }
-    return None
+    if not m:
+        return None
+    val_str_p28c, other_col_p28c, op_p28c, threshold_str_p28c = (
+        m.group(1),
+        m.group(2),
+        m.group(3),
+        m.group(4),
+    )
+    if other_col_p28c not in col_set or other_col_p28c == col_name:
+        return None
+    is_float_p28c = "." in val_str_p28c or "." in threshold_str_p28c
+    val_num_p28c: float | int = float(val_str_p28c) if "." in val_str_p28c else int(val_str_p28c)
+    threshold_p28c = float(threshold_str_p28c)
+    # Build the "comparison NOT satisfied" condition — when this
+    # is true, col must be VALUE (first OR branch is the only way
+    # to satisfy the CHECK).
+    if op_p28c == ">":
+        fail_cond_p28c = f"value <= {threshold_p28c}"
+    elif op_p28c == ">=":
+        fail_cond_p28c = f"value < {threshold_p28c}"
+    elif op_p28c == "<":
+        fail_cond_p28c = f"value >= {threshold_p28c}"
+    else:  # <=
+        fail_cond_p28c = f"value > {threshold_p28c}"
+    # When comparison is satisfied, col can be any value (use a
+    # random value in a reasonable range; VALUE itself also
+    # satisfies the CHECK via the first OR branch, so the random
+    # range can include VALUE).
+    random_expr_p28c = "random_float(0.0, 100.0)" if is_float_p28c else "random_int(0, 100)"
+    return {
+        "derive_from": other_col_p28c,
+        "expression": f"{val_num_p28c} if {fail_cond_p28c} else {random_expr_p28c}",
+    }
 
 
 def _match_enum_or_null(context: _CrossColumnContext, c: dict[str, Any]) -> dict[str, Any] | None:
@@ -2953,23 +2968,25 @@ def _match_enum_or_null(context: _CrossColumnContext, c: dict[str, Any]) -> dict
         expr,
         re.IGNORECASE,
     )
-    if m:
-        other_col_p35, values_str_p35 = m.group(1), m.group(2)
-        if other_col_p35 in col_set and other_col_p35 != col_name:
-            if is_date_col:
-                # Always NULL — satisfies both Pattern 35 and Pattern 1
-                return {"generator": "datetime", "params": {}, "null_ratio": 1.0}
-            # Non-date: derive from col1, None when not in set
-            if not (values_p35 := re.findall(r"'([^']*)'", values_str_p35)):
-                values_p35 = re.findall(r'"([^"]*)"', values_str_p35)
-            if values_p35:
-                py_list_p35 = "[" + ", ".join(f"'{v}'" for v in values_p35) + "]"
-                non_null_expr_p35 = "0.0" if is_float_type else "0"
-                return {
-                    "derive_from": other_col_p35,
-                    "expression": f"{non_null_expr_p35} if value in {py_list_p35} else None",
-                }
-    return None
+    if not m:
+        return None
+    other_col_p35, values_str_p35 = m.group(1), m.group(2)
+    if other_col_p35 not in col_set or other_col_p35 == col_name:
+        return None
+    if is_date_col:
+        # Always NULL — satisfies both Pattern 35 and Pattern 1
+        return {"generator": "datetime", "params": {}, "null_ratio": 1.0}
+    # Non-date: derive from col1, None when not in set
+    if not (values_p35 := re.findall(_SINGLE_QUOTED_VALUE, values_str_p35)):
+        values_p35 = re.findall(_DOUBLE_QUOTED_VALUE, values_str_p35)
+    if not values_p35:
+        return None
+    py_list_p35 = "[" + ", ".join(f"'{v}'" for v in values_p35) + "]"
+    non_null_expr_p35 = "0.0" if is_float_type else "0"
+    return {
+        "derive_from": other_col_p35,
+        "expression": f"{non_null_expr_p35} if value in {py_list_p35} else None",
+    }
 
 
 def _find_conditional_null_sibling(context: _CrossColumnContext) -> tuple[str | None, str | None, str | None]:
@@ -2996,22 +3013,30 @@ def _find_conditional_null_sibling(context: _CrossColumnContext) -> tuple[str | 
                 p30_other_col = None
                 continue
             # Scan for sibling Pattern 1: col IS NULL OR col (>=|>) other_col2
-            for c_p30sib in constraints:
-                if c_p30sib.get("type") != "check":
-                    continue
-                expr_p30sib = c_p30sib.get("expression", "")
-                m_p30sib = re.match(
-                    rf"^\s*{col}\s+IS\s+NULL\s+OR\s+{col}\s*(>=|>)\s*(\w+)\s*$",
-                    expr_p30sib,
-                    re.IGNORECASE,
-                )
-                if m_p30sib:
-                    sib_col = m_p30sib.group(2)
-                    if sib_col in col_set and sib_col != col_name:
-                        p30_sibling_col = sib_col
-                        break
+            p30_sibling_col = _find_nullable_ordering_source(context)
             break
     return p30_other_col, p30_val_str, p30_sibling_col
+
+
+def _find_nullable_ordering_source(context: _CrossColumnContext) -> str | None:
+    col = context.col
+    col_name = context.col_name
+    col_set = context.col_set
+    constraints = context.constraints
+    for c_p30sib in constraints:
+        if c_p30sib.get("type") != "check":
+            continue
+        expr_p30sib = c_p30sib.get("expression", "")
+        m_p30sib = re.match(
+            rf"^\s*{col}\s+IS\s+NULL\s+OR\s+{col}\s*(>=|>)\s*(\w+)\s*$",
+            expr_p30sib,
+            re.IGNORECASE,
+        )
+        if m_p30sib:
+            sib_col = m_p30sib.group(2)
+            if sib_col in col_set and sib_col != col_name:
+                return sib_col
+    return None
 
 
 def _build_conditional_priority_range(
@@ -3400,7 +3425,7 @@ def _bounded_nullable_float(
         # MORE negative (e.g., -20.0 * 1.01 = -20.2 < -20.0), violating
         # ``col > other_col``. ``value + delta`` (delta > 0) is
         # sign-agnostic and always satisfies the strict inequality.
-        inner_p1b_gt = "value + random_float(0.01, 100.0)"
+        inner_p1b_gt = _FLOAT_ABOVE_SOURCE
         if upper_bound_literal_p1b is not None:
             # When ``value >= upper_bound``, the constraint
             # ``col > value AND col <= upper_bound`` is unsolvable
@@ -3430,7 +3455,7 @@ def _bounded_nullable_float(
             "expression": f"None if value is None else {inner_p1b_f}",
         }
     # op_p1b_pre == "<" — strict less-than
-    inner_p1b_f_lt = "value - random_float(0.01, 100.0)"
+    inner_p1b_f_lt = _FLOAT_BELOW_SOURCE
     if lower_bound_col_p1b:
         inner_p1b_f_lt = f"max({inner_p1b_f_lt}, row['{lower_bound_col_p1b}'])"
     if lower_bound_literal_p1b is not None:
@@ -3448,7 +3473,7 @@ def _bounded_nullable_integer(
     lower_bound_literal_p1b = bounds.lower_literal
     upper_bound_literal_p1b = bounds.upper_literal
     if op_p1b_pre == ">=":
-        inner_p1b_ige = "value + random_int(0, 100)"
+        inner_p1b_ige = _INTEGER_AT_OR_ABOVE_SOURCE
         if upper_bound_literal_p1b is not None:
             inner_p1b_ige = f"min({inner_p1b_ige}, {int(upper_bound_literal_p1b)})"
         return {
@@ -3456,7 +3481,7 @@ def _bounded_nullable_integer(
             "expression": f"None if value is None else {inner_p1b_ige}",
         }
     if op_p1b_pre == ">":
-        inner_p1b_igt = "value + random_int(1, 100)"
+        inner_p1b_igt = _INTEGER_ABOVE_SOURCE
         if upper_bound_literal_p1b is not None:
             inner_p1b_igt = f"min({inner_p1b_igt}, {int(upper_bound_literal_p1b)})"
         return {
@@ -3464,7 +3489,7 @@ def _bounded_nullable_integer(
             "expression": f"None if value is None else {inner_p1b_igt}",
         }
     if op_p1b_pre == "<=":
-        inner_p1b_i = "value - random_int(0, 100)"
+        inner_p1b_i = _INTEGER_AT_OR_BELOW_SOURCE
         if lower_bound_col_p1b:
             inner_p1b_i = f"max({inner_p1b_i}, row['{lower_bound_col_p1b}'])"
         if lower_bound_literal_p1b is not None:
@@ -3473,7 +3498,7 @@ def _bounded_nullable_integer(
             "derive_from": other_col_p1b_pre,
             "expression": f"None if value is None else {inner_p1b_i}",
         }
-    inner_p1b_i_lt = "value - random_int(1, 100)"
+    inner_p1b_i_lt = _INTEGER_BELOW_SOURCE
     if lower_bound_col_p1b:
         inner_p1b_i_lt = f"max({inner_p1b_i_lt}, row['{lower_bound_col_p1b}'])"
     if lower_bound_literal_p1b is not None:
@@ -3498,6 +3523,10 @@ def _build_nullable_three_way(context: _CrossColumnContext, other_col_p1b: str, 
             "derive_from": other_col_p1b,
             "expression": f"None if value is None else value - timedelta(days=random_int({days_p1b}, 365))",
         }
+    return _build_numeric_nullable_three_way(other_col_p1b, op_p1b, is_float_type)
+
+
+def _build_numeric_nullable_three_way(other_col_p1b: str, op_p1b: str, is_float_type: bool) -> dict[str, Any]:
     if is_float_type:
         if op_p1b == ">=":
             return {
@@ -3564,7 +3593,7 @@ def _build_nullable_ordering(
         if op == ">":
             return {
                 "derive_from": other_col,
-                "expression": _wrap_nullable_ordering_bounds("value + random_float(0.01, 100.0)", p1_lower, p1_upper),
+                "expression": _wrap_nullable_ordering_bounds(_FLOAT_ABOVE_SOURCE, p1_lower, p1_upper),
             }
         if op == "<=":
             return {
@@ -3574,28 +3603,28 @@ def _build_nullable_ordering(
         # op == "<"
         return {
             "derive_from": other_col,
-            "expression": _wrap_nullable_ordering_bounds("value - random_float(0.01, 100.0)", p1_lower, p1_upper),
+            "expression": _wrap_nullable_ordering_bounds(_FLOAT_BELOW_SOURCE, p1_lower, p1_upper),
         }
     # Integer columns: use additive offsets
     if op == ">=":
         return {
             "derive_from": other_col,
-            "expression": _wrap_nullable_ordering_bounds("value + random_int(0, 100)", p1_lower, p1_upper),
+            "expression": _wrap_nullable_ordering_bounds(_INTEGER_AT_OR_ABOVE_SOURCE, p1_lower, p1_upper),
         }
     if op == ">":
         return {
             "derive_from": other_col,
-            "expression": _wrap_nullable_ordering_bounds("value + random_int(1, 100)", p1_lower, p1_upper),
+            "expression": _wrap_nullable_ordering_bounds(_INTEGER_ABOVE_SOURCE, p1_lower, p1_upper),
         }
     if op == "<=":
         return {
             "derive_from": other_col,
-            "expression": _wrap_nullable_ordering_bounds("value - random_int(0, 100)", p1_lower, p1_upper),
+            "expression": _wrap_nullable_ordering_bounds(_INTEGER_AT_OR_BELOW_SOURCE, p1_lower, p1_upper),
         }
     # op == "<"
     return {
         "derive_from": other_col,
-        "expression": _wrap_nullable_ordering_bounds("value - random_int(1, 100)", p1_lower, p1_upper),
+        "expression": _wrap_nullable_ordering_bounds(_INTEGER_BELOW_SOURCE, p1_lower, p1_upper),
     }
 
 
@@ -3626,6 +3655,10 @@ def _build_date_right_ordering(
             "derive_from": other_col_p41,
             "expression": f"value - timedelta(days=random_int({days_p41}, 365))",
         }
+    return _build_numeric_date_right_ordering(other_col_p41, op_p41, is_float_type)
+
+
+def _build_numeric_date_right_ordering(other_col_p41: str, op_p41: str, is_float_type: bool) -> dict[str, Any]:
     if is_float_type:
         if op_p41 == ">=":
             return {
@@ -3649,21 +3682,21 @@ def _build_date_right_ordering(
     if op_p41 == ">=":
         return {
             "derive_from": other_col_p41,
-            "expression": "value + random_int(1, 100)",
+            "expression": _INTEGER_ABOVE_SOURCE,
         }
     if op_p41 == ">":
         return {
             "derive_from": other_col_p41,
-            "expression": "value + random_int(1, 100)",
+            "expression": _INTEGER_ABOVE_SOURCE,
         }
     if op_p41 == "<=":
         return {
             "derive_from": other_col_p41,
-            "expression": "value - random_int(0, 100)",
+            "expression": _INTEGER_AT_OR_BELOW_SOURCE,
         }
     return {
         "derive_from": other_col_p41,
-        "expression": "value - random_int(1, 100)",
+        "expression": _INTEGER_BELOW_SOURCE,
     }
 
 
@@ -3686,3 +3719,33 @@ def _wrap_nullable_ordering_bounds(inner_expr: str, lower: float | int | None, u
     if lower is not None and upper is not None:
         return f"max({lower}, min({upper}, {inner_expr}))"
     return inner_expr
+
+
+def _conditional_fallback_literal(context: _CrossColumnContext, foreign_key_value: str) -> str:
+    """Choose the numeric fallback without manufacturing an invalid foreign key."""
+    if context.is_fk_column:
+        return foreign_key_value
+    return "0.0" if context.is_float_type else "0"
+
+
+def _numeric_comparison_expression(op: str, is_float: bool) -> str:
+    """Keep conditional numeric offsets valid on both sides of zero."""
+    if op == ">":
+        return _FLOAT_ABOVE_SOURCE if is_float else _INTEGER_ABOVE_SOURCE
+    if op == ">=":
+        return "value + random_float(0, 100.0)" if is_float else _INTEGER_AT_OR_ABOVE_SOURCE
+    if op == "<":
+        return _FLOAT_BELOW_SOURCE if is_float else _INTEGER_BELOW_SOURCE
+    return "value - random_float(0, 100.0)" if is_float else _INTEGER_AT_OR_BELOW_SOURCE
+
+
+def _dual_bound_random_expression(clause: tuple[str, ...], is_float: bool) -> str:
+    """Build one conditional range using its inclusive/exclusive endpoints."""
+    _other, _value, lo_op, lo_str, up_op, up_str = clause
+    lo = float(lo_str)
+    up = float(up_str)
+    if lo_op == ">":
+        lo += 0.01 if is_float else 1
+    if up_op == "<":
+        up -= 0.01 if is_float else 1
+    return f"random_float({lo}, {up})" if is_float else f"random_int({int(lo)}, {int(up)})"

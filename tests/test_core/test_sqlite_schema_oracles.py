@@ -132,7 +132,8 @@ def test_sqlite_non_ascii_names_are_not_casefolded(tmp_path: Path) -> None:
             db.execute('SELECT * FROM "äpfel"')
     with DataOrchestrator(str(path), provider_name="base", optimize_pragma=False) as orch:
         result = orch.fill_table("äpfel", count=1, skip_ai=True, progress=NullProgressBackend())
-        assert result.count == 0 and "does not exist" in result.errors[0]
+        assert result.count == 0
+        assert "does not exist" in result.errors[0]
         assert orch.get_row_count("Äpfel") == 0
 
 
@@ -171,7 +172,8 @@ def test_partial_unique_only_constrains_rows_selected_by_its_predicate(
         if archived:
             assert_empty(result.errors, list)
         else:
-            assert result.errors and "UNIQUE constraint failed" in result.errors[0]
+            assert result.errors
+            assert "UNIQUE constraint failed" in result.errors[0]
 
 
 @pytest.mark.parametrize(
@@ -189,7 +191,8 @@ def test_non_rowid_integer_pk_requires_generated_values(tmp_path: Path, definiti
         assert_empty(result.errors, list)
         assert result.count == 2
         rows = orch.query("SELECT id FROM items")
-        assert len(rows) == 3 and {"id": 777} in rows
+        assert len(rows) == 3
+        assert {"id": 777} in rows
         assert all(row["id"] is not None for row in rows)
 
 

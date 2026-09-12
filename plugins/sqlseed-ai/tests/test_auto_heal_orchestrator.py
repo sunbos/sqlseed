@@ -620,6 +620,23 @@ def test_postgres_single_column_any_check_normalization(expression: str, expecte
 
 
 @pytest.mark.parametrize(
+    "literal,expected",
+    [
+        ("0", ("integer", {"min_value": 1})),
+        ("-0", ("integer", {"min_value": 1})),
+        ("0.0", ("float", {"min_value": 0.01})),
+        ("-0.000", ("float", {"min_value": 0.01})),
+        ("1.5", None),
+        ("0." + "0" * 400 + "1", None),
+        ("-0." + "0" * 400 + "1", None),
+    ],
+)
+def test_nonzero_check_uses_exact_decimal_literal(literal: str, expected: tuple | None) -> None:
+    constraints = [{"type": "check", "expression": f"value != {literal}"}]
+    assert _infer_from_check_constraints("value", constraints, ["value"]) == expected
+
+
+@pytest.mark.parametrize(
     ("column_type", "choices"),
     [("INTEGER", [-2, -1]), ("REAL", [-2.5, -0.5])],
 )
@@ -1788,7 +1805,8 @@ def _finalize_fixed_candidate(path: Path, candidate: dict, monkeypatch: pytest.M
     healer = build_heal_orchestrator(AIConfig(model="fixed"), client, snapshot, validator, max_retries=1)
     name = candidate["tables"][0]["name"]
     result = healer.heal(SubgraphTask(task_id=name, tables=[name]), violations, original)
-    assert result.success and client.calls == 1
+    assert result.success
+    assert client.calls == 1
     assert result.config["tables"][0]["columns"] == candidate["tables"][0]["columns"]
     accepted = copy.deepcopy(result.config)
     monkeypatch.setattr(
@@ -1836,7 +1854,8 @@ def test_step55_strips_arithmetic_from_parsed_like_candidate(
     from sqlseed.generators.base_provider import BaseProvider
 
     generated = BaseProvider().generate(column["generator"], **column["params"])
-    assert len(generated) == 5 and generated[2] == ":"
+    assert len(generated) == 5
+    assert generated[2] == ":"
 
 
 def test_step55_preserves_derive_from_for_real_datetime(
@@ -1874,7 +1893,8 @@ def test_step55_preserves_derive_from_for_real_datetime(
     output = path.with_suffix(".yaml")
     output.write_text(yaml.safe_dump(config))
     result = fill_from_config(output)
-    assert result[0].count == 3 and result[0].errors == []
+    assert result[0].count == 3
+    assert result[0].errors == []
     with sqlite_connection(path) as db:
         assert db.execute("SELECT count(*) FROM events WHERE end_dt >= start_dt").fetchone()[0] == 3
 

@@ -315,15 +315,18 @@ def test_implicit_rowid_keeps_core_generator_overrides_while_explicit_autoincrem
         tables = _tables(_workbench().inspect_connection(conn))
         implicit = tables["implicit_id"]["columns"][0]
         explicit = tables["explicit_id"]["columns"][0]
-        assert implicit["is_rowid_alias"] and not implicit["is_autoincrement"]
-        assert explicit["is_rowid_alias"] and explicit["is_autoincrement"]
+        assert implicit["is_rowid_alias"]
+        assert not implicit["is_autoincrement"]
+        assert explicit["is_rowid_alias"]
+        assert explicit["is_autoincrement"]
         rules = [
             ColumnConfig(name="id", generator="integer", params={"min_value": 42, "max_value": 99}),
             ColumnConfig(name="value", generator="choice", params={"choices": ["written"]}),
         ]
         implicit_result = conn.orchestrator.fill_table("implicit_id", count=1, column_configs=rules, skip_ai=True)
         explicit_result = conn.orchestrator.fill_table("explicit_id", count=1, column_configs=rules, skip_ai=True)
-        assert not implicit_result.errors and not explicit_result.errors
+        assert not implicit_result.errors
+        assert not explicit_result.errors
         with sqlite_connection(path) as db:
             assert 42 <= db.execute("SELECT id FROM implicit_id").fetchone()[0] <= 99
             assert db.execute("SELECT id FROM explicit_id").fetchone()[0] == 1

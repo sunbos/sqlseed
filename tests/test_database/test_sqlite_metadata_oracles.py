@@ -71,8 +71,10 @@ def test_partial_index_marker_survives_reflection(
     with adapter_type() as adapter:
         adapter.connect(str(path))
         indexes = {index.name: index for index in adapter.get_index_info("items")}
-        assert indexes["active"].unique and indexes["active"].is_partial
-        assert indexes["full"].unique and not indexes["full"].is_partial
+        assert indexes["active"].unique
+        assert indexes["active"].is_partial
+        assert indexes["full"].unique
+        assert not indexes["full"].is_partial
         if adapter_type is SQLAlchemyAdapter:
             assert indexes["active"].predicate == "archived=0"
         assert indexes["full"].predicate is None
@@ -97,7 +99,8 @@ def test_table_aliases_preserve_metadata_after_canonical_lookup(
         for name in ("parents", "PARENTS", "PaReNtS"):
             columns = adapter.get_column_info(name)
             assert [column.name for column in columns] == ["id", "code"]
-            assert columns[0].is_autoincrement and columns[0].is_rowid_alias
+            assert columns[0].is_autoincrement
+            assert columns[0].is_rowid_alias
             assert adapter.get_primary_keys(name) == ["id"]
             assert "codes" in {index.name for index in adapter.get_index_info(name)}
             assert adapter.get_check_constraints(name)

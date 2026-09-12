@@ -15,6 +15,8 @@ from typing import Any
 from fastapi import HTTPException
 from sqlseed._utils.daemon_task import DaemonTask
 
+_CONTROL_CLOSED = "服务控制通道已关闭。"
+
 MAX_MESSAGE_BYTES = 2_000_000
 Handler = Callable[[str, dict[str, Any]], dict[str, Any]]
 
@@ -63,11 +65,11 @@ class ControlChannel:
         payload = _encode_message(message)
         with self._send_lock:
             if self._closed.is_set():
-                raise RuntimeError("服务控制通道已关闭。")
+                raise RuntimeError(_CONTROL_CLOSED)
             try:
                 self.connection.send_bytes(payload)
             except OSError as exc:
-                raise RuntimeError("服务控制通道已关闭。") from exc
+                raise RuntimeError(_CONTROL_CLOSED) from exc
 
     def call(self, method: str, params: dict[str, Any], *, timeout: float = 15) -> dict[str, Any]:
         identifier = secrets.token_hex(12)
@@ -87,11 +89,23 @@ class ControlChannel:
             value = result.get("result")
             if not isinstance(value, dict):
                 # An invalid IPC reply follows the existing RuntimeError channel-failure contract.
-                raise RuntimeError("服务控制通道已关闭。")  # noqa: TRY004
+                raise RuntimeError(_CONTROL_CLOSED)  # noqa: TRY004
             return value
         finally:
             with self._lock:
                 self._pending.pop(identifier, None)
+
+    def _dispatch_message(self, message: dict[str, Any]) -> None:
+        if "method" in message:
+            if not isinstance(message["method"], str) or not isinstance(message.get("params"), dict):
+                raise ValueError("invalid control request")
+            if not self._start_answer(message):
+                self._send({"id": message["id"], "error": {"status_code": 503, "detail": "服务控制通道繁忙。"}})
+        else:
+            with self._lock:
+                if pending := self._pending.get(message["id"]):
+                    pending[1].update(message)
+                    pending[0].set()
 
     def _read(self) -> None:
         try:
@@ -100,16 +114,7 @@ class ControlChannel:
                 if not isinstance(message, dict) or not isinstance(message.get("id"), str):
                     # Malformed wire values use ValueError, handled by the channel shutdown below.
                     raise ValueError("invalid control message")  # noqa: TRY004
-                if "method" in message:
-                    if not isinstance(message["method"], str) or not isinstance(message.get("params"), dict):
-                        raise ValueError("invalid control request")
-                    if not self._start_answer(message):
-                        self._send({"id": message["id"], "error": {"status_code": 503, "detail": "服务控制通道繁忙。"}})
-                else:
-                    with self._lock:
-                        if pending := self._pending.get(message["id"]):
-                            pending[1].update(message)
-                            pending[0].set()
+                self._dispatch_message(message)
         except (OSError, EOFError, ValueError, TypeError, RuntimeError):
             self.close()
 

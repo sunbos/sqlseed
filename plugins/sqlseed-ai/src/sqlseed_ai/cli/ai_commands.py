@@ -571,19 +571,7 @@ def ai_analyze(
     )
     if existing is not None:
         generated = yaml.safe_load(yaml_str)
-        replacements = {table["name"]: table for table in generated["tables"]}
-        merged_tables = []
-        for table in existing["tables"]:
-            replacement = replacements.pop(table["name"], None)
-            if replacement is not None and (selected is None or table["name"] in selected):
-                merged_tables.append(replacement)
-            else:
-                merged_tables.append(table)
-        merged_tables.extend(replacements.values())
-        merged = {**generated, **existing, "tables": merged_tables}
-        # The explicit CLI target owns the output connection, including merge mode.
-        merged.pop("url" if db_path else "db_path", None)
-        merged["db_path" if db_path else "url"] = db_path or db_url
+        merged = _merge_analyzed_document(generated, existing, selected, db_path, db_url)
         yaml_str = yaml.safe_dump(merged, sort_keys=False, allow_unicode=True)
 
     if output:
@@ -594,6 +582,30 @@ def ai_analyze(
         click.echo(f"Generated YAML config: {output_path}")
     else:
         click.echo(yaml_str)
+
+
+def _merge_analyzed_document(
+    generated: dict[str, Any],
+    existing: dict[str, Any],
+    selected: list[str] | None,
+    db_path: str | None,
+    db_url: str | None,
+) -> dict[str, Any]:
+    """Merge selected generated tables while retaining the original document and explicit target."""
+    replacements = {table["name"]: table for table in generated["tables"]}
+    merged_tables = []
+    for table in existing["tables"]:
+        replacement = replacements.pop(table["name"], None)
+        if replacement is not None and (selected is None or table["name"] in selected):
+            merged_tables.append(replacement)
+        else:
+            merged_tables.append(table)
+    merged_tables.extend(replacements.values())
+    merged = {**generated, **existing, "tables": merged_tables}
+    # The explicit CLI target owns the output connection, including merge mode.
+    merged.pop("url" if db_path else "db_path", None)
+    merged["db_path" if db_path else "url"] = db_path or db_url
+    return merged
 
 
 def _run_auto_heal_v4(

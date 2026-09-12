@@ -462,16 +462,22 @@ def _choice_in_bounds(
 ) -> bool:
     """Apply known literal bounds without guessing SQL coercion of strings."""
     if isinstance(value, int | float):
-        if lower is not None and (value < lower[0] or (lower[1] and value == lower[0])):
-            return False
-        if upper is not None and (value > upper[0] or (upper[1] and value == upper[0])):
-            return False
+        return _numeric_choice_in_bounds(value, lower, upper)
     if isinstance(value, str):
         if min_length is not None and len(value) < min_length:
             return False
         if max_length is not None and len(value) > max_length:
             return False
     return True
+
+
+def _numeric_choice_in_bounds(
+    value: int | float, lower: tuple[float, bool] | None, upper: tuple[float, bool] | None
+) -> bool:
+    """Check a numeric literal using the exact inclusive/exclusive comparisons."""
+    if lower is not None and (value < lower[0] or (lower[1] and value == lower[0])):
+        return False
+    return not (upper is not None and (value > upper[0] or (upper[1] and value == upper[0])))
 
 
 def _tighten_length(value: int, *, strict: bool, is_lower: bool) -> int:

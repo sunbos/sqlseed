@@ -36,6 +36,8 @@ SEED = 42
 
 @dataclass
 class CheckResult:
+    """Record one independent database integrity check."""
+
     dim: str
     table: str
     ok: bool
@@ -44,6 +46,8 @@ class CheckResult:
 
 @dataclass
 class DbReport:
+    """Collect generation results and integrity checks for one schema."""
+
     name: str
     fill_errors: dict[str, str] = field(default_factory=dict)
     fill_seconds: float = 0.0
@@ -52,23 +56,32 @@ class DbReport:
 
     @property
     def failed(self) -> list[CheckResult]:
+        """Return only the integrity checks that did not pass."""
         return [c for c in self.checks if not c.ok]
+
+
+def _after_sql_string(create_sql: str, start: int) -> int:
+    """Skip a SQL string, including its doubled quote escapes."""
+    cursor = start + 1
+    while cursor < len(create_sql):
+        if create_sql[cursor] != "'":
+            cursor += 1
+        elif cursor + 1 < len(create_sql) and create_sql[cursor + 1] == "'":
+            cursor += 2
+        else:
+            return cursor + 1
+    return cursor
 
 
 def _check_body(create_sql: str, i: int) -> str | None:
     """Return a balanced CHECK body while respecting escaped SQL string quotes."""
-    depth, j, in_str = 0, i, False
+    depth, j = 0, i
     while j < len(create_sql):
         c = create_sql[j]
-        if in_str:
-            if c == "'":
-                if j + 1 < len(create_sql) and create_sql[j + 1] == "'":
-                    j += 1
-                else:
-                    in_str = False
-        elif c == "'":
-            in_str = True
-        elif c == "(":
+        if c == "'":
+            j = _after_sql_string(create_sql, j)
+            continue
+        if c == "(":
             depth += 1
         elif c == ")":
             depth -= 1
@@ -93,6 +106,7 @@ def extract_checks(create_sql: str) -> list[str]:
 
 
 def build_db(db_path: Path, ddl: list[str]) -> None:
+    """Create a fresh SQLite database from the supplied schema statements."""
     if db_path.exists():
         db_path.unlink()
     con = sqlite3.connect(db_path)
@@ -105,6 +119,7 @@ def build_db(db_path: Path, ddl: list[str]) -> None:
 
 
 def fill_db(db_path: Path, counts: dict) -> tuple[dict[str, str], float, int]:
+    """Fill configured tables and report committed rows and errors."""
     import sqlseed
 
     errors: dict[str, str] = {}
@@ -148,43 +163,45 @@ def _verify_unique_notnull(
     for t in tables:
         if counts.get(t, DEFAULT_COUNT) is None:
             continue
-        cols_info = con.execute(f'PRAGMA table_info("{t}")').fetchall()
-        notnull_cols = [r[1] for r in cols_info if r[3] == 1]
-        pk_cols = {r[1] for r in cols_info if r[5] > 0}
-        single_int_pk = len(pk_cols) == 1 and any(
-            r[1] in pk_cols and r[2].upper() == "INTEGER" for r in cols_info
-        )
-        for col in notnull_cols:
-            nulls = con.execute(f'SELECT COUNT(*) FROM "{t}" WHERE "{col}" IS NULL').fetchone()[0]
-            checks.append(CheckResult("D4-notnull", t, nulls == 0, f"{col} nulls={nulls}"))
-        for idx in con.execute(f'PRAGMA index_list("{t}")').fetchall():
-            idx_name, is_unique, origin = idx[1], idx[2], idx[3]
-            if not is_unique or origin not in ("u", "pk"):
-                continue
-            idx_cols = [r[2] for r in con.execute(f'PRAGMA index_info("{idx_name}")')]
-            if single_int_pk and set(idx_cols) == pk_cols:
-                continue  # rowid alias is inherently unique
-            col_list = ", ".join(f'"{c}"' for c in idx_cols)
-            # SQL standard: UNIQUE indexes allow repeated NULLs — exclude
-            # rows with any NULL key column from the duplicate scan.
-            not_null_where = " AND ".join(f'"{c}" IS NOT NULL' for c in idx_cols)
-            dup = con.execute(
-                f'SELECT COUNT(*) FROM (SELECT {col_list} FROM "{t}" WHERE {not_null_where} '
-                f"GROUP BY {col_list} HAVING COUNT(*) > 1)"
-            ).fetchone()[0]
-            checks.append(CheckResult("D4-unique", t, dup == 0, f"({col_list}) dup_groups={dup}"))
+        _verify_table_unique_notnull(con, t, checks)
+
+
+def _verify_table_unique_notnull(con: sqlite3.Connection, t: str, checks: list[CheckResult]) -> None:
+    """Independently verify one table's nullability and ordinary unique indexes."""
+    cols_info = con.execute(f'PRAGMA table_info("{t}")').fetchall()
+    notnull_cols = [r[1] for r in cols_info if r[3] == 1]
+    pk_cols = {r[1] for r in cols_info if r[5] > 0}
+    single_int_pk = len(pk_cols) == 1 and any(r[1] in pk_cols and r[2].upper() == "INTEGER" for r in cols_info)
+    for col in notnull_cols:
+        nulls = con.execute(f'SELECT COUNT(*) FROM "{t}" WHERE "{col}" IS NULL').fetchone()[0]
+        checks.append(CheckResult("D4-notnull", t, nulls == 0, f"{col} nulls={nulls}"))
+    for idx in con.execute(f'PRAGMA index_list("{t}")').fetchall():
+        idx_name, is_unique, origin = idx[1], idx[2], idx[3]
+        if not is_unique or origin not in ("u", "pk"):
+            continue
+        idx_cols = [r[2] for r in con.execute(f'PRAGMA index_info("{idx_name}")')]
+        if single_int_pk and set(idx_cols) == pk_cols:
+            continue  # rowid alias is inherently unique
+        col_list = ", ".join(f'"{c}"' for c in idx_cols)
+        # SQL standard: UNIQUE indexes allow repeated NULLs — exclude
+        # rows with any NULL key column from the duplicate scan.
+        not_null_where = " AND ".join(f'"{c}" IS NOT NULL' for c in idx_cols)
+        dup = con.execute(
+            f'SELECT COUNT(*) FROM (SELECT {col_list} FROM "{t}" WHERE {not_null_where} '
+            f"GROUP BY {col_list} HAVING COUNT(*) > 1)"
+        ).fetchone()[0]
+        checks.append(CheckResult("D4-unique", t, dup == 0, f"({col_list}) dup_groups={dup}"))
 
 
 def verify_db(db_path: Path, counts: dict, semantic: list) -> list[CheckResult]:
+    """Check stored row counts, keys, constraints, and semantic invariants."""
     checks: list[CheckResult] = []
     con = sqlite3.connect(db_path)
     con.execute("PRAGMA foreign_keys = ON")
     try:
         tables = {
             r[0]: r[1]
-            for r in con.execute(
-                "SELECT name, sql FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
-            )
+            for r in con.execute("SELECT name, sql FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
         }
 
         # D1 row counts
@@ -214,6 +231,7 @@ def verify_db(db_path: Path, counts: dict, semantic: list) -> list[CheckResult]:
 
 
 def run_schema(name: str, schema: dict) -> DbReport:
+    """Build, fill, and independently verify a named schema."""
     report = DbReport(name)
     db_path = DB_DIR / f"{name}.db"
     build_db(db_path, schema["ddl"])
@@ -225,6 +243,7 @@ def run_schema(name: str, schema: dict) -> DbReport:
 
 
 def main() -> int:
+    """Run the selected schema checks and report failures."""
     DB_DIR.mkdir(parents=True, exist_ok=True)
     selected = sys.argv[1:] or list(SCHEMAS)
     reports: list[DbReport] = []

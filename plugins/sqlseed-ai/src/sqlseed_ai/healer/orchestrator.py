@@ -23,6 +23,7 @@ from sqlseed_ai.healer.models import (
     FailureType,
     HealAttempt,
     HealResult,
+    Level2Result,
     SubgraphTask,
 )
 from sqlseed_ai.healer.oscillation import OscillationDetector
@@ -118,76 +119,68 @@ class HealOrchestrator:
 
             result = self._try_one_round(task, current_violations, current_config, attempts, round_num)
 
-            if result.success:
-                # Re-validate the patched config.
-                try:
-                    candidate = self._merge_patch(current_config, validate_patch(result.config_patch or {"tables": []}))
-                    validate_candidate(candidate, self._snapshot)
-                except ValueError as exc:
-                    attempts[-1].failure_type = FailureType.SEMANTIC
-                    attempts[-1].error_message = str(exc)
-                    logger.warning("Healer candidate rejected", error=str(exc), level=result.level)
-                    degraded_result = self._degrade_and_return(
-                        current_config,
-                        original_config,
-                        current_violations,
-                        DegradeReason.LLM_FAILURE,
-                        attempts,
-                        round_num,
-                        start,
-                    )
-                    self._log_heal_complete(table_name, degraded_result, start)
-                    return degraded_result
-                current_config = candidate
-                val_result = self._validator.validate(current_config, self._snapshot)
+            if not result.success:
+                degraded_result = self._degrade_failed_round(
+                    result,
+                    current_config,
+                    original_config,
+                    current_violations,
+                    attempts,
+                    round_num,
+                    start,
+                )
+                self._log_heal_complete(table_name, degraded_result, start)
+                return degraded_result
 
-                if not (new_violations := self._extract_violations(val_result)):
-                    heal_result = HealResult(
-                        config=current_config,
-                        success=True,
-                        level_used=result.level,
-                        attempts=attempts,
-                        total_attempts=round_num,
-                        total_elapsed=time.monotonic() - start,
-                    )
-                    self._log_heal_complete(table_name, heal_result, start)
-                    return heal_result
+            # Re-validate the patched config.
+            try:
+                candidate = self._merge_patch(current_config, validate_patch(result.config_patch or {"tables": []}))
+                validate_candidate(candidate, self._snapshot)
+            except ValueError as exc:
+                attempts[-1].failure_type = FailureType.SEMANTIC
+                attempts[-1].error_message = str(exc)
+                logger.warning("Healer candidate rejected", error=str(exc), level=result.level)
+                degraded_result = self._degrade_and_return(
+                    current_config,
+                    original_config,
+                    current_violations,
+                    DegradeReason.LLM_FAILURE,
+                    attempts,
+                    round_num,
+                    start,
+                )
+                self._log_heal_complete(table_name, degraded_result, start)
+                return degraded_result
+            current_config = candidate
+            val_result = self._validator.validate(current_config, self._snapshot)
 
-                # New violations — feed back into the loop.
-                current_violations = new_violations
-                if self._oscillation.check_and_record(current_violations):
-                    logger.warning("Oscillation detected, degrading", round=round_num)
-                    degraded_result = self._degrade_and_return(
-                        current_config,
-                        original_config,
-                        current_violations,
-                        DegradeReason.LLM_OSCILLATION,
-                        attempts,
-                        round_num,
-                        start,
-                    )
-                    self._log_heal_complete(table_name, degraded_result, start)
-                    return degraded_result
-                continue
+            if not (new_violations := self._extract_violations(val_result)):
+                heal_result = HealResult(
+                    config=current_config,
+                    success=True,
+                    level_used=result.level,
+                    attempts=attempts,
+                    total_attempts=round_num,
+                    total_elapsed=time.monotonic() - start,
+                )
+                self._log_heal_complete(table_name, heal_result, start)
+                return heal_result
 
-            # Failure — classify and route.
-            if (result.failure_type) == FailureType.NETWORK:
-                raise RuntimeError(f"LLM network error: {result.error}")
-
-            # For non-network failures, the routing is handled inside
-            # _try_one_round. If we reach here, all levels failed.
-            degraded_result = self._degrade_and_return(
-                current_config,
-                original_config,
-                current_violations,
-                DegradeReason.LLM_FAILURE,
-                attempts,
-                round_num,
-                start,
-            )
-            self._log_heal_complete(table_name, degraded_result, start)
-            return degraded_result
-
+            # New violations — feed back into the loop.
+            current_violations = new_violations
+            if self._oscillation.check_and_record(current_violations):
+                logger.warning("Oscillation detected, degrading", round=round_num)
+                degraded_result = self._degrade_and_return(
+                    current_config,
+                    original_config,
+                    current_violations,
+                    DegradeReason.LLM_OSCILLATION,
+                    attempts,
+                    round_num,
+                    start,
+                )
+                self._log_heal_complete(table_name, degraded_result, start)
+                return degraded_result
         degraded_result = self._degrade_and_return(
             current_config,
             original_config,
@@ -199,6 +192,23 @@ class HealOrchestrator:
         )
         self._log_heal_complete(table_name, degraded_result, start)
         return degraded_result
+
+    def _degrade_failed_round(
+        self,
+        result: _RoundResult,
+        config: dict[str, Any],
+        original_config: dict[str, Any],
+        violations: list[ViolationReport],
+        attempts: list[HealAttempt],
+        round_num: int,
+        start: float,
+    ) -> HealResult:
+        """Propagate network failure or degrade after all applicable healing levels failed."""
+        if result.failure_type == FailureType.NETWORK:
+            raise RuntimeError(f"LLM network error: {result.error}")
+        return self._degrade_and_return(
+            config, original_config, violations, DegradeReason.LLM_FAILURE, attempts, round_num, start
+        )
 
     @staticmethod
     def _log_heal_attempt(
@@ -322,46 +332,44 @@ class HealOrchestrator:
     ) -> _RoundResult:
         """Try Level 2: column-level healing for each violation column."""
         merged_patch: dict[str, Any] = {"tables": []}
-        all_success = True
         any_success = False
 
         for v in violations:
             for col in v.columns:
-                l2_result = self._level2.heal_column(v.table, col, v, config, self._snapshot)
-                l2_ftype = (
-                    None
-                    if l2_result.success
-                    else self._failure_classifier.classify(l2_result.error, l2_result.raw_response)
-                )
-                l2_attempt = HealAttempt(
-                    level=2,
-                    failure_type=l2_ftype,
-                    latency_ms=int(l2_result.elapsed_seconds * 1000),
-                    token_estimate=l2_result.prompt_tokens,
-                    error_message=str(l2_result.error) if l2_result.error else None,
-                )
-                attempts.append(l2_attempt)
-                # Spec 5.5: log heal_attempt per column with next_level hint.
-                next_level = 0 if l2_result.success else (3 if l2_ftype == FailureType.CONTEXT_OVERFLOW else 4)
-                self._log_heal_attempt(v.table, l2_attempt, column=col, next_level=next_level)
+                l2_result, l2_ftype = self._attempt_level2_column(v, col, config, attempts)
                 if l2_result.success and l2_result.config_patch:
                     # Merge single-column patch into merged_patch.
                     self._merge_column_patch(merged_patch, v.table, l2_result.config_patch)
                     any_success = True
-                else:
-                    all_success = False
-                    # Classify failure for routing.
-                    if l2_ftype == FailureType.CONTEXT_OVERFLOW:
-                        # Single-column prompt overflow → Level 3.
-                        return self._try_level3(task, violations, config, attempts, round_num, mode="compact")
+                elif l2_ftype == FailureType.CONTEXT_OVERFLOW:
+                    # Single-column prompt overflow → Level 3.
+                    return self._try_level3(task, violations, config, attempts, round_num, mode="compact")
 
-        if all_success and any_success:
-            return _RoundResult(success=True, level=2, config_patch=merged_patch)
         if any_success:
             # Partial success — return what we have; remaining columns
             # will be caught by re-validation and degraded.
             return _RoundResult(success=True, level=2, config_patch=merged_patch)
         return _RoundResult(success=False, level=2, failure_type=FailureType.UNKNOWN)
+
+    def _attempt_level2_column(
+        self, violation: ViolationReport, column: str, config: dict[str, Any], attempts: list[HealAttempt]
+    ) -> tuple[Level2Result, FailureType | None]:
+        """Call, classify and record one column attempt before routing its outcome."""
+        result = self._level2.heal_column(violation.table, column, violation, config, self._snapshot)
+        failure_type = None if result.success else self._failure_classifier.classify(result.error, result.raw_response)
+        attempt = HealAttempt(
+            level=2,
+            failure_type=failure_type,
+            latency_ms=int(result.elapsed_seconds * 1000),
+            token_estimate=result.prompt_tokens,
+            error_message=str(result.error) if result.error else None,
+        )
+        attempts.append(attempt)
+        next_level = 0
+        if not result.success:
+            next_level = 3 if failure_type == FailureType.CONTEXT_OVERFLOW else 4
+        self._log_heal_attempt(violation.table, attempt, column=column, next_level=next_level)
+        return result, failure_type
 
     def _try_level3(
         self,
@@ -387,7 +395,9 @@ class HealOrchestrator:
         attempts.append(l3_attempt)
         table_name = task.tables[0] if task.tables else ""
         # Spec 5.5: log heal_attempt. next_level = 3 if retrying ultra_compact, else 4 (degrade).
-        next_level = 0 if l3_result.success else (3 if mode == "compact" else 4)
+        next_level = 0
+        if not l3_result.success:
+            next_level = 3 if mode == "compact" else 4
         self._log_heal_attempt(table_name, l3_attempt, next_level=next_level)
         if l3_result.success:
             return _RoundResult(success=True, level=3, config_patch=l3_result.config_patch or {})
@@ -443,7 +453,7 @@ class HealOrchestrator:
             )
         # Restore failed columns from original deterministic config.
         config = self._restore_failed_columns(config, original_config, failed_cols)
-        failed_map = {c: reason for c in failed_cols}
+        failed_map = dict.fromkeys(failed_cols, reason)
         new_config, _ = self._degrader.degrade(config, failed_map, column_groups=[])
         return HealResult(
             config=new_config,
@@ -479,20 +489,25 @@ class HealOrchestrator:
             table_name = table_cfg.get("name", "")
             if not (orig_table := orig_tables.get(table_name)):
                 continue
-            orig_cols = {c["name"]: c for c in orig_table.get("columns", [])}
-            for col in table_cfg.get("columns", []):
-                col_name = col.get("name", "")
-                if col_name not in failed_set and f"{table_name}:{col_name}" not in failed_set:
-                    continue
-                if not (orig_col := orig_cols.get(col_name)):
-                    continue
-                # Restore deterministic inference fields
-                for field_name in ("generator", "params", "derive_from", "expression"):
-                    if field_name in orig_col:
-                        col[field_name] = copy.deepcopy(orig_col[field_name])
-                    else:
-                        col.pop(field_name, None)
+            HealOrchestrator._restore_table_columns(table_cfg, orig_table, failed_set)
         return new_config
+
+    @staticmethod
+    def _restore_table_columns(table: dict[str, Any], original: dict[str, Any], failed: set[str]) -> None:
+        """Restore only the failed columns in one table, preserving qualified names."""
+        table_name = table.get("name", "")
+        originals = {column["name"]: column for column in original.get("columns", [])}
+        for column in table.get("columns", []):
+            name = column.get("name", "")
+            if name not in failed and f"{table_name}:{name}" not in failed:
+                continue
+            if not (original_column := originals.get(name)):
+                continue
+            for field in ("generator", "params", "derive_from", "expression"):
+                if field in original_column:
+                    column[field] = copy.deepcopy(original_column[field])
+                else:
+                    column.pop(field, None)
 
     @staticmethod
     def _extract_violations(val_result: Any) -> list[ViolationReport]:

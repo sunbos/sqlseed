@@ -49,9 +49,12 @@ class ContextBuilderMixin:
         context = self._build_context(schema_ctx)
 
         # Three-tier prompt selection: ultra-compact > compact > full
-        system_prompt = (
-            _ULTRA_COMPACT_SYSTEM_PROMPT if ultra_compact else (_COMPACT_SYSTEM_PROMPT if compact else SYSTEM_PROMPT)
-        )
+        if ultra_compact:
+            system_prompt = _ULTRA_COMPACT_SYSTEM_PROMPT
+        elif compact:
+            system_prompt = _COMPACT_SYSTEM_PROMPT
+        else:
+            system_prompt = SYSTEM_PROMPT
 
         messages: list[dict[str, str]] = [
             {"role": "system", "content": system_prompt},

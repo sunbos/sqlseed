@@ -165,13 +165,12 @@ def validate_dags(document: dict[str, Any], schema: dict[str, Any]) -> None:
         columns = {col["name"] for col in tables[table["name"]]["columns"]}
         configs = [ColumnConfig.model_validate(col) for col in table.get("columns", [])]
         for config in configs:
-            sources = (
-                config.derive_from
-                if isinstance(config.derive_from, list)
-                else [config.derive_from]
-                if config.derive_from
-                else []
-            )
+            if isinstance(config.derive_from, list):
+                sources = config.derive_from
+            elif config.derive_from:
+                sources = [config.derive_from]
+            else:
+                sources = []
             if not set(sources) <= columns:
                 raise ValueError("派生来源不存在")
         ColumnDAG().build({name: GeneratorSpec(generator_name="string") for name in columns}, configs)
@@ -237,28 +236,32 @@ class SampleCheckError(ValueError):
         }
 
 
+def _validate_sample_range(table: str, column: str, parsed: ParsedCheck, value: Any) -> None:
+    if parsed.min_value is not None and (
+        value < parsed.min_value or (parsed.min_exclusive and value == parsed.min_value)
+    ):
+        raise SampleCheckError(
+            table,
+            column,
+            f"生成值不满足 CHECK 下界（{'>' if parsed.min_exclusive else '>='} {parsed.min_value}）",
+        )
+    if parsed.max_value is not None and (
+        value > parsed.max_value or (parsed.max_exclusive and value == parsed.max_value)
+    ):
+        raise SampleCheckError(
+            table,
+            column,
+            f"生成值不满足 CHECK 上界（{'<' if parsed.max_exclusive else '<='} {parsed.max_value}）",
+        )
+
+
 def _validate_sample_value(table: str, column: str, parsed: ParsedCheck, value: Any) -> None:
     if value is None:
         return  # SQL CHECK accepts UNKNOWN; NOT NULL is checked separately.
     if parsed.kind == "choice" and value not in parsed.choices:
         raise SampleCheckError(table, column, "生成值不满足 CHECK 候选范围")
     if parsed.kind == "range":
-        if parsed.min_value is not None and (
-            value < parsed.min_value or (parsed.min_exclusive and value == parsed.min_value)
-        ):
-            raise SampleCheckError(
-                table,
-                column,
-                f"生成值不满足 CHECK 下界（{'>' if parsed.min_exclusive else '>='} {parsed.min_value}）",
-            )
-        if parsed.max_value is not None and (
-            value > parsed.max_value or (parsed.max_exclusive and value == parsed.max_value)
-        ):
-            raise SampleCheckError(
-                table,
-                column,
-                f"生成值不满足 CHECK 上界（{'<' if parsed.max_exclusive else '<='} {parsed.max_value}）",
-            )
+        _validate_sample_range(table, column, parsed, value)
     if parsed.kind == "length_range" and (
         (parsed.min_length is not None and len(value) < parsed.min_length)
         or (parsed.max_length is not None and len(value) > parsed.max_length)

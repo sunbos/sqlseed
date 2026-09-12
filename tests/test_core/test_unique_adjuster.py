@@ -525,8 +525,9 @@ class TestAdjustIntegerChecks:
         adjuster = UniqueAdjuster(ColumnMapper())
         adjusted = adjuster.adjust({"rank": spec}, {"rank"}, capacity, check_constraints=_checks(expression))
         assert adjusted["rank"].params == {"min_value": 10, "max_value": 12}
+        check_constraints = _checks(expression)
         with pytest.raises(ConfigurationError):
-            adjuster.adjust({"rank": spec}, {"rank"}, capacity + 1, check_constraints=_checks(expression))
+            adjuster.adjust({"rank": spec}, {"rank"}, capacity + 1, check_constraints=check_constraints)
 
     @pytest.mark.parametrize("count", [1, 10, 100])
     def test_check_bounds_apply_even_when_unclamped_range_has_sampling_room(self, count: int) -> None:
@@ -758,6 +759,24 @@ class TestAdjustedStringBehavior:
         with pytest.raises(ConfigurationError):
             adjuster.adjust({"code": spec}, {"code"}, 7, columns)
 
+    def test_digits_with_sampling_headroom_keep_six_character_domain(self) -> None:
+        # A million six-digit values provide the existing sampling headroom
+        # for 141 rows without expanding the user's configured upper length.
+        spec = GeneratorSpec(generator_name="string", params={"min_length": 1, "max_length": 6, "charset": "digits"})
+        adjusted = UniqueAdjuster(ColumnMapper()).adjust({"code": spec}, {"code"}, 141)["code"]
+
+        assert adjusted.params == {"min_length": 6, "max_length": 6, "charset": "digits"}
+
+    @pytest.mark.parametrize("count,min_length", [(4, 2), (5, 1)])
+    def test_bounded_string_retains_shorter_lengths_only_when_needed(self, count: int, min_length: int) -> None:
+        # Four binary pairs fit at length two. A fifth distinct value needs
+        # the shorter allowed strings to remain in the generation domain.
+        spec = GeneratorSpec(generator_name="string", params={"min_length": 1, "max_length": 2, "charset": "01"})
+        columns = [_make_col_info("code", "VARCHAR(2)")]
+        adjusted = UniqueAdjuster(ColumnMapper()).adjust({"code": spec}, {"code"}, count, columns)["code"]
+
+        assert adjusted.params == {"min_length": min_length, "max_length": 2, "charset": "01"}
+
     @pytest.mark.parametrize("reverse", [False, True])
     def test_string_schema_bounds_intersect_without_using_other_columns(self, reverse: bool) -> None:
         checks = _checks("length(other) <= 1", "code < ceiling", "length(code) <= 3", "length(code) > 1")
@@ -782,8 +801,10 @@ class TestAdjustedStringBehavior:
 
     def test_string_length_domain_with_no_schema_intersection_is_rejected(self) -> None:
         spec = GeneratorSpec(generator_name="string", params={"min_length": 4, "max_length": 8})
+        adjuster = UniqueAdjuster(ColumnMapper())
+        columns = [_make_col_info("code", "CHAR(3)")]
         with pytest.raises(ConfigurationError):
-            UniqueAdjuster(ColumnMapper()).adjust({"code": spec}, {"code"}, 1, [_make_col_info("code", "CHAR(3)")])
+            adjuster.adjust({"code": spec}, {"code"}, 1, columns)
 
     @pytest.mark.parametrize("min_length,max_length,capacity", [(2, 2, 4), (0, 0, 1)])
     def test_fixed_string_domain_has_exact_capacity(self, min_length: int, max_length: int, capacity: int) -> None:

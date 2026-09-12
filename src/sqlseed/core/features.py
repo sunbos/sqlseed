@@ -305,7 +305,7 @@ class StructuralFeatureExtractor:
         if self.dialect == "sqlite":
             return self._extract_sqlite_specific(tables)
         if self.dialect == "postgresql":
-            return self._extract_postgresql_specific(tables)
+            return self._extract_postgresql_specific()
         return None
 
     def _extract_sqlite_specific(self, tables: list[str]) -> DialectSpecificFeatures:
@@ -380,7 +380,7 @@ class StructuralFeatureExtractor:
             pass
         return index_predicates
 
-    def _extract_postgresql_specific(self, tables: list[str]) -> DialectSpecificFeatures:
+    def _extract_postgresql_specific(self) -> DialectSpecificFeatures:
         """PostgreSQL-specific: SEQUENCE, EXCLUSION, PARTITION, INHERITANCE, COLLATION.
 
         Phase 1 stub: returns empty features. Full implementation deferred

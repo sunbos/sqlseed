@@ -37,9 +37,14 @@ def fixture_fk_adapter(tmp_path: Path, request: pytest.FixtureRequest) -> Iterat
         yield adapter
 
 
-def test_first_pooled_connection_rejects_orphan_insert(fk_adapter: SQLAlchemyAdapter) -> None:
+@pytest.mark.parametrize("recreate_pool", [False, True], ids=["initial-pool", "recreated-pool"])
+def test_pool_connections_reject_orphan_insert(fk_adapter: SQLAlchemyAdapter, recreate_pool: bool) -> None:
+    if recreate_pool:
+        # Pool replacement creates new DBAPI connections after initial reflection.
+        fk_adapter._get_engine().dispose()
+    rows = iter([{"id": 2, "parent_id": 999}])
     with pytest.raises(IntegrityError, match="FOREIGN KEY constraint failed"):
-        fk_adapter.batch_insert("children", iter([{"id": 2, "parent_id": 999}]))
+        fk_adapter.batch_insert("children", rows)
 
     assert fk_adapter.get_row_count("children") == 1
     assert fk_adapter.execute("PRAGMA foreign_key_check").fetchall() == []
@@ -50,15 +55,5 @@ def test_first_pooled_connection_restricts_parent_clear(fk_adapter: SQLAlchemyAd
         fk_adapter.clear_table("parents")
 
     assert fk_adapter.get_row_count("parents") == 1
-    assert fk_adapter.get_row_count("children") == 1
-    assert fk_adapter.execute("PRAGMA foreign_key_check").fetchall() == []
-
-
-def test_recreated_pool_connections_keep_foreign_keys(fk_adapter: SQLAlchemyAdapter) -> None:
-    # Pool replacement creates new DBAPI connections after initial reflection.
-    fk_adapter._get_engine().dispose()
-    with pytest.raises(IntegrityError, match="FOREIGN KEY constraint failed"):
-        fk_adapter.batch_insert("children", iter([{"id": 2, "parent_id": 999}]))
-
     assert fk_adapter.get_row_count("children") == 1
     assert fk_adapter.execute("PRAGMA foreign_key_check").fetchall() == []

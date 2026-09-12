@@ -49,8 +49,10 @@ class TestClampRange:
 
     def test_no_overlap_raises(self) -> None:
         cc = ColumnConfig(name="age", generator="integer", params={"min_value": 0, "max_value": 10})
+        adapter = CheckAdapter()
+        checks = _range_checks()
         with pytest.raises(ConfigurationError):
-            CheckAdapter().adapt_user_configs({"age": cc}, _range_checks())
+            adapter.adapt_user_configs({"age": cc}, checks)
 
     def test_unset_bound_adopts_check(self) -> None:
         """用户未设的边界采用 CHECK 边界并写回 params（静默补全，不视为修正）。"""
@@ -111,8 +113,9 @@ class TestClampWeightedChoices:
             generator="weighted_choice",
             params={"weighted_choices": {"banned": 100}},
         )
+        adapter = CheckAdapter()
         with pytest.raises(ConfigurationError):
-            CheckAdapter().adapt_user_configs({"status": cc}, ["status IN ('active', 'inactive')"])
+            adapter.adapt_user_configs({"status": cc}, ["status IN ('active', 'inactive')"])
 
     def test_choices_dict_list_clamped(self) -> None:
         cc = ColumnConfig(
@@ -143,8 +146,9 @@ class TestClampChoices:
 
     def test_no_intersection_raises(self) -> None:
         cc = ColumnConfig(name="status", generator="choice", params={"choices": ["x", "y"]})
+        adapter = CheckAdapter()
         with pytest.raises(ConfigurationError):
-            CheckAdapter().adapt_user_configs({"status": cc}, ["status IN ('active', 'inactive')"])
+            adapter.adapt_user_configs({"status": cc}, ["status IN ('active', 'inactive')"])
 
     def test_all_valid_unchanged(self) -> None:
         cc = ColumnConfig(name="status", generator="choice", params={"choices": ["active", "inactive"]})
@@ -194,13 +198,17 @@ class TestSkippedCases:
 class TestBilingualMessages:
     def test_chinese_no_intersection_message(self) -> None:
         cc = ColumnConfig(name="age", generator="integer", params={"min_value": 0, "max_value": 10})
+        adapter = CheckAdapter(locale="zh_CN")
+        checks = _range_checks()
         with pytest.raises(ConfigurationError, match="完全无交集"):
-            CheckAdapter(locale="zh_CN").adapt_user_configs({"age": cc}, _range_checks())
+            adapter.adapt_user_configs({"age": cc}, checks)
 
     def test_english_no_intersection_message(self) -> None:
         cc = ColumnConfig(name="age", generator="integer", params={"min_value": 0, "max_value": 10})
+        adapter = CheckAdapter(locale="en_US")
+        checks = _range_checks()
         with pytest.raises(ConfigurationError, match="no overlap"):
-            CheckAdapter(locale="en_US").adapt_user_configs({"age": cc}, _range_checks())
+            adapter.adapt_user_configs({"age": cc}, checks)
 
 
 class TestOrchestratorIntegration:

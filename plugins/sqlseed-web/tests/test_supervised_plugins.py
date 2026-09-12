@@ -79,12 +79,14 @@ def test_supervised_task_restores_business_before_reporting_success(managed: Any
     task = manager.execute(module.ExecuteRequest(plan_id=plan["plan_id"]))
     manager._worker.join(5)
     task = manager.task_snapshot(task["task_id"])
-    assert task["status"] == "succeeded" and task["service_ready"] is True
+    assert task["status"] == "succeeded"
+    assert task["service_ready"] is True
     assert controller.calls == ["pause", "maintenance", "restore"]
     assert calls
     status = manager.status()
     assert status["automatic_lifecycle"] is True
-    assert status["phase"] == "ready" and status["service_generation"] == 2
+    assert status["phase"] == "ready"
+    assert status["service_generation"] == 2
     assert status["restart_required"] is False
     assert status["session_restore"]["restored_connections"] == 1
 
@@ -94,8 +96,9 @@ def test_busy_worker_blocks_before_any_package_task(managed: Any) -> None:
     manager, controller, calls = managed
     plan = manager.plan(module.PlanRequest(component_id="mimesis", action="install"))
     controller.busy = True
+    request = module.ExecuteRequest(plan_id=plan["plan_id"])
     with pytest.raises(HTTPException) as error:
-        manager.execute(module.ExecuteRequest(plan_id=plan["plan_id"]))
+        manager.execute(request)
     assert error.value.status_code == 409
     assert manager.status()["active_task"] is None
     assert calls == []
@@ -193,8 +196,9 @@ def test_initial_business_boot_does_not_admit_a_package_plan(managed: Any, monke
     supervisor.manager.stop()
 
     def boot(mode: str) -> dict[str, Any]:
+        request = module.PlanRequest(component_id="mimesis", action="install")
         with pytest.raises(HTTPException):
-            supervisor.manager.plan(module.PlanRequest(component_id="mimesis", action="install"))
+            supervisor.manager.plan(request)
         return {}
 
     monkeypatch.setattr(supervisor, "_spawn", boot)

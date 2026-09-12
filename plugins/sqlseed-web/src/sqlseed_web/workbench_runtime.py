@@ -45,6 +45,8 @@ from sqlseed_web.workbench_execution import build_execution_plan, normalize_exec
 from sqlseed_web.workbench_schema import inspect_connection
 from sqlseed_web.workbench_store import WorkspaceStore, get_store
 
+_CREDENTIAL_KEY_PATTERN = r"password|passwd|pwd|secret|token|credential|key|passfile"
+
 logger = get_logger(__name__)
 
 
@@ -66,14 +68,27 @@ def _redact_query_credentials(message: str) -> str:
     while field := field_pattern.search(message, cursor):
         cursor = field.end()
         key = field.group()
-        if not key.endswith("=") or not re.search(
-            r"password|passwd|pwd|secret|token|credential|key|passfile", key, re.IGNORECASE
-        ):
+        if not key.endswith("=") or not re.search(_CREDENTIAL_KEY_PATTERN, key, re.IGNORECASE):
             continue
         if (value := value_pattern.match(message, cursor)) is not None:
             parts.extend((message[copied:cursor], "***"))
             cursor = copied = value.end()
     return "".join(parts) + message[copied:]
+
+
+def _redact_url_credentials(message: str) -> str:
+    """Scan each URL authority once, without regex backtracking on long errors."""
+    parts = message.split("://")
+    for index in range(1, len(parts)):
+        authority = parts[index]
+        for offset, character in enumerate(authority):
+            if character == "@":
+                if offset:
+                    parts[index] = "***" + authority[offset:]
+                break
+            if character == "/" or character.isspace():
+                break
+    return "://".join(parts)
 
 
 def public_error(exc: Exception) -> str:
@@ -83,8 +98,7 @@ def public_error(exc: Exception) -> str:
     else:
         message = str(exc)
     message = message.split("\n[SQL:", 1)[0].split("\n[parameters:", 1)[0]
-    # A scheme can only start at a word boundary; do not retry inside long words.
-    message = re.sub(r"(?<!\w)(\w+(?:\+\w+)?://)[^\s/@]+@", r"\1***@", message)
+    message = _redact_url_credentials(message)
     message = _redact_query_credentials(message)
     return message[:2000]
 
@@ -100,11 +114,7 @@ def _identity(target: str) -> str:
     database = url.database
     if url.get_backend_name() == "sqlite" and database and database != ":memory:":
         return str(Path(database).expanduser().resolve())
-    secret_keys = [
-        key
-        for key in url.query
-        if re.search(r"password|passwd|pwd|secret|token|credential|key|passfile", key, re.IGNORECASE)
-    ]
+    secret_keys = [key for key in url.query if re.search(_CREDENTIAL_KEY_PATTERN, key, re.IGNORECASE)]
     return url._replace(password=None).difference_update_query(secret_keys).render_as_string(hide_password=False)
 
 
@@ -113,14 +123,19 @@ def _reject_extra(value: Any, fields: Any, path: str) -> None:
         raise WorkbenchError(f"{path} 包含未知字段：{', '.join(sorted(extra))}", code="unknown_field")
 
 
+def _validate_table_keys(table: Any) -> None:
+    _reject_extra(table, TableConfig.model_fields, "table")
+    if not isinstance(table, dict):
+        return
+    for column in table.get("columns", []) or []:
+        if isinstance(column, dict):
+            _reject_extra(column.get("constraints"), ColumnConstraintsConfig.model_fields, "constraints")
+
+
 def _validate_keys(raw: dict[str, Any]) -> None:
     _reject_extra(raw, GeneratorConfig.model_fields, "配置")
     for table in raw.get("tables", []) or []:
-        _reject_extra(table, TableConfig.model_fields, "table")
-        if isinstance(table, dict):
-            for column in table.get("columns", []) or []:
-                if isinstance(column, dict):
-                    _reject_extra(column.get("constraints"), ColumnConstraintsConfig.model_fields, "constraints")
+        _validate_table_keys(table)
     for association in raw.get("associations", []) or []:
         _reject_extra(association, ColumnAssociation.model_fields, "association")
     mappings = raw.get("custom_column_mappings")
@@ -173,11 +188,7 @@ def export_document(conn: Connection, document: dict[str, Any]) -> dict[str, Any
     omitted = False
     if config.get("url"):
         url = make_url(config["url"])
-        secret_keys = [
-            key
-            for key in url.query
-            if re.search(r"password|passwd|pwd|secret|token|credential|key|passfile", key, re.IGNORECASE)
-        ]
+        secret_keys = [key for key in url.query if re.search(_CREDENTIAL_KEY_PATTERN, key, re.IGNORECASE)]
         omitted = url.password is not None or bool(secret_keys)
         config["url"] = (
             url._replace(password=None).difference_update_query(secret_keys).render_as_string(hide_password=False)
@@ -327,6 +338,16 @@ def _derived_column_issues(
             _issue(issues, "invalid_expression", public_error(exc), **context)
 
 
+def _column_presence_issues(
+    column: ColumnConfig, info: dict[str, Any], context: dict[str, str], issues: list[dict[str, Any]]
+) -> None:
+    if column.null_ratio > 0 and not info.get("nullable", True):
+        _issue(issues, "not_null", "NOT NULL 列不能设置 null_ratio > 0", **context)
+    can_skip = _can_omit(info)
+    if column.generator == "skip" and not info.get("nullable", True) and not can_skip:
+        _issue(issues, "required_column", "没有默认值的 NOT NULL 列不能跳过", **context)
+
+
 def _table_column_issues(
     config: GeneratorConfig, table: TableConfig, metadata: dict[str, Any], known: set[str], issues: list[dict[str, Any]]
 ) -> None:
@@ -351,11 +372,7 @@ def _table_column_issues(
             _issue(issues, "unknown_column", "列已不存在，请刷新 schema 并修正配置", **context)
             continue
         _unique_domain_issues(column, table, metadata, context, issues)
-        if column.null_ratio > 0 and not info.get("nullable", True):
-            _issue(issues, "not_null", "NOT NULL 列不能设置 null_ratio > 0", **context)
-        can_skip = _can_omit(info)
-        if column.generator == "skip" and not info.get("nullable", True) and not can_skip:
-            _issue(issues, "required_column", "没有默认值的 NOT NULL 列不能跳过", **context)
+        _column_presence_issues(column, info, context, issues)
         _derived_column_issues(column, columns, context, issues)
 
 
@@ -464,6 +481,23 @@ def _association_sources(
                 )
 
 
+def _foreign_key_sources(
+    tables: dict[str, Any],
+    dependencies: dict[str, set[str]],
+    source: Callable[[str, str, list[str], bool, str], None],
+    issues: list[dict[str, Any]],
+) -> None:
+    for name in dependencies:
+        for fk in tables[name]["foreign_keys"]:
+            if fk.get("ref_schema") not in (None, "", "public", "main"):
+                _issue(issues, "cross_schema_fk", "当前 core 尚未保证跨 schema 外键生成", table=name)
+                continue
+            if len(fk["columns"]) > 2:
+                _issue(issues, "composite_fk_width", "当前 core 尚未保证三列及以上组合外键的元组配对", table=name)
+                continue
+            source(name, fk["ref_table"], fk["ref_columns"], fk["nullable"], ",".join(fk["columns"]))
+
+
 def _dependency_plan(
     config: GeneratorConfig, schema: dict[str, Any], orch: DataOrchestrator, issues: list[dict[str, Any]]
 ) -> tuple[list[str], list[list[str]], set[str], dict[str, Any]]:
@@ -498,15 +532,7 @@ def _dependency_plan(
         if not values:
             _empty_source_issues(context, columns, nullable, selected, deferred, issues)
 
-    for name in dependencies:
-        for fk in tables[name]["foreign_keys"]:
-            if fk.get("ref_schema") not in (None, "", "public", "main"):
-                _issue(issues, "cross_schema_fk", "当前 core 尚未保证跨 schema 外键生成", table=name)
-                continue
-            if len(fk["columns"]) > 2:
-                _issue(issues, "composite_fk_width", "当前 core 尚未保证三列及以上组合外键的元组配对", table=name)
-                continue
-            source(name, fk["ref_table"], fk["ref_columns"], fk["nullable"], ",".join(fk["columns"]))
+    _foreign_key_sources(tables, dependencies, source, issues)
     _association_sources(config, tables, dependencies, source, issues)
     order, layers = _layers(dependencies)
     if len(order) != len(dependencies):

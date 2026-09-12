@@ -147,7 +147,8 @@ class TestCheckParserCompoundAnd:
         assert result is not None
         assert result.min_value == 17
         assert result.max_value == 121
-        assert result.min_exclusive and result.max_exclusive
+        assert result.min_exclusive
+        assert result.max_exclusive
 
     def test_length_and_merged(self) -> None:
         result = CheckConstraintParser.parse("code", "length(code) >= 3 AND length(code) <= 10")

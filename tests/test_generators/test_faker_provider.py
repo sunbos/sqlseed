@@ -43,7 +43,8 @@ class TestLocaleFallback(NativePhoneProviderTestMixin):
         self.provider.set_locale("zh_CN")
         value = self.provider.generate("zip_code")
         assert isinstance(value, str)
-        assert len(value) == 6 and value.isdigit()
+        assert len(value) == 6
+        assert value.isdigit()
 
     def test_en_us_state_uses_real_data(self) -> None:
         """en_US 支持 state → 不触发降级，返回真实州名（非占位格式）。"""
@@ -71,13 +72,16 @@ class TestLocaleFallback(NativePhoneProviderTestMixin):
             p.set_seed(7)
             return p.generate("state")
 
-        assert _gen_with_seed() == _gen_with_seed()
+        first_run = _gen_with_seed()
+        repeated_run = _gen_with_seed()
+        assert first_run == repeated_run
 
     def test_supported_generator_unaffected(self) -> None:
         """zh_CN 支持的方法（name）保持真实数据，不被降级波及。"""
         self.provider.set_locale("zh_CN")
         value = self.provider.generate("name")
-        assert isinstance(value, str) and value
+        assert isinstance(value, str)
+        assert value
         assert not value.startswith("first_")
 
     def test_generate_word_returns_real_word(self) -> None:
@@ -92,5 +96,6 @@ class TestLocaleFallback(NativePhoneProviderTestMixin):
         phone = self.provider.generate("phone", mask="###.###.####")
         assert isinstance(phone, str)
         assert len(phone) == 12
-        assert phone[3] == "." and phone[7] == "."
+        assert phone[3] == "."
+        assert phone[7] == "."
         assert phone.replace(".", "").isdigit()

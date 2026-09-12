@@ -45,9 +45,9 @@ function harness(hash = '#/workbench') {
   });
   const source = fs.readFileSync(path.join(__dirname, '../src/sqlseed_web/static/js/app.js'), 'utf8')
     .replace(/^import[^\n]+\n/gm, '').replace(/import\((['"][^'"]+['"])\)/g, '__loadPage($1)');
-  vm.runInContext(source, context);
+  const ready = vm.runInContext('(async () => {\n' + source + '\n})()', context);
   const navigate = hash => {location.hash = hash; return window.dispatchEvent('hashchange');};
-  return {document, main, nav, window, location, events, modules, imports, roots, page, navigate,
+  return {document, main, nav, window, location, events, modules, imports, roots, page, navigate, ready,
     badgeCount: () => badges};
 }
 

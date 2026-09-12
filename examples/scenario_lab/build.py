@@ -49,6 +49,12 @@ def _seed_tenant_people(db: sqlite3.Connection, tenant: int, city: str) -> None:
             name=f"员工{tenant}-{number}",
             role="manager" if number == 1 else "operator",
         )
+    _seed_tenant_customers(db, tenant, city)
+
+
+def _seed_tenant_customers(db: sqlite3.Connection, tenant: int, city: str) -> None:
+    """Insert tenant customers with their two consistent shipping addresses."""
+    base = tenant * 1000
     for number in (1, 2, 3):
         customer = base + 20 + number
         insert(

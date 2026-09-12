@@ -223,21 +223,21 @@ class RelationResolver:
                 continue
             if not (fks := self.get_foreign_keys(table)):
                 continue
-            # Check if any FK points to another remaining table and the
-            # FK column is nullable. Self-referencing FKs are skipped
-            # (they don't participate in the inter-table cycle).
-            try:
-                col_info = SchemaMetadataReader(self._db).columns(table)
-            except SchemaMetadataError:
-                continue
-            nullable_map = {c.name: c.nullable for c in col_info}
-            for fk in fks:
-                if fk.ref_table == table or fk.ref_table not in remaining:
-                    continue
-                if nullable_map.get(fk.column, False):
-                    return table
+            if self._has_nullable_cycle_edge(table, remaining, fks):
+                return table
         # Fallback: first table in input order
         return next(t for t in table_names if t in remaining)
+
+    def _has_nullable_cycle_edge(self, table: str, remaining: set[str], fks: list[ForeignKeyInfo]) -> bool:
+        """Prefer a nullable edge to another remaining table when breaking a cycle."""
+        try:
+            col_info = SchemaMetadataReader(self._db).columns(table)
+        except SchemaMetadataError:
+            return False
+        nullable_map = {column.name: column.nullable for column in col_info}
+        return any(
+            fk.ref_table != table and fk.ref_table in remaining and nullable_map.get(fk.column, False) for fk in fks
+        )
 
     def resolve_foreign_key_values(
         self,
@@ -412,29 +412,11 @@ class RelationResolver:
         members. Keep the bounded pool at tuple granularity and make the second
         node depend on the first; DataStream selects the pair once per row.
         """
-        col_a, ref_table, ref_a = cols[0]
-        col_b, _, ref_b = cols[1]
+        col_a, ref_table, _ = cols[0]
+        col_b = cols[1][0]
         if col_a not in specs or col_b not in specs:
             return
-        typed_pairs = getattr(self._db, "_get_column_pairs", None)
-        if callable(typed_pairs):
-            pairs = typed_pairs(ref_table, ref_a, ref_b, limit=100000)
-        else:
-            # Protocol-compatible adapters retain their own returned value types.
-            rows = self._db.get_sample_rows(ref_table, columns=[ref_a, ref_b], limit=100000)
-            pairs = [(row[ref_a], row[ref_b]) for row in rows]
-        nullable = {column.name: column.nullable for column in self._db.get_column_info(table_name)}
-        usable_pairs = [
-            pair
-            for pair in pairs
-            if all(value is not None or nullable.get(cols[index][0], True) for index, value in enumerate(pair))
-        ]
-        if pairs and not usable_pairs:
-            raise ConfigurationError(
-                f"Composite FK {table_name}.{(col_a, col_b)!r} has no sampled parent pair "
-                "compatible with the child columns' NOT NULL constraints"
-            )
-        pairs = usable_pairs
+        pairs = self._compatible_fk_pairs(table_name, cols)
         for index, (column, _, ref_column) in enumerate(cols):
             spec = specs[column]
             params: dict[str, Any] = {
@@ -459,6 +441,30 @@ class RelationResolver:
                     config.derive_from = None
                     config.expression = None
 
+    def _compatible_fk_pairs(self, table_name: str, cols: list[tuple[str, str, str]]) -> list[tuple[Any, Any]]:
+        """Read complete parent pairs and enforce the child columns' nullability."""
+        col_a, ref_table, ref_a = cols[0]
+        col_b, _, ref_b = cols[1]
+        typed_pairs = getattr(self._db, "_get_column_pairs", None)
+        if callable(typed_pairs):
+            pairs = typed_pairs(ref_table, ref_a, ref_b, limit=100000)
+        else:
+            # Protocol-compatible adapters retain their own returned value types.
+            rows = self._db.get_sample_rows(ref_table, columns=[ref_a, ref_b], limit=100000)
+            pairs = [(row[ref_a], row[ref_b]) for row in rows]
+        nullable = {column.name: column.nullable for column in self._db.get_column_info(table_name)}
+        usable_pairs = [
+            pair
+            for pair in pairs
+            if all(value is not None or nullable.get(cols[index][0], True) for index, value in enumerate(pair))
+        ]
+        if pairs and not usable_pairs:
+            raise ConfigurationError(
+                f"Composite FK {table_name}.{(col_a, col_b)!r} has no sampled parent pair "
+                "compatible with the child columns' NOT NULL constraints"
+            )
+        return usable_pairs
+
     def _resolve_fk_or_integer_spec(
         self,
         table_name: str,
@@ -477,8 +483,9 @@ class RelationResolver:
             # violations (all rows get NULL). If NOT NULL, fall through with
             # empty ref_values — the generator will use the fallback integer
             # range.
+            force_null = not ref_values and self._column_allows_null(table_name, col_name)
             null_ratio = spec.null_ratio
-            if not ref_values and self._column_allows_null(table_name, col_name):
+            if force_null:
                 null_ratio = 1.0
             return GeneratorSpec(
                 generator_name="foreign_key",
@@ -490,7 +497,7 @@ class RelationResolver:
                     "_self_ref_deferred": (
                         fk_info.ref_table == table_name
                         and spec.null_ratio < 1.0
-                        and null_ratio == 1.0
+                        and force_null
                         and self._db.get_row_count(table_name) == 0
                     ),
                 },
@@ -591,50 +598,50 @@ class RelationResolver:
             # violations while preserving data integrity. A two-pass approach
             # (insert then update) would produce richer hierarchies but
             # requires orchestrator-level changes.
-            if not (ref_values := self.resolve_foreign_key_values(table_name, col_name)):
-                if not column_info_map:
-                    column_info_map = {c.name: c.nullable for c in self._db.get_column_info(table_name)}
-                if column_info_map.get(col_name, True):
-                    specs[col_name] = GeneratorSpec(
-                        generator_name="foreign_key",
-                        params={
-                            "ref_table": fk_info.ref_table,
-                            "ref_column": fk_info.ref_column,
-                            "strategy": _fk_strategy(spec),
-                            "_ref_values": ref_values,
-                            "_fallback_min": 1,
-                            "_fallback_max": 1,
-                            "_self_ref_deferred": (
-                                fk_info.ref_table == table_name
-                                and spec.null_ratio < 1.0
-                                and self._db.get_row_count(table_name) == 0
-                            ),
-                        },
-                        null_ratio=1.0,
-                        provider=spec.provider,
-                    )
-                    logger.debug(
-                        "FK with empty parent, set null_ratio=1.0",
-                        table_name=table_name,
-                        column_name=col_name,
-                        ref_table=fk_info.ref_table,
-                    )
-                    # Bidirectional CHECK constraint handling: when a self-ref
-                    # FK column is forced to NULL (null_ratio=1.0), any
-                    # conditional column linked via a bidirectional CHECK
-                    # (e.g., ``org_type = 'root' OR parent_id IS NOT NULL``)
-                    # must be set to its null_val ('root' in this example) to
-                    # satisfy the CHECK during initial fill. Without this,
-                    # 75% of rows violate the CHECK when the conditional
-                    # column has multiple choices (e.g., root/division/team).
-                    # The _post_fill_self_ref_fks pass later updates ~70% of
-                    # rows to reference existing PKs and adjusts the
-                    # conditional column accordingly.
-                    self._fix_conditional_column_for_null_fk(table_name, col_name, specs)
-                    continue
-                # NOT NULL self-referencing FK with empty parent: fall through
-                # to the default upgrade (will use fallback integers). This is
-                # a known limitation — a two-pass fill would be needed.
+            ref_values = self.resolve_foreign_key_values(table_name, col_name)
+            if not ref_values and not column_info_map:
+                column_info_map = {c.name: c.nullable for c in self._db.get_column_info(table_name)}
+            if not ref_values and column_info_map.get(col_name, True):
+                specs[col_name] = GeneratorSpec(
+                    generator_name="foreign_key",
+                    params={
+                        "ref_table": fk_info.ref_table,
+                        "ref_column": fk_info.ref_column,
+                        "strategy": _fk_strategy(spec),
+                        "_ref_values": ref_values,
+                        "_fallback_min": 1,
+                        "_fallback_max": 1,
+                        "_self_ref_deferred": (
+                            fk_info.ref_table == table_name
+                            and spec.null_ratio < 1.0
+                            and self._db.get_row_count(table_name) == 0
+                        ),
+                    },
+                    null_ratio=1.0,
+                    provider=spec.provider,
+                )
+                logger.debug(
+                    "FK with empty parent, set null_ratio=1.0",
+                    table_name=table_name,
+                    column_name=col_name,
+                    ref_table=fk_info.ref_table,
+                )
+                # Bidirectional CHECK constraint handling: when a self-ref
+                # FK column is forced to NULL (null_ratio=1.0), any
+                # conditional column linked via a bidirectional CHECK
+                # (e.g., ``org_type = 'root' OR parent_id IS NOT NULL``)
+                # must be set to its null_val ('root' in this example) to
+                # satisfy the CHECK during initial fill. Without this,
+                # 75% of rows violate the CHECK when the conditional
+                # column has multiple choices (e.g., root/division/team).
+                # The _post_fill_self_ref_fks pass later updates ~70% of
+                # rows to reference existing PKs and adjusts the
+                # conditional column accordingly.
+                self._fix_conditional_column_for_null_fk(table_name, col_name, specs)
+                continue
+            # NOT NULL self-referencing FK with empty parent: fall through
+            # to the default upgrade (will use fallback integers). This is
+            # a known limitation — a two-pass fill would be needed.
             # Preserve the original spec's min_value/max_value so that when the
             # parent table is empty (empty _ref_values), the FK fallback in
             # DataStream._handle_foreign_key can generate values within the

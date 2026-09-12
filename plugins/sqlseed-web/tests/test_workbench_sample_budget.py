@@ -52,7 +52,8 @@ def test_invalid_samples_stop_at_budget_without_inserting(conn: Connection, tabl
     assert not result["ok"], result
     issue = next(issue for issue in result["issues"] if issue["code"] == "generation_invalid")
     assert issue["table"] == table
-    assert "样例校验" in issue["message"] and "12 次尝试上限" in issue["message"]
+    assert "样例校验" in issue["message"]
+    assert "12 次尝试上限" in issue["message"]
     assert issue["column"] == ("b" if table == "ranges" else "code")
     assert issue["generator"] == ("integer" if table == "ranges" else "template")
     assert issue["attempt_limit"] == 12
@@ -87,8 +88,9 @@ def test_cancel_exception_escapes_without_validating_later_tables(conn: Connecti
         if calls == 12:
             raise reason
 
+    schema_hash = inspect_connection(conn)["schema_hash"]
     with pytest.raises(HTTPException) as caught:
-        check_document(conn, config, inspect_connection(conn)["schema_hash"], cancel_check=cancel_check)
+        check_document(conn, config, schema_hash, cancel_check=cancel_check)
     assert caught.value is reason
     assert calls == 12
     assert conn.orchestrator.get_row_count("items") == conn.orchestrator.get_row_count("later") == 0

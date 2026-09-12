@@ -184,11 +184,11 @@ class Level2ColumnHealer:
             if table_cfg.get("name") != context.table_name:
                 continue
             for col in table_cfg.get("columns", []):
-                self._enrich_column_dependencies(context, col, table_cfg)
+                self._enrich_column_dependencies(context, col)
         return context
 
     @staticmethod
-    def _enrich_column_dependencies(context: ColumnContext, col: dict[str, Any], table_cfg: dict[str, Any]) -> None:
+    def _enrich_column_dependencies(context: ColumnContext, col: dict[str, Any]) -> None:
         """Append explicit source and downstream dependencies without changing their order."""
         col_name = col.get("name", "")
         if not (sources := col.get("derive_from")):
@@ -197,13 +197,7 @@ class Level2ColumnHealer:
             sources = [sources]
         if col_name == context.column_name:
             for src in sources:
-                src_type = "TEXT"
-                # Preserve the existing config traversal; config carries no
-                # source SQL types, so the established default stays TEXT.
-                for source_column in table_cfg.get("columns", []):
-                    if source_column.get("name") == src:
-                        pass
-                context.derive_from_sources.append((src, src_type))
+                context.derive_from_sources.append((src, "TEXT"))
         if context.column_name in sources and col_name != context.column_name:
             context.derive_from_downstream.append(col_name)
 

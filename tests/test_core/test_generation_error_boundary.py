@@ -69,7 +69,8 @@ def test_derived_index_error_reports_failure_and_preserves_committed_batch(tmp_p
                 ColumnConfig(name="result", derive_from="token", expression="value[int(value) // 3]"),
             ],
         )
-        assert result.errors and "index out of range" in result.errors[0]
+        assert result.errors
+        assert "index out of range" in result.errors[0]
         assert result.count == 2
         assert result.batch_count == 1
         assert orch.query("SELECT token, result FROM items ORDER BY id") == [

@@ -79,5 +79,6 @@ def test_postgres_metadata_is_preserved_then_rejected_before_sampling(
             RelationResolver(adapter).validate_generation_schema("children")
             return
         reason = "schema-qualified foreign key" if schema else "PostgreSQL composite foreign key"
+        resolver = RelationResolver(adapter)
         with pytest.raises(ConfigurationError, match=rf"children.*{reason}.*not supported"):
-            RelationResolver(adapter).validate_generation_schema("children")
+            resolver.validate_generation_schema("children")

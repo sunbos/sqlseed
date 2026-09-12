@@ -32,42 +32,7 @@ class TarjanSCC:
             graph: Adjacency list ``{node: [successors]}``. Every node
                 must appear as a key (even if it has no successors).
         """
-        index_counter = [0]
-        stack: list[str] = []
-        lowlink: dict[str, int] = {}
-        index: dict[str, int] = {}
-        on_stack: dict[str, bool] = {n: False for n in graph}
-        result: list[list[str]] = []
-
-        # Iterative Tarjan to avoid recursion-limit issues on large graphs
-        for start in graph:
-            if start in index:
-                continue
-            work: list[tuple[str, int]] = [(start, 0)]
-            while work:
-                node, succ_idx = work[-1]
-                if succ_idx == 0:
-                    index[node] = index_counter[0]
-                    lowlink[node] = index_counter[0]
-                    index_counter[0] += 1
-                    stack.append(node)
-                    on_stack[node] = True
-                if succ_idx < len(graph[node]):
-                    succ = graph[node][succ_idx]
-                    work[-1] = (node, succ_idx + 1)
-                    if succ not in index:
-                        work.append((succ, 0))
-                    elif on_stack.get(succ):
-                        lowlink[node] = min(lowlink[node], index[succ])
-                else:
-                    if lowlink[node] == index[node]:
-                        result.append(TarjanSCC._pop_scc(node, stack, on_stack))
-                    work.pop()
-                    if work:
-                        parent = work[-1][0]
-                        lowlink[parent] = min(lowlink[parent], lowlink[node])
-
-        return result
+        return _TarjanTraversal(graph).run()
 
     @staticmethod
     def _pop_scc(node: str, stack: list[str], on_stack: dict[str, bool]) -> list[str]:
@@ -80,6 +45,60 @@ class TarjanSCC:
             if w == node:
                 break
         return scc
+
+
+class _TarjanTraversal:
+    """Own the index, active stack and completed components for one FK graph walk."""
+
+    def __init__(self, graph: dict[str, list[str]]) -> None:
+        self.graph = graph
+        self.next_index = 0
+        self.stack: list[str] = []
+        self.lowlink: dict[str, int] = {}
+        self.index: dict[str, int] = {}
+        self.on_stack = dict.fromkeys(graph, False)
+        self.components: list[list[str]] = []
+
+    def run(self) -> list[list[str]]:
+        """Traverse unvisited roots in insertion order without recursive DFS calls."""
+        for start in self.graph:
+            if start not in self.index:
+                self._walk_root(start)
+        return self.components
+
+    def _walk_root(self, start: str) -> None:
+        """Process the explicit DFS stack and propagate lowlinks on completion."""
+        work: list[tuple[str, int]] = [(start, 0)]
+        while work:
+            node, successor_index = work[-1]
+            if successor_index == 0:
+                self._start_node(node)
+            if successor_index < len(self.graph[node]):
+                self._visit_successor(node, successor_index, work)
+                continue
+            if self.lowlink[node] == self.index[node]:
+                self.components.append(TarjanSCC._pop_scc(node, self.stack, self.on_stack))
+            work.pop()
+            if work:
+                parent = work[-1][0]
+                self.lowlink[parent] = min(self.lowlink[parent], self.lowlink[node])
+
+    def _start_node(self, node: str) -> None:
+        """Assign the next index and mark a node active before visiting successors."""
+        self.index[node] = self.next_index
+        self.lowlink[node] = self.next_index
+        self.next_index += 1
+        self.stack.append(node)
+        self.on_stack[node] = True
+
+    def _visit_successor(self, node: str, successor_index: int, work: list[tuple[str, int]]) -> None:
+        """Schedule an unseen successor or account for an edge into the active stack."""
+        successor = self.graph[node][successor_index]
+        work[-1] = (node, successor_index + 1)
+        if successor not in self.index:
+            work.append((successor, 0))
+        elif self.on_stack.get(successor):
+            self.lowlink[node] = min(self.lowlink[node], self.index[successor])
 
 
 class SubgraphSplitter:

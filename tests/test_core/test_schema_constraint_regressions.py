@@ -72,7 +72,8 @@ def test_parser_preserves_strictness_of_integer_literals() -> None:
     parsed = CheckConstraintParser.parse("x", "x > 0 AND x < 1")
     assert parsed is not None
     assert (parsed.min_value, parsed.max_value) == (0, 1)
-    assert parsed.min_exclusive and parsed.max_exclusive
+    assert parsed.min_exclusive
+    assert parsed.max_exclusive
 
 
 def test_multiple_checks_merge_numeric_and_choice_constraints() -> None:

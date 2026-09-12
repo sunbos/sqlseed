@@ -66,14 +66,16 @@ def test_draft_edit_requires_the_latest_revision(tmp_path: Path) -> None:
 
     store = WorkspaceStore(tmp_path / "workspace.db")
     original = store.save_draft(draft_payload())
+    pending = draft_payload(name="Lost change")
     for expected in (None, 0, 2):
         with pytest.raises(RevisionConflict):
-            store.save_draft(draft_payload(name="Lost change"), draft_id=original["id"], expected_revision=expected)
+            store.save_draft(pending, draft_id=original["id"], expected_revision=expected)
     saved = store.save_draft(draft_payload(name="Revised"), draft_id=original["id"], expected_revision=1)
     assert saved["revision"] == 2
     assert saved["name"] == "Revised"
+    pending = draft_payload()
     with pytest.raises(RevisionConflict):
-        store.save_draft(draft_payload(), draft_id=original["id"], expected_revision=1)
+        store.save_draft(pending, draft_id=original["id"], expected_revision=1)
     assert store.get_draft(original["id"]) == saved
 
 
@@ -108,8 +110,9 @@ def test_draft_listing_filters_target_and_orders_latest_first(tmp_path: Path) ->
     assert store.list_drafts("absent") == []
     with pytest.raises(KeyError):
         store.get_draft("missing")
+    missing = draft_payload()
     with pytest.raises(KeyError):
-        store.save_draft(draft_payload(), draft_id="missing", expected_revision=1)
+        store.save_draft(missing, draft_id="missing", expected_revision=1)
 
 
 @pytest.mark.parametrize("field", ["db_path", "url"])
@@ -118,10 +121,12 @@ def test_connection_fields_are_rejected_in_documents(tmp_path: Path, field: str)
 
     store = WorkspaceStore(tmp_path / "workspace.db")
     document = {**draft_payload()["document"], field: "postgresql://user:secret@host/db"}
+    draft = draft_payload(document=document)
+    run = run_payload(document=document)
     with pytest.raises(ValueError, match=r"connection|db_path|url"):
-        store.save_draft(draft_payload(document=document))
+        store.save_draft(draft)
     with pytest.raises(ValueError, match=r"connection|db_path|url"):
-        store.create_run(run_payload(document=document))
+        store.create_run(run)
     assert not store.list_drafts()
     assert not store.list_runs()
 
@@ -131,10 +136,12 @@ def test_unredacted_connection_passwords_are_rejected(tmp_path: Path, field: str
     from sqlseed_web.workbench_store import WorkspaceStore
 
     store = WorkspaceStore(tmp_path / "workspace.db")
+    draft = draft_payload(**{field: "postgresql://user:secret@host/db"})
+    run = run_payload(**{field: "postgresql://user:secret@host/db"})
     with pytest.raises(ValueError, match=r"password|credential"):
-        store.save_draft(draft_payload(**{field: "postgresql://user:secret@host/db"}))
+        store.save_draft(draft)
     with pytest.raises(ValueError, match=r"password|credential"):
-        store.create_run(run_payload(**{field: "postgresql://user:secret@host/db"}))
+        store.create_run(run)
     assert b"secret" not in store.path.read_bytes()
 
 
@@ -152,8 +159,9 @@ def test_run_snapshots_are_fixed_while_status_and_progress_change(tmp_path: Path
     assert finished["tables"][0]["rows_inserted"] == 3
     assert store.get_run(created["id"]) == finished
     assert WorkspaceStore(store.path).get_run(created["id"]) == finished
+    duplicate = run_payload(id="job-123")
     with pytest.raises(ValueError, match=r"exist|duplicate"):
-        store.create_run(run_payload(id="job-123"))
+        store.create_run(duplicate)
 
 
 @pytest.mark.parametrize("field", ["document", "schema_hash", "draft_id", "revision", "target_key", "id", "created_at"])

@@ -88,8 +88,8 @@ function routerHarness(hash = '', maintenance = false, supervisedMaintenance = f
   };
   const context = vm.createContext(bindings);
   const code = read('js/app.js').replace(/^import[^\n]+\n/gm, '').replace(/import\((['"][^'"]+['"])\)/g, '__loadPage($1)');
-  vm.runInContext(code, context);
-  return {document, window, location, store, events, loads, modules, connection, context};
+  const ready = vm.runInContext('(async () => {\n' + code + '\n})()', context);
+  return {document, window, location, store, events, loads, modules, connection, context, ready};
 }
 
 test('empty and retired routes open the workbench and never load retired page modules', async () => {

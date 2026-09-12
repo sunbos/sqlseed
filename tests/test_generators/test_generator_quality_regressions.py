@@ -81,7 +81,8 @@ def test_faker_json_schema_uses_shared_recursive_types(locale: str) -> None:
         value = json.loads(sample)
         assert set(value) == {"count", "nested", "details"}
         assert has_exact_type(value["count"], int)
-        assert value["nested"] and all(has_exact_type(item, bool) for item in value["nested"])
+        assert value["nested"]
+        assert all(has_exact_type(item, bool) for item in value["nested"])
         assert has_exact_type(value["details"]["label"], str)
     repeated = _provider(FakerProvider, locale)
     assert samples == [repeated.generate("json", schema=schema) for _ in range(25)]

@@ -8,6 +8,7 @@ from contextlib import closing, contextmanager
 from dataclasses import asdict
 from datetime import datetime, timezone
 from decimal import Decimal
+from http import HTTPStatus
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
@@ -64,7 +65,15 @@ def _read_rows(
         return [dict(zip(names, row, strict=True)) for row in cursor.fetchall()]
 
 
-@router.get("/connections/{conn_id}/tables/{table:path}/data")
+@router.get(
+    "/connections/{conn_id}/tables/{table:path}/data",
+    responses={
+        403: {"description": HTTPStatus(403).phrase},
+        404: {"description": HTTPStatus(404).phrase},
+        409: {"description": HTTPStatus(409).phrase},
+        422: {"description": HTTPStatus(422).phrase},
+    },
+)
 def table_data(
     conn_id: str,
     table: str,
@@ -128,7 +137,14 @@ def table_data(
         return result
 
 
-@router.get("/runs/{run_id}/data-connections")
+@router.get(
+    "/runs/{run_id}/data-connections",
+    responses={
+        404: {"description": HTTPStatus(404).phrase},
+        409: {"description": HTTPStatus(409).phrase},
+        422: {"description": HTTPStatus(422).phrase},
+    },
+)
 def run_data_connections(run_id: str) -> dict[str, Any]:
     """Match registered target identities without connecting or reflecting any DB."""
     with _read_errors():

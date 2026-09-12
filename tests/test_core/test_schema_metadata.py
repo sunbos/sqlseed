@@ -23,10 +23,14 @@ def test_metadata_reader_uses_real_adapter_and_preserves_sql_identifiers(tmp_pat
 @pytest.mark.parametrize("operation", ["columns", "checks", "sqlite_ddl", "sqlite_index_predicates"])
 def test_closed_adapter_reports_operation_and_preserves_cause(operation: str) -> None:
     reader = SchemaMetadataReader(SQLAlchemyAdapter())
-    with pytest.raises(SchemaMetadataError) as caught:
-        result = getattr(reader, operation)("records")
-        if operation in {"checks", "sqlite_index_predicates"}:
+    read = getattr(reader, operation)
+    if operation in {"checks", "sqlite_index_predicates"}:
+        result = read("records")
+        with pytest.raises(SchemaMetadataError) as caught:
             list(result)
+    else:
+        with pytest.raises(SchemaMetadataError) as caught:
+            read("records")
     assert caught.value.table_name == "records"
     assert caught.value.operation == operation
     assert isinstance(caught.value.__cause__, RuntimeError)

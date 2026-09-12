@@ -77,7 +77,7 @@ class TestBytesImageMode:
 
 
 class TestBytesFolderMode:
-    @pytest.fixture()
+    @pytest.fixture
     def media_dir(self, tmp_path: Path) -> Path:
         (tmp_path / "a.png").write_bytes(b"PNGFILE-A")
         (tmp_path / "b.jpg").write_bytes(b"JPGFILE-B")
@@ -108,14 +108,17 @@ class TestBytesFolderMode:
         by the stream layer and pointlessly retried 1000×, hiding the cause)."""
         from sqlseed.generators._protocol import ConfigurationError
 
+        provider = BaseProvider()
         with pytest.raises(ConfigurationError, match="folder"):
-            BaseProvider()._gen_bytes(folder="/nonexistent/dir/xyz")
+            provider._gen_bytes(folder="/nonexistent/dir/xyz")
 
     def test_no_matching_files_raises_config_error(self, media_dir: Path) -> None:
         from sqlseed.generators._protocol import ConfigurationError
 
+        provider = BaseProvider()
+        folder = str(media_dir)
         with pytest.raises(ConfigurationError, match="no files"):
-            BaseProvider()._gen_bytes(folder=str(media_dir), extensions=["gif"])
+            provider._gen_bytes(folder=folder, extensions=["gif"])
 
 
 class TestBytesMediaProviderPassthrough:

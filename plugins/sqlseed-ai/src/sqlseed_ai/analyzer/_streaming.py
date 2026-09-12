@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from ._caller import ProgressCallback
 
 logger = get_logger(__name__)
+_CALLER_MIXIN_REQUIRED = "provided by LLMCallerMixin"
 
 
 class StreamingHandlerMixin(_InteractionLoggingMixin):
@@ -54,16 +55,16 @@ class StreamingHandlerMixin(_InteractionLoggingMixin):
             return
 
         def _call_with_fallback(self, call_fn: Callable[[str], dict[str, Any]]) -> dict[str, Any]:
-            raise RuntimeError("provided by LLMCallerMixin")
+            raise RuntimeError(_CALLER_MIXIN_REQUIRED)
 
         def _build_llm_kwargs(self, *, stream: bool = False, model: str | None = None) -> dict[str, Any]:
-            raise RuntimeError("provided by LLMCallerMixin")
+            raise RuntimeError(_CALLER_MIXIN_REQUIRED)
 
         def _create_with_reasoning_fallback(self, client: Any, kwargs: dict[str, Any]) -> Any:
-            raise RuntimeError("provided by LLMCallerMixin")
+            raise RuntimeError(_CALLER_MIXIN_REQUIRED)
 
         def _handle_llm_api_exception(self, e: Exception, model: str | None, *, streaming: bool = False) -> NoReturn:
-            raise RuntimeError("provided by LLMCallerMixin")
+            raise RuntimeError(_CALLER_MIXIN_REQUIRED)
 
         # Provided by ToolCallingMixin when combined in SchemaAnalyzer.
         def _try_tool_calling(self, client: Any, kwargs: dict[str, Any]) -> dict[str, Any] | None:
@@ -130,13 +131,14 @@ class StreamingHandlerMixin(_InteractionLoggingMixin):
                 if on_progress and reasoning_count % 10 == 0:
                     on_progress("streaming", {"token": "...", "count": reasoning_count, "reasoning": True})
                 continue
-            if delta.content:
-                token = delta.content
-                collected_content.append(token)
-                token_count += 1
-                # Throttle progress callbacks to every 10 tokens to reduce overhead.
-                if on_progress and token_count % 10 == 0:
-                    on_progress("streaming", {"token": token, "count": token_count})
+            if not delta.content:
+                continue
+            token = delta.content
+            collected_content.append(token)
+            token_count += 1
+            # Throttle progress callbacks to every 10 tokens to reduce overhead.
+            if on_progress and token_count % 10 == 0:
+                on_progress("streaming", {"token": token, "count": token_count})
 
         return "".join(collected_content), token_count
 

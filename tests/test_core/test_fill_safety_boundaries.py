@@ -133,10 +133,12 @@ def test_progress_injection_leaves_lifecycle_to_caller(tmp_path: Path, capsys: A
         progress = CallerProgress()
         with progress:
             result = orch.fill_table("items", count=3, skip_ai=True, progress=progress)
-            assert progress.entered == 1 and progress.exited == 0
+            assert progress.entered == 1
+            assert progress.exited == 0
         assert_empty(result.errors, list)
         assert result.count == 3
-        assert progress.exited == 1 and progress.advanced == 3
+        assert progress.exited == 1
+        assert progress.advanced == 3
     assert capsys.readouterr().out == ""
 
 

@@ -69,6 +69,9 @@ def _sqlite_unprocessed_columns(table: Any, dialect: Any) -> set[str]:
     }
 
 
+_NOT_CONNECTED = "Database not connected. Call connect() first."
+
+
 class _PooledCursor:
     """Keep a checked-out connection alive until its DBAPI cursor is closed."""
 
@@ -231,7 +234,7 @@ class SQLAlchemyAdapter:
     def dialect(self) -> Dialect:
         """Database dialect."""
         if self._dialect is None:
-            raise RuntimeError("Database not connected. Call connect() first.")
+            raise RuntimeError(_NOT_CONNECTED)
         return self._dialect
 
     @property
@@ -430,7 +433,7 @@ class SQLAlchemyAdapter:
             RuntimeError: Raised when accessed without calling connect() first.
         """
         if self._engine is None:
-            raise RuntimeError("Database not connected. Call connect() first.")
+            raise RuntimeError(_NOT_CONNECTED)
         return self._engine
 
     def _get_inspector(self) -> Inspector:
@@ -440,7 +443,7 @@ class SQLAlchemyAdapter:
             RuntimeError: Raised when accessed without calling connect() first.
         """
         if self._inspector is None:
-            raise RuntimeError("Database not connected. Call connect() first.")
+            raise RuntimeError(_NOT_CONNECTED)
         return self._inspector
 
     def execute(self, sql: str, params: tuple[Any, ...] = ()) -> Any:

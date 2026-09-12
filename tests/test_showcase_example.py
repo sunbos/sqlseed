@@ -34,7 +34,8 @@ def test_showcase_databases_have_private_independent_paths(showcase: dict[str, A
         with sqlite_connection(path) as connection:
             tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
             assert {"organizations", "departments", "categories"} <= tables
-    assert first.is_file() and second.is_file()
+    assert first.is_file()
+    assert second.is_file()
 
 
 def test_showcase_ignores_preexisting_public_symlink(showcase: dict[str, Any], tmp_path: Path) -> None:

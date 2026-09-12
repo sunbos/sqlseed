@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+from functools import partial
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
@@ -47,7 +48,8 @@ def _assert_failed_and_released(registry: UIState, connection: Connection, job: 
     terminal = registry.job_snapshot(job.job_id)
     assert terminal.status == "error"
     assert terminal.finished_at > 0
-    assert terminal.error and "private implementation detail" not in terminal.error
+    assert terminal.error
+    assert "private implementation detail" not in terminal.error
     next_job = registry.create_job(connection.conn_id, "fill", "subsequent operation")
     registry.complete_job(next_job.job_id)
     assert connection.orchestrator.get_row_count("items") == 0
@@ -200,11 +202,9 @@ def test_supervised_defect_cannot_leave_service_recovery_running(failure_stage: 
     manager._package_status = "succeeded"
     manager.phase = "preparing"
 
+    operation = partial(manager._run, {}, {}) if failure_stage == "maintenance" else manager._restore
     with pytest.raises(AttributeError) as caught:
-        if failure_stage == "maintenance":
-            manager._run({}, {})
-        else:
-            manager._restore()
+        operation()
 
     assert caught.value is failure
     terminal = manager.task_snapshot()

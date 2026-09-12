@@ -106,17 +106,18 @@ class ProgressiveDegrader:
         """
         expanded: dict[str, DegradeReason] = {}
         for key, reason in failed_columns.items():
-            if ":" in key:
-                tbl, col = key.split(":", 1)
-                if tbl == table_name:
-                    expanded[col] = reason
-            else:
+            if ":" not in key:
                 expanded[key] = reason
+                continue
+            tbl, col = key.split(":", 1)
+            if tbl == table_name:
+                expanded[col] = reason
         for group in column_groups:
-            if any(col in expanded for col in group.columns):
-                for col in group.columns:
-                    if col not in expanded:
-                        expanded[col] = DegradeReason.CASCADE  # cascade origin
+            if not any(col in expanded for col in group.columns):
+                continue
+            for col in group.columns:
+                if col not in expanded:
+                    expanded[col] = DegradeReason.CASCADE  # cascade origin
         return expanded
 
     def _cascade_degrade(
@@ -236,7 +237,5 @@ class ProgressiveDegrader:
         # composite FK group members (if any column in the group fails, all degrade)
         for group in column_groups:
             if col_name in group.columns:
-                for other in group.columns:
-                    if other != col_name:
-                        downstream.append(other)
+                downstream.extend(other for other in group.columns if other != col_name)
         return downstream

@@ -8,6 +8,12 @@ Each schema: {"ddl": [...], "counts": {table: n | None(skip fill)}, "semantic": 
 Row counts respect composite-PK combination spaces.
 """
 
+from __future__ import annotations
+
+EMAIL_PRESENT_CHECK = "email LIKE '%@%'"
+CUSTOMER_EMAIL_DESCRIPTION = "customer.email contains @"
+OPTIONAL_EMAIL_CHECK = "email IS NULL OR email LIKE '%@%'"
+
 DEFAULT_COUNT = 100
 
 SCHEMAS: dict[str, dict] = {}
@@ -94,13 +100,21 @@ SCHEMAS["chinook"] = {
         )""",
     ],
     "counts": {
-        "artist": 40, "album": 60, "employee": 8, "genre": 15, "media_type": 5,
-        "track": 200, "customer": 50, "invoice": 150, "invoice_line": 300,
-        "playlist": 10, "playlist_track": 100,
+        "artist": 40,
+        "album": 60,
+        "employee": 8,
+        "genre": 15,
+        "media_type": 5,
+        "track": 200,
+        "customer": 50,
+        "invoice": 150,
+        "invoice_line": 300,
+        "playlist": 10,
+        "playlist_track": 100,
     },
     "semantic": [
-        ("customer", "email LIKE '%@%'", "customer.email contains @"),
-        ("employee", "email IS NULL OR email LIKE '%@%'", "employee.email contains @"),
+        ("customer", EMAIL_PRESENT_CHECK, CUSTOMER_EMAIL_DESCRIPTION),
+        ("employee", OPTIONAL_EMAIL_CHECK, "employee.email contains @"),
     ],
 }
 
@@ -184,9 +198,17 @@ SCHEMAS["northwind"] = {
         )""",
     ],
     "counts": {
-        "category": 8, "supplier": 25, "product": 60, "customer": 40,
-        "employee": 9, "shipper": 3, "orders": 120, "order_details": 250,
-        "region": 4, "territory": 20, "employee_territory": 25,
+        "category": 8,
+        "supplier": 25,
+        "product": 60,
+        "customer": 40,
+        "employee": 9,
+        "shipper": 3,
+        "orders": 120,
+        "order_details": 250,
+        "region": 4,
+        "territory": 20,
+        "employee_territory": 25,
     },
     "semantic": [],
 }
@@ -291,14 +313,25 @@ SCHEMAS["sakila"] = {
         )""",
     ],
     "counts": {
-        "country": 20, "city": 40, "address": 60, "store": 2, "staff": 5,
-        "customer": 80, "language": 6, "film": 100, "actor": 60,
-        "film_actor": 250, "category": 16, "film_category": 200,
-        "inventory": 150, "rental": 300, "payment": 300,
+        "country": 20,
+        "city": 40,
+        "address": 60,
+        "store": 2,
+        "staff": 5,
+        "customer": 80,
+        "language": 6,
+        "film": 100,
+        "actor": 60,
+        "film_actor": 250,
+        "category": 16,
+        "film_category": 200,
+        "inventory": 150,
+        "rental": 300,
+        "payment": 300,
     },
     "semantic": [
-        ("staff", "email IS NULL OR email LIKE '%@%'", "staff.email contains @"),
-        ("customer", "email IS NULL OR email LIKE '%@%'", "customer.email contains @"),
+        ("staff", OPTIONAL_EMAIL_CHECK, "staff.email contains @"),
+        ("customer", OPTIONAL_EMAIL_CHECK, CUSTOMER_EMAIL_DESCRIPTION),
     ],
 }
 
@@ -368,8 +401,14 @@ SCHEMAS["hospital"] = {
         )""",
     ],
     "counts": {
-        "department": 10, "doctor": 30, "patient": 100, "ward": 15,
-        "appointment": 200, "prescription": 250, "admission": 80, "invoice": 120,
+        "department": 10,
+        "doctor": 30,
+        "patient": 100,
+        "ward": 15,
+        "appointment": 200,
+        "prescription": 250,
+        "admission": 80,
+        "invoice": 120,
     },
     "semantic": [],
 }
@@ -434,11 +473,16 @@ SCHEMAS["banking"] = {
         )""",
     ],
     "counts": {
-        "branch": 10, "customer": 80, "account": 120, "card": 100,
-        "loan": 60, "txn": 400, "transfer": 200,
+        "branch": 10,
+        "customer": 80,
+        "account": 120,
+        "card": 100,
+        "loan": 60,
+        "txn": 400,
+        "transfer": 200,
     },
     "semantic": [
-        ("customer", "email IS NULL OR email LIKE '%@%'", "customer.email contains @"),
+        ("customer", OPTIONAL_EMAIL_CHECK, CUSTOMER_EMAIL_DESCRIPTION),
     ],
 }
 
@@ -519,12 +563,18 @@ SCHEMAS["ecommerce"] = {
         )""",
     ],
     "counts": {
-        "users": 60, "address": 80, "category": 20, "product": 80,
-        "coupon": 15, "orders": 150, "order_item": 350, "payment": 150,
+        "users": 60,
+        "address": 80,
+        "category": 20,
+        "product": 80,
+        "coupon": 15,
+        "orders": 150,
+        "order_item": 350,
+        "payment": 150,
         "review": 120,
     },
     "semantic": [
-        ("users", "email LIKE '%@%'", "users.email contains @"),
+        ("users", EMAIL_PRESENT_CHECK, "users.email contains @"),
     ],
 }
 
@@ -590,12 +640,18 @@ SCHEMAS["university"] = {
         )""",
     ],
     "counts": {
-        "department": 8, "professor": 25, "student": 120, "course": 40,
-        "prerequisite": 50, "classroom": 20, "section": 60, "enrollment": 300,
+        "department": 8,
+        "professor": 25,
+        "student": 120,
+        "course": 40,
+        "prerequisite": 50,
+        "classroom": 20,
+        "section": 60,
+        "enrollment": 300,
     },
     "semantic": [
-        ("professor", "email IS NULL OR email LIKE '%@%'", "professor.email contains @"),
-        ("student", "email IS NULL OR email LIKE '%@%'", "student.email contains @"),
+        ("professor", OPTIONAL_EMAIL_CHECK, "professor.email contains @"),
+        ("student", OPTIONAL_EMAIL_CHECK, "student.email contains @"),
     ],
 }
 
@@ -649,8 +705,12 @@ SCHEMAS["hr"] = {
         )""",
     ],
     "counts": {
-        "departments": 9, "employees": 100, "dept_manager": 24,
-        "dept_emp": 150, "salaries": 250, "titles": 150,
+        "departments": 9,
+        "employees": 100,
+        "dept_manager": 24,
+        "dept_emp": 150,
+        "salaries": 250,
+        "titles": 150,
     },
     "semantic": [],
 }
@@ -712,8 +772,13 @@ SCHEMAS["logistics"] = {
         )""",
     ],
     "counts": {
-        "hub": 12, "vehicle": 30, "driver": 40, "shipment": 150,
-        "package": 300, "route_stop": 400, "delivery": 250,
+        "hub": 12,
+        "vehicle": 30,
+        "driver": 40,
+        "shipment": 150,
+        "package": 300,
+        "route_stop": 400,
+        "delivery": 250,
     },
     "semantic": [],
 }
@@ -770,18 +835,22 @@ SCHEMAS["forum"] = {
         )""",
     ],
     "counts": {
-        "users": 60, "category": 15, "topic": 100, "post": 400,
-        "tag": 20, "topic_tag": 200, "post_like": 300,
+        "users": 60,
+        "category": 15,
+        "topic": 100,
+        "post": 400,
+        "tag": 20,
+        "topic_tag": 200,
+        "post_like": 300,
     },
     "semantic": [
-        ("users", "email LIKE '%@%'", "users.email contains @"),
+        ("users", EMAIL_PRESENT_CHECK, "users.email contains @"),
     ],
 }
 
 # ── S11: edge_cases (reserved words, naming styles, BLOB, wide, perf, cycles) ─
 _wide_cols = ",\n".join(
-    f"col_{i:02d} {'INTEGER' if i % 3 == 0 else ('REAL' if i % 3 == 1 else 'TEXT')}"
-    for i in range(1, 39)
+    f"col_{i:02d} {'INTEGER' if i % 3 == 0 else ('REAL' if i % 3 == 1 else 'TEXT')}" for i in range(1, 39)
 )
 SCHEMAS["edge_cases"] = {
     "ddl": [
@@ -830,8 +899,14 @@ SCHEMAS["edge_cases"] = {
         )""",
     ],
     "counts": {
-        "order": 60, "blob_store": 40, "wide_table": 30, "events": 20000,
-        "maybe_parent": None, "optional_child": 50, "cycle_a": 30, "cycle_b": 30,
+        "order": 60,
+        "blob_store": 40,
+        "wide_table": 30,
+        "events": 20000,
+        "maybe_parent": None,
+        "optional_child": 50,
+        "cycle_a": 30,
+        "cycle_b": 30,
     },
     "semantic": [],
 }

@@ -17,6 +17,7 @@ from sqlseed.generators._protocol import ConfigurationError
 from sqlseed.generators._string_helpers import resolve_charset
 
 if TYPE_CHECKING:
+    from sqlseed.core.check_parser import ParsedCheck
     from sqlseed.core.mapper import ColumnMapper, GeneratorSpec
     from sqlseed.database._protocol import ColumnInfo
 
@@ -166,19 +167,7 @@ class UniqueAdjuster:
         min_needed = math.ceil(math.log(target_capacity) / math.log(charset_size))
         current_min = params["min_length"]
         if length_bounds is not None and length_bounds[1] is not None:
-            # The full interval matters: binary strings of lengths 1..2 have
-            # six values, not just the four values of the longest length.
-            # A power at least 2**count.bit_length() already exceeds count;
-            # cap the exponent so a huge declared width never builds a huge integer.
-            longest_capacity = charset_size ** min(max_length, count.bit_length())
-            if count <= longest_capacity:
-                params["min_length"] = min(max_length, max(current_min, min_needed))
-            else:
-                capacity = (longest_capacity * charset_size - charset_size**current_min) // (charset_size - 1)
-                if spec.null_ratio == 0 and count > capacity:
-                    raise ConfigurationError(
-                        f"Column '{col_name}': lengths [{current_min}, {max_length}] cannot fit {count} UNIQUE strings."
-                    )
+            self._fit_bounded_strings(params, col_name, count, charset_size, spec.null_ratio, min_needed)
             return replace(spec, params=params)
         params["min_length"] = max(current_min, min_needed)
 
@@ -198,6 +187,27 @@ class UniqueAdjuster:
             params["max_length"] = params["min_length"]
 
         return replace(spec, params=params)
+
+    @staticmethod
+    def _fit_bounded_strings(
+        params: dict[str, Any], col_name: str, count: int, charset_size: int, null_ratio: float, min_needed: int
+    ) -> None:
+        """Retain the full length interval when its shorter strings provide needed capacity."""
+        current_min = params["min_length"]
+        max_length = params["max_length"]
+        # The full interval matters: binary strings of lengths 1..2 have
+        # six values, not just the four values of the longest length.
+        # A power at least 2**count.bit_length() already exceeds count;
+        # cap the exponent so a huge declared width never builds a huge integer.
+        longest_capacity = charset_size ** min(max_length, count.bit_length())
+        if count <= longest_capacity:
+            params["min_length"] = min(max_length, max(current_min, min_needed))
+        else:
+            capacity = (longest_capacity * charset_size - charset_size**current_min) // (charset_size - 1)
+            if null_ratio == 0 and count > capacity:
+                raise ConfigurationError(
+                    f"Column '{col_name}': lengths [{current_min}, {max_length}] cannot fit {count} UNIQUE strings."
+                )
 
     @staticmethod
     def _constrain_string_lengths(
@@ -226,12 +236,7 @@ class UniqueAdjuster:
 
         lower_bounds: list[int] = []
         upper_bounds: list[int] = []
-        for column in column_infos or []:
-            if (
-                column.name == col_name
-                and (match := re.fullmatch(r"(?:VAR)?CHAR\((\d+)\)", column.type.upper())) is not None
-            ):
-                upper_bounds.append(int(match[1]))
+        upper_bounds.extend(UniqueAdjuster._declared_string_limits(col_name, column_infos))
         for check in check_constraints or []:
             parsed = CheckConstraintParser.parse(col_name, check.expression)
             if parsed is None or parsed.kind != "length_range":
@@ -243,6 +248,18 @@ class UniqueAdjuster:
         if not lower_bounds and not upper_bounds:
             return None
         return max(lower_bounds, default=None), min(upper_bounds, default=None)
+
+    @staticmethod
+    def _declared_string_limits(col_name: str, column_infos: list[ColumnInfo] | None) -> list[int]:
+        """Read enforced CHAR/VARCHAR widths independently of CHECK expressions."""
+        upper_bounds: list[int] = []
+        for column in column_infos or []:
+            if (
+                column.name == col_name
+                and (match := re.fullmatch(r"(?:VAR)?CHAR\((\d+)\)", column.type.upper())) is not None
+            ):
+                upper_bounds.append(int(match[1]))
+        return upper_bounds
 
     def _adjust_integer(
         self,
@@ -310,17 +327,26 @@ class UniqueAdjuster:
             parsed = CheckConstraintParser.parse(col_name, chk.expression)
             if parsed is None or parsed.kind != "range":
                 continue
-            if parsed.min_value is not None:
-                v = math.floor(parsed.min_value) + 1 if parsed.min_exclusive else math.ceil(parsed.min_value)
-                lower_bounds.append(v)
-            if parsed.max_value is not None:
-                v = math.ceil(parsed.max_value) - 1 if parsed.max_exclusive else math.floor(parsed.max_value)
-                upper_bounds.append(v)
+            lower, upper = UniqueAdjuster._integer_check_endpoints(parsed)
+            if lower is not None:
+                lower_bounds.append(lower)
+            if upper is not None:
+                upper_bounds.append(upper)
         cmin = max(lower_bounds, default=None)
         cmax = min(upper_bounds, default=None)
         if cmin is None and cmax is None:
             return None
         return cmin, cmax
+
+    @staticmethod
+    def _integer_check_endpoints(parsed: ParsedCheck) -> tuple[int | None, int | None]:
+        """Round inclusive/exclusive numeric endpoints onto the integer grid."""
+        lower = upper = None
+        if parsed.min_value is not None:
+            lower = math.floor(parsed.min_value) + 1 if parsed.min_exclusive else math.ceil(parsed.min_value)
+        if parsed.max_value is not None:
+            upper = math.ceil(parsed.max_value) - 1 if parsed.max_exclusive else math.floor(parsed.max_value)
+        return lower, upper
 
     def _adjust_choice(
         self,

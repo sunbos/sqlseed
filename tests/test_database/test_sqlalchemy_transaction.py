@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import ExitStack
 from typing import TYPE_CHECKING
 
 import pytest
@@ -42,13 +43,17 @@ def test_late_batch_failure_rolls_back_deletes_rows_and_sequence_reset(
 ) -> None:
     path, adapter = transaction_database
     optimizer = adapter.bulk_optimizer
-    with pytest.raises(IntegrityError), adapter.transaction():
+    with ExitStack() as resources:
+        resources.enter_context(adapter.transaction())
         assert adapter.bulk_optimizer is None
         adapter.optimize_for_bulk_write(20000)
         adapter.execute('DELETE FROM "children"').close()
         adapter.clear_table("parents")
         adapter.batch_insert("parents", iter([{"code": "new"}]))
-        adapter.batch_insert("parents", iter([{"code": "new"}]))
+        conflicting_rows = iter([{"code": "new"}])
+        with pytest.raises(IntegrityError) as caught:
+            adapter.batch_insert("parents", conflicting_rows)
+        assert resources.__exit__(caught.type, caught.value, caught.tb) is False
     assert adapter.bulk_optimizer is optimizer
     with sqlite_connection(path) as db:
         assert db.execute("SELECT id,code FROM parents").fetchall() == [(40, "old")]
@@ -61,10 +66,13 @@ def test_nested_transaction_is_rejected_and_outer_transaction_can_rollback(
     transaction_database: tuple[Path, SQLAlchemyAdapter],
 ) -> None:
     _, adapter = transaction_database
-    with pytest.raises(RuntimeError, match="already"), adapter.transaction():
+    with ExitStack() as resources:
+        resources.enter_context(adapter.transaction())
         adapter.execute('DELETE FROM "children"').close()
-        with adapter.transaction():
-            pass
+        nested = adapter.transaction()
+        with pytest.raises(RuntimeError, match="already") as caught:
+            resources.enter_context(nested)
+        assert resources.__exit__(caught.type, caught.value, caught.tb) is False
     assert adapter.get_row_count("children") == 1
 
 
@@ -78,11 +86,14 @@ def test_deferred_foreign_key_failure_on_commit_restores_original_data(
         "parent_id INTEGER REFERENCES parents(id) DEFERRABLE INITIALLY DEFERRED)"
     ).close()
     adapter.execute("INSERT INTO children VALUES(1,40)").close()
-    with pytest.raises(IntegrityError), adapter.transaction():
+    with ExitStack() as resources:
+        resources.enter_context(adapter.transaction())
         adapter.execute("DELETE FROM children").close()
         adapter.execute("DELETE FROM parents").close()
         assert adapter.batch_insert("children", iter([{"id": 2, "parent_id": 999}])) == 1
         assert adapter.get_column_values("children", "parent_id") == [999]
+        with pytest.raises(IntegrityError):
+            resources.close()
     with sqlite_connection(path) as db:
         assert db.execute("SELECT * FROM children").fetchall() == [(1, 40)]
         assert db.execute("SELECT * FROM parents").fetchall() == [(40, "old")]

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import operator
 import random
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -14,12 +15,13 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
     from sqlseed.core.column_dag import ColumnNode
-    from sqlseed.core.constraints import ConstraintSolver
+    from sqlseed.core.constraints import ConstraintSolver, RegisterResult
     from sqlseed.core.expression import ExpressionEngine
     from sqlseed.core.mapper import GeneratorSpec
     from sqlseed.core.transform import RowTransformFn
 
 _NATIVE_MISS = object()
+_ORDER_COMPARISONS = {">": operator.gt, "<": operator.lt, ">=": operator.ge, "<=": operator.le}
 logger = get_logger(__name__)
 
 # Maximum total retries for a single row before giving up. When backtracking
@@ -96,13 +98,7 @@ def _violates_inequality(v1: Any, v2: Any, op: str, col1: str, col2: str) -> boo
     try:
         if op == "!=":
             return bool(v1 == v2)
-        if op == ">":
-            return not v1 > v2
-        if op == "<":
-            return not v1 < v2
-        if op == ">=":
-            return not v1 >= v2
-        return not v1 <= v2
+        return not _ORDER_COMPARISONS[op](v1, v2)
     except TypeError as err:
         raise ConfigurationError(
             f"cross-column CHECK '{col1} {op} {col2}' cannot be enforced: "
@@ -335,16 +331,7 @@ class DataStream:
         pairs = spec.params.get("_ref_pairs")
         pair_source = spec.params.get("_pair_source")
         if pairs:
-            available = [pair for pair in pairs if pair[0] not in exclude_values] if exclude_values else pairs
-            candidates = available or pairs
-            if not exclude_values and spec.params.get("strategy") == "coverage":
-                pair = self._coverage_pick(spec, candidates)
-            else:
-                pair = self._rng.choice(candidates)
-            self._selected_fk_pairs[node.name] = pair
-            if node.nullable and spec.null_ratio > 0 and self._rng.random() < spec.null_ratio:
-                return None
-            return pair[0]
+            return self._select_fk_pair(node, pairs, exclude_values)
         if isinstance(pair_source, str) and pair_source in self._selected_fk_pairs:
             if node.nullable and spec.null_ratio > 0 and self._rng.random() < spec.null_ratio:
                 return None
@@ -356,6 +343,20 @@ class DataStream:
             raise ConfigurationError(f"Generator '{node.generator_spec.generator_name}' misconfigured: {exc}") from exc
         except (ValueError, OverflowError) as exc:
             raise GenerationError(f"Generator '{node.generator_spec.generator_name}' value error: {exc}") from exc
+
+    def _select_fk_pair(self, node: ColumnNode, pairs: Any, exclude_values: set[Any] | None) -> Any:
+        """Reserve a complete parent pair before sampling nullability for its first column."""
+        spec = node.generator_spec
+        available = [pair for pair in pairs if pair[0] not in exclude_values] if exclude_values else pairs
+        candidates = available or pairs
+        if not exclude_values and spec.params.get("strategy") == "coverage":
+            pair = self._coverage_pick(spec, candidates)
+        else:
+            pair = self._rng.choice(candidates)
+        self._selected_fk_pairs[node.name] = pair
+        if node.nullable and spec.null_ratio > 0 and self._rng.random() < spec.null_ratio:
+            return None
+        return pair[0]
 
     def _evaluate_derived_expression(self, expression: str, sources: list[str], row: dict[str, Any]) -> Any:
         """Evaluate explicit derive sources with the established scalar/list context.
@@ -441,15 +442,7 @@ class DataStream:
                 )
                 return False, None
 
-            result = self._constraint_solver.try_register(
-                col_name,
-                val,
-                is_unique=is_unique,
-                source_columns=source_columns,
-                min_value=node.constraints.min_value if node.constraints else None,
-                max_value=node.constraints.max_value if node.constraints else None,
-                regex=node.constraints.regex if node.constraints else None,
-            )
+            result = self._register_node_candidate(node, col_name, val, is_unique, source_columns)
 
             if result.is_registered:
                 row[col_name] = val
@@ -469,6 +462,20 @@ class DataStream:
                 max_retries=max_retries,
             )
         return False, None
+
+    def _register_node_candidate(
+        self, node: ColumnNode, col_name: str, value: Any, is_unique: bool, source_columns: list[str] | None
+    ) -> RegisterResult:
+        """Apply the node's current scalar constraints to one generated candidate."""
+        return self._constraint_solver.try_register(
+            col_name,
+            value,
+            is_unique=is_unique,
+            source_columns=source_columns,
+            min_value=node.constraints.min_value if node.constraints else None,
+            max_value=node.constraints.max_value if node.constraints else None,
+            regex=node.constraints.regex if node.constraints else None,
+        )
 
     def _handle_col_failure(
         self, backtrack_to: int | None, row: dict[str, Any], generated_values: dict[str, Any]
@@ -739,19 +746,7 @@ class DataStream:
         # a different generator after the first native value is registered.
         if (native_result := self._try_native_method(spec)) is not _NATIVE_MISS:
             return native_result
-        native_method = (
-            spec.native_faker_method
-            if self._provider.name == "faker"
-            else spec.native_mimesis_method
-            if self._provider.name == "mimesis"
-            else None
-        )
-        if native_method or spec.generator_name == "__native__":
-            configured = native_method or spec.native_faker_method or spec.native_mimesis_method
-            raise ConfigurationError(
-                f"Native method '{configured}' is unavailable or has invalid parameters "
-                f"for provider '{self._provider.name}'"
-            )
+        self._reject_unavailable_native(spec)
 
         try:
             if spec.params:
@@ -765,6 +760,21 @@ class DataStream:
                 return self._handle_foreign_key(spec, exclude_values=exclude_values)
 
             raise
+
+    def _reject_unavailable_native(self, spec: GeneratorSpec) -> None:
+        """Reject an explicit native request after provider dispatch found no usable method."""
+        if self._provider.name == "faker":
+            native_method = spec.native_faker_method
+        elif self._provider.name == "mimesis":
+            native_method = spec.native_mimesis_method
+        else:
+            native_method = None
+        if native_method or spec.generator_name == "__native__":
+            configured = native_method or spec.native_faker_method or spec.native_mimesis_method
+            raise ConfigurationError(
+                f"Native method '{configured}' is unavailable or has invalid parameters "
+                f"for provider '{self._provider.name}'"
+            )
 
     def _should_emit_null(self, spec: GeneratorSpec, nullable: bool) -> bool:
         """Apply NULL probability only when allowed, preserving warning and RNG order."""

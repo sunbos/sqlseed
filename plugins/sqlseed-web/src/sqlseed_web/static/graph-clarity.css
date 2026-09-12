@@ -91,14 +91,12 @@
 }
 .wb-schema-graph .graph-edge.problem .edge-line {
   stroke-width: 2.5;
+  stroke: #ad641c;
 }
 .wb-schema-graph .graph-edge.focused .edge-line,
 .wb-schema-graph .graph-edge:focus-visible .edge-line {
   stroke: var(--graph-edge-stroke);
   stroke-width: 3.6;
-}
-.wb-schema-graph .graph-edge.problem .edge-line {
-  stroke: #ad641c;
 }
 .wb-schema-graph .graph-label.problem rect {
   stroke: #ad641c;

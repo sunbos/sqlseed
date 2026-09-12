@@ -76,7 +76,8 @@ def test_installer_reaps_child_when_output_worker_cannot_start(
             run_installer([sys.executable, "-c", "import time; time.sleep(30)"], lambda text: None)
         assert len(children) == 1
         assert children[0].poll() is not None
-        assert children[0].stdout is not None and children[0].stdout.closed
+        assert children[0].stdout is not None
+        assert children[0].stdout.closed
     finally:
         for process in children:
             if process.poll() is None:

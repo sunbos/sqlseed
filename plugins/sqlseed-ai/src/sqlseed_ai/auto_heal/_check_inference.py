@@ -672,20 +672,8 @@ def _parse_check_enum(col: str, expr: str) -> tuple[str, dict[str, Any]] | None:
         expr,
         re.IGNORECASE,
     )
-    if m:
-        inner = m.group(1)
-        # Extract quoted string values (strip ::type casts)
-        if choices := re.findall(r"'([^']*)'", inner):
-            return ("choice", {"choices": choices})
-        # Parse complete numeric literals, preserving signs and decimal values.
-        if numeric_choices := _parse_numeric_array_literals(inner):
-            if (
-                len(numeric_choices) == 2
-                and all(isinstance(n, int) for n in numeric_choices)
-                and set(numeric_choices) == {0, 1}
-            ):
-                return ("boolean", {})
-            return ("choice", {"choices": numeric_choices})
+    if m and (inferred := _parse_any_enum_values(m.group(1))):
+        return inferred
 
     # Pattern: col IN (0, 1) or col IN (1, 0) — boolean
     m = re.match(
@@ -708,6 +696,21 @@ def _parse_check_enum(col: str, expr: str) -> tuple[str, dict[str, Any]] | None:
         if len(nums) != 2 or set(nums) != {0, 1}:
             return ("choice", {"choices": nums})
     return None
+
+
+def _parse_any_enum_values(inner: str) -> tuple[str, dict[str, Any]] | None:
+    """Prefer quoted ANY values, then parse complete numeric literals."""
+    if choices := re.findall(r"'([^']*)'", inner):
+        return ("choice", {"choices": choices})
+    if not (numeric_choices := _parse_numeric_array_literals(inner)):
+        return None
+    if (
+        len(numeric_choices) == 2
+        and all(isinstance(n, int) for n in numeric_choices)
+        and set(numeric_choices) == {0, 1}
+    ):
+        return ("boolean", {})
+    return ("choice", {"choices": numeric_choices})
 
 
 def _parse_numeric_array_literals(inner: str) -> list[int | float] | None:
@@ -906,6 +909,6 @@ def _parse_check_nonzero(col: str, expr: str) -> tuple[str, dict[str, Any]] | No
         is_int = "." not in val_str
         if is_int and int(val_str) == 0:
             return ("integer", {"min_value": 1})
-        if not is_int and float(val_str) == 0.0:
+        if not is_int and Decimal(val_str).is_zero():
             return ("float", {"min_value": 0.01})
     return None

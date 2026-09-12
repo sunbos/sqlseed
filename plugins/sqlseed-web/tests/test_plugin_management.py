@@ -193,7 +193,8 @@ def test_execute_single_plan_freezes_existing_versions_and_requires_restart(main
     assert arguments[-1] == "mimesis"
     constraint_file = Path(arguments[arguments.index("--constraint") + 1])
     constraints = constraint_file.read_text(encoding="utf-8")
-    assert "sqlseed==1.2.3" in constraints and "sqlseed-web==0.1.0" in constraints
+    assert "sqlseed==1.2.3" in constraints
+    assert "sqlseed-web==0.1.0" in constraints
     release.set()
     task_id = task.json()["task_id"]
     for _ in range(100):
@@ -290,7 +291,8 @@ def test_installer_output_is_bounded_redacted_and_timeout_is_real(tmp_path: Path
     assert result == -1
     text = json.dumps(output, ensure_ascii=False)
     assert len(text) < 35000
-    assert "secret" not in text and "private" not in text
+    assert "secret" not in text
+    assert "private" not in text
     assert "超时" in text
 
 
@@ -379,7 +381,8 @@ def test_nonzero_installer_result_is_failure_and_requires_restart(
         if result["status"] != "running":
             break
         threading.Event().wait(0.01)
-    assert result["status"] == "failed" and result["returncode"] == 17
+    assert result["status"] == "failed"
+    assert result["returncode"] == 17
     assert result["restart_required"] is True
     assert client.get("/api/settings/plugins/management").json()["available"] is False
 

@@ -17,8 +17,9 @@ if TYPE_CHECKING:
 
 @pytest.mark.parametrize("expression", ["1 / 0", "random_choice([])", "int(float('inf'))"])
 def test_worker_propagates_arithmetic_and_lookup_errors(expression: str) -> None:
+    engine = ExpressionEngine()
     with pytest.raises((ZeroDivisionError, IndexError, OverflowError)):
-        ExpressionEngine().evaluate(expression, {})
+        engine.evaluate(expression, {})
 
 
 @pytest.mark.parametrize(
@@ -31,7 +32,8 @@ def test_database_lookup_failure_does_not_become_null(
     adapter = adapter_type()
     adapter.connect(str(tmp_path / "lookup.db"))
     try:
+        engine = ExpressionEngine(db_adapter=adapter)
         with pytest.raises(error, match=message):
-            ExpressionEngine(db_adapter=adapter).evaluate("lookup('missing', 'value', 1)", {})
+            engine.evaluate("lookup('missing', 'value', 1)", {})
     finally:
         adapter.close()

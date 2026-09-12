@@ -92,17 +92,22 @@ def test_reads_bounded_current_records_in_primary_key_order(data_client: Any, da
     result = response.json()
     assert [row["id"] for row in result["rows"]] == [2, 3]
     assert [row["value"] for row in result["rows"]] == ["two", "three"]
-    assert result["total"] == 4 and result["limit"] == 2 and result["offset"] == 1
+    assert result["total"] == 4
+    assert result["limit"] == 2
+    assert result["offset"] == 1
     assert result["order_by"] == ["id"]
-    assert result["table"] == "records" and result["dialect"] == "sqlite"
-    assert (result["target_key"], result["target_label"]) == _target_identity(conn)
+    assert result["table"] == "records"
+    assert result["dialect"] == "sqlite"
+    expected_target = _target_identity(conn)
+    assert (result["target_key"], result["target_label"]) == expected_target
     assert datetime.fromisoformat(result["read_at"]).tzinfo is not None
     assert [column["name"] for column in result["columns"]] == ["id", "value", "optional", "payload"]
     last = client.get(endpoint(conn), params={"limit": 2, "offset": 3}).json()
     assert [row["id"] for row in last["rows"]] == [5]
     assert last["rows"][0]["payload"] == "0x00ff"
     beyond = client.get(endpoint(conn), params={"offset": 99}).json()
-    assert beyond["rows"] == [] and beyond["total"] == 4
+    assert beyond["rows"] == []
+    assert beyond["total"] == 4
 
 
 def test_compound_primary_key_uses_constraint_order_not_column_order(data_client: Any, database: Path) -> None:
@@ -119,7 +124,8 @@ def test_empty_tables_keep_the_same_real_column_metadata_as_schema(data_client: 
     schema = client.get(f"/api/workbench/connections/{conn.conn_id}/schema").json()
     expected = next(table["columns"] for table in schema["tables"] if table["name"] == "empty_table")
     assert result["columns"] == expected
-    assert result["rows"] == [] and result["total"] == 0
+    assert result["rows"] == []
+    assert result["total"] == 0
     assert result["columns"][2]["is_computed"] is True
     assert result["columns"][1]["default"] == "'fresh'"
 
@@ -140,7 +146,8 @@ def test_identifiers_are_quoted_and_unknown_tables_do_not_reveal_other_names(dat
     for table in ("unknown", 'records"; DROP TABLE records; --'):
         response = client.get(endpoint(conn, table))
         assert response.status_code == 404
-        assert "composite" not in response.text and "DROP" not in response.text
+        assert "composite" not in response.text
+        assert "DROP" not in response.text
     assert client.get(endpoint(conn)).json()["total"] == 4
 
 
@@ -196,13 +203,15 @@ def test_run_data_requires_the_same_target_and_a_table_in_the_run(
     run = create_run(conn)
     assert client.get(endpoint(conn), params={"run_id": run["id"]}).status_code == 200
     outside = client.get(endpoint(conn, "empty_table"), params={"run_id": run["id"]})
-    assert outside.status_code == 403 and outside.json()["detail"]["code"] == "table_outside_run"
+    assert outside.status_code == 403
+    assert outside.json()["detail"]["code"] == "table_outside_run"
     other_path = tmp_path / "another.db"
     with sqlite_connection(other_path) as db:
         db.execute("CREATE TABLE records (id INTEGER PRIMARY KEY, value TEXT)")
     other = connect(registry, other_path)
     wrong_target = client.get(endpoint(other), params={"run_id": run["id"]})
-    assert wrong_target.status_code == 409 and wrong_target.json()["detail"]["code"] == "target_mismatch"
+    assert wrong_target.status_code == 409
+    assert wrong_target.json()["detail"]["code"] == "target_mismatch"
     assert client.get(endpoint(conn), params={"run_id": "missing"}).status_code == 404
 
 
@@ -213,7 +222,8 @@ def test_partial_run_exposes_current_table_contents_without_claiming_inserted_ro
     conn = connect(registry, database)
     run = create_run(conn, status="error", rows_inserted=1)
     result = client.get(endpoint(conn), params={"run_id": run["id"]}).json()
-    assert result["total"] == 4 and len(result["rows"]) == 4
+    assert result["total"] == 4
+    assert len(result["rows"]) == 4
     assert "rows_inserted" not in result
 
 
@@ -243,7 +253,8 @@ def test_run_connection_candidates_match_target_without_opening_databases(
         response = client.get(f"/api/workbench/runs/{run['id']}/data-connections")
     assert response.status_code == 200, response.text
     result = response.json()
-    assert result["target_key"] == run["target_key"] and result["target_label"] == run["target_label"]
+    assert result["target_key"] == run["target_key"]
+    assert result["target_label"] == run["target_label"]
     assert {item["conn_id"] for item in result["connections"]} == {original.conn_id, parallel.conn_id}
     assert all(set(item) == {"conn_id", "target_label"} for item in result["connections"])
     assert not (tmp_path / "not-created.db").exists()
@@ -287,7 +298,8 @@ def test_driver_failures_are_redacted_and_release_the_connection_gate(data_clien
     response = client.get(endpoint(conn))
     assert response.status_code == 422
     assert response.json()["detail"]["code"] == "data_read_failed"
-    assert "private-credential" not in response.text and "SQL" not in response.text
+    assert "private-credential" not in response.text
+    assert "SQL" not in response.text
     with registry.connection_operation(conn.conn_id):
         pass
 

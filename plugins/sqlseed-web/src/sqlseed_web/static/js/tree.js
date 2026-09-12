@@ -15,21 +15,28 @@ import { colAnnotation } from './labels.js';
  * @param {(table: string, col: string) => void} opts.onSelectColumn
  * @param {(sel: Map<string, Set<string>>) => void} opts.onChange
  */
-export function createTree({ tables, specResolver, initialSelection, onSelectColumn, onChange }) {
-  const expanded = new Set(tables.map((t) => t.name)); // 默认全展开
-  const checked = initialSelection
-    ? new Map(tables.map((t) => {
-        const want = initialSelection.get(t.name);
-        return [t.name, new Set(t.columns.map((c) => c.name).filter((c) => want?.has(c)))];
-      }))
-    : new Map(tables.map((t) => [t.name, new Set(t.columns.map((c) => c.name))]));
-  const selected = { table: null, col: null };
-  const el = h('div', { class: 'tree' });
-
+export function createTree({
+  tables,
+  specResolver,
+  initialSelection,
+  onSelectColumn,
+  onChange
+}) {
+  const expanded = new Set(tables.map(t => t.name)); // 默认全展开
+  const checked = initialSelection ? new Map(tables.map(t => {
+    const want = initialSelection.get(t.name);
+    return [t.name, new Set(t.columns.map(c => c.name).filter(c => want?.has(c)))];
+  })) : new Map(tables.map(t => [t.name, new Set(t.columns.map(c => c.name))]));
+  const selected = {
+    table: null,
+    col: null
+  };
+  const el = h('div', {
+    class: 'tree'
+  });
   function emit() {
     if (onChange) onChange(checked);
   }
-
   function render() {
     clear(el);
     for (const t of tables) {
@@ -39,57 +46,67 @@ export function createTree({ tables, specResolver, initialSelection, onSelectCol
       const tRow = h('div', {
         class: 'tree-row table-row',
         onclick: () => {
-          if (isOpen) expanded.delete(t.name); else expanded.add(t.name);
+          if (isOpen) expanded.delete(t.name);else expanded.add(t.name);
           render();
-        },
-      },
-        h('span', { class: 'tree-arrow' }, isOpen ? '▾' : '▸'),
-        h('input', {
-          type: 'checkbox', checked: allChecked,
-          onclick: (e) => {
-            e.stopPropagation();
-            const next = e.target.checked ? new Set(t.columns.map((c) => c.name)) : new Set();
-            checked.set(t.name, next);
-            emit(); render();
-          },
-        }),
-        h('span', { class: 'tree-icon' }, '▦'),
-        h('span', { class: 'tree-name' }, t.name),
-        h('span', { class: 'muted tree-count' }, `${tChecked.size}/${t.columns.length}`),
-      );
+        }
+      }, h('span', {
+        class: 'tree-arrow'
+      }, isOpen ? '▾' : '▸'), h('input', {
+        type: 'checkbox',
+        checked: allChecked,
+        onclick: e => {
+          e.stopPropagation();
+          const next = e.target.checked ? new Set(t.columns.map(c => c.name)) : new Set();
+          checked.set(t.name, next);
+          emit();
+          render();
+        }
+      }), h('span', {
+        class: 'tree-icon'
+      }, '▦'), h('span', {
+        class: 'tree-name'
+      }, t.name), h('span', {
+        class: 'muted tree-count'
+      }, `${tChecked.size}/${t.columns.length}`));
       el.append(tRow);
       if (!isOpen) continue;
+      renderColumns(t, tChecked);
+    }
+    function renderColumns(t, tChecked) {
       for (const col of t.columns) {
         const spec = specResolver ? specResolver(t.name, col.name) : t.specs?.[col.name];
         const anno = colAnnotation(col, spec, t.fks);
         const isSel = selected.table === t.name && selected.col === col.name;
         el.append(h('div', {
           class: `tree-row col-row${isSel ? ' selected' : ''}`,
-          onclick: (e) => {
+          onclick: e => {
             e.stopPropagation();
             selected.table = t.name;
             selected.col = col.name;
             render();
             if (onSelectColumn) onSelectColumn(t.name, col.name);
-          },
-        },
-          h('span', { class: 'tree-arrow' }, ''),
-          h('input', {
-            type: 'checkbox', checked: tChecked.has(col.name),
-            onclick: (e) => {
-              e.stopPropagation();
-              if (e.target.checked) tChecked.add(col.name); else tChecked.delete(col.name);
-              emit(); render();
-            },
-          }),
-          h('span', { class: 'tree-icon col-icon' }, '▤'),
-          h('span', { class: 'tree-name' }, col.name),
-          anno ? h('span', { class: 'muted tree-anno' }, `(${anno})`) : null,
-        ));
+          }
+        }, h('span', {
+          class: 'tree-arrow'
+        }, ''), h('input', {
+          type: 'checkbox',
+          checked: tChecked.has(col.name),
+          onclick: e => {
+            e.stopPropagation();
+            if (e.target.checked) tChecked.add(col.name);else tChecked.delete(col.name);
+            emit();
+            render();
+          }
+        }), h('span', {
+          class: 'tree-icon col-icon'
+        }, '▤'), h('span', {
+          class: 'tree-name'
+        }, col.name), anno ? h('span', {
+          class: 'muted tree-anno'
+        }, `(${anno})`) : null));
       }
     }
   }
-
   render();
   return {
     el,
@@ -98,12 +115,12 @@ export function createTree({ tables, specResolver, initialSelection, onSelectCol
     setSelection(sel) {
       for (const t of tables) {
         const cols = sel.get(t.name);
-        checked.set(t.name, cols ? new Set([...cols].filter((c) => t.columns.some((x) => x.name === c))) : new Set());
+        checked.set(t.name, cols ? new Set([...cols].filter(c => t.columns.some(x => x.name === c))) : new Set());
       }
       render();
       emit();
     },
     getSelectedColumn: () => selected,
-    refresh: render,
+    refresh: render
   };
 }

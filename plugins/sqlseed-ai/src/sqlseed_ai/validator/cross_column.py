@@ -19,12 +19,9 @@ if TYPE_CHECKING:
 class CrossColumnValidator:
     """2b: Cross-column constraint check.
 
-    Combines four sub-checks:
-    1. FK integrity: FK column max_value should not exceed parent PK range
-       (currently optimistic — precise check deferred to LLM Healer).
-    2. Composite UNIQUE: (placeholder for future expansion)
-    3. Semantic relations: (placeholder for future expansion)
-    4. derive_from DAG: detects self-references and 2-cycles.
+    Detects unsupported individual UNIQUE flags on composite-index columns,
+    derive_from self-references and two-column dependency cycles.
+    Database FK failures are handled by FastValidator's dialect/shadow checks.
     """
 
     def validate(
@@ -35,45 +32,9 @@ class CrossColumnValidator:
     ) -> list[ViolationReport]:
         """Return all cross-column violations for the given table config."""
         violations: list[ViolationReport] = []
-        violations.extend(self._check_fk_integrity(table_config, snapshot))
         violations.extend(self._check_composite_unique(table_config, table_schema))
-        violations.extend(self._check_semantic_relations(table_config, table_schema))
         violations.extend(self._check_derive_from_dag(table_config))
         return violations
-
-    def _check_fk_integrity(
-        self,
-        table_config: dict[str, Any],
-        snapshot: SchemaSnapshot,
-    ) -> list[ViolationReport]:
-        """Check FK column max_value does not exceed parent PK range.
-
-        Currently optimistic — precise parent PK range check requires a DB
-        query and is deferred to the LLM Healer (Layer 4) when the Fast
-        Validator cannot resolve it. This stub returns no violations but
-        guards against crashes when the table is missing from the snapshot.
-        """
-        result: list[ViolationReport] = []
-        if (table_meta := snapshot.tables.get(table_config["name"])) is None:
-            return result
-        for fk in table_meta.foreign_keys:
-            fk_cols = fk.get("columns") or []
-            parent_table = fk.get("ref_table")
-            if not (fk_cols and parent_table):
-                continue
-            for fk_col in fk_cols:
-                col_config = next(
-                    (c for c in table_config.get("columns", []) if c.get("name") == fk_col),
-                    None,
-                )
-                if col_config is None:
-                    continue
-                params = col_config.get("params") or {}
-                if (params.get("max_value")) is None:
-                    continue
-                # Optimistic: only flag if max_val exceeds a reasonable bound
-                # (precise parent PK range check requires DB query; defer to LLM Healer)
-        return result
 
     def _check_composite_unique(
         self,
@@ -130,14 +91,6 @@ class CrossColumnValidator:
         # Columns in composite UNIQUE but NOT in single-col UNIQUE
         return composite_unique_cols - single_unique_cols
 
-    def _check_semantic_relations(
-        self,
-        table_config: dict[str, Any],
-        table_schema: dict[str, Any],
-    ) -> list[ViolationReport]:
-        """Placeholder for semantic relation cross-checks (future expansion)."""
-        return []
-
     def _check_derive_from_dag(
         self,
         table_config: dict[str, Any],
@@ -168,17 +121,26 @@ class CrossColumnValidator:
                         )
                     )
                 # Check 2-cycle: col derives from src, src derives from col
-                if (src_col := cols_by_name.get(src)) and (src_df := src_col.get("derive_from")):
-                    src_df_list = [src_df] if isinstance(src_df, str) else list(src_df)
-                    if col_name in src_df_list:
-                        result.append(
-                            ViolationReport(
-                                table=table_config["name"],
-                                columns=[col_name, src],
-                                constraint_type=ConstraintType.CHECK,
-                                severity="crash",
-                                fix_hint="break_derive_from_cycle",
-                                fix_params={"columns": [col_name, src]},
-                            )
-                        )
+                cycle = self._two_column_cycle(table_config["name"], col_name, src, cols_by_name.get(src))
+                if cycle is not None:
+                    result.append(cycle)
         return result
+
+    @staticmethod
+    def _two_column_cycle(
+        table_name: str, column_name: str, source: str, source_column: dict[str, Any] | None
+    ) -> ViolationReport | None:
+        """Report a two-column cycle only when the source explicitly depends on this column."""
+        if not source_column or not (dependencies := source_column.get("derive_from")):
+            return None
+        sources = [dependencies] if isinstance(dependencies, str) else list(dependencies)
+        if column_name not in sources:
+            return None
+        return ViolationReport(
+            table=table_name,
+            columns=[column_name, source],
+            constraint_type=ConstraintType.CHECK,
+            severity="crash",
+            fix_hint="break_derive_from_cycle",
+            fix_params={"columns": [column_name, source]},
+        )

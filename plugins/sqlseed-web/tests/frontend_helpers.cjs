@@ -18,7 +18,13 @@ class Element {
     this.checked = false;
     this.disabled = false;
     this.className = '';
-    this.dataset = {};
+    this.dataset = new Proxy({}, {
+      get: (_, key) => this.attributes['data-' + String(key).replace(/[A-Z]/g, letter => '-' + letter.toLowerCase())],
+      set: (_, key, value) => {
+        this.attributes['data-' + String(key).replace(/[A-Z]/g, letter => '-' + letter.toLowerCase())] = String(value);
+        return true;
+      },
+    });
     this.classList = {
       contains: (name) => this.className.split(/\s+/).includes(name),
       add: (...names) => { this.className = [...new Set([...this.className.split(/\s+/).filter(Boolean), ...names])].join(' '); },
@@ -77,7 +83,6 @@ class Element {
     if (name === 'class') this.className = String(value);
     if (name === 'id' || name === 'type') this[name] = String(value);
     if (name === 'disabled') this.disabled = true;
-    if (name.startsWith('data-')) this.dataset[name.slice(5)] = String(value);
   }
   getAttribute(name) { return this.attributes[name] ?? null; }
   removeAttribute(name) {
@@ -169,13 +174,14 @@ function loadFrontend(name, bindings = {}) {
   };
   const apiContext = vm.createContext({...globals});
   vm.runInContext(source('api.js'), apiContext, {filename: 'api.js'});
-  const api = vm.runInContext('({h, clear, msg, table, fmt, store, api, get, post, del, setConnBadge, rememberConnId, forgetConnId, restoreConnection})', apiContext);
+  const api = vm.runInContext('({h, clear, msg, table, fmt, store, api, get, post, del, setConnBadge, rememberConnId, forgetConnId, restoreConnection, httpErrorMessage})', apiContext);
   if (!scrollModules.has(document)) {
     const scrollContext = vm.createContext({document});
     vm.runInContext(source('workbench/scroll-lock.js'), scrollContext, {filename: 'workbench/scroll-lock.js'});
     scrollModules.set(document, vm.runInContext('lockPageScroll', scrollContext));
   }
   const context = vm.createContext({...globals, ...api, lockPageScroll: scrollModules.get(document), ...bindings});
+  vm.runInContext(source('workbench/focus.js'), context, {filename: 'workbench/focus.js'});
   if (name === 'workbench/preview.js') {
     vm.runInContext(source('workbench/preview-scroll-layout.js'), context, {filename: 'workbench/preview-scroll-layout.js'});
   }

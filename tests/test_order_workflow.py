@@ -132,7 +132,8 @@ def test_existing_output_is_never_modified(tmp_path: Path) -> None:
     output.mkdir()
     sentinel = output / "keep.txt"
     sentinel.write_bytes(b"user-owned content")
+    workflow = runner()
     with pytest.raises(FileExistsError):
-        runner().run_workflow(output)
+        workflow.run_workflow(output)
     assert sentinel.read_bytes() == b"user-owned content"
     assert list(output.iterdir()) == [sentinel]

@@ -16,14 +16,18 @@ Examples:
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 
-# Regex to extract the base type name and parameters
-# "character varying(255)" -> group(1)="character varying", group(2)="255"
-# "numeric(10,2)"          -> group(1)="numeric", group(2)="10,2"
-# "integer"                -> group(1)="integer", group(2)=None
-_TYPE_PARAMS_RE = re.compile(r"^([^(]+?)\s*(?:\(([^)]+)\))?\s*$")
+
+def _split_type_declaration(declaration: str) -> tuple[str, str | None] | None:
+    """Split a type and optional parameters without backtracking on invalid input."""
+    base, opening, remainder = declaration.partition("(")
+    if not opening:
+        return base, None
+    params, closing, suffix = remainder.partition(")")
+    if not base or not params or not closing or suffix.strip():
+        return None
+    return base, params
 
 
 @dataclass(frozen=True)
@@ -107,11 +111,11 @@ class TypeNormalizer:
         if not raw_type or not raw_type.strip():
             return NormalizedType(base="TEXT", params=(), raw=raw_type)
 
-        if not (match := _TYPE_PARAMS_RE.match(raw_type.strip())):
+        if (parts := _split_type_declaration(raw_type.strip())) is None:
             return NormalizedType(base=raw_type.upper(), params=(), raw=raw_type)
 
-        base_raw = match.group(1).strip().lower()
-        params_str = match.group(2)
+        base_raw = parts[0].strip().lower()
+        params_str = parts[1]
 
         # Map the base type by dialect
         base = self._map_base_type(base_raw, dialect_name)
