@@ -27,12 +27,10 @@ Before publishing:
    checks below. Check the built documentation and README links, including
    their rendered presentation. A metadata check alone does not check layout.
 4. Confirm the publishing identity for all five projects: owner `sunbos`,
-   repository `sqlseed`, workflow file `publish.yml`. Core, AI and MCP use the
-   GitHub environment `pypi`; CLI uses `pypi-cli`; Web uses `pypi-web`. Existing
-   projects need matching Trusted Publishers; a first publication can use a
-   pending publisher. The distinct CLI/Web environments allow separate pending
-   publishers for their first releases. A public project returning 404 does not
-   reveal whether one is configured. See [PyPI's setup instructions](https://docs.pypi.org/trusted-publishers/creating-a-project-through-oidc/).
+   repository `sqlseed`, workflow file `publish.yml`, GitHub environment `pypi`.
+   All five existing projects must authorize that same Trusted Publisher.
+   GitHub Pages uses its separate `github-pages` environment. See
+   [PyPI's setup instructions for existing projects](https://docs.pypi.org/trusted-publishers/adding-a-publisher/).
 5. Select the release version and obtain the maintainer's release approval.
    Push the reviewed commit before its `v<version>` tag, then create the GitHub
    release. Publishing is a separate operation from documentation review.
@@ -46,6 +44,23 @@ Keep the workflow run, commit, tag and artifact hashes with the release record.
 If a publish fails partway through, inspect which files reached PyPI before
 retrying the same release. Its `skip-existing` setting does not prove all five
 packages were uploaded successfully.
+
+After changing a Trusted Publisher, verify the shared identity against an
+existing release before retiring its old environment:
+
+```bash
+gh workflow run publish.yml --ref main -f release_tag=v0.2.4 -F verify_existing_release=true
+```
+
+This mode first requires all ten rebuilt files to match the existing public
+filenames and SHA256 hashes, with no yanked files. It then disables Twine's
+existing-file shortcut so PyPI actually checks upload permission for each
+project. PyPI accepts identical existing files without replacing them. This
+verification mode does not generate new attestations; the existing files and
+attestations remain intact. Normal publication retains `skip-existing` and
+attestation generation. A missing or changed public file stops
+verification before any upload job can run. Public installation acceptance still
+runs after all five jobs succeed.
 
 If the upload tool needs a compatibility fix, merge the workflow correction to
 `main` and dispatch it with the existing release tag:
