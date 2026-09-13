@@ -54,4 +54,4 @@
 
 - 通用范围：`pytest tests/test_core/ tests/test_mapper.py tests/test_mapper_camelcase.py tests/test_schema.py tests/test_relation.py`。
 - UNIQUE 回归使用真实 `ColumnMapper` 和 `ColumnInfo`，断言算出的 `GeneratorSpec.params`。保留非 exact-match 名称与非空 default 的覆盖；参考 [TestAdjustChoiceFallback](../../../tests/test_core/test_unique_adjuster.py)，避免只验证 mock 调用。
-- 修改 `mapper.py` 同步 README/CLAUDE 的规则表；修改 `expression.py` 同步两种语言 README 的 `SAFE_FUNCTIONS` 表，遵循根级文档同步流程。
+- 修改 `mapper.py` 同步 docs/guide.md、两种语言 docs/architecture 与 CLAUDE 的规则说明；修改 `expression.py` 同步 docs/guide.md 的表达式与 `SAFE_FUNCTIONS` 参考，遵循根级文档同步流程。

@@ -23,11 +23,11 @@ Use a fresh Python 3.10+ virtual environment. Choose one installation set:
 python -m venv .venv
 # Activate .venv using your shell's activation command.
 
-# Offline Python API with the optional Mimesis engine
-python -m pip install 'sqlseed[mimesis]==0.2.4'
+# Offline Python API
+python -m pip install 'sqlseed==0.2.4'
 
 # Core and CLI
-python -m pip install 'sqlseed[mimesis]==0.2.4' 'sqlseed-cli==0.2.4'
+python -m pip install 'sqlseed==0.2.4' 'sqlseed-cli==0.2.4'
 
 # All five packages, AI MCP support, and PostgreSQL driver
 python -m pip install 'sqlseed[mimesis,postgres]==0.2.4' 'sqlseed-cli==0.2.4' 'sqlseed-ai[mcp]==0.2.4' 'mcp-server-sqlseed==0.2.4' 'sqlseed-web==0.2.4'
@@ -38,9 +38,15 @@ Core has no console script. `sqlseed-cli` provides `sqlseed`, `sqlseed-web`
 provides `sqlseed-web`, and the rule-driven and AI MCP servers have separate
 entry points. Core's `cli` extra is a convenience dependency on `sqlseed-cli`.
 
-Faker is a required Core dependency; Mimesis is optional. SQLite uses Python's
-built-in driver. The `postgres` extra installs psycopg 3. Omit unused extras from
-the chosen command. For Core/Web alone, see the [Web guide](web-workbench.md).
+Faker is a required Core dependency, and the quick start below selects it
+explicitly. Mimesis is optional. The API and CLI default to `mimesis`; Core logs
+a warning and falls back to Base if that provider is unavailable. For later
+examples that omit the provider or select Mimesis, install
+`python -m pip install 'sqlseed[mimesis]==0.2.4'`, or select `faker` in the API,
+CLI options, or YAML configuration.
+
+SQLite uses Python's built-in driver. The `postgres` extra installs psycopg 3.
+For Core/Web alone, see the [Web guide](web-workbench.md).
 The Core `all` extra includes Mimesis, psycopg, tqdm, CLI, and testcontainers;
 it does not install AI, MCP, or Web.
 
@@ -55,10 +61,10 @@ git clone https://github.com/sunbos/sqlseed.git
 cd sqlseed
 
 # Offline Core
-python -m pip install -e '.[mimesis]'
+python -m pip install -e .
 
 # Core and CLI
-python -m pip install -e '.[mimesis]' -e ./plugins/sqlseed-cli
+python -m pip install -e . -e ./plugins/sqlseed-cli
 
 # Complete workbench and both MCP servers
 python -m pip install -e '.[mimesis,postgres]' -e ./plugins/sqlseed-cli -e './plugins/sqlseed-ai[mcp]' -e ./plugins/mcp-server-sqlseed -e ./plugins/sqlseed-web
@@ -68,6 +74,8 @@ python -m pip check
 Choose one set; these commands are alternatives. A source checkout may include
 changes beyond a published release. Check the [release list](https://github.com/sunbos/sqlseed/releases)
 and [release guide](releasing.md) for package availability and release verification.
+To add Mimesis to a minimal source installation, replace `-e .` with
+`-e '.[mimesis]'` in the selected command.
 
 ### Development and docs
 
@@ -88,31 +96,51 @@ builds the maintained pages with strict validation.
 
 ## Quick Start
 
-The examples assume that the database and named tables already exist. Install
-the matching CLI/Core set first; the demo below creates a ready-to-use schema.
-
-### CLI Quick Start
-
-```bash
-# Fill 10,000 rows into the users table
-sqlseed fill app.db --table users --count 10000
-
-# Preview 5 rows without writing
-sqlseed preview app.db --table users --count 5
-
-# Inspect schema and column mapping strategy
-sqlseed inspect app.db --show-mapping
-```
+sqlseed fills existing tables. This first example creates a SQLite database
+using Python's standard library, so it works with a PyPI installation and does
+not require a repository checkout.
 
 ### Python API Quick Start
 
+Save this as `quickstart.py` in a fresh directory and run `python quickstart.py`:
+
 ```python
+from __future__ import annotations
+
+import sqlite3
+from contextlib import closing
+
 import sqlseed
 
-# One line fills 10,000 rows of high-quality test data
-result = sqlseed.fill("app.db", table="users", count=10_000)
+with closing(sqlite3.connect("app.db")) as db:
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            email TEXT NOT NULL,
+            age INTEGER NOT NULL CHECK (age BETWEEN 18 AND 65)
+        )
+    """)
+    db.commit()
+
+result = sqlseed.fill(
+    "app.db",
+    table="users",
+    count=100,
+    provider="faker",
+    seed=42,
+    columns={"age": {"type": "integer", "min_value": 18, "max_value": 65}},
+)
 print(result.count, result.errors)
+# 100 []
+
+with closing(sqlite3.connect("app.db")) as db:
+    print(db.execute("SELECT COUNT(*) FROM users").fetchone()[0])
+# 100 on the first run
 ```
+
+Each run appends rows. Check both `count` and `errors`: a failed batch can leave
+earlier committed batches. See [write and failure semantics](maintainable-release.md#write-semantics).
 
 sqlseed automatically:
 
@@ -122,16 +150,33 @@ sqlseed automatically:
 - Matches `*_at` pattern → datetime values
 - Respects column types (`VARCHAR(20)` → max 20-char strings)
 
+### CLI Quick Start
+
+Install `sqlseed-cli` and use the `app.db` created above:
+
+```bash
+# Preview 5 rows without writing
+sqlseed preview app.db --table users --count 5 --provider faker
+
+# Inspect schema and column mapping strategy
+sqlseed inspect app.db --show-mapping
+
+# Append 100 rows using the offline provider
+sqlseed fill app.db --table users --count 100 --provider faker --no-ai
+```
+
 ### Try the Demo Database
+
+For a larger schema, run the repository demo from a source checkout:
 
 ```bash
 python examples/build_demo_db.py
 
 # Populate the parent referenced by members.org_code first.
-sqlseed fill examples/sqlseed_demo.db --table organizations --count 10
-sqlseed preview examples/sqlseed_demo.db --table members --count 5
+sqlseed fill examples/sqlseed_demo.db --table organizations --count 10 --provider faker --no-ai
+sqlseed preview examples/sqlseed_demo.db --table members --count 5 --provider faker
 sqlseed inspect examples/sqlseed_demo.db --show-mapping
-sqlseed fill examples/sqlseed_demo.db --table members --count 100
+sqlseed fill examples/sqlseed_demo.db --table members --count 100 --provider faker --no-ai
 ```
 
 ---
@@ -493,7 +538,9 @@ and regenerates the source column.
 
 ### Generators
 
-sqlseed ships with 36 built-in generators. The most common ones:
+sqlseed ships with <!-- BEGIN:AUTO-GENERATED:generator-count -->36<!-- END:AUTO-GENERATED:generator-count --> built-in generators.
+The complete table below also includes `foreign_key` and `skip`, which the
+orchestration layer handles separately.
 
 | Generator | Description | Example Parameters |
 |-----------|-------------|-------------------|

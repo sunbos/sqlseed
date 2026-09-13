@@ -18,7 +18,7 @@ LLM schema 分析、contract-driven self-healing 和模板值生成的独立发�
 - `[project.entry-points."sqlseed.cli_commands"]` 指向 [src/sqlseed_ai/cli/ai_commands.py](src/sqlseed_ai/cli/ai_commands.py) 的 `register()`；通过注册扩展 CLI，不能让 `sqlseed-cli` 直接依赖 AI 实现。
 - `ai-suggest` 默认做单表分析；`ai-suggest --auto-heal`、`ai-analyze` 和 `auto-heal` 使用 v4 `AutoHealOrchestrator` 路径。不要恢复已删除的 `Stage3Validator` / `SchemaSemanticAnalyzer` / `StagedSchemaAnalyzer` 或旧 staged flags。
 - [src/sqlseed_ai/mcp.py](src/sqlseed_ai/mcp.py) 提供 AI MCP tools，`mcp-server-sqlseed-ai` 是它的命令入口；运行需要本包 `[mcp]` extra。Core-only MCP 位于兄弟包 `mcp-server-sqlseed`，不要把 LLM 能力搬回那里。
-- 修改 AI CLI 的用户行为时，同步根 [README.md](../../README.md) 与 [README.zh-CN.md](../../README.zh-CN.md) 的命令说明。
+- 修改 AI CLI 的用户行为时，同步 [docs/guide.md](../../docs/guide.md#ai-plugin) 与本包中英文 README 的完整参考；根 [README.md](../../README.md) 与 [README.zh-CN.md](../../README.zh-CN.md) 只保留命令用途概述。
 - 修改依赖后同步本包 [uv.lock](uv.lock) 和受影响的根 lock；按根发布流程处理版本、changelog 与其他发行包。
 
 ## 配置与兼容性

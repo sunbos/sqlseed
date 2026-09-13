@@ -430,7 +430,7 @@ class TestCountContracts:
         """_dispatch.py GENERATOR_MAP must have exactly 36 entries.
 
         See CLAUDE.md > generators/ "36 generator types". If a generator is
-        added or removed, update CLAUDE.md, README, and AUTO-GENERATED markers.
+        added or removed, update docs/guide.md and AUTO-GENERATED markers.
         """
         dispatch_path = SRC_ROOT / "generators" / "_dispatch.py"
         text = dispatch_path.read_text(encoding="utf-8")
@@ -443,7 +443,7 @@ class TestCountContracts:
                     count = len(node.value.keys)
                     assert count == 36, (
                         f"Expected 36 generators in GENERATOR_MAP, found {count}. "
-                        "If you added/removed a generator, update CLAUDE.md, README, "
+                        "If you added/removed a generator, update docs/guide.md, "
                         "and run scripts/sync_docs.py."
                     )
                     return
@@ -459,7 +459,7 @@ class TestCountContracts:
                         count = len(node.value.keys)
                         assert count == 36, (
                             f"Expected 36 generators in GENERATOR_MAP, found {count}. "
-                            "If you added/removed a generator, update CLAUDE.md, README, "
+                            "If you added/removed a generator, update docs/guide.md, "
                             "and run scripts/sync_docs.py."
                         )
                         return

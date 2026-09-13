@@ -31,4 +31,4 @@
 
 从仓库根执行 `pytest tests/test_generators/`；dispatch 变更重点检查 `test_dispatch_sync.py` 与 `test_dispatch_exclude.py`。
 
-修改 `_dispatch.py` 后同步 [README.md](../../../README.md) 与 [README.zh-CN.md](../../../README.zh-CN.md) 的 generator 表，执行 `python scripts/sync_docs.py`、`pytest tests/test_doc_sync.py tests/test_architecture.py`。新 provider 的发布注册使用根 `pyproject.toml` 的 `project.entry-points."sqlseed"`。
+修改 `_dispatch.py` 后同步 [docs/guide.md](../../../docs/guide.md#generators) 的完整 generator 表及自动生成的数量，执行 `python scripts/sync_docs.py`、`pytest tests/test_doc_sync.py tests/test_architecture.py`。新 provider 的发布注册使用根 `pyproject.toml` 的 `project.entry-points."sqlseed"`。

@@ -1,72 +1,89 @@
 # sqlseed
 
-**Declarative SQLite and PostgreSQL test data generation.**
+**Test data for SQLite and PostgreSQL, from your existing schema.**
 
-Generate test data from existing database schemas, YAML/JSON rules, or the Python
-API. The offline Core provides schema inference, 36 generators, foreign-key
-handling, expressions, and pluggy hooks. CLI, AI, MCP, and Web are separate packages.
+sqlseed fills existing tables with generated data. It infers rules for common
+columns such as names and email addresses, and lets you define application-specific
+values and relationships in Python or YAML. Core runs offline; AI is optional.
 
-## Documentation version and installation
+## Choose how to use it
 
-These pages cover the five-package layout introduced in 0.2.4. Core, CLI, AI,
-MCP, and Web are separate distributions; the older 0.2.3 packages use different
-entry points. See the [upgrade guide](migration.md) for compatibility details.
+Use a Python 3.10+ virtual environment and install the entry point you need.
+Interface packages install Core as a dependency.
 
-For the 0.2.4 release, use a fresh Python 3.10+ environment and install the package
-set you need. This complete installation includes Mimesis, PostgreSQL support,
-and both MCP servers:
+| I want to… | Install | Guide |
+| --- | --- | --- |
+| Generate data from Python | `python -m pip install sqlseed` | [Python API](api.md) |
+| Use a browser | `python -m pip install sqlseed-web` | [Web workbench](web-workbench.md) |
+| Work in a terminal | `python -m pip install sqlseed-cli` | [CLI reference](guide.md#cli-reference) |
+| Ask a model to suggest or repair rules | `python -m pip install sqlseed-ai` | [AI setup](guide.md#ai-plugin) |
+| Use rule-driven MCP tools | `python -m pip install mcp-server-sqlseed` | [MCP setup](guide.md#mcp-server) |
 
-```bash
-python -m pip install 'sqlseed[mimesis,postgres]==0.2.4' 'sqlseed-cli==0.2.4' 'sqlseed-ai[mcp]==0.2.4' 'mcp-server-sqlseed==0.2.4' 'sqlseed-web==0.2.4'
-python -m pip check
-```
+These pages describe the five-package layout introduced in 0.2.4. Upgrading an older
+installation? Read the [migration guide](migration.md). For development from source
+or optional dependencies, see [installation](guide.md#installation).
 
-For offline Python use alone, install `python -m pip install 'sqlseed[mimesis]==0.2.4'`.
-Choose the [installation guide](guide.md#installation) for a smaller package set
-or a source checkout. Package availability and release verification are tracked
-separately in the [release list](https://github.com/sunbos/sqlseed/releases) and
-[release guide](releasing.md).
+## Generate your first data
 
-## Quick start
-
-Prepare an existing database and its tables first. The repository includes a
-small demo:
-
-```bash
-python examples/build_demo_db.py
-sqlseed fill examples/sqlseed_demo.db -t organizations -n 10
-sqlseed preview examples/sqlseed_demo.db -t members -n 5
-sqlseed fill examples/sqlseed_demo.db -t members -n 100
-sqlseed inspect examples/sqlseed_demo.db --show-mapping
-```
+After installing `sqlseed`, save this as `demo.py` in a new directory and run
+`python demo.py`. It creates a SQLite table and adds 100 users, with no repository
+checkout or external database server:
 
 ```python
-from sqlseed import fill
+import sqlite3
+from contextlib import closing
 
-# The parent organizations must already be populated, as in the CLI example.
-result = fill("examples/sqlseed_demo.db", table="members", count=100)
-print(result.count, result.errors)
+import sqlseed
+
+with closing(sqlite3.connect("demo.db")) as conn:
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            email TEXT NOT NULL
+        )
+    """)
+    conn.commit()
+
+result = sqlseed.fill(
+    "demo.db",
+    table="users",
+    count=100,
+    provider="faker",
+    seed=42,
+)
+print(result.count, result.errors)  # 100 []
 ```
 
-The same public API accepts PostgreSQL URLs through `url=`, with the `postgres`
-extra installed. Supported constraints differ by database and entry point;
-consult [support and maintenance](maintainable-release.md) before using complex
-foreign keys or replacing existing data. A failed run can retain earlier
-committed batches, so check both `count` and `errors`.
+Faker is included with Core. Each run appends another 100 rows; it does not clear
+the table. Check both `count` and `errors`, because a failed run may retain earlier
+committed batches. See [support and maintenance](maintainable-release.md) for
+constraint support, write behavior, and reproducibility conditions.
 
-## Choose an entry point
+## Try the browser or terminal
 
-| Entry point | Package | Guide |
-| --- | --- | --- |
-| Python API and offline rules | `sqlseed` | [API reference](api.md) |
-| Terminal generation and inspection | `sqlseed-cli` | [CLI reference](guide.md#cli-reference) |
-| Browser workbench | `sqlseed-web` | [Web workbench](web-workbench.md) |
-| Optional model suggestions and repair | `sqlseed-ai` | [AI guide](guide.md#ai-plugin) |
-| Rule-driven MCP tools | `mcp-server-sqlseed` | [MCP setup](guide.md#mcp-server) |
+With `sqlseed-web` installed, run:
 
-AI MCP tools run in the separate `mcp-server-sqlseed-ai` process supplied by
-`sqlseed-ai[mcp]`. Accepted rules can be executed offline.
+```bash
+sqlseed-web
+```
 
-For internal design, see [architecture](architecture.md). For a complete example
-with constraints, failure diagnosis, and replay, see the
-[project walkthrough](project-showcase.md).
+Open [http://127.0.0.1:8630](http://127.0.0.1:8630), connect to `demo.db`, select tables,
+edit rules, and preview before generating. The command is included with the package;
+no custom launcher is required. Follow the [Web guide](web-workbench.md) for details.
+
+With `sqlseed-cli` installed, use the same database:
+
+```bash
+sqlseed inspect demo.db --table users --show-mapping
+sqlseed preview demo.db -t users -n 5 --provider faker
+sqlseed fill demo.db -t users -n 100 --provider faker --no-ai
+```
+
+## Next steps
+
+- [User guide](guide.md): YAML rules, generators, expressions, and multi-table configuration.
+- [Python API reference](api.md): functions, configuration models, and results.
+- [Project walkthrough](project-showcase.md): constraints, failure diagnosis, and replay.
+- [AI setup](guide.md#ai-plugin): model configuration and optional rule suggestions.
+- [Architecture](architecture.md): package boundaries and extension points.
