@@ -26,10 +26,8 @@ class TestEnumDetection:
         with DataOrchestrator(":memory:", provider_name="base") as orch:
             orch._ensure_connected()
             col_info = self._make_col_info(col_name, col_type)
-            assert (
-                orch._enrichment is not None
-                and orch._enrichment.is_enumeration_column(col_name, col_info, distinct, total, is_unique) is expected
-            )
+            assert orch._enrichment is not None
+            assert orch._enrichment.is_enumeration_column(col_name, col_info, distinct, total, is_unique) is expected
 
     def test_enum_detection_by_name_pattern_by_prefix(self) -> None:
         self._assert_enum("byProjectType", "INT8", 3, 100, False, True)
