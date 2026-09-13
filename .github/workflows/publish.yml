@@ -9,6 +9,10 @@ on:
         description: Existing v-prefixed tag to publish using this workflow revision
         required: true
         type: string
+      verify_existing_release:
+        description: Verify publisher access using byte-identical files already on PyPI
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -123,6 +127,36 @@ jobs:
       - name: List distributions
         run: ls -la dist/
 
+      - name: Require byte-identical public files for publisher verification
+        if: ${{ inputs.verify_existing_release }}
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+          from urllib.request import urlopen
+          from packaging.utils import parse_sdist_filename, parse_wheel_filename
+
+          files = sorted(Path("dist").iterdir())
+          if len(files) != 10:
+              raise SystemExit("Publisher verification requires the ten existing release files.")
+          releases = {}
+          for path in files:
+              if path.suffix == ".whl":
+                  name, version, _, _ = parse_wheel_filename(path.name)
+              else:
+                  name, version = parse_sdist_filename(path.name)
+              key = (name, version)
+              if key not in releases:
+                  with urlopen(f"https://pypi.org/pypi/{name}/{version}/json", timeout=30) as response:
+                      releases[key] = {item["filename"]: item for item in json.load(response)["urls"]}
+              public = releases[key].get(path.name)
+              digest = hashlib.sha256(path.read_bytes()).hexdigest()
+              if public is None or public["yanked"] or public["digests"]["sha256"] != digest:
+                  raise SystemExit(f"{path.name} is not byte-identical to an existing public file.")
+              print(f"Verified existing public file: {path.name} ({digest})")
+          PY
+
       - name: Upload distributions
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
         with:
@@ -139,23 +173,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - package: sqlseed
-            environment: pypi
-          - package: sqlseed-ai
-            environment: pypi
-          - package: mcp-server-sqlseed
-            environment: pypi
-          - package: sqlseed-cli
-            environment: pypi-cli
-          - package: sqlseed-web
-            environment: pypi-web
+        package: [sqlseed, sqlseed-ai, mcp-server-sqlseed, sqlseed-cli, sqlseed-web]
     permissions:
       id-token: write
       attestations: write
 
     environment:
-      name: ${{ matrix.environment }}
+      name: pypi
       url: https://pypi.org/project/${{ matrix.package }}/
 
     steps:
@@ -190,8 +214,8 @@ jobs:
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33  # v1.14.2
         with:
           packages-dir: package-dist/
-          skip-existing: true
-          attestations: true
+          skip-existing: ${{ !inputs.verify_existing_release }}
+          attestations: ${{ !inputs.verify_existing_release }}
 
   verify-public:
     name: Verify production PyPI installations
