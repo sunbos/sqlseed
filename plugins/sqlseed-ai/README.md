@@ -12,7 +12,7 @@ LLM-driven schema analysis, self-correcting config generation, and template pool
 pip install sqlseed-ai
 ```
 
-This release requires `sqlseed>=0.2.4.dev0` for its plugin hooks and target-validation interfaces; Core 0.2.3 is incompatible.
+This release requires `sqlseed>=0.2.4.dev0,<0.3` for its plugin hooks and target-validation interfaces; Core 0.2.3 is incompatible.
 
 ## Quick Start
 

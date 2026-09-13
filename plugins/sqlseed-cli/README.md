@@ -16,7 +16,7 @@ This package provides the `sqlseed` console command with subcommands:
 pip install sqlseed-cli
 ```
 
-This auto-pulls the `sqlseed>=0.2.4.dev0` core package; Core 0.2.3 lacks the URL API required by this CLI. To enable the AI subcommands
+This auto-pulls the `sqlseed>=0.2.4.dev0,<0.3` core package; Core 0.2.3 lacks the URL API required by this CLI. To enable the AI subcommands
 (`ai-suggest`, `ai-analyze`, `auto-heal`), also install `sqlseed-ai`:
 
 ```bash

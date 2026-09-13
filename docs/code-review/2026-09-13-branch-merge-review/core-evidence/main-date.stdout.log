@@ -1,0 +1,4 @@
+SOURCE: /tmp/sqlseed-core-review-main-976b605/src/sqlseed/__init__.py
+  Generating events ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100% 3/3 1.1 kB/s 0:00:00
+RESULT 3 []
+STORED [(1, '2026-01-01'), (2, '2026-01-01'), (3, '2026-12-25')]

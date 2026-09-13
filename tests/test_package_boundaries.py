@@ -29,6 +29,25 @@ def test_plugin_dependency_rejects_legacy_core_but_accepts_the_current_developme
     assert Version("0.2.3") not in core.specifier
     assert Version("0.2.4.dev0") in core.specifier
     assert Version(metadata.version("sqlseed")) in core.specifier
+    assert Version("0.3.0") not in core.specifier
+
+
+@pytest.mark.parametrize(
+    ("package", "extra", "dependency"),
+    [("sqlseed-ai", None, "sqlseed-cli"), ("sqlseed-web", "ai", "sqlseed-ai")],
+)
+def test_plugin_sibling_dependencies_stay_within_the_validated_release_series(
+    package: str, extra: str | None, dependency: str
+) -> None:
+    manifest = tomllib.loads((ROOT / "plugins" / package / "pyproject.toml").read_text(encoding="utf-8"))
+    project = manifest["project"]
+    values = project["dependencies"] if extra is None else project["optional-dependencies"][extra]
+    requirements = [Requirement(value) for value in values]
+    requirement = next(value for value in requirements if value.name == dependency)
+    assert Version("0.2.3") not in requirement.specifier
+    assert Version("0.2.4.dev0") in requirement.specifier
+    assert Version("0.2.4") in requirement.specifier
+    assert Version("0.3.0") not in requirement.specifier
 
 
 def _imports(source: Path, package_root: Path) -> list[tuple[int, str]]:

@@ -1,0 +1,12 @@
+SOURCE: /Users/sunbo/Desktop/sqlseed/src/sqlseed/__init__.py
+  Generating nodes ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100% 20/20 ? 0:00:00
+CASE: unique_fk COUNT: 20 ERRORS: ['UNIQUE constraint failed: nodes.parent_id']
+NONNULL PARENTS: (1,)
+  Generating nodes ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100% 20/20 ? 0:00:00
+CASE: composite_pk COUNT: 20 ERRORS: []
+SELF LOOPS: (1,)
+PARENTS: [(97296,)]
+  Generating nodes ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100% 20/20 ? 0:00:00
+CASE: composite_pk_check COUNT: 20 ERRORS: ['CHECK constraint failed: parent_code != code']
+SELF LOOPS: (0,)
+PARENTS: [(None,)]

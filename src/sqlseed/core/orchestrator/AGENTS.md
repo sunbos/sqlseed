@@ -10,6 +10,7 @@
 | [_connection.py](_connection.py) | `ConnectionMixin`：初始化、adapter 创建、属性、连接与关闭、context manager、`from_config()` |
 | [_specs.py](_specs.py) | `SpecResolverMixin`：配置解析、CHECK adaptation、mapping、enrichment、UNIQUE/FK、AI hook/template pool、stream 构造 |
 | [_generation.py](_generation.py) | `GenerationMixin`：`fill_table()`、`preview_table()`、batch 写入、自引用 FK 第二阶段；`fill` 是 alias |
+| [_self_ref.py](_self_ref.py) | 自引用第二阶段的完整行定位、前序父值选择与 UNIQUE 候选检查；不是 mixin |
 | [_query.py](_query.py) | `QueryMixin`：schema/mapping 查询、报告、table order、`execute/query/fetch_one` |
 | [__init__.py](__init__.py) | 组合 mixin 并暴露 `DataOrchestrator` |
 
@@ -45,6 +46,7 @@
 
 - 仅引擎因空父表自动把可空 self-ref FK 设为 `null_ratio=1.0` 的 spec 标记为延后关联；显式全 NULL 与追加到非空表不能触发第二阶段。生成完成后 `_post_fill_self_ref_fks()` 再关联已生成 PK，并同步相关条件列以满足 CHECK。
 - 自引用第二阶段使用本次 seed 的独立 `random.Random`，不得重播种 provider 或全局 RNG；seed=None 保留原随机来源。
+- 第二阶段按完整 PRIMARY KEY 排序和定位，不得只用复合键首列 UPDATE；SQLite 含 NULL 的 PK 元组还需非空 UNIQUE target 消歧，无法精确定位则保留 NULL。相关单列/组合 UNIQUE 需包含条件列的新值并由数据库验证 affinity/collation；完整索引以外的 partial UNIQUE 仍交由数据库执行。约 70% 的关联选择保留独立 seed，每行从整个前序非空父池抽取最多 100 个不同候选，不能连续扫描密集旧前缀。候选未通过时保留合法 NULL，不声称容量耗尽；后处理数据库错误保留已提交批次计数。
 - 调整第二阶段前阅读 [../relation.py](../relation.py) 的空父表、自引用、composite FK 分支及已有回归；不要把两阶段策略合成随机整数生成。
 - 保留 shared pool 注册与 `sqlseed_shared_pool_loaded` hook 的调用；DBAPI placeholder 按 SQLite/PostgreSQL dialect 选择。
 

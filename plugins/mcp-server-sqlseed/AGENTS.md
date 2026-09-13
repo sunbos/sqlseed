@@ -6,7 +6,7 @@
 ## 范围与依赖
 
 - distribution 名为 `mcp-server-sqlseed`，Python module 名为 `mcp_server_sqlseed`。
-- [pyproject.toml](pyproject.toml) 声明 `sqlseed>=0.2.4.dev0,<2`、`mcp>=1.0,<2`；console script 指向 `mcp_server_sqlseed:main`。Core 0.2.3 缺少入口使用的目标校验函数，不兼容当前 MCP。
+- [pyproject.toml](pyproject.toml) 声明 `sqlseed>=0.2.4.dev0,<0.3`、`mcp>=1.0,<2`；console script 指向 `mcp_server_sqlseed:main`。Core 0.2.3 缺少入口使用的目标校验函数，不兼容当前 MCP。
 - 仅提供 `sqlseed_generate_yaml`、`sqlseed_execute_fill`；不提供 schema resource 或独立 schema-inspect 工具。
 - AI 工具属于 [sqlseed-ai](../sqlseed-ai/AGENTS.md) 的 `sqlseed_ai.mcp`；不要在本包导入 `sqlseed_ai`。
 - 区分两类 MCP 的依据是是否需要 LLM runtime，不是部署位置或是否联网；当前启动入口调用 `mcp.run()`。

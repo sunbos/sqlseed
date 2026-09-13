@@ -1,0 +1,27 @@
+from pathlib import Path
+from tempfile import TemporaryDirectory
+import sqlite3
+from sqlseed import fill
+import sqlseed
+# Isolate both core versions from installed candidate AI plugin entrypoints.
+from sqlseed.plugins.manager import PluginManager
+PluginManager.load_plugins = lambda self: None
+print("SOURCE:",sqlseed.__file__)
+for label,ddl in [
+    ("unique_fk", "CREATE TABLE nodes (id INTEGER PRIMARY KEY, parent_id INTEGER UNIQUE REFERENCES nodes(id))"),
+    ("composite_pk", "CREATE TABLE nodes (tenant INTEGER NOT NULL, slot INTEGER NOT NULL, code INTEGER NOT NULL UNIQUE, parent_code INTEGER REFERENCES nodes(code), PRIMARY KEY(tenant,slot))"),
+    ("composite_pk_check", "CREATE TABLE nodes (tenant INTEGER NOT NULL, slot INTEGER NOT NULL, code INTEGER NOT NULL UNIQUE, parent_code INTEGER REFERENCES nodes(code), PRIMARY KEY(tenant,slot), CHECK(parent_code != code))"),
+]:
+    with TemporaryDirectory() as d:
+        p=Path(d)/"probe.db"
+        with sqlite3.connect(p) as c:
+            c.execute(ddl)
+        columns=None if label=="unique_fk" else {"tenant":{"generator":"integer","min_value":1,"max_value":1},"slot":{"generator":"integer","min_value":1,"max_value":100000},"code":{"generator":"integer","min_value":100,"max_value":100000}}
+        r=fill(str(p),table="nodes",count=20,provider="base",seed=42,optimize_pragma=False,columns=columns)
+        print("CASE:",label,"COUNT:",r.count,"ERRORS:",r.errors)
+        with sqlite3.connect(p) as c:
+            if columns:
+                print("SELF LOOPS:",c.execute("SELECT COUNT(*) FROM nodes WHERE parent_code=code").fetchone())
+                print("PARENTS:",c.execute("SELECT DISTINCT parent_code FROM nodes").fetchall())
+            else:
+                print("NONNULL PARENTS:",c.execute("SELECT COUNT(parent_id) FROM nodes").fetchone())

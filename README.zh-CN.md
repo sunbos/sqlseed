@@ -119,6 +119,8 @@ print(result.count, result.errors)  # 检查实际写入数和失败原因。
 pip install sqlseed
 ```
 
+升级入口与兼容变化见[升级说明](docs/migration.zh-CN.md)。候选包须从同一 CI artifact 成套安装。
+
 ### 选择数据引擎
 
 ```bash

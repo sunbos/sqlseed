@@ -35,6 +35,7 @@ from sqlseed_ai._hardware import MODEL_REQUIREMENTS, detect_hardware, evaluate_m
 from sqlseed._utils.logger import get_logger
 from sqlseed._utils.paths import validate_db_target as _validate_db_target
 from sqlseed._utils.paths import validate_table_name as _validate_table_name
+from sqlseed._utils.progress import NullProgressBackend
 from sqlseed.config.models import ColumnConfig
 from sqlseed.core.orchestrator import DataOrchestrator
 
@@ -217,11 +218,14 @@ def sqlseed_gemma4_agent_fill(
             _validate_table_name(table_name, orch.get_table_names())
 
             column_configs = [ColumnConfig(**c) for c in ai_result.get("columns", [])]
-            result = orch.fill_table(
-                table_name=table_name,
-                count=count,
-                column_configs=column_configs,
-            )
+            # stdout is reserved for MCP JSON-RPC, including when Rich is installed.
+            with NullProgressBackend() as progress:
+                result = orch.fill_table(
+                    table_name=table_name,
+                    count=count,
+                    column_configs=column_configs,
+                    progress=progress,
+                )
 
             logger.info(
                 "Agent fill completed",

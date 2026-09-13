@@ -17,7 +17,7 @@
 ## 包与运行约定
 
 - 本包是 standalone app，不注册到 `project.entry-points."sqlseed"`。
-- 必需依赖为 `sqlseed>=0.2.4.dev0`、FastAPI、Uvicorn、PyYAML、packaging；Core 0.2.3 缺少工作台所需 runtime 接口，不能放宽此下界。`[ai]` extra 安装 `sqlseed-ai`，`[dev]` 提供 pytest/httpx。
+- 必需依赖为 `sqlseed>=0.2.4.dev0,<0.3`、FastAPI、Uvicorn、PyYAML、packaging；Core 0.2.3 缺少工作台所需 runtime 接口，不能放宽此下界。`[ai]` extra 安装 `sqlseed-ai`，`[dev]` 提供 pytest/httpx。
 - 没有 npm/Vite/bundler 或前端构建步骤；静态资源随 Python wheel 一起提供。
 - 全部运行页面、连接空状态与弹窗共享 v8 主题；provider/locale 属于生成配置，不属于连接表单的产品设置。
 - 保持未安装 AI 时基础连接、schema、配置、预览和填充仍可用；工作台新增可选 AI 辅助分析面板，建议先审阅后应用，不能恢复旧 heal 导航或在写入时自动调用 AI。AI 导入与缺失依赖响应见后端指南。
