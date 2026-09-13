@@ -107,23 +107,24 @@ def select_next_gemma_model(failed_model: str, backend: AIBackend | None = None)
     """
     failed_norm = _normalize_model_id(failed_model)
     for i, m in enumerate(_GEMMA_MODEL_PRIORITY):
-        if _normalize_model_id(m.value) == failed_norm:
-            # Walk down the priority list to find the next available model
-            for j in range(i + 1, len(_GEMMA_MODEL_PRIORITY)):
-                next_model = _GEMMA_MODEL_PRIORITY[j]
-                # Skip local-only models for cloud backends
-                if next_model.is_local_only and backend not in (
-                    AIBackend.LM_STUDIO,
-                    AIBackend.OLLAMA,
-                    None,  # None means "don't filter"
-                ):
-                    continue
-                logger.info(
-                    "Falling back to smaller Gemma 4 model",
-                    from_model=failed_model,
-                    to_model=next_model.to_backend_id(backend) if backend else next_model.value,
-                )
-                return next_model.to_backend_id(backend) if backend else next_model.value
+        if _normalize_model_id(m.value) != failed_norm:
+            continue
+        # Walk down the priority list to find the next available model
+        for j in range(i + 1, len(_GEMMA_MODEL_PRIORITY)):
+            next_model = _GEMMA_MODEL_PRIORITY[j]
+            # Skip local-only models for cloud backends
+            if next_model.is_local_only and backend not in (
+                AIBackend.LM_STUDIO,
+                AIBackend.OLLAMA,
+                None,  # None means "don't filter"
+            ):
+                continue
+            logger.info(
+                "Falling back to smaller Gemma 4 model",
+                from_model=failed_model,
+                to_model=next_model.to_backend_id(backend) if backend else next_model.value,
+            )
+            return next_model.to_backend_id(backend) if backend else next_model.value
 
     logger.warning("No more Gemma 4 models available for fallback", failed_model=failed_model)
     return None

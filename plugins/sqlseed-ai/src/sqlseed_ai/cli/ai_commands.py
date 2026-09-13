@@ -175,19 +175,8 @@ def _emit_ai_suggestion_failure(
     click.echo(f"AI suggestion failed: {e}", err=True)
 
 
-def _run_ai_analysis(
-    analyzer: Any,
-    db_path: str,
-    table: str,
-    verify: bool,
-    max_retries: int,
-    no_cache: bool,
-) -> Any:
-    config = analyzer.config
-    use_streaming = config.should_use_streaming() if config else True
-    use_compact = config.should_use_ultra_compact() if config else False
-
-    # Probe inference speed for local backends and show estimated time
+def _report_local_inference_speed(config: AIConfig | None) -> None:
+    """Probe local inference speed and report the existing wait estimate."""
     if config and config.backend in (AIBackend.LM_STUDIO, AIBackend.OLLAMA):
         speed_info = config.probe_inference_speed()
         if speed_info and speed_info.get("is_slow"):
@@ -207,6 +196,21 @@ def _run_ai_analysis(
                 "Ensure LM Studio/Ollama is running and a model is loaded.",
                 err=True,
             )
+
+
+def _run_ai_analysis(
+    analyzer: Any,
+    db_path: str,
+    table: str,
+    verify: bool,
+    max_retries: int,
+    no_cache: bool,
+) -> Any:
+    config = analyzer.config
+    use_streaming = config.should_use_streaming() if config else True
+    use_compact = config.should_use_ultra_compact() if config else False
+
+    _report_local_inference_speed(config)
 
     if use_streaming:
         display = _StreamingProgressDisplay()
@@ -231,6 +235,32 @@ def _run_ai_analysis(
     return _handle_ai_direct(analyzer, db_path, table, use_compact=use_compact)
 
 
+def _call_ai_direct(
+    analyzer: SchemaAnalyzer,
+    messages: list[dict[str, str]],
+    *,
+    compact: bool,
+    ultra: bool,
+    display: _StreamingProgressDisplay | None,
+) -> dict[str, Any]:
+    """Perform one direct request with its streaming or terminal display."""
+    if display:
+        display.start()
+        result = analyzer.call_llm_streaming(messages, on_progress=display.update)
+        display.stop()
+        return result
+
+    if ultra:
+        mode = "ultra-compact"
+    elif compact:
+        mode = "compact"
+    else:
+        mode = "standard"
+    timeout_s = int(analyzer.config.resolve_timeout()) if analyzer.config else 300
+    click.echo(f"Analyzing schema & generating AI suggestions ({mode} mode, timeout: {timeout_s}s)...")
+    return analyzer.call_llm(messages)
+
+
 def _handle_ai_direct(
     analyzer: Any,
     db_path: str,
@@ -248,16 +278,7 @@ def _handle_ai_direct(
         for compact, ultra in prompt_levels:
             messages = analyzer.build_initial_messages(schema_ctx, compact=compact, ultra_compact=ultra)
             try:
-                if display:
-                    display.start()
-                    result = analyzer.call_llm_streaming(messages, on_progress=display.update)
-                    display.stop()
-                else:
-                    mode = "ultra-compact" if ultra else ("compact" if compact else "standard")
-                    timeout_s = int(analyzer.config.resolve_timeout()) if analyzer.config else 300
-                    click.echo(f"Analyzing schema & generating AI suggestions ({mode} mode, timeout: {timeout_s}s)...")
-                    result = analyzer.call_llm(messages)
-                if result:
+                if result := _call_ai_direct(analyzer, messages, compact=compact, ultra=ultra, display=display):
                     return result
                 click.echo("AI returned empty result, retrying with shorter prompt...", err=True)
                 continue

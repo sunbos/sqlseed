@@ -25,6 +25,29 @@ except ImportError:
     pytest.skip("sqlseed-ai plugin not installed", allow_module_level=True)
 
 
+@pytest.mark.parametrize(
+    ("cache_name", "cache_value"),
+    [
+        ("_speed_probe_cache", (42.0, {"tokens_per_second": 12.5})),
+        ("_all_models_cache", (42.0, ["gemma4:e4b"])),
+    ],
+)
+def test_runtime_caches_are_private_to_each_config(cache_name, cache_value):
+    """Runtime cache data neither leaks between configs nor enters public schemas."""
+    populated = AIConfig(model="gemma4:e4b")
+    empty = AIConfig()
+    public_data = populated.model_dump()
+    setattr(populated, cache_name, cache_value)
+
+    assert getattr(populated, cache_name) == cache_value
+    assert getattr(empty, cache_name) is None
+    assert cache_name not in AIConfig.model_json_schema()["properties"]
+    assert populated.model_dump() == public_data
+    restored = AIConfig.model_validate_json(populated.model_dump_json())
+    assert restored.model_dump() == public_data
+    assert getattr(restored, cache_name) is None
+
+
 class TestResolveBackend:
     """Tests for :func:`_resolve_backend` inference logic.
 

@@ -54,30 +54,22 @@ class TestExpressionEngine:
         with pytest.raises(simpleeval.NameNotDefined):
             engine.evaluate("undefined_var + 1", {})
 
-    def test_timeout_on_slow_expression(self) -> None:
+    def test_timeout_on_slow_expression(self, monkeypatch: pytest.MonkeyPatch) -> None:
         engine = ExpressionEngine(timeout_seconds=1)
-        original_functions = dict(ExpressionEngine.SAFE_FUNCTIONS)
-        ExpressionEngine.SAFE_FUNCTIONS["slow_fn"] = lambda: time.sleep(5)
-        try:
-            with pytest.raises(ExpressionTimeoutError):
-                engine.evaluate("slow_fn()", {})
-        finally:
-            ExpressionEngine.SAFE_FUNCTIONS = original_functions
+        monkeypatch.setitem(ExpressionEngine.SAFE_FUNCTIONS, "slow_fn", lambda: time.sleep(5))
+        with pytest.raises(ExpressionTimeoutError):
+            engine.evaluate("slow_fn()", {})
 
     def test_no_timeout_on_fast_expression(self) -> None:
         engine = ExpressionEngine(timeout_seconds=5)
         result = engine.evaluate("value[-8:]", {"value": "1A2B3C4D5E"})
         assert result == "2B3C4D5E"
 
-    def test_timeout_error_message_contains_expression(self) -> None:
+    def test_timeout_error_message_contains_expression(self, monkeypatch: pytest.MonkeyPatch) -> None:
         engine = ExpressionEngine(timeout_seconds=1)
-        original_functions = dict(ExpressionEngine.SAFE_FUNCTIONS)
-        ExpressionEngine.SAFE_FUNCTIONS["slow_fn"] = lambda: time.sleep(5)
-        try:
-            with pytest.raises(ExpressionTimeoutError, match="timed out"):
-                engine.evaluate("slow_fn()", {})
-        finally:
-            ExpressionEngine.SAFE_FUNCTIONS = original_functions
+        monkeypatch.setitem(ExpressionEngine.SAFE_FUNCTIONS, "slow_fn", lambda: time.sleep(5))
+        with pytest.raises(ExpressionTimeoutError, match="timed out"):
+            engine.evaluate("slow_fn()", {})
 
     def test_default_timeout_is_5_seconds(self) -> None:
         engine = ExpressionEngine()
