@@ -2,38 +2,38 @@
 
 [中文](migration.zh-CN.md)
 
-The workbench on `main` replaces the older combined Core/CLI/MCP installation with five packages and targets the 0.2.4 release series. Merging its source into `main` does not publish these packages to PyPI. Until a compatible release is published, use one source checkout or the artifacts from one successful CI run. The [installation guide](guide.md#installation) separates these source instructions from commands for a future compatible release.
+The 0.2.4 workbench replaces the older combined Core/CLI/MCP installation with five packages. Use matching versions when upgrading from 0.2.3. The [installation guide](guide.md#installation) covers the 0.2.4 release and source checkouts; a development checkout may contain later changes.
 
 ## Install a compatible set
 
-Create a fresh virtual environment and install the five wheels from the same CI artifact together:
+Create a fresh virtual environment and install the 0.2.4 package set together:
 
 ```bash
 python -m venv .venv
 # Activate the environment using your shell's activation command.
-python -m pip install /path/to/candidate-wheels/*.whl
+python -m pip install "sqlseed==0.2.4" "sqlseed-cli==0.2.4" "sqlseed-ai[mcp]==0.2.4" "mcp-server-sqlseed==0.2.4" "sqlseed-web==0.2.4"
 python -m pip check
 ```
 
-For a source checkout, supply Core and the local plugins in the same resolution:
+For downloaded artifacts, install all five wheels from the same release or CI build in one command: `python -m pip install /path/to/release-wheels/*.whl`. For a source checkout, supply Core and the local plugins in the same resolution:
 
 ```bash
 python -m pip install -e . -e ./plugins/sqlseed-cli -e './plugins/sqlseed-ai[mcp]' -e ./plugins/mcp-server-sqlseed -e ./plugins/sqlseed-web
 python -m pip check
 ```
 
-The candidate plugins require Core `>=0.2.4.dev0,<0.3`; their CLI/AI sibling dependencies use the same release series. Core 0.2.3 does not provide the interfaces required by these plugins. The upper bound prevents an unreviewed future minor version from being selected automatically. It does not promise that arbitrary development snapshots within the range are interchangeable: use a single artifact set.
+The 0.2.4 plugin metadata requires Core `>=0.2.4.dev0,<0.3`; their CLI/AI sibling dependencies use the same release series. Core 0.2.3 does not provide the interfaces required by these plugins. The upper bound prevents an unreviewed future minor version from being selected automatically. It does not promise that arbitrary development snapshots within the range are interchangeable: use a single artifact set.
 
 Retain the Core extras used by your previous environment. The five ordinary wheels do not install the PostgreSQL driver or Mimesis. For source installation, replace `-e .` above with `-e '.[postgres,mimesis]'` when both are needed. For wheels, include the exact Core wheel path with `[postgres,mimesis]` appended in the same install command. A fresh environment without the PostgreSQL driver cannot connect to PostgreSQL; without Mimesis, the existing provider fallback behavior applies.
 
-The CI run's `headSha` identifies the candidate source. A pull request artifact's name can use GitHub's synthetic merge commit instead, so check the run and the artifact together. Keep the previous environment and wheel set until migration is verified.
+For development artifacts, the CI run's `headSha` identifies the source. A pull request artifact's name can use GitHub's synthetic merge commit instead, so check the run and the artifact together. Keep the previous environment and wheel set until migration is verified.
 
 ## Update entry points
 
 | Existing usage | New entry point |
 | --- | --- |
 | Python `from sqlseed import fill, connect, preview` | Remains in Core; the existing public API is retained |
-| `sqlseed` shell command installed with Core | Install `sqlseed-cli`; after release, `sqlseed[cli]` is also available as a convenience extra |
+| `sqlseed` shell command installed with Core | Install `sqlseed-cli`; `sqlseed[cli]` is also available as a convenience extra |
 | Importing `sqlseed.cli` | Use the CLI package's supported command entry point; the old Core module has been removed |
 | Core MCP with AI tools | Run a separate `mcp-server-sqlseed-ai` server from `sqlseed-ai[mcp]` |
 | Local browser workflow | Run `sqlseed-web`, then open `http://127.0.0.1:8630` |

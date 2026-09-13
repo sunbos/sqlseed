@@ -1,7 +1,7 @@
 # Gemma 4 集成指南
 
 `sqlseed-ai` 是可选 AI 插件，Gemma 4 是其长期模型后端方向。本文描述 `main`
-中的后端配置、结构化响应和独立 AI MCP 入口；安装同一候选包集合的方式见
+中的后端配置、结构化响应和独立 AI MCP 入口；安装匹配版本包集合的方式见
 [升级说明](migration.zh-CN.md)。Core 本身保持离线。
 
 ## 项目注册的模型 ID
@@ -118,9 +118,9 @@ Gemma 4 生成初始配置
 
 | 工具 | 说明 |
 |------|------|
-| `sqlseed_gemma4_analyze` | 使用 Gemma 4 原生函数调用分析 Schema |
+| `sqlseed_gemma4_analyze` | 使用配置的模型与受支持的响应协议分析 Schema |
 | `sqlseed_gemma4_agent_fill` | 端到端 Agent 工作流（分析 -> 配置 -> 填充） |
-| `sqlseed_list_gemma_models` | 列出可用的 Gemma 4 模型变体和后端状态 |
+| `sqlseed_list_gemma_models` | 列出注册的 Gemma 4 变体、硬件兼容性和后端状态 |
 
 ## 快速开始
 

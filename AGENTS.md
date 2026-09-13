@@ -53,7 +53,7 @@ sqlseed 是声明式测试数据生成工具：通过 Python API 或 YAML/JSON �
 
 ## 安装与运行
 
-以下命令从仓库根执行；在同一次解析中提供本地 Core 和所有插件，避免候选插件的新版本要求被错误地交给 PyPI 解析（与 CI setup 一致）：
+以下命令从仓库根执行；在同一次解析中提供本地 Core 和所有插件，避免本地插件的版本要求被交给 PyPI 解析而混用源码与已发布包（与 CI setup 一致）：
 
 ```bash
 python -m pip install -e ".[dev,all]" -e "./plugins/sqlseed-cli" -e "./plugins/sqlseed-ai[dev]" -e "./plugins/mcp-server-sqlseed" -e "./plugins/sqlseed-web[dev]"
@@ -108,4 +108,4 @@ make mutmut
 - 修改依赖后，在根目录、`plugins/sqlseed-ai/`、`plugins/mcp-server-sqlseed/` 各自运行 `uv lock`，维护已有三个 lock files；CLI/Web 当前没有独立 lock file。
 - 版本发布同时更新 [CHANGELOG.md](CHANGELOG.md) 和 [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md)。
 - 推送提交后再创建/推送 `v<version>` tag，并通过 `gh release create` 发布；详细命令与 sigstore attestation 失败的已知处理方式见 [CLAUDE.md](CLAUDE.md) 的 Release Checklist，以及 `.github/workflows/publish.yml`。
-- 五包上传后，按 [发布指南](docs/releasing.md) 从正式 PyPI 在新环境中安装并运行 `scripts/verify_pypi_release.sh <version>`，保留文件来源与哈希、真实入口和 SQLite 验收结果；本地构建成功不代表线上发行已验收。
+- 五包上传成功后，`publish.yml` 的 `verify-public` job 自动在 Linux/Python 3.12 从正式 PyPI 验收。按 [发布指南](docs/releasing.md) 检查该 job 和 `public-pypi-acceptance` artifact，保留文件来源与哈希、真实入口和 SQLite 结果；可用 `scripts/verify_pypi_release.sh <version>` 本地复验。本地构建成功不代表线上发行已验收。

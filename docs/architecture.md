@@ -201,59 +201,31 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-    Start(["map_column(column_info, user_config)"]) --> L1
-
-    L1{"Computed or explicit autoincrement PK?"} -->|Yes| R1["skip"]
-    L1 -->|No| L2
-
-    L2{"Level 2<br/>User config?"} -->|Yes| R2["Use user-specified generator + params"]
-    L2 -->|No| Rowid{"Real SQLite rowid alias?"}
-    Rowid -->|Yes| R1
-    Rowid -->|No| L3
-
-    L3{"Level 3<br/>Custom exact match?"} -->|Match| R3["Use plugin-registered exact rules"]
-    L3 -->|No match| L4
-
-    L4{"Level 4<br/>Built-in exact match?<br/>(<!-- BEGIN:AUTO-GENERATED:exact-match-rule-count -->75<!-- END:AUTO-GENERATED:exact-match-rule-count --> rules)"} -->|Match| R4["email→email<br/>phone→phone<br/>age→integer<br/>city→city<br/>..."]
-    L4 -->|No match| L5
-
-    L5{"Level 5<br/>Has DEFAULT?"} -->|Yes| R5["skip (skip generation)<br/>or __enrich__"]
-    L5 -->|No| L6
-
-    L6{"Level 6<br/>Custom pattern match?"} -->|Match| R6["Use plugin-registered regex rules"]
-    L6 -->|No match| L7
-
-    L7{"Level 7<br/>Built-in pattern match?<br/>(<!-- BEGIN:AUTO-GENERATED:pattern-match-rule-count -->29<!-- END:AUTO-GENERATED:pattern-match-rule-count --> regexes)"} -->|Match| R7["*_at→datetime<br/>*_id→foreign_key_or_integer, *_no→string(alnum)<br/>is_*→boolean<br/>..."]
-    L7 -->|No match| L8
-
-    L8{"Level 8<br/>Nullable?"} -->|Yes| R8["skip (skip generation)<br/>or __enrich__"]
+    Start["map_column(column_info, user_config)"] --> L1{"L1: Computed or explicit autoincrement PK?"}
+    L1 -->|Yes| Skip["Skip generation"]
+    L1 -->|No| L2{"L2: Explicit user config?"}
+    L2 -->|Yes| Done["Return rule"]
+    L2 -->|No| Rowid{"SQLite rowid alias?"}
+    Rowid -->|Yes| Skip
+    Rowid -->|No| IntegerPK{"Other integer primary key?"}
+    IntegerPK -->|Yes| L9["L9: SQL type fallback"]
+    IntegerPK -->|No| L3{"L3: Custom then built-in exact match<br/><!-- BEGIN:AUTO-GENERATED:exact-match-rule-count -->75<!-- END:AUTO-GENERATED:exact-match-rule-count --> built-in rules"}
+    L3 -->|Yes| Done
+    L3 -->|No| L4{"L4: Default value handling"}
+    L4 -->|Yes| Done
+    L4 -->|No| L5{"L5: Custom then built-in pattern match<br/><!-- BEGIN:AUTO-GENERATED:pattern-match-rule-count -->29<!-- END:AUTO-GENERATED:pattern-match-rule-count --> built-in patterns"}
+    L5 -->|Yes| Done
+    L5 -->|No| L6{"L6: CamelCase to snake_case exact retry"}
+    L6 -->|Yes| Done
+    L6 -->|No| L7{"L7: snake_case pattern retry"}
+    L7 -->|Yes| Done
+    L7 -->|No| L8{"L8: Nullable fallback"}
+    L8 -->|Yes| Done
     L8 -->|No| L9
-
-    L9{"Level 9<br/>Type-faithful fallback<br/>(32 SQL types)"} -->|Match| R9["VARCHAR(32)→max 32 chars<br/>INT8→0~255<br/>BLOB(1024)→1024 bytes"]
-    L9 -->|No match| L10
-
-    L10["Default"] --> R10["string<br/>(min=5, max=50)"]
-
-    R1 --> Done(["Return GeneratorSpec"])
-    R2 --> Done
-    R3 --> Done
-    R4 --> Done
-    R5 --> Done
-    R6 --> Done
-    R7 --> Done
-    R8 --> Done
-    R9 --> Done
-    R10 --> Done
-
-    style L1 fill:#9C27B0,color:#fff
-    style L2 fill:#4CAF50,color:#fff
-    style L4 fill:#2196F3,color:#fff
-    style L5 fill:#FF9800,color:#fff
-    style L7 fill:#2196F3,color:#fff
-    style L8 fill:#FF9800,color:#fff
-    style L9 fill:#FF9800,color:#fff
-    style L10 fill:#9E9E9E,color:#fff
+    L9 --> Done
 ```
+
+Default and nullable handling returns skip, enrichment, or type fallback according to `enrich` / `force_type_infer`. Adapters identify SQLite rowid aliases explicitly; unknown legacy hand-built `ColumnInfo` metadata retains compatibility handling. Parameter inheritance and BLOB type guards remain part of `mapper.py` beyond this priority diagram.
 
 ---
 
@@ -277,7 +249,7 @@ classDiagram
         -_rng: Random
         -_locale: str
         +name = "base"
-        type-routing only, no real data
+        built-in synthesized values
     }
 
     class FakerProvider {
@@ -515,13 +487,12 @@ flowchart TB
     subgraph BatchLoop["Batch Loop"]
         direction TB
         GenBatch["DataStream generates a batch"]
-        H6["🔄 sqlseed_transform_row<br/>(per-row, hot path)"]
         H7["🔄 sqlseed_transform_batch<br/>(same batch; last non-None result)"]
         H8["📢 sqlseed_before_insert"]
         Insert["batch_insert()"]
         H9["📢 sqlseed_after_insert"]
 
-        GenBatch --> H6 --> H7 --> H8 --> Insert --> H9
+        GenBatch --> H7 --> H8 --> Insert --> H9
     end
 
     BatchLoop --> H10["📢 sqlseed_after_generate"]
@@ -533,8 +504,9 @@ flowchart TB
 
     style H3 fill:#FF9800,color:#fff
     style H4 fill:#FF9800,color:#fff
-    style H6 fill:#F44336,color:#fff
 ```
+
+`sqlseed_transform_row` is declared and can have plugin implementations, but normal Core generation does not dispatch it. The batch hook shown here is invoked. A YAML `transform` script and its `transform_row(row, ctx)` function use a separate implemented configuration path, not this pluggy hook.
 
 ---
 
@@ -641,7 +613,7 @@ flowchart LR
         ToolAI["🤖 sqlseed_ai_generate_yaml<br/>AI analysis → self-correction → YAML"]
         Tool4["💎 sqlseed_gemma4_analyze<br/>Gemma 4 native function calling analysis"]
         Tool5["💎 sqlseed_gemma4_agent_fill<br/>Gemma 4 agent-driven data fill"]
-        Tool6["💎 sqlseed_list_gemma_models<br/>List available Gemma 4 models"]
+        Tool6["💎 sqlseed_list_gemma_models<br/>List registered Gemma 4 variants"]
     end
 
     subgraph SQLSeed["sqlseed Core"]

@@ -9,18 +9,17 @@ YAML 配置，再生成测试数据。两个工具均使用离线 Core 规则，
 
 ## 安装
 
-本文描述当前五包源码。兼容版本发布到 PyPI 前，在 Python 3.10+ 虚拟环境中，
-从仓库根一次安装本地 Core 与 MCP：
+安装 0.2.4 版本时，使用 Python 3.10+ 虚拟环境：
+
+```bash
+python -m pip install "mcp-server-sqlseed==0.2.4"
+```
+
+Core 0.2.3 缺少当前入口使用的数据库目标校验接口。
+开发源码时，从仓库根一次安装本地 Core 与 MCP：
 
 ```bash
 python -m pip install -e . -e ./plugins/mcp-server-sqlseed
-```
-
-Core 0.2.3 缺少当前入口使用的数据库目标校验接口。匹配版本发布后，
-才可使用软件源安装命令：
-
-```bash
-python -m pip install "mcp-server-sqlseed>=0.2.4.dev0,<0.3"
 ```
 
 ## MCP 客户端配置
@@ -75,14 +74,14 @@ MCP 传输成功不等于配置或填充成功，需要检查返回内容。
 ## 独立 AI MCP 服务器
 
 本包仅提供上述两个工具，不提供 schema resource 或独立 schema-inspection 工具。
-LLM 分析属于另一个 AI MCP 进程。使用当前源码时，一次安装本地 Core、CLI 与 AI extra：
+LLM 分析属于另一个 AI MCP 进程，安装 AI extra 后启动：
 
 ```bash
-python -m pip install -e . -e ./plugins/sqlseed-cli -e "./plugins/sqlseed-ai[mcp]"
+python -m pip install "sqlseed-ai[mcp]==0.2.4"
 mcp-server-sqlseed-ai
 ```
 
-匹配版本发布后，可安装 `"sqlseed-ai[mcp]>=0.2.4.dev0,<0.3"`。
+开发源码时使用 `python -m pip install -e . -e ./plugins/sqlseed-cli -e "./plugins/sqlseed-ai[mcp]"`。
 AI YAML 工具名为 `sqlseed_ai_generate_yaml`，命令入口为 `mcp-server-sqlseed-ai`；
 另有 `sqlseed_gemma4_analyze`、`sqlseed_gemma4_agent_fill` 和 `sqlseed_list_gemma_models`。
 需要两组工具时，客户端分别配置两个服务器，并为 AI 进程提供后端设置。

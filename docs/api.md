@@ -449,7 +449,7 @@ Enum of supported data provider types.
 
 ```python
 class ProviderType(str, Enum):
-    BASE = "base"       # type-routing only, no real data
+    BASE = "base"       # built-in synthesized values
     FAKER = "faker"     # Faker engine (required dep)
     MIMESIS = "mimesis" # Mimesis engine (optional, high-performance)
     CUSTOM = "custom"   # user-registered provider

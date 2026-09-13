@@ -29,9 +29,9 @@ Related to #(issue number)
 - [ ] All existing tests pass (`pytest`)
 - [ ] Added new tests for new functionality
 - [ ] Updated documentation
-- [ ] Linting passes (`ruff check .`)
+- [ ] Linting passes (`ruff check src/ tests/ plugins/`)
 - [ ] Type checking passes (`mypy src/sqlseed/ plugins/`)
-- [ ] Code is formatted (`ruff format .`)
+- [ ] Code is formatted (`ruff format --check src/ tests/ plugins/`)
 
 ### Test Results
 
@@ -43,7 +43,6 @@ Paste test output here (at least the summary line)
 
 - [ ] Tested with SQLite
 - [ ] Tested with PostgreSQL
-- [ ] Tested with MySQL
 - [ ] Not applicable (no database changes)
 
 ## Documentation

@@ -115,11 +115,35 @@ Intelligently switches between LIGHT / MODERATE / AGGRESSIVE write strategies ba
 
 ## 📦 Installation
 
-This README describes the five-package workbench on `main`, targeting the 0.2.4 release series. Check the [published releases](https://github.com/sunbos/sqlseed/releases) before choosing an installation path. Core/AI/MCP 0.2.3 use the older layout; their [versioned documentation](https://github.com/sunbos/sqlseed/tree/v0.2.3) does not describe the separate CLI or Web packages.
+This README describes the five-package sqlseed 0.2.4 workbench. See the [release history](https://github.com/sunbos/sqlseed/releases) for version details. Core/AI/MCP 0.2.3 use the older layout; their [versioned documentation](https://github.com/sunbos/sqlseed/tree/v0.2.3) does not describe the separate CLI or Web packages.
 
-### From Source (Including Unpublished Candidates)
+### From PyPI
 
-Use Python 3.10+ in a fresh virtual environment. From a checkout, resolve Core and the local plugins together:
+Use Python 3.10+ in a fresh virtual environment, then install the interfaces you need:
+
+```bash
+python -m venv .venv
+# macOS/Linux: source .venv/bin/activate
+# Windows PowerShell: .venv\Scripts\Activate.ps1
+
+# Offline Python API
+python -m pip install 'sqlseed==0.2.4'
+
+# Add only the interfaces you need; each pulls compatible dependencies
+python -m pip install 'sqlseed-cli==0.2.4'
+python -m pip install 'sqlseed-ai[mcp]==0.2.4'
+python -m pip install 'mcp-server-sqlseed==0.2.4'
+python -m pip install 'sqlseed-web==0.2.4'
+python -m pip check
+```
+
+Core has no console script: `sqlseed-cli` provides the `sqlseed` command. See the [upgrade guide](https://sunbos.github.io/sqlseed/migration/) when replacing a 0.2.3 environment.
+
+Faker and SQLAlchemy are required Core dependencies; SQLite needs no separate driver. For PostgreSQL or Mimesis, replace the Core requirement with `'sqlseed[postgres,mimesis]==0.2.4'`. The `all` extra includes Core's optional tools and CLI; AI, MCP and Web remain separate packages.
+
+### From Source (Development and Release Candidates)
+
+From a checkout in a fresh virtual environment, resolve Core and the local plugins together:
 
 ```bash
 git clone https://github.com/sunbos/sqlseed.git
@@ -132,24 +156,7 @@ python -m pip check
 sqlseed --help
 ```
 
-For only the offline Python API, install `-e .`. For only Core and Web, install `-e . -e ./plugins/sqlseed-web`. The five-package Core has no console script: `sqlseed-cli` provides the `sqlseed` command. See the [upgrade guide](https://sunbos.github.io/sqlseed/migration/) when replacing a 0.2.3 environment; candidate wheels must come from the same CI artifact set.
-
-### From PyPI After a Compatible Release
-
-Run these commands only after the corresponding 0.2.4-series packages are published. A source merge does not upload them to PyPI.
-
-```bash
-# Offline Python API
-python -m pip install 'sqlseed>=0.2.4,<0.3'
-
-# Add only the interfaces you need; each pulls compatible dependencies
-python -m pip install 'sqlseed-cli>=0.2.4,<0.3'
-python -m pip install 'sqlseed-ai[mcp]>=0.2.4,<0.3'
-python -m pip install 'mcp-server-sqlseed>=0.2.4,<0.3'
-python -m pip install 'sqlseed-web>=0.2.4,<0.3'
-```
-
-Faker and SQLAlchemy are required Core dependencies; SQLite needs no separate driver. For PostgreSQL or Mimesis, replace the Core requirement with `'sqlseed[postgres,mimesis]>=0.2.4,<0.3'` (or `-e '.[postgres,mimesis]'` in the source command). The `all` extra includes Core's optional tools and CLI; AI, MCP and Web remain separate packages.
+For only the offline Python API, install `-e .`. For only Core and Web, install `-e . -e ./plugins/sqlseed-web`. For PostgreSQL or Mimesis, replace `-e .` with `-e '.[postgres,mimesis]'`. Candidate wheels must come from the same CI artifact set.
 
 ### Local Web Workbench
 
@@ -812,7 +819,7 @@ Layer 6: analyzer/     LLM table-level analysis (streaming + tool-calling, proto
 
 The `_build_subgraph_config()` method in `AutoHealOrchestrator` performs deterministic CHECK-constraint inference before any LLM call: `_parse_single_column_check()` handles LENGTH()/IN/BETWEEN/range patterns (including mixed `> AND <=` and `>= AND <`, `col != 0` non-zero constraint, plus float exclusive bounds `col > X` / `col < Y` / `col > X AND col <= Y` / `col > X AND col < Y` / `col >= X AND col < Y` with 0.01 epsilon to avoid generating the boundary value, plus `col IS NULL OR <inner_expr>` prefix stripping that peels off the optional NULL branch before parsing the inner expression with the existing patterns), while `_infer_cross_column_config()` handles 62 cross-column patterns (col >= other, col > other, col <= other, col < other, col != other, col >= col1 * col2, col >= col2 * CONSTANT [Pattern 7b, column-times-literal-constant lower bound — derive_from col2, expression `value * CONSTANT`], col = col1 (+|-|*) col2, col = col1 + col2 + col3, col = abs(col1) (+|-|*) col2, col = col1 (+|-|*) abs(col2), col = abs(col1) * abs(col2), col = abs(col1), col IS NULL OR col (>=|>|<=|<) other [Pattern 1, all 4 operators + date/float/int types], col IS NULL OR other IS NULL OR col (>=|>|<=|<) other [Pattern 1b, 3-way OR with NULL escape for both columns — None-guard expression prevents TypeError when source col is None], col >= X AND col <= other_col, col >= other_col AND col <= Y, col > X AND col < other_col, col > other_col AND col < Y, col != VALUE OR other_col = VALUE2, col1 + col2 = col reverse-sum, col = VALUE OR other_col < col2 OR other_col > col3 range-membership, col = (col1 + col2 [+ col3]) / N average [Pattern 21, int() wrapped for INTEGER columns to match SQLite integer-division CHECK semantics], col <= col2 * CONSTANT percentage upper bound [Pattern 22], col >= col2 * CONST1 AND col <= col2 * CONST2 [Pattern 22c, dual multiplier bounds across two CHECKs — cross-constraint scan before per-constraint loop; derive_from col2, expression `value * random_float(CONST1, CONST2)`], col = VALUE OR col1 < X OR col2 < X [OR col3 < X] multi-column threshold [Pattern 23, val/opposite swapped to satisfy both OR-form and AND-form dual CHECKs], col = VALUE OR col (>|>=|<|<=) other_col [Pattern 24, conditional comparison — 50% VALUE, 50% satisfying the inequality], col1 != VALUE OR col (>|>=|<|<=) other_col [Pattern 24b, inequality-first variant of Pattern 24 — derive_from other_col, comparison-satisfying value when cond_col == VALUE, else 50% compliant/50% safe zero; cross-constraint cap: when col <= other_col also exists, uses exact equality `value` to satisfy both >= and <=], col = col1 * col2 + col3 [Pattern 25, multiplication + addition chain], col = VALUE OR other_col IN ('a','b','c') [Pattern 26, conditional enum — col set to non-VALUE when other_col is in the set], col1 != VALUE OR col IN ('a','b','c') [Pattern 26b, inequality-first variant of Pattern 26 — derive_from cond_col, random set value when cond_col == VALUE, else first set value], col1 != VALUE OR col = 'V1' OR col = 'V2' [Pattern 26c, explicit OR-equality variant of Pattern 26b — handles `col = 'V1' OR col = 'V2'` syntax instead of IN()], other_col = 'V1' AND col OP1 X1 OR other_col = 'V2' AND col OP2 X2 [OR ...] [Pattern 27, N-way conditional range — nested ternary picks per-clause random range], other_col != VALUE OR col > 0 [Pattern 28, conditional requirement — col set to positive random when other_col == VALUE, else 0], col1 != INTEGER_VALUE OR col > X [Pattern 28b, integer-value variant of Pattern 28 — derive_from col1, positive random when col1 == INT_VALUE, else 0], col = col1 (+|-) col2 (+|-) col3 [Pattern 29, three-column mixed arithmetic chain — derive_from col1, reference col2/col3 via row dict], col1 != VALUE OR col IS NULL [Pattern 30, conditional NULL — FK columns return None for BOTH branches to avoid FK violations; non-FK columns return 0/0.0], col1 = VALUE OR col IS NOT NULL [Pattern 30b, reverse of Pattern 30 — when col1 != VALUE, col must be non-NULL; FK columns use 1 (first autoincrement id), non-FK columns use 0/0.0], col1 != VALUE OR col = VALUE2 [Pattern 31, conditional equality — col set to VALUE2 when col1 == VALUE, else safe random], col >= X AND col <= col2 * CONSTANT [Pattern 22b, compound range with multiplier upper bound — derive_from col2, max(X, value * factor)], (col1 = VALUE AND col > X) OR (col1 IN (...) AND col IS NULL) [Pattern 32, conditional value/NULL — col positive random when col1 == VALUE, NULL when col1 in other set], (col1 IN (...) AND col = col2 + col3) OR (col1 IN (...) AND col = col2 - col3) [Pattern 33, conditional arithmetic by type — derive_from col2, op selected by col1's type set], col1 != VALUE OR col2 (<|<=) X [Pattern 34, conditional upper bound — max_value set to X or X-epsilon; min_value preserved from single-column CHECK via _infer_from_check_constraints merge], col1 != INTEGER_VALUE OR col (<|<=) X [Pattern 34b, integer-value variant of Pattern 34 — same max_value logic, accepts unquoted integer VALUE], col1 IN (...) OR col IS NULL [Pattern 35, conditional NULL with IN set — date columns get null_ratio=1.0; non-date columns get derive_from with None for non-matching values], other_col = 'V1' AND col (>=|>) X1 AND col (<|<=) Y1 OR other_col = 'V2' AND col (>=|>) X2 AND col (<|<=) Y2 [OR ...] [Pattern 36, N-way conditional range with dual bounds — each clause has both a lower and upper literal bound; nested ternary picks per-clause random_int/random_float range], multiple `col1 != VALUE_i OR col OP_i X_i` on same column [Pattern 37, multi-conditional cross-column — when 2+ separate CHECK constraints constrain the SAME target column based on the SAME enum column's value; derive_from col1, nested ternary with a branch per VALUE_i, default branch for unmatched enum values], col = (col1 + col2) * (CONST - col3) [Pattern 38, complex arithmetic — derive_from col1, expression `(value + row['col2']) * (CONST - row['col3'])`], col1 IS NULL OR col <= col2 + col3 [Pattern 39, compound addition upper bound — derive_from col2, None-guard when value is None, else `(value + row['col3']) * random_float(0.0, 1.0)`]).
 
-> **💡 Environment Variables**: Supports `SQLSEED_AI_API_KEY`, `SQLSEED_AI_BASE_URL`, `SQLSEED_AI_MODEL`, `SQLSEED_AI_BACKEND`. Also supports `OPENAI_API_KEY` / `OPENAI_BASE_URL` as fallback. Defaults to Gemma 4 26B via Google AI Studio. Supported backends: `google_ai_studio`, `lm_studio`, `ollama`, `openai_compat`.
+> **💡 Environment Variables**: Supports `SQLSEED_AI_API_KEY`, `SQLSEED_AI_BASE_URL`, `SQLSEED_AI_MODEL`, `SQLSEED_AI_BACKEND`. Also supports `OPENAI_API_KEY` / `OPENAI_BASE_URL` as fallback. Without an explicit backend or recognized URL, the backend is `openai_compat` and requires a base URL. Set `SQLSEED_AI_BACKEND=google_ai_studio` to use Google AI Studio. Supported backends: `google_ai_studio`, `lm_studio`, `ollama`, `openai_compat`.
 
 ***
 
@@ -1080,7 +1087,7 @@ sqlseed provides 12 hook points via [pluggy](https://pluggy.readthedocs.io/), co
 | `sqlseed_pre_generate_templates` |      ✓      | AI pre-computes candidate value pools |
 | `sqlseed_before_generate` |    <br />   | Before data generation loop |
 | `sqlseed_after_generate` |    <br />   | After data generation completes |
-| `sqlseed_transform_row` |    <br />   | Per-row transform (hot path, mind performance) |
+| `sqlseed_transform_row` |    <br />   | Declared hookspec; not dispatched by normal Core generation |
 | `sqlseed_transform_batch` |    <br />   | Per-batch transform (same input batch; last non-`None` result wins) |
 | `sqlseed_before_insert` |    <br />   | Before each batch write to DB |
 | `sqlseed_after_insert` |    <br />   | After each batch write to DB |

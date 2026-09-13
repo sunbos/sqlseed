@@ -8,23 +8,24 @@ handling, expressions, and pluggy hooks. CLI, AI, MCP, and Web are separate pack
 
 ## Documentation version and installation
 
-These pages describe the five-package workbench on `main`, targeting the 0.2.4
-release series. They also cover changes beyond the older combined 0.2.3 packages.
-Merging source and deploying these pages do not publish packages to PyPI. At the
-2026-09-13 review, PyPI had Core/AI/MCP 0.2.3 and no CLI/Web distributions; consult
-the [release list](https://github.com/sunbos/sqlseed/releases) for later releases.
+These pages cover the five-package layout introduced in 0.2.4. Core, CLI, AI,
+MCP, and Web are separate distributions; the older 0.2.3 packages use different
+entry points. See the [upgrade guide](migration.md) for compatibility details.
 
-Until a compatible five-package release is available, install from one source
-checkout or one successful CI artifact. See the [upgrade guide](migration.md) for
-wheel installation and compatibility details. From the repository root:
+For the 0.2.4 release, use a fresh Python 3.10+ environment and install the package
+set you need. This complete installation includes Mimesis, PostgreSQL support,
+and both MCP servers:
 
 ```bash
-python -m pip install -e '.[mimesis,postgres]' -e ./plugins/sqlseed-cli -e './plugins/sqlseed-ai[mcp]' -e ./plugins/mcp-server-sqlseed -e ./plugins/sqlseed-web
+python -m pip install 'sqlseed[mimesis,postgres]==0.2.4' 'sqlseed-cli==0.2.4' 'sqlseed-ai[mcp]==0.2.4' 'mcp-server-sqlseed==0.2.4' 'sqlseed-web==0.2.4'
 python -m pip check
 ```
 
-For offline Python use alone, install `python -m pip install -e '.[mimesis]'`.
-Choose the [installation guide](guide.md#installation) for a smaller package set.
+For offline Python use alone, install `python -m pip install 'sqlseed[mimesis]==0.2.4'`.
+Choose the [installation guide](guide.md#installation) for a smaller package set
+or a source checkout. Package availability and release verification are tracked
+separately in the [release list](https://github.com/sunbos/sqlseed/releases) and
+[release guide](releasing.md).
 
 ## Quick start
 
