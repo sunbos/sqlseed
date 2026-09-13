@@ -39,7 +39,7 @@ export SQLSEED_AI_MODEL=gemma4:e4b
 
 ## 原生函数调用（Native Function Calling）
 
-GemmaSQLSeed 通过 `GEMMA_TOOLS` 定义了一个函数接口：
+GemmaSQLSeed 通过 `GEMMA_TOOLS` 定义了一个函数接口（唯一的工具：`analyze_schema`）：
 
 ### analyze_schema
 
@@ -69,16 +69,18 @@ GEMMA_TOOLS = [
 
 ### 调用流程
 
+实际策略由 `AIConfig.resolve_tool_calling_protocol()` 按后端解析：
+
 ```
-1. 发送 tools=GEMMA_TOOLS, tool_choice="auto" 给 Gemma 4
+1. 仅当解析协议为 "gemma4"（仅 Google AI Studio）或 "openai"
+   （Google AI Studio / OpenAI 兼容）时，才尝试原生函数调用
+   （tools=GEMMA_TOOLS, tool_choice="auto"）
 2. Gemma 4 选择 analyze_schema 函数，返回结构化参数
 3. 从 tool_call.function.arguments 中提取 JSON
-4. 降级链：Tool Calling -> JSON mode -> 纯文本
+4. 降级：云端后端（Google AI Studio / OpenAI 兼容）使用 JSON mode
+   （response_format: json_object）；本地后端（LM Studio、Ollama）
+   直接使用纯文本模式。
 ```
-
-> 注：原生函数调用仅在 Google AI Studio 后端尝试；
-> OpenAI 兼容云端后端使用 JSON mode，
-> 本地后端（LM Studio / Ollama）直接使用纯文本模式。
 
 ## Agent 记忆（自纠正机制）
 
@@ -114,14 +116,15 @@ python scripts/quickstart.py --backend lm_studio --model google/gemma-4-e4b
 sqlseed ai-suggest app.db -t users -o config.yaml
 
 # Python API
-from sqlseed import DataOrchestrator
 from sqlseed_ai import SchemaAnalyzer
 from sqlseed_ai.config import AIConfig
+from sqlseed.core.orchestrator import DataOrchestrator
 
 config = AIConfig.from_env()  # 读取 SQLSEED_AI_BACKEND, SQLSEED_AI_MODEL
+analyzer = SchemaAnalyzer(config=config)
+
 with DataOrchestrator("app.db") as orch:
     schema_ctx = orch.get_schema_context("users")
-analyzer = SchemaAnalyzer(config=config)
 result = analyzer.analyze_table_from_ctx(**schema_ctx)
 ```
 

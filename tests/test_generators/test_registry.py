@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import importlib.util
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -34,11 +33,8 @@ class TestProviderRegistry:
 
     def test_get_nonexistent_provider(self) -> None:
         registry = ProviderRegistry()
-        try:
+        with pytest.raises(ValueError):
             registry.get("nonexistent")
-            raise AssertionError("Should have raised ValueError")
-        except ValueError:
-            pass
 
     def test_available_providers(self) -> None:
         registry = ProviderRegistry()
@@ -50,32 +46,21 @@ class TestProviderRegistry:
         assert provider.name == "base"
 
     def test_ensure_provider_faker(self) -> None:
+        pytest.importorskip("faker")
         registry = ProviderRegistry()
-        try:
-            if not importlib.util.find_spec("faker"):
-                pytest.skip("Faker is not installed")
-            provider = registry.ensure_provider("faker")
-            assert provider.name == "faker"
-        except ImportError:
-            pytest.skip("Faker is not installed")
+        provider = registry.ensure_provider("faker")
+        assert provider.name == "faker"
 
     def test_ensure_provider_mimesis(self) -> None:
+        pytest.importorskip("mimesis")
         registry = ProviderRegistry()
-        try:
-            if not importlib.util.find_spec("mimesis"):
-                pytest.skip("Mimesis is not installed")
-            provider = registry.ensure_provider("mimesis")
-            assert provider.name == "mimesis"
-        except ImportError:
-            pytest.skip("Mimesis is not installed")
+        provider = registry.ensure_provider("mimesis")
+        assert provider.name == "mimesis"
 
     def test_ensure_provider_unknown(self) -> None:
         registry = ProviderRegistry()
-        try:
+        with pytest.raises(ValueError):
             registry.ensure_provider("unknown_provider")
-            raise AssertionError("Should have raised ValueError")
-        except ValueError:
-            pass
 
     def test_register_from_entry_points(self) -> None:
         registry = ProviderRegistry()
@@ -127,32 +112,32 @@ class TestProviderRegistry:
 
     def test_set_default_nonexistent(self) -> None:
         registry = ProviderRegistry()
-        try:
+        with pytest.raises(ValueError):
             registry.set_default("nonexistent")
-            raise AssertionError("Should have raised ValueError")
-        except ValueError:
-            pass
 
     def test_ensure_provider_faker_import_error(self) -> None:
+        """When HAS_FAKER is False, ensure_provider('faker') raises ImportError with install hint.
+
+        Previously mocked ``FakerProvider.__init__`` to raise ImportError, which
+        was self-proving: the mock forced the exception and the assertion merely
+        echoed it (mutmut baseline 2026-06-25). Now patches the module-level
+        ``HAS_FAKER`` flag to exercise the real ``if name == "faker": raise
+        ImportError(...)`` branch (registry.py:148-149), and asserts the
+        install-hint message content so mutants like ``raise ValueError`` or
+        message corruption get killed.
+        """
         registry = ProviderRegistry()
-        with patch(
-            "sqlseed.generators.faker_provider.FakerProvider.__init__",
-            side_effect=ImportError("no faker"),
+        with (
+            patch("sqlseed.generators.registry.HAS_FAKER", False),
+            pytest.raises(ImportError, match="Faker is not installed"),
         ):
-            try:
-                registry.ensure_provider("faker")
-                raise AssertionError("Should have raised ImportError")
-            except ImportError:
-                pass
+            registry.ensure_provider("faker")
 
     def test_ensure_provider_mimesis_import_error(self) -> None:
+        """When HAS_MIMESIS is False, ensure_provider('mimesis') raises ImportError with install hint."""
         registry = ProviderRegistry()
-        with patch(
-            "sqlseed.generators.mimesis_provider.MimesisProvider.__init__",
-            side_effect=ImportError("no mimesis"),
+        with (
+            patch("sqlseed.generators.registry.HAS_MIMESIS", False),
+            pytest.raises(ImportError, match="Mimesis is not installed"),
         ):
-            try:
-                registry.ensure_provider("mimesis")
-                raise AssertionError("Should have raised ImportError")
-            except ImportError:
-                pass
+            registry.ensure_provider("mimesis")

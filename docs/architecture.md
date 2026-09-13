@@ -28,6 +28,9 @@ graph TB
         Constraint["ConstraintSolver<br/>constraint backtracking"]
         Transform["TransformLoader<br/>script loading"]
         Result["GenerationResult<br/>result statistics"]
+        CheckParser["check_parser.py<br/>CHECK constraint parsing"]
+        SchemaFallback["schema_fallback.py<br/>schema-only fallback generator"]
+        Features["features.py<br/>normalized structural features"]
     end
 
     subgraph Gen["⚡ Generator Layer (generators/)"]
@@ -41,13 +44,18 @@ graph TB
 
     subgraph DB["💾 Database Layer (database/)"]
         DBProto["DatabaseAdapter<br/>Protocol"]
-        SU["SQLiteUtilsAdapter<br/>default"]
-        Raw["RawSQLiteAdapter<br/>fallback"]
+        SU["SQLAlchemyAdapter<br/>required (SQLite/PostgreSQL)"]
+        Raw["RawSQLiteAdapter<br/>test-only"]
         Pragma["PragmaOptimizer<br/>3-tier optimization"]
+        Dialect["_dialect.py<br/>dialect abstraction"]
+        TypeNorm["_type_normalizer.py<br/>type normalization"]
+        BulkOpt["_bulk_optimizer.py<br/>bulk write optimization"]
+        BaseAdapt["_base_adapter.py<br/>shared base"]
+        Helpers["_helpers.py<br/>batch insert helpers"]
     end
 
     subgraph Plugin["🧩 Plugin Layer (plugins/)"]
-        HookSpec["SqlseedHookSpec<br/>11 hooks"]
+        HookSpec["SqlseedHookSpec<br/>12 hooks"]
         PM["PluginManager<br/>pluggy"]
     end
 
@@ -69,7 +77,6 @@ graph TB
 
     subgraph Utils["🔧 Utilities (_utils/)"]
         SQL["sql_safe<br/>SQL injection protection"]
-        Helpers["schema_helpers<br/>AUTOINCREMENT"]
         Metrics["MetricsCollector<br/>performance metrics"]
         Progress["Progress<br/>multi-backend: Rich/tqdm/Null"]
         Paths["Paths<br/>platform cache dirs"]
@@ -111,6 +118,13 @@ graph TB
     DBProto --> Raw
     SU --> Pragma
     Raw --> Pragma
+    SU --> Dialect
+    SU --> TypeNorm
+    SU --> BulkOpt
+    SU --> BaseAdapt
+    SU --> Helpers
+    Raw --> BaseAdapt
+    Raw --> Helpers
 
     PM --> HookSpec
     PM --> AI
@@ -207,7 +221,7 @@ flowchart TD
     L3{"Level 3<br/>Custom exact match?"} -->|Match| R3["Use plugin-registered exact rules"]
     L3 -->|No match| L4
 
-    L4{"Level 4<br/>Built-in exact match?<br/>(<!-- BEGIN:AUTO-GENERATED:exact-match-rule-count -->74<!-- END:AUTO-GENERATED:exact-match-rule-count --> rules)"} -->|Match| R4["email→email<br/>phone→phone<br/>age→integer<br/>city→city<br/>..."]
+    L4{"Level 4<br/>Built-in exact match?<br/>(<!-- BEGIN:AUTO-GENERATED:exact-match-rule-count -->75<!-- END:AUTO-GENERATED:exact-match-rule-count --> rules)"} -->|Match| R4["email→email<br/>phone→phone<br/>age→integer<br/>city→city<br/>..."]
     L4 -->|No match| L5
 
     L5{"Level 5<br/>Has DEFAULT?"} -->|Yes| R5["skip (skip generation)<br/>or __enrich__"]
@@ -216,13 +230,13 @@ flowchart TD
     L6{"Level 6<br/>Custom pattern match?"} -->|Match| R6["Use plugin-registered regex rules"]
     L6 -->|No match| L7
 
-    L7{"Level 7<br/>Built-in pattern match?<br/>(<!-- BEGIN:AUTO-GENERATED:pattern-match-rule-count -->27<!-- END:AUTO-GENERATED:pattern-match-rule-count --> regexes)"} -->|Match| R7["*_at→datetime<br/>*_id / *_no→foreign_key_or_integer<br/>is_*→boolean<br/>..."]
+    L7{"Level 7<br/>Built-in pattern match?<br/>(<!-- BEGIN:AUTO-GENERATED:pattern-match-rule-count -->29<!-- END:AUTO-GENERATED:pattern-match-rule-count --> regexes)"} -->|Match| R7["*_at→datetime<br/>*_id→foreign_key_or_integer, *_no→string(alnum)<br/>is_*→boolean<br/>..."]
     L7 -->|No match| L8
 
     L8{"Level 8<br/>Nullable?"} -->|Yes| R8["skip (skip generation)<br/>or __enrich__"]
     L8 -->|No| L9
 
-    L9{"Level 9<br/>Type-faithful fallback<br/>(22 SQL types)"} -->|Match| R9["VARCHAR(32)→max 32 chars<br/>INT8→0~255<br/>BLOB(1024)→1024 bytes"]
+    L9{"Level 9<br/>Type-faithful fallback<br/>(32 SQL types)"} -->|Match| R9["VARCHAR(32)→max 32 chars<br/>INT8→0~255<br/>BLOB(1024)→1024 bytes"]
     L9 -->|No match| L10
 
     L10["Default"] --> R10["string<br/>(min=5, max=50)"]
@@ -260,26 +274,26 @@ classDiagram
         +set_locale(locale: str)
         +set_seed(seed: int)
         +generate(type_name: str, **params) Any
-        ... dispatches via _GENERATOR_MAP to 31 internal methods
+        ... dispatches via GENERATOR_MAP to 35 internal methods
     }
 
     class BaseProvider {
         -_rng: Random
         -_locale: str
         +name = "base"
-        zero external dependencies
+        type-routing only, no real data
     }
 
     class FakerProvider {
         -_faker: Faker
         +name = "faker"
-        lazy imports faker
+        required core dependency
     }
 
     class MimesisProvider {
         -_generic: Generic
         +name = "mimesis"
-        locale mapping en_US→en
+        optional, high-performance
     }
 
     class ProviderRegistry {
@@ -328,6 +342,8 @@ classDiagram
         +get_row_count(table) int
         +get_column_values(table, col, limit) list
         +get_index_info(table) list~IndexInfo~
+        +get_unique_constraints(table) list~IndexInfo~
+        +get_check_constraints(table) list~CheckConstraintInfo~
         +get_sample_rows(table, limit) list~dict~
         +batch_insert(table, data, batch_size) int
         +clear_table(table)
@@ -344,6 +360,8 @@ classDiagram
         +default: Any
         +is_primary_key: bool
         +is_autoincrement: bool
+        +is_computed: bool
+        +is_rowid_alias: bool | None
     }
 
     class ForeignKeyInfo {
@@ -351,6 +369,8 @@ classDiagram
         +column: str
         +ref_table: str
         +ref_column: str
+        +constraint_id: int | None
+        +ref_schema: str | None
     }
 
     class IndexInfo {
@@ -359,18 +379,30 @@ classDiagram
         +table: str
         +columns: tuple~str~
         +unique: bool
+        +is_partial: bool
+        +predicate: str | None
     }
 
-    class SQLiteUtilsAdapter {
+    class CheckConstraintInfo {
+        <<frozen dataclass>>
+        +name: str
+        +table: str
+        +columns: tuple~str~
+        +expression: str
+    }
+
+    class SQLAlchemyAdapter {
         -_db: Database
         -_optimizer: PragmaOptimizer
-        uses sqlite-utils
+        required core dependency
+        uses SQLAlchemy
     }
 
     class RawSQLiteAdapter {
         -_conn: Connection
         -_optimizer: PragmaOptimizer
-        uses sqlite3 (fallback)
+        test-only fallback
+        uses sqlite3
     }
 
     class PragmaOptimizer {
@@ -383,16 +415,19 @@ classDiagram
         -_apply_aggressive()
     }
 
-    DatabaseAdapter <|.. SQLiteUtilsAdapter
+    DatabaseAdapter <|.. SQLAlchemyAdapter
     DatabaseAdapter <|.. RawSQLiteAdapter
-    SQLiteUtilsAdapter --> PragmaOptimizer
+    SQLAlchemyAdapter --> PragmaOptimizer
     RawSQLiteAdapter --> PragmaOptimizer
     DatabaseAdapter --> ColumnInfo
     DatabaseAdapter --> ForeignKeyInfo
     DatabaseAdapter --> IndexInfo
+    DatabaseAdapter --> CheckConstraintInfo
 ```
 
 ---
+
+`ColumnInfo.is_rowid_alias` is explicit for adapter metadata; its `None` default preserves legacy constructors. SQLite detects real rowid aliases separately from explicit AUTOINCREMENT and preserves ordinary nullable primary keys. `IndexInfo.is_partial` prevents treating conditional uniqueness as unconditional. SQLAlchemy retains the reflected WHERE SQL in `predicate`; raw SQLite metadata may omit its text. The database evaluates predicates during writes. FK metadata retains per-table constraint identity and reflected parent schema.
 
 ## 6. Column Dependency DAG & Constraint Backtracking
 
@@ -430,16 +465,16 @@ flowchart LR
 ```mermaid
 flowchart TB
     subgraph CLI_Trigger["Entry Points"]
-        CLICmd["sqlseed ai-suggest"]
+        CLICmd["sqlseed ai-suggest / ai-analyze / auto-heal"]
         HookCall["sqlseed_ai_analyze_table Hook"]
-        MCPTool["MCP: sqlseed_generate_yaml"]
+        MCPTool["MCP: sqlseed_ai_generate_yaml"]
         MCPGemma4Analyze["MCP: sqlseed_gemma4_analyze"]
         MCPGemma4AgentFill["MCP: sqlseed_gemma4_agent_fill"]
     end
 
     subgraph Analyzer["SchemaAnalyzer"]
         Context["Build context<br/>columns + indexes + FK + samples + distribution"]
-        FewShot["Inject few-shot examples<br/>(4 typical scenarios)"]
+        FewShot["Inject few-shot examples<br/>(6 typical scenarios)"]
         SysPrompt["System Prompt<br/>generator list + output format"]
         LLM["Call LLM<br/>AIBackend multi-backend<br/>OpenAI API / Gemma 4 GEMMA_TOOLS<br/>response_format: json_object"]
     end
@@ -478,6 +513,7 @@ flowchart TB
         E5["column_mismatch"]
         E6["empty_config"]
         E7["fatal (non-retryable)"]
+        E8["runtime_error (catch-all)"]
     end
 
     CLICmd --> Analyzer
@@ -525,7 +561,7 @@ flowchart TB
         direction TB
         GenBatch["DataStream generates a batch"]
         H6["🔄 sqlseed_transform_row<br/>(per-row, hot path)"]
-        H7["🔄 sqlseed_transform_batch<br/>(chained processing)"]
+        H7["🔄 sqlseed_transform_batch<br/>(same batch; last non-None result)"]
         H8["📢 sqlseed_before_insert"]
         Insert["batch_insert()"]
         H9["📢 sqlseed_after_insert"]
@@ -549,17 +585,24 @@ flowchart TB
 
 ## 9. Config Model Hierarchy
 
+For source columns, `params` accepts a mapping; omitted or `null` values retain
+the empty-parameter behavior. Strings, lists, and other non-mapping values are
+rejected during configuration loading instead of silently discarding the rules.
+Top-level generator arguments still override keys in nested `params`.
+
 ```mermaid
 classDiagram
     class GeneratorConfig {
-        +db_path: str
+        +db_path: str | None
+        +url: str | None
         +provider: ProviderType = MIMESIS
         +locale: str = "en_US"
         +tables: list~TableConfig~
         +associations: list~ColumnAssociation~
+        +custom_column_mappings: CustomColumnMappings | None
         +optimize_pragma: bool = True
-        +log_level: Literal["DEBUG","INFO","WARNING","ERROR","CRITICAL"] = "INFO"
         +snapshot_dir: str | None
+        +log_level: str | None (deprecated)
     }
 
     class TableConfig {
@@ -585,6 +628,10 @@ classDiagram
         +expression: str | None
         --- Constraints ---
         +constraints: ColumnConstraintsConfig | None
+        --- Native method overrides ---
+        +faker_method: str | None
+        +mimesis_method: str | None
+        +native_params: dict
         +validate_column_mode() ⚠️ mutually exclusive
     }
 
@@ -630,11 +677,13 @@ flowchart LR
         Request["MCP Request"]
     end
 
-    subgraph MCPServer["mcp-server-sqlseed (FastMCP)"]
-        Resource["📖 Resource<br/>sqlseed://schema/{db}/{table}"]
-        Tool1["🔍 sqlseed_inspect_schema<br/>Returns: columns + FK + indexes + samples + hash"]
-        Tool2["🤖 sqlseed_generate_yaml<br/>AI analysis → self-correction → YAML"]
+    subgraph MCPServer["mcp-server-sqlseed (FastMCP) — core, rule-driven, no LLM"]
+        Tool2["🤖 sqlseed_generate_yaml<br/>Rule-driven via ColumnMapper → YAML"]
         Tool3["⚡ sqlseed_execute_fill<br/>Execute data generation"]
+    end
+
+    subgraph AIMCP["sqlseed-ai[mcp] (FastMCP) — AI, LLM-driven"]
+        ToolAI["🤖 sqlseed_ai_generate_yaml<br/>AI analysis → self-correction → YAML"]
         Tool4["💎 sqlseed_gemma4_analyze<br/>Gemma 4 native function calling analysis"]
         Tool5["💎 sqlseed_gemma4_agent_fill<br/>Gemma 4 agent-driven data fill"]
         Tool6["💎 sqlseed_list_gemma_models<br/>List available Gemma 4 models"]
@@ -643,6 +692,7 @@ flowchart LR
     subgraph SQLSeed["sqlseed Core"]
         Orchestrator["DataOrchestrator"]
         SchemaCtx["get_schema_context()"]
+        Mapper["ColumnMapper"]
     end
 
     subgraph AIPlugin["sqlseed-ai"]
@@ -650,18 +700,16 @@ flowchart LR
         ACR["AiConfigRefiner"]
     end
 
-    Request --> Resource
-    Request --> Tool1
     Request --> Tool2
     Request --> Tool3
+    Request --> ToolAI
     Request --> Tool4
     Request --> Tool5
     Request --> Tool6
 
-    Resource --> SchemaCtx
-    Tool1 --> SchemaCtx
-    Tool2 --> SA --> ACR
+    Tool2 --> Mapper
     Tool3 --> Orchestrator
+    ToolAI --> SA --> ACR
     Tool4 --> SA
     Tool5 --> Orchestrator
     Tool6 --> SA
@@ -727,4 +775,19 @@ flowchart TB
     style FCExec fill:#FBBC05,color:#000
     style FCResult fill:#34A853,color:#fff
     style FCIterate fill:#EA4335,color:#fff
+```
+
+
+## 12. Web workbench and component lifecycle
+
+The project contains five distributions: Core, CLI, AI, MCP and Web. Web calls offline core directly; optional AI Python services produce user-requested suggestions, and accepted rules can run offline. The supervisor coordinates business and maintenance workers during component changes. Availability requires both distribution metadata and successful imports; removing a component preserves configuration and explains affected features. See the [Web guide](web-workbench.md) and [support scope](maintainable-release.md).
+
+```mermaid
+flowchart LR
+    Browser[Browser workbench] --> HTTP[FastAPI / Web state]
+    HTTP --> Runtime[Web runtime]
+    Runtime --> Core[Offline Python core]
+    HTTP -. optional suggestions .-> AI[AI Python services]
+    Supervisor[Supervisor] --> HTTP
+    Supervisor --> Maintenance[Package maintenance worker]
 ```

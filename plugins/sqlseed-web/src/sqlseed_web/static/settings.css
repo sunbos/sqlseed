@@ -1,0 +1,108 @@
+/* Application settings share the workbench theme; generation rules stay in the workbench. */
+.settings-page { max-width:1200px; }
+.settings-layout { display:grid; grid-template-columns:180px minmax(0,1fr); align-items:start; gap:24px; }
+.settings-tabs { display:flex; flex-direction:column; gap:6px; padding:8px; background:var(--wash); border:1px solid var(--line); border-radius:var(--radius); }
+.settings-tabs .btn { justify-content:flex-start; padding:12px 16px; border-color:transparent; background:transparent; }
+.settings-tabs [aria-selected=true] { color:var(--teal); background:var(--soft); border-color:#b6d7cc; font-weight:600; }
+.settings-panels { min-width:0; }
+.settings-panel { padding:26px 30px; background:var(--paper); border:1px solid var(--line); border-radius:var(--radius); }
+.settings-panel[hidden],.settings-form[hidden],.settings-return-prompt[hidden],.settings-install[hidden] { display:none; }
+.settings-panel-head { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; margin-bottom:22px; }
+.settings-panel-head h2 { margin:0; font-size:20px; }
+.settings-panel-head p { margin:5px 0 0; }
+.settings-badge { display:inline-flex; align-items:center; flex-shrink:0; background:var(--soft); color:var(--teal); border-radius:5px; padding:4px 9px; font-size:12px; white-space:nowrap; }
+.settings-badge-warning { color:#8c581e; background:#fff6e7; }
+.settings-component-impact { margin:8px 0 0; color:#805323; font-size:13px; line-height:1.7; overflow-wrap:anywhere; }
+.settings-current { padding:13px 16px; background:var(--wash); border:1px solid var(--line); border-radius:7px; margin-bottom:24px; }
+.settings-current > span { font-size:12px; }
+.settings-current-model { margin:4px 0 0; font-weight:600; overflow-wrap:anywhere; }
+.settings-readiness { font-size:12px; margin:6px 0 0; }
+.settings-save-state { font-size:12px; min-height:1.6em; margin:10px 0 0; }
+.settings-notice:empty { display:none; }
+.settings-fields { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.5fr); gap:18px; }
+.settings-field { display:flex; flex-direction:column; gap:7px; min-width:0; font-size:13px; }
+.settings-field > span { font-weight:600; }
+.settings-field input { width:100%; min-width:0; height:40px; margin:0; padding:8px 12px; border:1px solid var(--line); border-radius:7px; background:var(--paper); color:var(--ink); }
+.settings-field input:disabled { background:var(--wash); }
+.settings-field .dropdown { width:100%; }
+.settings-field .dropdown-btn { min-height:40px; }
+.settings-service-hint { font-size:12px; margin:10px 0 22px; line-height:1.7; }
+.settings-key { border-top:1px solid var(--line); padding-top:20px; margin-top:20px; }
+.settings-key-hint { font-size:12px; margin:8px 0; }
+.settings-clear-key { display:flex; gap:8px; align-items:center; font-size:12px; color:var(--muted); }
+.settings-clear-key input { width:15px; height:15px; margin:0; }
+.settings-clear-key[hidden] { display:none; }
+.settings-actions { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:22px; }
+.settings-form .settings-actions .btn { box-sizing:border-box; width:108px; height:40px; padding:0 14px; justify-content:center; font-size:13px; line-height:20px; }
+.settings-notice { min-height:1.6em; font-size:13px; margin:12px 0 0; overflow-wrap:anywhere; }
+.settings-test-notice { font-size:12px; margin:10px 0; overflow-wrap:anywhere; }
+.settings-test-notice:empty,.settings-models:empty { display:none; }
+.settings-models { display:flex; flex-wrap:wrap; gap:7px; max-height:130px; overflow:auto; margin:8px 0 16px; }
+.settings-models .btn { max-width:100%; white-space:normal; overflow-wrap:anywhere; text-align:left; }
+.settings-storage { font-size:12px; color:var(--muted); border-top:1px solid var(--line); padding-top:15px; margin-top:18px; }
+.settings-storage summary { cursor:pointer; }
+.settings-storage p { overflow-wrap:anywhere; }
+.settings-storage-location { margin-top:14px; }
+.settings-storage-location .mono { user-select:text; }
+.settings-install { padding:16px; background:var(--soft); border-radius:8px; }
+.settings-install h3 { margin-top:0; }
+.settings-return-prompt { padding:14px 18px; margin-bottom:20px; background:#fff6e7; border:1px solid #e4c99b; border-radius:8px; }
+.settings-return-prompt p { margin:0; }
+.settings-return-prompt .settings-actions { margin-top:10px; }
+.settings-package-group { margin-top:24px; }
+.settings-package-group h3 { font-size:14px; margin:0 0 10px; }
+.settings-package { display:grid; grid-template-columns:minmax(0,1fr) minmax(80px,auto) minmax(68px,auto); gap:18px; align-items:center; padding:15px 0; border-top:1px solid var(--line); }
+.settings-package p { margin:5px 0 0; font-size:12px; overflow-wrap:anywhere; }
+.settings-package-status { text-align:right; }
+.settings-package-name { display:flex; align-items:center; gap:10px; }
+.settings-requirement { color:var(--muted); font-size:11px; border:1px solid var(--line); border-radius:4px; padding:1px 6px; }
+.settings-badge-neutral { color:var(--muted); background:var(--wash); }
+.settings-package-help { grid-column:1 / -1; font-size:12px; padding:10px 12px; background:var(--wash); border-radius:6px; }
+.settings-package-help summary { cursor:pointer; color:var(--teal); font-weight:600; }
+.settings-command { min-width:0; margin-top:10px; }
+.settings-command code { display:block; padding:10px 12px; border:1px solid var(--line); border-radius:6px; background:var(--paper); user-select:text; white-space:pre-wrap; overflow-wrap:anywhere; }
+.settings-command-actions { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-top:8px; }
+.settings-command-actions .btn { flex-shrink:0; }
+.settings-copy-status { font-size:12px; overflow-wrap:anywhere; }
+.settings-copy-status:empty { display:none; }
+.settings-dependency { color:var(--muted); }
+.settings-version { font-size:12px; color:var(--muted); overflow-wrap:anywhere; max-width:180px; }
+.settings-distribution { color:var(--muted); font-size:11px; overflow-wrap:anywhere; }
+.settings-environment > p { margin-top:24px; font-size:12px; }
+.settings-management { padding:16px 18px; margin:0 0 22px; background:var(--wash); border:1px solid var(--line); border-radius:8px; font-size:13px; }
+.settings-management h3 { margin:0 0 8px; font-size:14px; }
+.settings-management p { margin:8px 0 0; line-height:1.7; overflow-wrap:anywhere; }
+.settings-management .mono { font-size:12px; }
+.settings-management-environment { margin-top:12px; font-size:12px; }
+.settings-management-environment summary { color:var(--muted); }
+.settings-plugin-stages { display:flex; flex-wrap:wrap; gap:8px; margin:14px 0 0; padding:0; list-style:none; }
+.settings-plugin-stages li { padding:5px 10px; border:1px solid var(--line); border-radius:16px; font-size:12px; color:var(--muted); }
+.settings-plugin-stages [aria-current=step] { color:var(--teal); border-color:var(--teal); background:var(--soft); }
+.settings-management-restart { color:#8c581e; padding:10px 12px; border:1px solid #e4c99b; border-radius:6px; background:#fff6e7; }
+.settings-package > [data-plugin-controls] { grid-column:1 / -1; }
+.settings-package > [data-plugin-controls]:empty { display:none; }
+.settings-package-management { display:flex; align-items:center; gap:10px; flex-wrap:wrap; font-size:12px; }
+.settings-package-management:empty { display:none; }
+.settings-package-management .btn { min-width:64px; }
+.settings-plugin-task { border-top:1px solid var(--line); margin-top:14px; padding-top:14px; }
+.settings-plugin-task h4 { margin:0; font-size:13px; }
+.settings-plugin-task details { margin-top:10px; }
+.settings-plugin-task summary { cursor:pointer; color:var(--teal); }
+.settings-plugin-task > .btn { margin-top:10px; }
+.settings-plugin-output { max-height:220px; overflow:auto; padding:12px; border:1px solid var(--line); background:var(--paper); border-radius:6px; white-space:pre-wrap; overflow-wrap:anywhere; font-size:11px; line-height:1.6; user-select:text; }
+.settings-plugin-plan { display:grid; grid-template-columns:72px minmax(0,1fr); gap:10px 14px; margin:20px 0; font-size:13px; }
+.settings-plugin-plan dt { color:var(--muted); }
+.settings-plugin-plan dd { margin:0; overflow-wrap:anywhere; user-select:text; }
+.settings-plugin-warnings { margin:16px 0; padding-left:20px; font-size:13px; line-height:1.8; }
+.settings-plugin-warnings:empty { display:none; }
+@media (max-width:760px) {
+  .settings-layout { grid-template-columns:1fr; gap:16px; }
+  .settings-tabs { flex-direction:row; }
+  .settings-tabs .btn { flex:1; justify-content:center; }
+  .settings-panel { padding:20px; }
+  .settings-fields { grid-template-columns:1fr; }
+  .settings-panel-head { flex-wrap:wrap; }
+  .settings-package { gap:12px; grid-template-columns:minmax(0,1fr) auto; }
+  .settings-package > div:first-child { grid-column:1 / -1; }
+  .settings-version { max-width:none; }
+}

@@ -90,20 +90,41 @@ class IdentityProviderTestMixin:
         assert len(result) > 0
 
 
+class NativePhoneProviderTestMixin:
+    provider: Any
+
+    def test_phone_default_follows_locale(self) -> None:
+        """Native locale phone formats remain nonempty strings containing digits."""
+        for _ in range(20):
+            phone = self.provider.generate("phone")
+            assert isinstance(phone, str)
+            assert len(phone) > 0
+            assert any(c.isdigit() for c in phone)
+
+
 class TemporalProviderTestMixin:
     provider: Any
 
     def test_generate_date(self) -> None:
+        import datetime as _dt
+
         result = self.provider.generate("date", start_year=2020, end_year=2024)
-        assert len(result) > 0
+        assert isinstance(result, _dt.date)
+        assert _dt.date(2020, 1, 1) <= result <= _dt.date(2024, 12, 31)
 
     def test_generate_datetime(self) -> None:
+        import datetime as _dt
+
         result = self.provider.generate("datetime", start_year=2020, end_year=2024)
-        assert len(result) > 0
+        assert isinstance(result, _dt.datetime)
+        assert _dt.datetime(2020, 1, 1) <= result <= _dt.datetime(2024, 12, 31, 23, 59, 59)
 
     def test_generate_timestamp(self) -> None:
-        result = self.provider.generate("timestamp")
-        assert isinstance(result, int)
+        import datetime as _dt
+
+        result = self.provider.generate("timestamp", start_year=2020, end_year=2024)
+        assert isinstance(result, _dt.datetime)
+        assert _dt.datetime(2020, 1, 1) <= result <= _dt.datetime(2024, 12, 31, 23, 59, 59)
 
     def test_generate_text(self) -> None:
         result = self.provider.generate("text", min_length=10, max_length=50)

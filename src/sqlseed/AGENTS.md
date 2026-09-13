@@ -1,51 +1,42 @@
-# SRC/SQLSEED PACKAGE
+# sqlseed 核心包
 
-## OVERVIEW
+本目录提供离线 Python API、生成引擎及插件基础设施。CLI、AI、MCP、Web 的实现放在仓库 `plugins/` 下；修改包边界前读 [ARCHITECTURE.md](../../ARCHITECTURE.md)。
 
-Main package. Public API in `__init__.py`. Core orchestration in `core/`. Data generation in `generators/`.
+## 按工作范围继续阅读
 
-## STRUCTURE
+| 工作 | 局部指导 |
+| --- | --- |
+| schema、mapping、流式生成、约束、关系 | [core/AGENTS.md](core/AGENTS.md) |
+| DataOrchestrator 的 mixin、连接、fill、preview | [core/orchestrator/AGENTS.md](core/orchestrator/AGENTS.md) |
+| provider、generator dispatch、locale | [generators/AGENTS.md](generators/AGENTS.md) |
+| adapter、dialect、批量写入 | [database/AGENTS.md](database/AGENTS.md) |
+| YAML/JSON、Pydantic、snapshot | [config/AGENTS.md](config/AGENTS.md) |
+| pluggy hookspec 与插件发现 | [plugins/AGENTS.md](plugins/AGENTS.md) |
+| SQL safety、logger、metrics、cache、progress | [_utils/AGENTS.md](_utils/AGENTS.md) |
 
-```
-src/sqlseed/
-├── __init__.py       # Public API: fill, connect, fill_from_config, preview, load_config
-├── _version.py       # __version__
-├── py.typed          # PEP 561 typed marker
-├── core/             # Orchestrator, mapper, schema, constraints, DAG, enrichment, transform (13 files)
-├── generators/       # Data providers: base, faker, mimesis (10 files)
-├── database/         # SQLite adapters: raw, sqlite-utils + optimizer, helpers (8 files)
-├── plugins/          # Plugin system: hookspecs, manager (3 files)
-├── config/           # Pydantic models, YAML loader, snapshots (4 files)
-├── cli/              # Click commands: main.py (fill, preview, inspect, init, replay) + ai_commands.py (ai-suggest)
-└── _utils/           # Internal: sql_safe, metrics, progress, logger, schema_helpers, paths (7 files)
-```
+## Public API
 
-## WHERE TO LOOK
+[__init__.py](__init__.py) 是用户入口；保留参数兼容性并通过现有 orchestrator 委托实现。
 
-| Task | Location | Notes |
-|------|----------|-------|
-| Public API | `__init__.py` | fill, connect, fill_from_config, preview, load_config |
-| Orchestrator | `core/orchestrator.py` | DataOrchestrator main engine |
-| Column mapping | `core/mapper.py` | 9-level strategy chain |
-| Schema inference | `core/schema.py` | SchemaInferrer class |
-| Data stream | `generators/stream.py` | DataStream + constraint backtracking |
-| Base provider | `generators/base_provider.py` | 31 generators, no deps |
-| DB adapters | `database/` | RawSQLiteAdapter, SQLiteUtilsAdapter |
-| Plugin hooks | `plugins/hookspecs.py` | 11 pluggy hook definitions |
-| Config models | `config/models.py` | Pydantic: GeneratorConfig, TableConfig, ColumnConfig, ColumnConstraintsConfig, ColumnAssociation |
+- `fill(db_path, *, url, table, count, ...)`：向单表写入数据。
+- `connect(db_path, *, url, ...)`：返回支持 context manager 的 `DataOrchestrator`。
+- `preview(db_path, *, url, table, count, ...)`：生成预览，不写入数据库。
+- `fill_from_config(config_path)`：加载配置并按关联顺序批量生成。
+- `load_config(path)`：读取 `GeneratorConfig`。
+- 前三者的 `db_path` 与 `url` 互斥；后两者接收配置路径，没有数据库连接参数。
 
-## CONVENTIONS
+## 包边界
 
-- **Imports**: Always `from __future__ import annotations` first
-- **Logging**: `logger = get_logger(__name__)` at module top
-- **SQL safety**: `quote_identifier()` for all identifiers
-- **Optional deps**: try/except with `HAS_*` flags (e.g., `HAS_SQLITE_UTILS`)
-- **Provider protocol**: Implement `DataProvider` protocol, no base class required
+- 核心不直接导入外部插件或引入 LLM runtime；通过现有 hookspec 扩展。`core/enrichment.py` 是本地计算，保留在核心。
+- `generators`、`database` 不得导入 `core`；`_utils` 不得导入上层包。用 `lint-imports` 检查依赖方向。
+- 新 provider/adapter 满足各自的 `Protocol`，不要为复用少量逻辑破坏层级。
+- 生产数据库路径使用 `SQLAlchemyAdapter`；`RawSQLiteAdapter` 只服务原生 SQLite 测试。
+- optional dependency 的导入保留降级处理；不要把 required dependency（如 Faker、SQLAlchemy）误当成可选功能。
 
-## ANTI-PATTERNS
+## 验证与文档
 
-- **NEVER** import third-party libs without try/except
-- **NEVER** use raw SQL string formatting for identifiers
-- **NEVER** use `assert` for runtime validation → use `RuntimeError`/`ValueError`
-- **ALWAYS** handle `HAS_SQLITE_UTILS` in database layer
-- **ALWAYS** use `from __future__ import annotations`
+命令从仓库根执行；按局部指导选择受影响测试。
+
+- Public API 改动运行 `pytest tests/test_public_api.py tests/test_architecture.py`。
+- 修改 [__init__.py](__init__.py) 时同步 [README.md](../../README.md) 与 [README.zh-CN.md](../../README.zh-CN.md) 的 API 表。
+- 其他源码与文档的联动遵循 [CLAUDE.md](../../CLAUDE.md) 的 Doc Sync Rules；不要手改 AUTO-GENERATED markers，运行 `python scripts/sync_docs.py` 与 `pytest tests/test_doc_sync.py`。

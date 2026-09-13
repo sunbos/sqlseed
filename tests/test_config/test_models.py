@@ -1,7 +1,14 @@
+"""Tests for the config models."""
+
 from __future__ import annotations
 
-import pytest
+import json
+from copy import deepcopy
 
+import pytest
+import yaml
+
+from sqlseed.config.loader import load_config
 from sqlseed.config.models import ColumnConfig, GeneratorConfig, ProviderType, TableConfig
 
 
@@ -21,6 +28,41 @@ class TestConfigModels:
         )
         assert config.generator == "integer"
         assert config.params["min_value"] == 18
+
+    def test_column_normalization_preserves_alias_precedence_and_input(self) -> None:
+        raw = {
+            "name": "code",
+            "type": "string",
+            "params": {"min_length": 2, "max_length": 10},
+            "max_length": 4,
+            "_degraded": True,
+            "degrade_reason": "Recovered a valid source generator",
+        }
+        before = deepcopy(raw)
+        config = ColumnConfig.model_validate(raw)
+        assert config.generator == "string"
+        assert config.params == {"min_length": 2, "max_length": 4}
+        assert raw == before
+
+    def test_column_normalization_preserves_subclass_fields(self) -> None:
+        class LabeledColumn(ColumnConfig):
+            label: str
+
+        config = LabeledColumn.model_validate({"name": "code", "label": "Code", "type": "string", "max_length": 4})
+        assert config.label == "Code"
+        assert config.params == {"max_length": 4}
+
+    def test_column_normalization_preserves_derived_and_existing_models(self) -> None:
+        config = ColumnConfig.model_validate(
+            {"name": "derived", "derive_from": "origin", "expression": "value", "max_length": 4}
+        )
+        assert config.derive_from == "origin"
+        assert config.params == {}
+        assert ColumnConfig.model_validate(config) is config
+
+    def test_column_normalization_rejects_non_mapping_params(self) -> None:
+        with pytest.raises(ValueError, match="'params' must be a mapping"):
+            ColumnConfig.model_validate({"name": "code", "type": "string", "params": ["a", "b"]})
 
     def test_column_config_null_ratio_validation(self) -> None:
         config = ColumnConfig(name="test", null_ratio=0.5)
@@ -69,3 +111,86 @@ class TestConfigModels:
         assert config.provider == ProviderType.FAKER
         assert len(config.tables) == 1
         assert len(config.tables[0].columns) == 2
+
+
+class TestGeneratorConfigUrl:
+    """Tests for the url field and connection_target property of GeneratorConfig."""
+
+    def test_url_field_accepted(self) -> None:
+        """GeneratorConfig(url=...) successfully accepts the url field."""
+        config = GeneratorConfig(url="postgresql://user:pass@host/db", tables=[])
+        assert config.url == "postgresql://user:pass@host/db"
+        assert config.db_path is None
+
+    def test_db_path_and_url_mutual_exclusion(self) -> None:
+        """Providing both db_path and url raises ValidationError."""
+        with pytest.raises(ValueError, match="Cannot specify both"):
+            GeneratorConfig(
+                db_path="test.db",
+                url="postgresql://user:pass@host/db",
+                tables=[],
+            )
+
+    def test_neither_db_path_nor_url_raises(self) -> None:
+        """Providing neither raises ValidationError."""
+        with pytest.raises(ValueError, match="Either 'db_path' or 'url' must be provided"):
+            GeneratorConfig(tables=[])
+
+    def test_connection_target_returns_url(self) -> None:
+        """config.connection_target returns url (when url is set)."""
+        config = GeneratorConfig(url="postgresql://user:pass@host/db", tables=[])
+        assert config.connection_target == "postgresql://user:pass@host/db"
+
+    def test_connection_target_returns_db_path(self) -> None:
+        """config.connection_target returns db_path (when db_path is set)."""
+        config = GeneratorConfig(db_path="test.db", tables=[])
+        assert config.connection_target == "test.db"
+
+    def test_connection_target_property_consistency(self) -> None:
+        """Multiple calls to connection_target return the same value."""
+        config = GeneratorConfig(url="postgresql://user:pass@host/db", tables=[])
+        target1 = config.connection_target
+        target2 = config.connection_target
+        assert target1 == target2
+
+    def test_from_config_uses_connection_target(self, tmp_path) -> None:
+        """from_config uses connection_target instead of db_path."""
+        config_path = tmp_path / "gen.yaml"
+        config_data = {
+            "url": f"sqlite:///{tmp_path / 'test.db'}",
+            "provider": "base",
+            "tables": [{"name": "users", "count": 5}],
+        }
+        config_path.write_text(yaml.dump(config_data), encoding="utf-8")
+
+        config = load_config(str(config_path))
+        assert config.url is not None
+        assert config.connection_target == config.url
+
+    def test_config_with_url_serialization(self, tmp_path) -> None:
+        """YAML containing the url field can be loaded correctly."""
+        config_path = tmp_path / "gen.yaml"
+        config_data = {
+            "url": "postgresql://user:pass@host:5432/mydb",
+            "provider": "base",
+            "tables": [{"name": "users", "count": 100}],
+        }
+        config_path.write_text(yaml.dump(config_data), encoding="utf-8")
+
+        config = load_config(str(config_path))
+        assert config.url == "postgresql://user:pass@host:5432/mydb"
+        assert config.db_path is None
+
+    def test_config_with_url_json_serialization(self, tmp_path) -> None:
+        """JSON containing the url field can be loaded correctly."""
+        config_path = tmp_path / "gen.json"
+        config_data = {
+            "url": "postgresql://user:pass@host:5432/mydb",
+            "provider": "base",
+            "tables": [{"name": "users", "count": 100}],
+        }
+        config_path.write_text(json.dumps(config_data), encoding="utf-8")
+
+        config = load_config(str(config_path))
+        assert config.url == "postgresql://user:pass@host:5432/mydb"
+        assert config.db_path is None

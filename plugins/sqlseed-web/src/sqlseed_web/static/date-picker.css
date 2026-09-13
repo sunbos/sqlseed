@@ -1,0 +1,230 @@
+/* Calendar controls use the workbench v8 tokens; the popup escapes scrollers. */
+.wb-date-control {
+  min-width: 0;
+  width: 100%;
+}
+.wb-date-entry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px;
+  margin: -3px;
+}
+.wb-date-input-label {
+  display: block;
+  flex: 1;
+  min-width: 0;
+}
+.wb-date-control .wb-date-entry .wb-date-input-label input[type="text"] {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  min-height: 38px;
+  font-family: var(--mono);
+}
+.wb-date-trigger {
+  flex: none;
+  min-height: 38px;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--paper);
+  color: var(--teal);
+  font-weight: 600;
+  align-self: stretch;
+}
+.wb-date-trigger:hover,
+.wb-date-trigger[aria-expanded="true"] {
+  background: var(--soft);
+  border-color: var(--teal);
+}
+.wb-date-format,
+.wb-date-error {
+  display: block;
+  margin-top: 5px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.wb-date-format {
+  color: var(--muted);
+}
+.wb-date-error {
+  color: #a53131;
+}
+.wb-date-error:empty {
+  display: none;
+}
+.wb-date-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.wb-date-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 4000;
+}
+.wb-date-dialog {
+  padding: 14px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: 0 14px 42px #19344126, 0 3px 10px #19344114;
+  font: 13px/1.5 "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+.wb-date-heading,
+.wb-date-navigation,
+.wb-date-jump,
+.wb-date-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.wb-date-heading {
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.wb-date-heading h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 650;
+}
+.wb-date-navigation {
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.wb-date-navigation > span {
+  flex: 1;
+  color: var(--muted);
+  font-size: 11px;
+  text-align: center;
+}
+.wb-date-nav,
+.wb-date-action {
+  min-height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--paper);
+  color: var(--ink);
+}
+.wb-date-nav {
+  width: 32px;
+  flex: none;
+  padding: 0;
+  font-size: 20px;
+  line-height: 1;
+}
+.wb-date-action {
+  padding: 5px 12px;
+  font-size: 13px;
+}
+.wb-date-nav:hover,
+.wb-date-action:hover {
+  background: var(--soft);
+  border-color: var(--teal);
+}
+.wb-date-jump {
+  margin-bottom: 8px;
+}
+.wb-date-jump label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  color: var(--muted);
+}
+.wb-date-dialog .wb-date-jump input {
+  width: 82px;
+  min-width: 0;
+  min-height: 32px;
+  margin: 0;
+  padding: 4px 7px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--mono);
+}
+.wb-date-dialog .wb-date-jump input[data-calendar-month] {
+  width: 58px;
+}
+.wb-date-grid {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
+  margin: 2px 0 8px;
+}
+.wb-date-grid th,
+.wb-date-grid td {
+  padding: 3px;
+  border: 0;
+  background: transparent;
+  text-align: center;
+}
+.wb-date-grid th {
+  padding-bottom: 7px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+.wb-date-day {
+  width: 100%;
+  min-height: 34px;
+  padding: 3px 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--ink);
+  font: 13px var(--mono);
+}
+.wb-date-day.today {
+  border-color: var(--teal);
+}
+.wb-date-day:hover {
+  background: var(--soft);
+}
+.wb-date-day.selected {
+  background: var(--teal);
+  color: #fff;
+}
+.wb-date-actions {
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.wb-date-actions button:last-child {
+  margin-left: auto;
+}
+.wb-date-help {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+.wb-date-dialog button:focus-visible,
+.wb-date-dialog input:focus-visible,
+.wb-date-control button:focus-visible,
+.wb-date-control input:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 1px;
+}
+.wb-date-control input[aria-invalid="true"],
+.wb-date-dialog input[aria-invalid="true"] {
+  border-color: #a53131;
+}
+@media (forced-colors: active) {
+  .wb-date-day.selected {
+    border-color: Highlight;
+    outline: 2px solid Highlight;
+  }
+  .wb-date-dialog button:focus-visible,
+  .wb-date-dialog input:focus-visible {
+    outline-color: Highlight;
+  }
+}

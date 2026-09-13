@@ -1,3 +1,11 @@
+"""Gemma 4 model selection and fallback logic.
+
+Selects the best Gemma 4 model variant for a given backend and provides
+graceful fallback to smaller models when a request fails. Model IDs from
+different backends (Google AI Studio, LM Studio, Ollama, OpenRouter) are
+normalized so that fallback comparisons work across providers.
+"""
+
 from __future__ import annotations
 
 import re
@@ -28,8 +36,7 @@ def _normalize_model_id(model_id: str) -> str:
 
     # Convert Ollama format: "gemma4:xxb" → "gemma-4-xxb"
     # e.g., "gemma4:e4b" → "gemma-4-e4b", "gemma4:26b" → "gemma-4-26b"
-    ollama_match = re.match(r"^gemma4:(.+)$", result)
-    if ollama_match:
+    if ollama_match := re.match(r"^gemma4:(.+)$", result):
         result = f"gemma-4-{ollama_match.group(1)}"
 
     # Strip provider prefix (e.g., "google/" from LM Studio/OpenRouter IDs)

@@ -1,0 +1,102 @@
+--- src/sqlseed/core/unique_adjuster.py
++++ src/sqlseed/core/unique_adjuster.py
+@@ -160,7 +160,7 @@
+             capacity = max_length - min_length + 1 if charset_size == 1 else int(min_length == max_length == 0)
+             if spec.null_ratio == 0 and count > capacity:
+                 raise ConfigurationError(
+-                    f"Column '{col_name}': {charset_size}-character domain cannot provide {count} UNIQUE strings "
++                    f"XXColumn '{col_name}': {charset_size}-character domain cannot provide {count} UNIQUE strings XX"
+                     f"within lengths [{min_length}, {max_length}]."
+                 )
+             return replace(spec, params=params)
+
+
+--- src/sqlseed/core/unique_adjuster.py
++++ src/sqlseed/core/unique_adjuster.py
+@@ -161,7 +161,7 @@
+             if spec.null_ratio == 0 and count > capacity:
+                 raise ConfigurationError(
+                     f"Column '{col_name}': {charset_size}-character domain cannot provide {count} UNIQUE strings "
+-                    f"within lengths [{min_length}, {max_length}]."
++                    f"XXwithin lengths [{min_length}, {max_length}].XX"
+                 )
+             return replace(spec, params=params)
+
+
+
+--- src/sqlseed/core/unique_adjuster.py
++++ src/sqlseed/core/unique_adjuster.py
+@@ -165,7 +165,7 @@
+                 )
+             return replace(spec, params=params)
+
+-        target_capacity = count * count * 50
++        target_capacity = count * count * 51
+         min_needed = math.ceil(math.log(target_capacity) / math.log(charset_size))
+         current_min = params["min_length"]
+         if length_bounds is not None and length_bounds[1] is not None:
+
+
+--- src/sqlseed/core/unique_adjuster.py
++++ src/sqlseed/core/unique_adjuster.py
+@@ -174,7 +174,7 @@
+             # A power at least 2**count.bit_length() already exceeds count;
+             # cap the exponent so a huge declared width never builds a huge integer.
+             longest_capacity = charset_size ** min(max_length, count.bit_length())
+-            if count <= longest_capacity:
++            if count < longest_capacity:
+                 params["min_length"] = min(max_length, max(current_min, min_needed))
+             else:
+                 capacity = (longest_capacity * charset_size - charset_size**current_min) // (charset_size - 1)
+
+
+--- src/sqlseed/core/unique_adjuster.py
++++ src/sqlseed/core/unique_adjuster.py
+@@ -180,7 +180,7 @@
+                 capacity = (longest_capacity * charset_size - charset_size**current_min) // (charset_size - 1)
+                 if spec.null_ratio == 0 and count > capacity:
+                     raise ConfigurationError(
+-                        f"Column '{col_name}': lengths [{current_min}, {max_length}] cannot fit {count} UNIQUE strings."
++                        f"XXColumn '{col_name}': lengths [{current_min}, {max_length}] cannot fit {count} UNIQUE strings.XX"
+                     )
+             return replace(spec, params=params)
+         params["min_length"] = max(current_min, min_needed)
+
+
+--- src/sqlseed/core/unique_adjuster.py
++++ src/sqlseed/core/unique_adjuster.py
+@@ -192,7 +192,7 @@
+                 min_needed = math.ceil(math.log(target_capacity) / math.log(charset_size))
+                 params["min_length"] = max(current_min, min_needed)
+             logger.debug(
+-                "Expanded string length from %d to %d for UNIQUE sampling with count=%d",
++                "XXExpanded string length from %d to %d for UNIQUE sampling with count=%dXX",
+                 max_length,
+                 params["min_length"],
+                 count,
+
+
+--- src/sqlseed/core/unique_adjuster.py
++++ src/sqlseed/core/unique_adjuster.py
+@@ -215,7 +215,7 @@
+                 params["max_length"] = min(params["max_length"], cmax)
+             if params["min_length"] > params["max_length"]:
+                 raise ConfigurationError(
+-                    f"Column '{col_name}': string length domain has no intersection with schema bounds."
++                    f"XXColumn '{col_name}': string length domain has no intersection with schema bounds.XX"
+                 )
+
+     @staticmethod
+
+
+--- src/sqlseed/core/unique_adjuster.py
++++ src/sqlseed/core/unique_adjuster.py
+@@ -278,7 +278,7 @@
+                 max_val = min(max_val, cmax)
+             if spec.null_ratio == 0 and count > max_val - min_val + 1:
+                 raise ConfigurationError(
+-                    f"Column '{col_name}': integer range [{min_val}, {max_val}] cannot provide {count} UNIQUE values."
++                    f"XXColumn '{col_name}': integer range [{min_val}, {max_val}] cannot provide {count} UNIQUE values.XX"
+                 )
+         else:
+             max_val = max(max_val, min_val + count * 10)

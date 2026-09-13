@@ -45,10 +45,15 @@ ENV/
 .coverage
 coverage.xml
 htmlcov/
+.mutmut-cache
+mutmut_*.log
+mutmut_results_*.txt
 .mypy_cache/
 .dmypy.json
 dmypy.json
 .ruff_cache/
+.hypothesis/
+.import_linter_cache/
 
 # sqlseed
 *.db
@@ -57,6 +62,8 @@ dmypy.json
 .sqlseed_cache/
 snapshots/
 .env
+# validation harness scratch artifacts
+scripts/complex_validation/dbs/_*.yaml
 examples/notebooks/_*.yaml
 examples/notebooks/_*.json
 examples/notebooks/batch_config.yaml
@@ -65,6 +72,12 @@ examples/notebooks/batch_config.yaml
 
 # AI-generated config outputs
 *_config.yaml
+ai_analyze_out.yaml
+ai_suggest_out/
+out.yaml
+full_config_v2.yaml
+products_order_items.yaml
+test_merchants.yaml
 
 # OS
 .DS_Store
@@ -83,11 +96,30 @@ examples/notebooks/batch_config.yaml
 .edits/
 _edit_helper.py
 
+# Local agent tool cache (not for repo)
+.omo/
+
 # Node.js (for ctxlint)
 node_modules/
 
 # mkdocs build output (deployed via GitHub Actions, not committed)
 site/
 
-# CodeFlow warning reports (local analysis artifacts, not for repo)
+# CodeFlow warning/issue reports (local analysis artifacts, not for repo)
 codeflow-warnings*.md
+codeflow_issues_report.md
+
+# Temporary tool outputs (not for repo)
+test.log
+.understand-anything/
+.playwright-mcp/
+
+# LLM validation loop engineering (temporary, not committed)
+scripts/_*.py
+data_quality_demo/*.db
+data_quality_demo/*.log
+data_quality_demo/*_config.yaml
+data_quality_demo/*_config_v*.yaml
+data_quality_demo/_*.json
+data_quality_demo/_report_*.md
+data_quality_demo/_phase1_catalog.md

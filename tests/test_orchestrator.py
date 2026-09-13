@@ -1,7 +1,9 @@
+"""Tests for the DataOrchestrator class."""
+
 from __future__ import annotations
 
 import sqlite3
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
@@ -9,7 +11,11 @@ from sqlseed.config.models import ColumnConfig
 from sqlseed.core.mapper import GeneratorSpec
 from sqlseed.core.orchestrator import DataOrchestrator
 from sqlseed.plugins.hookspecs import hookimpl
+from tests.assertions import assert_empty
 from tests.conftest import apply_enrichment, create_project_info_db
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class TestOrchestratorBasic:
@@ -63,7 +69,7 @@ class TestOrchestratorBasic:
             result = orch.fill_table("orders", count=50)
             assert result.count == 50
 
-    def test_report_not_connected(self, tmp_path: Any) -> None:
+    def test_report_not_connected(self, tmp_path: Path) -> None:
         orch = DataOrchestrator(str(tmp_path / "nonexistent.db"), provider_name="base")
         report = orch.report()
         assert "Not connected" in report
@@ -237,7 +243,7 @@ class TestOrchestratorUnique:
             assert adjusted["project_no"].params["min_length"] > 1
             assert adjusted["project_no"].params["min_length"] <= 20
 
-    def test_adjust_specs_for_unique_integer(self, tmp_path: Any) -> None:
+    def test_adjust_specs_for_unique_integer(self, tmp_path: Path) -> None:
         db_path = str(tmp_path / "test.db")
         conn = sqlite3.connect(db_path)
         conn.execute("CREATE TABLE items (id INTEGER PRIMARY KEY AUTOINCREMENT, code INTEGER NOT NULL)")
@@ -256,7 +262,7 @@ class TestOrchestratorUnique:
             adjusted = orch._unique_adjuster.adjust(specs, {"code"}, 10000)
             assert adjusted["code"].params["max_value"] >= 100000
 
-    def test_fill_project_info_schema(self, tmp_path: Any) -> None:
+    def test_fill_project_info_schema(self, tmp_path: Path) -> None:
         db_path = str(tmp_path / "project_info.db")
         create_project_info_db(db_path)
 
@@ -271,7 +277,7 @@ class TestOrchestratorUnique:
         project_nos = [r[0] for r in rows]
         assert len(project_nos) == len(set(project_nos))
 
-    def test_adjust_specs_for_unique_varchar_min_exceeds_max(self, tmp_path: Any) -> None:
+    def test_unique_varchar_preserves_length_limit_under_sampling_pressure(self, tmp_path: Path) -> None:
         db_path = str(tmp_path / "varchar_unique.db")
         conn = sqlite3.connect(db_path)
         conn.execute("CREATE TABLE items (id INTEGER PRIMARY KEY AUTOINCREMENT, code VARCHAR(5) NOT NULL)")
@@ -288,12 +294,43 @@ class TestOrchestratorUnique:
                 ),
             }
             adjusted = orch._unique_adjuster.adjust(specs, {"code"}, 10000, orch._schema.get_column_info("items"))
-            assert adjusted["code"].params["min_length"] >= 1
-            assert adjusted["code"].params["charset"] == "alphanumeric"
+            assert 1 <= adjusted["code"].params["min_length"] <= 5
+            assert adjusted["code"].params["max_length"] == 5
+            result = orch.fill_table("items", count=10000, seed=42, skip_ai=True)
+            assert_empty(result.errors, list)
+            assert result.count == 10000
+            assert orch.query("SELECT MAX(LENGTH(code)) AS max_length FROM items") == [{"max_length": 5}]
+
+    def test_fill_nullable_unique_column_not_all_null(self, tmp_path: Path) -> None:
+        """Regression: a nullable UNIQUE column (no DEFAULT, name matching no
+        semantic rule) must not be silently filled with NULL for every row.
+
+        The mapper's L8 nullable fallback yields a "skip" spec; the
+        UniqueAdjuster must re-map it to a type-faithful generator so the
+        column carries real unique values.
+        """
+        db_path = str(tmp_path / "nullable_unique.db")
+        conn = sqlite3.connect(db_path)
+        conn.execute("CREATE TABLE people (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, ssn TEXT UNIQUE)")
+        conn.commit()
+        conn.close()
+
+        with DataOrchestrator(db_path, provider_name="base") as orch:
+            result = orch.fill_table("people", count=50)
+            assert not result.errors
+
+        conn = sqlite3.connect(db_path)
+        total = conn.execute("SELECT COUNT(*) FROM people").fetchone()[0]
+        null_count = conn.execute("SELECT COUNT(*) FROM people WHERE ssn IS NULL").fetchone()[0]
+        distinct_count = conn.execute("SELECT COUNT(DISTINCT ssn) FROM people").fetchone()[0]
+        conn.close()
+        assert total == 50
+        assert null_count == 0
+        assert distinct_count == 50
 
 
 class TestOrchestratorEnrichment:
-    def test_enrich_empty_table_uses_defaults(self, tmp_path: Any) -> None:
+    def test_enrich_empty_table_uses_defaults(self, tmp_path: Path) -> None:
         db_path = str(tmp_path / "enrich_empty.db")
         conn = sqlite3.connect(db_path)
         conn.execute("CREATE TABLE items (id INTEGER PRIMARY KEY AUTOINCREMENT, bystatus INT8 DEFAULT 1)")
@@ -308,7 +345,7 @@ class TestOrchestratorEnrichment:
             conn2.close()
             assert all(r[0] == 1 for r in rows)
 
-    def test_enrich_with_existing_data_uses_choice(self, tmp_path: Any) -> None:
+    def test_enrich_with_existing_data_uses_choice(self, tmp_path: Path) -> None:
         db_path = str(tmp_path / "enrich_choice.db")
         conn = sqlite3.connect(db_path)
         conn.execute("CREATE TABLE items (id INTEGER PRIMARY KEY AUTOINCREMENT, bystatus INT8 DEFAULT 1)")
@@ -330,7 +367,7 @@ class TestOrchestratorEnrichment:
             distinct_statuses = {r[0] for r in rows}
             assert distinct_statuses == {1, 2, 3}
 
-    def test_enrich_nullable_column_gets_null_ratio(self, tmp_path: Any) -> None:
+    def test_enrich_nullable_column_gets_null_ratio(self, tmp_path: Path) -> None:
         db_path = str(tmp_path / "enrich_null.db")
         conn = sqlite3.connect(db_path)
         conn.execute("CREATE TABLE items (id INTEGER PRIMARY KEY AUTOINCREMENT, sremark VARCHAR(20) DEFAULT NULL)")
@@ -350,7 +387,7 @@ class TestOrchestratorEnrichment:
             assert null_count > 0
             assert non_null_count > 0
 
-    def test_enrich_all_null_column_stays_skip(self, tmp_path: Any) -> None:
+    def test_enrich_all_null_column_stays_skip(self, tmp_path: Path) -> None:
         db_path = str(tmp_path / "enrich_allnull.db")
         conn = sqlite3.connect(db_path)
         conn.execute(
@@ -376,7 +413,7 @@ class TestOrchestratorEnrichment:
             new_rows = rows[5:]
             assert all(r[0] is None for r in new_rows)
 
-    def test_enrich_high_cardinality_uses_type_fallback(self, tmp_path: Any) -> None:
+    def test_enrich_high_cardinality_uses_type_fallback(self, tmp_path: Path) -> None:
         db_path = str(tmp_path / "enrich_high_cardinality.db")
         conn = sqlite3.connect(db_path)
         conn.execute("CREATE TABLE items (id INTEGER PRIMARY KEY AUTOINCREMENT, score REAL DEFAULT 0.0)")
@@ -394,7 +431,7 @@ class TestOrchestratorEnrichment:
             new_scores = [r[0] for r in rows[50:]]
             assert all(isinstance(s, float) for s in new_scores)
 
-    def test_fill_project_info_with_enrich(self, tmp_path: Any) -> None:
+    def test_fill_project_info_with_enrich(self, tmp_path: Path) -> None:
         db_path = str(tmp_path / "project_enrich.db")
         create_project_info_db(db_path, with_data=True, data_count=50)
 
@@ -409,7 +446,7 @@ class TestOrchestratorEnrichment:
         assert project_types.issubset({1, 2})
         conn.close()
 
-    def test_enrich_unique_column_uses_type_infer_not_choice(self, tmp_path: Any) -> None:
+    def test_enrich_unique_column_uses_type_infer_not_choice(self, tmp_path: Path) -> None:
         db_path = str(tmp_path / "enrich_unique.db")
         conn = sqlite3.connect(db_path)
         conn.execute("CREATE TABLE items (id INTEGER PRIMARY KEY AUTOINCREMENT, code VARCHAR(20) DEFAULT NULL)")
@@ -423,7 +460,7 @@ class TestOrchestratorEnrichment:
         assert specs["code"].generator_name == "string"
         assert specs["code"].null_ratio == pytest.approx(0.0)
 
-    def test_enrich_not_null_column_null_ratio_is_zero(self, tmp_path: Any) -> None:
+    def test_enrich_not_null_column_null_ratio_is_zero(self, tmp_path: Path) -> None:
         db_path = str(tmp_path / "enrich_notnull.db")
         conn = sqlite3.connect(db_path)
         conn.execute("CREATE TABLE items (id INTEGER PRIMARY KEY AUTOINCREMENT, bystatus INT8 DEFAULT 1 NOT NULL)")
@@ -435,7 +472,7 @@ class TestOrchestratorEnrichment:
         _, specs = apply_enrichment(db_path, "items")
         assert specs["bystatus"].null_ratio == pytest.approx(0.0)
 
-    def test_enrich_unique_nullable_column_no_null(self, tmp_path: Any) -> None:
+    def test_enrich_unique_nullable_column_no_null(self, tmp_path: Path) -> None:
         db_path = str(tmp_path / "enrich_uniq_null.db")
         conn = sqlite3.connect(db_path)
         conn.execute("CREATE TABLE items (id INTEGER PRIMARY KEY AUTOINCREMENT, sremark VARCHAR(20) DEFAULT NULL)")
@@ -447,3 +484,29 @@ class TestOrchestratorEnrichment:
 
         _, specs = apply_enrichment(db_path, "items")
         assert specs["sremark"].null_ratio == pytest.approx(0.0)
+
+
+class TestOrchestratorCountValidation:
+    """Tests for the count parameter validation in the orchestrator."""
+
+    def test_fill_count_zero_raises(self, tmp_db: str) -> None:
+        """fill_table(count=0) raises ValueError."""
+        with DataOrchestrator(tmp_db, provider_name="base") as orch, pytest.raises(ValueError):
+            orch.fill_table("users", count=0)
+
+    def test_fill_count_negative_raises(self, tmp_db: str) -> None:
+        """fill_table(count=-1) raises ValueError."""
+        with DataOrchestrator(tmp_db, provider_name="base") as orch, pytest.raises(ValueError):
+            orch.fill_table("users", count=-1)
+
+    def test_fill_count_one_succeeds(self, tmp_db: str) -> None:
+        """count=1 generates data normally."""
+        with DataOrchestrator(tmp_db, provider_name="base") as orch:
+            result = orch.fill_table("users", count=1)
+            assert result.count == 1
+
+    def test_fill_count_large_succeeds(self, tmp_db: str) -> None:
+        """count=10000 generates data normally (without raising)."""
+        with DataOrchestrator(tmp_db, provider_name="base") as orch:
+            result = orch.fill_table("users", count=10000)
+            assert result.count == 10000

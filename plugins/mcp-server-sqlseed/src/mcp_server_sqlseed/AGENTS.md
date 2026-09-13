@@ -1,77 +1,30 @@
-<!-- Parent: ../../AGENTS.md -->
-<!-- Generated: 2026-04-29 | Updated: 2026-04-29 -->
+# mcp_server_sqlseed 实现
 
-# mcp_server_sqlseed
+上层规则见 [包指南](../../AGENTS.md)。保持 MCP 层轻量：校验输入、委托 core、转换协议结果。
 
-## Purpose
+## 接口契约
 
-FastMCP 服务器实现。为 AI 助手提供 sqlseed 的数据生成工具。
+| `server.py` 工具 | 参数 | 返回值 |
+| --- | --- | --- |
+| `sqlseed_generate_yaml` | `db_path`、`table_name` | YAML `str`；已捕获错误返回 `# Error: ...` |
+| `sqlseed_execute_fill` | `db_path`、`table_name`、`count=1000`、`yaml_config=None`、`enrich=False` | 包含 `table_name`、`count`、`elapsed`、`errors` 的 dict；已捕获错误返回 `{"error": ...}` |
 
-## Key Files
+- 两个工具的 `db_path` 参数也接受数据库 URL；不要仅因名称而限制为 SQLite 文件。
+- `_validate_db_target` 从 core `_utils.paths` 导入：含 `://` 的 URL 原样交给 adapter；文件必须存在且扩展名为 `.db`/`.sqlite`/`.sqlite3`，返回解析后的路径。
+- 创建 orchestrator 后，以 `_validate_table_name(table_name, orch.get_table_names())` 验证目标表存在。
+- `@mcp.tool()` 自动从函数签名推导接口；新增/修改参数时同步本包 README 与工具测试，不要把 YAML 工具改成统一 dict 返回值。
+- YAML 生成调用 `get_column_mapping()`，通过 `_convert_spec_to_column_entry()` 保留 generator、params、正数 null_ratio；`skip` 映射保留在模板中。
+- 执行工具对 YAML 的 UTF-8 字节长度限制为 `_MAX_YAML_CONFIG_SIZE`（256 KiB），再 `yaml.safe_load()` → `GeneratorConfig`。
+- 显式提供的 YAML（包括空字符串）必须是 mapping 且包含目标表配置，否则在生成前返回既有 `{"error": ...}`。只有 `yaml_config=None` 使用默认映射，不能把空值或表名不匹配静默当作无配置。
+- YAML 只从目标 table 配置读取 columns、clear_before、seed；实际连接、table、count、enrich 由工具参数决定，不要误认为整份 YAML 都被执行。
+- `fill_table(..., skip_ai=True)` 保证执行路径无 LLM；结果行数读取 `GenerationResult.count`。
+- 执行工具局部传入 `NullProgressBackend` 并管理其 context；stdio 的 stdout 只承载 MCP 协议，不得输出 core Rich 进度，也不要全局重定向 stdout 或替换 progress factory。
+- 保留两工具各自的错误返回形状；执行工具另外捕获 `yaml.YAMLError`。
 
-| File | Description |
-|------|-------------|
-| `server.py` | MCP 工具定义（`@mcp.tool()` 装饰器），核心业务逻辑 |
-| `config.py` | `MCPServerConfig` 服务器配置（db_path, host, port） |
-| `__main__.py` | 服务器启动入口 |
-| `__init__.py` | 包入口，导出 `main` 函数 |
+## 启动与配置
 
-## MCP 接口契约
-
-### 资源
-
-| URI 模式 | 处理函数 | 返回类型 | 说明 |
-|----------|----------|----------|------|
-| `sqlseed://schema/{db_path}/{table_name}` | `get_schema_resource` | `str` (JSON) | 获取单表 schema 信息 |
-
-### 工具
-
-| 工具名 | 参数 | 返回类型 | 说明 |
-|--------|------|----------|------|
-| `sqlseed_inspect_schema` | `db_path: str`, `table_name: str | None = None` | `dict[str, Any]` | 检查数据库 schema（含 schema_hash） |
-| `sqlseed_generate_yaml` | `db_path: str`, `table_name: str`, `max_retries: int = 3`, `api_key: str | None = None`, `base_url: str | None = None`, `model: str | None = None` | `str` (YAML 或错误文本) | AI 生成 YAML 配置 |
-| `sqlseed_execute_fill` | `db_path: str`, `table_name: str`, `count: int = 1000`, `yaml_config: str | None = None`, `enrich: bool = False` | `dict[str, Any]` | 执行数据填充 |
-| `sqlseed_gemma4_analyze` | `db_path: str`, `table_name: str`, `model: str | None = None`, `backend: str | None = None` | `dict[str, Any]` | Gemma 4 分析表结构并推荐配置 |
-| `sqlseed_gemma4_agent_fill` | `db_path: str`, `table_name: str`, `count: int = 1000`, `model: str | None = None`, `backend: str | None = None`, `max_retries: int = 3` | `dict[str, Any]` | Gemma 4 端到端：分析→生成→填充 |
-| `sqlseed_list_gemma_models` | (无参数) | `dict[str, Any]` | 列出 Gemma 4 模型变体和后端 |
-
-- `_validate_db_path()` 验证扩展名必须为 `.db`、`.sqlite` 或 `.sqlite3`
-- `_MAX_YAML_CONFIG_SIZE = 256 * 1024`（256KB）限制 YAML 配置大小
-- `MCPServerConfig` 定义了 `host`/`port` 字段，`server.py` 中 `FastMCP()` 初始化时使用 `config.host`/`config.port`
-- MCP 的 `_compute_schema_hash()` 与 AI 插件的 `_compute_schema_hash()` 均使用 SHA256 前 16 字符，但两者是不同模块中的不同函数（输入构造方式不同，hash 值不可互换）
-
-## For AI Agents
-
-### Working In This Directory
-
-- 新增 MCP 工具需在 `server.py` 中用 `@mcp.tool()` 注册
-- 所有用户输入必须经过验证函数处理（`_validate_db_path` 验证路径扩展名和存在性，`_validate_table_name` 验证表名在数据库中存在）
-- YAML 配置有大小限制（`_MAX_YAML_CONFIG_SIZE`），防止过大输入
-- AI 功能通过 `_AI_AVAILABLE` 标志控制，不可用时降级为非 AI 模式
-- 服务器层应足够薄，业务逻辑委托给 `sqlseed.core.orchestrator` 与 `sqlseed_ai`
-
-### Testing Requirements
-
-```bash
-pip install -e "./plugins/mcp-server-sqlseed"
-pytest
-```
-
-### Common Patterns
-
-- MCP 工具定义：`@mcp.tool()` 装饰器注册工具，参数通过函数签名自动推断 schema
-- 输入验证：`_validate_db_path()` + `_validate_table_name()` 双重验证
-- AI 降级：`try: from sqlseed_ai import ... except ImportError: _AI_AVAILABLE = False`
-
-## Dependencies
-
-### Internal
-
-- `sqlseed`（core.orchestrator, config.loader, config.models）
-- `sqlseed_ai`（可选，SchemaAnalyzer, AiConfigRefiner）
-
-### External
-
-- `mcp>=1.0,<2` — MCP 服务器框架
-
-<!-- MANUAL: Any manually added notes below this line are preserved on regeneration -->
+- [__init__.py](__init__.py) 的 `main()` 调用 `mcp.run()`；[__main__.py](__main__.py) 支持 `python -m mcp_server_sqlseed`。
+- [config.py](config.py) 的 `MCPServerConfig.host`/`port` 传给 `FastMCP()`，默认 `127.0.0.1:8000`；`db_path` 字段当前保留未使用，不是隐式数据库选择器。
+- host 校验非空；port 范围为 1–65535。不要把配置字段等同于已经实现的环境变量或 transport 切换接口。
+- 从仓库根运行 `pytest plugins/mcp-server-sqlseed/tests/`；接口回归应断言生成 YAML 内容和真实 SQLite 行数据，而不只核对 mock 调用。
+- `tests/test_yaml_execution_validation.py` 验证错误 YAML 不写入、原始行保持不变，以及有效多表 YAML 仍只执行工具指定表和数量。

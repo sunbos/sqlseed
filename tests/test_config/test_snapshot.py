@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
+
+import pytest
 
 from sqlseed.config.models import GeneratorConfig, TableConfig
 from sqlseed.config.snapshot import SnapshotManager
@@ -46,11 +49,30 @@ class TestSnapshotManager:
 
     def test_load_nonexistent(self, tmp_path: Any) -> None:
         manager = self._make_manager(tmp_path)
-        try:
+        with pytest.raises(FileNotFoundError):
             manager.load("/nonexistent/snapshot.yaml")
-            raise AssertionError("Should have raised FileNotFoundError")
-        except FileNotFoundError:
-            pass
+
+    @pytest.mark.parametrize("table_name", ["sales/orders", "../outside", "sales:orders", "x" * 300, "订单" * 100])
+    def test_save_arbitrary_table_name(self, tmp_path: Path, table_name: str) -> None:
+        manager = self._make_manager(tmp_path)
+        config = GeneratorConfig(db_path="test.db", tables=[TableConfig(name=table_name, count=1)])
+
+        path = Path(manager.save(config, table_name, 1))
+
+        assert path.parent == tmp_path / "snapshots"
+        data = manager.load(str(path))
+        assert data["table_name"] == table_name
+        assert data["config"]["tables"][0]["name"] == table_name
+        assert manager.list_snapshots() == [str(path)]
+
+    @pytest.mark.parametrize("contents", ["", "null", "[]", "42", "a string"])
+    def test_load_rejects_non_mapping(self, tmp_path: Path, contents: str) -> None:
+        path = tmp_path / "invalid.yaml"
+        path.write_text(contents, encoding="utf-8")
+        manager = self._make_manager(tmp_path)
+        path_string = str(path)
+        with pytest.raises(ValueError, match="mapping"):
+            manager.load(path_string)
 
     def test_replay_removed(self, tmp_path: Any) -> None:
         """SnapshotManager.replay() was removed (H5: config→core reverse dependency).

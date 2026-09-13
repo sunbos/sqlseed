@@ -5,6 +5,9 @@ on:
     types: [published]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   # ── Pre-publish smoke test ───────────────────────────────────
   test:
@@ -18,19 +21,9 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6
+      - uses: ./.github/actions/setup-env
         with:
           python-version: ${{ matrix.python-version }}
-          cache: "pip"
-          cache-dependency-path: |
-            pyproject.toml
-            plugins/*/pyproject.toml
-
-      - name: Install dependencies
-        run: |
-          pip install -e ".[dev,all]"
-          pip install -e "./plugins/sqlseed-ai"
-          pip install -e "./plugins/mcp-server-sqlseed"
 
       - name: Run tests
         run: pytest --tb=short -q
@@ -51,19 +44,53 @@ jobs:
         with:
           python-version: "3.x"
 
-      - name: Install build dependencies
-        run: pip install build
+      - uses: ./.github/actions/install-ci-deps
+
+      - name: Require a version tag
+        run: |
+          case "$GITHUB_REF" in
+            refs/tags/v*) ;;
+            *) echo "Select a v-prefixed release tag; development branches cannot be published to PyPI."; exit 1 ;;
+          esac
 
       - name: Build sqlseed
-        run: python -m build --outdir dist/
+        run: python -m build --no-isolation --outdir dist/
 
       - name: Build sqlseed-ai
-        run: python -m build --outdir ../../dist/
+        run: python -m build --no-isolation --outdir ../../dist/
         working-directory: plugins/sqlseed-ai
 
+      - name: Build sqlseed-cli
+        run: python -m build --no-isolation --outdir ../../dist/
+        working-directory: plugins/sqlseed-cli
+
       - name: Build mcp-server-sqlseed
-        run: python -m build --outdir ../../dist/
+        run: python -m build --no-isolation --outdir ../../dist/
         working-directory: plugins/mcp-server-sqlseed
+
+      - name: Build sqlseed-web
+        run: python -m build --no-isolation --outdir ../../dist/
+        working-directory: plugins/sqlseed-web
+
+      - name: Validate package metadata
+        run: twine check --strict dist/*
+
+      - name: Verify every wheel matches the release tag
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          from packaging.utils import parse_wheel_filename
+          from packaging.version import Version
+          expected = Version(os.environ["GITHUB_REF_NAME"].removeprefix("v"))
+          wheels = list(Path("dist").glob("*.whl"))
+          if expected.local is not None or len(wheels) != 5:
+              raise SystemExit("A release requires exactly five wheels and a public version.")
+          for wheel in wheels:
+              _, actual, _, _ = parse_wheel_filename(wheel.name)
+              if actual != expected:
+                  raise SystemExit(f"{wheel.name} does not match release {expected}")
+          PY
 
       - name: List distributions
         run: ls -la dist/

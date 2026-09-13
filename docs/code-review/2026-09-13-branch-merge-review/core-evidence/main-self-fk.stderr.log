@@ -1,0 +1,6 @@
+[2m2026-09-12T23:18:35.751509Z[0m [[33m[1mwarning  [0m] [1mFailed to load provider       [0m [36merror[0m=[35mModuleNotFoundError("No module named 'sqlseed.database.sqlalchemy_adapter'")[0m [36mname[0m=[35mai[0m
+[2m2026-09-12T23:18:35.757223Z[0m [[31m[1merror    [0m] [1mFailed to fill table          [0m [36merror[0m=[35mIntegrityError('FOREIGN KEY constraint failed')[0m [36mtable_name[0m=[35mnodes[0m
+[2m2026-09-12T23:18:35.780771Z[0m [[33m[1mwarning  [0m] [1mFailed to load provider       [0m [36merror[0m=[35mModuleNotFoundError("No module named 'sqlseed.database.sqlalchemy_adapter'")[0m [36mname[0m=[35mai[0m
+[2m2026-09-12T23:18:35.790016Z[0m [[31m[1merror    [0m] [1mFailed to fill table          [0m [36merror[0m=[35mIntegrityError('NOT NULL constraint failed: nodes.tenant')[0m [36mtable_name[0m=[35mnodes[0m
+[2m2026-09-12T23:18:35.814106Z[0m [[33m[1mwarning  [0m] [1mFailed to load provider       [0m [36merror[0m=[35mModuleNotFoundError("No module named 'sqlseed.database.sqlalchemy_adapter'")[0m [36mname[0m=[35mai[0m
+[2m2026-09-12T23:18:35.817138Z[0m [[31m[1merror    [0m] [1mFailed to fill table          [0m [36merror[0m=[35mIntegrityError('NOT NULL constraint failed: nodes.tenant')[0m [36mtable_name[0m=[35mnodes[0m

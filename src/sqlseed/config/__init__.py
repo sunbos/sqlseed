@@ -1,3 +1,5 @@
+"""Public API exports for the config layer: models, loader, and snapshot manager."""
+
 from __future__ import annotations
 
 from sqlseed.config.loader import generate_template, load_config, save_config

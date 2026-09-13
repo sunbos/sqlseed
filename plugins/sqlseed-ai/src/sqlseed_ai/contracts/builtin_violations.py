@@ -1,0 +1,373 @@
+"""Layer 1: Built-in sparse contract violations.
+
+Closed set of known bad (generator, column_type, constraints) combinations.
+Default for unlisted combos is COMPATIBLE — gaps are caught by Layer 5
+property-based tests in CI.
+
+Spec reference: Section 3.3. Seed entries derived from Rules #24, #26,
+#28, #30 (most-validated during Loop 2 regression testing).
+"""
+
+from __future__ import annotations
+
+from datetime import date, datetime
+from typing import Any
+
+from sqlseed_ai.contracts.matrix import ContractViolation, ViolationKind
+
+
+def future_bound_key(params: dict[str, Any], cap: int | None = None) -> str | None:
+    """Return which date upper-bound param exceeds ``cap``, or ``None``.
+
+    Checks both the precise ``end_date`` (``YYYY-MM-DD``) form and the legacy
+    ``end_year`` fallback. Both must be handled: the LLM prompt now asks for
+    ``end_date``, but hand-written and previously generated configs still
+    carry ``end_year``, and it remains a valid (if deprecated) core param.
+
+    Shared by the Layer-1 predicate below and the Layer-3 repair strategy so
+    the two can never disagree about what counts as "too far in the future".
+    """
+    if not isinstance(params, dict):
+        return None
+    if cap is None:
+        cap = datetime.now().year + 1
+    end_date = params.get("end_date")
+    if isinstance(end_date, str):
+        try:
+            if date.fromisoformat(end_date.strip()).year > cap:
+                return "end_date"
+        except ValueError:
+            return None
+        return None
+    end_year = params.get("end_year")
+    if isinstance(end_year, int) and end_year > cap:
+        return "end_year"
+    return None
+
+
+def _is_code_like(name: str) -> bool:
+    """Heuristic: column name looks like a code/identifier (UNIQUE needs template)."""
+    if not name:
+        return False
+    lower = name.lower()
+    suffixes = ("_code", "code", "_id", "sku", "_no", "number", "_key")
+    return any(lower.endswith(s) for s in suffixes) or lower in {"code", "sku", "isbn"}
+
+
+def _needs_phone_pattern(cfg: dict[str, Any]) -> bool:
+    """Identify phone columns for the shared phone/string format repair rule."""
+    return cfg.get("name", "").lower() in {
+        "phone",
+        "mobile",
+        "telephone",
+        "tel",
+        "cell",
+        "cellphone",
+        "contact_number",
+    } or cfg.get("name", "").lower().endswith(("_phone", "_mobile", "_tel", "_telephone"))
+
+
+BUILTIN_VIOLATIONS: set[ContractViolation] = {
+    # === Type compatibility (Rule #30) ===
+    ContractViolation(
+        generator="integer",
+        column_type="TIMESTAMP",
+        constraints=frozenset(),
+        kind=ViolationKind.CRASH,
+        fix_strategy="switch_generator",
+        fix_params={"target": "datetime"},
+    ),
+    ContractViolation(
+        generator="integer",
+        column_type="DATETIME",
+        constraints=frozenset(),
+        kind=ViolationKind.CRASH,
+        fix_strategy="switch_generator",
+        fix_params={"target": "datetime"},
+    ),
+    ContractViolation(
+        generator="integer",
+        column_type="DATE",
+        constraints=frozenset(),
+        kind=ViolationKind.CRASH,
+        fix_strategy="switch_generator",
+        fix_params={"target": "date"},
+    ),
+    ContractViolation(
+        generator="integer",
+        column_type="TEXT",
+        constraints=frozenset(),
+        kind=ViolationKind.SEMANTIC_ERROR,
+        fix_strategy="switch_generator",
+        fix_params={"target": "string"},
+    ),
+    ContractViolation(
+        generator="float",
+        column_type="TEXT",
+        constraints=frozenset(),
+        kind=ViolationKind.SEMANTIC_ERROR,
+        fix_strategy="switch_generator",
+        fix_params={"target": "string"},
+    ),
+    ContractViolation(
+        generator="string",
+        column_type="INTEGER",
+        constraints=frozenset(),
+        kind=ViolationKind.CRASH,
+        fix_strategy="switch_generator",
+        fix_params={"target": "integer"},
+    ),
+    ContractViolation(
+        generator="datetime",
+        column_type="INTEGER",
+        constraints=frozenset(),
+        kind=ViolationKind.CRASH,
+        fix_strategy="switch_generator",
+        fix_params={"target": "integer"},
+    ),
+    ContractViolation(
+        generator="string",
+        column_type="BLOB",
+        constraints=frozenset(),
+        kind=ViolationKind.CRASH,
+        fix_strategy="switch_generator",
+        fix_params={"target": "bytes"},
+    ),
+    ContractViolation(
+        generator="text",
+        column_type="BLOB",
+        constraints=frozenset(),
+        kind=ViolationKind.CRASH,
+        fix_strategy="switch_generator",
+        fix_params={"target": "bytes"},
+    ),
+    # === string/text on date-family columns → datetime/date ===
+    ContractViolation(
+        generator="string",
+        column_type="DATETIME",
+        constraints=frozenset(),
+        kind=ViolationKind.CRASH,
+        fix_strategy="switch_generator",
+        fix_params={"target": "datetime"},
+    ),
+    ContractViolation(
+        generator="string",
+        column_type="TIMESTAMP",
+        constraints=frozenset(),
+        kind=ViolationKind.CRASH,
+        fix_strategy="switch_generator",
+        fix_params={"target": "datetime"},
+    ),
+    ContractViolation(
+        generator="string",
+        column_type="DATE",
+        constraints=frozenset(),
+        kind=ViolationKind.CRASH,
+        fix_strategy="switch_generator",
+        fix_params={"target": "date"},
+    ),
+    ContractViolation(
+        generator="text",
+        column_type="DATETIME",
+        constraints=frozenset(),
+        kind=ViolationKind.CRASH,
+        fix_strategy="switch_generator",
+        fix_params={"target": "datetime"},
+    ),
+    ContractViolation(
+        generator="text",
+        column_type="TIMESTAMP",
+        constraints=frozenset(),
+        kind=ViolationKind.CRASH,
+        fix_strategy="switch_generator",
+        fix_params={"target": "datetime"},
+    ),
+    ContractViolation(
+        generator="text",
+        column_type="DATE",
+        constraints=frozenset(),
+        kind=ViolationKind.CRASH,
+        fix_strategy="switch_generator",
+        fix_params={"target": "date"},
+    ),
+    # === Rule #26: random_float on INTEGER-family column ===
+    ContractViolation(
+        generator="random_float",
+        column_type="INTEGER",
+        constraints=frozenset(),
+        kind=ViolationKind.CRASH,
+        fix_strategy="coerce_float_to_int",
+    ),
+    ContractViolation(
+        generator="random_float",
+        column_type="BIGINT",
+        constraints=frozenset(),
+        kind=ViolationKind.CRASH,
+        fix_strategy="coerce_float_to_int",
+    ),
+    ContractViolation(
+        generator="random_float",
+        column_type="SMALLINT",
+        constraints=frozenset(),
+        kind=ViolationKind.CRASH,
+        fix_strategy="coerce_float_to_int",
+    ),
+    ContractViolation(
+        generator="random_float",
+        column_type="TINYINT",
+        constraints=frozenset(),
+        kind=ViolationKind.CRASH,
+        fix_strategy="coerce_float_to_int",
+    ),
+    # === LLM-name normalization: expression functions emitted as generator names ===
+    # ``random_float``/``random_int`` are *expression* functions (core
+    # ``SAFE_FUNCTIONS``), not core generators (``GENERATOR_MAP``). The LLM
+    # prompts list them, so models emit them as generator names. The INTEGER
+    # family is covered above via ``coerce_float_to_int``; on float-family
+    # columns the matrix was silent (COMPATIBLE) and the fill crashed with
+    # ``UnknownGeneratorError``. Switch to the real core generator names.
+    *[
+        ContractViolation(
+            generator="random_float",
+            column_type=t,
+            constraints=frozenset(),
+            kind=ViolationKind.CRASH,
+            fix_strategy="switch_generator",
+            fix_params={"target": "float"},
+        )
+        for t in ("REAL", "FLOAT", "DOUBLE", "DOUBLE PRECISION", "NUMERIC", "DECIMAL")
+    ],
+    *[
+        ContractViolation(
+            generator="random_int",
+            column_type=t,
+            constraints=frozenset(),
+            kind=ViolationKind.CRASH,
+            fix_strategy="switch_generator",
+            fix_params={"target": "integer"},
+        )
+        for t in ("INTEGER", "INT", "BIGINT", "SMALLINT", "TINYINT", "NUMERIC", "DECIMAL")
+    ],
+    # === Rule #24: UNIQUE code-like columns need template ===
+    ContractViolation(
+        generator="choice",
+        column_type="ANY",
+        constraints=frozenset({"UNIQUE"}),
+        kind=ViolationKind.UNIQUE_UNSATISFIABLE,
+        fix_strategy="upgrade_to_template",
+        predicate=lambda cfg: _is_code_like(cfg.get("name", "")),
+    ),
+    ContractViolation(
+        generator="word",
+        column_type="ANY",
+        constraints=frozenset({"UNIQUE"}),
+        kind=ViolationKind.UNIQUE_UNSATISFIABLE,
+        fix_strategy="upgrade_to_template",
+        predicate=lambda cfg: _is_code_like(cfg.get("name", "")),
+    ),
+    ContractViolation(
+        generator="string",
+        column_type="ANY",
+        constraints=frozenset({"UNIQUE"}),
+        kind=ViolationKind.UNIQUE_UNSATISFIABLE,
+        fix_strategy="upgrade_to_template",
+        predicate=lambda cfg: _is_code_like(cfg.get("name", "")),
+    ),
+    # === Rule #28: text/word on semantic columns ===
+    ContractViolation(
+        generator="text",
+        column_type="TEXT",
+        constraints=frozenset(),
+        kind=ViolationKind.SEMANTIC_ERROR,
+        fix_strategy="semantic_upgrade",
+        predicate=lambda cfg: cfg.get("name", "").lower() in {"description", "desc", "comment", "note"},
+    ),
+    ContractViolation(
+        generator="string",
+        column_type="TEXT",
+        constraints=frozenset(),
+        kind=ViolationKind.SEMANTIC_ERROR,
+        fix_strategy="semantic_upgrade",
+        predicate=lambda cfg: cfg.get("name", "").lower().endswith("_email") or cfg.get("name", "").lower() == "email",
+    ),
+    ContractViolation(
+        generator="string",
+        column_type="TEXT",
+        constraints=frozenset(),
+        kind=ViolationKind.SEMANTIC_ERROR,
+        fix_strategy="semantic_upgrade",
+        predicate=lambda cfg: cfg.get("name", "").lower() in {"phone", "mobile", "telephone", "tel"},
+    ),
+    # === Cardinality: choice with insufficient pool on UNIQUE ===
+    ContractViolation(
+        generator="choice",
+        column_type="ANY",
+        constraints=frozenset({"UNIQUE"}),
+        kind=ViolationKind.UNIQUE_UNSATISFIABLE,
+        fix_strategy="expand_pool",
+        predicate=lambda cfg: cfg.get("pool_size", 0) < cfg.get("row_count", 0),
+    ),
+    # === Rule #23: phone generator on phone-like column → pattern ===
+    ContractViolation(
+        generator="phone",
+        column_type="ANY",
+        constraints=frozenset(),
+        kind=ViolationKind.SEMANTIC_ERROR,
+        fix_strategy="upgrade_phone_to_pattern",
+        predicate=_needs_phone_pattern,
+    ),
+    ContractViolation(
+        generator="string",
+        column_type="ANY",
+        constraints=frozenset(),
+        kind=ViolationKind.SEMANTIC_ERROR,
+        fix_strategy="upgrade_phone_to_pattern",
+        predicate=_needs_phone_pattern,
+    ),
+    # === Rule #25: text on UNIQUE code-like column → string ===
+    ContractViolation(
+        generator="text",
+        column_type="ANY",
+        constraints=frozenset({"UNIQUE"}),
+        kind=ViolationKind.UNIQUE_UNSATISFIABLE,
+        fix_strategy="downgrade_text_to_string",
+        predicate=lambda cfg: _is_code_like(cfg.get("name", "")),
+    ),
+    # === Rule #18: date/datetime with an upper date bound beyond current_year+1 ===
+    # Covers both `end_date` (precise) and the legacy `end_year` fallback.
+    ContractViolation(
+        generator="date",
+        column_type="ANY",
+        constraints=frozenset(),
+        kind=ViolationKind.SEMANTIC_ERROR,
+        fix_strategy="cap_future_end_year",
+        predicate=lambda cfg: future_bound_key(cfg.get("params") or {}) is not None,
+    ),
+    ContractViolation(
+        generator="datetime",
+        column_type="ANY",
+        constraints=frozenset(),
+        kind=ViolationKind.SEMANTIC_ERROR,
+        fix_strategy="cap_future_end_year",
+        predicate=lambda cfg: future_bound_key(cfg.get("params") or {}) is not None,
+    ),
+    ContractViolation(
+        generator="timestamp",
+        column_type="ANY",
+        constraints=frozenset(),
+        kind=ViolationKind.SEMANTIC_ERROR,
+        fix_strategy="cap_future_end_year",
+        predicate=lambda cfg: future_bound_key(cfg.get("params") or {}) is not None,
+    ),
+    # === Rule #15: pattern with unbounded regex quantifier {N,} ===
+    ContractViolation(
+        generator="pattern",
+        column_type="ANY",
+        constraints=frozenset(),
+        kind=ViolationKind.SEMANTIC_ERROR,
+        fix_strategy="bound_regex",
+        predicate=lambda cfg: (
+            __import__("re").search(r"\{\d+,\}", str(cfg.get("params", {}).get("regex", ""))) is not None
+        ),
+    ),
+}

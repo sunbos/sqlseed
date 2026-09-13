@@ -1,0 +1,3 @@
+# Build the two hash-verified source-only dependencies without isolated downloads.
+setuptools
+wheel

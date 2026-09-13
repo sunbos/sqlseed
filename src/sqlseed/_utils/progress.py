@@ -1,26 +1,54 @@
+"""Progress backend abstraction with Rich (terminal) and tqdm (notebook) implementations.
+
+Selects the appropriate backend at runtime based on environment (Jupyter vs
+terminal) and console encoding (UTF-8 vs GBK/Big5). When no rendering library
+is installed, falls back to a silent ``NullProgressBackend``.
+"""
+
 from __future__ import annotations
 
+import builtins
+import importlib
 import sys
 from abc import ABC, abstractmethod
 from functools import lru_cache
 from importlib.util import find_spec
 from typing import Any, Literal
 
+from sqlseed._utils.logger import get_logger
+
 try:
     from tqdm.auto import tqdm
 except ImportError:
     tqdm = None
 
-from rich.progress import (
-    BarColumn,
-    Progress,
-    SpinnerColumn,
-    TextColumn,
-    TimeRemainingColumn,
-    TransferSpeedColumn,
-)
-
-from sqlseed._utils.logger import get_logger
+# rich is an optional dependency of sqlseed core (per ARCHITECTURE.md
+# Section 7.1: "Core must not depend on click/rich for long-term
+# stability"). When rich is absent, RichProgressBackend is unavailable
+# and create_progress() falls back to NullProgressBackend in terminal
+# environments. Install with: pip install sqlseed-cli (which pulls rich).
+#
+# Uses importlib.import_module() to avoid ruff's import-outside-toplevel
+# warning (which would fire for ``from rich import ...`` inside a
+# function) while keeping the import lazy at module load time. The
+# ``_*_CLASS`` names hold either the rich class (when installed) or
+# ``None`` (when absent), allowing runtime ``is None`` guards and
+# instantiation in RichProgressBackend.__init__.
+try:
+    _rich_progress_module = importlib.import_module("rich.progress")
+    _PROGRESS_CLASS = _rich_progress_module.Progress
+    _BAR_COLUMN_CLASS = _rich_progress_module.BarColumn
+    _SPINNER_COLUMN_CLASS = _rich_progress_module.SpinnerColumn
+    _TEXT_COLUMN_CLASS = _rich_progress_module.TextColumn
+    _TIME_REMAINING_COLUMN_CLASS = _rich_progress_module.TimeRemainingColumn
+    _TRANSFER_SPEED_COLUMN_CLASS = _rich_progress_module.TransferSpeedColumn
+except ImportError:
+    _PROGRESS_CLASS = None
+    _BAR_COLUMN_CLASS = None
+    _SPINNER_COLUMN_CLASS = None
+    _TEXT_COLUMN_CLASS = None
+    _TIME_REMAINING_COLUMN_CLASS = None
+    _TRANSFER_SPEED_COLUMN_CLASS = None
 
 logger = get_logger(__name__)
 
@@ -38,31 +66,36 @@ def _detect_environment() -> RuntimeEnv:
     Returns a deterministic literal for testability.
     """
     try:
-        shell = get_ipython()  # type: ignore[name-defined]
-    except NameError:
+        # get_ipython() is injected by IPython/Jupyter at runtime; it's not
+        # available at type-check time. Use builtins lookup to avoid a
+        # name-defined suppression directive.
+        if (shell := getattr(builtins, "get_ipython", lambda: None)()) is None:
+            return "terminal"
+    except (ImportError, NameError):
         return "terminal"
 
-    # IPython exists — check if it's a kernel (notebook) vs interactive shell
-    shell_class = type(shell).__name__
-
-    # ZMQInteractiveShell → standard Jupyter / JupyterLab / VS Code Jupyter
-    if shell_class == "ZMQInteractiveShell":
+    if _is_jupyter_shell(shell):
         return "jupyter"
-
-    # Google Colab uses its own shell class
-    if "google.colab" in str(type(shell).__module__):
-        return "jupyter"
-
-    # Databricks notebook
-    if shell_class == "DatabricksShell":
-        return "jupyter"
-
-    # Fallback: check config for IPKernelApp (catches Kaggle, Papermill, etc.)
-    config = getattr(shell, "config", {})
-    if "IPKernelApp" in config:
-        return "jupyter"
-
     return "terminal"
+
+
+def _is_jupyter_shell(shell: Any) -> bool:
+    """Check if the IPython shell is a notebook kernel (Jupyter/Colab/Databricks).
+
+    Detection covers:
+    - ZMQInteractiveShell (standard Jupyter / JupyterLab / VS Code Jupyter)
+    - google.colab module on the shell class (Google Colab)
+    - DatabricksShell (Databricks notebook)
+    - IPKernelApp in shell config (Kaggle, Papermill, etc.)
+    """
+    if (shell_class := type(shell).__name__) == "ZMQInteractiveShell":
+        return True
+    if "google.colab" in str(type(shell).__module__):
+        return True
+    if shell_class == "DatabricksShell":
+        return True
+    config = getattr(shell, "config", {})
+    return "IPKernelApp" in config
 
 
 @lru_cache(maxsize=1)
@@ -95,19 +128,24 @@ class ProgressBackend(ABC):
     """
 
     @abstractmethod
-    def __enter__(self) -> ProgressBackend: ...
+    def __enter__(self) -> ProgressBackend:
+        """Enter the context manager and return self."""
 
     @abstractmethod
-    def __exit__(self, *args: Any) -> None: ...
+    def __exit__(self, *args: Any) -> None:
+        """Exit the context manager, releasing any resources."""
 
     @abstractmethod
-    def add_task(self, description: str, *, total: int | None = None) -> Any: ...
+    def add_task(self, description: str, *, total: int | None = None) -> Any:
+        """Register a new task and return its identifier."""
 
     @abstractmethod
-    def update(self, task_id: Any, *, advance: int = 0, description: str | None = None) -> None: ...
+    def update(self, task_id: Any, *, advance: int = 0, description: str | None = None) -> None:
+        """Advance the task counter and/or update its description."""
 
     @abstractmethod
-    def remove_task(self, task_id: Any) -> None: ...
+    def remove_task(self, task_id: Any) -> None:
+        """Remove a previously added task from the backend."""
 
 
 # ---------------------------------------------------------------------------
@@ -124,6 +162,7 @@ class NullProgressBackend(ProgressBackend):
     """
 
     def __enter__(self) -> NullProgressBackend:
+        """Enter the context manager (no-op)."""
         return self
 
     def __exit__(self, *args: Any) -> None:
@@ -154,51 +193,85 @@ class RichProgressBackend(ProgressBackend):
     (Braille spinners, block-element bars) that cannot be encoded by
     limited console encodings such as GBK or Big5.  The spinner falls back
     to the ``"line"`` style (``|/-\\``) and the graphical bar is omitted.
+
+    Raises:
+        RuntimeError: If ``rich`` is not installed. Callers should use
+            :func:`create_progress` (which never raises on missing deps)
+            rather than instantiating this class directly.
     """
 
     def __init__(self, *, ascii_only: bool = False) -> None:
+        """Initialize the Rich progress bar with appropriate columns.
+
+        Args:
+            ascii_only: If ``True``, use ASCII-safe spinner and omit the
+                        graphical bar (for GBK/Big5 console encodings).
+
+        Raises:
+            RuntimeError: If ``rich`` is not installed.
+        """
+        # Grouped None guards (3 expressions each, under pylint's
+        # too-many-boolean-expressions threshold of 5). Two groups cover all
+        # six rich classes. Each ``if x is None: raise`` also narrows the type
+        # for mypy, so the class variables are known to be non-None below.
+        _not_installed = (
+            "rich is not installed. Install with: pip install sqlseed-cli "
+            "(or pip install rich). The sqlseed core package does not "
+            "require rich; RichProgressBackend is only available when "
+            "rich is installed."
+        )
+        if _PROGRESS_CLASS is None or _BAR_COLUMN_CLASS is None or _SPINNER_COLUMN_CLASS is None:
+            raise RuntimeError(_not_installed)
+        if _TEXT_COLUMN_CLASS is None or _TIME_REMAINING_COLUMN_CLASS is None or _TRANSFER_SPEED_COLUMN_CLASS is None:
+            raise RuntimeError(_not_installed)
+
         if ascii_only:
             columns: list[Any] = [
-                SpinnerColumn("line"),
-                TextColumn("[progress.description]{task.description}"),
-                TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-                TextColumn("{task.completed}/{task.total}"),
-                TransferSpeedColumn(),
-                TimeRemainingColumn(),
+                _SPINNER_COLUMN_CLASS("line"),
+                _TEXT_COLUMN_CLASS("[progress.description]{task.description}"),
+                _TEXT_COLUMN_CLASS("[progress.percentage]{task.percentage:>3.0f}%"),
+                _TEXT_COLUMN_CLASS("{task.completed}/{task.total}"),
+                _TRANSFER_SPEED_COLUMN_CLASS(),
+                _TIME_REMAINING_COLUMN_CLASS(),
             ]
         else:
             columns = [
-                SpinnerColumn(),
-                TextColumn("[progress.description]{task.description}"),
-                BarColumn(),
-                TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-                TextColumn("{task.completed}/{task.total}"),
-                TransferSpeedColumn(),
-                TimeRemainingColumn(),
+                _SPINNER_COLUMN_CLASS(),
+                _TEXT_COLUMN_CLASS("[progress.description]{task.description}"),
+                _BAR_COLUMN_CLASS(),
+                _TEXT_COLUMN_CLASS("[progress.percentage]{task.percentage:>3.0f}%"),
+                _TEXT_COLUMN_CLASS("{task.completed}/{task.total}"),
+                _TRANSFER_SPEED_COLUMN_CLASS(),
+                _TIME_REMAINING_COLUMN_CLASS(),
             ]
-        self._progress = Progress(
+        self._progress = _PROGRESS_CLASS(
             *columns,
             transient=False,
             refresh_per_second=1,
         )
 
     def __enter__(self) -> RichProgressBackend:
+        """Start the Rich progress display."""
         self._progress.__enter__()
         return self
 
     def __exit__(self, *args: Any) -> None:
+        """Stop the Rich progress display."""
         self._progress.__exit__(*args)
 
     def add_task(self, description: str, *, total: int | None = None) -> Any:
+        """Add a new task to the Rich progress bar."""
         return self._progress.add_task(description, total=total)
 
     def update(self, task_id: Any, *, advance: int = 0, description: str | None = None) -> None:
+        """Advance and/or update the description of a Rich task."""
         kwargs: dict[str, Any] = {"advance": advance}
         if description is not None:
             kwargs["description"] = description
         self._progress.update(task_id, **kwargs)
 
     def remove_task(self, task_id: Any) -> None:
+        """Remove a task from the Rich progress bar."""
         self._progress.remove_task(task_id)
 
 
@@ -221,14 +294,17 @@ class TqdmNotebookBackend(ProgressBackend):
     """
 
     def __init__(self) -> None:
+        """Initialize internal tracking state (no bars created yet)."""
         self._bars: dict[int, Any] = {}
         self._pending: dict[int, tuple[str, int | None]] = {}
         self._counter = 0
 
     def __enter__(self) -> TqdmNotebookBackend:
+        """Enter the context manager (bars are created lazily on update)."""
         return self
 
     def __exit__(self, *args: Any) -> None:
+        """Refresh and close all tqdm bars, then clear internal state."""
         for pbar in self._bars.values():
             pbar.refresh()
             pbar.close()
@@ -236,6 +312,11 @@ class TqdmNotebookBackend(ProgressBackend):
         self._pending.clear()
 
     def _ensure_bar(self, task_id: int) -> Any:
+        """Lazily create the tqdm bar for *task_id* on first access.
+
+        Returns ``None`` if the task is indeterminate (``total=None``) or
+        if tqdm is not installed.
+        """
         if task_id in self._bars:
             return self._bars[task_id]
         if task_id not in self._pending:
@@ -254,6 +335,7 @@ class TqdmNotebookBackend(ProgressBackend):
         return pbar
 
     def add_task(self, description: str, *, total: int | None = None) -> int:
+        """Register a task; the tqdm bar is created lazily on first update."""
         task_id = self._counter
         self._counter += 1
         if total is None:
@@ -262,8 +344,8 @@ class TqdmNotebookBackend(ProgressBackend):
         return task_id
 
     def update(self, task_id: Any, *, advance: int = 0, description: str | None = None) -> None:
-        pbar = self._ensure_bar(task_id)
-        if pbar is None:
+        """Advance and/or update the description of a tqdm task."""
+        if (pbar := self._ensure_bar(task_id)) is None:
             return
         if description is not None:
             pbar.set_description(description)
@@ -271,9 +353,9 @@ class TqdmNotebookBackend(ProgressBackend):
             pbar.update(advance)
 
     def remove_task(self, task_id: Any) -> None:
+        """Close and remove the tqdm bar associated with *task_id*."""
         self._pending.pop(task_id, None)
-        pbar = self._bars.pop(task_id, None)
-        if pbar is not None:
+        if (pbar := self._bars.pop(task_id, None)) is not None:
             pbar.close()
 
 
@@ -311,9 +393,7 @@ def create_progress(*, disable: bool = False) -> ProgressBackend:
     if disable:
         return NullProgressBackend()
 
-    env = _detect_environment()
-
-    if env == "jupyter":
+    if (_detect_environment()) == "jupyter":
         if _check_tqdm():
             return TqdmNotebookBackend()
         logger.warning(
@@ -321,7 +401,15 @@ def create_progress(*, disable: bool = False) -> ProgressBackend:
         )
         return NullProgressBackend()
 
-    ascii_only = not _can_render_unicode()
-    if ascii_only:
+    if ascii_only := not _can_render_unicode():
         logger.debug("Console encoding does not support Unicode progress characters — using ASCII-safe layout")
+
+    if _PROGRESS_CLASS is None:
+        # rich is not installed — fall back to silent null backend rather
+        # than crashing. This keeps the sqlseed core importable without
+        # rich (per ARCHITECTURE.md Section 7.1). Users who want progress
+        # bars should install sqlseed-cli (which pulls rich).
+        logger.debug("rich not installed — progress bars disabled. Install with: pip install sqlseed-cli")
+        return NullProgressBackend()
+
     return RichProgressBackend(ascii_only=ascii_only)

@@ -4,7 +4,7 @@
 
 **[English](README.md)** | [中文](README.zh-CN.md)
 
-### Declarative SQLite Test Data Generation Toolkit
+### Declarative Multi-Database Test Data Generation Toolkit
 
 **One line of code, tens of thousands of rows. Zero-config smart generation, AI-powered precision tuning.**
 
@@ -21,23 +21,22 @@
 ```python
 import sqlseed
 
-# Just one line. Auto-infers schema, auto-selects strategy, auto-optimizes writes.
+# The database and users table must already exist.
 result = sqlseed.fill("test.db", table="users", count=100_000)
-print(result)
-# → GenerationResult(table=users, count=100000, elapsed=2.34s, speed=42735 rows/s)
+print(result.count, result.errors)  # Check actual writes and any failures.
 ```
 
 ***
 
 ## 💡 Why sqlseed?
 
-In development and testing workflows, we often need to populate SQLite databases with large volumes of realistic test data. Traditional approaches either require writing verbose data generation scripts or maintaining hard-to-scale SQL fixtures. sqlseed solves this with a declarative approach:
+In development and testing workflows, we often need to populate SQLite and PostgreSQL databases with large volumes of realistic test data. Traditional approaches either require writing verbose data generation scripts or maintaining hard-to-scale SQL fixtures. sqlseed solves this with a declarative approach:
 
 | Feature | sqlseed | Hand-written Scripts | SQL Fixtures |
 | :------ | :-----: | :-----------------: | :----------: |
 | Zero-config smart generation |    ✅    |         ❌         |      ❌      |
 | Automatic FK maintenance |    ✅    |       Manual       |    Manual    |
-| 100K+ rows | ✅ Streaming |    ⚠️ OOM    |      ❌      |
+| Batched large datasets | ✅ Built in | Requires implementation | Requires generated fixtures |
 | Column semantic inference | ✅ 9-level strategy |    ❌    |      ❌      |
 | Reproducible generation |  ✅ seed  |     ⚠️ Manual      |      ✅      |
 | AI-powered tuning |  ✅ LLM  |         ❌         |      ❌      |
@@ -51,7 +50,7 @@ In development and testing workflows, we often need to populate SQLite databases
 
 **🚀 Zero-Config Smart Generation**
 
-Auto-infers database schema and selects the best generator for each column via a 9-level strategy chain. Column named `email`? Generates email addresses. Column named `*_at`? Generates timestamps. No configuration needed.
+Auto-infers database schema and selects a generator for each column via a 9-level strategy chain. Column named `email`? Generates email addresses. Column named `*_at`? Generates timestamps. Business-specific relationships and complex constraints may require explicit rules.
 
 </td>
 <td width="50%">
@@ -67,14 +66,14 @@ Precisely control each column's data generation strategy, constraints, and null 
 
 **🔗 Automatic FK Ordering**
 
-Topological sort auto-detects table dependencies. SharedPool cross-table value sharing maintains referential integrity with zero configuration.
+Topological sort detects table dependencies, and SharedPool reuses actual parent values. Supported foreign keys are coordinated; unsupported composite or schema-qualified relationships are rejected before generation. See the support scope below.
 
 </td>
 <td>
 
-**🌊 Streaming Memory Safety**
+**🌊 Batched Streaming**
 
-`DataStream` yields batches via `Iterator[list[dict]]`. 1 million rows use the same memory as 1,000 rows.
+`DataStream` yields batches via `Iterator[list[dict]]`, respecting the configured batch-size limit. UNIQUE tracking, parent-key pools and self-reference processing have additional memory costs; total memory is not constant for every schema.
 
 </td>
 </tr>
@@ -97,7 +96,7 @@ Supports derived column computation (`short_code = project_no[-8:]`), unique con
 <tr>
 <td>
 
-**🧩 11 Lifecycle Hooks**
+**🧩 12 Lifecycle Hooks**
 
 pluggy-based plugin architecture covering every stage from provider registration to batch insertion.
 
@@ -122,31 +121,57 @@ Intelligently switches between LIGHT / MODERATE / AGGRESSIVE write strategies ba
 pip install sqlseed
 ```
 
+Migration details: [upgrade guide](docs/migration.md). Candidate packages must come from the same CI artifact set.
+
 ### Choose Data Engine
 
 ```bash
 # Recommended: Mimesis (high performance, great locale support)
 pip install sqlseed[mimesis]
 
-# Optional: Faker (rich ecosystem)
-pip install sqlseed[faker]
+# Note: Faker is a required core dependency, included in `pip install sqlseed`.
 
 # Install all
 pip install sqlseed[all]
 ```
 
+### Choose Database Backend
+
+sqlseed supports SQLite (default) and PostgreSQL via SQLAlchemy.
+
+```bash
+# PostgreSQL support (psycopg driver)
+pip install "sqlseed[postgres]"
+
+# All database backends + all data engines
+pip install "sqlseed[all]"
+```
+
+> **💡 Note**: SQLite works out of the box with no extra dependencies. PostgreSQL driver is only required when connecting to that database.
+
 ### Optional Plugins
 
 ```bash
+# CLI plugin (provides the `sqlseed` command; auto-pulls sqlseed core)
+pip install sqlseed-cli
+
 # AI analysis plugin (requires openai SDK)
 pip install sqlseed-ai
 
 # MCP server (requires mcp SDK, lets AI assistants operate sqlseed)
 pip install mcp-server-sqlseed
 
-# MCP server + AI support (all-in-one)
-pip install mcp-server-sqlseed[ai]
+# AI MCP server (4 LLM tools, requires sqlseed-ai)
+pip install "sqlseed-ai[mcp]"
 ```
+
+### Local Web Workbench
+
+From the repository root, run `python -m pip install -e . -e ./plugins/sqlseed-web`, then `sqlseed-web` and open `http://127.0.0.1:8630`. The workbench provides real schema graphs, column-rule editing, versioned configurations, dependency checks, previews, server-managed multi-table generation, and persistent run history without requiring the AI plugin. See the [workbench guide](docs/web-workbench.md).
+
+Install or uninstall optional components directly in Settings. The default launcher pauses an idle workbench, changes packages in an isolated worker, then automatically restores the service and its reconnectable connections. Active database or AI work blocks the operation until it finishes. Existing package versions are protected; Core, Web, Faker, and Base cannot be removed. In-app changes require a writable, independent virtualenv on macOS/Linux and the default launcher; externally hosted apps and unsupported environments show their capability limits. See the [Web guide](docs/web-workbench.md) for recovery behavior and connection limits.
+
+The workbench has Workbench, Run history, Configuration management and Settings navigation, with database connections opened from the shared interface. Rules use a right-side drawer; saving, reopening and configuration-document editing share one configuration. The generator provider and locale belong to that configuration. Backend and frontend regression results do not substitute for browser acceptance of visual changes.
 
 ### Docs Build (Developers)
 
@@ -161,12 +186,8 @@ pip install sqlseed[docs]   # mkdocs-material + mkdocstrings
 git clone https://github.com/sunbos/sqlseed.git
 cd sqlseed
 
-# Install core + all providers + dev dependencies
-pip install -e ".[dev,all]"
-
-# Optional plugins
-pip install -e "./plugins/sqlseed-ai"
-pip install -e "./plugins/mcp-server-sqlseed"
+# Resolve Core and all local plugins together, including unpublished candidates
+python -m pip install -e ".[dev,all]" -e "./plugins/sqlseed-cli" -e "./plugins/sqlseed-ai[dev]" -e "./plugins/mcp-server-sqlseed" -e "./plugins/sqlseed-web[dev]"
 
 # Verify installation
 pytest
@@ -179,6 +200,8 @@ mypy src/sqlseed/
 ***
 
 ## 🚀 Quick Start
+
+For an end-to-end example with related users, products, orders and order items, see the [reproducible order workflow](examples/order_workflow/README.md). It includes a failing rule, corrected generation, database integrity checks and offline replay. See the [support and maintenance scope](docs/maintainable-release.md) and [project walkthrough](docs/project-showcase.md) for verified boundaries and an explanation of the design.
 
 ### Interactive Quickstart
 
@@ -240,7 +263,25 @@ sqlseed automatically:
 - ✅ `created_at` → generates datetime (matches `*_at` pattern)
 - ✅ `balance` → generates floats
 
-**Fully zero-config. Smart inference for everything.**
+**This simple schema works with inferred defaults; review and configure business-specific rules before generating more complex data.**
+
+### Connect to PostgreSQL
+
+sqlseed supports PostgreSQL in addition to SQLite. Pass a SQLAlchemy URL instead of a file path:
+
+```python
+import sqlseed
+
+# PostgreSQL (requires: pip install "sqlseed[postgres]")
+result = sqlseed.fill(
+    "postgresql+psycopg://user:password@localhost:5432/mydb",
+    table="users",
+    count=10_000,
+)
+print(result)
+```
+
+Both databases use the same public API, but dialect behavior and supported constraints differ. PostgreSQL composite foreign keys and reflected schema-qualified references are currently rejected for generation; SQLite tuple coordination covers two-column foreign keys. See the [support and verification scope](docs/maintainable-release.md), including the distinction between local SQLite checks and real PostgreSQL integration tests.
 
 ***
 
@@ -303,10 +344,14 @@ print(result)
 | `timestamp` | Unix timestamp | — |
 | `text` | Long text | `min_length`, `max_length` |
 | `sentence` | Sentence | — |
+| `word` | Real English word | — |
+| `catch_phrase` | Business catch phrase (multi-word) | — |
 | `password` | Password | `length` |
 | `choice` | Pick from list | `choices` |
+| `weighted_choice` | Weighted random pick | `choices` (list of `{value, weight}`) or `weighted_choices` (dict) |
 | `json` | JSON string | `schema` |
 | `pattern` | Regex match | `regex` |
+| `template` | Formatted string with placeholders | `template`, `sequence_start`, `sequence_step` |
 | `bytes` | Binary data | `length` |
 | `username` | Username | — |
 | `city` | City | — |
@@ -500,7 +545,7 @@ tables:
 3. Generates `project_no` first, then computes `short_code` via `value[-6:]`
 4. If `short_code` unique constraint fails, backtracks to regenerate `project_no`
 
-#### Expression Engine Functions (21 total)
+#### Expression Engine Functions (26 total)
 
 | Function | Usage | Description |
 | :------- | :---- | :---------- |
@@ -514,6 +559,7 @@ tables:
 | `abs(n)` | `abs(value)` | Absolute value |
 | `min(*args)` | `min(a, b)` | Minimum |
 | `max(*args)` | `max(a, b)` | Maximum |
+| `round(n, ndigits)` | `round(value, 2)` | Round to N digits |
 | `upper(s)` | `upper(value)` | Uppercase |
 | `lower(s)` | `lower(value)` | Lowercase |
 | `strip(s)` | `strip(value)` | Trim both ends |
@@ -525,6 +571,10 @@ tables:
 | `lpad(s, width, char)` | `lpad(value, 8, "0")` | Left-pad |
 | `rpad(s, width, char)` | `rpad(value, 8, "0")` | Right-pad |
 | `concat(*args)` | `concat("PRE_", value)` | Concatenate |
+| `random_float(min, max)` | `random_float(0, value)` | Random float in range |
+| `random_int(min, max)` | `random_int(1, 100)` | Random integer in range |
+| `random_choice(seq)` | `random_choice([1,2,3])` | Random element from sequence |
+| `timedelta(days, seconds)` | `value + timedelta(days=7)` | Date/time arithmetic (adds interval to date source) |
 | Slicing | `value[-8:]` | Python slice syntax |
 | Math | `value * 2 + 1` | Basic arithmetic |
 
@@ -650,7 +700,13 @@ Use cases:
 
 ### Tutorial 8: AI-Powered Configuration (sqlseed-ai Plugin)
 
-Let LLM analyze your database schema and auto-generate optimal config suggestions:
+Let LLM analyze your database schema and auto-generate optimal config suggestions. The sqlseed-ai plugin provides **3 CLI commands**:
+
+| Command | Purpose | When to Use |
+| :------ | :------ | :---------- |
+| `ai-suggest` | Per-table LLM analysis with self-correction | Single-table analysis with `--verify` validation |
+| `ai-analyze` | Full/partial DB analysis via v4 AutoHealOrchestrator (default) | Multi-table YAML generation with contract-driven self-healing |
+| `auto-heal` | Repair broken YAML configs via LLM + rule-based pipeline | Fix YAML files that fail `sqlseed fill` |
 
 ```bash
 # Install AI plugin
@@ -659,7 +715,11 @@ pip install sqlseed-ai
 # Set API key
 export SQLSEED_AI_API_KEY="your-api-key"
 
-# AI analysis and config generation
+# ─────────────────────────────────────────────
+# ai-suggest: Per-table LLM analysis
+# ─────────────────────────────────────────────
+
+# AI analysis and config generation for a single table
 sqlseed ai-suggest app.db --table projects --output projects.yaml
 
 # AI suggestions with self-correction (3 rounds by default)
@@ -668,8 +728,34 @@ sqlseed ai-suggest app.db --table projects --output projects.yaml --verify
 # Specify model (defaults to Gemma 4 26B via Google AI Studio)
 sqlseed ai-suggest app.db --table projects --output projects.yaml --model gemma-4-26b-a4b-it
 
-# Use local LM Studio / Ollama
-sqlseed ai-suggest app.db --table projects --output projects.yaml --backend lm_studio --model google/gemma-4-e4b
+# Use local LM Studio / Ollama (backend selected via env var; ai-suggest has no --backend flag)
+SQLSEED_AI_BACKEND=lm_studio sqlseed ai-suggest app.db --table projects --output projects.yaml --model google/gemma-4-e4b
+
+# ─────────────────────────────────────────────
+# ai-analyze: Full DB analysis via v4 architecture (default)
+# ─────────────────────────────────────────────
+
+# Analyze entire database and generate YAML (v4 AutoHealOrchestrator)
+sqlseed ai-analyze --db app.db -o config.yaml
+
+# Output to stdout (no -o)
+sqlseed ai-analyze --db app.db
+
+# Multi-DB via --url
+sqlseed ai-analyze --url "postgresql+psycopg://user:pass@host/db" -o config.yaml
+
+# Log full LLM interactions for debugging
+sqlseed ai-analyze --db app.db -o config.yaml --log-llm
+
+# ─────────────────────────────────────────────
+# auto-heal: Repair broken YAML configs
+# ─────────────────────────────────────────────
+
+# After ai-analyze, if `sqlseed fill` fails on some tables, repair the YAML
+sqlseed auto-heal --db app.db --config broken.yaml -o healed.yaml
+
+# Use a different LLM model for healing
+sqlseed auto-heal --db app.db --config broken.yaml -o healed.yaml --model gemma-4-26b-a4b-it
 ```
 
 **Gemma 4 Native Function Calling (GEMMA_TOOLS)**:
@@ -678,10 +764,10 @@ sqlseed-ai supports Gemma 4 model family (2B/4B/12B/26B/31B) with Native Functio
 
 | Backend | Description | Configuration |
 | :------ | :---------- | :------------ |
-| **Google AI Studio** | Official API, recommended for Gemma 4 26B/31B | `--backend google_ai_studio` or `SQLSEED_AI_BACKEND=google_ai_studio` |
-| **LM Studio** | Local inference, suitable for Gemma 4 2B/4B | `--backend lm_studio` or `SQLSEED_AI_BACKEND=lm_studio` |
-| **Ollama** | Local inference, suitable for Gemma 4 2B/4B/26B | `--backend ollama` or `SQLSEED_AI_BACKEND=ollama` |
-| **OpenAI-compatible** | Generic OpenAI-compatible endpoint (e.g., OpenRouter, DeepSeek) | `--backend openai_compat` or `SQLSEED_AI_BACKEND=openai_compat` |
+| **Google AI Studio** | Official API, recommended for Gemma 4 26B/31B | `SQLSEED_AI_BACKEND=google_ai_studio` |
+| **LM Studio** | Local inference, suitable for Gemma 4 2B/4B | `SQLSEED_AI_BACKEND=lm_studio` (default URL `http://127.0.0.1:1234/v1`) |
+| **Ollama** | Local inference, suitable for Gemma 4 2B/4B/26B | `SQLSEED_AI_BACKEND=ollama` |
+| **OpenAI-compatible** | Generic OpenAI-compatible endpoint (e.g., OpenRouter, DeepSeek) | `SQLSEED_AI_BACKEND=openai_compat` |
 
 > **💡 OpenRouter (Free)**: For users without a paid API key, OpenRouter provides free models. Set `SQLSEED_AI_BACKEND=openai_compat`, `SQLSEED_AI_BASE_URL=https://openrouter.ai/api/v1`, and `SQLSEED_AI_MODEL=<free-model-name>`.
 
@@ -701,6 +787,19 @@ sqlseed ai-suggest app.db --table projects --output projects.yaml --no-cache
 6. Up to 3 self-correction rounds, outputs validated YAML config
 ```
 
+**v4 Contract-Driven Self-Healing Architecture** (used by `ai-analyze` and `auto-heal`):
+
+```
+Layer 1: contracts/    Sparse contract matrix + resolver (closed set of known-bad combos)
+Layer 2: validator/    FastValidator (single-column + cross-column + dialect error parsing)
+Layer 3: repair/       Stateless repair strategies (REPAIR_STRATEGIES dict, open for extension)
+Layer 4: healer/       LLM healer + oscillation detection + progressive degrade + cascade
+Layer 5: auto_heal/    AutoHealOrchestrator — top-level entry (SchemaSnapshot → SubgraphSplitter → per-subgraph validate/repair/heal → BrokenEdgeAligner → emit YAML)
+Layer 6: analyzer/     LLM table-level analysis (streaming + tool-calling, protocol-based)
+```
+
+The `_build_subgraph_config()` method in `AutoHealOrchestrator` performs deterministic CHECK-constraint inference before any LLM call: `_parse_single_column_check()` handles LENGTH()/IN/BETWEEN/range patterns (including mixed `> AND <=` and `>= AND <`, `col != 0` non-zero constraint, plus float exclusive bounds `col > X` / `col < Y` / `col > X AND col <= Y` / `col > X AND col < Y` / `col >= X AND col < Y` with 0.01 epsilon to avoid generating the boundary value, plus `col IS NULL OR <inner_expr>` prefix stripping that peels off the optional NULL branch before parsing the inner expression with the existing patterns), while `_infer_cross_column_config()` handles 62 cross-column patterns (col >= other, col > other, col <= other, col < other, col != other, col >= col1 * col2, col >= col2 * CONSTANT [Pattern 7b, column-times-literal-constant lower bound — derive_from col2, expression `value * CONSTANT`], col = col1 (+|-|*) col2, col = col1 + col2 + col3, col = abs(col1) (+|-|*) col2, col = col1 (+|-|*) abs(col2), col = abs(col1) * abs(col2), col = abs(col1), col IS NULL OR col (>=|>|<=|<) other [Pattern 1, all 4 operators + date/float/int types], col IS NULL OR other IS NULL OR col (>=|>|<=|<) other [Pattern 1b, 3-way OR with NULL escape for both columns — None-guard expression prevents TypeError when source col is None], col >= X AND col <= other_col, col >= other_col AND col <= Y, col > X AND col < other_col, col > other_col AND col < Y, col != VALUE OR other_col = VALUE2, col1 + col2 = col reverse-sum, col = VALUE OR other_col < col2 OR other_col > col3 range-membership, col = (col1 + col2 [+ col3]) / N average [Pattern 21, int() wrapped for INTEGER columns to match SQLite integer-division CHECK semantics], col <= col2 * CONSTANT percentage upper bound [Pattern 22], col >= col2 * CONST1 AND col <= col2 * CONST2 [Pattern 22c, dual multiplier bounds across two CHECKs — cross-constraint scan before per-constraint loop; derive_from col2, expression `value * random_float(CONST1, CONST2)`], col = VALUE OR col1 < X OR col2 < X [OR col3 < X] multi-column threshold [Pattern 23, val/opposite swapped to satisfy both OR-form and AND-form dual CHECKs], col = VALUE OR col (>|>=|<|<=) other_col [Pattern 24, conditional comparison — 50% VALUE, 50% satisfying the inequality], col1 != VALUE OR col (>|>=|<|<=) other_col [Pattern 24b, inequality-first variant of Pattern 24 — derive_from other_col, comparison-satisfying value when cond_col == VALUE, else 50% compliant/50% safe zero; cross-constraint cap: when col <= other_col also exists, uses exact equality `value` to satisfy both >= and <=], col = col1 * col2 + col3 [Pattern 25, multiplication + addition chain], col = VALUE OR other_col IN ('a','b','c') [Pattern 26, conditional enum — col set to non-VALUE when other_col is in the set], col1 != VALUE OR col IN ('a','b','c') [Pattern 26b, inequality-first variant of Pattern 26 — derive_from cond_col, random set value when cond_col == VALUE, else first set value], col1 != VALUE OR col = 'V1' OR col = 'V2' [Pattern 26c, explicit OR-equality variant of Pattern 26b — handles `col = 'V1' OR col = 'V2'` syntax instead of IN()], other_col = 'V1' AND col OP1 X1 OR other_col = 'V2' AND col OP2 X2 [OR ...] [Pattern 27, N-way conditional range — nested ternary picks per-clause random range], other_col != VALUE OR col > 0 [Pattern 28, conditional requirement — col set to positive random when other_col == VALUE, else 0], col1 != INTEGER_VALUE OR col > X [Pattern 28b, integer-value variant of Pattern 28 — derive_from col1, positive random when col1 == INT_VALUE, else 0], col = col1 (+|-) col2 (+|-) col3 [Pattern 29, three-column mixed arithmetic chain — derive_from col1, reference col2/col3 via row dict], col1 != VALUE OR col IS NULL [Pattern 30, conditional NULL — FK columns return None for BOTH branches to avoid FK violations; non-FK columns return 0/0.0], col1 = VALUE OR col IS NOT NULL [Pattern 30b, reverse of Pattern 30 — when col1 != VALUE, col must be non-NULL; FK columns use 1 (first autoincrement id), non-FK columns use 0/0.0], col1 != VALUE OR col = VALUE2 [Pattern 31, conditional equality — col set to VALUE2 when col1 == VALUE, else safe random], col >= X AND col <= col2 * CONSTANT [Pattern 22b, compound range with multiplier upper bound — derive_from col2, max(X, value * factor)], (col1 = VALUE AND col > X) OR (col1 IN (...) AND col IS NULL) [Pattern 32, conditional value/NULL — col positive random when col1 == VALUE, NULL when col1 in other set], (col1 IN (...) AND col = col2 + col3) OR (col1 IN (...) AND col = col2 - col3) [Pattern 33, conditional arithmetic by type — derive_from col2, op selected by col1's type set], col1 != VALUE OR col2 (<|<=) X [Pattern 34, conditional upper bound — max_value set to X or X-epsilon; min_value preserved from single-column CHECK via _infer_from_check_constraints merge], col1 != INTEGER_VALUE OR col (<|<=) X [Pattern 34b, integer-value variant of Pattern 34 — same max_value logic, accepts unquoted integer VALUE], col1 IN (...) OR col IS NULL [Pattern 35, conditional NULL with IN set — date columns get null_ratio=1.0; non-date columns get derive_from with None for non-matching values], other_col = 'V1' AND col (>=|>) X1 AND col (<|<=) Y1 OR other_col = 'V2' AND col (>=|>) X2 AND col (<|<=) Y2 [OR ...] [Pattern 36, N-way conditional range with dual bounds — each clause has both a lower and upper literal bound; nested ternary picks per-clause random_int/random_float range], multiple `col1 != VALUE_i OR col OP_i X_i` on same column [Pattern 37, multi-conditional cross-column — when 2+ separate CHECK constraints constrain the SAME target column based on the SAME enum column's value; derive_from col1, nested ternary with a branch per VALUE_i, default branch for unmatched enum values], col = (col1 + col2) * (CONST - col3) [Pattern 38, complex arithmetic — derive_from col1, expression `(value + row['col2']) * (CONST - row['col3'])`], col1 IS NULL OR col <= col2 + col3 [Pattern 39, compound addition upper bound — derive_from col2, None-guard when value is None, else `(value + row['col3']) * random_float(0.0, 1.0)`]).
+
 > **💡 Environment Variables**: Supports `SQLSEED_AI_API_KEY`, `SQLSEED_AI_BASE_URL`, `SQLSEED_AI_MODEL`, `SQLSEED_AI_BACKEND`. Also supports `OPENAI_API_KEY` / `OPENAI_BASE_URL` as fallback. Defaults to Gemma 4 26B via Google AI Studio. Supported backends: `google_ai_studio`, `lm_studio`, `ollama`, `openai_compat`.
 
 ***
@@ -710,11 +809,11 @@ sqlseed ai-suggest app.db --table projects --output projects.yaml --no-cache
 Let AI assistants (Claude, Cursor, etc.) operate sqlseed directly via [Model Context Protocol](https://modelcontextprotocol.io/):
 
 ```bash
-# Install MCP server
+# Install MCP server (core, no LLM dependency)
 pip install mcp-server-sqlseed
 
-# All-in-one: MCP server + AI support
-pip install mcp-server-sqlseed[ai]
+# Install AI MCP server (LLM-driven, requires sqlseed-ai)
+pip install "sqlseed-ai[mcp]"
 
 # Manual start (usually managed by MCP client)
 python -m mcp_server_sqlseed
@@ -734,12 +833,18 @@ python -m mcp_server_sqlseed
 
 **MCP Capabilities**:
 
+**mcp-server-sqlseed** (2 Tools, 0 Resources — core, no LLM dependency):
+
 | Type | Name | Description |
 | :--- | :--- | :---------- |
-| 📖 Resource | `sqlseed://schema/{db_path}/{table_name}` | Get table schema as JSON |
-| 🔍 Tool | `sqlseed_inspect_schema` | Inspect schema (columns, FK, indexes, samples, schema_hash) |
-| 🤖 Tool | `sqlseed_generate_yaml` | AI-driven YAML config generation with self-correction. Supports `api_key`/`base_url`/`model` overrides |
+| 🤖 Tool | `sqlseed_generate_yaml` | Rule-driven YAML config generation via `ColumnMapper` |
 | ⚡ Tool | `sqlseed_execute_fill` | Execute data generation (supports YAML config string, includes `enrich` option) |
+
+**sqlseed-ai[mcp]** (4 Tools, 0 Resources — LLM-driven, install with `pip install "sqlseed-ai[mcp]"`):
+
+| Type | Name | Description |
+| :--- | :--- | :---------- |
+| 🧠 Tool | `sqlseed_ai_generate_yaml` | AI-driven YAML config generation with self-correction |
 | 🧠 Tool | `sqlseed_gemma4_analyze` | Analyze schema using Gemma 4 with Native Function Calling |
 | 🧠 Tool | `sqlseed_gemma4_agent_fill` | End-to-end Agent workflow (analyze -> config -> fill) |
 | 🧠 Tool | `sqlseed_list_gemma_models` | List available Gemma 4 models and backend status |
@@ -748,7 +853,7 @@ This means you can tell your AI assistant:
 
 > "Analyze the structure of the `projects` table in `app.db`, generate a YAML config, then fill 5000 rows."
 
-The AI assistant will call `sqlseed_inspect_schema` → `sqlseed_generate_yaml` → `sqlseed_execute_fill` in sequence, without you writing any code.
+The AI assistant will call `sqlseed_generate_yaml` → `sqlseed_execute_fill` in sequence, without you writing any code.
 
 ***
 
@@ -814,6 +919,14 @@ class MyPlugin:
 ***
 
 ## 🖥️ CLI Quick Reference
+
+With `fill --config`, the database target comes only from the configuration's
+`db_path` or `url`; combining it with a positional database path or `--url` is
+rejected before writing. If any configured table fails, the command reports the
+error and exits nonzero, including the count already committed. Multi-table fills
+are not one atomic transaction. With a configuration file, omitted `--provider`,
+`--locale`, and `--batch-size` preserve its settings; explicitly supplied values
+override them, even when equal to the CLI defaults.
 
 ```bash
 # ═══════════════════════════════════════
@@ -882,6 +995,13 @@ sqlseed ai-suggest app.db -t users -o users.yaml --no-verify       # Skip verifi
 
 # Skip cache
 sqlseed ai-suggest app.db -t users -o users.yaml --no-cache
+
+# Full DB analysis via v4 AutoHealOrchestrator (default path)
+sqlseed ai-analyze --db app.db -o config.yaml
+sqlseed ai-analyze --url "postgresql+psycopg://user:pass@host/db" -o config.yaml
+
+# Repair broken YAML configs after a failed `sqlseed fill`
+sqlseed auto-heal --db app.db --config broken.yaml -o healed.yaml
 ```
 
 ***
@@ -891,19 +1011,19 @@ sqlseed ai-suggest app.db -t users -o users.yaml --no-cache
 One of sqlseed's core highlights is the `ColumnMapper`'s 9-level strategy chain. Each column is matched by priority:
 
 ```
-Level 1 │ Autoincrement PK    PK + AUTOINCREMENT / INTEGER → skip
+Level 1 │ Autoincrement PK    Explicit database allocation → skip
         ▼
 Level 2 │ User config         columns={"email": "email"} highest priority
         ▼
 Level 3 │ Custom exact match  Rules registered via plugin hooks
         ▼
-Level 4 │ Built-in exact      <!-- BEGIN:AUTO-GENERATED:exact-match-rule-count -->74<!-- END:AUTO-GENERATED:exact-match-rule-count --> rules: email→email, phone→phone, age→integer...
+Level 4 │ Built-in exact      <!-- BEGIN:AUTO-GENERATED:exact-match-rule-count -->75<!-- END:AUTO-GENERATED:exact-match-rule-count --> rules: email→email, phone→phone, age→integer...
         ▼
 Level 5 │ DEFAULT check       Has default → skip / __enrich__ (when enrich=True)
         ▼
 Level 6 │ Custom pattern      Regex rules registered via plugin hooks
         ▼
-Level 7 │ Built-in pattern    <!-- BEGIN:AUTO-GENERATED:pattern-match-rule-count -->27<!-- END:AUTO-GENERATED:pattern-match-rule-count --> regexes: *_at→datetime, *_id→foreign_key, is_*→boolean...
+Level 7 │ Built-in pattern    <!-- BEGIN:AUTO-GENERATED:pattern-match-rule-count -->29<!-- END:AUTO-GENERATED:pattern-match-rule-count --> regexes: *_at→datetime, *_id→foreign_key, is_*→boolean...
         ▼
 Level 8 │ NULLABLE fallback   Nullable → skip / __enrich__
         ▼
@@ -911,6 +1031,20 @@ Level 9 │ Type-faithful       VARCHAR(32)→max 32 chars, INT8→0~255, BLOB(1
 ```
 
 What this means:
+
+Explicit generator parameters override name-rule defaults. Defaults are inherited for the same generator; switching between `string` and `text` inherits only their shared `min_length` and `max_length`. `sentence` inherits no string/text parameters, and `text` never inherits `charset`. Explicit unsupported parameters still produce a configuration error.
+
+`faker_method` or `mimesis_method` with `native_params` can configure a source column without `generator`. The method must match the active provider. Native overrides remain active during UNIQUE retries; unknown methods or invalid native parameters fail explicitly instead of silently switching to inferred data. When a regular generator is also given, a native hint for a different provider leaves that generator's fallback intact.
+
+Explicit length limits are retained for validation, including contradictory `min_length`/`max_length`. SQLite primary keys receive generated values unless metadata identifies a real rowid alias. `WITHOUT ROWID` and inline `INTEGER PRIMARY KEY DESC` require ordinary column handling; table-level `PRIMARY KEY(id DESC)` can still alias rowid. Explicit user generators remain available for implicit rowid aliases.
+
+Partial UNIQUE indexes retain an `is_partial` metadata flag. Their WHERE predicates are enforced by the database; they are not inferred as unconditional single-column or composite UNIQUE constraints. Duplicate applicable rows can therefore fail at batch insertion; default per-batch commits retain earlier successful batches. SQLite table names use ASCII case-insensitive catalog resolution before reflection, generation and dependency sorting; PostgreSQL names remain exact.
+
+Single-column literal CHECKs are intersected across `AND` terms and separate CHECK declarations. Strict numeric bounds retain their SQL meaning until the integer/float generator adapts them. Configured `constraints.min_value`, `max_value`, and `regex` are checked on non-NULL generated values; regex constraints match the whole string, and failures retry or backtrack within a finite budget.
+
+Float bounds are rounded inward to the generator's decimal precision grid, so `0.005 < x < 0.015` still allows `0.01` at precision 2. If enum literals have no exact intersection but SQL affinity/collation could make them equivalent, the original candidates are retained for database validation; this fallback does not guarantee every candidate satisfies every CHECK.
+
+Append generation checks candidate UNIQUE/primary-key tuples against existing rows without preloading the table. A reused seed can replay a long prefix of existing keys and exhaust the retry budget; that failure does not prove the key space is full.
 
 - Column `user_email` → Level 7 pattern `*_email` → `email` generator ✅
 - Column `is_verified` → Level 7 pattern `is_*` → `boolean` generator ✅
@@ -922,18 +1056,19 @@ What this means:
 
 ## 🧩 Plugin System
 
-sqlseed provides 11 hook points via [pluggy](https://pluggy.readthedocs.io/), covering the full data generation lifecycle:
+sqlseed provides 12 hook points via [pluggy](https://pluggy.readthedocs.io/), covering the full data generation lifecycle:
 
 | Hook | firstresult | Trigger |
 | :--- | :---------: | :------ |
 | `sqlseed_register_providers` |    <br />   | Register custom data providers |
 | `sqlseed_register_column_mappers` |    <br />   | Register custom column mapping rules |
 | `sqlseed_ai_analyze_table` |      ✓      | AI analyzes table schema (returns column config) |
+| `sqlseed_apply_ai_suggestions` |      ✓      | High-level AI mediation (orchestrator entry; implemented in `sqlseed_ai.ai_mediator`) |
 | `sqlseed_pre_generate_templates` |      ✓      | AI pre-computes candidate value pools |
 | `sqlseed_before_generate` |    <br />   | Before data generation loop |
 | `sqlseed_after_generate` |    <br />   | After data generation completes |
 | `sqlseed_transform_row` |    <br />   | Per-row transform (hot path, mind performance) |
-| `sqlseed_transform_batch` |    <br />   | Per-batch transform (supports chaining) |
+| `sqlseed_transform_batch` |    <br />   | Per-batch transform (same input batch; last non-`None` result wins) |
 | `sqlseed_before_insert` |    <br />   | Before each batch write to DB |
 | `sqlseed_after_insert` |    <br />   | After each batch write to DB |
 | `sqlseed_shared_pool_loaded` |    <br />   | After SharedPool registration (pool readable) |
@@ -946,36 +1081,48 @@ sqlseed provides 11 hook points via [pluggy](https://pluggy.readthedocs.io/), co
 src/sqlseed/
 ├── __init__.py              # Public API (fill, connect, fill_from_config, preview)
 ├── core/                    # ===== Core Orchestration =====
-│   ├── orchestrator.py      # DataOrchestrator main engine
+│   ├── orchestrator/        # DataOrchestrator package (4 mixins + 1 shared data module)
+│   │   ├── __init__.py
+│   │   ├── _common.py
+│   │   ├── _connection.py
+│   │   ├── _specs.py
+│   │   ├── _generation.py
+│   │   └── _query.py
 │   ├── mapper.py            # ColumnMapper 9-level strategy chain
 │   ├── schema.py            # SchemaInferrer — columns, indexes, distribution
 │   ├── relation.py          # RelationResolver + SharedPool — FK & cross-table sharing
 │   ├── column_dag.py        # ColumnDAG — column dependency graph + topological sort
 │   ├── expression.py        # ExpressionEngine — safe expressions (simpleeval + timeout)
 │   ├── constraints.py       # ConstraintSolver — unique backtracking
+│   ├── enrichment.py        # EnrichmentEngine — infer distribution from existing data
+│   ├── stream.py            # DataStream — streaming generation + constraint backtracking
 │   ├── transform.py         # TransformLoader — dynamic user script loading
 │   └── result.py            # GenerationResult dataclass
 ├── generators/              # ===== Generator Layer =====
 │   ├── _protocol.py         # DataProvider Protocol + UnknownGeneratorError
+│   ├── _dispatch.py         # GeneratorDispatchMixin.GENERATOR_MAP (35 types)
 │   ├── registry.py          # ProviderRegistry (entry-point auto-discovery)
 │   ├── base_provider.py     # Built-in base generators (zero dependencies)
 │   ├── faker_provider.py    # Faker adapter
-│   ├── mimesis_provider.py  # Mimesis adapter
-│   └── stream.py            # DataStream streaming + constraint backtracking
+│   └── mimesis_provider.py  # Mimesis adapter
 ├── database/                # ===== Database Layer =====
 │   ├── _protocol.py         # DatabaseAdapter Protocol (ColumnInfo, ForeignKeyInfo, IndexInfo)
-│   ├── sqlite_utils_adapter.py   # Default adapter
-│   ├── raw_sqlite_adapter.py     # sqlite3 fallback adapter
+│   ├── _base_adapter.py     # BaseRawSQLiteAdapter shared base
+│   ├── _dialect.py          # Dialect abstraction (SQLiteDialect/PostgresDialect)
+│   ├── _type_normalizer.py  # Cross-dialect type normalization
+│   ├── _bulk_optimizer.py   # Bulk write optimization (SQLite/Postgres)
+│   ├── _helpers.py          # Batch insert helpers
+│   ├── _sqlite_schema.py    # SQLite autoincrement detection (sqlite_master)
+│   ├── sqlalchemy_adapter.py    # Default adapter (SQLite/PostgreSQL)
+│   ├── raw_sqlite_adapter.py    # sqlite3 fallback adapter (test-only)
 │   └── optimizer.py         # PragmaOptimizer 3-tier optimization
 ├── plugins/                 # ===== Plugin Layer =====
-│   ├── hookspecs.py         # 11 pluggy hook definitions
+│   ├── hookspecs.py         # 12 pluggy hook definitions
 │   └── manager.py           # PluginManager
 ├── config/                  # ===== Config Management =====
 │   ├── models.py            # Pydantic models (GeneratorConfig/TableConfig/ColumnConfig)
 │   ├── loader.py            # YAML/JSON load & save
 │   └── snapshot.py          # Snapshot save & load
-├── cli/                     # ===== CLI =====
-│   └── main.py              # click commands (fill/preview/inspect/init/replay/ai-suggest)
 └── _utils/                  # ===== Internal Utilities =====
     ├── sql_safe.py          # quote_identifier — SQL injection protection
     ├── schema_helpers.py    # AUTOINCREMENT detection
@@ -985,10 +1132,12 @@ src/sqlseed/
     └── logger.py            # structlog logging
 
 plugins/
+├── sqlseed-cli/             # CLI plugin — click commands (fill/preview/inspect/init/replay)
+│   └── src/sqlseed_cli/     # Standalone package, separate pyproject.toml
 ├── sqlseed-ai/              # AI plugin — LLM-driven smart configuration
 │   └── src/sqlseed_ai/      # SchemaAnalyzer, AiConfigRefiner, few-shot examples...
 └── mcp-server-sqlseed/      # MCP server — AI assistant integration
-    └── src/mcp_server_sqlseed/   # FastMCP tools (sqlseed_inspect_schema/sqlseed_generate_yaml/sqlseed_execute_fill)
+    └── src/mcp_server_sqlseed/   # FastMCP tools (sqlseed_generate_yaml/sqlseed_execute_fill)
 ```
 
 ***
@@ -1000,13 +1149,13 @@ plugins/
 pytest
 
 # Lint
-ruff check src/ tests/
+ruff check src/ tests/ plugins/
 
 # Auto-fix
-ruff check --fix src/ tests/
+ruff check --fix src/ tests/ plugins/
 
-# Type check
-mypy src/sqlseed/
+# Type check (strict on src/ and plugins/ per pyproject.toml)
+mypy
 ```
 
 Tests cover all core modules, with path structure mirroring `src/`: `test_core/`, `test_database/`, `test_generators/`, `test_plugins/`, `test_config/`, `test_utils/`.
@@ -1015,13 +1164,14 @@ Tests cover all core modules, with path structure mirroring `src/`: `test_core/`
 
 | Package | Core Dependencies | Description |
 | :------ | :---------------- | :---------- |
-| `sqlseed` | sqlite-utils, pydantic, pluggy, structlog, pyyaml, click, rich, typing_extensions, simpleeval, **rstr** | rstr used for `pattern` generator regex matching |
-| `sqlseed[faker]` | + faker>=30.0 | Faker data engine |
+| `sqlseed` | sqlalchemy, pydantic, pluggy, structlog, pyyaml, faker, typing_extensions, simpleeval, **rstr** | faker is required core dep; rstr used for `pattern` generator regex matching |
 | `sqlseed[mimesis]` | + mimesis>=18.0 | Mimesis data engine (recommended) |
+| `sqlseed[postgres]` | + psycopg | PostgreSQL driver for SQLAlchemy |
 | `sqlseed[docs]` | + mkdocs-material, mkdocstrings | Documentation build |
+| `sqlseed-cli` | sqlseed, **click**, **rich** | CLI plugin — provides the `sqlseed` command (fill/preview/inspect/init/replay), auto-pulls sqlseed core |
 | `sqlseed-ai` | sqlseed, **openai>=1.0** | AI plugin (Gemma 4 Native Function Calling), auto-registered via entry-point |
-| `mcp-server-sqlseed` | sqlseed, **mcp>=1.0** | MCP server, standalone CLI tool |
-| `mcp-server-sqlseed[ai]` | + sqlseed-ai | MCP server with AI support |
+| `sqlseed-ai[mcp]` | + sqlseed-ai, **mcp>=1.0** | AI MCP server (4 LLM tools); install with `pip install "sqlseed-ai[mcp]"` |
+| `mcp-server-sqlseed` | sqlseed, **mcp>=1.0** | MCP server (2 core tools, no LLM), standalone CLI tool |
 
 ***
 

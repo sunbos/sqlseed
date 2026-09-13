@@ -1,0 +1,12 @@
+SOURCE: /tmp/sqlseed-core-review-main-976b605/src/sqlseed/__init__.py
+⠋ Generating nodes                                            0% 0/20 ? -:--:--
+CASE: unique_fk COUNT: 0 ERRORS: ['FOREIGN KEY constraint failed']
+NONNULL PARENTS: (0,)
+⠋ Generating nodes                                            0% 0/20 ? -:--:--
+CASE: composite_pk COUNT: 0 ERRORS: ['NOT NULL constraint failed: nodes.tenant']
+SELF LOOPS: (0,)
+PARENTS: []
+⠋ Generating nodes                                            0% 0/20 ? -:--:--
+CASE: composite_pk_check COUNT: 0 ERRORS: ['NOT NULL constraint failed: nodes.tenant']
+SELF LOOPS: (0,)
+PARENTS: []

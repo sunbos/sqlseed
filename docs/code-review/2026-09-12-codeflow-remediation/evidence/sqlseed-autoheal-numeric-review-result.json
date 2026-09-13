@@ -1,0 +1,27 @@
+{
+  "literal_count": 14029,
+  "counts": {
+    "accepted_ints": 2004,
+    "accepted_floats": 4229,
+    "declined": 7796,
+    "roundtrips": 6233
+  },
+  "failures": [],
+  "mixed_invalid_arrays": 18,
+  "boolean_kind_checks": {
+    "integer_boolean": [
+      "boolean",
+      {}
+    ],
+    "decimal_zero_one": [
+      "choice",
+      {
+        "choices": [
+          0.0,
+          1.0
+        ]
+      }
+    ]
+  },
+  "yaml_roundtrip_verified": true
+}

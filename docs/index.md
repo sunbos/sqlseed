@@ -1,9 +1,9 @@
 # sqlseed
 
-**Declarative SQLite test data generation toolkit.**
+**Declarative Multi-Database test data generation toolkit.**
 
-Generate realistic test data for SQLite databases using YAML/JSON config or Python API.
-Auto-infers schema, 9-level column mapping, 31 generators, plugin system (pluggy).
+Generate realistic test data for SQLite and PostgreSQL databases using YAML/JSON config or Python API.
+Auto-infers schema, 9-level column mapping, 36 generators, plugin system (pluggy).
 
 ## Quick Start
 
@@ -14,8 +14,18 @@ pip install sqlseed[mimesis]
 ```python
 from sqlseed import fill
 
+# SQLite (default)
 fill("app.db", table="users", count=100)
+
+# PostgreSQL (requires: pip install "sqlseed[postgres]")
+fill(
+    url="postgresql+psycopg://user:password@localhost:5432/mydb",
+    table="users",
+    count=100,
+)
 ```
+
+The same API works across SQLite and PostgreSQL — schema inference, FK resolution, expression engine, and plugin hooks all run identically.
 
 ## CLI
 
@@ -28,9 +38,9 @@ sqlseed inspect app.db --show-mapping
 ## Features
 
 - **9-level column mapping strategy** — auto-infers generators from column names
-- **31 built-in generators** — names, emails, phones, dates, UUIDs, and more
+- **36 built-in generators** — names, emails, phones, dates, UUIDs, and more
 - **Plugin system** — extend via pluggy hooks
-- **Expression engine** — derive columns from other columns (`derive_from` + `expression: "value[-8:]"`)
+- **Expression engine** — derive columns from other columns (`value.split('@')[1]`)
 - **AI-powered schema analysis** — Gemma 4 Native Function Calling (optional)
 
 ## Documentation
@@ -42,8 +52,8 @@ sqlseed inspect app.db --show-mapping
 
 | Command | Description |
 |---------|-------------|
-| `pip install sqlseed` | Base package |
+| `pip install sqlseed` | Base package (SQLite only) |
 | `pip install sqlseed[mimesis]` | + Mimesis data engine (recommended) |
-| `pip install sqlseed[faker]` | + Faker data engine |
-| `pip install sqlseed[all]` | All data engines + sqlite-utils + tqdm |
+| `pip install "sqlseed[postgres]"` | + PostgreSQL driver (psycopg) |
+| `pip install sqlseed[all]` | All data engines + all DB drivers (mimesis, psycopg) + tqdm + sqlseed-cli + testcontainers |
 | `pip install sqlseed[docs]` | mkdocs-material + mkdocstrings (this site) |

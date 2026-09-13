@@ -92,3 +92,36 @@ class TestExpressionEngine:
         assert "len" in engine.SAFE_FUNCTIONS
         assert "upper" in engine.SAFE_FUNCTIONS
         assert "replace" in engine.SAFE_FUNCTIONS
+
+    def test_timedelta_enables_date_arithmetic(self) -> None:
+        """timedelta allows adding days/seconds to a date source column.
+
+        Example: ``value + timedelta(days=7)`` advances the source date by a
+        week. The sandbox must expose ``timedelta`` so LLM-suggested date
+        arithmetic expressions evaluate without ``FunctionNotDefined``.
+        """
+        from datetime import date
+
+        engine = ExpressionEngine()
+        result = engine.evaluate("value + timedelta(days=7)", {"value": date(2026, 1, 1)})
+        assert result == date(2026, 1, 8)
+
+    def test_timedelta_seconds_unit_supported(self) -> None:
+        """timedelta(seconds=N) unit also supported for datetime arithmetic."""
+        from datetime import datetime
+
+        engine = ExpressionEngine()
+        result = engine.evaluate(
+            "value + timedelta(seconds=3600)",
+            {"value": datetime(2026, 1, 1, 12, 0, 0)},
+        )
+        assert result == datetime(2026, 1, 1, 13, 0, 0)
+
+    def test_safe_functions_count_is_26(self) -> None:
+        """SANITY: SAFE_FUNCTIONS contains exactly 26 entries (25 + timedelta).
+
+        This guards against accidental removal or duplication when adding
+        new functions. Update the expected count when adding new functions.
+        """
+        engine = ExpressionEngine()
+        assert len(engine.SAFE_FUNCTIONS) == 26

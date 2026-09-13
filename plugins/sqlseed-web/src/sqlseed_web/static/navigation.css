@@ -1,0 +1,92 @@
+/* Persistent application navigation; route motion never controls lifecycle. */
+html { overflow-y:scroll; }
+@supports(scrollbar-gutter:stable) {
+  html { overflow-y:auto; scrollbar-gutter:stable; }
+}
+body > header.top {
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);
+  align-items:center;
+  gap:24px;
+  height:67px;
+  padding:0 30px;
+}
+body > header.top > .brand { justify-self:start; min-width:0; }
+body > header.top > .top-end { justify-self:end; min-width:0; max-width:100%; margin-left:0; }
+body > header.top #connection-button { max-width:100%; }
+body > header.top #connection-label { min-width:0; }
+#nav {
+  display:flex;
+  align-items:center;
+  justify-self:center;
+  gap:4px;
+  height:auto;
+  padding:4px;
+  overflow:visible;
+}
+#nav button {
+  position:relative;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-height:40px;
+  padding:9px 14px;
+  border:0;
+  border-radius:8px;
+  background:transparent;
+  color:var(--muted);
+  font-size:13px;
+  font-weight:600;
+  line-height:20px;
+  white-space:nowrap;
+  transition:color 160ms ease-out,background-color 160ms ease-out;
+}
+#nav button::after {
+  content:'';
+  position:absolute;
+  bottom:4px;
+  left:calc(50% - 7px);
+  width:14px;
+  height:2px;
+  border-radius:999px;
+  background:transparent;
+  transition:background-color 160ms ease-out;
+}
+#nav button:hover { color:var(--ink); background:var(--wash); }
+#nav button.active { color:var(--teal); background:var(--soft); }
+#nav button.active::after { background:var(--teal); }
+#nav button:focus-visible { outline:2px solid var(--teal); outline-offset:2px; }
+#app > .page-enter { animation:page-enter 180ms ease-out; }
+@keyframes page-enter {
+  from { opacity:.65; }
+  to { opacity:1; }
+}
+@media(max-width:760px) {
+  body > header.top {
+    grid-template-columns:minmax(0,1fr) auto;
+    height:auto;
+    gap:0 12px;
+    padding:0 16px;
+  }
+  body > header.top > .brand { grid-column:1; grid-row:1; min-height:54px; }
+  body > header.top > .top-end { grid-column:2; grid-row:1; min-height:54px; }
+  #nav {
+    grid-column:1 / -1;
+    grid-row:2;
+    justify-self:stretch;
+    display:grid;
+    grid-template-columns:repeat(4,minmax(0,1fr));
+    min-height:54px;
+    padding:6px 4px 8px;
+    border-top:1px solid var(--line);
+  }
+  #nav button { min-width:0; width:100%; padding:9px 4px; }
+}
+@media(prefers-reduced-motion:reduce) {
+  #nav button,#nav button::after { transition:none; }
+  #app > .page-enter { animation:none; }
+}
+@media(forced-colors:active) {
+  #nav button.active::after { background:ButtonText; forced-color-adjust:none; }
+  #nav button:focus-visible { outline:2px solid Highlight; outline-offset:2px; }
+}

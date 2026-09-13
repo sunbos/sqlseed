@@ -1,67 +1,28 @@
-<!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-04-29 | Updated: 2026-04-29 -->
+# pluggy 基础设施
 
-# plugins
+本目录只定义 hook contract 与插件生命周期；具体 CLI、AI、MCP、Web 实现在仓库 `plugins/`，通用运行时 mediation 在 [../core/plugin_mediator.py](../core/plugin_mediator.py)。
 
-## Purpose
+## 入口与边界
 
-基于 pluggy 的插件框架集成。定义 hook 规范和管理插件生命周期。
+- [hookspecs.py](hookspecs.py)：`SqlseedHookSpec`、`hookspec`、`hookimpl`；保留 `PROJECT_NAME = "sqlseed"` namespace。
+- [manager.py](manager.py)：`PluginManager` 包装 pluggy；通过 `load_setuptools_entrypoints(PROJECT_NAME)` 自动发现插件，支持显式注册/注销。
+- 新 hook 先定义 specs 与调用时机，再更新实现和兼容测试；现有签名属于跨包契约，不能单改调用方。
+- 基础设施不导入具体插件；框架日志使用 `_utils.logger`。
 
-## Key Files
+## 返回值与调用约定
 
-| File | Description |
-|------|-------------|
-| `hookspecs.py` | `SqlseedHookSpec` hook 规范定义，`hookspec`/`hookimpl` 标记 |
-| `manager.py` | `PluginManager` 封装 pluggy.PluginManager，自动发现和注册插件 |
+- `firstresult=True` 返回第一个非 `None` 结果；当前用于 `sqlseed_ai_analyze_table`、`sqlseed_apply_ai_suggestions`、`sqlseed_pre_generate_templates`。
+- 其他 hook 返回 `list[result]`，不要按单个 mapping 或单个 batch 处理。
+- `PluginMediator.apply_batch_transforms()` 取结果列表中最后一个非 `None` 结果，全部为 `None` 则保留输入 batch。各插件收到同一个 batch 参数；当前实现不把上个返回值作为下个入参，也不累加结果。
+- `sqlseed_transform_row` 是 per-row hot path；不要引入昂贵初始化或额外数据库扫描。
+- `sqlseed_register_providers` / `sqlseed_register_column_mappers` 在连接初始化调用；避免要求每批重新注册。
+- `sqlseed_before_generate` / `sqlseed_after_generate` 围绕生成；`sqlseed_before_insert` / `sqlseed_after_insert` 围绕 batch 写入；`sqlseed_shared_pool_loaded` 在 shared pool 注册后调用。
+- AI-specific suggestion 实现留在 `sqlseed-ai`；core 只用 hookspec，`PluginMediator` 保持 batch transform / template pool 通用职责。
 
-## Hook 完整列表（11 个）
+## 验证与同步
 
-| # | Hook 名称 | firstresult | 签名 |
-|---|-----------|-------------|------|
-| 1 | `sqlseed_register_providers` | 否 | `(self, registry: Any) -> None` |
-| 2 | `sqlseed_register_column_mappers` | 否 | `(self, mapper: Any) -> None` |
-| 3 | `sqlseed_ai_analyze_table` | **是** | `(self, table_name, columns, indexes, sample_data, foreign_keys, all_table_names) -> dict | None` |
-| 4 | `sqlseed_before_generate` | 否 | `(self, table_name, count, config) -> None` |
-| 5 | `sqlseed_after_generate` | 否 | `(self, table_name, count, elapsed) -> None` |
-| 6 | `sqlseed_transform_row` | 否 | `(self, table_name, row) -> dict | None` |
-| 7 | `sqlseed_transform_batch` | 否 | `(self, table_name, batch) -> list | None` |
-| 8 | `sqlseed_before_insert` | 否 | `(self, table_name, batch_number, batch_size) -> None` |
-| 9 | `sqlseed_after_insert` | 否 | `(self, table_name, batch_number, rows_inserted) -> None` |
-| 10 | `sqlseed_shared_pool_loaded` | 否 | `(self, table_name, shared_pool) -> None` |
-| 11 | `sqlseed_pre_generate_templates` | **是** | `(self, table_name, column_name, column_type, count, sample_data) -> list | None` |
+命令从仓库根执行。
 
-- `sqlseed_transform_row` 标记为 "hot path - performance sensitive"
-- `sqlseed_transform_batch` 支持链式应用：每个插件的输出作为下一个插件的输入
-
-## For AI Agents
-
-### Working In This Directory
-
-- 新增 hook 需在 `SqlseedHookSpec` 中定义，并更新 `hookimpl` 标记
-- hook 签名变更需考虑已有插件的兼容性，应提供过渡期
-- `PROJECT_NAME = "sqlseed"` 是 pluggy 命名空间，不要修改
-- 插件通过 `sqlseed` entry_points 自动发现（如 sqlseed-ai 的 `ai = sqlseed_ai:plugin`）
-
-### Testing Requirements
-
-```bash
-pytest tests/test_plugins/
-```
-
-### Common Patterns
-
-- Hook 规范与实现解耦：`SqlseedHookSpec` 定义接口，插件通过 `@hookimpl` 实现
-- `PluginManager` 通过 `importlib.metadata` 扫描 entry_points 自动注册
-- `firstresult=True` 的 hook 只取第一个非 None 结果
-
-## Dependencies
-
-### Internal
-
-- 无（框架层，不依赖其他内部模块）
-
-### External
-
-- `pluggy>=1.3` — 插件框架
-
-<!-- MANUAL: Any manually added notes below this line are preserved on regeneration -->
+- `pytest tests/test_plugins/ tests/test_core/test_plugin_mediator.py`：用真实 pluggy 检查注册、发现、返回值及 mediator。
+- hookspec 修改同步 README、CLAUDE 与 [docs/architecture.md](../../../docs/architecture.md) 的 hook 表；本文件的返回值列表也需核对。
+- 执行 `python scripts/sync_docs.py`、`pytest tests/test_doc_sync.py tests/test_architecture.py`，不要手改 AUTO-GENERATED count markers。

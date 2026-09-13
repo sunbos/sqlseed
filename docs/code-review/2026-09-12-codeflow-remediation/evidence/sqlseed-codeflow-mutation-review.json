@@ -1,0 +1,285 @@
+{
+  "reviewer": "/root/review_core_refactors",
+  "reviewed_at_utc": "2026-09-12T12:23:27.636935+00:00",
+  "head": "5b0dd07231d7ed9fbc33f924087e1e9dda878100",
+  "source": "/Users/sunbo/Desktop/sqlseed/src/sqlseed/core/unique_adjuster.py",
+  "source_sha256": "3722238418f26a9918c818e8b54f52e961339a2338424c4c70c49ea68a437b36",
+  "inputs": [
+    "/tmp/sqlseed-codeflow-mutation-final-diffs.txt",
+    "/tmp/sqlseed-codeflow-mutation-final-results.txt"
+  ],
+  "survivor_ids": [
+    87,
+    88,
+    91,
+    103,
+    117,
+    133,
+    152,
+    190
+  ],
+  "decision": "Accept all eight as individually reviewed survivors; no remaining demonstrated contract violation or required new behavioral test identified.",
+  "strict_equivalence_claim": false,
+  "diagnostic_classification": "Six diagnostic text changes: five ConfigurationError string fragments/messages and one debug-log string; they are not all logs.",
+  "scope": "Read-only review of source/tests/guidance. Compiled baseline and mutants 91/103 only in memory. No repository edits, mutmut apply, threshold changes, exclusion/suppression changes or whole-suite rerun.",
+  "items": [
+    {
+      "id": 87,
+      "file": "/Users/sunbo/Desktop/sqlseed/src/sqlseed/core/unique_adjuster.py",
+      "line": 163,
+      "category": "diagnostic_text",
+      "kind": "ConfigurationError message",
+      "change": "Adds XX around the first degenerate-string capacity diagnostic fragment.",
+      "strictly_equivalent": false,
+      "accept_as_reviewed_survivor": true,
+      "reason": "Observable diagnostic text differs, but interpolation values, exception type/trigger/timing, control flow, generated parameters and database behavior are unchanged. Existing behavioral tests check rejection/capacity/resource outcomes; exact XX-free message snapshots solely to kill this mutant are not warranted.",
+      "verification": "Independent source/diff inspection; no synthetic exact-message test added."
+    },
+    {
+      "id": 88,
+      "file": "/Users/sunbo/Desktop/sqlseed/src/sqlseed/core/unique_adjuster.py",
+      "line": 164,
+      "category": "diagnostic_text",
+      "kind": "ConfigurationError message",
+      "change": "Adds XX around the length-interval diagnostic fragment.",
+      "strictly_equivalent": false,
+      "accept_as_reviewed_survivor": true,
+      "reason": "Observable diagnostic text differs, but interpolation values, exception type/trigger/timing, control flow, generated parameters and database behavior are unchanged. Existing behavioral tests check rejection/capacity/resource outcomes; exact XX-free message snapshots solely to kill this mutant are not warranted.",
+      "verification": "Independent source/diff inspection; no synthetic exact-message test added."
+    },
+    {
+      "id": 91,
+      "file": "/Users/sunbo/Desktop/sqlseed/src/sqlseed/core/unique_adjuster.py",
+      "line": 168,
+      "category": "sampling_headroom",
+      "change": "count * count * 50 -> count * count * 51",
+      "strictly_equivalent": false,
+      "accept_as_reviewed_survivor": true,
+      "counterexample": {
+        "input": {
+          "count": 9,
+          "params": {
+            "charset": "01",
+            "min_length": 1,
+            "max_length": 1
+          },
+          "ddl": "CREATE TABLE items(code TEXT NOT NULL UNIQUE)"
+        },
+        "outcomes": {
+          "baseline": {
+            "params": {
+              "charset": "01",
+              "min_length": 12,
+              "max_length": 12
+            },
+            "count": 9,
+            "errors": [],
+            "unique_count": 9,
+            "lengths": [
+              12
+            ],
+            "values": [
+              "010000010000",
+              "001011001110",
+              "100101110101",
+              "110000100011",
+              "101101000011",
+              "010001110010",
+              "110100111100",
+              "000001011110",
+              "110110101001"
+            ]
+          },
+          "91": {
+            "params": {
+              "charset": "01",
+              "min_length": 13,
+              "max_length": 13
+            },
+            "count": 9,
+            "errors": [],
+            "unique_count": 9,
+            "lengths": [
+              13
+            ],
+            "values": [
+              "0100000100000",
+              "0101100111001",
+              "0101110101011",
+              "0001000111101",
+              "0100001110100",
+              "1110010111010",
+              "1111001000001",
+              "1111001101101",
+              "1001001001100"
+            ]
+          }
+        }
+      },
+      "reason": "The sampling headroom target increases by 2%. At a logarithmic threshold this changes selected minimum/maximum length and seeded output, but it does not reduce domain capacity. Existing schema hard upper bounds are still clamped, and nullable/finite-domain rejection rules are unchanged. No documented exact-50 public contract or actual UNIQUE/CHECK violation was found.",
+      "test_recommendation": "Do not require an exact factor-50/minimum-width snapshot merely to kill this survivor. Tests asserting legal character domain, sufficient capacity, schema bounds and successful requested UNIQUE rows are meaningful; both versions satisfy those contracts in the independent probes.",
+      "limits": "Acceptance concerns this surviving mutant assessment; it does not claim identical output or recommend applying the mutant."
+    },
+    {
+      "id": 103,
+      "file": "/Users/sunbo/Desktop/sqlseed/src/sqlseed/core/unique_adjuster.py",
+      "line": 177,
+      "category": "bounded_capacity_equality",
+      "change": "count <= longest_capacity -> count < longest_capacity",
+      "strictly_equivalent": false,
+      "accept_as_reviewed_survivor": true,
+      "counterexample": {
+        "input": {
+          "count": 4,
+          "params": {
+            "charset": "01",
+            "min_length": 1,
+            "max_length": 2
+          },
+          "ddl": "CREATE TABLE items(code TEXT NOT NULL UNIQUE CHECK(length(code) BETWEEN 1 AND 2))"
+        },
+        "outcomes": {
+          "baseline": {
+            "params": {
+              "charset": "01",
+              "min_length": 2,
+              "max_length": 2
+            },
+            "count": 4,
+            "errors": [],
+            "unique_count": 4,
+            "lengths": [
+              2
+            ],
+            "values": [
+              "01",
+              "00",
+              "10",
+              "11"
+            ]
+          },
+          "103": {
+            "params": {
+              "charset": "01",
+              "min_length": 1,
+              "max_length": 2
+            },
+            "count": 4,
+            "errors": [],
+            "unique_count": 4,
+            "lengths": [
+              1,
+              2
+            ],
+            "values": [
+              "0",
+              "00",
+              "1",
+              "11"
+            ]
+          }
+        }
+      },
+      "reason": "Only equality takes a different branch. With charset size b >= 2, valid interval [m,M], and count = b**M, the full-domain capacity sum(b**k for k=m..M) is at least count. Thus the mutant cannot newly reject a valid nonnullable request at this boundary; it retains shorter already-allowed lengths instead of narrowing to the longest length. Fixed-width intervals remain unchanged. UNIQUE, hard length and nullable contracts still hold.",
+      "test_recommendation": "An integration test at equality can legitimately assert requested row count, distinctness and allowed length interval, but will not distinguish these implementations. Requiring every generated value to have maximum width when shorter widths are explicitly allowed would add a new distribution/normalization requirement solely to kill the mutant.",
+      "limits": "Generated rows and sampling distribution differ for variable-width intervals. No strict equivalence is claimed."
+    },
+    {
+      "id": 117,
+      "file": "/Users/sunbo/Desktop/sqlseed/src/sqlseed/core/unique_adjuster.py",
+      "line": 183,
+      "category": "diagnostic_text",
+      "kind": "ConfigurationError message",
+      "change": "Adds XX around the bounded-string capacity diagnostic.",
+      "strictly_equivalent": false,
+      "accept_as_reviewed_survivor": true,
+      "reason": "Observable diagnostic text differs, but interpolation values, exception type/trigger/timing, control flow, generated parameters and database behavior are unchanged. Existing behavioral tests check rejection/capacity/resource outcomes; exact XX-free message snapshots solely to kill this mutant are not warranted.",
+      "verification": "Independent source/diff inspection; no synthetic exact-message test added."
+    },
+    {
+      "id": 133,
+      "file": "/Users/sunbo/Desktop/sqlseed/src/sqlseed/core/unique_adjuster.py",
+      "line": 195,
+      "category": "diagnostic_text",
+      "kind": "debug log message",
+      "change": "Adds XX around the sampling-expansion debug message.",
+      "strictly_equivalent": false,
+      "accept_as_reviewed_survivor": true,
+      "reason": "Observable diagnostic text differs, but interpolation values, exception type/trigger/timing, control flow, generated parameters and database behavior are unchanged. Existing behavioral tests check rejection/capacity/resource outcomes; exact XX-free message snapshots solely to kill this mutant are not warranted.",
+      "verification": "Independent source/diff inspection; no synthetic exact-message test added."
+    },
+    {
+      "id": 152,
+      "file": "/Users/sunbo/Desktop/sqlseed/src/sqlseed/core/unique_adjuster.py",
+      "line": 218,
+      "category": "diagnostic_text",
+      "kind": "ConfigurationError message",
+      "change": "Adds XX around the disjoint schema/string-length diagnostic.",
+      "strictly_equivalent": false,
+      "accept_as_reviewed_survivor": true,
+      "reason": "Observable diagnostic text differs, but interpolation values, exception type/trigger/timing, control flow, generated parameters and database behavior are unchanged. Existing behavioral tests check rejection/capacity/resource outcomes; exact XX-free message snapshots solely to kill this mutant are not warranted.",
+      "verification": "Independent source/diff inspection; no synthetic exact-message test added."
+    },
+    {
+      "id": 190,
+      "file": "/Users/sunbo/Desktop/sqlseed/src/sqlseed/core/unique_adjuster.py",
+      "line": 281,
+      "category": "diagnostic_text",
+      "kind": "ConfigurationError message",
+      "change": "Adds XX around the integer capacity diagnostic.",
+      "strictly_equivalent": false,
+      "accept_as_reviewed_survivor": true,
+      "reason": "Observable diagnostic text differs, but interpolation values, exception type/trigger/timing, control flow, generated parameters and database behavior are unchanged. Existing behavioral tests check rejection/capacity/resource outcomes; exact XX-free message snapshots solely to kill this mutant are not warranted.",
+      "verification": "Independent source/diff inspection; no synthetic exact-message test added."
+    }
+  ],
+  "independent_evidence": {
+    "probe_artifact": "/tmp/sqlseed-codeflow-mutation-probe.json",
+    "bounded_matrix": {
+      "input_cases": 1578,
+      "variant_evaluations": 4734,
+      "base_sizes": [
+        2,
+        3,
+        4,
+        5
+      ],
+      "length_upper_range": [
+        0,
+        5
+      ],
+      "null_ratios": [
+        0,
+        0.5,
+        1
+      ],
+      "differences_from_baseline": {
+        "91": 0,
+        "103": 180
+      },
+      "contract_violations": 0,
+      "oracles": [
+        "exact full-interval capacity",
+        "ConfigurationError iff nonnullable count exceeds capacity",
+        "schema length intersection",
+        "remaining nonnullable capacity >= count",
+        "null_ratio preserved",
+        "input spec parameters unchanged"
+      ]
+    },
+    "real_sqlite_runs": 4,
+    "all_real_sqlite_runs_passed": true,
+    "large_tests_rerun": false
+  },
+  "coverage_review": [
+    "tests/test_core/test_unique_adjuster.py checks computed parameters, exact finite capacities, alphabet aliases, schema intersection, nullable handling and huge integer capacity boundaries.",
+    "tests/test_core/test_unique_string_capacity.py uses real SQLite for UNIQUE cardinality, CHECK hard bounds, impossible-domain pre-clear rejection, nullable repetition and degenerate charsets.",
+    "Read src/sqlseed/core/AGENTS.md and tests/test_core/AGENTS.md; did not reinterpret their mutation guidance as a requirement to snapshot arbitrary diagnostic wording or sampling constants."
+  ],
+  "limitations": [
+    "This is a manual survivor disposition, not a zero-survivor or perfect-test-suite claim.",
+    "Bounded matrix is finite (alphabet cardinalities 2..5, upper length 0..5, three null ratios and capacity-boundary counts); mathematical reasoning covers the equality branch for valid intervals.",
+    "No real PostgreSQL or performance benchmark was run.",
+    "Current source was not changed; this review does not authorize applying the mutants or changing seeded-output behavior."
+  ]
+}

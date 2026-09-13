@@ -1,0 +1,931 @@
+"""Data stream generator for batch generation with constraint backtracking."""
+
+from __future__ import annotations
+
+import operator
+import random
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
+
+from sqlseed._utils.logger import get_logger
+from sqlseed._utils.type_checks import has_exact_type
+from sqlseed.generators._protocol import ConfigurationError, GenerationError, UnknownGeneratorError
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterator
+
+    from sqlseed.core.column_dag import ColumnNode
+    from sqlseed.core.constraints import ConstraintSolver, RegisterResult
+    from sqlseed.core.expression import ExpressionEngine
+    from sqlseed.core.mapper import GeneratorSpec
+    from sqlseed.core.transform import RowTransformFn
+
+_NATIVE_MISS = object()
+_ORDER_COMPARISONS = {">": operator.gt, "<": operator.lt, ">=": operator.ge, "<=": operator.le}
+logger = get_logger(__name__)
+
+# Maximum total retries for a single row before giving up. When backtracking
+# is triggered (a derived column's source values conflict with a UNIQUE
+# constraint), the retry counter is incremented. 1000 is generous enough to
+# resolve realistic UNIQUE conflicts on small-to-medium value spaces while
+# bounding the worst-case cost per row.
+MAX_ROW_RETRIES = 1000
+
+
+class GenerationBudgetExceededError(RuntimeError):
+    """The caller's optional stream-wide attempt budget has been consumed."""
+
+    def __init__(self, limit: int, *, table: str | None, column: str | None, generator: str | None) -> None:
+        self.limit = limit
+        self.table = table
+        self.column = column
+        self.generator = generator
+        context = f" for table {table!r}" if table is not None else ""
+        if column is not None:
+            context += f", column {column!r} (generator={generator!r})"
+        else:
+            context += " during a row attempt (no generated column)"
+        super().__init__(
+            f"Generation attempt budget exhausted after {limit} attempts{context}. "
+            "The budget counts row attempts and column candidates; it does not prove the value space is exhausted."
+        )
+
+
+class GenerationCancelledError(RuntimeError):
+    """A cooperative cancellation guard stopped generation.
+
+    ``reason`` retains the caller's exception for boundary layers to propagate.
+    """
+
+    def __init__(self, reason: Exception) -> None:
+        super().__init__("Generation cancelled by the caller")
+        self.reason = reason
+
+
+@dataclass
+class _RowReservations:
+    """Own the current row's accepted keys until finalization or rollback."""
+
+    row: dict[str, Any]
+    generated_values: dict[str, Any]
+    composites: list[tuple[str, tuple[Any, ...]]] = field(default_factory=list)
+
+    def rollback(self, solver: ConstraintSolver) -> None:
+        """Release accepted composite keys before this row's single-column keys."""
+        for key, values in self.composites:
+            solver.unregister_composite(key, values)
+        self.composites.clear()
+        for column, value in self.generated_values.items():
+            solver.unregister(column, value)
+        self.generated_values.clear()
+        self.row.clear()
+
+
+def _violates_inequality(v1: Any, v2: Any, op: str, col1: str, col2: str) -> bool:
+    """Evaluate whether a cross-column CHECK ``col1 OP col2`` is violated.
+
+    Raises:
+        ConfigurationError: When the two columns yield values Python cannot
+            compare. The realistic trigger is assigning the ``time`` generator
+            to one side of a ``DATETIME`` pair, so the CHECK ends up evaluating
+            ``datetime >= time``. That is a configuration mistake, never a
+            transient one, so it must surface immediately — otherwise the
+            stream silently burns its 1000-retry budget and reports a generic
+            "constraint violated" instead of the real cause.
+    """
+    if op not in ("!=", ">", "<", ">=", "<="):
+        return False
+    try:
+        if op == "!=":
+            return bool(v1 == v2)
+        return not _ORDER_COMPARISONS[op](v1, v2)
+    except TypeError as err:
+        raise ConfigurationError(
+            f"cross-column CHECK '{col1} {op} {col2}' cannot be enforced: "
+            f"'{col1}' produced {type(v1).__name__} ({v1!r}) while '{col2}' "
+            f"produced {type(v2).__name__} ({v2!r}), and Python cannot compare "
+            "these types. Use generators that yield comparable types on both "
+            "sides — e.g. do not put the `time` generator on one column of a "
+            "DATETIME pair, or `date` against `datetime`."
+        ) from err
+
+
+class DataStream:
+    """Batch data stream generator.
+
+    Generates data column by column following the DAG node order, and uses a
+    constraint solver to enforce uniqueness constraints with a backtracking mechanism:
+    when a derived column conflicts, the already-generated values of its source columns
+    are rolled back and regenerated until the constraints are satisfied or the maximum
+    number of retries is reached.
+    """
+
+    def __init__(
+        self,
+        dag_nodes: list[ColumnNode],
+        provider: Any,
+        expr_engine: ExpressionEngine,
+        constraint_solver: ConstraintSolver,
+        transform_fn: RowTransformFn | None = None,
+        seed: int | None = None,
+        composite_unique_constraints: list[list[str]] | None = None,
+        inequality_constraints: list[tuple[str, str, str]] | list[tuple[str, str]] | None = None,
+        *,
+        max_attempts: int | None = None,
+        cancel_check: Callable[[], None] | None = None,
+        table_name: str | None = None,
+    ) -> None:
+        """Initialize the data stream.
+
+        Args:
+            dag_nodes: List of column DAG nodes that determines column generation order.
+            provider: Data provider instance used to generate column values.
+            expr_engine: Expression engine used to evaluate derived columns.
+            constraint_solver: Constraint solver used for uniqueness constraints and backtracking.
+            transform_fn: Optional row transform function applied when finalizing a row.
+            seed: Random seed. When set, it is also synchronized to the provider.
+            composite_unique_constraints: Optional list of column-name lists, each
+                representing one composite UNIQUE constraint (e.g.,
+                ``UNIQUE(a, b)`` → ``[['a', 'b']]``). After each row is generated,
+                the composite tuple is checked against the constraint solver and
+                registered. Collisions trigger row-level backtracking.
+            inequality_constraints: Optional list of (col1, col2, op) tuples
+                extracted from CHECK constraints of the form ``col1 OP col2``
+                where OP is one of ``!=``, ``>``, ``<``, ``>=``, ``<=``.
+                After each row is generated, if the comparison is violated,
+                the row is rolled back and retried. This prevents batch-level
+                CHECK constraint failures when both columns are independently
+                sampled (e.g., start_time and end_time with LIKE constraints
+                that block derive_from, or origin_wh_id and dest_wh_id both
+                referencing warehouses with ``CHECK(origin_wh_id != dest_wh_id)``).
+            max_attempts: Optional positive stream-wide budget. Each row attempt
+                and each column candidate consumes one unit, across batches and
+                repeated ``generate`` calls. None preserves normal retry limits.
+            cancel_check: Optional cooperative guard. Exceptions stop generation
+                as ``GenerationCancelledError`` with the original exception as reason.
+                Checked between attempts and around transforms; cannot interrupt
+                a provider or expression while its call is running.
+            table_name: Optional diagnostic context; never includes row values.
+        """
+        if max_attempts is not None and (not has_exact_type(max_attempts, int) or max_attempts <= 0):
+            raise ValueError("max_attempts must be a positive integer or None")
+        self._max_attempts = max_attempts
+        self._attempts = 0
+        self._cancel_check = cancel_check
+        self._table_name = table_name
+        self._last_attempt_node: ColumnNode | None = None
+        self._last_row_registrations: dict[str, Any] = {}
+        self._selected_fk_pairs: dict[str, tuple[Any, Any]] = {}
+        self._nodes = dag_nodes
+        self._provider = provider
+        self._expr_engine = expr_engine
+        self._constraint_solver = constraint_solver
+        self._transform_fn = transform_fn
+        # Normalize composite UNIQUE constraints: skip any that contain columns
+        # not present in the DAG (e.g., autoincrement PKs that are skipped).
+        # Build a list of (key_name, column_list) pairs for fast lookup.
+        node_names = {n.name for n in dag_nodes}
+        self._configure_composite_constraints(node_names, composite_unique_constraints)
+        self._configure_inequality_constraints(node_names, inequality_constraints)
+
+        self._rng = random.Random(seed)
+        if seed is not None:
+            self._provider.set_seed(seed)
+        # FK coverage 采样策略的每列状态：spec 身份 → 待弹出的父值队列。
+        # 队列打乱后逐个弹出，弹尽后重新打乱——保证每个父值在一轮内被
+        # 引用恰好一次（覆盖式），轮与轮之间顺序随机。
+        self._coverage_queues: dict[int, list[Any]] = {}
+
+    def _configure_composite_constraints(
+        self, node_names: set[str], composite_unique_constraints: list[list[str]] | None
+    ) -> None:
+        """Retain enforceable column lists and their unambiguous composite keys."""
+        self._composite_unique: list[tuple[str, list[str]]] = []
+        if composite_unique_constraints:
+            for cols in composite_unique_constraints:
+                if not isinstance(cols, list) or len(cols) < 2:
+                    continue
+                # Only keep constraints whose columns are all in the DAG —
+                # constraints referencing skipped columns (e.g., autoincrement
+                # PKs) can't be enforced at the row level.
+                if all(c in node_names for c in cols):
+                    # Preserve column boundaries: (a_b, c) and (a, b_c)
+                    # must never share a seen set.
+                    key_name = f"__composite__{tuple(cols)!r}"
+                    self._composite_unique.append((key_name, cols))
+
+    def _configure_inequality_constraints(
+        self,
+        node_names: set[str],
+        inequality_constraints: list[tuple[str, str, str]] | list[tuple[str, str]] | None,
+    ) -> None:
+        """Keep DAG-local comparisons, preserving the legacy two-column form."""
+        self._inequality: list[tuple[str, str, str]] = []
+        if inequality_constraints:
+            for item in inequality_constraints:
+                if len(item) == 3:
+                    col1, col2, op = item
+                elif len(item) == 2:
+                    # Backwards-compatible: 2-tuple defaults to != operator
+                    col1, col2, op = item[0], item[1], "!="
+                else:
+                    continue
+                if col1 in node_names and col2 in node_names:
+                    self._inequality.append((col1, col2, op))
+
+    def _check_cancelled(self) -> None:
+        if self._cancel_check is not None:
+            try:
+                self._cancel_check()
+            except GenerationCancelledError:
+                raise
+            except Exception as exc:
+                raise GenerationCancelledError(exc) from exc
+
+    def _consume_attempt(self, node: ColumnNode | None = None) -> None:
+        self._check_cancelled()
+        if node is not None:
+            self._last_attempt_node = node
+        if self._max_attempts is None:
+            return
+        if self._attempts >= self._max_attempts:
+            last = self._last_attempt_node
+            raise GenerationBudgetExceededError(
+                self._max_attempts,
+                table=self._table_name,
+                column=last.name if last is not None else None,
+                generator=last.generator_spec.generator_name if last is not None else None,
+            )
+        self._attempts += 1
+
+    def generate(
+        self,
+        count: int,
+        batch_size: int = 5000,
+    ) -> Iterator[list[dict[str, Any]]]:
+        """Generate data in batches, yielding one batch at a time.
+
+        Args:
+            count: Total number of rows to generate.
+            batch_size: Number of rows per batch. Defaults to 5000.
+
+        Yields:
+            A list of generated rows for each batch. Each row is a dict mapping column names to values.
+        """
+        if not has_exact_type(batch_size, int) or batch_size <= 0:
+            raise ValueError("batch_size must be a positive integer")
+        generated = 0
+        while generated < count:
+            current_batch_size = min(batch_size, count - generated)
+            batch = []
+            registrations: list[dict[str, Any]] = []
+            try:
+                for i in range(current_batch_size):
+                    batch.append(self._generate_row(row_idx=generated + i + 1))
+                    registrations.append(self._last_row_registrations)
+            except BaseException:
+                # None of this batch has been delivered. Use the original
+                # registered values, since transforms may mutate returned rows.
+                for values in registrations:
+                    self._unregister_row(values)
+                raise
+            registrations.clear()
+            self._last_row_registrations = {}
+            yield batch
+            generated += current_batch_size
+
+    def _unregister_row(self, values: dict[str, Any]) -> None:
+        for key_name, cols in self._composite_unique:
+            self._constraint_solver.unregister_composite(key_name, tuple(values.get(c) for c in cols))
+        for column, value in values.items():
+            self._constraint_solver.unregister(column, value)
+
+    def _generate_node_value(
+        self,
+        node: ColumnNode,
+        row: dict[str, Any],
+        *,
+        exclude_values: set[Any] | None = None,
+    ) -> Any:
+        """Generate the value for a single node.
+
+        Derived columns are evaluated via the expression engine; other columns are
+        generated by invoking the provider according to the generator spec. Expression
+        evaluation failures raise ``GenerationError`` or ``ConfigurationError``.
+
+        Args:
+            node: The current column node.
+            row: The currently generated row data.
+            exclude_values: Optional set of values to avoid (UNIQUE-constrained
+                columns). Passed through to ``_apply_generator`` so the dispatch
+                layer can retry-with-exclude. ``None`` for non-UNIQUE columns or
+                derived columns (which don't call the generator).
+
+        Returns:
+            The value generated for the node.
+        """
+        if node.is_derived and node.expression:
+            return self._evaluate_derived_expression(node.expression, node.derive_from_sources, row)
+
+        spec = node.generator_spec
+        pairs = spec.params.get("_ref_pairs")
+        pair_source = spec.params.get("_pair_source")
+        if pairs:
+            return self._select_fk_pair(node, pairs, exclude_values)
+        if isinstance(pair_source, str) and pair_source in self._selected_fk_pairs:
+            if node.nullable and spec.null_ratio > 0 and self._rng.random() < spec.null_ratio:
+                return None
+            return self._selected_fk_pairs[pair_source][1]
+
+        try:
+            return self._apply_generator(node.generator_spec, exclude_values=exclude_values, nullable=node.nullable)
+        except (TypeError, AttributeError) as exc:
+            raise ConfigurationError(f"Generator '{node.generator_spec.generator_name}' misconfigured: {exc}") from exc
+        except (ValueError, OverflowError) as exc:
+            raise GenerationError(f"Generator '{node.generator_spec.generator_name}' value error: {exc}") from exc
+
+    def _select_fk_pair(self, node: ColumnNode, pairs: Any, exclude_values: set[Any] | None) -> Any:
+        """Reserve a complete parent pair before sampling nullability for its first column."""
+        spec = node.generator_spec
+        available = [pair for pair in pairs if pair[0] not in exclude_values] if exclude_values else pairs
+        candidates = available or pairs
+        if not exclude_values and spec.params.get("strategy") == "coverage":
+            pair = self._coverage_pick(spec, candidates)
+        else:
+            pair = self._rng.choice(candidates)
+        self._selected_fk_pairs[node.name] = pair
+        if node.nullable and spec.null_ratio > 0 and self._rng.random() < spec.null_ratio:
+            return None
+        return pair[0]
+
+    def _evaluate_derived_expression(self, expression: str, sources: list[str], row: dict[str, Any]) -> Any:
+        """Evaluate explicit derive sources with the established scalar/list context.
+
+        Implicit row references affect DAG ordering without changing ``value``.
+        Expression syntax/value failures remain retriable; type and attribute
+        failures remain configuration errors.
+        """
+        if len(sources) <= 1:
+            context = {"row": row, "value": row.get(sources[0]) if sources else None}
+        else:
+            context = {"row": row, "value": [row.get(source) for source in sources]}
+        try:
+            return self._expr_engine.evaluate(expression, context)
+        except (ValueError, SyntaxError) as exc:
+            raise GenerationError(f"Expression evaluation failed: {exc}") from exc
+        except (TypeError, AttributeError) as exc:
+            raise ConfigurationError(f"Expression misconfigured: {exc}") from exc
+
+    def _rollback_source_columns(
+        self, source_columns: list[str], row: dict[str, Any], generated_values: dict[str, Any]
+    ) -> None:
+        """Roll back the already-generated values of source columns.
+
+        Unregisters the source columns' registered values from the constraint solver
+        and removes them from ``row`` and ``generated_values``.
+
+        Args:
+            source_columns: List of source column names to roll back.
+            row: The current row data.
+            generated_values: The current generated-values dict.
+        """
+        for bt_col in source_columns:
+            if bt_col in generated_values:
+                self._constraint_solver.unregister(bt_col, generated_values[bt_col])
+                del generated_values[bt_col]
+                row.pop(bt_col, None)
+
+    def _attempt_node_generation(
+        self, node: ColumnNode, row: dict[str, Any], generated_values: dict[str, Any]
+    ) -> tuple[bool, int | None]:
+        """Attempt to generate a node value and register it with the constraint solver.
+
+        Retries generation up to the maximum retry count until registration succeeds
+        or backtracking is triggered. If backtracking is triggered, the target node
+        index is returned; if retries are exhausted, failure is returned.
+
+        Args:
+            node: The current column node.
+            row: The current row data.
+            generated_values: The current generated-values dict.
+
+        Returns:
+            A tuple ``(success, backtrack_to)`` where ``success`` indicates whether
+            generation succeeded and ``backtrack_to`` is the target node index for
+            backtracking or ``None``.
+        """
+        col_name = node.name
+        max_retries = node.constraints.max_retries if node.constraints else 100
+        is_unique = node.constraints.is_unique if node.constraints else False
+        # Backtracking rolls back only the EXPLICIT derive_from sources,
+        # not implicit row['col_name'] references (those are independent
+        # columns that should not be regenerated when a derived column
+        # fails constraint registration).
+        source_columns = node.derive_from_sources if node.is_derived else None
+
+        for _ in range(max_retries):
+            self._consume_attempt(node)
+            try:
+                # UNIQUE columns: pass the seen set as exclude_values so the
+                # generator can avoid producing values already in use. This is
+                # the root-cause fix for the "UNIQUE + semantic generators"
+                # failure pattern where faker.email() etc. produce duplicates
+                # on large row counts. Non-UNIQUE columns pass None (no overhead).
+                exclude = self._constraint_solver.get_seen(col_name) if is_unique else None
+                val = self._generate_node_value(node, row, exclude_values=exclude)
+            except GenerationError as exc:
+                logger.debug(
+                    "Retriable generation error",
+                    column=col_name,
+                    generator=node.generator_spec.generator_name,
+                    error=str(exc),
+                )
+                return False, None
+
+            result = self._register_node_candidate(node, col_name, val, is_unique, source_columns)
+
+            if result.is_registered:
+                row[col_name] = val
+                generated_values[col_name] = val
+                return True, None
+
+            if result.should_backtrack and source_columns:
+                self._rollback_source_columns(source_columns, row, generated_values)
+                bt_idx = self._find_node_index(source_columns[0])
+                return False, bt_idx
+
+        if is_unique:
+            logger.warning(
+                "Node exhausted retries on UNIQUE constraint",
+                column=col_name,
+                generator=node.generator_spec.generator_name,
+                max_retries=max_retries,
+            )
+        return False, None
+
+    def _register_node_candidate(
+        self, node: ColumnNode, col_name: str, value: Any, is_unique: bool, source_columns: list[str] | None
+    ) -> RegisterResult:
+        """Apply the node's current scalar constraints to one generated candidate."""
+        return self._constraint_solver.try_register(
+            col_name,
+            value,
+            is_unique=is_unique,
+            source_columns=source_columns,
+            min_value=node.constraints.min_value if node.constraints else None,
+            max_value=node.constraints.max_value if node.constraints else None,
+            regex=node.constraints.regex if node.constraints else None,
+        )
+
+    def _handle_col_failure(
+        self, backtrack_to: int | None, row: dict[str, Any], generated_values: dict[str, Any]
+    ) -> None:
+        """Handle column generation failure.
+
+        When there is no backtracking target, all generated values are cleared and
+        unregistered from the constraint solver. When a backtracking target exists,
+        the caller is responsible for regenerating the corresponding columns.
+
+        Args:
+            backtrack_to: Target node index for backtracking or ``None``.
+            row: The current row data.
+            generated_values: The current generated-values dict.
+        """
+        if backtrack_to is None:
+            for col, val in generated_values.items():
+                self._constraint_solver.unregister(col, val)
+            generated_values.clear()
+            row.clear()
+
+    def _finalize_row(self, row: dict[str, Any], row_idx: int, total_retries: int) -> dict[str, Any]:
+        """Finalize the row by applying the transform function.
+
+        If ``transform_fn`` is callable, it is invoked with the row and a context
+        (row number, retry count) to apply the transformation; otherwise the row is
+        returned unchanged.
+
+        Args:
+            row: The generated row data.
+            row_idx: Row number (starting from 1).
+            total_retries: Cumulative retry count for this row.
+
+        Returns:
+            The finalized row data.
+        """
+        if self._transform_fn:
+            if callable(self._transform_fn):
+                ctx = {"row_number": row_idx, "retry_count": total_retries}
+                return self._transform_fn(row, ctx)
+            logger.warning("transform_fn is not callable, skipping transformation")
+        return row
+
+    def _attempt_row_generation(self, reservations: _RowReservations) -> tuple[bool, int | None]:
+        """Attempt to generate an entire row.
+
+        Iterates over nodes in DAG order, generating column by column, and handles
+        skipped nodes and backtracking. On any column failure, ``_handle_col_failure``
+        is invoked and the function returns early.
+
+        After all columns are generated, composite UNIQUE constraints are checked.
+        If a composite tuple collides with an already-registered tuple, the row's
+        single-column registrations are rolled back and the row is retried.
+
+        Args:
+            reservations: The current row and its accepted constraint keys.
+
+        Returns:
+            A tuple ``(success, backtrack_to)`` where ``success`` indicates whether
+            generation succeeded and ``backtrack_to`` is the target node index for
+            backtracking or ``None``.
+        """
+        row = reservations.row
+        generated_values = reservations.generated_values
+        backtrack_to: int | None = None
+        for idx, node in enumerate(self._nodes):
+            if node.is_skip or (backtrack_to is not None and idx < backtrack_to):
+                continue
+
+            col_succeeded, new_backtrack_to = self._attempt_node_generation(node, row, generated_values)
+
+            if new_backtrack_to is not None:
+                backtrack_to = new_backtrack_to
+
+            if not col_succeeded:
+                self._handle_col_failure(backtrack_to, row, generated_values)
+                return False, backtrack_to
+
+        succeeded, constraint_backtrack = self._register_row_composites(reservations)
+        if not succeeded:
+            return False, constraint_backtrack
+        succeeded, constraint_backtrack = self._check_row_inequalities(reservations)
+        if not succeeded:
+            return False, constraint_backtrack
+        return True, backtrack_to
+
+    def _register_row_composites(self, reservations: _RowReservations) -> tuple[bool, int | None]:
+        """Register complete UNIQUE tuples, rolling back only this row on collision."""
+        if self._composite_unique:
+            for key_name, cols in self._composite_unique:
+                composite_tuple = tuple(reservations.row.get(c) for c in cols)
+                if not self._constraint_solver.check_and_register_composite(key_name, composite_tuple, columns=cols):
+                    # Collision: roll back all single-column registrations and
+                    # retry the whole row. Use the first composite column as
+                    # the backtracking target so the retry regenerates it.
+                    reservations.rollback(self._constraint_solver)
+                    bt_idx = self._find_node_index(cols[0])
+                    return False, bt_idx
+                reservations.composites.append((key_name, composite_tuple))
+        return True, None
+
+    def _check_row_inequalities(self, reservations: _RowReservations) -> tuple[bool, int | None]:
+        """Check independently sampled column pairs after composite registration."""
+        if self._inequality:
+            for col1, col2, op in self._inequality:
+                v1 = reservations.row.get(col1)
+                v2 = reservations.row.get(col2)
+                if v1 is None or v2 is None:
+                    continue
+                if _violates_inequality(v1, v2, op, col1, col2):
+                    reservations.rollback(self._constraint_solver)
+                    bt_idx = self._find_node_index(col2)
+                    return False, bt_idx
+        return True, None
+
+    def _generate_row(self, *, row_idx: int) -> dict[str, Any]:
+        """Generate a single row, including the retry and backtracking mechanism.
+
+        Retries up to the maximum total retry count (1000). When backtracking is
+        triggered, the retry counter is incremented. On success, ``_finalize_row``
+        applies the transform function.
+
+        Args:
+            row_idx: Row number (starting from 1).
+
+        Returns:
+            The generated row data.
+
+        Raises:
+            RuntimeError: Raised when constraints cannot be satisfied after the
+                maximum number of retries.
+            BaseException: Propagates generation or finalization failures after
+                releasing the interrupted row's constraint registrations.
+        """
+        max_total_retries = MAX_ROW_RETRIES
+        total_retries = 0
+
+        while total_retries < max_total_retries:
+            self._consume_attempt()
+            row: dict[str, Any] = {}
+            generated_values: dict[str, Any] = {}
+            self._selected_fk_pairs.clear()
+            reservations = _RowReservations(row, generated_values)
+
+            try:
+                success, backtrack_to = self._attempt_row_generation(reservations)
+            except BaseException:
+                # Every interrupted current row is uncommitted. Track only the
+                # composite keys actually accepted, so a later check failure
+                # cannot unregister a colliding key belonging to a prior row.
+                reservations.rollback(self._constraint_solver)
+                raise
+
+            if backtrack_to is not None:
+                # The next attempt rebuilds the whole row, so release every
+                # remaining registration, including independent UNIQUE nodes
+                # preceding a derived column whose source was rolled back.
+                self._handle_col_failure(None, row, generated_values)
+                total_retries += 1
+                if total_retries <= 3:
+                    logger.debug(
+                        "Row generation backtrack",
+                        row_idx=row_idx,
+                        retry=total_retries,
+                        backtrack_to=backtrack_to,
+                    )
+                continue
+
+            if generated_values or not any(not n.is_skip for n in self._nodes):
+                return self._finalize_registered_row(row, row_idx, total_retries, generated_values)
+
+            if total_retries <= 3:
+                logger.debug(
+                    "Row generation produced no values",
+                    row_idx=row_idx,
+                    retry=total_retries,
+                    success=success,
+                )
+            total_retries += 1
+
+        raise self._row_retry_error(max_total_retries)
+
+    def _finalize_registered_row(
+        self, row: dict[str, Any], row_idx: int, total_retries: int, generated_values: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Finalize between cancellation checks, releasing original keys on any interruption."""
+        try:
+            self._check_cancelled()
+            final_row = self._finalize_row(row, row_idx, total_retries)
+            self._check_cancelled()
+            self._last_row_registrations = generated_values
+            return final_row
+        except BaseException:
+            self._unregister_row(generated_values)
+            raise
+
+    def _row_retry_error(self, max_total_retries: int) -> RuntimeError:
+        """Describe retry exhaustion without claiming the UNIQUE value space is exhausted."""
+        non_skip_nodes = [n.name for n in self._nodes if not n.is_skip]
+        unique_nodes = [
+            f"{n.name}(generator={n.generator_spec.generator_name!r})"
+            for n in self._nodes
+            if not n.is_skip and n.constraints and n.constraints.is_unique
+        ]
+        detail = f" Unique-constraint columns: {unique_nodes}" if unique_nodes else ""
+        if self._composite_unique:
+            detail += f" Composite UNIQUE constraints: {[cols for _, cols in self._composite_unique]}."
+        if unique_nodes or self._composite_unique:
+            detail += (
+                " Reusing a seed may replay existing keys. Reaching the retry limit"
+                " does not establish that the UNIQUE value space is exhausted."
+            )
+        return RuntimeError(
+            f"Failed to generate row satisfying all constraints after {max_total_retries} retries. "
+            f"Non-skip columns: {non_skip_nodes}.{detail}"
+        )
+
+    def _find_node_index(self, col_name: str) -> int | None:
+        """Find the node index for a given column name.
+
+        Args:
+            col_name: Column name.
+
+        Returns:
+            The index of the node in ``self._nodes``, or ``None`` if not found.
+        """
+        for i, node in enumerate(self._nodes):
+            if node.name == col_name:
+                return i
+        return None
+
+    def _apply_generator(
+        self,
+        spec: GeneratorSpec,
+        *,
+        exclude_values: set[Any] | None = None,
+        nullable: bool = True,
+    ) -> Any:
+        """Apply a generator spec to produce a value.
+
+        Processing order:
+        1. If ``null_ratio`` hits AND the column is nullable, return ``None``;
+        2. Run the configured native method for the current provider. The
+           constraint solver retries duplicate native values at the node level;
+        3. Call ``provider.generate`` for regular generation, passing
+           ``exclude_values`` for UNIQUE-aware retry;
+        4. On ``UnknownGeneratorError``, ``choice`` falls back to local random and
+           ``foreign_key`` is handled by the foreign-key routine.
+
+        Args:
+            spec: Generator spec.
+            exclude_values: Optional set of values to avoid (UNIQUE-constrained
+                columns). Passed to ``provider.generate`` for the dispatch
+                layer's retry-with-exclude logic.
+            nullable: Whether the target column accepts NULL. When ``False``
+                (NOT NULL column), the null_ratio branch is suppressed even if
+                ``spec.null_ratio > 0`` — producing a NULL would violate the
+                NOT NULL constraint. A warning is logged once per such column.
+
+        Returns:
+            The generated value.
+        """
+        if self._should_emit_null(spec, nullable):
+            return None
+
+        # Native methods do not accept exclude_values. The surrounding solver
+        # still checks each candidate, so UNIQUE must not switch later rows to
+        # a different generator after the first native value is registered.
+        if (native_result := self._try_native_method(spec)) is not _NATIVE_MISS:
+            return native_result
+        self._reject_unavailable_native(spec)
+
+        try:
+            if spec.params:
+                return self._provider.generate(spec.generator_name, exclude_values=exclude_values, **spec.params)
+            return self._provider.generate(spec.generator_name, exclude_values=exclude_values)
+        except UnknownGeneratorError:
+            if spec.generator_name == "choice" and "choices" in spec.params:
+                return self._rng.choice(spec.params["choices"])
+
+            if spec.generator_name == "foreign_key":
+                return self._handle_foreign_key(spec, exclude_values=exclude_values)
+
+            raise
+
+    def _reject_unavailable_native(self, spec: GeneratorSpec) -> None:
+        """Reject an explicit native request after provider dispatch found no usable method."""
+        if self._provider.name == "faker":
+            native_method = spec.native_faker_method
+        elif self._provider.name == "mimesis":
+            native_method = spec.native_mimesis_method
+        else:
+            native_method = None
+        if native_method or spec.generator_name == "__native__":
+            configured = native_method or spec.native_faker_method or spec.native_mimesis_method
+            raise ConfigurationError(
+                f"Native method '{configured}' is unavailable or has invalid parameters "
+                f"for provider '{self._provider.name}'"
+            )
+
+    def _should_emit_null(self, spec: GeneratorSpec, nullable: bool) -> bool:
+        """Apply NULL probability only when allowed, preserving warning and RNG order."""
+        if spec.null_ratio > 0:
+            if not nullable:
+                logger.warning(
+                    "Column is NOT NULL but null_ratio > 0; suppressing null generation",
+                    null_ratio=spec.null_ratio,
+                )
+            elif self._rng.random() < spec.null_ratio:
+                return True
+        return False
+
+    def _try_native_method(self, spec: GeneratorSpec) -> Any:
+        """Attempt a native method call.
+
+        Based on the provider name and the native method configuration in ``spec``,
+        delegates to ``_try_faker_native`` or ``_try_mimesis_native``. Returns the
+        ``_NATIVE_MISS`` sentinel when no method matches.
+
+        Args:
+            spec: Generator spec.
+
+        Returns:
+            The value produced by the native method, or ``_NATIVE_MISS``.
+        """
+        native_params = spec.native_params or {}
+        if (
+            spec.native_faker_method
+            and self._provider.name == "faker"
+            and (result := self._try_faker_native(spec.native_faker_method, native_params)) is not _NATIVE_MISS
+        ):
+            return result
+        if (
+            spec.native_mimesis_method
+            and self._provider.name == "mimesis"
+            and (result := self._try_mimesis_native(spec.native_mimesis_method, native_params)) is not _NATIVE_MISS
+        ):
+            return result
+        return _NATIVE_MISS
+
+    def _try_faker_native(self, method_name: str, native_params: dict[str, Any]) -> Any:
+        """Attempt a faker native method.
+
+        Retrieves the method from the provider's ``_faker`` attribute and invokes it.
+        Returns ``_NATIVE_MISS`` on failure.
+
+        Args:
+            method_name: Faker method name.
+            native_params: Parameters passed to the method.
+
+        Returns:
+            The value produced by the faker method, or ``_NATIVE_MISS``.
+        """
+        if (faker_obj := getattr(self._provider, "_faker", None)) is None:
+            return _NATIVE_MISS
+        method = getattr(faker_obj, method_name, None)
+        if method is None or not callable(method):
+            return _NATIVE_MISS
+        try:
+            return method(**native_params)
+        except (TypeError, ValueError, AttributeError):
+            return _NATIVE_MISS
+
+    def _try_mimesis_native(self, method_path: str, native_params: dict[str, Any]) -> Any:
+        """Attempt a mimesis native method.
+
+        Retrieves the method from the provider's ``_generic`` attribute by walking the
+        dotted path component by component and invokes it. Returns ``_NATIVE_MISS`` on failure.
+
+        Args:
+            method_path: Mimesis method path (e.g. "person.full_name").
+            native_params: Parameters passed to the method.
+
+        Returns:
+            The value produced by the mimesis method, or ``_NATIVE_MISS``.
+        """
+        if (generic_obj := getattr(self._provider, "_generic", None)) is None:
+            return _NATIVE_MISS
+        parts = method_path.split(".")
+        obj = generic_obj
+        for part in parts:
+            if (obj := getattr(obj, part, None)) is None:
+                return _NATIVE_MISS
+        if obj is None or not callable(obj):
+            return _NATIVE_MISS
+        try:
+            return obj(**native_params)
+        except (TypeError, ValueError, AttributeError):
+            return _NATIVE_MISS
+
+    def _handle_foreign_key(
+        self,
+        spec: GeneratorSpec,
+        *,
+        exclude_values: set[Any] | None = None,
+    ) -> Any:
+        """Handle foreign-key generation.
+
+        If ``spec.params`` contains ``_ref_values``, a value is randomly chosen from it;
+        otherwise an integer between ``_fallback_min`` and ``_fallback_max`` is generated.
+        These fallback bounds are preserved from the original user-configured spec
+        (or the mapper's pattern-matched defaults) during FK upgrade in
+        ``RelationResolver._upgrade_fk_constrained_columns``, so empty-parent-table
+        fallback respects the user's intended value range instead of using 999999.
+
+        When ``exclude_values`` is non-empty (UNIQUE-constrained FK column), the
+        candidate list is filtered to avoid values already used. This is the
+        root-cause fix for the "UNIQUE FK column with child count ≈ parent count"
+        failure pattern: random sampling with replacement from ``N`` parent rows
+        for ``N`` child rows guarantees collisions (birthday paradox), causing
+        batch-level UNIQUE violations. By excluding seen values, each pick is
+        drawn from the remaining unused parent keys, guaranteeing uniqueness
+        when ``len(ref_values) >= child_count``.
+
+        Args:
+            spec: Generator spec.
+            exclude_values: Optional set of values already used (UNIQUE-constrained
+                columns). When provided, ref_values are filtered to exclude them.
+
+        Returns:
+            The foreign-key value.
+        """
+        if ref_values := spec.params.get("_ref_values", []):
+            if exclude_values:
+                # UNIQUE 外键：不放回采样优先于 coverage——exclude 过滤天然
+                # 保证唯一，而 coverage 的轮次重复会破坏 UNIQUE。
+                if available := [v for v in ref_values if v not in exclude_values]:
+                    return self._rng.choice(available)
+                # All ref_values exhausted — fall through to fallback. The
+                # resulting value will likely fail the UNIQUE constraint,
+                # triggering the ConstraintSolver's retry/backtrack mechanism.
+            elif spec.params.get("strategy") == "coverage":
+                return self._coverage_pick(spec, ref_values)
+            return self._rng.choice(ref_values)
+        fallback_min = spec.params.get("_fallback_min", 1)
+        fallback_max = spec.params.get("_fallback_max", 999999)
+        return self._provider.generate("integer", min_value=fallback_min, max_value=fallback_max)
+
+    def _coverage_pick(self, spec: GeneratorSpec, ref_values: list[Any]) -> Any:
+        """Coverage-strategy FK pick: shuffle the parent values once, pop one
+        per call, reshuffle when exhausted.
+
+        与 ``random``（放回抽样）的区别：一轮之内每个父值被引用**恰好一次**，
+        因此 ``count <= len(ref_values)`` 时父表零覆盖遗漏；轮次之间重新打乱，
+        长期分布仍趋近均匀。适用于「希望测试数据遍历所有外键取值」的场景
+        （如枚举型维表引用）。队列按 spec 身份隔离，同一 spec 的多批次共享
+        同一队列——跨批次依然保证覆盖。
+        """
+        if not (queue := self._coverage_queues.get(id(spec))):
+            queue = list(ref_values)
+            self._rng.shuffle(queue)
+            self._coverage_queues[id(spec)] = queue
+        return queue.pop()

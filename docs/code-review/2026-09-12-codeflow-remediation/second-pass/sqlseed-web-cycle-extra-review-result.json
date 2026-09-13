@@ -1,0 +1,25 @@
+{
+  "run_ast_equal_after_parameter_rename": true,
+  "run_parameter_before": "plan",
+  "run_parameter_after": "operation_plan",
+  "source_sha256": "2931b17287d625adb623ba719adc516f21afa58f66135bdbb34e64d5b9920600",
+  "no_import_cycle_back_to_public_app": true,
+  "app_direct_edges": [
+    "sqlseed_web._application",
+    "sqlseed_web.supervisor"
+  ],
+  "worker_direct_edges": [
+    "sqlseed_web._application",
+    "sqlseed_web.plugin_management",
+    "sqlseed_web.runtime_lifecycle",
+    "sqlseed_web.runtime_session",
+    "sqlseed_web.worker_control"
+  ],
+  "base_and_override_signatures_identical": "(self, operation_plan: 'dict[str, Any]', before: 'dict[str, InstalledPackage]') -> 'None'",
+  "keyword_binding_operation_plan": true,
+  "public_all": [
+    "create_app",
+    "main"
+  ],
+  "tested_source_hashes_still_current": true
+}

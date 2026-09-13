@@ -1,11 +1,20 @@
 site_name: sqlseed
-site_description: Declarative SQLite test data generation toolkit
-site_url: https://github.com/sunbos/sqlseed
+site_description: Declarative SQLite and PostgreSQL test data generation toolkit
+site_url: https://sunbos.github.io/sqlseed/
 repo_url: https://github.com/sunbos/sqlseed
 repo_name: sunbos/sqlseed
 edit_uri: edit/main/docs/
 
 docs_dir: docs
+
+# The public site contains maintained user/reference documentation. Review logs,
+# screenshots and historical prototypes remain in the repository for contributors.
+# Keep strict validation enabled for every page that is actually published.
+exclude_docs: |
+  /code-review/
+  /design-review/
+  /superpowers/
+  /specs/
 
 theme:
   name: material
@@ -19,23 +28,32 @@ theme:
     - content.code.copy
   palette:
     - scheme: default
-      primary: deep purple
-      accent: amber
+      primary: white
+      accent: black
       toggle:
         icon: material/brightness-7
         name: Switch to dark mode
     - scheme: slate
-      primary: deep purple
-      accent: amber
+      primary: black
+      accent: grey
       toggle:
         icon: material/brightness-4
         name: Switch to light mode
 
 nav:
   - Home: index.md
-  - Documentation:
+  - User Guide: guide.md
+  - Upgrade:
+      - Migration (EN): migration.md
+      - 升级说明（中文）: migration.zh-CN.md
+  - Web Workbench: web-workbench.md
+  - Support & Maintenance: maintainable-release.md
+  - Project Walkthrough: project-showcase.md
+  - API Reference: api.md
+  - Architecture:
       - Architecture (EN): architecture.md
       - Architecture (中文): architecture.zh-CN.md
+  - Gemma 4 Integration:
       - Gemma 4 Integration (EN): gemma4-integration.md
       - Gemma 4 Integration (中文): gemma4-integration.zh-CN.md
 

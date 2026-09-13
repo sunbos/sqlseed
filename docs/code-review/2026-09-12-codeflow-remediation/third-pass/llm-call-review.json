@@ -1,0 +1,94 @@
+{
+  "status": "implemented_verified_independently_reviewed_and_frozen",
+  "scope": [
+    "plugins/sqlseed-ai/src/sqlseed_ai/healer/_llm_call.py",
+    "plugins/sqlseed-ai/src/sqlseed_ai/healer/level1_subgraph_healer.py",
+    "plugins/sqlseed-ai/src/sqlseed_ai/healer/level2_column_healer.py",
+    "plugins/sqlseed-ai/src/sqlseed_ai/healer/level3_compact_healer.py",
+    "plugins/sqlseed-ai/tests/healer/test_llm_call_boundary.py",
+    "tests/test_core/test_stream_budget.py"
+  ],
+  "sha256": {
+    "plugins/sqlseed-ai/src/sqlseed_ai/healer/_llm_call.py": "56fc9c95bfcdd8d9e5cefb1548a60a68eabfdcac66d1ae2d2b3e9124349935e5",
+    "plugins/sqlseed-ai/src/sqlseed_ai/healer/level1_subgraph_healer.py": "1146d7a7df65c2dcc9b30af1660918200c03eb20211217e60f3630154ab1a7de",
+    "plugins/sqlseed-ai/src/sqlseed_ai/healer/level2_column_healer.py": "6e3eb2d6eda673f6423820d8d346150729d31ade286968e8deafe37d29f19c07",
+    "plugins/sqlseed-ai/src/sqlseed_ai/healer/level3_compact_healer.py": "dd7e25d81ef936fad6bbf233b6b54005979e891ffa5098d8707e4075288c9057",
+    "plugins/sqlseed-ai/tests/healer/test_llm_call_boundary.py": "f19337f934acd462b7ad4084e5ef1af52e7262ecc890e6a1250650423e77fe4f",
+    "tests/test_core/test_stream_budget.py": "da6badb543722e7bb149adc996904c0765830cd69d0170d756043972d7946095"
+  },
+  "implementation": {
+    "shared_boundary": "Synchronous deferred LLM request, existing recoverable failure classification, per-level failure logger, and one completion-clock sample.",
+    "ownership": "Callers retain prompts, clients, Level1/2/3 result construction, content access, and JSON/config validation.",
+    "propagation": "Network errors (including OSError plus a recoverable exception base) retain real-type precedence; all unhandled errors propagate. Recovered error identity is retained, including falsy exceptions.",
+    "timing": "The initial clock remains in each caller; failure logs precede the end clock; success end clock precedes response content access.",
+    "deferred_arguments": "A request closure preserves catch coverage for self._client, self._model and all original request argument evaluation.",
+    "exceptioninfo": "Two pytest assertions use caught.type is ExactExceptionClass; exact class checks remain exact."
+  },
+  "validation": {
+    "red_green": {
+      "before": "20 helper behavior cases failed because the new shared boundary did not exist; six actual caller cases passed against the previous implementation.",
+      "after": "28 boundary cases passed, including two added success/failure end-clock exception cases."
+    },
+    "healer_tests": {
+      "passed": 101,
+      "skipped": 6,
+      "seconds": 3.65,
+      "log": "/tmp/sqlseed-llm-call-healer-tests.log",
+      "skip_reason": "LM Studio unavailable at http://localhost:1234"
+    },
+    "stream_budget_assertions": {
+      "passed": 2,
+      "log": "/tmp/sqlseed-stream-budget-exceptioninfo-tests.log"
+    },
+    "ruff": "check and format --check passed for all four source files and the boundary test; the two stream-budget assertion changes also passed their target checks.",
+    "mypy": {
+      "source_files": 4,
+      "result": "Success: no issues found in 4 source files",
+      "log": "/tmp/sqlseed-llm-call-mypy.log"
+    },
+    "pylint_2_17_7": {
+      "try_except_raise_before": 3,
+      "try_except_raise_after": 0,
+      "complete_five_file_findings": [],
+      "complete_report": "/tmp/sqlseed-llm-call-pylint-full.json",
+      "exact_type_assertion_findings_before": 2,
+      "exact_type_assertion_findings_after": 0
+    },
+    "jscpd_4_0_5": {
+      "source_pairs_before": 1,
+      "source_pairs_after": 0,
+      "combined_source_and_new_test_pairs_after": 0,
+      "combined_report": "/tmp/sqlseed-llm-call-jscpd-combined/jscpd-report.json",
+      "configuration": {
+        "changed": false,
+        "mode": "mild",
+        "min_lines": 5,
+        "min_tokens": 50,
+        "max_lines": 1000,
+        "max_size_kb": 100
+      }
+    },
+    "ast": {
+      "passed": true,
+      "report": "/tmp/sqlseed-llm-call-ast-result.json",
+      "unchanged": [
+        "public signatures",
+        "all preparation before the RPC",
+        "complete original RPC expression inside deferred request",
+        "original failure logger call",
+        "entire response parsing suffix",
+        "all remaining module code"
+      ]
+    },
+    "independent_review": {
+      "reviewer": "/root/fix_ai_w0621",
+      "source_review": "No blocking finding; actual-type network precedence, falsy identity checks, request argument catch scope, logging/clock/content order verified.",
+      "old_new_caller_differential": "45 actual caller old/new comparisons passed; parent confirmed result."
+    }
+  },
+  "limits": [
+    "No real LLM calls were exercised because LM Studio was unavailable.",
+    "No commit or push was performed by this agent.",
+    "Full repository gates and other agents’ changes are coordinated by the parent task."
+  ]
+}

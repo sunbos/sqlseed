@@ -1,0 +1,16 @@
+from pathlib import Path
+from tempfile import TemporaryDirectory
+import sqlite3
+from sqlseed import fill
+import sqlseed
+from sqlseed.plugins.manager import PluginManager
+PluginManager.load_plugins = lambda self: None
+print("SOURCE:", sqlseed.__file__)
+with TemporaryDirectory() as d:
+    p=Path(d)/"json.db"
+    with sqlite3.connect(p) as c:
+        c.execute("CREATE TABLE events(id INTEGER PRIMARY KEY, payload JSON NOT NULL)")
+    r=fill(str(p), table="events",count=3,provider="base",seed=42,optimize_pragma=False,columns={"payload":{"generator":"json","schema":{"type":"object","properties":{"n":{"type":"integer"}}}}})
+    print("RESULT",r.count,r.errors)
+    with sqlite3.connect(p) as c:
+        print("STORED",c.execute("SELECT payload, json_type(payload),json_extract(payload,'$.n') FROM events").fetchall())

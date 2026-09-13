@@ -1,0 +1,30 @@
+{
+  "status": "complete_source_frozen",
+  "file": "/Users/sunbo/Desktop/sqlseed/plugins/sqlseed-ai/src/sqlseed_ai/cli/ai_commands.py",
+  "sha256": "fd2c73c26382c3a281e4766456421cb98359282d47e8be23eccc1965c1107f17",
+  "change": "Private _ai_model_options shares identical model/api-key/base-url Click declarations for ai-suggest and ai-analyze; auto-heal distinct help unchanged.",
+  "verification": {
+    "commands_compared": 3,
+    "parsed_inputs": 216,
+    "callback_identity_preserved": true,
+    "all_existing_bodies_and_signatures_ast_equal": true,
+    "exact_command_and_callback_signatures": true,
+    "click_metadata_params_order_help_envvar_defaults_types": true,
+    "pytest": "32 passed in 3.74s",
+    "mypy": "Success: no issues found in 1 source file",
+    "ruff": "All checks passed; already formatted",
+    "git_diff_check": "passed",
+    "pylint_2_17_7_before": 0,
+    "pylint_2_17_7_after": 0,
+    "jscpd_4_0_5_target_before": 1,
+    "jscpd_4_0_5_target_after": 0
+  },
+  "evidence": [
+    "/tmp/sqlseed-ai-cli-options-equivalence.py",
+    "/tmp/sqlseed-ai-cli-options-equivalence.json",
+    "/tmp/sqlseed-ai-cli-options.patch",
+    "/tmp/sqlseed-ai-cli-options-jscpd-before/jscpd-report.json",
+    "/tmp/sqlseed-ai-cli-options-jscpd-after/jscpd-report.json"
+  ],
+  "repo_scope": "Only ai_commands.py changed; no tests or API signatures changed; no commits/push."
+}

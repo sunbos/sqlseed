@@ -1,0 +1,35 @@
+{
+  "base_commit": "ef7b2795370873c915b9d1c9b50b59c6ac7016fb",
+  "source_snapshot": "source-snapshot.json",
+  "pytest": {
+    "command": "pytest --tb=short -q -W error::ResourceWarning -W error::pytest.PytestUnraisableExceptionWarning",
+    "passed": 3412,
+    "skipped": 47,
+    "seconds": 308.66,
+    "exit_code": 0,
+    "log": "pytest.log"
+  },
+  "ruff_check": "passed: src/ tests/ plugins/",
+  "ruff_format": "417 files already formatted",
+  "mypy": "Success: no issues found in 156 source files",
+  "import_linter": "3 kept, 0 broken",
+  "doc_sync": "All markers are up to date",
+  "pylint": {
+    "version": "2.17.7",
+    "all_enabled_rules": true,
+    "targets": 411,
+    "errors": 0,
+    "findings": 74,
+    "exit_code": 28
+  },
+  "jscpd": {
+    "version": "4.0.5",
+    "pairs": 7,
+    "lines": 75,
+    "percentage": 0.09,
+    "sources": 419
+  },
+  "node": "JavaScript unchanged since 666 passed in first pass",
+  "mutation": "unique_adjuster unchanged since second-pass 236 mutants / 228 killed / 8 survived / exit 2. Gate has not passed; not rerun for unrelated AI/test refactors.",
+  "packages": "All 21 third-pass checks passed: five sdists/wheels, Twine strict, full/minimal installed smokes, 218 packaged files byte-matched and MkDocs strict. See packages.json."
+}

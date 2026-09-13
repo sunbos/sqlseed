@@ -9,7 +9,7 @@ import pytest
 from sqlseed.core.enrichment import EnrichmentEngine
 from sqlseed.core.mapper import ColumnMapper, GeneratorSpec
 from sqlseed.core.schema import SchemaInferrer
-from sqlseed.database.sqlite_utils_adapter import SQLiteUtilsAdapter
+from sqlseed.database.raw_sqlite_adapter import RawSQLiteAdapter
 from tests.conftest import create_simple_db
 
 if TYPE_CHECKING:
@@ -21,7 +21,7 @@ class TestEnrichmentEngine:
     @staticmethod
     @contextmanager
     def _engine_from_db(db_path: str) -> GeneratorType[EnrichmentEngine, None, None]:
-        adapter = SQLiteUtilsAdapter()
+        adapter = RawSQLiteAdapter()
         adapter.connect(db_path)
         try:
             mapper = ColumnMapper()

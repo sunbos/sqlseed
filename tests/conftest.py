@@ -1,25 +1,27 @@
+"""Shared pytest helper functions for sqlseed tests.
+
+Fixtures (``tmp_db``, ``unique_test_db``, ``pg_url``,
+``available_llm_backend``, etc.) have been moved to the rootdir
+``conftest.py`` at the repository root. The rootdir conftest is
+auto-discovered by pytest for ALL test files (both ``tests/`` and
+``plugins/*/tests/``), so fixtures are globally available without
+``pytest_plugins``. This avoids both the "Plugin already registered"
+error (caused by declaring a conftest as a pytest_plugin) and the
+"pytest_plugins in non-top-level conftest is no longer supported"
+restriction.
+
+This module retains only helper functions (``make_column_info``,
+``create_simple_db``, ``apply_enrichment``, ``create_project_info_db``)
+that test files import directly via ``from tests.conftest import ...``.
+"""
+
 from __future__ import annotations
 
-import gc
 import sqlite3
-from typing import TYPE_CHECKING
-
-import pytest
+import warnings
 
 from sqlseed.core.orchestrator import DataOrchestrator
 from sqlseed.database._protocol import ColumnInfo
-from sqlseed.database.raw_sqlite_adapter import RawSQLiteAdapter
-
-if TYPE_CHECKING:
-    from collections.abc import Generator
-    from pathlib import Path
-
-
-@pytest.fixture(autouse=True)
-def _gc_between_tests():
-    gc.collect()
-    yield
-    gc.collect()
 
 
 def make_col(
@@ -30,18 +32,20 @@ def make_col(
     is_pk: bool = False,
     is_auto: bool = False,
 ):
-    return type(
-        "Col",
-        (),
-        {
-            "name": name,
-            "type": col_type,
-            "nullable": nullable,
-            "default": default,
-            "is_primary_key": is_pk,
-            "is_autoincrement": is_auto,
-        },
-    )()
+    """Deprecated. Use make_column_info instead."""
+    warnings.warn(
+        "make_col is deprecated and will be removed in a future version. Use make_column_info instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return make_column_info(
+        name=name,
+        col_type=col_type,
+        nullable=nullable,
+        default=default,
+        is_primary_key=is_pk,
+        is_autoincrement=is_auto,
+    )
 
 
 def make_column_info(
@@ -62,91 +66,30 @@ def make_column_info(
     )
 
 
-@pytest.fixture(name="tmp_db")
-def create_tmp_db(tmp_path: Path) -> str:
-    db_path = str(tmp_path / "test.db")
-    conn = sqlite3.connect(db_path)
-    conn.execute("""
-        CREATE TABLE users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            email TEXT,
-            age INTEGER,
-            phone TEXT,
-            address TEXT,
-            created_at TEXT,
-            is_active INTEGER DEFAULT 1,
-            balance REAL,
-            bio TEXT,
-            status INTEGER DEFAULT 0
-        )
-    """)
-    conn.execute("""
-        CREATE TABLE orders (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            product_name TEXT,
-            amount REAL,
-            quantity INTEGER,
-            status TEXT,
-            created_at TEXT,
-            FOREIGN KEY (user_id) REFERENCES users(id)
-        )
-    """)
-    conn.commit()
-    conn.close()
-    return db_path
+def make_col_info_varchar(
+    name: str,
+    col_type: str = "VARCHAR(50)",
+    *,
+    nullable: bool = True,
+    default: object = None,
+    is_primary_key: bool = False,
+    is_autoincrement: bool = False,
+) -> ColumnInfo:
+    """Variant of :func:`make_column_info` with VARCHAR/nullable defaults.
 
-
-@pytest.fixture(name="tmp_db_with_data")
-def create_tmp_db_with_data(tmp_db: str) -> str:
-    conn = sqlite3.connect(tmp_db)
-    for i in range(10):
-        conn.execute(
-            "INSERT INTO users (name, email, age) VALUES (?, ?, ?)",
-            [f"user_{i}", f"user_{i}@test.com", 20 + i],
-        )
-    conn.commit()
-    conn.close()
-    return tmp_db
-
-
-@pytest.fixture(name="unique_test_db")
-def create_unique_test_db(tmp_path: Path) -> str:
-    db_path = str(tmp_path / "unique_test.db")
-    conn = sqlite3.connect(db_path)
-    conn.execute("""
-        CREATE TABLE projects (
-            projectId INTEGER PRIMARY KEY AUTOINCREMENT,
-            project_no VARCHAR(20) NOT NULL,
-            member_no VARCHAR(32) NOT NULL,
-            short_code VARCHAR(8),
-            region_code VARCHAR(6),
-            byProjectType INTEGER DEFAULT 1,
-            byFirstProjectEnable INTEGER DEFAULT 0
-        )
-    """)
-    conn.execute("CREATE UNIQUE INDEX idx_projectno ON projects(project_no)")
-    conn.execute("CREATE UNIQUE INDEX idx_memberno ON projects(member_no)")
-    conn.commit()
-    conn.close()
-    return db_path
-
-
-@pytest.fixture(name="raw_adapter")
-def create_raw_adapter(tmp_db: str) -> Generator[RawSQLiteAdapter, None, None]:
-    adapter = RawSQLiteAdapter()
-    adapter.connect(tmp_db)
-    yield adapter
-    adapter.close()
-
-
-@pytest.fixture(name="raw_adapter_with_data")
-def create_raw_adapter_with_data(tmp_db_with_data: str) -> Generator[RawSQLiteAdapter, None, None]:
-    adapter = RawSQLiteAdapter()
-    adapter.connect(tmp_db_with_data)
-    yield adapter
-    adapter.close()
+    Used by ``test_plugin_mediator.py`` and ``test_unique_adjuster.py`` to
+    avoid duplicating the ColumnInfo construction block (CodeFlow
+    CodeDuplication). Defaults differ from :func:`make_column_info`:
+    ``col_type="VARCHAR(50)"`` and ``nullable=True``.
+    """
+    return ColumnInfo(
+        name=name,
+        type=col_type,
+        nullable=nullable,
+        default=default,
+        is_primary_key=is_primary_key,
+        is_autoincrement=is_autoincrement,
+    )
 
 
 PROJECT_INFO_DDL = """
@@ -185,7 +128,8 @@ def apply_enrichment(db_path: str, table_name: str, provider_name: str = "base")
         column_infos = orch._schema.get_column_info(table_name)
         unique_cols = orch._schema.detect_unique_columns(table_name)
         specs = orch._mapper.map_columns(column_infos, enrich=True)
-        assert orch._enrichment is not None
+        if orch._enrichment is None:
+            raise RuntimeError("Enrichment module not initialized")
         specs = orch._enrichment.apply(table_name, specs, column_infos, unique_cols)
         return orch, specs
 

@@ -1,0 +1,113 @@
+{
+  "reviewer": "/root/review_core_refactors",
+  "repository": "/Users/sunbo/Desktop/sqlseed",
+  "comparison_base": "5b0dd07231d7ed9fbc33f924087e1e9dda878100",
+  "mode": "Independent read-only review of working-tree changes; no repository edits, commits, or pushes by reviewer.",
+  "final_status": "No unresolved actionable finding in reviewed batches. One optional-import test coverage regression was found, corrected by root, and independently rechecked.",
+  "batches": [
+    {
+      "scope": "Core six files",
+      "files": [
+        "src/sqlseed/core/mapper.py",
+        "src/sqlseed/core/check_adapt.py",
+        "src/sqlseed/core/schema.py",
+        "src/sqlseed/core/column_dag.py",
+        "src/sqlseed/core/features.py",
+        "src/sqlseed/core/unique_adjuster.py"
+      ],
+      "checks": [
+        "Reviewed public signatures, mapping precedence, CHECK/UNIQUE/nullability, failure accumulation and partial metadata handling.",
+        "Targeted tests: 315 passed, 2 skipped because Mimesis unavailable in that environment.",
+        "14 old/new schema cases and 32 old/new features cases matched, including exception and partial metadata behavior.",
+        "Ruff, format, and diff checks passed; public signatures unchanged."
+      ],
+      "findings": []
+    },
+    {
+      "scope": "Core stream, orchestrator, adapter and providers",
+      "files": [
+        "src/sqlseed/core/stream.py",
+        "src/sqlseed/core/orchestrator/_generation.py",
+        "src/sqlseed/core/orchestrator/_specs.py",
+        "src/sqlseed/database/sqlalchemy_adapter.py",
+        "src/sqlseed/generators/_native_provider.py",
+        "src/sqlseed/generators/base_provider.py",
+        "src/sqlseed/generators/faker_provider.py",
+        "src/sqlseed/generators/mimesis_provider.py"
+      ],
+      "checks": [
+        "Reviewed stream lifecycle, retry/seed state, self-reference/FK phases, transactions/resources and locale fallback.",
+        "Targeted tests: 583 passed, 2 skipped for unavailable Docker/Pillow.",
+        "648 old/new provider comparisons matched outputs, RNG state, counters and templates.",
+        "Timestamp subclass dispatch and public/generator/constructor signatures matched; Ruff and format checks passed."
+      ],
+      "findings": []
+    },
+    {
+      "scope": "Web source, 22 changed files at time of review",
+      "path": "plugins/sqlseed-web/src/sqlseed_web",
+      "checks": [
+        "Reviewed every source diff, including middleware order, process/environment admission priorities and cleanup, managed worker capture/draining, runtime/store, AI relationship/candidate phases and SQL result accounting.",
+        "Independent Web pytest: 473 passed.",
+        "Six targeted Node files passed: editor, connection, ai-stream, graph, rule-usability and preview-editing. No combined Node count asserted in this summary.",
+        "288 old/new HTTP cases matched middleware order, status, response body and cache/security headers.",
+        "Ruff, format and diff checks passed."
+      ],
+      "findings": []
+    },
+    {
+      "scope": "AI source excluding auto_heal, 14 changed source files at time of review",
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai (auto_heal excluded)",
+      "checks": [
+        "Reviewed CLI factory/close/report/exception paths, registry input filtering and atomic writes, validator computation/bad inputs, refiner retry/cache/failure boundaries, healer context dependency order and builtin predicates.",
+        "114 old/new validator cases, 25 Level2 context cases and 9 registry container/filter cases matched.",
+        "Registry os.replace failure injection preserved previous file and removed temporary files in both versions.",
+        "Seven real SQLite refiner dry-run cases matched success and CHECK/UNIQUE/NOT NULL/FK outcomes and rolled back table data plus sqlite_sequence.",
+        "Six old/new CLI factory, constructor, run and close exception cases matched output, error behavior, arguments and exactly-once close.",
+        "Public --auto-heal option retained; diff check passed."
+      ],
+      "findings": [],
+      "excluded": "auto_heal source was assigned to another reviewer."
+    },
+    {
+      "scope": "Root fixtures, CLI, test helpers, validation scripts and scenario seed",
+      "checks": [
+        "Reviewed conftest Docker/LLM selection, CLI config/replay and ConnectionTarget.api_target, SQLite/assertion/LLM/schema/scenario helpers and fixture reuse.",
+        "Reviewed CheckRecorder consumers, CHECK extraction and SQLite constraint verification, narrowed S8/B4 exception handling, log analysis reporting and scenario seed extraction.",
+        "Targeted tests: 55 passed across SQLite/assertions, PostgreSQL fixture, LLM fixture and timestamp repair executor/pipeline.",
+        "2,197 old/new Docker exception chains matched, including cycles and error priorities.",
+        "Real SQLite scenario seed comparison matched 125 SQL trace entries, all rows in 25 tables including an internal SQLite table, transaction state and foreign_key_check results."
+      ],
+      "resolved_finding": {
+        "issue": "Deep-module pytest.importorskip changed an installed plugin internal ModuleNotFoundError from collection error into skip.",
+        "initial_reproduction": "For test_cli_input_contract.py, an in-memory import hook making sqlseed_ai.cli.ai_commands raise ModuleNotFoundError(name=sqlseed_ai.missing_cli_helper) produced ModuleNotFoundError on HEAD and pytest.Skipped before correction on pytest 9.1.1.",
+        "fix_owner": "root",
+        "fix": "Retain top-level optional-plugin importorskip, load internal modules with importlib.import_module. Web test_api create_app also restored ordinary internal import loading.",
+        "independent_recheck": {
+          "modules": [
+            "plugins/sqlseed-ai/tests/test_cli_input_contract.py",
+            "plugins/sqlseed-ai/tests/test_healer_candidate_contract.py",
+            "plugins/sqlseed-ai/tests/test_nonweb_ai_boundaries.py",
+            "plugins/sqlseed-ai/tests/test_runtime.py",
+            "plugins/sqlseed-web/tests/test_api.py"
+          ],
+          "process_executions": 30,
+          "matrix": "Five complete test modules x HEAD/current x normal/optional-root-missing/internal-helper-missing.",
+          "result": "All matched: loaded / pytest.Skipped / ModuleNotFoundError respectively."
+        }
+      },
+      "unresolved_findings": []
+    }
+  ],
+  "blind_spots": [
+    "No independent real LLM backend run.",
+    "No real PostgreSQL/Docker integration confirmation where unavailable.",
+    "Windows named-pipe behavior was reviewed in source, not executed on Windows.",
+    "Pillow-specific optional generator behavior was skipped where Pillow absent.",
+    "auto_heal source excluded from this reviewer scope.",
+    "Targeted suites overlap; counts must not be summed into a unique whole-repository total.",
+    "Did not re-run the final whole-repository gate; parent separately reported 3370 passed and 47 skipped.",
+    "Mutation survivor analysis is a separate report at /tmp/sqlseed-codeflow-mutation-review.json."
+  ],
+  "unrelated_paths": "User-owned .sonarcloud.properties and candidate-validation documents were neither reviewed as task changes nor edited."
+}

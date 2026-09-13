@@ -1,7 +1,16 @@
+"""Data enrichment engine with 19 enumeration pattern recognition.
+
+EnrichmentEngine analyzes distribution characteristics of existing data
+(cardinality ratio, type, naming patterns) to identify enumeration columns
+and generate choice generators, or fall back to type-inferred generators.
+"""
+
 from __future__ import annotations
 
 import re
 from typing import TYPE_CHECKING, Any, ClassVar
+
+from sqlalchemy.exc import OperationalError as SAOperationalError
 
 from sqlseed._utils.logger import get_logger
 from sqlseed.core.mapper import ColumnMapper, GeneratorSpec
@@ -14,6 +23,14 @@ logger = get_logger(__name__)
 
 
 class EnrichmentEngine:
+    """Data enrichment engine that identifies enumeration columns by analyzing existing data distribution.
+
+    Provides 19 enumeration naming pattern recognitions (e.g., *_type, *_status, is_*, etc.),
+    combined with cardinality ratio, column type and other features to determine whether
+    a column is an enumeration column. For enumeration columns, generates a choice generator;
+    for non-enumeration columns, falls back to a type-inferred generator.
+    """
+
     ENUM_NAME_PATTERNS: ClassVar[list[str]] = [
         r"^[bB]y[A-Za-z]",
         r".*_type$",
@@ -51,6 +68,28 @@ class EnrichmentEngine:
         total_rows: int,
         is_unique: bool,
     ) -> bool:
+        """Determine whether a column is an enumeration column.
+
+        Comprehensively considers column name pattern matching, cardinality ratio
+        (distinct/total), column type (small integer), and other features.
+        Unique constraint columns, empty tables, or all-NULL columns return False directly.
+
+        Decision rules (satisfying any one means the column is an enumeration column):
+            - Column name matches an enumeration pattern and cardinality ratio < 0.1
+            - Small integer type and cardinality ratio < 0.1
+            - distinct_count <= 10 and cardinality ratio < 0.05
+            - distinct_count <= 30 and cardinality ratio < 0.01 (excluding character types)
+
+        Args:
+            col_name: Column name.
+            col_info: Column info object.
+            distinct_count: Number of distinct values in this column.
+            total_rows: Total number of rows in the table.
+            is_unique: Whether this column is a unique constraint column.
+
+        Returns:
+            True means the column is identified as an enumeration column.
+        """
         if is_unique:
             return False
         if total_rows == 0 or distinct_count == 0:
@@ -78,13 +117,28 @@ class EnrichmentEngine:
         column_infos: list[Any],
         unique_columns: set[str] | None = None,
     ) -> dict[str, GeneratorSpec]:
-        has_enrich = any(s.generator_name == "__enrich__" for s in specs.values())
-        if not has_enrich:
+        """Apply enrichment processing to columns marked as __enrich__.
+
+        Reads existing data from the table, and for each __enrich__ column determines
+        whether it is an enumeration column:
+            - Enumeration column: generates a choice generator (based on existing distinct values)
+            - Non-enumeration column: falls back to a type-inferred generator
+            - Empty table or read failure: falls back to a skip generator
+
+        Args:
+            table_name: Table name.
+            specs: Mapping of column name to generator spec (modified in place).
+            column_infos: List of column info objects.
+            unique_columns: Optional set of unique constraint columns.
+
+        Returns:
+            The updated specs dictionary.
+        """
+        if not any(s.generator_name == "__enrich__" for s in specs.values()):
             return specs
 
         unique_columns = unique_columns or set()
-        row_count = self._db.get_row_count(table_name)
-        if row_count == 0:
+        if (row_count := self._db.get_row_count(table_name)) == 0:
             skipped_count = sum(1 for s in specs.values() if s.generator_name == "__enrich__")
             logger.warning(
                 "Enrich mode skipped: table is empty, falling back to skip",
@@ -100,7 +154,7 @@ class EnrichmentEngine:
             if spec.generator_name != "__enrich__":
                 continue
             is_unique = col_name in unique_columns
-            specs[col_name] = self._build_enriched_spec(table_name, col_name, spec, column_infos, is_unique)
+            specs[col_name] = self._build_enriched_spec(table_name, col_name, spec, column_infos, is_unique, row_count)
 
         return specs
 
@@ -151,12 +205,13 @@ class EnrichmentEngine:
         _spec: GeneratorSpec,
         column_infos: list[Any],
         is_unique: bool = False,
+        row_count: int = 0,
     ) -> GeneratorSpec:
         col_info = next((c for c in column_infos if c.name == col_name), None)
 
         try:
             values = self._db.get_column_values(table_name, col_name, limit=10000)
-        except (ValueError, OSError, RuntimeError):
+        except (ValueError, RuntimeError, OSError, SAOperationalError):
             return GeneratorSpec(generator_name="skip")
 
         if not values:
@@ -169,7 +224,6 @@ class EnrichmentEngine:
 
         distinct_values = list(set(non_null_values))
         distinct_count = len(distinct_values)
-        row_count = self._db.get_row_count(table_name)
 
         if self.is_enumeration_column(col_name, col_info, distinct_count, row_count, is_unique):
             return self._build_enum_spec(col_info, distinct_values, null_ratio)

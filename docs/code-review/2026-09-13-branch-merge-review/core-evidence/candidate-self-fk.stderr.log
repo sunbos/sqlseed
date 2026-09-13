@@ -1,0 +1,2 @@
+[2m2026-09-12T23:18:44.100952Z[0m [[31m[1merror    [0m] [1mFailed to fill table          [0m [36merror[0m=[35mIntegrityError('UNIQUE constraint failed: nodes.parent_id')[0m [36mtable_name[0m=[35mnodes[0m
+[2m2026-09-12T23:18:44.293472Z[0m [[31m[1merror    [0m] [1mFailed to fill table          [0m [36merror[0m=[35mIntegrityError('CHECK constraint failed: parent_code != code')[0m [36mtable_name[0m=[35mnodes[0m

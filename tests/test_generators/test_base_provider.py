@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from sqlseed.generators.base_provider import BaseProvider
-from tests.test_generators._mixin import (
+
+from ._mixin import (
     IdentityProviderTestMixin,
     JsonSchemaTestMixin,
     TemporalProviderTestMixin,
@@ -36,14 +37,6 @@ class TestBaseProvider(
         assert len(result) == 36
         assert result.count("-") == 4
 
-    def test_generate_date_range(self) -> None:
-        result = self.provider.generate("date", start_year=2020, end_year=2024)
-        assert result.startswith("20")
-
-    def test_generate_datetime_has_space(self) -> None:
-        result = self.provider.generate("datetime", start_year=2020, end_year=2024)
-        assert " " in result
-
     def test_generate_text_long(self) -> None:
         result = self.provider.generate("text", min_length=50, max_length=200)
         assert len(result) <= 200
@@ -51,6 +44,21 @@ class TestBaseProvider(
     def test_generate_sentence_ends_with_period(self) -> None:
         result = self.provider.generate("sentence")
         assert result.endswith(".")
+
+    def test_generate_word_is_pronounceable(self) -> None:
+        """word generator produces a non-empty alphabetic token of reasonable length."""
+        result = self.provider.generate("word")
+        assert isinstance(result, str)
+        assert 4 <= len(result) <= 8
+        assert result.isalpha()
+
+    def test_generate_word_seed_reproducibility(self) -> None:
+        """word generator respects set_seed for reproducible output."""
+        self.provider.set_seed(42)
+        r1 = self.provider.generate("word")
+        self.provider.set_seed(42)
+        r2 = self.provider.generate("word")
+        assert r1 == r2
 
     def test_generate_string_default_charset(self) -> None:
         result = self.provider.generate("string", min_length=5, max_length=10, charset=None)

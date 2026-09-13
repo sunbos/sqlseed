@@ -1,0 +1,26 @@
+{
+  "root": true,
+  "overrides": [
+    {
+      "files": ["plugins/sqlseed-web/src/sqlseed_web/static/js/**/*.js"],
+      "extends": "eslint:recommended",
+      "env": {
+        "browser": true,
+        "es2022": true
+      },
+      "parserOptions": {
+        "ecmaVersion": 2022,
+        "sourceType": "module"
+      }
+    },
+    {
+      "files": [
+        "plugins/sqlseed-web/src/sqlseed_web/static/js/workbench/dependency-view.js",
+        "plugins/sqlseed-web/src/sqlseed_web/static/js/workbench/graph-layout.js"
+      ],
+      "env": {
+        "commonjs": true
+      }
+    }
+  ]
+}

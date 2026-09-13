@@ -1,0 +1,1143 @@
+"""Unified database adapter based on SQLAlchemy.
+
+Phase 2 implementation: supports SQLite dialect (via Python built-in sqlite3 driver).
+Phase 3 extension: PostgreSQL (via psycopg3 driver, requires sqlseed[postgres]).
+
+Design notes:
+- Metadata reading: uses SQLAlchemy inspect() to mask dialect differences
+- Bulk write: uses SQLAlchemy bulk_insert_mappings(); PG dialect may use the COPY protocol in the future
+- Type normalization: maps database types to sqlseed internal types via TypeNormalizer
+- Autoincrement detection: delegated to the Dialect (SQLite parses sqlite_master; PG uses column_info)
+- Performance optimization: abstracts dialect-specific optimization strategies via BulkWriteOptimizer
+
+Connection forms:
+    "sqlite:///path/to/db"           -> SQLite
+    "postgresql://user:pass@host/db" -> PostgreSQL (phase 3)
+    "/path/to/db.sqlite"             -> automatically converted to sqlite:/// URL
+"""
+
+from __future__ import annotations
+
+import re
+import weakref
+from contextlib import contextmanager
+from datetime import date, datetime
+from typing import TYPE_CHECKING, Any
+
+from sqlalchemy import (
+    JSON,
+    MetaData,
+    Table,
+    Text,
+    bindparam,
+    cast,
+    create_engine,
+    event,
+    inspect,
+    literal,
+    select,
+    text,
+)
+from sqlalchemy.engine import make_url
+from sqlalchemy.exc import ArgumentError, NoSuchModuleError, NoSuchTableError, SQLAlchemyError
+from sqlalchemy.sql.elements import Null
+
+from sqlseed._utils.logger import get_logger
+from sqlseed._utils.sql_safe import validate_table_name
+from sqlseed.database._bulk_optimizer import (
+    BulkWriteOptimizer,
+    PostgresBulkOptimizer,
+    SQLiteBulkOptimizer,
+)
+from sqlseed.database._dialect import Dialect, PostgresDialect, SQLiteDialect
+from sqlseed.database._helpers import apply_bulk_optimize, apply_bulk_restore, batch_insert_rows, fetch_index_info
+from sqlseed.database._protocol import CheckConstraintInfo, ColumnInfo, ForeignKeyInfo, IndexInfo
+from sqlseed.database._sqlite_schema import detect_sqlite_rowid_alias, resolve_sqlite_table_name
+from sqlseed.database._type_normalizer import TypeNormalizer
+from sqlseed.database._value_normalizer import normalize_typed_value
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
+    from sqlalchemy.engine import Connection, Engine
+    from sqlalchemy.engine.reflection import Inspector
+    from typing_extensions import Self
+
+logger = get_logger(__name__)
+
+
+def _sqlite_date_value(value: Any) -> Any:
+    """Preserve SQLite's date representation without its deprecated adapters."""
+    if isinstance(value, datetime):
+        return value.isoformat(" ")
+    if isinstance(value, date):
+        return value.isoformat()
+    return value
+
+
+def _sqlite_unprocessed_columns(table: Any, dialect: Any) -> set[str]:
+    # DATE/DATETIME and other typed columns keep SQLAlchemy's bind processors.
+    # TEXT columns have no processor, so date objects would reach sqlite3's
+    # implicit adapters. Convert those values explicitly at our binding boundary.
+    return {
+        column.name for column in table.columns if column.type.dialect_impl(dialect).bind_processor(dialect) is None
+    }
+
+
+def _normalize_row_values(table: Any, dialect: Any, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Prepare one bounded batch for SQLAlchemy's reflected bind processors."""
+    column_types = {column.name: column.type for column in table.columns}
+    unprocessed = _sqlite_unprocessed_columns(table, dialect) if dialect.name == "sqlite" else set()
+    normalized = []
+    for row in rows:
+        bound_row = {}
+        for name, value in row.items():
+            bound_value = (
+                normalize_typed_value(value, column_types[name], name, dialect.name) if name in column_types else value
+            )
+            bound_row[name] = _sqlite_date_value(bound_value) if name in unprocessed else bound_value
+        normalized.append(bound_row)
+    return normalized
+
+
+def _bound_comparison(column: Any, value: Any, dialect: Any) -> Any:
+    # JSON scalar comparisons otherwise infer String/Boolean/Integer bindings,
+    # which bypass the JSON encoding used on insertion. Keep SQL NULL explicit.
+    if isinstance(column.type, JSON) and not isinstance(value, Null):
+        if dialect.name == "sqlite":
+            return column == (bindparam(None, value, type_=Text()) if value is not None else None)
+        value = bindparam(None, value, type_=column.type)
+    return column == value
+
+
+def _json_document_projection(column: Any) -> Any:
+    # JSON read back into FK pools or lookup expressions must retain the same
+    # serialized-document contract as generators, including JSON null vs SQL NULL.
+    return cast(column, Text()) if isinstance(column.type, JSON) else column
+
+
+_NOT_CONNECTED = "Database not connected. Call connect() first."
+
+
+class _PooledCursor:
+    """Keep a checked-out connection alive until its DBAPI cursor is closed."""
+
+    def __init__(self, cursor: Any, connection: Any) -> None:
+        self._cursor = cursor
+        self._finalizer = weakref.finalize(self, self._release, cursor, connection)
+
+    @staticmethod
+    def _release(cursor: Any, connection: Any) -> None:
+        try:
+            cursor.close()
+        finally:
+            connection.close()
+
+    def close(self) -> None:
+        self._finalizer()
+
+    @property
+    def arraysize(self) -> int:
+        return int(self._cursor.arraysize)
+
+    @arraysize.setter
+    def arraysize(self, size: int) -> None:
+        self._cursor.arraysize = size
+
+    def __getattr__(self, name: str) -> Any:
+        attribute = getattr(self._cursor, name)
+        if not callable(attribute):
+            return attribute
+
+        def call(*args: Any, **kwargs: Any) -> Any:
+            # Keep this owner alive during chained execute(...).fetchall().
+            result = getattr(self._cursor, name)(*args, **kwargs)
+            return self if result is self._cursor else result
+
+        return call
+
+    def __iter__(self) -> _PooledCursor:
+        return self
+
+    def __next__(self) -> Any:
+        return next(self._cursor)
+
+
+class SQLAlchemyBatchInserter:
+    """Generic batch writer using SQLAlchemy bulk_insert_mappings.
+
+    Applicable to all SQLAlchemy-supported dialects such as SQLite / PostgreSQL.
+    In the future, PG may be upgraded to the psycopg3 COPY protocol for a 5-10x performance boost.
+
+    H2 optimization: supports a pre-reflected Table object passed in via the constructor
+    to avoid reflecting the table structure on every batch, and accepts a shared Connection
+    in insert() so all batches can be written within a single outer transaction.
+    """
+
+    def __init__(self, engine: Engine, table_name: str, table: Any = None) -> None:
+        """Initialize the batch writer.
+
+        Args:
+            engine: SQLAlchemy Engine instance.
+            table_name: Target table name.
+            table: Optional pre-reflected SQLAlchemy Table object (H2 optimization).
+                When provided, reuses it instead of reflecting on every insert.
+        """
+        self._engine = engine
+        self._table_name = table_name
+        self._table = table  # cached Table object (H2 optimization)
+        self._normalizer = TypeNormalizer()
+
+    def _resolve_table(self) -> Any:
+        """Return the cached Table or reflect it on first use.
+
+        Raises:
+            RuntimeError: Raised when the target table does not exist.
+        """
+        if self._table is not None:
+            return self._table
+
+        metadata = MetaData()
+        try:
+            self._table = Table(
+                self._table_name,
+                metadata,
+                autoload_with=self._engine,
+                extend_existing=True,
+            )
+        except NoSuchTableError as e:
+            raise RuntimeError(f"Table '{self._table_name}' does not exist") from e
+        return self._table
+
+    def insert(self, rows: list[dict[str, Any]], conn: Any = None) -> int:
+        """Insert a batch of row data.
+
+        When a pre-reflected Table is supplied, reuses it instead of reflecting on every call.
+        When a shared Connection is supplied, writes within that transaction; otherwise opens a new one.
+
+        Args:
+            rows: List of row data, each row is a dict mapping column names to values.
+            conn: Optional shared SQLAlchemy Connection for single-transaction batching.
+
+        Returns:
+            The actual number of inserted rows; returns 0 when rows is empty.
+
+        Raises:
+            RuntimeError: Raised when the target table does not exist.
+        """
+        if not rows:
+            return 0
+        table = self._resolve_table()
+        if conn is not None:
+            return self._insert_count(conn, table, rows)
+        with self._engine.begin() as connection:
+            return self._insert_count(connection, table, rows)
+
+    @staticmethod
+    def _insert_count(conn: Any, table: Any, rows: list[dict[str, Any]]) -> int:
+        # SQLite executemany rowcount excludes rows skipped by RAISE(IGNORE).
+        # PostgreSQL insertmanyvalues may page internally; RETURNING counts every
+        # actually inserted row across those pages, excluding trigger-skipped rows.
+        statement = table.insert()
+        rows = _normalize_row_values(table, conn.dialect, rows)
+        if conn.dialect.name == "postgresql":
+            result = conn.execute(statement.returning(literal(1)), rows)
+            return sum(1 for _ in result)
+        if conn.dialect.name == "sqlite":
+            json_bindings = {
+                name: bindparam(name, type_=Text())
+                for name in rows[0]
+                if name in table.c and isinstance(table.c[name].type, JSON)
+            }
+            if json_bindings:
+                statement = statement.values(json_bindings)
+        result = conn.execute(statement, rows)
+        if result.rowcount < 0:
+            raise RuntimeError("Database driver did not report the number of inserted rows")
+        return int(result.rowcount)
+
+
+class SQLAlchemyAdapter:
+    """Unified database adapter based on SQLAlchemy.
+
+    Masks database differences via SQLAlchemy's dialect system, supporting SQLite (phase 2)
+    and PostgreSQL (phase 3).
+
+    Attributes:
+        dialect: Database dialect (SQLiteDialect/PostgresDialect)
+        bulk_optimizer: Bulk write optimizer (optional)
+    """
+
+    def __init__(self) -> None:
+        """Initialize the adapter; all internal objects are initially None and require connect() before use."""
+        self._engine: Engine | None = None
+        self._inspector: Inspector | None = None
+        self._dialect: Dialect | None = None
+        self._optimizer: BulkWriteOptimizer | None = None
+        self._db_url: str = ""
+        self._db_path: str = ""
+        self._normalizer = TypeNormalizer()
+        self._table_cache: dict[str, Any] = {}
+        self._transaction_connection: Connection | None = None
+
+    @property
+    def dialect(self) -> Dialect:
+        """Database dialect."""
+        if self._dialect is None:
+            raise RuntimeError(_NOT_CONNECTED)
+        return self._dialect
+
+    @property
+    def bulk_optimizer(self) -> BulkWriteOptimizer | None:
+        """Bulk write optimizer (optional)."""
+        return self._optimizer
+
+    def connect(self, db_path: str) -> None:
+        """Connect to the database.
+
+        Supports two connection forms:
+        - Database URL: "sqlite:///path/to/db", "postgresql://user:pass@host/db"
+        - Pure file path: "/path/to/db.sqlite" -> automatically converted to sqlite:/// URL
+
+        Args:
+            db_path: Database URL or file path
+
+        Raises:
+            RuntimeError: When connecting to PG but the corresponding driver
+                is not installed, gives a friendly hint.
+            ValueError: When the database URL is invalid (sqlalchemy.ArgumentError).
+            BaseException: Propagates initialization failures after closing the
+                partially initialized engine and clearing its state.
+        """
+        self.close()
+        # Pure file path automatically converted to SQLite URL
+        if "://" not in db_path:
+            self._db_path = db_path
+            db_url = f"sqlite:///{db_path}"
+        else:
+            self._db_path = db_path
+            db_url = db_path
+
+        self._db_url = db_url
+        self._engine = self._create_engine_for_url(db_url)
+
+        try:
+            self._dialect = self._detect_dialect()
+
+            # Register before reflection opens the first pooled connection.
+            # SQLite foreign_keys is a per-connection setting.
+            if self._dialect.name == "sqlite":
+
+                @event.listens_for(self._engine, "connect")
+                def _enable_sqlite_fk(dbapi_conn: Any, _record: Any) -> None:
+                    cursor = dbapi_conn.cursor()
+                    try:
+                        cursor.execute("PRAGMA foreign_keys = ON")
+                    finally:
+                        cursor.close()
+
+            self._inspector = inspect(self._engine)
+            self._optimizer = self._create_optimizer()
+        except BaseException:
+            self.close()
+            raise
+
+        logger.debug("Connected to database via SQLAlchemy", db_url=db_url, dialect=self._dialect.name)
+
+    @staticmethod
+    def _create_engine_for_url(db_url: str) -> Engine:
+        """Select the default PostgreSQL driver and explain invalid connection URLs.
+
+        Raises:
+            RuntimeError: When the PostgreSQL driver cannot be loaded.
+            ValueError: When SQLAlchemy rejects the connection URL.
+            NoSuchModuleError: When another requested dialect or driver is unavailable.
+        """
+        try:
+            engine_url = make_url(db_url)
+            if engine_url.drivername == "postgresql":
+                # Match the psycopg3 driver supplied by sqlseed[postgres].
+                # Keep the original target and every explicitly chosen driver.
+                engine_url = engine_url.set(drivername="postgresql+psycopg")
+            return create_engine(engine_url)
+        except NoSuchModuleError as exc:
+            # Give a friendly hint when the driver is not installed
+            if "postgresql" in db_url:
+                raise RuntimeError(
+                    "PostgreSQL driver not installed. Install with: pip install sqlseed[postgres]"
+                ) from exc
+            raise
+        except ArgumentError as exc:
+            raise ValueError(f"Invalid database URL: {db_url}") from exc
+
+    def close(self) -> None:
+        """Close the database connection and release resources. No-op if not connected."""
+        if self._transaction_connection is not None:
+            raise RuntimeError("Cannot close an adapter while its transaction is active")
+        if self._engine is not None:
+            self._engine.dispose()
+            self._engine = None
+            self._inspector = None
+            self._dialect = None
+            self._optimizer = None
+            self._table_cache.clear()
+            logger.debug("Closed SQLAlchemy connection", db_url=self._db_url)
+
+    @contextmanager
+    def transaction(self) -> Iterator[Self]:
+        """Join SQLite reads and writes into one explicit, rollback-safe scope.
+
+        Other dialects are deliberately unavailable until their multi-table
+        transaction and identity behavior has been verified. Nested scopes are
+        rejected. Bulk PRAGMA optimization is suspended inside the transaction.
+        """
+        if self.dialect.name != "sqlite":
+            raise RuntimeError("Explicit adapter transactions are currently verified only for SQLite")
+        if self._transaction_connection is not None:
+            raise RuntimeError("An adapter transaction is already active")
+        inspector, optimizer = self._inspector, self._optimizer
+        with self._get_engine().connect() as connection:
+            connection.exec_driver_sql("BEGIN IMMEDIATE")
+            self._transaction_connection = connection
+            try:
+                self._inspector = inspect(connection)
+                self._optimizer = None
+                self._table_cache.clear()
+                yield self
+                connection.commit()
+            except BaseException:
+                connection.rollback()
+                raise
+            finally:
+                self._transaction_connection = None
+                self._inspector, self._optimizer = inspector, optimizer
+                self._table_cache.clear()
+                if inspector is not None:
+                    inspector.clear_cache()
+
+    @contextmanager
+    def _connection(self, *, write: bool = False) -> Iterator[Connection]:
+        if self._transaction_connection is not None:
+            yield self._transaction_connection
+        else:
+            engine = self._get_engine()
+            with engine.begin() if write else engine.connect() as connection:
+                yield connection
+
+    def _detect_dialect(self) -> Dialect:
+        """Create the corresponding Dialect implementation based on the engine's dialect name."""
+        if self._engine is None:
+            raise RuntimeError("Engine not initialized")
+
+        dialect_name = self._engine.dialect.name
+        if dialect_name == "sqlite":
+            return SQLiteDialect()
+        if dialect_name == "postgresql":
+            return PostgresDialect()
+        raise ValueError(f"Unsupported dialect: {dialect_name}")
+
+    def _create_optimizer(self) -> BulkWriteOptimizer | None:
+        """Create the corresponding bulk write optimizer based on the dialect."""
+        if self._dialect is None or self._engine is None:
+            return None
+
+        # Shared execute_fn: dialect-agnostic raw DBAPI execution with commit.
+        # Used by both SQLiteBulkOptimizer (for PRAGMA setup) and
+        # PostgresBulkOptimizer (for SET synchronous_commit = OFF, etc.).
+        def execute_fn(sql: str, params: Any = ()) -> Any:
+            engine = self._get_engine()
+            raw = engine.raw_connection()
+            try:
+                cursor = raw.cursor()
+                cursor.execute(sql, params or ())
+                raw.commit()
+                return cursor
+            finally:
+                raw.close()
+
+        if self._dialect.name == "sqlite":
+            # SQLite additionally needs a fetch_pragma helper for PRAGMA queries.
+            def fetch_pragma(name: str) -> Any:
+                engine = self._get_engine()
+                raw = engine.raw_connection()
+                try:
+                    cursor = raw.cursor()
+                    cursor.execute(f"PRAGMA {name}")
+                    row = cursor.fetchone()
+                    return row[0] if row else None
+                finally:
+                    raw.close()
+
+            return SQLiteBulkOptimizer(execute_fn=execute_fn, fetch_pragma_fn=fetch_pragma)
+
+        if self._dialect.name == "postgresql":
+            # PG uses session-level optimizations such as SET synchronous_commit = OFF
+            return PostgresBulkOptimizer(execute_fn=execute_fn)
+
+        return None
+
+    def _get_engine(self) -> Engine:
+        """Get the current Engine instance.
+
+        Raises:
+            RuntimeError: Raised when accessed without calling connect() first.
+        """
+        if self._engine is None:
+            raise RuntimeError(_NOT_CONNECTED)
+        return self._engine
+
+    def _get_inspector(self) -> Inspector:
+        """Get the current Inspector instance.
+
+        Raises:
+            RuntimeError: Raised when accessed without calling connect() first.
+        """
+        if self._inspector is None:
+            raise RuntimeError(_NOT_CONNECTED)
+        return self._inspector
+
+    def execute(self, sql: str, params: tuple[Any, ...] = ()) -> Any:
+        """Execute a SQL statement and return the cursor.
+
+        Uses a raw DBAPI connection to support native placeholders (SQLite: ?, PG: %s) and tuple parameters,
+        keeping protocol semantics consistent with RawSQLiteAdapter.
+
+        Outside an explicit transaction, the returned cursor owns the pooled
+        connection until ``cursor.close()`` or cursor garbage collection. A
+        DBAPI cursor alone does not retain SQLAlchemy's pool checkout. Inside
+        a transaction the enclosing scope owns the connection instead.
+        """
+        engine = self._get_engine()
+        if engine.dialect.name == "sqlite":
+            params = tuple(_sqlite_date_value(value) for value in params)
+        shared = self._transaction_connection is not None
+        raw = (
+            self._transaction_connection.connection
+            if self._transaction_connection is not None
+            else engine.raw_connection()
+        )
+        try:
+            cursor = raw.cursor()
+            try:
+                if params:
+                    cursor.execute(sql, params)
+                else:
+                    # psycopg treats an empty tuple as parameter binding and
+                    # interprets literal SQL percent operators as placeholders.
+                    cursor.execute(sql)
+                if not shared:
+                    raw.commit()
+                return cursor if shared else _PooledCursor(cursor, raw)
+            except Exception:
+                cursor.close()
+                raise
+        except Exception:
+            if not shared:
+                raw.close()
+            raise
+
+    def get_table_names(self) -> list[str]:
+        """Return all user table names in the database."""
+        inspector = self._get_inspector()
+        return inspector.get_table_names()
+
+    def _resolve_table_name(self, table_name: str) -> str:
+        """Validate names and keep SQLite reflection/cache keys in catalog spelling."""
+        validate_table_name(table_name)
+        if self.dialect.name != "sqlite":
+            return table_name
+        return resolve_sqlite_table_name(table_name, self.get_table_names())
+
+    def get_column_info(self, table_name: str) -> list[ColumnInfo]:
+        """Get column information for a table.
+
+        Reads column definitions via the SQLAlchemy Inspector, and constructs a ColumnInfo list
+        combined with the primary key set and autoincrement detection.
+        Returns an empty list when the table does not exist (consistent with RawSQLiteAdapter).
+
+        Args:
+            table_name: Target table name.
+
+        Returns:
+            A list of ColumnInfo for all columns of the table; returns an empty list when the table does not exist.
+        """
+        table_name = self._resolve_table_name(table_name)
+
+        inspector = self._get_inspector()
+        dialect = self.dialect
+
+        try:
+            pks = set(inspector.get_pk_constraint(table_name).get("constrained_columns", []))
+            columns = inspector.get_columns(table_name)
+        except NoSuchTableError:
+            # Consistent with RawSQLiteAdapter: a non-existent table returns an empty list
+            return []
+
+        declared_pk_types: dict[str, str] = {}
+        if dialect.name == "sqlite" and pks:
+            # Reflection folds INT into INTEGER, but only the exact INTEGER
+            # declaration can alias SQLite's rowid and receive implicit IDs.
+            safe_table = dialect.quote_identifier(table_name)
+            with self._connection() as connection:
+                rows = connection.exec_driver_sql(f"PRAGMA table_xinfo({safe_table})")
+                declared_pk_types = {row[1]: row[2] for row in rows if row[1] in pks}
+
+        rowid_alias = detect_sqlite_rowid_alias(self.execute, table_name, pks) if dialect.name == "sqlite" else None
+        result: list[ColumnInfo] = []
+        for col in columns:
+            raw_type = declared_pk_types.get(col["name"], str(col.get("type", "")))
+            normalized = self._normalizer.normalize(raw_type, dialect.name)
+            col_dict = dict(col)
+            is_pk = col["name"] in pks
+            is_autoincrement = is_pk and self._detect_autoincrement(table_name, col_dict)
+            is_computed = col_dict.get("computed") is not None
+
+            default_val = col_dict.get("default")
+            if default_val is None and col_dict.get("server_default") is not None:
+                default_val = str(col_dict["server_default"])
+
+            result.append(
+                ColumnInfo(
+                    name=col["name"],
+                    type=normalized.display,
+                    nullable=col.get("nullable", True)
+                    and not (col["name"] == rowid_alias if dialect.name == "sqlite" else is_pk),
+                    default=default_val,
+                    is_primary_key=is_pk,
+                    is_autoincrement=is_autoincrement,
+                    is_computed=is_computed,
+                    is_rowid_alias=col["name"] == rowid_alias,
+                )
+            )
+        return result
+
+    def _detect_autoincrement(self, table_name: str, column_info: dict[str, Any]) -> bool:
+        """Detect whether a column is autoincrement.
+
+        Pure delegation to the Dialect's detect_autoincrement with a
+        raw-connection execute_fn. SQLite uses it to query sqlite_master;
+        PG ignores it and detects from column_info alone. No dialect
+        branching — adding a new dialect requires no change here.
+        """
+        dialect = self.dialect
+        engine = self._get_engine()
+        shared = self._transaction_connection is not None
+        raw = (
+            self._transaction_connection.connection
+            if self._transaction_connection is not None
+            else engine.raw_connection()
+        )
+        cursor = raw.cursor()
+        try:
+
+            def execute_fn(sql: str, params: Any = ()) -> Any:
+                cursor.execute(sql, params or ())
+                return cursor
+
+            return dialect.detect_autoincrement(
+                column_info,
+                table_name=table_name,
+                execute_fn=execute_fn,
+            )
+        finally:
+            cursor.close()
+            if not shared:
+                raw.close()
+
+    def get_primary_keys(self, table_name: str) -> list[str]:
+        """Get the list of primary key column names for a table.
+
+        Args:
+            table_name: Target table name.
+
+        Returns:
+            List of primary key column names; returns an empty list when the table does not exist.
+        """
+        table_name = self._resolve_table_name(table_name)
+
+        inspector = self._get_inspector()
+        try:
+            return list(inspector.get_pk_constraint(table_name).get("constrained_columns", []))
+        except NoSuchTableError:
+            return []
+
+    def get_foreign_keys(self, table_name: str) -> list[ForeignKeyInfo]:
+        """Get foreign key information for a table.
+
+        Args:
+            table_name: Target table name.
+
+        Returns:
+            A list of ForeignKeyInfo for all foreign keys of the table;
+            returns an empty list when the table does not exist.
+        """
+        table_name = self._resolve_table_name(table_name)
+
+        inspector = self._get_inspector()
+        try:
+            if self.dialect.name == "postgresql":
+                fks = inspector.get_foreign_keys(table_name, postgresql_ignore_search_path=True)
+            else:
+                fks = inspector.get_foreign_keys(table_name)
+        except NoSuchTableError:
+            return []
+        result: list[ForeignKeyInfo] = []
+        sqlite_tables = self.get_table_names() if self.dialect.name == "sqlite" and fks else []
+        for constraint_id, fk in enumerate(fks):
+            referred_table = fk.get("referred_table", "")
+            if sqlite_tables:
+                referred_table = resolve_sqlite_table_name(referred_table, sqlite_tables)
+            constrained_cols = fk.get("constrained_columns", [])
+            referred_cols = fk.get("referred_columns", [])
+            for i, from_col in enumerate(constrained_cols):
+                to_col = referred_cols[i] if i < len(referred_cols) else ""
+                result.append(
+                    ForeignKeyInfo(
+                        column=from_col,
+                        ref_table=referred_table,
+                        ref_column=to_col,
+                        constraint_id=constraint_id,
+                        ref_schema=fk.get("referred_schema"),
+                    )
+                )
+        return result
+
+    def get_row_count(self, table_name: str) -> int:
+        """Get the total number of rows in a table.
+
+        Args:
+            table_name: Target table name.
+
+        Returns:
+            The number of rows in the table; returns 0 when the table does not exist (consistent with RawSQLiteAdapter).
+        """
+        table_name = self._resolve_table_name(table_name)
+
+        # Return 0 when the table does not exist (consistent with RawSQLiteAdapter)
+        inspector = self._get_inspector()
+        if not inspector.has_table(table_name):
+            return 0
+        safe_table = self.dialect.quote_identifier(table_name)
+        with self._connection() as conn:
+            result = conn.execute(text(f"SELECT COUNT(*) FROM {safe_table}"))
+            row = result.fetchone()
+            return int(row[0]) if row else 0
+
+    def get_column_values(self, table_name: str, column_name: str, limit: int = 1000) -> list[Any]:
+        """Get all values of a specified column.
+
+        Args:
+            table_name: Target table name.
+            column_name: Target column name.
+            limit: Maximum number of rows to return, default 1000.
+
+        Returns:
+            A list of values for that column; returns an empty list when the table does not exist.
+        """
+        table_name = self._resolve_table_name(table_name)
+
+        # Return an empty list when the table does not exist
+        inspector = self._get_inspector()
+        if not inspector.has_table(table_name):
+            return []
+        dialect = self.dialect
+        safe_table = dialect.quote_identifier(table_name)
+        safe_column = self._sample_column_sql(self._get_table(table_name), column_name)
+        sql = f"SELECT {safe_column} FROM {safe_table} LIMIT :limit"
+        with self._connection() as conn:
+            result = conn.execute(text(sql), {"limit": limit})
+            return [row[0] for row in result.fetchall()]
+
+    def get_index_info(self, table_name: str) -> list[IndexInfo]:
+        """Get index information for a table.
+
+        Args:
+            table_name: Target table name.
+
+        Returns:
+            A list of IndexInfo for all indexes of the table; returns an empty list when the table does not exist.
+        """
+        table_name = self._resolve_table_name(table_name)
+
+        inspector = self._get_inspector()
+        try:
+            indexes = inspector.get_indexes(table_name)
+        except NoSuchTableError:
+            return []
+        result: list[IndexInfo] = []
+        for idx in indexes:
+            idx_name = idx.get("name") or ""
+            col_names = [c or "" for c in idx.get("column_names", [])]
+            predicate = idx.get("dialect_options", {}).get(f"{self.dialect.name}_where")
+            result.append(
+                IndexInfo(
+                    name=idx_name,
+                    table=table_name,
+                    columns=tuple(col_names),
+                    unique=bool(idx.get("unique", False)),
+                    is_partial=predicate is not None,
+                    predicate=str(predicate) if predicate is not None else None,
+                )
+            )
+        return result
+
+    def get_unique_constraints(self, table_name: str) -> list[IndexInfo]:
+        """Get UNIQUE constraint metadata for a table.
+
+        Uses SQLAlchemy's ``inspector.get_unique_constraints`` to reflect
+        table-level ``UNIQUE(col1, col2)`` constraints. These are NOT returned
+        by ``get_indexes`` because SQLite creates auto-indexes for them, and
+        SQLAlchemy's ``inspector.get_indexes`` excludes auto-indexes.
+
+        On SQLite, ``inspector.get_unique_constraints`` can additionally miss
+        inline column-level ``UNIQUE`` constraints when the column also carries
+        a ``CHECK`` constraint (a SQLAlchemy reflection limitation that drops
+        the auto-index). PRAGMA-based index detection reports those auto-indexes
+        directly, so this method supplements the inspector result with them.
+
+        Args:
+            table_name: Target table name.
+
+        Returns:
+            A list of IndexInfo for all UNIQUE constraints of the table;
+            returns an empty list when the table does not exist.
+        """
+        table_name = self._resolve_table_name(table_name)
+
+        result: list[IndexInfo] = []
+        seen: set[tuple[str, ...]] = set()
+
+        inspector = self._get_inspector()
+        try:
+            constraints = inspector.get_unique_constraints(table_name)
+        except NoSuchTableError:
+            constraints = []
+        for uc in constraints:
+            if not (col_names := tuple(c or "" for c in uc.get("column_names", []))):
+                continue
+            if col_names not in seen:
+                seen.add(col_names)
+                result.append(
+                    IndexInfo(
+                        name=uc.get("name") or "",
+                        table=table_name,
+                        columns=col_names,
+                        unique=True,
+                    )
+                )
+
+        if self.dialect.name == "sqlite":
+            self._append_sqlite_unique_constraints(table_name, result, seen)
+
+        return result
+
+    def _append_sqlite_unique_constraints(
+        self, table_name: str, result: list[IndexInfo], seen: set[tuple[str, ...]]
+    ) -> None:
+        """Supplement reflection with complete single-column SQLite UNIQUE indexes."""
+        try:
+            for idx in fetch_index_info(self.execute, table_name):
+                if idx.unique and not idx.is_partial and len(idx.columns) == 1 and (key := idx.columns) not in seen:
+                    seen.add(key)
+                    result.append(
+                        IndexInfo(
+                            name=idx.name,
+                            table=table_name,
+                            columns=idx.columns,
+                            unique=True,
+                        )
+                    )
+        except (SQLAlchemyError, ValueError, RuntimeError, OSError):
+            logger.debug("Failed to detect SQLite UNIQUE auto-indexes via PRAGMA", table_name=table_name)
+
+    def get_check_constraints(self, table_name: str) -> list[CheckConstraintInfo]:
+        """Get CHECK constraint metadata for a table.
+
+        Uses SQLAlchemy's inspector to reflect CHECK constraints. The raw SQL
+        expression is returned verbatim so the AI plugin can convey business
+        rules to the LLM. Column references are extracted via a simple
+        identifier scan (lowercased, SQL keywords filtered out); when parsing
+        fails, an empty tuple is returned and the LLM still sees ``expression``.
+
+        Args:
+            table_name: Target table name.
+
+        Returns:
+            A list of CheckConstraintInfo for all CHECK constraints on the
+            table; returns an empty list when the table does not exist or the
+            backend does not expose CHECK constraints.
+        """
+        table_name = self._resolve_table_name(table_name)
+
+        inspector = self._get_inspector()
+        try:
+            checks = inspector.get_check_constraints(table_name)
+        except NoSuchTableError:
+            return []
+        except (SQLAlchemyError, NotImplementedError) as exc:
+            # Backend may not support CHECK reflection (e.g. older SQLAlchemy
+            # versions or dialects without get_check_constraints). Narrow to
+            # SQLAlchemyError + NotImplementedError so genuine bugs (e.g.
+            # AttributeError from a typo) are not silently swallowed.
+            logger.debug("CHECK constraint reflection unavailable", table_name=table_name, error=str(exc))
+            return []
+
+        # SQL keywords to exclude when extracting column identifiers.
+        sql_keywords = frozenset(
+            {
+                "in",
+                "and",
+                "or",
+                "not",
+                "null",
+                "is",
+                "between",
+                "like",
+                "case",
+                "when",
+                "then",
+                "else",
+                "end",
+                "true",
+                "false",
+                "length",
+                "round",
+                "abs",
+                "coalesce",
+                "if",
+                "exists",
+            }
+        )
+        result: list[CheckConstraintInfo] = []
+        for chk in checks:
+            name = chk.get("name") or ""
+            expression = chk.get("sqltext") or ""
+            # Extract candidate identifiers and filter against keywords.
+            identifiers = re.findall(r"[A-Za-z_]\w*", expression, re.ASCII)
+            cols = tuple(i for i in identifiers if i.lower() not in sql_keywords)
+            result.append(
+                CheckConstraintInfo(
+                    name=name,
+                    table=table_name,
+                    columns=cols,
+                    expression=expression,
+                )
+            )
+        return result
+
+    def get_sample_rows(
+        self,
+        table_name: str,
+        limit: int = 5,
+        columns: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Get sample rows from a table.
+
+        Args:
+            table_name: Target table name.
+            limit: Maximum number of rows to return, default 5.
+            columns: Optional list of column names to project. When ``None``,
+                all columns are selected. When provided, only the named columns
+                are fetched (reduces data transfer for wide tables with many
+                columns but only a few PK/FK columns of interest). Unknown
+                names are ignored.
+
+        Returns:
+            A list of dicts keyed by column names with row values; returns an empty
+            list when the table does not exist or has no columns.
+        """
+        table_name = self._resolve_table_name(table_name)
+
+        dialect = self.dialect
+        # Return an empty list when the table does not exist or has no columns (consistent with RawSQLiteAdapter)
+        if not (all_columns := self.get_column_info(table_name)):
+            return []
+        if columns is not None:
+            projection_set = set(columns)
+            if not (selected := [c for c in all_columns if c.name in projection_set]):
+                return []
+        else:
+            selected = all_columns
+        table = self._get_table(table_name)
+        col_names = [self._sample_column_sql(table, column.name) for column in selected]
+        safe_table = dialect.quote_identifier(table_name)
+        cols_sql = ", ".join(col_names)
+        sql = f"SELECT {cols_sql} FROM {safe_table} LIMIT :limit"
+
+        with self._connection() as conn:
+            result = conn.execute(text(sql), {"limit": limit})
+            col_name_list = [c.name for c in selected]
+            return [dict(zip(col_name_list, row, strict=True)) for row in result.fetchall()]
+
+    def _sample_column_sql(self, table: Any, column_name: str) -> str:
+        """Preserve DBAPI values except JSON, which needs document text on both dialects."""
+        safe_column = self.dialect.quote_identifier(column_name)
+        column = table.c.get(column_name)
+        return f"CAST({safe_column} AS TEXT)" if column is not None and isinstance(column.type, JSON) else safe_column
+
+    def _get_table(self, table_name: str) -> Any:
+        """Get a cached SQLAlchemy Table object, reflecting on first access (H2 optimization).
+
+        Args:
+            table_name: Target table name.
+
+        Returns:
+            SQLAlchemy Table object.
+
+        Raises:
+            RuntimeError: Raised when the target table does not exist.
+        """
+        if (table_name := self._resolve_table_name(table_name)) in self._table_cache:
+            return self._table_cache[table_name]
+
+        engine = self._get_engine()
+        metadata = MetaData()
+        try:
+            table = Table(
+                table_name, metadata, autoload_with=self._transaction_connection or engine, extend_existing=True
+            )
+        except NoSuchTableError as e:
+            raise RuntimeError(f"Table '{table_name}' does not exist") from e
+        self._table_cache[table_name] = table
+        return table
+
+    def batch_insert(
+        self,
+        table_name: str,
+        data: Iterator[dict[str, Any]],
+        batch_size: int = 5000,
+    ) -> int:
+        """Insert data in batches.
+
+        Uses a cached Table object (H2 optimization: reflect once, reuse for all batches)
+        and wraps all batches in a single outer transaction via ``engine.begin()``.
+
+        Atomicity semantics (behavioral change from pre-H2):
+            All batches commit or roll back together. If batch K fails, batches 1..K-1
+            are rolled back and 0 rows are persisted. This is preferable for test-data
+            generation (avoids partial datasets that violate FK constraints), but
+            differs from the previous per-batch commit semantics where a failure at
+            batch 8/10 would leave the first 7 batches committed.
+
+        Args:
+            table_name: Target table name.
+            data: Row data iterator, each row is a dict mapping column names to values.
+            batch_size: Maximum number of rows per batch, default 5000.
+
+        Returns:
+            Total number of inserted rows.
+        """
+        table_name = self._resolve_table_name(table_name)
+        engine = self._get_engine()
+        table = self._get_table(table_name)
+        inserter = SQLAlchemyBatchInserter(engine, table_name, table=table)
+        with self._connection(write=True) as conn:
+            return batch_insert_rows(data, batch_size, lambda batch: inserter.insert(batch, conn=conn))
+
+    def _key_exists(self, table_name: str, values: dict[str, Any]) -> bool:
+        """Check a key with the same typed bindings used to insert its values."""
+        table_name = self._resolve_table_name(table_name)
+        table = self._get_table(table_name)
+        dialect = self._get_engine().dialect
+        statement = select(1).select_from(table).limit(1)
+        for name, bound_value in _normalize_row_values(table, dialect, [values])[0].items():
+            statement = statement.where(_bound_comparison(table.c[name], bound_value, dialect))
+        with self._connection() as connection:
+            return connection.execute(statement).first() is not None
+
+    def _get_column_pairs(
+        self, table_name: str, first_column: str, second_column: str, limit: int = 100000
+    ) -> list[tuple[Any, Any]]:
+        """Read a bounded pair pool, preserving JSON documents for generation."""
+        table_name = self._resolve_table_name(table_name)
+        table = self._get_table(table_name)
+        statement = select(
+            _json_document_projection(table.c[first_column]), _json_document_projection(table.c[second_column])
+        ).limit(limit)
+        with self._connection() as connection:
+            return [(row[0], row[1]) for row in connection.execute(statement)]
+
+    def _lookup_value(self, table_name: str, column_name: str, key: Any, key_column: str) -> Any:
+        """Look up a value for generation, retaining JSON's serialized-document contract."""
+        table_name = self._resolve_table_name(table_name)
+        table = self._get_table(table_name)
+        dialect = self._get_engine().dialect
+        bound_key = _normalize_row_values(table, dialect, [{key_column: key}])[0][key_column]
+        statement = (
+            select(_json_document_projection(table.c[column_name]))
+            .where(_bound_comparison(table.c[key_column], bound_key, dialect))
+            .limit(1)
+        )
+        with self._connection() as connection:
+            return connection.execute(statement).scalar()
+
+    def clear_table(self, table_name: str) -> None:
+        """Clear table data and reset the autoincrement counter.
+
+        Args:
+            table_name: Target table name.
+        """
+        table_name = self._resolve_table_name(table_name)
+
+        dialect = self.dialect
+        safe_table = dialect.quote_identifier(table_name)
+        engine = self._get_engine()
+        shared = self._transaction_connection is not None
+        raw = (
+            self._transaction_connection.connection
+            if self._transaction_connection is not None
+            else engine.raw_connection()
+        )
+        cursor = raw.cursor()
+        try:
+            cursor.execute(f"DELETE FROM {safe_table}")
+            # Reset the autoincrement counter. Each Dialect self-handles expected
+            # failures (SQLite: sqlite_sequence missing; PG: no sequence) via its
+            # own reset_autoincrement implementation, so no dialect-specific
+            # exception handling is needed here.
+            dialect.reset_autoincrement(
+                lambda sql, params=None: cursor.execute(sql, params or ()),
+                table_name,
+            )
+            if not shared:
+                raw.commit()
+        finally:
+            cursor.close()
+            if not shared:
+                raw.close()
+        logger.debug("Cleared table", table_name=table_name)
+
+    def optimize_for_bulk_write(self, expected_rows: int | None = None) -> None:
+        """Apply bulk write optimization.
+
+        Delegates to apply_bulk_optimize, which saves the current configuration
+        before applying the optimization strategy.
+
+        Args:
+            expected_rows: Expected number of rows to write, used to select the
+                optimization level; uses default when None.
+        """
+        apply_bulk_optimize(self._optimizer, expected_rows)
+
+    def restore_settings(self) -> None:
+        """Restore the database configuration prior to optimization.
+
+        Delegates to apply_bulk_restore, used in pair with optimize_for_bulk_write.
+        """
+        apply_bulk_restore(self._optimizer)
+
+    def __enter__(self) -> Self:
+        """Enter the context, returning self."""
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: Any,
+    ) -> None:
+        """Exit the context, automatically closing the connection."""
+        self.close()
+
+
+__all__ = ["SQLAlchemyAdapter", "SQLAlchemyBatchInserter"]

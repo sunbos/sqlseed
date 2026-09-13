@@ -37,6 +37,16 @@ def _get_ram_windows() -> tuple[float, float] | None:
     try:
 
         class MEMORYSTATUSEX(ctypes.Structure):
+            """Win32 ``MEMORYSTATUSEX`` structure for ``GlobalMemoryStatusEx`` (ctypes mirror).
+
+            Field names (``dwLength``, ``ullTotalPhys``, etc.) MUST exactly match
+            the Win32 C struct definition — ctypes requires this for binary
+            compatibility. The Hungarian-notation prefixes (``dw`` = DWORD,
+            ``ull`` = ULONGLONG) are dictated by the Windows API and cannot be
+            renamed to snake_case. The ``good-names-rgxs`` setting in
+            ``pyproject.toml`` whitelists this pattern.
+            """
+
             _fields_ = [
                 ("dwLength", ctypes.c_ulong),
                 ("dwMemoryLoad", ctypes.c_ulong),
@@ -49,11 +59,18 @@ def _get_ram_windows() -> tuple[float, float] | None:
                 ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
             ]
 
+            def __init__(self) -> None:
+                super().__init__()
+                # Required by GlobalMemoryStatusEx: dwLength must be set to the
+                # size of the struct before the call. Initializing in __init__
+                # (rather than after instantiation) ensures every instance is
+                # correctly populated and satisfies pylint's
+                # attribute-defined-outside-init check.
+                self.dwLength = ctypes.sizeof(self)
+
         stat = MEMORYSTATUSEX()
-        stat.dwLength = ctypes.sizeof(stat)
         # ctypes.windll only exists on Windows; use getattr for cross-platform safety
-        windll = getattr(ctypes, "windll", None)
-        if windll is None:
+        if (windll := getattr(ctypes, "windll", None)) is None:
             return None
         windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat))
         return (
@@ -220,8 +237,7 @@ def _detect_gpu_macos() -> list[dict[str, Any]]:
 
 def _detect_gpus() -> list[dict[str, Any]]:
     """Detect GPUs. Tries nvidia-smi first, then platform-specific fallbacks."""
-    gpus = _detect_gpu_nvidia()
-    if gpus:
+    if gpus := _detect_gpu_nvidia():
         return gpus
 
     if platform.system() == "Darwin":
@@ -308,8 +324,7 @@ def evaluate_model_status(
         "insufficient" — hardware does not meet minimum specs
         "cloud_only"   — not applicable for local inference
     """
-    req = MODEL_REQUIREMENTS.get(model_id)
-    if not req:
+    if not (req := MODEL_REQUIREMENTS.get(model_id)):
         return "cloud_only"
 
     max_vram = hw.get("max_vram_gb", 0)

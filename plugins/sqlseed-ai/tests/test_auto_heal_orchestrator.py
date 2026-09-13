@@ -1,0 +1,3137 @@
+from __future__ import annotations
+
+from types import SimpleNamespace
+from typing import TYPE_CHECKING
+from unittest.mock import MagicMock
+
+import pytest
+import yaml
+from sqlseed_ai.auto_heal.orchestrator import (
+    AutoHealOrchestrator,
+    _get_exact_length_check,
+    _has_like_constraint,
+    _infer_cross_column_config,
+    _infer_from_check_constraints,
+    _like_to_regex,
+)
+
+from tests.sqlite_helpers import sqlite_connection
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+
+@pytest.fixture(name="simple_db")
+def fixture_simple_db(tmp_path: Path) -> Path:
+    path = tmp_path / "simple.db"
+    with sqlite_connection(str(path)) as conn:
+        conn.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT UNIQUE)")
+    return path
+
+
+def test_run_returns_yaml_string(simple_db: Path):
+    """End-to-end: orchestrator returns a non-empty YAML config string."""
+    mock_healer = MagicMock()
+    mock_validator = MagicMock()
+    mock_validator.validate.return_value = []  # no violations
+
+    orch = AutoHealOrchestrator(
+        db_path=str(simple_db),
+        heal_orchestrator=mock_healer,
+        validator=mock_validator,
+        total_budget_seconds=10.0,
+    )
+    yaml_str = orch.run()
+    assert isinstance(yaml_str, str)
+    assert "users" in yaml_str
+
+
+def test_run_invokes_subgraph_splitter(simple_db: Path):
+    """Orchestrator invokes SubgraphSplitter at startup."""
+    mock_healer = MagicMock()
+    mock_validator = MagicMock()
+    mock_validator.validate.return_value = []
+
+    orch = AutoHealOrchestrator(
+        db_path=str(simple_db),
+        heal_orchestrator=mock_healer,
+        validator=mock_validator,
+        total_budget_seconds=10.0,
+    )
+    orch.run()
+    assert mock_healer.heal.called or mock_validator.validate.called
+
+
+def test_run_post_repairs_broken_edges(simple_db: Path):
+    """When megacluster breaking occurs, BrokenEdgeAligner is invoked."""
+    mock_healer = MagicMock()
+    mock_validator = MagicMock()
+    mock_validator.validate.return_value = []
+
+    orch = AutoHealOrchestrator(
+        db_path=str(simple_db),
+        heal_orchestrator=mock_healer,
+        validator=mock_validator,
+        total_budget_seconds=10.0,
+    )
+    yaml_str = orch.run(broken_edges_inject=[("users", "users")])
+    assert "users" in yaml_str
+
+
+def test_run_verifies_schema_hash_at_write_time(simple_db: Path):
+    """Defense 8: orchestrator checks schema_hash before writing YAML."""
+    mock_healer = MagicMock()
+    mock_validator = MagicMock()
+    mock_validator.validate.return_value = []
+
+    orch = AutoHealOrchestrator(
+        db_path=str(simple_db),
+        heal_orchestrator=mock_healer,
+        validator=mock_validator,
+        total_budget_seconds=10.0,
+    )
+    yaml_str = orch.run()
+    assert "users" in yaml_str
+
+
+# --- Step 5.5 safety net tests ---
+
+
+@pytest.fixture(name="unique_length_db")
+def fixture_unique_length_db(tmp_path: Path) -> Path:
+    """DB with UNIQUE + LENGTH(N) CHECK columns (the conflict case)."""
+    path = tmp_path / "unique_len.db"
+    with sqlite_connection(str(path)) as conn:
+        conn.execute(
+            """
+            CREATE TABLE codes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                code TEXT NOT NULL UNIQUE CHECK (LENGTH(code) = 2),
+                is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
+                status TEXT NOT NULL CHECK (status IN ('active', 'inactive'))
+            )
+            """
+        )
+    return path
+
+
+def test_get_exact_length_check_returns_n():
+    """_get_exact_length_check returns N for LENGTH(col) = N."""
+    constraints = [
+        {"type": "check", "expression": "LENGTH(code) = 2"},
+        {"type": "check", "expression": "LENGTH(name) >= 3"},
+        {"type": "unique", "columns": ["code"]},
+    ]
+    assert _get_exact_length_check("code", constraints) == 2
+    assert _get_exact_length_check("name", constraints) is None
+    assert _get_exact_length_check("missing", constraints) is None
+
+
+def test_step55_converts_unique_length_string_to_pattern(unique_length_db: Path):
+    """UNIQUE + LENGTH(N) + string → pattern [A-Za-z0-9]{N}.
+
+    The unique adjuster would increase max_length to guarantee uniqueness,
+    breaking the CHECK constraint. Step 5.5 converts string → pattern
+    (which the unique adjuster does NOT touch).
+    """
+    mock_healer = MagicMock()
+    mock_validator = MagicMock()
+    mock_validator.validate.return_value = []
+
+    orch = AutoHealOrchestrator(
+        db_path=str(unique_length_db),
+        heal_orchestrator=mock_healer,
+        validator=mock_validator,
+        total_budget_seconds=10.0,
+    )
+    yaml_str = orch.run()
+    config = yaml.safe_load(yaml_str)
+    code_col = next(c for c in config["tables"][0]["columns"] if c["name"] == "code")
+    assert code_col["generator"] == "pattern"
+    assert code_col["params"]["regex"] == "[A-Za-z0-9]{2}"
+
+
+def test_step55_overrides_integer_with_boolean_for_in_check(unique_length_db: Path):
+    """LLM provides integer for col IN (0,1) → Step 5.5 overrides to boolean.
+
+    The IN (0, 1) CHECK constraint is very specific: only boolean generator
+    produces valid values. An integer generator with no params produces large
+    random integers that fail the CHECK.
+    """
+    mock_healer = MagicMock()
+    mock_validator = MagicMock()
+    # Simulate LLM returning integer for is_active (wrong generator)
+    mock_validator.validate.return_value = []
+
+    orch = AutoHealOrchestrator(
+        db_path=str(unique_length_db),
+        heal_orchestrator=mock_healer,
+        validator=mock_validator,
+        total_budget_seconds=10.0,
+    )
+    yaml_str = orch.run()
+    config = yaml.safe_load(yaml_str)
+    is_active_col = next(c for c in config["tables"][0]["columns"] if c["name"] == "is_active")
+    # The deterministic inference should produce boolean, not integer
+    assert is_active_col["generator"] == "boolean"
+
+
+# ---------------------------------------------------------------------------
+# Cross-column CHECK inference — Pattern unit tests (Round 6 banking schema)
+# ---------------------------------------------------------------------------
+
+
+def test_pattern_29_three_column_arithmetic_chain():
+    """Pattern 29: col = col1 (+|-) col2 (+|-) col3 (three-column arithmetic)."""
+    constraints = [{"type": "check", "expression": "available = balance + credit_limit - held"}]
+    result = _infer_cross_column_config(
+        "available", constraints, ["available", "balance", "credit_limit", "held"], "REAL"
+    )
+    assert result is not None
+    assert result["derive_from"] == "balance"
+    assert "row['credit_limit']" in result["expression"]
+    assert "row['held']" in result["expression"]
+
+
+def test_pattern_30_fk_column_returns_none():
+    """Pattern 30: FK column → always None (0 is never a valid FK id)."""
+    constraints = [{"type": "check", "expression": "position != 'ceo' OR manager_id IS NULL"}]
+    result = _infer_cross_column_config(
+        "manager_id",
+        constraints,
+        ["manager_id", "position"],
+        "INTEGER",
+        fk_columns={"manager_id"},
+    )
+    assert result is not None
+    expr = result["expression"]
+    # Both branches should be None — no "0" literal that would cause FK violation
+    assert "None" in expr
+    assert " 0" not in expr.replace("None", "")
+
+
+def test_pattern_30_non_fk_non_datetime_column_returns_zero():
+    """Pattern 30: Non-FK, non-datetime column → 0 for non-null branch.
+    Note: datetime columns (e.g., ``closed_at``) now return None for both
+    branches (0 is invalid for datetime). This test uses a non-datetime
+    column name to verify the 0-return behavior still works for int/float."""
+    constraints = [{"type": "check", "expression": "status != 'closed' OR retry_count IS NULL"}]
+    result = _infer_cross_column_config(
+        "retry_count",
+        constraints,
+        ["retry_count", "status"],
+        "INTEGER",
+        fk_columns=set(),
+    )
+    assert result is not None
+    assert "0" in result["expression"]
+
+
+def test_pattern_31_conditional_equality():
+    """Pattern 31: col1 != VALUE OR col = VALUE2 (conditional equality)."""
+    constraints = [{"type": "check", "expression": "status != 'paid_off' OR remaining = 0.0"}]
+    result = _infer_cross_column_config("remaining", constraints, ["remaining", "status"], "REAL")
+    assert result is not None
+    assert result["derive_from"] == "status"
+    assert "0.0" in result["expression"]
+    assert "random_float" in result["expression"]
+
+
+def test_pattern_22b_compound_range_with_multiplier():
+    """Pattern 22b: col >= X AND col <= col2 * CONSTANT."""
+    constraints = [{"type": "check", "expression": "fee >= 0.0 AND fee <= amount * 0.02"}]
+    result = _infer_cross_column_config("fee", constraints, ["fee", "amount"], "REAL")
+    assert result is not None
+    assert result["derive_from"] == "amount"
+    assert "random_float(0.0, 0.02)" in result["expression"]
+
+
+def test_pattern_32_conditional_value_null():
+    """Pattern 32: (col1 = VALUE AND col > X) OR (col1 IN (...) AND col IS NULL)."""
+    constraints = [
+        {
+            "type": "check",
+            "expression": (
+                "(card_type = 'credit' AND credit_limit > 0.0) "
+                "OR (card_type IN ('debit', 'prepaid') AND credit_limit IS NULL)"
+            ),
+        }
+    ]
+    result = _infer_cross_column_config("credit_limit", constraints, ["credit_limit", "card_type"], "REAL")
+    assert result is not None
+    assert result["derive_from"] == "card_type"
+    assert "None" in result["expression"]
+    assert "random_float" in result["expression"]
+
+
+def test_pattern_33_conditional_arithmetic_by_type():
+    """Pattern 33: (col1 IN (...) AND col = col2 + col3) OR (col1 IN (...) AND col = col2 - col3)."""
+    constraints = [
+        {
+            "type": "check",
+            "expression": (
+                "(type IN ('deposit', 'transfer_in', 'interest') AND balance_after = balance_before + amount) "
+                "OR (type IN ('withdrawal', 'transfer_out', 'fee') AND balance_after = balance_before - amount)"
+            ),
+        }
+    ]
+    result = _infer_cross_column_config(
+        "balance_after", constraints, ["balance_after", "balance_before", "amount", "type"], "REAL"
+    )
+    assert result is not None
+    assert result["derive_from"] == "balance_before"
+    assert "row['amount']" in result["expression"]
+    assert "row['type']" in result["expression"]
+
+
+def test_pattern_34_conditional_upper_bound_exclusive():
+    """Pattern 34: col1 != VALUE OR col2 < X (exclusive upper bound)."""
+    constraints = [
+        {"type": "check", "expression": "balance >= -10000.0"},
+        {"type": "check", "expression": "status != 'dormant' OR balance < 100.0"},
+    ]
+    result = _infer_cross_column_config("balance", constraints, ["balance", "status"], "REAL")
+    assert result is not None
+    assert result["generator"] == "float"
+    assert result["params"]["max_value"] == 99.99
+    # min_value from the single-column CHECK is preserved
+    assert result["params"]["min_value"] == -10000.0
+
+
+def test_pattern_34_conditional_upper_bound_inclusive():
+    """Pattern 34: col1 != VALUE OR col2 <= X (inclusive upper bound)."""
+    constraints = [
+        {"type": "check", "expression": "score >= 0"},
+        {"type": "check", "expression": "level != 'max' OR score <= 100"},
+    ]
+    result = _infer_cross_column_config("score", constraints, ["score", "level"], "INTEGER")
+    assert result is not None
+    assert result["generator"] == "integer"
+    assert result["params"]["max_value"] == 100
+    assert result["params"]["min_value"] == 0
+
+
+def test_pattern_35_date_column_null_ratio():
+    """Pattern 35: col1 IN (...) OR col IS NULL (date → null_ratio=1.0)."""
+    constraints = [
+        {"type": "check", "expression": "completed_at IS NULL OR completed_at > created_at"},
+        {"type": "check", "expression": "status IN ('completed') OR completed_at IS NULL"},
+    ]
+    result = _infer_cross_column_config("completed_at", constraints, ["completed_at", "created_at", "status"], "TEXT")
+    assert result is not None
+    assert result.get("null_ratio") == 1.0
+
+
+def test_pattern_35_non_date_column_derive_from():
+    """Pattern 35: non-date column → derive_from with None."""
+    constraints = [
+        {"type": "check", "expression": "type IN ('credit') OR credit_limit IS NULL"},
+    ]
+    result = _infer_cross_column_config("credit_limit", constraints, ["credit_limit", "type"], "REAL")
+    assert result is not None
+    assert "derive_from" in result
+    assert "None" in result["expression"]
+
+
+def test_pattern_7b_col_geq_col2_times_constant():
+    """Pattern 7b: col >= col2 * CONSTANT (column times literal constant, >=).
+
+    e.g., base_price_yearly >= base_price_monthly * 10
+    Existing Pattern 7 only handles col >= col1 * col2 (two columns).
+    This variant handles col >= col2 * CONSTANT where CONSTANT is a numeric literal.
+    """
+    constraints = [{"type": "check", "expression": "base_price_yearly >= base_price_monthly * 10"}]
+    result = _infer_cross_column_config(
+        "base_price_yearly", constraints, ["base_price_yearly", "base_price_monthly"], "REAL"
+    )
+    assert result is not None
+    assert result["derive_from"] == "base_price_monthly"
+    # Expression must produce a value >= base_price_monthly * 10
+    assert "row['base_price_monthly']" not in result["expression"]  # uses `value` not row ref
+    assert "value" in result["expression"]
+    assert "10" in result["expression"]
+
+
+def test_pattern_28_integer_value_variant():
+    """Pattern 28 variant: col1 != INTEGER_VALUE OR col > X (unquoted integer).
+
+    e.g., is_system != 1 OR priority < 100
+    Existing Pattern 28 only handles col1 != 'STRING' (quoted). This variant
+    handles col1 != INTEGER (unquoted) for integer flag columns.
+    Also tests Pattern 34 integer variant: col1 != INT OR col (<|<=) X.
+    """
+    constraints = [{"type": "check", "expression": "is_system != 1 OR priority < 100"}]
+    result = _infer_cross_column_config("priority", constraints, ["priority", "is_system"], "INTEGER")
+    assert result is not None
+    # Pattern 34 returns generator + params (not derive_from)
+    assert result.get("generator") in {"integer", "float"}
+    assert result["params"].get("max_value") is not None
+    assert result["params"]["max_value"] <= 100
+
+
+def test_pattern_24_variant_col1_neq_value_or_col_geq_other():
+    """Pattern 24 variant: col1 != VALUE OR col (>=|>) other_col.
+
+    e.g., status != 'paid' OR paid_amount >= total_amount
+    Semantics: when col1 == VALUE, col must be >= other_col.
+    Existing Pattern 24 handles col = VALUE OR col OP other_col (equality first).
+    This variant handles col1 != VALUE OR col OP other_col (inequality first).
+    """
+    constraints = [{"type": "check", "expression": "status != 'paid' OR paid_amount >= total_amount"}]
+    result = _infer_cross_column_config("paid_amount", constraints, ["paid_amount", "status", "total_amount"], "REAL")
+    assert result is not None
+    assert result["derive_from"] == "total_amount"
+    # Expression must produce a value >= total_amount when status == 'paid'
+    assert "value" in result["expression"]
+
+
+def test_pattern_26_variant_col1_neq_value_or_col_in_set():
+    """Pattern 26 variant: col1 != VALUE OR col IN ('V1', 'V2').
+
+    e.g., scope != 'global' OR action IN ('admin', 'read')
+    (equivalent to: scope != 'global' OR action = 'admin' OR action = 'read')
+    Semantics: when col1 == VALUE, col must be in the set.
+    Existing Pattern 26 handles col = VALUE OR other_col IN (...) (equality first).
+    This variant handles col1 != VALUE OR col IN (...) (inequality first).
+    """
+    constraints = [{"type": "check", "expression": "scope != 'global' OR action IN ('admin', 'read')"}]
+    result = _infer_cross_column_config("action", constraints, ["action", "scope"], "TEXT")
+    assert result is not None
+    assert result["derive_from"] == "scope"
+    # Expression must constrain action to the set when scope == 'global'
+    assert "admin" in result["expression"]
+    assert "read" in result["expression"]
+
+
+def test_exclusive_lower_bound_float_adds_epsilon():
+    """col > X AND col <= Y for float → min_value = X + 0.01 (not X)."""
+    constraints = [{"type": "check", "expression": "rate > 0.0 AND rate <= 0.25"}]
+    result = _infer_from_check_constraints("rate", constraints, ["rate"])
+    assert result is not None
+    gen, params = result
+    assert gen == "float"
+    assert params["min_value"] == 0.01  # 0.0 + epsilon
+    assert params["max_value"] == 0.25
+
+
+def test_exclusive_both_bounds_float():
+    """col > X AND col < Y for float → both bounds get epsilon."""
+    constraints = [{"type": "check", "expression": "value > 0.0 AND value < 1.0"}]
+    result = _infer_from_check_constraints("value", constraints, ["value"])
+    assert result is not None
+    _, params = result
+    assert params["min_value"] == 0.01
+    assert params["max_value"] == 0.99
+
+
+def test_constraint_sort_in_prioritized_over_is_null_or():
+    """IN constraints processed before IS NULL OR constraints."""
+    constraints = [
+        {"type": "check", "expression": "completed_at IS NULL OR completed_at > created_at"},
+        {"type": "check", "expression": "status IN ('completed') OR completed_at IS NULL"},
+    ]
+    result = _infer_cross_column_config("completed_at", constraints, ["completed_at", "created_at", "status"], "TEXT")
+    # Pattern 35 (IN) should win → null_ratio=1.0, NOT derive_from=created_at
+    assert result is not None
+    assert result.get("null_ratio") == 1.0
+    assert "derive_from" not in result
+
+
+# --- IS NULL OR prefix stripping (Round 7 fix) ---
+
+
+def test_is_null_or_prefix_stripping_length():
+    """``col IS NULL OR LENGTH(col) = N`` strips prefix → LENGTH pattern matches.
+
+    Reproduces the ``customers.phone`` CHECK failure from Round 7 where the
+    LLM degraded ``phone`` to a bare ``string`` generator (no params) and
+    Step 5.5 had to re-infer from the CHECK. Without prefix stripping, the
+    inner ``LENGTH(phone) = 11`` never matches and the column stays bare.
+    """
+    constraints = [{"type": "check", "expression": "phone IS NULL OR LENGTH(phone) = 11"}]
+    result = _infer_from_check_constraints("phone", constraints, ["phone"])
+    assert result is not None
+    gen, params = result
+    assert gen == "string"
+    assert params["min_length"] == 11
+    assert params["max_length"] == 11
+
+
+def test_is_null_or_prefix_stripping_paren_range():
+    """``col IS NULL OR (col >= X AND col <= Y)`` strips prefix + parens → range pattern.
+
+    Reproduces the ``risk_assessments.health_factor`` CHECK failure from
+    Round 7. The inner expression is wrapped in parentheses; both the
+    prefix and the parens must be stripped before the inclusive-range
+    pattern can match.
+    """
+    constraints = [
+        {"type": "check", "expression": "health_factor IS NULL OR (health_factor >= 1 AND health_factor <= 10)"}
+    ]
+    result = _infer_from_check_constraints("health_factor", constraints, ["health_factor"])
+    assert result is not None
+    gen, params = result
+    assert gen == "integer"
+    assert params["min_value"] == 1
+    assert params["max_value"] == 10
+
+
+def test_is_null_or_prefix_no_parens_range():
+    """``col IS NULL OR col >= X AND col <= Y`` (no parens) also strips."""
+    constraints = [{"type": "check", "expression": "score IS NULL OR score >= 0 AND score <= 100"}]
+    result = _infer_from_check_constraints("score", constraints, ["score"])
+    assert result is not None
+    gen, params = result
+    assert gen == "integer"
+    assert params["min_value"] == 0
+    assert params["max_value"] == 100
+
+
+# --- Pattern 8e: col >= X AND col < other_col (Round 7 fix) ---
+
+
+def test_pattern_8e_inclusive_lower_exclusive_upper_column_float_zero():
+    """Pattern 8e (float, X=0): ``col >= 0.0 AND col < other_col``.
+
+    Reproduces the ``policies.deductible`` CHECK failure from Round 7.
+    Uses ``value * random_float(0.0, 0.99)`` — the 0.99 factor guarantees
+    the result is strictly less than ``other_col`` (since 0.99 < 1.0).
+    """
+    constraints = [{"type": "check", "expression": "deductible >= 0.0 AND deductible < coverage_amount"}]
+    result = _infer_cross_column_config("deductible", constraints, ["deductible", "coverage_amount"], "REAL")
+    assert result is not None
+    assert result["derive_from"] == "coverage_amount"
+    assert "random_float(0.0, 0.99)" in result["expression"]
+    assert "value *" in result["expression"]
+
+
+@pytest.mark.parametrize(
+    ("expression", "expected"),
+    [
+        ("LENGTH(value) >= 2", ("string", {"min_length": 2})),
+        ("LENGTH(value) > 2", ("string", {"min_length": 3})),
+        ("LENGTH(value) = 2", ("string", {"min_length": 2, "max_length": 2})),
+        ("LENGTH(value) <= 5", ("string", {"max_length": 5})),
+        ("LENGTH(value) < 5", ("string", {"max_length": 4})),
+        ("value LIKE 'A__' AND LENGTH(value) = 3", ("pattern", {"regex": "^A[A-Za-z0-9]{2}$"})),
+        ("LENGTH(value) = 3 AND value LIKE 'A__'", ("pattern", {"regex": "^A[A-Za-z0-9]{2}$"})),
+        ("value LIKE 'A__'", ("pattern", {"regex": "^A[A-Za-z0-9]{2}$"})),
+        ("value LIKE 'A%' AND LENGTH(value) = 3", None),
+        ("value LIKE 'A__' AND LENGTH(value) = 4", None),
+        ("value IN ('a', 'b')", ("choice", {"choices": ["a", "b"]})),
+        ("value IN (1, 0)", ("boolean", {})),
+        ("value IN (1, 2, 3)", ("choice", {"choices": [1, 2, 3]})),
+        ("value BETWEEN -2 AND 8", ("integer", {"min_value": -2, "max_value": 8})),
+        ("value BETWEEN -2.5 AND 8.5", ("float", {"min_value": -2.5, "max_value": 8.5})),
+        ("value >= -2 AND value <= 8", ("integer", {"min_value": -2, "max_value": 8})),
+        ("value >= -2.5 AND value <= 8.5", ("float", {"min_value": -2.5, "max_value": 8.5})),
+        ("value > -2 AND value < 8", ("integer", {"min_value": -1, "max_value": 7})),
+        ("value > -2.5 AND value < 8.5", ("float", {"min_value": -2.49, "max_value": 8.49})),
+        ("value > -2 AND value <= 8", ("integer", {"min_value": -1, "max_value": 8})),
+        ("value > -2.5 AND value <= 8.5", ("float", {"min_value": -2.49, "max_value": 8.5})),
+        ("value >= -2 AND value < 8", ("integer", {"min_value": -2, "max_value": 7})),
+        ("value >= -2.5 AND value < 8.5", ("float", {"min_value": -2.5, "max_value": 8.49})),
+        ("value >= -2", ("integer", {"min_value": -2})),
+        ("value >= -2.5", ("float", {"min_value": -2.5})),
+        ("value > -2", ("integer", {"min_value": -1})),
+        ("value > -2.5", ("float", {"min_value": -2.49})),
+        ("value <= 8", ("integer", {"max_value": 8})),
+        ("value <= 8.5", ("float", {"max_value": 8.5})),
+        ("value < 8", ("integer", {"max_value": 7})),
+        ("value < 8.5", ("float", {"max_value": 8.49})),
+        ("value != 0", ("integer", {"min_value": 1})),
+        ("value != 0.0", ("float", {"min_value": 0.01})),
+        ("value != 2", None),
+        ("value IS NULL OR LENGTH(value) = 3", ("string", {"min_length": 3, "max_length": 3})),
+        ("value IS NULL OR (value >= 1 AND value <= 9)", ("integer", {"min_value": 1, "max_value": 9})),
+    ],
+)
+def test_single_column_check_inference_boundaries(tmp_path: Path, expression: str, expected: tuple | None) -> None:
+    """Reflect real SQLite CHECKs before checking inferred values and bounds."""
+    from sqlseed_ai.validator.schema_snapshot import SchemaSnapshot
+
+    path = tmp_path / "single-check.db"
+    with sqlite_connection(path) as connection:
+        connection.execute(f"CREATE TABLE items(value TEXT, CHECK ({expression}))")
+    table = SchemaSnapshot(db_path=str(path)).tables["items"]
+    assert _infer_from_check_constraints("value", table.constraints, table.columns) == expected
+
+
+@pytest.mark.parametrize(
+    ("expressions", "expected"),
+    [
+        (["value >= 0", "value <= 100", "value >= 3", "value <= 90"], ("integer", {"min_value": 3, "max_value": 90})),
+        (["value <= 100", "value >= 0"], ("integer", {"max_value": 100, "min_value": 0})),
+        (
+            ["value >= 0 AND value <= 10", "value >= 1.5", "value <= 8.5"],
+            ("float", {"min_value": 1.5, "max_value": 8.5}),
+        ),
+        (["value >= 0.5", "value <= 8"], ("float", {"min_value": 0.5, "max_value": 8})),
+        (
+            ["LENGTH(value) >= 1", "LENGTH(value) <= 10", "LENGTH(value) >= 3", "LENGTH(value) <= 8"],
+            ("string", {"min_length": 3, "max_length": 8}),
+        ),
+        (["LENGTH(value) <= 8", "LENGTH(value) >= 3"], ("string", {"max_length": 8, "min_length": 3})),
+        (["value >= 0", "value IN (1, 2)"], ("choice", {"choices": [1, 2]})),
+        (["value IN (0, 1)", "value >= 0"], ("boolean", {})),
+        (["other >= 0", "value < other", "value > 2"], ("integer", {"min_value": 3})),
+    ],
+)
+def test_single_column_check_merges_tightest_bounds(tmp_path: Path, expressions: list[str], expected: tuple) -> None:
+    """Merge independent reflected CHECKs without losing bounds or enum priority."""
+    from sqlseed_ai.validator.schema_snapshot import SchemaSnapshot
+
+    path = tmp_path / "merged-checks.db"
+    checks = ", ".join(f"CHECK ({expression})" for expression in expressions)
+    with sqlite_connection(path) as connection:
+        connection.execute(f"CREATE TABLE items(value NUMERIC, other INTEGER, {checks})")
+    table = SchemaSnapshot(db_path=str(path)).tables["items"]
+    assert _infer_from_check_constraints("value", table.constraints, table.columns) == expected
+
+
+@pytest.mark.parametrize(
+    ("expression", "expected"),
+    [
+        ("value = ANY (ARRAY['active'::text, 'inactive'::text])", ("choice", {"choices": ["active", "inactive"]})),
+        ("value = ANY (ARRAY[0, 1])", ("boolean", {})),
+        ("value = ANY (ARRAY[2, 3])", ("choice", {"choices": [2, 3]})),
+        ("value = ANY (ARRAY[-2, -1])", ("choice", {"choices": [-2, -1]})),
+        ("value = ANY (ARRAY[-2::integer, +3::integer])", ("choice", {"choices": [-2, 3]})),
+        ("value = ANY (ARRAY[-2.5, 3.25])", ("choice", {"choices": [-2.5, 3.25]})),
+        ("value = ANY (ARRAY[-2e1, +3E-1])", ("choice", {"choices": [-20.0, 0.3]})),
+        ("value = ANY (ARRAY[0.0, 1.0])", ("choice", {"choices": [0.0, 1.0]})),
+        ("value = ANY (ARRAY[1e308, 1e-308])", ("choice", {"choices": [1e308, 1e-308]})),
+        ("value = ANY (ARRAY[9007199254740993])", ("choice", {"choices": [9007199254740993]})),
+        ("value = ANY (ARRAY[1e400])", None),
+        ("value = ANY (ARRAY[-1e400])", None),
+        ("value = ANY (ARRAY[1e-400])", None),
+        ("value = ANY (ARRAY[-1e-400])", None),
+        ("value = ANY (ARRAY[9007199254740993.0])", None),
+        ("value = ANY (ARRAY[0.10000000000000001])", None),
+        ("value = ANY (ARRAY[1e999999999999999999999999])", None),
+        ("value = ANY (ARRAY[other + 2, 3])", None),
+        ("value = ANY (ARRAY[2, NULL])", None),
+    ],
+)
+def test_postgres_single_column_any_check_normalization(expression: str, expected: tuple | None) -> None:
+    """Recognize PostgreSQL enum spellings without requiring a live server."""
+    constraints = [{"type": "check", "expression": expression}]
+    assert _infer_from_check_constraints("value", constraints, ["value"]) == expected
+
+
+@pytest.mark.parametrize(
+    "literal,expected",
+    [
+        ("0", ("integer", {"min_value": 1})),
+        ("-0", ("integer", {"min_value": 1})),
+        ("0.0", ("float", {"min_value": 0.01})),
+        ("-0.000", ("float", {"min_value": 0.01})),
+        ("1.5", None),
+        ("0." + "0" * 400 + "1", None),
+        ("-0." + "0" * 400 + "1", None),
+    ],
+)
+def test_nonzero_check_uses_exact_decimal_literal(literal: str, expected: tuple | None) -> None:
+    constraints = [{"type": "check", "expression": f"value != {literal}"}]
+    assert _infer_from_check_constraints("value", constraints, ["value"]) == expected
+
+
+@pytest.mark.parametrize(
+    ("column_type", "choices"),
+    [("INTEGER", [-2, -1]), ("REAL", [-2.5, -0.5])],
+)
+def test_postgres_numeric_any_choices_satisfy_sqlite_enum(tmp_path: Path, column_type: str, choices: list) -> None:
+    """PostgreSQL numeric choices retain values accepted by the equivalent SQL CHECK."""
+    from sqlseed import fill
+
+    literals = ", ".join(str(value) for value in choices)
+    inferred = _infer_from_check_constraints(
+        "value", [{"type": "check", "expression": f"value = ANY (ARRAY[{literals}])"}], ["value"]
+    )
+    assert inferred == ("choice", {"choices": choices})
+    path = tmp_path / "numeric-enum.db"
+    with sqlite_connection(path) as connection:
+        connection.execute(f"CREATE TABLE items (value {column_type} NOT NULL CHECK (value IN ({literals})))")
+    result = fill(
+        str(path),
+        table="items",
+        count=20,
+        provider="base",
+        seed=42,
+        columns={"value": {"generator": inferred[0], "params": inferred[1]}},
+    )
+    assert result.count == 20
+    with sqlite_connection(path) as connection:
+        values = {row[0] for row in connection.execute("SELECT value FROM items")}
+    assert values == set(choices)
+
+
+@pytest.mark.parametrize("mode", ["derived", "with_anchor", "without_anchor"])
+def test_status_null_normalization_preserves_datetime_anchor(tmp_path: Path, mode: str) -> None:
+    """Multi-clause NULL triggers preserve an existing expression or use a real date anchor."""
+    from sqlseed_ai.validator.schema_snapshot import SchemaSnapshot
+
+    path = tmp_path / "status-null.db"
+    with sqlite_connection(path) as connection:
+        connection.execute(
+            "CREATE TABLE events (status TEXT, created_at DATETIME, started_at DATETIME, "
+            "CHECK ((status = 'scheduled' AND started_at IS NULL) OR "
+            "(status = 'started' AND started_at IS NOT NULL)))"
+        )
+    column = (
+        {"name": "started_at", "derive_from": "created_at", "expression": "value"}
+        if mode == "derived"
+        else {"name": "started_at", "generator": "datetime", "params": {}}
+    )
+    columns = [{"name": "status", "generator": "choice", "params": {"choices": ["scheduled", "started"]}}, column]
+    if mode != "without_anchor":
+        columns.insert(1, {"name": "created_at", "generator": "datetime"})
+    config = {"tables": [{"name": "events", "columns": columns}]}
+    orchestrator = AutoHealOrchestrator(db_path=str(path), heal_orchestrator=None, validator=None)
+    orchestrator._apply_status_null_conditions(config, SchemaSnapshot(db_path=str(path)))
+    if mode == "derived":
+        assert column["expression"] == "None if row.get('status') in ('scheduled') else (value)"
+        assert column["derive_from"] == "created_at"
+    elif mode == "with_anchor":
+        assert column["derive_from"] == "status"
+        assert column["expression"] == (
+            "None if value in ('scheduled') else row['created_at'] + timedelta(days=random_int(0, 30))"
+        )
+        assert "params" not in column
+    else:
+        assert column == {"name": "started_at", "generator": "datetime", "params": {}}
+
+
+def test_initial_subgraph_preserves_fk_and_column_priorities(tmp_path: Path) -> None:
+    """Initial config respects circular FK, CHECK adaptations and requested order."""
+    from sqlseed_ai.validator.schema_snapshot import SchemaSnapshot
+
+    path = tmp_path / "initial-config.db"
+    with sqlite_connection(path) as connection:
+        connection.executescript(
+            "CREATE TABLE first(id INTEGER PRIMARY KEY, second_id INTEGER REFERENCES second(id));"
+            "CREATE TABLE second(id INTEGER PRIMARY KEY, first_id INTEGER REFERENCES first(id));"
+            "CREATE TABLE items(phone TEXT CHECK(length(phone) >= 7), "
+            "price REAL CHECK(price > 0), unique_phone TEXT UNIQUE CHECK(length(unique_phone) = 3));"
+        )
+    snapshot = SchemaSnapshot(db_path=str(path))
+    orchestrator = AutoHealOrchestrator(db_path=str(path), heal_orchestrator=None, validator=None)
+    result = orchestrator._build_subgraph_config(["missing", "second", "first", "items"], snapshot)
+    assert [table["name"] for table in result["tables"]] == ["second", "first", "items"]
+    assert _find_column(result, "first", "second_id")["null_ratio"] == 1.0
+    assert _find_column(result, "second", "first_id")["null_ratio"] == 1.0
+    assert _find_column(result, "items", "phone") == {"name": "phone", "generator": "phone", "params": {}}
+    assert _find_column(result, "items", "price") == {
+        "name": "price",
+        "generator": "float",
+        "params": {"min_value": 1},
+    }
+    assert _find_column(result, "items", "unique_phone") == {
+        "name": "unique_phone",
+        "generator": "pattern",
+        "params": {"regex": "[A-Za-z0-9]{3}"},
+    }
+
+
+def test_pattern_8e_inclusive_lower_exclusive_upper_column_float_positive():
+    """Pattern 8e (float, X>0): ``col >= 5.0 AND col < other_col`` uses max()."""
+    constraints = [{"type": "check", "expression": "discount >= 5.0 AND discount < base_price"}]
+    result = _infer_cross_column_config("discount", constraints, ["discount", "base_price"], "REAL")
+    assert result is not None
+    assert result["derive_from"] == "base_price"
+    assert "max(5.0," in result["expression"]
+    assert "random_float(0.0, 0.99)" in result["expression"]
+
+
+def test_pattern_8e_inclusive_lower_exclusive_upper_column_int():
+    """Pattern 8e (integer): ``col >= 0 AND col < other_col`` uses random_int(X, value-1)."""
+    constraints = [{"type": "check", "expression": "count >= 0 AND count < max_count"}]
+    result = _infer_cross_column_config("count", constraints, ["count", "max_count"], "INTEGER")
+    assert result is not None
+    assert result["derive_from"] == "max_count"
+    assert "random_int(0, value - 1)" in result["expression"]
+
+
+def test_pattern_8e_does_not_match_inclusive_upper():
+    """Pattern 8e must NOT match ``col >= X AND col <= other_col`` (that's Pattern 8a)."""
+    constraints = [{"type": "check", "expression": "fee >= 0.0 AND fee <= amount"}]
+    result = _infer_cross_column_config("fee", constraints, ["fee", "amount"], "REAL")
+    # Should match Pattern 8a (inclusive upper), not 8e (exclusive upper)
+    assert result is not None
+    # Pattern 8a uses random_float(0.0, value) — value as max (inclusive),
+    # NOT the 0.99 factor that Pattern 8e uses for exclusive upper bound
+    assert "random_float(0.0, value)" in result["expression"]
+    assert "0.99" not in result["expression"]
+
+
+# --- Pattern 8 standalone: col <= other_col (Round 5 fix) ---
+
+
+def test_pattern_8_integer_uses_random_int_zero_to_value():
+    """Pattern 8 (int): ``col <= other_col`` → ``random_int(0, value)``.
+
+    The previous expression ``value - random_int(0, 100)`` could produce
+    negative values when value < 100, violating companion CHECK ``col >= 0``.
+    The fix uses ``random_int(0, value)`` which guarantees 0 <= result <= value.
+    """
+    constraints = [{"type": "check", "expression": "used_count <= total_count"}]
+    result = _infer_cross_column_config("used_count", constraints, ["used_count", "total_count"], "INTEGER")
+    assert result is not None
+    assert result["derive_from"] == "total_count"
+    assert result["expression"] == "random_int(0, value)"
+
+
+def test_pattern_8_float_uses_multiply_factor():
+    """Pattern 8 (float): ``col <= other_col`` → ``value * random_float(0.5, 1.0)``."""
+    constraints = [{"type": "check", "expression": "remaining <= limit"}]
+    result = _infer_cross_column_config("remaining", constraints, ["remaining", "limit"], "REAL")
+    assert result is not None
+    assert result["derive_from"] == "limit"
+    assert "random_float(0.5, 1.0)" in result["expression"]
+
+
+def test_pattern_8_date_uses_timedelta_subtract():
+    """Pattern 8 (date): ``col <= other_col`` → ``value - timedelta(days=...)``."""
+    constraints = [{"type": "check", "expression": "end_date <= start_date"}]
+    result = _infer_cross_column_config("end_date", constraints, ["end_date", "start_date"], "TEXT")
+    assert result is not None
+    assert result["derive_from"] == "start_date"
+    assert "timedelta" in result["expression"]
+
+
+# --- Pattern 28: cross-column upper bound awareness (Round 7 fix) ---
+
+
+def test_pattern_28_cross_column_upper_bound_capped():
+    """Pattern 28 caps positive expr with min() when another CHECK has ``col <= other_col``.
+
+    Reproduces the ``claims.approved_amount`` CHECK failure from Round 7.
+    Pattern 28 matched ``status != 'approved' OR approved_amount > 0.0``
+    and returned ``random_float(0.01, 100.0)`` — but a second CHECK
+    ``approved_amount <= claim_amount`` was violated when the random
+    value exceeded ``claim_amount``. The fix scans other CHECKs for
+    ``col (<=|<) other_col`` and wraps with ``min(..., row['other_col'])``.
+    """
+    constraints = [
+        {"type": "check", "expression": "status != 'approved' OR approved_amount > 0.0"},
+        {"type": "check", "expression": "approved_amount <= claim_amount"},
+    ]
+    result = _infer_cross_column_config(
+        "approved_amount",
+        constraints,
+        ["approved_amount", "status", "claim_amount"],
+        "REAL",
+    )
+    assert result is not None
+    assert result["derive_from"] == "status"
+    expr = result["expression"]
+    assert "min(" in expr
+    assert "row['claim_amount']" in expr
+    assert "random_float" in expr
+
+
+def test_pattern_28_exclusive_upper_bound_capped():
+    """Pattern 28 also caps when the other CHECK uses ``col < other_col`` (exclusive)."""
+    constraints = [
+        {"type": "check", "expression": "kind != 'special' OR bonus > 0.0"},
+        {"type": "check", "expression": "bonus < cap"},
+    ]
+    result = _infer_cross_column_config("bonus", constraints, ["bonus", "kind", "cap"], "REAL")
+    assert result is not None
+    expr = result["expression"]
+    assert "min(" in expr
+    assert "row['cap']" in expr
+
+
+def test_pattern_28_no_upper_bound_no_min():
+    """Pattern 28 WITHOUT a cross-column upper bound → no min() wrap.
+
+    Ensures the enhancement doesn't change behavior when there's no
+    companion ``col <= other_col`` CHECK (the common case).
+    """
+    constraints = [
+        {"type": "check", "expression": "status != 'approved' OR approved_amount > 0.0"},
+    ]
+    result = _infer_cross_column_config("approved_amount", constraints, ["approved_amount", "status"], "REAL")
+    assert result is not None
+    expr = result["expression"]
+    assert "min(" not in expr
+    assert "random_float" in expr
+
+
+def test_pattern_28_upper_bound_self_reference_ignored():
+    """Pattern 28 ignores ``col <= col`` (self-reference, malformed CHECK)."""
+    constraints = [
+        {"type": "check", "expression": "status != 'approved' OR amount > 0.0"},
+        {"type": "check", "expression": "amount <= amount"},  # malformed self-ref
+    ]
+    result = _infer_cross_column_config("amount", constraints, ["amount", "status"], "REAL")
+    assert result is not None
+    expr = result["expression"]
+    # Self-reference (upper_col == col_name) is skipped, so no min() wrap
+    assert "min(" not in expr
+
+
+# --- Pattern 36: N-way conditional range with dual bounds (Round 7 fix) ---
+
+
+def test_pattern_36_integer_exclusive_upper():
+    """Pattern 36 (int, < upper): ``col >= X AND col < Y`` per clause.
+
+    Reproduces the ``risk_assessments.risk_score`` CHECK failure from Round 7.
+    Each clause has both lower (>=) and exclusive upper (<) bounds.
+    The generated ``random_int`` uses ``Y-1`` for exclusive upper.
+    """
+    expr = (
+        "(risk_category = 'low' AND risk_score >= 1 AND risk_score < 25) OR "
+        "(risk_category = 'medium' AND risk_score >= 25 AND risk_score < 50) OR "
+        "(risk_category = 'high' AND risk_score >= 50 AND risk_score < 75) OR "
+        "(risk_category = 'critical' AND risk_score >= 75 AND risk_score <= 100)"
+    )
+    constraints = [{"type": "check", "expression": expr}]
+    result = _infer_cross_column_config(
+        "risk_score",
+        constraints,
+        ["risk_score", "risk_category"],
+        "INTEGER",
+    )
+    assert result is not None
+    assert result["derive_from"] == "risk_category"
+    e = result["expression"]
+    # Exclusive upper: < 25 → random_int(1, 24)
+    assert "random_int(1, 24)" in e
+    assert "random_int(25, 49)" in e
+    assert "random_int(50, 74)" in e
+    # Inclusive upper: <= 100 → random_int(75, 100)
+    assert "random_int(75, 100)" in e
+
+
+def test_pattern_36_integer_inclusive_upper():
+    """Pattern 36 (int, <= upper): ``col >= X AND col <= Y`` per clause."""
+    expr = "(tier = 'basic' AND level >= 1 AND level <= 10) OR (tier = 'pro' AND level >= 11 AND level <= 20)"
+    constraints = [{"type": "check", "expression": expr}]
+    result = _infer_cross_column_config(
+        "level",
+        constraints,
+        ["level", "tier"],
+        "INTEGER",
+    )
+    assert result is not None
+    e = result["expression"]
+    assert "random_int(1, 10)" in e
+    assert "random_int(11, 20)" in e
+
+
+def test_pattern_36_float_exclusive_upper():
+    """Pattern 36 (float, < upper): ``col >= X AND col < Y`` per clause."""
+    expr = "(grade = 'a' AND score >= 90.0 AND score < 100.0) OR (grade = 'b' AND score >= 80.0 AND score < 90.0)"
+    constraints = [{"type": "check", "expression": expr}]
+    result = _infer_cross_column_config(
+        "score",
+        constraints,
+        ["score", "grade"],
+        "REAL",
+    )
+    assert result is not None
+    e = result["expression"]
+    assert "random_float(90.0, 99.99)" in e
+    assert "random_float(80.0, 89.99)" in e
+
+
+def test_pattern_36_newline_whitespace_normalized():
+    """Pattern 36 handles CHECKs stored with newlines (SQLite table-level CHECKs).
+
+    The guard ``" OR " in expr`` would fail on ``"OR\\n"`` — the whitespace
+    normalization (``re.sub(r"\\s+", " ", expr)``) fixes this.
+    """
+    expr = (
+        "(risk_category = 'low' AND risk_score >= 1 AND risk_score < 25) OR\n"
+        "        (risk_category = 'medium' AND risk_score >= 25 AND risk_score < 50) OR\n"
+        "        (risk_category = 'high' AND risk_score >= 50 AND risk_score < 75) OR\n"
+        "        (risk_category = 'critical' AND risk_score >= 75 AND risk_score <= 100)"
+    )
+    constraints = [{"type": "check", "expression": expr}]
+    result = _infer_cross_column_config(
+        "risk_score",
+        constraints,
+        ["risk_score", "risk_category"],
+        "INTEGER",
+    )
+    assert result is not None
+    assert result["derive_from"] == "risk_category"
+
+
+def test_pattern_36_exclusive_lower_bound():
+    """Pattern 36 with ``>`` lower bound (exclusive) adds +1 epsilon."""
+    expr = "(tier = 'a' AND val > 0 AND val <= 10) OR (tier = 'b' AND val > 10 AND val <= 20)"
+    constraints = [{"type": "check", "expression": expr}]
+    result = _infer_cross_column_config(
+        "val",
+        constraints,
+        ["val", "tier"],
+        "INTEGER",
+    )
+    assert result is not None
+    e = result["expression"]
+    # > 0 → random_int(1, 10); > 10 → random_int(11, 20)
+    assert "random_int(1, 10)" in e
+    assert "random_int(11, 20)" in e
+
+
+def test_pattern_36_does_not_match_single_bound():
+    """Pattern 36 must NOT match single-bound clauses (that's Pattern 27)."""
+    expr = "bag_type = 'carry_on' AND weight_kg <= 10.0 OR bag_type = 'checked' AND weight_kg <= 32.0"
+    constraints = [{"type": "check", "expression": expr}]
+    result = _infer_cross_column_config(
+        "weight_kg",
+        constraints,
+        ["weight_kg", "bag_type"],
+        "REAL",
+    )
+    assert result is not None
+    # Pattern 27 (single-bound) should match, not Pattern 36
+    # Pattern 27 uses _range_expr_for_op which produces random_float(0.01, X)
+    assert "random_float(0.01, 10.0)" in result["expression"]
+    assert "random_float(0.01, 32.0)" in result["expression"]
+
+
+# ---------------------------------------------------------------------------
+# Step 4 semantic name mapping — Core ColumnMapper delegation
+# (fixes: _placeholder_generator returned "string" for ALL TEXT columns)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(name="semantic_db")
+def fixture_semantic_db(tmp_path: Path) -> Path:
+    """DB with semantically-named TEXT columns but NO CHECK constraints.
+
+    These columns previously got ``generator: string`` (random gibberish)
+    because the dumb ``_placeholder_generator`` only looked at column TYPE.
+    After the fix, Step 4 delegates to Core ``ColumnMapper`` which has 76
+    exact match rules + 29 pattern rules for semantic column name matching.
+    """
+    path = tmp_path / "semantic.db"
+    with sqlite_connection(str(path)) as conn:
+        conn.execute(
+            """
+            CREATE TABLE profiles (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email TEXT,
+                username TEXT,
+                full_name TEXT,
+                phone TEXT,
+                avatar_url TEXT,
+                bio TEXT,
+                title TEXT,
+                description TEXT,
+                content TEXT,
+                website TEXT,
+                created_at TEXT,
+                unknown_text_col TEXT,
+                random_notes TEXT
+            )
+            """
+        )
+    return path
+
+
+def _run_and_get_config(db_path: Path) -> dict:
+    """Run AutoHealOrchestrator with mock validator (0 violations) and return parsed config."""
+    mock_healer = MagicMock()
+    mock_validator = MagicMock()
+    mock_validator.validate.return_value = []
+    orch = AutoHealOrchestrator(
+        db_path=str(db_path),
+        heal_orchestrator=mock_healer,
+        validator=mock_validator,
+        total_budget_seconds=10.0,
+    )
+    yaml_str = orch.run()
+    return yaml.safe_load(yaml_str)
+
+
+def _find_column(config: dict, table_name: str, col_name: str) -> dict:
+    """Find a column config in the parsed YAML config dict."""
+    for table in config["tables"]:
+        if table["name"] == table_name:
+            for col in table["columns"]:
+                if col["name"] == col_name:
+                    return col
+    raise AssertionError(f"Column {table_name}.{col_name} not found in config")
+
+
+def test_step4_email_column_uses_email_generator(semantic_db: Path):
+    """``email`` column → ``email`` generator (not ``string``)."""
+    config = _run_and_get_config(semantic_db)
+    col = _find_column(config, "profiles", "email")
+    assert col["generator"] == "email"
+
+
+def test_step4_username_column_uses_username_generator(semantic_db: Path):
+    """``username`` column → ``username`` generator (not ``string``)."""
+    config = _run_and_get_config(semantic_db)
+    col = _find_column(config, "profiles", "username")
+    assert col["generator"] == "username"
+
+
+def test_step4_avatar_url_column_uses_url_generator(semantic_db: Path):
+    """``avatar_url`` column → ``url`` generator (not ``string``)."""
+    config = _run_and_get_config(semantic_db)
+    col = _find_column(config, "profiles", "avatar_url")
+    assert col["generator"] == "url"
+
+
+def test_step4_phone_column_uses_phone_generator(semantic_db: Path):
+    """``phone`` column → ``phone`` generator (not ``string``)."""
+    config = _run_and_get_config(semantic_db)
+    col = _find_column(config, "profiles", "phone")
+    assert col["generator"] == "phone"
+
+
+def test_step4_full_name_column_uses_name_generator(semantic_db: Path):
+    """``full_name`` column → ``name`` generator (not ``string``)."""
+    config = _run_and_get_config(semantic_db)
+    col = _find_column(config, "profiles", "full_name")
+    assert col["generator"] == "name"
+
+
+def test_step4_bio_column_uses_text_generator(semantic_db: Path):
+    """``bio`` column → ``text`` generator (not ``string``)."""
+    config = _run_and_get_config(semantic_db)
+    col = _find_column(config, "profiles", "bio")
+    assert col["generator"] == "text"
+
+
+def test_step4_title_column_uses_sentence_generator(semantic_db: Path):
+    """``title`` column → ``sentence`` generator (not ``string``)."""
+    config = _run_and_get_config(semantic_db)
+    col = _find_column(config, "profiles", "title")
+    assert col["generator"] == "sentence"
+
+
+def test_step4_description_column_uses_sentence_generator(semantic_db: Path):
+    """``description`` column → ``sentence`` generator (not ``string``)."""
+    config = _run_and_get_config(semantic_db)
+    col = _find_column(config, "profiles", "description")
+    assert col["generator"] == "sentence"
+
+
+def test_step4_content_column_uses_text_generator(semantic_db: Path):
+    """``content`` column → ``text`` generator (not ``string``)."""
+    config = _run_and_get_config(semantic_db)
+    col = _find_column(config, "profiles", "content")
+    assert col["generator"] == "text"
+
+
+def test_step4_website_column_uses_url_generator(semantic_db: Path):
+    """``website`` column → ``url`` generator (not ``string``)."""
+    config = _run_and_get_config(semantic_db)
+    col = _find_column(config, "profiles", "website")
+    assert col["generator"] == "url"
+
+
+def test_step4_created_at_column_uses_datetime_generator(semantic_db: Path):
+    """``created_at`` column → ``datetime`` generator (not ``string``).
+
+    Either via ColumnMapper pattern rule (``*_at``) or the
+    ``_is_date_column`` fallback.
+    """
+    config = _run_and_get_config(semantic_db)
+    col = _find_column(config, "profiles", "created_at")
+    assert col["generator"] == "datetime"
+
+
+def test_step4_unknown_text_column_falls_back_to_string(semantic_db: Path):
+    """Unknown TEXT columns (no semantic match) still fall back to ``string``."""
+    config = _run_and_get_config(semantic_db)
+    col = _find_column(config, "profiles", "unknown_text_col")
+    assert col["generator"] == "string"
+
+
+def test_step4_random_notes_falls_back_to_string(semantic_db: Path):
+    """``random_notes`` has no semantic match → ``string`` fallback."""
+    config = _run_and_get_config(semantic_db)
+    col = _find_column(config, "profiles", "random_notes")
+    assert col["generator"] == "string"
+
+
+# ---------------------------------------------------------------------------
+# Step 5.5 post-LLM safety net — missing-generator inference via ColumnMapper
+# (fixes: _placeholder_generator used in post-LLM repair path too)
+# ---------------------------------------------------------------------------
+
+
+def _run_with_stripped_generators(db_path: Path) -> dict:
+    """Run AutoHealOrchestrator simulating LLM stripping generator fields.
+
+    The mock validator returns a fake violation (so the heal path is taken),
+    and the mock healer returns a config where ``generator`` fields are
+    missing for semantically-named columns. Step 5.5 should fill them in
+    using ``ColumnMapper`` — the same fix as Step 4 in
+    ``_build_subgraph_config``.
+
+    Before the fix, Step 5.5 used ``_placeholder_generator(col_type)`` which
+    returned ``string`` for ALL TEXT columns, producing random gibberish for
+    email/username/avatar_url even after the LLM was called.
+    """
+    mock_healer = MagicMock()
+    # Simulate LLM returning a config with generators stripped.
+    # Only 'id' retains its generator; all TEXT columns are missing 'generator'.
+    mock_healer.heal.return_value = SimpleNamespace(
+        config={
+            "tables": [
+                {
+                    "name": "profiles",
+                    "columns": [
+                        {"name": "id", "generator": "autoincrement", "params": {}},
+                        {"name": "email", "params": {}},
+                        {"name": "username", "params": {}},
+                        {"name": "avatar_url", "params": {}},
+                        {"name": "title", "params": {}},
+                        {"name": "content", "params": {}},
+                        {"name": "created_at", "params": {}},
+                        {"name": "unknown_text_col", "params": {}},
+                    ],
+                }
+            ]
+        },
+        level_used=4,
+        success=True,
+        degraded_columns=[],
+    )
+    mock_validator = MagicMock()
+    # Return violations so the heal path is taken (not "accepted as-is")
+    mock_validator.validate.return_value = [MagicMock()]
+    orch = AutoHealOrchestrator(
+        db_path=str(db_path),
+        heal_orchestrator=mock_healer,
+        validator=mock_validator,
+        total_budget_seconds=10.0,
+    )
+    yaml_str = orch.run()
+    return yaml.safe_load(yaml_str)
+
+
+def test_step55_missing_generator_email_uses_column_mapper(semantic_db: Path):
+    """Step 5.5: LLM-stripped ``email`` generator → ColumnMapper picks ``email``."""
+    config = _run_with_stripped_generators(semantic_db)
+    col = _find_column(config, "profiles", "email")
+    assert col["generator"] == "email"
+
+
+def test_step55_missing_generator_username_uses_column_mapper(semantic_db: Path):
+    """Step 5.5: LLM-stripped ``username`` generator → ColumnMapper picks ``username``."""
+    config = _run_with_stripped_generators(semantic_db)
+    col = _find_column(config, "profiles", "username")
+    assert col["generator"] == "username"
+
+
+def test_step55_missing_generator_avatar_url_uses_column_mapper(semantic_db: Path):
+    """Step 5.5: LLM-stripped ``avatar_url`` generator → ColumnMapper picks ``url``."""
+    config = _run_with_stripped_generators(semantic_db)
+    col = _find_column(config, "profiles", "avatar_url")
+    assert col["generator"] == "url"
+
+
+def test_step55_missing_generator_title_uses_column_mapper(semantic_db: Path):
+    """Step 5.5: LLM-stripped ``title`` generator → ColumnMapper picks ``sentence``."""
+    config = _run_with_stripped_generators(semantic_db)
+    col = _find_column(config, "profiles", "title")
+    assert col["generator"] == "sentence"
+
+
+def test_step55_missing_generator_content_uses_column_mapper(semantic_db: Path):
+    """Step 5.5: LLM-stripped ``content`` generator → ColumnMapper picks ``text``."""
+    config = _run_with_stripped_generators(semantic_db)
+    col = _find_column(config, "profiles", "content")
+    assert col["generator"] == "text"
+
+
+def test_step55_missing_generator_created_at_uses_column_mapper(semantic_db: Path):
+    """Step 5.5: LLM-stripped ``created_at`` generator → ``datetime`` (via _is_date_column)."""
+    config = _run_with_stripped_generators(semantic_db)
+    col = _find_column(config, "profiles", "created_at")
+    assert col["generator"] == "datetime"
+
+
+def test_step55_missing_generator_unknown_text_falls_back_to_string(semantic_db: Path):
+    """Step 5.5: unknown TEXT column with no semantic match → ``string`` fallback."""
+    config = _run_with_stripped_generators(semantic_db)
+    col = _find_column(config, "profiles", "unknown_text_col")
+    assert col["generator"] == "string"
+
+
+# ---------------------------------------------------------------------------
+# Step 5.5 — missing template param repair (Round 5 fix)
+# ---------------------------------------------------------------------------
+
+
+def _run_with_missing_template_param(db_path: Path) -> dict:
+    """Run AutoHealOrchestrator simulating LLM providing template generator without template param.
+
+    The mock healer returns a config where ``generator: template`` is set
+    but ``params: {}`` — the ``template`` field is missing. Step 5.5 should
+    fill in a default template using the column name prefix.
+    """
+    # These are the columns whose generated templates are under test; they
+    # must exist in the real schema rather than only in a mocked config.
+    with sqlite_connection(db_path) as db:
+        for name in ("user_code", "order_no", "cert_no"):
+            db.execute(f'ALTER TABLE profiles ADD COLUMN "{name}" TEXT')
+    mock_healer = MagicMock()
+    mock_healer.heal.return_value = SimpleNamespace(
+        config={
+            "tables": [
+                {
+                    "name": "profiles",
+                    "columns": [
+                        {"name": "id", "generator": "autoincrement", "params": {}},
+                        {"name": "user_code", "generator": "template", "params": {}},
+                        {"name": "order_no", "generator": "template", "params": {}},
+                        {"name": "cert_no", "generator": "template", "params": {}},
+                    ],
+                }
+            ]
+        },
+        level_used=4,
+        success=True,
+        degraded_columns=[],
+    )
+    mock_validator = MagicMock()
+    mock_validator.validate.return_value = [MagicMock()]
+    orch = AutoHealOrchestrator(
+        db_path=str(db_path),
+        heal_orchestrator=mock_healer,
+        validator=mock_validator,
+        total_budget_seconds=10.0,
+    )
+    yaml_str = orch.run()
+    return yaml.safe_load(yaml_str)
+
+
+def test_step55_missing_template_param_gets_default(semantic_db: Path):
+    """Step 5.5: ``generator: template, params: {}`` → default template filled in.
+
+    Without this fix, the template generator raises KeyError at fill time
+    because ``params["template"]`` doesn't exist, causing the entire table
+    to fail (0 rows generated).
+    """
+    config = _run_with_missing_template_param(semantic_db)
+    col = _find_column(config, "profiles", "user_code")
+    assert col["generator"] == "template"
+    assert "template" in col["params"]
+    assert col["params"]["template"] == "USER-{sequence:04d}"
+
+
+def test_step55_missing_template_param_order_no(semantic_db: Path):
+    """Step 5.5: ``order_no`` with missing template → ``ORDER-{sequence:04d}``."""
+    config = _run_with_missing_template_param(semantic_db)
+    col = _find_column(config, "profiles", "order_no")
+    assert col["params"]["template"] == "ORDER-{sequence:04d}"
+
+
+def test_step55_missing_template_param_cert_no(semantic_db: Path):
+    """Step 5.5: ``cert_no`` with missing template → ``CERT-{sequence:04d}``."""
+    config = _run_with_missing_template_param(semantic_db)
+    col = _find_column(config, "profiles", "cert_no")
+    assert col["params"]["template"] == "CERT-{sequence:04d}"
+
+
+# ---------------------------------------------------------------------------
+# Step 0 — self-referencing FK detection (Round 5 fix)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(name="self_ref_fk_db")
+def fixture_self_ref_fk_db(tmp_path: Path) -> Path:
+    """DB with a self-referencing FK (categories.parent_id → categories.id)."""
+    path = tmp_path / "self_ref.db"
+    with sqlite_connection(str(path)) as conn:
+        conn.execute(
+            """
+            CREATE TABLE categories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                parent_id INTEGER,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY (parent_id) REFERENCES categories(id)
+            )
+            """
+        )
+    return path
+
+
+def test_step0_self_ref_fk_gets_null_ratio_1(self_ref_fk_db: Path):
+    """Self-referencing FK column → null_ratio=1.0 (always NULL).
+
+    At fill time, the SharedPool for ``categories`` is empty (no rows
+    inserted yet), so ``foreign_key_or_integer`` would fall back to random
+    integers that don't match any existing PK — causing FK violations.
+    Setting ``null_ratio=1.0`` ensures all values are NULL.
+    """
+    mock_healer = MagicMock()
+    mock_validator = MagicMock()
+    mock_validator.validate.return_value = []  # no violations — accepted as-is
+
+    orch = AutoHealOrchestrator(
+        db_path=str(self_ref_fk_db),
+        heal_orchestrator=mock_healer,
+        validator=mock_validator,
+        total_budget_seconds=10.0,
+    )
+    yaml_str = orch.run()
+    config = yaml.safe_load(yaml_str)
+    parent_id_col = next(c for c in config["tables"][0]["columns"] if c["name"] == "parent_id")
+    assert parent_id_col.get("null_ratio") == 1.0
+    assert parent_id_col["generator"] == "foreign_key_or_integer"
+
+
+def test_step0_non_self_ref_fk_not_affected(simple_db: Path):
+    """Non-self-referencing FK columns are NOT affected by Step 0.
+
+    The ``simple_db`` fixture has no FK constraints, so no column should
+    get ``null_ratio=1.0`` from the self-ref FK detection.
+    """
+    mock_healer = MagicMock()
+    mock_validator = MagicMock()
+    mock_validator.validate.return_value = []
+
+    orch = AutoHealOrchestrator(
+        db_path=str(simple_db),
+        heal_orchestrator=mock_healer,
+        validator=mock_validator,
+        total_budget_seconds=10.0,
+    )
+    yaml_str = orch.run()
+    config = yaml.safe_load(yaml_str)
+    for col in config["tables"][0]["columns"]:
+        # No self-ref FK in simple_db → no null_ratio=1.0 from Step 0
+        assert col.get("null_ratio") != 1.0 or col["name"] != "id"
+
+
+# ---------------------------------------------------------------------------
+# Blind-spot fix (2026-07-09): phone-like + LENGTH CHECK → pattern [0-9]{N}
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(name="phone_length_db")
+def fixture_phone_length_db(tmp_path: Path) -> Path:
+    """DB with phone column that has LENGTH(phone) = 11 CHECK constraint."""
+    path = tmp_path / "phone_len.db"
+    with sqlite_connection(str(path)) as conn:
+        conn.execute(
+            """
+            CREATE TABLE users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                phone TEXT,
+                CHECK (phone IS NULL OR LENGTH(phone) = 11)
+            )
+            """
+        )
+    return path
+
+
+@pytest.fixture(name="phone_length_not_null_db")
+def fixture_phone_length_not_null_db(tmp_path: Path) -> Path:
+    """DB with NOT NULL phone column that has LENGTH(phone) = 11 CHECK."""
+    path = tmp_path / "phone_len_nn.db"
+    with sqlite_connection(str(path)) as conn:
+        conn.execute(
+            """
+            CREATE TABLE contacts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                mobile TEXT NOT NULL,
+                CHECK (LENGTH(mobile) = 11)
+            )
+            """
+        )
+    return path
+
+
+def test_step2_phone_with_length_check_uses_pattern(phone_length_db: Path):
+    """phone-like column + LENGTH(phone)=11 → phone generator (realistic).
+
+    Step 2 initially returns ``pattern`` with ``[0-9]{11}`` (avoiding the
+    contract matrix ``string`` on ``phone`` → ``semantic_upgrade`` conflict).
+    Then the Step 5.5 safety net keeps ``pattern`` but replaces the regex
+    with ``^1[3-9]\\d{9}$`` to produce realistic Chinese mobile numbers
+    (e.g., ``18951140369``) rather than random 11-digit strings (e.g.,
+    ``76757304493``). The ``phone`` generator is NOT used because faker's
+    zh_CN phone_number() includes dashes/spaces that violate LENGTH=11.
+    """
+    mock_healer = MagicMock()
+    mock_validator = MagicMock()
+    mock_validator.validate.return_value = []  # no violations — accepted as-is
+
+    orch = AutoHealOrchestrator(
+        db_path=str(phone_length_db),
+        heal_orchestrator=mock_healer,
+        validator=mock_validator,
+        total_budget_seconds=10.0,
+    )
+    yaml_str = orch.run()
+    config = yaml.safe_load(yaml_str)
+    phone_col = next(c for c in config["tables"][0]["columns"] if c["name"] == "phone")
+    assert phone_col["generator"] == "pattern"
+    assert phone_col["params"]["regex"] == r"^1[3-9]\d{9}$"
+
+
+def test_step2_mobile_with_length_check_uses_pattern(phone_length_not_null_db: Path):
+    """mobile column + LENGTH(mobile)=11 → pattern with Chinese mobile regex.
+
+    Same as ``test_step2_phone_with_length_check_uses_pattern`` but for the
+    ``mobile`` column name — Step 5.5 safety net keeps ``pattern`` with
+    ``^1[3-9]\\d{9}$`` for all phone-like column names.
+    """
+    mock_healer = MagicMock()
+    mock_validator = MagicMock()
+    mock_validator.validate.return_value = []
+
+    orch = AutoHealOrchestrator(
+        db_path=str(phone_length_not_null_db),
+        heal_orchestrator=mock_healer,
+        validator=mock_validator,
+        total_budget_seconds=10.0,
+    )
+    yaml_str = orch.run()
+    config = yaml.safe_load(yaml_str)
+    mobile_col = next(c for c in config["tables"][0]["columns"] if c["name"] == "mobile")
+    assert mobile_col["generator"] == "pattern"
+    assert mobile_col["params"]["regex"] == r"^1[3-9]\d{9}$"
+
+
+def test_step2_non_phone_with_length_check_keeps_string(tmp_path: Path):
+    """Non-phone-like column + LENGTH(code)=8 → keeps string + length params.
+
+    Only phone-like columns get the pattern upgrade. Other columns with
+    LENGTH constraints keep the original ``string`` + ``min_length``/
+    ``max_length`` config.
+    """
+    path = tmp_path / "code_len.db"
+    with sqlite_connection(str(path)) as conn:
+        conn.execute(
+            """
+            CREATE TABLE items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                code TEXT NOT NULL,
+                CHECK (LENGTH(code) = 8)
+            )
+            """
+        )
+    mock_healer = MagicMock()
+    mock_validator = MagicMock()
+    mock_validator.validate.return_value = []
+
+    orch = AutoHealOrchestrator(
+        db_path=str(path),
+        heal_orchestrator=mock_healer,
+        validator=mock_validator,
+        total_budget_seconds=10.0,
+    )
+    yaml_str = orch.run()
+    config = yaml.safe_load(yaml_str)
+    code_col = next(c for c in config["tables"][0]["columns"] if c["name"] == "code")
+    # Non-phone-like column keeps string + length params
+    assert code_col["generator"] == "string"
+    assert code_col["params"]["min_length"] == 8
+    assert code_col["params"]["max_length"] == 8
+
+
+# ---------------------------------------------------------------------------
+# Blind-spot fix (2026-07-09): ProgressiveDegrader restores original config
+# ---------------------------------------------------------------------------
+
+
+def test_restore_failed_columns_restores_generator_and_params():
+    """_restore_failed_columns: restores generator/params from original config.
+
+    When LLM oscillates, the ``current_config`` may have lost CHECK-constraint
+    params (e.g., ``min_length``/``max_length`` from ``LENGTH(phone)=11``
+    inference). ``_restore_failed_columns`` should restore the original
+    deterministic inference for failed columns.
+    """
+    from sqlseed_ai.healer.orchestrator import HealOrchestrator
+
+    original_config = {
+        "tables": [
+            {
+                "name": "users",
+                "columns": [
+                    {"name": "phone", "generator": "pattern", "params": {"regex": "[0-9]{11}"}},
+                    {"name": "email", "generator": "email", "params": {}},
+                ],
+            }
+        ]
+    }
+    # LLM oscillated: phone lost its params, email was patched successfully
+    current_config = {
+        "tables": [
+            {
+                "name": "users",
+                "columns": [
+                    {"name": "phone", "generator": "phone", "params": {}},  # LLM broke it
+                    {"name": "email", "generator": "email", "params": {"domain": "test.com"}},  # LLM fixed it
+                ],
+            }
+        ]
+    }
+    result = HealOrchestrator._restore_failed_columns(current_config, original_config, failed_cols=["phone"])
+    phone_col = next(c for c in result["tables"][0]["columns"] if c["name"] == "phone")
+    email_col = next(c for c in result["tables"][0]["columns"] if c["name"] == "email")
+    # Failed column: restored from original
+    assert phone_col["generator"] == "pattern"
+    assert phone_col["params"]["regex"] == "[0-9]{11}"
+    # Non-failed column: LLM patch preserved
+    assert email_col["params"]["domain"] == "test.com"
+
+
+def test_restore_failed_columns_noop_when_no_failed_cols():
+    """_restore_failed_columns: no-op when failed_cols is empty."""
+    from sqlseed_ai.healer.orchestrator import HealOrchestrator
+
+    original_config = {"tables": [{"name": "t", "columns": [{"name": "c", "generator": "string"}]}]}
+    current_config = {"tables": [{"name": "t", "columns": [{"name": "c", "generator": "integer"}]}]}
+    result = HealOrchestrator._restore_failed_columns(current_config, original_config, failed_cols=[])
+    # No failed cols → current_config unchanged
+    col = result["tables"][0]["columns"][0]
+    assert col["generator"] == "integer"
+
+
+def test_restore_failed_columns_handles_missing_original_column():
+    """_restore_failed_columns: gracefully handles missing original column."""
+    from sqlseed_ai.healer.orchestrator import HealOrchestrator
+
+    original_config = {"tables": [{"name": "t", "columns": []}]}
+    current_config = {"tables": [{"name": "t", "columns": [{"name": "phone", "generator": "phone", "params": {}}]}]}
+    result = HealOrchestrator._restore_failed_columns(current_config, original_config, failed_cols=["phone"])
+    # Original config has no "phone" column → current config unchanged
+    phone_col = next(c for c in result["tables"][0]["columns"] if c["name"] == "phone")
+    assert phone_col["generator"] == "phone"
+
+
+# ---------------------------------------------------------------------------
+# Fix 6: _like_to_regex — LIKE pattern to regex conversion (position-preserving)
+# ---------------------------------------------------------------------------
+
+
+def test_like_to_regex_preserves_colon_position():
+    """``__:__`` (HH:MM time format) → colon stays at index 2, digits-only.
+
+    This was the root cause of R2 hospital fill failure: the old code did
+    ``literal_part = like_pattern.replace("_", "")`` which stripped ALL
+    underscores, collapsing ``__:__`` to ``:`` and producing
+    ``^:[A-Za-z0-9]{4}$`` (colon at the WRONG position).
+
+    Time-like patterns (containing ``:``) now use ``[0-9]`` instead of
+    ``[A-Za-z0-9]`` — HH:MM fields never contain letters, and the wider
+    charset let rstr produce invalid values like ``Tc:aO``.
+    """
+    regex = _like_to_regex("__:__")
+    assert regex == "^[0-9]{2}:[0-9]{2}$"
+
+
+def test_like_to_regex_literal_prefix():
+    """``#______`` (color code) → ``^\\#`` prefix preserved (re.escape escapes ``#``)."""
+    regex = _like_to_regex("#______")
+    assert regex == r"^\#[A-Za-z0-9]{6}$"
+
+
+def test_like_to_regex_literal_in_middle():
+    """``PROD-___`` → ``PROD-`` prefix with hyphen preserved at correct position."""
+    regex = _like_to_regex("PROD-___")
+    assert regex == r"^PROD\-[A-Za-z0-9]{3}$"
+
+
+def test_like_to_regex_all_underscores():
+    """``____`` → ``^[A-Za-z0-9]{4}$`` (no literals)."""
+    assert _like_to_regex("____") == "^[A-Za-z0-9]{4}$"
+
+
+def test_like_to_regex_single_underscore():
+    """``_`` → ``^[A-Za-z0-9]$`` (single char, no grouping)."""
+    assert _like_to_regex("_") == "^[A-Za-z0-9]$"
+
+
+# ---------------------------------------------------------------------------
+# Fix 7: _has_like_constraint + timedelta guard for LIKE-constrained columns
+# ---------------------------------------------------------------------------
+
+
+def test_has_like_constraint_detects_like_check():
+    """_has_like_constraint returns True for ``col LIKE 'pattern'`` CHECK."""
+    constraints = [
+        {"type": "check", "expression": "start_time LIKE '__:__'"},
+        {"type": "check", "expression": "end_time > start_time"},
+    ]
+    assert _has_like_constraint("start_time", constraints) is True
+    assert _has_like_constraint("end_time", constraints) is False
+
+
+def test_has_like_constraint_no_match():
+    """_has_like_constraint returns False for columns without LIKE CHECK."""
+    constraints = [
+        {"type": "check", "expression": "floor >= 1 AND floor <= 50"},
+        {"type": "unique", "columns": ["code"]},
+    ]
+    assert _has_like_constraint("floor", constraints) is False
+    assert _has_like_constraint("code", constraints) is False
+
+
+def test_infer_cross_column_skips_timedelta_for_like_constrained_col():
+    """Pattern 3 (col > other) must NOT generate timedelta for LIKE-constrained columns.
+
+    ``end_time`` has ``LIKE '__:__'`` (stores "HH:MM" strings). Even though
+    ``_is_date_column("end_time")`` returns True (``_time`` suffix), the LIKE
+    constraint means it's a formatted string, not a datetime. The timedelta
+    expression ``value + timedelta(...)`` would crash at fill time with
+    ``TypeError: can only concatenate str (not "datetime.timedelta") to str``.
+    """
+    constraints = [
+        {"type": "check", "expression": "start_time LIKE '__:__'"},
+        {"type": "check", "expression": "end_time LIKE '__:__'"},
+        {"type": "check", "expression": "end_time > start_time"},
+    ]
+    result = _infer_cross_column_config("end_time", constraints, ["start_time", "end_time"], "TEXT")
+    # Should NOT return a timedelta derive_from — the LIKE guard disables
+    # date inference for formatted-string columns.
+    assert result is None or "timedelta" not in str(result.get("expression", ""))
+
+
+def test_infer_cross_column_skips_timedelta_when_source_has_like():
+    """Pattern 3 must NOT generate timedelta when the SOURCE column has LIKE.
+
+    Even if ``end_time`` itself has no LIKE, if ``start_time`` (the source)
+    has ``LIKE '__:__'``, the source produces strings — timedelta on strings
+    would crash.
+    """
+    constraints = [
+        {"type": "check", "expression": "start_time LIKE '__:__'"},
+        {"type": "check", "expression": "end_time > start_time"},
+    ]
+    result = _infer_cross_column_config("end_time", constraints, ["start_time", "end_time"], "TEXT")
+    assert result is None or "timedelta" not in str(result.get("expression", ""))
+
+
+def test_infer_cross_column_timedelta_for_real_datetime():
+    """Pattern 3 STILL generates timedelta for real DATETIME columns (no LIKE).
+
+    Regression guard: the LIKE guard must not break the normal date case.
+    ``consultation_end`` is DATETIME (no LIKE) → timedelta is correct.
+    """
+    constraints = [
+        {"type": "check", "expression": "consultation_end IS NULL OR consultation_end >= consultation_start"},
+    ]
+    result = _infer_cross_column_config(
+        "consultation_end", constraints, ["consultation_start", "consultation_end"], "DATETIME"
+    )
+    assert result is not None
+    assert result["derive_from"] == "consultation_start"
+    assert "timedelta" in result["expression"]
+
+
+# ---------------------------------------------------------------------------
+# Fix 8: Step 5.5 arithmetic-on-string safety net
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(name="like_time_db")
+def fixture_like_time_db(tmp_path: Path) -> Path:
+    """DB with time-string columns (LIKE '__:__') and a cross-column CHECK."""
+    path = tmp_path / "like_time.db"
+    with sqlite_connection(str(path)) as conn:
+        conn.execute(
+            """
+            CREATE TABLE shifts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                start_time TEXT NOT NULL CHECK (start_time LIKE '__:__'),
+                end_time TEXT NOT NULL CHECK (end_time LIKE '__:__'),
+                CHECK (end_time > start_time)
+            )
+            """
+        )
+    return path
+
+
+def _finalize_fixed_candidate(path: Path, candidate: dict, monkeypatch: pytest.MonkeyPatch) -> tuple[dict, dict]:
+    """Parse and merge a real healer response, then exercise final inference.
+
+    Only the initial-config builder is replaced, to deliver that accepted
+    candidate to Step 5.5 without relying on a fake validator to force a call.
+    """
+    import copy
+    import json
+
+    from openai.types.chat import ChatCompletion
+    from sqlseed_ai.config import AIConfig
+    from sqlseed_ai.contracts.builtin_violations import BUILTIN_VIOLATIONS
+    from sqlseed_ai.contracts.matrix import ContractResolver
+    from sqlseed_ai.healer.models import SubgraphTask
+    from sqlseed_ai.runtime import build_heal_orchestrator
+    from sqlseed_ai.validator.main import FastValidator
+    from sqlseed_ai.validator.schema_snapshot import SchemaSnapshot
+
+    class FixedClient:
+        calls = 0
+
+        def chat_completions_create(self, *, model: str, **_kwargs: object) -> ChatCompletion:
+            self.calls += 1
+            return ChatCompletion.model_validate(
+                {
+                    "id": "fixed",
+                    "created": 0,
+                    "model": model,
+                    "object": "chat.completion",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "finish_reason": "stop",
+                            "message": {
+                                "role": "assistant",
+                                "content": json.dumps(candidate),
+                            },
+                        }
+                    ],
+                }
+            )
+
+    snapshot = SchemaSnapshot(db_path=str(path))
+    validator = FastValidator(ContractResolver(set(BUILTIN_VIOLATIONS), set()), db_path=str(path))
+    original = copy.deepcopy(candidate)
+    original["tables"][0]["columns"][0] = {"name": "id", "generator": "string"}
+    original["tables"][0]["count"] = 3
+    violations = validator.validate(original, snapshot).violations
+    assert violations
+    client = FixedClient()
+    healer = build_heal_orchestrator(AIConfig(model="fixed"), client, snapshot, validator, max_retries=1)
+    name = candidate["tables"][0]["name"]
+    result = healer.heal(SubgraphTask(task_id=name, tables=[name]), violations, original)
+    assert result.success
+    assert client.calls == 1
+    assert result.config["tables"][0]["columns"] == candidate["tables"][0]["columns"]
+    accepted = copy.deepcopy(result.config)
+    monkeypatch.setattr(
+        AutoHealOrchestrator,
+        "_build_subgraph_config",
+        lambda self, tables, snapshot: copy.deepcopy(accepted),
+    )
+    orch = AutoHealOrchestrator(db_path=str(path), heal_orchestrator=healer, validator=validator)
+    finalized = yaml.safe_load(orch.run())
+    assert client.calls == 1  # Finalization must not require another paid call.
+    return finalized, accepted
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        "value + timedelta(days=random_int(1, 30))",
+        "value + random_int(1, 100)",
+    ],
+)
+def test_step55_strips_arithmetic_from_parsed_like_candidate(
+    like_time_db: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    expression: str,
+) -> None:
+    """The actual parsed/merged LLM expression is stripped for LIKE text."""
+    candidate = {
+        "tables": [
+            {
+                "name": "shifts",
+                "columns": [
+                    {"name": "id", "generator": "autoincrement"},
+                    {"name": "start_time", "generator": "pattern", "params": {"regex": "^[0-9]{2}:[0-9]{2}$"}},
+                    {"name": "end_time", "derive_from": "start_time", "expression": expression},
+                ],
+            }
+        ]
+    }
+    config, accepted = _finalize_fixed_candidate(like_time_db, candidate, monkeypatch)
+    assert accepted["tables"][0]["columns"][2]["expression"] == expression
+    column = _find_column(config, "shifts", "end_time")
+    assert "derive_from" not in column
+    assert "expression" not in column
+    assert column["generator"] == "pattern"
+    from sqlseed.generators.base_provider import BaseProvider
+
+    generated = BaseProvider().generate(column["generator"], **column["params"])
+    assert len(generated) == 5
+    assert generated[2] == ":"
+
+
+def test_step55_preserves_derive_from_for_real_datetime(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The parsed timedelta stays executable for real DATETIME columns."""
+    from sqlseed import fill_from_config
+
+    path = tmp_path / "datetime.db"
+    with sqlite_connection(path) as db:
+        db.execute(
+            "CREATE TABLE events (id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "start_dt DATETIME NOT NULL, end_dt DATETIME, "
+            "CHECK (end_dt IS NULL OR end_dt >= start_dt))"
+        )
+    expression = "value + timedelta(days=random_int(1, 30))"
+    candidate = {
+        "tables": [
+            {
+                "name": "events",
+                "columns": [
+                    {"name": "id", "generator": "autoincrement"},
+                    {"name": "start_dt", "generator": "datetime"},
+                    {"name": "end_dt", "derive_from": "start_dt", "expression": expression},
+                ],
+            }
+        ]
+    }
+    config, accepted = _finalize_fixed_candidate(path, candidate, monkeypatch)
+    assert accepted["tables"][0]["columns"][2]["expression"] == expression
+    column = _find_column(config, "events", "end_dt")
+    assert column["derive_from"] == "start_dt"
+    assert "timedelta" in column["expression"]
+    output = path.with_suffix(".yaml")
+    output.write_text(yaml.safe_dump(config))
+    result = fill_from_config(output)
+    assert result[0].count == 3
+    assert result[0].errors == []
+    with sqlite_connection(path) as db:
+        assert db.execute("SELECT count(*) FROM events WHERE end_dt >= start_dt").fetchone()[0] == 3
+
+
+def test_step55_strips_generator_when_derive_from_present(tmp_path: Path):
+    """Step 5.5 strips ``generator``+``params`` when LLM emits both modes.
+
+    The LLM occasionally emits BOTH ``derive_from`` AND ``generator`` for the
+    same column (e.g., ``derive_from: dest_wh_id, expression: value - 1 if
+    value > 1 else value + 1, generator: integer``). The ``ColumnConfig``
+    Pydantic model enforces mutual exclusivity between source-mode
+    (``generator`` + ``params``) and derived-mode (``derive_from`` +
+    ``expression``). Without this safety net, the YAML loads downstream
+    triggers ``ValidationError: cannot use both 'generator' and
+    'derive_from'`` and the entire fill aborts.
+
+    Fix: when ``derive_from`` is present (and NOT stripped by the LIKE
+    safety net), actively pop ``generator`` and ``params`` to enforce
+    mutual exclusivity. This is a generic LLM-output cleanup — it benefits
+    any database where the LLM emits both modes, not just R3.
+    """
+    path = tmp_path / "mixed_mode.db"
+    with sqlite_connection(str(path)) as conn:
+        conn.execute(
+            """
+            CREATE TABLE shipments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                dest_wh_id INTEGER NOT NULL,
+                origin_wh_id INTEGER NOT NULL,
+                CHECK (origin_wh_id != dest_wh_id)
+            )
+            """
+        )
+
+    mock_healer = MagicMock()
+    # Simulate LLM emitting BOTH derive_from AND generator for origin_wh_id.
+    # Use heal.return_value (not heal_subgraph) because _heal_subgraph calls
+    # self._heal_orchestrator.heal(task, violations, sg_config).
+    mock_healer.heal.return_value = SimpleNamespace(
+        config={
+            "tables": [
+                {
+                    "name": "shipments",
+                    "columns": [
+                        {"name": "id", "generator": "autoincrement", "params": {}},
+                        {"name": "dest_wh_id", "generator": "foreign_key_or_integer", "params": {}},
+                        {
+                            "name": "origin_wh_id",
+                            "derive_from": "dest_wh_id",
+                            "expression": "value - 1 if value > 1 else value + 1",
+                            "generator": "integer",
+                            "params": {"min_value": 1, "max_value": 100},
+                        },
+                    ],
+                }
+            ]
+        },
+        level_used=4,
+        success=True,
+        degraded_columns=[],
+    )
+    mock_validator = MagicMock()
+    # Return violations so the heal path is taken (not "accepted as-is")
+    mock_validator.validate.return_value = [MagicMock()]
+
+    orch = AutoHealOrchestrator(
+        db_path=str(path),
+        heal_orchestrator=mock_healer,
+        validator=mock_validator,
+        total_budget_seconds=10.0,
+    )
+    yaml_str = orch.run()
+    config = yaml.safe_load(yaml_str)
+    origin_col = next(c for c in config["tables"][0]["columns"] if c["name"] == "origin_wh_id")
+    assert "derive_from" in origin_col, "derive_from should be preserved"
+    assert "generator" not in origin_col, (
+        "Step 5.5 must strip generator when derive_from is present (mutual exclusivity)"
+    )
+    assert "params" not in origin_col, "Step 5.5 must strip params when derive_from is present (mutual exclusivity)"
+
+
+# =============================================================================
+# Round 4 blind-spot tests: Pattern 30b, 1b, 26c, 39, 38, 22c, 24b cap
+# =============================================================================
+
+
+def test_pattern_30b_col1_eq_value_or_col_is_not_null():
+    """Pattern 30b: col1 = VALUE OR col IS NOT NULL (reverse of Pattern 30).
+
+    When col1 == VALUE, col can be anything (NULL is allowed).
+    When col1 != VALUE, col must be NOT NULL.
+    e.g., org_type = 'root' OR parent_id IS NOT NULL
+    """
+    constraints = [{"type": "check", "expression": "org_type = 'root' OR parent_id IS NOT NULL"}]
+    result = _infer_cross_column_config(
+        "parent_id",
+        constraints,
+        ["parent_id", "org_type"],
+        "INTEGER",
+        fk_columns={"parent_id"},
+    )
+    assert result is not None
+    assert result["derive_from"] == "org_type"
+    expr = result["expression"]
+    # When org_type == 'root': parent_id = None (NULL is allowed)
+    # When org_type != 'root': parent_id = non-NULL (for FK, use 1 as valid id)
+    assert "root" in expr
+    assert "None" in expr
+
+
+def test_pattern_1b_three_way_or_col_null_or_other_null_or_col_leq_other():
+    """Pattern 1b: 3-way OR — col IS NULL OR other IS NULL OR col <= other.
+
+    e.g., revoked_at IS NULL OR expires_at IS NULL OR revoked_at <= expires_at
+    """
+    constraints = [
+        {"type": "check", "expression": "revoked_at IS NULL OR expires_at IS NULL OR revoked_at <= expires_at"}
+    ]
+    result = _infer_cross_column_config(
+        "revoked_at",
+        constraints,
+        ["revoked_at", "expires_at"],
+        "TEXT",
+    )
+    assert result is not None
+    assert result["derive_from"] == "expires_at"
+    expr = result["expression"]
+    # Expression must ensure revoked_at <= expires_at when expires_at is not None
+    assert "None" in expr
+    assert "timedelta" in expr or "random" in expr
+
+
+def test_pattern_26c_col1_neq_value_or_col_eq_v1_or_col_eq_v2():
+    """Pattern 26c: col1 != VALUE OR col = 'V1' OR col = 'V2'.
+
+    Variant of Pattern 26 with explicit OR equality instead of IN().
+    e.g., scope != 'global' OR action = 'admin' OR action = 'read'
+    """
+    constraints = [{"type": "check", "expression": "scope != 'global' OR action = 'admin' OR action = 'read'"}]
+    result = _infer_cross_column_config(
+        "action",
+        constraints,
+        ["action", "scope"],
+        "TEXT",
+    )
+    assert result is not None
+    assert result["derive_from"] == "scope"
+    expr = result["expression"]
+    assert "admin" in expr
+    assert "read" in expr
+
+
+def test_pattern_39_col1_is_null_or_col_leq_col2_plus_col3():
+    """Pattern 39: col1 IS NULL OR col <= col2 + col3 (compound addition upper bound).
+
+    e.g., quota_limit IS NULL OR metric_value <= quota_limit + overage_amount
+    """
+    constraints = [
+        {"type": "check", "expression": "quota_limit IS NULL OR metric_value <= quota_limit + overage_amount"}
+    ]
+    result = _infer_cross_column_config(
+        "metric_value",
+        constraints,
+        ["metric_value", "quota_limit", "overage_amount"],
+        "REAL",
+    )
+    assert result is not None
+    assert result["derive_from"] == "quota_limit"
+    expr = result["expression"]
+    # Expression must reference overage_amount via row[] and produce value <= quota_limit + overage_amount
+    assert "overage_amount" in expr
+    assert "None" in expr or "row" in expr
+
+
+def test_pattern_38_col_eq_col1_plus_col2_times_const_minus_col3():
+    """Pattern 38: col = (col1 + col2) * (CONST - col3) (complex arithmetic).
+
+    e.g., total_amount = (base_amount + seat_amount) * (1.0 - discount_rate)
+    """
+    constraints = [
+        {"type": "check", "expression": "total_amount = (base_amount + seat_amount) * (1.0 - discount_rate)"}
+    ]
+    result = _infer_cross_column_config(
+        "total_amount",
+        constraints,
+        ["total_amount", "base_amount", "seat_amount", "discount_rate"],
+        "REAL",
+    )
+    assert result is not None
+    assert result["derive_from"] == "base_amount"
+    expr = result["expression"]
+    assert "seat_amount" in expr
+    assert "discount_rate" in expr
+
+
+def test_pattern_22c_col_geq_col2_times_c1_and_col_leq_col2_times_c2():
+    """Pattern 22c: col >= col2 * CONST1 AND col <= col2 * CONST2 (dual multiplier bounds).
+
+    e.g., base_price_yearly >= base_price_monthly * 10 AND base_price_yearly <= base_price_monthly * 12
+    """
+    constraints = [
+        {"type": "check", "expression": "base_price_yearly >= base_price_monthly * 10"},
+        {"type": "check", "expression": "base_price_yearly <= base_price_monthly * 12"},
+    ]
+    result = _infer_cross_column_config(
+        "base_price_yearly",
+        constraints,
+        ["base_price_yearly", "base_price_monthly"],
+        "REAL",
+    )
+    assert result is not None
+    assert result["derive_from"] == "base_price_monthly"
+    expr = result["expression"]
+    # Expression should multiply by a factor between 10 and 12
+    assert "10" in expr or "value" in expr
+    assert "12" in expr or "value" in expr
+
+
+def test_pattern_24b_cap_with_col_leq_other_constraint():
+    """Pattern 24b cap: when col <= other_col constraint also exists, cap the expression.
+
+    When col1 != VALUE OR col >= other_col AND col <= other_col both exist,
+    the expression should produce col == other_col (exact equality) for the >= branch.
+    e.g., status != 'paid' OR paid_amount >= total_amount + paid_amount <= total_amount
+    """
+    constraints = [
+        {"type": "check", "expression": "status != 'paid' OR paid_amount >= total_amount"},
+        {"type": "check", "expression": "paid_amount <= total_amount"},
+    ]
+    result = _infer_cross_column_config(
+        "paid_amount",
+        constraints,
+        ["paid_amount", "status", "total_amount"],
+        "REAL",
+    )
+    assert result is not None
+    assert result["derive_from"] == "total_amount"
+    expr = result["expression"]
+    # When status == 'paid': paid_amount should equal total_amount (not exceed it)
+    # The expression must NOT multiply by > 1.0
+    assert "random_float(1.0" not in expr or "1.0, 1.0" in expr
+
+
+def test_pattern_1b_priority_over_pattern_1_with_multiple_constraints():
+    """Pattern 1b must be detected even when a Pattern 1 constraint exists first.
+
+    When a column has BOTH:
+    - Pattern 1: ``col IS NULL OR col >= other_col`` (2-way OR)
+    - Pattern 1b: ``col IS NULL OR other2 IS NULL OR col <= other2`` (3-way OR)
+
+    Pattern 1b should win because it provides a tighter constraint (involves
+    two other columns). Without a pre-loop scan, Pattern 1 matches the first
+    constraint and returns early, never giving Pattern 1b a chance.
+
+    e.g., api_keys.revoked_at has:
+      - revoked_at IS NULL OR revoked_at >= created_at  (Pattern 1)
+      - revoked_at IS NULL OR expires_at IS NULL OR revoked_at <= expires_at  (Pattern 1b)
+    Pattern 1b should produce derive_from: expires_at (not created_at).
+    """
+    constraints = [
+        {"type": "check", "expression": "revoked_at IS NULL OR revoked_at >= created_at"},
+        {"type": "check", "expression": "revoked_at IS NULL OR expires_at IS NULL OR revoked_at <= expires_at"},
+    ]
+    result = _infer_cross_column_config(
+        "revoked_at",
+        constraints,
+        ["revoked_at", "created_at", "expires_at"],
+        "TEXT",
+    )
+    assert result is not None
+    # Pattern 1b should win — derive_from expires_at, not created_at
+    assert result["derive_from"] == "expires_at"
+
+
+def test_pattern_40_self_ref_fk_conditional_equality():
+    """Pattern 40: when col2 is a self-ref FK (always NULL) and constraint is
+    ``col1 = VALUE OR col2 IS NOT NULL``, col1 must be VALUE.
+
+    e.g., organizations has:
+      - parent_id is self-ref FK (always NULL at fill time)
+      - CHECK: org_type = 'root' OR parent_id IS NOT NULL
+    Since parent_id is always NULL, ``parent_id IS NOT NULL`` is always FALSE,
+    so ``org_type = 'root'`` must be TRUE. Force org_type to choice ['root'].
+    """
+    constraints = [
+        {"type": "check", "expression": "org_type = 'root' OR parent_id IS NOT NULL"},
+    ]
+    result = _infer_cross_column_config(
+        "org_type",
+        constraints,
+        ["org_type", "parent_id"],
+        "TEXT",
+        fk_columns={"parent_id"},
+        self_ref_fk_cols={"parent_id"},
+    )
+    assert result is not None
+    # org_type must be forced to 'root' only
+    assert result.get("generator") == "choice"
+    assert result.get("params", {}).get("choices") == ["root"]
+
+
+def test_pattern_31_range_awareness_with_column_range_check():
+    """Pattern 31: when the column also has a range CHECK (min/max), the
+    random branch must respect those bounds instead of hardcoded 100.0.
+
+    e.g., subscriptions.discount_rate has:
+      - CHECK: discount_rate >= 0.0 AND discount_rate <= 1.0  (range)
+      - CHECK: status != 'trialing' OR discount_rate = 0.0  (Pattern 31)
+    Pattern 31's else branch must use random_float(0.01, 1.0), not 100.0.
+    """
+    constraints = [
+        {"type": "check", "expression": "discount_rate >= 0.0 AND discount_rate <= 1.0"},
+        {"type": "check", "expression": "status != 'trialing' OR discount_rate = 0.0"},
+    ]
+    result = _infer_cross_column_config(
+        "discount_rate",
+        constraints,
+        ["discount_rate", "status"],
+        "REAL",
+    )
+    assert result is not None
+    assert result["derive_from"] == "status"
+    expr = result["expression"]
+    # The else branch must NOT exceed 1.0 (the column's max_value)
+    assert "100.0" not in expr
+    assert "1.0" in expr
+
+
+def test_pattern_41_col_geq_date_other_col():
+    """Pattern 41: col >= DATE(other_col) — date comparison with DATE() wrapper.
+
+    e.g., invoices.due_date >= DATE(period_start)
+    The DATE() function wrapper must be stripped to extract the column name.
+    Derive from other_col, add positive timedelta.
+    """
+    constraints = [
+        {"type": "check", "expression": "due_date >= DATE(period_start)"},
+    ]
+    result = _infer_cross_column_config(
+        "due_date",
+        constraints,
+        ["due_date", "period_start"],
+        "DATE",
+    )
+    assert result is not None
+    assert result["derive_from"] == "period_start"
+    assert "timedelta" in result["expression"]
+
+
+def test_pattern_1b_lower_bound_awareness():
+    """Pattern 1b: when both upper and lower bound constraints exist, the
+    expression must respect the lower bound.
+
+    e.g., api_keys.revoked_at has:
+      - revoked_at IS NULL OR revoked_at >= created_at  (lower bound)
+      - revoked_at IS NULL OR expires_at IS NULL OR revoked_at <= expires_at  (Pattern 1b upper)
+    Pattern 1b derives from expires_at and subtracts timedelta, but the result
+    must not go below created_at. Expression should include max() with created_at.
+    """
+    constraints = [
+        {"type": "check", "expression": "revoked_at IS NULL OR revoked_at >= created_at"},
+        {"type": "check", "expression": "revoked_at IS NULL OR expires_at IS NULL OR revoked_at <= expires_at"},
+    ]
+    result = _infer_cross_column_config(
+        "revoked_at",
+        constraints,
+        ["revoked_at", "created_at", "expires_at"],
+        "TEXT",
+    )
+    assert result is not None
+    assert result["derive_from"] == "expires_at"
+    expr = result["expression"]
+    # Expression must include max() with created_at to enforce lower bound
+    assert "max(" in expr
+    assert "created_at" in expr
+
+
+def test_pattern_37_string_equality_variant():
+    """Pattern 37 string variant: multiple ``col1 != VALUE OR col = 'VALUE2'``
+    constraints on the same column.
+
+    e.g., R6.transactions.direction has:
+      - txn_type != 'withdrawal' OR direction = 'out'
+      - txn_type != 'deposit' OR direction = 'in'
+      - txn_type != 'fee' OR direction = 'out'
+      - txn_type != 'interest' OR direction = 'in'
+    Derive from txn_type with a nested ternary mapping each enum value to
+    its required string.
+    """
+    constraints = [
+        {"type": "check", "expression": "txn_type != 'withdrawal' OR direction = 'out'"},
+        {"type": "check", "expression": "txn_type != 'deposit' OR direction = 'in'"},
+        {"type": "check", "expression": "txn_type != 'fee' OR direction = 'out'"},
+        {"type": "check", "expression": "txn_type != 'interest' OR direction = 'in'"},
+    ]
+    result = _infer_cross_column_config("direction", constraints, ["direction", "txn_type"], "TEXT")
+    assert result is not None
+    assert result["derive_from"] == "txn_type"
+    expr = result["expression"]
+    # Must map withdrawal→out, deposit→in, fee→out, interest→in
+    assert "'out'" in expr
+    assert "'in'" in expr
+    assert "withdrawal" in expr
+    assert "deposit" in expr
+    # Must be a nested ternary (multiple if/else)
+    assert expr.count("if value == '") >= 4
+
+
+def test_pattern_30_pre_loop_scan_with_sibling_pattern_1():
+    """Pattern 30 pre-loop scan: when both Pattern 30 (col1 != VALUE OR col
+    IS NULL) and Pattern 1 (col IS NULL OR col >= other_col) exist on the
+    same column, Pattern 30 must win and derive from other_col with a
+    conditional NULL.
+
+    e.g., R2.prescriptions.dispensed_at has:
+      - status != 'cancelled' OR dispensed_at IS NULL  (Pattern 30)
+      - dispensed_at IS NULL OR dispensed_at >= prescribed_at  (Pattern 1)
+    Without pre-loop scan, Pattern 1 matches first and returns early,
+    making dispensed_at always non-NULL — violating Pattern 30 when
+    status == 'cancelled'.
+    """
+    constraints = [
+        {"type": "check", "expression": "status != 'cancelled' OR dispensed_at IS NULL"},
+        {"type": "check", "expression": "dispensed_at IS NULL OR dispensed_at >= prescribed_at"},
+    ]
+    result = _infer_cross_column_config(
+        "dispensed_at",
+        constraints,
+        ["dispensed_at", "status", "prescribed_at"],
+        "TEXT",
+    )
+    assert result is not None
+    # Must derive from prescribed_at (Pattern 1's source) with conditional NULL
+    assert result["derive_from"] == "prescribed_at"
+    expr = result["expression"]
+    # When status == 'cancelled', dispensed_at must be None
+    assert "row['status']" in expr
+    assert "'cancelled'" in expr
+    assert "None" in expr
+    # When status != 'cancelled', dispensed_at = prescribed_at + timedelta (>=)
+    assert "timedelta" in expr
+
+
+def test_pattern_30_datetime_non_null_branch_returns_none():
+    """Pattern 30: datetime column without a sibling Pattern 1 should return
+    None for the non-null branch (not 0, which is invalid for datetime)."""
+    constraints = [{"type": "check", "expression": "status != 'cancelled' OR closed_at IS NULL"}]
+    result = _infer_cross_column_config(
+        "closed_at",
+        constraints,
+        ["closed_at", "status"],
+        "TEXT",
+    )
+    assert result is not None
+    expr = result["expression"]
+    # Both branches should be None — 0 is not a valid datetime
+    assert "None" in expr
+    assert " 0" not in expr.replace("None", "")
+
+
+def test_pattern_1b_literal_upper_bound_awareness():
+    """Pattern 1b: when a literal upper bound constraint exists
+    (``col IS NULL OR col <= Y``), the expression must respect it.
+
+    e.g., R3.warehouses.temperature_max has:
+      - temperature_max IS NULL OR temperature_max <= 40.0  (literal upper)
+      - temperature_min IS NULL OR temperature_max IS NULL OR temperature_max > temperature_min  (Pattern 1b)
+    Pattern 1b derives from temperature_min and adds a positive delta,
+    which can exceed 40.0. Expression must include min() with 40.0 and
+    return None when value >= 40.0 (unsolvable: col > value AND col <= 40.0).
+    """
+    constraints = [
+        {"type": "check", "expression": "temperature_max IS NULL OR temperature_max <= 40.0"},
+        {
+            "type": "check",
+            "expression": "temperature_min IS NULL OR temperature_max IS NULL OR temperature_max > temperature_min",
+        },
+    ]
+    result = _infer_cross_column_config(
+        "temperature_max",
+        constraints,
+        ["temperature_max", "temperature_min"],
+        "REAL",
+    )
+    assert result is not None
+    assert result["derive_from"] == "temperature_min"
+    expr = result["expression"]
+    # Must include min() with 40.0 to enforce the literal upper bound
+    assert "min(" in expr
+    assert "40.0" in expr
+    # Must include None fallback for the unsolvable case (value >= 40.0)
+    assert "value >= 40.0" in expr
+
+
+def test_pattern_1b_negative_value_uses_addition_not_multiplication():
+    """Pattern 1b ``>``: for negative source values, addition (not multiplication)
+    must be used.
+
+    ``value * random_float(1.01, 2.0)`` makes negative values MORE negative
+    (e.g., -20.0 * 1.01 = -20.2 < -20.0), violating ``col > other_col``.
+    ``value + random_float(0.01, 100.0)`` is sign-agnostic and always
+    satisfies the strict inequality.
+
+    e.g., R3.warehouses.temperature_min can be -30.0 (from ``temperature_min >= -30.0``).
+    temperature_max > temperature_min must produce a value > -30.0,
+    which multiplication fails to guarantee.
+    """
+    constraints = [
+        {
+            "type": "check",
+            "expression": ("temperature_min IS NULL OR temperature_max IS NULL OR temperature_max > temperature_min"),
+        },
+    ]
+    result = _infer_cross_column_config(
+        "temperature_max",
+        constraints,
+        ["temperature_max", "temperature_min"],
+        "REAL",
+    )
+    assert result is not None
+    assert result["derive_from"] == "temperature_min"
+    expr = result["expression"]
+    # Must use addition, NOT multiplication
+    assert "value + random_float" in expr
+    assert "value * random_float" not in expr
+
+
+def test_pattern_1_float_greater_than_uses_addition():
+    """Pattern 1 ``col IS NULL OR col > other_col`` (float): uses addition,
+    not multiplication, to support negative source values."""
+    constraints = [{"type": "check", "expression": "high IS NULL OR high > low"}]
+    result = _infer_cross_column_config("high", constraints, ["high", "low"], "REAL")
+    assert result is not None
+    expr = result["expression"]
+    assert "value + random_float" in expr
+    assert "value * random_float" not in expr
+
+
+def test_pattern_1_float_less_equal_uses_subtraction():
+    """Pattern 1 ``col IS NULL OR col <= other_col`` (float): uses subtraction,
+    not multiplication, to support negative source values."""
+    constraints = [{"type": "check", "expression": "low IS NULL OR low <= high"}]
+    result = _infer_cross_column_config("low", constraints, ["low", "high"], "REAL")
+    assert result is not None
+    expr = result["expression"]
+    assert "value - random_float" in expr
+    assert "value * random_float" not in expr
+
+
+# ---------------------------------------------------------------------------
+# Round 7 — Batch 1 pattern variant tests
+# ---------------------------------------------------------------------------
+
+
+def test_pattern_30b_integer_value_variant():
+    """Pattern 30b (int variant): ``col1 = INT_VALUE OR col IS NOT NULL``.
+
+    e.g., R3.regions: ``level = 1 OR parent_id IS NOT NULL``
+    When level == 1, parent_id can be NULL; when level != 1, parent_id must
+    be NOT NULL. For FK columns, the non-NULL branch uses ``1`` (first
+    autoincrement id). The existing Pattern 30b only handles string VALUE
+    (``col1 = 'root'``); this variant handles unquoted integer VALUE.
+    """
+    constraints = [{"type": "check", "expression": "level = 1 OR parent_id IS NOT NULL"}]
+    result = _infer_cross_column_config(
+        "parent_id",
+        constraints,
+        ["parent_id", "level"],
+        "INTEGER",
+        fk_columns={"parent_id"},
+    )
+    assert result is not None
+    assert result["derive_from"] == "level"
+    # Expression must use integer comparison (no quotes around 1)
+    assert "value == 1" in result["expression"]
+    assert "value == '1'" not in result["expression"]
+    # FK column → non-NULL branch uses 1
+    assert "1" in result["expression"]
+
+
+def test_pattern_6_text_inequality_with_in_set():
+    """Pattern 6 (TEXT variant): ``col != other_col`` for TEXT columns.
+
+    e.g., R6.exchange_rates: ``base_currency != quote_currency`` where both
+    have CHECK IN ('CNY','USD','EUR','HKD'). Builds a rotation ternary that
+    cycles through the IN set, guaranteeing result != value.
+
+    Cycle prevention: Pattern 6 only applies to the LATER column in the
+    column list. ``quote_currency`` (index 1) derives from ``base_currency``
+    (index 0), not vice versa.
+    """
+    constraints = [
+        {"type": "check", "expression": "base_currency != quote_currency"},
+        {"type": "check", "expression": "quote_currency IN ('CNY', 'USD', 'EUR', 'HKD')"},
+    ]
+    result = _infer_cross_column_config(
+        "quote_currency",
+        constraints,
+        ["base_currency", "quote_currency"],
+        "TEXT",
+    )
+    assert result is not None
+    assert result["derive_from"] == "base_currency"
+    expr = result["expression"]
+    # Must produce a value from the IN set that is != base_currency
+    assert "'CNY'" in expr
+    assert "'USD'" in expr
+    # Must be a chained ternary (not just a single value)
+    assert "if value == " in expr
+    assert "else" in expr
+
+
+def test_pattern_6_cycle_prevention_earlier_column_skipped():
+    """Pattern 6 cycle prevention: the EARLIER column must NOT get Pattern 6.
+
+    Without this check, both ``base_currency`` and ``quote_currency`` would
+    derive_from each other, creating a circular dependency.
+    """
+    constraints = [
+        {"type": "check", "expression": "base_currency != quote_currency"},
+        {"type": "check", "expression": "base_currency IN ('CNY', 'USD', 'EUR', 'HKD')"},
+    ]
+    # base_currency is at index 0 (earlier) — should NOT get Pattern 6
+    result = _infer_cross_column_config(
+        "base_currency",
+        constraints,
+        ["base_currency", "quote_currency"],
+        "TEXT",
+    )
+    assert result is None
+
+
+def test_pattern_40_int_variant_self_ref_fk():
+    """Pattern 40 (int variant): ``col = INT_VALUE OR other_col IS NOT NULL``.
+
+    e.g., R3.regions: ``level = 1 OR parent_id IS NOT NULL`` where parent_id
+    is a self-referencing FK. Since parent_id is always NULL (self-ref FK
+    at fill time), level must always be 1 to satisfy the CHECK.
+    """
+    constraints = [{"type": "check", "expression": "level = 1 OR parent_id IS NOT NULL"}]
+    result = _infer_cross_column_config(
+        "level",
+        constraints,
+        ["level", "parent_id"],
+        "INTEGER",
+        self_ref_fk_cols={"parent_id"},
+    )
+    assert result is not None
+    assert result["generator"] == "choice"
+    assert result["params"]["choices"] == [1]
+
+
+def test_pattern_39_no_null_variant():
+    """Pattern 39 (no-NULL variant): ``col <= col2 + col3`` without NULL escape.
+
+    e.g., R6.accounts: ``available_balance <= balance + overdraft_limit``
+    No ``col1 IS NULL OR`` prefix — col must ALWAYS satisfy the compound
+    upper bound. Derives from col2 and uses ``(value + row['col3']) * factor``.
+    """
+    constraints = [
+        {"type": "check", "expression": "available_balance <= balance + overdraft_limit"},
+    ]
+    result = _infer_cross_column_config(
+        "available_balance",
+        constraints,
+        ["available_balance", "balance", "overdraft_limit"],
+        "REAL",
+    )
+    assert result is not None
+    assert result["derive_from"] == "balance"
+    expr = result["expression"]
+    assert "row['overdraft_limit']" in expr
+    assert "random_float(0.0, 1.0)" in expr
+    # Must NOT have None guard (no NULL escape)
+    assert "None if value is None" not in expr
+
+
+def test_pattern_1_date_on_left_variant():
+    """Pattern 1 (DATE-on-left variant): ``col IS NULL OR DATE(col) OP other_col``.
+
+    e.g., R6.loan_payments: ``paid_at IS NULL OR DATE(paid_at) >= due_date``
+    Same semantics as Pattern 1 but with DATE() wrapper on the left column.
+    Derives from other_col and uses timedelta to ensure the comparison holds.
+    """
+    constraints = [
+        {"type": "check", "expression": "paid_at IS NULL OR DATE(paid_at) >= due_date"},
+    ]
+    result = _infer_cross_column_config(
+        "paid_at",
+        constraints,
+        ["paid_at", "due_date"],
+        "TEXT",
+    )
+    assert result is not None
+    assert result["derive_from"] == "due_date"
+    expr = result["expression"]
+    # Must use timedelta for date comparison
+    assert "timedelta" in expr
+    assert "random_int" in expr
+
+
+# ---------------------------------------------------------------------------
+# Round 8 Batch 2 — Pattern 11 (N-column), 42, 43, 44, 45, 46 unit tests
+# ---------------------------------------------------------------------------
+
+
+def test_pattern_11_n_column_addition_equality():
+    """Pattern 11 (N-column): ``col = col1 + col2 + col3 + ... + colN`` (N >= 3).
+
+    e.g., R3.freight_invoices:
+    ``total_amount = base_charge + weight_charge + distance_charge
+                      + fuel_surcharge + insurance_charge + tax``
+    Derives from col1 (first operand), references remaining cols via row dict.
+    """
+    constraints = [
+        {
+            "type": "check",
+            "expression": (
+                "total_amount = base_charge + weight_charge + distance_charge + fuel_surcharge + insurance_charge + tax"
+            ),
+        }
+    ]
+    result = _infer_cross_column_config(
+        "total_amount",
+        constraints,
+        [
+            "total_amount",
+            "base_charge",
+            "weight_charge",
+            "distance_charge",
+            "fuel_surcharge",
+            "insurance_charge",
+            "tax",
+        ],
+        "REAL",
+    )
+    assert result is not None
+    assert result["derive_from"] == "base_charge"
+    expr = result["expression"]
+    assert "row['weight_charge']" in expr
+    assert "row['distance_charge']" in expr
+    assert "row['fuel_surcharge']" in expr
+    assert "row['insurance_charge']" in expr
+    assert "row['tax']" in expr
+
+
+def test_pattern_42_abs_subtraction_equality():
+    """Pattern 42: ``col = abs(col1 - col2)`` (abs subtraction equality).
+
+    e.g., R3.shipments: ``weight_diff = abs(total_weight_kg - billed_weight_kg)``
+    Derives from col1, references col2 via row dict.
+    """
+    constraints = [{"type": "check", "expression": "weight_diff = abs(total_weight_kg - billed_weight_kg)"}]
+    result = _infer_cross_column_config(
+        "weight_diff",
+        constraints,
+        ["weight_diff", "total_weight_kg", "billed_weight_kg"],
+        "REAL",
+    )
+    assert result is not None
+    assert result["derive_from"] == "total_weight_kg"
+    assert result["expression"] == "abs(value - row['billed_weight_kg'])"
+
+
+def test_pattern_43_compound_arithmetic_upper_bound():
+    """Pattern 43: ``col <= col2 * CONST1 + CONST2`` (compound arithmetic upper bound).
+
+    e.g., R3.routes: ``estimated_hours <= distance_km * 0.5 + 24.0``
+    Derives from col2, expression: ``value * CONST1 + random_float(0, CONST2)``.
+    """
+    constraints = [{"type": "check", "expression": "estimated_hours <= distance_km * 0.5 + 24.0"}]
+    result = _infer_cross_column_config(
+        "estimated_hours",
+        constraints,
+        ["estimated_hours", "distance_km"],
+        "REAL",
+    )
+    assert result is not None
+    assert result["derive_from"] == "distance_km"
+    expr = result["expression"]
+    assert "value * 0.5" in expr
+    assert "random_float(0.0, 24.0)" in expr
+
+
+def test_pattern_44_three_column_multiplication_division():
+    """Pattern 44: ``col = col1 * col2 * col3 / CONST`` (3-col multiplication+division).
+
+    e.g., R6.deposits: ``expected_interest = principal * interest_rate * term_months / 12.0``
+    Derives from col1, references col2 and col3 via row dict.
+    """
+    constraints = [
+        {"type": "check", "expression": "expected_interest = principal * interest_rate * term_months / 12.0"}
+    ]
+    result = _infer_cross_column_config(
+        "expected_interest",
+        constraints,
+        ["expected_interest", "principal", "interest_rate", "term_months"],
+        "REAL",
+    )
+    assert result is not None
+    assert result["derive_from"] == "principal"
+    expr = result["expression"]
+    assert "row['interest_rate']" in expr
+    assert "row['term_months']" in expr
+    assert "/ 12.0" in expr
+
+
+def test_pattern_45_compound_arithmetic_repeated_column():
+    """Pattern 45: ``col = col1 + col1 * col2 * col3 / CONST`` (repeated column).
+
+    e.g., R6.loans: ``total_payable = principal + principal * interest_rate * term_months / 12.0``
+    Derives from col1 (repeated), references col2 and col3 via row dict.
+    """
+    constraints = [
+        {
+            "type": "check",
+            "expression": ("total_payable = principal + principal * interest_rate * term_months / 12.0"),
+        }
+    ]
+    result = _infer_cross_column_config(
+        "total_payable",
+        constraints,
+        ["total_payable", "principal", "interest_rate", "term_months"],
+        "REAL",
+    )
+    assert result is not None
+    assert result["derive_from"] == "principal"
+    expr = result["expression"]
+    assert "value + value * row['interest_rate']" in expr
+    assert "row['term_months']" in expr
+    assert "/ 12.0" in expr
+
+
+def test_pattern_46_multi_clause_disjunction_with_int_equality():
+    """Pattern 46: ``col = INT_VALUE OR other_col < CONST [OR ...]``.
+
+    e.g., R5.courses:
+    ``is_free = 1 OR price < 100 OR original_price IS NULL OR original_price < 200``
+    Derives from other_col (price): when price >= 100, is_free must be 1.
+    """
+    constraints = [
+        {
+            "type": "check",
+            "expression": ("is_free = 1 OR price < 100 OR original_price IS NULL OR original_price < 200"),
+        }
+    ]
+    result = _infer_cross_column_config(
+        "is_free",
+        constraints,
+        ["is_free", "price", "original_price"],
+        "INTEGER",
+    )
+    assert result is not None
+    assert result["derive_from"] == "price"
+    expr = result["expression"]
+    # When price >= 100, is_free = 1; else random_int(0, 1)
+    assert "1 if value >= 100" in expr
+    assert "random_int(0, 1)" in expr
+
+
+def test_pattern_46_inclusive_inequality():
+    """Pattern 46 with <= operator: ``col = INT_VALUE OR other_col <= CONST``."""
+    constraints = [
+        {"type": "check", "expression": "flag = 1 OR amount <= 50.0"},
+    ]
+    result = _infer_cross_column_config(
+        "flag",
+        constraints,
+        ["flag", "amount"],
+        "INTEGER",
+    )
+    assert result is not None
+    assert result["derive_from"] == "amount"
+    expr = result["expression"]
+    # When amount > 50, flag = 1; else random_int(0, 1)
+    assert "1 if value > 50.0" in expr
+    assert "random_int(0, 1)" in expr
+
+
+def test_pattern_46_two_clause_only():
+    """Pattern 46 with only two clauses (no trailing OR ...)."""
+    constraints = [
+        {"type": "check", "expression": "is_free = 1 OR price < 100"},
+    ]
+    result = _infer_cross_column_config(
+        "is_free",
+        constraints,
+        ["is_free", "price"],
+        "INTEGER",
+    )
+    assert result is not None
+    assert result["derive_from"] == "price"
+    assert "1 if value >= 100" in result["expression"]
+
+
+# ---------------------------------------------------------------------------
+# Round 8c — Pattern 27 pre-loop scan, Pattern 41 date-diff, source choices
+# ---------------------------------------------------------------------------
+
+
+def test_pattern_27_pre_loop_takes_precedence_over_pattern_18():
+    """Pattern 27 pre-loop scan: multi-clause constraint wins over Pattern 18.
+
+    e.g., R5.enrollments.progress_percent has both:
+      - status != 'completed' OR progress_percent = 100  (Pattern 18)
+      - status = 'active' AND progress_percent >= 0 OR status = 'completed'
+        AND progress_percent >= 100 OR status = 'dropped' AND progress_percent < 100
+        (Pattern 27, multi-clause)
+
+    Without the pre-loop scan, Pattern 18 would match first and generate
+    ``100 if value == 'completed' else random_int(1, 100)``, which violates
+    the ``status = 'dropped' AND progress_percent < 100`` clause.
+    The pre-loop scan ensures Pattern 27's per-status ranges win.
+
+    The last clause ('dropped') is the else branch (no explicit ``value ==
+    'dropped'`` check). Column-level CHECK bounds (``>= 0 AND <= 100``) are
+    applied as ``min``/``max`` wrappers to cap ranges that exceed the bounds.
+    """
+    constraints = [
+        {"type": "check", "expression": "progress_percent >= 0 AND progress_percent <= 100"},
+        {"type": "check", "expression": "status != 'completed' OR progress_percent = 100"},
+        {
+            "type": "check",
+            "expression": (
+                "status = 'active' AND progress_percent >= 0 "
+                "OR status = 'completed' AND progress_percent >= 100 "
+                "OR status = 'dropped' AND progress_percent < 100"
+            ),
+        },
+    ]
+    result = _infer_cross_column_config(
+        "progress_percent",
+        constraints,
+        ["progress_percent", "status"],
+        "INTEGER",
+    )
+    assert result is not None
+    assert result["derive_from"] == "status"
+    expr = result["expression"]
+    # Must have per-status ranges (not the Pattern 18 single ternary)
+    assert "value == 'active'" in expr
+    assert "value == 'completed'" in expr
+    # 'dropped' is the else branch (last clause) — no explicit check
+    # Column-level CHECK bounds applied as min/max wrappers
+    assert "min(" in expr
+    assert "max(" in expr
+    assert ", 100)" in expr  # max_value from column CHECK
+    assert ", 0)" in expr  # min_value from column CHECK
+
+
+def test_pattern_27_pre_loop_skips_pattern_36_dual_bounds():
+    """Pattern 27 pre-loop scan must NOT match Pattern 36 (dual bounds per clause).
+
+    Pattern 36 clauses have both lower AND upper bounds:
+    ``col >= X AND col < Y``. The Pattern 27 guard detects this by comparing
+    the number of col comparisons vs enum assignments.
+    """
+    expr = (
+        "(risk_category = 'low' AND risk_score >= 1 AND risk_score < 25) OR "
+        "(risk_category = 'medium' AND risk_score >= 25 AND risk_score < 50)"
+    )
+    constraints = [{"type": "check", "expression": expr}]
+    result = _infer_cross_column_config(
+        "risk_score",
+        constraints,
+        ["risk_score", "risk_category"],
+        "INTEGER",
+    )
+    assert result is not None
+    # Should be handled by Pattern 36, not Pattern 27
+    # Pattern 36 uses random_int with both lower and upper bounds
+    assert "random_int(1, 24)" in result["expression"]
+
+
+def test_pattern_41_date_difference_awareness():
+    """Pattern 41: date-difference constraint ``col - other_col >= N`` sets min days.
+
+    e.g., R6.loans: ``maturity_date > DATE(disbursed_at)`` + ``maturity_date - disbursed_at >= 30``
+    Without date-difference awareness, Pattern 41 generates ``random_int(1, 30)``
+    which can violate the >= 30 days constraint. With awareness, it uses
+    ``random_int(30, 365)``.
+    """
+    constraints = [
+        {"type": "check", "expression": "maturity_date > DATE(disbursed_at)"},
+        {"type": "check", "expression": "maturity_date - disbursed_at >= 30"},
+    ]
+    result = _infer_cross_column_config(
+        "maturity_date",
+        constraints,
+        ["maturity_date", "disbursed_at"],
+        "TEXT",
+    )
+    assert result is not None
+    assert result["derive_from"] == "disbursed_at"
+    expr = result["expression"]
+    # Must use 30 as the minimum (not 1)
+    assert "random_int(30, 365)" in expr
+    assert "random_int(1, 30)" not in expr
+
+
+def test_pattern_41_date_vs_datetime_compensation():
+    """Pattern 41: DATE target + DATETIME source → +1 day compensation.
+
+    When the target column is DATE (no time component) and the source
+    column is DATETIME (has time component), the stored target value
+    loses its time component (set to midnight), while the source retains
+    its time. This causes the julianday diff to be ``N - time_fraction``,
+    which can drop below the threshold ``N`` when random_int returns
+    exactly N. The fix adds 1 extra day to the minimum.
+
+    e.g., R6.loans: maturity_date (DATE) derives from disbursed_at (DATETIME):
+        ``julianday(maturity_date) - julianday(disbursed_at) >= 30``
+    Without compensation: ``random_int(30, 365)`` → diff can be 29.234 < 30
+    With compensation: ``random_int(31, 365)`` → diff is always >= 30.234
+    """
+    constraints = [
+        {"type": "check", "expression": "maturity_date > DATE(disbursed_at)"},
+        {"type": "check", "expression": "julianday(maturity_date) - julianday(disbursed_at) >= 30"},
+    ]
+    # Target is DATE, source is DATETIME → +1 day compensation
+    result = _infer_cross_column_config(
+        "maturity_date",
+        constraints,
+        ["maturity_date", "disbursed_at"],
+        "DATE",
+        column_types={"maturity_date": "DATE", "disbursed_at": "DATETIME"},
+    )
+    assert result is not None
+    assert result["derive_from"] == "disbursed_at"
+    expr = result["expression"]
+    # Must use 31 (30 + 1 compensation) as the minimum
+    assert "random_int(31, 365)" in expr
+    assert "random_int(30, 365)" not in expr
+
+
+def test_pattern_41_no_compensation_when_both_date():
+    """Pattern 41: both DATE → no compensation needed.
+
+    When both target and source are DATE (no time component), there's no
+    time-stripping issue, so no +1 compensation is applied.
+    """
+    constraints = [
+        {"type": "check", "expression": "end_date > DATE(start_date)"},
+        {"type": "check", "expression": "julianday(end_date) - julianday(start_date) >= 7"},
+    ]
+    result = _infer_cross_column_config(
+        "end_date",
+        constraints,
+        ["end_date", "start_date"],
+        "DATE",
+        column_types={"end_date": "DATE", "start_date": "DATE"},
+    )
+    assert result is not None
+    expr = result["expression"]
+    # No compensation — uses 7 directly
+    assert "random_int(7, 365)" in expr
+    assert "random_int(8, 365)" not in expr
+
+
+def test_pattern_41_no_compensation_when_both_datetime():
+    """Pattern 41: both DATETIME → no compensation needed.
+
+    When both target and source are DATETIME, the time component is
+    preserved in both, so the julianday diff is exactly N days.
+    """
+    constraints = [
+        {"type": "check", "expression": "ended_at > DATE(started_at)"},
+        {"type": "check", "expression": "julianday(ended_at) - julianday(started_at) >= 7"},
+    ]
+    result = _infer_cross_column_config(
+        "ended_at",
+        constraints,
+        ["ended_at", "started_at"],
+        "DATETIME",
+        column_types={"ended_at": "DATETIME", "started_at": "DATETIME"},
+    )
+    assert result is not None
+    expr = result["expression"]
+    # No compensation — uses 7 directly
+    assert "random_int(7, 365)" in expr
+    assert "random_int(8, 365)" not in expr
+
+
+def test_pattern_19_reverse_ordering_group_swap_fix():
+    """Pattern 19: reverse ordering ``col + other = total`` must correctly
+    extract other_col (not the operator).
+
+    Regression test: the second regex's groups are (op, other_col, total),
+    but the code previously unpacked them as (other_col, op, total) —
+    causing ``other_col`` to be ``'+'`` (the operator), which failed the
+    ``other_col in col_set`` guard. The fix swaps the group assignment for
+    the reverse ordering.
+    """
+    constraints = [{"type": "check", "expression": "insurance_covered + patient_paid = total_price"}]
+    result = _infer_cross_column_config(
+        "insurance_covered",
+        constraints,
+        ["insurance_covered", "patient_paid", "total_price"],
+        "REAL",
+    )
+    assert result is not None
+    assert result["derive_from"] == "total_price"
+
+
+def test_pattern_19_cycle_prevention_earlier_column_fraction():
+    """Pattern 19: when col is the EARLIER addend in ``col + other = total``,
+    derive from total as an integer fraction (``random_int(0, max(0, int(value)))``)
+    to avoid circular dependency with the LATER addend. Uses ``random_int`` (not
+    ``random_float``) to guarantee the CHECK ``col1 + col2 = total`` holds
+    EXACTLY in IEEE 754 floating point.
+    """
+    constraints = [
+        {"type": "check", "expression": "insurance_covered + patient_paid = total_price"},
+        {"type": "check", "expression": "insurance_covered >= 0.0"},
+        {"type": "check", "expression": "patient_paid >= 0.0"},
+    ]
+    # insurance_covered (index 0) is EARLIER than patient_paid (index 1)
+    result = _infer_cross_column_config(
+        "insurance_covered",
+        constraints,
+        ["insurance_covered", "patient_paid", "total_price"],
+        "REAL",
+    )
+    assert result is not None
+    assert result["derive_from"] == "total_price"
+    assert "random_int(0, max(0, int(value)))" in result["expression"]
+
+
+def test_pattern_19_cycle_prevention_later_column_subtraction():
+    """Pattern 19: when col is the LATER addend in ``other + col = total``,
+    derive from total as ``value - row[other]`` (the original behavior).
+    """
+    constraints = [
+        {"type": "check", "expression": "insurance_covered + patient_paid = total_price"},
+        {"type": "check", "expression": "insurance_covered >= 0.0"},
+        {"type": "check", "expression": "patient_paid >= 0.0"},
+    ]
+    # patient_paid (index 1) is LATER than insurance_covered (index 0)
+    result = _infer_cross_column_config(
+        "patient_paid",
+        constraints,
+        ["insurance_covered", "patient_paid", "total_price"],
+        "REAL",
+    )
+    assert result is not None
+    assert result["derive_from"] == "total_price"
+    assert "row['insurance_covered']" in result["expression"]
+
+
+def test_pattern_1_range_bound_wrapping():
+    """Pattern 1: when col has both a cross-column ordering CHECK (``col < other``)
+    and a single-column range CHECK (``col >= X AND col <= Y``), the expression
+    is wrapped with ``max(X, min(Y, expr))`` to enforce both simultaneously.
+    """
+    constraints = [
+        {
+            "type": "check",
+            "expression": "blood_pressure_low IS NULL OR (blood_pressure_low >= 40 AND blood_pressure_low <= 150)",
+        },
+        {"type": "check", "expression": "blood_pressure_low IS NULL OR blood_pressure_low < blood_pressure_high"},
+    ]
+    result = _infer_cross_column_config(
+        "blood_pressure_low",
+        constraints,
+        ["blood_pressure_low", "blood_pressure_high"],
+        "INTEGER",
+    )
+    assert result is not None
+    assert result["derive_from"] == "blood_pressure_high"
+    expr = result["expression"]
+    assert "max(40" in expr
+    assert "min(150" in expr
+    assert "value - random_int(1, 100)" in expr
+
+
+def test_pattern_1_no_range_bound_when_absent():
+    """Pattern 1: no range wrapping when there's no single-column range CHECK."""
+    constraints = [
+        {"type": "check", "expression": "col_a IS NULL OR col_a < col_b"},
+    ]
+    result = _infer_cross_column_config(
+        "col_a",
+        constraints,
+        ["col_a", "col_b"],
+        "INTEGER",
+    )
+    assert result is not None
+    expr = result["expression"]
+    assert "max(" not in expr
+    assert "min(" not in expr
+
+
+def test_pattern_4a_is_null_or_col_equals_col1_times_col2():
+    """Pattern 4a: ``col IS NULL OR col = col1 * col2`` → derive_from + null_ratio=0.3.
+
+    Previously this fell through to the generic Pattern 4 handler which
+    returned null_ratio=1.0 (all NULLs). Now it returns a derive_from
+    config so 70% of rows are computed from the multiplicands and 30%
+    are NULL (satisfying the IS NULL branch).
+
+    Real-world example: ``line_total IS NULL OR line_total = unit_price * quantity``
+    """
+    constraints = [
+        {"type": "check", "expression": "line_total IS NULL OR line_total = unit_price * quantity"},
+    ]
+    result = _infer_cross_column_config(
+        "line_total",
+        constraints,
+        ["line_total", "unit_price", "quantity"],
+        "REAL",
+    )
+    assert result is not None
+    assert result["derive_from"] == "unit_price"
+    assert "row['quantity']" in result["expression"]
+    assert "value *" in result["expression"]
+    # null_ratio=0.3 so 30% of rows are NULL (IS NULL branch) and 70% computed
+    assert result["null_ratio"] == 0.3
+
+
+def test_pattern_7a_col_equals_col1_times_col2():
+    """Pattern 7a: ``col = col1 * col2`` (arithmetic equality, two columns).
+
+    Previously only Pattern 7 (``col >= col1 * col2``) was matched by
+    the deterministic code. Without Pattern 7a, ``subtotal = unit_price
+    * quantity`` would only be detected by the LLM. Now returns
+    derive_from col1 with expression ``value * row['col2']``.
+    """
+    constraints = [
+        {"type": "check", "expression": "subtotal = unit_price * quantity"},
+    ]
+    result = _infer_cross_column_config(
+        "subtotal",
+        constraints,
+        ["subtotal", "unit_price", "quantity"],
+        "REAL",
+    )
+    assert result is not None
+    assert result["derive_from"] == "unit_price"
+    assert "row['quantity']" in result["expression"]
+    assert "value *" in result["expression"]
