@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import threading
 import time
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -20,21 +22,38 @@ from sqlseed_web.workbench_schema import inspect_connection
 from sqlseed_web.workbench_store import RevisionConflict, WorkspaceStore
 
 
+@contextmanager
 def _pause_worker(
     monkeypatch: pytest.MonkeyPatch, conn_id: str | None = None
-) -> tuple[threading.Event, threading.Event]:
+) -> Iterator[tuple[threading.Event, list[threading.Thread], ThreadPoolExecutor]]:
     entered, release = threading.Event(), threading.Event()
+    workers: list[threading.Thread] = []
     original = workbench_runtime.execute_run
+    original_start = workbench_runtime.start_background
 
     def delayed(*args: Any, **kwargs: Any) -> Any:
         if conn_id is None or args[1] == conn_id:
             entered.set()
-            if not release.wait(5):
-                raise RuntimeError("worker test gate timed out")
+            release.wait()
         return original(*args, **kwargs)
 
+    def tracked_start(**kwargs: Any) -> threading.Thread:
+        worker = original_start(**kwargs)
+        workers.append(worker)
+        return worker
+
     monkeypatch.setattr(workbench_runtime, "execute_run", delayed)
-    return entered, release
+    monkeypatch.setattr(workbench_runtime, "start_background", tracked_start)
+    try:
+        with ThreadPoolExecutor(max_workers=1) as requests:
+            try:
+                yield entered, workers, requests
+            finally:
+                release.set()
+    finally:
+        for worker in workers:
+            worker.join(timeout=15)
+        assert not [worker.name for worker in workers if worker.is_alive()], "accepted workers did not exit"
 
 
 def _assert_marker_write_lock(registry: UIState, one: Connection, two: Connection) -> None:
@@ -162,22 +181,18 @@ def test_only_one_write_is_reserved_for_the_same_physical_target(
     second_connection: bool,
 ) -> None:
     client, registry, store, conn, _, body = workspace
-    entered, release = _pause_worker(monkeypatch)
-    first = client.post("/api/workbench/runs", json=body)
-    assert first.status_code == 202, first.text
-    try:
+    with _pause_worker(monkeypatch) as (entered, _, requests):
+        first = requests.submit(client.post, "/api/workbench/runs", json=body).result(timeout=15)
+        assert first.status_code == 202, first.text
         assert entered.wait(3)
         if second_connection:
             parallel = registry.add_connection(f"sqlite:///{conn.target}", provider="base")
             body = {**body, "conn_id": parallel.conn_id}
-        second = client.post("/api/workbench/runs", json=body)
+        second = requests.submit(client.post, "/api/workbench/runs", json=body).result(timeout=15)
         assert second.status_code == 409, second.text
         assert second.json()["detail"]["code"] == "connection_busy"
         assert len(store.list_runs()) == 1, "rejected request must not create an orphan queued run"
         assert len(registry.recent_jobs()) == 1
-    finally:
-        release.set()
-        wait_jobs(registry)
     assert store.get_run(first.json()["id"])["status"] == "done"
     with sqlite_connection(conn.target) as db:
         assert db.execute("SELECT id,value FROM items ORDER BY id").fetchall() == [(1, 7), (2, 7)]
@@ -187,16 +202,17 @@ def test_other_sessions_can_read_and_other_targets_can_generate(
     workspace: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client, registry, store, conn, check_body, body = workspace
-    entered, release = _pause_worker(monkeypatch, conn.conn_id)
-    first = client.post("/api/workbench/runs", json=body)
-    assert first.status_code == 202, first.text
-    try:
+    with _pause_worker(monkeypatch, conn.conn_id) as (entered, workers, requests):
+        first = requests.submit(client.post, "/api/workbench/runs", json=body).result(timeout=15)
+        assert first.status_code == 202, first.text
         assert entered.wait(3)
-        saved_configs = client.get(f"/api/workbench/drafts?conn_id={conn.conn_id}")
+        saved_configs = requests.submit(client.get, f"/api/workbench/drafts?conn_id={conn.conn_id}").result(timeout=15)
         assert saved_configs.status_code == 200, saved_configs.text
         assert saved_configs.json()[0]["id"] == body["draft_id"]
         parallel = registry.add_connection(f"sqlite:///{conn.target}", provider="faker", locale="zh_CN")
-        preview = client.post("/api/workbench/preview", json={**check_body, "conn_id": parallel.conn_id})
+        preview = requests.submit(
+            client.post, "/api/workbench/preview", json={**check_body, "conn_id": parallel.conn_id}
+        ).result(timeout=15)
         assert preview.status_code == 200, preview.text
         assert preview.json()["ok"], preview.text
         assert registry.get_connection(parallel.conn_id).provider == "faker"
@@ -216,18 +232,22 @@ def test_other_sessions_can_read_and_other_targets_can_generate(
                 "view_state": {},
             }
         )
-        second = client.post("/api/workbench/runs", json={**body, "conn_id": other.conn_id, "draft_id": draft["id"]})
+        second = requests.submit(
+            client.post, "/api/workbench/runs", json={**body, "conn_id": other.conn_id, "draft_id": draft["id"]}
+        ).result(timeout=15)
         assert second.status_code == 202, second.text
-        deadline = time.monotonic() + 3
-        while time.monotonic() < deadline and store.get_run(second.json()["id"])["status"] not in {"done", "error"}:
-            time.sleep(0.01)
-        assert store.get_run(second.json()["id"])["status"] == "done"
+        assert len(workers) == 2
+        workers[1].join(timeout=15)
+        assert not workers[1].is_alive(), "independent target waited for the paused worker"
+        completed = store.get_run(second.json()["id"])
+        assert completed["status"] == "done", completed
+        assert completed["rows_inserted"] == 2
         assert store.get_run(first.json()["id"])["status"] == "queued"
         with sqlite_connection(other_path) as db:
             assert db.execute("SELECT value FROM items").fetchall() == [(7,), (7,)]
-    finally:
-        release.set()
-        wait_jobs(registry)
+    assert store.get_run(first.json()["id"])["status"] == "done"
+    with sqlite_connection(conn.target) as db:
+        assert db.execute("SELECT value FROM items").fetchall() == [(7,), (7,)]
 
 
 def test_reentry_fails_immediately_and_outer_operation_remains_valid(workspace: Any) -> None:
