@@ -1,0 +1,298 @@
+{
+  "artifact_directory": "/tmp/sqlseed-final-wheel-validation-y4mk_w56/dist",
+  "build": {
+    "started_utc": "2026-09-13T00:23:36.579788+00:00",
+    "git_head": "4ba5d08364cb85f44593c57271d339d61d5bf1f9",
+    "source_sha256": "163c236b1914219b287e2256c99b4fd955c62cd95dc8f5f07cd758e55dc1a60a",
+    "requirements_sha256": {
+      "requirements-bootstrap.txt": "f427d674becea352fa49176627f43bd06c06b990d8b35325e722e5e6b83822d3",
+      "requirements-ci.txt": "c606df3b55013f1bf192b0f27140205df73381411d15784c5df7ff4e32670eed",
+      "requirements-minimal.txt": "ef550aca1f13ec556f90d941f457528467be447ee6f492f8d5fb589500233700"
+    },
+    "commands": [
+      {
+        "command": [
+          "/tmp/sqlseed-codeflow-packages-bp87t1jx/full/bin/python",
+          "-m",
+          "build",
+          "--no-isolation",
+          "/Users/sunbo/Desktop/sqlseed",
+          "--outdir",
+          "/tmp/sqlseed-final-wheel-validation-y4mk_w56/dist"
+        ],
+        "exit": 0
+      },
+      {
+        "command": [
+          "/tmp/sqlseed-codeflow-packages-bp87t1jx/full/bin/python",
+          "-m",
+          "build",
+          "--no-isolation",
+          "/Users/sunbo/Desktop/sqlseed/plugins/sqlseed-cli",
+          "--outdir",
+          "/tmp/sqlseed-final-wheel-validation-y4mk_w56/dist"
+        ],
+        "exit": 0
+      },
+      {
+        "command": [
+          "/tmp/sqlseed-codeflow-packages-bp87t1jx/full/bin/python",
+          "-m",
+          "build",
+          "--no-isolation",
+          "/Users/sunbo/Desktop/sqlseed/plugins/sqlseed-ai",
+          "--outdir",
+          "/tmp/sqlseed-final-wheel-validation-y4mk_w56/dist"
+        ],
+        "exit": 0
+      },
+      {
+        "command": [
+          "/tmp/sqlseed-codeflow-packages-bp87t1jx/full/bin/python",
+          "-m",
+          "build",
+          "--no-isolation",
+          "/Users/sunbo/Desktop/sqlseed/plugins/mcp-server-sqlseed",
+          "--outdir",
+          "/tmp/sqlseed-final-wheel-validation-y4mk_w56/dist"
+        ],
+        "exit": 0
+      },
+      {
+        "command": [
+          "/tmp/sqlseed-codeflow-packages-bp87t1jx/full/bin/python",
+          "-m",
+          "build",
+          "--no-isolation",
+          "/Users/sunbo/Desktop/sqlseed/plugins/sqlseed-web",
+          "--outdir",
+          "/tmp/sqlseed-final-wheel-validation-y4mk_w56/dist"
+        ],
+        "exit": 0
+      },
+      {
+        "command": [
+          "/tmp/sqlseed-codeflow-packages-bp87t1jx/full/bin/python",
+          "-m",
+          "twine",
+          "check",
+          "--strict",
+          "/tmp/sqlseed-final-wheel-validation-y4mk_w56/dist/mcp_server_sqlseed-0.2.4.dev265+g4ba5d0836.d20260913-py3-none-any.whl",
+          "/tmp/sqlseed-final-wheel-validation-y4mk_w56/dist/mcp_server_sqlseed-0.2.4.dev265+g4ba5d0836.d20260913.tar.gz",
+          "/tmp/sqlseed-final-wheel-validation-y4mk_w56/dist/sqlseed-0.2.4.dev265+g4ba5d0836.d20260913-py3-none-any.whl",
+          "/tmp/sqlseed-final-wheel-validation-y4mk_w56/dist/sqlseed-0.2.4.dev265+g4ba5d0836.d20260913.tar.gz",
+          "/tmp/sqlseed-final-wheel-validation-y4mk_w56/dist/sqlseed_ai-0.2.4.dev265+g4ba5d0836.d20260913-py3-none-any.whl",
+          "/tmp/sqlseed-final-wheel-validation-y4mk_w56/dist/sqlseed_ai-0.2.4.dev265+g4ba5d0836.d20260913.tar.gz",
+          "/tmp/sqlseed-final-wheel-validation-y4mk_w56/dist/sqlseed_cli-0.2.4.dev265+g4ba5d0836.d20260913-py3-none-any.whl",
+          "/tmp/sqlseed-final-wheel-validation-y4mk_w56/dist/sqlseed_cli-0.2.4.dev265+g4ba5d0836.d20260913.tar.gz",
+          "/tmp/sqlseed-final-wheel-validation-y4mk_w56/dist/sqlseed_web-0.2.4.dev265+g4ba5d0836.d20260913-py3-none-any.whl",
+          "/tmp/sqlseed-final-wheel-validation-y4mk_w56/dist/sqlseed_web-0.2.4.dev265+g4ba5d0836.d20260913.tar.gz"
+        ],
+        "exit": 0
+      }
+    ],
+    "artifacts": {
+      "mcp_server_sqlseed-0.2.4.dev265+g4ba5d0836.d20260913-py3-none-any.whl": "fa4c83a5bd665224ba7ba018fea02524ca640d5c17d1c004cf101b3ea51471da",
+      "mcp_server_sqlseed-0.2.4.dev265+g4ba5d0836.d20260913.tar.gz": "b89c1bfdee90d2307a9feb992b74c045a294bd9d890010439183c1b91471f064",
+      "sqlseed-0.2.4.dev265+g4ba5d0836.d20260913-py3-none-any.whl": "acbcd08acee00df7bfabc052789ff7115b720ebce9c32c0bde2c1018cb715765",
+      "sqlseed-0.2.4.dev265+g4ba5d0836.d20260913.tar.gz": "d6d3839dbbb3a31d7f2607f09687805b62430bfeac74c05cf94dd6978dfbd0b8",
+      "sqlseed_ai-0.2.4.dev265+g4ba5d0836.d20260913-py3-none-any.whl": "b97ee88a17b72166e5ab530c70ce481538d0c59f064c434caea45a6802197043",
+      "sqlseed_ai-0.2.4.dev265+g4ba5d0836.d20260913.tar.gz": "e29c403e5b0c803c611a2f46d131395567cbfa5f3ede92342e595433f0687ee5",
+      "sqlseed_cli-0.2.4.dev265+g4ba5d0836.d20260913-py3-none-any.whl": "a8dca880f5e05db1696a7f8c6210ea232f10d7192200f88702fe7ed3fde5abf5",
+      "sqlseed_cli-0.2.4.dev265+g4ba5d0836.d20260913.tar.gz": "49a8dafd1f11c317573e041781bcc8f21e7ec4db70bb1b3880f46062536d7314",
+      "sqlseed_web-0.2.4.dev265+g4ba5d0836.d20260913-py3-none-any.whl": "c20146128e1d597f17763e83dc731166a859fa3b277a03b99bc05b6a3f3309ac",
+      "sqlseed_web-0.2.4.dev265+g4ba5d0836.d20260913.tar.gz": "dbe0fb9171b8ceca3cf37da6e392eb786fa28927a8ea22799ed00607308991c4"
+    },
+    "wheels": [
+      {
+        "file": "mcp_server_sqlseed-0.2.4.dev265+g4ba5d0836.d20260913-py3-none-any.whl",
+        "name": "mcp-server-sqlseed",
+        "version": "0.2.4.dev265+g4ba5d0836.d20260913",
+        "source_files_verified": 4
+      },
+      {
+        "file": "sqlseed-0.2.4.dev265+g4ba5d0836.d20260913-py3-none-any.whl",
+        "name": "sqlseed",
+        "version": "0.2.4.dev265+g4ba5d0836.d20260913",
+        "source_files_verified": 77
+      },
+      {
+        "file": "sqlseed_ai-0.2.4.dev265+g4ba5d0836.d20260913-py3-none-any.whl",
+        "name": "sqlseed-ai",
+        "version": "0.2.4.dev265+g4ba5d0836.d20260913",
+        "source_files_verified": 63
+      },
+      {
+        "file": "sqlseed_cli-0.2.4.dev265+g4ba5d0836.d20260913-py3-none-any.whl",
+        "name": "sqlseed-cli",
+        "version": "0.2.4.dev265+g4ba5d0836.d20260913",
+        "source_files_verified": 3
+      },
+      {
+        "file": "sqlseed_web-0.2.4.dev265+g4ba5d0836.d20260913-py3-none-any.whl",
+        "name": "sqlseed-web",
+        "version": "0.2.4.dev265+g4ba5d0836.d20260913",
+        "source_files_verified": 82
+      }
+    ],
+    "source_unchanged_during_build": true,
+    "finished_utc": "2026-09-13T00:23:50.937352+00:00"
+  },
+  "platform_exception": {
+    "artifact": "/Users/sunbo/.cache/uv/sdists-v9/pypi/cryptography/50.0.1/wVuZ-m-y8l7sf0a5RB-2C/cryptography-50.0.1-cp311-abi3-macosx_10_12_x86_64.whl",
+    "sha256": "6fd9cd81259b2fe28932fc6056eddce223be6a8df77e8ccad7c5d44a92a6d607",
+    "matches_previous_evidence": true,
+    "reason": "cryptography 50.0.1 has no released macOS x86_64 wheel; exact previously verified local build reused"
+  },
+  "full": {
+    "validation": {
+      "started_utc": "2026-09-13T00:25:16.077427+00:00",
+      "kind": "full",
+      "cwd": "/tmp/sqlseed-final-wheel-validation-y4mk_w56/outside-checkout-full",
+      "pythonpath_present": false,
+      "commands": [
+        {
+          "command": [
+            "/tmp/sqlseed-final-wheel-validation-y4mk_w56/full/bin/python",
+            "-m",
+            "pip",
+            "install",
+            "--no-deps",
+            "--only-binary",
+            ":all:",
+            "--force-reinstall",
+            "/tmp/sqlseed-final-wheel-validation-y4mk_w56/dist/mcp_server_sqlseed-0.2.4.dev265+g4ba5d0836.d20260913-py3-none-any.whl",
+            "/tmp/sqlseed-final-wheel-validation-y4mk_w56/dist/sqlseed-0.2.4.dev265+g4ba5d0836.d20260913-py3-none-any.whl",
+            "/tmp/sqlseed-final-wheel-validation-y4mk_w56/dist/sqlseed_ai-0.2.4.dev265+g4ba5d0836.d20260913-py3-none-any.whl",
+            "/tmp/sqlseed-final-wheel-validation-y4mk_w56/dist/sqlseed_cli-0.2.4.dev265+g4ba5d0836.d20260913-py3-none-any.whl",
+            "/tmp/sqlseed-final-wheel-validation-y4mk_w56/dist/sqlseed_web-0.2.4.dev265+g4ba5d0836.d20260913-py3-none-any.whl"
+          ],
+          "exit": 0,
+          "log": "/tmp/sqlseed-final-wheel-validation-y4mk_w56/full-install-wheels.log"
+        },
+        {
+          "command": [
+            "/tmp/sqlseed-final-wheel-validation-y4mk_w56/full/bin/python",
+            "-m",
+            "pip",
+            "check"
+          ],
+          "exit": 0,
+          "log": "/tmp/sqlseed-final-wheel-validation-y4mk_w56/full-pip-check.log"
+        },
+        {
+          "command": [
+            "/tmp/sqlseed-final-wheel-validation-y4mk_w56/full/bin/sqlseed",
+            "--help"
+          ],
+          "exit": 0,
+          "log": "/tmp/sqlseed-final-wheel-validation-y4mk_w56/full-cli-help.log"
+        },
+        {
+          "command": [
+            "/tmp/sqlseed-final-wheel-validation-y4mk_w56/full/bin/sqlseed-web",
+            "--help"
+          ],
+          "exit": 0,
+          "log": "/tmp/sqlseed-final-wheel-validation-y4mk_w56/full-web-help.log"
+        },
+        {
+          "command": [
+            "/tmp/sqlseed-final-wheel-validation-y4mk_w56/full/bin/python",
+            "/tmp/sqlseed-final-wheel-validation-y4mk_w56/outside-checkout-full/check_wheel_install.py"
+          ],
+          "exit": 0,
+          "log": "/tmp/sqlseed-final-wheel-validation-y4mk_w56/full-smoke.log"
+        },
+        {
+          "command": [
+            "/tmp/sqlseed-final-wheel-validation-y4mk_w56/full/bin/python",
+            "/tmp/sqlseed-final-wheel-validation-y4mk_w56/audit_install.py",
+            "full"
+          ],
+          "exit": 0,
+          "log": "/tmp/sqlseed-final-wheel-validation-y4mk_w56/full-audit.log"
+        }
+      ],
+      "finished_utc": "2026-09-13T00:25:40.996607+00:00"
+    },
+    "imports": {
+      "sqlseed": "/tmp/sqlseed-final-wheel-validation-y4mk_w56/full/lib/python3.12/site-packages/sqlseed/__init__.py",
+      "sqlseed_web": "/tmp/sqlseed-final-wheel-validation-y4mk_w56/full/lib/python3.12/site-packages/sqlseed_web/__init__.py",
+      "sqlseed_cli": "/tmp/sqlseed-final-wheel-validation-y4mk_w56/full/lib/python3.12/site-packages/sqlseed_cli/__init__.py",
+      "sqlseed_ai": "/tmp/sqlseed-final-wheel-validation-y4mk_w56/full/lib/python3.12/site-packages/sqlseed_ai/__init__.py",
+      "mcp_server_sqlseed": "/tmp/sqlseed-final-wheel-validation-y4mk_w56/full/lib/python3.12/site-packages/mcp_server_sqlseed/__init__.py"
+    },
+    "locked_dependency_count": 139,
+    "local_package_RECORD_hashes_verified": 264
+  },
+  "minimal": {
+    "validation": {
+      "started_utc": "2026-09-13T00:25:16.153933+00:00",
+      "kind": "minimal",
+      "cwd": "/tmp/sqlseed-final-wheel-validation-y4mk_w56/outside-checkout-minimal",
+      "pythonpath_present": false,
+      "commands": [
+        {
+          "command": [
+            "/tmp/sqlseed-final-wheel-validation-y4mk_w56/minimal/bin/python",
+            "-m",
+            "pip",
+            "install",
+            "--no-deps",
+            "--only-binary",
+            ":all:",
+            "--force-reinstall",
+            "/tmp/sqlseed-final-wheel-validation-y4mk_w56/dist/sqlseed-0.2.4.dev265+g4ba5d0836.d20260913-py3-none-any.whl",
+            "/tmp/sqlseed-final-wheel-validation-y4mk_w56/dist/sqlseed_web-0.2.4.dev265+g4ba5d0836.d20260913-py3-none-any.whl"
+          ],
+          "exit": 0,
+          "log": "/tmp/sqlseed-final-wheel-validation-y4mk_w56/minimal-install-wheels.log"
+        },
+        {
+          "command": [
+            "/tmp/sqlseed-final-wheel-validation-y4mk_w56/minimal/bin/python",
+            "-m",
+            "pip",
+            "check"
+          ],
+          "exit": 0,
+          "log": "/tmp/sqlseed-final-wheel-validation-y4mk_w56/minimal-pip-check.log"
+        },
+        {
+          "command": [
+            "/tmp/sqlseed-final-wheel-validation-y4mk_w56/minimal/bin/sqlseed-web",
+            "--help"
+          ],
+          "exit": 0,
+          "log": "/tmp/sqlseed-final-wheel-validation-y4mk_w56/minimal-web-help.log"
+        },
+        {
+          "command": [
+            "/tmp/sqlseed-final-wheel-validation-y4mk_w56/minimal/bin/python",
+            "/tmp/sqlseed-final-wheel-validation-y4mk_w56/outside-checkout-minimal/check_wheel_install.py",
+            "--without-optional-components"
+          ],
+          "exit": 0,
+          "log": "/tmp/sqlseed-final-wheel-validation-y4mk_w56/minimal-smoke.log"
+        },
+        {
+          "command": [
+            "/tmp/sqlseed-final-wheel-validation-y4mk_w56/minimal/bin/python",
+            "/tmp/sqlseed-final-wheel-validation-y4mk_w56/audit_install.py",
+            "minimal"
+          ],
+          "exit": 0,
+          "log": "/tmp/sqlseed-final-wheel-validation-y4mk_w56/minimal-audit.log"
+        }
+      ],
+      "finished_utc": "2026-09-13T00:25:34.028734+00:00"
+    },
+    "imports": {
+      "sqlseed": "/tmp/sqlseed-final-wheel-validation-y4mk_w56/minimal/lib/python3.12/site-packages/sqlseed/__init__.py",
+      "sqlseed_web": "/tmp/sqlseed-final-wheel-validation-y4mk_w56/minimal/lib/python3.12/site-packages/sqlseed_web/__init__.py"
+    },
+    "locked_dependency_count": 23,
+    "local_package_RECORD_hashes_verified": 173
+  }
+}

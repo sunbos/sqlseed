@@ -1,0 +1,42 @@
+{
+  "killed": 246,
+  "survived": 0,
+  "timeout": 0,
+  "suspicious": 0,
+  "skipped": 0,
+  "untested": 0,
+  "total": 246,
+  "unexpected_statuses": {},
+  "non_killed": [],
+  "cache_metadata": {
+    "version": "4",
+    "baseline_time_elapsed": "7.365628004074097",
+    "hash_of_tests": "ccfaf0e19fca4b0c32c6061606c0c181f06cd38ab9fccb48299e400168d49cb5"
+  },
+  "make_exit_code": 0,
+  "elapsed_seconds": 809.612,
+  "snapshot_sha256": "a0fca59c53d1b324f5b55f86fffd9796fd37d0767385b96290a12fa61d1c65a6",
+  "source_sha256": "000949ec8650fb78d8f1dd30aea78520abede0bbe1c3b240e2d6ea8f08feee40",
+  "source_sha256_after": "ac3894783ade6f91f8e3d366d9d74464f34795c41eddfca8080866b5304bed8d",
+  "unique_adjuster_sha256": "55267e55b51f0084ab5d541c275567bb07965f291d656f718566af53161face9",
+  "snapshot_changes": [],
+  "shared_source_changes_during_run": [
+    "plugins/sqlseed-ai/tests/test_mcp_stdio.py",
+    "src/sqlseed/core/orchestrator/_self_ref.py",
+    "src/sqlseed/database/_value_normalizer.py",
+    "tests/integration/test_pg_typed_value_bindings.py",
+    "tests/test_package_boundaries.py",
+    "tests/test_typed_values_api.py"
+  ],
+  "gate_passed": true,
+  "default_gate_inputs_unchanged": {
+    "Makefile": true,
+    "pyproject.toml": true,
+    "conftest.py": true,
+    "tests/conftest.py": true,
+    "tests/test_core/conftest.py": true,
+    "src/sqlseed/core/unique_adjuster.py": true,
+    "tests/test_core/test_unique_adjuster.py": true,
+    "tests/test_core/test_unique_string_capacity.py": true
+  }
+}

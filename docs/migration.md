@@ -24,6 +24,8 @@ python -m pip check
 
 The candidate plugins require Core `>=0.2.4.dev0,<0.3`; their CLI/AI sibling dependencies use the same release series. Core 0.2.3 does not provide the interfaces required by these plugins. The upper bound prevents an unreviewed future minor version from being selected automatically. It does not promise that arbitrary development snapshots within the range are interchangeable: use a single artifact set.
 
+Retain the Core extras used by your previous environment. The five ordinary wheels do not install the PostgreSQL driver or Mimesis. For source installation, replace `-e .` above with `-e '.[postgres,mimesis]'` when both are needed. For wheels, include the exact Core wheel path with `[postgres,mimesis]` appended in the same install command. A fresh environment without the PostgreSQL driver cannot connect to PostgreSQL; without Mimesis, the existing provider fallback behavior applies.
+
 The CI run's `headSha` identifies the candidate source. A pull request artifact's name can use GitHub's synthetic merge commit instead, so check the run and the artifact together. Keep the previous environment and wheel set until migration is verified.
 
 ## Update entry points

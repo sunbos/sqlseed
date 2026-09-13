@@ -12,6 +12,7 @@
 | dialect 与类型归一化 | [_dialect.py](_dialect.py)、[_type_normalizer.py](_type_normalizer.py) |
 | SQLite AUTOINCREMENT、rowid 别名与表名识别 | [_sqlite_schema.py](_sqlite_schema.py) |
 | 完整 UNIQUE 键的候选比较 | [_unique_keys.py](_unique_keys.py)：SQLite index 项的 collation，partial/expression index 不推导无条件键 |
+| 生成值与 typed bind 的边界 | [_value_normalizer.py](_value_normalizer.py)：JSON 序列化文档与原生对象、ISO 日期时间及 SQL NULL |
 | 批量设置管理 | [_bulk_optimizer.py](_bulk_optimizer.py)、[optimizer.py](optimizer.py)、[_helpers.py](_helpers.py) |
 
 ## adapter 合约
@@ -23,6 +24,7 @@
 - 表操作先 `validate_table_name()`，identifier 使用 `quote_identifier()` 或现有 dialect quoting；值走参数绑定。
 - `ColumnInfo.is_rowid_alias` 与显式 `is_autoincrement` 分开：SQLite 用真实 PRAGMA PK 索引识别，不能把所有 INTEGER PK 当 rowid；nullable 也不能把普通 SQLite PK 一概判为非空。默认 `None` 兼容旧 metadata 构造，adapter 返回明确 bool。
 - `IndexInfo.is_partial` 默认 `False`；反射 WHERE 索引必须标记为 `True`，不得通过 `get_unique_constraints()` 补成无条件 UNIQUE。`predicate` 默认 `None`，生产 SQLAlchemy adapter 保留条件原文；RawSQLite 只保留标记、条件原文可未知。谓词由数据库执行。
+- JSON 生成值及内部采样、外键池、lookup 使用序列化文档约定；字符串、JSON null 和 SQL NULL 不得混淆。SQLite 保留合法 JSON 文本原样，避免格式化改变 FK/UNIQUE 的文本相等语义；不要对读取池先解码再当作未解析输入重复处理。普通 TEXT 不参与 JSON/日期类型规范化。
 - SQLite 表名按 ASCII 大小写规则解析到 catalog 名称（含 FK 父表），禁止 Unicode casefold 或套用到 PostgreSQL。
 - PostgreSQL 仅 ASCII 大小写不同的列名（如 `"A"` / `a`）可读取，但当前 CHECK 推断无法区分，生成/preview/config 在任何表清空或写入前必须明确拒绝。
 - 数据库专有行为放在 `Dialect`；native type 经 `TypeNormalizer` 归一化，避免把方言细节传给 mapper。
