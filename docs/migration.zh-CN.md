@@ -24,6 +24,8 @@ python -m pip check
 
 候选插件要求 Core `>=0.2.4.dev0,<0.3`，CLI/AI 兄弟包依赖也限制在相同版本系列。Core 0.2.3 缺少新插件使用的接口。上界避免自动选择尚未经兼容审查的新 minor 版本，但不保证区间内任意开发快照都能混用；仍应成套安装。
 
+保留旧环境使用的 Core extras。普通五包 wheel 不会自动安装 PostgreSQL 驱动或 Mimesis；从源码安装且两者都需要时，将上面的 `-e .` 改成 `-e '.[postgres,mimesis]'`。安装 wheel 时，在同一次命令中为准确的 Core wheel 路径追加 `[postgres,mimesis]`。新环境缺少 PostgreSQL 驱动时无法连接 PostgreSQL，缺少 Mimesis 时会沿用既有 provider 回退行为。
+
 CI run 的 `headSha` 标识候选源码。PR artifact 名称可能使用 GitHub 的临时合并提交，因此需要同时核对 run 与 artifact。升级验证完成前保留原环境和原安装包。
 
 ## 调整入口

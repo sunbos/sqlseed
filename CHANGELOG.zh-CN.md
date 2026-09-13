@@ -18,7 +18,7 @@
 ### 修复
 
 - 保留类型绑定写入中的 JSON 文档语义，支持合法 ISO 日期时间输入，避免 JSON 双重编码和旧 SQLite 日期配置失效。
-- 自引用父节点更新使用完整主键，并遵守 UNIQUE 约束。
+- 自引用父节点更新使用完整主键，并检查完整普通 UNIQUE 键；partial/expression index 仍由数据库执行约束。
 - AI MCP 的进度输出不再进入 stdio JSON-RPC 协议流。
 
 ## [v0.1.20]

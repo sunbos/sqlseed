@@ -18,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Preserve JSON document values through typed database inserts and accept valid ISO temporal values without double encoding JSON or rejecting compatible SQLite date configurations.
-- Identify self-referencing rows by their complete primary key and respect UNIQUE constraints when assigning parent references.
+- Identify self-referencing rows by their complete primary key and check complete ordinary UNIQUE keys when assigning parent references; partial and expression indexes remain enforced by the database.
 - Keep AI MCP progress output out of the stdio JSON-RPC stream.
 
 ## [v0.1.20]

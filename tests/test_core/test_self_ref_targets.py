@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from sqlseed.core.orchestrator import DataOrchestrator
 from tests.assertions import assert_empty
 from tests.sqlite_helpers import sqlite_connection
+from tests.test_core.self_ref_helpers import fill_self_reference_rows
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -63,12 +64,7 @@ def test_self_reference_postpass_is_seeded_without_changing_global_random(tmp_pa
             path = tmp_path / f"seeded_{index}.db"
             with sqlite_connection(path) as db:
                 db.execute("CREATE TABLE nodes(id INTEGER PRIMARY KEY,parent_id INTEGER REFERENCES nodes(id))")
-            with DataOrchestrator(str(path), provider_name="base", optimize_pragma=False) as orch:
-                result = orch.fill_table("nodes", count=30, seed=42, skip_ai=True)
-                assert_empty(result.errors, list)
-                assert result.count == 30
-                snapshots.append(orch.query("SELECT * FROM nodes ORDER BY id"))
-                assert_empty(orch.query("PRAGMA foreign_key_check"), list)
+            snapshots.append(fill_self_reference_rows(path, count=30, seed=42))
         assert snapshots[0] == snapshots[1]
         assert random.getstate() == global_state
     finally:

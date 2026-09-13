@@ -9,6 +9,7 @@ import pytest
 from sqlseed.core.orchestrator import DataOrchestrator
 from tests.assertions import assert_empty
 from tests.sqlite_helpers import sqlite_connection
+from tests.test_core.self_ref_helpers import fill_self_reference_rows
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -107,16 +108,11 @@ def test_self_reference_unique_uses_adjusted_conditional_value(tmp_path: Path) -
             "kind INTEGER NOT NULL, UNIQUE(parent_id, kind), CHECK(kind IN (0, 1)), "
             "CHECK(kind = 0 OR parent_id IS NOT NULL), CHECK(kind != 0 OR parent_id IS NULL))"
         )
-    with DataOrchestrator(str(path), provider_name="base", optimize_pragma=False) as orch:
-        result = orch.fill_table("nodes", count=30, seed=42, skip_ai=True)
-        assert_empty(result.errors, list)
-        assert result.count == 30
-        rows = orch.query("SELECT * FROM nodes ORDER BY id")
-        parents = [row["parent_id"] for row in rows if row["parent_id"] is not None]
-        assert len(parents) > 10
-        assert len(set(parents)) == len(parents)
-        assert all(row["kind"] == int(row["parent_id"] is not None) for row in rows)
-        assert_empty(orch.query("PRAGMA foreign_key_check"), list)
+    rows = fill_self_reference_rows(path, count=30, seed=42)
+    parents = [row["parent_id"] for row in rows if row["parent_id"] is not None]
+    assert len(parents) > 10
+    assert len(set(parents)) == len(parents)
+    assert all(row["kind"] == int(row["parent_id"] is not None) for row in rows)
 
 
 @pytest.mark.parametrize("nullable_bucket", [False, True])
