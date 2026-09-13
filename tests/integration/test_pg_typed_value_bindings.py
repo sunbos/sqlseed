@@ -145,9 +145,9 @@ def test_pg_temporal_objects_and_iso_strings_round_trip(typed_pg_adapter: SQLAlc
 def test_pg_invalid_typed_value_rolls_back_prior_batch(
     typed_pg_adapter: SQLAlchemyAdapter, column: str, valid: Any, invalid: Any, type_name: str
 ) -> None:
-    rows = [{"id": 1, column: valid}, {"id": 2, column: invalid}]
+    rows = iter([{"id": 1, column: valid}, {"id": 2, column: invalid}])
     with pytest.raises(ValueError, match=rf"Invalid {type_name} value for column '{column}'"):
-        typed_pg_adapter.batch_insert("typed_value_events", iter(rows), batch_size=1)
+        typed_pg_adapter.batch_insert("typed_value_events", rows, batch_size=1)
     assert typed_pg_adapter.get_row_count("typed_value_events") == 0
 
 
