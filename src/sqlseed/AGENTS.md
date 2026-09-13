@@ -38,5 +38,5 @@
 命令从仓库根执行；按局部指导选择受影响测试。
 
 - Public API 改动运行 `pytest tests/test_public_api.py tests/test_architecture.py`。
-- 修改 [__init__.py](__init__.py) 时同步 [README.md](../../README.md) 与 [README.zh-CN.md](../../README.zh-CN.md) 的 API 表。
+- 修改 [__init__.py](__init__.py) 时同步 [docs/api.md](../../docs/api.md) 的完整参考，以及 [README.md](../../README.md) 与 [README.zh-CN.md](../../README.zh-CN.md) 的入口表和示例。
 - 其他源码与文档的联动遵循 [CLAUDE.md](../../CLAUDE.md) 的 Doc Sync Rules；不要手改 AUTO-GENERATED markers，运行 `python scripts/sync_docs.py` 与 `pytest tests/test_doc_sync.py`。
