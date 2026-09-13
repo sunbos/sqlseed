@@ -278,6 +278,8 @@ When preparing a new version release:
 
 4. **CI publish** — `publish.yml` triggers on release or `workflow_dispatch`. If PyPI publish fails on sigstore attestation (`ChunkedEncodingError`), this is a known upstream issue ([#364](https://github.com/pypa/gh-action-pypi-publish/issues/364)) — re-run the workflow via GitHub Actions UI.
 
+5. **Public installation acceptance** — After all five packages have the exact release version on production PyPI, run `PYTHON_BIN=python3.12 bash scripts/verify_pypi_release.sh <version>` (Linux or macOS). Retain the public metadata, file hashes, pip reports and real installed Core/CLI/MCP/Web SQLite results. Inspect all five PyPI descriptions and documentation links. A local wheel test or successful upload does not replace this step; real LLM, PostgreSQL and browser acceptance require separate evidence. See [the release guide](docs/releasing.md) for preparation and validation details.
+
 ## Sibling Agent Files
 
 `AGENTS.md` and `GEMINI.md` exist at the repo root — same project context for other AI coding tools. `GEMINI.md` is a pointer to `CLAUDE.md` (single source of truth). Module-level `AGENTS.md` files exist in each package subdirectory under `src/sqlseed/` and under each plugin's `src/` directory.
