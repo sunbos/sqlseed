@@ -118,6 +118,7 @@ def sync_file(path: Path, facts: dict[str, object], check_only: bool) -> list[st
 
 
 def main() -> int:
+    """Synchronize documentation markers and report the command outcome."""
     parser = argparse.ArgumentParser(description="Sync markdown docs with code facts")
     parser.add_argument("--check", action="store_true", help="Exit 1 if any marker is stale")
     args = parser.parse_args()
@@ -126,25 +127,26 @@ def main() -> int:
     all_changes: list[tuple[Path, list[str]]] = []
 
     for md_file in find_markdown_files():
-        if (changes := sync_file(md_file, facts, args.check)):
+        if changes := sync_file(md_file, facts, args.check):
             all_changes.append((md_file, changes))
 
-    if all_changes:
-        for path, names in all_changes:
-            rel = path.relative_to(ROOT)
-            for name in names:
-                if args.check:
-                    print(f"STALE: {rel} marker '{name}' is out of date")
-                else:
-                    print(f"UPDATED: {rel} marker '{name}'")
-        total = sum(len(n) for _, n in all_changes)
-        if args.check:
-            print(f"\n{total} stale marker(s) found.")
-            print("Run `python scripts/sync_docs.py` to update.")
-            return 1
-        print(f"\n{total} marker(s) updated.")
-    else:
+    if not all_changes:
         print("All markers are up to date.")
+        return 0
+
+    for path, names in all_changes:
+        rel = path.relative_to(ROOT)
+        for name in names:
+            if args.check:
+                print(f"STALE: {rel} marker '{name}' is out of date")
+            else:
+                print(f"UPDATED: {rel} marker '{name}'")
+    total = sum(len(n) for _, n in all_changes)
+    if args.check:
+        print(f"\n{total} stale marker(s) found.")
+        print("Run `python scripts/sync_docs.py` to update.")
+        return 1
+    print(f"\n{total} marker(s) updated.")
     return 0
 
 
