@@ -16,7 +16,7 @@ import urllib.request
 from enum import Enum
 from typing import Any, Literal, cast
 
-from pydantic import BaseModel, Field, PrivateAttr
+from pydantic import BaseModel, Field
 
 from sqlseed._utils.logger import get_logger
 
@@ -205,9 +205,9 @@ class AIConfig(BaseModel):
     log_llm_interactions: bool = False
 
     # Non-serialized cache for inference speed probe results
-    _speed_probe_cache: tuple[float, dict[str, Any]] | None = PrivateAttr(default=None)
+    _speed_probe_cache: tuple[float, dict[str, Any]] | None = None
     # Non-serialized cache for all local models detection (avoids repeated HTTP calls)
-    _all_models_cache: tuple[float, list[str]] | None = PrivateAttr(default=None)
+    _all_models_cache: tuple[float, list[str]] | None = None
 
     @classmethod
     def from_env(cls) -> AIConfig:
@@ -228,7 +228,7 @@ class AIConfig(BaseModel):
         model = os.environ.get("SQLSEED_AI_MODEL") or None
         backend_str = os.environ.get("SQLSEED_AI_BACKEND", "").lower()
         timeout_str = os.environ.get("SQLSEED_AI_TIMEOUT")
-        timeout = float(timeout_str) if timeout_str else 0.0  # 0 = auto-resolve
+        timeout = float(timeout_str) if timeout_str else 0.0
         protocol_str = os.environ.get("SQLSEED_AI_TOOL_CALLING_PROTOCOL", "").lower().strip()
         protocol: ToolCallingProtocol = "gemma4"  # default
         if protocol_str in {"gemma4", "openai", "none"}:

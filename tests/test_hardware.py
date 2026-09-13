@@ -22,7 +22,7 @@ if not HAS_HARDWARE:
 
 class TestHardwareDetection:
     @patch("platform.system")
-    def test_detect_hardware_windows(self, mock_system: MagicMock) -> None:
+    def test_detect_hardware_windows(self, mock_system: MagicMock, monkeypatch: pytest.MonkeyPatch) -> None:
         mock_system.return_value = "Windows"
 
         # Mock GlobalMemoryStatusEx using ctypes
@@ -43,7 +43,7 @@ class TestHardwareDetection:
             ]
 
             # Reset cache before calling
-            hw_mod._HardwareCache.data = None
+            monkeypatch.setattr(hw_mod._HardwareCache, "data", None)
 
             result = detect_hardware()
             assert result["platform"]["system"] == "Windows"
@@ -54,7 +54,7 @@ class TestHardwareDetection:
             assert result["max_vram_gb"] == pytest.approx(10.0)
 
     @patch("platform.system")
-    def test_detect_hardware_linux(self, mock_system: MagicMock) -> None:
+    def test_detect_hardware_linux(self, mock_system: MagicMock, monkeypatch: pytest.MonkeyPatch) -> None:
         mock_system.return_value = "Linux"
 
         with (
@@ -65,7 +65,7 @@ class TestHardwareDetection:
             mock_gpus.return_value = []
 
             # Reset cache
-            hw_mod._HardwareCache.data = None
+            monkeypatch.setattr(hw_mod._HardwareCache, "data", None)
 
             result = detect_hardware()
             assert result["platform"]["system"] == "Linux"
@@ -75,7 +75,7 @@ class TestHardwareDetection:
             assert result["max_vram_gb"] == 0
 
     @patch("platform.system")
-    def test_detect_hardware_macos(self, mock_system: MagicMock) -> None:
+    def test_detect_hardware_macos(self, mock_system: MagicMock, monkeypatch: pytest.MonkeyPatch) -> None:
         mock_system.return_value = "Darwin"
 
         with (
@@ -94,7 +94,7 @@ class TestHardwareDetection:
             ]
 
             # Reset cache
-            hw_mod._HardwareCache.data = None
+            monkeypatch.setattr(hw_mod._HardwareCache, "data", None)
 
             result = detect_hardware()
             assert result["platform"]["system"] == "Darwin"
@@ -141,9 +141,9 @@ class TestHardwareDetection:
         # 6. Unknown model
         assert evaluate_model_status("gemma-4-nonexistent", hw_rec) == "cloud_only"
 
-    def test_cache_ttl_returns_cached_result(self) -> None:
+    def test_cache_ttl_returns_cached_result(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Cached result is returned within TTL without re-detecting."""
-        hw_mod._HardwareCache.data = None
+        monkeypatch.setattr(hw_mod._HardwareCache, "data", None)
 
         with (
             patch("sqlseed_ai._hardware._detect_system_ram") as mock_ram,
@@ -160,11 +160,11 @@ class TestHardwareDetection:
             assert mock_ram.call_count == 1  # Not called again
             assert result2 is result1
 
-    def test_cache_expired_redetects(self) -> None:
+    def test_cache_expired_redetects(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Expired cache triggers re-detection."""
         # Set an expired cache entry
         expired_time = time.monotonic() - 600  # 10 minutes ago
-        hw_mod._HardwareCache.data = (expired_time, {"old": "data"})
+        monkeypatch.setattr(hw_mod._HardwareCache, "data", (expired_time, {"old": "data"}))
 
         with (
             patch("sqlseed_ai._hardware._detect_system_ram") as mock_ram,
@@ -178,11 +178,11 @@ class TestHardwareDetection:
             assert result["ram"]["total_gb"] == pytest.approx(32.0)
 
     @patch("platform.system")
-    def test_unknown_platform_returns_zeros(self, mock_system: MagicMock) -> None:
+    def test_unknown_platform_returns_zeros(self, mock_system: MagicMock, monkeypatch: pytest.MonkeyPatch) -> None:
         """Unknown platform returns zero RAM/GPU without crashing."""
         mock_system.return_value = "FreeBSD"
 
-        hw_mod._HardwareCache.data = None
+        monkeypatch.setattr(hw_mod._HardwareCache, "data", None)
 
         with patch("sqlseed_ai._hardware._detect_gpus") as mock_gpus:
             mock_gpus.return_value = []

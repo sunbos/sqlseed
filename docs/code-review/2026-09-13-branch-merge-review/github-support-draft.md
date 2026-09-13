@@ -4,6 +4,10 @@
 
 GitHub 虚拟客服随后以账号仅提供自助支持为由自动关闭工单，没有确认或修复统计异常。已准备补充官方文档依据，但页面的“重新打开并评论”按钮在填写后仍禁用，补充内容未发送。工单提交成功不代表 Contributors 已清除；需继续核验合并后统计，不能据此改写合法提交历史。
 
+合并 PR #10 后，于 2026-09-13 01:12–01:14 UTC 再次核验：main 为 `b9142c2c179bd1204ecb12481451d8c58aebc777`，完整可达历史共 340 个提交，author / committer 姓名邮箱与全部 30 条 `Co-authored-by` 均无 `trae` 匹配。`stats/contributors` 返回 sunbos、claude、sisyphus-dev-ai，仍无 traeagent；浏览器首页已加载的 Contributors (4) 仍含 traeagent。此差异尚未由 GitHub 解释，不能据此认定具体缓存原因。
+
+用户随后选择暂不公开发帖、等待统计刷新。GitHub Community 草稿未发布；本记录不代表 traeagent 已清除。
+
 此草稿用于请求刷新仓库首页的 Contributors 统计。当前没有发现需要删除或改写的 `traeagent` 提交；没有改动 Git 历史、分支、权限或仓库设置。
 
 ## Subject

@@ -224,8 +224,9 @@ class TestDataStream:
         ]
         provider = BaseProvider()
         stream = make_stream(nodes, provider)
+        batches = stream.generate(3)
         with pytest.raises(RuntimeError, match="Failed to generate row satisfying all constraints after"):
-            next(stream.generate(3))
+            next(batches)
 
     def test_unknown_generator_error_defined(self) -> None:
         err = UnknownGeneratorError("bad_gen", column_name="col_x")

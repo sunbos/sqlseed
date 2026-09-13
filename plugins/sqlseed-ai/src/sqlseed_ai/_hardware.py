@@ -97,6 +97,18 @@ def _get_ram_linux() -> tuple[float, float] | None:
         return None
 
 
+def _available_ram_from_vm_stat(output: str, page_size: int) -> float:
+    """Convert free and speculative vm_stat page counts to available GiB."""
+    avail_gb = 0.0
+    for line in output.splitlines():
+        if "page size of" in line:
+            page_size = int(line.split()[-2])
+        if "Pages free:" in line or "Pages speculative:" in line:
+            count = int(line.split()[-1].rstrip("."))
+            avail_gb += count * page_size / (1024**3)
+    return round(avail_gb, 1)
+
+
 def _get_ram_macos() -> tuple[float, float] | None:
     """Get RAM via sysctl (total) and vm_stat (available estimate)."""
     try:
@@ -123,13 +135,7 @@ def _get_ram_macos() -> tuple[float, float] | None:
         if result.returncode == 0 and result.stdout:
             # Default page size: Apple Silicon = 16384, Intel Mac = 4096
             page_size = 16384 if platform.machine() == "arm64" else 4096
-            for line in result.stdout.splitlines():
-                if "page size of" in line:
-                    page_size = int(line.split()[-2])
-                if "Pages free:" in line or "Pages speculative:" in line:
-                    count = int(line.split()[-1].rstrip("."))
-                    avail_gb += count * page_size / (1024**3)
-            avail_gb = round(avail_gb, 1)
+            avail_gb = _available_ram_from_vm_stat(result.stdout, page_size)
 
         return (total_gb, avail_gb)
     except (FileNotFoundError, ValueError, subprocess.TimeoutExpired):
