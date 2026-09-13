@@ -1,12 +1,18 @@
+"""pluggy plugin hook specification definitions.
+
+12 hooks covering the full lifecycle of registration/generation/transformation/insertion.
+"""
+
 from __future__ import annotations
 
 from typing import Any
 
 import pluggy
 
-# pluggy hookspec methods use placeholder parameters that are intentionally
-# unused — they define the hook signature for plugin implementers.
-# pylint: disable=unused-argument
+# pluggy hookspec methods use placeholder parameters; they only define the
+# hook signature for plugin implementers' reference. The `del` statements in
+# each method body reference the parameters to suppress unused-argument
+# warnings without changing the hook contract.
 
 hookspec = pluggy.HookspecMarker("sqlseed")
 hookimpl = pluggy.HookimplMarker("sqlseed")
@@ -15,11 +21,26 @@ PROJECT_NAME = "sqlseed"
 
 
 class SqlseedHookSpec:
-    @hookspec
-    def sqlseed_register_providers(self, registry: Any) -> None: ...
+    """sqlseed plugin hook specification class.
+
+    Defines 12 hooks for plugin implementers to override, covering the full
+    data generation lifecycle: registration, before/after generation, row/batch
+    transformation, before/after insertion, shared pool loading, and AI
+    analysis. The ``sqlseed_apply_ai_suggestions`` hook is the high-level
+    entry point used by the orchestrator; the lower-level
+    ``sqlseed_ai_analyze_table`` hook is the LLM call itself and is invoked
+    by the AI plugin's implementation of ``sqlseed_apply_ai_suggestions``.
+    """
 
     @hookspec
-    def sqlseed_register_column_mappers(self, mapper: Any) -> None: ...
+    def sqlseed_register_providers(self, registry: Any) -> None:
+        """Register data providers into the registry."""
+        del registry
+
+    @hookspec
+    def sqlseed_register_column_mappers(self, mapper: Any) -> None:
+        """Register column mapping rules into the mapper."""
+        del mapper
 
     @hookspec(firstresult=True)
     def sqlseed_ai_analyze_table(
@@ -31,9 +52,33 @@ class SqlseedHookSpec:
         foreign_keys: list[Any],
         all_table_names: list[str],
     ) -> dict[str, Any] | None:
+        """[AI Hook] Analyze an entire table and return complete column configuration suggestions."""
+        del table_name, columns, indexes, sample_data, foreign_keys, all_table_names
+        raise NotImplementedError
+
+    @hookspec(firstresult=True)
+    def sqlseed_apply_ai_suggestions(
+        self,
+        table_name: str,
+        column_infos: list[Any],
+        specs: dict[str, Any],
+        user_configured_columns: set[str],
+        db: Any,
+        schema: Any,
+    ) -> dict[str, Any] | None:
+        """[AI Hook] Apply AI-driven suggestions to column specs.
+
+        This is the high-level entry point invoked by the orchestrator. The
+        AI plugin implementation is responsible for: deciding whether AI is
+        needed (e.g., unmatched ``string`` columns), building the analysis
+        context from ``db``/``schema``, calling the lower-level
+        ``sqlseed_ai_analyze_table`` hook, and merging the AI result back
+        into ``specs``. Returns the updated ``specs`` dict, or ``None`` if
+        no AI plugin handles this call (in which case the orchestrator
+        keeps the original ``specs`` unchanged).
         """
-        [AI Hook] 分析整张表，返回完整的列配置建议。
-        """
+        del table_name, column_infos, specs, user_configured_columns, db, schema
+        raise NotImplementedError
 
     @hookspec
     def sqlseed_before_generate(
@@ -41,7 +86,9 @@ class SqlseedHookSpec:
         table_name: str,
         count: int,
         config: Any,
-    ) -> None: ...
+    ) -> None:
+        """Callback before data generation."""
+        del table_name, count, config
 
     @hookspec
     def sqlseed_after_generate(
@@ -49,7 +96,9 @@ class SqlseedHookSpec:
         table_name: str,
         count: int,
         elapsed: float,
-    ) -> None: ...
+    ) -> None:
+        """Callback after data generation."""
+        del table_name, count, elapsed
 
     @hookspec
     def sqlseed_transform_row(
@@ -57,11 +106,12 @@ class SqlseedHookSpec:
         table_name: str,
         row: dict[str, Any],
     ) -> dict[str, Any] | None:
+        """Transform a single row of data. Returns the modified row, or None to indicate no modification.
+
+        Note: This hook is on the hot path and is performance-sensitive.
         """
-        Transform/modify each generated row.
-        Return modified row, or None to keep unchanged.
-        Note: This hook is in the hot path - performance sensitive.
-        """
+        del table_name, row
+        raise NotImplementedError
 
     @hookspec
     def sqlseed_transform_batch(
@@ -69,10 +119,14 @@ class SqlseedHookSpec:
         table_name: str,
         batch: list[dict[str, Any]],
     ) -> list[dict[str, Any]] | None:
+        """Transform a batch of data.
+
+        Each plugin receives the same batch argument. The mediator uses the last
+        non-None result in pluggy's returned list, or the original batch when all
+        plugins return None. Returned batches are not chained between plugins.
         """
-        Transform/modify a batch of generated data.
-        Multiple plugins can chain: each plugin's output feeds into the next.
-        """
+        del table_name, batch
+        raise NotImplementedError
 
     @hookspec
     def sqlseed_before_insert(
@@ -80,7 +134,9 @@ class SqlseedHookSpec:
         table_name: str,
         batch_number: int,
         batch_size: int,
-    ) -> None: ...
+    ) -> None:
+        """Callback before batch insertion."""
+        del table_name, batch_number, batch_size
 
     @hookspec
     def sqlseed_after_insert(
@@ -88,7 +144,9 @@ class SqlseedHookSpec:
         table_name: str,
         batch_number: int,
         rows_inserted: int,
-    ) -> None: ...
+    ) -> None:
+        """Callback after batch insertion."""
+        del table_name, batch_number, rows_inserted
 
     @hookspec
     def sqlseed_shared_pool_loaded(
@@ -96,10 +154,11 @@ class SqlseedHookSpec:
         table_name: str,
         shared_pool: Any,
     ) -> None:
-        """
-        Called after a table's generated values are loaded into the shared pool.
+        """Called after a table's generated values are loaded into the shared pool.
+
         Other plugins can use this to track cross-table associations.
         """
+        del table_name, shared_pool
 
     @hookspec(firstresult=True)
     def sqlseed_pre_generate_templates(
@@ -110,8 +169,10 @@ class SqlseedHookSpec:
         count: int,
         sample_data: list[Any],
     ) -> list[Any] | None:
+        """[AI Hook] Pre-generate a pool of candidate values for columns that cannot match a deterministic generator.
+
+        Called before DataStream creation. Returns a list of template values, or None
+        to indicate the plugin does not handle this column.
         """
-        [AI Hook] Pre-generate candidate value pool for columns that cannot match
-        a deterministic generator. Called before DataStream creation.
-        Returns a list of template values, or None if the plugin does not handle this column.
-        """
+        del table_name, column_name, column_type, count, sample_data
+        raise NotImplementedError

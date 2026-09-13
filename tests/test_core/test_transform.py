@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
 from sqlseed.core.transform import load_transform
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
 
@@ -16,11 +17,13 @@ class TestLoadTransform:
         script.write_text(
             "def transform_row(row, ctx):\n    row['name'] = row.get('name', '').upper()\n    return row\n"
         )
-        fn = load_transform(str(script))
-
-        # 使用 getattr 动态获取 __call__ 方法，彻底切断所有 IDE 静态推断工具对 fn 的 "非函数" 误判
-        # 同时避免在函数内部引入任何模块导致 CI (pylint PLC0415 / import-outside-toplevel) 报错
-        result = getattr(fn, "__call__")({"name": "alice"}, {})  # noqa # nosonar
+        # Explicit Callable annotation so static analyzers (pylint/CodeFlow)
+        # treat ``fn`` as invocable. Without this, pylint infers the return
+        # value of ``load_transform`` as ``Any`` (because the function uses
+        # ``Any`` internally for the dynamically-loaded attribute) and raises
+        # E1102 (not-callable) on the ``fn(...)`` invocation below.
+        fn: Callable[[dict[str, Any], dict[str, Any]], dict[str, Any]] = load_transform(str(script))
+        result: dict[str, Any] = fn({"name": "alice"}, {})
 
         assert result["name"] == "ALICE"
 

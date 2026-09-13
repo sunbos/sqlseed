@@ -1,0 +1,58 @@
+{
+  "scope": "只读诊断 CodeFlow 公开配置、依赖安装及分析环境控制；未登录、未读取凭证、未执行 GraphQL mutation、未改仓库。",
+  "conclusion": "没有在已检查的公开文档、当前公开前端和完整公开 GraphQL schema 中找到服务端安装项目 Python 依赖或设置分析环境的可用入口。这是公开接口边界结论，不证明后台内部或支持渠道绝无此功能。",
+  "verified_findings": [
+    {
+      "finding": "CodeFlow 官方要求 repository-root .pylintrc；没有自定义文件时使用服务默认值，未公开 merge/extends 语义。其页面默认值明显与旧实际报告不一致，不能照抄视为有效基线。",
+      "source": "https://www.getcodeflow.com/pylint-configuration.html"
+    },
+    {
+      "finding": "公开应用 HTML 直接公开 GraphQL endpoint https://api.getcodeflow.com/v2；当前 app bundle 公开 VCS 映射 GitHub=2。无认证 introspection 成功，81 types、16 query、9 mutation；没有依赖安装、setup/build command、environment、toolConfig 控制字段。CommitOptions 只有 thresholds。",
+      "evidence": [
+        "/tmp/sqlseed-codeflow-page.html",
+        "/tmp/sqlseed-codeflow-app.js",
+        "/tmp/sqlseed-codeflow-public-schema.json",
+        "/tmp/sqlseed-codeflow-public-introspection.json"
+      ]
+    },
+    {
+      "finding": "公开前端未找到 installDependencies、environmentVariables、setupCommand、preInstall、toolConfig、PYTHONPATH 或 pip install 产品控制。依赖单词搜索出现的是 vendor/语法高亮上下文，不能当作设置入口。",
+      "evidence": "/tmp/sqlseed-codeflow-app.js"
+    },
+    {
+      "finding": "RawReport.defaultConfig 描述为自定义/默认配置标志，但只读实测旧新 Pylint 均为 true；ESLint 从 true 变 false；jscpd 均 true。这个字段不能证明本轮 Pylint .pylintrc 实际应用或替代默认，不能据此推断配置被忽略；需结合规则表现与 worker 实现核实。",
+      "evidence": "/tmp/sqlseed-codeflow-default-config-probe.json"
+    },
+    {
+      "finding": "同一 app bundle 存在 Codeac/CodeFlow 品牌分支和官方 Codeac 文档链接。Codeac 当前 Pylint 默认列出 11 个扩展（覆盖旧报告观察到的 7 个），复杂度阈值 returns11/branches27/statements100，py-version3.7.2，并禁用 format、import-error 等。此为相关实现旁证，不能声称是本仓 CodeFlow 真实配置。",
+      "source": "https://www.codeac.io/documentation/pylint-configuration.html",
+      "evidence": "/tmp/sqlseed-codeflow-app.js"
+    },
+    {
+      "finding": "Pylint 2.17.7 code_style 的 assignment-expr 检查受 py-version>=3.8 门槛约束；因此旧报告无此规则不等于显式禁用。项目 Python>=3.10 不应为消除新规则而伪装为3.7。",
+      "evidence": "/tmp/sqlseed-codeflow-pylint217/lib/python3.11/site-packages/pylint/extensions/code_style.py:92,113-114"
+    },
+    {
+      "finding": "Codeac .codeac.yml 文档只有版本、阈值、工具 enabled 开关等，没有依赖安装配置；也没有证据证明 .codeac.yml 对 CodeFlow 可用。",
+      "source": "https://www.codeac.io/documentation/custom-configuration.html"
+    }
+  ],
+  "configuration_boundaries": [
+    "Pylint 的 init-hook 是公开 rc 选项，可操作 sys.path；source-roots 用于 namespace package 根定位。它们不会安装 sqlalchemy/pytest 等第三方依赖。",
+    "不能把 init-hook 执行 pip install 声称为 CodeFlow 支持的依赖安装流程；服务没有公开网络、权限、缓存或工作目录合同，本次未尝试。",
+    "保留真实规则及项目 Python 最低版本；本地或现有 CI 的完整依赖环境可持续核验真实 import/type 问题。若服务无法提供依赖安装，服务中的局部忽略只能明确记为分析覆盖限制，不能叫恢复完整依赖分析。",
+    "没有读取或猜测 REST 私有子路由，没有调用 me/repository token 查询，没有向支持人员发送消息。"
+  ],
+  "references": [
+    "https://www.getcodeflow.com/pylint-configuration.html",
+    "https://www.codeac.io/documentation/pylint-configuration.html",
+    "https://www.codeac.io/documentation/custom-configuration.html",
+    "https://pylint.pycqa.org/en/v2.17.7/user_guide/usage/run.html",
+    "https://pylint.pycqa.org/en/v2.17.7/user_guide/configuration/all-options.html"
+  ],
+  "limits": [
+    "GraphQL schema 和 UI 为当前公开版本，不覆盖未公开 worker 实现、私有 REST 接口或付费支持能力。",
+    "实际 Pylint 默认配置仍未被服务完整返回；defaultConfig 标记与基于规则行为的配置解释之间存在不确定性。",
+    "未更改配置、安装远端依赖、重跑远端分析或扫描凭证。"
+  ]
+}

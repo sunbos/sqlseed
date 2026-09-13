@@ -1,0 +1,34 @@
+{
+  "run_id": 34653628263,
+  "job_id": 103441432552,
+  "job_name": "test (3.12)",
+  "url": "https://github.com/sunbos/sqlseed/actions/runs/34653628263/job/103441432552",
+  "event": "pull_request",
+  "pr": 10,
+  "baseline_head_sha": "5b0dd07231d7ed9fbc33f924087e1e9dda878100",
+  "tested_merge_sha": "6d0f16f1c4c118ba8f48c6176ab90331bdfd59e7",
+  "environment": "Ubuntu 24.04.5 / CPython 3.12.14",
+  "test_step": {
+    "name": "Test with coverage",
+    "conclusion": "success",
+    "passed": 3306,
+    "skipped": 22,
+    "duration_seconds": 194.72,
+    "coverage_percent": 85,
+    "coverage_xml_created": true
+  },
+  "failed_step": {
+    "name": "Upload coverage (3.12 only)",
+    "conclusion": "failure",
+    "component": "codecov/codecov-action; Codecov CLI v11.3.1",
+    "coverage_file_found": "coverage.xml",
+    "service_error": "Upload queued for processing failed: {\"message\":\"Repository not found\"}",
+    "error_timestamp_utc": "2026-09-11T22:26:33.4389802Z",
+    "fail_ci_if_error": true,
+    "exit_code": 1
+  },
+  "classification": "旧 HEAD 的 Codecov 上传服务/仓库访问失败，不是 Python 3.12 测试失败或覆盖率门槛失败。",
+  "relation_to_current_changes": "无证据关联本轮 Core/AI/Web/CLI 源码重构、测试修复或 mutation 工作；不应计作尚未发生的新 push 回归，也不能宣称本轮代码已修复该外部上传问题。",
+  "uncertainty": "日志没有进一步区分 Codecov 仓库尚未登记、鉴权/权限或其他服务端配置原因，不能仅凭 Repository not found 指定具体根因。",
+  "method": "Only read-only gh run view metadata/log requests; no remote rerun and no repository file changes. This requested /tmp JSON is the only report written."
+}

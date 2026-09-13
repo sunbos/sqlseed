@@ -34,9 +34,10 @@ class TestSqlSafe:
         with pytest.raises(ValueError, match="dangerous characters"):
             quote_identifier("users' OR 1=1")
 
-    def test_quote_identifier_rejects_dash(self) -> None:
-        with pytest.raises(ValueError, match="dangerous characters"):
-            quote_identifier("my-table")
+    def test_quote_identifier_allows_dash(self) -> None:
+        # Hyphens are safe inside double-quoted identifiers (SQLite/PG).
+        result = quote_identifier("my-table")
+        assert result == '"my-table"'
 
     def test_validate_table_name_simple(self) -> None:
         result = validate_table_name("users")

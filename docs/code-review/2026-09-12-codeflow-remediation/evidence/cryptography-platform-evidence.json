@@ -1,0 +1,12 @@
+{
+  "source": "https://pypi.org/pypi/cryptography/50.0.1/json",
+  "macos_artifacts": [
+    "cryptography-50.0.1-cp311-abi3-macosx_11_0_arm64.whl",
+    "cryptography-50.0.1-cp314-cp314t-macosx_11_0_arm64.whl",
+    "cryptography-50.0.1-cp39-abi3-macosx_11_0_arm64.whl",
+    "cryptography-50.0.1-pp311-pypy311_pp73-macosx_11_0_arm64.whl"
+  ],
+  "cached_local_wheel": "/Users/sunbo/.cache/uv/sdists-v9/pypi/cryptography/50.0.1/wVuZ-m-y8l7sf0a5RB-2C/cryptography-50.0.1-cp311-abi3-macosx_10_12_x86_64.whl",
+  "cached_wheel_sha256": "6fd9cd81259b2fe28932fc6056eddce223be6a8df77e8ccad7c5d44a92a6d607",
+  "installation_exception": "Keep reviewed CI lock and hashes; allow locally built cached cryptography wheel because x86_64 macOS release wheels are absent."
+}

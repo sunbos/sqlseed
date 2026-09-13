@@ -7,6 +7,20 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)，
 本项目遵循[语义化版本](https://semver.org/spec/v2.0.0.html)。
 
+## [Unreleased]
+
+### 变更
+
+- 拆分为离线 Core、CLI、AI、Core MCP、Web 五包交付；CLI 与 AI MCP 用户需要调整安装与客户端入口，详见[升级说明](docs/migration.zh-CN.md)。
+- 候选 Core 与兄弟插件依赖限制在已验证的 `>=0.2.4.dev0,<0.3` 系列；候选包从同一 CI artifact 成套安装。
+- GitHub Pages 仅在 main 全部 CI 任务成功后部署；合并代码不会发布 PyPI 包。
+
+### 修复
+
+- 保留类型绑定写入中的 JSON 文档语义，支持合法 ISO 日期时间输入，避免 JSON 双重编码和旧 SQLite 日期配置失效。
+- 自引用父节点更新使用完整主键，并检查完整普通 UNIQUE 键；partial/expression index 仍由数据库执行约束。
+- AI MCP 的进度输出不再进入 stdio JSON-RPC 协议流。
+
 ## [v0.1.20]
 
 ### 变更

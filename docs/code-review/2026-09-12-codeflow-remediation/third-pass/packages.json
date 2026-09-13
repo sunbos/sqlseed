@@ -1,0 +1,278 @@
+{
+  "status": "passed",
+  "phase": "third-pass final source cleanup",
+  "timestamp_utc": "2026-09-12T16:23:04.470613+00:00",
+  "source_head": "ef7b2795370873c915b9d1c9b50b59c6ac7016fb",
+  "source_state": "Frozen working tree including reviewed third-pass changes; source-before/source-after hashes identical",
+  "root": "/private/tmp/sqlseed-codeflow-packages-third-0whts4k1",
+  "environment": "macOS-26.6.2-x86_64-i386-64bit, CPython 3.12.13",
+  "ci_reference": ".github/workflows/ci.yml packages job and lint documentation build",
+  "environment_reuse": {
+    "full": "/tmp/sqlseed-codeflow-packages-bp87t1jx/full",
+    "minimal": "/tmp/sqlseed-codeflow-packages-bp87t1jx/minimal",
+    "method": "Reused existing isolated non-editable environments; force-reinstalled only newly built local wheels with --no-deps. No third-party dependency versions changed."
+  },
+  "artifacts": [
+    {
+      "file": "/tmp/sqlseed-codeflow-packages-third-0whts4k1/dist/mcp_server_sqlseed-0.2.4.dev257+gef7b27953.d20260912-py3-none-any.whl",
+      "size": 6349,
+      "sha256": "3e5f8f51abc78e540391cacb454eee87dfb68955f9b970d6b01b468d29dbabf5"
+    },
+    {
+      "file": "/tmp/sqlseed-codeflow-packages-third-0whts4k1/dist/mcp_server_sqlseed-0.2.4.dev257+gef7b27953.d20260912.tar.gz",
+      "size": 13955,
+      "sha256": "82b4509202fbc3b1326d13053dac05245ff7d5d91ece930a8d888c28219eabfb"
+    },
+    {
+      "file": "/tmp/sqlseed-codeflow-packages-third-0whts4k1/dist/sqlseed-0.2.4.dev257+gef7b27953.d20260912-py3-none-any.whl",
+      "size": 225907,
+      "sha256": "b014f570b1f1cd81958e2209115f3422281311eae452dbbd3714df219bf19139"
+    },
+    {
+      "file": "/tmp/sqlseed-codeflow-packages-third-0whts4k1/dist/sqlseed-0.2.4.dev257+gef7b27953.d20260912.tar.gz",
+      "size": 232642,
+      "sha256": "7ef0954fd0555da5640de284b47efecc5ce80fc68a8e393dc961676939c8b30d"
+    },
+    {
+      "file": "/tmp/sqlseed-codeflow-packages-third-0whts4k1/dist/sqlseed_ai-0.2.4.dev257+gef7b27953.d20260912-py3-none-any.whl",
+      "size": 245146,
+      "sha256": "a7beef7fa381b78c88b276402c5632f5568e39780c514b4a346cbf985c2b9eee"
+    },
+    {
+      "file": "/tmp/sqlseed-codeflow-packages-third-0whts4k1/dist/sqlseed_ai-0.2.4.dev257+gef7b27953.d20260912.tar.gz",
+      "size": 319925,
+      "sha256": "d79a9e99f371bf56f832fa20715aa579d58ff997fdf230b10245d900752b1bc4"
+    },
+    {
+      "file": "/tmp/sqlseed-codeflow-packages-third-0whts4k1/dist/sqlseed_cli-0.2.4.dev257+gef7b27953.d20260912-py3-none-any.whl",
+      "size": 10599,
+      "sha256": "ca1def30ade8bf8a72a976e003bf000c54f40547982deaf1b98a3f631df0bfcb"
+    },
+    {
+      "file": "/tmp/sqlseed-codeflow-packages-third-0whts4k1/dist/sqlseed_cli-0.2.4.dev257+gef7b27953.d20260912.tar.gz",
+      "size": 28141,
+      "sha256": "3b3bfddd82487124a08b5ec5a58a5664f09f180b67e7dff621a5d6090cfd987d"
+    },
+    {
+      "file": "/tmp/sqlseed-codeflow-packages-third-0whts4k1/dist/sqlseed_web-0.2.4.dev257+gef7b27953.d20260912-py3-none-any.whl",
+      "size": 339970,
+      "sha256": "ef33e60cc59b590cdccedfd8c3ff586fd94b7439a90c7f088aaf2be1a377e026"
+    },
+    {
+      "file": "/tmp/sqlseed-codeflow-packages-third-0whts4k1/dist/sqlseed_web-0.2.4.dev257+gef7b27953.d20260912.tar.gz",
+      "size": 504428,
+      "sha256": "de826ba904f09bb4be8e9a20679c1f98fdcf8e714c08382ab6ee21e0a9977a90"
+    }
+  ],
+  "build": "5 sdists -> 5 wheels, all --no-isolation; each log confirms Building wheel from sdist",
+  "twine": "10/10 PASSED with --strict",
+  "dependency_versions": {
+    "full_locked_packages": 139,
+    "minimal_locked_packages": 23,
+    "all_match_ci_lock": true
+  },
+  "pip_check": {
+    "full": "No broken requirements found.",
+    "minimal": "No broken requirements found."
+  },
+  "wheel_smokes": {
+    "full": {
+      "wheel_imports": true,
+      "rows": 5,
+      "web_rows": 5,
+      "web": "ready",
+      "components": {
+        "core": "available",
+        "web": "available",
+        "ai": "available",
+        "cli": "available",
+        "mcp": "available"
+      }
+    },
+    "minimal": {
+      "wheel_imports": true,
+      "rows": 5,
+      "web_rows": 5,
+      "web": "ready",
+      "components": {
+        "core": "available",
+        "web": "available",
+        "ai": "not_installed",
+        "cli": "not_installed",
+        "mcp": "not_installed"
+      }
+    }
+  },
+  "editable_distributions": {
+    "full": [],
+    "minimal": []
+  },
+  "payload_audit": {
+    "packages": [
+      {
+        "package": "sqlseed",
+        "wheel": "/private/tmp/sqlseed-codeflow-packages-third-0whts4k1/dist/sqlseed-0.2.4.dev257+gef7b27953.d20260912-py3-none-any.whl",
+        "sdist": "/private/tmp/sqlseed-codeflow-packages-third-0whts4k1/dist/sqlseed-0.2.4.dev257+gef7b27953.d20260912.tar.gz",
+        "source_files_matched": 61,
+        "packaged_instruction_files_matched": 8,
+        "all_packaged_files_matched": 69,
+        "wheel_payload_matches": true,
+        "sdist_payload_matches": true,
+        "installed_payload": {
+          "full": {
+            "origin": "/private/tmp/sqlseed-codeflow-packages-bp87t1jx/full/lib/python3.12/site-packages/sqlseed",
+            "files_matched": 69,
+            "bytes_match": true
+          },
+          "minimal": {
+            "origin": "/private/tmp/sqlseed-codeflow-packages-bp87t1jx/minimal/lib/python3.12/site-packages/sqlseed",
+            "files_matched": 69,
+            "bytes_match": true
+          }
+        }
+      },
+      {
+        "package": "sqlseed_cli",
+        "wheel": "/private/tmp/sqlseed-codeflow-packages-third-0whts4k1/dist/sqlseed_cli-0.2.4.dev257+gef7b27953.d20260912-py3-none-any.whl",
+        "sdist": "/private/tmp/sqlseed-codeflow-packages-third-0whts4k1/dist/sqlseed_cli-0.2.4.dev257+gef7b27953.d20260912.tar.gz",
+        "source_files_matched": 3,
+        "packaged_instruction_files_matched": 0,
+        "all_packaged_files_matched": 3,
+        "wheel_payload_matches": true,
+        "sdist_payload_matches": true,
+        "installed_payload": {
+          "full": {
+            "origin": "/private/tmp/sqlseed-codeflow-packages-bp87t1jx/full/lib/python3.12/site-packages/sqlseed_cli",
+            "files_matched": 3,
+            "bytes_match": true
+          }
+        }
+      },
+      {
+        "package": "sqlseed_ai",
+        "wheel": "/private/tmp/sqlseed-codeflow-packages-third-0whts4k1/dist/sqlseed_ai-0.2.4.dev257+gef7b27953.d20260912-py3-none-any.whl",
+        "sdist": "/private/tmp/sqlseed-codeflow-packages-third-0whts4k1/dist/sqlseed_ai-0.2.4.dev257+gef7b27953.d20260912.tar.gz",
+        "source_files_matched": 62,
+        "packaged_instruction_files_matched": 0,
+        "all_packaged_files_matched": 62,
+        "wheel_payload_matches": true,
+        "sdist_payload_matches": true,
+        "installed_payload": {
+          "full": {
+            "origin": "/private/tmp/sqlseed-codeflow-packages-bp87t1jx/full/lib/python3.12/site-packages/sqlseed_ai",
+            "files_matched": 62,
+            "bytes_match": true
+          }
+        }
+      },
+      {
+        "package": "mcp_server_sqlseed",
+        "wheel": "/private/tmp/sqlseed-codeflow-packages-third-0whts4k1/dist/mcp_server_sqlseed-0.2.4.dev257+gef7b27953.d20260912-py3-none-any.whl",
+        "sdist": "/private/tmp/sqlseed-codeflow-packages-third-0whts4k1/dist/mcp_server_sqlseed-0.2.4.dev257+gef7b27953.d20260912.tar.gz",
+        "source_files_matched": 4,
+        "packaged_instruction_files_matched": 0,
+        "all_packaged_files_matched": 4,
+        "wheel_payload_matches": true,
+        "sdist_payload_matches": true,
+        "installed_payload": {
+          "full": {
+            "origin": "/private/tmp/sqlseed-codeflow-packages-bp87t1jx/full/lib/python3.12/site-packages/mcp_server_sqlseed",
+            "files_matched": 4,
+            "bytes_match": true
+          }
+        }
+      },
+      {
+        "package": "sqlseed_web",
+        "wheel": "/private/tmp/sqlseed-codeflow-packages-third-0whts4k1/dist/sqlseed_web-0.2.4.dev257+gef7b27953.d20260912-py3-none-any.whl",
+        "sdist": "/private/tmp/sqlseed-codeflow-packages-third-0whts4k1/dist/sqlseed_web-0.2.4.dev257+gef7b27953.d20260912.tar.gz",
+        "source_files_matched": 78,
+        "packaged_instruction_files_matched": 2,
+        "all_packaged_files_matched": 80,
+        "wheel_payload_matches": true,
+        "sdist_payload_matches": true,
+        "installed_payload": {
+          "full": {
+            "origin": "/private/tmp/sqlseed-codeflow-packages-bp87t1jx/full/lib/python3.12/site-packages/sqlseed_web",
+            "files_matched": 80,
+            "bytes_match": true
+          },
+          "minimal": {
+            "origin": "/private/tmp/sqlseed-codeflow-packages-bp87t1jx/minimal/lib/python3.12/site-packages/sqlseed_web",
+            "files_matched": 80,
+            "bytes_match": true
+          }
+        }
+      }
+    ],
+    "total_source_files": 208,
+    "total_packaged_files": 218,
+    "new_web_application_module": {
+      "source": "plugins/sqlseed-web/src/sqlseed_web/_application.py",
+      "sha256": "696f4bd0de5cb535cce9876d1f3354326517f657bb7cfa71b1fa4dd795097f1e",
+      "present_and_identical_in": "sdist, wheel, full install, minimal install"
+    },
+    "new_ai_llm_call_module": {
+      "source": "plugins/sqlseed-ai/src/sqlseed_ai/healer/_llm_call.py",
+      "sha256": "56fc9c95bfcdd8d9e5cefb1548a60a68eabfdcac66d1ae2d2b3e9124349935e5",
+      "present_and_identical_in": "sdist, wheel, full install"
+    }
+  },
+  "docs": {
+    "strict_exit": 0,
+    "site_dir": "/private/tmp/sqlseed-codeflow-packages-third-0whts4k1/site",
+    "log": "/private/tmp/sqlseed-codeflow-packages-third-0whts4k1/logs/docs-strict.txt",
+    "nonblocking_output": "Material emits the same upstream MkDocs 2.0 advisory; MkDocs reports candidate-validation.md absent from nav at INFO. Strict build has no project warning/error."
+  },
+  "user_env": {
+    "before": {
+      "sqlseed-ai": "not_installed",
+      "mcp-server-sqlseed": "not_installed"
+    },
+    "after": {
+      "sqlseed-ai": "not_installed",
+      "mcp-server-sqlseed": "not_installed"
+    },
+    "changed": false
+  },
+  "existing_service_8630": "Not operated. Smoke uses Supervisor(port=0), temporary workspace/settings and finally cleanup.",
+  "platform_prerequisite": "Reused previous exact-version cryptography==50.0.1 locally built macOS x86_64 wheel; unchanged. This remains outside CI macOS ARM64/Linux/Windows wheel availability. Prior evidence copied to cryptography-platform-evidence.json.",
+  "validation_harness_adjustment": "Reused second-pass runner and audited payload script; changed output paths and required new AI healer/_llm_call.py in the payload. No test failure or new harness redesign.",
+  "old_evidence_preserved": {
+    "reports": [
+      "/tmp/sqlseed-codeflow-packages-result.json",
+      "/tmp/sqlseed-codeflow-packages-postpush-result.json"
+    ],
+    "artifacts": "All artifact hashes from both earlier reports unchanged",
+    "logs": "Earlier reports, build outputs and logs were not overwritten",
+    "hash_audit": "/private/tmp/sqlseed-codeflow-packages-third-0whts4k1/prior-evidence-hashes.json"
+  },
+  "source_changes_by_this_subtask": false,
+  "commits_or_pushes": false,
+  "commands": "/private/tmp/sqlseed-codeflow-packages-third-0whts4k1/commands.jsonl",
+  "required_checks": [
+    "build-mcp_server_sqlseed",
+    "build-sqlseed",
+    "build-sqlseed_ai",
+    "build-sqlseed_cli",
+    "build-sqlseed_web",
+    "docs-strict",
+    "full-cli-help",
+    "full-install-audit",
+    "full-pip-check",
+    "full-web-help",
+    "full-wheel-smoke",
+    "install-full-wheels",
+    "install-minimal-wheels",
+    "minimal-install-audit",
+    "minimal-pip-check",
+    "minimal-wheel-smoke",
+    "payload-audit-all-files",
+    "python-version",
+    "twine-strict",
+    "user-env-after",
+    "user-env-before"
+  ],
+  "build_source_implementation_changes": "AI healer/_llm_call.py and three callers; shared analyzer interaction logging. Other package implementations unchanged in this pass.",
+  "scope": "Five local packages rebuilt using --no-isolation, existing isolated full/minimal non-editable wheel environments reused; no product source, dependency manifests, locks, user environment or service 8630 modifications."
+}

@@ -2,9 +2,13 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'feat/**', 'refactor/**', 'fix/**']
   pull_request:
-    branches: [main]
+    branches: [main, 'feat/**', 'refactor/**', 'fix/**']
+
+# Repository contents stay read-only; the coverage job can request an OIDC token.
+permissions:
+  contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -16,27 +20,18 @@ env:
   PYTHONUNBUFFERED: "1"
 
 jobs:
-  # ── Fast gate: lint + type check (~45s) ──────────────────────
+  # ── Fast gate: lint + type check + layer contracts (~45s) ────
   lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6
+      - uses: ./.github/actions/setup-env
         with:
           python-version: "3.12"
-          cache: "pip"
-          cache-dependency-path: |
-            pyproject.toml
-            plugins/*/pyproject.toml
-
-      - name: Install dependencies
-        run: |
-          pip install -e ".[all,dev]"
-          pip install -e "./plugins/sqlseed-ai"
-          pip install -e "./plugins/mcp-server-sqlseed"
 
       - name: Lint
         run: ruff check src/ tests/ plugins/
@@ -47,75 +42,180 @@ jobs:
       - name: Type check
         run: mypy
 
+      - name: Architectural layer contracts (import-linter)
+        run: lint-imports
+
+      - name: Web frontend regressions (Node built-in test runner)
+        run: node --test plugins/sqlseed-web/tests/test_*.cjs
+
+      - name: Build maintained documentation
+        run: mkdocs build --strict
+
+  # Exercise the distributions users install, including sdist-to-wheel builds.
+  packages:
+    needs: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: "3.12"
+      - uses: ./.github/actions/install-ci-deps
+      - name: Build and validate all five packages
+        run: |
+          python -m build --no-isolation --outdir dist/
+          python -m build --no-isolation plugins/sqlseed-cli --outdir dist/
+          python -m build --no-isolation plugins/sqlseed-ai --outdir dist/
+          python -m build --no-isolation plugins/mcp-server-sqlseed --outdir dist/
+          python -m build --no-isolation plugins/sqlseed-web --outdir dist/
+          twine check --strict dist/*
+      - name: Install wheels together and check dependencies
+        run: |
+          python -m pip install --no-deps --only-binary :all: dist/*.whl
+          pip check
+          sqlseed --help
+          sqlseed-web --help
+          python scripts/check_wheel_install.py
+      - name: Verify Core and Web without optional plugins
+        run: |
+          python -m venv "$RUNNER_TEMP/sqlseed-minimal"
+          "$RUNNER_TEMP/sqlseed-minimal/bin/python" -m pip install --require-hashes --only-binary :all: -r .github/requirements-minimal.txt
+          "$RUNNER_TEMP/sqlseed-minimal/bin/python" -m pip install --no-deps --only-binary :all: dist/sqlseed-[0-9]*.whl dist/sqlseed_web-*.whl
+          "$RUNNER_TEMP/sqlseed-minimal/bin/python" -m pip check
+          "$RUNNER_TEMP/sqlseed-minimal/bin/python" scripts/check_wheel_install.py --without-optional-components
+      - name: Upload candidate packages for installation testing
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: sqlseed-candidate-${{ github.sha }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+
   # ── Core tests: Linux × {3.10, 3.12, 3.13} ─────────────────
   test:
     needs: lint
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.10", "3.12", "3.13"]
 
     steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6
+      - uses: ./.github/actions/setup-env
         with:
           python-version: ${{ matrix.python-version }}
-          cache: "pip"
-          cache-dependency-path: |
-            pyproject.toml
-            plugins/*/pyproject.toml
-
-      - name: Install dependencies
-        run: |
-          pip install -e ".[all,dev]"
-          pip install -e "./plugins/sqlseed-ai"
-          pip install -e "./plugins/mcp-server-sqlseed"
 
       - name: Test with coverage
         run: >-
           pytest
-          --cov=sqlseed --cov=sqlseed_ai --cov=mcp_server_sqlseed
+          --cov=sqlseed --cov=sqlseed_ai --cov=sqlseed_cli --cov=mcp_server_sqlseed --cov=sqlseed_web
           --cov-report=xml --cov-report=term-missing
+          -W error::ResourceWarning -W error::pytest.PytestUnraisableExceptionWarning
           --tb=short -q
 
       - name: Upload coverage (3.12 only)
         if: matrix.python-version == '3.12'
-        uses: codecov/codecov-action@75cd11691c0faa626561e295848008c8a7dddffe  # v5.5.4
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f  # v7.0.0
         with:
           files: coverage.xml
-          fail_ci_if_error: false
+          use_oidc: true
+          fail_ci_if_error: true
 
   # ── Platform compat: macOS + Windows on 3.12 ────────────────
   test-compat:
     needs: lint
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         os: [macos-latest, windows-latest]
 
     steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6
+      - uses: ./.github/actions/setup-env
         with:
           python-version: "3.12"
-          cache: "pip"
-          cache-dependency-path: |
-            pyproject.toml
-            plugins/*/pyproject.toml
-
-      - name: Install dependencies
-        run: |
-          pip install -e ".[all,dev]"
-          pip install -e "./plugins/sqlseed-ai"
-          pip install -e "./plugins/mcp-server-sqlseed"
 
       - name: Test
-        run: pytest --tb=short -q
+        run: pytest --tb=short -q -W error::ResourceWarning -W error::pytest.PytestUnraisableExceptionWarning
+
+  # ── Integration tests: PostgreSQL 16 (real DB) ──────────────
+  integration:
+    needs: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: testdb
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d testdb"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PG_TEST_URL: postgresql+psycopg://postgres:postgres@localhost:5432/testdb
+
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          fetch-depth: 0
+
+      - uses: ./.github/actions/setup-env
+        with:
+          python-version: "3.12"
+
+      - name: Run PostgreSQL integration tests
+        run: pytest tests/integration/test_pg_*.py tests/integration/test_url_e2e.py -v --tb=short
+
+  # ── Property-based tests: contract matrix completeness ──────
+  # Runs Hypothesis-based property tests separately because they are
+  # slower than unit tests and should not block regular PRs. Catches
+  # gaps in the contract matrix before they hit production (Section 12).
+  property-tests:
+    needs: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          fetch-depth: 0
+
+      - uses: ./.github/actions/setup-env
+        with:
+          python-version: "3.12"
+
+      - name: Run property-based tests
+        run: pytest plugins/sqlseed-ai/tests/property/ -v --maxfail=1 --tb=short
+
+  docs:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [lint, test, test-compat, integration, property-tests, packages]
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/mkdocs-deploy.yml

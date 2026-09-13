@@ -45,7 +45,7 @@ def check_ollama() -> bool:
 
 def sqlseed_cmd(python: str) -> list[str]:
     """Build a sqlseed CLI invocation."""
-    return [python, "-c", "from sqlseed.cli.main import cli; cli()", "--"]
+    return [python, "-c", "from sqlseed_cli.main import cli; cli()", "--"]
 
 
 def _fill_data(python: str) -> None:
@@ -129,21 +129,28 @@ def main() -> None:
     else:
         # Create venv and install
         venv_path = PROJECT_ROOT / ".venv"
-        if not venv_path.exists():
-            print("[1/5] Creating virtual environment...")
-            run([sys.executable, "-m", "venv", str(venv_path)])
-        else:
-            print("[1/5] Virtual environment exists, skipping")
+        try:
+            if not venv_path.exists():
+                print("[1/5] Creating virtual environment...")
+                run([sys.executable, "-m", "venv", str(venv_path)])
+            else:
+                print("[1/5] Virtual environment exists, skipping")
 
-        if sys.platform == "win32":
-            python = str(venv_path / "Scripts" / "python.exe")
-        else:
-            python = str(venv_path / "bin" / "python")
+            if sys.platform == "win32":
+                python = str(venv_path / "Scripts" / "python.exe")
+            else:
+                python = str(venv_path / "bin" / "python")
 
-        print("[2/5] Installing dependencies (may take a few minutes on first run)...")
-        run([python, "-m", "pip", "install", "-q", "-e", f"{PROJECT_ROOT}[dev,all]"])
-        run([python, "-m", "pip", "install", "-q", "-e", str(PROJECT_ROOT / "plugins" / "sqlseed-ai")])
-        run([python, "-m", "pip", "install", "-q", "-e", str(PROJECT_ROOT / "plugins" / "mcp-server-sqlseed")])
+            print("[2/5] Installing dependencies (may take a few minutes on first run)...")
+            run([python, "-m", "pip", "install", "-q", "-e", f"{PROJECT_ROOT}[dev,all]"])
+            run([python, "-m", "pip", "install", "-q", "-e", str(PROJECT_ROOT / "plugins" / "sqlseed-ai")])
+            run([python, "-m", "pip", "install", "-q", "-e", str(PROJECT_ROOT / "plugins" / "mcp-server-sqlseed")])
+        except subprocess.CalledProcessError as e:
+            print(f"\nERROR: Command failed (exit {e.returncode}): {' '.join(e.cmd)}")
+            sys.exit(1)
+        except OSError as e:
+            print(f"\nERROR: Failed to create venv or run pip: {e}")
+            sys.exit(1)
 
     # ── Step 3: Create test database ─────────────────────────────────
     print("[3/5] Creating test database...")
@@ -167,7 +174,7 @@ def main() -> None:
     print("=" * 50)
     print()
     print(f"  Database:    {DB_PATH}")
-    cli_call = 'python -c "from sqlseed.cli.main import cli; cli()" --'
+    cli_call = 'python -c "from sqlseed_cli.main import cli; cli()" --'
     print(f"  Preview:     {cli_call} preview {DB_PATH} -t users -n 5")
     print(f"  Inspect:     {cli_call} inspect {DB_PATH} --show-mapping")
     print(f"  AI Suggest:  {cli_call} ai-suggest {DB_PATH} -t users -o config.yaml")

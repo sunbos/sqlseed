@@ -1,0 +1,129 @@
+{
+  "status": "complete",
+  "scope": "auto_heal run, CHECK private modules, own regression tests and module AGENTS",
+  "run_complexity_before": 344,
+  "run_complexity_after": 2,
+  "auto_heal_function_count": 240,
+  "max_complexity": 10,
+  "too_many_nested_blocks": 0,
+  "source_jscpd_duplicates": 0,
+  "safe_memberships_updated": 17,
+  "raw_any_memberships_retained": 8,
+  "retained_membership_details": "/tmp/sqlseed-ai-run-retained-membership.json",
+  "type_redefinition_fixes": 5,
+  "validation": {
+    "AI_tests": "793 passed, 11 skipped (Docker/LLM credentials unavailable)",
+    "mypy": "Success: no issues found in 61 source files",
+    "ruff": "check and format --check pass",
+    "git_diff_check": "pass"
+  },
+  "evidence": {
+    "sqlseed-ai-run-equivalence.json": {
+      "real_test_stage_calls": 307,
+      "unique_stage_inputs": 307,
+      "expanded_cases": 63777,
+      "phase_counts": {
+        "_normalize_generated_columns": 7944,
+        "_restrict_conditional_range_sources": 7944,
+        "_stabilize_real_arithmetic_sources": 7944,
+        "_cap_derived_range_sources": 7944,
+        "_apply_complex_check_null_fallbacks": 7944,
+        "_apply_status_null_conditions": 8169,
+        "_enforce_notnull_checks": 7944,
+        "_restore_input_columns_and_clean_output": 7944
+      },
+      "equal_exception_cases": {
+        "TypeError": 582
+      },
+      "values_types_float_sign_dictionary_order_and_errors_equal": true,
+      "seconds": 30.036216361000697
+    },
+    "sqlseed-ai-run-driver-equivalence.json": {
+      "real_sqlite_schemas": 6,
+      "driver_cases": 528,
+      "outcomes": {
+        "return": 312,
+        "raise:ValueError": 192,
+        "raise:RuntimeError": 24
+      },
+      "exact_yaml_errors_debug_trace_and_input_preservation": true,
+      "seconds": 10.319852656999501
+    },
+    "sqlseed-ai-run-cross-equivalence.json": {
+      "real_test_cross_calls": 193,
+      "expanded_cross_cases": 32617,
+      "seconds": 5.323172443000658,
+      "value_type_dict_order_exception_equivalent": true
+    },
+    "sqlseed-ai-run-parser-equivalence.json": {
+      "parser_cases": 1650,
+      "ordered_multi_check_cases": 3993,
+      "real_sqlite_subgraph_cases": 30,
+      "equal": "values, parameter types, dictionary order, and exceptions"
+    },
+    "sqlseed-ai-run-source-audit.json": {
+      "changed_existing_methods": [
+        "run"
+      ],
+      "run_signature_preserved": true,
+      "new_class_methods": 81,
+      "original_regexes": 22,
+      "current_regexes": 22,
+      "existing_free_helpers_preserved": 26
+    },
+    "sqlseed-ai-run-change-manifest.json": {
+      "files": {
+        "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py": {
+          "sha256": "76d19a24080f65ad7e5e4d26c48889a14ced5977fb5180e233488136b26bf9dd",
+          "lines": 3366
+        },
+        "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/_check_inference.py": {
+          "sha256": "0a2f3f9112d43612473ac367917264177e476e78f22d34a36fa28c658456049b",
+          "lines": 917
+        },
+        "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/_cross_column_checks.py": {
+          "sha256": "ea3991c12f73c052f80c837cc86fd51e2fa740efc968e2780a52b725b49ff0be",
+          "lines": 3711
+        },
+        "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/AGENTS.md": {
+          "sha256": "c58f86b6e99dcf7bc900e5ee6f65eb0a4dd45c2b8a86921611d2ca0e6e3a191c",
+          "lines": 44
+        },
+        "plugins/sqlseed-ai/tests/test_auto_heal_orchestrator.py": {
+          "sha256": "69d139455df4ab698baf5e03e44e6ca862e5ab6dcc657517f35ff27c02d6ad4d",
+          "lines": 3108
+        }
+      },
+      "run_phase_order": [
+        "_capture_run_snapshot",
+        "_prepare_run_scope",
+        "TimeBudgetController",
+        "_build_run_root_config",
+        "_process_run_subgraphs",
+        "_align_run_broken_edges",
+        "_verify_run_schema_hash",
+        "_capture_preserved_input_columns",
+        "_normalize_generated_columns",
+        "_restrict_conditional_range_sources",
+        "_stabilize_real_arithmetic_sources",
+        "_cap_derived_range_sources",
+        "_apply_complex_check_null_fallbacks",
+        "_apply_status_null_conditions",
+        "_enforce_notnull_checks",
+        "_restore_input_columns_and_clean_output",
+        "validate_candidate",
+        "yaml.safe_dump"
+      ],
+      "original_user_dirty_preserved": {
+        "baseline_file": "/tmp/sqlseed-ai-check-refactor-before.py",
+        "baseline_sha256": "b081cb32098689d1ac0fd7e1ae941109a81375ab830a23e2e866095e5588e3a0",
+        "annotation": "The existing params: dict[str, Any] intent is carried to the actual shared parameter binding in _normalize_generated_column after now-dead local aliases were removed by extraction.",
+        "removed_assignments": "The already-removed template gen/params local assignments were not restored. Early template correction still writes only column state and ends that column path.",
+        "verification": "Whole-run baseline is after the original dirty edits and ANY bug fix; driver and phase differential compare against that baseline."
+      }
+    }
+  },
+  "additional_regression": "3 real SQLite status-null phase cases expose temporary extraction argument-count failure, then pass after signature fix",
+  "no_commits_or_pushes": true,
+  "source_ready_for_global_gates": true
+}

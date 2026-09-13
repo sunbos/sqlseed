@@ -1,0 +1,84 @@
+# run.py 为不同的新数据库绑定 db_path；此文件可导入 Web 当前连接。
+provider: base
+locale: en_US
+optimize_pragma: false
+tables:
+  - name: users
+    count: 12
+    seed: 101
+    batch_size: 4
+    columns:
+      - name: username
+        generator: template
+        params: {template: "customer_{sequence:03d}"}
+      - name: email
+        generator: template
+        params: {template: "customer-{sequence:03d}@example.test"}
+      - name: display_name
+        generator: template
+        params: {template: "测试客户{sequence:03d}"}
+
+  - name: products
+    count: 8
+    seed: 102
+    batch_size: 4
+    columns:
+      - name: sku
+        generator: template
+        params: {template: "SKU-{sequence:04d}"}
+      - name: name
+        generator: choice
+        params: {choices: [折叠支架, 收纳盒, 便携灯, 记事本]}
+      - name: price_cents
+        generator: integer
+        params: {min_value: 500, max_value: 5000}
+
+  - name: orders
+    count: 24
+    seed: 103
+    batch_size: 6
+    columns:
+      - name: user_id
+        generator: foreign_key
+        params: {ref_table: users, ref_column: id, strategy: coverage}
+      - name: order_no
+        generator: template
+        params: {template: "ORD-{sequence:05d}"}
+      - name: status
+        generator: choice
+        params: {choices: [pending, paid, shipped]}
+      - name: created_at
+        generator: datetime
+        params:
+          start_date: "2026-01-02"
+          end_date: "2026-01-08"
+          all_day: false
+          start_time: "09:00:00"
+          end_time: "18:00:00"
+      - name: paid_at
+        derive_from: status
+        expression: "None if value == 'pending' else row['created_at'] + timedelta(hours=2)"
+      - name: shipped_at
+        derive_from: status
+        expression: "row['paid_at'] + timedelta(days=1) if value == 'shipped' else None"
+
+  - name: order_items
+    count: 48
+    seed: 104
+    batch_size: 8
+    columns:
+      - name: order_id
+        generator: foreign_key
+        params: {ref_table: orders, ref_column: id, strategy: coverage}
+      - name: product_id
+        generator: foreign_key
+        params: {ref_table: products, ref_column: id, strategy: coverage}
+      - name: quantity
+        generator: integer
+        params: {min_value: 1, max_value: 5}
+      - name: unit_price_cents
+        derive_from: product_id
+        expression: "lookup('products', 'price_cents', value)"
+      - name: placed_at
+        derive_from: order_id
+        expression: "lookup('orders', 'created_at', value)"

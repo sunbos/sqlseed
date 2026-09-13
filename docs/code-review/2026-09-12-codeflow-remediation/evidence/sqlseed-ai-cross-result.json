@@ -1,0 +1,38 @@
+{
+  "phase": "cross-column structural refactor",
+  "baseline_pylint": "2.17.7",
+  "baseline_complexity": 367,
+  "entry_complexity": 6,
+  "all_92_functions_maximum_complexity": 10,
+  "design": [
+    "Normalized immutable context",
+    "Five ordered combined-CHECK scans",
+    "64 ordered single-CHECK matchers",
+    "Focused bound collectors and domain expression builders"
+  ],
+  "equivalence": {
+    "baseline_real_test_calls": 193,
+    "differential_cases": 32617,
+    "seconds": 5.24048942599984,
+    "changed_existing_functions": [
+      "_infer_cross_column_config"
+    ],
+    "new_definitions": 93,
+    "explicit_bound_wrapper_calls_reviewed": 8,
+    "dictionary_return_asts_preserved_after_wrapper_normalization": 132,
+    "regex_asts_preserved": 111,
+    "value_type_dict_order_exception_equivalent": true
+  },
+  "pytest": "781 passed, 11 skipped",
+  "pytest_skips": "6 LM Studio; 2 Docker; 3 API key",
+  "targeted_final_pytest": "185 passed",
+  "mypy": "passed",
+  "ruff": "check and format passed",
+  "selected_static_new_functions": [],
+  "remaining_static": "run complexity 344 and nested blocks; pre-existing unused public arguments schema_hash/budget",
+  "protected_existing_body_ast": "All existing definitions other than cross-column entry unchanged from initial dirty-preserving snapshot",
+  "structural_patch": "/tmp/sqlseed-ai-cross-structural.patch",
+  "static_output": "/tmp/sqlseed-ai-cross-static-final.json",
+  "before_snapshot": "/tmp/sqlseed-ai-cross-refactor-before.py",
+  "after_snapshot": "/tmp/sqlseed-ai-cross-structural-after.py"
+}

@@ -1,0 +1,22 @@
+# Pylint overrides for the sqlseed-cli test directory.
+#
+# These rules are disabled ONLY for test code, not for production source:
+#
+# - unused-argument: Mock functions must match real signatures (for
+#   patch.object) but don't use all params. Renaming every mock param
+#   with ``_`` prefix would harm readability without catching real bugs.
+#   Production stubs (hookspec/Protocol/TYPE_CHECKING) use inline disables.
+#
+# - duplicate-code / CodeDuplication: Test setup (tmp_db fixtures,
+#   conftest re-exports, similar arrange-act-assert blocks) is
+#   intentionally similar across test files. DRY would harm test
+#   isolation and readability.
+#
+# Production source (src/, plugins/*/src/) is NOT covered by this file
+# and remains fully linted.
+
+[MESSAGES CONTROL]
+disable =
+    duplicate-code,
+    CodeDuplication,
+    unused-argument,

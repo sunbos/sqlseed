@@ -1,0 +1,3 @@
+# Runtime dependency closure for the Core + Web installation smoke test.
+-e .
+-e ./plugins/sqlseed-web

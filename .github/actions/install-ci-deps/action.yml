@@ -1,0 +1,15 @@
+name: Install locked CI dependencies
+description: Verify third-party hashes and use locked tools for source-only dependencies
+runs:
+  using: composite
+  steps:
+    - name: Install locked build tools
+      shell: bash
+      run: |
+        python -m pip install --require-hashes --only-binary :all: -r .github/requirements-bootstrap.txt
+    - name: Install locked CI dependencies
+      # mutmut 2.x and glob2 publish only source archives. Their reviewed hashes
+      # are locked; build them with the tools above and no isolated downloads.
+      shell: bash
+      run: |
+        python -m pip install --require-hashes --only-binary :all: --no-binary glob2,mutmut --no-build-isolation --use-pep517 -r .github/requirements-ci.txt

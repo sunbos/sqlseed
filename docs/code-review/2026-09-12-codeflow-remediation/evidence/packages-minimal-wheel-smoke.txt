@@ -1,0 +1,1 @@
+{"wheel_imports": true, "rows": 5, "web_rows": 5, "web": "ready", "components": {"core": "available", "web": "available", "ai": "not_installed", "cli": "not_installed", "mcp": "not_installed"}}

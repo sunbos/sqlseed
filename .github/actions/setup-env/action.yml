@@ -1,0 +1,30 @@
+name: 'Setup sqlseed CI environment'
+description: 'Python setup (pip cache) + editable install of core & all plugins'
+
+# Local composite actions are resolved from the working tree BEFORE any
+# step runs — jobs MUST run actions/checkout before this action.
+inputs:
+  python-version:
+    description: 'Python version for actions/setup-python'
+    required: true
+
+runs:
+  using: 'composite'
+  steps:
+    - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+      with:
+        python-version: ${{ inputs.python-version }}
+        cache: 'pip'
+        cache-dependency-path: |
+          .github/requirements-ci.txt
+          .github/requirements-bootstrap.txt
+
+    - uses: ./.github/actions/install-ci-deps
+
+    - name: Install dependencies
+      # Resolve the matching local packages together. Candidate plugins can
+      # require a Core version that has not been published to PyPI yet.
+      shell: bash
+      run: |
+        python -m pip install --no-deps --no-build-isolation -e ".[all,dev,docs]" -e "./plugins/sqlseed-cli" -e "./plugins/sqlseed-ai[dev]" -e "./plugins/mcp-server-sqlseed" -e "./plugins/sqlseed-web[dev]"
+        python -m pip check

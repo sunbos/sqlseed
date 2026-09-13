@@ -1,68 +1,44 @@
-# SQLSEED-AI PLUGIN
+# sqlseed-ai 插件
 
-## OVERVIEW
+LLM schema 分析、contract-driven self-healing 和模板值生成的独立发行包；依赖方向是本插件 → `sqlseed` / `sqlseed-cli`。Core 必须保持离线，不得反向导入本插件。
 
-LLM-powered schema analysis and template generation. Separate package with own pyproject.toml. Supports 4 backends (Google AI Studio, LM Studio, Ollama, OpenAI-compatible) and 5 Gemma 4 model variants.
+## 边界导航
 
-## STRUCTURE
+| 工作 | 先读 |
+|---|---|
+| 运行时代码、backend、协议、contracts / repair / healer | [src/sqlseed_ai/AGENTS.md](src/sqlseed_ai/AGENTS.md) |
+| 自动修复协调、跨列 CHECK 推断与最终 YAML 清理 | [src/sqlseed_ai/auto_heal/AGENTS.md](src/sqlseed_ai/auto_heal/AGENTS.md) |
+| AI 测试、真实 LLM 环境与 fixtures | [tests/AGENTS.md](tests/AGENTS.md) |
 
+## 发行与入口
+
+- 以 [pyproject.toml](pyproject.toml) 为依赖、extras 和 entry points 的依据；本包直接依赖 `sqlseed`、`sqlseed-cli`、`openai`、`httpx`、`networkx`。
+- 当前 AI 要求 Core `>=0.2.4.dev0,<0.3`；Core 0.2.3 缺少 `sqlseed_apply_ai_suggestions` hookspec 和 AI MCP 使用的目标校验函数。
+- `[project.entry-points."sqlseed"]` 导出 `ai = "sqlseed_ai:plugin"`；插件实例和 `@hookimpl` 在 [src/sqlseed_ai/__init__.py](src/sqlseed_ai/__init__.py)。
+- `[project.entry-points."sqlseed.cli_commands"]` 指向 [src/sqlseed_ai/cli/ai_commands.py](src/sqlseed_ai/cli/ai_commands.py) 的 `register()`；通过注册扩展 CLI，不能让 `sqlseed-cli` 直接依赖 AI 实现。
+- `ai-suggest` 默认做单表分析；`ai-suggest --auto-heal`、`ai-analyze` 和 `auto-heal` 使用 v4 `AutoHealOrchestrator` 路径。不要恢复已删除的 `Stage3Validator` / `SchemaSemanticAnalyzer` / `StagedSchemaAnalyzer` 或旧 staged flags。
+- [src/sqlseed_ai/mcp.py](src/sqlseed_ai/mcp.py) 提供 AI MCP tools，`mcp-server-sqlseed-ai` 是它的命令入口；运行需要本包 `[mcp]` extra。Core-only MCP 位于兄弟包 `mcp-server-sqlseed`，不要把 LLM 能力搬回那里。
+- 修改 AI CLI 的用户行为时，同步根 [README.md](../../README.md) 与 [README.zh-CN.md](../../README.zh-CN.md) 的命令说明。
+- 修改依赖后同步本包 [uv.lock](uv.lock) 和受影响的根 lock；按根发布流程处理版本、changelog 与其他发行包。
+
+## 配置与兼容性
+
+- 环境配置统一从 `AIConfig.from_env()` 加载；显式传入的 `AIConfig` 保持可用，不在各调用方重复读取环境变量。
+- 支持 Google AI Studio、LM Studio、Ollama 与 OpenAI-compatible backend；Gemma 4 是长期 backend 支持目标。模型 ID、别名和优先级查 `GemmaModel` / `_model_selector.py`，不要在说明里维护重复型号清单。
+- backend 解析为显式 `SQLSEED_AI_BACKEND` → 已知 URL 模式 → `OPENAI_COMPAT`；这不是依次探测所有服务的 fallback 链。
+- `SQLSEED_AI_API_KEY` 回退到 `GOOGLE_API_KEY` / `OPENAI_API_KEY`；`SQLSEED_AI_BASE_URL` 回退到 `OPENAI_BASE_URL`。其余环境变量与默认值以 [src/sqlseed_ai/config.py](src/sqlseed_ai/config.py) 为准。
+- 协议由 `tool_calling_protocol` 和 `resolve_tool_calling_protocol()` 决定，不能仅根据模型名称或 backend 直接选择工具调用路径。
+
+## 本地验证
+
+从仓库根执行；测试细分及服务依赖见 [tests/AGENTS.md](tests/AGENTS.md)。
+
+```bash
+pip install -e '.' -e './plugins/sqlseed-cli' -e './plugins/sqlseed-ai[dev]'
+pytest plugins/sqlseed-ai/tests/
+ruff check plugins/sqlseed-ai/
+ruff format --check plugins/sqlseed-ai/
+mypy plugins/sqlseed-ai/src/sqlseed_ai/
 ```
-sqlseed-ai/
-├── pyproject.toml        # Separate package: sqlseed>=0.1.0, openai>=1.0, httpx>=0.24.0
-└── src/sqlseed_ai/
-    ├── __init__.py       # AISqlseedPlugin, plugin instance, hookimpl registration
-    ├── analyzer.py       # SchemaAnalyzer — LLM schema analysis, streaming, tool calling
-    ├── refiner.py        # AiConfigRefiner — post-generation refinement, self-correction, streaming
-    ├── config.py         # AIConfig — env-based config, GemmaModel enum, AIBackend enum
-    ├── errors.py         # Error classification (7 processors)
-    ├── _client.py        # OpenAI client wrapper, httpx timeout config
-    ├── _hardware.py      # Cross-platform hardware detection (RAM, GPU/VRAM) for model selection
-    ├── _model_selector.py # Gemma 4 model selection and fallback chain
-    ├── _json_utils.py    # JSON parsing utilities (3-strategy fallback)
-    └── examples.py       # Few-shot examples for prompts
-```
 
-## WHERE TO LOOK
-
-| Task | Location | Notes |
-|------|----------|-------|
-| Add hook | `__init__.py` | Decorate with `@hookimpl` |
-| Modify LLM calls | `analyzer.py` | `call_llm()`, `call_llm_streaming()`, `_call_llm_once()` |
-| Change model selection | `_model_selector.py` | `select_gemma_model()`, `select_next_gemma_model()` |
-| Add config option | `config.py` | `AIConfig.from_env()`, `GemmaModel`, `AIBackend` |
-| Modify prompt templates | `analyzer.py` | `SYSTEM_PROMPT`, `_COMPACT_SYSTEM_PROMPT` (ultra-compact reuses compact prompt with fewer few-shot examples) |
-| Change error handling | `errors.py` | `summarize_error()` with 7 processors |
-
-## CONVENTIONS
-
-- **Entry point**: Register via `pyproject.toml` `[project.entry-points."sqlseed"]`
-- **Plugin instance**: `plugin = AISqlseedPlugin()` at module level
-- **Hookimpl**: Use `@hookimpl` from `sqlseed.plugins.hookspecs`
-- **Error handling**: Catch `(ValueError, RuntimeError, OSError)` in hooks
-- **Simple column skip**: `_SIMPLE_COL_RE` regex skips basic types
-
-## ANTI-PATTERNS
-
-- **NEVER** import openai at module top → use lazy init in `_get_analyzer()`
-- **NEVER** raise from hook methods → return None on failure
-- **ALWAYS** use `AIConfig.from_env()` for configuration
-- **ALWAYS** cap template generation at 50 values (`min(count, 50)`)
-
-## Gemma 4 Model Variants
-
-| Enum | Model ID | Use Case |
-|------|----------|----------|
-| `GEMMA_4_E2B` | `gemma-4-e2b-it` | Ultra-light edge, Ollama/LM Studio |
-| `GEMMA_4_E4B` | `gemma-4-e4b-it` | Lightweight local, LM Studio |
-| `GEMMA_4_12B` | `gemma-4-12b-it` | Balanced, LM Studio/Ollama |
-| `GEMMA_4_26B_A4B` | `gemma-4-26b-a4b-it` | High quality, recommended |
-| `GEMMA_4_31B` | `gemma-4-31b-it` | Best quality, Google AI Studio |
-
-## Backend Configuration
-
-| Backend | Default Base URL | Notes |
-|---------|-----------------|-------|
-| `google_ai_studio` | `https://generativelanguage.googleapis.com/v1beta/openai/` | Cloud, supports tool calling |
-| `lm_studio` | `http://127.0.0.1:1234/v1` | Local, auto-detect models |
-| `ollama` | `http://localhost:11434/v1` | Local, offline |
-| `openai_compat` | (must set `SQLSEED_AI_BASE_URL`) | Generic OpenAI-compatible |
+涉及包边界时还需按根规范运行 `lint-imports` 和 architecture tests。架构约束以 [ARCHITECTURE.md](../../ARCHITECTURE.md) 为准，通用规则以 [CLAUDE.md](../../CLAUDE.md) 为准；这里仅记录 AI 插件差异。

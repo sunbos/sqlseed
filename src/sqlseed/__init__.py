@@ -1,3 +1,8 @@
+"""sqlseed — declarative SQLite/multi-database test data generation toolkit.
+
+Public API: fill, connect, fill_from_config, preview, load_config.
+"""
+
 from __future__ import annotations
 
 from typing import Any
@@ -33,8 +38,9 @@ logger = get_logger(__name__)
 
 
 def fill(
-    db_path: str,
+    db_path: str | None = None,
     *,
+    url: str | None = None,
     table: str,
     count: int = 1000,
     columns: dict[str, Any] | None = None,
@@ -48,8 +54,34 @@ def fill(
     transform: str | None = None,
     skip_ai: bool = True,
 ) -> GenerationResult:
+    """Fill a single table with zero configuration.
+
+    Two mutually exclusive connection modes are supported:
+    - ``fill("app.db", table="users", count=1000)`` — SQLite file path
+    - ``fill(url="postgresql://user:pass@host/db", table="users", count=1000)`` — database URL
+
+    Args:
+        db_path: SQLite database file path (mutually exclusive with ``url``).
+        url: Database URL, e.g. ``postgresql://user:pass@host/db`` (mutually exclusive with ``db_path``).
+        table: Target table name to fill.
+        count: Number of rows to generate.
+        columns: Optional column overrides (column name → generator params).
+        provider: Data provider name (``"mimesis"``, ``"faker"``, or ``"base"``).
+        locale: Locale for localized data (e.g. ``"en_US"``, ``"zh_CN"``).
+        seed: Random seed for reproducible generation.
+        batch_size: Rows per batch insert.
+        clear_before: If True, delete existing rows before filling.
+        optimize_pragma: If True, apply SQLite PRAGMA optimizations during fill.
+        enrich: If True, apply local enum enrichment to column mapping.
+        transform: Optional path to a user transform script.
+        skip_ai: If True, skip AI-suggested column mapping.
+
+    Raises:
+        ValueError: If neither ``db_path`` nor ``url`` is provided, or if both are provided.
+    """
+    target = _resolve_db_target(db_path, url)
     with DataOrchestrator(
-        db_path=db_path,
+        db_path=target,
         provider_name=provider,
         locale=locale,
         optimize_pragma=optimize_pragma,
@@ -68,18 +100,58 @@ def fill(
 
 
 def connect(
-    db_path: str,
+    db_path: str | None = None,
     *,
+    url: str | None = None,
     provider: str = "mimesis",
     locale: str = "en_US",
     optimize_pragma: bool = True,
 ) -> DataOrchestrator:
+    """Connect to a database and return a DataOrchestrator context manager.
+
+    Two mutually exclusive connection modes are supported:
+    - ``connect("app.db")`` — SQLite file path
+    - ``connect(url="postgresql://user:pass@host/db")`` — database URL
+
+    Args:
+        db_path: SQLite database file path (mutually exclusive with ``url``).
+        url: Database URL (mutually exclusive with ``db_path``).
+        provider: Data provider name (``"mimesis"``, ``"faker"``, or ``"base"``).
+        locale: Locale for localized data (e.g. ``"en_US"``, ``"zh_CN"``).
+        optimize_pragma: If True, apply SQLite PRAGMA optimizations during fill.
+
+    Raises:
+        ValueError: If neither ``db_path`` nor ``url`` is provided, or if both are provided.
+    """
+    target = _resolve_db_target(db_path, url)
     return DataOrchestrator(
-        db_path=db_path,
+        db_path=target,
         provider_name=provider,
         locale=locale,
         optimize_pragma=optimize_pragma,
     )
+
+
+def _resolve_db_target(db_path: str | None, url: str | None) -> str:
+    """Resolve the database connection target; db_path and url are mutually exclusive.
+
+    Args:
+        db_path: SQLite file path.
+        url: Database URL.
+
+    Returns:
+        Connection target string for DataOrchestrator.
+
+    Raises:
+        ValueError: If both are provided or neither is provided.
+    """
+    if db_path is not None and url is not None:
+        raise ValueError("Cannot specify both db_path and url. Use one or the other.")
+    if db_path is not None:
+        return db_path
+    if url is not None:
+        return url
+    raise ValueError("Either db_path or url must be provided.")
 
 
 def fill_from_config(
@@ -93,6 +165,24 @@ def fill_from_config(
     batch_size: int | None = None,
     locale: str | None = None,
 ) -> list[GenerationResult]:
+    """Load data generation config from a YAML/JSON file and fill multiple tables.
+
+    All tables are filled in topological order (foreign key dependencies first).
+    Global parameters in the config can be overridden via keyword arguments.
+
+    Args:
+        config_path: Path to the config file (YAML or JSON).
+        skip_ai: Skip AI analysis (default True).
+        clear_before: Clear tables before filling (default False).
+        count: Override row count for all tables (None uses each table's config).
+        provider: Override data provider (None uses config value).
+        seed: Override random seed (None uses each table's config).
+        batch_size: Override batch size (None uses each table's config).
+        locale: Override locale (None uses config value).
+
+    Returns:
+        List of generation results per table, in topological order.
+    """
     config = load_config(config_path)
     if provider is not None:
         config.provider = ProviderType(provider)
@@ -101,8 +191,11 @@ def fill_from_config(
     results: list[GenerationResult] = []
     with DataOrchestrator.from_config(config) as orch:
         table_names = [tc.name for tc in config.tables]
-        sorted_names = orch.get_topological_table_order(table_names)
-        name_to_config = {tc.name: tc for tc in config.tables}
+        canonical_names = orch._preflight_generation(table_names)
+        if len(set(canonical_names.values())) != len(table_names):
+            raise ValueError("Configuration contains duplicate references to the same table")
+        sorted_names = orch.get_topological_table_order(list(canonical_names.values()))
+        name_to_config = {canonical_names[tc.name]: tc for tc in config.tables}
         total_tables = len(sorted_names)
         for idx, name in enumerate(sorted_names, 1):
             table_config = name_to_config[name]
@@ -116,7 +209,7 @@ def fill_from_config(
                 progress=f"[{idx}/{total_tables}]",
             )
             result = orch.fill_table(
-                table_name=table_config.name,
+                table_name=name,
                 count=effective_count,
                 seed=effective_seed,
                 batch_size=effective_batch_size,
@@ -131,8 +224,9 @@ def fill_from_config(
 
 
 def preview(
-    db_path: str,
+    db_path: str | None = None,
     *,
+    url: str | None = None,
     table: str,
     count: int = 5,
     columns: dict[str, Any] | None = None,
@@ -142,8 +236,30 @@ def preview(
     enrich: bool = False,
     transform: str | None = None,
 ) -> list[dict[str, Any]]:
+    """Preview generated data without writing to the database.
+
+    Two mutually exclusive connection modes are supported:
+    - ``preview("app.db", table="users")`` — SQLite file path
+    - ``preview(url="postgresql://...", table="users")`` — database URL
+
+    Args:
+        db_path: SQLite database file path (mutually exclusive with ``url``).
+        url: Database URL (mutually exclusive with ``db_path``).
+        table: Target table name to preview.
+        count: Number of rows to generate for preview.
+        columns: Optional column overrides (column name → generator params).
+        provider: Data provider name (``"mimesis"``, ``"faker"``, or ``"base"``).
+        locale: Locale for localized data (e.g. ``"en_US"``, ``"zh_CN"``).
+        seed: Random seed for reproducible generation.
+        enrich: If True, apply local enum enrichment to column mapping.
+        transform: Optional path to a user transform script.
+
+    Raises:
+        ValueError: If neither ``db_path`` nor ``url`` is provided, or if both are provided.
+    """
+    target = _resolve_db_target(db_path, url)
     with DataOrchestrator(
-        db_path=db_path,
+        db_path=target,
         provider_name=provider,
         locale=locale,
         optimize_pragma=False,

@@ -39,7 +39,7 @@ export SQLSEED_AI_MODEL=gemma4:e4b
 
 ## Native Function Calling
 
-GemmaSQLSeed defines a function interface via `GEMMA_TOOLS`:
+GemmaSQLSeed defines a single function interface via `GEMMA_TOOLS` (one tool: `analyze_schema`):
 
 ### analyze_schema
 
@@ -69,16 +69,18 @@ GEMMA_TOOLS = [
 
 ### Calling Flow
 
-```
-1. Send tools=GEMMA_TOOLS, tool_choice="auto" to Gemma 4
-2. Gemma 4 selects analyze_schema function, returns structured parameters
-3. Extract JSON from tool_call.function.arguments
-4. Fallback chain: Tool Calling -> JSON mode -> Plain text
-```
+The active strategy is resolved per backend via `AIConfig.resolve_tool_calling_protocol()`:
 
-> Note: Native Function Calling is attempted on the Google AI Studio backend.
-> OpenAI-compatible cloud backends use JSON mode, and local backends
-> (LM Studio / Ollama) use plain text mode directly.
+```
+1. Native function calling (tools=GEMMA_TOOLS, tool_choice="auto") is attempted
+   only when the resolved protocol is "gemma4" (Google AI Studio only) or
+   "openai" (Google AI Studio / OpenAI-compatible).
+2. Gemma 4 selects the analyze_schema function, returns structured parameters
+3. Extract JSON from tool_call.function.arguments
+4. Fallback: cloud backends (Google AI Studio / OpenAI-compatible) use JSON mode
+   (response_format: json_object); local backends (LM Studio, Ollama) use
+   plain-text mode directly.
+```
 
 ## Agent Memory (Self-Correction)
 
@@ -114,14 +116,15 @@ python scripts/quickstart.py --backend lm_studio --model google/gemma-4-e4b
 sqlseed ai-suggest app.db -t users -o config.yaml
 
 # Python API
-from sqlseed import DataOrchestrator
 from sqlseed_ai import SchemaAnalyzer
 from sqlseed_ai.config import AIConfig
+from sqlseed.core.orchestrator import DataOrchestrator
 
 config = AIConfig.from_env()  # Reads SQLSEED_AI_BACKEND, SQLSEED_AI_MODEL
+analyzer = SchemaAnalyzer(config=config)
+
 with DataOrchestrator("app.db") as orch:
     schema_ctx = orch.get_schema_context("users")
-analyzer = SchemaAnalyzer(config=config)
 result = analyzer.analyze_table_from_ctx(**schema_ctx)
 ```
 

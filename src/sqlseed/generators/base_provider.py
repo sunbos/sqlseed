@@ -1,157 +1,68 @@
+"""Built-in data generator with no external dependencies. Provides 34 generators."""
+
 from __future__ import annotations
 
 import random
-import string
+import re
+import struct
 import uuid
-from datetime import datetime, timedelta
-from typing import Any, ClassVar
+import zlib
+from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal, localcontext
+from math import isfinite
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
+import rstr as _rstr
+
+from sqlseed.generators._datetime_methods import date_method, datetime_method, time_method
 from sqlseed.generators._dispatch import GeneratorDispatchMixin
 from sqlseed.generators._json_helpers import generate_json_from_schema
+from sqlseed.generators._protocol import ConfigurationError
 from sqlseed.generators._string_helpers import generate_random_string
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+_RANDOM_STRING_FIELD = "{random_string:"
+_RANDOM_DIGITS_FIELD = "{random_digits:"
+_RANDOM_INT_FIELD = "{random_int:"
 
 
 class BaseProvider(GeneratorDispatchMixin):
-    """Built-in data generator with no external dependencies."""
+    """Built-in data generator with no external dependencies.
 
-    FIRST_NAMES: ClassVar[list[str]] = [
-        "James",
-        "Mary",
-        "John",
-        "Patricia",
-        "Robert",
-        "Jennifer",
-        "Michael",
-        "Linda",
-        "William",
-        "Elizabeth",
-        "David",
-        "Barbara",
-        "Richard",
-        "Susan",
-        "Joseph",
-        "Jessica",
-        "Thomas",
-        "Sarah",
-        "Charles",
-        "Karen",
-        "Christopher",
-        "Lisa",
-        "Daniel",
-        "Nancy",
-        "Matthew",
-        "Betty",
-        "Anthony",
-        "Margaret",
-        "Mark",
-        "Sandra",
-        "Donald",
-        "Ashley",
-        "Steven",
-        "Kimberly",
-        "Paul",
-        "Emily",
-        "Andrew",
-        "Donna",
-        "Joshua",
-        "Michelle",
-        "Kenneth",
-        "Carol",
-        "Kevin",
-        "Amanda",
-        "Brian",
-        "Dorothy",
-        "George",
-        "Melissa",
-        "Timothy",
-        "Deborah",
-        "Ronald",
-        "Stephanie",
-        "Edward",
-        "Rebecca",
-        "Jason",
-        "Sharon",
-        "Jeffrey",
-        "Laura",
-        "Ryan",
-        "Cynthia",
-    ]
-    LAST_NAMES: ClassVar[list[str]] = [
-        "Smith",
-        "Johnson",
-        "Williams",
-        "Brown",
-        "Jones",
-        "Garcia",
-        "Miller",
-        "Davis",
-        "Rodriguez",
-        "Martinez",
-        "Hernandez",
-        "Lopez",
-        "Gonzalez",
-        "Wilson",
-        "Anderson",
-        "Thomas",
-        "Taylor",
-        "Moore",
-        "Jackson",
-        "Martin",
-        "Lee",
-        "Perez",
-        "Thompson",
-        "White",
-        "Harris",
-        "Sanchez",
-        "Clark",
-        "Ramirez",
-        "Lewis",
-        "Robinson",
-        "Walker",
-        "Young",
-        "Allen",
-        "King",
-        "Wright",
-        "Scott",
-        "Torres",
-        "Nguyen",
-        "Hill",
-        "Flores",
-        "Green",
-        "Adams",
-        "Nelson",
-        "Baker",
-        "Hall",
-        "Rivera",
-        "Campbell",
-        "Mitchell",
-        "Carter",
-        "Roberts",
-        "Gomez",
-        "Phillips",
-        "Evans",
-        "Turner",
-        "Diaz",
-        "Parker",
-        "Cruz",
-        "Edwards",
-        "Collins",
-        "Reyes",
-    ]
+    Uses an incrementing counter combined with seed variation to produce lightweight
+    placeholder data. No hardcoded data lists — all values are synthesized.
+    """
 
     def __init__(self) -> None:
         self._rng = random.Random()
         self._locale: str = "en_US"
+        self._counter: int = 0
+
+    def _next_id(self) -> int:
+        """Return the next incrementing counter value (starting from 1)."""
+        self._counter += 1
+        return self._counter
+
+    def _seeded_id(self) -> int:
+        """Return a seed-based counter variant for differentiation."""
+        return self._rng.randint(1, 9999)
 
     @property
     def name(self) -> str:
+        """Return the provider name."""
         return "base"
 
     def set_locale(self, locale: str) -> None:
+        """Set the locale information."""
         self._locale = locale
 
     def set_seed(self, seed: int) -> None:
+        """Set the random seed."""
         self._rng = random.Random(seed)
+
+    # ── Primitive generators ──────────────────────────────────────────
 
     def _gen_string(
         self,
@@ -160,9 +71,18 @@ class BaseProvider(GeneratorDispatchMixin):
         max_length: int = 100,
         charset: str | None = None,
     ) -> str:
+        """Generate a random string respecting ``min_length`` and ``max_length``.
+
+        When ``charset`` is ``None``, a default charset (letters, digits, space,
+        underscore, hyphen) is used via :func:`resolve_charset`. This ensures
+        that ``min_length`` is always honored — previously, a missing
+        ``charset`` caused the method to return a fixed-length ``str_NNN``
+        placeholder, ignoring ``min_length``/``max_length`` entirely.
+        """
         return generate_random_string(self._rng, min_length=min_length, max_length=max_length, charset=charset)
 
     def _gen_integer(self, *, min_value: int = 0, max_value: int = 999999) -> int:
+        """Generate an integer."""
         return self._rng.randint(min_value, max_value)
 
     def _gen_float(
@@ -172,513 +92,490 @@ class BaseProvider(GeneratorDispatchMixin):
         max_value: float = 999999.0,
         precision: int = 2,
     ) -> float:
-        value = self._rng.uniform(min_value, max_value)
-        return round(value, precision)
+        """Generate a float within the closed interval at the requested precision."""
+        return self._generate_float_in_bounds(
+            min_value, max_value, precision, lambda: self._rng.uniform(min_value, max_value)
+        )
 
-    def _gen_boolean(self) -> bool:
-        return self._rng.choice([True, False])
-
-    def _gen_bytes(self, *, length: int = 16) -> bytes:
-        return self._rng.randbytes(length)
-
-    def _gen_name(self) -> str:
-        return f"{self._rng.choice(self.FIRST_NAMES)} {self._rng.choice(self.LAST_NAMES)}"
-
-    def _gen_first_name(self) -> str:
-        return self._rng.choice(self.FIRST_NAMES)
-
-    def _gen_last_name(self) -> str:
-        return self._rng.choice(self.LAST_NAMES)
-
-    def _gen_email(self) -> str:
-        first = self._gen_first_name().lower()
-        last = self._gen_last_name().lower()
-        domains = ["example.com", "test.org", "mail.net", "demo.io", "sample.dev"]
-        return f"{first}.{last}{self._rng.randint(1, 999)}@{self._rng.choice(domains)}"
-
-    def _gen_phone(self) -> str:
-        area = self._rng.randint(200, 999)
-        mid = self._rng.randint(100, 999)
-        end = self._rng.randint(1000, 9999)
-        return f"{area}-{mid}-{end}"
-
-    def _gen_address(self) -> str:
-        streets = [
-            "Main St",
-            "Oak Ave",
-            "Pine Rd",
-            "Elm Blvd",
-            "Cedar Ln",
-            "Maple Dr",
-            "Washington Ave",
-            "Park Rd",
-            "Lake Dr",
-            "Hill St",
-        ]
-        num = self._rng.randint(1, 9998)
-        cities = [
-            "Springfield",
-            "Portland",
-            "Franklin",
-            "Clinton",
-            "Madison",
-            "Georgetown",
-            "Arlington",
-            "Salem",
-            "Fairview",
-            "Chester",
-        ]
-        states = ["CA", "NY", "TX", "FL", "IL", "PA", "OH", "GA", "NC", "MI"]
-        street = self._rng.choice(streets)
-        city = self._rng.choice(cities)
-        state = self._rng.choice(states)
-        return f"{num} {street}, {city}, {state}"
-
-    def _gen_company(self) -> str:
-        prefixes = ["Global", "Prime", "Alpha", "Elite", "Tech", "Nova", "Apex", "Core"]
-        suffixes = ["Corp", "Inc", "LLC", "Ltd", "Group", "Systems", "Solutions", "Labs"]
-        return f"{self._rng.choice(prefixes)} {self._rng.choice(suffixes)}"
-
-    def _gen_url(self) -> str:
-        domains = ["example", "test", "demo", "sample", "mysite"]
-        tlds = ["com", "org", "net", "io", "dev"]
-        paths = ["", "/home", "/about", "/products", "/blog", "/api/v1"]
-        domain = self._rng.choice(domains)
-        tld = self._rng.choice(tlds)
-        path = self._rng.choice(paths)
-        return f"https://www.{domain}.{tld}{path}"
-
-    def _gen_ipv4(self) -> str:
-        o1 = self._rng.randint(1, 255)
-        o2 = self._rng.randint(0, 255)
-        o3 = self._rng.randint(0, 255)
-        o4 = self._rng.randint(1, 254)
-        return f"{o1}.{o2}.{o3}.{o4}"
-
-    def _gen_uuid(self) -> str:
-        return str(uuid.UUID(bytes=self._rng.randbytes(16), version=4))
-
-    def _gen_date(self, *, start_year: int = 2000, end_year: int | None = None) -> str:
-        return self._random_date(start_year, end_year).strftime("%Y-%m-%d")
-
-    def _gen_datetime(self, *, start_year: int = 2000, end_year: int | None = None) -> str:
-        _, resolved_end = self._resolve_date_range(start_year, end_year)
-        start = datetime(start_year, 1, 1)
-        end = datetime(resolved_end, 12, 31, 23, 59, 59)
-        delta = max((end - start).total_seconds(), 0)
-        random_dt = start + timedelta(seconds=self._rng.uniform(0, max(delta, 1)))
-        return random_dt.strftime("%Y-%m-%d %H:%M:%S")
+    def _generate_float_in_bounds(
+        self,
+        min_value: float,
+        max_value: float,
+        precision: int,
+        draw: Callable[[], float],
+    ) -> float:
+        """Validate before drawing, avoiding RNG consumption for a single valid value."""
+        lower, upper = self._float_bounds(min_value, max_value, precision)
+        if lower == upper:
+            return lower
+        value = draw()
+        return max(lower, min(upper, round(value, precision)))
 
     @staticmethod
-    def _resolve_date_range(start_year: int, end_year: int | None) -> tuple[int, int]:
-        resolved_end = end_year or datetime.now().year
-        return start_year, max(resolved_end, start_year)
+    def _float_bounds(min_value: float, max_value: float, precision: int) -> tuple[float, float]:
+        """Find rounded endpoints without letting rounding escape the requested range."""
+        if not isfinite(min_value) or not isfinite(max_value):
+            raise ValueError("float bounds must be finite")
+        if min_value > max_value:
+            raise ValueError("min_value must not exceed max_value")
 
-    def _random_date(self, start_year: int, end_year: int | None = None) -> datetime:
-        _, resolved_end = self._resolve_date_range(start_year, end_year)
-        start = datetime(start_year, 1, 1)
-        end = datetime(resolved_end, 12, 31)
-        delta = max((end - start).days, 0)
-        return start + timedelta(days=self._rng.randint(0, max(delta, 1)))
+        lower, upper = round(min_value, precision), round(max_value, precision)
+        if lower < min_value or upper > max_value:
+            # Decimal strings avoid treating a bound such as 0.29 as slightly
+            # below its decimal value when locating the first/last valid step.
+            minimum, maximum = Decimal(str(min_value)), Decimal(str(max_value))
+            quantum = Decimal((0, (1,), -precision))
+            with localcontext() as context:
+                context.prec = max(28, minimum.adjusted() + precision + 1, maximum.adjusted() + precision + 1)
+                if lower < min_value:
+                    lower = float(minimum.quantize(quantum, rounding=ROUND_CEILING))
+                if upper > max_value:
+                    upper = float(maximum.quantize(quantum, rounding=ROUND_FLOOR))
+        if lower > upper or lower < min_value or upper > max_value:
+            raise ValueError(f"No float in [{min_value}, {max_value}] has the requested precision {precision}")
+        return float(lower), float(upper)
 
-    def _gen_timestamp(self) -> int:
-        start = datetime(2000, 1, 1)
-        end = datetime(2030, 12, 31, 23, 59, 59)
-        delta = (end - start).total_seconds()
-        random_dt = start + timedelta(seconds=self._rng.uniform(0, delta))
-        return int(random_dt.timestamp())
+    def _gen_boolean(self) -> bool:
+        """Generate a boolean."""
+        n = self._next_id()
+        return n % 2 == 1
+
+    def _gen_bytes(
+        self,
+        *,
+        length: int = 16,
+        width: int | None = None,
+        height: int | None = None,
+        image_format: str | None = None,
+        folder: str | None = None,
+        extensions: list[str] | None = None,
+    ) -> bytes:
+        """Generate bytes: random data, a synthetic image, or a file from disk.
+
+        Modes (first match wins, mirroring 参考工具's 图像或二进制 type):
+
+        - ``folder`` — pick a random file from the directory (optionally
+          filtered by ``extensions``, case-insensitive, leading dot optional).
+          Raises ``ValueError`` when the folder is missing or nothing matches.
+        - ``width``/``height`` — a synthetic image. PNG is built with the
+          stdlib (8-bit RGB, deterministic); ``image_format="jpeg"`` uses
+          Pillow when installed and falls back to PNG bytes otherwise.
+        - otherwise — ``length`` random bytes (legacy behavior).
+        """
+        if folder is not None:
+            return self._file_bytes_from_folder(folder, extensions)
+        if width is not None or height is not None:
+            w = width if width is not None else (height or 1)
+            h = height if height is not None else (width or 1)
+            return self._image_bytes(w, h, image_format or "png")
+        return self._rng.randbytes(length)
+
+    def _image_bytes(self, width: int, height: int, image_format: str) -> bytes:
+        """Synthesize image bytes for the given dimensions."""
+        if image_format.lower() in {"jpeg", "jpg"}:
+            try:
+                import io
+
+                from PIL import Image  # optional dependency — not a hard requirement
+            except ImportError:
+                return self._png_bytes(width, height)
+            buf = io.BytesIO()
+            Image.new("RGB", (width, height)).save(buf, format="JPEG")
+            return buf.getvalue()
+        return self._png_bytes(width, height)
+
+    def _png_bytes(self, width: int, height: int) -> bytes:
+        """Build a minimal valid PNG (8-bit RGB, uniform gray) with the stdlib."""
+        raw = b"".join(b"\x00" + b"\x80" * (width * 3) for _ in range(height))
+
+        def chunk(tag: bytes, payload: bytes) -> bytes:
+            return struct.pack(">I", len(payload)) + tag + payload + struct.pack(">I", zlib.crc32(tag + payload))
+
+        ihdr = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+        return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b"")
+
+    def _file_bytes_from_folder(self, folder: str, extensions: list[str] | None) -> bytes:
+        """Return the bytes of a random file in ``folder`` matching ``extensions``.
+
+        Raises ``ConfigurationError`` (not the retriable ``GenerationError``):
+        a missing folder or empty match set can never succeed on retry, and
+        the stream layer would otherwise burn 1000 retries and replace the
+        real cause with a generic constraint-failure message.
+        """
+        root = Path(folder).expanduser()
+        if not root.is_dir():
+            raise ConfigurationError(f"bytes generator: folder does not exist or is not a directory: {folder}")
+        exts = {e.lower().lstrip(".") for e in (extensions or [])}
+        files = [p for p in root.iterdir() if p.is_file() and (not exts or p.suffix.lower().lstrip(".") in exts)]
+        if not files:
+            raise ConfigurationError(
+                f"bytes generator: no files matching {sorted(exts) or 'any extension'} in {folder}"
+            )
+        return self._rng.choice(files).read_bytes()
+
+    # ── Name generators ───────────────────────────────────────────────
+
+    def _gen_name(self) -> str:
+        """Generate a full name."""
+        n = self._next_id()
+        s = self._seeded_id()
+        return f"first_{n:03d}_{s:04d} last_{n:03d}_{s:04d}"
+
+    def _gen_first_name(self) -> str:
+        """Generate a first name."""
+        n = self._next_id()
+        s = self._seeded_id()
+        return f"first_{n:03d}_{s:04d}"
+
+    def _gen_last_name(self) -> str:
+        """Generate a last name."""
+        n = self._next_id()
+        s = self._seeded_id()
+        return f"last_{n:03d}_{s:04d}"
+
+    # ── Contact generators ────────────────────────────────────────────
+
+    def _gen_email(self) -> str:
+        """Generate an email address."""
+        n = self._next_id()
+        s = self._seeded_id()
+        return f"user_{n:03d}_{s:04d}@placeholder.com"
+
+    def _gen_phone(self, *, mask: str | None = None) -> str:
+        """Generate a phone number.
+
+        base provider 仅作类型路由兜底（无真实数据），接受并忽略 ``mask``
+        以保持与 faker/mimesis provider 的接口一致（dispatch 以
+        ``method(**params)`` 透传，缺省形参会致 TypeError）。
+        """
+        n = self._next_id()
+        return f"000-0000-{n:04d}"
+
+    def _gen_address(self) -> str:
+        """Generate an address."""
+        n = self._next_id()
+        s = self._seeded_id()
+        return f"addr_{n:03d}_{s:04d}"
+
+    # ── Location generators ───────────────────────────────────────────
+
+    def _gen_city(self) -> str:
+        """Generate a city name."""
+        n = self._next_id()
+        s = self._seeded_id()
+        return f"city_{n:03d}_{s:04d}"
+
+    def _gen_state(self) -> str:
+        """Generate a state/province."""
+        n = self._next_id()
+        s = self._seeded_id()
+        return f"state_{n:03d}_{s:04d}"
+
+    def _gen_country(self) -> str:
+        """Generate a country name."""
+        n = self._next_id()
+        s = self._seeded_id()
+        return f"country_{n:03d}_{s:04d}"
+
+    def _gen_zip_code(self) -> str:
+        """Generate a postal code."""
+        n = self._next_id()
+        return f"{n:05d}"
+
+    def _gen_country_code(self) -> str:
+        """Generate a country code."""
+        n = self._next_id()
+        s = self._seeded_id()
+        return f"CC{n:03d}_{s:04d}"
+
+    # ── Business generators ───────────────────────────────────────────
+
+    def _gen_company(self) -> str:
+        """Generate a company name."""
+        n = self._next_id()
+        s = self._seeded_id()
+        return f"company_{n:03d}_{s:04d}"
+
+    def _gen_job_title(self) -> str:
+        """Generate a job title."""
+        n = self._next_id()
+        s = self._seeded_id()
+        return f"job_{n:03d}_{s:04d}"
+
+    # ── Text generators ───────────────────────────────────────────────
 
     def _gen_text(self, *, min_length: int = 50, max_length: int = 200) -> str:
-        words = [
-            "lorem",
-            "ipsum",
-            "dolor",
-            "sit",
-            "amet",
-            "consectetur",
-            "adipiscing",
-            "elit",
-            "sed",
-            "do",
-            "eiusmod",
-            "tempor",
-            "incididunt",
-            "ut",
-            "labore",
-            "et",
-            "dolore",
-            "magna",
-            "aliqua",
-            "enim",
-            "ad",
-            "minim",
-            "veniam",
-            "quis",
-            "nostrud",
-            "exercitation",
-            "ullamco",
-            "laboris",
-            "nisi",
-        ]
-        length = self._rng.randint(min_length, max_length)
-        result = ""
-        while len(result) < length:
-            word = self._rng.choice(words)
-            if result:
-                result += " "
-            result += word
-        return result[:length]
+        """Generate text padded to the requested length range.
+
+        Raises:
+            ValueError: When ``min_length > max_length`` — silently swapping or
+                truncating would violate the caller's contract.
+        """
+        if min_length > max_length:
+            raise ValueError(f"min_length ({min_length}) must be <= max_length ({max_length}) for _gen_text")
+        n = self._next_id()
+        s = self._seeded_id()
+        core = f"text_{n:03d}_{s:04d}"
+        while len(core) < min_length:
+            core += str(self._rng.randint(0, 9))
+        return core[:max_length]
 
     def _gen_sentence(self) -> str:
-        subjects = ["The system", "A user", "The process", "An event", "The service"]
-        verbs = ["completed", "started", "failed", "succeeded", "processed"]
-        objects = ["the operation", "a request", "the task", "an update", "the transaction"]
-        return f"{self._rng.choice(subjects)} {self._rng.choice(verbs)} {self._rng.choice(objects)}."
+        """Generate a sentence."""
+        n = self._next_id()
+        s = self._seeded_id()
+        return f"text_{n:03d}_{s:04d}."
+
+    def _gen_word(self) -> str:
+        """Generate a pronounceable pseudo-word (e.g., 'banir', 'topelu').
+
+        Uses a consonant-vowel alternation pattern to synthesize word-like
+        tokens without any hardcoded word list, consistent with the base
+        provider's "all values are synthesized" philosophy.
+        """
+        self._next_id()
+        consonants = "bcdfghjklmnpqrstvwxz"
+        vowels = "aeiou"
+        length = self._rng.randint(4, 8)
+        chars: list[str] = []
+        for i in range(length):
+            if i % 2 == 0:
+                chars.append(self._rng.choice(consonants))
+            else:
+                chars.append(self._rng.choice(vowels))
+        return "".join(chars)
+
+    def _gen_catch_phrase(self) -> str:
+        """Generate a synthesized catch-phrase-style string.
+
+        The base provider has no word list, so we compose a multi-word
+        phrase from synthesized pseudo-words to mimic the structure of a
+        business catch phrase (e.g., 'banir topelu moripar'). This is
+        more suitable than a single ``word`` for business-entity name
+        columns.
+        """
+        self._next_id()
+        num_words = self._rng.randint(2, 4)
+        words = [self._gen_word() for _ in range(num_words)]
+        return " ".join(words)
+
+    # Date methods bind their bookkeeping policy to the implementation, so
+    # explicitly installed Base fallbacks count even on native instances.
+    _gen_date = date_method(count_placeholder=True)
+    _gen_datetime = datetime_method(count_placeholder=True)
+    _gen_time = time_method(count_placeholder=True)
+    _gen_timestamp = datetime_method(delegate=True)
+
+    # ── Network generators ────────────────────────────────────────────
+
+    def _gen_url(self) -> str:
+        """Generate a URL."""
+        n = self._next_id()
+        s = self._seeded_id()
+        return f"https://example.com/page_{n:03d}_{s:04d}"
+
+    def _gen_ipv4(self) -> str:
+        """Generate an IPv4 address.
+
+        Each octet is constrained to the legal 0-255 range — using the
+        incrementing counter would eventually exceed 255 and produce an
+        illegal address.
+        """
+        self._next_id()
+        octet = self._rng.randint(0, 255)
+        return f"0.0.0.{octet}"
+
+    def _gen_uuid(self) -> str:
+        """Generate a UUID."""
+        self._next_id()
+        return str(uuid.UUID(int=self._rng.getrandbits(128), version=4))
+
+    # ── Credential generators ─────────────────────────────────────────
 
     def _gen_password(self, *, length: int = 16) -> str:
-        chars = string.ascii_letters + string.digits + string.punctuation
-        return "".join(self._rng.choice(chars) for _ in range(length))
+        """Generate a password."""
+        n = self._next_id()
+        s = self._seeded_id()
+        core = f"pass_{n:03d}_{s:04d}!"
+        if len(core) >= length:
+            return core[:length]
+        # Pad with seed-based digits to reach requested length
+        pad_len = length - len(core)
+        padding = "".join(str(self._rng.randint(0, 9)) for _ in range(pad_len))
+        return core + padding
+
+    def _gen_username(self) -> str:
+        """Generate a username."""
+        n = self._next_id()
+        s = self._seeded_id()
+        return f"user_{n:03d}_{s:04d}"
+
+    # ── Other generators ──────────────────────────────────────────────
 
     def _gen_choice(self, choices: list[Any]) -> Any:
+        """Select a value from the given choices.
+
+        Raises:
+            ValueError: When ``choices`` is empty — ``random.choice`` would
+                raise ``IndexError`` which is not actionable for the caller.
+        """
+        if not choices:
+            raise ValueError("_gen_choice requires a non-empty 'choices' list")
+        self._next_id()
         return self._rng.choice(choices)
 
     def _gen_json(self, *, schema: dict[str, Any] | None = None) -> str:
+        """Generate a JSON string based on the schema."""
+        self._next_id()
         return generate_json_from_schema(self, schema, self._get_array_count)
 
     def _get_array_count(self) -> int:
+        """Return the number of array elements."""
         return self._rng.randint(1, 5)
 
     def _gen_pattern(self, *, pattern: str | None = None, regex: str | None = None) -> str:
+        """Generate a string matching the regex pattern."""
         effective = pattern or regex or ""
-        try:
-            # Optional dependency — import inside function to defer ImportError.
-            # pylint: disable=import-outside-toplevel
-            import rstr as _rstr  # noqa: PLC0415
-        except ImportError as err:
-            raise ImportError(
-                "The 'rstr' package is required for pattern generation. Install it with: pip install rstr"
-            ) from err
         r = _rstr.Rstr(self._rng)
         return r.xeger(effective)
 
-    CITIES: ClassVar[list[str]] = [
-        "New York",
-        "Los Angeles",
-        "Chicago",
-        "Houston",
-        "Phoenix",
-        "San Antonio",
-        "San Diego",
-        "Dallas",
-        "San Jose",
-        "Austin",
-        "Jacksonville",
-        "Fort Worth",
-        "Columbus",
-        "Charlotte",
-        "Indianapolis",
-        "San Francisco",
-        "Seattle",
-        "Denver",
-        "Washington",
-        "Nashville",
-        "Oklahoma City",
-        "El Paso",
-        "Boston",
-        "Portland",
-        "Las Vegas",
-        "Memphis",
-        "Louisville",
-        "Baltimore",
-        "Milwaukee",
-        "Albuquerque",
-        "Tucson",
-        "Fresno",
-        "Sacramento",
-        "Mesa",
-        "Atlanta",
-        "Kansas City",
-        "Colorado Springs",
-        "Raleigh",
-        "Omaha",
-        "Miami",
-        "Long Beach",
-        "Virginia Beach",
-        "Oakland",
-        "Minneapolis",
-        "Tulsa",
-        "Arlington",
-        "Tampa",
-        "New Orleans",
-        "London",
-        "Paris",
-        "Tokyo",
-        "Berlin",
-        "Sydney",
-        "Toronto",
-        "Vancouver",
-    ]
+    def _gen_template(
+        self,
+        *,
+        template: str = "",
+        sequence_start: int = 1,
+        sequence_step: int = 1,
+    ) -> str:
+        """Generate a value from a template with placeholders.
 
-    COUNTRIES: ClassVar[list[str]] = [
-        "United States",
-        "United Kingdom",
-        "Canada",
-        "Australia",
-        "Germany",
-        "France",
-        "Japan",
-        "Brazil",
-        "India",
-        "China",
-        "Italy",
-        "Spain",
-        "Mexico",
-        "South Korea",
-        "Netherlands",
-        "Sweden",
-        "Norway",
-        "Denmark",
-        "Finland",
-        "Switzerland",
-        "Austria",
-        "Belgium",
-        "Portugal",
-        "Ireland",
-        "New Zealand",
-        "Singapore",
-        "Argentina",
-        "Chile",
-        "Colombia",
-        "Peru",
-        "Poland",
-        "Czech Republic",
-        "Romania",
-        "Hungary",
-        "Greece",
-        "Turkey",
-        "Thailand",
-        "Vietnam",
-        "Philippines",
-        "Malaysia",
-        "Indonesia",
-        "Egypt",
-        "South Africa",
-        "Nigeria",
-        "Kenya",
-        "Israel",
-        "United Arab Emirates",
-        "Saudi Arabia",
-        "Russia",
-        "Ukraine",
-    ]
+        Supported placeholders (use Python str.format-style):
+        - ``{sequence}`` — incrementing integer counter (per-provider).
+        - ``{sequence:04d}`` — counter with format spec.
+        - ``{random_string:N}`` — N-character random alphanumeric string.
+        - ``{random_int:MIN-MAX}`` — random integer in [MIN, MAX].
+        - ``{random_digits:N}`` — N random digits (0-9).
 
-    STATES: ClassVar[list[str]] = [
-        "Alabama",
-        "Alaska",
-        "Arizona",
-        "Arkansas",
-        "California",
-        "Colorado",
-        "Connecticut",
-        "Delaware",
-        "Florida",
-        "Georgia",
-        "Hawaii",
-        "Idaho",
-        "Illinois",
-        "Indiana",
-        "Iowa",
-        "Kansas",
-        "Kentucky",
-        "Louisiana",
-        "Maine",
-        "Maryland",
-        "Massachusetts",
-        "Michigan",
-        "Minnesota",
-        "Mississippi",
-        "Missouri",
-        "Montana",
-        "Nebraska",
-        "Nevada",
-        "New Hampshire",
-        "New Jersey",
-        "New Mexico",
-        "New York",
-        "North Carolina",
-        "North Dakota",
-        "Ohio",
-        "Oklahoma",
-        "Oregon",
-        "Pennsylvania",
-        "Rhode Island",
-        "South Carolina",
-        "South Dakota",
-        "Tennessee",
-        "Texas",
-        "Utah",
-        "Vermont",
-        "Virginia",
-        "Washington",
-        "West Virginia",
-        "Wisconsin",
-        "Wyoming",
-    ]
+        Examples:
+        - ``"MER-{sequence:04d}"`` -> ``MER-0001``, ``MER-0002``...
+        - ``"ORD-{random_string:6}"`` -> ``ORD-aB3x9K``
+        - ``"SKU-{random_int:100-999}"`` -> ``SKU-542``
 
-    JOB_TITLES: ClassVar[list[str]] = [
-        "Software Engineer",
-        "Data Scientist",
-        "Product Manager",
-        "Designer",
-        "Marketing Manager",
-        "Sales Representative",
-        "Business Analyst",
-        "Project Manager",
-        "DevOps Engineer",
-        "QA Engineer",
-        "Frontend Developer",
-        "Backend Developer",
-        "Full Stack Developer",
-        "Mobile Developer",
-        "Machine Learning Engineer",
-        "Security Analyst",
-        "Database Administrator",
-        "System Administrator",
-        "Technical Writer",
-        "UX Researcher",
-        "Scrum Master",
-        "Engineering Manager",
-        "HR Manager",
-        "Financial Analyst",
-        "Accountant",
-        "Consultant",
-        "Architect",
-        "Director of Operations",
-        "Chief Technology Officer",
-        "Chief Executive Officer",
-        "Registered Nurse",
-        "Teacher",
-        "Lawyer",
-        "Graphic Designer",
-        "Content Writer",
-        "Social Media Manager",
-        "Customer Support Specialist",
-        "Operations Manager",
-        "Supply Chain Analyst",
-        "Research Scientist",
-        "Civil Engineer",
-        "Mechanical Engineer",
-        "Electrical Engineer",
-        "Chemist",
-        "Biologist",
-        "Pharmacist",
-        "Physician",
-        "Dentist",
-        "Veterinarian",
-        "Pilot",
-    ]
+        Args:
+            template: Template string with placeholders.
+            sequence_start: Starting value for {sequence} (default 1).
+            sequence_step: Increment step for {sequence} (default 1).
 
-    COUNTRY_CODES: ClassVar[list[str]] = [
-        "US",
-        "GB",
-        "CA",
-        "AU",
-        "DE",
-        "FR",
-        "JP",
-        "BR",
-        "IN",
-        "CN",
-        "IT",
-        "ES",
-        "MX",
-        "KR",
-        "NL",
-        "SE",
-        "NO",
-        "DK",
-        "FI",
-        "CH",
-        "AT",
-        "BE",
-        "PT",
-        "IE",
-        "NZ",
-        "SG",
-        "AR",
-        "CL",
-        "CO",
-        "PE",
-        "PL",
-        "CZ",
-        "RO",
-        "HU",
-        "GR",
-        "TR",
-        "TH",
-        "VN",
-        "PH",
-        "MY",
-        "ID",
-        "EG",
-        "ZA",
-        "NG",
-        "KE",
-        "IL",
-        "AE",
-        "SA",
-        "RU",
-        "UA",
-    ]
+        Returns:
+            Formatted string with placeholders replaced.
+        """
+        if not hasattr(self, "_template_seq"):
+            self._template_seq: dict[str, int] = {}
+        # Use the template string itself as the seq_key — id() can be reused
+        # by the allocator after a string is garbage-collected, causing two
+        # unrelated templates to share a counter. The string value is a stable,
+        # deterministic key.
+        if (seq_key := template) not in self._template_seq:
+            self._template_seq[seq_key] = sequence_start - sequence_step
 
-    _USERNAME_FORMATS: ClassVar[list[str]] = [
-        "first_last",
-        "first.dot",
-        "firstlast",
-        "firstN",
-        "first_lastN",
-        "First Last",
-        "first last",
-        "firstlastN",
-    ]
+        self._template_seq[seq_key] += sequence_step
+        seq_val = self._template_seq[seq_key]
 
-    def _gen_username(self) -> str:
-        first = self._gen_first_name()
-        last = self._gen_last_name()
-        fmt = self._rng.choice(self._USERNAME_FORMATS)
-        return self._apply_username_format(first, last, fmt)
+        result = self._replace_random_template_fields(template)
 
-    def _apply_username_format(self, first: str, last: str, fmt: str) -> str:
-        if fmt == "first_last":
-            return f"{first.lower()}_{last.lower()}"
-        if fmt == "first.dot":
-            return f"{first.lower()}.{last.lower()}"
-        if fmt == "firstlast":
-            return f"{first.lower()}{last.lower()}"
-        if fmt == "firstN":
-            return f"{first.lower()}{self._rng.randint(1, 999)}"
-        if fmt == "first_lastN":
-            return f"{first.lower()}_{last.lower()}{self._rng.randint(1, 99)}"
-        if fmt == "First Last":
-            return f"{first} {last}"
-        if fmt == "first last":
-            return f"{first.lower()} {last.lower()}"
-        return f"{first.lower()}{last.lower()}{self._rng.randint(1, 999)}"
+        # {sequence} or {sequence:format}
+        # Use a sentinel-safe approach: temporarily replace {sequence:XXd} with formatted value
+        def _replace_sequence(match: re.Match[str]) -> str:
+            if fmt := match.group(1):
+                # Strip leading colon: ":04d" -> "04d"
+                return format(seq_val, fmt.lstrip(":"))
+            return str(seq_val)
 
-    def _gen_city(self) -> str:
-        return self._rng.choice(self.CITIES)
+        return re.sub(r"\{sequence(:[^}]*)?\}", _replace_sequence, result)
 
-    def _gen_country(self) -> str:
-        return self._rng.choice(self.COUNTRIES)
+    def _replace_random_template_fields(self, template: str) -> str:
+        """Replace random fields in string/digits/integer order, preserving RNG draws."""
+        # Replace custom placeholders first (not in default str.format spec)
+        result = template
+        # {random_string:N}
+        while _RANDOM_STRING_FIELD in result:
+            start = result.index(_RANDOM_STRING_FIELD)
+            if (end := result.find("}", start)) == -1:
+                raise ValueError(f"Malformed template — unmatched '{{' in: {template!r}")
+            n = int(result[start + len(_RANDOM_STRING_FIELD) : end])
+            charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+            replacement = "".join(self._rng.choice(charset) for _ in range(n))
+            result = result[:start] + replacement + result[end + 1 :]
 
-    def _gen_state(self) -> str:
-        return self._rng.choice(self.STATES)
+        # {random_digits:N}
+        while _RANDOM_DIGITS_FIELD in result:
+            start = result.index(_RANDOM_DIGITS_FIELD)
+            if (end := result.find("}", start)) == -1:
+                raise ValueError(f"Malformed template — unmatched '{{' in: {template!r}")
+            n = int(result[start + len(_RANDOM_DIGITS_FIELD) : end])
+            replacement = "".join(str(self._rng.randint(0, 9)) for _ in range(n))
+            result = result[:start] + replacement + result[end + 1 :]
 
-    def _gen_zip_code(self) -> str:
-        return f"{self._rng.randint(10000, 99999)}"
+        # {random_int:MIN-MAX}
+        while _RANDOM_INT_FIELD in result:
+            start = result.index(_RANDOM_INT_FIELD)
+            if (end := result.find("}", start)) == -1:
+                raise ValueError(f"Malformed template — unmatched '{{' in: {template!r}")
+            range_spec = result[start + len(_RANDOM_INT_FIELD) : end]
+            min_v, max_v = range_spec.split("-")
+            replacement = str(self._rng.randint(int(min_v), int(max_v)))
+            result = result[:start] + replacement + result[end + 1 :]
 
-    def _gen_job_title(self) -> str:
-        return self._rng.choice(self.JOB_TITLES)
+        return result
 
-    def _gen_country_code(self) -> str:
-        return self._rng.choice(self.COUNTRY_CODES)
+    def _gen_weighted_choice(
+        self,
+        *,
+        choices: list[Any] | None = None,
+        weighted_choices: dict[str, int] | list[dict[str, Any]] | None = None,
+    ) -> Any:
+        """Select a value with weighted probability.
+
+        Supports two param formats:
+        1. ``choices`` as list of ``{"value": ..., "weight": ...}`` dicts:
+           .. code-block:: yaml
+               choices:
+                 - value: active
+                   weight: 80
+                 - value: suspended
+                   weight: 15
+        2. ``weighted_choices`` as dict mapping value -> weight:
+           .. code-block:: yaml
+               weighted_choices:
+                 active: 80
+                 suspended: 15
+                 closed: 5
+
+        Args:
+            choices: List of ``{"value": v, "weight": w}`` dicts.
+            weighted_choices: Value-to-weight mapping or the same weighted list
+                accepted by choices.
+
+        Returns:
+            One value selected with probability proportional to its weight.
+        """
+        self._next_id()
+        if isinstance(weighted_choices, list):
+            choices = weighted_choices
+        if weighted_choices is not None and isinstance(weighted_choices, dict):
+            population = list(weighted_choices.keys())
+            weights = [weighted_choices[v] for v in population]
+        elif choices is not None:
+            if all(isinstance(c, str) for c in choices):
+                # 等权字符串列表：与 weighted_choices={v: 1} 等价。web 属性面板的
+                # 「每行一个值」textarea 提交的正是这个形状，此前会在这里以
+                # TypeError: string indices must be integers 崩掉。
+                population = list(choices)
+                weights = [1] * len(population)
+            else:
+                population = [c["value"] for c in choices]
+                weights = [c.get("weight", 1) for c in choices]
+        else:
+            raise ValueError("weighted_choice requires 'choices' or 'weighted_choices' param")
+
+        selected = self._rng.choices(population, weights=weights, k=1)
+        return selected[0]

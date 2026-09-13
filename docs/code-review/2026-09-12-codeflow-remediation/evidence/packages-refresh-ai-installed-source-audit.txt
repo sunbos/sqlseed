@@ -1,0 +1,1 @@
+{"source_files_matched": 61, "origin": "/private/tmp/sqlseed-codeflow-packages-bp87t1jx/full/lib/python3.12/site-packages/sqlseed_ai", "cli_sha256": "fd2c73c26382c3a281e4766456421cb98359282d47e8be23eccc1965c1107f17", "check_parser_sha256": "90700e1e6be632e7e94bcacf518b9de898639503292ddbe71a7dc7871a9c0b9f"}

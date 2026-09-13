@@ -18,6 +18,9 @@ class TestHookSpecs:
     def test_hookspec_has_ai_analyze_table(self) -> None:
         assert hasattr(SqlseedHookSpec, "sqlseed_ai_analyze_table")
 
+    def test_hookspec_has_apply_ai_suggestions(self) -> None:
+        assert hasattr(SqlseedHookSpec, "sqlseed_apply_ai_suggestions")
+
     def test_hookspec_has_before_generate(self) -> None:
         assert hasattr(SqlseedHookSpec, "sqlseed_before_generate")
 

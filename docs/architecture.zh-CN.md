@@ -4,7 +4,7 @@
 
 > 本文档使用 Mermaid 图表可视化 sqlseed 的整体架构和各模块内部结构。
 
----
+***
 
 ## 1. 整体系统架构
 
@@ -28,6 +28,9 @@ graph TB
         Constraint["ConstraintSolver<br/>约束回溯"]
         Transform["TransformLoader<br/>脚本加载"]
         Result["GenerationResult<br/>结果统计"]
+        CheckParser["check_parser.py<br/>CHECK 约束解析"]
+        SchemaFallback["schema_fallback.py<br/>纯 schema 回退生成器"]
+        Features["features.py<br/>规范化结构特征"]
     end
 
     subgraph Gen["⚡ 数据生成层 (generators/)"]
@@ -41,13 +44,18 @@ graph TB
 
     subgraph DB["💾 数据库层 (database/)"]
         DBProto["DatabaseAdapter<br/>Protocol"]
-        SU["SQLiteUtilsAdapter<br/>默认"]
-        Raw["RawSQLiteAdapter<br/>回退"]
+        SU["SQLAlchemyAdapter<br/>必选（SQLite/PostgreSQL）"]
+        Raw["RawSQLiteAdapter<br/>仅测试"]
         Pragma["PragmaOptimizer<br/>三级优化"]
+        Dialect["_dialect.py<br/>方言抽象"]
+        TypeNorm["_type_normalizer.py<br/>类型归一化"]
+        BulkOpt["_bulk_optimizer.py<br/>批量写入优化"]
+        BaseAdapt["_base_adapter.py<br/>共享基类"]
+        Helpers["_helpers.py<br/>批量插入辅助"]
     end
 
     subgraph Plugin["🧩 插件层 (plugins/)"]
-        HookSpec["SqlseedHookSpec<br/>11 个 Hook"]
+        HookSpec["SqlseedHookSpec<br/>12 个 Hook"]
         PM["PluginManager<br/>pluggy"]
     end
 
@@ -69,7 +77,6 @@ graph TB
 
     subgraph Utils["🔧 工具层 (_utils/)"]
         SQL["sql_safe<br/>SQL 注入防护"]
-        Helpers["schema_helpers<br/>AUTOINCREMENT"]
         Metrics["MetricsCollector<br/>性能度量"]
         Progress["Progress<br/>多后端：Rich/tqdm/Null"]
         Paths["Paths<br/>平台缓存路径"]
@@ -111,6 +118,13 @@ graph TB
     DBProto --> Raw
     SU --> Pragma
     Raw --> Pragma
+    SU --> Dialect
+    SU --> TypeNorm
+    SU --> BulkOpt
+    SU --> BaseAdapt
+    SU --> Helpers
+    Raw --> BaseAdapt
+    Raw --> Helpers
 
     PM --> HookSpec
     PM --> AI
@@ -134,9 +148,9 @@ graph TB
     Raw -.-> Helpers
 ```
 
----
+***
 
-## 2. 核心编排流程（fill_table 执行链路）
+## 2. 核心编排流程（fill\_table 执行链路）
 
 ```mermaid
 sequenceDiagram
@@ -190,7 +204,7 @@ sequenceDiagram
     O-->>U: GenerationResult
 ```
 
----
+***
 
 ## 3. ColumnMapper 9 级策略链
 
@@ -207,7 +221,7 @@ flowchart TD
     L3{"Level 3<br/>自定义精确匹配？"} -->|匹配| R3["使用插件注册的精确规则"]
     L3 -->|未匹配| L4
 
-    L4{"Level 4<br/>内置精确匹配？<br/>(<!-- BEGIN:AUTO-GENERATED:exact-match-rule-count -->74<!-- END:AUTO-GENERATED:exact-match-rule-count --> 条规则)"} -->|匹配| R4["email→email<br/>phone→phone<br/>age→integer<br/>city→city<br/>..."]
+    L4{"Level 4<br/>内置精确匹配？<br/>(<!-- BEGIN:AUTO-GENERATED:exact-match-rule-count -->75<!-- END:AUTO-GENERATED:exact-match-rule-count --> 条规则)"} -->|匹配| R4["email→email<br/>phone→phone<br/>age→integer<br/>city→city<br/>..."]
     L4 -->|未匹配| L5
 
     L5{"Level 5<br/>有默认值？"} -->|是| R5["skip (跳过生成)<br/>或 __enrich__"]
@@ -216,13 +230,13 @@ flowchart TD
     L6{"Level 6<br/>自定义模式匹配？"} -->|匹配| R6["使用插件注册的正则规则"]
     L6 -->|未匹配| L7
 
-    L7{"Level 7<br/>内置模式匹配？<br/>(<!-- BEGIN:AUTO-GENERATED:pattern-match-rule-count -->27<!-- END:AUTO-GENERATED:pattern-match-rule-count --> 条正则)"} -->|匹配| R7["*_at→datetime<br/>*_id / *_no→foreign_key_or_integer<br/>is_*→boolean<br/>..."]
+    L7{"Level 7<br/>内置模式匹配？<br/>(<!-- BEGIN:AUTO-GENERATED:pattern-match-rule-count -->29<!-- END:AUTO-GENERATED:pattern-match-rule-count --> 条正则)"} -->|匹配| R7["*_at→datetime<br/>*_id→foreign_key_or_integer, *_no→string(alnum)<br/>is_*→boolean<br/>..."]
     L7 -->|未匹配| L8
 
     L8{"Level 8<br/>可 NULL？"} -->|是| R8["skip (跳过生成)<br/>或 __enrich__"]
     L8 -->|否| L9
 
-    L9{"Level 9<br/>类型忠实回退<br/>(22 种 SQL 类型)"} -->|匹配| R9["VARCHAR(32)→max 32 字符<br/>INT8→0~255<br/>BLOB(1024)→1024 字节"]
+    L9{"Level 9<br/>类型忠实回退<br/>(32 种 SQL 类型)"} -->|匹配| R9["VARCHAR(32)→max 32 字符<br/>INT8→0~255<br/>BLOB(1024)→1024 字节"]
     L9 -->|未匹配| L10
 
     L10["默认"] --> R10["string<br/>(min=5, max=50)"]
@@ -248,9 +262,7 @@ flowchart TD
     style L10 fill:#9E9E9E,color:#fff
 ```
 
-> 注：自 v0.1.19 起，Level 7 未匹配时还会先将 camelCase 列名规范化为 snake_case（`_to_snake_case`），再用规范化后的名称重试内置精确匹配与模式匹配，全部未命中才进入 Level 8。
-
----
+***
 
 ## 4. 数据生成层架构
 
@@ -262,26 +274,26 @@ classDiagram
         +set_locale(locale: str)
         +set_seed(seed: int)
         +generate(type_name: str, **params) Any
-        ... 通过 _GENERATOR_MAP 分派到 31 种内部方法
+        ... 通过 GENERATOR_MAP 分派到 35 种内部方法
     }
 
     class BaseProvider {
         -_rng: Random
         -_locale: str
         +name = "base"
-        零外部依赖
+        仅类型路由，不生成真实数据
     }
 
     class FakerProvider {
         -_faker: Faker
         +name = "faker"
-        延迟导入 faker
+        必选核心依赖
     }
 
     class MimesisProvider {
         -_generic: Generic
         +name = "mimesis"
-        地区映射 en_US→en
+        可选，高性能
     }
 
     class ProviderRegistry {
@@ -313,7 +325,7 @@ classDiagram
     DataStream --> ConstraintSolver
 ```
 
----
+***
 
 ## 5. 数据库层架构
 
@@ -330,6 +342,8 @@ classDiagram
         +get_row_count(table) int
         +get_column_values(table, col, limit) list
         +get_index_info(table) list~IndexInfo~
+        +get_unique_constraints(table) list~IndexInfo~
+        +get_check_constraints(table) list~CheckConstraintInfo~
         +get_sample_rows(table, limit) list~dict~
         +batch_insert(table, data, batch_size) int
         +clear_table(table)
@@ -346,6 +360,8 @@ classDiagram
         +default: Any
         +is_primary_key: bool
         +is_autoincrement: bool
+        +is_computed: bool
+        +is_rowid_alias: bool | None
     }
 
     class ForeignKeyInfo {
@@ -353,6 +369,8 @@ classDiagram
         +column: str
         +ref_table: str
         +ref_column: str
+        +constraint_id: int | None
+        +ref_schema: str | None
     }
 
     class IndexInfo {
@@ -361,18 +379,30 @@ classDiagram
         +table: str
         +columns: tuple~str~
         +unique: bool
+        +is_partial: bool
+        +predicate: str | None
     }
 
-    class SQLiteUtilsAdapter {
+    class CheckConstraintInfo {
+        <<frozen dataclass>>
+        +name: str
+        +table: str
+        +columns: tuple~str~
+        +expression: str
+    }
+
+    class SQLAlchemyAdapter {
         -_db: Database
         -_optimizer: PragmaOptimizer
-        使用 sqlite-utils
+        必选核心依赖
+        使用 SQLAlchemy
     }
 
     class RawSQLiteAdapter {
         -_conn: Connection
         -_optimizer: PragmaOptimizer
-        使用 sqlite3 (回退)
+        仅测试回退
+        使用 sqlite3
     }
 
     class PragmaOptimizer {
@@ -385,16 +415,19 @@ classDiagram
         -_apply_aggressive()
     }
 
-    DatabaseAdapter <|.. SQLiteUtilsAdapter
+    DatabaseAdapter <|.. SQLAlchemyAdapter
     DatabaseAdapter <|.. RawSQLiteAdapter
-    SQLiteUtilsAdapter --> PragmaOptimizer
+    SQLAlchemyAdapter --> PragmaOptimizer
     RawSQLiteAdapter --> PragmaOptimizer
     DatabaseAdapter --> ColumnInfo
     DatabaseAdapter --> ForeignKeyInfo
     DatabaseAdapter --> IndexInfo
+    DatabaseAdapter --> CheckConstraintInfo
 ```
 
----
+***
+
+adapter 明确报告 `ColumnInfo.is_rowid_alias`，默认 `None` 兼容旧构造。SQLite 区分真实 rowid 别名与显式 AUTOINCREMENT，并保留普通主键的可空语义。`IndexInfo.is_partial` 防止将条件唯一性误当作无条件 UNIQUE；SQLAlchemy 在 `predicate` 保留反射出的 WHERE SQL，RawSQLite 可不提供条件原文。谓词由数据库在写入时执行。FK 元数据保留表内约束身份和反射出的父 schema。
 
 ## 6. 列依赖 DAG 与约束回溯
 
@@ -425,23 +458,23 @@ flowchart LR
     end
 ```
 
----
+***
 
 ## 7. AI 插件架构
 
 ```mermaid
 flowchart TB
     subgraph CLI_Trigger["触发入口"]
-        CLICmd["sqlseed ai-suggest"]
+        CLICmd["sqlseed ai-suggest / ai-analyze / auto-heal"]
         HookCall["sqlseed_ai_analyze_table Hook"]
-        MCPTool["MCP: sqlseed_generate_yaml"]
+        MCPTool["MCP: sqlseed_ai_generate_yaml"]
         MCPGemma4Analyze["MCP: sqlseed_gemma4_analyze"]
         MCPGemma4AgentFill["MCP: sqlseed_gemma4_agent_fill"]
     end
 
     subgraph Analyzer["SchemaAnalyzer"]
         Context["构建上下文<br/>列 + 索引 + FK + 样本 + 分布"]
-        FewShot["注入 Few-shot 示例<br/>(4 个典型场景)"]
+        FewShot["注入 Few-shot 示例<br/>(6 个典型场景)"]
         SysPrompt["System Prompt<br/>生成器列表 + 输出格式"]
         LLM["调用 LLM<br/>AIBackend 多后端路由<br/>OpenAI API / Gemma 4 GEMMA_TOOLS<br/>response_format: json_object"]
     end
@@ -480,6 +513,7 @@ flowchart TB
         E5["column_mismatch"]
         E6["empty_config"]
         E7["fatal (不可重试)"]
+        E8["runtime_error (兜底)"]
     end
 
     CLICmd --> Analyzer
@@ -498,7 +532,7 @@ flowchart TB
     style FailErr fill:#F44336,color:#fff
 ```
 
----
+***
 
 ## 8. 插件 Hook 生命周期
 
@@ -527,7 +561,7 @@ flowchart TB
         direction TB
         GenBatch["DataStream 生成一批"]
         H6["🔄 sqlseed_transform_row<br/>(每行，热路径)"]
-        H7["🔄 sqlseed_transform_batch<br/>(链式处理)"]
+        H7["🔄 sqlseed_transform_batch<br/>(同批输入；最后一个非 None 结果)"]
         H8["📢 sqlseed_before_insert"]
         Insert["batch_insert()"]
         H9["📢 sqlseed_after_insert"]
@@ -547,21 +581,27 @@ flowchart TB
     style H6 fill:#F44336,color:#fff
 ```
 
----
+***
 
 ## 9. 配置模型层次结构
+
+源列的 `params` 接受映射；省略或填写 `null` 时保留空参数行为。字符串、列表等
+非映射值会在配置加载时明确拒绝，不会静默丢弃规则。顶层生成器参数仍覆盖嵌套
+`params` 中的同名参数。
 
 ```mermaid
 classDiagram
     class GeneratorConfig {
-        +db_path: str
+        +db_path: str | None
+        +url: str | None
         +provider: ProviderType = MIMESIS
         +locale: str = "en_US"
         +tables: list~TableConfig~
         +associations: list~ColumnAssociation~
+        +custom_column_mappings: CustomColumnMappings | None
         +optimize_pragma: bool = True
-        +log_level: Literal["DEBUG","INFO","WARNING","ERROR","CRITICAL"] = "INFO"
         +snapshot_dir: str | None
+        +log_level: str | None (已废弃)
     }
 
     class TableConfig {
@@ -587,6 +627,10 @@ classDiagram
         +expression: str | None
         --- 约束 ---
         +constraints: ColumnConstraintsConfig | None
+        --- 原生方法覆盖 ---
+        +faker_method: str | None
+        +mimesis_method: str | None
+        +native_params: dict
         +validate_column_mode() ⚠️ 互斥
     }
 
@@ -622,7 +666,7 @@ classDiagram
     ColumnConfig --> ProviderType
 ```
 
----
+***
 
 ## 10. MCP 服务器架构
 
@@ -632,11 +676,13 @@ flowchart LR
         Request["MCP 请求"]
     end
 
-    subgraph MCPServer["mcp-server-sqlseed (FastMCP)"]
-        Resource["📖 Resource<br/>sqlseed://schema/{db}/{table}"]
-        Tool1["🔍 sqlseed_inspect_schema<br/>返回: 列 + FK + 索引 + 样本 + hash"]
-        Tool2["🤖 sqlseed_generate_yaml<br/>AI 分析 → 自纠正 → YAML"]
+    subgraph MCPServer["mcp-server-sqlseed (FastMCP)——核心，规则驱动，无 LLM"]
+        Tool2["🤖 sqlseed_generate_yaml<br/>规则驱动（ColumnMapper）→ YAML"]
         Tool3["⚡ sqlseed_execute_fill<br/>执行数据生成"]
+    end
+
+    subgraph AIMCP["sqlseed-ai[mcp] (FastMCP)——AI，LLM 驱动"]
+        ToolAI["🤖 sqlseed_ai_generate_yaml<br/>AI 分析 → 自纠正 → YAML"]
         Tool4["💎 sqlseed_gemma4_analyze<br/>Gemma 4 原生函数调用分析"]
         Tool5["💎 sqlseed_gemma4_agent_fill<br/>Gemma 4 Agent 驱动数据填充"]
         Tool6["💎 sqlseed_list_gemma_models<br/>列出可用 Gemma 4 模型"]
@@ -645,6 +691,7 @@ flowchart LR
     subgraph SQLSeed["sqlseed 核心"]
         Orchestrator["DataOrchestrator"]
         SchemaCtx["get_schema_context()"]
+        Mapper["ColumnMapper"]
     end
 
     subgraph AIPlugin["sqlseed-ai"]
@@ -652,18 +699,16 @@ flowchart LR
         ACR["AiConfigRefiner"]
     end
 
-    Request --> Resource
-    Request --> Tool1
     Request --> Tool2
     Request --> Tool3
+    Request --> ToolAI
     Request --> Tool4
     Request --> Tool5
     Request --> Tool6
 
-    Resource --> SchemaCtx
-    Tool1 --> SchemaCtx
-    Tool2 --> SA --> ACR
+    Tool2 --> Mapper
     Tool3 --> Orchestrator
+    ToolAI --> SA --> ACR
     Tool4 --> SA
     Tool5 --> Orchestrator
     Tool6 --> SA
@@ -671,7 +716,7 @@ flowchart LR
     SchemaCtx --> Orchestrator
 ```
 
----
+***
 
 ## 11. Gemma 4 集成架构
 
@@ -729,4 +774,19 @@ flowchart TB
     style FCExec fill:#FBBC05,color:#000
     style FCResult fill:#34A853,color:#fff
     style FCIterate fill:#EA4335,color:#fff
+```
+
+
+## 12. Web 工作台与组件生命周期
+
+当前项目包含 Core、CLI、AI、MCP 和 Web 五个发行包。Web 直接调用离线 core；模型建议仅在用户请求时通过可选 AI 包生成，确认后的规则可离线执行。supervisor 在组件变更时协调业务和维护进程，避免对正在导入或执行的包直接修改。可用性同时检查发行包与导入结果；卸载后保留配置并说明受影响功能。详见 [Web 指南](web-workbench.md) 和 [支持范围](maintainable-release.md)。
+
+```mermaid
+flowchart LR
+    Browser[Browser workbench] --> HTTP[FastAPI / Web state]
+    HTTP --> Runtime[Web runtime]
+    Runtime --> Core[Offline Python core]
+    HTTP -. optional suggestions .-> AI[AI Python services]
+    Supervisor[Supervisor] --> HTTP
+    Supervisor --> Maintenance[Package maintenance worker]
 ```

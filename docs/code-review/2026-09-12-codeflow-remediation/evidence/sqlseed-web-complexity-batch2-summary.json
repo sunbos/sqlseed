@@ -1,0 +1,188 @@
+{
+  "files": [
+    "plugins/sqlseed-web/src/sqlseed_web/app.py",
+    "plugins/sqlseed-web/src/sqlseed_web/workbench_execution.py",
+    "plugins/sqlseed-web/src/sqlseed_web/workbench_store.py",
+    "plugins/sqlseed-web/src/sqlseed_web/workbench_runtime.py"
+  ],
+  "target_scores": {
+    "create_app": 10,
+    "build_execution_plan": 5,
+    "WorkspaceStore.create_run": 6,
+    "_column_issues": 10,
+    "_dependency_plan": 10,
+    "check_document": 9,
+    "_execute_replacement": 3,
+    "execute_run": 6
+  },
+  "related_warnings_before": 18,
+  "related_warnings_after": [
+    {
+      "type": "refactor",
+      "module": "sqlseed_web.workbench_runtime",
+      "obj": "start_run",
+      "line": 854,
+      "column": 0,
+      "endLine": 854,
+      "endColumn": 13,
+      "path": "plugins/sqlseed-web/src/sqlseed_web/workbench_runtime.py",
+      "symbol": "too-many-locals",
+      "message": "Too many local variables (20/15)",
+      "message-id": "R0914"
+    }
+  ],
+  "resolved_related_warnings": 17,
+  "all_file_function_metrics": {
+    "count": 88,
+    "max_mccabe": 10
+  },
+  "pylint_version": "2.17.7 with pylint.extensions.mccabe",
+  "pytest": {
+    "scope": "all Web Python tests",
+    "passed": 473,
+    "skipped": 0,
+    "seconds": 66.79
+  },
+  "additional_regression": {
+    "scope": "first three file changes",
+    "passed": 126,
+    "skipped": 0
+  },
+  "ruff": "check and format passed, 4 files",
+  "mypy": "passed, 27 source files with explicit AI config input",
+  "ast_scope": [
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/app.py",
+      "changed": [
+        "create_app"
+      ],
+      "added": [
+        "_business_request_forbidden",
+        "_configure_middleware",
+        "_loopback_host_forbidden",
+        "_maintenance_response"
+      ],
+      "unchanged": [
+        "main"
+      ]
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/workbench_execution.py",
+      "changed": [
+        "build_execution_plan"
+      ],
+      "added": [
+        "_association_replacement_issues",
+        "_enrichment_issues",
+        "_plan_issue",
+        "_sqlite_replacement_issues",
+        "_table_replacement_issues"
+      ],
+      "unchanged": [
+        "normalize_execution"
+      ]
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/workbench_store.py",
+      "changed": [
+        "WorkspaceStore",
+        "WorkspaceStore.create_run"
+      ],
+      "added": [
+        "_run_snapshot"
+      ],
+      "unchanged": [
+        "RevisionConflictError",
+        "_json_text",
+        "_decode",
+        "_text",
+        "_check_target",
+        "_snapshot",
+        "_validate_run",
+        "WorkspaceStore.__init__",
+        "WorkspaceStore._connection",
+        "WorkspaceStore._initialize",
+        "WorkspaceStore.save_draft",
+        "WorkspaceStore.get_draft",
+        "WorkspaceStore.list_drafts",
+        "WorkspaceStore._draft_at_revision",
+        "WorkspaceStore.rename_draft",
+        "WorkspaceStore.copy_draft",
+        "WorkspaceStore.delete_draft",
+        "WorkspaceStore.update_run",
+        "WorkspaceStore.get_run",
+        "WorkspaceStore.list_runs",
+        "_default_path",
+        "get_store"
+      ]
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/workbench_runtime.py",
+      "changed": [
+        "_column_issues",
+        "_dependency_plan",
+        "check_document",
+        "_execute_replacement",
+        "execute_run"
+      ],
+      "added": [
+        "_PreviewOptions",
+        "_PreviewOptions.guard",
+        "_RunProgress",
+        "_SampleRules",
+        "_append_run_tables",
+        "_association_sources",
+        "_check_generation",
+        "_clear_replacement_tables",
+        "_current_run_config",
+        "_deferred_table_samples",
+        "_derived_column_issues",
+        "_empty_source_issues",
+        "_fill_replacement_tables",
+        "_fill_run_table",
+        "_preview_provider_available",
+        "_preview_tables",
+        "_publish_run_terminal",
+        "_replacement_plan",
+        "_resolve_sample_rules",
+        "_run_execution_failure",
+        "_run_snapshot_failure",
+        "_run_terminal",
+        "_table_column_issues",
+        "_table_option_issues",
+        "_table_samples",
+        "_unique_domain_issues"
+      ],
+      "unchanged": [
+        "WorkbenchError",
+        "WorkbenchError.__init__",
+        "_redact_query_credentials",
+        "public_error",
+        "_hash",
+        "_identity",
+        "_reject_extra",
+        "_validate_keys",
+        "bind_document",
+        "normalize_document",
+        "parse_document",
+        "export_document",
+        "_issue",
+        "_layers",
+        "_source_values",
+        "_can_omit",
+        "_runtime_columns",
+        "_sample_issues",
+        "_checked_saved",
+        "_execution_options",
+        "_require_execution_plan",
+        "plan_execution",
+        "start_run"
+      ]
+    }
+  ],
+  "runtime_preservation": "Started from snapshotted current dirty source. Only five authorized runtime functions changed; other functions including preexisting user cleanups retain identical AST. No public signatures, endpoint names, tests or runtime start_run changes. Existing suppression comments only moved with existing boundaries, none introduced.",
+  "execution_plan_equivalence": "36 combinations against the saved pre-refactor implementation using actual SQLite with trigger, ordinary/autoincrement PK, incoming FK and nonnullable self-reference/RESTRICT. Full ordered issues and plan_hash unchanged.",
+  "snapshots": "/tmp/sqlseed-web-complexity-batch2-before-sources.json",
+  "logs_prefix": "/tmp/sqlseed-web-complexity-batch2-",
+  "unhandled": "Existing start_run too-many-locals (20/15) is outside the specified five runtime functions. Other non-selected source warnings remain separate."
+}

@@ -1,15 +1,28 @@
+"""Column mapper: infers column generators via a 9-level strategy chain.
+
+Infers an appropriate generator spec (GeneratorSpec) for each column based on a
+multi-level strategy chain considering column name, type, default value, user config, etc.
+"""
+
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, ClassVar
 
 if TYPE_CHECKING:
+    from sqlseed.config.models import CustomColumnMappings
     from sqlseed.database._protocol import ColumnInfo
 
 
 @dataclass
 class GeneratorSpec:
+    """Generator spec: describes which data generator and parameters a column should use.
+
+    Encapsulates generator name, parameters, null ratio, and native provider method info:
+    serves as the unified contract between the column mapper and data generators.
+    """
+
     generator_name: str
     params: dict[str, Any] = field(default_factory=dict)
     null_ratio: float = 0.0
@@ -20,6 +33,20 @@ class GeneratorSpec:
 
 
 class ColumnMapper:
+    """Column mapper: infers column generator specs based on a 9-level strategy chain.
+
+    Strategy chain order (priority from high to low):
+      1. Primary key autoincrement columns are skipped directly;
+      2. User explicit config (user_config);
+      3. Column name exact match (including custom rules);
+      4. Column default value / nullability handling;
+      5. Column name regex pattern match (including custom rules);
+      6. CamelCase to snake_case conversion then exact match again;
+      7. Pattern match again after snake_case conversion;
+      8. Fallback default value / nullability handling (include_nullable=True);
+      9. Type-faithful fallback (inferred by SQL type).
+    """
+
     EXACT_MATCH_RULES: ClassVar[dict[str, str]] = {
         "email": "email",
         "phone": "phone",
@@ -48,7 +75,12 @@ class ColumnMapper:
         "password": "password",
         "passwd": "password",
         "secret": "password",
-        "status": "choice",
+        # ``status`` removed from EXACT_MATCH_RULES: ``status`` columns almost
+        # always have CHECK constraints with domain-specific enums. The generic
+        # ``choice`` mapping left ``params`` empty (no ``choices`` key in
+        # EXACT_MATCH_PARAMS), causing ``_gen_choice()`` to crash. Letting
+        # ``status`` fall through to L4 (DEFAULT skip) or L9 (type fallback →
+        # SchemaFallbackGenerator) ensures CHECK-derived ``choices`` are used.
         "state": "state",
         "gender": "choice",
         "sex": "choice",
@@ -73,13 +105,14 @@ class ColumnMapper:
         "headline": "sentence",
         "bio": "text",
         "biography": "text",
-        "description": "text",
+        "description": "sentence",
         "summary": "text",
         "content": "text",
         "body": "text",
-        "comment": "text",
-        "note": "text",
-        "remark": "text",
+        "comment": "sentence",
+        "note": "sentence",
+        "remark": "sentence",
+        "location": "city",
         "latitude": "float",
         "longitude": "float",
         "lat": "float",
@@ -95,6 +128,10 @@ class ColumnMapper:
         "occupation": "job_title",
         "position": "job_title",
         "country_code": "country_code",
+        # SKU (Stock Keeping Unit) codes must be alphanumeric (no spaces/dashes)
+        # — they're used as product identifiers in URLs, barcodes, and joins.
+        # The default string charset includes " _-" which is unsafe for SKUs.
+        "sku": "string",
     }
 
     EXACT_MATCH_PARAMS: ClassVar[dict[str, dict[str, Any]]] = {
@@ -114,7 +151,13 @@ class ColumnMapper:
         "longitude": {"min_value": -180.0, "max_value": 180.0, "precision": 6},
         "lat": {"min_value": -90.0, "max_value": 90.0, "precision": 6},
         "lng": {"min_value": -180.0, "max_value": 180.0, "precision": 6},
-        "status": {"choices": [0, 1]},
+        # ``status`` removed from EXACT_MATCH_PARAMS: in real-world schemas,
+        # ``status`` columns almost always have CHECK constraints with
+        # domain-specific enums (e.g., ``status IN ('active','suspended')``).
+        # The hardcoded ``[0, 1]`` conflicted with these CHECK constraints,
+        # causing IntegrityError at fill time. Letting ``status`` fall through
+        # to L9 type-fallback → SchemaFallbackGenerator allows the CHECK
+        # constraint's ``IN (...)`` list to be picked up automatically.
         "gender": {"choices": ["male", "female", "other"]},
         "sex": {"choices": ["male", "female"]},
         "type": {"choices": [1, 2, 3]},
@@ -122,9 +165,9 @@ class ColumnMapper:
         "priority": {"choices": ["low", "medium", "high"]},
         "role": {"choices": ["admin", "user", "guest"]},
         "bio": {"min_length": 50, "max_length": 200},
-        "description": {"min_length": 100, "max_length": 500},
         "content": {"min_length": 200, "max_length": 1000},
-        "comment": {"min_length": 10, "max_length": 200},
+        # SKU codes: alphanumeric only (no spaces/dashes), 6-12 chars.
+        "sku": {"min_length": 6, "max_length": 12, "charset": "alphanumeric"},
     }
 
     PATTERN_MATCH_RULES: ClassVar[tuple[tuple[str, str, dict[str, Any]], ...]] = (
@@ -135,7 +178,11 @@ class ColumnMapper:
             "string",
             {"min_length": 8, "max_length": 20, "charset": "alphanumeric"},
         ),
-        (r".*_no$|.*_nbr$", "foreign_key_or_integer", {}),
+        (
+            r".*_no$|.*_nbr$",
+            "string",
+            {"min_length": 6, "max_length": 20, "charset": "alphanumeric"},
+        ),
         (r".*_ids$", "json", {}),
         (r".*_at$", "datetime", {}),
         (r".*_date$", "date", {}),
@@ -144,12 +191,29 @@ class ColumnMapper:
         (r"^created$", "datetime", {}),
         (r"^updated$", "datetime", {}),
         (r"^deleted$", "datetime", {}),
-        (r".*_count$|.*_num$|.*_number$", "integer", {"min_value": 0, "max_value": 10000}),
-        (r".*_amount$|.*_price$|.*_cost$|.*_fee$", "float", {"min_value": 0.01, "max_value": 99999.99, "precision": 2}),
+        (
+            r"^quantity$|.*_quantity$|.*_sold$|.*_count$|.*_num$|.*_number$",
+            "integer",
+            {"min_value": 1, "max_value": 50},
+        ),
+        (r".*_amount$|.*_price$|.*_cost$|.*_fee$", "float", {"min_value": 0.1, "max_value": 999.99, "precision": 2}),
         (r".*_rate$|.*_ratio$|.*_percent$", "float", {"min_value": 0.0, "max_value": 1.0, "precision": 4}),
         (r"^is_.*|^has_.*|^can_.*|^should_.*|^enable.*|^disable.*", "boolean", {}),
         (r".*_code$", "string", {"min_length": 6, "max_length": 12, "charset": "alphanumeric"}),
-        (r".*_name$", "name", {}),
+        # Person-name contexts: explicit human-related prefixes → real person names.
+        (
+            r".*(?:user|customer|employee|member|author|student|teacher|patient|"
+            r"person|contact|owner|admin|guest|subscriber)_name$",
+            "name",
+            {},
+        ),
+        # High-confidence domain contexts: strong semantic match → specialized generator.
+        (r".*(?:company|org|organization|department|unit|vendor|supplier|brand)_name$", "company", {}),
+        # General *_name fallback: catch_phrase (multi-word business phrase) —
+        # semantically closer to a real entity name than a single random word.
+        # For category_name, product_name, dept_name, project_name, etc.
+        # AI (sqlseed-ai) can override with more specific generators when enabled.
+        (r".*_name$", "catch_phrase", {}),
         (r".*_email$", "email", {}),
         (r".*_phone$|.*_tel$|.*_mobile$", "phone", {}),
         (r".*_url$|.*_link$|.*_href$", "url", {}),
@@ -182,21 +246,69 @@ class ColumnMapper:
         "DATE": ("date", {}),
         "DATETIME": ("datetime", {}),
         "TIMESTAMP": ("timestamp", {}),
+        "TIMESTAMPTZ": ("datetime", {}),
         "VARCHAR": ("string", {}),
         "CHAR": ("string", {}),
+        # PostgreSQL-specific types
+        "UUID": ("uuid", {}),
+        "JSONB": ("json", {}),
+        "JSON": ("json", {}),
+        "INET": ("ipv4", {}),
+        "CIDR": (
+            "choice",
+            {
+                "choices": [
+                    "10.0.0.0/8",
+                    "172.16.0.0/12",
+                    "192.168.0.0/16",
+                    "10.0.0.0/24",
+                    "172.16.0.0/24",
+                    "192.168.1.0/24",
+                ]
+            },
+        ),
+        "MACADDR": (
+            "pattern",
+            {
+                "pattern": (
+                    r"[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:"
+                    r"[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}"
+                )
+            },
+        ),
+        # PostgreSQL rare types — produce minimal valid literals via choice generator
+        "INTERVAL": ("choice", {"choices": ["0 seconds"]}),
+        "TSVECTOR": ("choice", {"choices": [""]}),
+        "TSTZRANGE": ("choice", {"choices": ["empty"]}),
     }
 
     def __init__(self) -> None:
+        """Initialize the column mapper: prepare custom exact match and pattern match rule containers."""
         self._custom_exact_rules: dict[str, tuple[str, dict[str, Any]]] = {}
         self._custom_pattern_rules: list[tuple[str, str, dict[str, Any]]] = []
 
     def register_exact_rule(self, column_name: str, generator: str, params: dict[str, Any] | None = None) -> None:
+        """Register a custom column name exact match rule: priority is higher than built-in rules."""
         self._custom_exact_rules[column_name.lower()] = (generator, params or {})
 
     def register_pattern_rule(self, pattern: str, generator: str, params: dict[str, Any] | None = None) -> None:
+        """Register a custom column name regex pattern match rule: priority is higher than built-in rules."""
         self._custom_pattern_rules.append((pattern, generator, params or {}))
 
+    def load_custom_mappings(self, mappings: CustomColumnMappings) -> None:
+        """Load custom column mappings from a YAML config (``CustomColumnMappings``).
+
+        Both exact-match and pattern-match rules are registered with higher
+        priority than the built-in rules, allowing users to override incorrect
+        mappings without modifying core code or writing a plugin.
+        """
+        for col_name, exact_rule in mappings.exact.items():
+            self.register_exact_rule(col_name, exact_rule.generator, exact_rule.params)
+        for pattern_rule in mappings.pattern:
+            self.register_pattern_rule(pattern_rule.pattern, pattern_rule.generator, pattern_rule.params)
+
     def _match_exact(self, column_name: str) -> GeneratorSpec | None:
+        """Perform column name exact match against custom rules then built-in rules: returns generator spec or None."""
         if column_name in self._custom_exact_rules:
             gen, params = self._custom_exact_rules[column_name]
             return GeneratorSpec(generator_name=gen, params=params)
@@ -209,6 +321,10 @@ class ColumnMapper:
         return None
 
     def _match_pattern(self, column_name: str) -> GeneratorSpec | None:
+        """Perform column name regex pattern match against custom rules then built-in rules.
+
+        Returns the generator spec or None.
+        """
         for pattern, gen, params in self._custom_pattern_rules:
             if re.match(pattern, column_name):
                 return GeneratorSpec(generator_name=gen, params=params)
@@ -220,17 +336,21 @@ class ColumnMapper:
         return None
 
     def _map_from_user_config(self, user_config: Any) -> GeneratorSpec | None:
-        if user_config and hasattr(user_config, "generator") and user_config.generator:
+        """Build an explicit source spec, including native-only provider methods."""
+        generator = getattr(user_config, "generator", None)
+        faker_method = getattr(user_config, "faker_method", None)
+        mimesis_method = getattr(user_config, "mimesis_method", None)
+        if user_config and (generator or faker_method or mimesis_method):
             provider_val = (
                 user_config.provider.value if hasattr(user_config, "provider") and user_config.provider else None
             )
             return GeneratorSpec(
-                generator_name=user_config.generator,
+                generator_name=generator or "__native__",
                 params=user_config.params if hasattr(user_config, "params") else {},
                 null_ratio=user_config.null_ratio if hasattr(user_config, "null_ratio") else 0.0,
                 provider=provider_val,
-                native_faker_method=getattr(user_config, "faker_method", None),
-                native_mimesis_method=getattr(user_config, "mimesis_method", None),
+                native_faker_method=faker_method,
+                native_mimesis_method=mimesis_method,
                 native_params=getattr(user_config, "native_params", None) or None,
             )
         return None
@@ -244,6 +364,13 @@ class ColumnMapper:
         *,
         include_nullable: bool = False,
     ) -> GeneratorSpec | None:
+        """Generate a spec based on the column default value or nullability.
+
+        When the column has a default value (or is nullable and include_nullable=True):
+        - If force_type_infer is True, falls back to type-faithful inference;
+        - If enrich is True, returns an __enrich__ spec preserving the original default value;
+        - Otherwise returns skip to skip generation for this column.
+        """
         if column_info.default is not None or (include_nullable and column_info.nullable):
             if force_type_infer:
                 return self._type_faithful_fallback(column_type)
@@ -259,6 +386,7 @@ class ColumnMapper:
 
     @classmethod
     def _to_snake_case(cls, name: str) -> str:
+        """Convert CamelCase naming to snake_case: to facilitate subsequent matching."""
         return cls._CAMELCASE_RE.sub("_", name).lower()
 
     def map_column(
@@ -269,37 +397,147 @@ class ColumnMapper:
         enrich: bool = False,
         force_type_infer: bool = False,
     ) -> GeneratorSpec:
+        """Infer a generator spec for a single column via the 9-level strategy chain.
+
+        When enrich is True, returns an __enrich__ spec (instead of skip) for columns
+        with default values; when force_type_infer is True, forces fallback by SQL type,
+        ignoring the default-value skip logic.
+
+        Strategy levels L1-L5 are evaluated inline (PK skip, user config, exact
+        match, default value, pattern match). Levels L6-L9 (snake_case retry,
+        nullable fallback, type-faithful fallback) are delegated to
+        :meth:`_match_snake_retry_or_fallback` to keep the return-statement
+        count within pylint's threshold while preserving the documented
+        strategy order.
+        """
         column_name = column_info.name.lower()
         column_type = column_info.type.upper() if column_info.type else "TEXT"
 
-        if column_info.is_primary_key and (
-            column_info.is_autoincrement or "INTEGER" in column_type or "INT" in column_type
-        ):
+        if getattr(column_info, "is_computed", False):
             return GeneratorSpec(generator_name="skip")
 
-        user_spec = self._map_from_user_config(user_config)
-        if user_spec:
+        # L1a: Explicit AUTOINCREMENT PK — always skip (highest priority).
+        # ``is_autoincrement`` is True only when the SQL has the explicit
+        # ``AUTOINCREMENT`` keyword (see ``detect_sqlite_autoincrement``).
+        if column_info.is_primary_key and column_info.is_autoincrement:
+            return GeneratorSpec(generator_name="skip")
+
+        # L2: User explicit config — respect user intent for non-autoincrement
+        # columns. This MUST run before the L1b implicit-INTEGER-PK skip below
+        # so that explicit YAML config for composite PK INTEGER columns (e.g.,
+        # ``doctor_schedules.day_of_week`` with ``generator: integer,
+        # params: {min_value: 0, max_value: 6}``) is honored. Without this
+        # ordering, the L1b heuristic would skip the column and the YAML
+        # config would be silently ignored, causing NOT NULL failures on
+        # composite PK columns that are NOT autoincrement.
+        if user_spec := self._map_from_user_config(user_config):
+            self._inherit_rule_params(column_name, user_spec)
             return user_spec
 
-        exact_match = self._match_exact(column_name)
-        if exact_match:
+        # Preserve null_ratio from user config even when no generator is
+        # provided. Without this, a YAML config like
+        # ``approved_amount: {null_ratio: 1.0}`` (no generator) would
+        # lose the null_ratio because _map_from_user_config returns None
+        # when generator is not set. The null_ratio must be applied to
+        # whatever spec the L1b-L9 fallback chain produces, so the
+        # DataStream generates NULL values for the column.
+        user_null_ratio = user_config.null_ratio if user_config and hasattr(user_config, "null_ratio") else 0.0
+
+        spec = self._map_fallback(column_info, column_name, column_type, enrich, force_type_infer)
+
+        # Type-fidelity guard: a BLOB column must produce bytes, not str.
+        # Name-based rules (exact/pattern/snake) run before type fallback and
+        # may map a BLOB column (e.g., "content") to a text generator, which
+        # crashes at insert with "a bytes-like object is required". "skip"
+        # specs (nullable columns) are left alone — NULL is valid for BLOB.
+        if re.sub(r"\(.*\)", "", column_type).strip() == "BLOB" and spec.generator_name not in ("bytes", "skip"):
+            spec = self._type_faithful_fallback(column_type)
+
+        if user_null_ratio > 0:
+            return replace(spec, null_ratio=user_null_ratio)
+        return spec
+
+    def _inherit_rule_params(self, column_name: str, user_spec: GeneratorSpec) -> None:
+        """Merge compatible rule defaults without overriding explicit user bounds."""
+        if (exact_match := self._match_exact(column_name) or self._match_pattern(column_name)) is None:
+            return
+        # Only string/text share length parameters. Sentence accepts neither
+        # lengths nor charset, and text does not accept charset.
+        same_generator = exact_match.generator_name == user_spec.generator_name
+        string_generators = {"string", "text"}
+        if not same_generator and not (
+            exact_match.generator_name in string_generators and user_spec.generator_name in string_generators
+        ):
+            return
+        merged_params = dict(exact_match.params)
+        if not same_generator:
+            merged_params = {key: value for key, value in merged_params.items() if key in {"min_length", "max_length"}}
+        merged_params.update(user_spec.params)
+        # An explicit lower bound may invalidate an inherited upper bound.
+        # Keep explicit user maxima so normal runtime validation still applies.
+        min_len = merged_params.get("min_length")
+        max_len = merged_params.get("max_length")
+        if (
+            isinstance(min_len, int)
+            and isinstance(max_len, int)
+            and min_len > max_len
+            and "max_length" not in user_spec.params
+        ):
+            merged_params.pop("max_length", None)
+        user_spec.params = merged_params
+
+    def _map_fallback(
+        self,
+        column_info: ColumnInfo,
+        column_name: str,
+        column_type: str,
+        enrich: bool,
+        force_type_infer: bool,
+    ) -> GeneratorSpec:
+        """L1b-L9 fallback chain (when no user config with generator is provided)."""
+        # L1b: Only a real SQLite rowid alias receives an implicit ID. Unknown
+        # metadata preserves legacy hand-built ColumnInfo behavior; adapters
+        # explicitly distinguish composite, DESC and WITHOUT ROWID keys.
+        if column_info.is_primary_key and column_type == "INTEGER" and column_info.is_rowid_alias is not False:
+            return GeneratorSpec(generator_name="skip")
+
+        if column_info.is_primary_key and "INT" in column_type:
+            return self._type_faithful_fallback(column_type)
+
+        if exact_match := self._match_exact(column_name):
             return exact_match
 
-        default_spec = self._map_from_default(column_info, column_type, enrich, force_type_infer)
-        if default_spec:
+        if default_spec := self._map_from_default(column_info, column_type, enrich, force_type_infer):
             return default_spec
 
-        pattern_match = self._match_pattern(column_name)
-        if pattern_match:
+        if pattern_match := self._match_pattern(column_name):
             return pattern_match
 
-        snake_name = self._to_snake_case(column_info.name)
-        if snake_name != column_name:
-            snake_exact = self._match_exact(snake_name)
-            if snake_exact:
+        return self._match_snake_retry_or_fallback(column_info, column_name, column_type, enrich, force_type_infer)
+
+    def _match_snake_retry_or_fallback(
+        self,
+        column_info: ColumnInfo,
+        column_name: str,
+        column_type: str,
+        enrich: bool,
+        force_type_infer: bool,
+    ) -> GeneratorSpec:
+        """Levels L6-L9 of the 9-level strategy chain.
+
+        - L6: CamelCase -> snake_case exact retry
+        - L7: snake_case pattern retry
+        - L8: nullable fallback (default value with include_nullable=True)
+        - L9: type-faithful fallback by SQL type
+
+        Extracted from :meth:`map_column` to keep the parent method within
+        pylint's too-many-return-statements threshold. The strategy order is
+        preserved exactly as documented in CLAUDE.md.
+        """
+        if (snake_name := self._to_snake_case(column_info.name)) != column_name:
+            if snake_exact := self._match_exact(snake_name):
                 return snake_exact
-            snake_pattern = self._match_pattern(snake_name)
-            if snake_pattern:
+            if snake_pattern := self._match_pattern(snake_name):
                 return snake_pattern
 
         fallback_spec = self._map_from_default(
@@ -315,23 +553,54 @@ class ColumnMapper:
         return self._type_faithful_fallback(column_type)
 
     def _type_faithful_fallback(self, column_type: str) -> GeneratorSpec:
+        """Infer a generator spec via type-faithful fallback by SQL type: preserving length info where possible."""
         length_match = re.search(r"\((\d+)\)", column_type)
         max_length = int(length_match.group(1)) if length_match else None
 
         base_type = re.sub(r"\(.*\)", "", column_type).strip()
 
+        # PostgreSQL array types — always generate NULL.
+        # The string '{}' doesn't work with PostgreSQL parameterized queries
+        # (psycopg sends it as a string, but PG expects a Python list for
+        # ARRAY columns). Since ARRAY columns are typically nullable (they
+        # have DEFAULT '{}'), null_ratio=1.0 is the safest fallback.
+        # Handle both forms:
+        #   - pg_catalog format_type: "TEXT[]", "INTEGER[]", "UUID[]"
+        #   - SQLAlchemy inspect(): "ARRAY" (repr ARRAY(TEXT()) / ARRAY(INTEGER()))
+        if base_type.endswith("[]") or base_type == "ARRAY":
+            return GeneratorSpec(generator_name="string", params={}, null_ratio=1.0)
+
+        # Exact match first: prevents ``INTERVAL`` from matching the ``INT``
+        # prefix rule (which would produce ``integer`` instead of ``choice``
+        # with ``["0 seconds"]``). Also prevents ``JSONB`` from matching
+        # ``JSON`` (though JSONB is ordered before JSON in the dict, exact
+        # match is still safer).
+        if base_type in self.TYPE_FALLBACK_RULES:
+            gen, default_params = self.TYPE_FALLBACK_RULES[base_type]
+            return self._fallback_spec_with_length(gen, default_params, max_length)
+
+        # Prefix match fallback: handles parameterized types like
+        # ``VARCHAR(255)`` (base_type ``VARCHAR`` matches rule ``VARCHAR``)
+        # and dialect variants like ``INTEGER`` matching ``INT``.
         for type_prefix, (gen, default_params) in self.TYPE_FALLBACK_RULES.items():
             if base_type.startswith(type_prefix):
-                params = dict(default_params)
-                if max_length is not None:
-                    if gen == "string":
-                        params["min_length"] = 1
-                        params["max_length"] = max_length
-                    elif gen == "bytes":
-                        params["length"] = max_length
-                return GeneratorSpec(generator_name=gen, params=params)
+                return self._fallback_spec_with_length(gen, default_params, max_length)
 
         return GeneratorSpec(generator_name="string", params={"min_length": 5, "max_length": 50})
+
+    @staticmethod
+    def _fallback_spec_with_length(
+        generator: str, default_params: dict[str, Any], max_length: int | None
+    ) -> GeneratorSpec:
+        """Copy a type rule and apply the declared string or byte length."""
+        params = dict(default_params)
+        if max_length is not None:
+            if generator == "string":
+                params["min_length"] = 1
+                params["max_length"] = max_length
+            elif generator == "bytes":
+                params["length"] = max_length
+        return GeneratorSpec(generator_name=generator, params=params)
 
     def map_columns(
         self,
@@ -340,6 +609,10 @@ class ColumnMapper:
         *,
         enrich: bool = False,
     ) -> dict[str, GeneratorSpec]:
+        """Batch-map multiple columns into a generator spec dict.
+
+        Optionally accepts user configs indexed by column name.
+        """
         user_configs = user_configs or {}
         result: dict[str, GeneratorSpec] = {}
         for col in columns:

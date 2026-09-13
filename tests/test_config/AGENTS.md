@@ -1,46 +1,23 @@
-<!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-04-29 | Updated: 2026-04-29 -->
-
 # test_config
 
-## Purpose
+本目录验证 Pydantic 配置、YAML/JSON loader 与 snapshot；实现规则见 [config/AGENTS.md](../../src/sqlseed/config/AGENTS.md)。
 
-配置系统测试。覆盖模型校验、文件加载和快照管理。
+## 入口与回归要求
 
-## Key Files
+- `test_models.py`：字段默认值、null_ratio、连接互斥与 `connection_target`；修改 model validator 时补充相关错误路径。
+- 保留 source（generator/params）与 derived（derive_from/expression）模式互斥的验证要求；不要绕过 Pydantic 来构造本应非法的生产输入。
+- `test_loader.py`：YAML 与 JSON 都要覆盖，包括无效文件和错误信息；配置文件放在 `tmp_path`。
+- 多数据库配置使用 `url`，与 `db_path` 互斥；验证序列化后连接目标仍然一致。
+- `test_snapshot.py`：验证 save/load/list_snapshots 生命周期；snapshot 不负责执行 CLI replay。
+- 尽量断言加载后的 model 字段和实际落盘内容，避免把 loader 的返回对象直接 mock 成期望值。
 
-| File | Description |
-|------|-------------|
-| `test_loader.py` | YAML/JSON 配置加载测试 |
-| `test_models.py` | Pydantic 模型校验测试 |
-| `test_snapshot.py` | SnapshotManager 快照管理测试 |
+## 验证
 
-## For AI Agents
-
-### Working In This Directory
-
-- 模型校验需覆盖源列/派生列互斥约束
-- 加载器需覆盖 YAML 和 JSON 两种格式
-- 需测试非法配置文件的错误提示
-
-### Testing Requirements
+从仓库根执行：
 
 ```bash
 pytest tests/test_config/
+pytest tests/test_public_api.py tests/test_url_connection.py
 ```
 
-### Common Patterns
-
-- 使用临时文件（`tmp_path`）创建测试配置文件
-
-## Dependencies
-
-### Internal
-
-- `src/sqlseed/config/`
-
-### External
-
-- `pytest>=8.0`
-
-<!-- MANUAL: Any manually added notes below this line are preserved on regeneration -->
+修改 `src/sqlseed/config/models.py` 时，还要同步双语 architecture 文档并运行 `pytest tests/test_doc_sync.py`。

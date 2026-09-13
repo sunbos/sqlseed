@@ -1,4 +1,0 @@
-{
-  "checks": ["commands", "contradictions"],
-  "ignore": ["node_modules/**", ".venv/**", "site/**", "docs/superpowers/**"]
-}

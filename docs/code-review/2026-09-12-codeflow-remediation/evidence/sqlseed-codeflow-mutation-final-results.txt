@@ -1,0 +1,12 @@
+To apply a mutant on disk:
+    mutmut apply <id>
+
+To show a mutant:
+    mutmut show <id>
+
+
+Survived 🙁 (8)
+
+---- src/sqlseed/core/unique_adjuster.py (8) ----
+
+87-88, 91, 103, 117, 133, 152, 190

@@ -1,0 +1,80 @@
+{
+  "changed_existing_functions": {
+    "ai_settings.py": "http_endpoint",
+    "api.py": "ai_test_connection",
+    "managed_worker.py": "run_worker",
+    "plugin_environment.py": "_environment",
+    "sqlite_target.py": "sqlite_target"
+  },
+  "new_helpers": {
+    "ai_settings.py": [
+      "_validate_endpoint_components"
+    ],
+    "api.py": [
+      "_local_ai_probe_result"
+    ],
+    "managed_worker.py": [
+      "_worker_control",
+      "_drain_worker_runtime"
+    ],
+    "plugin_environment.py": [
+      "_venv_directory_restriction"
+    ],
+    "sqlite_target.py": [
+      "_sqlite_uri_parts"
+    ]
+  },
+  "pylint_version": "2.17.7, mccabe extension, unchanged default thresholds",
+  "targeted_warnings_before": 7,
+  "targeted_warnings_after": 2,
+  "resolved": [
+    "http_endpoint 10/5 boolean expressions",
+    "ai_test_connection McCabe 11→8",
+    "run_worker McCabe 18→10",
+    "_environment McCabe 13→5",
+    "sqlite_target McCabe 12→7"
+  ],
+  "remaining_existing": [
+    "api._run_auto_heal_job locals 29/15 (untouched)",
+    "managed_worker.run_worker locals 20→19/15; original initialization/capture/order deliberately retained"
+  ],
+  "all_new_helper_mccabe": {
+    "_validate_endpoint_components": 3,
+    "_local_ai_probe_result": 4,
+    "_worker_control": 7,
+    "_drain_worker_runtime": 3,
+    "_venv_directory_restriction": 9,
+    "_sqlite_uri_parts": 6
+  },
+  "all_five_file_mccabe_max": 10,
+  "ast_scope": "/tmp/sqlseed-web-complexity-batch3-ast-scope.json",
+  "equivalence": {
+    "http_endpoint_cases": 238,
+    "sqlite_target_cases": 174,
+    "compared": "Exact return value or exception type, text, cause type/text, and suppress_context; no network or database mutation",
+    "environment_cases": 72,
+    "environment_evidence": "Real temporary directory/config/EXTERNALLY-MANAGED layout combinations, UTF-8 error, platform and installer selection; exact Environment including final overriding reason.",
+    "ai_probe_cases": 192,
+    "ai_probe_evidence": "All four actual AIConfig backends, key absent/present, status 200/401/503 and malformed models/JSON; actual httpx.Client + MockTransport, exact result and resolver/HTTP call sequence."
+  },
+  "pytest": {
+    "passed": 473,
+    "skipped": 0,
+    "seconds": 66.75,
+    "log": "/tmp/sqlseed-web-complexity-batch3-pytest.log"
+  },
+  "mypy": "27 source files passed, /tmp/sqlseed-web-complexity-batch3-mypy.log",
+  "ruff_check": "Web + shared helper + AI runtime test passed",
+  "ruff_format": "60 files passed",
+  "git_diff_check": "passed in owned scope",
+  "jscpd": {
+    "version": "4.0.5",
+    "default_thresholds": true,
+    "files": 55,
+    "clones": 0,
+    "report": "/tmp/sqlseed-web-complexity-batch3-jscpd/jscpd-report.json"
+  },
+  "preserved": "Signatures, route registration, errors/cause/chaining, reasons/override order, optional imports, captured worker state, startup/finally sequence; parent prior literal cleanup snapshot preserved.",
+  "no_tests_added": "Pure refactor verified with existing complete Web regressions and temporary old/new equivalence harnesses.",
+  "committed": false
+}

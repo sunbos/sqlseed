@@ -1,0 +1,23 @@
+{
+  "implementations": [
+    {
+      "class": "sqlseed.core._review_baseline_expression.ExpressionEngine",
+      "normal_results_preserve_identity": 10,
+      "errors_preserve_identity_without_bool": 6,
+      "each_function_evaluated_once_in_worker": true,
+      "timeout_message_and_daemon_behavior_preserved": true,
+      "baseexception_excepthook_boundary_preserved": true
+    },
+    {
+      "class": "sqlseed.core.expression.ExpressionEngine",
+      "normal_results_preserve_identity": 10,
+      "errors_preserve_identity_without_bool": 6,
+      "each_function_evaluated_once_in_worker": true,
+      "timeout_message_and_daemon_behavior_preserved": true,
+      "baseexception_excepthook_boundary_preserved": true
+    }
+  ],
+  "seeded_expression_results_equal": 30,
+  "normal_or_error_or_timeout_or_control_cases": 36,
+  "all_passed": true
+}

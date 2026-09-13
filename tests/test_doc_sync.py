@@ -9,28 +9,31 @@ updating — not that the code is wrong.
 
 from __future__ import annotations
 
+import importlib.util
 import re
-import sys
 from pathlib import Path
 
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 
-# Import shared fact extractors from scripts/ to avoid code duplication.
-# This ensures tests validate the same logic that sync_docs.py uses.
-sys.path.insert(0, str(ROOT / "scripts"))
-# Import after sys.path manipulation — cannot be at module top.
-# pylint: disable=wrong-import-position
-from _fact_extractors import (  # noqa: E402
-    get_enum_name_patterns,
-    get_exact_match_rules,
-    get_generator_types,
-    get_hook_names,
-    get_mcp_tool_names,
-    get_pattern_match_rules,
-    get_safe_functions,
-)
+# Load the shared fact extractors from scripts/ via importlib to avoid
+# sys.path mutation. This keeps all imports at module top-level (PEP 8)
+# and ensures tests validate the same logic that sync_docs.py uses.
+_HELPER_PATH = ROOT / "scripts" / "_fact_extractors.py"
+_spec = importlib.util.spec_from_file_location("_fact_extractors", _HELPER_PATH)
+if _spec is None or _spec.loader is None:
+    raise ImportError(f"Cannot load _fact_extractors from {_HELPER_PATH}")
+_fact_extractors = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_fact_extractors)
+
+get_enum_name_patterns = _fact_extractors.get_enum_name_patterns
+get_exact_match_rules = _fact_extractors.get_exact_match_rules
+get_generator_types = _fact_extractors.get_generator_types
+get_hook_names = _fact_extractors.get_hook_names
+get_mcp_tool_names = _fact_extractors.get_mcp_tool_names
+get_pattern_match_rules = _fact_extractors.get_pattern_match_rules
+get_safe_functions = _fact_extractors.get_safe_functions
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
@@ -65,8 +68,7 @@ def _find_marker_claims(marker_name: str) -> list[tuple[Path, str]]:
     claims: list[tuple[Path, str]] = []
     for doc_path in _find_doc_files():
         text = _read(doc_path)
-        value = _extract_marker_value(text, marker_name)
-        if value is not None:
+        if (value := _extract_marker_value(text, marker_name)) is not None:
             claims.append((doc_path, value))
     return claims
 
@@ -91,10 +93,11 @@ def _find_doc_files() -> list[Path]:
         ROOT / "src" / "sqlseed" / "core" / "AGENTS.md",
         ROOT / "src" / "sqlseed" / "generators" / "AGENTS.md",
         ROOT / "src" / "sqlseed" / "config" / "AGENTS.md",
-        ROOT / "src" / "sqlseed" / "cli" / "AGENTS.md",
         ROOT / "src" / "sqlseed" / "database" / "AGENTS.md",
         ROOT / "src" / "sqlseed" / "plugins" / "AGENTS.md",
         ROOT / "src" / "sqlseed" / "_utils" / "AGENTS.md",
+        ROOT / "plugins" / "sqlseed-cli" / "AGENTS.md",
+        ROOT / "plugins" / "sqlseed-cli" / "src" / "sqlseed_cli" / "AGENTS.md",
         ROOT / "plugins" / "sqlseed-ai" / "AGENTS.md",
         ROOT / "plugins" / "sqlseed-ai" / "src" / "sqlseed_ai" / "AGENTS.md",
         ROOT / "plugins" / "mcp-server-sqlseed" / "AGENTS.md",
@@ -144,11 +147,9 @@ def _extract_number_before_keyword(text: str, keywords: list[str]) -> list[str]:
         kw_lower = kw.lower()
         pos = 0
         while True:
-            idx = text_lower.find(kw_lower, pos)
-            if idx == -1:
+            if (idx := text_lower.find(kw_lower, pos)) == -1:
                 break
-            num = _read_number_before(text, idx)
-            if num is not None:
+            if (num := _read_number_before(text, idx)) is not None:
                 results.append(num)
             pos = idx + len(kw)
     return results
@@ -162,8 +163,7 @@ def _get_config_fields(cls_name: str) -> set[str]:
     code = _read(ROOT / "src" / "sqlseed" / "config" / "models.py")
     # Find the class body using string operations
     marker = f"class {cls_name}"
-    start = code.find(marker)
-    if start == -1:
+    if (start := code.find(marker)) == -1:
         return set()
     next_class = code.find("\nclass ", start + len(marker))
     body = code[start:] if next_class == -1 else code[start:next_class]
@@ -174,8 +174,7 @@ def _get_config_fields(cls_name: str) -> set[str]:
         if not stripped or stripped.startswith("#") or stripped.startswith("class "):
             continue
         # Check for "field_name:" pattern (field definition)
-        colon_idx = stripped.find(":")
-        if colon_idx > 0:
+        if (colon_idx := stripped.find(":")) > 0:
             field_name = stripped[:colon_idx].strip()
             if field_name.isidentifier() and not field_name.startswith("_"):
                 fields.add(field_name)
@@ -222,19 +221,19 @@ class TestGeneratorTypes:
             matches = _extract_number_before_keyword(text, ["个生成器", "种生成器", "generator"])
             for m in matches:
                 assert int(m) == count, (
-                    f"{doc_path}: claims {m} generators, but _GENERATOR_MAP has {count}. "
+                    f"{doc_path}: claims {m} generators, but GENERATOR_MAP has {count}. "
                     f"Generators: {sorted(generators)}"
                 )
 
     def test_new_types_documented(self):
-        """Every generator in _GENERATOR_MAP should appear in README."""
+        """Every generator in GENERATOR_MAP should appear in README."""
         generators = get_generator_types()
         readme = _read(ROOT / "README.md")
 
         for gen in sorted(generators):
             # Generator names should appear in the generator table
             # Use word boundary to avoid false matches
-            assert gen in readme, f"Generator '{gen}' is in _GENERATOR_MAP but not mentioned in README.md"
+            assert gen in readme, f"Generator '{gen}' is in GENERATOR_MAP but not mentioned in README.md"
 
 
 class TestExactMatchRules:
@@ -290,7 +289,11 @@ class TestPluginHooks:
         hooks = get_hook_names()
         count = len(hooks)
 
-        for doc_path in _find_doc_files():
+        # Skip CHANGELOG (records historical facts, not current state) —
+        # mirrors TestGeneratorTypes.test_count_in_readme logic.
+        check_files = [p for p in _find_doc_files() if "CHANGELOG" not in p.name]
+
+        for doc_path in check_files:
             text = _read(doc_path)
             matches = _extract_number_before_keyword(text, ["个 hook 点", "个hook点", "hook point", "hook"])
             for m in matches:
@@ -362,6 +365,29 @@ class TestCodeExamples:
 
 class TestPatternMatchRules:
     """Verify pattern match rule count matches documentation."""
+
+    def test_extracts_complete_patterns_from_multiline_literals(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Formatting a regex across literals must preserve its value and rule count."""
+        mapper_path = tmp_path / "src" / "sqlseed" / "core" / "mapper.py"
+        mapper_path.parent.mkdir(parents=True)
+        mapper_path.write_text(
+            'raise RuntimeError("Fact extraction must not import source modules")\n'
+            "class ColumnMapper:\n"
+            "    PATTERN_MATCH_RULES: tuple = (\n"
+            "        (\n"
+            '            r"^user_"\n'
+            '            r"[0-9]+$",\n'
+            '            "integer", {},\n'
+            "        ),\n"
+            '        (r"^email$", "email", {"description": r"not a rule"}),\n'
+            "    )\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(_fact_extractors, "ROOT", tmp_path)
+
+        assert get_pattern_match_rules() == [(r"^user_[0-9]+$",), (r"^email$",)]
 
     def test_count_in_docs(self):
         rules = get_pattern_match_rules()

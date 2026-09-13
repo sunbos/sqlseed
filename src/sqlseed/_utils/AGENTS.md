@@ -1,52 +1,26 @@
-<!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-04-29 | Updated: 2026-04-29 -->
+# 底层共享工具
 
-# _utils
+本目录是 leaf layer；禁止导入 `core/generators/database/plugins/config`。只接收多个模块需要的公共能力，单模块 helper 留在原模块。
 
-## Purpose
+## SQL 安全边界
 
-跨模块共享的底层工具函数。包括日志、指标、进度条、缓存路径和 SQL 安全。
+- [sql_safe.py](sql_safe.py) 提供 sanitize → quote → parameterized INSERT；改动必须检查 SQL injection 边界并做安全 review。
+- `quote_identifier()` 将内部双引号转义为两个双引号；拒绝空白名称、NUL、`;`、换行、回车与单引号。允许连字符，不能误伤已安全引用的表名。
+- `sql_safe.validate_table_name(name)` 会 warning 非常规名称并返回 quoted identifier；它不验证表是否存在。
+- [paths.py](paths.py) 的 `validate_table_name(name, allowed_tables)` 检查 allowlist membership；不要因同名而混用这两个函数。
+- `build_insert_sql()` 用 `?` placeholder 绑定值；不要把数据值拼进 SQL。
+- `validate_db_target()` 接受数据库 URL 或存在的 `.db/.sqlite/.sqlite3` 文件，URL 由 SQLAlchemy 后续校验；不施加项目目录限制。
 
-## Key Files
+## 其他工具
 
-| File | Description |
-|------|-------------|
-| `logger.py` | structlog 配置，`configure_logging()` 和 `get_logger()` 函数 |
-| `metrics.py` | `MetricsCollector` 性能指标收集与汇总统计 |
-| `paths.py` | `get_cache_dir(subdir)` 平台标准缓存目录（macOS/Linux/Windows），供 SnapshotManager 和 AiConfigRefiner 共用 |
-| `progress.py` | `create_progress()` 进度条工厂，多后端（`RichProgressBackend` / `TqdmNotebookBackend` / `NullProgressBackend`），含 ascii_only 回退 |
-| `sql_safe.py` | SQL 注入防护：`validate_table_name()`, `quote_identifier()`, `build_insert_sql()` |
-| `schema_helpers.py` | 数据库模式检测共享逻辑（如 `detect_autoincrement`） |
+- [logger.py](logger.py)：统一使用 `get_logger(__name__)` / `configure_logging()`，不要另起标准库 logging 配置；默认日志输出 stderr，避免污染数据输出。导入时必须保留宿主已有的 structlog 配置；只有尚未配置时才安装默认处理器，显式调用 `configure_logging()` 仍可覆盖。
+- [metrics.py](metrics.py)：`MetricsCollector` 聚合 count/total/min/max/avg；保留单次遍历与按名称过滤。
+- [progress.py](progress.py)：通过 `create_progress()` 选 backend，disabled → Null，Jupyter → tqdm，terminal → Rich；保留编码不支持时的 ASCII fallback。
+- tqdm 是 notebook 可选依赖；不能因未安装 notebook 支持破坏其他环境。
+- `get_cache_dir()` 优先 `SQLSEED_CACHE_DIR`，否则遵循 macOS/Linux/Windows 路径约定；只返回路径，调用方负责创建目录。
+- [daemon_task.py](daemon_task.py) 用 Future 管理单个 daemon worker 的结果与异常；超时只停止等待，不终止工作。需要在 worker 内执行的完成回调通过构造参数 `on_done` 在线程启动前注册，避免快速任务完成后回调落到调用线程。进程控制异常也必须传回等待方，不能变成 `None` 成功结果。
+- [type_checks.py](type_checks.py) 的 `has_exact_type()` 表达严格内建类型合同；计数与 JSON 类型边界不能因改用普通 `isinstance(value, int)` 而接受布尔值。
 
-## For AI Agents
+## 验证
 
-### Working In This Directory
-
-- `sql_safe.py` 是安全关键模块，修改需极度谨慎，任何变更必须通过安全审查
-- 日志统一使用 structlog，所有模块通过 `get_logger(__name__)` 获取，不要使用标准库 `logging`
-- 新增工具函数应考虑是否真的被多个模块共享，单模块使用的函数应放在对应模块内
-- `MetricsCollector` 使用 dataclass 存储指标条目，支持按名称过滤和汇总统计
-
-### Testing Requirements
-
-```bash
-pytest tests/test_utils/
-```
-
-### Common Patterns
-
-- `get_logger(__name__)` 获取模块级 logger
-- `sql_safe` 模块提供三层防护：验证（validate）、引用（quote）、构建（build）
-
-## Dependencies
-
-### Internal
-
-- 无（底层模块，不依赖其他内部模块）
-
-### External
-
-- `structlog>=24.0` — 结构化日志
-- `rich>=13.0` — 进度条
-
-<!-- MANUAL: Any manually added notes below this line are preserved on regeneration -->
+从仓库根执行 `pytest tests/test_utils/ tests/test_database/test_sql_safe.py`。SQL quoting 修改补跑 `pytest tests/test_database/test_helpers.py`；`lint-imports` 检查 leaf layer 不反向依赖上层。

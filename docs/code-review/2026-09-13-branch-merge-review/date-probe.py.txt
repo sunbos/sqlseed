@@ -1,0 +1,16 @@
+from pathlib import Path
+from tempfile import TemporaryDirectory
+import sqlite3
+from sqlseed import fill
+import sqlseed
+from sqlseed.plugins.manager import PluginManager
+PluginManager.load_plugins = lambda self: None
+print("SOURCE:", sqlseed.__file__)
+with TemporaryDirectory() as d:
+    p=Path(d)/"date.db"
+    with sqlite3.connect(p) as c:
+        c.execute("CREATE TABLE events(id INTEGER PRIMARY KEY, holiday DATE NOT NULL)")
+    r=fill(str(p), table="events",count=3,provider="base",seed=42,optimize_pragma=False,columns={"holiday":{"generator":"choice","choices":["2026-01-01","2026-12-25"]}})
+    print("RESULT",r.count,r.errors)
+    with sqlite3.connect(p) as c:
+        print("STORED",c.execute("SELECT * FROM events").fetchall())

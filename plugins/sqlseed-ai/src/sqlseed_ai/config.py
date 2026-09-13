@@ -1,3 +1,11 @@
+"""Configuration model for the sqlseed-ai plugin.
+
+Defines :class:`AIConfig` (a Pydantic model) plus the :class:`AIBackend` and
+:class:`GemmaModel` enums used to select and resolve LLM endpoints, model IDs,
+API keys, timeouts, and token budgets across the supported backends (Google AI
+Studio, LM Studio, Ollama, OpenAI-compatible).
+"""
+
 from __future__ import annotations
 
 import json
@@ -6,16 +14,22 @@ import re
 import time
 import urllib.request
 from enum import Enum
-from typing import Any
+from typing import Any, Literal, cast
 
 from pydantic import BaseModel, Field, PrivateAttr
 
 from sqlseed._utils.logger import get_logger
 
+# Tool calling protocol selector (ARCHITECTURE.md Section 3.3, Phase E).
+# - "gemma4": Gemma 4 native function calling (special-token based; Google AI Studio only)
+# - "openai": Standard OpenAI function calling (OpenAI tools API; cloud backends)
+# - "none":   No tool calling (use JSON mode or text mode)
+ToolCallingProtocol = Literal["gemma4", "openai", "none"]
+
 logger = get_logger(__name__)
 
 
-# ── Gemma 4 model registry ──────────────────────────────────────────
+# -- Gemma 4 model registry --
 class GemmaModel(str, Enum):
     """Supported Gemma 4 model variants.
 
@@ -39,14 +53,12 @@ class GemmaModel(str, Enum):
 
     @property
     def display_name(self) -> str:
-        names = {
-            "gemma-4-e2b-it": "Gemma 4 E2B (2B Effective, Edge)",
-            "gemma-4-e4b-it": "Gemma 4 E4B (4B Effective, Edge)",
-            "gemma-4-12b-it": "Gemma 4 12B Unified (Laptop)",
-            "gemma-4-26b-a4b-it": "Gemma 4 26B A4B MoE (Recommended)",
-            "gemma-4-31b-it": "Gemma 4 31B Dense",
-        }
-        return names.get(self.value, self.value)
+        """Return a human-friendly name for this model variant.
+
+        Looks up the canonical model ID in a module-level constant to avoid
+        reconstructing the mapping on every call.
+        """
+        return _GEMMA_DISPLAY_NAMES.get(self.value, self.value)
 
     @property
     def is_local_only(self) -> bool:
@@ -75,7 +87,7 @@ class GemmaModel(str, Enum):
             return f"google/gemma-4-{core}"  # e.g., google/gemma-4-e4b
         if backend == AIBackend.OLLAMA:
             # Ollama uses "gemma4" prefix with colon separator
-            # Special case: 26b-a4b → 26b (Ollama omits the "a4b" qualifier)
+            # Special case: 26b-a4b -> 26b (Ollama omits the "a4b" qualifier)
             if core == "26b-a4b":
                 return "gemma4:26b"
             return f"gemma4:{core}"  # e.g., gemma4:e4b
@@ -83,7 +95,7 @@ class GemmaModel(str, Enum):
         return f"google/{self.value}"  # e.g., google/gemma-4-e4b-it
 
 
-# ── Backend providers ────────────────────────────────────────────────
+# -- Backend providers --
 class AIBackend(str, Enum):
     """LLM backend provider."""
 
@@ -93,10 +105,26 @@ class AIBackend(str, Enum):
     OPENAI_COMPAT = "openai_compat"  # generic OpenAI-compatible endpoint
 
 
-# ── Default URLs ─────────────────────────────────────────────────────
+# -- Default URLs --
 GOOGLE_AI_STUDIO_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
 LM_STUDIO_BASE_URL = "http://127.0.0.1:1234/v1"
 OLLAMA_BASE_URL = "http://localhost:11434/v1"
+
+_GEMMA_DISPLAY_NAMES: dict[str, str] = {
+    "gemma-4-e2b-it": "Gemma 4 E2B (2B Effective, Edge)",
+    "gemma-4-e4b-it": "Gemma 4 E4B (4B Effective, Edge)",
+    "gemma-4-12b-it": "Gemma 4 12B Unified (Laptop)",
+    "gemma-4-26b-a4b-it": "Gemma 4 26B A4B MoE (Recommended)",
+    "gemma-4-31b-it": "Gemma 4 31B Dense",
+}
+
+# Backend 人类可读名称映射（避免 .title() 把 "openai_compat" 显示为 "Openai Compat"）
+BACKEND_DISPLAY_NAMES: dict[AIBackend, str] = {
+    AIBackend.GOOGLE_AI_STUDIO: "Google AI Studio",
+    AIBackend.LM_STUDIO: "LM Studio",
+    AIBackend.OLLAMA: "Ollama",
+    AIBackend.OPENAI_COMPAT: "OpenAI-compatible",
+}
 
 DEFAULT_GEMMA_MODEL = GemmaModel.GEMMA_4_26B_A4B
 
@@ -117,26 +145,64 @@ _URL_PATTERNS: tuple[tuple[str, AIBackend], ...] = (
 
 
 def _resolve_backend(backend_str: str, base_url: str | None) -> AIBackend:
-    """Resolve AI backend from explicit string or base_url inference."""
+    """Resolve AI backend from explicit string or base_url inference.
+
+    Resolution priority:
+      1. Explicit ``SQLSEED_AI_BACKEND`` env var (highest priority).
+      2. URL pattern match for known local/special backends (Google AI Studio,
+         LM Studio, Ollama).
+      3. Fallback to :attr:`AIBackend.OPENAI_COMPAT` — the OpenAI API protocol
+         is the de-facto industry standard; most third-party LLM services
+         (OpenRouter, Together, Anyscale, self-hosted vLLM, etc.) implement
+         it. Defaulting to ``OPENAI_COMPAT`` rather than a specific vendor
+         (Google AI Studio) avoids misidentification and incorrect
+         ``tool_calling_protocol`` / display-name inference for unknown URLs.
+    """
     if backend_str in _BACKEND_MAP:
         return _BACKEND_MAP[backend_str]
     if base_url:
         for pattern, backend in _URL_PATTERNS:
             if pattern in base_url:
                 return backend
-    return AIBackend.GOOGLE_AI_STUDIO
+    return AIBackend.OPENAI_COMPAT
 
 
 class AIConfig(BaseModel):
+    """Pydantic model holding all LLM connection and generation settings.
+
+    Fields are populated from environment variables (via :meth:`from_env`) or
+    set explicitly by the caller. Resolution methods (:meth:`resolve_model`,
+    :meth:`resolve_base_url`, :meth:`resolve_api_key`, :meth:`resolve_timeout`,
+    :meth:`resolve_max_tokens`, :meth:`resolve_tool_calling_protocol`) are pure
+    functions: they return the resolved value without mutating ``self``, so
+    callers must use the return value.
+
+    The ``tool_calling_protocol`` field (Phase E) selects the native function
+    calling strategy: ``"gemma4"`` (Gemma 4 special-token protocol, default),
+    ``"openai"`` (standard OpenAI function calling), or ``"none"`` (no tool
+    calling). :meth:`resolve_tool_calling_protocol` narrows the user's choice
+    based on what the active backend actually supports.
+    """
+
     model_config = {"arbitrary_types_allowed": True}
 
     api_key: str | None = None
     model: str | None = None
     base_url: str | None = None
-    backend: AIBackend = AIBackend.GOOGLE_AI_STUDIO
+    backend: AIBackend = AIBackend.OPENAI_COMPAT
+    tool_calling_protocol: ToolCallingProtocol = "gemma4"
     temperature: float = Field(default=0.3, ge=0.0, le=2.0)
     max_tokens: int = Field(default=0, ge=0)  # 0 means auto-resolve based on backend
     timeout: float = Field(default=0.0, ge=0)  # 0 means auto-resolve based on backend
+
+    # Model context window size in tokens (None = auto-detect via
+    # ContextWindowDetector). Set explicitly to override detection.
+    max_context_tokens: int | None = None
+
+    # LLM interaction logging: when True, full prompt + response are written
+    # to JSON files under <cache_root>/ai_logs/ for debugging. Useful for
+    # diagnosing LLM hallucinations, prompt issues, and Rule failures.
+    log_llm_interactions: bool = False
 
     # Non-serialized cache for inference speed probe results
     _speed_probe_cache: tuple[float, dict[str, Any]] | None = PrivateAttr(default=None)
@@ -145,6 +211,16 @@ class AIConfig(BaseModel):
 
     @classmethod
     def from_env(cls) -> AIConfig:
+        """Build an :class:`AIConfig` from SQLSEED_AI_* environment variables.
+
+        Recognized variables: ``SQLSEED_AI_API_KEY`` (or ``GOOGLE_API_KEY`` /
+        ``OPENAI_API_KEY`` fallback), ``SQLSEED_AI_BASE_URL`` (or
+        ``OPENAI_BASE_URL``), ``SQLSEED_AI_MODEL``, ``SQLSEED_AI_BACKEND``,
+        ``SQLSEED_AI_TOOL_CALLING_PROTOCOL``, ``SQLSEED_AI_TIMEOUT``.
+
+        Returns:
+            A configured :class:`AIConfig` instance.
+        """
         api_key = (
             os.environ.get("SQLSEED_AI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or os.environ.get("OPENAI_API_KEY")
         )
@@ -153,33 +229,53 @@ class AIConfig(BaseModel):
         backend_str = os.environ.get("SQLSEED_AI_BACKEND", "").lower()
         timeout_str = os.environ.get("SQLSEED_AI_TIMEOUT")
         timeout = float(timeout_str) if timeout_str else 0.0  # 0 = auto-resolve
+        protocol_str = os.environ.get("SQLSEED_AI_TOOL_CALLING_PROTOCOL", "").lower().strip()
+        protocol: ToolCallingProtocol = "gemma4"  # default
+        if protocol_str in {"gemma4", "openai", "none"}:
+            # Cast required: mypy cannot narrow `str` to `Literal["gemma4", "openai", "none"]`
+            # via the `in` membership check on a set of literal strings.
+            protocol = cast("ToolCallingProtocol", protocol_str)
 
         # Resolve backend
         backend = _resolve_backend(backend_str, base_url)
 
-        return cls(api_key=api_key, base_url=base_url, model=model, backend=backend, timeout=timeout)
+        return cls(
+            api_key=api_key,
+            base_url=base_url,
+            model=model,
+            backend=backend,
+            tool_calling_protocol=protocol,
+            timeout=timeout,
+        )
 
     def resolve_model(self) -> str:
+        """Resolve the model ID to use, without mutating ``self.model``.
+
+        If ``self.model`` is already set, it is returned as-is. Otherwise the
+        method auto-detects a local model (for LM Studio/Ollama) or falls
+        back to the default Gemma 4 variant for the active backend.
+
+        Returns:
+            The resolved model ID string. Callers that need the value
+            persisted should assign it back to ``self.model``.
+        """
         if self.model is not None:
             return self.model
 
         # Select default model based on backend
         if self.backend in (AIBackend.LM_STUDIO, AIBackend.OLLAMA):
             # For local inference, try to auto-detect available models
-            detected = self._detect_local_model()
-            if detected:
-                self.model = detected
-                logger.info("Auto-detected local model", model=self.model, backend=self.backend.value)
-                return self.model
+            if detected := self._detect_local_model():
+                logger.info("Auto-detected local model", model=detected, backend=self.backend.value)
+                return detected
             # Fallback to compact model for local inference (platform-specific ID)
-            self.model = GemmaModel.GEMMA_4_E4B.to_backend_id(self.backend)
-            logger.info("Using compact Gemma 4 model for local inference", model=self.model)
-        else:
-            # Default to the recommended Gemma 4 model for cloud backends
-            self.model = DEFAULT_GEMMA_MODEL.to_backend_id(self.backend)
-            logger.info("Using default Gemma 4 model", model=self.model)
-
-        return self.model
+            fallback = GemmaModel.GEMMA_4_E4B.to_backend_id(self.backend)
+            logger.info("Using compact Gemma 4 model for local inference", model=fallback)
+            return fallback
+        # Default to the recommended Gemma 4 model for cloud backends
+        default_model = DEFAULT_GEMMA_MODEL.to_backend_id(self.backend)
+        logger.info("Using default Gemma 4 model", model=default_model)
+        return default_model
 
     def _detect_local_model(self) -> str | None:
         """Try to auto-detect the first available model from local backend.
@@ -187,14 +283,19 @@ class AIConfig(BaseModel):
         Results are cached for 2 minutes to avoid repeated HTTP requests
         during fallback chains (each call would otherwise block up to 5s).
         """
-        models = self._detect_all_local_models()
+        models = self.detect_all_local_models()
         return models[0] if models else None
 
-    def _detect_all_local_models(self) -> list[str]:
-        """Detect all available models from local backend.
+    def detect_all_local_models(self) -> list[str]:
+        """Detect all available models from the local backend.
 
+        Public API (no leading underscore) so callers outside this module can
+        query the local model list without reaching into private state.
         Results are cached for 2 minutes to avoid repeated HTTP requests.
-        Returns a list of model IDs (may be empty).
+
+        Returns:
+            List of model IDs (may be empty if the backend is not local or
+            the request fails).
         """
         # Return cached result if detected recently (within 2 minutes)
         if self._all_models_cache is not None:
@@ -224,23 +325,33 @@ class AIConfig(BaseModel):
         return []
 
     def resolve_base_url(self) -> str:
-        """Resolve the API base URL based on backend selection."""
+        """Resolve the API base URL, without mutating ``self.base_url``.
+
+        For Google AI Studio, LM Studio, and Ollama the URL is derived from
+        the backend. For OpenAI-compatible backends the caller must have set
+        ``self.base_url`` explicitly.
+
+        Returns:
+            The resolved base URL string. Callers that need the value
+            persisted should assign it back to ``self.base_url``.
+
+        Raises:
+            ValueError: If the backend is ``OPENAI_COMPAT`` and no base URL
+                was provided.
+        """
         if self.base_url is not None:
             return self.base_url
 
         if self.backend == AIBackend.GOOGLE_AI_STUDIO:
-            self.base_url = GOOGLE_AI_STUDIO_BASE_URL
-        elif self.backend == AIBackend.LM_STUDIO:
-            self.base_url = LM_STUDIO_BASE_URL
-        elif self.backend == AIBackend.OLLAMA:
-            self.base_url = OLLAMA_BASE_URL
-        else:
-            # OpenAI-compatible backends (e.g., OpenRouter) require explicit base_url
-            raise ValueError(
-                "OPENAI_COMPAT backend requires SQLSEED_AI_BASE_URL to be set. Example: https://openrouter.ai/api/v1"
-            )
-
-        return self.base_url
+            return GOOGLE_AI_STUDIO_BASE_URL
+        if self.backend == AIBackend.LM_STUDIO:
+            return LM_STUDIO_BASE_URL
+        if self.backend == AIBackend.OLLAMA:
+            return OLLAMA_BASE_URL
+        # OpenAI-compatible backends (e.g., OpenRouter) require explicit base_url
+        raise ValueError(
+            "OPENAI_COMPAT backend requires SQLSEED_AI_BASE_URL to be set. Example: https://openrouter.ai/api/v1"
+        )
 
     def resolve_api_key(self) -> str | None:
         """Resolve API key based on backend."""
@@ -284,7 +395,7 @@ class AIConfig(BaseModel):
         A budget of 768 covers up to ~30-column tables while keeping
         response time manageable on slow local hardware.
 
-        NOTE: This is a pure function — it does not modify self.max_tokens.
+        NOTE: This is a pure function -- it does not modify self.max_tokens.
         """
         if self.max_tokens > 0:
             return self.max_tokens  # User explicitly set a value
@@ -293,13 +404,55 @@ class AIConfig(BaseModel):
         if self.backend in (AIBackend.LM_STUDIO, AIBackend.OLLAMA):
             model_str = (self.model or "").lower()
             if "e2b" in model_str or "e4b" in model_str:
-                return 768  # With reasoning_effort=none: ~200-600 content tokens
+                return 4096  # Reasoning models need larger budget for full YAML
             if "12b" in model_str:
                 return 1024
             return 2048
 
         # Cloud backends: use larger max_tokens
         return 4096
+
+    def resolve_tool_calling_protocol(self) -> str:
+        """Resolve the effective tool calling protocol based on backend support.
+
+        The ``self.tool_calling_protocol`` field expresses the user's intent.
+        This method narrows it to what the active backend actually supports,
+        gracefully degrading to ``"none"`` when the requested protocol is not
+        available on the current backend.
+
+        Protocol support matrix:
+
+        - ``"gemma4"``: Gemma 4 native function calling (special-token based).
+          Supported only on ``GOOGLE_AI_STUDIO`` which implements Gemma 4's
+          ``<|tool|>`` / ``<|tool_call|>`` token protocol.
+        - ``"openai"``: Standard OpenAI function calling (OpenAI tools API).
+          Supported on ``GOOGLE_AI_STUDIO`` and ``OPENAI_COMPAT``.
+        - ``"none"``: No tool calling; the caller uses JSON mode or text mode.
+
+        On backends that do not support the requested protocol, this method
+        returns ``"none"`` so the caller falls back to JSON/text mode.
+
+        NOTE: This is a pure function -- it does not modify
+        ``self.tool_calling_protocol``.
+
+        Returns:
+            One of ``"gemma4"``, ``"openai"``, ``"none"``.
+        """
+        proto = self.tool_calling_protocol
+        if proto == "none":
+            return "none"
+        if proto == "gemma4":
+            # Gemma 4 native function calling requires Google AI Studio's
+            # special-token implementation. Other backends (LM Studio, Ollama,
+            # OpenAI-compatible) do not implement the <|tool|> protocol.
+            return "gemma4" if self.backend == AIBackend.GOOGLE_AI_STUDIO else "none"
+        if proto == "openai":
+            # Standard OpenAI function calling works on cloud backends that
+            # implement the OpenAI tools API.
+            return "openai" if self.backend in (AIBackend.GOOGLE_AI_STUDIO, AIBackend.OPENAI_COMPAT) else "none"
+        # Defensive default for forward compatibility (e.g. if a new protocol
+        # value is added without updating this method).
+        return "none"
 
     def is_small_local_model(self) -> bool:
         """Check if the current model is a small local model (E2B/E4B).
@@ -350,7 +503,7 @@ class AIConfig(BaseModel):
         When user explicitly sets a timeout (via CLI --timeout or env var),
         we respect it as long as it's at least 30s (to avoid instant failures).
 
-        This is a pure function — it does not modify self.timeout.
+        This is a pure function -- it does not modify self.timeout.
         """
         # User explicitly set a timeout
         if self.timeout > 0:
@@ -370,7 +523,20 @@ class AIConfig(BaseModel):
         base_url: str | None = None,
         model: str | None = None,
         backend: AIBackend | None = None,
+        tool_calling_protocol: ToolCallingProtocol | None = None,
     ) -> AIConfig:
+        """Apply non-None overrides to this config in place and return self.
+
+        Args:
+            api_key: Override API key if provided.
+            base_url: Override base URL if provided.
+            model: Override model ID if provided.
+            backend: Override backend if provided.
+            tool_calling_protocol: Override tool calling protocol if provided.
+
+        Returns:
+            The same :class:`AIConfig` instance (for chaining).
+        """
         if api_key:
             self.api_key = api_key
         if base_url:
@@ -379,6 +545,8 @@ class AIConfig(BaseModel):
             self.model = model
         if backend:
             self.backend = backend
+        if tool_calling_protocol is not None:
+            self.tool_calling_protocol = tool_calling_protocol
         return self
 
     def probe_inference_speed(self) -> dict[str, Any] | None:

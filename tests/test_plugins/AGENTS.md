@@ -1,46 +1,22 @@
-<!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-04-29 | Updated: 2026-04-29 -->
-
 # test_plugins
 
-## Purpose
+本目录验证 core 的 pluggy hook specifications 与 manager lifecycle；不是各业务插件的测试目录。
 
-插件系统测试。覆盖 hook 规范定义和插件管理器生命周期。
+## 入口与回归要求
 
-## Key Files
+- `test_hookspecs.py` 验证 hook 名称、签名与 `firstresult` 元数据；以 `src/sqlseed/plugins/hookspecs.py` 为定义来源。
+- `test_manager.py` 验证注册、卸载、分发与生命周期；使用真实 `PluginManager` 和内联 dummy plugin classes。
+- 区分 `firstresult=True` 的单值与普通 hook 的 `list[result]`，包含全 None / 多个结果的情况。
+- 验证 batch transform 结果处理时，同时参考 `tests/test_core/test_plugin_mediator.py`；不要假设 pluggy 会把一个插件的输出依次传入下一个插件。
+- CLI、AI、MCP、Web 的业务行为测试放在各插件自己的 `tests/`，避免这里强制依赖业务插件。
 
-| File | Description |
-|------|-------------|
-| `test_hookspecs.py` | Hook 规范定义测试 |
-| `test_manager.py` | PluginManager 生命周期测试 |
+## 验证
 
-## For AI Agents
-
-### Working In This Directory
-
-- 测试插件的注册、发现和卸载
-- 验证 hook 调用的正确分派
-- 测试 entry_points 自动发现机制
-
-### Testing Requirements
+从仓库根执行：
 
 ```bash
-pytest tests/test_plugins/
+pytest tests/test_plugins/ tests/test_core/test_plugin_mediator.py
+pytest tests/test_architecture.py tests/test_doc_sync.py
 ```
 
-### Common Patterns
-
-- 直接实例化 `PluginManager`，注册 dummy 插件类验证 hook 分派
-- 通过 `hookspec` 属性逐项验证 hook 规范定义
-
-## Dependencies
-
-### Internal
-
-- `src/sqlseed/plugins/`
-
-### External
-
-- `pytest>=8.0`
-
-<!-- MANUAL: Any manually added notes below this line are preserved on regeneration -->
+修改 hookspec 时同步根指引列出的 hook 文档；hook 数量由源码与校验维护，不在本文件固定统计。

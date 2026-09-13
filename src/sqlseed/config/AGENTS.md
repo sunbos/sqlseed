@@ -1,52 +1,35 @@
-<!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-04-29 | Updated: 2026-04-29 -->
+# 配置与 snapshot
 
-# config
+本目录负责 YAML/JSON loading、Pydantic models、离线模板和配置快照。配置驱动的执行留在 orchestrator；CLI replay 留在 CLI plugin。
 
-## Purpose
+## 入口
 
-YAML/JSON 配置文件的加载、校验和模型定义。基于 Pydantic 构建类型安全的配置模型。
+- [models.py](models.py)：`GeneratorConfig`、`TableConfig`、`ColumnConfig`、constraints、associations、自定义 mapping rules。
+- [loader.py](loader.py)：`load_config()`、`save_config()`、`generate_template()`；URL table discovery 使用延迟导入的 SQLAlchemy。
+- [snapshot.py](snapshot.py)：`SnapshotManager.save/load/list_snapshots`；不要添加执行生成逻辑。
 
-## Key Files
+## 不变量
 
-| File | Description |
-|------|-------------|
-| `models.py` | Pydantic 配置模型：`GeneratorConfig`, `TableConfig`, `ColumnConfig`, `ColumnConstraintsConfig`, `ProviderType` |
-| `loader.py` | 配置文件加载器，支持 YAML 和 JSON 格式，含模板生成功能 |
-| `snapshot.py` | `SnapshotManager` 配置快照的保存与加载（save/load/list_snapshots；replay 已移除） |
+- `GeneratorConfig.db_path` 与 `url` 必须二选一；统一经 `connection_target` 取连接目标。
+- `ColumnConfig.generator` 与 `derive_from` 互斥；存在 `derive_from` 必须有 `expression`。保留 validator，不能仅依靠调用方清理。
+- Source mode 使用 `generator/params/provider/null_ratio`；derived mode 使用 `derive_from/expression`，不要在 derived 配置中混入 source generator。
+- `normalize_dict_input()` 将 `type` 作为 `generator` alias，两者同时存在时保留 `generator` 并 warning；非 derived 的未知字段合入 `params`，顶层额外参数覆盖 nested params。
+- 无装饰器的 `normalize_column_input()` 共用于 model validator 与插件参数修复；保持传入模型字段集合，避免子类字段误入 `params`，不要在插件复制别名/平铺规则。
+- `_degraded`、`degrade_reason` 是内部 metadata，不能进入 generator params，否则会造成意外 keyword 参数错误。
+- `ColumnConstraintsConfig.max_retries >= 0`，`null_ratio` 范围为 `[0, 1]`；`TableConfig.count/batch_size` 必须为正。
+- 保留 `faker_method`、`mimesis_method`、`native_params` 的 native override 配置传递。
+- `ProviderType` 值为 base/faker/mimesis/custom；新增选择时核对 registry 与调用方，不仅修改 enum。
+- `ColumnAssociation` 是独立跨表模型：`column_name/source_table/source_column/target_tables/strategy`；未给 `source_column` 时由关系层回退到 `column_name`。
+- `custom_column_mappings` 包含 exact 与 pattern 规则，优先级由 `ColumnMapper` 执行。
+- 新字段给出兼容默认值，保留既有配置加载；`log_level` 已 deprecated，仅兼容读取，不再应用配置值。
 
-## For AI Agents
+## 快照
 
-### Working In This Directory
+- `SnapshotManager` 使用 `get_cache_dir("snapshots")` 或显式目录，以含微秒的 timestamp 命名避免同秒冲突。
+- 快照文件名不得直接使用任意 SQL 表名；特殊或过长名称使用安全摘要，原名保留在内容中。`load()` 对非 mapping 内容抛出 `ValueError`。
+- snapshot 外层保存 timestamp/table_name/count/seed，配置通过 `model_dump(mode="json")` 序列化；`load()` 返回外层字典，不是 `GeneratorConfig`。
+- CLI replay 使用 `load()` 加 `DataOrchestrator.from_config()`；不要重新添加 `SnapshotManager.replay()`。
 
-- 源列模式（`generator` + `params`）和派生列模式（`derive_from` + `expression`）互斥，通过 `model_validator` 校验，不要破坏此约束
-- `ProviderType` 枚举包含 BASE/FAKER/MIMESIS/CUSTOM 四种类型
-- Pydantic 模型修改需考虑向后兼容，已有配置文件不应因模型变更而无法加载
-- `field_validator`/`model_validator` 是核心校验逻辑，修改需确保所有约束条件仍然满足
-- 新增配置项应提供合理默认值，避免破坏现有用户配置
-- `ColumnAssociation` 是独立的跨表关联模型（非 ColumnConfig 内部枚举），字段：`column_name`, `source_table`, `source_column`(默认 None 回退到 column_name), `target_tables`, `strategy="shared_pool"`
+## 验证与同步
 
-### Testing Requirements
-
-```bash
-pytest tests/test_config/
-```
-
-### Common Patterns
-
-- 模型层次：`GeneratorConfig` → `TableConfig` → `ColumnConfig` → `ColumnConstraintsConfig`
-- `SnapshotManager` 按时间戳命名快照文件
-- 配置模板通过 `loader.py` 的 `generate_template()` 生成
-
-## Dependencies
-
-### Internal
-
-- `_utils`（logger）
-
-### External
-
-- `pydantic>=2.0` — 模型定义与校验
-- `pyyaml>=6.0` — YAML 加载
-
-<!-- MANUAL: Any manually added notes below this line are preserved on regeneration -->
+从仓库根执行 `pytest tests/test_config/`。修改 models 后同步 [docs/architecture.md](../../../docs/architecture.md) 与 [docs/architecture.zh-CN.md](../../../docs/architecture.zh-CN.md) 的字段与 class diagrams，并运行 `pytest tests/test_doc_sync.py`。

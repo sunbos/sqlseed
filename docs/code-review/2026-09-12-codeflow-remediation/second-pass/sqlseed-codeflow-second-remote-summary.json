@@ -1,0 +1,23 @@
+{
+  "commit": "ef7b2795370873c915b9d1c9b50b59c6ac7016fb",
+  "errors": 0,
+  "warnings": 101,
+  "reports": 50,
+  "issues": 101,
+  "counts": {
+    "broad-exception-caught": 53,
+    "CodeDuplication": 20,
+    "use-set-for-membership": 10,
+    "try-except-raise": 3,
+    "consider-using-with": 2,
+    "unidiomatic-typecheck": 13
+  },
+  "all_reports_complete": true,
+  "pylint_matches_local_exactly": true,
+  "tool_versions": {
+    "eslint": "8.57.1",
+    "jscpd": "4.0.5",
+    "pylint": "2.17.7"
+  },
+  "retrieved_at_utc": "2026-09-12T15:04:07.210640+00:00"
+}

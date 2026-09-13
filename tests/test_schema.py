@@ -5,6 +5,23 @@ from typing import Any
 
 from sqlseed.core.schema import SchemaInferrer
 from sqlseed.database.raw_sqlite_adapter import RawSQLiteAdapter
+from sqlseed.database.sqlalchemy_adapter import SQLAlchemyAdapter
+
+
+def _create_composite_pk_db(db_path: str) -> None:
+    """创建含复合主键关联表的数据库（模拟 product_tags 场景）。"""
+    conn = sqlite3.connect(db_path)
+    conn.execute("CREATE TABLE products (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT)")
+    conn.execute("CREATE TABLE tags (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT)")
+    conn.execute("""
+        CREATE TABLE product_tags (
+            product_id INTEGER NOT NULL REFERENCES products(id),
+            tag_id INTEGER NOT NULL REFERENCES tags(id),
+            PRIMARY KEY (product_id, tag_id)
+        )
+    """)
+    conn.commit()
+    conn.close()
 
 
 class TestSchemaInferrer:
@@ -122,5 +139,114 @@ class TestSchemaInferrer:
             name_profile = next((p for p in profiles if p["column"] == "name"), None)
             assert name_profile is not None
             assert name_profile["null_ratio"] > 0
+        finally:
+            adapter.close()
+
+
+class TestCompositePrimaryKeyDetection:
+    """复合主键的 unique 检测：只有组合唯一，单列不应标为 unique。
+
+    回归测试：此前 detect_unique_columns 把复合 PK 的每一列都加入
+    unique_columns，导致关联表（如 product_tags）填充时单列被禁止复用，
+    行数超过任一 FK 基数即失败。
+    """
+
+    def test_unique_columns_excludes_composite_pk_raw(self, tmp_path: Any) -> None:
+        """RawSQLiteAdapter：复合 PK 列不得出现在 unique_columns 中。"""
+        db_path = str(tmp_path / "composite_pk.db")
+        _create_composite_pk_db(db_path)
+        adapter = RawSQLiteAdapter()
+        adapter.connect(db_path)
+        try:
+            inferrer = SchemaInferrer(adapter)
+            unique_cols = inferrer.detect_unique_columns("product_tags")
+            assert "product_id" not in unique_cols
+            assert "tag_id" not in unique_cols
+        finally:
+            adapter.close()
+
+    def test_unique_columns_excludes_composite_pk_sqlalchemy(self, tmp_path: Any) -> None:
+        """SQLAlchemyAdapter（生产路径）：复合 PK 列不得出现在 unique_columns 中。"""
+        db_path = str(tmp_path / "composite_pk_sa.db")
+        _create_composite_pk_db(db_path)
+        adapter = SQLAlchemyAdapter()
+        adapter.connect(db_path)
+        try:
+            inferrer = SchemaInferrer(adapter)
+            unique_cols = inferrer.detect_unique_columns("product_tags")
+            assert "product_id" not in unique_cols
+            assert "tag_id" not in unique_cols
+        finally:
+            adapter.close()
+
+    def test_composite_unique_includes_composite_pk_sqlalchemy(self, tmp_path: Any) -> None:
+        """SQLAlchemyAdapter：复合 PK 应被识别为复合 UNIQUE 约束。"""
+        db_path = str(tmp_path / "composite_pk_sa2.db")
+        _create_composite_pk_db(db_path)
+        adapter = SQLAlchemyAdapter()
+        adapter.connect(db_path)
+        try:
+            inferrer = SchemaInferrer(adapter)
+            composite = inferrer.detect_composite_unique_constraints("product_tags")
+            assert ["product_id", "tag_id"] in composite
+        finally:
+            adapter.close()
+
+
+class TestInlineUniqueWithCheckDetection:
+    """行内 UNIQUE 列同时带 CHECK 约束时的单列 UNIQUE 检测。
+
+    回归测试：SQLAlchemy 的 inspector.get_unique_constraints 在该组合下可能
+    （SQLite 反射限制）丢失自动索引，导致 year/rating 未被识别为 UNIQUE 列，
+    填充时生成重复值违反约束。修复：get_unique_constraints 用 PRAGMA 补充。
+    """
+
+    def test_inline_unique_with_check_single_column_sqlalchemy(self, tmp_path: Any) -> None:
+        """SQLAlchemyAdapter（生产路径）：UNIQUE+CHECK 列应被识别为单列 UNIQUE。"""
+        db_path = str(tmp_path / "inline_unique_check.db")
+        conn = sqlite3.connect(db_path)
+        conn.executescript(
+            """CREATE TABLE "t1" (
+                "id" INTEGER NOT NULL,
+                "price" REAL NOT NULL CHECK (price >= 0),
+                "year" INTEGER NOT NULL UNIQUE CHECK (year >= 2000 AND year <= 2026),
+                "priority" TEXT NOT NULL CHECK (priority IN ('low','medium','high')),
+                "rating" REAL NOT NULL UNIQUE CHECK (rating >= 0),
+                PRIMARY KEY ("id")
+            );"""
+        )
+        conn.commit()
+        conn.close()
+        adapter = SQLAlchemyAdapter()
+        adapter.connect(db_path)
+        try:
+            inferrer = SchemaInferrer(adapter)
+            unique_cols = inferrer.detect_unique_columns("t1")
+            assert "year" in unique_cols
+            assert "rating" in unique_cols
+        finally:
+            adapter.close()
+
+    def test_inline_unique_with_check_single_column_raw(self, tmp_path: Any) -> None:
+        """RawSQLiteAdapter：UNIQUE+CHECK 列应被识别为单列 UNIQUE（PRAGMA 路径）。"""
+        db_path = str(tmp_path / "inline_unique_check_raw.db")
+        conn = sqlite3.connect(db_path)
+        conn.executescript(
+            """CREATE TABLE "t1" (
+                "id" INTEGER NOT NULL,
+                "year" INTEGER NOT NULL UNIQUE CHECK (year >= 2000 AND year <= 2026),
+                "rating" REAL NOT NULL UNIQUE CHECK (rating >= 0),
+                PRIMARY KEY ("id")
+            );"""
+        )
+        conn.commit()
+        conn.close()
+        adapter = RawSQLiteAdapter()
+        adapter.connect(db_path)
+        try:
+            inferrer = SchemaInferrer(adapter)
+            unique_cols = inferrer.detect_unique_columns("t1")
+            assert "year" in unique_cols
+            assert "rating" in unique_cols
         finally:
             adapter.close()

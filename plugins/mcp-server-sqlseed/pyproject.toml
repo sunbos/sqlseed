@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "mcp-server-sqlseed"
 dynamic = ["version"]
 requires-python = ">=3.10"
-description = "MCP server for sqlseed - AI-powered SQLite test data generation"
+description = "MCP server for sqlseed - rule-driven YAML generation and data fill (no LLM)"
 readme = "README.md"
 license = "AGPL-3.0-or-later"
 authors = [
@@ -22,16 +22,13 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
-    "sqlseed>=0.1.0,<2",
+    "sqlseed>=0.2.4.dev0,<0.3",
     "mcp>=1.0,<2",
 ]
 
 [project.urls]
 Homepage = "https://github.com/sunbos/sqlseed"
 Repository = "https://github.com/sunbos/sqlseed/tree/main/plugins/mcp-server-sqlseed"
-
-[project.optional-dependencies]
-ai = ["sqlseed-ai>=0.1.0,<2"]
 
 [project.scripts]
 mcp-server-sqlseed = "mcp_server_sqlseed:main"
@@ -51,3 +48,41 @@ exclude = [
     "AGENTS.md",
     "uv.lock",
 ]
+
+[tool.uv.sources]
+sqlseed = { path = "../..", editable = true }
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4", "SIM"]
+
+# isort config: mirror the root pyproject.toml so ruff classifies packages
+# consistently with pylint (which runs from the repo root). Without this,
+# ruff auto-detects mcp_server_sqlseed as first-party (local folder) and
+# sqlseed as third-party, the OPPOSITE of pylint's classification
+# (sqlseed=first-party, mcp_server_sqlseed=third-party). This mismatch
+# causes a wrong-import-order conflict that cannot be satisfied by any
+# import order. Pinning the classification here aligns ruff with pylint.
+[tool.ruff.lint.isort]
+known-first-party = ["sqlseed"]
+known-third-party = ["sqlseed_ai", "sqlseed_cli", "mcp_server_sqlseed"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+
+[[tool.mypy.overrides]]
+module = "mcp.*"
+ignore_missing_imports = true
+
+# Note: No [tool.pytest.ini_options] here. Pytest config lives in the root
+# pyproject.toml (testpaths includes "plugins/mcp-server-sqlseed/tests").
+# Adding a plugin-level pytest config would change pytest's rootdir to this
+# directory, causing "tests" package to resolve to plugins/mcp-server-sqlseed/tests/
+# instead of the root tests/ — breaking the conftest re-export pattern
+# (from tests.conftest import ...) used by all plugin test suites.

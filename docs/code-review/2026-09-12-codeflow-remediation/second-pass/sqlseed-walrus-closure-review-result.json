@@ -1,0 +1,457 @@
+{
+  "files_checked": 85,
+  "function_scopes_checked": 1741,
+  "unexpected_closure_or_nonlocal_differences": 0,
+  "expected_exception_container_freevar_rename": true,
+  "cli_availability_rhs_equal_exact_bool": true,
+  "core_values_union_annotation_preserved": true,
+  "details": [
+    {
+      "path": "conftest.py",
+      "function_scopes_checked": 22,
+      "differences": []
+    },
+    {
+      "path": "examples/build_showcase_db.py",
+      "function_scopes_checked": 5,
+      "differences": []
+    },
+    {
+      "path": "examples/order_workflow/run.py",
+      "function_scopes_checked": 10,
+      "differences": []
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/__init__.py",
+      "function_scopes_checked": 9,
+      "differences": []
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/_hardware.py",
+      "function_scopes_checked": 11,
+      "differences": []
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/_json_utils.py",
+      "function_scopes_checked": 6,
+      "differences": []
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/_model_selector.py",
+      "function_scopes_checked": 3,
+      "differences": []
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/ai_mediator.py",
+      "function_scopes_checked": 6,
+      "differences": []
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/analyzer/_caller.py",
+      "function_scopes_checked": 14,
+      "differences": []
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/analyzer/_context.py",
+      "function_scopes_checked": 8,
+      "differences": []
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/analyzer/_streaming.py",
+      "function_scopes_checked": 14,
+      "differences": []
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/analyzer/_tool_calling.py",
+      "function_scopes_checked": 3,
+      "differences": []
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/_check_inference.py",
+      "function_scopes_checked": 34,
+      "differences": []
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/_cross_column_checks.py",
+      "function_scopes_checked": 111,
+      "differences": []
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/auto_heal/orchestrator.py",
+      "function_scopes_checked": 133,
+      "differences": []
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/config.py",
+      "function_scopes_checked": 21,
+      "differences": []
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/contracts/matrix.py",
+      "function_scopes_checked": 8,
+      "differences": []
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/contracts/registry.py",
+      "function_scopes_checked": 14,
+      "differences": []
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/errors.py",
+      "function_scopes_checked": 13,
+      "differences": []
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/healer/candidate_validation.py",
+      "function_scopes_checked": 4,
+      "differences": []
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/healer/degrader.py",
+      "function_scopes_checked": 6,
+      "differences": []
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/healer/level1_subgraph_healer.py",
+      "function_scopes_checked": 3,
+      "differences": []
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/healer/level2_column_healer.py",
+      "function_scopes_checked": 7,
+      "differences": []
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/healer/orchestrator.py",
+      "function_scopes_checked": 16,
+      "differences": []
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/healer/oscillation.py",
+      "function_scopes_checked": 3,
+      "differences": []
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/mcp.py",
+      "function_scopes_checked": 11,
+      "differences": []
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/refiner.py",
+      "function_scopes_checked": 27,
+      "differences": []
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/repair/executor.py",
+      "function_scopes_checked": 5,
+      "differences": []
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/repair/strategies.py",
+      "function_scopes_checked": 40,
+      "differences": []
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/runtime.py",
+      "function_scopes_checked": 3,
+      "differences": []
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/validator/cross_column.py",
+      "function_scopes_checked": 7,
+      "differences": []
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/validator/dialect_parser.py",
+      "function_scopes_checked": 3,
+      "differences": []
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/validator/main.py",
+      "function_scopes_checked": 2,
+      "differences": []
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/validator/schema_snapshot.py",
+      "function_scopes_checked": 7,
+      "differences": []
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/validator/shadow_fk_scan.py",
+      "function_scopes_checked": 4,
+      "differences": []
+    },
+    {
+      "path": "plugins/sqlseed-ai/src/sqlseed_ai/validator/single_column.py",
+      "function_scopes_checked": 16,
+      "differences": []
+    },
+    {
+      "path": "plugins/sqlseed-cli/src/sqlseed_cli/main.py",
+      "function_scopes_checked": 18,
+      "differences": []
+    },
+    {
+      "path": "plugins/sqlseed-cli/tests/test_cli_ai_commands.py",
+      "function_scopes_checked": 100,
+      "differences": []
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/ai_settings.py",
+      "function_scopes_checked": 18,
+      "differences": []
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/api.py",
+      "function_scopes_checked": 48,
+      "differences": []
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/app.py",
+      "function_scopes_checked": 12,
+      "differences": []
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/plugin_management.py",
+      "function_scopes_checked": 28,
+      "differences": []
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/plugin_process.py",
+      "function_scopes_checked": 4,
+      "differences": []
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/sqlite_target.py",
+      "function_scopes_checked": 6,
+      "differences": []
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/state.py",
+      "function_scopes_checked": 19,
+      "differences": []
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/supervisor.py",
+      "function_scopes_checked": 15,
+      "differences": []
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/workbench_ai.py",
+      "function_scopes_checked": 39,
+      "differences": []
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/workbench_ai_relations.py",
+      "function_scopes_checked": 25,
+      "differences": []
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/workbench_runtime.py",
+      "function_scopes_checked": 69,
+      "differences": []
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/workbench_schema.py",
+      "function_scopes_checked": 15,
+      "differences": []
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/workbench_store.py",
+      "function_scopes_checked": 26,
+      "differences": []
+    },
+    {
+      "path": "plugins/sqlseed-web/src/sqlseed_web/worker_control.py",
+      "function_scopes_checked": 11,
+      "differences": []
+    },
+    {
+      "path": "scripts/analyze_ai_logs.py",
+      "function_scopes_checked": 31,
+      "differences": []
+    },
+    {
+      "path": "scripts/complex_validation/run_validation.py",
+      "function_scopes_checked": 15,
+      "differences": []
+    },
+    {
+      "path": "scripts/sync_docs.py",
+      "function_scopes_checked": 14,
+      "differences": []
+    },
+    {
+      "path": "src/sqlseed/_utils/paths.py",
+      "function_scopes_checked": 3,
+      "differences": []
+    },
+    {
+      "path": "src/sqlseed/_utils/progress.py",
+      "function_scopes_checked": 29,
+      "differences": []
+    },
+    {
+      "path": "src/sqlseed/config/loader.py",
+      "function_scopes_checked": 4,
+      "differences": []
+    },
+    {
+      "path": "src/sqlseed/config/models.py",
+      "function_scopes_checked": 5,
+      "differences": []
+    },
+    {
+      "path": "src/sqlseed/core/check_adapt.py",
+      "function_scopes_checked": 14,
+      "differences": []
+    },
+    {
+      "path": "src/sqlseed/core/check_parser.py",
+      "function_scopes_checked": 27,
+      "differences": []
+    },
+    {
+      "path": "src/sqlseed/core/enrichment.py",
+      "function_scopes_checked": 13,
+      "differences": []
+    },
+    {
+      "path": "src/sqlseed/core/expression.py",
+      "function_scopes_checked": 30,
+      "differences": [
+        {
+          "scope": "/(<SymbolTableType.CLASS: 'class'>, 'ExpressionEngine')#1/(<SymbolTableType.FUNCTION: 'function'>, 'evaluate')#1/(<SymbolTableType.FUNCTION: 'function'>, '_eval')#1",
+          "before": {
+            "free": [
+              "error_container",
+              "evaluator",
+              "expression",
+              "result_container"
+            ],
+            "nonlocal": []
+          },
+          "after": {
+            "free": [
+              "errors",
+              "evaluator",
+              "expression",
+              "result_container"
+            ],
+            "nonlocal": []
+          }
+        }
+      ]
+    },
+    {
+      "path": "src/sqlseed/core/features.py",
+      "function_scopes_checked": 16,
+      "differences": []
+    },
+    {
+      "path": "src/sqlseed/core/mapper.py",
+      "function_scopes_checked": 16,
+      "differences": []
+    },
+    {
+      "path": "src/sqlseed/core/orchestrator/_connection.py",
+      "function_scopes_checked": 22,
+      "differences": []
+    },
+    {
+      "path": "src/sqlseed/core/orchestrator/_generation.py",
+      "function_scopes_checked": 17,
+      "differences": []
+    },
+    {
+      "path": "src/sqlseed/core/orchestrator/_query.py",
+      "function_scopes_checked": 20,
+      "differences": []
+    },
+    {
+      "path": "src/sqlseed/core/orchestrator/_specs.py",
+      "function_scopes_checked": 26,
+      "differences": []
+    },
+    {
+      "path": "src/sqlseed/core/relation.py",
+      "function_scopes_checked": 40,
+      "differences": []
+    },
+    {
+      "path": "src/sqlseed/core/schema.py",
+      "function_scopes_checked": 17,
+      "differences": []
+    },
+    {
+      "path": "src/sqlseed/core/schema_fallback.py",
+      "function_scopes_checked": 6,
+      "differences": []
+    },
+    {
+      "path": "src/sqlseed/core/stream.py",
+      "function_scopes_checked": 35,
+      "differences": []
+    },
+    {
+      "path": "src/sqlseed/core/unique_adjuster.py",
+      "function_scopes_checked": 13,
+      "differences": []
+    },
+    {
+      "path": "src/sqlseed/database/_type_normalizer.py",
+      "function_scopes_checked": 5,
+      "differences": []
+    },
+    {
+      "path": "src/sqlseed/database/optimizer.py",
+      "function_scopes_checked": 7,
+      "differences": []
+    },
+    {
+      "path": "src/sqlseed/database/sqlalchemy_adapter.py",
+      "function_scopes_checked": 61,
+      "differences": []
+    },
+    {
+      "path": "src/sqlseed/generators/_datetime_utils.py",
+      "function_scopes_checked": 11,
+      "differences": []
+    },
+    {
+      "path": "src/sqlseed/generators/_dispatch.py",
+      "function_scopes_checked": 2,
+      "differences": []
+    },
+    {
+      "path": "src/sqlseed/generators/base_provider.py",
+      "function_scopes_checked": 57,
+      "differences": []
+    },
+    {
+      "path": "src/sqlseed/generators/faker_provider.py",
+      "function_scopes_checked": 33,
+      "differences": []
+    },
+    {
+      "path": "src/sqlseed/generators/registry.py",
+      "function_scopes_checked": 9,
+      "differences": []
+    },
+    {
+      "path": "tests/test_architecture.py",
+      "function_scopes_checked": 21,
+      "differences": []
+    },
+    {
+      "path": "tests/test_core/test_native_method_contract.py",
+      "function_scopes_checked": 7,
+      "differences": []
+    },
+    {
+      "path": "tests/test_relation.py",
+      "function_scopes_checked": 53,
+      "differences": []
+    }
+  ]
+}

@@ -1,0 +1,201 @@
+{
+  "status": "passed",
+  "root": "/tmp/sqlseed-codeflow-packages-bp87t1jx",
+  "environment": "macOS 26.6.2 x86_64, CPython 3.12.13",
+  "ci_reference": ".github/workflows/ci.yml packages job plus lint docs build",
+  "artifacts": [
+    {
+      "file": "/tmp/sqlseed-codeflow-packages-bp87t1jx/dist/mcp_server_sqlseed-0.2.4.dev255+g5b0dd0723.d20260912-py3-none-any.whl",
+      "size": 6347,
+      "sha256": "42d7414a1e61b90b786c4c13f3f055a22c460bf881c49e3c205a72156eb3af85"
+    },
+    {
+      "file": "/tmp/sqlseed-codeflow-packages-bp87t1jx/dist/mcp_server_sqlseed-0.2.4.dev255+g5b0dd0723.d20260912.tar.gz",
+      "size": 13958,
+      "sha256": "b17e834f067b24eca7de4cea7d869b9e678ad65621e415d1216c4651af12f162"
+    },
+    {
+      "file": "/tmp/sqlseed-codeflow-packages-bp87t1jx/dist/sqlseed-0.2.4.dev255+g5b0dd0723.d20260912-py3-none-any.whl",
+      "size": 226062,
+      "sha256": "3a6cfa709cfb11da4034d3e9f3050ec2042de928b294e5332dfe2413b2707c00"
+    },
+    {
+      "file": "/tmp/sqlseed-codeflow-packages-bp87t1jx/dist/sqlseed-0.2.4.dev255+g5b0dd0723.d20260912.tar.gz",
+      "size": 232878,
+      "sha256": "53ed5cd7b00d215a3e83e44842019236da0c8c100ba630fc23cbd5d86b3182a1"
+    },
+    {
+      "file": "/tmp/sqlseed-codeflow-packages-bp87t1jx/dist/sqlseed_ai-0.2.4.dev255+g5b0dd0723.d20260912-py3-none-any.whl",
+      "size": 244619,
+      "sha256": "0cf06f4932607844f5f174b16fbf818a2eb328a367c77b4b48e3c68603bab42f"
+    },
+    {
+      "file": "/tmp/sqlseed-codeflow-packages-bp87t1jx/dist/sqlseed_ai-0.2.4.dev255+g5b0dd0723.d20260912.tar.gz",
+      "size": 315797,
+      "sha256": "686773236d19adf96d8a16bb72ea5a776981d0df62f43ece9817f000444c8051"
+    },
+    {
+      "file": "/tmp/sqlseed-codeflow-packages-bp87t1jx/dist/sqlseed_cli-0.2.4.dev255+g5b0dd0723.d20260912-py3-none-any.whl",
+      "size": 10616,
+      "sha256": "f96d428dc9bc305a4c439ac2d471c776fbd3314446a6b4950280f4da84c3d063"
+    },
+    {
+      "file": "/tmp/sqlseed-codeflow-packages-bp87t1jx/dist/sqlseed_cli-0.2.4.dev255+g5b0dd0723.d20260912.tar.gz",
+      "size": 28162,
+      "sha256": "8d0bdc40552166001a0dda6609d9e2ad4a19023ce174eaa25047f6f9f9ba1812"
+    },
+    {
+      "file": "/tmp/sqlseed-codeflow-packages-bp87t1jx/dist/sqlseed_web-0.2.4.dev255+g5b0dd0723.d20260912-py3-none-any.whl",
+      "size": 339518,
+      "sha256": "620d98c72ad6a3150c0d636e2c26cbfffb84dcb9f99526492e02280b336151a1"
+    },
+    {
+      "file": "/tmp/sqlseed-codeflow-packages-bp87t1jx/dist/sqlseed_web-0.2.4.dev255+g5b0dd0723.d20260912.tar.gz",
+      "size": 504127,
+      "sha256": "42ef25b174267e01c8d6795a5a21d7d9d298181811dc554839cca5f9aa0ea9e3"
+    }
+  ],
+  "build": "5 sdists and 5 wheels built from the sdists using python -m build --no-isolation; all outputs under /tmp",
+  "twine": "10/10 PASSED with --strict",
+  "dependency_versions": {
+    "full_locked_packages": 139,
+    "minimal_locked_packages": 23,
+    "all_match_ci_lock": true
+  },
+  "platform_exception": {
+    "package": "cryptography==50.0.1",
+    "reason": "PyPI publishes only macOS arm64 wheels for this version; x86_64 only-binary CI dependency installation cannot resolve it. Source build without isolation also lacks maturin.",
+    "resolution": "Installed the existing tested dev environment’s locally built cp311-abi3 macOS x86_64 cached wheel (Python3.12 compatible), recorded its SHA256; then installed the original CI requirements with --require-hashes. Version unchanged.",
+    "details": "/tmp/sqlseed-codeflow-packages-bp87t1jx/cryptography-platform-evidence.json"
+  },
+  "pip_check": {
+    "full": "No broken requirements found.",
+    "minimal": "No broken requirements found."
+  },
+  "wheel_smokes": {
+    "full": {
+      "wheel_imports": true,
+      "rows": 5,
+      "web_rows": 5,
+      "web": "ready",
+      "components": {
+        "core": "available",
+        "web": "available",
+        "ai": "available",
+        "cli": "available",
+        "mcp": "available"
+      }
+    },
+    "minimal": {
+      "wheel_imports": true,
+      "rows": 5,
+      "web_rows": 5,
+      "web": "ready",
+      "components": {
+        "core": "available",
+        "web": "available",
+        "ai": "not_installed",
+        "cli": "not_installed",
+        "mcp": "not_installed"
+      }
+    }
+  },
+  "editable_distributions": {
+    "full": [],
+    "minimal": []
+  },
+  "source_payload_audit": [
+    {
+      "package": "sqlseed",
+      "wheel": "/tmp/sqlseed-codeflow-packages-bp87t1jx/dist/sqlseed-0.2.4.dev255+g5b0dd0723.d20260912-py3-none-any.whl",
+      "source_files_matched": 61,
+      "source_payload_matches": true
+    },
+    {
+      "package": "sqlseed_cli",
+      "wheel": "/tmp/sqlseed-codeflow-packages-bp87t1jx/dist/sqlseed_cli-0.2.4.dev255+g5b0dd0723.d20260912-py3-none-any.whl",
+      "source_files_matched": 3,
+      "source_payload_matches": true
+    },
+    {
+      "package": "sqlseed_ai",
+      "wheel": "/tmp/sqlseed-codeflow-packages-bp87t1jx/dist/sqlseed_ai-0.2.4.dev255+g5b0dd0723.d20260912-py3-none-any.whl",
+      "source_files_matched": 61,
+      "source_payload_matches": true
+    },
+    {
+      "package": "sqlseed_web",
+      "wheel": "/tmp/sqlseed-codeflow-packages-bp87t1jx/dist/sqlseed_web-0.2.4.dev255+g5b0dd0723.d20260912-py3-none-any.whl",
+      "source_files_matched": 77,
+      "source_payload_matches": true
+    },
+    {
+      "package": "mcp_server_sqlseed",
+      "wheel": "/tmp/sqlseed-codeflow-packages-bp87t1jx/dist/mcp_server_sqlseed-0.2.4.dev255+g5b0dd0723.d20260912-py3-none-any.whl",
+      "source_files_matched": 4,
+      "source_payload_matches": true
+    }
+  ],
+  "docs": {
+    "strict_exit": 0,
+    "site_dir": "/tmp/sqlseed-codeflow-packages-bp87t1jx/site",
+    "log": "/tmp/sqlseed-codeflow-packages-bp87t1jx/logs/docs-strict.txt",
+    "nonblocking_output": "Material prints an upstream MkDocs 2.0 advisory; MkDocs also reports candidate-validation.md absent from nav at INFO level. Neither is a strict-build warning/error."
+  },
+  "user_env": {
+    "sqlseed-ai": "not_installed",
+    "mcp-server-sqlseed": "not_installed",
+    "changed": false
+  },
+  "existing_service_8630": "Not operated; smoke creates only temporary Supervisor(port=0) workers and stops them in finally.",
+  "source_changes_by_this_subtask": false,
+  "commits_or_pushes": false,
+  "commands": "/tmp/sqlseed-codeflow-packages-bp87t1jx/commands.jsonl",
+  "required_checks": [
+    "build-core",
+    "build-cli",
+    "build-ai",
+    "build-mcp",
+    "build-web",
+    "twine-check-complete",
+    "full-pip-check",
+    "full-cli-help",
+    "full-web-help",
+    "full-wheel-smoke",
+    "minimal-locked-deps",
+    "minimal-pip-check",
+    "minimal-wheel-smoke",
+    "docs-strict",
+    "audit-full-install",
+    "audit-minimal-install",
+    "user-env-read-only-audit",
+    "refresh-build-ai",
+    "refresh-twine-ai",
+    "refresh-install-ai-wheel",
+    "refresh-full-pip-check",
+    "refresh-full-wheel-smoke",
+    "refresh-ai-installed-source-audit"
+  ],
+  "latest_ai_refresh": {
+    "reason": "AI CLI shared model-option decorator final cleanup",
+    "timestamp_utc": "2026-09-12T12:28:19.491833+00:00",
+    "checks": [
+      "refresh-build-ai",
+      "refresh-twine-ai",
+      "refresh-install-ai-wheel",
+      "refresh-full-pip-check",
+      "refresh-full-wheel-smoke",
+      "refresh-ai-installed-source-audit"
+    ],
+    "ai_artifacts": "Rebuilt sdist and wheel; both passed twine --strict",
+    "installation": "Force-reinstalled same-version AI wheel, pip check and source-external full wheel smoke passed",
+    "installed_source_audit": {
+      "source_files_matched": 61,
+      "origin": "/private/tmp/sqlseed-codeflow-packages-bp87t1jx/full/lib/python3.12/site-packages/sqlseed_ai",
+      "cli_sha256": "fd2c73c26382c3a281e4766456421cb98359282d47e8be23eccc1965c1107f17",
+      "check_parser_sha256": "90700e1e6be632e7e94bcacf518b9de898639503292ddbe71a7dc7871a9c0b9f"
+    },
+    "other_eight_artifacts_unchanged": true,
+    "minimal_other_packages_and_full_tests_not_rerun": true
+  }
+}

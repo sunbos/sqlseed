@@ -4,11 +4,13 @@ import sqlite3
 from typing import Any
 
 import sqlseed
+from sqlseed.config.models import ColumnConfig
 from sqlseed.core.mapper import GeneratorSpec
 from sqlseed.core.relation import RelationResolver, SharedPool
 from sqlseed.database._protocol import ForeignKeyInfo
 from sqlseed.database.raw_sqlite_adapter import RawSQLiteAdapter
 from tests._helpers import fill_from_config_and_verify_fk
+from tests.assertions import assert_empty
 
 
 class _FakeDB:
@@ -22,6 +24,18 @@ class _FakeDB:
 
     def get_column_values(self, _table_name, _column_name, limit=10000):
         return self._column_values[:limit]
+
+    def get_sample_rows(self, _table_name, limit=5, columns=None):
+        # Return rows as dicts covering all PK/FK columns so that batch
+        # extraction in register_shared_pool yields the same values as the
+        # old per-column get_column_values calls. The ``columns`` argument
+        # (column projection) is accepted for interface compatibility but
+        # ignored here since the fake already returns only PK/FK columns.
+        del columns
+        fk_columns = {fk.column for fk in self._fks}
+        if not (all_columns := set(self._primary_keys) | fk_columns):
+            return []
+        return [{col: val for col in all_columns} for val in self._column_values[:limit]]
 
     def get_primary_keys(self, _table_name):
         return self._primary_keys
@@ -75,7 +89,19 @@ class TestRelationResolver:
         order = resolver.topological_sort(["orders", "users"])
         assert order.index("users") < order.index("orders")
 
-    def test_topological_sort_circular(self, tmp_path: Any) -> None:
+    def test_topological_sort_circular_breaks_gracefully(self, tmp_path: Any) -> None:
+        """Circular FK dependency is broken gracefully (no ValueError).
+
+        Previously, ``topological_sort`` raised ``ValueError`` on circular FK
+        dependencies (e.g., A→B→A), which aborted the entire fill. Real-world
+        schemas commonly have circular FKs (e.g., branches↔employees in
+        banking). The fix uses Kahn's algorithm: when no table has zero
+        pending dependencies (cycle deadlock), the first table in input
+        order is picked to break the cycle. This produces a valid weak
+        topological order — all tables appear in the result, no duplicates.
+        The caller (or AI plugin) should set ``null_ratio=1.0`` for the
+        nullable FK in the cycle to avoid FK violations at fill time.
+        """
         db_path = str(tmp_path / "circular.db")
         conn = sqlite3.connect(db_path)
         conn.execute("PRAGMA foreign_keys = ON")
@@ -100,18 +126,75 @@ class TestRelationResolver:
         adapter.connect(db_path)
         try:
             resolver = RelationResolver(adapter)
-            try:
-                resolver.topological_sort(["a", "b"])
-                raise AssertionError("Should have raised ValueError for circular dependency")
-            except ValueError:
-                pass
+            # Should NOT raise — cycle is broken gracefully
+            order = resolver.topological_sort(["a", "b"])
+            # Both tables must be in the result
+            assert set(order) == {"a", "b"}
+            # No duplicates
+            assert len(order) == len(set(order))
+            # "a" (first in input) should be ordered before "b" (cycle-breaking
+            # heuristic: first-in-input goes first)
+            assert order.index("a") < order.index("b")
+        finally:
+            adapter.close()
+
+    def test_topological_sort_prefers_nullable_fk_as_cycle_breaker(self, tmp_path: Any) -> None:
+        """Cycle breaker prefers the table whose FK to the other cycle table is nullable.
+
+        When two tables reference each other (e.g., branches↔employees) and
+        one side's FK is NOT NULL while the other is nullable, the nullable
+        side should be filled first (so its FK can be set to NULL via
+        ``null_ratio=1.0``), and the NOT NULL side should be filled second
+        (so its FK shared pool is populated). Filling the NOT NULL side first
+        would leave its FK shared pool empty, forcing ``foreign_key_or_integer``
+        to fall back to a random integer — causing FK violations.
+
+        This test uses the R6 banking schema shape:
+        - employees.branch_id INTEGER NOT NULL → branches.id
+        - branches.manager_id INTEGER (nullable) → employees.id
+
+        Input order is [employees, branches] but the expected output is
+        [branches, employees] because branches.manager_id is nullable.
+        """
+        db_path = str(tmp_path / "circular_notnull.db")
+        conn = sqlite3.connect(db_path)
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("""
+            CREATE TABLE employees (
+                id INTEGER PRIMARY KEY,
+                branch_id INTEGER NOT NULL,
+                manager_id INTEGER,
+                FOREIGN KEY (branch_id) REFERENCES branches(id),
+                FOREIGN KEY (manager_id) REFERENCES employees(id)
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE branches (
+                id INTEGER PRIMARY KEY,
+                manager_id INTEGER,
+                FOREIGN KEY (manager_id) REFERENCES employees(id)
+            )
+        """)
+        conn.commit()
+        conn.close()
+
+        adapter = RawSQLiteAdapter()
+        adapter.connect(db_path)
+        try:
+            resolver = RelationResolver(adapter)
+            order = resolver.topological_sort(["employees", "branches"])
+            assert set(order) == {"employees", "branches"}
+            # branches must come first — its manager_id FK is nullable and
+            # can be set to NULL, while employees.branch_id is NOT NULL and
+            # needs the branches shared pool populated.
+            assert order.index("branches") < order.index("employees")
         finally:
             adapter.close()
 
     def test_resolve_foreign_key_values_no_match(self, raw_adapter) -> None:
         resolver = RelationResolver(raw_adapter)
         values = resolver.resolve_foreign_key_values("orders", "nonexistent_col")
-        assert values == []
+        assert_empty(values, list)
 
     def test_resolve_foreign_key_values(self, raw_adapter_with_data) -> None:
         resolver = RelationResolver(raw_adapter_with_data)
@@ -136,6 +219,255 @@ class TestRelationResolver:
         resolver.clear_cache()
         assert len(resolver._fk_cache) == 0
 
+    def test_self_ref_fk_or_integer_sets_null_ratio(self, tmp_path: Any) -> None:
+        """Self-ref FK with generator=foreign_key_or_integer gets null_ratio=1.0.
+
+        When the LLM picks ``foreign_key_or_integer`` for a nullable self-ref
+        FK column (e.g., departments.parent_id -> departments.id), and the
+        parent table is empty at spec resolution time, the column must be
+        upgraded to ``foreign_key`` with ``null_ratio=1.0`` to avoid FK
+        violations. ``_resolve_fk_or_integer_spec`` handles this by checking
+        if the FK is self-referencing with empty ref_values and the column
+        is nullable.
+        """
+        db_path = str(tmp_path / "selfref.db")
+        conn = sqlite3.connect(db_path)
+        conn.execute("""
+            CREATE TABLE departments (
+                id INTEGER PRIMARY KEY,
+                name TEXT NOT NULL,
+                parent_id INTEGER,
+                FOREIGN KEY (parent_id) REFERENCES departments(id)
+            )
+        """)
+        conn.commit()
+        conn.close()
+
+        adapter = RawSQLiteAdapter()
+        adapter.connect(db_path)
+        try:
+            resolver = RelationResolver(adapter)
+            spec = GeneratorSpec(generator_name="foreign_key_or_integer", params={})
+            resolved = resolver._resolve_fk_or_integer_spec("departments", "parent_id", spec)
+            assert resolved.generator_name == "foreign_key"
+            assert resolved.null_ratio == 1.0
+        finally:
+            adapter.close()
+
+    def test_get_composite_fk_targets_detects_composite_fk(self, tmp_path: Any) -> None:
+        """_get_composite_fk_targets returns column->(ref_table, ref_col) for composite FKs.
+
+        When a table has both single-column FKs and a composite FK (e.g.,
+        shipments with FK(origin_wh_id)->warehouses(id), FK(dest_wh_id)->warehouses(id),
+        and FK(origin_wh_id,dest_wh_id)->routes(origin_wh_id,dest_wh_id)), only the
+        composite FK columns should be returned, mapped to the composite FK's
+        parent table and column.
+        """
+        db_path = str(tmp_path / "composite_fk.db")
+        conn = sqlite3.connect(db_path)
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("CREATE TABLE warehouses (id INTEGER PRIMARY KEY, name TEXT NOT NULL)")
+        conn.execute("""
+            CREATE TABLE routes (
+                id INTEGER PRIMARY KEY,
+                origin_wh_id INTEGER NOT NULL,
+                dest_wh_id INTEGER NOT NULL,
+                FOREIGN KEY (origin_wh_id) REFERENCES warehouses(id),
+                FOREIGN KEY (dest_wh_id) REFERENCES warehouses(id),
+                UNIQUE (origin_wh_id, dest_wh_id)
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE shipments (
+                id INTEGER PRIMARY KEY,
+                origin_wh_id INTEGER NOT NULL,
+                dest_wh_id INTEGER NOT NULL,
+                FOREIGN KEY (origin_wh_id) REFERENCES warehouses(id),
+                FOREIGN KEY (dest_wh_id) REFERENCES warehouses(id),
+                FOREIGN KEY (origin_wh_id, dest_wh_id) REFERENCES routes(origin_wh_id, dest_wh_id)
+            )
+        """)
+        conn.commit()
+        conn.close()
+
+        adapter = RawSQLiteAdapter()
+        adapter.connect(db_path)
+        try:
+            resolver = RelationResolver(adapter)
+            targets = resolver._get_composite_fk_targets("shipments")
+            assert "origin_wh_id" in targets
+            assert "dest_wh_id" in targets
+            assert targets["origin_wh_id"] == ("routes", "origin_wh_id")
+            assert targets["dest_wh_id"] == ("routes", "dest_wh_id")
+        finally:
+            adapter.close()
+
+    def test_get_composite_fk_targets_no_composite_fk(self, tmp_path: Any) -> None:
+        """_get_composite_fk_targets returns empty dict when no composite FKs exist."""
+        db_path = str(tmp_path / "simple_fk.db")
+        conn = sqlite3.connect(db_path)
+        conn.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
+        conn.execute("""
+            CREATE TABLE orders (
+                id INTEGER PRIMARY KEY,
+                user_id INTEGER,
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            )
+        """)
+        conn.commit()
+        conn.close()
+
+        adapter = RawSQLiteAdapter()
+        adapter.connect(db_path)
+        try:
+            resolver = RelationResolver(adapter)
+            targets = resolver._get_composite_fk_targets("orders")
+            assert_empty(targets, dict)
+        finally:
+            adapter.close()
+
+    def test_resolve_composite_fks_overrides_single_col_fk(self, tmp_path: Any) -> None:
+        """resolve_composite_fks overrides single-column FK with composite FK parent.
+
+        When origin_wh_id has been upgraded to foreign_key from warehouses(id)
+        (the single-column FK) by resolve_foreign_keys, resolve_composite_fks
+        must override it to sample from routes.origin_wh_id (the composite FK
+        parent table column).
+        """
+        db_path = str(tmp_path / "composite_fk.db")
+        conn = sqlite3.connect(db_path)
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("CREATE TABLE warehouses (id INTEGER PRIMARY KEY, name TEXT NOT NULL)")
+        conn.execute("""
+            CREATE TABLE routes (
+                id INTEGER PRIMARY KEY,
+                origin_wh_id INTEGER NOT NULL,
+                dest_wh_id INTEGER NOT NULL,
+                FOREIGN KEY (origin_wh_id) REFERENCES warehouses(id),
+                FOREIGN KEY (dest_wh_id) REFERENCES warehouses(id),
+                UNIQUE (origin_wh_id, dest_wh_id)
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE shipments (
+                id INTEGER PRIMARY KEY,
+                origin_wh_id INTEGER NOT NULL,
+                dest_wh_id INTEGER NOT NULL,
+                FOREIGN KEY (origin_wh_id) REFERENCES warehouses(id),
+                FOREIGN KEY (dest_wh_id) REFERENCES warehouses(id),
+                FOREIGN KEY (origin_wh_id, dest_wh_id) REFERENCES routes(origin_wh_id, dest_wh_id)
+            )
+        """)
+        # Insert data: warehouses has ids 1-10, routes has only a subset of pairs
+        conn.execute("INSERT INTO warehouses (id, name) VALUES (1, 'W1'), (2, 'W2'), (3, 'W3')")
+        conn.execute("INSERT INTO routes (id, origin_wh_id, dest_wh_id) VALUES (1, 1, 2), (2, 2, 3), (3, 3, 1)")
+        conn.commit()
+        conn.close()
+
+        adapter = RawSQLiteAdapter()
+        adapter.connect(db_path)
+        try:
+            resolver = RelationResolver(adapter)
+            # Simulate resolve_foreign_keys having upgraded origin_wh_id to
+            # foreign_key from warehouses(id) (the first matching single-col FK)
+            specs: dict[str, GeneratorSpec] = {
+                "origin_wh_id": GeneratorSpec(
+                    generator_name="foreign_key",
+                    params={
+                        "ref_table": "warehouses",
+                        "ref_column": "id",
+                        "strategy": "random",
+                        "_ref_values": [1, 2, 3],
+                    },
+                ),
+                "dest_wh_id": GeneratorSpec(
+                    generator_name="foreign_key",
+                    params={
+                        "ref_table": "warehouses",
+                        "ref_column": "id",
+                        "strategy": "random",
+                        "_ref_values": [1, 2, 3],
+                    },
+                ),
+            }
+            resolved = resolver.resolve_composite_fks("shipments", specs)
+
+            # origin_wh_id should now sample from routes.origin_wh_id
+            assert resolved["origin_wh_id"].generator_name == "foreign_key"
+            assert resolved["origin_wh_id"].params["ref_table"] == "routes"
+            assert resolved["origin_wh_id"].params["ref_column"] == "origin_wh_id"
+            assert sorted(resolved["origin_wh_id"].params["_ref_values"]) == [1, 2, 3]
+
+            # dest_wh_id should now sample from routes.dest_wh_id
+            assert resolved["dest_wh_id"].generator_name == "foreign_key"
+            assert resolved["dest_wh_id"].params["ref_table"] == "routes"
+            assert resolved["dest_wh_id"].params["ref_column"] == "dest_wh_id"
+            assert sorted(resolved["dest_wh_id"].params["_ref_values"]) == [1, 2, 3]
+        finally:
+            adapter.close()
+
+    def test_resolve_composite_fks_pair_coordination(self, tmp_path: Any) -> None:
+        """Both FK nodes use an intact parent pair and ignore conflicting derivation."""
+        db_path = str(tmp_path / "composite_fk.db")
+        conn = sqlite3.connect(db_path)
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("CREATE TABLE warehouses (id INTEGER PRIMARY KEY, name TEXT NOT NULL)")
+        conn.execute("""
+            CREATE TABLE routes (
+                id INTEGER PRIMARY KEY,
+                origin_wh_id INTEGER NOT NULL,
+                dest_wh_id INTEGER NOT NULL,
+                FOREIGN KEY (origin_wh_id) REFERENCES warehouses(id),
+                FOREIGN KEY (dest_wh_id) REFERENCES warehouses(id),
+                UNIQUE (origin_wh_id, dest_wh_id)
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE shipments (
+                id INTEGER PRIMARY KEY,
+                origin_wh_id INTEGER NOT NULL,
+                dest_wh_id INTEGER NOT NULL,
+                FOREIGN KEY (origin_wh_id) REFERENCES warehouses(id),
+                FOREIGN KEY (dest_wh_id) REFERENCES warehouses(id),
+                FOREIGN KEY (origin_wh_id, dest_wh_id) REFERENCES routes(origin_wh_id, dest_wh_id)
+            )
+        """)
+        conn.execute("INSERT INTO warehouses (id, name) VALUES (1, 'W1'), (2, 'W2')")
+        conn.execute("INSERT INTO routes (id, origin_wh_id, dest_wh_id) VALUES (1, 1, 2), (2, 2, 1)")
+        conn.commit()
+        conn.close()
+
+        adapter = RawSQLiteAdapter()
+        adapter.connect(db_path)
+        try:
+            resolver = RelationResolver(adapter)
+            specs: dict[str, GeneratorSpec] = {
+                "origin_wh_id": GeneratorSpec(generator_name="integer", params={}),
+                "dest_wh_id": GeneratorSpec(generator_name="integer", params={}),
+            }
+            # Simulate LLM setting derive_from on dest_wh_id (will be overwritten)
+            user_configs: dict[str, Any] = {
+                "dest_wh_id": ColumnConfig(
+                    name="dest_wh_id",
+                    derive_from="origin_wh_id",
+                    expression="value - 1 if value > 1 else value + 1",
+                ),
+            }
+            resolved = resolver.resolve_composite_fks("shipments", specs, user_configs=user_configs)
+
+            # origin_wh_id (col_a): foreign_key sampling from routes.origin_wh_id
+            assert resolved["origin_wh_id"].generator_name == "foreign_key"
+            assert resolved["origin_wh_id"].params["ref_table"] == "routes"
+            assert resolved["origin_wh_id"].params["ref_column"] == "origin_wh_id"
+
+            assert resolved["dest_wh_id"].generator_name == "foreign_key"
+            assert resolved["origin_wh_id"].params["_ref_pairs"] == [(1, 2), (2, 1)]
+            assert resolved["dest_wh_id"].params["_pair_source"] == "origin_wh_id"
+            assert user_configs["dest_wh_id"].derive_from is None
+            assert user_configs["dest_wh_id"].expression is None
+        finally:
+            adapter.close()
+
 
 class TestSharedPool:
     def test_register_and_get(self) -> None:
@@ -156,7 +488,7 @@ class TestSharedPool:
 
     def test_get_nonexistent(self) -> None:
         pool = SharedPool()
-        assert pool.get("nonexistent") == []
+        assert_empty(pool.get("nonexistent"), list)
 
     def test_merge_deduplicates(self) -> None:
         pool = SharedPool()
@@ -469,3 +801,36 @@ class TestColumnAssociationConfig:
             "SELECT code FROM regions",
         )
         assert len(results) == 2
+
+
+class TestFKSamplingStrategy:
+    """FK 采样策略（random/coverage）：用户配置必须被透传，不得被硬编码覆盖。"""
+
+    def test_fk_strategy_defaults_to_random(self) -> None:
+        from sqlseed.core.relation import _fk_strategy
+
+        assert _fk_strategy(GeneratorSpec(generator_name="integer", params={})) == "random"
+        assert _fk_strategy(None) == "random"
+        # 未知值回落 random（与流层的回落行为一致）
+        assert _fk_strategy(GeneratorSpec(generator_name="integer", params={"strategy": "quantum"})) == "random"
+
+    def test_fk_strategy_user_coverage_preserved_in_pool_spec(self) -> None:
+        from sqlseed.core.relation import _make_fk_pool_spec
+
+        spec = GeneratorSpec(generator_name="foreign_key", params={"strategy": "coverage"})
+        out = _make_fk_pool_spec("region_id", [1, 2, 3], spec)
+        assert out.params["strategy"] == "coverage"
+
+    def test_fk_resolve_preserves_user_strategy(self) -> None:
+        """端到端：FK 解析重写 spec 后 strategy 仍是用户指定的 coverage。"""
+        resolver = RelationResolver(
+            _FakeDB(
+                fks=[ForeignKeyInfo(column="user_id", ref_table="users", ref_column="id")],
+                column_values=[1, 2, 3],
+            )
+        )
+        spec = GeneratorSpec(generator_name="integer", params={"strategy": "coverage"})
+        resolved = resolver._resolve_fk_or_integer_spec("orders", "user_id", spec)
+        assert resolved.generator_name == "foreign_key"
+        assert resolved.params["strategy"] == "coverage"
+        assert resolved.params["_ref_values"] == [1, 2, 3]
