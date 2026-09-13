@@ -11,6 +11,7 @@ docs_dir: docs
 # screenshots and historical prototypes remain in the repository for contributors.
 # Keep strict validation enabled for every page that is actually published.
 exclude_docs: |
+  /AGENTS.md
   /code-review/
   /design-review/
   /superpowers/

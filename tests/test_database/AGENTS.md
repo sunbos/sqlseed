@@ -10,6 +10,8 @@
 - `test_helpers.py` 覆盖索引查询、采样和 batch insert；用真实 SQLite 校验实际数据库结果。
 - `test_dialect.py` / `test_sqlite_schema.py` 覆盖类型归一化、自增检测与 identifier quoting；不要把 PostgreSQL 行为当作 SQLite 通用规则。
 - `test_sqlite_metadata_oracles.py` 用原生 INSERT 建立 rowid、nullable 和 partial UNIQUE 的独立 oracle，再核对两种 adapter；仅比较索引名称或同模型构造的 expected 会漏掉谓词丢失。
+- `test_insert_actual_count.py` / `test_sqlalchemy_transaction.py` 验证实际受影响行数与原子事务；`test_typed_value_bindings.py` / `test_sqlite_date_bindings.py` 验证真实绑定结果，不能只比较传给 driver 的值。
+- `test_unique_key_probes.py` / `test_supported_schema_boundary.py` / `test_ascii_schema_tokens.py` 覆盖键值查询与支持边界，须保留写入前拒绝不支持结构的回归。
 - `test_optimizer.py` 必须覆盖 PRAGMA 正常恢复与异常恢复；连接资源必须清理。
 - `test_sql_safe.py` 保留多种注入向量与引用边界；测试 SQL 名称处理时不能只验证函数调用。
 - 不 mock 数据库正确性路径；模拟缺失 driver 等外部失败时，限制 mock 到现有错误边界，实际连接/写入仍用真实库测试。
@@ -23,4 +25,4 @@ pytest tests/test_database/
 pytest tests/test_orchestrator_adapter.py
 ```
 
-跨 dialect 修改追加 `pytest tests/integration/test_pg_integration.py tests/integration/test_url_e2e.py`，需要 Docker、testcontainers 与 PostgreSQL driver。
+跨 dialect 修改追加 `pytest tests/integration/test_pg_*.py tests/integration/test_url_e2e.py`。独立测试库与 Docker fallback 的选择见 [integration/AGENTS.md](../integration/AGENTS.md)。

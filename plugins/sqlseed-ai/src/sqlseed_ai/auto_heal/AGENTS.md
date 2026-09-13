@@ -1,5 +1,7 @@
 # auto_heal：顶层修复与 CHECK 推断
 
+**源码核验日期：** 2026-09-14
+
 继承 [AI 运行时规则](../AGENTS.md)。[orchestrator.py](orchestrator.py) 承载修复流水线及初始配置生成，并保留原有 CHECK helper 调用入口；纯单列 CHECK、SQL 规范化与共享谓词在 [_check_inference.py](_check_inference.py)，跨列 CHECK 的优先扫描、顺序 matcher 和表达式构造在 [_cross_column_checks.py](_cross_column_checks.py)。依赖保持 `orchestrator → cross-column checks → single-column inference`，纯推断模块不得反向导入 orchestrator。各文件的 `Pattern N` / `Round N` 注释是回归定位词，修改前先搜索编号及相邻分支，不能当作历史临时代码删除。
 
 ## 流水线不可变条件
@@ -10,6 +12,7 @@
 - [time_budget.py](time_budget.py) 的 `TimeBudgetController` 控制 wall-clock 预算；保留进度 / trace 和已有超时处理，不绕过预算直接加重试。
 - `_build_subgraph_config()` 在 LLM 前先推断可确定的 CHECK、UNIQUE、FK 特例；普通列通过 Core `ColumnMapper` 做名称语义映射，别复制另一套姓名、地址等匹配规则。
 - 初始配置与 Step 5.5 的后处理需要一致：LLM 可能改坏或删除初始 `params` / `derive_from`，最终修复必须能恢复确定性信息。
+- 保持 `run()` 的分步 helper、`_normalize_generated_table()` 的预扫描与逐列清理顺序，以及 `_capture_preserved_input_columns()` 对未触及输入规则的保护。提取 helper 不能改变状态机日期、phone 长度、跨列派生之间的先后关系。
 
 ## CHECK 推断优先级
 
@@ -21,7 +24,7 @@
 - 条件 OR 约束优先于范围 AND；OR 中含 `IN (...)` 的约束优先于普通 `IS NULL OR`。保留多 CHECK 的 pre-loop scans，否则单个分支可能提前吞掉组合条件。
 - 修改 Pattern 1 / 1b / 19 等关系规则时检查负数、上下界、列顺序、NULL 与依赖环；日期规则同时检查 DATE 与 DATETIME，不能只依赖 `_time` / `_date` 名称后缀。
 
-## 已验证的边界行为
+## 保留的回归行为
 
 - **精确长度 phone**：普通电话类列的 `LENGTH(col)=N` 使用 `pattern` / `[0-9]{N}`，与 Layer 3 phone 修复保持一致，避免 `string ↔ phone` 振荡；初始配置中的 UNIQUE 分支优先，见下一条。
 - **UNIQUE + 精确长度**：普通字符串列用 `[A-Za-z0-9]{N}` pattern，不能让 UniqueAdjuster 扩大 `max_length` 破坏 CHECK；仍需考虑有限值域的 cardinality。
@@ -30,6 +33,7 @@
 - 跨列关系被 LLM 覆盖后，Step 5.5 重新应用 `_infer_cross_column_config()`；LIKE 防护则剥离不合法算术，并恢复能保证格式的 `pattern`。
 - `derive_from` 经安全检查保留后，移除并存的 `generator` / `params`，确保 `ColumnConfig` source / derived 两种模式互斥。
 - 保留模板文本误放 `generator`、`?` / 非法生成器、缺失 generator、被剥 CHECK 参数的纠正逻辑；参数清理继续复用 Layer 3 的白名单函数。
+- LLM 的 `generator` 可能是 list / dict / 数字；按无效输入恢复 schema 规则，不能直接用于集合查找或当作数值生成器处理。状态 NULL CHECK 的正则解析要能有界拒绝长畸形子句，保留专门的超时回归。
 - 最终配置的语义降级不能丢掉 CHECK、UNIQUE 或 FK 约束。修改会影响 Core fill 行为时，先读 [Core 规则](../../../../../src/sqlseed/core/AGENTS.md)，不要把复杂 OR 推断搬入 Core 的 deterministic-only `check_adapt.py`。
 
 ## 验证
@@ -40,6 +44,7 @@
 pytest plugins/sqlseed-ai/tests/test_auto_heal_orchestrator.py plugins/sqlseed-ai/tests/test_auto_heal_time_budget.py
 pytest plugins/sqlseed-ai/tests/test_repair_executor.py plugins/sqlseed-ai/tests/test_repair_strategies.py
 pytest plugins/sqlseed-ai/tests/test_healer_degrader.py plugins/sqlseed-ai/tests/test_healer_post_repair.py
+pytest plugins/sqlseed-ai/tests/test_cli_input_contract.py plugins/sqlseed-ai/tests/test_auto_heal_sonar_boundaries.py plugins/sqlseed-ai/tests/test_quality_error_boundaries.py
 ```
 
 新增 CHECK 分支至少验证输出 generator / params / expression；涉及 fill 正确性时用 `tmp_path` 上的真实 SQLite DDL 和实际生成结果覆盖，不能只断言 mock 被调用。重用现有 Pattern 回归案例检查相邻分支的优先级。
