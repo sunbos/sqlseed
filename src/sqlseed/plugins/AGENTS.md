@@ -24,5 +24,5 @@
 命令从仓库根执行。
 
 - `pytest tests/test_plugins/ tests/test_core/test_plugin_mediator.py`：用真实 pluggy 检查注册、发现、返回值及 mediator。
-- hookspec 修改同步 README、CLAUDE 与 [docs/architecture.md](../../../docs/architecture.md) 的 hook 表；本文件的返回值列表也需核对。
+- hookspec 修改同步 [docs/guide.md](../../../docs/guide.md#plugin-system)、CLAUDE 与两种语言 [docs/architecture.md](../../../docs/architecture.md) 的 hook 参考；本文件的返回值列表也需核对。
 - 执行 `python scripts/sync_docs.py`、`pytest tests/test_doc_sync.py tests/test_architecture.py`，不要手改 AUTO-GENERATED count markers。

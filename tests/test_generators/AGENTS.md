@@ -22,4 +22,4 @@ pytest tests/test_generators/
 pytest tests/test_generators/test_bytes_media.py
 ```
 
-修改 dispatch 名称集合后，同步 README 双语 generator 表并运行 `pytest tests/test_architecture.py tests/test_doc_sync.py`。
+修改 dispatch 名称集合后，同步 [docs/guide.md](../../docs/guide.md#generators) 的完整 generator 表与数量并运行 `pytest tests/test_architecture.py tests/test_doc_sync.py`。

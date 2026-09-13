@@ -9,7 +9,7 @@
 - 当前 CLI 要求 Core `>=0.2.4.dev0,<0.3`；Core 0.2.3 的 public API 没有 CLI 调用所需的 `url` 参数。
 - console script 指向 `sqlseed_cli:main`；不要把 CLI 入口放回 core。
 - 本包使用 hatch-vcs，从仓库根获取版本；没有独立 `uv.lock`。
-- 修改核心命令或参数时，同步仓库根的 [README.md](../../README.md) 和 [README.zh-CN.md](../../README.zh-CN.md) CLI 参考。
+- 修改核心命令或参数时，同步 [docs/guide.md](../../docs/guide.md#cli-reference) 和本包 README 的 CLI 参考；仓库根的中英文 README 只保留入门示例。
 
 ## 测试与验证
 
