@@ -1,8 +1,10 @@
 # API Reference
 
-This page documents the public Python API of `sqlseed`. All functions and classes
-below are exported from the top-level `sqlseed` package and are stable across
-patch releases.
+This page documents the Python API on `main`. Install a compatible package set
+using the [installation guide](guide.md#installation); the older 0.2.3 release
+does not include every interface described here. Main entry functions and the
+most-used models are exported from `sqlseed`; other types use the subpackage
+import paths shown below.
 
 ```python
 import sqlseed
@@ -43,7 +45,7 @@ sqlseed.fill(
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `db_path` | `str \| None` | `None` | SQLite database file path. Mutually exclusive with `url`. |
-| `url` | `str \| None` | `None` | Database URL (e.g. `postgresql://user:pass@host/db`). Mutually exclusive with `db_path`. |
+| `url` | `str \| None` | `None` | Database URL (e.g. `postgresql+psycopg://user:pass@host/db`). Mutually exclusive with `db_path`. |
 | `table` | `str` | — | Target table name. **Required.** |
 | `count` | `int` | `1000` | Number of rows to generate. |
 | `columns` | `dict[str, Any] \| None` | `None` | Per-column generation config. Keys are column names; values are generator names (`"email"`) or full dicts (`{"type": "integer", "min_value": 18}`). |
@@ -64,7 +66,10 @@ A [`GenerationResult`](#generationresult) dataclass with table name, row count, 
 **Raises**
 
 - `ValueError` — If neither `db_path` nor `url` is provided, or if both are provided.
-- `RuntimeError` — If the target table does not exist or schema inference fails.
+- Connection, configuration, and argument validation errors can propagate.
+- Operational failures can instead return a `GenerationResult` with `errors`.
+  Always inspect `errors` and `count`; returning normally does not prove that all
+  planned rows were written. See [failure semantics](maintainable-release.md#write-semantics).
 
 **Example**
 
@@ -73,8 +78,7 @@ import sqlseed
 
 # SQLite
 result = sqlseed.fill("app.db", table="users", count=10_000)
-print(result)
-# → GenerationResult(table=users, count=10000, elapsed=0.52s, speed=19230 rows/s)
+print(result.count, result.errors)
 
 # PostgreSQL
 result = sqlseed.fill(
@@ -82,7 +86,6 @@ result = sqlseed.fill(
     table="users",
     count=10_000,
     seed=42,
-    clear_before=True,
 )
 
 # Fine-grained column control
@@ -93,7 +96,6 @@ result = sqlseed.fill(
     columns={
         "email": "email",
         "age": {"type": "integer", "min_value": 18, "max_value": 65},
-        "status": {"type": "choice", "choices": ["active", "inactive"]},
     },
     provider="mimesis",
     locale="en_US",
@@ -193,10 +195,16 @@ topological order.
 ```python
 import sqlseed
 
-results = sqlseed.fill_from_config("generate.yaml", clear_before=True, seed=42)
+results = sqlseed.fill_from_config("generate.yaml", seed=42)
 for r in results:
-    print(r)
+    print(r.table_name, r.count, r.errors)
 ```
+
+The example preserves each table's configured `clear_before` setting, whose
+default is `False`. For existing FK graphs, clearing a referenced parent before
+its children can fail while later tables continue to generate. Use a fresh
+database with the same schema or explicitly clear child tables before parents;
+topological generation order does not make whole-graph clearing atomic.
 
 ---
 
@@ -252,7 +260,8 @@ import sqlseed
 rows = sqlseed.preview("app.db", table="users", count=5, seed=42)
 for row in rows:
     print(row)
-# → {'id': 1, 'name': 'John Smith', 'email': 'jsmith@example.com', 'age': 32, ...}
+# Example generated fields: {'name': 'John Smith', 'email': 'jsmith@example.com', ...}
+# Database-generated IDs/defaults are not predicted by a preview.
 ```
 
 ---
@@ -296,8 +305,10 @@ print(config.db_path, config.provider, len(config.tables))
 
 ## Configuration Models
 
-All configuration models are Pydantic `BaseModel` subclasses exported from
-`sqlseed.config.models` and re-exported from the top-level `sqlseed` package.
+Configuration models are Pydantic `BaseModel` subclasses in `sqlseed.config.models`.
+`ColumnConfig`, `GeneratorConfig`, `ProviderType`, and `TableConfig` are also
+exported from `sqlseed`. Import `ColumnConstraintsConfig`, `ColumnAssociation`,
+and `CustomColumnMappings` from `sqlseed.config.models`.
 
 ### `GeneratorConfig`
 
@@ -451,7 +462,12 @@ class ProviderType(str, Enum):
 ### `GenerationResult`
 
 Dataclass returned by `fill()` and `fill_from_config()`. Encapsulates
-statistics after executing a data generation task.
+statistics after executing a data generation task. `count` is the reported
+actual inserted row count and `batch_count` counts completed batches. In normal
+batched Core execution, a failed batch rolls back while earlier committed
+batches can remain. An outer transaction can still determine the final commit.
+Check `errors` as well as `count`; see [support and maintenance](maintainable-release.md)
+for cancellation, interruption, and Web transaction boundaries.
 
 ```python
 @dataclass
@@ -468,13 +484,11 @@ class GenerationResult:
 
 ```python
 result = sqlseed.fill("app.db", table="users", count=1000)
-print(result.table_name)      # "users"
-print(result.count)           # 1000
-print(result.elapsed)         # 0.52 (seconds)
-print(result.rows_per_second) # 19230.0
-print(result.errors)          # []
+print(result.table_name)
+print(result.count, result.errors)  # Actual writes and any failures
+print(result.elapsed)              # Measured seconds for this run
+print(result.rows_per_second)      # Computed from count and elapsed
 print(str(result))
-# → GenerationResult(table=users, count=1000, elapsed=0.52s, speed=19230.00 rows/s)
 ```
 
 ---
@@ -489,7 +503,7 @@ be instantiated directly.
 from sqlseed import DataOrchestrator
 
 with DataOrchestrator(
-    db_path="app.db",            # or url="postgresql://..."
+    db_path="app.db",            # or a PostgreSQL URL as the db_path value
     provider_name="mimesis",
     locale="en_US",
     optimize_pragma=True,
@@ -508,7 +522,7 @@ with DataOrchestrator(
 | `get_column_info(table)` | Return `ColumnInfo` list. |
 | `get_foreign_keys(table)` | Return `ForeignKeyInfo` list. |
 | `get_row_count(table)` | Return current row count. |
-| `report()` | Return a human-readable summary of all fills in this session. |
+| `report()` | Read current database table names and row counts, including pre-existing data. |
 
 `DataOrchestrator` also exposes a `from_config(config)` classmethod for
 constructing an instance from a `GeneratorConfig`.
@@ -562,12 +576,15 @@ class ColumnInfo:
     is_primary_key: bool
     is_autoincrement: bool
     is_computed: bool = False
+    is_rowid_alias: bool | None = None
 
 @dataclass(frozen=True)
 class ForeignKeyInfo:
     column: str
     ref_table: str
     ref_column: str
+    constraint_id: int | None = None
+    ref_schema: str | None = None
 
 @dataclass(frozen=True)
 class IndexInfo:
@@ -575,6 +592,8 @@ class IndexInfo:
     table: str
     columns: tuple[str, ...]
     unique: bool
+    is_partial: bool = False
+    predicate: str | None = None
 
 @dataclass(frozen=True)
 class CheckConstraintInfo:
@@ -583,6 +602,16 @@ class CheckConstraintInfo:
     columns: tuple[str, ...]
     expression: str
 ```
+
+`is_rowid_alias` distinguishes SQLite's implicit rowid key from other primary
+keys; `None` preserves compatibility with older manually constructed metadata.
+`constraint_id` groups columns of the same foreign-key constraint, while
+`ref_schema` preserves the reflected parent schema. These metadata fields do not
+imply support for generating every reflected relationship.
+
+A partial index applies uniqueness only to rows satisfying its predicate.
+`is_partial` records that distinction; `predicate` retains reflected SQL when
+available. Raw SQLite metadata may not include the predicate text.
 
 ---
 

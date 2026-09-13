@@ -5,10 +5,11 @@ build-backend = "hatchling.build"
 [project]
 name = "sqlseed-web"
 dynamic = ["version"]
-description = "Web UI for sqlseed: schema browsing, column-mapping inspector, config editor, preview/fill runner, and self-heal laboratory."
+description = "Local sqlseed workbench for SQLite and PostgreSQL rules, previews, generation and optional AI suggestions"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "AGPL-3.0-or-later"
+license-files = ["LICENSE"]
 authors = [{ name = "sqlseed contributors" }]
 keywords = ["sqlseed", "test-data", "web-ui", "fastapi"]
 dependencies = [
@@ -29,7 +30,7 @@ sqlseed-web = "sqlseed_web.app:main"
 [project.urls]
 Homepage = "https://github.com/sunbos/sqlseed"
 Repository = "https://github.com/sunbos/sqlseed/tree/main/plugins/sqlseed-web"
-Documentation = "https://github.com/sunbos/sqlseed/blob/main/docs/web-workbench.md"
+Documentation = "https://sunbos.github.io/sqlseed/web-workbench/"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/sqlseed_web"]

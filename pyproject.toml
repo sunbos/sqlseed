@@ -6,9 +6,10 @@ build-backend = "hatchling.build"
 name = "sqlseed"
 dynamic = ["version"]
 requires-python = ">=3.10"
-description = "Declarative multi-database (SQLite/PostgreSQL) test data generation toolkit"
+description = "Offline declarative SQLite and PostgreSQL test data generation for Python"
 readme = "README.md"
 license = "AGPL-3.0-or-later"
+license-files = ["LICENSE"]
 authors = [
     {name = "SunBo", email = "1443584939@qq.com"},
 ]
@@ -45,7 +46,7 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://github.com/sunbos/sqlseed"
-Documentation = "https://github.com/sunbos/sqlseed#readme"
+Documentation = "https://sunbos.github.io/sqlseed/"
 Repository = "https://github.com/sunbos/sqlseed"
 Issues = "https://github.com/sunbos/sqlseed/issues"
 
