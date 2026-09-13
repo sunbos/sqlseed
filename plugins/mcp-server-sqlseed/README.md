@@ -1,26 +1,32 @@
 # mcp-server-sqlseed
 
-**[English](README.md)** | [中文](README.zh-CN.md)
+**[English](https://github.com/sunbos/sqlseed/blob/main/plugins/mcp-server-sqlseed/README.md)** |
+[中文](https://github.com/sunbos/sqlseed/blob/main/plugins/mcp-server-sqlseed/README.zh-CN.md)
 
-[Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server for [sqlseed](https://github.com/sunbos/sqlseed) — exposing **core capabilities** (rule-driven YAML generation + data fill) to AI assistants. No LLM required.
+[Model Context Protocol](https://modelcontextprotocol.io/) tools for
+[sqlseed](https://sunbos.github.io/sqlseed/): derive a YAML configuration from database
+schema, then generate test data. Both tools use offline Core rules and require no LLM.
 
 ## Installation
 
-```bash
-pip install mcp-server-sqlseed
-```
-
-For LLM-driven schema analysis, install the separate AI MCP server instead:
+These instructions describe the current five-package checkout. Until the matching
+release is available on PyPI, install local Core and MCP together from the repository
+root in a Python 3.10+ virtual environment:
 
 ```bash
-pip install "sqlseed-ai[mcp]"   # provides sqlseed_ai_generate_yaml + Gemma 4 tools
+python -m pip install -e . -e ./plugins/mcp-server-sqlseed
 ```
 
-## Configuration
+Core 0.2.3 lacks the target-validation interfaces used here. Once matching packages
+are published, the package-index installation is:
 
-### Claude Desktop
+```bash
+python -m pip install "mcp-server-sqlseed>=0.2.4.dev0,<0.3"
+```
 
-Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or equivalent:
+## MCP client configuration
+
+Use the executable from the environment where the package is installed:
 
 ```json
 {
@@ -32,48 +38,62 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)
 }
 ```
 
-### Cursor / Other MCP Clients
+If the client does not inherit that environment's PATH, use the executable's absolute
+path. The server runs over stdio. `python -m mcp_server_sqlseed` is also supported.
 
-Use command: `mcp-server-sqlseed`
+## Tools
 
-## MCP Tools
+| Tool | Input and result |
+|---|---|
+| `sqlseed_generate_yaml` | Takes `db_path` and `table_name`; returns a rule-driven YAML string |
+| `sqlseed_execute_fill` | Takes `db_path`, `table_name`, `count=1000`, optional `yaml_config`, and `enrich=False`; returns the table, committed count, elapsed time, and errors |
 
-| Tool | Description |
-|:-----|:------------|
-| `sqlseed_generate_yaml` | Rule-driven YAML config template generated from the schema via sqlseed's `ColumnMapper` (75 exact rules + 29 regex patterns). Offline, deterministic, no LLM. |
-| `sqlseed_execute_fill` | Execute data generation. Accepts optional `yaml_config` string, `count`, and `enrich` flag. Max YAML config size: 256KB. |
+The `db_path` argument accepts an existing SQLite `.db`/`.sqlite`/`.sqlite3` file or a
+database URL. For PostgreSQL, install the Core `postgres` extra. Tables must already
+exist. The schema mapper chooses generators deterministically; no model request is
+made by either tool.
 
-When supplied, `yaml_config` must be a YAML mapping containing the requested
-table. An empty document or a configuration for another table returns an error
-before generation. Omit `yaml_config` to use default rules. The tool arguments
-choose the database, table, row count and enrichment; from YAML it uses only the
-matching table's columns, seed and `clear_before`.
+When `yaml_config` is supplied, it must be a YAML mapping containing the requested
+table. Empty documents, unknown tables, and configurations for a different table fail
+before generation. The UTF-8 size limit is 256 KiB. Tool arguments select the database,
+table, row count, and enrichment; YAML contributes only the matching table's column
+rules, seed, and `clear_before` setting.
 
-### What's NOT included
+A typical client workflow is:
 
-Per [ARCHITECTURE.md Section 3.4](../../ARCHITECTURE.md), this server exposes core capabilities only:
+1. Call `sqlseed_generate_yaml` for an existing table.
+2. Review the YAML and desired row count.
+3. Call `sqlseed_execute_fill` and check its `errors` and committed `count`.
 
-- ~~`sqlseed_inspect_schema`~~ — use third-party MCPs such as [mcp-database-server](https://github.com/iPraBhu/mcp-database-server) or [mcp-db-analyzer](https://github.com/Dmitriusan/mcp-db-analyzer)
-- ~~`sqlseed://schema` Resource~~ — schema inspection is delegated to the MCPs above
-- ~~`sqlseed_gemma4_analyze` / `sqlseed_gemma4_agent_fill` / `sqlseed_list_gemma_models`~~ — moved to `sqlseed-ai[mcp]`
-- ~~AI-driven `sqlseed_generate_yaml`~~ — the LLM-driven variant is `sqlseed_ai_generate_yaml` in `sqlseed-ai[mcp]`
+Earlier committed batches can remain after a later batch fails. The YAML tool returns
+`# Error: ...` for handled errors; the fill tool returns an `error` field for handled
+request failures. Check these in addition to MCP transport success.
 
-## Example Usage
+## Separate AI MCP server
 
-After configuring your MCP client, you can prompt:
+This package exposes exactly the two tools above. Schema resources and a standalone
+schema-inspection tool are not provided. For LLM analysis, install local Core, CLI,
+and the AI MCP extra together:
 
-> "Generate a YAML config for the `users` table in `app.db`, then fill 1000 rows."
+```bash
+python -m pip install -e . -e ./plugins/sqlseed-cli -e "./plugins/sqlseed-ai[mcp]"
+mcp-server-sqlseed-ai
+```
 
-The AI assistant will call:
-1. `sqlseed_generate_yaml` → rule-driven YAML template (offline)
-2. `sqlseed_execute_fill` → fill data
+After matching packages are published, use
+`"sqlseed-ai[mcp]>=0.2.4.dev0,<0.3"`. Its YAML tool is
+`sqlseed_ai_generate_yaml`; its executable is `mcp-server-sqlseed-ai`. The old
+`mcp-server-sqlseed[ai]` installation does not describe the current package layout.
 
 ## Requirements
 
-- Python >= 3.10
-- `sqlseed >= 0.2.4.dev0,<2` (Core 0.2.3 lacks the required target-validation interfaces)
-- `mcp >= 1.0`
+- Python `>=3.10`
+- `sqlseed>=0.2.4.dev0,<0.3`
+- `mcp>=1.0,<2`
 
-## License
+See the [user guide](https://sunbos.github.io/sqlseed/guide/),
+[migration guide](https://sunbos.github.io/sqlseed/migration/), and
+[server source](https://github.com/sunbos/sqlseed/tree/main/plugins/mcp-server-sqlseed).
 
-AGPL-3.0-or-later
+License: [AGPL-3.0-or-later](https://github.com/sunbos/sqlseed/blob/main/LICENSE).
+The distribution includes the full LICENSE text.

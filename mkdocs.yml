@@ -15,6 +15,7 @@ exclude_docs: |
   /design-review/
   /superpowers/
   /specs/
+  /candidate-validation.md
 
 theme:
   name: material
@@ -48,6 +49,7 @@ nav:
       - 升级说明（中文）: migration.zh-CN.md
   - Web Workbench: web-workbench.md
   - Support & Maintenance: maintainable-release.md
+  - Release Guide: releasing.md
   - Project Walkthrough: project-showcase.md
   - API Reference: api.md
   - Architecture:

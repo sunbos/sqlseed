@@ -1,59 +1,71 @@
 # sqlseed
 
-**Declarative Multi-Database test data generation toolkit.**
+**Declarative SQLite and PostgreSQL test data generation.**
 
-Generate realistic test data for SQLite and PostgreSQL databases using YAML/JSON config or Python API.
-Auto-infers schema, 9-level column mapping, 36 generators, plugin system (pluggy).
+Generate test data from existing database schemas, YAML/JSON rules, or the Python
+API. The offline Core provides schema inference, 36 generators, foreign-key
+handling, expressions, and pluggy hooks. CLI, AI, MCP, and Web are separate packages.
 
-## Quick Start
+## Documentation version and installation
+
+These pages describe the five-package workbench on `main`, targeting the 0.2.4
+release series. They also cover changes beyond the older combined 0.2.3 packages.
+Merging source and deploying these pages do not publish packages to PyPI. At the
+2026-09-13 review, PyPI had Core/AI/MCP 0.2.3 and no CLI/Web distributions; consult
+the [release list](https://github.com/sunbos/sqlseed/releases) for later releases.
+
+Until a compatible five-package release is available, install from one source
+checkout or one successful CI artifact. See the [upgrade guide](migration.md) for
+wheel installation and compatibility details. From the repository root:
 
 ```bash
-pip install sqlseed[mimesis]
+python -m pip install -e '.[mimesis,postgres]' -e ./plugins/sqlseed-cli -e './plugins/sqlseed-ai[mcp]' -e ./plugins/mcp-server-sqlseed -e ./plugins/sqlseed-web
+python -m pip check
+```
+
+For offline Python use alone, install `python -m pip install -e '.[mimesis]'`.
+Choose the [installation guide](guide.md#installation) for a smaller package set.
+
+## Quick start
+
+Prepare an existing database and its tables first. The repository includes a
+small demo:
+
+```bash
+python examples/build_demo_db.py
+sqlseed fill examples/sqlseed_demo.db -t organizations -n 10
+sqlseed preview examples/sqlseed_demo.db -t members -n 5
+sqlseed fill examples/sqlseed_demo.db -t members -n 100
+sqlseed inspect examples/sqlseed_demo.db --show-mapping
 ```
 
 ```python
 from sqlseed import fill
 
-# SQLite (default)
-fill("app.db", table="users", count=100)
-
-# PostgreSQL (requires: pip install "sqlseed[postgres]")
-fill(
-    url="postgresql+psycopg://user:password@localhost:5432/mydb",
-    table="users",
-    count=100,
-)
+# The parent organizations must already be populated, as in the CLI example.
+result = fill("examples/sqlseed_demo.db", table="members", count=100)
+print(result.count, result.errors)
 ```
 
-The same API works across SQLite and PostgreSQL — schema inference, FK resolution, expression engine, and plugin hooks all run identically.
+The same public API accepts PostgreSQL URLs through `url=`, with the `postgres`
+extra installed. Supported constraints differ by database and entry point;
+consult [support and maintenance](maintainable-release.md) before using complex
+foreign keys or replacing existing data. A failed run can retain earlier
+committed batches, so check both `count` and `errors`.
 
-## CLI
+## Choose an entry point
 
-```bash
-sqlseed fill app.db -t users -n 10000
-sqlseed preview app.db -t users -n 5
-sqlseed inspect app.db --show-mapping
-```
+| Entry point | Package | Guide |
+| --- | --- | --- |
+| Python API and offline rules | `sqlseed` | [API reference](api.md) |
+| Terminal generation and inspection | `sqlseed-cli` | [CLI reference](guide.md#cli-reference) |
+| Browser workbench | `sqlseed-web` | [Web workbench](web-workbench.md) |
+| Optional model suggestions and repair | `sqlseed-ai` | [AI guide](guide.md#ai-plugin) |
+| Rule-driven MCP tools | `mcp-server-sqlseed` | [MCP setup](guide.md#mcp-server) |
 
-## Features
+AI MCP tools run in the separate `mcp-server-sqlseed-ai` process supplied by
+`sqlseed-ai[mcp]`. Accepted rules can be executed offline.
 
-- **9-level column mapping strategy** — auto-infers generators from column names
-- **36 built-in generators** — names, emails, phones, dates, UUIDs, and more
-- **Plugin system** — extend via pluggy hooks
-- **Expression engine** — derive columns from other columns (`value.split('@')[1]`)
-- **AI-powered schema analysis** — Gemma 4 Native Function Calling (optional)
-
-## Documentation
-
-- [Architecture](architecture.md) — internal design, 9-level mapper, DAG ordering
-- [Gemma 4 Integration](gemma4-integration.md) — AI schema analysis setup
-
-## Installation Variants
-
-| Command | Description |
-|---------|-------------|
-| `pip install sqlseed` | Base package (SQLite only) |
-| `pip install sqlseed[mimesis]` | + Mimesis data engine (recommended) |
-| `pip install "sqlseed[postgres]"` | + PostgreSQL driver (psycopg) |
-| `pip install sqlseed[all]` | All data engines + all DB drivers (mimesis, psycopg) + tqdm + sqlseed-cli + testcontainers |
-| `pip install sqlseed[docs]` | mkdocs-material + mkdocstrings (this site) |
+For internal design, see [architecture](architecture.md). For a complete example
+with constraints, failure diagnosis, and replay, see the
+[project walkthrough](project-showcase.md).

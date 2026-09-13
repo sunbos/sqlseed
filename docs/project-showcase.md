@@ -8,13 +8,13 @@ sqlseed 是面向 Python 开发与 CI 的声明式数据库测试数据工具：
 
 ## 从订单案例开始
 
-在仓库根、已安装本地 core 的环境执行，目标目录必须尚不存在：
+先按[安装指南](guide.md#installation)安装本地 Core 并激活所选 Python 环境。在仓库根执行，目标目录必须尚不存在：
 
 ```bash
-.venv/bin/python examples/order_workflow/run.py --output-dir /tmp/sqlseed-order-showcase
+python examples/order_workflow/run.py --output-dir /tmp/sqlseed-order-showcase
 ```
 
-详细产物和再次运行方式见 仓库中的 `examples/order_workflow/README.md`。演示应打开实际生成的报告、规则文件和数据库，而不是只播放成功截图。
+详细产物和再次运行方式见[订单案例说明](https://github.com/sunbos/sqlseed/blob/main/examples/order_workflow/README.md)。演示应打开实际生成的报告、规则文件和数据库，而不是只播放成功截图。
 
 建议按以下顺序讲解：
 

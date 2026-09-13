@@ -6,9 +6,10 @@ build-backend = "hatchling.build"
 name = "sqlseed-ai"
 dynamic = ["version"]
 requires-python = ">=3.10"
-description = "AI-powered data generation plugin for sqlseed"
+description = "Optional LLM schema analysis and contract-driven configuration repair for sqlseed"
 readme = "README.md"
 license = "AGPL-3.0-or-later"
+license-files = ["LICENSE"]
 authors = [
     {name = "SunBo", email = "1443584939@qq.com"},
 ]
@@ -30,6 +31,7 @@ dependencies = [
 ]
 
 [project.urls]
+Documentation = "https://sunbos.github.io/sqlseed/gemma4-integration/"
 Homepage = "https://github.com/sunbos/sqlseed"
 Repository = "https://github.com/sunbos/sqlseed/tree/main/plugins/sqlseed-ai"
 

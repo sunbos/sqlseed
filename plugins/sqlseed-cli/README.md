@@ -1,73 +1,96 @@
 # sqlseed-cli
 
-CLI plugin for [sqlseed](https://github.com/sunbos/sqlseed) — declarative multi-database test data generation toolkit.
+Command-line interface for [sqlseed](https://sunbos.github.io/sqlseed/): generate
+SQLite and PostgreSQL test data, preview samples, inspect schema, and save or replay
+configuration. This package provides the `sqlseed` command.
 
-This package provides the `sqlseed` console command with subcommands:
+## Installation
 
-- `fill` — fill a table with generated test data
-- `preview` — preview generated data without writing to the database
-- `inspect` — inspect database schema and column mapping strategies
-- `init` — generate a YAML configuration template
-- `replay` — replay a previously saved snapshot
-
-## Install
+These instructions describe the current five-package checkout. Until the matching
+release is available on PyPI, install local Core and CLI together from the repository
+root in a Python 3.10+ virtual environment:
 
 ```bash
-pip install sqlseed-cli
+python -m pip install -e . -e ./plugins/sqlseed-cli
 ```
 
-This auto-pulls the `sqlseed>=0.2.4.dev0,<0.3` core package; Core 0.2.3 lacks the URL API required by this CLI. To enable the AI subcommands
-(`ai-suggest`, `ai-analyze`, `auto-heal`), also install `sqlseed-ai`:
+Core 0.2.3 does not provide the URL API required by this CLI. Once matching packages
+are published, the package-index installation is:
 
 ```bash
-pip install sqlseed-ai
+python -m pip install "sqlseed-cli>=0.2.4.dev0,<0.3"
 ```
+
+For AI commands in this checkout, install all three local packages in one resolution:
+
+```bash
+python -m pip install -e . -e ./plugins/sqlseed-cli -e ./plugins/sqlseed-ai
+```
+
+Installing only `sqlseed` provides the Python API. Install `sqlseed-cli` or the Core
+`cli` extra to get the console command. Faker is included with Core; Mimesis is
+optional. The examples below select the installed Faker provider explicitly.
 
 ## Usage
 
+Create your tables first, then run:
+
 ```bash
-sqlseed fill app.db -t users -n 1000
-sqlseed preview app.db -t users -n 5
+sqlseed fill app.db -t users -n 1000 --provider faker --no-ai
+sqlseed preview app.db -t users -n 5 --provider faker
 sqlseed inspect app.db --table users --show-mapping
 sqlseed init generate.yaml --db app.db
-sqlseed fill app.db -t users -n 100 --snapshot
+sqlseed fill app.db -t users -n 100 --provider faker --no-ai --snapshot
 sqlseed replay <cache_dir>/snapshots/YYYY-MM-DD_HHMMSS_ffffff_users.yaml
 ```
 
-Multi-database connections via `--url`:
+| Command | Purpose |
+|---|---|
+| `fill` | Generate and write data into existing tables |
+| `preview` | Generate samples without writing them |
+| `inspect` | Show schema and column mapping |
+| `init` | Write a YAML configuration template |
+| `replay` | Run a saved configuration snapshot |
+
+For PostgreSQL, install the Core `postgres` extra and use `--url`:
 
 ```bash
-sqlseed fill --url "postgresql+psycopg://user:pass@host/db" -t users -n 1000
+python -m pip install -e ".[postgres]" -e ./plugins/sqlseed-cli
+sqlseed fill --url "postgresql+psycopg://user:pass@host/db" -t users -n 1000 --provider faker --no-ai
 sqlseed inspect --url "postgresql+psycopg://user:pass@host/db"
 ```
 
-For config-driven generation, set `db_path` or `url` inside the config file:
+For configuration-driven generation, put exactly one of `db_path` or `url` in the YAML.
+Set `provider: faker` in a generated template, or install the optional Mimesis provider
+if the template uses `provider: mimesis`:
 
 ```bash
 sqlseed fill --config generate.yaml --no-ai
 ```
 
-`--config` cannot be combined with a positional database path or `--url`.
-Omitted `--provider`, `--locale`, and `--batch-size` options preserve the
-configuration values; explicitly supplied options override them, even when
-their values equal the command's defaults. Without `--config`, the defaults
-remain `mimesis`, `en_US`, and `5000` respectively.
-If any table reports generation errors, the command prints those errors and
-exits with status 1. Each result's `count` is the number of rows actually
-committed, including rows committed before a later failure.
+`--config` cannot be combined with a positional database path or `--url`. Omitted
+`--provider`, `--locale`, and `--batch-size` preserve the YAML values. Explicit options
+override those values, including options equal to the command defaults. Without
+`--config`, the defaults are `mimesis`, `en_US`, and `5000`.
 
-For direct `fill --transform script.py --snapshot`, the snapshot retains the
-transform path and `replay` applies it again. Keep that script available at the
-saved path; a snapshot does not embed its contents.
+If any table reports generation errors, the command prints those errors and exits
+with status 1. `count` reports rows actually committed; a later batch failure can
+leave earlier commits. A snapshot retains a supplied transform script path and replay
+runs that script again; the script itself is not embedded in the snapshot.
 
-## Architecture
+The optional AI plugin registers `ai-suggest`, `ai-analyze`, and `auto-heal` through
+`sqlseed.cli_commands`. CLI does not require AI for its five base commands.
 
-This is a standalone package (separate `pyproject.toml`, VCS-shared version
-via `hatch-vcs` with `root = "../.."`). Per ARCHITECTURE.md Section 3.2:
+## Requirements
 
-- Console entry point: `sqlseed = "sqlseed_cli:main"`
-- AI subcommand injection: `sqlseed-ai` registers `ai-suggest`, `ai-analyze`,
-  and `auto-heal` via the `sqlseed.cli_commands` entry-point group;
-  `sqlseed_cli/__init__.py` iterates this group at startup to attach subcommands.
+- Python `>=3.10`
+- `sqlseed>=0.2.4.dev0,<0.3`
+- `click>=8.0`
+- `rich>=13.0`
 
-See the root [ARCHITECTURE.md](../../ARCHITECTURE.md) for the full design.
+See the [user guide](https://sunbos.github.io/sqlseed/guide/),
+[migration guide](https://sunbos.github.io/sqlseed/migration/), and
+[package source](https://github.com/sunbos/sqlseed/tree/main/plugins/sqlseed-cli).
+
+License: [AGPL-3.0-or-later](https://github.com/sunbos/sqlseed/blob/main/LICENSE).
+The distribution includes the full LICENSE text.

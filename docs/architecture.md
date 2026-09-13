@@ -8,6 +8,13 @@
 
 ## 1. System Architecture
 
+This page describes the five-package implementation on `main`; see [migration](migration.md)
+for installation and differences from published packages. Core does not depend on
+entry-point plugins. `DataStream` belongs to Core; Web runtime and maintenance
+processes are covered in section 12.
+
+
+
 ```mermaid
 graph TB
     subgraph User["👤 User Entry Points"]
@@ -28,6 +35,7 @@ graph TB
         Constraint["ConstraintSolver<br/>constraint backtracking"]
         Transform["TransformLoader<br/>script loading"]
         Result["GenerationResult<br/>result statistics"]
+        Stream["DataStream<br/>streaming generation"]
         CheckParser["check_parser.py<br/>CHECK constraint parsing"]
         SchemaFallback["schema_fallback.py<br/>schema-only fallback generator"]
         Features["features.py<br/>normalized structural features"]
@@ -39,7 +47,6 @@ graph TB
         Base["BaseProvider<br/>built-in"]
         Faker["FakerProvider<br/>Faker"]
         Mimesis["MimesisProvider<br/>Mimesis"]
-        Stream["DataStream<br/>streaming generation"]
     end
 
     subgraph DB["💾 Database Layer (database/)"]
@@ -150,58 +157,42 @@ graph TB
 
 ---
 
-## 2. Core Orchestration Flow (fill_table Execution)
+## 2. Core Orchestration Flow (fill_table)
+
+This diagram summarizes the normal execution path. Schema support preflight
+precedes clearing and writing. Ordinary Core batch execution can retain earlier
+committed batches after a later failure; check both `errors` and `count` as
+described in [failure semantics](maintainable-release.md#write-semantics).
 
 ```mermaid
 sequenceDiagram
     participant U as User
     participant O as DataOrchestrator
-    participant S as SchemaInferrer
-    participant M as ColumnMapper
-    participant R as RelationResolver
-    participant AI as AI Plugin (Hook)
-    participant D as ColumnDAG
-    participant ST as DataStream
+    participant ST as DataStream (core)
+    participant PM as PluginMediator
     participant DB as DatabaseAdapter
-    participant P as SharedPool
+    participant P as RelationResolver / SharedPool
 
     U->>O: fill_table(table, count)
-    O->>O: _ensure_connected()
-    O->>DB: optimize_for_bulk_write(count)
-    O->>S: get_column_info(table)
-    S-->>O: list[ColumnInfo]
-
-    O->>M: map_columns(columns, user_configs)
-    M-->>O: dict[str, GeneratorSpec]
-
-    O->>R: _resolve_foreign_keys(table, specs)
-    R->>DB: get_column_values(ref_table, ref_col)
-    R-->>O: specs (with FK values)
-
-    O->>O: _resolve_implicit_associations(SharedPool)
-
-    O->>AI: sqlseed_ai_analyze_table(...)
-    AI-->>O: AI suggestions (optional)
-
-    O->>AI: sqlseed_pre_generate_templates(...)
-    AI-->>O: template values (optional)
-
-    O->>D: build(specs, column_configs)
-    D->>D: topological_sort()
-    D-->>O: list[ColumnNode]
-
-    loop Batch Generation
-        O->>ST: generate(count, batch_size)
-        ST->>ST: _generate_row() × batch_size
-        Note over ST: Expression eval + constraint check + backtrack
-        ST-->>O: list[dict] (batch)
-
-        O->>O: _apply_batch_transforms(batch)
-        O->>DB: batch_insert(table, batch)
+    O->>O: Connect, validate arguments, preflight schema support
+    opt Database optimization enabled
+        O->>DB: optimize_for_bulk_write(count)
     end
-
-    O->>P: _register_shared_pool(table, specs)
-    O-->>U: GenerationResult
+    O->>O: _prepare_specs (schema, CHECK, FK, rules, optional AI)
+    O->>ST: _build_stream (seed, expressions, constraints)
+    loop Streaming batches
+        O->>ST: generate(count, batch_size)
+        ST-->>O: batch
+        O->>PM: apply_batch_transforms(table, batch)
+        PM-->>O: Last non-None result or original batch
+        O->>DB: batch_insert(table, batch)
+        DB-->>O: Actual inserted count
+        O->>O: Record completed batches
+    end
+    O->>DB: restore_settings (finally)
+    O->>P: register_shared_pool(table, specs)
+    O->>O: Supported self-referencing FK post-processing
+    O-->>U: GenerationResult (count / errors)
 ```
 
 ---
@@ -212,11 +203,13 @@ sequenceDiagram
 flowchart TD
     Start(["map_column(column_info, user_config)"]) --> L1
 
-    L1{"Level 1<br/>Autoincrement PK?<br/>PK + AUTOINCREMENT"} -->|Yes| R1["skip"]
+    L1{"Computed or explicit autoincrement PK?"} -->|Yes| R1["skip"]
     L1 -->|No| L2
 
     L2{"Level 2<br/>User config?"} -->|Yes| R2["Use user-specified generator + params"]
-    L2 -->|No| L3
+    L2 -->|No| Rowid{"Real SQLite rowid alias?"}
+    Rowid -->|Yes| R1
+    Rowid -->|No| L3
 
     L3{"Level 3<br/>Custom exact match?"} -->|Match| R3["Use plugin-registered exact rules"]
     L3 -->|No match| L4
@@ -264,7 +257,10 @@ flowchart TD
 
 ---
 
-## 4. Generator Layer Architecture
+## 4. Providers and Core Streaming
+
+Providers and dispatch live in `generators/`. The `DataStream`, expression, and
+constraint consumers shown here belong to `core/`; generators do not import Core.
 
 ```mermaid
 classDiagram
@@ -274,7 +270,7 @@ classDiagram
         +set_locale(locale: str)
         +set_seed(seed: int)
         +generate(type_name: str, **params) Any
-        ... dispatches via GENERATOR_MAP to 35 internal methods
+        ... dispatches via GENERATOR_MAP to 36 internal methods
     }
 
     class BaseProvider {
@@ -462,75 +458,33 @@ flowchart LR
 
 ## 7. AI Plugin Architecture
 
+The AI plugin retains distinct entry points. Single-table `ai-suggest` uses
+`SchemaAnalyzer` and `AiConfigRefiner`; `ai-analyze` defaults to
+`AutoHealOrchestrator`, while `auto-heal` repairs an existing configuration.
+`sqlseed_ai.runtime` constructs configuration, clients, and heal orchestrators;
+terminal output and exit codes remain in CLI. Web requests reviewable suggestions
+through Python services.
+
 ```mermaid
 flowchart TB
-    subgraph CLI_Trigger["Entry Points"]
-        CLICmd["sqlseed ai-suggest / ai-analyze / auto-heal"]
-        HookCall["sqlseed_ai_analyze_table Hook"]
-        MCPTool["MCP: sqlseed_ai_generate_yaml"]
-        MCPGemma4Analyze["MCP: sqlseed_gemma4_analyze"]
-        MCPGemma4AgentFill["MCP: sqlseed_gemma4_agent_fill"]
-    end
-
-    subgraph Analyzer["SchemaAnalyzer"]
-        Context["Build context<br/>columns + indexes + FK + samples + distribution"]
-        FewShot["Inject few-shot examples<br/>(6 typical scenarios)"]
-        SysPrompt["System Prompt<br/>generator list + output format"]
-        LLM["Call LLM<br/>AIBackend multi-backend<br/>OpenAI API / Gemma 4 GEMMA_TOOLS<br/>response_format: json_object"]
-    end
-
-    subgraph Refiner["AiConfigRefiner Self-Correction Loop"]
-        direction TB
-        Init["Initial generation"]
-        Validate["Validate config"]
-        VCheck{"Pass?"}
-        Cache["Cache result<br/>(schema hash validation)"]
-        ErrorSum["ErrorSummary<br/>error classification"]
-        FixPrompt["Build correction prompt"]
-        Retry["Retry LLM"]
-        MaxCheck{"Exceeded<br/>max_retries?"}
-        FailErr["AISuggestionFailedError"]
-
-        Init --> Validate --> VCheck
-        VCheck -->|✅| Cache
-        VCheck -->|❌| ErrorSum --> FixPrompt --> Retry
-        Retry --> Validate
-        MaxCheck -->|Yes| FailErr
-    end
-
-    subgraph Validation["Validation Steps"]
-        V1["1. Pydantic TableConfig parsing"]
-        V2["2. Column name existence check"]
-        V3["3. Empty config check"]
-        V4["4. preview_table(count=5) dry run"]
-    end
-
-    subgraph ErrorTypes["Error Types"]
-        E1["pydantic_validation"]
-        E2["json_syntax"]
-        E3["unknown_generator"]
-        E4["expression_error"]
-        E5["column_mismatch"]
-        E6["empty_config"]
-        E7["fatal (non-retryable)"]
-        E8["runtime_error (catch-all)"]
-    end
-
-    CLICmd --> Analyzer
-    HookCall --> Analyzer
-    MCPTool --> Analyzer
-    MCPGemma4Analyze --> Analyzer
-    MCPGemma4AgentFill --> Analyzer
-
-    Context --> FewShot --> SysPrompt --> LLM
-    LLM --> Refiner
-
-    Validate --> Validation
-    ErrorSum --> ErrorTypes
-
-    style Cache fill:#4CAF50,color:#fff
-    style FailErr fill:#F44336,color:#fff
+    Suggest["ai-suggest / AI hooks / AI MCP"] --> Analyzer[SchemaAnalyzer]
+    Analyzer --> Refiner["AiConfigRefiner: validation and bounded retries"]
+    Analyze["ai-analyze / auto-heal"] --> Runtime[sqlseed_ai.runtime]
+    Runtime --> AutoHeal[AutoHealOrchestrator]
+    AutoHeal --> Contracts["Rule contracts, validation and repair"]
+    Web["Web AI assistant"] --> Services["AI Python services"]
+    Refiner --> Rules["YAML rules / analysis results"]
+    Contracts --> Rules
+    Services --> Review["User reviews suggestions"]
+    Review --> Rules
+    Rules --> Core["Offline Core: explicit preview or fill"]
 ```
+
+`ai-suggest --auto-heal` selects the full healing path and processes all tables.
+The AI MCP tool `sqlseed_gemma4_agent_fill` is a separate analysis-and-execution
+entry point; ordinary analysis commands and Web suggestions do not automatically
+write to the database. Model connectivity, output quality, and supported schema
+features need separate verification.
 
 ---
 
@@ -548,7 +502,8 @@ flowchart TB
     H2 --> Fill
 
     Fill --> Mapping["Column mapping"]
-    Mapping --> H3["🤖 sqlseed_ai_analyze_table<br/>(firstresult)"]
+    Mapping --> Mediation["sqlseed_apply_ai_suggestions<br/>(firstresult, optional AI plugin)"]
+    Mediation --> H3["🤖 sqlseed_ai_analyze_table<br/>(firstresult)"]
 
     H3 --> Template["Template pool"]
     Template --> H4["🤖 sqlseed_pre_generate_templates<br/>(firstresult)"]
@@ -571,7 +526,7 @@ flowchart TB
 
     BatchLoop --> H10["📢 sqlseed_after_generate"]
 
-    H10 --> RegisterPool["_register_shared_pool()"]
+    H10 --> RegisterPool["RelationResolver.register_shared_pool()"]
     RegisterPool --> H11["📢 sqlseed_shared_pool_loaded"]
 
     H11 --> Done(["Return GenerationResult"])
@@ -624,7 +579,7 @@ classDiagram
         +params: dict
         +null_ratio: float = 0.0
         --- Derived mode ---
-        +derive_from: str | None
+        +derive_from: str | list~str~ | None
         +expression: str | None
         --- Constraints ---
         +constraints: ColumnConstraintsConfig | None
@@ -719,64 +674,28 @@ flowchart LR
 
 ---
 
-## 11. Gemma 4 Integration Architecture
+## 11. Gemma 4 Tool-Calling Protocol
+
+This is the structured-response path in `SchemaAnalyzer`. `AIConfig` resolves
+`gemma4`, `openai`, or `none` against the active backend. Tool-call arguments are
+parsed and validated locally; this path does not register arbitrary Core tools
+or execute a multi-turn loop that injects `tool_result` messages.
 
 ```mermaid
-flowchart TB
-    subgraph MCPEntry["MCP Tool Entry Points"]
-        G4Analyze["💎 sqlseed_gemma4_analyze<br/>Schema analysis via Gemma 4"]
-        G4AgentFill["💎 sqlseed_gemma4_agent_fill<br/>Agent-driven data fill"]
-        G4List["💎 sqlseed_list_gemma_models<br/>List available Gemma 4 models"]
-    end
-
-    subgraph Backend["AIBackend Multi-Backend Router"]
-        Router["AIBackend<br/>backend selection"]
-        OpenAIBe["OpenAI Backend<br/>chat.completions API"]
-        GemmaBe["Gemma 4 Backend<br/>GEMMA_TOOLS Native FC"]
-    end
-
-    subgraph GemmaFC["GEMMA_TOOLS Native Function Calling"]
-        ToolReg["Tool Registration<br/>auto_register(sqlseed tools)"]
-        FCRequest["Function Call Request<br/>model generates tool_call"]
-        FCExec["Tool Execution<br/>sqlseed core executes"]
-        FCResult["Result Injection<br/>tool_result → conversation"]
-        FCIterate["Iterative Refinement<br/>multi-turn tool use"]
-    end
-
-    subgraph Core["sqlseed Core Integration"]
-        SchemaCtx["get_schema_context()"]
-        Orchestrator["DataOrchestrator"]
-        Mapper["ColumnMapper"]
-    end
-
-    G4Analyze --> Router
-    G4AgentFill --> Router
-    G4List --> Router
-
-    Router --> OpenAIBe
-    Router --> GemmaBe
-
-    GemmaBe --> ToolReg
-    ToolReg --> FCRequest
-    FCRequest --> FCExec
-    FCExec --> FCResult
-    FCResult --> FCIterate
-    FCIterate --> FCRequest
-
-    FCExec --> SchemaCtx
-    FCExec --> Orchestrator
-    FCExec --> Mapper
-
-    SchemaCtx --> Orchestrator
-
-    style GemmaBe fill:#4285F4,color:#fff
-    style ToolReg fill:#34A853,color:#fff
-    style FCRequest fill:#34A853,color:#fff
-    style FCExec fill:#FBBC05,color:#000
-    style FCResult fill:#34A853,color:#fff
-    style FCIterate fill:#EA4335,color:#fff
+flowchart TD
+    Context["Schema context and generation prompt"] --> Protocol[resolve_tool_calling_protocol]
+    Protocol -->|gemma4 / openai| Request["GEMMA_TOOLS + tool_choice auto"]
+    Request --> Response["analyze_schema arguments or text response"]
+    Response --> Parse["JSON parsing and local validation"]
+    Request -->|unsupported tool calling| Fallback["Cloud JSON mode / local text mode"]
+    Protocol -->|none| Fallback
+    Fallback --> Parse
+    Parse --> Result["Analysis result or explicit error"]
 ```
 
+See [Gemma 4 integration](gemma4-integration.md) for protocol/backend limits.
+Model availability depends on the actual service; the project model registry
+is not a guarantee that an endpoint hosts a particular model.
 
 ## 12. Web workbench and component lifecycle
 
