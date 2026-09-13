@@ -86,6 +86,8 @@ Check both `result.count` and `result.errors` after generation.
 To inspect samples without writing rows:
 
 ```python
+import sqlseed
+
 rows = sqlseed.preview("demo.db", table="users", count=3, provider="faker")
 for row in rows:
     print(row)
