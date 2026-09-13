@@ -83,6 +83,7 @@ def _find_doc_files() -> list[Path]:
         ROOT / "CHANGELOG.zh-CN.md",
         ROOT / "docs" / "architecture.md",
         ROOT / "docs" / "architecture.zh-CN.md",
+        ROOT / "docs" / "guide.md",
         ROOT / "plugins" / "sqlseed-ai" / "README.md",
         ROOT / "plugins" / "sqlseed-ai" / "README.zh-CN.md",
         ROOT / "plugins" / "mcp-server-sqlseed" / "README.md",
@@ -208,9 +209,16 @@ def _extract_public_api_funcs() -> list[str]:
 class TestGeneratorTypes:
     """Verify generator type count matches documentation."""
 
-    def test_count_in_readme(self):
+    def test_count_in_docs(self):
         generators = get_generator_types()
         count = len(generators)
+
+        guide = _read(ROOT / "docs" / "guide.md")
+        assert _extract_marker_value(guide, "generator-count") == str(count), (
+            "docs/guide.md must declare the current generator count with an AUTO-GENERATED marker"
+        )
+        for doc_path, value in _find_marker_claims("generator-count"):
+            assert value == str(count), f"{doc_path}: marker claims {value} generators, but GENERATOR_MAP has {count}"
 
         # Only check files that claim to list total generator count
         # (skip CHANGELOG which talks about incremental additions)
@@ -225,15 +233,25 @@ class TestGeneratorTypes:
                     f"Generators: {sorted(generators)}"
                 )
 
-    def test_new_types_documented(self):
-        """Every generator in GENERATOR_MAP should appear in README."""
-        generators = get_generator_types()
-        readme = _read(ROOT / "README.md")
-
-        for gen in sorted(generators):
-            # Generator names should appear in the generator table
-            # Use word boundary to avoid false matches
-            assert gen in readme, f"Generator '{gen}' is in GENERATOR_MAP but not mentioned in README.md"
+    def test_generator_reference_table(self):
+        """The guide table lists every dispatch and orchestration generator exactly once."""
+        guide = _read(ROOT / "docs" / "guide.md")
+        _, heading, section = guide.partition("\n### Generators\n")
+        assert heading, "docs/guide.md is missing its Generators section"
+        section = re.split(r"\n#{1,3} ", section, maxsplit=1)[0]
+        _, header, table = section.partition("| Generator | Description | Example Parameters |\n")
+        assert header, "docs/guide.md is missing its generator reference table"
+        separator, *rows = table.split("\n\n", 1)[0].splitlines()
+        assert re.fullmatch(r"\|:?-{3,}:?\|:?-{3,}:?\|:?-{3,}:?\|", separator.replace(" ", "")), (
+            "Generator table is missing its Markdown separator"
+        )
+        names = [row.split("|")[1].strip() for row in rows if row.startswith("|")]
+        expected = {f"`{name}`" for name in get_generator_types() | {"foreign_key", "skip"}}
+        assert set(names) == expected, (
+            "docs/guide.md generator table differs from GENERATOR_MAP plus foreign_key/skip: "
+            f"missing {sorted(expected - set(names))}; unexpected {sorted(set(names) - expected)}"
+        )
+        assert len(names) == len(expected), "docs/guide.md generator table contains duplicate entries"
 
 
 class TestExactMatchRules:
@@ -290,7 +308,7 @@ class TestPluginHooks:
         count = len(hooks)
 
         # Skip CHANGELOG (records historical facts, not current state) —
-        # mirrors TestGeneratorTypes.test_count_in_readme logic.
+        # mirrors TestGeneratorTypes.test_count_in_docs logic.
         check_files = [p for p in _find_doc_files() if "CHANGELOG" not in p.name]
 
         for doc_path in check_files:
@@ -355,7 +373,7 @@ class TestCodeExamples:
     """Verify code examples in docs don't reference removed APIs."""
 
     def test_public_api_in_readme(self):
-        """README should document all public API functions."""
+        """README navigation should expose public API names; docs/api.md holds the reference."""
         public_funcs = _extract_public_api_funcs()
 
         readme = _read(ROOT / "README.md")

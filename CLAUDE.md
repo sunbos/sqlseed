@@ -194,14 +194,14 @@ When modifying these source files, update the corresponding docs in the same com
 
 | Source File | Docs to Update | What to Check |
 |:------------|:---------------|:-------------|
-| `src/sqlseed/generators/_dispatch.py` | README.md, README.zh-CN.md | Generator type table (count + names) |
-| `src/sqlseed/core/mapper.py` | README.md, CLAUDE.md | Exact match rule count, pattern match count |
-| `src/sqlseed/core/expression.py` | README.md, README.zh-CN.md | SAFE_FUNCTIONS table (count + names) |
-| `src/sqlseed/plugins/hookspecs.py` | README.md, CLAUDE.md, docs/architecture.md | Hook table (count + names) |
+| `src/sqlseed/generators/_dispatch.py` | docs/guide.md | Complete Generators table and AUTO-GENERATED count; README keeps entry points and examples |
+| `src/sqlseed/core/mapper.py` | docs/guide.md, docs/architecture.md, docs/architecture.zh-CN.md, CLAUDE.md | Exact match rules and pattern match counts |
+| `src/sqlseed/core/expression.py` | docs/guide.md | Expressions and SAFE_FUNCTIONS reference |
+| `src/sqlseed/plugins/hookspecs.py` | docs/guide.md, docs/architecture.md, docs/architecture.zh-CN.md, CLAUDE.md | Hook reference and counts |
 | `src/sqlseed/config/models.py` | docs/architecture.md, docs/architecture.zh-CN.md | Class diagrams (field names + types) |
-| `plugins/sqlseed-cli/src/sqlseed_cli/main.py` | README.md, README.zh-CN.md | CLI command reference |
-| `plugins/sqlseed-ai/src/sqlseed_ai/cli/ai_commands.py` | README.md, README.zh-CN.md | AI CLI command reference |
-| `src/sqlseed/__init__.py` | README.md, README.zh-CN.md | Public API table |
+| `plugins/sqlseed-cli/src/sqlseed_cli/main.py` | docs/guide.md, CLI package README | Full CLI reference; root READMEs retain introductory examples |
+| `plugins/sqlseed-ai/src/sqlseed_ai/cli/ai_commands.py` | docs/guide.md, AI package READMEs | Full AI CLI reference; root READMEs retain command purposes |
+| `src/sqlseed/__init__.py` | docs/api.md, README.md, README.zh-CN.md | Full API reference, entry-point table, and examples |
 
 Run `pytest tests/test_doc_sync.py` to verify doc sync after changes. Automated count verification uses paired HTML comments named `BEGIN:AUTO-GENERATED:<name>` and `END:AUTO-GENERATED:<name>`, with the generated value between them.
 

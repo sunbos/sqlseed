@@ -92,14 +92,14 @@ make mutmut
 
 | 源文件 | 对应文档与内容 |
 |---|---|
-| `src/sqlseed/generators/_dispatch.py` | README.md、README.zh-CN.md：generator 名称与数量 |
-| `src/sqlseed/core/mapper.py` | README.md、CLAUDE.md：exact/pattern match rules |
-| `src/sqlseed/core/expression.py` | README.md、README.zh-CN.md：SAFE_FUNCTIONS |
-| `src/sqlseed/plugins/hookspecs.py` | README.md、CLAUDE.md、docs/architecture.md 与相关 AGENTS.md：hooks |
+| `src/sqlseed/generators/_dispatch.py` | docs/guide.md 的 Generators 表：完整 generator 名称与自动生成的数量；README 只保留入口与示例 |
+| `src/sqlseed/core/mapper.py` | docs/guide.md、docs/architecture.md、docs/architecture.zh-CN.md、CLAUDE.md：exact/pattern match rules |
+| `src/sqlseed/core/expression.py` | docs/guide.md：表达式与 SAFE_FUNCTIONS 参考 |
+| `src/sqlseed/plugins/hookspecs.py` | docs/guide.md、docs/architecture.md、docs/architecture.zh-CN.md、CLAUDE.md 与相关 AGENTS.md：hooks |
 | `src/sqlseed/config/models.py` | docs/architecture.md、docs/architecture.zh-CN.md：模型字段与类型 |
-| `plugins/sqlseed-cli/src/sqlseed_cli/main.py` | README.md、README.zh-CN.md：CLI reference |
-| `plugins/sqlseed-ai/src/sqlseed_ai/cli/ai_commands.py` | README.md、README.zh-CN.md：AI CLI reference |
-| `src/sqlseed/__init__.py` | README.md、README.zh-CN.md：public API |
+| `plugins/sqlseed-cli/src/sqlseed_cli/main.py` | docs/guide.md 与 CLI 插件 README：完整 CLI reference；根 README 保留入门示例 |
+| `plugins/sqlseed-ai/src/sqlseed_ai/cli/ai_commands.py` | docs/guide.md 与 AI 插件中英文 README：完整 AI CLI reference；根 README 保留用途概述 |
+| `src/sqlseed/__init__.py` | docs/api.md：完整 public API；README.md、README.zh-CN.md：入口表与示例 |
 
 不要手改 `AUTO-GENERATED` 标记内的值；运行 `python scripts/sync_docs.py`，再运行 `python scripts/sync_docs.py --check` 与 `pytest tests/test_doc_sync.py`。需要构建文档时运行 `make docs-build`（MkDocs strict）。
 
