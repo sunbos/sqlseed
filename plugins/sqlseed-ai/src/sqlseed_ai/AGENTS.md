@@ -58,5 +58,5 @@ Layer 表示架构层；healer 的 Level 表示 LLM 修复粒度，二者不能�
 - [__init__.py](__init__.py) 导出 `plugin = AISqlseedPlugin()`；hooks 使用 `sqlseed.plugins.hookspecs.hookimpl`，不注册 provider / mapper。
 - `sqlseed_apply_ai_suggestions` 委托 [ai_mediator.py](ai_mediator.py)，AI mediation 不能搬回 Core；保留 hook 的失败降级行为，预期分析 / 模板错误按现有捕获边界返回 `None`。
 - `_SIMPLE_COL_RE` 跳过可由普通生成器处理的模板列；模板生成请求最多 `min(count, 50)` 个值。
-- `sqlseed_transform_row` 的 ISO 字符串 → `datetime.date` 转换是 DATE 列防御路径，保留无法转换时的容错。
+- `sqlseed_transform_row` 实现 ISO 字符串 → `datetime.date` 的转换，保留无法转换时的容错；普通 Core 生成流程当前不调用此 hook，不把该方法的单测通过视为运行时已接入的证明。
 - 验证按 [../../tests/AGENTS.md](../../tests/AGENTS.md) 选择测试；新增 Python 文件保留 English docstring，并使用真实可用类型，不用 `Any` / `type: ignore` 掩盖可建模的类型。

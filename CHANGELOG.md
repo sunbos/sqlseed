@@ -9,17 +9,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-09-13
+
+### Added
+
+- Ship the Web workbench as `sqlseed-web`, with schema graphs, column rules, previews, multi-table generation, saved configurations and run history. AI remains optional.
+- Add CHECK-aware generator adaptation, foreign-key coverage strategies and coordinated self-reference generation. PostgreSQL uses the SQLAlchemy adapter and psycopg driver.
+- Add contract-driven AI validation and repair with bounded model calls, deterministic fallbacks and separate AI MCP tools.
+- Add automatic post-upload PyPI acceptance for fresh full wheel, minimal Core/Web and full sdist installations, including source hashes and real SQLite entry-point checks.
+
 ### Changed
 
-- Split delivery into offline Core, CLI, AI, Core MCP and Web packages. CLI and AI MCP users must update their installation and client entry points; see the [migration guide](docs/migration.md).
-- Constrain candidate Core and sibling plugin dependencies to the validated `>=0.2.4.dev0,<0.3` series; install candidates from the same CI artifact set.
-- Deploy GitHub Pages only after all main CI jobs succeed. Merging does not publish Python packages to PyPI.
+- Deliver offline Core, CLI, AI, Core MCP and Web as five packages at version 0.2.4. Install `sqlseed-cli` for the `sqlseed` command; the Core package provides the Python API. See the [migration guide](docs/migration.md) for changes from 0.2.3.
+- Keep sibling dependencies in the compatible `>=0.2.4.dev0,<0.3` series. Use matching released versions or a single development artifact set.
+- Core MCP exposes two offline tools. Launch `mcp-server-sqlseed-ai` separately for the four AI tools; installing the AI package does not add tools to the Core MCP process.
+- Refresh English and Chinese READMEs, user and API guides, package metadata and documentation links. Include the complete AGPL-3.0-or-later license text in all five distributions.
+- Deploy GitHub Pages after all main CI jobs succeed; publish Python packages through a separate version-tagged release workflow.
 
 ### Fixed
 
 - Preserve JSON document values through typed database inserts and accept valid ISO temporal values without double encoding JSON or rejecting compatible SQLite date configurations.
 - Identify self-referencing rows by their complete primary key and check complete ordinary UNIQUE keys when assigning parent references; partial and expression indexes remain enforced by the database.
-- Keep AI MCP progress output out of the stdio JSON-RPC stream.
+- Preserve explicit generation constraints, handle existing UNIQUE values during appends and enforce CHECK ranges without silently replacing conflicting user rules.
+- Close SQLite resources and clean up Web workers on failures, including Windows path and macOS process-cleanup cases.
+- Keep AI MCP progress output out of the stdio JSON-RPC stream and enforce AI healing time budgets.
+
+### Compatibility
+
+- Migrate old `sqlseed.cli` imports and MCP client tool selections before upgrading. Core 0.2.3 cannot be combined with the new plugins.
+- Ordinary batched fills can retain earlier committed batches after a later failure; inspect the returned count and errors. PostgreSQL composite and cross-schema foreign-key generation still has limitations described in the migration guide.
 
 ## [v0.1.20]
 

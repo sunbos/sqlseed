@@ -198,59 +198,31 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-    Start(["map_column(column_info, user_config)"]) --> L1
-
-    L1{"计算列或显式自增主键？"} -->|是| R1["skip"]
-    L1 -->|否| L2
-
-    L2{"Level 2<br/>用户配置？"} -->|有| R2["使用用户指定的 generator + params"]
-    L2 -->|无| Rowid{"真实 SQLite rowid alias？"}
-    Rowid -->|是| R1
-    Rowid -->|否| L3
-
-    L3{"Level 3<br/>自定义精确匹配？"} -->|匹配| R3["使用插件注册的精确规则"]
-    L3 -->|未匹配| L4
-
-    L4{"Level 4<br/>内置精确匹配？<br/>(<!-- BEGIN:AUTO-GENERATED:exact-match-rule-count -->75<!-- END:AUTO-GENERATED:exact-match-rule-count --> 条规则)"} -->|匹配| R4["email→email<br/>phone→phone<br/>age→integer<br/>city→city<br/>..."]
-    L4 -->|未匹配| L5
-
-    L5{"Level 5<br/>有默认值？"} -->|是| R5["skip (跳过生成)<br/>或 __enrich__"]
-    L5 -->|否| L6
-
-    L6{"Level 6<br/>自定义模式匹配？"} -->|匹配| R6["使用插件注册的正则规则"]
-    L6 -->|未匹配| L7
-
-    L7{"Level 7<br/>内置模式匹配？<br/>(<!-- BEGIN:AUTO-GENERATED:pattern-match-rule-count -->29<!-- END:AUTO-GENERATED:pattern-match-rule-count --> 条正则)"} -->|匹配| R7["*_at→datetime<br/>*_id→foreign_key_or_integer, *_no→string(alnum)<br/>is_*→boolean<br/>..."]
-    L7 -->|未匹配| L8
-
-    L8{"Level 8<br/>可 NULL？"} -->|是| R8["skip (跳过生成)<br/>或 __enrich__"]
-    L8 -->|否| L9
-
-    L9{"Level 9<br/>类型忠实回退<br/>(32 种 SQL 类型)"} -->|匹配| R9["VARCHAR(32)→max 32 字符<br/>INT8→0~255<br/>BLOB(1024)→1024 字节"]
-    L9 -->|未匹配| L10
-
-    L10["默认"] --> R10["string<br/>(min=5, max=50)"]
-
-    R1 --> Done(["返回 GeneratorSpec"])
-    R2 --> Done
-    R3 --> Done
-    R4 --> Done
-    R5 --> Done
-    R6 --> Done
-    R7 --> Done
-    R8 --> Done
-    R9 --> Done
-    R10 --> Done
-
-    style L1 fill:#9C27B0,color:#fff
-    style L2 fill:#4CAF50,color:#fff
-    style L4 fill:#2196F3,color:#fff
-    style L5 fill:#FF9800,color:#fff
-    style L7 fill:#2196F3,color:#fff
-    style L8 fill:#FF9800,color:#fff
-    style L9 fill:#FF9800,color:#fff
-    style L10 fill:#9E9E9E,color:#fff
+    Start["map_column(column_info, user_config)"] --> L1{"L1: 计算列或显式自增主键？"}
+    L1 -->|有| Skip["跳过生成"]
+    L1 -->|无| L2{"L2: 用户显式配置？"}
+    L2 -->|有| Done["返回规则"]
+    L2 -->|无| Rowid{"SQLite rowid alias？"}
+    Rowid -->|有| Skip
+    Rowid -->|无| IntegerPK{"其他整数主键？"}
+    IntegerPK -->|有| L9["L9: 按 SQL 类型回退"]
+    IntegerPK -->|无| L3{"L3: 自定义 → 内置精确匹配<br/><!-- BEGIN:AUTO-GENERATED:exact-match-rule-count -->75<!-- END:AUTO-GENERATED:exact-match-rule-count --> 条内置规则"}
+    L3 -->|有| Done
+    L3 -->|无| L4{"L4: 默认值处理"}
+    L4 -->|有| Done
+    L4 -->|无| L5{"L5: 自定义 → 内置模式匹配<br/><!-- BEGIN:AUTO-GENERATED:pattern-match-rule-count -->29<!-- END:AUTO-GENERATED:pattern-match-rule-count --> 条内置模式"}
+    L5 -->|有| Done
+    L5 -->|无| L6{"L6: CamelCase 转 snake_case 后精确匹配"}
+    L6 -->|有| Done
+    L6 -->|无| L7{"L7: snake_case 模式匹配"}
+    L7 -->|有| Done
+    L7 -->|无| L8{"L8: 可空列回退"}
+    L8 -->|有| Done
+    L8 -->|无| L9
+    L9 --> Done
 ```
+
+默认值和可空列处理会按 `enrich` / `force_type_infer` 返回跳过、补全或类型回退规则。适配器明确标识 SQLite rowid alias；旧手工 `ColumnInfo` 的未知标识保留兼容处理。显式参数继承和 BLOB 类型保护等后续检查仍以 `mapper.py` 为准。
 
 ***
 
@@ -274,7 +246,7 @@ classDiagram
         -_rng: Random
         -_locale: str
         +name = "base"
-        仅类型路由，不生成真实数据
+        内置合成值生成
     }
 
     class FakerProvider {
@@ -508,13 +480,12 @@ flowchart TB
     subgraph BatchLoop["批次循环"]
         direction TB
         GenBatch["DataStream 生成一批"]
-        H6["🔄 sqlseed_transform_row<br/>(每行，热路径)"]
         H7["🔄 sqlseed_transform_batch<br/>(同批输入；最后一个非 None 结果)"]
         H8["📢 sqlseed_before_insert"]
         Insert["batch_insert()"]
         H9["📢 sqlseed_after_insert"]
 
-        GenBatch --> H6 --> H7 --> H8 --> Insert --> H9
+        GenBatch --> H7 --> H8 --> Insert --> H9
     end
 
     BatchLoop --> H10["📢 sqlseed_after_generate"]
@@ -526,8 +497,9 @@ flowchart TB
 
     style H3 fill:#FF9800,color:#fff
     style H4 fill:#FF9800,color:#fff
-    style H6 fill:#F44336,color:#fff
 ```
+
+`sqlseed_transform_row` 已声明且可由插件实现，但普通 Core 生成没有调用点；图中实际执行的是批次 hook。YAML 的 `transform` 脚本及其 `transform_row(row, ctx)` 是另一条已接入的用户配置接口，不是这个 pluggy hook。
 
 ***
 
@@ -631,9 +603,9 @@ flowchart LR
 
     subgraph AIMCP["sqlseed-ai[mcp] (FastMCP)——AI，LLM 驱动"]
         ToolAI["🤖 sqlseed_ai_generate_yaml<br/>AI 分析 → 自纠正 → YAML"]
-        Tool4["💎 sqlseed_gemma4_analyze<br/>Gemma 4 原生函数调用分析"]
+        Tool4["💎 sqlseed_gemma4_analyze<br/>配置的模型与响应协议分析"]
         Tool5["💎 sqlseed_gemma4_agent_fill<br/>Gemma 4 Agent 驱动数据填充"]
-        Tool6["💎 sqlseed_list_gemma_models<br/>列出可用 Gemma 4 模型"]
+        Tool6["💎 sqlseed_list_gemma_models<br/>列出注册的 Gemma 4 变体"]
     end
 
     subgraph SQLSeed["sqlseed 核心"]

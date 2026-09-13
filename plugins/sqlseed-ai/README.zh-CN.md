@@ -11,18 +11,17 @@
 
 ## 安装
 
-本文描述当前五包源码。兼容版本发布到 PyPI 前，在 Python 3.10+ 虚拟环境中，
-从仓库根一次安装本地 Core、CLI 和 AI：
+安装 0.2.4 版本时，使用 Python 3.10+ 虚拟环境：
+
+```bash
+python -m pip install "sqlseed-ai==0.2.4"
+```
+
+Core 0.2.3 缺少本插件使用的 hooks 与数据库目标校验接口。
+开发源码时，从仓库根一次安装本地 Core、CLI 和 AI：
 
 ```bash
 python -m pip install -e . -e ./plugins/sqlseed-cli -e ./plugins/sqlseed-ai
-```
-
-Core 0.2.3 缺少本插件使用的 hooks 与数据库目标校验接口。匹配版本发布后，
-才可改用以下软件源安装命令：
-
-```bash
-python -m pip install "sqlseed-ai>=0.2.4.dev0,<0.3"
 ```
 
 ## CLI 快速开始
@@ -89,14 +88,14 @@ native/custom 方法、实际生成值及依赖数据库状态的约束需另行
 
 ## 独立 AI MCP 服务器
 
-AI MCP 入口要求本包的 `mcp` extra。从当前仓库安装并启动：
+AI MCP 入口要求本包的 `mcp` extra：
 
 ```bash
-python -m pip install -e . -e ./plugins/sqlseed-cli -e "./plugins/sqlseed-ai[mcp]"
+python -m pip install "sqlseed-ai[mcp]==0.2.4"
 mcp-server-sqlseed-ai
 ```
 
-匹配版本发布后可安装 `"sqlseed-ai[mcp]>=0.2.4.dev0,<0.3"`。
+开发源码时使用 `python -m pip install -e . -e ./plugins/sqlseed-cli -e "./plugins/sqlseed-ai[mcp]"`。
 配置 MCP 客户端启动 `mcp-server-sqlseed-ai`，它提供四个工具：
 
 - `sqlseed_ai_generate_yaml`
@@ -179,7 +178,7 @@ AI 配置缓存包含 schema hash，结构变化会使旧建议失效；`--no-ca
 | --- | --- |
 | `sqlseed_ai_analyze_table` | LLM 表分析，返回列配置 |
 | `sqlseed_apply_ai_suggestions` | 编排器使用的高层 AI 中介入口，判断是否需要分析并合并结果 |
-| `sqlseed_transform_row` | 对已识别 DATE 列中的 ISO 日期字符串提供防御性类型转换 |
+| `sqlseed_transform_row` | 实现 DATE 字符串转换，但普通 Core 生成不调用此 hook，不能依赖它修复写入类型 |
 | `sqlseed_pre_generate_templates` | 为符合条件的列准备候选值 |
 
 CLI 命令另由 `sqlseed.cli_commands` entry point 注册。本插件不实现 provider 或

@@ -14,7 +14,7 @@
 - `firstresult=True` 返回第一个非 `None` 结果；当前用于 `sqlseed_ai_analyze_table`、`sqlseed_apply_ai_suggestions`、`sqlseed_pre_generate_templates`。
 - 其他 hook 返回 `list[result]`，不要按单个 mapping 或单个 batch 处理。
 - `PluginMediator.apply_batch_transforms()` 取结果列表中最后一个非 `None` 结果，全部为 `None` 则保留输入 batch。各插件收到同一个 batch 参数；当前实现不把上个返回值作为下个入参，也不累加结果。
-- `sqlseed_transform_row` 是 per-row hot path；不要引入昂贵初始化或额外数据库扫描。
+- `sqlseed_transform_row` 当前仅有 hookspec，普通 Core 生成流程不调用；不要把声明或插件实现当作已接入的热路径。插件批次变换使用 `sqlseed_transform_batch`；用户配置脚本的 `transform_row(row, ctx)` 是另一条已执行接口。
 - `sqlseed_register_providers` / `sqlseed_register_column_mappers` 在连接初始化调用；避免要求每批重新注册。
 - `sqlseed_before_generate` / `sqlseed_after_generate` 围绕生成；`sqlseed_before_insert` / `sqlseed_after_insert` 围绕 batch 写入；`sqlseed_shared_pool_loaded` 在 shared pool 注册后调用。
 - AI-specific suggestion 实现留在 `sqlseed-ai`；core 只用 hookspec，`PluginMediator` 保持 batch transform / template pool 通用职责。

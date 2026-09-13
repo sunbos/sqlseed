@@ -9,17 +9,35 @@
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-09-13
+
+### 新增
+
+- 通过 `sqlseed-web` 交付 Web 工作台，支持 schema 关系图、字段规则、预览、多表生成、配置保存与运行记录；AI 仍为可选能力。
+- 增加 CHECK 驱动的生成器适配、外键覆盖策略与自引用协调生成；PostgreSQL 使用 SQLAlchemy adapter 和 psycopg 驱动。
+- 增加基于 contract 的 AI 校验与修复，包含有界模型调用、确定性降级和独立 AI MCP 工具。
+- 增加上传后自动执行的正式 PyPI 验收，覆盖全量 wheel、仅 Core/Web 和全量 sdist 的新环境安装，核验文件来源哈希并通过真实入口生成 SQLite 数据。
+
 ### 变更
 
-- 拆分为离线 Core、CLI、AI、Core MCP、Web 五包交付；CLI 与 AI MCP 用户需要调整安装与客户端入口，详见[升级说明](docs/migration.zh-CN.md)。
-- 候选 Core 与兄弟插件依赖限制在已验证的 `>=0.2.4.dev0,<0.3` 系列；候选包从同一 CI artifact 成套安装。
-- GitHub Pages 仅在 main 全部 CI 任务成功后部署；合并代码不会发布 PyPI 包。
+- 离线 Core、CLI、AI、Core MCP 与 Web 以统一 0.2.4 版本五包交付。`sqlseed` 命令需要安装 `sqlseed-cli`；Core 提供 Python API。从 0.2.3 升级前请阅读[迁移指南](docs/migration.zh-CN.md)。
+- 兄弟包依赖保持在兼容的 `>=0.2.4.dev0,<0.3` 系列；使用匹配的正式版本或同一组开发构建产物。
+- Core MCP 提供两个离线工具；四个 AI 工具通过独立的 `mcp-server-sqlseed-ai` 进程提供，安装 AI 包不会向 Core MCP 进程注入工具。
+- 更新中英文 README、用户与 API 指南、包元数据和文档链接；五包分发物均包含完整的 AGPL-3.0-or-later 许可证正文。
+- main 全部 CI 任务成功后部署 GitHub Pages；Python 包通过独立、基于版本 tag 的发布流程上传。
 
 ### 修复
 
 - 保留类型绑定写入中的 JSON 文档语义，支持合法 ISO 日期时间输入，避免 JSON 双重编码和旧 SQLite 日期配置失效。
 - 自引用父节点更新使用完整主键，并检查完整普通 UNIQUE 键；partial/expression index 仍由数据库执行约束。
-- AI MCP 的进度输出不再进入 stdio JSON-RPC 协议流。
+- 保留用户显式生成约束，追加数据时处理既有 UNIQUE 值，适配 CHECK 范围且不静默替换冲突规则。
+- 关闭 SQLite 资源并在失败时清理 Web worker，处理 Windows 路径与 macOS 进程清理问题。
+- AI MCP 的进度输出不再进入 stdio JSON-RPC 协议流，并严格执行 AI 修复时间预算。
+
+### 兼容性
+
+- 升级前迁移旧 `sqlseed.cli` 导入和 MCP 客户端工具选择；Core 0.2.3 不能与新插件混用。
+- 普通批量填充在后续批次失败时可能保留此前已提交的数据，应检查返回的 count 和 errors。PostgreSQL 复合与跨 schema 外键生成仍有限制，详见迁移指南。
 
 ## [v0.1.20]
 

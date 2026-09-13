@@ -6,25 +6,21 @@ generation results. The Python core runs offline; AI suggestions are optional.
 
 ## Installation
 
-These instructions describe the current five-package checkout. Until the matching
-release is available on PyPI, create and activate a Python 3.10+ virtual environment
-and install local Core and Web together from the repository root:
+For the 0.2.4 release, create and activate a Python 3.10+ virtual environment:
 
 ```bash
-python -m pip install -e . -e ./plugins/sqlseed-web
+python -m pip install "sqlseed==0.2.4" "sqlseed-web==0.2.4"
 sqlseed-web
 ```
 
-Open `http://127.0.0.1:8630`. The built wheel includes the frontend; no Node or npm build
-is needed to use the app. For PostgreSQL, also install the core `postgres` extra.
+Open `http://127.0.0.1:8630`. The wheel includes the frontend; no Node or npm build
+is needed to use the app. For PostgreSQL, also install `"sqlseed[postgres]==0.2.4"`.
+Core 0.2.3 does not provide the required workbench runtime interfaces.
 
-This workbench requires Core 0.2.4 or its development releases (`sqlseed>=0.2.4.dev0,<0.3`).
-Core 0.2.3 does not provide the workbench runtime interfaces. Once matching packages
-are published, the package-index installation is:
+For development, install local Core and Web together from the repository root:
 
 ```bash
-python -m pip install "sqlseed-web>=0.2.4.dev0,<0.3"
-sqlseed-web
+python -m pip install -e . -e ./plugins/sqlseed-web
 ```
 
 ## Optional components
@@ -35,15 +31,14 @@ optional. AI is needed only for model-assisted rule suggestions; accepted rules 
 executed offline.
 
 This workbench requires the AI interfaces from the 0.2.4 release line. It rejects
-older importable AI packages instead of reporting them as ready. When trying an
-unreleased checkout before matching packages are available on the package index,
+older importable AI packages instead of reporting them as ready. For a source checkout,
 install local Core, CLI, AI, and Web together in the same resolution:
 
 ```bash
 python -m pip install -e . -e ./plugins/sqlseed-cli -e ./plugins/sqlseed-ai -e ./plugins/sqlseed-web
 ```
 
-After matching packages are published, `"sqlseed-web[ai]>=0.2.4.dev0,<0.3"` installs
+For the 0.2.4 release, `python -m pip install "sqlseed-web[ai]==0.2.4"` installs
 the optional AI component. The page does not fall back to an incompatible older release.
 
 On supported writable macOS/Linux virtual environments, the default launcher manages
