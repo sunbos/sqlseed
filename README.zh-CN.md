@@ -82,6 +82,8 @@ print(result.count, result.errors)  # 100 []
 只想查看样例、不写入数据库时，可以使用：
 
 ```python
+import sqlseed
+
 rows = sqlseed.preview("demo.db", table="users", count=3, provider="faker")
 for row in rows:
     print(row)
