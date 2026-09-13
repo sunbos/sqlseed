@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Update the PyPI uploader for Core Metadata 2.5 and allow the maintained workflow to publish an existing release tag without changing its source commit.
+- Use the shared `pypi` environment for all five existing packages while retaining separate upload jobs and post-publication acceptance; verify publisher permissions using unchanged public release files.
 
 ## [0.2.4] - 2026-09-13
 
