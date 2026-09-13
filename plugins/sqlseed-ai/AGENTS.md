@@ -1,5 +1,7 @@
 # sqlseed-ai 插件
 
+**源码核验日期：** 2026-09-14
+
 LLM schema 分析、contract-driven self-healing 和模板值生成的独立发行包；依赖方向是本插件 → `sqlseed` / `sqlseed-cli`。Core 必须保持离线，不得反向导入本插件。
 
 ## 边界导航
@@ -24,17 +26,16 @@ LLM schema 分析、contract-driven self-healing 和模板值生成的独立发�
 ## 配置与兼容性
 
 - 环境配置统一从 `AIConfig.from_env()` 加载；显式传入的 `AIConfig` 保持可用，不在各调用方重复读取环境变量。
-- 支持 Google AI Studio、LM Studio、Ollama 与 OpenAI-compatible backend；Gemma 4 是长期 backend 支持目标。模型 ID、别名和优先级查 `GemmaModel` / `_model_selector.py`，不要在说明里维护重复型号清单。
+- 服务 backend 由 `AIBackend` 表示：Google AI Studio、LM Studio、Ollama 与 OpenAI-compatible。Gemma 4 是长期支持的模型系列，`gemma4` 也是工具调用协议名，不是 `AIBackend` 成员。模型 ID、别名和优先级查 `GemmaModel` / `_model_selector.py`，不要维护重复型号清单。
 - backend 解析为显式 `SQLSEED_AI_BACKEND` → 已知 URL 模式 → `OPENAI_COMPAT`；这不是依次探测所有服务的 fallback 链。
 - `SQLSEED_AI_API_KEY` 回退到 `GOOGLE_API_KEY` / `OPENAI_API_KEY`；`SQLSEED_AI_BASE_URL` 回退到 `OPENAI_BASE_URL`。其余环境变量与默认值以 [src/sqlseed_ai/config.py](src/sqlseed_ai/config.py) 为准。
 - 协议由 `tool_calling_protocol` 和 `resolve_tool_calling_protocol()` 决定，不能仅根据模型名称或 backend 直接选择工具调用路径。
 
 ## 本地验证
 
-从仓库根执行；测试细分及服务依赖见 [tests/AGENTS.md](tests/AGENTS.md)。
+先按[根指南](../../AGENTS.md#安装与运行)统一安装本地包，再从仓库根执行。仅安装 AI 的独立环境测试 AI MCP 时还需 `[mcp]` extra；测试细分及服务依赖见 [tests/AGENTS.md](tests/AGENTS.md)。
 
 ```bash
-pip install -e '.' -e './plugins/sqlseed-cli' -e './plugins/sqlseed-ai[dev]'
 pytest plugins/sqlseed-ai/tests/
 ruff check plugins/sqlseed-ai/
 ruff format --check plugins/sqlseed-ai/

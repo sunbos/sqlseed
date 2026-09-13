@@ -7,9 +7,13 @@
 - `conftest.py` 提供 `make_stream()`、`enrich_ctx` 与 `mediator_ctx`；helper 保持真实组件与数据库生命周期。
 - `test_stream.py` / `test_constraints.py` 覆盖批量生成、约束回溯与大数据量的 probabilistic set 模式。
 - `test_check_parser.py` / `test_check_adapt.py` 覆盖确定性 CHECK 提取，以及参数 overlap 裁剪、disjoint 拒绝。
+- `test_check_sql_semantics.py` / `test_check_length_equality.py`：用 SQLite 的真实 CHECK 接受/拒绝结果核验解析与边界。
 - `test_column_dag.py` 覆盖拓扑排序与循环检测；`test_expression.py` 覆盖 sandbox 和 timeout。
 - `test_enrichment.py` / `test_features.py` 验证已有数据的 enum 检测与结构特征；不要只验证 mock 的返回值。
 - `test_unique_adjuster.py` 与 `test_unique_exclude_integration.py` 分别验证参数计算和 exclude_values 的真实写入结果。
+- `test_append_unique.py` / `test_unique_string_capacity.py` 覆盖已有行与唯一值容量；`test_stream_budget.py` / `test_row_reservations.py` / `test_stream_batch_cleanup.py` 覆盖尝试预算、预留与清理。
+- `test_fill_safety_boundaries.py` / `test_supported_execution_contract.py` / `test_generation_partial.py` / `test_generation_error_boundary.py` 覆盖写入边界、部分结果与错误传播。
+- `test_composite_fk_pair_pool.py` / `test_self_ref_constraints.py` / `test_self_ref_targets.py` 覆盖复合父键和自引用；`test_connection_lifecycle.py` 覆盖资源生命周期。
 - `test_schema_fallback.py` / `test_orchestrator_schema_fallback.py` 验证 fallback 与编排集成。
 - `test_plugin_mediator.py` / `test_transform.py` 覆盖 hooks 结果选择与用户 transform 加载。
 
@@ -30,4 +34,4 @@ pytest tests/test_orchestrator.py tests/test_relation.py
 make mutmut
 ```
 
-`make mutmut` 的默认目标是 `unique_adjuster`；用 `make mutmut-report` 查找幸存 mutant。历史高存活率说明断言可能过弱，不是提高容忍阈值的理由。
+`make mutmut` 的默认变异目标是 `unique_adjuster`，runner 同时运行 `test_unique_adjuster.py` 和 `test_unique_string_capacity.py`，配置以根 `pyproject.toml` 为准；用 `make mutmut-report` 查找幸存 mutant。历史高存活率说明断言可能过弱，不是提高容忍阈值的理由。

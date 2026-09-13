@@ -1,6 +1,8 @@
 # DataOrchestrator 编排边界
 
-`DataOrchestrator` 是多个 mixin 组成的 package，通过 `from sqlseed.core.orchestrator import DataOrchestrator` 导入。不要恢复单文件实现，也不要把其他 mixin 的职责堆进 generation。
+**核验日期：** 2026-09-14
+
+本目录承接[生成引擎规则](../AGENTS.md)。`DataOrchestrator` 是多个 mixin 组成的 package，通过 `from sqlseed.core.orchestrator import DataOrchestrator` 导入。不要恢复单文件实现，也不要把其他 mixin 的职责堆进 generation。
 
 ## 职责分配
 
@@ -10,6 +12,7 @@
 | [_connection.py](_connection.py) | `ConnectionMixin`：初始化、adapter 创建、属性、连接与关闭、context manager、`from_config()` |
 | [_specs.py](_specs.py) | `SpecResolverMixin`：配置解析、CHECK adaptation、mapping、enrichment、UNIQUE/FK、AI hook/template pool、stream 构造 |
 | [_generation.py](_generation.py) | `GenerationMixin`：`fill_table()`、`preview_table()`、batch 写入、自引用 FK 第二阶段；`fill` 是 alias |
+| [_session.py](_session.py) | `FillSession`：adapter 确认后的计数与单次 fill 失败结果；不是 mixin |
 | [_self_ref.py](_self_ref.py) | 自引用第二阶段的完整行定位、前序父值选择与 UNIQUE 候选检查；不是 mixin |
 | [_query.py](_query.py) | `QueryMixin`：schema/mapping 查询、报告、table order、`execute/query/fetch_one` |
 | [__init__.py](__init__.py) | 组合 mixin 并暴露 `DataOrchestrator` |
@@ -25,7 +28,7 @@
 - 请求的 provider 不可用时，当前实现会直接降级到 `base` 并更新 registry default；不是自动逐级尝试 mimesis → faker → base。locale 无效时使用该 provider 的安全默认值。
 - provider 仅由 `DataStream` 播种；表达式与 self-FK 后处理使用本次 seed 的独立 RNG，不写全局 random。沿 batch iterator 写入，保留 before/after insert hook、metrics、progress 的现有顺序。
 - `fill_table(progress=...)` 接收调用方管理生命周期的 `ProgressBackend`；默认 `None` 由 core 创建并关闭 backend，MCP 等调用方可传 `NullProgressBackend`。
-- `fill_table()` 无论成功或失败都在 `finally` 中调用 `restore_settings()` 恢复优化设置；生产异常使用 `sqlalchemy.exc.*`，不以 `sqlite3.*` 替代。
+- `fill_table()` 启用 bulk 优化时，无论成功或失败都在 `finally` 中调用 `restore_settings()`；生产异常使用 `sqlalchemy.exc.*`，不以 `sqlite3.*` 替代。
 - `GenerationResult.errors` 表达 fill 失败；不要把捕获的异常变成成功结果。只对可忽略的辅助操作使用 `contextlib.suppress()`。
 - [_session.py](_session.py) 的 `FillSession` 管理单次 fill 的计数与终态；只在 adapter 确认批次后累计，后续 transform/hook/数据库失败仍返回已提交行数。`ConfigurationError` 与进程控制异常继续传播，不能作为普通失败结果返回。
 - `SQLAlchemyAdapter.batch_insert()` 的事务覆盖单次调用；fill 会多次调用它，不要宣称整个 fill 原子提交。
@@ -40,6 +43,7 @@
 - zero-config boundary notice 排除已识别的 enum 与 exact-length CHECK；不要提示这些已处理约束仍需 AI。
 - composite PK 中无自增默认值的 INTEGER 列不能沿用单列 INTEGER PK 的 `skip`；保留已解析的 FK spec。
 - `_build_stream()` 将已支持的跨列比较 CHECK 转成 `inequality_constraints`；DAG、composite UNIQUE、CHECK 重试约束必须一起传入 stream。
+- `_existing_key_checker()` 优先使用 adapter 的 typed `_key_exists()`，以有界 `SELECT 1 ... LIMIT 1` 检查候选。非空探测也不能改成 COUNT 或全量加载；保持与实际插入相同的类型绑定、affinity 和 collation 语义。
 - `_prepare_specs()` 通过 hook 应用 AI suggestions；核心不直接 import `sqlseed_ai`。用户显式配置列需继续受到保护。
 
 ## 自引用 FK
@@ -50,6 +54,11 @@
 - 调整第二阶段前阅读 [../relation.py](../relation.py) 的空父表、自引用、composite FK 分支及已有回归；不要把两阶段策略合成随机整数生成。
 - 保留 shared pool 注册与 `sqlseed_shared_pool_loaded` hook 的调用；DBAPI placeholder 按 SQLite/PostgreSQL dialect 选择。
 
-## 验证
+## 验证与文档
 
-从仓库根运行 `pytest tests/test_orchestrator.py tests/test_orchestrator_adapter.py tests/test_core/test_orchestrator_schema_fallback.py tests/test_relation.py tests/test_public_api.py`，针对 CHECK 变更补跑 `pytest tests/test_core/test_check_adapt.py tests/test_core/test_stream.py`。
+命令从仓库根执行；按修改范围选择：
+
+- 编排与 API：`pytest tests/test_orchestrator.py tests/test_orchestrator_adapter.py tests/test_core/test_orchestrator_schema_fallback.py tests/test_relation.py tests/test_public_api.py`。
+- 预检、连接与部分失败：`pytest tests/test_core/test_fill_safety_boundaries.py tests/test_core/test_connection_lifecycle.py tests/test_core/test_generation_partial.py tests/test_core/test_generation_error_boundary.py`。
+- self-ref/composite FK：`pytest tests/test_core/test_self_ref_targets.py tests/test_core/test_self_ref_constraints.py tests/test_core/test_composite_fk_pair_pool.py`；CHECK 变更补跑 `pytest tests/test_core/test_check_adapt.py tests/test_core/test_stream.py`。
+- 修改公开编排行为时核对 [docs/api.md](../../../../docs/api.md)、[docs/architecture.md](../../../../docs/architecture.md) 与 [CLAUDE.md](../../../../CLAUDE.md) 的执行顺序、支持边界和失败语义。
