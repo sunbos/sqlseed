@@ -8,7 +8,7 @@ GitHub alone does not update a previously uploaded package. See the
 
 ## Prepare the five packages
 
-The workbench targets the 0.2.4 series. Release Core (`sqlseed`), CLI
+The five-package layout starts with 0.2.4. Release Core (`sqlseed`), CLI
 (`sqlseed-cli`), AI (`sqlseed-ai`), MCP (`mcp-server-sqlseed`) and Web
 (`sqlseed-web`) from the same reviewed commit and version tag. Do not combine
 0.2.3 Core with the new plugins. The [migration guide](migration.md) covers the
@@ -26,18 +26,22 @@ Before publishing:
 3. Install the artifact set in fresh environments and run the distribution
    checks below. Check the built documentation and README links, including
    their rendered presentation. A metadata check alone does not check layout.
-4. Confirm the publishing identity for all five projects. The current workflow
-   is `sunbos/sqlseed`, file `publish.yml`, environment `pypi`. Existing projects
-   need a matching Trusted Publisher; a first publication can use a pending
-   publisher. A public project returning 404 does not reveal whether one is
-   configured. See [PyPI's setup instructions](https://docs.pypi.org/trusted-publishers/creating-a-project-through-oidc/).
+4. Confirm the publishing identity for all five projects: owner `sunbos`,
+   repository `sqlseed`, workflow file `publish.yml`. Core, AI and MCP use the
+   GitHub environment `pypi`; CLI uses `pypi-cli`; Web uses `pypi-web`. Existing
+   projects need matching Trusted Publishers; a first publication can use a
+   pending publisher. The distinct CLI/Web environments allow separate pending
+   publishers for their first releases. A public project returning 404 does not
+   reveal whether one is configured. See [PyPI's setup instructions](https://docs.pypi.org/trusted-publishers/creating-a-project-through-oidc/).
 5. Select the release version and obtain the maintainer's release approval.
    Push the reviewed commit before its `v<version>` tag, then create the GitHub
    release. Publishing is a separate operation from documentation review.
 
 The [publish workflow](https://github.com/sunbos/sqlseed/blob/main/.github/workflows/publish.yml)
 tests Python 3.10, 3.12 and 3.13, requires a `v` tag, builds the five packages,
-checks their metadata and wheel versions, then publishes with Trusted Publishing.
+checks their metadata and wheel versions, then publishes each project's wheel
+and sdist in its own Trusted Publishing job. Jobs can succeed independently;
+this is not an atomic five-package transaction.
 Keep the workflow run, commit, tag and artifact hashes with the release record.
 If a publish fails partway through, inspect which files reached PyPI before
 retrying the same release. Its `skip-existing` setting does not prove all five
@@ -67,8 +71,9 @@ version or a local version override as an already published release.
 Run the following from the reviewed checkout after all five projects have the
 exact version. A Linux runner with Python 3.12 is a useful reference environment;
 the Bash script also supports macOS. Set `PYTHON_BIN` to the desired interpreter.
-This check is separate from the existing publish workflow and must be run
-explicitly; the upload job does not currently invoke it.
+After all five upload jobs succeed, the publish workflow runs this check on
+Linux with Python 3.12 and retains the `public-pypi-acceptance` artifact. Use the
+same command below to repeat it locally or on another supported platform.
 
 ```bash
 PYTHON_BIN=python3.12 bash scripts/verify_pypi_release.sh 0.2.4

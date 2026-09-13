@@ -10,67 +10,64 @@ see the [Architecture](architecture.md) page.
 
 ## Installation
 
-### Choose source or a published release
+### Install the 0.2.4 release
 
-These pages describe `main` and the five-package workbench targeting the 0.2.4
-series. The older 0.2.3 release uses different CLI/MCP packaging. At the
-2026-09-13 documentation review, PyPI offered Core/AI/MCP 0.2.3 and had no public
-CLI/Web distributions. Check the [release list](https://github.com/sunbos/sqlseed/releases)
-for later releases; a deployed documentation site alone is not a package release.
+These pages cover the five-package layout introduced in 0.2.4. The older 0.2.3
+release uses different CLI/MCP packaging and lacks interfaces required by the
+new plugins. The [migration guide](migration.md) covers upgrading existing
+installations and installing a matching artifact set.
 
-Until a compatible five-package release is published, use one source checkout or
-the wheels from one successful CI artifact. Do not combine a candidate plugin
-with Core 0.2.3. The [migration guide](migration.md) covers wheel installation.
-
-### Source installation
-
-Use a fresh Python 3.10+ environment, clone the repository, and run the relevant
-command from its root. Supply all required local sibling packages in the same
-installation command so pip does not look for unpublished dependencies on PyPI.
+Use a fresh Python 3.10+ virtual environment. Choose one installation set:
 
 ```bash
-git clone https://github.com/sunbos/sqlseed.git
-cd sqlseed
 python -m venv .venv
 # Activate .venv using your shell's activation command.
 
 # Offline Python API with the optional Mimesis engine
+python -m pip install 'sqlseed[mimesis]==0.2.4'
+
+# Core and CLI
+python -m pip install 'sqlseed[mimesis]==0.2.4' 'sqlseed-cli==0.2.4'
+
+# All five packages, AI MCP support, and PostgreSQL driver
+python -m pip install 'sqlseed[mimesis,postgres]==0.2.4' 'sqlseed-cli==0.2.4' 'sqlseed-ai[mcp]==0.2.4' 'mcp-server-sqlseed==0.2.4' 'sqlseed-web==0.2.4'
+python -m pip check
+```
+
+Core has no console script. `sqlseed-cli` provides `sqlseed`, `sqlseed-web`
+provides `sqlseed-web`, and the rule-driven and AI MCP servers have separate
+entry points. Core's `cli` extra is a convenience dependency on `sqlseed-cli`.
+
+Faker is a required Core dependency; Mimesis is optional. SQLite uses Python's
+built-in driver. The `postgres` extra installs psycopg 3. Omit unused extras from
+the chosen command. For Core/Web alone, see the [Web guide](web-workbench.md).
+The Core `all` extra includes Mimesis, psycopg, tqdm, CLI, and testcontainers;
+it does not install AI, MCP, or Web.
+
+### Source installation
+
+Clone the repository and run the relevant command from its root in an activated
+Python environment. Supply all required local sibling packages in the same
+installation command so they come from the same checkout:
+
+```bash
+git clone https://github.com/sunbos/sqlseed.git
+cd sqlseed
+
+# Offline Core
 python -m pip install -e '.[mimesis]'
 
 # Core and CLI
 python -m pip install -e '.[mimesis]' -e ./plugins/sqlseed-cli
 
-# All five packages, AI MCP support, and PostgreSQL driver
+# Complete workbench and both MCP servers
 python -m pip install -e '.[mimesis,postgres]' -e ./plugins/sqlseed-cli -e './plugins/sqlseed-ai[mcp]' -e ./plugins/mcp-server-sqlseed -e ./plugins/sqlseed-web
 python -m pip check
 ```
 
-Choose one installation set; the commands are alternatives. Core has no console
-script. `sqlseed-cli` provides `sqlseed`, `sqlseed-web` provides `sqlseed-web`,
-and the rule-driven and AI MCP servers have separate entry points.
-
-Faker is a required Core dependency; Mimesis is optional. SQLite uses Python's
-built-in driver. The `postgres` extra installs psycopg 3. Omit unused extras from
-the chosen command. For Core/Web alone, see the [Web guide](web-workbench.md).
-
-### Published packages
-
-Once a compatible 0.2.4-series release is available, these commands can replace
-the corresponding source installation. They require that release to exist:
-
-```bash
-# Offline Core and optional data engine
-python -m pip install 'sqlseed[mimesis]>=0.2.4,<0.3'
-
-# CLI convenience extra
-python -m pip install 'sqlseed[mimesis,cli]>=0.2.4,<0.3'
-
-# Complete workbench and both MCP servers
-python -m pip install 'sqlseed[mimesis,postgres]>=0.2.4,<0.3' 'sqlseed-cli>=0.2.4,<0.3' 'sqlseed-ai[mcp]>=0.2.4,<0.3' 'mcp-server-sqlseed>=0.2.4,<0.3' 'sqlseed-web>=0.2.4,<0.3'
-```
-
-The Core `all` extra includes Mimesis, psycopg, tqdm, CLI, and testcontainers;
-it does not install AI, MCP, or Web. Install those packages explicitly when needed.
+Choose one set; these commands are alternatives. A source checkout may include
+changes beyond a published release. Check the [release list](https://github.com/sunbos/sqlseed/releases)
+and [release guide](releasing.md) for package availability and release verification.
 
 ### Development and docs
 
@@ -848,9 +845,9 @@ The separate `mcp-server-sqlseed-ai` process exposes four AI tools:
 | Type | Name | Description |
 |------|------|-------------|
 | 🤖 Tool | `sqlseed_ai_generate_yaml` | LLM-driven YAML config generation (semantic schema analysis) |
-| 🧠 Tool | `sqlseed_gemma4_analyze` | Analyze schema using Gemma 4 with Native Function Calling |
+| 🧠 Tool | `sqlseed_gemma4_analyze` | Analyze schema with the configured model and supported response protocol |
 | 🧠 Tool | `sqlseed_gemma4_agent_fill` | End-to-end Agent workflow (analyze → config → fill) |
-| 🧠 Tool | `sqlseed_list_gemma_models` | List available Gemma 4 models and backend status |
+| 🧠 Tool | `sqlseed_list_gemma_models` | List registered Gemma 4 variants, hardware compatibility, and backend status |
 
 ### Example Interaction
 
@@ -874,41 +871,45 @@ Each column is matched by priority:
 ```
 Level 1 │ Computed / explicit autoincrement PK → skip
         ▼
-Level 2 │ User config         columns={"email": "email"} highest priority
+Level 2 │ Explicit user config
         ▼
-Level 3 │ Custom exact match  Rules registered via plugin hooks
+        │ SQLite rowid alias → skip; other integer PK → type fallback
         ▼
-Level 4 │ Built-in exact      75 rules: email→email, phone→phone, age→integer...
+Level 3 │ Exact match         Custom rules, then 75 built-in rules
         ▼
-Level 5 │ DEFAULT check        Has default → skip / __enrich__ (when enrich=True)
+Level 4 │ DEFAULT handling    skip / __enrich__ / forced type inference
         ▼
-Level 6 │ Custom pattern       Regex rules registered via plugin hooks
+Level 5 │ Pattern match       Custom rules, then 29 built-in patterns
         ▼
-Level 7 │ Built-in pattern     29 regexes: *_at→datetime, *_id→foreign_key_or_integer, is_*→boolean...
+Level 6 │ Snake-case retry    Convert CamelCase, retry exact rules
         ▼
-Level 8 │ NULLABLE fallback    Nullable → skip / __enrich__
+Level 7 │ Snake-case retry    Retry pattern rules
         ▼
-Level 9 │ Type-faithful        VARCHAR(32)→max 32 chars, INT8→0~255, BLOB(1024)→1024 bytes
+Level 8 │ NULLABLE fallback   skip / __enrich__ / forced type inference
+        ▼
+Level 9 │ Type fallback       Preserve declared string and byte lengths
 ```
 
-After explicit user rules, a real SQLite rowid-alias primary key is also skipped.
-Composite, descending, and WITHOUT ROWID primary keys are not treated as implicit
-rowid aliases. ID-like names alone do not establish a foreign-key relationship.
+Adapters distinguish SQLite rowid aliases from composite, descending, and
+WITHOUT ROWID primary keys. ID-like names alone do not establish a foreign-key
+relationship. Within exact or pattern matching, custom rules precede built-ins.
 
 What this means in practice:
 
-- Column `user_email` → Level 7 pattern `*_email` → `email` generator
-- Column `is_verified` → Level 7 pattern `is_*` → `boolean` generator
-- Column type `VARCHAR(20)` → Level 9 type fallback → max 20-char string
-- Column with `DEFAULT 1` → Level 5 → skip generation
-- Column `gender` with `DEFAULT 'male'` → Level 4 exact match → `choice` generator (exact match takes priority over DEFAULT)
+- `user_email` → Level 5 pattern `*_email` → `email` generator
+- `is_verified` → Level 5 pattern `is_*` → `boolean` generator
+- `userEmail` → snake-case retry → `user_email` → Level 7 pattern
+- Unmatched non-null `VARCHAR(20)` → Level 9 → max 20-character string
+- Column with `DEFAULT 1` and no earlier rule → Level 4 → skip generation
+- `gender` with `DEFAULT 'male'` → Level 3 exact match → `choice` (before DEFAULT)
 
 ---
 
 ## Plugin System
 
-sqlseed provides 12 hook points via [pluggy](https://pluggy.readthedocs.io/),
-covering the full data generation lifecycle:
+sqlseed declares 12 hook contracts via [pluggy](https://pluggy.readthedocs.io/).
+Their current invocation points are listed below; a declared hook is not necessarily
+dispatched by the normal generation pipeline.
 
 | Hook | firstresult | Trigger |
 |------|:-----------:|--------|
@@ -919,7 +920,7 @@ covering the full data generation lifecycle:
 | `sqlseed_pre_generate_templates` | ✓ | AI pre-computes candidate value pools |
 | `sqlseed_before_generate` | | Before data generation loop |
 | `sqlseed_after_generate` | | After data generation completes |
-| `sqlseed_transform_row` | | Per-row transform (hot path, mind performance) |
+| `sqlseed_transform_row` | | Declared hookspec; not dispatched by normal Core generation |
 | `sqlseed_transform_batch` | | Each implementation receives the same input batch; the last non-None result is selected |
 | `sqlseed_before_insert` | | Before each batch write to DB |
 | `sqlseed_after_insert` | | After each batch write to DB |

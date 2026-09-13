@@ -6,22 +6,21 @@ configuration. This package provides the `sqlseed` command.
 
 ## Installation
 
-These instructions describe the current five-package checkout. Until the matching
-release is available on PyPI, install local Core and CLI together from the repository
-root in a Python 3.10+ virtual environment:
+For the 0.2.4 release, use a Python 3.10+ virtual environment:
+
+```bash
+python -m pip install "sqlseed-cli==0.2.4"
+```
+
+Core 0.2.3 does not provide the URL API required by this CLI.
+For development, install Core and the required local plugins together from the
+repository root:
 
 ```bash
 python -m pip install -e . -e ./plugins/sqlseed-cli
 ```
 
-Core 0.2.3 does not provide the URL API required by this CLI. Once matching packages
-are published, the package-index installation is:
-
-```bash
-python -m pip install "sqlseed-cli>=0.2.4.dev0,<0.3"
-```
-
-For AI commands in this checkout, install all three local packages in one resolution:
+For AI commands in a source checkout, install all three local packages together:
 
 ```bash
 python -m pip install -e . -e ./plugins/sqlseed-cli -e ./plugins/sqlseed-ai
@@ -55,7 +54,7 @@ sqlseed replay <cache_dir>/snapshots/YYYY-MM-DD_HHMMSS_ffffff_users.yaml
 For PostgreSQL, install the Core `postgres` extra and use `--url`:
 
 ```bash
-python -m pip install -e ".[postgres]" -e ./plugins/sqlseed-cli
+python -m pip install "sqlseed[postgres]==0.2.4" "sqlseed-cli==0.2.4"
 sqlseed fill --url "postgresql+psycopg://user:pass@host/db" -t users -n 1000 --provider faker --no-ai
 sqlseed inspect --url "postgresql+psycopg://user:pass@host/db"
 ```

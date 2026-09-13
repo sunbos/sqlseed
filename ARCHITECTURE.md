@@ -13,9 +13,9 @@ sqlseed is a **declarative multi-database test data generation toolkit**. It foc
 ### Core Principles
 
 1. **Core stability**: The core package (`sqlseed`) must remain stable and not be impacted by AI or external technology shifts. External features evolve as plugins.
-2. **Offline-first**: Core functionality must work offline without external network dependencies. AI/CLI/MCP features are optional plugins.
+2. **Offline-first**: Core functionality must work offline without external network dependencies. CLI, AI, MCP, and Web are separate optional distributions.
 3. **Python API first**: The core is a Python library (`from sqlseed import fill`). CLI is a convenience layer, not the core.
-4. **Plugin architecture**: External features (CLI, AI, MCP) connect to the core via plugins. Users install only what they need.
+4. **Plugin architecture**: External features (CLI, AI, MCP, Web) call the core through their own packages; hook-based integration remains optional. Users install only what they need.
 
 ### Target Users
 
@@ -34,6 +34,7 @@ sqlseed is a **declarative multi-database test data generation toolkit**. It foc
                     │  pip install sqlseed-cli           (CLI) │
                     │  pip install sqlseed-ai             (AI) │
                     │  pip install mcp-server-sqlseed    (MCP) │
+                    │  pip install sqlseed-web          (Web) │
                     └────────────────────┬────────────────────┘
                                          │
                     ┌────────────────────▼────────────────────┐
@@ -137,12 +138,12 @@ sqlseed is a **declarative multi-database test data generation toolkit**. It foc
 
 | Component | Responsibility |
 |-----------|---------------|
-| `cli/main.py` | Commands: `fill`, `preview`, `inspect`, `init`, `replay` |
-| `cli/_utils.py` | `sanitize_table_config()` for LLM config cleaning |
+| `src/sqlseed_cli/main.py` | Commands: `fill`, `preview`, `inspect`, `init`, `replay` |
+| `src/sqlseed_cli/_utils.py` | `sanitize_table_config()` for LLM config cleaning |
 | Entry point | `[project.scripts] sqlseed = sqlseed_cli:main` |
 | Dependencies | `sqlseed` (core), `click`, `rich` |
 
-**Install**: `pip install sqlseed-cli` (completely independent package with own `pyproject.toml`, independent version, independent release)
+**Install**: `pip install sqlseed-cli` (separate distribution with its own `pyproject.toml`; the 0.2.4 package set uses one Git-derived release version)
 
 ### 3.3 Plugin: `sqlseed-ai` (`plugins/sqlseed-ai/`)
 
@@ -159,7 +160,7 @@ sqlseed is a **declarative multi-database test data generation toolkit**. It foc
 | `config.py` | `AIConfig` model. `backend: AIBackend` enum (values: `google_ai_studio`, `lm_studio`, `ollama`, `openai_compat`; **NO `gemma4` backend**). `tool_calling_protocol: Literal["gemma4", "openai", "none"]` field (Phase E) selects the native function calling protocol; `resolve_tool_calling_protocol()` narrows based on backend support. |
 | `_hardware.py` | Cross-platform RAM/GPU detection + Gemma model hardware requirements |
 | `cli/ai_commands.py` | 3 AI CLI commands (`ai-suggest`, `ai-analyze`, `auto-heal`), injected via `register()` entry point |
-| `mcp.py` (optional) | AI MCP server — 4 tools (`sqlseed_ai_generate_yaml`, `sqlseed_gemma4_analyze`, `sqlseed_gemma4_agent_fill`, `sqlseed_list_gemma_models`); `pip install sqlseed-ai[mcp]` |
+| `mcp.py` (optional) | AI MCP server — 4 tools (`sqlseed_ai_generate_yaml`, `sqlseed_gemma4_analyze`, `sqlseed_gemma4_agent_fill`, `sqlseed_list_gemma_models`); `python -m pip install "sqlseed-ai[mcp]==0.2.4"` |
 | Entry point | CLI: 3 commands injected into `sqlseed` CLI via entry_points: `ai-suggest` (per-table LLM analysis), `ai-analyze` (default v4 AutoHealOrchestrator path), `auto-heal` (standalone YAML repair) |
 
 **Install**: `pip install sqlseed-ai` (completely independent package)
@@ -182,7 +183,7 @@ sqlseed is a **declarative multi-database test data generation toolkit**. It foc
 
 **Install**: `pip install mcp-server-sqlseed`
 
-**Design principle**: mcp-server-sqlseed exposes **core capabilities** (rule-based YAML template generation + execute fill) via MCP. It does **NOT** depend on any LLM. Whether deployed as local stdio MCP server (offline) or remote HTTP MCP server (online), its functionality is identical and never fails due to network issues.
+**Design principle**: mcp-server-sqlseed exposes **core capabilities** (rule-based YAML template generation + execute fill) via MCP. It does **NOT** depend on any LLM. The packaged launcher uses stdio. Rule generation requires no model service; remote database connections and any separately configured network transport still depend on network availability.
 
 **YAML generation is a core capability** (revised 2026-06-26):
 - `sqlseed_generate_yaml` calls core `ColumnMapper` (75 exact rules + 29 patterns) — rule-driven, offline, deterministic.
@@ -232,29 +233,33 @@ sqlseed._utils (no internal deps, used by all)
 | PostgreSQL | ✅ Implemented (extension) | `SQLAlchemyAdapter` + `psycopg` |
 | MySQL | ❌ Removed (deferred until PostgreSQL fully validated) | — |
 
-**Install**: `pip install sqlseed[postgres]` for PostgreSQL support.
+**Install**: `python -m pip install "sqlseed[postgres]==0.2.4"` for PostgreSQL support.
 
 ---
 
 ## 6. Installation Matrix
 
+The commands below target the 0.2.4 release in a Python 3.10+ environment. For a
+source checkout, use the same-resolution local commands in [AGENTS.md](AGENTS.md).
+
 | Use Case | Install Command | What You Get |
 |----------|----------------|--------------|
-| Python API only (offline) | `pip install sqlseed` | `from sqlseed import fill` |
-| + CLI | `pip install sqlseed-cli` | `sqlseed` command |
-| + AI YAML generation | `pip install sqlseed-ai` | `sqlseed ai-suggest` / `ai-analyze` / `auto-heal` + Gemma4 support |
-| + PostgreSQL | `pip install sqlseed[postgres]` | PostgreSQL support |
-| + mimesis (high-perf) | `pip install sqlseed[mimesis]` | MimesisProvider |
-| + MCP server (core capabilities) | `pip install mcp-server-sqlseed` | MCP tools for rule-based YAML + fill |
-| + AI MCP | `pip install sqlseed-ai[mcp]` | AI MCP tools for LLM-driven YAML |
-| Everything | Install all above | All optional features |
+| Python API only (offline) | `python -m pip install "sqlseed==0.2.4"` | `from sqlseed import fill` |
+| + CLI | `python -m pip install "sqlseed-cli==0.2.4"` | `sqlseed` command |
+| + AI YAML generation | `python -m pip install "sqlseed-ai==0.2.4"` | `sqlseed ai-suggest` / `ai-analyze` / `auto-heal` |
+| + PostgreSQL | `python -m pip install "sqlseed[postgres]==0.2.4"` | PostgreSQL driver |
+| + Mimesis | `python -m pip install "sqlseed[mimesis]==0.2.4"` | MimesisProvider |
+| + MCP server (core capabilities) | `python -m pip install "mcp-server-sqlseed==0.2.4"` | Rule-driven YAML and fill tools |
+| + AI MCP | `python -m pip install "sqlseed-ai[mcp]==0.2.4"` | Separate AI MCP process |
+| + Web | `python -m pip install "sqlseed-web==0.2.4"` | Local browser workbench |
+| Complete package set | See the [installation guide](docs/guide.md#installation) | Five matching packages and selected extras |
 
 > [!NOTE]
 > **Dependency chain**: `sqlseed-ai` depends on `sqlseed-cli` (3 AI commands — `ai-suggest`, `ai-analyze`, `auto-heal` — are injected into the `sqlseed` CLI via `entry_points`). Installing `sqlseed-ai` will auto-pull `sqlseed-cli` as a dependency. Installing `sqlseed-ai` without `sqlseed-cli` is **not** a supported configuration.
 
 ### 6.1 Version Compatibility Policy
 
-With 5 independent packages (`sqlseed`, `sqlseed-cli`, `sqlseed-ai`, `mcp-server-sqlseed`, `sqlseed-web`), each with independent versioning, the following policy governs cross-package compatibility:
+There are five separate distributions (`sqlseed`, `sqlseed-cli`, `sqlseed-ai`, `mcp-server-sqlseed`, `sqlseed-web`). Their versions currently come from the same repository tags; publish the 0.2.4 set from one commit and tag. The following policy governs cross-package compatibility:
 
 | Change Type | Version Impact | Plugin Action |
 |-------------|----------------|---------------|
@@ -262,7 +267,7 @@ With 5 independent packages (`sqlseed`, `sqlseed-cli`, `sqlseed-ai`, `mcp-server
 | Core removes/changes hookspec signature (breaking) | Major bump | Plugins MUST pin `sqlseed>=CURRENT_MAJOR,<NEXT_MAJOR` and update |
 | Core internal refactor (no hookspec change) | Patch/Minor bump | Plugins unaffected |
 
-**Plugin pinning rule**: Each plugin's `pyproject.toml` MUST declare `dependencies = ["sqlseed>=X.Y,<X.(Y+1)"]` (or `<(X+1).0` for major stability). Example: `mcp-server-sqlseed` already practices this (`sqlseed>=0.1.0,<2`).
+**Plugin pinning rule**: Each plugin's `pyproject.toml` MUST declare `dependencies = ["sqlseed>=X.Y,<X.(Y+1)"]` (or `<(X+1).0` for major stability). The 0.2.4 plugin manifests require `sqlseed>=0.2.4.dev0,<0.3`; CLI/AI sibling dependencies use the same range. This excludes incompatible Core 0.2.3. The development lower bound does not guarantee that arbitrary source snapshots can be mixed.
 
 ---
 

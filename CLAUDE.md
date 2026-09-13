@@ -13,7 +13,7 @@ Python 3.10+ declarative multi-database test data generation toolkit. Single API
 ## Quick Start Commands
 
 ```bash
-# Resolve Core and all local plugins together, including unpublished candidates
+# Resolve Core and all local plugins from this checkout together
 python -m pip install -e ".[dev,all]" -e "./plugins/sqlseed-cli" -e "./plugins/sqlseed-ai[dev]" -e "./plugins/mcp-server-sqlseed" -e "./plugins/sqlseed-web[dev]"
 
 # Run all tests (core + all plugin tests)
@@ -90,7 +90,7 @@ Core (`sqlseed`) has **no CLI, no AI, no MCP code** — these are all plugins. C
 - **`core/plugin_mediator.py`** — Bridges plugins and core (not direct calls). Generic methods only: `apply_batch_transforms()`, `apply_template_pool()`. AI-specific `apply_ai_suggestions()` was moved to `plugins/sqlseed-ai/` (Phase C) and is invoked via the `sqlseed_apply_ai_suggestions` pluggy hook.
 - **`core/transform.py`** — Row/batch transform pipeline. `load_transform(path)` loads user transform scripts.
 - **`core/result.py`** — `GenerationResult` dataclass for generation results (table_name, count, elapsed, rows_per_second, batch_count, errors).
-- **`generators/`** — `DataProvider` protocol: `name`, `set_locale`, `set_seed`, `generate(type_name, **params)`. 36 generator types dispatched via `GeneratorDispatchMixin.GENERATOR_MAP`. Three providers: `BaseProvider` (type-routing only, no real data), `FakerProvider` (required, standard), `MimesisProvider` (optional, high-performance).
+- **`generators/`** — `DataProvider` protocol: `name`, `set_locale`, `set_seed`, `generate(type_name, **params)`. 36 generator types dispatched via `GeneratorDispatchMixin.GENERATOR_MAP`. Three providers: `BaseProvider` (built-in synthesized values), `FakerProvider` (required, standard), `MimesisProvider` (optional, high-performance).
 - **`database/`** — `DatabaseAdapter` protocol with `SQLAlchemyAdapter` (required core dependency, supports SQLite/PostgreSQL via SQLAlchemy) and `RawSQLiteAdapter` (test-only fallback). Dialect abstraction in `_dialect.py`, type normalization in `_type_normalizer.py`, bulk write optimization in `_bulk_optimizer.py`. Additional: `_base_adapter.py` (shared base), `_helpers.py` (batch insert helpers), `optimizer.py` (PRAGMA optimization), `_sqlite_schema.py` (SQLite-specific autoincrement detection via `sqlite_master`). MySQL support was removed (Phase A).
 - **`plugins/`** — 12 pluggy hooks. `PluginManager` + `PluginMediator` bridge plugins and core. This is the plugin **infrastructure** (hookspecs + manager); actual plugin implementations live in `plugins/sqlseed-cli/`, `plugins/sqlseed-ai/`, `plugins/mcp-server-sqlseed/`.
 - **`config/`** — Pydantic models (`GeneratorConfig`, `TableConfig`, `ColumnConfig`, `ColumnConstraintsConfig`, `ColumnAssociation`, `ProviderType`), YAML/JSON loader, `SnapshotManager` (save/load/list_snapshots; CLI `replay` command uses `SnapshotManager.load()` + `DataOrchestrator.from_config()`).
@@ -139,7 +139,7 @@ ColumnConfig also supports `faker_method`, `mimesis_method`, and `native_params`
 | `sqlseed_apply_ai_suggestions(...)` | ✓ | Orchestrator `_resolve_specs()` (high-level AI mediation; implemented in `sqlseed_ai.ai_mediator`) |
 | `sqlseed_before_generate(table_name, count, config)` | ✗ | Before main generation loop |
 | `sqlseed_after_generate(table_name, count, elapsed)` | ✗ | After generation completes |
-| `sqlseed_transform_row(table_name, row)` | ✗ | Per-row (hot path) |
+| `sqlseed_transform_row(table_name, row)` | ✗ | Declared hookspec; not dispatched by normal Core generation |
 | `sqlseed_transform_batch(table_name, batch)` | ✗ | `apply_batch_transforms()`; same batch input, last non-`None` result wins |
 | `sqlseed_before_insert(table_name, batch_number, batch_size)` | ✗ | Before each batch write |
 | `sqlseed_after_insert(table_name, batch_number, rows_inserted)` | ✗ | After each batch write |
@@ -249,7 +249,7 @@ Float CHECK bounds round inward to decimal precision grid points, not simply `bo
 6. **Batch transforms chain**: Last non-`None` result wins — it's not accumulative
 7. **PRAGMA restore**: Must be in `finally` block or DB stays in unsafe state
 8. **SQLAlchemy core dep**: `database/sqlalchemy_adapter.py` is the required adapter; `RawSQLiteAdapter` is test-only fallback
-9. **Provider fallback**: `_ensure_connected()` silently falls back to `"base"` on provider load failure. Provider chain: mimesis (optional, high-performance) → faker (required, standard) → base (type-routing only, no real data).
+9. **Provider fallback**: `_ensure_connected()` logs a warning and falls back directly to `"base"` when the selected provider cannot load; it does not try Faker between Mimesis and Base. Base synthesizes primitive and placeholder values. The strict Web workbench separately rejects unavailable configured providers.
 10. **Orchestrator is a package**: `core/orchestrator/` is a package with 4 mixin modules, not a single file. Imports should use `from sqlseed.core.orchestrator import DataOrchestrator`.
 11. **db_path vs url**: Public API and CLI both support `db_path` (SQLite) and `url` (database URL) as mutually exclusive connection modes. Never pass both.
 12. **AUTO-GENERATED markers**: Doc files use paired `BEGIN:AUTO-GENERATED:<name>` and `END:AUTO-GENERATED:<name>` HTML comments for automated sync verification. Don't manually edit values inside markers — run `scripts/sync_docs.py` instead.
@@ -278,7 +278,7 @@ When preparing a new version release:
 
 4. **CI publish** — `publish.yml` triggers on release or `workflow_dispatch`. If PyPI publish fails on sigstore attestation (`ChunkedEncodingError`), this is a known upstream issue ([#364](https://github.com/pypa/gh-action-pypi-publish/issues/364)) — re-run the workflow via GitHub Actions UI.
 
-5. **Public installation acceptance** — After all five packages have the exact release version on production PyPI, run `PYTHON_BIN=python3.12 bash scripts/verify_pypi_release.sh <version>` (Linux or macOS). Retain the public metadata, file hashes, pip reports and real installed Core/CLI/MCP/Web SQLite results. Inspect all five PyPI descriptions and documentation links. A local wheel test or successful upload does not replace this step; real LLM, PostgreSQL and browser acceptance require separate evidence. See [the release guide](docs/releasing.md) for preparation and validation details.
+5. **Public installation acceptance** — After all five upload jobs succeed, `publish.yml` runs `verify-public` on Linux/Python 3.12. Check that job and retain its `public-pypi-acceptance` artifact with public metadata, file hashes, pip reports and real installed Core/CLI/MCP/Web SQLite results. Repeat locally with `PYTHON_BIN=python3.12 bash scripts/verify_pypi_release.sh <version>` (Linux or macOS). Inspect all five PyPI descriptions and documentation links. A local wheel test or successful upload does not replace this step; real LLM, PostgreSQL and browser acceptance require separate evidence. See [the release guide](docs/releasing.md) for preparation and validation details.
 
 ## Sibling Agent Files
 
@@ -288,13 +288,15 @@ When preparing a new version release:
 
 - `plugins/sqlseed-cli/` — CLI plugin (Click commands: `fill`, `preview`, `inspect`, `init`, `replay`). Has its own `pyproject.toml` and `[project.scripts] sqlseed = sqlseed_cli:main`. Contains: `main.py` (Click commands), `_utils.py` (`sanitize_table_config()`). Core `sqlseed` package has NO `[project.scripts]` — install `sqlseed-cli` to get the `sqlseed` command. Install: `pip install sqlseed-cli` (auto-pulls `sqlseed` core).
 - `plugins/sqlseed-ai/` — LLM-powered schema analysis via Gemma 4 (long-term LLM backend, NOT competition-only). Has its own `pyproject.toml`. Contains: `analyzer/` (Layer 6 package: LLM table-level analysis with streaming/tool-calling submodules — `_caller.py`, `_streaming.py`, `_tool_calling.py` [protocol-based: `gemma4`/`openai`/`none`], `_context.py`, `_json_parser.py`), `contracts/` + `validator/` + `repair/` + `healer/` + `auto_heal/` (Layers 1-5 of the v4 contract-driven self-healing architecture — see [v4 Contract-Driven Self-Healing (sqlseed-ai)](#v4-contract-driven-self-healing-sqlseed-ai) above), `refiner.py` (self-correction loop; delegates Rule #14 param stripping to v4 `REPAIR_STRATEGIES["normalize_params"]`), `ai_mediator.py` (AI-specific mediation — `apply_ai_suggestions()` moved from core in Phase C), `config.py` (`AIConfig` with `tool_calling_protocol: Literal["gemma4", "openai", "none"]` field added in Phase E, multi-backend support; `use_staged_pipeline` field removed in Phase 4 zero-rot cleanup), `errors.py` (error summary), `exceptions.py` (structured exception types), `examples.py` (few-shot), `_client.py` (API client), `_json_utils.py` (JSON parsing), `_model_selector.py` (Gemma 4 model selection), `_hardware.py` (cross-platform RAM/GPU detection), `_prompts.py` (3-tier prompt system), `_tools.py` (`GEMMA_TOOLS` for native function calling), `cli/` (`ai_commands.py` — 3 commands injected into `sqlseed` CLI via entry_points: `ai-suggest` [per-table LLM analysis with `--auto-heal` flag], `ai-analyze` [default v4 AutoHealOrchestrator path for full/partial DB], `auto-heal` [standalone repair of existing YAML configs]; `--staged-pipeline` flag removed in Phase 4), `mcp.py` (AI MCP server: `sqlseed_ai_generate_yaml`, `sqlseed_gemma4_analyze`, `sqlseed_gemma4_agent_fill`, `sqlseed_list_gemma_models`; install with `pip install "sqlseed-ai[mcp]"`). Deleted in Phase 4 zero-rot cleanup: `staged_analyzer.py`, `schema_analyzer.py`, `stage_relevance.py`, `dependency_resolver.py`, `_stage_prompts.py`, `repair/legacy_bridge.py`. Install: `pip install sqlseed-ai` (depends on `sqlseed-cli`).
+- `plugins/sqlseed-web/` — Standalone FastAPI workbench with wheel-bundled static assets and optional AI services. `sqlseed-web` starts its supervisor; core has no Web dependency. Installation and support boundaries: [Web guide](docs/web-workbench.md).
 - `plugins/mcp-server-sqlseed/` — MCP server (FastMCP) exposing **core capabilities only** (no LLM dependency). 2 Tools (`sqlseed_generate_yaml` rule-driven via `ColumnMapper`, `sqlseed_execute_fill`). No Resources. Schema inspection delegated to third-party MCPs; AI tools moved to `sqlseed-ai[mcp]` (Phase D). Install: `pip install mcp-server-sqlseed`.
 
 ## Dependencies
 
-**Core** (`sqlseed`): pydantic, pluggy, structlog, pyyaml, typing_extensions, simpleeval, rstr, sqlalchemy, faker. NOTE: `click` and `rich` are NOT core dependencies — they belong to `sqlseed-cli`.
+**Core** (`sqlseed`): pydantic, pluggy, structlog, pyyaml, typing_extensions, simpleeval, rstr, sqlalchemy, faker, sqlglot. NOTE: `click` and `rich` are NOT core dependencies — they belong to `sqlseed-cli`.
 **Optional**: mimesis (`sqlseed[mimesis]`), tqdm (`sqlseed[notebook]`), psycopg (`sqlseed[postgres]`), sqlseed-cli (`sqlseed[cli]` — convenience alias that pulls the CLI plugin)
 **Plugin: sqlseed-cli**: click, rich (depends on `sqlseed` core)
-**Plugin: sqlseed-ai**: openai, httpx (depends on `sqlseed-cli` for CLI entry point injection)
+**Plugin: sqlseed-ai**: openai, httpx, networkx (depends on Core and `sqlseed-cli` for CLI entry point injection)
 **Plugin: mcp-server-sqlseed**: mcp (depends on `sqlseed` core)
+**App: sqlseed-web**: fastapi, uvicorn, pyyaml, packaging (depends on Core; optional `[ai]` extra adds `sqlseed-ai`)
 **Dev**: pytest, pytest-cov, pytest-asyncio, pytest-benchmark, ruff, mypy, pre-commit, testcontainers, tqdm, psycopg, sqlseed-cli

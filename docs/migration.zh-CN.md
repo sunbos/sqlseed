@@ -2,38 +2,38 @@
 
 [English](migration.md)
 
-`main` 中的工作台将原来组合安装的 Core/CLI/MCP 拆分为五个 package，目标为 0.2.4 发布系列。合入 `main` 不会将这些包发布到 PyPI；兼容版本发布前，应使用同一源码 checkout 或同一次成功 CI 的安装包。[安装指南](guide.md#installation)分别说明当前源码安装与兼容版本发布后才适用的软件源命令。
+0.2.4 工作台将原来组合安装的 Core/CLI/MCP 拆分为五个 package。从 0.2.3 升级时应使用匹配的版本集合。[安装指南](guide.md#installation)提供 0.2.4 版本与源码的安装方式；开发中的 checkout 可能包含正式版本之后的变化。
 
 ## 成套安装
 
-新建虚拟环境，将同一 CI artifact 中的五个 wheel 一起安装：
+新建虚拟环境，将 0.2.4 五包一起安装：
 
 ```bash
 python -m venv .venv
 # 使用当前 shell 对应的命令激活虚拟环境。
-python -m pip install /path/to/candidate-wheels/*.whl
+python -m pip install "sqlseed==0.2.4" "sqlseed-cli==0.2.4" "sqlseed-ai[mcp]==0.2.4" "mcp-server-sqlseed==0.2.4" "sqlseed-web==0.2.4"
 python -m pip check
 ```
 
-从源码安装时，在同一次依赖解析中提供 Core 和本地插件：
+使用下载的安装包时，将同一 release 或 CI 构建的五个 wheel 一起安装：`python -m pip install /path/to/release-wheels/*.whl`。从源码安装时，在同一次依赖解析中提供 Core 和本地插件：
 
 ```bash
 python -m pip install -e . -e ./plugins/sqlseed-cli -e './plugins/sqlseed-ai[mcp]' -e ./plugins/mcp-server-sqlseed -e ./plugins/sqlseed-web
 python -m pip check
 ```
 
-候选插件要求 Core `>=0.2.4.dev0,<0.3`，CLI/AI 兄弟包依赖也限制在相同版本系列。Core 0.2.3 缺少新插件使用的接口。上界避免自动选择尚未经兼容审查的新 minor 版本，但不保证区间内任意开发快照都能混用；仍应成套安装。
+0.2.4 插件的 metadata 要求 Core `>=0.2.4.dev0,<0.3`，CLI/AI 兄弟包依赖也限制在相同版本系列。Core 0.2.3 缺少新插件使用的接口。上界避免自动选择尚未经兼容审查的新 minor 版本，但不保证区间内任意开发快照都能混用；仍应成套安装。
 
 保留旧环境使用的 Core extras。普通五包 wheel 不会自动安装 PostgreSQL 驱动或 Mimesis；从源码安装且两者都需要时，将上面的 `-e .` 改成 `-e '.[postgres,mimesis]'`。安装 wheel 时，在同一次命令中为准确的 Core wheel 路径追加 `[postgres,mimesis]`。新环境缺少 PostgreSQL 驱动时无法连接 PostgreSQL，缺少 Mimesis 时会沿用既有 provider 回退行为。
 
-CI run 的 `headSha` 标识候选源码。PR artifact 名称可能使用 GitHub 的临时合并提交，因此需要同时核对 run 与 artifact。升级验证完成前保留原环境和原安装包。
+使用开发构建时，CI run 的 `headSha` 标识其源码。PR artifact 名称可能使用 GitHub 的临时合并提交，因此需要同时核对 run 与 artifact。升级验证完成前保留原环境和原安装包。
 
 ## 调整入口
 
 | 原有用法 | 新入口 |
 | --- | --- |
 | Python `from sqlseed import fill, connect, preview` | 仍属于 Core，保留既有 public API |
-| 安装 Core 后直接使用 `sqlseed` 命令 | 安装 `sqlseed-cli`；正式发布后也可用 `sqlseed[cli]` convenience extra |
+| 安装 Core 后直接使用 `sqlseed` 命令 | 安装 `sqlseed-cli`；也可用 `sqlseed[cli]` convenience extra |
 | 导入 `sqlseed.cli` | 改用 CLI package 提供的命令入口；旧 Core 模块已删除 |
 | Core MCP 同时提供 AI 工具 | 单独运行 `sqlseed-ai[mcp]` 提供的 `mcp-server-sqlseed-ai` |
 | 浏览器工作流程 | 运行 `sqlseed-web`，打开 `http://127.0.0.1:8630` |

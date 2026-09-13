@@ -64,7 +64,7 @@ Run tests with [pytest](https://docs.pytest.org/):
 
 ```bash
 pytest                              # All tests
-pytest tests/test_core/             # Core only
+pytest tests/test_core/             # Core subdirectory tests; excludes root API regressions
 pytest --cov=sqlseed                # With coverage
 ```
 
@@ -115,9 +115,12 @@ feat(database): add PostgreSQL support via SQLAlchemyAdapter
 
 2. Make your changes, ensuring:
    - All tests pass: `pytest`
-   - Linting passes: `ruff check .`
+   - Linting and formatting pass: `ruff check src/ tests/ plugins/` and `ruff format --check src/ tests/ plugins/`
    - Type checking passes: `mypy src/sqlseed/ plugins/`
-   - Documentation is updated
+   - Boundaries and docs pass: `lint-imports` and `pytest tests/test_architecture.py tests/test_doc_sync.py`
+   - Web frontend regressions pass: `node --test plugins/sqlseed-web/tests/test_*.cjs`
+   - The local mutation gate passes: `make mutmut`
+   - Documentation is updated; run `python scripts/sync_docs.py --check`
 
 3. Commit your changes following the commit convention above.
 
@@ -148,7 +151,8 @@ Never commit directly to `main`. Always use a feature branch and create a PR.
 
 - Update documentation when adding new features
 - README.md and README.zh-CN.md should be kept in sync
-- Add entries to CHANGELOG.md following [Keep a Changelog](https://keepachangelog.com/) format
+- Update both CHANGELOG.md and CHANGELOG.zh-CN.md for releases, following [Keep a Changelog](https://keepachangelog.com/) format
+- See [the release guide](docs/releasing.md) for five-package builds and public PyPI acceptance
 
 ## Questions?
 

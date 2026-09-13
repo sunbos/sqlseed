@@ -113,11 +113,35 @@ print(result.count, result.errors)  # 检查实际写入数和失败原因。
 
 ## 📦 安装
 
-本 README 描述 `main` 上的五包工作台，目标为 0.2.4 版本系列。选择安装方式前，请核对[已发布版本](https://github.com/sunbos/sqlseed/releases)。Core、AI、MCP 的 0.2.3 使用旧布局，其[对应版本文档](https://github.com/sunbos/sqlseed/tree/v0.2.3)不包含独立的 CLI 和 Web 包。
+本 README 描述 sqlseed 0.2.4 的五包工作台，版本详情见[发布记录](https://github.com/sunbos/sqlseed/releases)。Core、AI、MCP 的 0.2.3 使用旧布局，其[对应版本文档](https://github.com/sunbos/sqlseed/tree/v0.2.3)不包含独立的 CLI 和 Web 包。
 
-### 从源码安装（含尚未发布的候选版本）
+### 从 PyPI 安装
 
-使用 Python 3.10+ 和新的虚拟环境，在同一次依赖解析中提供本地 Core 与插件：
+使用 Python 3.10+ 和新的虚拟环境，按需安装所需入口：
+
+```bash
+python -m venv .venv
+# macOS/Linux：source .venv/bin/activate
+# Windows PowerShell：.venv\Scripts\Activate.ps1
+
+# 离线 Python API
+python -m pip install 'sqlseed==0.2.4'
+
+# 按需添加入口，各包会拉取兼容依赖
+python -m pip install 'sqlseed-cli==0.2.4'
+python -m pip install 'sqlseed-ai[mcp]==0.2.4'
+python -m pip install 'mcp-server-sqlseed==0.2.4'
+python -m pip install 'sqlseed-web==0.2.4'
+python -m pip check
+```
+
+Core 不提供命令行入口，`sqlseed` 命令由 `sqlseed-cli` 提供。替换 0.2.3 环境前请阅读[升级说明](https://sunbos.github.io/sqlseed/migration.zh-CN/)。
+
+Faker 和 SQLAlchemy 是 Core 的必需依赖；SQLite 无需额外驱动。需要 PostgreSQL 或 Mimesis 时，将 Core 安装项替换为 `'sqlseed[postgres,mimesis]==0.2.4'`。`all` extra 包含 Core 的可选工具与 CLI；AI、MCP 和 Web 仍是独立包。
+
+### 从源码安装（开发与候选版本）
+
+在源码目录的新虚拟环境中，在同一次依赖解析中提供本地 Core 与插件：
 
 ```bash
 git clone https://github.com/sunbos/sqlseed.git
@@ -130,24 +154,7 @@ python -m pip check
 sqlseed --help
 ```
 
-只需要离线 Python API 时安装 `-e .`；只需要 Core 和 Web 时安装 `-e . -e ./plugins/sqlseed-web`。五包布局中，Core 不提供命令行入口，`sqlseed` 命令由 `sqlseed-cli` 提供。替换 0.2.3 环境前请阅读[升级说明](https://sunbos.github.io/sqlseed/migration.zh-CN/)；候选 wheel 必须从同一次 CI 构建成套安装。
-
-### 兼容版本发布后从 PyPI 安装
-
-仅在相应的 0.2.4 系列包发布后运行以下命令。源码合并不会自动将包上传到 PyPI。
-
-```bash
-# 离线 Python API
-python -m pip install 'sqlseed>=0.2.4,<0.3'
-
-# 按需添加入口，各包会拉取兼容依赖
-python -m pip install 'sqlseed-cli>=0.2.4,<0.3'
-python -m pip install 'sqlseed-ai[mcp]>=0.2.4,<0.3'
-python -m pip install 'mcp-server-sqlseed>=0.2.4,<0.3'
-python -m pip install 'sqlseed-web>=0.2.4,<0.3'
-```
-
-Faker 和 SQLAlchemy 是 Core 的必需依赖；SQLite 无需额外驱动。需要 PostgreSQL 或 Mimesis 时，将 Core 安装项替换为 `'sqlseed[postgres,mimesis]>=0.2.4,<0.3'`，源码方式则替换为 `-e '.[postgres,mimesis]'`。`all` extra 包含 Core 的可选工具与 CLI；AI、MCP 和 Web 仍是独立包。
+只需要离线 Python API 时安装 `-e .`；只需要 Core 和 Web 时安装 `-e . -e ./plugins/sqlseed-web`。需要 PostgreSQL 或 Mimesis 时，将 `-e .` 替换为 `-e '.[postgres,mimesis]'`。候选 wheel 必须从同一次 CI 构建成套安装。
 
 ### 本地 Web 工作台
 
@@ -911,7 +918,7 @@ sqlseed 通过 [pluggy](https://pluggy.readthedocs.io/) 提供 12 个 Hook 点�
 | `sqlseed_pre_generate_templates` |      ✓      | AI 预计算候选值池 |
 | `sqlseed_before_generate` |    <br />   | 数据生成循环前 |
 | `sqlseed_after_generate` |    <br />   | 数据生成完成后 |
-| `sqlseed_transform_row` |    <br />   | 逐行变换（热路径，注意性能） |
+| `sqlseed_transform_row` |    <br />   | 已声明 hookspec；普通 Core 生成流程不调用 |
 | `sqlseed_transform_batch` |    <br />   | 逐批变换（各插件接收同一批输入，取最后一个非 `None` 结果） |
 | `sqlseed_before_insert` |    <br />   | 每批写入 DB 前 |
 | `sqlseed_after_insert` |    <br />   | 每批写入 DB 后 |
