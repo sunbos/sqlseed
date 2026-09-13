@@ -1,6 +1,8 @@
 # 数据库适配层
 
-本目录提供 `DatabaseAdapter` protocol、SQLite/PostgreSQL adapter、dialect、type normalization 与批量优化。不得导入 `sqlseed.core`；通过 adapter metadata 向上层供给 schema 信息。
+**核验日期：** 2026-09-14
+
+本目录提供 `DatabaseAdapter` protocol、SQLite/PostgreSQL adapter、dialect、type normalization 与批量优化，承接[核心包规则](../AGENTS.md)。不得导入 `sqlseed.core`；通过 adapter metadata 向上层供给 schema 信息。
 
 ## 修改入口
 
@@ -20,15 +22,23 @@
 - 生产路径统一用 `SQLAlchemyAdapter`；`RawSQLiteAdapter`/`BaseRawSQLiteAdapter` 只用于原生 SQLite 测试。新 adapter 满足 runtime-checkable `DatabaseAdapter` 与 context manager 合约。
 - 支持范围为 SQLite 与 PostgreSQL；不要附带恢复未验证的 MySQL 分支。
 - 未指定 driver 的 `postgresql://` 在创建 engine 时选择 `postgresql+psycopg`，与 `sqlseed[postgres]` 的 psycopg3 依赖一致；保留显式 driver、原始连接目标与配置 URL，不增加协议别名。
+- 重新连接先关闭旧 engine 并清除 inspector/table cache；连接初始化失败必须释放部分初始化状态。事务中不能 close/reconnect，避免复用上一个数据库的反射结果。
+
+## metadata 与类型
+
 - `ForeignKeyInfo.constraint_id` 保留表内 FK 分组身份，`ref_schema` 保留反射出的父 schema；二者默认 `None` 兼容旧构造调用。PostgreSQL reflection 使用 `postgresql_ignore_search_path=True`，防止 search_path 隐藏跨 schema 引用。元数据可读取，但 core 生成预检拒绝 PostgreSQL composite FK、显式 schema FK 与三列及以上 composite FK。
 - 表操作先 `validate_table_name()`，identifier 使用 `quote_identifier()` 或现有 dialect quoting；值走参数绑定。
 - `ColumnInfo.is_rowid_alias` 与显式 `is_autoincrement` 分开：SQLite 用真实 PRAGMA PK 索引识别，不能把所有 INTEGER PK 当 rowid；nullable 也不能把普通 SQLite PK 一概判为非空。默认 `None` 兼容旧 metadata 构造，adapter 返回明确 bool。
 - `IndexInfo.is_partial` 默认 `False`；反射 WHERE 索引必须标记为 `True`，不得通过 `get_unique_constraints()` 补成无条件 UNIQUE。`predicate` 默认 `None`，生产 SQLAlchemy adapter 保留条件原文；RawSQLite 只保留标记、条件原文可未知。谓词由数据库执行。
 - JSON 生成值及内部采样、外键池、lookup 使用序列化文档约定；字符串、JSON null 和 SQL NULL 不得混淆。SQLite 保留合法 JSON 文本原样，避免格式化改变 FK/UNIQUE 的文本相等语义；不要对读取池先解码再当作未解析输入重复处理。普通 TEXT 不参与 JSON/日期类型规范化。
+- 插入、key probe、lookup 共用 typed bind 规范化；ISO temporal 值按真实列类型解析，非法 JSON/日期输入在本次 `batch_insert()` 内触发 rollback。JSON 拒绝 NaN/Infinity，显式 SQL NULL 与序列化 `null` 的含义分别保留。
 - SQLite 表名按 ASCII 大小写规则解析到 catalog 名称（含 FK 父表），禁止 Unicode casefold 或套用到 PostgreSQL。
 - PostgreSQL 仅 ASCII 大小写不同的列名（如 `"A"` / `a`）可读取，但当前 CHECK 推断无法区分，生成/preview/config 在任何表清空或写入前必须明确拒绝。
 - 数据库专有行为放在 `Dialect`；native type 经 `TypeNormalizer` 归一化，避免把方言细节传给 mapper。
 - `SQLAlchemyAdapter` 捕获 `sqlalchemy.exc.*`。`PragmaOptimizer`/原生 SQLite helpers 中捕获 `sqlite3.*` 是有意的边界差异。
+
+## 写入与事务
+
 - 插入计数为目标表实际接受的行数：SQLite 使用非负 affected-row count；PostgreSQL 用 `RETURNING 1` 汇总分页结果。不把 trigger 忽略行、trigger 额外写入或驱动未知 `-1` 当作成功插入数。
 - `batch_insert()` 消费 iterator，以单次调用为事务范围：本次调用中所有内部 batches 一起 commit/rollback。多次调用不自动形成一个事务。
 - `SQLAlchemyAdapter.transaction()` 是显式、当前仅验证 SQLite 的跨调用事务：以 `BEGIN IMMEDIATE` 开始，读查询、reflection、raw cursor、批次写入、self-FK UPDATE 与清空共享同一 connection，外层退出才 commit/rollback。禁止嵌套与作用域内 close；暂停 bulk PRAGMA 优化并在 finally 恢复。默认无此上下文时保持单次 batch_insert 的提交语义；不能以 SQLite 回归声称 PostgreSQL 此能力可用。
@@ -43,11 +53,13 @@
 - PostgreSQL 大批量优化不能自动切换 `session_replication_role=replica`：必须保留 FK 与用户 trigger，预计行数不改变数据完整性语义。
 - SQLite PRAGMA 与 autoincrement 检测留在对应 helper；不把原生 SQLite 行为当作所有 dialect 的默认值。
 
-## 验证
+## 验证与文档
 
 命令从仓库根执行。
 
 - `pytest tests/test_database/`：真实 SQLite、adapter contract、rollback、URL 与安全边界。
+- 连接/transaction 重点看 `test_sqlalchemy_lifecycle_regressions.py`、`test_sqlalchemy_transaction.py`；类型与计数重点看 `test_typed_value_bindings.py`、`test_unique_key_probes.py`、`test_insert_actual_count.py`，以上均在 `tests/test_database/`。
 - adapter API 或 metadata 变化补跑 `pytest tests/test_orchestrator_adapter.py tests/test_schema.py tests/test_relation.py`。
-- PostgreSQL 相关改动使用 `make test-integration`（需要 Docker），不要只凭 SQLite 通过认定跨数据库行为正确。
+- PostgreSQL 相关改动运行 `pytest tests/integration/test_pg_*.py tests/integration/test_url_e2e.py`（使用独立 `PG_TEST_URL` 或 Docker fallback），不要只凭 SQLite 通过认定跨数据库行为正确。
 - `lint-imports` 验证本层没有反向依赖核心。
+- adapter 公开行为与支持边界同步 [docs/api.md](../../../docs/api.md)、[docs/architecture.md](../../../docs/architecture.md)；跨库回归要求见 [tests/integration/AGENTS.md](../../../tests/integration/AGENTS.md)。

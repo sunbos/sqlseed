@@ -1,6 +1,8 @@
 # 核心生成引擎
 
-本目录负责 schema inference、column mapping、CHECK 解析、流式生成与跨表关系。编排入口是 package；改连接或 fill 流程前继续读 [orchestrator/AGENTS.md](orchestrator/AGENTS.md)。
+**核验日期：** 2026-09-14
+
+本目录负责 schema inference、column mapping、CHECK 解析、流式生成与跨表关系，承接[核心包规则](../AGENTS.md)。编排入口是 package；改连接或 fill 流程前继续读 [orchestrator/AGENTS.md](orchestrator/AGENTS.md)。
 
 ## 修改入口
 
@@ -18,10 +20,12 @@
 
 ## 映射与 CHECK
 
-- 保留 mapper 的优先级：自增 PK → user config → exact match → default/nullability → pattern match → CamelCase 转换后的 exact/pattern 重试 → nullable fallback → type fallback。自定义规则优先于对应 builtin 规则。
+- 保留 mapper 的优先级：computed 列/显式自增 PK skip → user source config → 隐式 rowid alias skip → exact match → default/nullability → pattern match → CamelCase 转换后的 exact/pattern 重试 → nullable fallback → type fallback。自定义规则优先于对应 builtin 规则；旧手工 metadata 的 `is_rowid_alias=None` 保留兼容启发式。
+- 显式 generator 仅继承兼容的名称规则参数：同 generator 保留默认值，`string`/`text` 之间只共享长度参数。用户参数优先，显式矛盾长度留给 validation，不能把长度传给 `sentence` 或把 charset 传给 `text`。非用户配置的 BLOB 名称命中仍须回到 bytes 类型。
 - 显式 `faker_method`/`mimesis_method` 可无 generator；mapper 用内部 `__native__` spec 保留该 source，不能落入 nullable/default skip。native 参数不做通用 UNIQUE 扩域；stream 持续调用匹配方法，由 ConstraintSolver 检查重复，未知方法/非法参数明确失败。
 - `CheckConstraintParser` 用 sqlglot AST 处理确定的单列 literal CHECK；无法解析时返回 `None`，不猜测业务关系。列名仅折叠 ASCII 大小写，不能把 SQLite 中不同的非 ASCII 列（如 `Ä` / `ä`）合并。
 - 长度等值支持 `LENGTH(col) = N` 及反向写法；仅将同列 `col IS NULL OR LENGTH(col) = N` 识别为可空长度约束，不能推广到其他 OR 或不同列 NULL guard。
+- 同列 literal AND 与分开的 CHECK 声明需要取交集，并保留开闭边界；integer 按整数端点收紧，float 向 `precision` 网格内部取整，不能简单使用 `bound ± step`。字符串/混合 enum 的 Python 交集为空而 SQL affinity/collation 未知时保留候选交数据库判断，不宣称 SQL 值域为空或所有候选都合法。
 - `CheckAdapter.adapt_user_configs()` 在 mapping 前收紧 source-column 参数；重叠域 clamp 并提示，无交集抛 `ConfigurationError`。derived、跨列、OR、列引用不属于该适配器范围。
 - `SchemaFallbackGenerator` 只作 schema semantics 补充。enum 与 exact-length CHECK 对非 user mapping 的强约束例外保存在 [orchestrator/AGENTS.md](orchestrator/AGENTS.md)，改 fallback 时一并检查。
 - 普通跨列比较另由 orchestrator 提取到 `DataStream.inequality_constraints` 做逐行验证；不要把它和单列 CHECK adaptation 的范围混为一谈。
@@ -32,6 +36,7 @@
 - `DataStream` 可选 `max_attempts` 按实例累计行尝试与列候选次数（跨 batch 和 `generate()` 调用）；默认 `None` 保留原重试上限。`cancel_check` 为合作式 guard，取消抛 `GenerationCancelledError` 并保留原始 reason，不能当普通生成失败重试；无法中断正在运行的 provider/expression/transform。
 - seed 由 `DataStream.__init__` 管理，仅 `seed is not None` 时调用 provider 的 `set_seed()`；不要在 orchestrator 重复播种。
 - 保留 DAG 顺序、UNIQUE 登记与失败回溯的配合；`composite_unique_constraints` 约束元组，不要求每一列独立唯一。
+- 用户 `constraints.min_value/max_value/regex` 在 UNIQUE 登记前验证，regex 使用完整字符串匹配。追加生成通过 adapter 的候选 key probe 检查已有键，不预加载整表；本次生成的预留和数据库已有值分开管理。有限重试耗尽或重放 seed 前缀都不能证明值域耗尽。
 - composite PRIMARY KEY 由 `SchemaInferrer.detect_composite_unique_constraints()` 作为组合 UNIQUE 上报；不要将所有 PK 列送入单列 UNIQUE 调整。
 - nullable UNIQUE skip / choice 的 integer 类型回退按 CHECK 选择值域；type mapper 的默认 `[0, 999999]` 不是用户限制，负数及大整数 CHECK 可替换它，单边 CHECK 的自由端须留足采样空间。显式 integer 用户范围不能套用此扩展规则。
 - UNIQUE integer 无论原采样域大小都先与 CHECK 相交；`null_ratio=0` 且交集容量不足时在生成前抛 `ConfigurationError`。允许 NULL 的 UNIQUE 列不能仅按非空整数域容量拒绝行数，因为 NULL 可重复。
@@ -53,5 +58,6 @@
 命令从仓库根执行。
 
 - 通用范围：`pytest tests/test_core/ tests/test_mapper.py tests/test_mapper_camelcase.py tests/test_schema.py tests/test_relation.py`。
+- CHECK 与 mapping 重点看 `test_check_sql_semantics.py`、`test_schema_constraint_regressions.py`、`test_native_method_contract.py`；stream 回溯与中断重点看 `test_append_unique.py`、`test_row_reservations.py`、`test_stream_batch_cleanup.py`、`test_stream_budget.py`，以上均在 `tests/test_core/`。
 - UNIQUE 回归使用真实 `ColumnMapper` 和 `ColumnInfo`，断言算出的 `GeneratorSpec.params`。保留非 exact-match 名称与非空 default 的覆盖；参考 [TestAdjustChoiceFallback](../../../tests/test_core/test_unique_adjuster.py)，避免只验证 mock 调用。
-- 修改 `mapper.py` 同步 docs/guide.md、两种语言 docs/architecture 与 CLAUDE 的规则说明；修改 `expression.py` 同步 docs/guide.md 的表达式与 `SAFE_FUNCTIONS` 参考，遵循根级文档同步流程。
+- 修改 `mapper.py` 同步 [docs/guide.md](../../../docs/guide.md)、两种语言 docs/architecture 与 [CLAUDE.md](../../../CLAUDE.md) 的规则说明；修改 `expression.py` 同步 guide 的表达式与 `SAFE_FUNCTIONS` 参考，遵循根级文档同步流程。测试约定见 [tests/test_core/AGENTS.md](../../../tests/test_core/AGENTS.md)。
