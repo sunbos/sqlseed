@@ -14,19 +14,18 @@ backend test; installing the plugin does not perform one.
 
 ## Installation
 
-These instructions describe the current five-package checkout. Until the matching
-release is available on PyPI, install local Core, CLI, and AI together from the
-repository root in a Python 3.10+ virtual environment:
+For the 0.2.4 release, use a Python 3.10+ virtual environment:
+
+```bash
+python -m pip install "sqlseed-ai==0.2.4"
+```
+
+Core 0.2.3 lacks the plugin hooks and target-validation interfaces used here.
+For development, install Core and the required local plugins together from the
+repository root:
 
 ```bash
 python -m pip install -e . -e ./plugins/sqlseed-cli -e ./plugins/sqlseed-ai
-```
-
-Core 0.2.3 lacks the plugin hooks and target-validation interfaces used here. Once
-matching packages are published, the package-index installation is:
-
-```bash
-python -m pip install "sqlseed-ai>=0.2.4.dev0,<0.3"
 ```
 
 ## CLI quick start
@@ -78,15 +77,15 @@ actual generated values and database constraints.
 
 ## AI MCP server
 
-The AI MCP entry point requires the `mcp` extra. From this checkout:
+The AI MCP entry point requires the `mcp` extra:
 
 ```bash
-python -m pip install -e . -e ./plugins/sqlseed-cli -e "./plugins/sqlseed-ai[mcp]"
+python -m pip install "sqlseed-ai[mcp]==0.2.4"
 mcp-server-sqlseed-ai
 ```
 
-After matching packages are published, install
-`"sqlseed-ai[mcp]>=0.2.4.dev0,<0.3"`. Configure an MCP client to launch
+For a source checkout, use `python -m pip install -e . -e ./plugins/sqlseed-cli -e "./plugins/sqlseed-ai[mcp]"`.
+Configure an MCP client to launch
 `mcp-server-sqlseed-ai`. It exposes:
 
 - `sqlseed_ai_generate_yaml`

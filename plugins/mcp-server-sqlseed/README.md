@@ -9,19 +9,18 @@ schema, then generate test data. Both tools use offline Core rules and require n
 
 ## Installation
 
-These instructions describe the current five-package checkout. Until the matching
-release is available on PyPI, install local Core and MCP together from the repository
-root in a Python 3.10+ virtual environment:
+For the 0.2.4 release, use a Python 3.10+ virtual environment:
+
+```bash
+python -m pip install "mcp-server-sqlseed==0.2.4"
+```
+
+Core 0.2.3 lacks the target-validation interfaces used here.
+For development, install Core and the required local plugins together from the
+repository root:
 
 ```bash
 python -m pip install -e . -e ./plugins/mcp-server-sqlseed
-```
-
-Core 0.2.3 lacks the target-validation interfaces used here. Once matching packages
-are published, the package-index installation is:
-
-```bash
-python -m pip install "mcp-server-sqlseed>=0.2.4.dev0,<0.3"
 ```
 
 ## MCP client configuration
@@ -72,16 +71,16 @@ request failures. Check these in addition to MCP transport success.
 ## Separate AI MCP server
 
 This package exposes exactly the two tools above. Schema resources and a standalone
-schema-inspection tool are not provided. For LLM analysis, install local Core, CLI,
-and the AI MCP extra together:
+schema-inspection tool are not provided. For LLM analysis, install the separate
+AI MCP extra:
 
 ```bash
-python -m pip install -e . -e ./plugins/sqlseed-cli -e "./plugins/sqlseed-ai[mcp]"
+python -m pip install "sqlseed-ai[mcp]==0.2.4"
 mcp-server-sqlseed-ai
 ```
 
-After matching packages are published, use
-`"sqlseed-ai[mcp]>=0.2.4.dev0,<0.3"`. Its YAML tool is
+For a source checkout, use `python -m pip install -e . -e ./plugins/sqlseed-cli -e "./plugins/sqlseed-ai[mcp]"`.
+Its YAML tool is
 `sqlseed_ai_generate_yaml`; its executable is `mcp-server-sqlseed-ai`. The old
 `mcp-server-sqlseed[ai]` installation does not describe the current package layout.
 

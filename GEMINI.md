@@ -10,7 +10,7 @@
 
 ## Quick Reference
 
-- **Build & install**: `pip install -e ".[dev,all]"`
+- **Build & install**: [same-checkout five-package setup](CLAUDE.md#quick-start-commands)
 - **Run tests**: `pytest`
 - **Lint**: `ruff check src/ tests/ plugins/`
 - **Type check**: `mypy src/sqlseed/ plugins/`

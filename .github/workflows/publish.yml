@@ -103,15 +103,30 @@ jobs:
 
   # ── Publish to PyPI (Trusted Publisher) ──────────────────────
   publish:
+    name: Publish ${{ matrix.package }}
     runs-on: ubuntu-latest
     needs: [build]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: sqlseed
+            environment: pypi
+          - package: sqlseed-ai
+            environment: pypi
+          - package: mcp-server-sqlseed
+            environment: pypi
+          - package: sqlseed-cli
+            environment: pypi-cli
+          - package: sqlseed-web
+            environment: pypi-web
     permissions:
       id-token: write
       attestations: write
 
     environment:
-      name: pypi
-      url: https://pypi.org/project/sqlseed/
+      name: ${{ matrix.environment }}
+      url: https://pypi.org/project/${{ matrix.package }}/
 
     steps:
       - name: Retrieve release distributions
@@ -120,9 +135,58 @@ jobs:
           name: release-dists
           path: dist/
 
+      - name: Select this project's wheel and sdist
+        env:
+          RELEASE_PACKAGE: ${{ matrix.package }}
+        run: |
+          python - <<'PYTHON'
+          import os
+          import shutil
+          from pathlib import Path
+
+          package = os.environ["RELEASE_PACKAGE"].replace("-", "_")
+          version = os.environ["GITHUB_REF_NAME"].removeprefix("v")
+          source = Path("dist")
+          files = [source / f"{package}-{version}-py3-none-any.whl", source / f"{package}-{version}.tar.gz"]
+          if not all(path.is_file() for path in files):
+              raise SystemExit(f"Missing wheel or sdist for {package} {version}")
+          destination = Path("package-dist")
+          destination.mkdir()
+          for path in files:
+              shutil.copy2(path, destination / path.name)
+          PYTHON
+
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b  # v1.14.0
         with:
-          packages-dir: dist/
+          packages-dir: package-dist/
           skip-existing: true
           attestations: true
+
+  verify-public:
+    name: Verify production PyPI installations
+    runs-on: ubuntu-latest
+    needs: [publish]
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: "3.12"
+      - name: Install and exercise the exact public release
+        env:
+          PYTHON_BIN: python
+          TMPDIR: ${{ runner.temp }}
+        run: bash scripts/verify_pypi_release.sh "${GITHUB_REF_NAME#v}"
+      - name: Retain public metadata and installation evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: public-pypi-acceptance
+          path: |
+            ${{ runner.temp }}/sqlseed-pypi-acceptance.*/verification.log
+            ${{ runner.temp }}/sqlseed-pypi-acceptance.*/*-install.json
+            ${{ runner.temp }}/sqlseed-pypi-acceptance.*/metadata/
+          if-no-files-found: error

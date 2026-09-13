@@ -125,9 +125,9 @@ the [MCP guide](guide.md#mcp-server) for a complete client configuration.
 
 | Tool | Description |
 |------|-------------|
-| `sqlseed_gemma4_analyze` | Analyze schema using Gemma 4 with Native Function Calling |
+| `sqlseed_gemma4_analyze` | Analyze schema with the configured model and supported response protocol |
 | `sqlseed_gemma4_agent_fill` | End-to-end Agent workflow (analyze -> config -> fill) |
-| `sqlseed_list_gemma_models` | List available Gemma 4 models and backend status |
+| `sqlseed_list_gemma_models` | List registered Gemma 4 variants, hardware compatibility, and backend status |
 
 ## Quick Start
 

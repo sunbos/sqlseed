@@ -2,22 +2,24 @@
 
 Web 工作台通过真实数据库结构建立生成配置。不安装 AI 插件，也可以完成连接、编辑、保存、检查、生成与运行记录查询。
 
-正式页面为“工作台 / 运行记录 / 配置管理 / 设置”。本文描述 `main` 的五包版本；源码、候选安装包和 PyPI 发布的区别见[升级说明](migration.zh-CN.md)。[v8 重建记录](https://github.com/sunbos/sqlseed/blob/main/docs/superpowers/plans/2026-09-07-web-v8-rebuild.md)保留历史视觉基线与验收过程，当前操作以本页说明为准。
+正式页面为“工作台 / 运行记录 / 配置管理 / 设置”。本文适用于 0.2.4 五包版本；正式版本、源码与构建产物的安装方式见[升级说明](migration.zh-CN.md)。[v8 重建记录](https://github.com/sunbos/sqlseed/blob/main/docs/superpowers/plans/2026-09-07-web-v8-rebuild.md)保留历史视觉基线与验收过程，当前操作以本页说明为准。
 
-从仓库根目录安装并启动：
+在 Python 3.10+ 虚拟环境中安装并启动 0.2.4：
 
 ```bash
-python -m pip install -e . -e ./plugins/sqlseed-web
+python -m pip install "sqlseed==0.2.4" "sqlseed-web==0.2.4"
 sqlseed-web
 ```
 
+开发源码从仓库根同次安装：`python -m pip install -e . -e ./plugins/sqlseed-web`。
+
 打开 `http://127.0.0.1:8630`，使用顶栏或首次空状态中的“连接数据库”按钮，在弹窗选择 SQLite 文件或填写 PostgreSQL 连接。SQLite 路径属于运行服务的电脑；连接信息只负责指定数据库目标。全局数据生成引擎和语言地区在生成配置中设置，不属于连接表单；使用可选引擎或数据库时需安装相应依赖。
 
-PostgreSQL 需要在运行服务的 Python 环境中安装 Core 的 `postgres` extra（从本仓库安装时使用 `python -m pip install -e '.[postgres]'`）。它提供 psycopg 3；普通 `postgresql://` 地址默认使用该驱动，显式指定的 driver 保持原样。数据库可以位于本机或网络可达的服务器。当前 Web 支持读取结构、预览、追加生成与查询结果；清空后生成仅支持 SQLite，PostgreSQL 复合外键与跨 schema 外键引用暂不支持。
+PostgreSQL 需要在运行服务的 Python 环境中安装 Core 的 `postgres` extra（0.2.4 使用 `python -m pip install 'sqlseed[postgres]==0.2.4'`；源码使用 `python -m pip install -e '.[postgres]'`）。它提供 psycopg 3；普通 `postgresql://` 地址默认使用该驱动，显式指定的 driver 保持原样。数据库可以位于本机或网络可达的服务器。当前 Web 支持读取结构、预览、追加生成与查询结果；清空后生成仅支持 SQLite，PostgreSQL 复合外键与跨 schema 外键引用暂不支持。
 
 ## 在服务器 Python 中运行
 
-Core 和普通 Web 功能支持 Python 3.10 及以上，不要求使用本机的 `.venv`。本工作台要求 `sqlseed>=0.2.4.dev0`；Core 0.2.3 缺少所需 runtime 接口。未发布的源码版本应从同一仓库一起安装 Core 与 Web。服务器上的 virtualenv 或已安装所需依赖的系统 Python 都可以运行；服务使用启动它的解释器。浏览器访问服务器时，数据库连接、文件访问与数据生成均由服务器执行，页面不能选择或操作另一台机器的任意 Python 环境。
+Core 和普通 Web 功能支持 Python 3.10 及以上，不要求使用本机的 `.venv`。0.2.4 工作台的 Core 依赖范围为 `>=0.2.4.dev0,<0.3`；Core 0.2.3 缺少所需 runtime 接口。测试开发源码时应从同一仓库一起安装 Core 与 Web。服务器上的 virtualenv 或已安装所需依赖的系统 Python 都可以运行；服务使用启动它的解释器。浏览器访问服务器时，数据库连接、文件访问与数据生成均由服务器执行，页面不能选择或操作另一台机器的任意 Python 环境。
 
 默认 `sqlseed-web` 启动器面向本机访问，监听 `127.0.0.1:8630`。外部 ASGI 部署可使用 `sqlseed_web.app:create_app` factory；当前 Web 没有多用户认证，外部部署需要提供认证与访问控制，不能直接作为公共多用户服务开放。网页安装、卸载组件还要求受支持的独立环境、默认受管启动器和本机请求；系统 Python、外部 ASGI 托管或远程访问时，由部署管理员管理依赖，普通功能仍可使用。
 
