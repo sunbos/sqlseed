@@ -8,12 +8,27 @@ import json
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 from urllib.error import HTTPError
 from urllib.parse import quote, urlparse
 from urllib.request import urlopen
 
+
+class ReportMode(NamedTuple):
+    """Keep each supported report's path and expected artifacts together."""
+
+    report_path: Path
+    kind: str
+    packages: list[str]
+
+
 PACKAGES = ("sqlseed", "sqlseed-cli", "sqlseed-ai", "mcp-server-sqlseed", "sqlseed-web")
+METADATA_DIRECTORY = Path("metadata")
+REPORT_MODES = {
+    "full": ReportMode(Path("full-install.json"), "wheel", list(PACKAGES)),
+    "minimal": ReportMode(Path("minimal-install.json"), "wheel", ["sqlseed", "sqlseed-web"]),
+    "sdist": ReportMode(Path("sdist-install.json"), "sdist", list(PACKAGES)),
+}
 
 
 def require(condition: bool, message: str) -> None:
@@ -115,25 +130,21 @@ def main() -> None:
     """Capture metadata by default, or validate a saved pip install report."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("version", help="Exact public version, for example 0.2.4")
-    parser.add_argument("destination", type=Path, help="Directory for public release evidence")
-    parser.add_argument("--report", type=Path, help="Validate this pip --report JSON instead of fetching metadata")
-    parser.add_argument("--kind", choices=("wheel", "sdist"))
-    parser.add_argument("--packages", nargs="+", choices=PACKAGES, default=list(PACKAGES))
+    parser.add_argument(
+        "--report",
+        choices=REPORT_MODES,
+        help="Validate a fixed full/minimal/sdist install report in the current directory",
+    )
     arguments = parser.parse_args()
     require(
-        bool(re.fullmatch(r"[0-9][0-9A-Za-z.!-]*", arguments.version)),
+        bool(re.fullmatch(r"\d[0-9A-Za-z.!-]*", arguments.version, re.ASCII)),
         "Pass one exact public version without local suffixes, wildcards or requirement operators",
     )
     if arguments.report:
-        if not arguments.kind:
-            parser.error("--report requires --kind")
-        verify_install_report(
-            arguments.version, arguments.destination, arguments.report, arguments.kind, arguments.packages
-        )
+        report_path, kind, packages = REPORT_MODES[arguments.report]
+        verify_install_report(arguments.version, METADATA_DIRECTORY, report_path, kind, packages)
     else:
-        if arguments.kind:
-            parser.error("--kind requires --report")
-        snapshot_release(arguments.version, arguments.destination)
+        snapshot_release(arguments.version, METADATA_DIRECTORY)
 
 
 if __name__ == "__main__":
