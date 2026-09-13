@@ -6,9 +6,10 @@ build-backend = "hatchling.build"
 name = "sqlseed-cli"
 dynamic = ["version"]
 requires-python = ">=3.10"
-description = "CLI plugin for sqlseed (declarative test data generation)"
+description = "Command-line interface for sqlseed test data generation, preview and configuration replay"
 readme = "README.md"
 license = "AGPL-3.0-or-later"
+license-files = ["LICENSE"]
 authors = [
     {name = "SunBo", email = "1443584939@qq.com"},
 ]
@@ -28,6 +29,7 @@ dependencies = [
 ]
 
 [project.urls]
+Documentation = "https://sunbos.github.io/sqlseed/guide/"
 Homepage = "https://github.com/sunbos/sqlseed"
 Repository = "https://github.com/sunbos/sqlseed/tree/main/plugins/sqlseed-cli"
 

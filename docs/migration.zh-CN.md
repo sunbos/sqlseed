@@ -2,7 +2,7 @@
 
 [English](migration.md)
 
-工作台候选版本将原来组合安装的 Core/CLI/MCP 拆分为五个 package。合入 `main` 不会将这些包发布到 PyPI；正式发布前，应使用同一次成功候选 CI 的安装包。
+`main` 中的工作台将原来组合安装的 Core/CLI/MCP 拆分为五个 package，目标为 0.2.4 发布系列。合入 `main` 不会将这些包发布到 PyPI；兼容版本发布前，应使用同一源码 checkout 或同一次成功 CI 的安装包。[安装指南](guide.md#installation)分别说明当前源码安装与兼容版本发布后才适用的软件源命令。
 
 ## 成套安装
 
