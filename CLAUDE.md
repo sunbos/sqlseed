@@ -276,7 +276,7 @@ When preparing a new version release:
    gh release create v<version> --title "v<version>" --generate-notes
    ```
 
-4. **CI publish** — `publish.yml` triggers on release or `workflow_dispatch`. If PyPI publish fails on sigstore attestation (`ChunkedEncodingError`), this is a known upstream issue ([#364](https://github.com/pypa/gh-action-pypi-publish/issues/364)) — re-run the workflow via GitHub Actions UI.
+4. **CI publish** — `publish.yml` triggers on release or `workflow_dispatch` with an existing `release_tag`. It resolves the tag to a commit for testing, building and public acceptance. Inspect failed upload logs and PyPI files before retrying. For an uploader compatibility fix, merge the workflow correction and run `gh workflow run publish.yml --ref main -f release_tag=v<version>`; preserve the existing release tag, metadata validation and attestations. Core Metadata 2.5 needs PyPA publish action v1.14.2 or newer. See [the release guide](docs/releasing.md) for recovery details.
 
 5. **Public installation acceptance** — After all five upload jobs succeed, `publish.yml` runs `verify-public` on Linux/Python 3.12. Check that job and retain its `public-pypi-acceptance` artifact with public metadata, file hashes, pip reports and real installed Core/CLI/MCP/Web SQLite results. Repeat locally with `PYTHON_BIN=python3.12 bash scripts/verify_pypi_release.sh <version>` (Linux or macOS). Inspect all five PyPI descriptions and documentation links. A local wheel test or successful upload does not replace this step; real LLM, PostgreSQL and browser acceptance require separate evidence. See [the release guide](docs/releasing.md) for preparation and validation details.
 

@@ -47,6 +47,20 @@ If a publish fails partway through, inspect which files reached PyPI before
 retrying the same release. Its `skip-existing` setting does not prove all five
 packages were uploaded successfully.
 
+If the upload tool needs a compatibility fix, merge the workflow correction to
+`main` and dispatch it with the existing release tag:
+
+```bash
+gh workflow run publish.yml --ref main -f release_tag=v0.2.4
+```
+
+The workflow resolves that tag once to a commit, then tests, builds and runs
+public installation checks from that exact source. The workflow revision can
+therefore receive maintenance without moving a published tag. Keep metadata
+validation and attestations enabled. For example, Core Metadata 2.5 requires
+[PyPA publish action v1.14.2 or newer](https://github.com/pypa/gh-action-pypi-publish/releases/tag/v1.14.2);
+rerunning a workflow pinned to the older uploader will repeat its metadata error.
+
 ## Validate installed artifacts before release
 
 Use a fresh virtual environment outside the checkout. Install all five wheel
