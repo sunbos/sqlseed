@@ -166,6 +166,7 @@ def test_invalid_typed_values_roll_back_prior_batches(tmp_path: Path, type_name:
     with SQLAlchemyAdapter() as adapter:
         adapter.connect(str(path))
         adapter.execute(f"CREATE TABLE events (value {type_name})").close()
+        rows = iter([{"value": valid}, {"value": invalid}])
         with pytest.raises(ValueError, match=rf"Invalid {type_name} value for column 'value'"):
-            adapter.batch_insert("events", iter([{"value": valid}, {"value": invalid}]), batch_size=1)
+            adapter.batch_insert("events", rows, batch_size=1)
         assert adapter.get_row_count("events") == 0
