@@ -6,9 +6,10 @@ build-backend = "hatchling.build"
 name = "mcp-server-sqlseed"
 dynamic = ["version"]
 requires-python = ">=3.10"
-description = "MCP server for sqlseed - rule-driven YAML generation and data fill (no LLM)"
+description = "Offline MCP tools for sqlseed rule-driven YAML configuration and test data generation"
 readme = "README.md"
 license = "AGPL-3.0-or-later"
+license-files = ["LICENSE"]
 authors = [
     {name = "SunBo", email = "1443584939@qq.com"},
 ]
@@ -27,6 +28,7 @@ dependencies = [
 ]
 
 [project.urls]
+Documentation = "https://sunbos.github.io/sqlseed/guide/"
 Homepage = "https://github.com/sunbos/sqlseed"
 Repository = "https://github.com/sunbos/sqlseed/tree/main/plugins/mcp-server-sqlseed"
 

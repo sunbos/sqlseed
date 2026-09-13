@@ -2,7 +2,7 @@
 
 # 🌱 sqlseed
 
-[English](README.md) | **[中文](README.zh-CN.md)**
+[English](https://github.com/sunbos/sqlseed/blob/main/README.md) | **[中文](https://github.com/sunbos/sqlseed/blob/main/README.zh-CN.md)**
 
 ### 声明式多数据库测试数据生成工具包
 
@@ -113,101 +113,70 @@ print(result.count, result.errors)  # 检查实际写入数和失败原因。
 
 ## 📦 安装
 
-### 基础安装
+本 README 描述 `main` 上的五包工作台，目标为 0.2.4 版本系列。选择安装方式前，请核对[已发布版本](https://github.com/sunbos/sqlseed/releases)。Core、AI、MCP 的 0.2.3 使用旧布局，其[对应版本文档](https://github.com/sunbos/sqlseed/tree/v0.2.3)不包含独立的 CLI 和 Web 包。
 
-```bash
-pip install sqlseed
-```
+### 从源码安装（含尚未发布的候选版本）
 
-升级入口与兼容变化见[升级说明](docs/migration.zh-CN.md)。候选包须从同一 CI artifact 成套安装。
-
-### 选择数据引擎
-
-```bash
-# 推荐：Mimesis（高性能，本地化支持好）
-pip install sqlseed[mimesis]
-
-# 注意：Faker 是必需的核心依赖，已包含在 `pip install sqlseed` 中
-
-# 全部安装
-pip install sqlseed[all]
-```
-
-### 选择数据库后端
-
-sqlseed 通过 SQLAlchemy 支持 SQLite（默认）和 PostgreSQL。
-
-```bash
-# PostgreSQL 支持（psycopg 驱动）
-pip install "sqlseed[postgres]"
-
-# 所有数据库后端 + 所有数据引擎
-pip install "sqlseed[all]"
-```
-
-> **💡 提示**：SQLite 开箱即用，无需额外依赖。PostgreSQL 驱动仅在连接对应数据库时需要安装。
-
-### 可选插件
-
-```bash
-# CLI 插件（提供 `sqlseed` 命令；自动拉取 sqlseed 核心）
-pip install sqlseed-cli
-
-# AI 智能分析插件（依赖 openai SDK）
-pip install sqlseed-ai
-
-# MCP 服务器（依赖 mcp SDK，让 AI 助手直接操作 sqlseed）
-pip install mcp-server-sqlseed
-
-# AI MCP 服务器（4 个 LLM 工具，依赖 sqlseed-ai）
-pip install "sqlseed-ai[mcp]"
-```
-
-### 本地 Web 工作台
-
-从仓库根目录运行 `python -m pip install -e . -e ./plugins/sqlseed-web`，然后启动 `sqlseed-web`，打开 `http://127.0.0.1:8630`。工作台提供真实 schema 关系图、字段规则编辑、版本化配置保存、依赖检查、预览、多表生成与持久运行记录，不要求 AI 插件。详见 [Web 工作台](docs/web-workbench.md)。
-
-可直接在设置中安装或卸载可选组件。默认启动器在工作台空闲时暂停业务，通过隔离进程变更包，再自动恢复服务与可重连的连接；数据库或 AI 工作尚未结束时会阻止操作。已有包版本受到保护，Core、Web、Faker、Base 不开放移除。界面包变更需要 macOS/Linux 的可写独立 virtualenv 及默认启动器；外部托管应用和不支持的环境会明确说明能力限制。恢复行为和连接限制见 [Web 工作台指南](docs/web-workbench.md)。
-
-主导航为工作台、运行记录、配置管理和设置，数据库连接通过统一界面的按钮打开弹窗；规则使用右侧抽屉，保存、重开和 YAML/JSON 编辑共享同一份配置。生成引擎与语言地区属于配置。后端与前端回归结果不能替代界面改动的浏览器验收。
-
-### 文档构建（开发者）
-
-```bash
-pip install sqlseed[docs]   # mkdocs-material + mkdocstrings
-```
-
-<details>
-<summary><b>📋 开发环境完整安装</b></summary>
+使用 Python 3.10+ 和新的虚拟环境，在同一次依赖解析中提供本地 Core 与插件：
 
 ```bash
 git clone https://github.com/sunbos/sqlseed.git
 cd sqlseed
-
-# 同次解析 Core 和本地插件，支持尚未发布的候选版本
-python -m pip install -e ".[dev,all]" -e "./plugins/sqlseed-cli" -e "./plugins/sqlseed-ai[dev]" -e "./plugins/mcp-server-sqlseed" -e "./plugins/sqlseed-web[dev]"
-
-# 验证安装
-pytest
-ruff check src/ tests/
-mypy src/sqlseed/
+python -m venv .venv
+# macOS/Linux：source .venv/bin/activate
+# Windows PowerShell：.venv\Scripts\Activate.ps1
+python -m pip install -e . -e ./plugins/sqlseed-cli -e './plugins/sqlseed-ai[mcp]' -e ./plugins/mcp-server-sqlseed -e ./plugins/sqlseed-web
+python -m pip check
+sqlseed --help
 ```
 
-</details>
+只需要离线 Python API 时安装 `-e .`；只需要 Core 和 Web 时安装 `-e . -e ./plugins/sqlseed-web`。五包布局中，Core 不提供命令行入口，`sqlseed` 命令由 `sqlseed-cli` 提供。替换 0.2.3 环境前请阅读[升级说明](https://sunbos.github.io/sqlseed/migration.zh-CN/)；候选 wheel 必须从同一次 CI 构建成套安装。
+
+### 兼容版本发布后从 PyPI 安装
+
+仅在相应的 0.2.4 系列包发布后运行以下命令。源码合并不会自动将包上传到 PyPI。
+
+```bash
+# 离线 Python API
+python -m pip install 'sqlseed>=0.2.4,<0.3'
+
+# 按需添加入口，各包会拉取兼容依赖
+python -m pip install 'sqlseed-cli>=0.2.4,<0.3'
+python -m pip install 'sqlseed-ai[mcp]>=0.2.4,<0.3'
+python -m pip install 'mcp-server-sqlseed>=0.2.4,<0.3'
+python -m pip install 'sqlseed-web>=0.2.4,<0.3'
+```
+
+Faker 和 SQLAlchemy 是 Core 的必需依赖；SQLite 无需额外驱动。需要 PostgreSQL 或 Mimesis 时，将 Core 安装项替换为 `'sqlseed[postgres,mimesis]>=0.2.4,<0.3'`，源码方式则替换为 `-e '.[postgres,mimesis]'`。`all` extra 包含 Core 的可选工具与 CLI；AI、MCP 和 Web 仍是独立包。
+
+### 本地 Web 工作台
+
+安装 Core 和 Web 后，运行 `sqlseed-web` 并打开 `http://127.0.0.1:8630`。工作台支持 schema 关系图、字段规则编辑、版本化配置、依赖检查、预览、多表生成与持久运行记录，无需 AI 即可使用。详见 [Web 工作台指南](https://sunbos.github.io/sqlseed/web-workbench/)。
+
+设置页可从包索引安装或卸载可选组件，前提是兼容版本已发布。界面包变更需要 macOS/Linux 的可写独立 virtualenv 及默认启动器；有工作正在执行时会阻止操作，已有版本受到保护，Core、Web、Faker、Base 不开放移除。尚未发布的候选插件请按上述源码方式安装。恢复行为和连接限制见 [Web 指南](https://sunbos.github.io/sqlseed/web-workbench/)。
+
+### 开发与文档构建
+
+激活虚拟环境后，从仓库根目录运行：
+
+```bash
+python -m pip install -e '.[dev,all,docs]' -e ./plugins/sqlseed-cli -e './plugins/sqlseed-ai[dev,mcp]' -e ./plugins/mcp-server-sqlseed -e './plugins/sqlseed-web[dev]'
+pytest
+ruff check src/ tests/ plugins/
+ruff format --check src/ tests/ plugins/
+mypy src/sqlseed/ plugins/
+lint-imports
+python scripts/sync_docs.py --check
+python -m mkdocs build --strict
+```
+
+发布准备与正式 PyPI 安装验收见[发布指南](https://sunbos.github.io/sqlseed/releasing/)。
 
 ***
 
 ## 🚀 快速开始
 
-完整体验推荐 [可复现订单流程](examples/order_workflow/README.md)：包含用户、商品、订单与明细的真实生成、坏规则诊断、修正与离线重放。[支持与维护约定](docs/maintainable-release.md)说明当前能力边界；[项目展示说明](docs/project-showcase.md)提供演示顺序和架构讲解。
-
-### 一键体验脚本
-
-```bash
-python scripts/quickstart.py
-```
-
-该脚本会自动创建示例数据库、填充数据并展示结果，适合首次体验。
+完整体验推荐 [可复现订单流程](https://github.com/sunbos/sqlseed/blob/main/examples/order_workflow/README.md)：包含用户、商品、订单与明细的真实生成、坏规则诊断、修正与离线重放。[支持与维护约定](https://sunbos.github.io/sqlseed/maintainable-release/)说明当前能力边界；[项目展示说明](https://sunbos.github.io/sqlseed/project-showcase/)提供演示顺序和架构讲解。
 
 ### 使用示例数据库体验
 
@@ -220,6 +189,8 @@ python examples/build_demo_db.py
 然后探索：
 
 ```bash
+# members.org_code 引用 organizations.org_code，先生成父表数据。
+sqlseed fill examples/sqlseed_demo.db --table organizations --count 10
 sqlseed preview examples/sqlseed_demo.db --table members --count 5
 sqlseed inspect examples/sqlseed_demo.db --show-mapping
 sqlseed fill examples/sqlseed_demo.db --table members --count 100
@@ -248,8 +219,8 @@ CREATE TABLE users (
 import sqlseed
 
 result = sqlseed.fill("app.db", table="users", count=10_000)
-print(result)
-# → GenerationResult(table=users, count=10000, elapsed=0.52s, speed=19230 rows/s)
+print(result.count, result.errors)
+# 10000 []
 ```
 
 sqlseed 会自动：
@@ -258,7 +229,7 @@ sqlseed 会自动：
 - ✅ 跳过 `is_active`（有默认值）
 - ✅ `name` → 生成真实姓名
 - ✅ `email` → 生成邮箱地址
-- ✅ `age` → 生成 18~100 的整数
+- ✅ `age` → 生成整数；需要符合年龄含义的范围时，请显式配置
 - ✅ `phone` → 生成电话号码
 - ✅ `created_at` → 生成日期时间（匹配 `*_at` 模式）
 - ✅ `balance` → 生成浮点数
@@ -281,7 +252,7 @@ result = sqlseed.fill(
 print(result)
 ```
 
-两种数据库使用相同的 public API，但方言行为与约束支持范围不同。当前生成会拒绝 PostgreSQL 复合外键及反射出的 schema-qualified 引用；SQLite 完整元组协调覆盖两列外键。详见 [支持与验证范围](docs/maintainable-release.md)，其中区分本地 SQLite 验证与真实 PostgreSQL 集成测试。
+两种数据库使用相同的 public API，但方言行为与约束支持范围不同。当前生成会拒绝 PostgreSQL 复合外键及反射出的 schema-qualified 引用；SQLite 完整元组协调覆盖两列外键。详见 [支持与验证范围](https://sunbos.github.io/sqlseed/maintainable-release/)，其中区分本地 SQLite 验证与真实 PostgreSQL 集成测试。
 
 ***
 
@@ -302,17 +273,19 @@ result = sqlseed.fill(
         "age": {"type": "integer", "min_value": 18, "max_value": 65},
         "balance": {"type": "float", "min_value": 0.0, "max_value": 100000.0, "precision": 2},
         "name": "name",
-        "status": {"type": "choice", "choices": ["active", "inactive", "banned"]},
     },
     provider="mimesis",
     locale="zh_CN",
     seed=42,
     clear_before=True,
     enrich=True,
-    transform="./transform_users.py",
 )
-print(result)
+print(result.count, result.errors)
 ```
+
+本例沿用前文的 `users` 表。要在已有列中生成枚举值，可以使用
+`{"type": "choice", "choices": ["active", "inactive", "banned"]}`。
+Transform 脚本在教程 5 中介绍，使用前需要创建脚本及其目标列。
 
 #### 支持的生成器类型
 
@@ -334,6 +307,7 @@ print(result)
 | `uuid` | UUID | — |
 | `date` | 日期 | `start_year`, `end_year` |
 | `datetime` | 日期时间 | `start_year`, `end_year` |
+| `time` | 一天中的时间 | `all_day`, `start_time`, `end_time` |
 | `timestamp` | Unix 时间戳 | — |
 | `text` | 长文本 | `min_length`, `max_length` |
 | `sentence` | 句子 | — |
@@ -356,31 +330,60 @@ print(result)
 | `foreign_key` | 外键引用 | `ref_table`, `ref_column`, `strategy` |
 | `skip` | 跳过（使用默认值/NULL） | — |
 
+Provider dispatch 支持 36 个生成器名称；`foreign_key` 和 `skip` 由编排层处理。
+
 ***
 
 ### 教程 2：多表关联 — 自动维持外键完整性
+
+先在前文的 `app.db` 中创建引用 `users` 的子表：
+
+```sql
+CREATE TABLE orders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    amount REAL,
+    quantity INTEGER,
+    status TEXT,
+    created_at TEXT
+);
+```
 
 ```python
 import sqlseed
 
 with sqlseed.connect("app.db", provider="mimesis", locale="zh_CN") as db:
     # 步骤 1：先填充父表
-    db.fill("users", count=10_000, seed=42)
+    users_result = db.fill("users", count=10_000, seed=42)
+    print(users_result.count, users_result.errors)
 
     # 步骤 2：填充子表 — sqlseed 自动检测外键约束，
     #         从 users.id 中随机选取值填入 orders.user_id
-    db.fill("orders", count=50_000, columns={
+    orders_result = db.fill("orders", count=50_000, columns={
         "amount": {"type": "float", "min_value": 9.99, "max_value": 999.99, "precision": 2},
         "quantity": {"type": "integer", "min_value": 1, "max_value": 20},
         "status": {"type": "choice", "choices": ["pending", "paid", "shipped", "delivered"]},
     })
+    print(orders_result.count, orders_result.errors)
 
     print(db.report())
 ```
 
-> **💡 提示**：如果两张表之间有同名列（如 `member_no`），即使没有声明外键约束，sqlseed 也会通过 **SharedPool 隐式关联机制**自动维持跨表一致性。
+`db.report()` 显示数据库当前总行数，包含之前运行写入的数据。
+没有声明 FK 的关系请使用显式 `associations`；仅有 `member_no` 这样的同名列不会建立关联。
 
 #### 显式跨表关联（ColumnAssociation）
+
+执行配置前，先在 `app.db` 中创建这两张表：
+
+```sql
+CREATE TABLE departments (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL);
+CREATE TABLE employees (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    department_id INTEGER NOT NULL,
+    name TEXT NOT NULL
+);
+```
 
 ```yaml
 db_path: "app.db"
@@ -407,6 +410,8 @@ associations:
 
 ### 教程 3：YAML 配置文件驱动批量生成
 
+本例向前文已经创建的 `users` 和 `orders` 表追加数据。
+
 ```bash
 # 生成配置模板
 sqlseed init generate.yaml --db app.db
@@ -425,13 +430,13 @@ optimize_pragma: true
 tables:
   - name: users
     count: 100000
-    clear_before: true
     seed: 42
     columns:
-      - name: username
+      - name: name
         generator: name
       - name: email
         generator: email
+        null_ratio: 0.05       # 此可空列有 5% 概率为 NULL
       - name: phone
         generator: phone
       - name: age
@@ -439,11 +444,6 @@ tables:
         params:
           min_value: 18
           max_value: 65
-      - name: status
-        generator: choice
-        params:
-          choices: [0, 1, 2]
-        null_ratio: 0.05       # 5% 概率为 NULL
 
   - name: orders
     count: 500000
@@ -471,10 +471,24 @@ tables:
 
 ### 教程 4：派生列与表达式引擎
 
+先在 `app.db` 中创建目标表：
+
+```sql
+CREATE TABLE projects (
+    project_no TEXT NOT NULL UNIQUE,
+    short_code TEXT NOT NULL UNIQUE,
+    region_code TEXT NOT NULL,
+    member_no TEXT NOT NULL UNIQUE
+);
+```
+
 ```yaml
+db_path: "app.db"
+provider: mimesis
 tables:
   - name: projects
     count: 10000
+    seed: 42
     columns:
       - name: project_no
         generator: pattern
@@ -547,6 +561,12 @@ tables:
 
 ### 教程 5：Transform 脚本 — 复杂业务逻辑
 
+先给已有的 `users` 表添加脚本要写入的列：
+
+```sql
+ALTER TABLE users ADD COLUMN vip_level INTEGER;
+```
+
 ```python
 # transform_users.py
 def transform_row(row, ctx):
@@ -588,13 +608,17 @@ sqlseed inspect app.db --table users --show-mapping
 
 ### 教程 7：快照与回放
 
+快照保存生成配置和 seed，不是数据库备份。回放沿用保存的 `clear_before`；
+下面的例子会追加一批数据。生成的 ID 和其他值可能受已有数据、schema、provider
+及包版本影响。
+
 ```bash
 # 生成并保存快照
 sqlseed fill app.db --table users --count 10000 --seed 42 --snapshot
-# → Snapshot saved: <cache_dir>/snapshots/YYYY-MM-DD_HHMMSS_users.yaml
+# → Snapshot saved: <cache_dir>/snapshots/YYYY-MM-DD_HHMMSS_ffffff_users.yaml
 
-# 任意时刻回放
-sqlseed replay <cache_dir>/snapshots/YYYY-MM-DD_HHMMSS_users.yaml
+# 将路径替换为上方命令实际输出的快照路径。
+sqlseed replay "/path/to/saved-snapshot.yaml"
 ```
 
 ***
@@ -612,6 +636,7 @@ sqlseed-ai 插件提供 **3 个 CLI 命令**：
 ```bash
 pip install sqlseed-ai
 export SQLSEED_AI_API_KEY="your-api-key"
+export SQLSEED_AI_BACKEND=google_ai_studio
 
 # ─────────────────────────────────────────────
 # ai-suggest: 单表 LLM 分析
@@ -658,7 +683,8 @@ sqlseed auto-heal --db app.db --config broken.yaml -o healed.yaml --model gemma-
 
 **Gemma 4 原生函数调用（GEMMA_TOOLS）**：
 
-sqlseed-ai 支持 Gemma 4 系列模型（2B/4B/12B/26B/31B）通过 GEMMA_TOOLS 协议实现原生函数调用，无需 JSON Mode 模拟。支持的后端：
+sqlseed-ai 支持 Gemma 4 后端，调用协议由 `SQLSEED_AI_TOOL_CALLING_PROTOCOL`
+控制，不仅由模型名称决定。可配置的后端如下：
 
 | 后端 | 说明 | 配置方式 |
 | :--- | :--- | :--- |
@@ -666,6 +692,15 @@ sqlseed-ai 支持 Gemma 4 系列模型（2B/4B/12B/26B/31B）通过 GEMMA_TOOLS 
 | **LM Studio** | 本地推理，适合 Gemma 4 2B/4B | `SQLSEED_AI_BACKEND=lm_studio`（默认 URL `http://127.0.0.1:1234/v1`） |
 | **Ollama** | 本地推理，适合 Gemma 4 2B/4B/26B | `SQLSEED_AI_BACKEND=ollama` |
 | **OpenAI-compatible** | 通用 OpenAI 兼容端点（如 OpenRouter、DeepSeek） | `SQLSEED_AI_BACKEND=openai_compat` |
+
+| 请求的协议 | Google AI Studio | OpenAI-compatible | LM Studio / Ollama |
+| :--------- | :--------------- | :---------------- | :----------------- |
+| `gemma4`（默认） | Gemma 4 原生调用 | 回退 JSON/text | 回退 JSON/text |
+| `openai` | OpenAI tools API | OpenAI tools API | 回退 JSON/text |
+| `none` | JSON/text | JSON/text | JSON/text |
+
+未显式选择 backend 且没有可识别的 URL 时，配置使用 `openai_compat`，必须提供
+base URL，并选择该端点支持的模型。模型和后端也需要支持所请求的 tools API。
 
 > **💡 OpenRouter（免费方案）**：没有付费 API Key 的用户，可以使用 OpenRouter 的免费模型。设置 `SQLSEED_AI_BACKEND=openai_compat`、`SQLSEED_AI_BASE_URL=https://openrouter.ai/api/v1`、`SQLSEED_AI_MODEL=<免费模型名>`。
 
@@ -709,7 +744,7 @@ pip install "sqlseed-ai[mcp]"
 | 类型 | 名称 | 说明 |
 | :--- | :--- | :--- |
 | 🧠 Tool | `sqlseed_ai_generate_yaml` | AI 驱动的 YAML 配置生成（含自纠正） |
-| 🧠 Tool | `sqlseed_gemma4_analyze` | Gemma 4 原生函数调用分析 Schema（GEMMA_TOOLS 协议） |
+| 🧠 Tool | `sqlseed_gemma4_analyze` | 使用 Gemma 4 和解析后的后端协议分析 Schema |
 | 🧠 Tool | `sqlseed_gemma4_agent_fill` | Gemma 4 Agent 模式端到端数据生成（分析→配置→填充） |
 | 🧠 Tool | `sqlseed_list_gemma_models` | 列出可用的 Gemma 4 模型及后端支持情况 |
 
@@ -791,12 +826,13 @@ sqlseed inspect app.db --table users --show-mapping
 
 # ═══ 快照与回放 ═══
 sqlseed init generate.yaml --db app.db
-sqlseed replay <cache_dir>/snapshots/YYYY-MM-DD_users.yaml
+sqlseed replay "/path/to/saved-snapshot.yaml"  # 使用 --snapshot 实际输出的路径
 
 # ═══ AI 功能 ═══
 sqlseed ai-suggest app.db -t users -o users.yaml
 sqlseed ai-suggest app.db -t users -o users.yaml --verify
-sqlseed ai-suggest app.db -t users -o users.yaml --api-key sk-xxx --base-url https://api.openai.com/v1
+SQLSEED_AI_BACKEND=openai_compat sqlseed ai-suggest app.db -t users -o users.yaml \
+    --api-key your-api-key --base-url https://your-api-endpoint/v1 --model your-model
 sqlseed ai-suggest app.db -t users -o users.yaml --max-retries 0
 sqlseed ai-suggest app.db -t users -o users.yaml --no-cache
 
@@ -887,14 +923,16 @@ sqlseed 通过 [pluggy](https://pluggy.readthedocs.io/) 提供 12 个 Hook 点�
 
 ```
 src/sqlseed/
-├── __init__.py              # 公共 API (fill, connect, fill_from_config, preview)
+├── __init__.py              # 公共 API (fill, connect, fill_from_config, preview, load_config)
 ├── core/                    # ===== 核心编排层 =====
-│   ├── orchestrator/        # DataOrchestrator 包（4 个 mixin + 1 个共享数据模块）
+│   ├── orchestrator/        # DataOrchestrator（4 个 mixin、共享状态及辅助模块）
 │   │   ├── __init__.py
 │   │   ├── _common.py
 │   │   ├── _connection.py
 │   │   ├── _specs.py
 │   │   ├── _generation.py
+│   │   ├── _self_ref.py
+│   │   ├── _session.py
 │   │   └── _query.py
 │   ├── mapper.py            # ColumnMapper 9 级策略链
 │   ├── schema.py            # SchemaInferrer — 推断列、索引、数据分布
@@ -908,14 +946,15 @@ src/sqlseed/
 │   └── result.py            # GenerationResult 数据类
 ├── generators/              # ===== 数据生成层 =====
 │   ├── _protocol.py         # DataProvider Protocol + UnknownGeneratorError
+│   ├── _dispatch.py         # GeneratorDispatchMixin.GENERATOR_MAP（36 种）
 │   ├── registry.py          # ProviderRegistry (entry-point 自动发现)
-│   ├── base_provider.py     # 内置基础生成器（零依赖）
+│   ├── base_provider.py     # 内置基础生成器；pattern 使用 rstr
 │   ├── faker_provider.py    # Faker 适配器
 │   └── mimesis_provider.py  # Mimesis 适配器
 ├── database/                # ===== 数据库层 =====
 │   ├── _protocol.py         # DatabaseAdapter Protocol (ColumnInfo, ForeignKeyInfo, IndexInfo)
 │   ├── sqlalchemy_adapter.py    # 默认适配器（SQLite/PostgreSQL）
-│   ├── raw_sqlite_adapter.py     # sqlite3 回退适配器
+│   ├── raw_sqlite_adapter.py     # 仅供测试的 sqlite3 适配器
 │   └── optimizer.py         # PragmaOptimizer 三级优化
 ├── plugins/                 # ===== 插件层 =====
 │   ├── hookspecs.py         # 12 个 pluggy Hook 定义
@@ -937,8 +976,10 @@ plugins/
 │   └── src/sqlseed_cli/     # 独立包，单独 pyproject.toml
 ├── sqlseed-ai/              # AI 插件 — LLM 驱动的智能配置
 │   └── src/sqlseed_ai/      # SchemaAnalyzer, AiConfigRefiner, Few-shot 示例...
-└── mcp-server-sqlseed/      # MCP 服务器 — AI 助手交互
-    └── src/mcp_server_sqlseed/   # FastMCP 工具 (sqlseed_generate_yaml/sqlseed_execute_fill)
+├── mcp-server-sqlseed/      # MCP 服务器 — AI 助手交互
+│   └── src/mcp_server_sqlseed/   # FastMCP 工具 (sqlseed_generate_yaml/sqlseed_execute_fill)
+└── sqlseed-web/             # 本地 Web 工作台与可选 AI heal lab
+    └── src/sqlseed_web/     # FastAPI 路由、运行时和静态前端
 ```
 
 ***
@@ -956,20 +997,21 @@ mypy                                # 类型检查（按 pyproject.toml 配置�
 
 | 包 | 核心依赖 | 说明 |
 |:--|:--------|:-----|
-| `sqlseed` | sqlalchemy, pydantic, pluggy, structlog, pyyaml, faker, typing_extensions, simpleeval, **rstr** | faker 为必需核心依赖；rstr 用于 `pattern` 生成器的正则匹配 |
+| `sqlseed` | sqlalchemy, pydantic, pluggy, structlog, pyyaml, faker, typing_extensions, simpleeval, rstr, **sqlglot** | Faker 为必需依赖；rstr 生成正则值，sqlglot 解析 CHECK 约束 |
 | `sqlseed[mimesis]` | + mimesis>=18.0 | Mimesis 数据引擎（推荐） |
 | `sqlseed[postgres]` | + psycopg | PostgreSQL SQLAlchemy 驱动 |
 | `sqlseed[docs]` | + mkdocs-material, mkdocstrings | 文档构建 |
 | `sqlseed-cli` | sqlseed, **click**, **rich** | CLI 插件 —— 提供 `sqlseed` 命令 (fill/preview/inspect/init/replay)，自动拉取 sqlseed 核心 |
-| `sqlseed-ai` | sqlseed, **openai>=1.0** | AI 插件（Gemma 4 原生函数调用），通过 entry-point 自动注册 |
-| `sqlseed-ai[mcp]` | + sqlseed-ai, **mcp>=1.0** | AI MCP 服务器（4 个 LLM 工具）；通过 `pip install "sqlseed-ai[mcp]"` 安装 |
-| `mcp-server-sqlseed` | sqlseed, **mcp>=1.0** | MCP 服务器（2 个核心工具，无 LLM），独立 CLI 工具 |
+| `sqlseed-ai` | sqlseed, sqlseed-cli, openai>=1.0, httpx>=0.24.0, networkx>=3.0 | AI 插件，通过 entry-point 自动注册 |
+| `sqlseed-ai[mcp]` | + mcp>=1.0,<2 | AI MCP 服务器（4 个 LLM 工具）；通过 `pip install "sqlseed-ai[mcp]"` 安装 |
+| `mcp-server-sqlseed` | sqlseed, mcp>=1.0,<2 | MCP 服务器（2 个核心工具，无 LLM），独立 CLI 工具 |
+| `sqlseed-web` | sqlseed, fastapi>=0.110, uvicorn>=0.29, pyyaml>=6.0, packaging>=23.2 | 本地 Web 工作台；`ai` extra 增加 sqlseed-ai |
 
 ***
 
 ## 📄 License
 
-[AGPL-3.0-or-later](LICENSE)
+[AGPL-3.0-or-later](https://github.com/sunbos/sqlseed/blob/main/LICENSE)
 
 ***
 

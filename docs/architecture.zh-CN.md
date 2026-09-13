@@ -8,6 +8,11 @@
 
 ## 1. 整体系统架构
 
+本文描述 `main` 的五包实现；安装与已发布版本的区别见[升级说明](migration.zh-CN.md)。
+Core 不依赖入口插件，`DataStream` 属于 Core；Web 的运行与维护进程见第 12 节。
+
+
+
 ```mermaid
 graph TB
     subgraph User["👤 用户入口"]
@@ -28,6 +33,7 @@ graph TB
         Constraint["ConstraintSolver<br/>约束回溯"]
         Transform["TransformLoader<br/>脚本加载"]
         Result["GenerationResult<br/>结果统计"]
+        Stream["DataStream<br/>流式生成"]
         CheckParser["check_parser.py<br/>CHECK 约束解析"]
         SchemaFallback["schema_fallback.py<br/>纯 schema 回退生成器"]
         Features["features.py<br/>规范化结构特征"]
@@ -39,7 +45,6 @@ graph TB
         Base["BaseProvider<br/>内置"]
         Faker["FakerProvider<br/>Faker"]
         Mimesis["MimesisProvider<br/>Mimesis"]
-        Stream["DataStream<br/>流式生成"]
     end
 
     subgraph DB["💾 数据库层 (database/)"]
@@ -150,58 +155,41 @@ graph TB
 
 ***
 
-## 2. 核心编排流程（fill\_table 执行链路）
+## 2. 核心编排流程（fill_table）
+
+下图概括正常执行路径。结构支持预检先于清空和写入；普通 Core 批量执行可能
+保留失败前已提交的批次。调用方仍需检查结果中的 `errors` 和 `count`，具体见
+[写入与失败语义](maintainable-release.md#write-semantics)。
 
 ```mermaid
 sequenceDiagram
-    participant U as 用户
+    participant U as User
     participant O as DataOrchestrator
-    participant S as SchemaInferrer
-    participant M as ColumnMapper
-    participant R as RelationResolver
-    participant AI as AI Plugin (Hook)
-    participant D as ColumnDAG
-    participant ST as DataStream
+    participant ST as DataStream (core)
+    participant PM as PluginMediator
     participant DB as DatabaseAdapter
-    participant P as SharedPool
+    participant P as RelationResolver / SharedPool
 
     U->>O: fill_table(table, count)
-    O->>O: _ensure_connected()
-    O->>DB: optimize_for_bulk_write(count)
-    O->>S: get_column_info(table)
-    S-->>O: list[ColumnInfo]
-
-    O->>M: map_columns(columns, user_configs)
-    M-->>O: dict[str, GeneratorSpec]
-
-    O->>R: _resolve_foreign_keys(table, specs)
-    R->>DB: get_column_values(ref_table, ref_col)
-    R-->>O: specs (with FK values)
-
-    O->>O: _resolve_implicit_associations(SharedPool)
-
-    O->>AI: sqlseed_ai_analyze_table(...)
-    AI-->>O: AI suggestions (optional)
-
-    O->>AI: sqlseed_pre_generate_templates(...)
-    AI-->>O: template values (optional)
-
-    O->>D: build(specs, column_configs)
-    D->>D: topological_sort()
-    D-->>O: list[ColumnNode]
-
-    loop 逐批生成
-        O->>ST: generate(count, batch_size)
-        ST->>ST: _generate_row() × batch_size
-        Note over ST: 表达式求值 + 约束检查 + 回溯
-        ST-->>O: list[dict] (batch)
-
-        O->>O: _apply_batch_transforms(batch)
-        O->>DB: batch_insert(table, batch)
+    O->>O: 连接、参数校验与结构支持预检
+    opt 启用数据库优化
+        O->>DB: optimize_for_bulk_write(count)
     end
-
-    O->>P: _register_shared_pool(table, specs)
-    O-->>U: GenerationResult
+    O->>O: _prepare_specs (schema、CHECK、FK、规则与可选 AI)
+    O->>ST: _build_stream (seed、表达式、约束)
+    loop 按批生成
+        O->>ST: generate(count, batch_size)
+        ST-->>O: batch
+        O->>PM: apply_batch_transforms(table, batch)
+        PM-->>O: 最后一个非 None 结果或原 batch
+        O->>DB: batch_insert(table, batch)
+        DB-->>O: 实际插入数
+        O->>O: 记录已完成批次
+    end
+    O->>DB: restore_settings (finally)
+    O->>P: register_shared_pool(table, specs)
+    O->>O: 已支持的自引用外键后处理
+    O-->>U: GenerationResult (count / errors)
 ```
 
 ***
@@ -212,11 +200,13 @@ sequenceDiagram
 flowchart TD
     Start(["map_column(column_info, user_config)"]) --> L1
 
-    L1{"Level 1<br/>自增主键？<br/>PK + AUTOINCREMENT"} -->|是| R1["skip"]
+    L1{"计算列或显式自增主键？"} -->|是| R1["skip"]
     L1 -->|否| L2
 
     L2{"Level 2<br/>用户配置？"} -->|有| R2["使用用户指定的 generator + params"]
-    L2 -->|无| L3
+    L2 -->|无| Rowid{"真实 SQLite rowid alias？"}
+    Rowid -->|是| R1
+    Rowid -->|否| L3
 
     L3{"Level 3<br/>自定义精确匹配？"} -->|匹配| R3["使用插件注册的精确规则"]
     L3 -->|未匹配| L4
@@ -264,7 +254,10 @@ flowchart TD
 
 ***
 
-## 4. 数据生成层架构
+## 4. Provider 与 Core 流式生成
+
+Provider 与 dispatch 位于 `generators/`；图中的 `DataStream`、表达式和约束
+处理器属于 `core/`，由 Core 调用 provider。生成器层不导入 Core。
 
 ```mermaid
 classDiagram
@@ -274,7 +267,7 @@ classDiagram
         +set_locale(locale: str)
         +set_seed(seed: int)
         +generate(type_name: str, **params) Any
-        ... 通过 GENERATOR_MAP 分派到 35 种内部方法
+        ... 通过 GENERATOR_MAP 分派到 36 种内部方法
     }
 
     class BaseProvider {
@@ -462,75 +455,29 @@ flowchart LR
 
 ## 7. AI 插件架构
 
+AI 插件保留不同职责的入口。单表 `ai-suggest` 使用 `SchemaAnalyzer` 与
+`AiConfigRefiner`；`ai-analyze` 默认使用 `AutoHealOrchestrator`，`auto-heal`
+修复已有配置。共享构造入口 `sqlseed_ai.runtime` 负责配置、客户端和修复编排器，
+终端输出与退出码留在 CLI。Web 通过 Python 服务提供待审阅的规则建议。
+
 ```mermaid
 flowchart TB
-    subgraph CLI_Trigger["触发入口"]
-        CLICmd["sqlseed ai-suggest / ai-analyze / auto-heal"]
-        HookCall["sqlseed_ai_analyze_table Hook"]
-        MCPTool["MCP: sqlseed_ai_generate_yaml"]
-        MCPGemma4Analyze["MCP: sqlseed_gemma4_analyze"]
-        MCPGemma4AgentFill["MCP: sqlseed_gemma4_agent_fill"]
-    end
-
-    subgraph Analyzer["SchemaAnalyzer"]
-        Context["构建上下文<br/>列 + 索引 + FK + 样本 + 分布"]
-        FewShot["注入 Few-shot 示例<br/>(6 个典型场景)"]
-        SysPrompt["System Prompt<br/>生成器列表 + 输出格式"]
-        LLM["调用 LLM<br/>AIBackend 多后端路由<br/>OpenAI API / Gemma 4 GEMMA_TOOLS<br/>response_format: json_object"]
-    end
-
-    subgraph Refiner["AiConfigRefiner 自纠正闭环"]
-        direction TB
-        Init["初始生成"]
-        Validate["验证配置"]
-        VCheck{"通过？"}
-        Cache["缓存结果<br/>(schema hash 校验)"]
-        ErrorSum["ErrorSummary<br/>错误分类"]
-        FixPrompt["构建修正 Prompt"]
-        Retry["重试 LLM"]
-        MaxCheck{"超过<br/>max_retries?"}
-        FailErr["AISuggestionFailedError"]
-
-        Init --> Validate --> VCheck
-        VCheck -->|✅| Cache
-        VCheck -->|❌| ErrorSum --> FixPrompt --> Retry
-        Retry --> Validate
-        MaxCheck -->|是| FailErr
-    end
-
-    subgraph Validation["验证步骤"]
-        V1["1. Pydantic TableConfig 解析"]
-        V2["2. 列名存在性检查"]
-        V3["3. 空配置检查"]
-        V4["4. preview_table(count=5) 试运行"]
-    end
-
-    subgraph ErrorTypes["错误类型"]
-        E1["pydantic_validation"]
-        E2["json_syntax"]
-        E3["unknown_generator"]
-        E4["expression_error"]
-        E5["column_mismatch"]
-        E6["empty_config"]
-        E7["fatal (不可重试)"]
-        E8["runtime_error (兜底)"]
-    end
-
-    CLICmd --> Analyzer
-    HookCall --> Analyzer
-    MCPTool --> Analyzer
-    MCPGemma4Analyze --> Analyzer
-    MCPGemma4AgentFill --> Analyzer
-
-    Context --> FewShot --> SysPrompt --> LLM
-    LLM --> Refiner
-
-    Validate --> Validation
-    ErrorSum --> ErrorTypes
-
-    style Cache fill:#4CAF50,color:#fff
-    style FailErr fill:#F44336,color:#fff
+    Suggest["ai-suggest / AI hooks / AI MCP"] --> Analyzer[SchemaAnalyzer]
+    Analyzer --> Refiner["AiConfigRefiner: 校验与有限重试"]
+    Analyze["ai-analyze / auto-heal"] --> Runtime[sqlseed_ai.runtime]
+    Runtime --> AutoHeal[AutoHealOrchestrator]
+    AutoHeal --> Contracts["规则契约、校验与修复"]
+    Web["Web AI 配置助手"] --> Services["AI Python 服务"]
+    Refiner --> Rules["YAML 规则 / 分析结果"]
+    Contracts --> Rules
+    Services --> Review["用户审阅建议"]
+    Review --> Rules
+    Rules --> Core["离线 Core: 显式预览或执行"]
 ```
+
+`ai-suggest --auto-heal` 选择完整修复流程，并处理所有表。
+AI MCP 的 `sqlseed_gemma4_agent_fill` 是分析后执行的独立入口；普通分析命令
+与 Web 建议不因此自动写入数据库。真实模型可达性、输出质量和支持范围须单独验证。
 
 ***
 
@@ -548,7 +495,8 @@ flowchart TB
     H2 --> Fill
 
     Fill --> Mapping["列映射"]
-    Mapping --> H3["🤖 sqlseed_ai_analyze_table<br/>(firstresult)"]
+    Mapping --> Mediation["sqlseed_apply_ai_suggestions<br/>(firstresult, optional AI plugin)"]
+    Mediation --> H3["🤖 sqlseed_ai_analyze_table<br/>(firstresult)"]
 
     H3 --> Template["模板池"]
     Template --> H4["🤖 sqlseed_pre_generate_templates<br/>(firstresult)"]
@@ -571,7 +519,7 @@ flowchart TB
 
     BatchLoop --> H10["📢 sqlseed_after_generate"]
 
-    H10 --> RegisterPool["_register_shared_pool()"]
+    H10 --> RegisterPool["RelationResolver.register_shared_pool()"]
     RegisterPool --> H11["📢 sqlseed_shared_pool_loaded"]
 
     H11 --> Done(["返回 GenerationResult"])
@@ -623,7 +571,7 @@ classDiagram
         +params: dict
         +null_ratio: float = 0.0
         --- 派生列模式 ---
-        +derive_from: str | None
+        +derive_from: str | list~str~ | None
         +expression: str | None
         --- 约束 ---
         +constraints: ColumnConstraintsConfig | None
@@ -718,64 +666,26 @@ flowchart LR
 
 ***
 
-## 11. Gemma 4 集成架构
+## 11. Gemma 4 工具调用协议
+
+以下流程属于 `SchemaAnalyzer` 的结构化响应路径。`AIConfig` 根据后端解析
+`gemma4`、`openai` 或 `none` 协议；工具调用返回值供本地解析与校验。
+这里没有自动注册任意 Core 工具、执行工具后回注 `tool_result` 的多轮执行循环。
 
 ```mermaid
-flowchart TB
-    subgraph MCPEntry["MCP 工具入口"]
-        G4Analyze["💎 sqlseed_gemma4_analyze<br/>通过 Gemma 4 进行 Schema 分析"]
-        G4AgentFill["💎 sqlseed_gemma4_agent_fill<br/>Agent 驱动数据填充"]
-        G4List["💎 sqlseed_list_gemma_models<br/>列出可用 Gemma 4 模型"]
-    end
-
-    subgraph Backend["AIBackend 多后端路由"]
-        Router["AIBackend<br/>后端选择"]
-        OpenAIBe["OpenAI 后端<br/>chat.completions API"]
-        GemmaBe["Gemma 4 后端<br/>GEMMA_TOOLS 原生函数调用"]
-    end
-
-    subgraph GemmaFC["GEMMA_TOOLS 原生函数调用"]
-        ToolReg["工具注册<br/>auto_register(sqlseed 工具)"]
-        FCRequest["函数调用请求<br/>模型生成 tool_call"]
-        FCExec["工具执行<br/>sqlseed 核心执行"]
-        FCResult["结果注入<br/>tool_result → 对话"]
-        FCIterate["迭代优化<br/>多轮工具调用"]
-    end
-
-    subgraph Core["sqlseed 核心集成"]
-        SchemaCtx["get_schema_context()"]
-        Orchestrator["DataOrchestrator"]
-        Mapper["ColumnMapper"]
-    end
-
-    G4Analyze --> Router
-    G4AgentFill --> Router
-    G4List --> Router
-
-    Router --> OpenAIBe
-    Router --> GemmaBe
-
-    GemmaBe --> ToolReg
-    ToolReg --> FCRequest
-    FCRequest --> FCExec
-    FCExec --> FCResult
-    FCResult --> FCIterate
-    FCIterate --> FCRequest
-
-    FCExec --> SchemaCtx
-    FCExec --> Orchestrator
-    FCExec --> Mapper
-
-    SchemaCtx --> Orchestrator
-
-    style GemmaBe fill:#4285F4,color:#fff
-    style ToolReg fill:#34A853,color:#fff
-    style FCRequest fill:#34A853,color:#fff
-    style FCExec fill:#FBBC05,color:#000
-    style FCResult fill:#34A853,color:#fff
-    style FCIterate fill:#EA4335,color:#fff
+flowchart TD
+    Context["表结构与生成规则提示"] --> Protocol["resolve_tool_calling_protocol"]
+    Protocol -->|gemma4 / openai| Request["GEMMA_TOOLS + tool_choice auto"]
+    Request --> Response["analyze_schema 参数或文本响应"]
+    Response --> Parse["JSON 解析与本地校验"]
+    Request -->|不支持工具调用| Fallback["云端 JSON mode / 本地 text mode"]
+    Protocol -->|none| Fallback
+    Fallback --> Parse
+    Parse --> Result["分析结果或明确错误"]
 ```
 
+协议和后端限制见 [Gemma 4 集成](gemma4-integration.zh-CN.md)。后端服务当前
+是否提供某个模型，由实际服务决定；项目中的模型注册表不构成可用性保证。
 
 ## 12. Web 工作台与组件生命周期
 

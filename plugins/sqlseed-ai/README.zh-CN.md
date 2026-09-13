@@ -1,212 +1,204 @@
 # sqlseed-ai
 
-[English](README.md) | **[中文](README.zh-CN.md)**
+[English](https://github.com/sunbos/sqlseed/blob/main/plugins/sqlseed-ai/README.md) |
+**[中文](https://github.com/sunbos/sqlseed/blob/main/plugins/sqlseed-ai/README.zh-CN.md)**
 
-[sqlseed](https://github.com/sunbos/sqlseed) 的 AI 驱动数据生成插件。
+[sqlseed](https://sunbos.github.io/sqlseed/) 的可选 LLM Schema 分析与契约驱动配置修复插件。
+提供列规则建议、配置校验与修复，以及模板候选值生成。接受的配置可交由 Core 离线执行。
 
-LLM 驱动的 Schema 分析、自纠正配置生成和模板池辅助。支持多种后端：Google AI Studio（Gemma 4 原生函数调用）、LM Studio、Ollama，以及任何 OpenAI 兼容 API（OpenRouter、OpenAI、DeepSeek 等）。
+支持 Google AI Studio、LM Studio、Ollama 和 OpenAI-compatible API 后端。
+安装插件不会验证模型可达性或建议质量；这些需要使用实际后端单独测试。
 
 ## 安装
 
+本文描述当前五包源码。兼容版本发布到 PyPI 前，在 Python 3.10+ 虚拟环境中，
+从仓库根一次安装本地 Core、CLI 和 AI：
+
 ```bash
-pip install sqlseed-ai
+python -m pip install -e . -e ./plugins/sqlseed-cli -e ./plugins/sqlseed-ai
 ```
 
-## 快速开始
-
-sqlseed-ai 插件提供 **3 个 CLI 命令**：
-
-| 命令 | 用途 | 适用场景 |
-| :--- | :--- | :--- |
-| `ai-suggest` | 单表 LLM 分析 + 自纠正 | 单表分析，支持 `--verify` 校验 |
-| `ai-analyze` | 通过 v4 AutoHealOrchestrator 分析全库或指定表，支持 FK 依赖深度和合并选项 | 多表 YAML 生成，含契约驱动自愈 |
-| `auto-heal` | 通过 LLM + 规则管道修复损坏的 YAML 配置 | 修复 `sqlseed fill` 失败的 YAML 文件 |
+Core 0.2.3 缺少本插件使用的 hooks 与数据库目标校验接口。匹配版本发布后，
+才可改用以下软件源安装命令：
 
 ```bash
-# 设置 API Key（或使用 GOOGLE_API_KEY 用于 Google AI Studio）
+python -m pip install "sqlseed-ai>=0.2.4.dev0,<0.3"
+```
+
+## CLI 快速开始
+
+先配置后端、该服务可用的模型，以及服务要求的凭据。例如 OpenAI-compatible 服务：
+
+```bash
+export SQLSEED_AI_BACKEND=openai_compat
+export SQLSEED_AI_BASE_URL="https://your-service.example/v1"
+export SQLSEED_AI_MODEL="your-available-model"
 export SQLSEED_AI_API_KEY="your-api-key"
+```
 
-# ─────────────────────────────────────────────
-# ai-suggest: 单表 LLM 分析
-# ─────────────────────────────────────────────
+使用 Google AI Studio 时显式选择 `SQLSEED_AI_BACKEND=google_ai_studio`，
+并设置服务所需 API Key；只设置 `GOOGLE_API_KEY` 不会选择 Google 后端。
+本地无认证服务通常不需要真实 API Key。
 
-# AI 分析并生成配置
-sqlseed ai-suggest app.db --table users --output users.yaml
+分析前应已创建 SQLite 数据库与目标表：
 
-# 带自纠正（默认 3 轮）
-sqlseed ai-suggest app.db --table users --output users.yaml --verify
+```bash
+# 单表分析并校验建议配置；verify 默认开启，最多重试 3 次
+sqlseed ai-suggest app.db --table users --output users.yaml --verify --no-cache
 
-# 指定模型（默认使用 Gemma 4 26B via Google AI Studio）
-sqlseed ai-suggest app.db --table users -o users.yaml --model gemma-4-26b-a4b-it
+# 使用 v4 AutoHealOrchestrator 分析全库
+sqlseed ai-analyze --db app.db --output config.yaml
 
-# 使用本地 LM Studio（通过环境变量选择后端）
-export SQLSEED_AI_BACKEND=lm_studio
-sqlseed ai-suggest app.db --table users -o users.yaml --model google/gemma-4-e4b
-
-# 跳过缓存
-sqlseed ai-suggest app.db --table users -o users.yaml --no-cache
-
-# ─────────────────────────────────────────────
-# ai-analyze: 全库分析（v4 架构默认路径）
-# ─────────────────────────────────────────────
-
-# 分析整个数据库并生成 YAML（v4 AutoHealOrchestrator）
-sqlseed ai-analyze --db app.db -o config.yaml
-
-# 通过 --url 连接多数据库
+# 通过 URL 分析 PostgreSQL；需在该环境安装 Core 的 postgres extra
 sqlseed ai-analyze --url "postgresql+psycopg://user:pass@host/db" -o config.yaml
 
-# 记录完整 LLM 交互用于调试
+# 保存完整 LLM 交互用于诊断
 sqlseed ai-analyze --db app.db -o config.yaml --log-llm
 
-# ─────────────────────────────────────────────
-# auto-heal: 修复损坏的 YAML 配置
-# ─────────────────────────────────────────────
+# 修复已有 YAML 配置
+sqlseed auto-heal --db app.db --config broken.yaml --output healed.yaml
 
-# ai-analyze 之后若 `sqlseed fill` 失败，可修复 YAML
-sqlseed auto-heal --db app.db --config broken.yaml -o healed.yaml
-
-# 使用不同的 LLM 模型进行修复
-sqlseed auto-heal --db app.db --config broken.yaml -o healed.yaml --model gemma-4-26b-a4b-it
+# 审阅生成规则后离线执行
+sqlseed fill --config users.yaml --no-ai
 ```
+
+本插件为 CLI 增加三个命令：
+
+| 命令 | 行为 |
+| --- | --- |
+| `ai-suggest` | 单表 LLM 分析与可选自纠正；`--auto-heal` 选择 AutoHeal 路径 |
+| `ai-analyze` | 全库或指定表分析，支持依赖范围与配置合并 |
+| `auto-heal` | 修复输入 YAML，保留表范围、行数、seed 和未受影响的规则 |
 
 `ai-analyze --tables orders` 默认包含最多 `--max-depth 5` 层引用的父表。
 使用 `--no-dependencies` 或 `--max-depth 0` 仅分析指定表。未知表名在写文件前报错。
 `--merge` 必须提供 `--output`：只替换显式选中的表，保留已有依赖表、无关表和全局设置，
 并追加尚不存在的生成表。
 
-`auto-heal --config` 实际读取并修复该文件，保留表范围、行数、seed 和未受修复影响的列规则。
-显式 `--db` / `--url` 决定输出连接。YAML / 配置结构错误或输入含未知表时，不覆盖输出文件。
+`auto-heal --config` 实际读取并修复该文件。必须指定 `--db` 或 `--url` 之一，
+两者互斥并决定输出连接。YAML、配置结构错误或输入含未知表时，不覆盖输出文件。
 
 接受模型修复前，healer 校验配置结构、内置 generator 名称、参数名及参数注解类型，
-再运行既有 contract validator。无效候选进入确定性降级。这不等同于完整执行预览：
-native / custom 方法、生成值及依赖数据库状态的约束仍需正常执行校验。
+再运行既有 contract validator。无效候选进入确定性降级。正常预览和执行仍不可省略：
+native/custom 方法、实际生成值及依赖数据库状态的约束需另行验证。
 
-## 功能
+三个命令均不接受 `--backend`；使用环境变量或识别到的 Base URL 选择后端。
+`ai-suggest` 支持 `--verify/--no-verify`、`--max-retries`、`--no-cache`、`--timeout`；
+`ai-analyze` 的 `--max-retries` 默认是 `2`，`auto-heal` 默认是 `3`。
+具体参数以 `sqlseed <command> --help` 为准。
 
-### Schema 分析器
+## 独立 AI MCP 服务器
 
-`SchemaAnalyzer` 从数据库提取丰富上下文（列、索引、样本数据、外键、数据分布），构建结构化 Prompt 供 LLM 分析。返回列级生成配置（JSON 格式）。
+AI MCP 入口要求本包的 `mcp` extra。从当前仓库安装并启动：
 
-### 自纠正 Refiner
-
-`AiConfigRefiner` 验证 LLM 输出是否符合实际 Schema：
-1. LLM 生成列配置
-2. Refiner 检查未知生成器、类型不匹配、表达式错误
-3. 若发现错误，向 LLM 发送修正请求
-4. 最多重试 3 轮，然后抛出 `AISuggestionFailedError`
-
-### 自动模型选择
-
-使用 `google_ai_studio` 后端（默认）时，`GemmaModel` 枚举提供预配置的 Gemma 4 变体。模型根据后端自动选择：
-
-1. **Google AI Studio**：默认使用 `gemma-4-26b-a4b-it`（推荐的质量与速度平衡）。
-2. **LM Studio / Ollama**：用户需通过 `--model` 或 `SQLSEED_AI_MODEL` 指定已加载的模型。
-3. **OpenAI-compatible**（OpenRouter、DeepSeek 等）：用户需同时指定 `--model` 和 `--base-url`。
-
-**OpenRouter 免费模型**设置：
 ```bash
-export SQLSEED_AI_BACKEND=openai_compat
-export SQLSEED_AI_BASE_URL=https://openrouter.ai/api/v1
-export SQLSEED_AI_MODEL=<免费模型名>
+python -m pip install -e . -e ./plugins/sqlseed-cli -e "./plugins/sqlseed-ai[mcp]"
+mcp-server-sqlseed-ai
 ```
 
-通过 `--model` 或 `SQLSEED_AI_MODEL` 跳过自动选择。
+匹配版本发布后可安装 `"sqlseed-ai[mcp]>=0.2.4.dev0,<0.3"`。
+配置 MCP 客户端启动 `mcp-server-sqlseed-ai`，它提供四个工具：
 
-使用 `google_ai_studio` 后端时，`GemmaModel` 枚举提供预配置的 Gemma 4 变体：
+- `sqlseed_ai_generate_yaml`
+- `sqlseed_gemma4_analyze`
+- `sqlseed_gemma4_agent_fill`
+- `sqlseed_list_gemma_models`
 
-| 枚举值 | 模型 ID | 说明 |
-|:-------|:--------|:-----|
-| `GemmaModel.GEMMA_4_E2B` | `gemma-4-e2b-it` | 2B Effective, Edge — 超轻量边缘部署 |
-| `GemmaModel.GEMMA_4_E4B` | `gemma-4-e4b-it` | 4B Effective, Edge — 轻量本地推理 |
-| `GemmaModel.GEMMA_4_12B` | `gemma-4-12b-it` | 12B Unified, Laptop — 速度与质量均衡 |
-| `GemmaModel.GEMMA_4_26B_A4B` | `gemma-4-26b-a4b-it` | 26B A4B MoE — 高质量，推荐使用 |
-| `GemmaModel.GEMMA_4_31B` | `gemma-4-31b-it` | 31B Dense — 最佳质量，最大模型 |
+无需 LLM 的规则生成和数据填充由独立的
+[Core MCP 包](https://github.com/sunbos/sqlseed/tree/main/plugins/mcp-server-sqlseed)提供。
+安装 AI 不会向 `mcp-server-sqlseed` 进程注入这些工具，客户端须分别配置两个进程。
+工具发现或成功获取模型列表，不等于模型推理已经可用。
 
-`AIBackend` 枚举用于选择 API 后端：
+## 配置与模型选择
 
-| 枚举值 | 后端 | 默认 Base URL |
-|:-------|:-----|:--------------|
-| `AIBackend.GOOGLE_AI_STUDIO` | Google AI Studio | `https://generativelanguage.googleapis.com/v1beta/openai/` |
-| `AIBackend.LM_STUDIO` | LM Studio | `http://127.0.0.1:1234/v1` |
-| `AIBackend.OLLAMA` | Ollama | `http://localhost:11434/v1` |
-| `AIBackend.OPENAI_COMPAT` | OpenAI 兼容端点 | （需设置 `SQLSEED_AI_BASE_URL`） |
+环境配置统一通过 `AIConfig.from_env()` 加载；也可以显式构造 `AIConfig`。
+后端解析顺序是显式 `SQLSEED_AI_BACKEND`、已知 URL 模式、最后 `openai_compat`。
+这不是逐个探测所有服务的 fallback 链。
 
-### 模板池
+| 变量 | 用途 |
+| --- | --- |
+| `SQLSEED_AI_BACKEND` | `google_ai_studio`、`lm_studio`、`ollama` 或 `openai_compat` |
+| `SQLSEED_AI_BASE_URL` | 服务端点；回退到 `OPENAI_BASE_URL` |
+| `SQLSEED_AI_MODEL` | 所选服务提供的模型 ID |
+| `SQLSEED_AI_API_KEY` | 服务凭据；依次回退到 `GOOGLE_API_KEY`、`OPENAI_API_KEY` |
+| `SQLSEED_AI_TOOL_CALLING_PROTOCOL` | 请求使用 `gemma4`、`openai` 或 `none` 协议，按后端支持情况解析 |
+| `SQLSEED_AI_TIMEOUT` | 请求超时秒数；`0` 按后端和模型选择 |
+| `SQLSEED_CACHE_DIR` | 覆盖平台默认 sqlseed 缓存目录 |
 
-当 sqlseed 以 `skip_ai=False` 填充表时，插件通过 `sqlseed_pre_generate_templates` Hook 为无法映射到确定性生成器的列预生成候选值。
+`openai_compat` 必须配置 Base URL。其他后端默认地址如下：
+
+| 后端 | 默认 Base URL |
+| --- | --- |
+| Google AI Studio | `https://generativelanguage.googleapis.com/v1beta/openai/` |
+| LM Studio | `http://127.0.0.1:1234/v1` |
+| Ollama | `http://localhost:11434/v1` |
+
+显式 `--model` 或 `SQLSEED_AI_MODEL` 优先。未指定模型时，LM Studio/Ollama
+尝试检测已加载模型，再使用本地 Gemma E4B 回退 ID；云端按后端格式选择项目注册的
+Gemma 26B ID。注册的模型名称不保证服务当前提供该模型，请查询服务实际列表并验证。
+模型 ID、别名和后端映射以
+[配置源码](https://github.com/sunbos/sqlseed/blob/main/plugins/sqlseed-ai/src/sqlseed_ai/config.py)为准。
+
+自动超时为云端 60 秒、本地普通模型 120 秒、本地 reasoning 模型 300 秒。
+显式正数超时会保留至少 30 秒。模型配置和已安装状态均不能代替实际请求测试。
+
+## 分析、修复与模板池
+
+`SchemaAnalyzer` 使用列、索引、样本数据、外键和数据分布构建 Prompt，返回列级配置。
+单表 `ai-suggest` 的 `AiConfigRefiner` 校验配置与实际 schema，遇到可修复错误时请求模型
+修正；默认最多重试 3 次，仍失败时报告 `AISuggestionFailedError`。
+`ai-analyze` 和 `auto-heal` 则使用 v4 `AutoHealOrchestrator` 的契约驱动路径。
+
+开启 AI 生成路径时，`sqlseed_pre_generate_templates` 可为符合条件的未匹配字符串列
+准备候选值。用户明确配置、UNIQUE、默认值或主键等条件会影响是否使用模板池，
+不保证每个复杂字段都会调用模型。
+
+### 工具调用协议
+
+`tool_calling_protocol` 与 `resolve_tool_calling_protocol()` 一起决定响应协议，
+不能只根据模型名称决定。`gemma4` 仅在 Google AI Studio 解析为工具调用，
+`openai` 支持 Google AI Studio 与 OpenAI-compatible；LM Studio/Ollama 使用无工具协议。
+
+工具调用路径发送 `tools=GEMMA_TOOLS` 和 `tool_choice="auto"`，从响应中提取
+`analyze_schema` 的参数或解析文本。它不是强制返回函数调用；不支持工具调用时，
+云端回退 JSON mode，本地使用 text mode。结构化响应仍需校验，不能保证模型输出正确。
 
 ### 文件缓存
 
-AI 配置缓存在平台标准缓存目录（macOS: `~/Library/Caches/sqlseed/ai_configs/`，Linux: `~/.cache/sqlseed/ai_configs/`，Windows: `%LOCALAPPDATA%/sqlseed/ai_configs/`），带 schema hash 校验。Schema 变更自动失效。使用 `--no-cache` 跳过。可通过 `SQLSEED_CACHE_DIR` 环境变量覆盖。
-
-## 配置
-
-### 环境变量
-
-| 变量 | 回退 | 默认值 | 说明 |
-|:-----|:-----|:-------|:-----|
-| `SQLSEED_AI_API_KEY` | `GOOGLE_API_KEY` → `OPENAI_API_KEY` | — | API Key（必填） |
-| `SQLSEED_AI_BASE_URL` | `OPENAI_BASE_URL` | （按后端自动设置） | API 端点 |
-| `SQLSEED_AI_MODEL` | — | `gemma-4-26b-a4b-it` | 模型名称 |
-| `SQLSEED_AI_TIMEOUT` | — | （按后端自动：云端 60s，本地 120s） | API 超时（秒） |
-| `SQLSEED_AI_BACKEND` | — | `google_ai_studio` | AI 后端：`google_ai_studio`、`lm_studio`、`ollama`、`openai_compat` |
-| `GOOGLE_API_KEY` | — | — | Google AI Studio API Key（后端为 `google_ai_studio` 时作为 `SQLSEED_AI_API_KEY` 的回退） |
-
-### CLI 参数
-
-```
---model, -m       模型名称（覆盖自动选择）
---api-key         API Key（覆盖环境变量）
---base-url        API Base URL（覆盖环境变量）
---max-retries     自纠正轮数（默认: 3，0=禁用）
---verify/--no-verify  切换自纠正（默认: verify）
---no-cache        跳过文件缓存
---timeout         API 超时秒数（按后端自动：云端 60s，本地 120s）
-```
+AI 配置缓存包含 schema hash，结构变化会使旧建议失效；`--no-cache` 跳过缓存。
+默认路径为 macOS 的 `~/Library/Caches/sqlseed/ai_configs/`、Linux 的
+`$XDG_CACHE_HOME/sqlseed/ai_configs/`（未设置时为 `~/.cache/sqlseed/ai_configs/`），
+以及 Windows 的 `%LOCALAPPDATA%/sqlseed/ai_configs/`。
+`SQLSEED_CACHE_DIR` 可覆盖缓存根目录。写入数据前仍需审阅模型输出。
 
 ## 插件 Hooks
 
-本插件通过 `[project.entry-points."sqlseed"]` 注册，实现：
+本插件通过 `[project.entry-points."sqlseed"]` 注册实例，实现：
 
 | Hook | 用途 |
-|:-----|:-----|
-| `sqlseed_ai_analyze_table` | LLM 驱动的表分析，返回列配置 |
-| `sqlseed_apply_ai_suggestions` | 编排器调用的高层 AI 中介入口（判断是否需要 AI，并将结果合并到列配置） |
-| `sqlseed_transform_row` | 防御性回退：为配置错误的 DATE 列将 ISO 日期字符串转换为 `datetime.date` |
-| `sqlseed_pre_generate_templates` | 为复杂列预生成候选值 |
+| --- | --- |
+| `sqlseed_ai_analyze_table` | LLM 表分析，返回列配置 |
+| `sqlseed_apply_ai_suggestions` | 编排器使用的高层 AI 中介入口，判断是否需要分析并合并结果 |
+| `sqlseed_transform_row` | 对已识别 DATE 列中的 ISO 日期字符串提供防御性类型转换 |
+| `sqlseed_pre_generate_templates` | 为符合条件的列准备候选值 |
 
-> **注**：本插件**未实现** `sqlseed_register_providers` 和 `sqlseed_register_column_mappers` —— 注册通过 `pyproject.toml` entry point 处理。
+CLI 命令另由 `sqlseed.cli_commands` entry point 注册。本插件不实现 provider 或
+column-mapper 注册 hooks，也不要求 Core 导入 AI 实现。
 
 ## 依赖
 
-- Python >= 3.10
-- `sqlseed >= 0.1.0`
-- `sqlseed-cli >= 0.1.0`
-- `openai >= 1.0`
-- `httpx >= 0.24.0`
-- `networkx >= 3.0`
-- OpenAI 兼容 API Key 或 Google AI Studio API Key
+- Python `>=3.10`
+- `sqlseed>=0.2.4.dev0,<0.3`
+- `sqlseed-cli>=0.2.4.dev0,<0.3`
+- `openai>=1.0`
+- `httpx>=0.24.0`
+- `networkx>=3.0`
+- 可选 `mcp` extra：`mcp>=1.0,<2`
+- 实际模型请求需要已配置且可达的后端
 
-## Gemma 4 集成
+更多信息见[AI 集成指南](https://sunbos.github.io/sqlseed/gemma4-integration.zh-CN/)、
+[升级说明](https://sunbos.github.io/sqlseed/migration.zh-CN/)和
+[配置源码](https://github.com/sunbos/sqlseed/blob/main/plugins/sqlseed-ai/src/sqlseed_ai/config.py)。
 
-使用 `google_ai_studio` 后端时，sqlseed-ai 利用 **Gemma 4 原生函数调用（Native Function Calling）** 进行结构化 Schema 分析：
-
-### GEMMA_TOOLS
-
-插件定义了 `GEMMA_TOOLS` 函数声明（现定义在 `_tools.py` 中，原在 `analyzer.py`），指示 Gemma 4 以结构化 Schema 分析响应。模型被要求调用 `analyze_schema` 函数并传入类型化参数（表名、列、外键、索引等），而非输出自由文本，从而确保输出符合预期的 Schema。
-
-> **注**：所有 LLM prompt 模板（full、compact、ultra-compact 及模板生成 prompt）均集中位于 `_prompts.py`。
-
-### 原生函数调用机制
-
-1. **工具定义**：`GEMMA_TOOLS` 声明 `analyze_schema` 函数，使用严格的 JSON Schema 描述每个参数（table_name、columns、foreign_keys、indexes 等）。
-2. **请求发送**：将 Schema 上下文和分析 Prompt 发送给 Gemma 4 模型，附带 `tools=[GEMMA_TOOLS]` 和 `tool_config` 设置为强制函数调用。
-3. **响应解析**：模型返回 `FunctionCall` 对象而非纯文本。插件直接提取结构化参数，无需正则匹配或脆弱的文本解析。
-4. **验证**：提取的参数通过相同的 `AiConfigRefiner` 管道进行自纠正验证。
-
-此方法显著提高了输出可靠性，因为模型被约束为生成格式良好、符合 Schema 的响应，避免了基于文本的 LLM 输出解析的不确定性。
-
-## 许可证
-
-AGPL-3.0-or-later
+许可证：[AGPL-3.0-or-later](https://github.com/sunbos/sqlseed/blob/main/LICENSE)。
+发行包包含完整 LICENSE 文本。

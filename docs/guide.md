@@ -10,107 +10,89 @@ see the [Architecture](architecture.md) page.
 
 ## Installation
 
-### Basic Installation
+### Choose source or a published release
 
-```bash
-pip install sqlseed
-```
+These pages describe `main` and the five-package workbench targeting the 0.2.4
+series. The older 0.2.3 release uses different CLI/MCP packaging. At the
+2026-09-13 documentation review, PyPI offered Core/AI/MCP 0.2.3 and had no public
+CLI/Web distributions. Check the [release list](https://github.com/sunbos/sqlseed/releases)
+for later releases; a deployed documentation site alone is not a package release.
 
-This installs the core package with SQLite support out of the box. No database
-drivers are required for SQLite.
+Until a compatible five-package release is published, use one source checkout or
+the wheels from one successful CI artifact. Do not combine a candidate plugin
+with Core 0.2.3. The [migration guide](migration.md) covers wheel installation.
 
-### Data Engine Installation
+### Source installation
 
-sqlseed supports three data engines. Mimesis is recommended for performance and
-locale coverage; Faker is a popular alternative with a rich ecosystem.
-
-Faker is a **required** core dependency and is installed automatically with
-`pip install sqlseed`. Mimesis is optional.
-
-```bash
-# Recommended: Mimesis (high performance, great locale support)
-pip install sqlseed[mimesis]
-
-# Install all data engines + all database drivers + tqdm + CLI
-pip install sqlseed[all]
-```
-
-### CLI Installation
-
-The `sqlseed` console command lives in the separate `sqlseed-cli` package (the
-core package has no CLI). Install it with:
-
-```bash
-pip install sqlseed-cli        # auto-pulls sqlseed core
-# or, as a convenience alias:
-pip install "sqlseed[cli]"
-```
-
-### Database Backend Installation
-
-sqlseed supports SQLite (default) and PostgreSQL via SQLAlchemy.
-
-```bash
-# PostgreSQL support (psycopg driver)
-pip install "sqlseed[postgres]"
-
-# All database backends + all data engines
-pip install "sqlseed[all]"
-```
-
-!!! note "SQLite requires no extra dependencies"
-
-    SQLite works out of the box using Python's built-in `sqlite3` module.
-    PostgreSQL drivers are only required when connecting to PostgreSQL
-    databases.
-
-### AI Plugin Installation
-
-The `sqlseed-ai` plugin adds LLM-powered schema analysis. It uses Gemma 4
-Native Function Calling and supports multiple backends.
-
-```bash
-# AI analysis plugin (requires openai SDK)
-pip install sqlseed-ai
-```
-
-### MCP Server Installation
-
-The `mcp-server-sqlseed` package exposes sqlseed to AI assistants (Claude,
-Cursor, etc.) via the Model Context Protocol.
-
-```bash
-# MCP server (requires mcp SDK; rule-driven, no LLM)
-pip install mcp-server-sqlseed
-
-# AI MCP server (LLM-driven tools; requires mcp SDK)
-pip install "sqlseed-ai[mcp]"
-```
-
-### Docs Build (Developers)
-
-```bash
-pip install sqlseed[docs]   # mkdocs-material + mkdocstrings
-```
-
-### Full Dev Environment
+Use a fresh Python 3.10+ environment, clone the repository, and run the relevant
+command from its root. Supply all required local sibling packages in the same
+installation command so pip does not look for unpublished dependencies on PyPI.
 
 ```bash
 git clone https://github.com/sunbos/sqlseed.git
 cd sqlseed
+python -m venv .venv
+# Activate .venv using your shell's activation command.
 
-# Resolve Core and all local plugins together, including unpublished candidates
-python -m pip install -e ".[dev,all]" -e "./plugins/sqlseed-cli" -e "./plugins/sqlseed-ai[dev]" -e "./plugins/mcp-server-sqlseed" -e "./plugins/sqlseed-web[dev]"
+# Offline Python API with the optional Mimesis engine
+python -m pip install -e '.[mimesis]'
 
-# Verify installation
-pytest
-ruff check src/ tests/
-mypy src/sqlseed/
+# Core and CLI
+python -m pip install -e '.[mimesis]' -e ./plugins/sqlseed-cli
+
+# All five packages, AI MCP support, and PostgreSQL driver
+python -m pip install -e '.[mimesis,postgres]' -e ./plugins/sqlseed-cli -e './plugins/sqlseed-ai[mcp]' -e ./plugins/mcp-server-sqlseed -e ./plugins/sqlseed-web
+python -m pip check
 ```
+
+Choose one installation set; the commands are alternatives. Core has no console
+script. `sqlseed-cli` provides `sqlseed`, `sqlseed-web` provides `sqlseed-web`,
+and the rule-driven and AI MCP servers have separate entry points.
+
+Faker is a required Core dependency; Mimesis is optional. SQLite uses Python's
+built-in driver. The `postgres` extra installs psycopg 3. Omit unused extras from
+the chosen command. For Core/Web alone, see the [Web guide](web-workbench.md).
+
+### Published packages
+
+Once a compatible 0.2.4-series release is available, these commands can replace
+the corresponding source installation. They require that release to exist:
+
+```bash
+# Offline Core and optional data engine
+python -m pip install 'sqlseed[mimesis]>=0.2.4,<0.3'
+
+# CLI convenience extra
+python -m pip install 'sqlseed[mimesis,cli]>=0.2.4,<0.3'
+
+# Complete workbench and both MCP servers
+python -m pip install 'sqlseed[mimesis,postgres]>=0.2.4,<0.3' 'sqlseed-cli>=0.2.4,<0.3' 'sqlseed-ai[mcp]>=0.2.4,<0.3' 'mcp-server-sqlseed>=0.2.4,<0.3' 'sqlseed-web>=0.2.4,<0.3'
+```
+
+The Core `all` extra includes Mimesis, psycopg, tqdm, CLI, and testcontainers;
+it does not install AI, MCP, or Web. Install those packages explicitly when needed.
+
+### Development and docs
+
+From the repository root, resolve Core and all local plugins together:
+
+```bash
+python -m pip install -e '.[dev,all,docs]' -e ./plugins/sqlseed-cli -e './plugins/sqlseed-ai[dev,mcp]' -e ./plugins/mcp-server-sqlseed -e './plugins/sqlseed-web[dev]'
+python -m pip check
+pytest
+ruff check src/ tests/ plugins/
+mypy src/sqlseed/ plugins/
+```
+
+The `docs` extra installs MkDocs Material and mkdocstrings. `make docs-build`
+builds the maintained pages with strict validation.
 
 ---
 
 ## Quick Start
+
+The examples assume that the database and named tables already exist. Install
+the matching CLI/Core set first; the demo below creates a ready-to-use schema.
 
 ### CLI Quick Start
 
@@ -132,15 +114,14 @@ import sqlseed
 
 # One line fills 10,000 rows of high-quality test data
 result = sqlseed.fill("app.db", table="users", count=10_000)
-print(result)
-# → GenerationResult(table=users, count=10000, elapsed=0.52s, speed=19230 rows/s)
+print(result.count, result.errors)
 ```
 
 sqlseed automatically:
 
-- Skips `id` (autoincrement primary key)
-- Skips columns with default values
-- Infers `name` → real names, `email` → email addresses, `age` → integers 18–100
+- Skips computed columns and explicit autoincrement primary keys
+- Leaves eligible defaulted columns to the database when no earlier rule applies
+- Suggests generators from names such as `name`, `email`, and `age`; explicit rules and schema constraints determine the actual values
 - Matches `*_at` pattern → datetime values
 - Respects column types (`VARCHAR(20)` → max 20-char strings)
 
@@ -149,6 +130,8 @@ sqlseed automatically:
 ```bash
 python examples/build_demo_db.py
 
+# Populate the parent referenced by members.org_code first.
+sqlseed fill examples/sqlseed_demo.db --table organizations --count 10
 sqlseed preview examples/sqlseed_demo.db --table members --count 5
 sqlseed inspect examples/sqlseed_demo.db --show-mapping
 sqlseed fill examples/sqlseed_demo.db --table members --count 100
@@ -158,9 +141,10 @@ sqlseed fill examples/sqlseed_demo.db --table members --count 100
 
 ## Multi-Database Support
 
-sqlseed supports SQLite and PostgreSQL. The same API works across
-both databases — schema inference, FK resolution, expression engine, and
-plugin hooks all run identically.
+sqlseed supports SQLite and PostgreSQL through the same public API. Supported
+constraints and write modes differ by database and entry point; see
+[support and maintenance](maintainable-release.md) for foreign-key limits and
+partial-write semantics.
 
 ### Connection URLs
 
@@ -169,7 +153,7 @@ Pass a SQLAlchemy URL instead of a file path to connect to PostgreSQL.
 | Database | URL format | Driver |
 |----------|-----------|--------|
 | SQLite | `sqlite:///path/to/db` or just a file path | built-in `sqlite3` |
-| PostgreSQL | `postgresql+psycopg://user:pass@host:5432/db` | `psycopg` (`pip install sqlseed[postgres]`) |
+| PostgreSQL | `postgresql+psycopg://user:pass@host:5432/db` | `psycopg` (`python -m pip install -e ".[postgres]"`) |
 
 ### SQLite
 
@@ -184,7 +168,7 @@ result = sqlseed.fill("app.db", table="users", count=10_000)
 ### PostgreSQL
 
 ```bash
-pip install "sqlseed[postgres]"
+python -m pip install -e ".[postgres]"
 ```
 
 ```python
@@ -201,7 +185,9 @@ result = sqlseed.fill(
 
 ## CLI Reference
 
-The `sqlseed` CLI is built with `click` and provides six subcommands. Run
+The `sqlseed-cli` package provides five subcommands: `fill`, `preview`, `inspect`,
+`init`, and `replay`. Installing `sqlseed-ai` adds `ai-suggest`, `ai-analyze`, and
+`auto-heal`, for eight commands in a complete installation. Run
 `sqlseed --help` to see the full list, or `sqlseed <command> --help` for
 per-command options.
 
@@ -219,7 +205,6 @@ sqlseed fill app.db -t users -n 100000 \
     --locale en_US \
     --seed 42 \
     --batch-size 10000 \
-    --clear \
     --enrich \
     --snapshot
 
@@ -230,7 +215,7 @@ sqlseed fill --config generate.yaml
 sqlseed fill app.db -t users -n 10000 --transform transform.py
 
 # Connect via URL instead of file path
-sqlseed fill --url "postgresql://user:pass@host/db" -t users -n 1000
+sqlseed fill --url "postgresql+psycopg://user:pass@host/db" -t users -n 1000
 
 # Enable debug logging
 SQLSEED_LOG_LEVEL=DEBUG sqlseed fill app.db -t users -n 10
@@ -260,7 +245,7 @@ Preview generated data without writing to the database.
 
 ```bash
 sqlseed preview app.db --table users --count 5
-sqlseed preview --url "postgresql://..." --table users --count 10
+sqlseed preview --url "postgresql+psycopg://user:pass@host/db" --table users --count 10
 ```
 
 **Options**
@@ -299,33 +284,39 @@ sqlseed inspect app.db --table users --show-mapping
 
 ### `init`
 
-Generate a YAML config template from an existing database schema.
+Generate a basic YAML configuration skeleton using the database table names.
 
 ```bash
 sqlseed init generate.yaml --db app.db
 ```
 
-The generated template includes all tables and columns discovered in the
-database, ready for you to edit and feed back to `sqlseed fill --config`.
+The template contains the discovered table names, default generation counts,
+and empty `columns` lists. Add explicit column rules as needed; omitted rules
+are inferred during generation. `--url` accepts a database URL and is mutually
+exclusive with `--db`. Without either option, the target defaults to `test.db`.
 
 ### `replay`
 
-Replay a previously saved snapshot to reproduce a generation run exactly.
+Replay the generation configuration saved in a snapshot. To compare generated
+values, use a fresh database with the same schema, provider and dependency
+versions, seed, fixed time ranges, and initial parent data. Replaying into an
+already filled database can encounter UNIQUE conflicts; a configuration snapshot
+is not a backup of the database. See [reproduction conditions](maintainable-release.md#reproduction-conditions).
 
 ```bash
 # Generate and save snapshot
 sqlseed fill app.db --table users --count 10000 --seed 42 --snapshot
-# → Snapshot saved: <cache_dir>/snapshots/YYYY-MM-DD_HHMMSS_users.yaml
+# → Snapshot saved: <cache_dir>/snapshots/YYYY-MM-DD_HHMMSS_ffffff_users.yaml
 
-# Replay anytime
-sqlseed replay <cache_dir>/snapshots/YYYY-MM-DD_HHMMSS_users.yaml
+# Replace this path with the actual snapshot path printed by fill.
+sqlseed replay "/path/to/saved-snapshot.yaml"
 ```
 
 Use cases:
 
 - Reproducible test data in CI/CD pipelines
 - Consistent test environments across teams
-- Quick database state reconstruction during development
+- Reuse reviewed generation settings during development
 
 ### `ai-suggest`
 
@@ -333,19 +324,19 @@ Generate YAML config suggestions using LLM-powered schema analysis. Requires
 the `sqlseed-ai` plugin.
 
 ```bash
-# Install AI plugin
-pip install sqlseed-ai
+# Install a compatible AI/CLI/Core set as described under Installation
 
-# Set API key
+# Select the cloud backend explicitly
+export SQLSEED_AI_BACKEND=google_ai_studio
 export SQLSEED_AI_API_KEY="your-api-key"
 
 # AI analysis and config generation
 sqlseed ai-suggest app.db --table projects --output projects.yaml
 
-# AI suggestions with self-correction (3 rounds by default)
+# Self-correction is enabled by default (up to 3 retries)
 sqlseed ai-suggest app.db --table projects --output projects.yaml --verify
 
-# Specify model (defaults to Gemma 4 26B via Google AI Studio)
+# Specify a model available from the selected backend
 sqlseed ai-suggest app.db --table projects --output projects.yaml \
     --model gemma-4-26b-a4b-it
 
@@ -363,14 +354,51 @@ sqlseed ai-suggest app.db --table projects --output projects.yaml --no-cache
 |--------|-------------|
 | `--table, -t` | Target table name |
 | `--output, -o` | Output YAML file path |
-| `--verify` | Enable self-correction loop |
+| `--verify` | Enable self-correction loop (default) |
 | `--max-retries` | Self-correction rounds (default: `3`, `0` to disable) |
 | `--no-verify` | Skip verification |
 | `--no-cache` | Skip cache |
 | `--api-key` | LLM API key (overrides `SQLSEED_AI_API_KEY`) |
 | `--base-url` | LLM API base URL |
-| `--model` | Model name (default: Gemma 4 26B) |
-| `--backend` | `google_ai_studio` / `lm_studio` / `ollama` / `openai_compat` |
+| `--model, -m` | Model name (auto-selected for the configured backend when omitted) |
+| `--timeout` | Request timeout in seconds (`0` selects automatically) |
+| `--auto-heal` | Process all tables with contract-driven self-healing; ignores `--table` and `--output` |
+
+Select the backend through `SQLSEED_AI_BACKEND` or a recognized base URL.
+The AI CLI commands do not accept a `--backend` option.
+
+### `ai-analyze`
+
+Analyze a database or selected tables and write YAML rules. This command uses
+`AutoHealOrchestrator` by default; it is distinct from the single-table
+`ai-suggest`/`AiConfigRefiner` path.
+
+```bash
+sqlseed ai-analyze --db app.db -o rules.yaml
+sqlseed ai-analyze --db app.db --tables orders,order_items -o rules.yaml
+sqlseed ai-analyze --url 'postgresql+psycopg://user:pass@host/db' -o rules.yaml
+```
+
+`--db` and `--url` are mutually exclusive. `--no-dependencies` restricts analysis
+to selected tables; `--max-depth` defaults to `5`. `--merge` updates selected
+tables in an existing output file and requires `--output`. Without `--output`,
+YAML goes to stdout. Model options are `--model`, `--api-key`, `--base-url`, and
+`--timeout`; `--max-retries` defaults to `2`. `--log-llm` saves prompt/response
+logs for diagnosis.
+
+### `auto-heal`
+
+Repair an existing YAML configuration through contract-driven self-healing:
+
+```bash
+sqlseed auto-heal --db app.db --config rules.yaml -o rules_healed.yaml
+```
+
+`--config` and one of `--db` or `--url` are required. The two target options are
+mutually exclusive and set the target used for the supplied configuration.
+`--output` defaults to `<config>_healed.yaml`. `--max-retries` defaults to `3`;
+`--model`, `--api-key`, `--base-url`, and `--log-llm` configure the model and logs.
+Review the resulting rules and run a preview before executing them.
 
 ---
 
@@ -381,10 +409,19 @@ powerful way to drive sqlseed.
 
 ### Basic Structure
 
+The following example appends to existing `users` and `orders` tables. It assumes
+`users` has `id`, `name`, and `email`, and `orders.user_id` references `users.id`.
+
+`clear_before` defaults to `false`. If child rows already reference a parent,
+clearing that parent first can fail while later tables still append data. Use a
+fresh database with the same schema, or explicitly clear dependent child tables
+before their parents. Generation order alone does not safely clear an existing
+FK graph; inspect every result's `count` and `errors`.
+
 ```yaml
 # generate.yaml
 db_path: "app.db"           # SQLite file path (mutually exclusive with url)
-# url: "postgresql://..."   # Database URL (mutually exclusive with db_path)
+# url: "postgresql+psycopg://user:pass@host/db"  # Mutually exclusive with db_path
 provider: mimesis            # mimesis | faker | base | custom
 locale: en_US
 optimize_pragma: true
@@ -393,10 +430,9 @@ tables:
   - name: users
     count: 100000
     batch_size: 10000
-    clear_before: true
     seed: 42
     columns:
-      - name: username
+      - name: name
         generator: name
       - name: email
         generator: email
@@ -572,13 +608,26 @@ arithmetic. Expressions are sandboxed via `simpleeval` with a 5-second timeout.
 
 ### Cross-Table Associations
 
-When two tables share a column name (e.g. `member_no`), sqlseed automatically
-maintains cross-table consistency via the **SharedPool** mechanism — no config
-needed.
+The **SharedPool** can reuse values already registered from primary-key and
+foreign-key columns in the current orchestration session. Merely giving ordinary
+columns the same name (for example, `member_no`) does not establish a relationship.
+UNIQUE non-FK target columns also avoid implicit reuse.
 
-When the target column name differs from the source (e.g. `department_id` →
-`id`), or there's no FK constraint but you need an association, declare it
-explicitly via `associations`:
+Use actual database foreign keys for declared relationships. When a relationship
+is not represented by an FK, declare it explicitly via `associations`, including
+the source table, source column, and target tables:
+
+For example, create these tables before running the configuration. The
+relationship is declared in the configuration; this DDL has no FK constraint:
+
+```sql
+CREATE TABLE departments (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL);
+CREATE TABLE employees (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    department_id INTEGER NOT NULL,
+    name TEXT NOT NULL
+);
+```
 
 ```yaml
 db_path: "app.db"
@@ -587,10 +636,8 @@ provider: mimesis
 tables:
   - name: departments
     count: 5
-    clear_before: true
   - name: employees
     count: 20
-    clear_before: true
 
 associations:
   - column_name: department_id     # column name in the target table
@@ -605,6 +652,13 @@ associations:
 
 For complex business logic that can't be expressed declaratively, write a
 Python transform script:
+
+The script below expects an existing `users` table with `age` and `phone`
+columns. Add the column that will store its result before generating data:
+
+```sql
+ALTER TABLE users ADD COLUMN vip_level INTEGER;
+```
 
 ```python
 # transform_users.py
@@ -634,6 +688,7 @@ sqlseed fill app.db --table users --count 10000 --transform transform_users.py
 Or in YAML:
 
 ```yaml
+db_path: "app.db"
 tables:
   - name: users
     count: 10000
@@ -649,14 +704,19 @@ auto-generate YAML config suggestions with a self-correction loop.
 
 ### Setup
 
-```bash
-# Install the AI plugin
-pip install sqlseed-ai
+Install the compatible Core/CLI/AI set described under [Installation](#installation).
+Choose a backend explicitly, or provide a base URL that can identify it:
 
-# Set API key (one of the following)
-export SQLSEED_AI_API_KEY="your-api-key"
-# or
-export OPENAI_API_KEY="your-api-key"
+```bash
+# Google AI Studio
+export SQLSEED_AI_BACKEND=google_ai_studio
+export GOOGLE_API_KEY="your-api-key"
+
+# Alternatively, configure an OpenAI-compatible endpoint
+# export SQLSEED_AI_BACKEND=openai_compat
+# export SQLSEED_AI_BASE_URL="https://your-provider.example/v1"
+# export SQLSEED_AI_MODEL="your-model-id"
+# export SQLSEED_AI_API_KEY="your-api-key"
 ```
 
 ### Usage
@@ -674,24 +734,23 @@ sqlseed ai-suggest app.db --table projects --output projects.yaml --max-retries 
 
 ### Backends
 
-sqlseed-ai supports multiple backends for Gemma 4 models. Set the backend via
-`--backend` or the `SQLSEED_AI_BACKEND` environment variable.
+sqlseed-ai supports the backends below. An explicit `SQLSEED_AI_BACKEND` takes
+priority, followed by recognized base URL patterns. Otherwise the backend is
+`openai_compat`, which requires an explicit base URL. Setting a Google API key
+alone does not select Google AI Studio.
 
 | Backend | Description | Suitable for |
 |---------|-------------|--------------|
-| `google_ai_studio` | Official Google AI Studio API (default) | Gemma 4 26B/31B |
+| `google_ai_studio` | Explicit Google AI Studio API selection | Models available from that service |
 | `lm_studio` | Local inference via LM Studio | Gemma 4 2B/4B |
 | `ollama` | Local inference via Ollama | Gemma 4 2B/4B/26B |
-| `openai_compat` | Generic OpenAI-compatible endpoint (OpenRouter, DeepSeek, etc.) | Any |
+| `openai_compat` | Generic OpenAI-compatible endpoint; fallback backend | Models available from the configured endpoint |
 
-!!! tip "Free models via OpenRouter"
-
-    For users without a paid API key, OpenRouter provides free models. Set:
-    ```bash
-    export SQLSEED_AI_BACKEND=openai_compat
-    export SQLSEED_AI_BASE_URL=https://openrouter.ai/api/v1
-    export SQLSEED_AI_MODEL=<free-model-name>
-    ```
+Model IDs depend on the backend. When omitted, local backends try to detect a
+loaded model before using the local Gemma E4B fallback; cloud backends use the
+registered Gemma 26B model ID for that backend. An ID in the project registry is
+not a guarantee that a service currently hosts it. Set an available model
+explicitly when needed and verify a small request.
 
 ### Environment Variables
 
@@ -699,12 +758,17 @@ sqlseed-ai supports multiple backends for Gemma 4 models. Set the backend via
 |----------|-------------|
 | `SQLSEED_AI_API_KEY` | LLM API key |
 | `SQLSEED_AI_BASE_URL` | LLM API base URL |
-| `SQLSEED_AI_MODEL` | Model name (default: Gemma 4 26B) |
-| `SQLSEED_AI_BACKEND` | Backend (default: `google_ai_studio`) |
+| `SQLSEED_AI_MODEL` | Explicit model ID; otherwise selected for the resolved backend |
+| `SQLSEED_AI_BACKEND` | Explicit backend; fallback without a recognized URL is `openai_compat` |
+| `SQLSEED_AI_TOOL_CALLING_PROTOCOL` | `gemma4`, `openai`, or `none`; resolved against backend support |
+| `SQLSEED_AI_TIMEOUT` | Request timeout in seconds (`0` selects automatically) |
+| `GOOGLE_API_KEY` | API-key fallback after `SQLSEED_AI_API_KEY`, before `OPENAI_API_KEY` |
 | `OPENAI_API_KEY` | Fallback API key |
 | `OPENAI_BASE_URL` | Fallback base URL |
 
 ### AI Workflow
+
+The single-table `ai-suggest` path uses `SchemaAnalyzer` and `AiConfigRefiner`:
 
 1. Extract schema context (columns, indexes, sample data, FKs, distribution)
 2. Build LLM prompt with few-shot examples
@@ -713,6 +777,10 @@ sqlseed-ai supports multiple backends for Gemma 4 models. Set the backend via
 5. If errors are found (unknown generator, type mismatch, etc.), a correction
    request is sent to the LLM
 6. Up to 3 self-correction rounds; outputs a validated YAML config
+
+`ai-analyze` and `auto-heal` use `AutoHealOrchestrator` for contract-driven
+analysis or repair. The Web assistant provides suggestions for review; it does
+not automatically execute accepted rules or run the CLI.
 
 For details on Gemma 4 Native Function Calling, see the
 [Gemma 4 Integration](gemma4-integration.md) page.
@@ -726,30 +794,45 @@ Cursor, etc.) via the [Model Context Protocol](https://modelcontextprotocol.io/)
 
 ### Setup
 
+Use the compatible package set from [Installation](#installation). The rule-driven
+server comes from `mcp-server-sqlseed`; the AI server requires `sqlseed-ai[mcp]`.
+They run as independent processes. Installing the AI package does not add tools
+to an already configured rule-driven server.
+
 ```bash
-# Install MCP server
-pip install mcp-server-sqlseed
+# Rule-driven server (offline)
+mcp-server-sqlseed
 
-# All-in-one: MCP server + AI support (4 Gemma 4 tools)
-pip install "sqlseed-ai[mcp]"
-
-# Manual start (usually managed by MCP client)
-python -m mcp_server_sqlseed
+# AI server (a separate process, normally started by the MCP client)
+mcp-server-sqlseed-ai
 ```
 
 ### Configure MCP Client
 
-Claude Desktop example (`claude_desktop_config.json`):
+A client using both tool sets needs both server entries. For example, in Claude
+Desktop's `claude_desktop_config.json`:
 
 ```json
 {
   "mcpServers": {
     "sqlseed": {
       "command": "mcp-server-sqlseed"
+    },
+    "sqlseed-ai": {
+      "command": "mcp-server-sqlseed-ai",
+      "env": {
+        "SQLSEED_AI_BACKEND": "lm_studio",
+        "SQLSEED_AI_MODEL": "google/gemma-4-e4b"
+      }
     }
   }
 }
 ```
+
+Use executable paths from the chosen environment if the client cannot find them.
+The AI example requires a reachable LM Studio service with the configured model.
+For cloud or other backends, replace its environment settings using the AI setup
+above; a running MCP process alone does not verify model connectivity.
 
 ### Tools
 
@@ -760,7 +843,7 @@ The base `mcp-server-sqlseed` package ships two rule-driven tools (no LLM):
 | 🤖 Tool | `sqlseed_generate_yaml` | Rule-driven YAML config generation via `ColumnMapper` (offline, deterministic, no LLM) |
 | ⚡ Tool | `sqlseed_execute_fill` | Execute data generation (supports YAML config string, includes `enrich`) |
 
-Installing `sqlseed-ai[mcp]` adds four LLM-driven tools:
+The separate `mcp-server-sqlseed-ai` process exposes four AI tools:
 
 | Type | Name | Description |
 |------|------|-------------|
@@ -776,8 +859,10 @@ Once configured, you can tell your AI assistant:
 > "Analyze the structure of the `projects` table in `app.db`, generate a YAML
 > config, then fill 5000 rows."
 
-The AI assistant will call `sqlseed_ai_generate_yaml` →
-`sqlseed_execute_fill` in sequence, without you writing any code.
+With both servers configured, the assistant can request rules from
+`sqlseed_ai_generate_yaml` and submit reviewed rules to `sqlseed_execute_fill`.
+With only the rule-driven server configured, use `sqlseed_generate_yaml` for
+offline rules. Review the database target and rules before requesting a fill.
 
 ---
 
@@ -787,7 +872,7 @@ One of sqlseed's core highlights is the `ColumnMapper`'s 9-level strategy chain.
 Each column is matched by priority:
 
 ```
-Level 1 │ Autoincrement PK    PK + AUTOINCREMENT / INTEGER → skip
+Level 1 │ Computed / explicit autoincrement PK → skip
         ▼
 Level 2 │ User config         columns={"email": "email"} highest priority
         ▼
@@ -799,12 +884,16 @@ Level 5 │ DEFAULT check        Has default → skip / __enrich__ (when enrich=
         ▼
 Level 6 │ Custom pattern       Regex rules registered via plugin hooks
         ▼
-Level 7 │ Built-in pattern     29 regexes: *_at→datetime, *_id→foreign_key, is_*→boolean...
+Level 7 │ Built-in pattern     29 regexes: *_at→datetime, *_id→foreign_key_or_integer, is_*→boolean...
         ▼
 Level 8 │ NULLABLE fallback    Nullable → skip / __enrich__
         ▼
 Level 9 │ Type-faithful        VARCHAR(32)→max 32 chars, INT8→0~255, BLOB(1024)→1024 bytes
 ```
+
+After explicit user rules, a real SQLite rowid-alias primary key is also skipped.
+Composite, descending, and WITHOUT ROWID primary keys are not treated as implicit
+rowid aliases. ID-like names alone do not establish a foreign-key relationship.
 
 What this means in practice:
 
@@ -831,7 +920,7 @@ covering the full data generation lifecycle:
 | `sqlseed_before_generate` | | Before data generation loop |
 | `sqlseed_after_generate` | | After data generation completes |
 | `sqlseed_transform_row` | | Per-row transform (hot path, mind performance) |
-| `sqlseed_transform_batch` | | Per-batch transform (supports chaining) |
+| `sqlseed_transform_batch` | | Each implementation receives the same input batch; the last non-None result is selected |
 | `sqlseed_before_insert` | | Before each batch write to DB |
 | `sqlseed_after_insert` | | After each batch write to DB |
 | `sqlseed_shared_pool_loaded` | | After SharedPool registration (pool readable) |
@@ -912,7 +1001,8 @@ Provide `--count` (or `-n`) when using `sqlseed fill` without `--config`.
 **`Table does not exist`**
 
 Inspect the database first with `sqlseed inspect app.db` to verify the table
-name. Table names are case-sensitive on Linux.
+name and its reflected spelling. Identifier case handling depends on the
+database and quoting rules, not simply on the operating system.
 
 **`Unknown generator: <name>`**
 
@@ -921,10 +1011,11 @@ Custom generators must be registered via entry-point or plugin hook.
 
 **AI plugin not found**
 
-Install the AI plugin separately:
+Install a compatible Core/CLI/AI set using the [installation guide](#installation).
+From a source checkout, supply all three local packages in one command:
 
 ```bash
-pip install sqlseed-ai
+python -m pip install -e . -e ./plugins/sqlseed-cli -e ./plugins/sqlseed-ai
 ```
 
 When `sqlseed-ai` is not installed, `sqlseed ai-suggest` fails with click's

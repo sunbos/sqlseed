@@ -1,219 +1,136 @@
 # sqlseed-ai
 
-**[English](README.md)** | [中文](README.zh-CN.md)
+**[English](https://github.com/sunbos/sqlseed/blob/main/plugins/sqlseed-ai/README.md)** |
+[中文](https://github.com/sunbos/sqlseed/blob/main/plugins/sqlseed-ai/README.zh-CN.md)
 
-AI-powered data generation plugin for [sqlseed](https://github.com/sunbos/sqlseed).
+Optional LLM schema analysis and contract-driven configuration repair for
+[sqlseed](https://sunbos.github.io/sqlseed/). The plugin suggests column rules,
+validates and repairs configurations, and can prepare template values. Accepted
+configurations can be executed offline by Core.
 
-LLM-driven schema analysis, self-correcting config generation, and template pool assistance. Supports multiple backends: Google AI Studio (Gemma 4 Native Function Calling), LM Studio, Ollama, and any OpenAI-compatible API (OpenRouter, OpenAI, DeepSeek, etc.).
+Supported backend adapters are Google AI Studio, LM Studio, Ollama, and
+OpenAI-compatible APIs. Model availability and response quality require a real
+backend test; installing the plugin does not perform one.
 
 ## Installation
 
-```bash
-pip install sqlseed-ai
-```
-
-This release requires `sqlseed>=0.2.4.dev0,<0.3` for its plugin hooks and target-validation interfaces; Core 0.2.3 is incompatible.
-
-## Quick Start
-
-The sqlseed-ai plugin provides **3 CLI commands**:
-
-| Command | Purpose | When to Use |
-| :------ | :------ | :---------- |
-| `ai-suggest` | Per-table LLM analysis with self-correction | Single-table analysis with `--verify` validation |
-| `ai-analyze` | Full or selected-table analysis via v4 AutoHealOrchestrator, with FK dependency depth and merge options | Multi-table YAML generation with contract-driven self-healing |
-| `auto-heal` | Repair broken YAML configs via LLM + rule-based pipeline | Fix YAML files that fail `sqlseed fill` |
+These instructions describe the current five-package checkout. Until the matching
+release is available on PyPI, install local Core, CLI, and AI together from the
+repository root in a Python 3.10+ virtual environment:
 
 ```bash
-# Set API key (or use GOOGLE_API_KEY for Google AI Studio)
-export SQLSEED_AI_API_KEY="your-api-key"
-
-# ─────────────────────────────────────────────
-# ai-suggest: Per-table LLM analysis
-# ─────────────────────────────────────────────
-
-# Generate AI-suggested YAML config
-sqlseed ai-suggest app.db --table users --output users.yaml
-
-# With self-correction (3 rounds by default)
-sqlseed ai-suggest app.db --table users --output users.yaml --verify
-
-# Specify model (defaults to Gemma 4 26B via Google AI Studio)
-sqlseed ai-suggest app.db --table users -o users.yaml --model gemma-4-26b-a4b-it
-
-# Use local LM Studio (backend selected via env var)
-export SQLSEED_AI_BACKEND=lm_studio
-sqlseed ai-suggest app.db --table users -o users.yaml --model google/gemma-4-e4b
-
-# Skip cache
-sqlseed ai-suggest app.db --table users -o users.yaml --no-cache
-
-# ─────────────────────────────────────────────
-# ai-analyze: Full DB analysis via v4 architecture (default)
-# ─────────────────────────────────────────────
-
-# Analyze entire database and generate YAML (v4 AutoHealOrchestrator)
-sqlseed ai-analyze --db app.db -o config.yaml
-
-# Multi-DB via --url
-sqlseed ai-analyze --url "postgresql+psycopg://user:pass@host/db" -o config.yaml
-
-# Log full LLM interactions for debugging
-sqlseed ai-analyze --db app.db -o config.yaml --log-llm
-
-# ─────────────────────────────────────────────
-# auto-heal: Repair broken YAML configs
-# ─────────────────────────────────────────────
-
-# After ai-analyze, if `sqlseed fill` fails on some tables, repair the YAML
-sqlseed auto-heal --db app.db --config broken.yaml -o healed.yaml
-
-# Use a different LLM model for healing
-sqlseed auto-heal --db app.db --config broken.yaml -o healed.yaml --model gemma-4-26b-a4b-it
+python -m pip install -e . -e ./plugins/sqlseed-cli -e ./plugins/sqlseed-ai
 ```
 
-`ai-analyze --tables orders` includes referenced parent tables up to `--max-depth 5`.
-Use `--no-dependencies` or `--max-depth 0` to include only the named tables.
-Unknown table names are rejected before writing output. `--merge` requires
-`--output`; it replaces explicitly selected tables, retains existing dependency
-and unrelated tables and root settings, and appends missing generated tables.
+Core 0.2.3 lacks the plugin hooks and target-validation interfaces used here. Once
+matching packages are published, the package-index installation is:
 
-`auto-heal --config` reads and repairs that document, preserving its table scope,
-row counts, seeds and unaffected column rules. The explicit `--db` / `--url`
-sets the output connection. Invalid YAML/config structure and unknown input
-tables fail without replacing the output file.
+```bash
+python -m pip install "sqlseed-ai>=0.2.4.dev0,<0.3"
+```
 
-Before accepting a model repair, the healer checks config shape and builtin
-generator names, parameter names and annotated parameter types, then runs the
-existing contract validator. Invalid candidates follow deterministic degradation.
-This is not a full execution preview: native/custom methods, generated values and
-database-dependent constraints still require normal execution validation.
+## CLI quick start
 
-## Features
+Configure a backend, an available model, and credentials as needed by that service.
+For an OpenAI-compatible endpoint, for example:
 
-### Schema Analyzer
-
-`SchemaAnalyzer` extracts rich context from your database (columns, indexes, sample data, foreign keys, data distribution) and builds a structured prompt for LLM analysis. Returns column-level generation configs as JSON.
-
-### Self-Correcting Refiner
-
-`AiConfigRefiner` validates LLM output against actual schema:
-1. LLM generates column config
-2. Refiner checks for unknown generators, type mismatches, expression errors
-3. If errors found, sends correction request back to LLM
-4. Up to 3 retry rounds, then raises `AISuggestionFailedError`
-
-### Auto Model Selection
-
-When using the `google_ai_studio` backend (default), the `GemmaModel` enum provides pre-configured Gemma 4 variants. The model is selected based on the backend:
-
-1. **Google AI Studio**: Defaults to `gemma-4-26b-a4b-it` (recommended balance of quality and speed).
-2. **LM Studio / Ollama**: User must specify a loaded model via `--model` or `SQLSEED_AI_MODEL`.
-3. **OpenAI-compatible** (OpenRouter, DeepSeek, etc.): User must specify both `--model` and `--base-url`.
-
-For **OpenRouter free models**, set:
 ```bash
 export SQLSEED_AI_BACKEND=openai_compat
-export SQLSEED_AI_BASE_URL=https://openrouter.ai/api/v1
-export SQLSEED_AI_MODEL=<free-model-name>
+export SQLSEED_AI_BASE_URL="https://your-service.example/v1"
+export SQLSEED_AI_MODEL="your-available-model"
+export SQLSEED_AI_API_KEY="your-api-key"
 ```
 
-Skip auto-selection by specifying `--model` or `SQLSEED_AI_MODEL`.
+Create the SQLite tables before analysis:
 
-When using the `google_ai_studio` backend, the `GemmaModel` enum provides pre-configured Gemma 4 variants:
+```bash
+# Analyze one table and validate the suggested configuration
+sqlseed ai-suggest app.db --table users --output users.yaml --verify --no-cache
 
-| Enum Value | Model ID | Description |
-|:-----------|:---------|:------------|
-| `GemmaModel.GEMMA_4_E2B` | `gemma-4-e2b-it` | 2B Effective, Edge — Ultra-light edge deployment |
-| `GemmaModel.GEMMA_4_E4B` | `gemma-4-e4b-it` | 4B Effective, Edge — Lightweight local inference |
-| `GemmaModel.GEMMA_4_12B` | `gemma-4-12b-it` | 12B Unified, Laptop — Balanced quality and speed |
-| `GemmaModel.GEMMA_4_26B_A4B` | `gemma-4-26b-a4b-it` | 26B A4B MoE — High quality, recommended |
-| `GemmaModel.GEMMA_4_31B` | `gemma-4-31b-it` | 31B Dense — Best quality, largest model |
+# Analyze all tables with the v4 AutoHealOrchestrator
+sqlseed ai-analyze --db app.db --output config.yaml
 
-The `AIBackend` enum selects the API backend:
+# Repair an existing configuration
+sqlseed auto-heal --db app.db --config broken.yaml --output healed.yaml
 
-| Enum Value | Backend | Default Base URL |
-|:-----------|:--------|:-----------------|
-| `AIBackend.GOOGLE_AI_STUDIO` | Google AI Studio | `https://generativelanguage.googleapis.com/v1beta/openai/` |
-| `AIBackend.LM_STUDIO` | LM Studio | `http://127.0.0.1:1234/v1` |
-| `AIBackend.OLLAMA` | Ollama | `http://localhost:11434/v1` |
-| `AIBackend.OPENAI_COMPAT` | OpenAI-compatible | (must set `SQLSEED_AI_BASE_URL`) |
-
-### Template Pool
-
-When sqlseed fills a table with `skip_ai=False`, the plugin pre-generates candidate values for columns that can't be mapped to a deterministic generator (via `sqlseed_pre_generate_templates` hook).
-
-### File Caching
-
-AI configs cached in platform-specific cache directory (`~/Library/Caches/sqlseed/ai_configs/` on macOS, `~/.cache/sqlseed/ai_configs/` on Linux, `%LOCALAPPDATA%/sqlseed/ai_configs/` on Windows) with schema hash validation. Schema changes auto-invalidate cache. Use `--no-cache` to skip. Override with `SQLSEED_CACHE_DIR` environment variable.
-
-## Configuration
-
-### Environment Variables
-
-| Variable | Fallback | Default | Description |
-|:---------|:---------|:--------|:------------|
-| `SQLSEED_AI_API_KEY` | `GOOGLE_API_KEY` → `OPENAI_API_KEY` | — | API key (required) |
-| `SQLSEED_AI_BASE_URL` | `OPENAI_BASE_URL` | (auto by backend) | API endpoint |
-| `SQLSEED_AI_MODEL` | — | `gemma-4-26b-a4b-it` | Model name |
-| `SQLSEED_AI_TIMEOUT` | — | (auto by backend: 60s cloud, 120s local) | API timeout (seconds) |
-| `SQLSEED_AI_BACKEND` | — | `google_ai_studio` | AI backend: `google_ai_studio`, `lm_studio`, `ollama`, `openai_compat` |
-| `GOOGLE_API_KEY` | — | — | Google AI Studio API key (fallback for `SQLSEED_AI_API_KEY` when backend is `google_ai_studio`) |
-
-### CLI Options
-
-```
---model, -m       Model name (overrides auto-selection)
---api-key         API key (overrides env)
---base-url        API base URL (overrides env)
---max-retries     Self-correction rounds (default: 3, 0=disable)
---verify/--no-verify  Toggle self-correction (default: verify)
---no-cache        Skip file cache
---timeout         API timeout in seconds (auto by backend: 60s cloud, 120s local)
+# After reviewing the generated rules, execute them offline
+sqlseed fill --config users.yaml --no-ai
 ```
 
-## Plugin Hooks
+| Command | Behavior |
+|---|---|
+| `ai-suggest` | Single-table LLM analysis and optional self-correction; `--auto-heal` uses the AutoHeal path |
+| `ai-analyze` | Full or selected-table analysis with dependency scope and configuration merge options |
+| `auto-heal` | Repair the supplied YAML while preserving its scope, counts, seeds, and unaffected rules |
 
-This plugin registers via `[project.entry-points."sqlseed"]` and implements:
+`ai-analyze --tables orders` includes referenced parents up to `--max-depth 5`.
+`--no-dependencies` or `--max-depth 0` limits the scope to named tables. Unknown table
+names fail before output is written. `--merge` requires `--output`; it replaces
+selected tables, retains existing dependency and unrelated tables plus root settings,
+and appends missing generated tables.
 
-| Hook | Purpose |
-|:-----|:--------|
-| `sqlseed_ai_analyze_table` | LLM-driven table analysis, returns column configs |
-| `sqlseed_apply_ai_suggestions` | High-level AI mediation entry invoked by the orchestrator (decides whether AI is needed, merges results into column specs) |
-| `sqlseed_transform_row` | Defensive fallback: converts ISO date strings to `datetime.date` for mis-configured DATE columns |
-| `sqlseed_pre_generate_templates` | Pre-generate candidate values for complex columns |
+`auto-heal --config` reads that document. An explicit `--db` or `--url` selects the
+output connection. Invalid YAML, configuration structure, or unknown input tables
+fail without replacing the output file. Candidate repairs are checked for config
+shape, builtin generators, parameter names and annotated types, then passed through
+the contract validator. Normal preview and execution are still needed to verify
+actual generated values and database constraints.
 
-> **Note**: This plugin does NOT implement `sqlseed_register_providers` or `sqlseed_register_column_mappers` — registration is handled via the `pyproject.toml` entry point.
+## AI MCP server
+
+The AI MCP entry point requires the `mcp` extra. From this checkout:
+
+```bash
+python -m pip install -e . -e ./plugins/sqlseed-cli -e "./plugins/sqlseed-ai[mcp]"
+mcp-server-sqlseed-ai
+```
+
+After matching packages are published, install
+`"sqlseed-ai[mcp]>=0.2.4.dev0,<0.3"`. Configure an MCP client to launch
+`mcp-server-sqlseed-ai`. It exposes:
+
+- `sqlseed_ai_generate_yaml`
+- `sqlseed_gemma4_analyze`
+- `sqlseed_gemma4_agent_fill`
+- `sqlseed_list_gemma_models`
+
+For deterministic YAML generation and data filling without an LLM, use the separate
+[Core MCP package](https://github.com/sunbos/sqlseed/tree/main/plugins/mcp-server-sqlseed).
+MCP discovery or a successful model list does not establish that inference works.
+
+## Configuration and caching
+
+| Variable | Purpose |
+|---|---|
+| `SQLSEED_AI_BACKEND` | `google_ai_studio`, `lm_studio`, `ollama`, or `openai_compat` |
+| `SQLSEED_AI_BASE_URL` | Service endpoint; falls back to `OPENAI_BASE_URL` |
+| `SQLSEED_AI_MODEL` | Model identifier exposed by the selected service |
+| `SQLSEED_AI_API_KEY` | Credentials; falls back to `GOOGLE_API_KEY`, then `OPENAI_API_KEY` |
+| `SQLSEED_AI_TIMEOUT` | Request timeout in seconds |
+| `SQLSEED_CACHE_DIR` | Override the platform-specific sqlseed cache directory |
+
+Configuration is loaded through `AIConfig.from_env()`. Backend resolution uses the
+explicit backend, then known URL patterns, then OpenAI-compatible behavior. It does
+not probe every service as a fallback chain. The `tool_calling_protocol` setting and
+its resolver choose the response protocol; a model name alone is insufficient.
+
+AI configuration caches include schema hashes. Schema changes invalidate cached
+suggestions; `--no-cache` bypasses them. Review model output before writing data.
 
 ## Requirements
 
-- Python >= 3.10
-- `sqlseed >= 0.1.0`
-- `sqlseed-cli >= 0.1.0`
-- `openai >= 1.0`
-- `httpx >= 0.24.0`
-- `networkx >= 3.0`
-- An OpenAI-compatible API key or Google AI Studio API key
+- Python `>=3.10`
+- `sqlseed>=0.2.4.dev0,<0.3`
+- `sqlseed-cli>=0.2.4.dev0,<0.3`
+- `openai>=1.0`
+- `httpx>=0.24.0`
+- `networkx>=3.0`
+- Optional `mcp` extra: `mcp>=1.0,<2`
+- A reachable, configured backend for actual model requests
 
-## Gemma 4 Integration
+See the [AI integration guide](https://sunbos.github.io/sqlseed/gemma4-integration/),
+[migration guide](https://sunbos.github.io/sqlseed/migration/), and
+[configuration source](https://github.com/sunbos/sqlseed/blob/main/plugins/sqlseed-ai/src/sqlseed_ai/config.py).
 
-When using the `google_ai_studio` backend, sqlseed-ai leverages **Gemma 4 Native Function Calling** for structured schema analysis:
-
-### GEMMA_TOOLS
-
-The plugin defines a `GEMMA_TOOLS` function declaration (in `_tools.py`, previously in `analyzer.py`) that tells Gemma 4 how to respond with structured schema analysis. Instead of parsing free-form text, the model is instructed to call an `analyze_schema` function with typed parameters (table name, columns, foreign keys, indexes), ensuring output conforms to the expected schema.
-
-> **Note**: All LLM prompt templates (full, compact, ultra-compact, and template-generation prompts) are centralized in `_prompts.py`.
-
-### Native Function Calling Mechanism
-
-1. **Tool Definition**: `GEMMA_TOOLS` declares an `analyze_schema` function with a strict JSON Schema describing each parameter (table_name, columns, foreign_keys, indexes, etc.).
-2. **Request**: The schema context and analysis prompt are sent to the Gemma 4 model with `tools=[GEMMA_TOOLS]` and `tool_config` set to force a function call.
-3. **Response Parsing**: The model returns a `FunctionCall` object instead of plain text. The plugin extracts the structured args directly — no regex or fragile parsing needed.
-4. **Validation**: The extracted args are passed through the same `AiConfigRefiner` pipeline for self-correction.
-
-This approach significantly improves reliability over text-based LLM output parsing, as the model is constrained to produce well-formed, schema-compliant responses.
-
-## License
-
-AGPL-3.0-or-later
+License: [AGPL-3.0-or-later](https://github.com/sunbos/sqlseed/blob/main/LICENSE).
+The distribution includes the full LICENSE text.

@@ -2,7 +2,7 @@
 
 [中文](migration.zh-CN.md)
 
-The workbench candidate replaces the older combined Core/CLI/MCP installation with five packages. Merging its source into `main` does not publish these packages to PyPI. Use the artifacts from one successful candidate CI run until a release is published.
+The workbench on `main` replaces the older combined Core/CLI/MCP installation with five packages and targets the 0.2.4 release series. Merging its source into `main` does not publish these packages to PyPI. Until a compatible release is published, use one source checkout or the artifacts from one successful CI run. The [installation guide](guide.md#installation) separates these source instructions from commands for a future compatible release.
 
 ## Install a compatible set
 
