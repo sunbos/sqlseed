@@ -7,6 +7,20 @@ All notable changes to this project will be documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Split delivery into offline Core, CLI, AI, Core MCP and Web packages. CLI and AI MCP users must update their installation and client entry points; see the [migration guide](docs/migration.md).
+- Constrain candidate Core and sibling plugin dependencies to the validated `>=0.2.4.dev0,<0.3` series; install candidates from the same CI artifact set.
+- Deploy GitHub Pages only after all main CI jobs succeed. Merging does not publish Python packages to PyPI.
+
+### Fixed
+
+- Preserve JSON document values through typed database inserts and accept valid ISO temporal values without double encoding JSON or rejecting compatible SQLite date configurations.
+- Identify self-referencing rows by their complete primary key and respect UNIQUE constraints when assigning parent references.
+- Keep AI MCP progress output out of the stdio JSON-RPC stream.
+
 ## [v0.1.20]
 
 ### Changed

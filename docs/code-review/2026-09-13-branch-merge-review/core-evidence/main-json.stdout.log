@@ -1,0 +1,4 @@
+SOURCE: /tmp/sqlseed-core-review-main-976b605/src/sqlseed/__init__.py
+  Generating events ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100% 3/3 1.4 kB/s 0:00:00
+RESULT 3 []
+STORED [('{"n": 670487}', 'object', 670487), ('{"n": 116739}', 'object', 116739), ('{"n": 26225}', 'object', 26225)]

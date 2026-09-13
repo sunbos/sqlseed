@@ -13,7 +13,7 @@ LLM schema 分析、contract-driven self-healing 和模板值生成的独立发�
 ## 发行与入口
 
 - 以 [pyproject.toml](pyproject.toml) 为依赖、extras 和 entry points 的依据；本包直接依赖 `sqlseed`、`sqlseed-cli`、`openai`、`httpx`、`networkx`。
-- 当前 AI 要求 Core `>=0.2.4.dev0`；Core 0.2.3 缺少 `sqlseed_apply_ai_suggestions` hookspec 和 AI MCP 使用的目标校验函数。
+- 当前 AI 要求 Core `>=0.2.4.dev0,<0.3`；Core 0.2.3 缺少 `sqlseed_apply_ai_suggestions` hookspec 和 AI MCP 使用的目标校验函数。
 - `[project.entry-points."sqlseed"]` 导出 `ai = "sqlseed_ai:plugin"`；插件实例和 `@hookimpl` 在 [src/sqlseed_ai/__init__.py](src/sqlseed_ai/__init__.py)。
 - `[project.entry-points."sqlseed.cli_commands"]` 指向 [src/sqlseed_ai/cli/ai_commands.py](src/sqlseed_ai/cli/ai_commands.py) 的 `register()`；通过注册扩展 CLI，不能让 `sqlseed-cli` 直接依赖 AI 实现。
 - `ai-suggest` 默认做单表分析；`ai-suggest --auto-heal`、`ai-analyze` 和 `auto-heal` 使用 v4 `AutoHealOrchestrator` 路径。不要恢复已删除的 `Stage3Validator` / `SchemaSemanticAnalyzer` / `StagedSchemaAnalyzer` 或旧 staged flags。

@@ -210,3 +210,12 @@ jobs:
 
       - name: Run property-based tests
         run: pytest plugins/sqlseed-ai/tests/property/ -v --maxfail=1 --tb=short
+
+  docs:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [lint, test, test-compat, integration, property-tests, packages]
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/mkdocs-deploy.yml

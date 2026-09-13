@@ -121,6 +121,8 @@ Intelligently switches between LIGHT / MODERATE / AGGRESSIVE write strategies ba
 pip install sqlseed
 ```
 
+Migration details: [upgrade guide](docs/migration.md). Candidate packages must come from the same CI artifact set.
+
 ### Choose Data Engine
 
 ```bash

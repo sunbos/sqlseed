@@ -24,9 +24,23 @@ from contextlib import contextmanager
 from datetime import date, datetime
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import MetaData, Table, create_engine, event, inspect, literal, select, text
+from sqlalchemy import (
+    JSON,
+    MetaData,
+    Table,
+    Text,
+    bindparam,
+    cast,
+    create_engine,
+    event,
+    inspect,
+    literal,
+    select,
+    text,
+)
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import ArgumentError, NoSuchModuleError, NoSuchTableError, SQLAlchemyError
+from sqlalchemy.sql.elements import Null
 
 from sqlseed._utils.logger import get_logger
 from sqlseed._utils.sql_safe import validate_table_name
@@ -40,6 +54,7 @@ from sqlseed.database._helpers import apply_bulk_optimize, apply_bulk_restore, b
 from sqlseed.database._protocol import CheckConstraintInfo, ColumnInfo, ForeignKeyInfo, IndexInfo
 from sqlseed.database._sqlite_schema import detect_sqlite_rowid_alias, resolve_sqlite_table_name
 from sqlseed.database._type_normalizer import TypeNormalizer
+from sqlseed.database._value_normalizer import normalize_typed_value
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -67,6 +82,38 @@ def _sqlite_unprocessed_columns(table: Any, dialect: Any) -> set[str]:
     return {
         column.name for column in table.columns if column.type.dialect_impl(dialect).bind_processor(dialect) is None
     }
+
+
+def _normalize_row_values(table: Any, dialect: Any, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Prepare one bounded batch for SQLAlchemy's reflected bind processors."""
+    column_types = {column.name: column.type for column in table.columns}
+    unprocessed = _sqlite_unprocessed_columns(table, dialect) if dialect.name == "sqlite" else set()
+    normalized = []
+    for row in rows:
+        bound_row = {}
+        for name, value in row.items():
+            bound_value = (
+                normalize_typed_value(value, column_types[name], name, dialect.name) if name in column_types else value
+            )
+            bound_row[name] = _sqlite_date_value(bound_value) if name in unprocessed else bound_value
+        normalized.append(bound_row)
+    return normalized
+
+
+def _bound_comparison(column: Any, value: Any, dialect: Any) -> Any:
+    # JSON scalar comparisons otherwise infer String/Boolean/Integer bindings,
+    # which bypass the JSON encoding used on insertion. Keep SQL NULL explicit.
+    if isinstance(column.type, JSON) and not isinstance(value, Null):
+        if dialect.name == "sqlite":
+            return column == (bindparam(None, value, type_=Text()) if value is not None else None)
+        value = bindparam(None, value, type_=column.type)
+    return column == value
+
+
+def _json_document_projection(column: Any) -> Any:
+    # JSON read back into FK pools or lookup expressions must retain the same
+    # serialized-document contract as generators, including JSON null vs SQL NULL.
+    return cast(column, Text()) if isinstance(column.type, JSON) else column
 
 
 _NOT_CONNECTED = "Database not connected. Call connect() first."
@@ -192,15 +239,18 @@ class SQLAlchemyBatchInserter:
         # PostgreSQL insertmanyvalues may page internally; RETURNING counts every
         # actually inserted row across those pages, excluding trigger-skipped rows.
         statement = table.insert()
+        rows = _normalize_row_values(table, conn.dialect, rows)
         if conn.dialect.name == "postgresql":
             result = conn.execute(statement.returning(literal(1)), rows)
             return sum(1 for _ in result)
         if conn.dialect.name == "sqlite":
-            unprocessed = _sqlite_unprocessed_columns(table, conn.dialect)
-            rows = [
-                {name: _sqlite_date_value(value) if name in unprocessed else value for name, value in row.items()}
-                for row in rows
-            ]
+            json_bindings = {
+                name: bindparam(name, type_=Text())
+                for name in rows[0]
+                if name in table.c and isinstance(table.c[name].type, JSON)
+            }
+            if json_bindings:
+                statement = statement.values(json_bindings)
         result = conn.execute(statement, rows)
         if result.rowcount < 0:
             raise RuntimeError("Database driver did not report the number of inserted rows")
@@ -692,7 +742,7 @@ class SQLAlchemyAdapter:
             return []
         dialect = self.dialect
         safe_table = dialect.quote_identifier(table_name)
-        safe_column = dialect.quote_identifier(column_name)
+        safe_column = self._sample_column_sql(self._get_table(table_name), column_name)
         sql = f"SELECT {safe_column} FROM {safe_table} LIMIT :limit"
         with self._connection() as conn:
             result = conn.execute(text(sql), {"limit": limit})
@@ -908,7 +958,8 @@ class SQLAlchemyAdapter:
                 return []
         else:
             selected = all_columns
-        col_names = [dialect.quote_identifier(c.name) for c in selected]
+        table = self._get_table(table_name)
+        col_names = [self._sample_column_sql(table, column.name) for column in selected]
         safe_table = dialect.quote_identifier(table_name)
         cols_sql = ", ".join(col_names)
         sql = f"SELECT {cols_sql} FROM {safe_table} LIMIT :limit"
@@ -917,6 +968,12 @@ class SQLAlchemyAdapter:
             result = conn.execute(text(sql), {"limit": limit})
             col_name_list = [c.name for c in selected]
             return [dict(zip(col_name_list, row, strict=True)) for row in result.fetchall()]
+
+    def _sample_column_sql(self, table: Any, column_name: str) -> str:
+        """Preserve DBAPI values except JSON, which needs document text on both dialects."""
+        safe_column = self.dialect.quote_identifier(column_name)
+        column = table.c.get(column_name)
+        return f"CAST({safe_column} AS TEXT)" if column is not None and isinstance(column.type, JSON) else safe_column
 
     def _get_table(self, table_name: str) -> Any:
         """Get a cached SQLAlchemy Table object, reflecting on first access (H2 optimization).
@@ -982,29 +1039,35 @@ class SQLAlchemyAdapter:
         table_name = self._resolve_table_name(table_name)
         table = self._get_table(table_name)
         dialect = self._get_engine().dialect
-        unprocessed = _sqlite_unprocessed_columns(table, dialect) if dialect.name == "sqlite" else set()
         statement = select(1).select_from(table).limit(1)
-        for name, value in values.items():
-            bound_value = _sqlite_date_value(value) if name in unprocessed else value
-            statement = statement.where(table.c[name] == bound_value)
+        for name, bound_value in _normalize_row_values(table, dialect, [values])[0].items():
+            statement = statement.where(_bound_comparison(table.c[name], bound_value, dialect))
         with self._connection() as connection:
             return connection.execute(statement).first() is not None
 
     def _get_column_pairs(
         self, table_name: str, first_column: str, second_column: str, limit: int = 100000
     ) -> list[tuple[Any, Any]]:
-        """Read a bounded pair pool with the reflected columns' result types."""
+        """Read a bounded pair pool, preserving JSON documents for generation."""
         table_name = self._resolve_table_name(table_name)
         table = self._get_table(table_name)
-        statement = select(table.c[first_column], table.c[second_column]).limit(limit)
+        statement = select(
+            _json_document_projection(table.c[first_column]), _json_document_projection(table.c[second_column])
+        ).limit(limit)
         with self._connection() as connection:
             return [(row[0], row[1]) for row in connection.execute(statement)]
 
     def _lookup_value(self, table_name: str, column_name: str, key: Any, key_column: str) -> Any:
-        """Look up a scalar with dialect-specific key bindings and result types."""
+        """Look up a value for generation, retaining JSON's serialized-document contract."""
         table_name = self._resolve_table_name(table_name)
         table = self._get_table(table_name)
-        statement = select(table.c[column_name]).where(table.c[key_column] == key).limit(1)
+        dialect = self._get_engine().dialect
+        bound_key = _normalize_row_values(table, dialect, [{key_column: key}])[0][key_column]
+        statement = (
+            select(_json_document_projection(table.c[column_name]))
+            .where(_bound_comparison(table.c[key_column], bound_key, dialect))
+            .limit(1)
+        )
         with self._connection() as connection:
             return connection.execute(statement).scalar()
 

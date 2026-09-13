@@ -11,6 +11,7 @@
 | 原生 SQLite 测试 | [raw_sqlite_adapter.py](raw_sqlite_adapter.py)、[_base_adapter.py](_base_adapter.py) |
 | dialect 与类型归一化 | [_dialect.py](_dialect.py)、[_type_normalizer.py](_type_normalizer.py) |
 | SQLite AUTOINCREMENT、rowid 别名与表名识别 | [_sqlite_schema.py](_sqlite_schema.py) |
+| 完整 UNIQUE 键的候选比较 | [_unique_keys.py](_unique_keys.py)：SQLite index 项的 collation，partial/expression index 不推导无条件键 |
 | 批量设置管理 | [_bulk_optimizer.py](_bulk_optimizer.py)、[optimizer.py](optimizer.py)、[_helpers.py](_helpers.py) |
 
 ## adapter 合约

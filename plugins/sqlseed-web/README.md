@@ -16,7 +16,7 @@ sqlseed-web
 Open `http://127.0.0.1:8630`. The built wheel includes the frontend; no Node or npm build
 is needed to use the app. For PostgreSQL, also install the core `postgres` extra.
 
-This workbench requires Core 0.2.4 or its development releases (`sqlseed>=0.2.4.dev0`).
+This workbench requires Core 0.2.4 or its development releases (`sqlseed>=0.2.4.dev0,<0.3`).
 Core 0.2.3 does not provide the workbench runtime interfaces. When using an unreleased
 checkout, install Core and Web together with the command above.
 

@@ -1,13 +1,7 @@
 name: Deploy docs to GitHub Pages
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'docs/**'
-      - 'mkdocs.yml'
-      - '.github/workflows/mkdocs-deploy.yml'
-  workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read

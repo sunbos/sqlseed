@@ -43,6 +43,9 @@ theme:
 nav:
   - Home: index.md
   - User Guide: guide.md
+  - Upgrade:
+      - Migration (EN): migration.md
+      - 升级说明（中文）: migration.zh-CN.md
   - Web Workbench: web-workbench.md
   - Support & Maintenance: maintainable-release.md
   - Project Walkthrough: project-showcase.md

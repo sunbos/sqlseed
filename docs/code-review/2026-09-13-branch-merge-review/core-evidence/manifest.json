@@ -1,0 +1,56 @@
+[
+  {
+    "version": "main",
+    "probe": "date",
+    "source": "/tmp/sqlseed-core-review-main-976b605/src",
+    "script": "/tmp/sqlseed-core-review-date-probe.py",
+    "exit_code": 0,
+    "stdout": "/tmp/sqlseed-core-review-evidence/main-date.stdout.log",
+    "stderr": "/tmp/sqlseed-core-review-evidence/main-date.stderr.log"
+  },
+  {
+    "version": "main",
+    "probe": "json",
+    "source": "/tmp/sqlseed-core-review-main-976b605/src",
+    "script": "/tmp/sqlseed-core-review-json-probe.py",
+    "exit_code": 0,
+    "stdout": "/tmp/sqlseed-core-review-evidence/main-json.stdout.log",
+    "stderr": "/tmp/sqlseed-core-review-evidence/main-json.stderr.log"
+  },
+  {
+    "version": "main",
+    "probe": "self-fk",
+    "source": "/tmp/sqlseed-core-review-main-976b605/src",
+    "script": "/tmp/sqlseed-core-review-self-fk-probe.py",
+    "exit_code": 0,
+    "stdout": "/tmp/sqlseed-core-review-evidence/main-self-fk.stdout.log",
+    "stderr": "/tmp/sqlseed-core-review-evidence/main-self-fk.stderr.log"
+  },
+  {
+    "version": "candidate",
+    "probe": "date",
+    "source": "/Users/sunbo/Desktop/sqlseed/src",
+    "script": "/tmp/sqlseed-core-review-date-probe.py",
+    "exit_code": 0,
+    "stdout": "/tmp/sqlseed-core-review-evidence/candidate-date.stdout.log",
+    "stderr": "/tmp/sqlseed-core-review-evidence/candidate-date.stderr.log"
+  },
+  {
+    "version": "candidate",
+    "probe": "json",
+    "source": "/Users/sunbo/Desktop/sqlseed/src",
+    "script": "/tmp/sqlseed-core-review-json-probe.py",
+    "exit_code": 0,
+    "stdout": "/tmp/sqlseed-core-review-evidence/candidate-json.stdout.log",
+    "stderr": "/tmp/sqlseed-core-review-evidence/candidate-json.stderr.log"
+  },
+  {
+    "version": "candidate",
+    "probe": "self-fk",
+    "source": "/Users/sunbo/Desktop/sqlseed/src",
+    "script": "/tmp/sqlseed-core-review-self-fk-probe.py",
+    "exit_code": 0,
+    "stdout": "/tmp/sqlseed-core-review-evidence/candidate-self-fk.stdout.log",
+    "stderr": "/tmp/sqlseed-core-review-evidence/candidate-self-fk.stderr.log"
+  }
+]

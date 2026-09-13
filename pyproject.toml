@@ -58,8 +58,8 @@ postgres = ["psycopg[binary]>=3.0"]
 # with: pip install sqlseed-cli  (which auto-pulls sqlseed core).
 # `pip install "sqlseed[cli]"` is a convenience alias that pulls
 # sqlseed-cli into the current install.
-cli = ["sqlseed-cli>=0.1.0"]
-all = ["mimesis>=18.0", "tqdm>=4.66", "psycopg[binary]>=3.0", "testcontainers>=4.0", "sqlseed-cli>=0.1.0"]
+cli = ["sqlseed-cli>=0.2.4.dev0,<0.3"]
+all = ["mimesis>=18.0", "tqdm>=4.66", "psycopg[binary]>=3.0", "testcontainers>=4.0", "sqlseed-cli>=0.2.4.dev0,<0.3"]
 dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
@@ -73,7 +73,7 @@ dev = [
     "psycopg[binary]>=3.0",
     "import-linter>=2.0",
     "mutmut>=2.5,<3",
-    "sqlseed-cli>=0.1.0",
+    "sqlseed-cli>=0.2.4.dev0,<0.3",
 ]
 docs = [
     "mkdocs-material>=9.0",

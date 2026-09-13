@@ -20,6 +20,7 @@ from sqlseed._utils.logger import get_logger
 from sqlseed._utils.progress import ProgressBackend, create_progress
 from sqlseed._utils.sql_safe import quote_identifier, validate_table_name
 from sqlseed._utils.type_checks import has_exact_type
+from sqlseed.core.orchestrator._self_ref import SelfReferenceUpdater
 from sqlseed.core.orchestrator._session import FillSession
 from sqlseed.database._sqlite_schema import resolve_sqlite_table_name
 from sqlseed.generators._protocol import ConfigurationError
@@ -434,7 +435,6 @@ class GenerationMixin:
 
         if not (pk_cols := self._db.get_primary_keys(table_name)):
             return
-        pk_col = pk_cols[0]
 
         checks = self._db.get_check_constraints(table_name)
         # DBAPI placeholder: SQLite uses ?, PostgreSQL uses %s
@@ -449,7 +449,7 @@ class GenerationMixin:
             spec = generator_specs.get(fk_col)
             if spec is None or not spec.params.get("_self_ref_deferred"):
                 continue
-            self._update_self_ref_column(table_name, pk_col, fk, checks, ph, rng)
+            self._update_self_ref_column(table_name, pk_cols, fk, checks, ph, rng)
 
     def _self_ref_condition_values(
         self, table_name: str, fk_col: str, checks: list[Any], ph: str
@@ -479,59 +479,23 @@ class GenerationMixin:
     def _update_self_ref_column(
         self,
         table_name: str,
-        pk_col: str,
+        pk_cols: list[str],
         fk: ForeignKeyInfo,
         checks: list[Any],
         ph: str,
         rng: random.Random | ModuleType,
     ) -> None:
         """Link one deferred FK to preceding rows using the fill's existing RNG."""
-        fk_col = fk.column
-        pk_rows = self.query(
-            f"SELECT {quote_identifier(pk_col)} AS pk, "
-            f"{quote_identifier(fk.ref_column)} AS ref_value "
-            f"FROM {quote_identifier(table_name)} "
-            f"ORDER BY {quote_identifier(pk_col)}"
-        )
-        if len(pk_rows) < 2:
-            return
-        pk_values = [row["pk"] for row in pk_rows]
-        ref_values = [row["ref_value"] for row in pk_rows]
-        cond_col, non_null_values = self._self_ref_condition_values(table_name, fk_col, checks, ph)
-
-        updated = 0
-        for i, pk_val in enumerate(pk_values):
-            if i == 0 or rng.random() > 0.7:
-                continue
-            if (ref_value := ref_values[rng.randint(0, i - 1)]) is None:
-                continue
-
-            if cond_col and non_null_values:
-                new_cond = rng.choice(non_null_values)
-                sql = (
-                    f"UPDATE {quote_identifier(table_name)} "
-                    f"SET {quote_identifier(fk_col)} = {ph}, "
-                    f"{quote_identifier(cond_col)} = {ph} "
-                    f"WHERE {quote_identifier(pk_col)} = {ph}"
-                )
-                self.execute(sql, (ref_value, new_cond, pk_val)).close()
-                updated += 1
-            else:
-                sql = (
-                    f"UPDATE {quote_identifier(table_name)} "
-                    f"SET {quote_identifier(fk_col)} = {ph} "
-                    f"WHERE {quote_identifier(pk_col)} = {ph}"
-                )
-                self.execute(sql, (ref_value, pk_val)).close()
-                updated += 1
-
+        condition = self._self_ref_condition_values(table_name, fk.column, checks, ph)
+        updater = SelfReferenceUpdater(self._db, table_name, pk_cols, fk, condition, ph, rng)
+        updated, total = updater.apply()
         if updated:
             logger.info(
                 "Post-fill self-ref FK update",
                 table_name=table_name,
-                fk_col=fk_col,
+                fk_col=fk.column,
                 updated=updated,
-                total=len(pk_values),
+                total=total,
             )
 
     def preview_table(

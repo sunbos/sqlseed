@@ -1,0 +1,1 @@
+[2m2026-09-12T23:18:38.596375Z[0m [[31m[1merror    [0m] [1mFailed to fill table          [0m [36merror[0m=[35mStatementError('(builtins.TypeError) SQLite Date type only accepts Python date objects as input.')[0m [36mtable_name[0m=[35mevents[0m

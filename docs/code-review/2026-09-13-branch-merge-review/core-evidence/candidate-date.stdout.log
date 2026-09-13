@@ -1,0 +1,4 @@
+SOURCE: /Users/sunbo/Desktop/sqlseed/src/sqlseed/__init__.py
+⠋ Generating events                                            0% 0/3 ? -:--:--
+RESULT 0 ["(builtins.TypeError) SQLite Date type only accepts Python date objects as input.\n[SQL: INSERT INTO events (holiday) VALUES (?)]\n[parameters: [{'holiday': '2026-01-01'}, {'holiday': '2026-01-01'}, {'holiday': '2026-12-25'}]]"]
+STORED []

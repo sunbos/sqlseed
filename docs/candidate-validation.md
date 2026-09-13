@@ -2,6 +2,12 @@
 
 候选分支：`codex/workbench-candidate`。先通过 Pull Request 验证同一提交，再决定是否合入 `main`。候选包用于试用，不等于正式 Release，也不自动发布到 PyPI。
 
+## 当前合并复核（2026-09-13）
+
+下文 2026-09-12 记录保留当时的验收过程。后续 `4ba5d08` 的 Sonar Quality Gate 已通过，CodeFlow 为 0 errors / 0 warnings，完整 mutation 为 246/246 killed；它们不替代更晚提交的检查。
+
+合并前独立审查发现的 JSON/日期类型绑定、自引用外键和 AI MCP stdout 问题已修复。Python 3.12 全量 3644 passed / 65 skipped，Node 669 passed；后续等价静态整理及测试收集修正的专项 93 passed，默认 unique_adjuster mutation 246/246 killed。跳过项不计作通过，真实 PostgreSQL 和跨平台行为仍须核验本提交远端 CI。当前实际合并状态以 [PR #10](https://github.com/sunbos/sqlseed/pull/10) 与该提交检查为准。CLI/MCP 安装迁移及 Pages 发布时机见[升级说明](migration.zh-CN.md)。在新提交通过完整门禁前保持 Draft；`fill` 参数数量问题按用户决定暂缓。
+
 ## 获取可追溯的安装包
 
 打开该 PR 的 CI 工作流。`packages` 任务会构建五个 package 的 sdist 和 wheel，执行依赖一致性检查，并在完整五包、仅 Core/Web 两种独立环境中启动真实 Web worker、验证页面和数据生成。成功后上传 `sqlseed-candidate-<commit SHA>`，保留 14 天。

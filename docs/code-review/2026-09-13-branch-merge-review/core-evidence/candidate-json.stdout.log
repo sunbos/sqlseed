@@ -1,0 +1,4 @@
+SOURCE: /Users/sunbo/Desktop/sqlseed/src/sqlseed/__init__.py
+  Generating events ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100% 3/3 ? 0:00:00
+RESULT 3 []
+STORED [('"{\\"n\\": 670487}"', 'text', None), ('"{\\"n\\": 116739}"', 'text', None), ('"{\\"n\\": 26225}"', 'text', None)]
