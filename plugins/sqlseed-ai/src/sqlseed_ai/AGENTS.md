@@ -1,5 +1,7 @@
 # sqlseed_ai 运行时
 
+**源码核验日期：** 2026-09-14
+
 继承 [插件边界](../../AGENTS.md)。此处维护 AI 调用、插件 hooks 和 v4 修复引擎；自动修复的大型 CHECK 推断模块另读 [auto_heal/AGENTS.md](auto_heal/AGENTS.md)。
 
 ## 六层职责
@@ -22,7 +24,7 @@ Layer 表示架构层；healer 的 Level 表示 LLM 修复粒度，二者不能�
 - `normalize_params` 是生成器参数白名单的统一来源；[refiner.py](refiner.py) 已委托它，勿复制旧 Rule #14。日期参数白名单需保留各 provider 实际支持的参数形式。
 - `coerce_float_to_int` 处理 INTEGER 列的 `random_float`；derived mode、日期生成器和 CHECK 关联修复沿用现有策略。旧规则迁移参考 [v4_coverage_matrix.md](../../../../docs/superpowers/plans/v4_coverage_matrix.md)，不要重建 legacy validator。
 - **Repair accounting**：`before == after` 表示策略拒绝修复，必须进入 `unfixable`，不能增加 `applied_fixes` / `fix_count`；这直接影响 `RepairPipeline` 的部分修复复验条件。
-- 更新列字典前复制策略返回值，防止返回同一对象后 `clear()` 把配置清空；保留原始 `before` 审计信息。
+- 在深拷贝的候选列上运行策略，成功返回后再替换原列；提交前复制返回值，防止返回同一对象后 `clear()` 把配置清空，并保留原始 `before` 审计信息。`ValueError` / `TypeError` / `KeyError` / `ArithmeticError` 表示候选拒绝，其他策略异常继续抛出，不能让失败策略的局部改动进入配置。
 - **Phone hard truth**：`_semantic_upgrade` 和 `_upgrade_phone_to_pattern` 遇到 `LENGTH(col)=N` 时使用 `pattern` / `[0-9]{N}`；不要退回可变长度 `phone` 或把该情形当作成功 no-op。
 
 ## Healer 路由与降级
@@ -52,6 +54,14 @@ Layer 表示架构层；healer 的 Level 表示 LLM 修复粒度，二者不能�
 - Refiner 缓存文件名使用完整表名的 SHA-256，不能把 SQL 标识符直接用作文件路径。只兼容读取缓存目录内的旧 basename 文件，拒绝越界路径和指向目录外的链接；`no_cache=True` 同时禁止读写缓存。
 - Refiner 缓存的 schema 校验值仍是排序列名的截断 SHA-256，不是完整 schema fingerprint，不能与 Layer 5 乐观锁使用的 `SchemaSnapshot.schema_hash` 混用。新格式缓存往返需保留合法的完整表名。
 - `SchemaSnapshot.schema_hash` 包含列类型、可空性、默认值、computed / identity / autoincrement 元数据以及既有约束与外键；不包含记录值、采集时间等非 schema 信息。新增语义字段时保持排序 JSON 的稳定计算。
+
+## CLI 与 MCP 输入输出边界
+
+- [cli/ai_commands.py](cli/ai_commands.py) 的 `_read_config_document()` 使用 `GeneratorConfig` 校验输入并拒绝重复表名；显式 `--db` / `--url` 决定输出连接，清掉相反字段。无效输入不得覆盖已有输出文件。
+- `auto-heal --config` 把原文档传为 `initial_config`；`ai-analyze` 将 `--tables` / `--no-dependencies` / `--max-depth` 传入分析范围。`--merge` 要求 `--output`，保留 root 设置和未选择的已有表规则，再加入新分析表；不要改为整份覆盖。
+- `ai-analyze` 无 `--output` 时 stdout 交付 YAML，模型和进度提示写 stderr。共享 `runtime.py` 不承担这些终端行为。
+- [mcp.py](mcp.py) 提供 AI YAML、Gemma 分析、agent fill 与模型列表；保持既有工具名及各自的字符串 / dict 返回形状。它直接使用 AI Python 服务，不调用 CLI 私有实现。
+- AI MCP 的 agent fill 局部传入 `NullProgressBackend`，stdout 留给 JSON-RPC；不要全局重定向 stdout 或替换 Core progress factory。模型列表包含硬件评估与本地服务探测，不能当作纯静态枚举或真实推理成功证明。
 
 ## Hooks 与集成
 

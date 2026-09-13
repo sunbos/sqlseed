@@ -6,6 +6,7 @@
 
 - `test_hookspecs.py` 验证 hook 名称、签名与 `firstresult` 元数据；以 `src/sqlseed/plugins/hookspecs.py` 为定义来源。
 - `test_manager.py` 验证注册、卸载、分发与生命周期；使用真实 `PluginManager` 和内联 dummy plugin classes。
+- hook 签名变更同时核对实际调用者和插件实现；仅更新数量/签名断言不能证明插件兼容。新增 lifecycle 用例须检查卸载后不再收到调用，避免只验证注册成功。
 - 区分 `firstresult=True` 的单值与普通 hook 的 `list[result]`，包含全 None / 多个结果的情况。
 - 验证 batch transform 结果处理时，同时参考 `tests/test_core/test_plugin_mediator.py`；不要假设 pluggy 会把一个插件的输出依次传入下一个插件。
 - CLI、AI、MCP、Web 的业务行为测试放在各插件自己的 `tests/`，避免这里强制依赖业务插件。
