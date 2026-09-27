@@ -75,7 +75,7 @@ def sqlseed_generate_yaml(db_path: str, table_name: str) -> str:
         message = redact_url_credentials(str(e))
         logger.error(
             "Failed to generate YAML",
-            db_path=redact_url_credentials(db_path, whole_url=True),
+            db_path=redact_url_credentials(db_path),
             table_name=table_name,
             error=message,
         )
@@ -147,7 +147,7 @@ def sqlseed_execute_fill(
         message = redact_url_credentials(str(e))
         logger.error(
             "Failed to execute fill",
-            db_path=redact_url_credentials(db_path, whole_url=True),
+            db_path=redact_url_credentials(db_path),
             table_name=table_name,
             error=message,
         )

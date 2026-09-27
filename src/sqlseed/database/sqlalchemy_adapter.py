@@ -345,7 +345,7 @@ class SQLAlchemyAdapter:
 
         logger.debug(
             "Connected to database via SQLAlchemy",
-            db_url=redact_url_credentials(db_url, whole_url=True),
+            db_url=redact_url_credentials(db_url),
             dialect=self._dialect.name,
         )
 
@@ -374,7 +374,7 @@ class SQLAlchemyAdapter:
             raise
         except ArgumentError:
             # SQLAlchemy's original error may render secret query parameters.
-            raise ValueError(f"Invalid database URL: {redact_url_credentials(db_url, whole_url=True)}") from None
+            raise ValueError(f"Invalid database URL: {redact_url_credentials(db_url)}") from None
 
     def close(self) -> None:
         """Close the database connection and release resources. No-op if not connected."""
@@ -387,7 +387,7 @@ class SQLAlchemyAdapter:
             self._dialect = None
             self._optimizer = None
             self._table_cache.clear()
-            logger.debug("Closed SQLAlchemy connection", db_url=redact_url_credentials(self._db_url, whole_url=True))
+            logger.debug("Closed SQLAlchemy connection", db_url=redact_url_credentials(self._db_url))
 
     @contextmanager
     def transaction(self) -> Iterator[Self]:

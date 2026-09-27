@@ -11,7 +11,7 @@ import { openTableData } from '../workbench/table-data.js';
 import { fieldAIEligibility } from '../workbench/ai-eligibility.js';
 import { remainingRun } from '../workbench/recovery.js';
 import { providerGuide } from '../workbench/provider-guide.js';
-import { nextStep, guideAIState } from '../workbench/guidance.js';
+import { nextStep } from '../workbench/guidance.js';
 import { clearRecoveryState, clearScopeCandidate } from '../workbench/clear-recovery.js';
 import { createRuleEditor } from '../workbench/editor.js';
 import { createSchemaGraph } from '../workbench/graph.js';
@@ -43,9 +43,7 @@ let root,
 let graphOwner = null,
   modalIntent = 0;
 let tablePreview = null;
-let guidanceAI = null,
-  guidanceRequest = 0,
-  guidanceCollapsed = false;
+let guidanceCollapsed = false;
 let providerMetadata = null,
   providerRequest = 0;
 try {
@@ -407,7 +405,6 @@ export async function mount() {
     draw({
       autoPreview: !previewOrigin
     });
-    loadGuidanceAI();
     loadProviderStatus();
     if (cachedSchemaNotice) {
       notify(cachedSchemaNotice, true);
@@ -695,26 +692,6 @@ function updateProviderWarning() {
     small: true
   }));
 }
-async function loadGuidanceAI() {
-  const version = active,
-    owner = session,
-    request = ++guidanceRequest;
-  let config = null;
-  try {
-    const response = await get('/api/workbench/ai/config');
-    config = {
-      available: response.available,
-      ready: response.ready,
-      availability_status: response.availability_status
-    };
-  } catch {/* Manual configuration stays available. */}
-  if (version !== active || owner !== session || request !== guidanceRequest) {
-    return;
-  }
-  guidanceAI = config;
-  updateGuidance();
-  syncBusy();
-}
 function updateGuidance() {
   if (!root?.isConnected) {
     return;
@@ -914,7 +891,8 @@ async function openAI(initialScope = 'current', initialState = null, {
     onSettings: goAISettings,
     onClose: () => {
       if (version === active && owner === session) {
-        loadGuidanceAI();
+        updateGuidance();
+        syncBusy();
       }
       returnToPreview();
     },

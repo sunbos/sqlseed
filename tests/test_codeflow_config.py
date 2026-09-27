@@ -77,7 +77,7 @@ CI_IMPORTS = {
     "winerror": "pywin32",
 }
 # Windows-only modules are listed in sys.stdlib_module_names on every platform.
-WINDOWS_STDLIB_IMPORTS = {"msvcrt"}
+WINDOWS_STDLIB_IMPORTS = {"_winapi", "msvcrt"}
 ENVIRONMENT_OPTIONS = {"source-roots", "init-hook", "ignored-modules"}
 SCRIPT_PACKAGES = ("scripts/complex_validation", "examples/scenario_lab")
 DIRECT_SCRIPT_PATHS = (*SCRIPT_PACKAGES, "examples")

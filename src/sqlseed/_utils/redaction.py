@@ -14,7 +14,7 @@ _QUERY_KEY = re.compile(r"[?&]([^=?&#\s]+)=")
 _SECRET_KEYS = frozenset({"password", "passwd", "pwd", "sslpassword", "secret", "token", "api_key", "access_token"})
 
 
-def redact_url_credentials(message: str, *, whole_url: bool = False) -> str:
+def redact_url_credentials(message: str) -> str:
     """Keep hosts, paths and diagnostics while hiding URL userinfo and secrets.
 
     Matching text instead of parsing one URL also handles malformed targets and
@@ -23,7 +23,6 @@ def redact_url_credentials(message: str, *, whole_url: bool = False) -> str:
     Query values may contain raw whitespace, quotes and '#', so only an '&'
     terminates a credential value. Ambiguous free text is redacted conservatively:
     a scheme inside a password must not expose the part before that scheme.
-    ``whole_url`` identifies known target fields and is retained for callers.
     """
     starts = list(_URL_START.finditer(message))
     ats = [match.start() for match in re.finditer("@", message)]

@@ -5,11 +5,12 @@ from __future__ import annotations
 import subprocess
 import sys
 import time
+from contextlib import suppress
 from pathlib import Path
 
 import pytest
 
-from sqlseed_web.plugin_environment import EnvironmentLock
+from sqlseed_web.plugin_environment import EnvironmentLock, _WindowsEnvironmentHandle
 
 pytestmark = pytest.mark.skipif(sys.platform != "win32", reason="Win32 handle sharing semantics")
 
@@ -102,3 +103,44 @@ def test_file_wrapper_failure_releases_native_environment_handle(
     contender = EnvironmentLock(tmp_path, exclusive=True)
     contender.acquire()
     contender.release()
+
+
+@pytest.mark.parametrize("error", [OSError, KeyboardInterrupt])
+def test_inherited_handle_conversion_failure_closes_duplicate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, error: type[BaseException]
+) -> None:
+    import _winapi
+    import msvcrt
+
+    owner = EnvironmentLock(tmp_path, exclusive=True)
+    contender = EnvironmentLock(tmp_path, exclusive=True)
+    owner.acquire()
+    duplicate = None
+    try:
+        process = _winapi.GetCurrentProcess()
+        duplicate = _winapi.DuplicateHandle(
+            process, msvcrt.get_osfhandle(owner.fileno()), process, 0, False, _winapi.DUPLICATE_SAME_ACCESS
+        )
+        inherited = _WindowsEnvironmentHandle(duplicate)
+
+        def fail_conversion(handle: int, flags: int) -> int:
+            raise error("cannot allocate file descriptor")
+
+        with monkeypatch.context() as patch:
+            patch.setattr(msvcrt, "open_osfhandle", fail_conversion)
+            with pytest.raises(error, match="cannot allocate file descriptor"):
+                inherited.detach()
+        with pytest.raises(RuntimeError, match="already detached"):
+            inherited.detach()
+
+        # Even after the original owner exits, a leaked duplicate would retain
+        # the native share-deny lock and prevent the new owner from opening it.
+        owner.release()
+        contender.acquire()
+        duplicate = None  # The closed handle value may already belong to the contender.
+    finally:
+        contender.release()
+        owner.release()
+        if duplicate is not None:
+            with suppress(OSError):
+                _winapi.CloseHandle(duplicate)

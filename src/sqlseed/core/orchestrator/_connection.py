@@ -181,7 +181,7 @@ class ConnectionMixin:
         if _is_db_url(self._db_path):
             logger.debug(
                 "Using SQLAlchemyAdapter (database URL)",
-                db_target=redact_url_credentials(self._db_path, whole_url=True),
+                db_target=redact_url_credentials(self._db_path),
             )
         else:
             logger.debug("Using SQLAlchemyAdapter (SQLite file)", db_target=self._db_path)

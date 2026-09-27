@@ -58,19 +58,18 @@ def test_known_connection_target_allows_raw_scheme_inside_password() -> None:
 
     target = "postgresql://audit-user:synthetic:http://nested@host:5432/db"
     assert make_url(target).password == "synthetic:http://nested"
-    assert redact_url_credentials(target, whole_url=True) == "postgresql://***:***@host:5432/db"
+    assert redact_url_credentials(target) == "postgresql://***:***@host:5432/db"
     assert redact_url_credentials(f"Failure {target}") == "Failure postgresql://***:***@host:5432/db"
 
 
 @pytest.mark.parametrize("separator", [" ", "\t", "#", "'", '"', ")"])
-@pytest.mark.parametrize("whole_url", [False, True])
-def test_query_credentials_keep_raw_value_delimiters_private(separator: str, whole_url: bool) -> None:
+def test_query_credentials_keep_raw_value_delimiters_private(separator: str) -> None:
     from sqlalchemy.engine import make_url
 
     password = f"first-secret{separator}second-secret"
     target = f"postgresql://host/db?password={password}&sslmode=require"
     assert make_url(target).query["password"] == password
-    assert redact_url_credentials(target, whole_url=whole_url) == "postgresql://host/db?password=***&sslmode=require"
+    assert redact_url_credentials(target) == "postgresql://host/db?password=***&sslmode=require"
 
 
 def test_redaction_handles_long_malformed_urls_without_excessive_backtracking() -> None:

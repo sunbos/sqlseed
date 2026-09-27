@@ -177,7 +177,7 @@ def sqlseed_gemma4_analyze(
         message = redact_url_credentials(str(e))
         logger.error(
             "Gemma 4 analysis failed",
-            db_path=redact_url_credentials(db_path, whole_url=True),
+            db_path=redact_url_credentials(db_path),
             table_name=table_name,
             error=message,
         )
@@ -256,7 +256,7 @@ def sqlseed_gemma4_agent_fill(
         message = redact_url_credentials(str(e))
         logger.error(
             "Agent fill failed",
-            db_path=redact_url_credentials(db_path, whole_url=True),
+            db_path=redact_url_credentials(db_path),
             table_name=table_name,
             error=message,
         )

@@ -346,10 +346,10 @@ def test_timed_out_wheel_read_cannot_write_after_service_recovery(
     original_read, original_download = updates._read_artifact, updates.download_update
     directories = []
 
-    def slow(address: str, **kwargs: Any) -> bytes:
+    def slow(address: str, *, limit: int, timeout: float) -> bytes:
         started.set()
         assert release.wait(5)
-        return original_read(address, **kwargs)
+        return original_read(address, limit=limit, timeout=timeout)
 
     def capture(update: Any, directory: Path) -> Path:
         directories.append(directory)
@@ -389,7 +389,7 @@ def test_update_download_failure_or_environment_race_never_invokes_installer_and
         directories.append(directory)
         return original_download(update, directory)
 
-    def read(address: str, **kwargs: Any) -> bytes:
+    def read(address: str, *, limit: int, timeout: float) -> bytes:
         if failure == "metadata_changed":
             (site / "shared-1.0.dist-info/METADATA").write_text("Metadata-Version: 2.1\nName: shared\nVersion: 1.1\n")
         if failure == "environment_changed":
@@ -397,7 +397,11 @@ def test_update_download_failure_or_environment_race_never_invokes_installer_and
             monkeypatch.setattr(environment, "_environment", lambda: replace(current, executable="other-python"))
         if failure == "http":
             raise http.client.IncompleteRead(b"private")
-        return b"corrupted" if failure in {"hash", "corrupt_wheel"} else original_read(address, **kwargs)
+        return (
+            b"corrupted"
+            if failure in {"hash", "corrupt_wheel"}
+            else original_read(address, limit=limit, timeout=timeout)
+        )
 
     if failure == "corrupt_wheel":
         manager._plan["_update"] = replace(manager._plan["_update"], sha256=hashlib.sha256(b"corrupted").hexdigest())

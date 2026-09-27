@@ -863,7 +863,8 @@ function invalidateInstallationCopies() {
     status.textContent = '';
   }
 }
-function copyableCommand(command, copyState = {copying: false, button: null}) {
+function copyableCommand(command, sharedCopyState) {
+  const copyState = sharedCopyState ?? {copying: false, button: null};
   const ownerVersion = version;
   const status = h('span', {
     class: 'settings-copy-status muted',
