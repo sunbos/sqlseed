@@ -30,7 +30,6 @@ def _wait_for_task_result(client: httpx.Client, task_id: str) -> dict[str, Any]:
     return result
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="Managed worker replacement requires POSIX descriptor inheritance")
 def test_supervisor_preserves_port_connection_identity_and_database_after_package_task(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -76,7 +75,7 @@ def test_supervisor_preserves_port_connection_identity_and_database_after_packag
     try:
         old_process = supervisor.process
         base = f"http://127.0.0.1:{supervisor.port}"
-        with httpx.Client(base_url=base, timeout=5) as client:
+        with httpx.Client(base_url=base, timeout=10, trust_env=False) as client:
             status = client.get("/api/settings/plugins/management").json()
             assert status["automatic_lifecycle"] is True
             headers = {"Origin": base, "X-Sqlseed-Management-Token": status["token"]}

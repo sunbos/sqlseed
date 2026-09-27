@@ -72,7 +72,22 @@ def test_refiner_refuses_unsafe_legacy_cache_but_reads_safe_legacy_name(
     (cache / "users.json").write_text(json.dumps(entry))
     assert refiner.get_cached_config("users", "old") == entry["config"]
     assert refiner.get_cached_config("users", "different") is None
-    (cache / "linked.json").symlink_to(tmp_path / "outside.json")
+
+
+def test_refiner_refuses_legacy_cache_symlink_outside_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    refiner = refiner_for(tmp_path / "unused.db", cache, "users", monkeypatch)
+    entry = {"_meta": {"schema_hash": "old"}, "config": {"name": "users", "columns": []}}
+    (tmp_path / "outside.json").write_text(json.dumps(entry))
+    try:
+        (cache / "linked.json").symlink_to(tmp_path / "outside.json")
+    except OSError as exc:
+        if getattr(exc, "winerror", None) == 1314:
+            pytest.skip("Windows account lacks symlink creation privilege; real symlink protection remains unverified")
+        raise
     assert refiner.get_cached_config("linked", "old") is None
 
 

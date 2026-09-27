@@ -271,7 +271,7 @@ def pg_url() -> Generator[str, None, None]:
 
     PG_TEST_URL is supplied by CI; only containers created here are stopped here.
     """
-    if (external_url := os.environ.get("PG_TEST_URL")):
+    if external_url := os.environ.get("PG_TEST_URL"):
         yield external_url
         return
     if PostgresContainer is None:
@@ -305,7 +305,7 @@ def _preferred_ollama_model(models: set[str]) -> str | None:
     for preferred in ("gemma4:26b", "gemma4:31b", "gemma4:e4b", "gemma4:12b"):
         if preferred in models:
             return preferred
-        if (variants := sorted(model for model in models if model.startswith(f"{preferred}-"))):
+        if variants := sorted(model for model in models if model.startswith(f"{preferred}-")):
             return variants[0]
     return None
 

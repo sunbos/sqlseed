@@ -43,7 +43,7 @@ function harness({records = [config('A'), config('B', {target_label: 'other.db'}
   const mount = async () => {root = context.render(); document.body.append(root); await context.mount();};
   const leave = () => {context.unmount(); root?.remove();};
   const button = (label, scope = document) => {
-    const found = scope.querySelectorAll('button').find(node => node.textContent === label);
+    const found = scope.querySelectorAll('button').find(node => node.textContent === label || node.getAttribute('aria-label') === label);
     assert.ok(found, `Missing button ${label}`); return found;
   };
   const card = id => root.querySelector(`[data-config-id="${id}"]`);
@@ -144,12 +144,64 @@ test('copy creates a new independently named card without overwriting the origin
   assert.equal(ui.card('copy').querySelector('a').getAttribute('href'), '#/workbench?draft=copy');
 });
 
-test('empty names are rejected before any request', async () => {
-  const ui = harness(); await ui.mount(); await ui.button('重命名', ui.card('A')).click();
-  await ui.edit('配置名称', ' '); await ui.button('保存名称', ui.dialog()).click();
-  assert.equal(ui.requests.length, 1);
-  assert.match(ui.dialog().textContent, /请输入配置名称/);
-});
+for (const [operation, confirmLabel, method, suffix] of [
+  ['重命名', '保存名称', 'PATCH', ''], ['复制', '创建副本', 'POST', '/copy'],
+]) {
+  test(`${operation} associates local validation with the input and clears it on editing`, async () => {
+    const records = [config('A')], ui = harness({records}); await ui.mount();
+    await ui.button(operation, ui.card('A')).click();
+    const input = await ui.edit('配置名称', ' ');
+    const confirm = ui.button(confirmLabel, ui.dialog());
+    await confirm.click();
+    assert.equal(ui.requests.length, 1);
+    assert.equal(input.getAttribute('aria-invalid'), 'true');
+    const error = ui.document.getElementById(input.getAttribute('aria-describedby'));
+    assert.ok(error && ui.dialog().contains(error));
+    assert.equal(error.getAttribute('role'), 'alert');
+    assert.match(error.textContent, /请输入配置名称/);
+    assert.equal(ui.document.activeElement, input);
+    await ui.edit('配置名称', '长'.repeat(201));
+    assert.equal(input.getAttribute('aria-invalid'), null);
+    assert.equal(input.getAttribute('aria-describedby'), null);
+    assert.equal(error.textContent, '');
+    await confirm.click();
+    assert.equal(input.getAttribute('aria-invalid'), 'true');
+    assert.equal(ui.document.getElementById(input.getAttribute('aria-describedby')), error);
+    assert.match(error.textContent, /不能超过 200 个字符/);
+    assert.equal(ui.document.activeElement, input);
+    assert.equal(ui.requests.length, 1);
+    const validName = '名'.repeat(200);
+    await ui.edit('配置名称', validName);
+    assert.equal(input.getAttribute('aria-invalid'), null);
+    assert.equal(error.textContent, '');
+    ui.routes.set(`${method} /api/workbench/drafts/A${suffix}`, options => {
+      assert.deepEqual(JSON.parse(options.body), {revision: 2, name: validName});
+      return config(operation === '复制' ? 'copy' : 'A', {name: validName, revision: 3});
+    });
+    await confirm.click();
+    assert.equal(ui.dialog(), null);
+    assert.equal(ui.requests.filter(request => request.options.method === method).length, 1);
+  });
+
+  for (const status of [503, 409]) {
+    test(`${operation} retains service failure ${status} when editing the name`, async () => {
+      const ui = harness(); await ui.mount();
+      ui.routes.set(`${method} /api/workbench/drafts/A${suffix}`, () => ({httpError: status, message: '服务暂不可用'}));
+      await ui.button(operation, ui.card('A')).click();
+      const input = await ui.edit('配置名称', '有效名称');
+      const confirm = ui.button(confirmLabel, ui.dialog());
+      await confirm.click();
+      const error = ui.dialog().querySelector('[role="alert"]');
+      const message = error.textContent;
+      assert.match(message, status === 409 ? /配置已被其他操作更新/ : /未能确认操作结果.*服务暂不可用/);
+      assert.equal(input.getAttribute('aria-invalid'), null);
+      await ui.edit('配置名称', '另一有效名称');
+      assert.equal(error.textContent, message);
+      assert.equal(confirm.disabled, status === 409);
+      assert.equal(ui.requests.filter(request => request.options.method === method).length, 1);
+    });
+  }
+}
 
 test('keyboard Enter accepts a name and Escape cancels a deletion without sending it', async () => {
   const records = [config('A')], ui = harness({records}); await ui.mount();
@@ -223,4 +275,128 @@ test('a late rename failure cannot alter a newer delete confirmation', async () 
   await ui.button('删除', ui.card('B')).click(); const next = ui.dialog();
   gate.reject(new Error('old failure')); await pending;
   assert.equal(ui.dialog(), next); assert.doesNotMatch(next.textContent, /old failure/);
+});
+
+async function selectConfig(ui, id, checked = true) {
+  const checkbox = ui.card(id).querySelector('[data-config-select]');
+  checkbox.checked = checked;
+  await checkbox.dispatchEvent('change');
+  return checkbox;
+}
+
+async function selectVisible(ui) {
+  const checkbox = ui.root().querySelector('[aria-label="全选当前筛选结果"]');
+  checkbox.checked = true;
+  await checkbox.dispatchEvent('change');
+}
+
+test('bulk selection keeps checkbox focus and selects only current filtered results', async () => {
+  const ui = harness(); await ui.mount();
+  const first = await selectConfig(ui, 'A'); first.focus();
+  assert.equal(ui.card('A').querySelector('[data-config-select]'), first);
+  assert.equal(ui.document.activeElement, first);
+  const all = ui.root().querySelector('[aria-label="全选当前筛选结果"]');
+  assert.equal(all.indeterminate, true);
+  await ui.edit('查找配置', 'other.db');
+  assert.match(ui.root().querySelector('.config-selection-count').textContent, /已选 0 份/);
+  await selectVisible(ui);
+  assert.equal(all.checked, true);
+  await ui.button('删除所选').click();
+  assert.match(ui.dialog().querySelector('.config-delete-list').textContent, /配置 B.*other.db.*v2/);
+  assert.doesNotMatch(ui.dialog().querySelector('.config-delete-list').textContent, /配置 A/);
+  assert.equal(ui.dialog().querySelectorAll('button').length, 2, 'Only cancel and confirmed deletion are shown');
+  assert.equal(ui.document.activeElement, ui.button('取消', ui.dialog()));
+  await ui.button('取消', ui.dialog()).click();
+  assert.equal(ui.requests.filter(request => request.options.method === 'DELETE').length, 0);
+});
+
+test('bulk deletion sends only confirmed IDs and revisions and announces every successful removal', async () => {
+  const records = [config('A'), config('B'), config('C')], ui = harness({records}); await ui.mount();
+  await selectConfig(ui, 'A'); await selectConfig(ui, 'B');
+  for (const id of ['A', 'B']) ui.routes.set(`DELETE /api/workbench/drafts/${id}?revision=2`, () => {
+    records.splice(records.findIndex(record => record.id === id), 1); return {deleted: true};
+  });
+  await ui.button('删除所选').click();
+  assert.equal(ui.requests.filter(request => request.options.method === 'DELETE').length, 0);
+  await ui.button('删除 2 份配置', ui.dialog()).click();
+  assert.equal(ui.dialog(), null);
+  assert.equal(ui.card('A'), null); assert.equal(ui.card('B'), null); assert.ok(ui.card('C'));
+  assert.deepEqual(ui.requests.filter(request => request.options.method === 'DELETE').map(request => request.url),
+    ['/api/workbench/drafts/A?revision=2', '/api/workbench/drafts/B?revision=2']);
+  assert.deepEqual(plain(ui.events).map(event => event.detail), [{id: 'A', revision: 2}, {id: 'B', revision: 2}]);
+  assert.match(ui.root().querySelector('.config-notice').textContent, /已删除 2 份.*运行记录和数据库数据均保留/);
+  assert.equal(ui.button('删除所选').disabled, true);
+});
+
+test('bulk deletion preserves conflicts, reports already-missing items and never retries updated versions', async () => {
+  const records = [config('A'), config('B'), config('C'), config('D')], ui = harness({records}); await ui.mount();
+  await selectVisible(ui);
+  ui.routes.set('DELETE /api/workbench/drafts/A?revision=2', () => {records.shift(); return {deleted: true};});
+  ui.routes.set('DELETE /api/workbench/drafts/B?revision=2', () => {
+    records[0] = config('B', {revision: 3}); return {httpError: 409, message: 'changed'};
+  });
+  ui.routes.set('DELETE /api/workbench/drafts/C?revision=2', () => {
+    records.splice(records.findIndex(record => record.id === 'C'), 1); return {httpError: 404, message: 'gone'};
+  });
+  ui.routes.set('DELETE /api/workbench/drafts/D?revision=2', () => {records.pop(); return {deleted: true};});
+  await ui.button('删除所选').click(); await ui.button('删除 4 份配置', ui.dialog()).click();
+  assert.match(ui.dialog().textContent, /已删除 2 份.*1 份已不存在.*1 份需核对/);
+  assert.match(ui.dialog().querySelector('[role="alert"]').textContent, /配置 B：已被更新，本次未删除/);
+  assert.equal(ui.button('删除 4 份配置', ui.dialog()).disabled, true);
+  assert.match(ui.card('B').textContent, /v3/);
+  assert.equal(ui.card('B').querySelector('[data-config-select]').checked, false);
+  assert.deepEqual(ui.requests.filter(request => request.options.method === 'DELETE').map(request => request.url),
+    ['A', 'B', 'C', 'D'].map(id => `/api/workbench/drafts/${id}?revision=2`));
+  assert.deepEqual(plain(ui.events).map(event => event.detail.id), ['A', 'C', 'D']);
+});
+
+test('an unknown bulk deletion result stops further requests and requires explicit fresh review', async () => {
+  const records = [config('A'), config('B'), config('C')], ui = harness({records}); await ui.mount();
+  await selectVisible(ui);
+  ui.routes.set('DELETE /api/workbench/drafts/A?revision=2', () => {records.shift(); return {deleted: true};});
+  ui.routes.set('DELETE /api/workbench/drafts/B?revision=2', () => {throw new Error('connection lost');});
+  await ui.button('删除所选').click(); await ui.button('删除 3 份配置', ui.dialog()).click();
+  assert.match(ui.dialog().textContent, /已删除 1 份.*1 份需核对.*1 份未处理/);
+  assert.match(ui.dialog().querySelector('[role="alert"]').textContent, /未能确认删除结果/);
+  assert.ok(ui.card('B')); assert.ok(ui.card('C'));
+  await ui.button('删除 3 份配置', ui.dialog()).click();
+  assert.equal(ui.requests.filter(request => request.options.method === 'DELETE').length, 2);
+});
+
+test('stopping a pending batch allows its accepted request to finish but starts no further deletion', async () => {
+  const records = [config('A'), config('B')], ui = harness({records}); await ui.mount();
+  const gate = deferred(); await selectVisible(ui);
+  ui.routes.set('DELETE /api/workbench/drafts/A?revision=2', () => gate.promise);
+  await ui.button('删除所选').click();
+  const confirm = ui.button('删除 2 份配置', ui.dialog()), pending = confirm.click();
+  await confirm.click();
+  assert.equal(ui.requests.filter(request => request.options.method === 'DELETE').length, 1);
+  await ui.button('停止后续删除', ui.dialog()).click();
+  assert.equal(ui.button('删除所选').disabled, true, 'Another batch cannot overlap the accepted request');
+  records.shift(); gate.resolve({deleted: true}); await pending;
+  assert.equal(ui.dialog(), null); assert.ok(ui.card('B'));
+  assert.match(ui.root().querySelector('.config-notice').textContent, /已删除 1 份.*1 份未处理/);
+  assert.equal(ui.requests.filter(request => request.options.method === 'DELETE').length, 1);
+});
+
+test('leaving a pending batch publishes its accepted deletion without continuing or touching a new page', async () => {
+  const ui = harness(); await ui.mount(); const gate = deferred(); await selectVisible(ui);
+  ui.routes.set('DELETE /api/workbench/drafts/A?revision=2', () => gate.promise);
+  await ui.button('删除所选').click(); const pending = ui.button('删除 2 份配置', ui.dialog()).click();
+  ui.leave(); await ui.mount(); await selectConfig(ui, 'B');
+  gate.resolve({deleted: true}); await pending;
+  assert.equal(ui.requests.filter(request => request.options.method === 'DELETE').length, 1);
+  assert.equal(ui.events.length, 1);
+  assert.equal(ui.card('B').querySelector('[data-config-select]').checked, true);
+  assert.equal(ui.button('删除所选').disabled, false);
+});
+
+test('refreshing updated revisions and changing database scope clear obsolete bulk selections', async () => {
+  const records = [config('A')], ui = harness({records}); await ui.mount(); await selectVisible(ui);
+  records[0] = config('A', {revision: 3}); await ui.button('刷新列表').click();
+  assert.equal(ui.card('A').querySelector('[data-config-select]').checked, false);
+  await selectVisible(ui); ui.store.connId = 'connection-B';
+  await ui.window.dispatchEvent('sqlseed:connection-changed');
+  assert.equal(ui.card('A').querySelector('[data-config-select]').checked, false);
+  assert.equal(ui.button('删除所选').disabled, true);
 });

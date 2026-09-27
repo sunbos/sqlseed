@@ -14,10 +14,9 @@ from pathlib import Path
 import pytest
 
 from sqlseed_web.plugin_environment import EnvironmentLock
-from sqlseed_web.plugin_process import run_installer
+from sqlseed_web.plugin_process import InstallerCleanupPending, run_installer
 
 
-@pytest.mark.skipif(os.name == "nt", reason="Managed package operations require POSIX process groups")
 def test_installer_keeps_environment_locked_after_parent_descriptor_closes(tmp_path: Path) -> None:
     lock = EnvironmentLock(tmp_path, exclusive=True)
     lock.acquire()
@@ -86,6 +85,60 @@ def test_installer_reaps_child_when_output_worker_cannot_start(
                 process.wait()
             if process.stdout is not None:
                 process.stdout.close()
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Win32 Job Object cleanup failure")
+def test_unconfirmed_job_cleanup_keeps_resources_until_explicit_retry(
+    monkeypatch: pytest.MonkeyPatch, recorded_processes: list[subprocess.Popen[bytes]]
+) -> None:
+    from sqlseed_web._windows_process import WindowsJob
+
+    original = WindowsJob.wait_empty
+
+    def query_failure(self: WindowsJob, **kwargs: object) -> None:
+        raise OSError("job query unavailable")
+
+    monkeypatch.setattr(WindowsJob, "wait_empty", query_failure)
+    with pytest.raises(InstallerCleanupPending) as raised:
+        run_installer([sys.executable, "-c", "print('done')"], lambda text: None)
+    assert recorded_processes[0].stdout is not None
+    assert not recorded_processes[0].stdout.closed
+    monkeypatch.setattr(WindowsJob, "wait_empty", original)
+    raised.value.retry()
+    assert recorded_processes[0].stdout.closed
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Win32 Job handle lifetime across cleanup retries")
+def test_cleanup_resource_error_does_not_stop_an_already_closed_job_again(
+    monkeypatch: pytest.MonkeyPatch, recorded_processes: list[subprocess.Popen[bytes]]
+) -> None:
+    from sqlseed_web._windows_process import WindowsJob
+
+    original = WindowsJob.wait_empty
+
+    def query_failure(self: WindowsJob, **kwargs: object) -> None:
+        raise OSError("job query unavailable")
+
+    monkeypatch.setattr(WindowsJob, "wait_empty", query_failure)
+    with pytest.raises(InstallerCleanupPending) as raised:
+        run_installer([sys.executable, "-c", "print('done')"], lambda text: None)
+    monkeypatch.setattr(WindowsJob, "wait_empty", original)
+    resources = ExitStack()
+
+    def release_failure() -> None:
+        # e.g. a temporary-directory deletion denied by another file owner.
+        raise PermissionError("temporary directory cleanup unavailable")
+
+    resources.callback(release_failure)
+    raised.value.hold(resources)
+    with pytest.raises(PermissionError, match="temporary directory"):
+        raised.value.retry()
+    # ExitStack runs every callback despite the error, including Job.close().
+    process = recorded_processes[0]
+    assert process.poll() is not None
+    assert process.stdout is not None and process.stdout.closed
+    # Successful draining is durable: a later retry must not use the closed Job.
+    raised.value.retry()
 
 
 @pytest.mark.skipif(os.name == "nt", reason="Managed package operations require POSIX process groups")

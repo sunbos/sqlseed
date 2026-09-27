@@ -7,6 +7,7 @@
 - `conftest.py` 提供 `sa_adapter`（基于 tmp_db）与 `empty_sa_adapter`（空 SQLite），以及受影响行数场景的 `counts_database`、原子事务场景的 `transaction_database`；后两者共享 schema 建立与 adapter 关闭的上下文，并由 yield fixture 管理清理。全局 `tmp_db` / `raw_adapter` 来自仓库根 fixture。
 - `test_adapter_contract.py` 与 `test_sqlalchemy_adapter.py` 验证真实 adapter 契约；`test_raw_sqlite_adapter.py` 保留测试 adapter 的行为。
 - `test_sqlalchemy_adapter_boundary.py` / `test_sqlalchemy_adapter_url.py` 覆盖错误路径与 URL 模式。SQLite URL 测试不需要 Docker，真实 PostgreSQL 用例位于 `tests/integration/`。
+- `test_sqlite_connection_targets.py` 用真实原文件与解码后诱饵文件验证普通路径、SQLite URL、显式 driver 与 file URI 的读写目标；保留字面百分号、Unicode、URI 单次解码及 `mode=ro` / `mode=rw` / `timeout`。不能只断言 URL 字符串或 engine 调用；共享解析器修改还需运行 Web 目标身份与同目标多连接门禁回归。SQLAlchemy 2.0/2.1 复验使用隔离依赖目录/venv，不修改当前环境版本；Windows 不支持的文件名或缺少 symlink 权限需明确记录限制。
 - `test_helpers.py` 覆盖索引查询、采样和 batch insert；用真实 SQLite 校验实际数据库结果。
 - `test_dialect.py` / `test_sqlite_schema.py` 覆盖类型归一化、自增检测与 identifier quoting；不要把 PostgreSQL 行为当作 SQLite 通用规则。
 - `test_sqlite_metadata_oracles.py` 用原生 INSERT 建立 rowid、nullable 和 partial UNIQUE 的独立 oracle，再核对两种 adapter；仅比较索引名称或同模型构造的 expected 会漏掉谓词丢失。

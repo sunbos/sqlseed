@@ -9,7 +9,6 @@ AI-related commands (e.g. ai-suggest) are discovered via the
 from __future__ import annotations
 
 import os
-import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -24,18 +23,17 @@ from sqlseed import fill_from_config
 from sqlseed import preview as api_preview
 from sqlseed._utils.logger import configure_logging, get_logger
 from sqlseed._utils.paths import get_cache_dir
+from sqlseed._utils.redaction import redact_url_credentials
 from sqlseed._version import __version__
 from sqlseed.config.loader import generate_template, load_config, save_config
 from sqlseed.config.models import GeneratorConfig, ProviderType, TableConfig
 from sqlseed.config.snapshot import SnapshotManager
 from sqlseed.core.orchestrator import DataOrchestrator
+from sqlseed.generators import ConfigurationError
 
 CONFLICTING_DATABASE_OPTIONS = "Cannot specify both positional db_path and --url. Use one or the other."
 
 logger = get_logger(__name__)
-
-# Redact the username and password in database URLs before displaying errors.
-_CREDENTIAL_PATTERN = re.compile(r"://[^:@/\s]+:[^@/\s]+@")
 
 
 def _redact_credentials(text: str) -> str:
@@ -43,7 +41,7 @@ def _redact_credentials(text: str) -> str:
 
     Replaces the ``user:pass@`` segment of a URL with ``***:***@``.
     """
-    return _CREDENTIAL_PATTERN.sub("://***:***@", text)
+    return redact_url_credentials(text)
 
 
 @click.group()
@@ -273,7 +271,10 @@ def fill(**kwargs: Any) -> None:
         config_path=config_path,
         transform_path=transform_path,
     )
-    _execute_fill(options)
+    try:
+        _execute_fill(options)
+    except ConfigurationError as exc:
+        raise click.UsageError(_redact_credentials(str(exc))) from None
 
 
 def _execute_config_fill(options: FillOptions, config_path: str) -> None:
@@ -315,7 +316,12 @@ def _execute_fill(options: FillOptions) -> None:
     if not (fill_db_path or fill_url):
         raise click.UsageError("db_path or --url is required when not using --config")
 
-    logger.debug("Starting fill", target=fill_url or fill_db_path, table=options.table, count=effective_count)
+    logger.debug(
+        "Starting fill",
+        target=redact_url_credentials(fill_url or fill_db_path or "", whole_url=True),
+        table=options.table,
+        count=effective_count,
+    )
 
     try:
         result = api_fill(
@@ -333,12 +339,12 @@ def _execute_fill(options: FillOptions) -> None:
             skip_ai=options.flags.no_ai,
         )
     except ValueError as exc:
-        logger.debug("Fill failed with ValueError", error=str(exc))
+        logger.debug("Fill failed with ValueError", error=_redact_credentials(str(exc)))
         raise click.UsageError(_redact_credentials(str(exc))) from exc
     click.echo(str(result))
     if result.errors:
         for err in result.errors:
-            click.echo(f"  Warning: {err}", err=True)
+            click.echo(f"  Warning: {_redact_credentials(err)}", err=True)
 
     if options.flags.snapshot:
         _save_snapshot_cmd(
@@ -407,8 +413,8 @@ def preview(
             locale=locale,
             seed=seed,
         )
-    except (ValueError, RuntimeError, OSError) as exc:
-        logger.debug("Preview failed", error=str(exc))
+    except (ValueError, RuntimeError, OSError, ConfigurationError) as exc:
+        logger.debug("Preview failed", error=_redact_credentials(str(exc)))
         raise click.UsageError(_redact_credentials(str(exc))) from exc
 
     if not rows:
@@ -506,7 +512,7 @@ def inspect(db_path: str | None, table: str | None, show_mapping: bool, db_url: 
             for tbl in tables:
                 _inspect_table(orch, tbl, show_mapping, console)
     except (ValueError, RuntimeError, OSError) as exc:
-        logger.debug("Inspect failed", error=str(exc))
+        logger.debug("Inspect failed", error=_redact_credentials(str(exc)))
         raise click.UsageError(_redact_credentials(str(exc))) from exc
 
 
@@ -544,7 +550,7 @@ def init(config_path: str, db: str | None, db_url: str | None) -> None:
         config = generate_template(db_path=effective_db, url=db_url)
         save_config(config, config_path)
     except (ValueError, RuntimeError, OSError) as exc:
-        logger.debug("Init failed", error=str(exc))
+        logger.debug("Init failed", error=_redact_credentials(str(exc)))
         raise click.UsageError(_redact_credentials(str(exc))) from exc
     click.echo(f"Configuration template saved to: {config_path}")
 
@@ -593,20 +599,23 @@ def replay(snapshot_path: str) -> None:
             table_config = tc
             break
 
-    with DataOrchestrator.from_config(config) as orch:
-        result = orch.fill_table(
-            table_name=table_name,
-            count=count,
-            seed=seed,
-            batch_size=table_config.batch_size if table_config else 5000,
-            clear_before=table_config.clear_before if table_config else False,
-            column_configs=table_config.columns if table_config else None,
-            transform=table_config.transform if table_config else None,
-        )
+    try:
+        with DataOrchestrator.from_config(config) as orch:
+            result = orch.fill_table(
+                table_name=table_name,
+                count=count,
+                seed=seed,
+                batch_size=table_config.batch_size if table_config else 5000,
+                clear_before=table_config.clear_before if table_config else False,
+                column_configs=table_config.columns if table_config else None,
+                transform=table_config.transform if table_config else None,
+            )
+    except (ValueError, RuntimeError, OSError, ConfigurationError) as exc:
+        raise click.UsageError(_redact_credentials(str(exc))) from None
     click.echo(str(result))
     if result.errors:
         for err in result.errors:
-            click.echo(f"  Warning: {err}", err=True)
+            click.echo(f"  Warning: {_redact_credentials(err)}", err=True)
         raise SystemExit(1)
 
 

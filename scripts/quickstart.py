@@ -96,6 +96,7 @@ def _run_ai_analysis_step(args: argparse.Namespace, python: str) -> None:
 
 
 def main() -> None:
+    """Parse demo options and run the local setup and generation walkthrough."""
     parser = argparse.ArgumentParser(description="GemmaSQLSeed one-click setup")
     parser.add_argument(
         "--backend",

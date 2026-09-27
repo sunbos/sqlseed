@@ -11,6 +11,7 @@ Schema deliberately exercises every core code path:
 
 Seed rows satisfy ALL constraints so enrichment has real distributions.
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -104,9 +105,11 @@ SEED = {
         (5, "ORD-2024-006", "shipped", 329.00, "2024-06-20 12:00:00", "2024-06-21 08:30:00"),
     ],
     "order_items": [
-        (1, 1, 1, 12999.00), (1, 2, 3, 49.90),
+        (1, 1, 1, 12999.00),
+        (1, 2, 3, 49.90),
         (2, 2, 1, 49.90),
-        (3, 7, 2, 68.50), (3, 8, 1, 128.00),
+        (3, 7, 2, 68.50),
+        (3, 8, 1, 128.00),
         (4, 4, 1, 89.00),
         (5, 4, 1, 89.00),
         (6, 6, 1, 329.00),
@@ -125,6 +128,7 @@ SEED = {
 
 
 def build() -> sqlite3.Connection:
+    """Recreate the demonstration database and return its seeded connection."""
     DB.unlink(missing_ok=True)
     conn = sqlite3.connect(DB)
     conn.execute("PRAGMA foreign_keys = ON")
@@ -153,6 +157,7 @@ def build() -> sqlite3.Connection:
 
 
 def must_fail(conn: sqlite3.Connection, sql: str, params: tuple) -> bool:
+    """Return whether the supplied invalid statement raises an integrity error."""
     try:
         conn.execute(sql, params)
         conn.rollback()
@@ -162,6 +167,7 @@ def must_fail(conn: sqlite3.Connection, sql: str, params: tuple) -> bool:
 
 
 def validate(conn: sqlite3.Connection) -> list[tuple[str, bool, str]]:
+    """Check the fixture's integrity, constraints and expected seed row counts."""
     results: list[tuple[str, bool, str]] = []
 
     integrity = conn.execute("PRAGMA integrity_check").fetchone()[0]
@@ -189,8 +195,7 @@ def validate(conn: sqlite3.Connection) -> list[tuple[str, bool, str]]:
         ("FK rejected (self-ref bad)", "UPDATE employees SET manager_id = 999 WHERE id = 5", ()),
         (
             "Cross-column CHECK rejected",
-            "INSERT INTO orders (user_id,created_at,shipped_at) "
-            "VALUES (1,'2024-06-01 10:00:00','2024-05-01 10:00:00')",
+            "INSERT INTO orders (user_id,created_at,shipped_at) VALUES (1,'2024-06-01 10:00:00','2024-05-01 10:00:00')",
             (),
         ),
         (
@@ -222,6 +227,7 @@ def validate(conn: sqlite3.Connection) -> list[tuple[str, bool, str]]:
 
 
 def main() -> int:
+    """Create the demonstration fixture and print its validation results."""
     conn = build()
     results = validate(conn)
     conn.close()

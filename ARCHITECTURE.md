@@ -1,7 +1,7 @@
 # sqlseed Project Architecture Decisions
 
 **Created:** 2026-06-26
-**Status:** Aligned with user requirements (Round 6 revisions applied)
+**Status:** Current package boundaries checked on 2026-09-28; completed migration steps are retained as history.
 **Purpose:** Authoritative architecture reference for AI agents (CLAUDE/AGENTS/GEMINI) and contributors. All code changes must conform to this document.
 
 ---
@@ -27,63 +27,23 @@ sqlseed is a **declarative multi-database test data generation toolkit**. It foc
 
 ## 2. Architecture Overview
 
-```
-                    ┌─────────────────────────────────────────┐
-                    │           User Install Choices           │
-                    │  pip install sqlseed              (core) │
-                    │  pip install sqlseed-cli           (CLI) │
-                    │  pip install sqlseed-ai             (AI) │
-                    │  pip install mcp-server-sqlseed    (MCP) │
-                    │  pip install sqlseed-web          (Web) │
-                    └────────────────────┬────────────────────┘
-                                         │
-                    ┌────────────────────▼────────────────────┐
-                    │           sqlseed (Core Package)         │
-                    │  ┌────────────────────────────────────┐ │
-                    │  │ Python API: fill, connect, preview │ │
-                    │  │ fill_from_config, load_config      │ │
-                    │  └────────────────────────────────────┘ │
-                    │  ┌──────────┐ ┌──────────┐ ┌──────────┐ │
-                    │  │ core/    │ │generators│ │ database/│ │
-                    │  │(logic)   │ │(data)    │ │ (adapters)│ │
-                    │  └──────────┘ └──────────┘ └──────────┘ │
-                    │  ┌──────────┐ ┌──────────┐               │
-                    │  │ plugins/ │ │ config/  │               │
-                    │  │(hookspecs│ │(models,  │               │
-                    │  │+manager) │ │ loader)  │               │
-                    │  └──────────┘ └──────────┘               │
-                    │  ┌──────────────────────────────────┐   │
-                    │  │ _utils/ (no internal deps)       │   │
-                    │  └──────────────────────────────────┘   │
-                    └────────────────────┬────────────────────┘
-                                         │ pluggy hooks
-                    ┌────────────────────▼────────────────────┐
-                    │              Plugin Layer                 │
-                    │                                          │
-                    │  ┌─────────────┐  ┌──────────────────┐  │
-                    │  │ sqlseed-cli │  │   sqlseed-ai     │  │
-                    │  │ (CLI: fill, │  │ (AI YAML gen,    │  │
-                    │  │  preview,   │  │  Gemma4 as       │  │
-                    │  │  inspect,   │  │  long-term LLM   │  │
-                    │  │  init,      │  │  backend via     │  │
-                    │  │  replay)    │  │  tool_calling_   │  │
-                    │  │             │  │  protocol,       │  │
-                    │  │             │  │  self-correction)│  │
-                    │  │             │  │  + optional MCP  │  │
-                    │  │             │  │    interface     │  │
-                    │  └─────────────┘  └──────────────────┘  │
-                    │                                          │
-                    │  ┌────────────────────────────────────┐ │
-                    │  │ mcp-server-sqlseed                 │ │
-                    │  │ (MCP: generate_yaml [rule-driven,  │ │
-                    │  │  no LLM], execute_fill — core      │ │
-                    │  │  capabilities ONLY, no schema      │ │
-                    │  │  inspection, no AI)                │ │
-                    │  └────────────────────────────────────┘ │
-                    └──────────────────────────────────────────┘
+The five distributions have separate installation and runtime responsibilities:
+
+```text
+sqlseed-cli ──────────┐
+sqlseed-ai ───────────┤
+mcp-server-sqlseed ───┼──> sqlseed (offline Core)
+sqlseed-web ──────────┘      ├── Python API: fill, connect, preview,
+                            │   fill_from_config, load_config
+                            ├── core/       orchestration and relations
+                            ├── generators/ providers and dispatch
+                            ├── database/   SQLAlchemy adapters
+                            ├── config/     models, loaders and snapshots
+                            ├── plugins/    hooks and plugin loading
+                            └── _utils/     utilities without upper-layer imports
 ```
 
----
+Arrows mean imports or calls into Core. Optional pluggy hooks do not reverse this dependency direction. AI registers optional CLI commands; Web may call AI Python services when installed. Web includes its HTTP service, static UI, workspace persistence and managed component lifecycle.
 
 ## 3. Module Responsibilities
 
@@ -92,7 +52,7 @@ sqlseed is a **declarative multi-database test data generation toolkit**. It foc
 
 ### 3.1 Core Package (`src/sqlseed/`)
 
-**Stays in core** (offline, stable, no CLI/AI dependencies):
+**Stays in core** (offline, stable, no CLI/AI/MCP/Web dependencies):
 
 | Module | Responsibility | Key Classes/Functions |
 |--------|---------------|----------------------|
@@ -165,12 +125,12 @@ sqlseed is a **declarative multi-database test data generation toolkit**. It foc
 
 **Install**: `pip install sqlseed-ai` (completely independent package)
 
-**Gemma4 as long-term LLM backend** (revised 2026-06-26):
-- Gemma4 is **NOT** competition-only code. It is a long-term supported LLM backend (Apache 2.0, no MAU limits, online + offline capable).
-- No `sqlseed_ai/gemma4/` subdirectory (avoids implying removability).
-- Gemma4 native function calling lives in `analyzer/_tool_calling.py` as a **protocol implementation** (`tool_calling_protocol="gemma4"`), alongside `"openai"` and `"none"`.
-- Gemma4 accessed via standard backends: `backend="ollama"` + `model="gemma4:26b"`, or `backend="google_ai_studio"` + `model="gemma-4-..."`.
-- **Gemma5 transition**: If Gemma5 keeps the same 6 special tokens (`<|tool>`, `<|tool_call>`, etc.), zero code change. If Gemma5 changes tokens, add `tool_calling_protocol="gemma5"` — no removal of `"gemma4"` needed (backward compatible).
+**Gemma 4 model and protocol support**:
+
+- Gemma 4 support remains in the AI plugin; it is not a Core dependency or a temporary competition module.
+- `backend` identifies the service transport (`google_ai_studio`, `lm_studio`, `ollama`, or `openai_compat`); the model name is configured separately. There is no `gemma4` backend.
+- `analyzer/_tool_calling.py` implements the `gemma4` tool-calling protocol alongside `openai` and `none`. `resolve_tool_calling_protocol()` checks backend support.
+- Available model names, service support and model terms are determined by the selected provider. A configured protocol does not prove a particular model is available or has passed integration tests.
 
 ### 3.4 Plugin: `mcp-server-sqlseed` (`plugins/mcp-server-sqlseed/`)
 
@@ -269,6 +229,8 @@ There are five separate distributions (`sqlseed`, `sqlseed-cli`, `sqlseed-ai`, `
 
 **Plugin pinning rule**: Each plugin's `pyproject.toml` MUST declare `dependencies = ["sqlseed>=X.Y,<X.(Y+1)"]` (or `<(X+1).0` for major stability). The 0.2.4 plugin manifests require `sqlseed>=0.2.4.dev0,<0.3`; CLI/AI sibling dependencies use the same range. This excludes incompatible Core 0.2.3. The development lower bound does not guarantee that arbitrary source snapshots can be mixed.
 
+The current development plugins require Core `>=0.2.5.dev0,<0.3` for shared connection parsing and diagnostic redaction. Installing them with Core 0.2.4 is unsupported and must be rejected by the resolver. Dependencies between plugins retain their own declared ranges when no new API is required. For checkout development and release acceptance, resolve all five local packages together.
+
 ---
 
 ## 7. Alignment Decision Record
@@ -308,20 +270,14 @@ There are five separate distributions (`sqlseed`, `sqlseed-cli`, `sqlseed-ai`, `
 
 **User quote**: "MySql暂时不添加，保证代码的整洁性，等postgresql完全调通后再去接入会更好，所以相关的内容需要删除"
 
-### 7.4 Gemma4 as Long-term LLM Backend
+### 7.4 Long-term Gemma 4 Model and Protocol Support
 
-**Decision**: Gemma4 is a long-term supported LLM backend in sqlseed-ai, NOT competition-only code. No isolated `gemma4/` subdirectory.
+**Decision**: Retain Gemma 4 support in `sqlseed-ai` as a model/protocol integration through standard backends. Keep Core independent of model providers and avoid a competition-only module.
 
-**Rationale**:
-- Gemma4 is Apache 2.0, no MAU limits — legally and commercially viable long-term
-- Gemma4 supports both online (Google AI Studio) and offline (Ollama/LM Studio) deployment
-- Native function calling is implemented as a pluggable `tool_calling_protocol` (alongside `"openai"` and `"none"`), not as Gemma4-specific code
-- Gemma4 accessed via standard backends (`backend="ollama"` + `model="gemma4:26b"`), no `backend="gemma4"` config
-- Gemma5 transition: if protocol unchanged, zero code change; if changed, add new protocol option (backward compatible)
-- Avoids wasting competition-period engineering effort on throwaway code
+**Rationale**: The analyzer, validation and repair services are reusable across supported backends. Tool-call protocols are selected explicitly; model or protocol additions require compatibility tests rather than assumptions about future versions.
 
 **User quote**: "相关gemma4问题取决于是否想要长期保留" → User confirmed long-term retention.
-**User quote**: "不能因为比赛所涉及到的代码而污染整个项目，因为比赛只是短期内的，比赛过后要保证代码可以长期使用" → Resolved by treating Gemma4 as a standard backend, not competition code.
+**User quote**: "不能因为比赛所涉及到的代码而污染整个项目，因为比赛只是短期内的，比赛过后要保证代码可以长期使用" → Keep provider-specific integration within the AI plugin.
 
 ### 7.5 MCP Scope and Boundary
 
@@ -389,7 +345,7 @@ Work items to align code with this document (to be executed in separate branches
 - [x] Ensure `AIConfig.backend` uses standard backends (no `gemma4`)
 - [x] Ensure `AIConfig.tool_calling_protocol: Literal["gemma4", "openai", "none"]`
 - [x] NO `gemma4/` subdirectory
-- [x] NO post-competition cleanup needed (Gemma4 is long-term backend)
+- [x] NO post-competition cleanup needed (Gemma 4 model/protocol support is retained)
 
 ### Phase F: Test Reorganization
 - [x] Core tests stay in `tests/`
@@ -421,20 +377,12 @@ Four complementary layers prevent core code corruption and mock self-proving tra
 
 ---
 
-## 10. Gemma4 Long-term Maintenance (No Post-Competition Cleanup)
+## 10. Model and Protocol Maintenance
 
-Gemma4 is a **long-term LLM backend**, NOT competition-only code. There is **NO post-competition cleanup**.
+Gemma 4 remains a supported integration direction in the AI plugin. Future model support must be established from the provider's actual API, protocol and integration results.
 
-### Gemma5 Transition Procedure
-
-When Gemma5 is released, follow these steps:
-
-1. Check if Gemma5 uses the same 6 special tokens (`<|tool>`, `<|tool_call>`, `<|tool_result>`, etc.)
-2. **If same tokens**: Zero code change. Users just update the model name: `model="gemma5:xx"`
-3. **If different tokens**: Add `tool_calling_protocol="gemma5"` to `AIConfig.tool_calling_protocol` Literal options, implement the new protocol in `analyzer/_tool_calling.py`
-4. Do NOT remove `"gemma4"` from protocol options (backward compatibility)
-5. Update `_model_selector.py` to include Gemma5 model entries
-6. Run full test suite + `lint-imports` + `make mutmut` to verify no breakage
-7. Update `CLAUDE.md` / `AGENTS.md` to add Gemma5 references
-
-**Key**: Gemma4 support is retained indefinitely. Generic AI functionality (analyzer/, refiner.py) continues to work with all backends.
+1. Verify model identifiers, backend availability, response formats and tool-call behavior.
+2. Reuse an existing protocol only when compatibility is verified. If a new protocol is needed, implement and validate it in the AI plugin without adding provider dependencies to Core.
+3. Preserve existing supported configuration and protocol options; document any compatibility change explicitly.
+4. Update model-selection metadata and documentation only for verified capabilities.
+5. Run relevant real-model and protocol tests, the full required checks, `lint-imports` and `make mutmut`. Unavailable model services remain an explicit validation gap.

@@ -23,6 +23,10 @@ For development, install local Core and Web together from the repository root:
 python -m pip install -e . -e ./plugins/sqlseed-web
 ```
 
+The development source requires Core `>=0.2.5.dev0,<0.3` for connection-target
+parsing and diagnostic redaction. The 0.2.4 installation above is the published
+baseline; it does not include every feature described for the development source.
+
 ## Optional components
 
 Open **Settings → Plugins and versions** to see which components are available and which
@@ -41,11 +45,14 @@ python -m pip install -e . -e ./plugins/sqlseed-cli -e ./plugins/sqlseed-ai -e .
 For the 0.2.4 release, `python -m pip install "sqlseed-web[ai]==0.2.4"` installs
 the optional AI component. The page does not fall back to an incompatible older release.
 
-On supported writable macOS/Linux virtual environments, the default launcher manages
-optional packages through the page and restores the service automatically. Windows,
-externally hosted apps and read-only/system environments can use the workbench but do not
-offer in-page package changes. Missing components produce an explanation and recovery
-entry point; the app preserves the configuration instead of silently changing its engine.
+In the current development source, the default launcher manages optional packages
+in supported writable Windows, macOS and Linux virtual environments and restores
+the service automatically. Externally hosted apps and read-only/system environments
+can use the workbench but do not offer in-page package changes. Missing components
+produce an explanation and recovery entry point; the app preserves the configuration
+instead of silently changing its engine. Updates require a reviewed compatible wheel
+and keep other installed components fixed; Core and Web are updated through the
+environment's package manager.
 
 ## Data and deployment boundaries
 
@@ -63,7 +70,7 @@ and [support boundaries](https://sunbos.github.io/sqlseed/maintainable-release/)
 ## Requirements
 
 - Python `>=3.10`
-- `sqlseed>=0.2.4.dev0,<0.3`
+- `sqlseed>=0.2.5.dev0,<0.3`
 - `fastapi>=0.110`
 - `uvicorn>=0.29`
 - `pyyaml>=6.0`

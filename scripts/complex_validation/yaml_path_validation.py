@@ -96,6 +96,7 @@ associations:
 
 
 def main() -> int:
+    """Build the isolated YAML fixture and validate its generated data."""
     import sqlseed
 
     DB_DIR.mkdir(parents=True, exist_ok=True)

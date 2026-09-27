@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 import re
 from collections.abc import Callable
@@ -212,7 +213,13 @@ def _call_model(messages: list[dict[str, str]], *, config: AIConfig | None = Non
     config.log_llm_interactions = False
     config.timeout = min(config.resolve_timeout(), 120)
     config.max_tokens = min(max(config.resolve_max_tokens(), 4096), 8192)
-    result: dict[str, Any] = SchemaAnalyzer(config).call_llm(messages, stage="workbench-suggestions")
+    analyzer = SchemaAnalyzer(config)
+    # Older independently installed AI packages retain the dict-returning contract.
+    # Inspect capability before invoking; never retry a failed model request.
+    if "strict_json" in inspect.signature(analyzer.call_llm).parameters:
+        result: dict[str, Any] = analyzer.call_llm(messages, stage="workbench-suggestions", strict_json=True)
+    else:
+        result = analyzer.call_llm(messages, stage="workbench-suggestions")
     return result
 
 
@@ -559,7 +566,13 @@ def _suggestions(
 ) -> dict[str, Any]:
     items = raw.get("suggestions") if isinstance(raw, dict) else None
     if not isinstance(items, list) or len(items) > 1000:
-        raise HTTPException(502, detail="AI 返回格式不正确，请重新分析")
+        raise HTTPException(
+            502,
+            detail={
+                "code": "ai_response_contract",
+                "message": "AI 返回的规则结构不符合要求（需要 suggestions 建议列表）。请缩小分析范围后重试，或更换模型。当前规则未改变。",
+            },
+        )
     tables = {table["name"]: table for table in schema["tables"]}
     configs = {table["name"]: table for table in body.document.get("tables", [])}
     generators = {entry["id"]: entry for entry in catalog["entries"]}
@@ -650,6 +663,22 @@ def eligibility(body: EligibilityRequest) -> dict[str, Any]:
 
 
 def _model_cause_error(cause: BaseException) -> HTTPException | None:
+    # Import only at the optional model boundary, never during application startup.
+    try:
+        from sqlseed_ai._json_utils import JSONResponseError
+    except ImportError:
+        pass  # The AI package can be absent or older; ordinary errors still classify.
+    else:
+        if isinstance(cause, JSONResponseError):
+            messages = {
+                "empty_response": "AI 未返回可用的回答内容。请检查模型运行状态后重试；当前规则未改变。",
+                "truncated_response": "AI 回答达到输出长度上限，建议未完整返回。请缩小分析范围后重试；当前规则未改变。",
+                "invalid_json": "AI 回答不是完整有效的 JSON。请缩小分析范围后重试，或更换模型；当前规则未改变。",
+            }
+            return HTTPException(
+                502,
+                detail={"code": "ai_" + cause.code, "message": messages.get(cause.code, messages["invalid_json"])},
+            )
     name = type(cause).__name__.lower()
     if isinstance(cause, TimeoutError) or "timeout" in name:
         return HTTPException(

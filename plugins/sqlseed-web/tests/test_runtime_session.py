@@ -159,6 +159,33 @@ def test_a_removed_database_is_reported_without_creating_an_empty_replacement(
     assert registry.list_connections() == []
 
 
+def test_database_removed_after_restore_validation_is_not_recreated(
+    tmp_path: Path, registry: UIState, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from sqlseed_web import state as state_module
+
+    path = tmp_path / "removed-during-restore.db"
+    with sqlite_connection(path) as db:
+        db.execute("CREATE TABLE records(value INTEGER)")
+    real_orchestrator = state_module.DataOrchestrator
+
+    def remove_before_open(target: str, **kwargs: Any) -> Any:
+        path.unlink()
+        return real_orchestrator(target, **kwargs)
+
+    monkeypatch.setattr(state_module, "DataOrchestrator", remove_before_open)
+    summary = runtime_session.restore_session(
+        {
+            "connections": [{"conn_id": "gone", "target": str(path), "provider": "base", "locale": "en_US"}],
+            "ai_override": {},
+        }
+    )
+    assert summary["restored_connections"] == 0
+    assert [item["conn_id"] for item in summary["failed_connections"]] == ["gone"]
+    assert not path.exists()
+    assert registry.list_connections() == []
+
+
 def test_oversized_prepared_session_resumes_business_and_preserves_the_live_state(
     registry: UIState, monkeypatch: pytest.MonkeyPatch
 ) -> None:

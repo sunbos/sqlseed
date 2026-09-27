@@ -9,14 +9,15 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from sqlseed_web.diagnostics import public_error
 from sqlseed_web.plugin_management import ManagementService, PluginManager, _loopback, guard_request
 from sqlseed_web.plugin_management import router as plugin_router
 from sqlseed_web.settings_environment import router as settings_router
+from sqlseed_web.settings_updates import router as updates_router
 
 _STATIC_DIR = Path(__file__).parent / "static"
 
@@ -152,7 +153,7 @@ def create_app(
     _configure_middleware(app, manager, manage_plugins, supervised_worker)
 
     @app.exception_handler(RequestValidationError)
-    async def settings_validation_error(request: Any, exc: RequestValidationError) -> Any:
+    async def request_validation_error(request: Any, exc: RequestValidationError) -> Any:
         # FastAPI includes rejected inputs in its default validation response;
         # passwords and credential-bearing invalid URLs must never be echoed.
         if request.url.path in {"/api/workbench/ai/config", "/api/workbench/ai/test"}:
@@ -165,9 +166,20 @@ def create_app(
                     }
                 },
             )
-        return await request_validation_exception_handler(request, exc)
+        # Keep field locations and useful diagnostics, never the rejected body
+        # or validator context: either may contain database or AI credentials.
+        details = [
+            {
+                "type": error["type"],
+                "loc": error["loc"],
+                "msg": public_error(ValueError(str(error["msg"]))),
+            }
+            for error in exc.errors()
+        ]
+        return JSONResponse(status_code=422, content={"detail": details})
 
     app.include_router(settings_router)
+    app.include_router(updates_router)
     app.include_router(plugin_router)
     if not manage_plugins:
         from sqlseed_web.api import router

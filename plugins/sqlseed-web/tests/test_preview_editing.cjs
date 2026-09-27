@@ -65,6 +65,12 @@ test('batch preview opens the shown field editor and cancelling returns to the s
   const requests=ui.requests.filter(item=>item.url==='/api/workbench/preview').length;
   await openPreviewRule(ui,'event');
   assert.match(ui.document.querySelector('.drawer-subtitle').textContent,/audit.event/);
+  assert.equal(ui.document.querySelector('.drawer'),null);
+  assert.ok(ui.document.querySelector('.modal-wide'));
+  assert.ok(ui.document.querySelector('.wb-preview-rule'));
+  assert.equal(ui.document.querySelectorAll('[role="dialog"]').length,1);
+  assert.ok(ui.button('返回预览',ui.document));
+  assert.ok(ui.button('应用并返回预览',ui.document));
   await ui.edit('max_length','22');await ui.cancelRule();await tick();
   assert.equal(ui.document.querySelector('[role="dialog"]').getAttribute('aria-label'),'预览已选表');
   assert.equal(ui.button('audit',ui.document.querySelector('.wb-preview-tables')).getAttribute('aria-pressed'),'true');
@@ -111,7 +117,7 @@ for(const draft of ['valid','invalid'])test(`preview rule AI preserves an unappl
   assert.equal(ai.disabled,true);
   assert.match(ui.document.querySelector('#field-rule').textContent,/先应用或取消/);
   await ai.dispatchEvent('click');await tick();
-  assert.equal(ui.document.querySelector('.drawer').getAttribute('aria-label'),'event');
+  assert.equal(ui.document.querySelector('[role="dialog"]').getAttribute('aria-label'),'预览中的字段 · event');
   assert.equal(ui.field('max_length').value,draft==='valid'?'22':'not-a-number');
   assert.deepEqual(plain(ui.modelState().document),before);
   assert.equal(ui.requests.some(item=>item.url.endsWith('/suggest') || item.url.endsWith('/eligibility')),false);

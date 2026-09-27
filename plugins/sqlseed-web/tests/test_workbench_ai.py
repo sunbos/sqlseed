@@ -24,6 +24,34 @@ from .workbench_test_helpers import generator_suggestion, suggestion_response
 ORIGINAL_CALL_MODEL = workbench_ai._call_model
 
 
+def test_optional_json_diagnostics_do_not_require_matching_ai_package(monkeypatch: pytest.MonkeyPatch) -> None:
+    pytest.importorskip("sqlseed_ai")
+    from sqlseed_ai import _json_utils
+
+    monkeypatch.delattr(_json_utils, "JSONResponseError")
+    error = workbench_ai._model_error(TimeoutError("private endpoint"))
+    assert error.status_code == 504
+    assert error.detail["code"] == "ai_model_timeout"
+    assert "private endpoint" not in str(error.detail)
+
+
+def test_legacy_ai_call_contract_is_used_once_without_new_keyword(monkeypatch: pytest.MonkeyPatch) -> None:
+    pytest.importorskip("sqlseed_ai")
+    from sqlseed_ai.analyzer import SchemaAnalyzer
+    from sqlseed_ai.config import AIBackend, AIConfig
+
+    calls: list[str] = []
+
+    def reply(self: Any, messages: Any, *, stage: str = "") -> dict[str, Any]:
+        calls.append(stage)
+        return {"suggestions": []}
+
+    monkeypatch.setattr(SchemaAnalyzer, "call_llm", reply)
+    result = ORIGINAL_CALL_MODEL([], config=AIConfig(backend=AIBackend.LM_STUDIO, model="local-model"))
+    assert result == {"suggestions": []}
+    assert calls == ["workbench-suggestions"]
+
+
 def _block_analysis_model(
     monkeypatch: pytest.MonkeyPatch,
 ) -> tuple[threading.Event, threading.Event, list[Any]]:
@@ -176,6 +204,7 @@ def test_untrusted_response_and_failure_do_not_echo_model_or_secrets(
     response = client.post("/api/workbench/ai/suggest", json=payload)
     assert response.status_code == 502
     assert "private-secret" not in response.text
+    assert response.json()["detail"]["code"] == "ai_response_contract"
 
     def fail(messages: Any, **kwargs: Any) -> dict[str, Any]:
         raise RuntimeError("API key private-secret")
@@ -184,6 +213,53 @@ def test_untrusted_response_and_failure_do_not_echo_model_or_secrets(
     response = client.post("/api/workbench/ai/suggest", json=payload)
     assert response.status_code == 502
     assert "private-secret" not in response.text
+
+
+@pytest.mark.parametrize("code", ["empty_response", "truncated_response", "invalid_json"])
+def test_model_response_diagnostics_reach_json_and_stream(
+    ai_client: Any, monkeypatch: pytest.MonkeyPatch, code: str
+) -> None:
+    from sqlseed_ai._json_utils import JSONResponseError
+
+    client, _, payload = ai_client
+
+    def fail(messages: Any, **kwargs: Any) -> dict[str, Any]:
+        raise JSONResponseError(code)
+
+    monkeypatch.setattr(workbench_ai, "_call_model", fail)
+    response = client.post("/api/workbench/ai/suggest", json=payload)
+    assert response.status_code == 502
+    assert response.json()["detail"]["code"] == "ai_" + code
+    response = client.post("/api/workbench/ai/suggest", json=payload, headers={"Accept": "application/x-ndjson"})
+    events = [json.loads(line) for line in response.text.splitlines()]
+    assert events[-1]["type"] == "error"
+    assert events[-1]["code"] == "ai_" + code
+    assert "当前规则未改变" in events[-1]["message"]
+
+
+def test_recovered_fenced_response_still_passes_scope_and_core_checks(
+    ai_client: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from sqlseed_ai._json_utils import parse_json_response
+
+    client, registry, payload = ai_client
+    payload["allowed_targets"] = [{"table": "orders", "columns": ["amount"]}]
+    content = (
+        '```json\n{"suggestions":[{"table":"orders","column":"amount","generator":"float",'
+        '"params":{"min_value":25,"max_value":40}},{"table":"users","column":"email",'
+        '"generator":"email"}]\n```'
+    )
+    monkeypatch.setattr(
+        workbench_ai, "_call_model", lambda messages, **kwargs: parse_json_response(content, strict=True)
+    )
+    response = client.post("/api/workbench/ai/suggest", json=payload)
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert len(result["suggestions"]) == 1
+    assert result["suggestions"][0]["after"]["params"] == {"min_value": 25, "max_value": 40}
+    assert result["validation"]["ok"]
+    assert result["rejected"]
+    assert registry.get_connection(payload["conn_id"]).orchestrator.get_row_count("orders") == 0
 
 
 def test_ai_config_never_echoes_key_and_blank_preserves_it(ai_client: Any, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -661,19 +737,25 @@ def test_stream_deadline_reports_timeout_keeps_gate_and_skips_preview(
 
     client, registry, payload = ai_client
     entered, release, operations = _block_analysis_model(monkeypatch)
-    monkeypatch.setattr(workbench_ai_stream, "ANALYSIS_TIMEOUT", 0.3)
-    try:
-        response = client.post("/api/workbench/ai/suggest", json=payload, headers={"Accept": "application/x-ndjson"})
-        events = [json.loads(line) for line in response.text.splitlines()]
-        assert entered.is_set()
-        assert events[-1]["type"] == "error"
-        assert events[-1]["code"] == "ai_timeout"
-        assert operations[0].cancelled.is_set()
-        assert client.post("/api/workbench/ai/suggest", json=payload).status_code == 409
-    finally:
-        release.set()
-        if operations:
-            operations[0].task.wait(3)
+    # Expire only after the model has entered its controlled wait. A wall-clock
+    # 0.3 s budget also timed out the later real validation/preview on slower hosts.
+    expired_at = workbench_ai_stream.ANALYSIS_TIMEOUT + 1
+    with monkeypatch.context() as timer:
+        timer.setattr(workbench_ai_stream, "monotonic", lambda: expired_at if entered.is_set() else 0.0)
+        try:
+            response = client.post(
+                "/api/workbench/ai/suggest", json=payload, headers={"Accept": "application/x-ndjson"}
+            )
+            events = [json.loads(line) for line in response.text.splitlines()]
+            assert entered.is_set()
+            assert events[-1]["type"] == "error"
+            assert events[-1]["code"] == "ai_timeout"
+            assert operations[0].cancelled.is_set()
+            assert client.post("/api/workbench/ai/suggest", json=payload).status_code == 409
+        finally:
+            release.set()
+            if operations:
+                assert operations[0].task.wait(3)
     assert not any(event.get("stage") == "preview" for event in list(operations[0].queue.queue))
     assert registry.get_connection(payload["conn_id"]).orchestrator.get_row_count("orders") == 0
     assert client.post("/api/workbench/ai/suggest", json=payload).status_code == 200

@@ -36,8 +36,10 @@ from sqlseed._utils.logger import get_logger
 from sqlseed._utils.paths import validate_db_target as _validate_db_target
 from sqlseed._utils.paths import validate_table_name as _validate_table_name
 from sqlseed._utils.progress import NullProgressBackend
+from sqlseed._utils.redaction import redact_url_credentials
 from sqlseed.config.models import ColumnConfig
 from sqlseed.core.orchestrator import DataOrchestrator
+from sqlseed.generators import ConfigurationError
 
 logger = get_logger(__name__)
 
@@ -120,11 +122,13 @@ def sqlseed_ai_generate_yaml(
             max_retries=max_retries,
         )
     except AISuggestionFailedError as e:
-        logger.warning("AI suggestion failed", table_name=table_name, error=str(e))
-        return f"# AI suggestion failed: {e}"
-    except (ValueError, RuntimeError, OSError) as e:
-        logger.warning("YAML generation error", table_name=table_name, error=str(e))
-        return f"# Error: {e}"
+        message = redact_url_credentials(str(e))
+        logger.warning("AI suggestion failed", table_name=table_name, error=message)
+        return f"# AI suggestion failed: {message}"
+    except (ValueError, RuntimeError, OSError, ConfigurationError) as e:
+        message = redact_url_credentials(str(e))
+        logger.warning("YAML generation error", table_name=table_name, error=message)
+        return f"# Error: {message}"
 
     if result:
         logger.info("AI YAML config generated", table_name=table_name)
@@ -169,9 +173,15 @@ def sqlseed_gemma4_analyze(
             "table_name": table_name,
             "config": result,
         }
-    except (ValueError, RuntimeError, OSError) as e:
-        logger.error("Gemma 4 analysis failed", db_path=db_path, table_name=table_name, error=str(e))
-        return {"error": str(e)}
+    except (ValueError, RuntimeError, OSError, ConfigurationError) as e:
+        message = redact_url_credentials(str(e))
+        logger.error(
+            "Gemma 4 analysis failed",
+            db_path=redact_url_credentials(db_path, whole_url=True),
+            table_name=table_name,
+            error=message,
+        )
+        return {"error": message}
 
 
 @mcp.tool()
@@ -206,9 +216,9 @@ def sqlseed_gemma4_agent_fill(
                 max_retries=max_retries,
             )
         except AISuggestionFailedError as e:
-            return {"error": f"AI suggestion failed: {e}", "model": ai_config.model}
-        except (ValueError, RuntimeError, OSError) as e:
-            return {"error": f"Error: {e}", "model": ai_config.model}
+            return {"error": f"AI suggestion failed: {redact_url_credentials(str(e))}", "model": ai_config.model}
+        except (ValueError, RuntimeError, OSError, ConfigurationError) as e:
+            return {"error": f"Error: {redact_url_credentials(str(e))}", "model": ai_config.model}
 
         if not ai_result:
             return {"error": "No AI suggestions available", "model": ai_config.model}
@@ -239,12 +249,18 @@ def sqlseed_gemma4_agent_fill(
                 "table_name": result.table_name,
                 "count": result.count,
                 "elapsed": result.elapsed,
-                "errors": result.errors,
+                "errors": [redact_url_credentials(error) for error in result.errors],
                 "ai_config": ai_result,
             }
-    except (ValueError, RuntimeError, OSError) as e:
-        logger.error("Agent fill failed", db_path=db_path, table_name=table_name, error=str(e))
-        return {"error": str(e)}
+    except (ValueError, RuntimeError, OSError, ConfigurationError) as e:
+        message = redact_url_credentials(str(e))
+        logger.error(
+            "Agent fill failed",
+            db_path=redact_url_credentials(db_path, whole_url=True),
+            table_name=table_name,
+            error=message,
+        )
+        return {"error": message}
 
 
 _BACKEND_DESCRIPTIONS: dict[str, str] = {

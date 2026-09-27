@@ -1,0 +1,536 @@
+<!doctype html>
+<html lang="zh-CN">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta name="color-scheme" content="light" />
+        <title>sqlseed · 玻璃工作台原型</title>
+        <link rel="icon" href="data:," />
+        <link rel="stylesheet" href="./prototype.css" />
+    </head>
+    <body data-material="clear">
+        <div class="landscape" aria-hidden="true">
+            <div class="horizon"></div>
+            <div class="ridge"></div>
+        </div>
+        <div class="app-shell">
+            <header class="app-header">
+                <a
+                    class="brand"
+                    href="./index.html"
+                    aria-label="sqlseed 原型首页"
+                    ><svg viewBox="0 0 32 32" aria-hidden="true">
+                        <rect
+                            x="3"
+                            y="12"
+                            width="26"
+                            height="17"
+                            rx="4"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="1.8"
+                        />
+                        <path
+                            d="M4 20h24M11 13v15M18 13V9"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="1.4"
+                        />
+                        <path
+                            d="M18 10C11 10 11 3 11 3c7 0 8 4 7 7Z"
+                            fill="currentColor"
+                            opacity=".55"
+                        />
+                        <path
+                            d="M18 8c0-6 8-7 8-7 0 6-3 9-8 7Z"
+                            fill="currentColor"
+                        /></svg
+                    ><span>sqlseed<span class="brand-dot">.</span></span></a
+                >
+                <nav class="main-nav" aria-label="主导航">
+                    <button
+                        class="nav-item active"
+                        data-view="workbench"
+                        aria-current="page"
+                    >
+                        <span data-icon="layout"></span>工作台
+                    </button>
+                    <button class="nav-item" data-view="configs">
+                        <span data-icon="config"></span>配置管理
+                    </button>
+                    <button class="nav-item" data-view="runs">
+                        <span data-icon="history"></span>运行记录
+                    </button>
+                </nav>
+                <div class="header-end">
+                    <span class="prototype-badge"
+                        ><i></i>交互原型 · 演示数据</span
+                    ><button
+                        class="icon-button"
+                        id="appearance"
+                        aria-label="外观设置"
+                        title="外观设置"
+                    >
+                        <span data-icon="sliders"></span></button
+                    ><a
+                        class="icon-button original-link"
+                        href="http://127.0.0.1:8630/"
+                        target="_blank"
+                        rel="noopener"
+                        aria-label="打开现有界面"
+                        title="打开现有界面"
+                        ><span data-icon="external"></span
+                    ></a>
+                </div>
+            </header>
+            <div class="app-body">
+                <aside class="sidebar">
+                    <div class="sidebar-heading">
+                        <span class="eyebrow">DATABASE EXPLORER</span
+                        ><span class="status-dot" title="演示连接"></span>
+                    </div>
+                    <button class="database-button" id="connection">
+                        <span
+                            class="database-symbol"
+                            data-icon="database"
+                        ></span
+                        ><span
+                            ><strong>shop_demo.db</strong
+                            ><small
+                                >SQLite <span> / </span> 本地演示库</small
+                            ></span
+                        ><span
+                            class="database-chevron"
+                            data-icon="chevron"
+                        ></span>
+                    </button>
+                    <label class="search-box"
+                        ><span data-icon="search"></span
+                        ><input
+                            id="table-search"
+                            type="search"
+                            placeholder="查找数据表…"
+                            aria-label="查找数据表"
+                        /><kbd>/</kbd></label
+                    >
+                    <div class="section-label">
+                        <span>数据表</span><span id="table-count">04</span>
+                    </div>
+                    <div id="table-list" class="table-list"></div>
+                    <p id="search-empty" class="search-empty" hidden>
+                        没有匹配的数据表
+                    </p>
+                    <div class="sidebar-note">
+                        <span data-icon="info"></span>
+                        <p>勾选决定生成范围。<br />点击表名查看字段规则。</p>
+                    </div>
+                    <div class="sidebar-bottom">
+                        <div class="seed-mark">
+                            <span data-icon="sprout"></span>
+                        </div>
+                        <div>
+                            <strong>每一行，都有依据。</strong>
+                            <p>从真实结构出发，构建测试数据。</p>
+                        </div>
+                        <div class="sidebar-line"></div>
+                        <div class="connection-status">
+                            <span><i class="status-dot"></i>演示环境</span
+                            ><span>SQLite / 4 tables</span>
+                        </div>
+                    </div>
+                </aside>
+                <main class="workspace" id="workspace">
+                    <section id="workbench-view">
+                        <div class="breadcrumb">
+                            <span>工作空间</span><span>/</span
+                            ><span>电商测试数据</span
+                            ><span class="local-chip">LOCAL</span>
+                        </div>
+                        <div class="page-heading">
+                            <div>
+                                <h1>数据生成工作台</h1>
+                                <p>定义规则，让测试数据自然生长。</p>
+                            </div>
+                            <div class="heading-actions">
+                                <button class="button" id="save-config">
+                                    <span data-icon="save"></span
+                                    >保存配置</button
+                                ><button class="button primary" id="generate">
+                                    <span data-icon="play"></span>检查并生成
+                                </button>
+                            </div>
+                        </div>
+                        <div class="configuration-bar">
+                            <div class="config-name">
+                                <span
+                                    class="config-symbol"
+                                    data-icon="file"
+                                ></span
+                                ><span
+                                    ><strong>电商测试数据</strong
+                                    ><small id="save-state"
+                                        >演示配置 · 尚未保存</small
+                                    ></span
+                                >
+                            </div>
+                            <div class="config-options">
+                                <label
+                                    >数据生成引擎<select id="provider">
+                                        <option value="faker">Faker</option>
+                                        <option value="mimesis">Mimesis</option>
+                                    </select></label
+                                ><label
+                                    >数据语言与地区<select id="locale">
+                                        <option value="zh_CN">
+                                            中文 · 中国
+                                        </option>
+                                        <option value="en_US">
+                                            English · US
+                                        </option>
+                                    </select></label
+                                ><label class="seed-option"
+                                    >随机种子<input
+                                        id="seed"
+                                        type="number"
+                                        min="0"
+                                        max="999999"
+                                        value="42"
+                                        required
+                                /></label>
+                            </div>
+                        </div>
+                        <section class="editor-surface" aria-label="数据表配置">
+                            <div class="table-heading">
+                                <div class="current-table">
+                                    <span
+                                        class="table-symbol"
+                                        data-icon="table"
+                                    ></span>
+                                    <div>
+                                        <h2 id="current-table-name">users</h2>
+                                        <p>
+                                            <span id="current-table-description"
+                                                >用户基础信息</span
+                                            ><span class="dot-divider">·</span
+                                            ><span id="field-count"
+                                                >7 个字段</span
+                                            >
+                                        </p>
+                                    </div>
+                                </div>
+                                <label class="row-count"
+                                    >生成行数
+                                    <input
+                                        id="row-count"
+                                        type="number"
+                                        min="1"
+                                        max="1000000"
+                                        value="1000"
+                                        required
+                                    /><span>行</span></label
+                                >
+                            </div>
+                            <div class="editor-toolbar">
+                                <div
+                                    class="editor-tabs"
+                                    role="tablist"
+                                    aria-label="表视图"
+                                >
+                                    <button
+                                        id="rules-tab"
+                                        role="tab"
+                                        aria-selected="true"
+                                        aria-controls="rules-panel"
+                                        class="tab active"
+                                        data-tab="rules"
+                                    >
+                                        <span data-icon="sliders"></span
+                                        >字段规则</button
+                                    ><button
+                                        id="preview-tab"
+                                        role="tab"
+                                        aria-selected="false"
+                                        aria-controls="preview-panel"
+                                        class="tab"
+                                        data-tab="preview"
+                                    >
+                                        <span data-icon="eye"></span
+                                        >预览数据</button
+                                    ><button
+                                        id="relations-tab"
+                                        role="tab"
+                                        aria-selected="false"
+                                        aria-controls="relations-panel"
+                                        class="tab"
+                                        data-tab="relations"
+                                    >
+                                        <span data-icon="branches"></span
+                                        >表间关系
+                                    </button>
+                                </div>
+                                <button
+                                    class="text-button"
+                                    id="refresh-preview"
+                                >
+                                    <span data-icon="refresh"></span>预览本表
+                                </button>
+                            </div>
+                            <div
+                                id="rules-panel"
+                                class="rules-panel"
+                                role="tabpanel"
+                                aria-labelledby="rules-tab"
+                            >
+                                <div class="rules-table-wrap">
+                                    <table class="rules-table">
+                                        <thead>
+                                            <tr>
+                                                <th class="number-col">#</th>
+                                                <th>字段名称 / 类型</th>
+                                                <th>取值规则</th>
+                                                <th>约束</th>
+                                                <th>
+                                                    <span class="sr-only"
+                                                        >操作</span
+                                                    >
+                                                </th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="rules-body"></tbody>
+                                    </table>
+                                </div>
+                                <div class="editor-foot">
+                                    <span
+                                        ><i class="tiny-dot"></i
+                                        >规则可调整，数据库结构保持不变</span
+                                    ><span id="rule-summary">6 项生成规则</span>
+                                </div>
+                            </div>
+                            <div
+                                id="preview-panel"
+                                role="tabpanel"
+                                aria-labelledby="preview-tab"
+                                hidden
+                            >
+                                <div class="preview-caption">
+                                    <span
+                                        ><i class="tiny-dot"></i
+                                        ><span id="preview-state"
+                                            >当前规则的演示样例</span
+                                        ></span
+                                    ><span>5 行 · 不写入数据库</span>
+                                </div>
+                                <div class="preview-table-wrap">
+                                    <table
+                                        class="preview-table"
+                                        id="preview-table"
+                                    ></table>
+                                </div>
+                                <div class="editor-foot">
+                                    演示值由原型本地构造；自增主键在实际写入时由数据库生成。
+                                </div>
+                            </div>
+                            <div
+                                id="relations-panel"
+                                role="tabpanel"
+                                aria-labelledby="relations-tab"
+                                hidden
+                            >
+                                <div
+                                    class="relations-canvas"
+                                    id="relations-content"
+                                ></div>
+                                <div class="editor-foot">
+                                    箭头表示被引用表 →
+                                    引用表；切换查看对象不会改变生成范围。
+                                </div>
+                            </div>
+                        </section>
+                        <div class="bottom-summary">
+                            <div class="selected-summary">
+                                <span
+                                    class="summary-icon"
+                                    data-icon="layers"
+                                ></span>
+                                <div>
+                                    <strong id="selection-summary"
+                                        >已选择 2 张表</strong
+                                    ><span id="selection-detail"
+                                        >预计生成 4,000 行数据</span
+                                    >
+                                </div>
+                            </div>
+                            <div class="execution-note">
+                                <span data-icon="shield"></span
+                                >生成前检查依赖与规则
+                            </div>
+                            <button class="text-button" id="check-config">
+                                检查配置<span data-icon="arrow"></span>
+                            </button>
+                        </div>
+                        <p class="workspace-caption">
+                            <span>SQLSEED WORKBENCH</span
+                            ><span>规则可复用 · 数据可预览 · 操作可追溯</span>
+                        </p>
+                    </section>
+                    <section id="configs-view" class="secondary-view" hidden>
+                        <div class="breadcrumb">工作空间 / 配置管理</div>
+                        <h1>让好规则，下次接着用。</h1>
+                        <p class="muted">本次浏览会话中保存的演示配置。</p>
+                        <div id="saved-configs"></div>
+                    </section>
+                    <section id="runs-view" class="secondary-view" hidden>
+                        <div class="breadcrumb">工作空间 / 运行记录</div>
+                        <h1>每次生成，都有迹可循。</h1>
+                        <p class="muted">
+                            这里记录原型的模拟运行，不代表真实数据库写入。
+                        </p>
+                        <div id="run-history"></div>
+                    </section>
+                </main>
+            </div>
+            <footer class="app-footer">
+                <span><i class="status-dot"></i>所有操作仅在此原型内演示</span
+                ><span class="footer-right"
+                    >Glass study <span>/</span> 01
+                    <span class="footer-separator"></span>sqlseed</span
+                >
+            </footer>
+        </div>
+        <dialog
+            id="field-dialog"
+            class="field-dialog"
+            aria-labelledby="field-title"
+        >
+            <form id="field-form" class="drawer-form">
+                <header class="drawer-heading">
+                    <div>
+                        <span class="eyebrow">FIELD INSPECTOR</span>
+                        <h2 id="field-title">email</h2>
+                        <p id="field-meta">users / TEXT</p>
+                    </div>
+                    <button
+                        type="button"
+                        class="icon-button"
+                        data-close="field-dialog"
+                        aria-label="关闭字段配置"
+                    >
+                        <span data-icon="close"></span>
+                    </button>
+                </header>
+                <div class="drawer-body">
+                    <div class="drawer-label">取值规则</div>
+                    <p class="drawer-intro">为这个字段定义合适的数据。</p>
+                    <label class="form-label"
+                        >生成方式<select id="generator"></select
+                    ></label>
+                    <div id="generator-options"></div>
+                    <div class="sample-card">
+                        <div>
+                            <span data-icon="sparkles"></span>规则样例<span
+                                class="sample-label"
+                                >演示</span
+                            >
+                        </div>
+                        <output id="rule-sample"></output>
+                        <p>用于观察规则效果，不会写入数据库。</p>
+                    </div>
+                    <div class="constraint-note">
+                        <span data-icon="shield"></span
+                        ><span id="constraint-description"></span>
+                    </div>
+                    <p id="field-error" class="form-error" role="alert"></p>
+                </div>
+                <footer class="drawer-footer">
+                    <button
+                        class="button"
+                        type="button"
+                        data-close="field-dialog"
+                    >
+                        取消</button
+                    ><button class="button primary" type="submit">
+                        <span data-icon="check"></span>应用规则
+                    </button>
+                </footer>
+            </form>
+        </dialog>
+        <dialog
+            id="appearance-dialog"
+            class="compact-dialog"
+            aria-labelledby="appearance-title"
+        >
+            <header class="modal-heading">
+                <div>
+                    <span class="eyebrow">MAKE IT YOURS</span>
+                    <h2 id="appearance-title">舒服，比炫目更重要。</h2>
+                </div>
+                <button
+                    class="icon-button"
+                    data-close="appearance-dialog"
+                    aria-label="关闭外观设置"
+                >
+                    <span data-icon="close"></span>
+                </button>
+            </header>
+            <p class="muted">试试不同的玻璃强度，找到你喜欢的平衡。</p>
+            <div class="material-choices">
+                <button
+                    class="material-choice"
+                    data-material="frost"
+                    aria-pressed="false"
+                >
+                    <span class="material-preview frost-preview"></span
+                    ><strong>柔雾</strong><small>轻透、平静</small></button
+                ><button
+                    class="material-choice selected"
+                    data-material="clear"
+                    aria-pressed="true"
+                >
+                    <span class="material-preview clear-preview"></span
+                    ><strong>清透</strong><small>更明显的玻璃感</small></button
+                ><button
+                    class="material-choice"
+                    data-material="solid"
+                    aria-pressed="false"
+                >
+                    <span class="material-preview solid-preview"></span
+                    ><strong>纯净</strong><small>实色、高可读性</small>
+                </button>
+            </div>
+            <label class="switch-row"
+                ><span
+                    ><strong>减少动态效果</strong
+                    ><small>减少悬浮、过渡和进度动画</small></span
+                ><input id="reduce-motion" type="checkbox" role="switch"
+            /></label>
+            <p class="appearance-note">当前选择仅用于此原型。</p>
+        </dialog>
+        <dialog
+            id="action-dialog"
+            class="compact-dialog"
+            aria-labelledby="action-title"
+        >
+            <header class="modal-heading">
+                <div>
+                    <span class="eyebrow" id="action-eyebrow"
+                        >READY WHEN YOU ARE</span
+                    >
+                    <h2 id="action-title">生成前，再确认一下。</h2>
+                </div>
+                <button
+                    class="icon-button"
+                    data-close="action-dialog"
+                    aria-label="关闭对话框"
+                >
+                    <span data-icon="close"></span>
+                </button>
+            </header>
+            <div id="action-content"></div>
+            <footer class="modal-footer" id="action-footer"></footer>
+        </dialog>
+        <div class="toast" id="toast" role="status" aria-live="polite" hidden>
+            <span data-icon="check"></span><span id="toast-text"></span>
+        </div>
+        <script src="./prototype.js" defer></script>
+    </body>
+</html>

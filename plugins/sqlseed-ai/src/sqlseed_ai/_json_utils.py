@@ -34,11 +34,27 @@ from typing import Any
 _CHANNEL_END_MARKER = "<channel|>"
 
 
-def parse_json_response(content: str) -> dict[str, Any]:
-    """Parse JSON from LLM response using 4-strategy fallback."""
+class JSONResponseError(ValueError):
+    """A safe, content-free diagnostic for an unusable model response."""
+
+    def __init__(self, code: str) -> None:
+        self.code = code
+        super().__init__(code)
+
+
+def parse_json_response(content: str, *, strict: bool = False) -> dict[str, Any]:
+    """Parse JSON; strict mode diagnoses failures without inventing missing values."""
     cleaned = _strip_channel_prefix(content.strip())
 
-    return _try_direct_parse(cleaned) or _try_markdown_fence_parse(cleaned) or _try_raw_decode(cleaned) or {}
+    if strict and not cleaned:
+        raise JSONResponseError("empty_response")
+    for parser in (_try_direct_parse, _try_markdown_fence_parse, _try_raw_decode):
+        result = parser(cleaned)
+        if result is not None:
+            return result
+    if strict:
+        raise JSONResponseError("invalid_json")
+    return {}
 
 
 def _strip_channel_prefix(content: str) -> str:
@@ -75,14 +91,7 @@ def _try_markdown_fence_parse(content: str) -> dict[str, Any] | None:
     if (close_idx := after_open.find("```", content_start)) < 0:
         return None
     fence_content = after_open[content_start:close_idx].strip()
-    try:
-        result = json.loads(fence_content)
-        if isinstance(result, dict):
-            _sanitize_names(result)
-            return result
-    except json.JSONDecodeError:
-        pass
-    return None
+    return _try_raw_decode(fence_content)
 
 
 def _try_raw_decode(content: str) -> dict[str, Any] | None:
@@ -94,7 +103,7 @@ def _try_raw_decode(content: str) -> dict[str, Any] | None:
     Also repairs truncated JSON by attempting to add missing closing
     brackets/braces. Small LLMs (e.g., Gemma 4 E2B) sometimes emit JSON
     missing the final ``}`` or ``]`` characters even when stopReason is
-    "eosFound". We try a small set of suffix combinations to recover.
+    "eosFound". Recover only the delimiters determined by the JSON nesting.
     """
     if (first_brace := content.find("{")) < 0:
         return None
@@ -107,18 +116,35 @@ def _try_raw_decode(content: str) -> dict[str, Any] | None:
             return result
     except json.JSONDecodeError:
         pass
-    # Repair truncated JSON by appending missing closers. The suffixes are
-    # ordered from shortest to longest; each is tried in isolation. We stop
-    # at the first suffix that yields a valid dict.
-    for suffix in ("}", "]", "}}", "]}", "]}]}", "]}"):
-        try:
-            result, _ = decoder.raw_decode(content + suffix, idx=first_brace)
-            if isinstance(result, dict):
-                _sanitize_names(result)
-                return result
-        except json.JSONDecodeError:
-            continue
+    # Never invent missing strings, values or separators.
+    candidate = content[first_brace:].strip()
+    closers = _missing_closers(candidate)
+    if closers:
+        return _try_direct_parse(candidate + closers)
     return None
+
+
+def _missing_closers(content: str) -> str:
+    """Complete delimiters only, never strings, keys, commas or business values."""
+    stack: list[str] = []
+    quoted = escaped = False
+    for char in content:
+        if quoted:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                quoted = False
+        elif char == '"':
+            quoted = True
+        elif char in "{[":
+            stack.append("}" if char == "{" else "]")
+        elif char in "}]" and (not stack or stack.pop() != char):
+            return ""
+    if quoted or not stack or len(stack) > 8:
+        return ""
+    return "".join(reversed(stack))
 
 
 def _sanitize_names(data: dict[str, Any]) -> None:
@@ -132,7 +158,12 @@ def _sanitize_names(data: dict[str, Any]) -> None:
     if isinstance(name, str):
         data["name"] = re.sub(r"^[:.]+", "", name)
 
-    for col in data.get("columns", []):
+    columns = data.get("columns")
+    if not isinstance(columns, list):
+        # Preserve malformed containers for the configuration validator. Name
+        # normalization must not turn valid JSON into an incidental TypeError.
+        return
+    for col in columns:
         if isinstance(col, dict):
             col_name = col.get("name")
             if isinstance(col_name, str):

@@ -16,7 +16,7 @@ test('workbench current data reads the displayed unselected table without changi
 
 test('workbench data entry follows current graph table and leaving ignores late results',async()=>{
   const ui=harness();await ui.mount();
-  await ui.button('关系图').click();await ui.document.querySelector('[data-graph-node="orders"]').click();
+  await ui.button('关系图').click();await ui.button('查看整库').click();await ui.document.querySelector('[data-graph-node="orders"]').click();
   const gate=deferred(),path='/api/workbench/connections/A/tables/orders/data?limit=50&offset=0';ui.routes.set(path,()=>gate.promise);
   const open=ui.button('查看当前数据');assert.ok(open);await open.click();await tick();
   assert.ok(ui.requests.some(r=>r.url===path));ui.leave();gate.resolve(result('orders'));await tick();

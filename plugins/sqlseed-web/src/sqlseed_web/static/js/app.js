@@ -1,5 +1,6 @@
-import { setConnBadge } from './api.js';
+import { setConnBadge, store } from './api.js';
 import { openConnectionDialog } from './workbench/connection.js';
+import './tab-motion.js';
 
 // Retired connect/wizard/browse/heal/meta modules remain historical source only.
 // Product navigation mounts the unified workbench or durable run history.
@@ -12,6 +13,7 @@ const pages = {
 let currentModule = null;
 let routeVersion = 0;
 let committedPage = null;
+let routeConnectionId = store.connId;
 const maintenance = document.documentElement?.dataset.pluginMaintenance === 'true';
 const initialRecovery = document.documentElement?.dataset.pluginSupervisedMaintenance === 'true';
 async function render() {
@@ -61,6 +63,7 @@ async function render() {
     committedPage = page;
     await module.mount?.();
     if (version === routeVersion && !maintenance) {
+      routeConnectionId = store.connId;
       setConnBadge();
     }
   } catch (error) {
@@ -88,8 +91,16 @@ connectionButton.onclick = () => {
   }
 };
 window.addEventListener('hashchange', render);
-window.addEventListener('sqlseed:connection-changed', () => {
+window.addEventListener('sqlseed:connection-changed', event => {
   if (!maintenance) {
+    if (routeConnectionId === store.connId) return;
+    routeConnectionId = store.connId;
+    // Document links belong to the previously selected target. Only the
+    // explicit mismatch-recovery picker may continue the exact pending link.
+    const keepRequest = store.connId && event.detail?.workbenchRequest === location.hash;
+    if (location.hash.split('?')[0] === '#/workbench' && !keepRequest) {
+      history.replaceState(history.state, '', '#/workbench');
+    }
     setConnBadge();
     render();
   }

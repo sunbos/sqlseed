@@ -7,18 +7,28 @@ import sys
 
 import pytest
 
+from sqlseed.database import _type_normalizer
 from sqlseed.database._type_normalizer import TypeNormalizer
 
 
 def test_long_unclosed_type_parameters_finish_within_bounded_time() -> None:
+    # Bound the parser, not importing SQLAlchemy and the entire public API on
+    # a busy Windows host. Other tests import the public TypeNormalizer export.
     program = """
-from sqlseed.database import TypeNormalizer
+import runpy, sys
+TypeNormalizer = runpy.run_path(sys.argv[1])['TypeNormalizer']
 raw = "VARCHAR" + " " * 100_000 + "("
 result = TypeNormalizer().normalize(raw, "postgresql")
 if result.base != raw.upper() or result.params != () or result.raw != raw:
     raise RuntimeError("Malformed type fallback changed")
 """
-    completed = subprocess.run([sys.executable, "-c", program], capture_output=True, text=True, timeout=5, check=False)
+    completed = subprocess.run(
+        [sys.executable, "-c", program, _type_normalizer.__file__],
+        capture_output=True,
+        text=True,
+        timeout=5,
+        check=False,
+    )
     assert completed.returncode == 0, completed.stderr
 
 

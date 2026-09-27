@@ -148,6 +148,11 @@ Gemma 26B ID。注册的模型名称不保证服务当前提供该模型，请�
 修正；默认最多重试 3 次，仍失败时报告 `AISuggestionFailedError`。
 `ai-analyze` 和 `auto-heal` 则使用 v4 `AutoHealOrchestrator` 的契约驱动路径。
 
+Python 调用可使用 `SchemaAnalyzer.call_llm(..., strict_json=True)`，通过不含原文的
+`JSONResponseError.code` 区分空回答、无效 JSON 和输出长度截断。解析器可补齐末尾缺失的
+`}` / `]`，包括代码围栏内的 JSON，但不会补值或字符串；达到输出长度上限时，即使前缀
+可解析也会拒绝。此可选诊断模式不增加模型请求，解析后的建议仍需验证范围和业务规则。
+
 开启 AI 生成路径时，`sqlseed_pre_generate_templates` 可为符合条件的未匹配字符串列
 准备候选值。用户明确配置、UNIQUE、默认值或主键等条件会影响是否使用模板池，
 不保证每个复杂字段都会调用模型。
@@ -184,10 +189,12 @@ AI 配置缓存包含 schema hash，结构变化会使旧建议失效；`--no-ca
 CLI 命令另由 `sqlseed.cli_commands` entry point 注册。本插件不实现 provider 或
 column-mapper 注册 hooks，也不要求 Core 导入 AI 实现。
 
-## 依赖
+## 当前开发源码依赖
+
+以下要求对应当前源码；上方 0.2.4 命令仍是已发布安装基线。源码开发时请在同一次解析中安装本地 Core 和插件。
 
 - Python `>=3.10`
-- `sqlseed>=0.2.4.dev0,<0.3`
+- `sqlseed>=0.2.5.dev0,<0.3`
 - `sqlseed-cli>=0.2.4.dev0,<0.3`
 - `openai>=1.0`
 - `httpx>=0.24.0`

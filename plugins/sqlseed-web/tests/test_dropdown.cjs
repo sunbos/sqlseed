@@ -4,10 +4,11 @@ const {Element, createDom, loadFrontend} = require('./frontend_helpers.cjs');
 
 function harness(rect = {top: 540, bottom: 580, left: 330, right: 790, width: 460}, settings = {}) {
   const document = createDom(), window = new Element('window');
-  const scrolls = [], createElement = document.createElement;
+  const scrolls = [], created = [], createElement = document.createElement;
   document.createElement = tag => {
     const element = createElement(tag);
-    element.scrollIntoView = () => scrolls.push({text: element.textContent, position: element.parentNode?.style.position});
+    created.push(element);
+    element.scrollIntoView = () => scrolls.push({text: element.textContent, position: element.parentNode?.parentNode?.style.position || element.parentNode?.style.position});
     return element;
   };
   const overlay = new Element('div'); overlay.className = 'overlay';
@@ -24,7 +25,18 @@ function harness(rect = {top: 540, bottom: 580, left: 330, right: 790, width: 46
   const button = dropdown.el.querySelector('button'), panel = dropdown.el.querySelector('.dropdown-panel');
   button.getBoundingClientRect = () => rect;
   dropdown.el.getBoundingClientRect = () => rect;
-  panel.scrollHeight = 260;
+  const popup = created.find(element => element.classList.contains('dropdown-popup'));
+  const controls = popup.querySelectorAll('.dropdown-scroll-button');
+  panel.scrollHeight = 258;
+  panel.getBoundingClientRect = () => ({height: 260});
+  popup.getBoundingClientRect = () => panel.getBoundingClientRect();
+  Object.defineProperty(panel, 'clientHeight', {get: () => Math.max(0,
+    (Number.parseFloat(popup.style.maxHeight) || 260) - 2 - (controls.some(control => !control.hidden) ? 22 : 0))});
+  let scrollTop = 0;
+  Object.defineProperty(panel, 'scrollTop', {
+    get: () => scrollTop,
+    set: value => {scrollTop = Math.max(0, Math.min(Number(value) || 0, panel.scrollHeight - panel.clientHeight));},
+  });
   button.focus = () => {document.activeElement = button;};
   const key = async (value, extra = {}) => {
     const event = {type: 'keydown', key: value, target: button, defaultPrevented: false, stopped: false,
@@ -33,16 +45,17 @@ function harness(rect = {top: 540, bottom: 580, left: 330, right: 790, width: 46
     return event;
   };
   const active = () => document.getElementById(button.getAttribute('aria-activedescendant'));
-  return {document, window, context, overlay, modal, body, dropdown, button, panel, changes, key, active, scrolls, advance: ms => {now += ms;}};
+  return {document, window, context, overlay, modal, body, dropdown, button, panel, popup, controls, changes, key, active, scrolls, advance: ms => {now += ms;}};
 }
 
 test('options escape a scroll-clipped modal body and selection still updates the control', async () => {
   const ui = harness();
   await ui.button.click();
-  assert.equal(ui.panel.parentNode, ui.overlay);
-  assert.equal(ui.panel.style.position, 'fixed');
-  assert.equal(ui.panel.style.top, '585px');
-  assert.equal(ui.panel.style.width, '460px');
+  assert.equal(ui.popup.parentNode, ui.overlay);
+  assert.equal(ui.panel.parentNode, ui.popup);
+  assert.equal(ui.popup.style.position, 'fixed');
+  assert.equal(ui.popup.style.top, '585px');
+  assert.equal(ui.popup.style.width, '460px');
   assert.equal(ui.button.getAttribute('aria-expanded'), 'true');
   await ui.panel.querySelector('button').click();
   assert.equal(ui.dropdown.get(), 'zh');
@@ -54,9 +67,29 @@ test('options escape a scroll-clipped modal body and selection still updates the
 test('a menu near the bottom opens above the control and stays within the viewport', async () => {
   const ui = harness({top: 790, bottom: 830, left: 900, right: 1300, width: 400});
   await ui.button.click();
-  assert.equal(ui.panel.style.top, '525px');
-  assert.equal(ui.panel.style.left, '736px');
-  assert.ok(Number.parseFloat(ui.panel.style.maxHeight) <= 260);
+  assert.equal(ui.popup.style.top, '525px');
+  assert.equal(ui.popup.style.left, '736px');
+  assert.ok(Number.parseFloat(ui.popup.style.maxHeight) <= 260);
+});
+
+test('a short menu fits its fractional border box instead of clipping to scrollHeight', async () => {
+  const ui = harness({top: 790, bottom: 830, left: 330, right: 790, width: 460});
+  ui.panel.scrollHeight = 126;
+  ui.panel.getBoundingClientRect = () => ({height: 127.667});
+  await ui.button.click();
+  assert.equal(ui.popup.style.maxHeight, '128px');
+  assert.equal(ui.popup.style.top, '657px');
+});
+
+test('menu height is measured at the viewport-constrained width before positioning', async () => {
+  const ui = harness({top: 790, bottom: 830, left: 0, right: 1500, width: 1500});
+  ui.panel.scrollHeight = 70;
+  ui.panel.getBoundingClientRect = () => ({height: ui.popup.style.width === '1128px' ? 150.5 : 70});
+  await ui.button.click();
+  assert.equal(ui.popup.style.left, '8px');
+  assert.equal(ui.popup.style.width, '1128px');
+  assert.equal(ui.popup.style.maxHeight, '151px');
+  assert.equal(ui.popup.style.top, '634px');
 });
 
 test('Escape closes only the open menu and restores control focus', async () => {
@@ -110,10 +143,16 @@ test('arrow and boundary navigation explore choices without committing until Ent
   await ui.key('End'); assert.equal(ui.active().textContent, '日本語');
   assert.equal(ui.dropdown.get(), 'en'); assert.deepEqual(ui.changes, []);
   assert.equal(ui.button.querySelector('.dropdown-btn-label').textContent, 'English');
+  assert.equal(ui.panel.querySelector('[aria-selected="true"]').textContent, 'English');
+  assert.equal(ui.active().getAttribute('aria-selected'), 'false');
+  assert.equal(ui.active().classList.contains('active'), true);
   await ui.key('Enter');
   assert.equal(ui.dropdown.get(), 'ja'); assert.deepEqual(ui.changes, ['ja']);
   assert.equal(ui.button.getAttribute('aria-activedescendant'), null);
   assert.equal(ui.button.getAttribute('aria-expanded'), 'false');
+  await ui.button.click();
+  assert.equal(ui.panel.querySelector('[aria-selected="true"]').textContent, '日本語');
+  assert.equal(ui.active().getAttribute('aria-selected'), 'true');
 });
 
 test('disabled options expose their state and are skipped by navigation and typeahead', async () => {
@@ -231,4 +270,164 @@ test('clicking a wrapping label does not forward activation to the dropdown trig
   assert.equal(ui.button.getAttribute('aria-expanded'), 'true');
   ui.dropdown.destroy();
   assert.equal(ui.document.listeners.get('click')?.size || 0, 0);
+});
+
+
+const longOptions = Array.from({length: 30}, (_, index) => ({value: String(index), label: `选项 ${index + 1}`}));
+
+test('short menus have no scroll prompts and the listbox contains only options', async () => {
+  const ui = harness(); await ui.button.click();
+  assert.ok(ui.controls.every(control => control.hidden));
+  assert.equal(ui.panel.querySelectorAll('.dropdown-scroll-button').length, 0);
+  assert.equal(ui.panel.querySelectorAll('[role="option"]').length, 2);
+  assert.equal(ui.button.getAttribute('aria-controls'), ui.panel.id);
+  assert.ok(ui.controls.every(control => control.getAttribute('tabindex') === '-1'));
+});
+
+test('long-menu scroll controls move the native viewport without committing or closing', async () => {
+  const ui = harness(undefined, {value: '0', options: longOptions});
+  ui.panel.scrollHeight = 1000;
+  await ui.button.click();
+  const [up, down] = ui.controls, activeId = ui.button.getAttribute('aria-activedescendant');
+  assert.ok(ui.controls.every(control => !control.hidden));
+  assert.equal(up.disabled, true); assert.equal(down.disabled, false);
+  assert.equal(down.getAttribute('aria-controls'), ui.panel.id);
+  assert.equal(down.getAttribute('aria-label'), '向下滚动选项');
+  await ui.document.dispatchEvent({type: 'mousedown', target: down});
+  let prevented = false;
+  await down.dispatchEvent({type: 'mousedown', preventDefault() {prevented = true;}});
+  await down.click();
+  assert.equal(prevented, true);
+  assert.ok(ui.panel.scrollTop > 0 && ui.panel.scrollTop < ui.panel.clientHeight);
+  assert.equal(up.disabled, false);
+  assert.equal(ui.dropdown.get(), '0'); assert.deepEqual(ui.changes, []);
+  assert.equal(ui.button.getAttribute('aria-activedescendant'), activeId);
+  assert.equal(ui.document.activeElement, ui.button);
+  assert.equal(ui.button.getAttribute('aria-expanded'), 'true');
+  ui.panel.scrollTop = ui.panel.scrollHeight;
+  await ui.panel.dispatchEvent('scroll');
+  assert.equal(down.disabled, true); assert.equal(up.disabled, false);
+  const bottom = ui.panel.scrollTop;
+  await up.click();
+  assert.ok(ui.panel.scrollTop < bottom);
+  assert.equal(down.disabled, false);
+});
+
+test('native scrolling updates prompts without remeasuring the portal or changing selection', async () => {
+  const ui = harness(undefined, {value: '0', options: longOptions});
+  ui.panel.scrollHeight = 1000; await ui.button.click();
+  let measured = 0;
+  ui.popup.getBoundingClientRect = () => {measured++; return {height: 260};};
+  const initialTop = ui.popup.style.top;
+  ui.panel.scrollTop = 100;
+  await ui.document.dispatchEvent({type: 'scroll', target: ui.panel});
+  await ui.panel.dispatchEvent('scroll');
+  assert.equal(measured, 0);
+  assert.equal(ui.popup.style.top, initialTop);
+  assert.equal(ui.panel.scrollTop, 100);
+  assert.ok(ui.controls.every(control => !control.disabled));
+  assert.equal(ui.dropdown.get(), '0'); assert.deepEqual(ui.changes, []);
+  await ui.window.dispatchEvent('resize');
+  assert.equal(measured, 1);
+  assert.equal(ui.panel.scrollTop, 100);
+});
+
+test('option replacement removes unnecessary prompts and restores them for a long menu', async () => {
+  const ui = harness(undefined, {value: '0', options: longOptions});
+  ui.panel.scrollHeight = 1000; await ui.button.click();
+  assert.ok(ui.controls.every(control => !control.hidden));
+  ui.panel.scrollHeight = 126;
+  ui.panel.getBoundingClientRect = () => ({height: 127.667});
+  ui.dropdown.setOptions([{value: '0', label: '唯一选项'}]);
+  assert.ok(ui.controls.every(control => control.hidden));
+  assert.equal(ui.popup.style.maxHeight, '128px');
+  assert.equal(ui.active().textContent, '唯一选项');
+  ui.panel.scrollHeight = 1000;
+  ui.panel.getBoundingClientRect = () => ({height: 260});
+  ui.dropdown.setOptions(longOptions);
+  assert.ok(ui.controls.every(control => !control.hidden));
+  assert.equal(ui.popup.style.maxHeight, '260px');
+  assert.equal(ui.dropdown.get(), '0'); assert.deepEqual(ui.changes, []);
+});
+
+test('keyboard navigation scrolls options and never explores scroll buttons', async () => {
+  const ui = harness(undefined, {value: '0', options: longOptions});
+  ui.panel.scrollHeight = 1000; await ui.button.click();
+  const options = ui.panel.querySelectorAll('[role="option"]');
+  options.at(-1).scrollIntoView = () => {ui.panel.scrollTop = ui.panel.scrollHeight;};
+  options[0].scrollIntoView = () => {ui.panel.scrollTop = 0;};
+  await ui.key('End');
+  assert.equal(ui.active(), options.at(-1));
+  assert.equal(ui.controls[1].disabled, true);
+  assert.equal(ui.dropdown.get(), '0');
+  await ui.key('Home');
+  assert.equal(ui.active(), options[0]);
+  assert.equal(ui.controls[0].disabled, true);
+  await ui.key('ArrowDown'); await ui.key('Enter');
+  assert.equal(ui.dropdown.get(), '1'); assert.deepEqual(ui.changes, ['1']);
+});
+
+test('closing and destroying removes the scroll listener and every floating control', async () => {
+  const ui = harness(undefined, {value: '0', options: longOptions});
+  ui.panel.scrollHeight = 1000; await ui.button.click();
+  assert.equal(ui.panel.listeners.get('scroll').size, 1);
+  await ui.key('Escape');
+  assert.equal(ui.panel.listeners.get('scroll').size, 0);
+  assert.equal(ui.document.querySelector('.dropdown-popup'), null);
+  assert.equal(ui.document.querySelector('.dropdown-scroll-button'), null);
+  await ui.button.click();
+  assert.equal(ui.panel.listeners.get('scroll').size, 1);
+  ui.dropdown.destroy();
+  assert.equal(ui.panel.listeners.get('scroll').size, 0);
+  assert.equal(ui.document.querySelector('.dropdown-floating'), null);
+  assert.equal(ui.document.querySelector('.dropdown-popup'), null);
+  assert.equal(ui.document.listeners.get('scroll').size, 0);
+  assert.equal(ui.window.listeners.get('resize').size, 0);
+});
+
+
+test('disabling an open dropdown blocks pending pointer selection and removes its portal', async () => {
+  const ui = harness();
+  await ui.button.click();
+  const pending = ui.panel.querySelector('[role="option"]');
+  ui.button.disabled = true;
+  await pending.click();
+  assert.equal(ui.dropdown.get(), 'en');
+  assert.deepEqual(ui.changes, []);
+  assert.equal(ui.button.getAttribute('aria-expanded'), 'false');
+  assert.equal(ui.document.querySelector('.dropdown-floating'), null);
+  assert.equal(ui.document.listeners.get('keydown').size, 0);
+});
+
+test('Escape dismisses a newly disabled dropdown without reaching the parent or committing', async () => {
+  const ui = harness(); await ui.key('Home');
+  ui.button.disabled = true;
+  const event = await ui.key('Escape');
+  assert.equal(event.defaultPrevented, true);
+  assert.equal(event.stopped, true);
+  assert.equal(ui.button.getAttribute('aria-expanded'), 'false');
+  assert.equal(ui.dropdown.get(), 'en');
+  assert.deepEqual(ui.changes, []);
+});
+
+
+test('host dismissal discards pending navigation, keeps the new focus and allows reopening', async () => {
+  const ui = harness(); await ui.key('Home');
+  assert.equal(ui.active().textContent, '中文');
+  const destination = ui.document.createElement('button');
+  ui.body.append(destination); ui.document.activeElement = destination;
+  ui.dropdown.close();
+  assert.equal(ui.button.getAttribute('aria-expanded'), 'false');
+  assert.equal(ui.dropdown.get(), 'en');
+  assert.deepEqual(ui.changes, []);
+  assert.equal(ui.document.activeElement, destination);
+  assert.equal(ui.document.querySelector('.dropdown-popup'), null);
+  for (const name of ['keydown', 'mousedown', 'focusin', 'scroll']) {
+    assert.equal(ui.document.listeners.get(name)?.size || 0, 0);
+  }
+  assert.equal(ui.window.listeners.get('resize')?.size || 0, 0);
+  ui.dropdown.close();
+  await ui.button.click();
+  assert.equal(ui.active().textContent, 'English');
+  assert.equal(ui.active().getAttribute('aria-selected'), 'true');
 });

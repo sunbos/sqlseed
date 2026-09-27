@@ -24,12 +24,16 @@ function harness(overrides={}) {
   const uiContext=loadFrontend('workbench/ui.js',{document});
   const dropdown=loadFrontend('dropdown.js',{document});
   const labels=loadFrontend('labels.js',{document});
+  const calendar=loadFrontend('workbench/date-picker.js',{document});
+  const editor=loadFrontend('workbench/editor.js',{document,createDatePicker:calendar.createDatePicker,createDropdown:dropdown.createDropdown,...vm.runInContext('({genLabel,paramLabel,genGuide})',labels)});
+  const adjustment=loadFrontend('workbench/ai-adjustment.js',{document,AbortController,api:request,createRuleEditor:editor.createRuleEditor,...vm.runInContext('({button})',uiContext)});
   const eligibility=loadFrontend('workbench/ai-eligibility.js');
   const stream=loadFrontend('workbench/ai-stream.js',{TextDecoder,fetch:async(url,options)=>{
     const body=await request(url,options);
     return {ok:true,headers:new Headers({'Content-Type':'application/json'}),json:async()=>body};
   }});
   const context=loadFrontend('workbench/ai.js',{document,AbortController,api:request,
+    openSuggestionAdjustment:adjustment.openSuggestionAdjustment,
     requestAISuggestions:vm.runInContext('requestAISuggestions',stream),
     fieldAIEligibility:vm.runInContext('fieldAIEligibility',eligibility),
     ...vm.runInContext('({button,modal})',uiContext),createDropdown:vm.runInContext('createDropdown',dropdown),genLabel:vm.runInContext('genLabel',labels)});

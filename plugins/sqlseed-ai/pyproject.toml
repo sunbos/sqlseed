@@ -23,7 +23,7 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
-    "sqlseed>=0.2.4.dev0,<0.3",
+    "sqlseed>=0.2.5.dev0,<0.3",
     "sqlseed-cli>=0.2.4.dev0,<0.3",
     "openai>=1.0",
     "httpx>=0.24.0",

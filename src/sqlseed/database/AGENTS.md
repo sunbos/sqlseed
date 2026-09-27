@@ -10,6 +10,7 @@
 | --- | --- |
 | adapter API 与 metadata dataclasses | [_protocol.py](_protocol.py)：`DatabaseAdapter`、`ColumnInfo`、`ForeignKeyInfo`、`IndexInfo`、`CheckConstraintInfo` |
 | 生产连接、查询、写入 | [sqlalchemy_adapter.py](sqlalchemy_adapter.py)：`SQLAlchemyAdapter`、`SQLAlchemyBatchInserter` |
+| SQLite 路径与 URL 解析 | [_connection_url.py](_connection_url.py)：`connection_url()`，实际连接与 Web 目标身份共用 |
 | 原生 SQLite 测试 | [raw_sqlite_adapter.py](raw_sqlite_adapter.py)、[_base_adapter.py](_base_adapter.py) |
 | dialect 与类型归一化 | [_dialect.py](_dialect.py)、[_type_normalizer.py](_type_normalizer.py) |
 | SQLite AUTOINCREMENT、rowid 别名与表名识别 | [_sqlite_schema.py](_sqlite_schema.py) |
@@ -22,6 +23,7 @@
 - 生产路径统一用 `SQLAlchemyAdapter`；`RawSQLiteAdapter`/`BaseRawSQLiteAdapter` 只用于原生 SQLite 测试。新 adapter 满足 runtime-checkable `DatabaseAdapter` 与 context manager 合约。
 - 支持范围为 SQLite 与 PostgreSQL；不要附带恢复未验证的 MySQL 分支。
 - 未指定 driver 的 `postgresql://` 在创建 engine 时选择 `postgresql+psycopg`，与 `sqlseed[postgres]` 的 psycopg3 依赖一致；保留显式 driver、原始连接目标与配置 URL，不增加协议别名。
+- SQLite 连接统一经 `connection_url()` 构造 SQLAlchemy URL；普通文件路径用 `URL.create()` 保留字面 `%`、`?` 等字符，显式 SQLite URI 的 database 部分保留原始编码，由 SQLite 解码一次。SQLAlchemy 2.0/2.1 的 URL 解码差异不能使 `%41` 文件误开为 `A` 或使无效 UTF-8 被替换成另一文件；query 选项仍由 dialect 解释，不手动丢弃 `uri`、`mode`、`timeout`。Web 身份复用此解析器，但 Web 的 URI 准入规则留在插件，不能反向导入 Web。
 - 重新连接先关闭旧 engine 并清除 inspector/table cache；连接初始化失败必须释放部分初始化状态。事务中不能 close/reconnect，避免复用上一个数据库的反射结果。
 
 ## metadata 与类型
@@ -59,6 +61,7 @@
 
 - `pytest tests/test_database/`：真实 SQLite、adapter contract、rollback、URL 与安全边界。
 - 连接/transaction 重点看 `test_sqlalchemy_lifecycle_regressions.py`、`test_sqlalchemy_transaction.py`；类型与计数重点看 `test_typed_value_bindings.py`、`test_unique_key_probes.py`、`test_insert_actual_count.py`，以上均在 `tests/test_database/`。
+- 路径/URL 修改追加 `test_sqlite_connection_targets.py` 及 Web 的 `test_workbench_target_identity.py`：使用原文件与解码后同名诱饵文件验证实际读写目标，并保留只读/缺失文件不创建/超时参数回归；只比较解析字符串不充分。
 - adapter API 或 metadata 变化补跑 `pytest tests/test_orchestrator_adapter.py tests/test_schema.py tests/test_relation.py`。
 - PostgreSQL 相关改动运行 `pytest tests/integration/test_pg_*.py tests/integration/test_url_e2e.py`（使用独立 `PG_TEST_URL` 或 Docker fallback），不要只凭 SQLite 通过认定跨数据库行为正确。
 - `lint-imports` 验证本层没有反向依赖核心。

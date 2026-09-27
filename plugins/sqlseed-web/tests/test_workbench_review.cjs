@@ -14,7 +14,7 @@ test('empty generation scope explains table selection without checking or showin
   assert.equal(dialog.querySelector('.wb-dependency-sources'), null);
   assert.equal(dialog.querySelector('.execution-sequence'), null);
   assert.doesNotMatch(dialog.textContent, /阻断|循环|来源明细/);
-  assert.equal(ui.button('生成数据', dialog), undefined);
+  assert.equal(ui.button('查看生成计划', dialog), undefined);
   assert.ok(ui.button('选择生成表', dialog));
   assert.deepEqual(plain(ui.modelState().document), before);
 });

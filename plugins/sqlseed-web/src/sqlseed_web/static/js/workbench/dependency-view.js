@@ -49,6 +49,23 @@
     };
   }
 
+  /** Browse the actual generation plan and its already-resolved read sources.
+   * Do not traverse beyond a referenced table: its existing rows are the source,
+   * so that table's ancestors and unselected downstream tables are not in the plan.
+   */
+  function selectPlanGraph(data) {
+    indexGraph(data);
+    const targets = new Set(data.nodes.filter(node => node.selected === true).map(node => node.id));
+    const visible = new Set(targets.size
+      ? data.nodes.filter(node => node.selected === true || node.referenced === true).map(node => node.id)
+      : []);
+    const result = project(data, visible);
+    // Existing rows in read-only sources do not need their own FKs resolved.
+    // Only edges into a table being generated participate in this plan.
+    result.edges = result.edges.filter(edge => targets.has(edge.target));
+    return result;
+  }
+
   /**
    * Arrows run from referenced parent (source) to referencing child (target).
    *
@@ -115,5 +132,5 @@
       upstreamIds: data.nodes.filter(node => visible.has(node.id) && !targets.has(node.id)).map(node => node.id),
     };
   }
-  return { selectGraph, dependencyClosure };
+  return { selectGraph, selectPlanGraph, dependencyClosure };
 });

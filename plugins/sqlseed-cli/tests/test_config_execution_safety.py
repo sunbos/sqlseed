@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
 from typing import TYPE_CHECKING
 
 import pytest
@@ -15,6 +18,73 @@ from tests.sqlite_helpers import sqlite_connection
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+
+def test_cli_invalid_url_diagnostics_hide_userinfo_and_query_password() -> None:
+    target = "sqlite://audit-user:synthetic-userinfo@host/db?password=synthetic-query&timeout=3"
+    result = CliRunner().invoke(cli, ["preview", "--url", target, "--table", "items"])
+    assert result.exit_code != 0
+    assert "Invalid database URL" in result.output
+    assert "synthetic-userinfo" not in result.output
+    assert "synthetic-query" not in result.output
+    assert "host/db?password=***&timeout=3" in result.output
+
+
+def test_debug_fill_does_not_log_raw_connection_credentials() -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from sqlseed_cli.main import main; main()",
+            "fill",
+            "--url",
+            "sqlite://audit-user:synthetic-userinfo@host/db?password=first-secret second-secret&timeout=3",
+            "--table",
+            "items",
+            "--count",
+            "1",
+            "--provider",
+            "base",
+        ],
+        env={**os.environ, "SQLSEED_LOG_LEVEL": "DEBUG"},
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert result.returncode == 2
+    assert "Starting fill" in result.stderr
+    assert "Invalid database URL" in result.stderr
+    assert all(
+        secret not in result.stderr + result.stdout
+        for secret in ("synthetic-userinfo", "first-secret", "second-secret")
+    )
+
+
+def test_invalid_date_config_is_an_actionable_cli_error_without_appending(tmp_path: Path) -> None:
+    database = tmp_path / "invalid-date.db"
+    with sqlite_connection(database) as conn:
+        conn.execute("CREATE TABLE events (created_at DATE NOT NULL)")
+        conn.execute("INSERT INTO events VALUES ('2020-01-01')")
+    document = {
+        "db_path": str(database),
+        "provider": "base",
+        "tables": [
+            {
+                "name": "events",
+                "count": 5,
+                "columns": [{"name": "created_at", "generator": "date", "params": {"end_date": "now"}}],
+            }
+        ],
+    }
+    config = tmp_path / "invalid.yaml"
+    config.write_text(yaml.safe_dump(document), encoding="utf-8")
+    result = CliRunner().invoke(cli, ["fill", "--config", str(config), "--no-ai"])
+    assert result.exit_code == 2, result.output
+    assert "created_at" in result.output and "YYYY-MM-DD" in result.output
+    assert "Traceback" not in result.output
+    with sqlite_connection(database) as conn:
+        assert conn.execute("SELECT * FROM events").fetchall() == [("2020-01-01",)]
 
 
 @pytest.mark.parametrize("target_kind", ["path", "url"])

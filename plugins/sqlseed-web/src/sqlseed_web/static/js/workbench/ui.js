@@ -7,6 +7,8 @@ const paths = {
   check: 'm3 6 2 2 4-4M12 6h9M3 13h3m6 0h9M3 20h3m6 0h9',
   fields: 'M3 9h18M9 9v11M3 14h18',
   save: 'M4 3h13l4 4v14H3V3zM7 3v6h10V3M7 21v-8h10v8',
+  folder: 'M3 7V5a2 2 0 0 1 2-2h5l3 4h6a2 2 0 0 1 2 2v2M3 7v12a2 2 0 0 0 2 2h13l4-10H6L3 19',
+  relations: 'M3 8h7m-4 0v5h12m0 0v3M14 19h8',
   download: 'M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5',
   upload: 'M12 16V4m-5 5 5-5 5 5M4 16v5h16v-5',
   code: 'm8 6-6 6 6 6m8-12 6 6-6 6m-3-14-2 16',
@@ -83,6 +85,11 @@ export function icon(name) {
       rx: 2
     });
   }
+  if (name === 'relations') {
+    for (const [x, y] of [[2, 3], [14, 16]]) {
+      shape('rect', { x, y, width: 8, height: 6, rx: 1.5 });
+    }
+  }
   if (name === 'database') {
     shape('ellipse', {
       cx: 12,
@@ -147,7 +154,9 @@ let activeModalClose = null;
 export function modal(title, {
   onClose,
   wide = false,
-  drawer = false
+  drawer = false,
+  dismiss = 'header',
+  returnFocus = null
 } = {}) {
   activeModalClose?.();
   let closed = false;
@@ -181,18 +190,18 @@ export function modal(title, {
       activeModalClose = null;
     }
     onClose?.();
-    previous?.focus?.({
-      preventScroll: true
-    });
+    const target = returnFocus ? returnFocus() : previous;
+    if (target?.isConnected && !target.disabled) target.focus?.({preventScroll: true});
   };
+  const heading = h('h2', { tabindex: '-1' }, title);
   const header = h('header', {
     class: drawer ? 'drawer-head' : 'modal-head'
-  }, h('h2', {}, title), h('button', {
+  }, heading, dismiss === 'header' ? h('button', {
     type: 'button',
     class: 'close',
     'aria-label': '关闭',
     onclick: close
-  }, '×'));
+  }, '×') : null);
   const panel = h('section', {
     class: `${drawer ? 'drawer' : 'modal'} wb-modal${drawer ? ' wb-drawer' : ''}${wide ? ' modal-wide wb-modal-wide' : ''}`,
     role: 'dialog',
@@ -213,23 +222,30 @@ export function modal(title, {
     }
     if (event.key === 'Tab') {
       const summaryOf = details => [...details.children].find(child => child.tagName === 'SUMMARY');
-      const controls = [...overlay.querySelectorAll('button,input,textarea,a[href],summary')].filter(el => {
-        if (el.disabled || el.getAttribute('tabindex') === '-1') {
+      const tabOrder = el => el.tabIndex ?? (el.getAttribute('tabindex') === null ? 0 : Number.parseInt(el.getAttribute('tabindex'), 10));
+      const controls = [...overlay.querySelectorAll('button,input,textarea,select,a[href],summary,[tabindex]')].filter(el => {
+        if (el.disabled || el.type === 'hidden' || !Number.isFinite(tabOrder(el)) || tabOrder(el) < 0) {
           return false;
         }
         if (el.tagName === 'SUMMARY' && (el.parentElement?.tagName !== 'DETAILS' || summaryOf(el.parentElement) !== el)) {
           return false;
         }
         for (let ancestor = el; ancestor && ancestor !== overlay; ancestor = ancestor.parentElement) {
-          if (ancestor.hidden || ancestor.getAttribute('hidden') !== null) {
+          if (ancestor.hidden || ancestor.getAttribute('hidden') !== null || ancestor.inert || ancestor.getAttribute('inert') !== null) {
+            return false;
+          }
+          if (ancestor.tagName === 'FIELDSET' && ancestor.disabled && ['BUTTON','INPUT','SELECT','TEXTAREA'].includes(el.tagName)
+            && ![...ancestor.children].find(child => child.tagName === 'LEGEND')?.contains(el)) {
             return false;
           }
           if (ancestor.tagName === 'DETAILS' && !ancestor.open && !summaryOf(ancestor)?.contains(el)) {
             return false;
           }
+          if (typeof getComputedStyle === 'function' && getComputedStyle(ancestor).display === 'none') return false;
         }
+        if (typeof getComputedStyle === 'function' && ['hidden','collapse'].includes(getComputedStyle(el).visibility)) return false;
         return true;
-      });
+      }).sort((a, b) => (tabOrder(a) || Infinity) - (tabOrder(b) || Infinity));
       cycleFocus(event, controls);
     }
   }
@@ -240,7 +256,7 @@ export function modal(title, {
   }
   document.body.append(overlay);
   document.addEventListener('keydown', key);
-  overlay.querySelector('button')?.focus();
+  (overlay.querySelector('button') || heading).focus({ preventScroll: true });
   activeModalClose = close;
   return {
     body,

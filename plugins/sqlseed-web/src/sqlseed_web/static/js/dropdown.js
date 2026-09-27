@@ -13,6 +13,7 @@
 //   dd.get()                       // 读当前值
 //   dd.set(v)                      // 程序化设值（不触发 onChange）
 //   dd.setOptions(opts, value?)    // 替换选项（异步数据加载后）
+//   dd.close()                     // 宿主隐藏分区时关闭，不提交或移动焦点
 
 import { h, clear } from './api.js';
 let dropdownSequence = 0;
@@ -77,7 +78,7 @@ export function createDropdown({
         e.preventDefault();
         e.stopImmediatePropagation();
         close();
-        btn.focus();
+        btn.focus({preventScroll: true});
       }
       return true;
     }
@@ -122,6 +123,25 @@ export function createDropdown({
     'aria-labelledby': id,
     hidden: true
   });
+  const scrollButtons = [-1, 1].map(direction => h('button', {
+    class: `dropdown-scroll-button dropdown-scroll-${direction < 0 ? 'up' : 'down'}`,
+    type: 'button',
+    tabindex: -1,
+    hidden: true,
+    'aria-label': direction < 0 ? '向上滚动选项' : '向下滚动选项',
+    'aria-controls': panel.id,
+    onmousedown: event => event.preventDefault(),
+    onclick: () => {
+      if (!el.classList.contains('open')) {
+        return;
+      }
+      panel.scrollTop += direction * Math.max(32, panel.clientHeight * .75);
+      updateScrollButtons();
+      btn.focus({preventScroll: true});
+    }
+  }, h('span', {'aria-hidden': 'true'})));
+  const scrollControls = h('div', {class:'dropdown-scroll-controls', hidden:true}, ...scrollButtons);
+  const popup = h('div', {class: 'dropdown-popup'}, scrollControls);
   const el = h('div', {
     class: 'dropdown'
   }, btn, panel);
@@ -145,7 +165,7 @@ export function createDropdown({
 
   // 关闭面板：点击组件外部或按 Escape。
   const onDocClick = e => {
-    if (!el.contains(e.target) && !panel.contains(e.target)) {
+    if (!el.contains(e.target) && !popup.contains(e.target)) {
       close();
     }
   };
@@ -163,6 +183,17 @@ export function createDropdown({
     btn.setAttribute('aria-label', generatedLabel);
   }
   function onKey(e) {
+    // 浮层已移出宿主容器；宿主异步禁用或移除入口后，不能继续提交旧选项。
+    if (destroyed || btn.disabled || !el.isConnected) {
+      if (el.classList.contains('open')) {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+        }
+        close();
+      }
+      return;
+    }
     if (!acceptsKeyEvent(e)) {
       return;
     }
@@ -199,10 +230,10 @@ export function createDropdown({
     }
     navigateOptions(e, expanded, move, printable);
     function acceptsKeyEvent(e) {
-      if (destroyed || btn.disabled || e.isComposing || e.ctrlKey || e.metaKey) {
+      if (e.isComposing || e.ctrlKey || e.metaKey) {
         return false;
       }
-      if (e.target && e.target !== document && !el.contains(e.target) && !panel.contains(e.target)) {
+      if (e.target && e.target !== document && !el.contains(e.target) && !popup.contains(e.target)) {
         return false;
       }
       return true;
@@ -221,8 +252,10 @@ export function createDropdown({
     state.active = index;
     for (let i = 0; i < itemElements.length; i++) {
       const active = i === index && !state.options[i].disabled;
-      itemElements[i].classList.toggle('selected', active);
-      itemElements[i].setAttribute('aria-selected', String(active));
+      const selected = state.options[i].value === state.value && !state.options[i].disabled;
+      itemElements[i].classList.toggle('active', active);
+      itemElements[i].classList.toggle('selected', selected);
+      itemElements[i].setAttribute('aria-selected', String(selected));
     }
     if (itemElements[index] && !state.options[index].disabled) {
       btn.setAttribute('aria-activedescendant', itemElements[index].id);
@@ -234,13 +267,18 @@ export function createDropdown({
     } else {
       btn.removeAttribute('aria-activedescendant');
     }
+    updateScrollButtons();
   }
   function chooseActive(restoreFocus = true) {
+    if (destroyed || btn.disabled || !el.isConnected || !el.classList.contains('open')) {
+      close();
+      return;
+    }
     const option = state.options[state.active];
     if (!option || option.disabled) {
       close();
       if (restoreFocus) {
-        btn.focus();
+        btn.focus({preventScroll: true});
       }
       return;
     }
@@ -248,7 +286,7 @@ export function createDropdown({
     set(option.value);
     close();
     if (restoreFocus) {
-      btn.focus();
+      btn.focus({preventScroll: true});
     }
     if (changed) {
       onChange?.(option.value);
@@ -263,8 +301,10 @@ export function createDropdown({
     el.classList.add('open');
     btn.setAttribute('aria-expanded', 'true');
     panel.hidden = false;
-    (el.closest('.overlay') || document.body).append(panel);
+    popup.insertBefore(panel, scrollControls);
+    (el.closest('.overlay') || document.body).append(popup);
     panel.classList.add('dropdown-floating');
+    panel.addEventListener('scroll', updateScrollButtons, {passive: true});
     document.addEventListener('mousedown', onDocClick);
     document.addEventListener('focusin', onDocClick);
     document.addEventListener('keydown', onKey, true);
@@ -274,7 +314,7 @@ export function createDropdown({
       return;
     }
     setActive(state.active);
-    btn.focus();
+    btn.focus({preventScroll: true});
     // 滚动翻页时保持弹层贴住控件。
     document.addEventListener('scroll', reposition, {
       capture: true,
@@ -290,7 +330,11 @@ export function createDropdown({
     searchText = '';
     searchTime = 0;
     panel.classList.remove('dropdown-floating');
+    panel.removeEventListener('scroll', updateScrollButtons);
     el.append(panel);
+    popup.remove();
+    scrollButtons.forEach(control => { control.hidden = true; });
+    scrollControls.hidden = true;
     document.removeEventListener('mousedown', onDocClick);
     document.removeEventListener('focusin', onDocClick);
     document.removeEventListener('keydown', onKey, true);
@@ -306,13 +350,28 @@ export function createDropdown({
       open();
     }
   }
-  function reposition() {
+  function updateScrollButtons() {
+    if (!el.classList.contains('open')) {
+      return;
+    }
+    // 按完整浮层容量判断，避免提示按钮自身把短菜单挤出滚动条。
+    const scrollable = panel.scrollHeight > Number.parseFloat(popup.style.maxHeight) - 1;
+    scrollControls.hidden = !scrollable;
+    scrollButtons.forEach(control => { control.hidden = !scrollable; });
+    scrollButtons[0].disabled = panel.scrollTop <= 1;
+    scrollButtons[1].disabled = panel.scrollTop + panel.clientHeight >= panel.scrollHeight - 1;
+  }
+  function reposition(event) {
+    // 列表内部滚动只更新方向提示，不重新测量定位或改动其滚动位置。
+    if (event?.target && popup.contains(event.target)) {
+      return;
+    }
     // 属性面板被 render() 整体重绘时（切列 / 切生成器 / AI 回填），旧的 dropdown
     // 元素会被丢弃，而 scroll 监听只在 close() 里注销——面板还开着就被丢弃的话，
     // 监听会泄漏下来，之后每次滚动都对已脱离文档的元素求值，并在 WebView 里抛出
     // "Cannot read properties of null (reading 'getBoundingClientRect')"。
     // 断开连接时主动注销，既修泄漏也顺带止住该报错。
-    if (!el?.isConnected) {
+    if (!el.isConnected || btn.disabled) {
       close();
       return;
     }
@@ -325,18 +384,29 @@ export function createDropdown({
       margin = 8;
     const below = Math.max(0, innerHeight - r.bottom - gap - margin);
     const above = Math.max(0, r.top - gap - margin);
-    const desired = Math.min(260, panel.scrollHeight || 260);
-    const upwards = below < desired && above > below;
-    const height = Math.min(desired, upwards ? above : below);
     const menuWidth = Math.min(r.width || r.right - r.left, innerWidth - margin * 2);
-    Object.assign(panel.style, {
+    // 先按实际宽度排版，再测量包含边框的小数高度。scrollHeight 不含边框，
+    // 且取整后可能比内容更矮，导致短菜单也出现滚动条。
+    const scrollTop = panel.scrollTop;
+    scrollButtons.forEach(control => { control.hidden = true; });
+    scrollControls.hidden = true;
+    Object.assign(popup.style, {
       position: 'fixed',
       width: `${menuWidth}px`,
+      maxHeight: '260px'
+    });
+    const desired = Math.min(260, Math.ceil(popup.getBoundingClientRect().height));
+    const upwards = below < desired && above > below;
+    const height = Math.min(desired, upwards ? above : below);
+    Object.assign(popup.style, {
       maxHeight: `${height}px`,
       left: `${Math.max(margin, Math.min(r.left, innerWidth - menuWidth - margin))}px`,
       right: 'auto',
       top: `${upwards ? r.top - gap - height : r.bottom + gap}px`
     });
+    updateScrollButtons();
+    panel.scrollTop = scrollTop;
+    updateScrollButtons();
   }
   function renderPanel() {
     clear(panel);
@@ -427,6 +497,7 @@ export function createDropdown({
     get: () => state.value,
     set,
     setOptions,
+    close,
     destroy
   };
 }

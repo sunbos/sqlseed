@@ -5,27 +5,36 @@ const {Element, createDom, loadFrontend} = require('./frontend_helpers.cjs');
 
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const deferred = () => {let resolve; const promise = new Promise(done => {resolve = done;}); return {promise, resolve};};
-function harness({request, config, handoff = null, clipboard, maintenanceShell = false} = {}) {
+function harness({request, config, handoff = null, clipboard, maintenanceShell = false, section = 'ai'} = {}) {
   const document = createDom(), window = new Element('window');
-  document.documentElement = {dataset: {pluginMaintenance: String(maintenanceShell)}};
+  document.documentElement.dataset.pluginMaintenance = String(maintenanceShell);
   document.createElementNS = (_, tag) => new Element(tag);
-  const location = {hash: '#/settings?section=ai'}, calls = [], returned = [];
+  const location = {hash: `#/settings?section=${section}`}, calls = [], returned = [];
+  const themeStorage = new Map();
+  window.localStorage = {getItem: name => themeStorage.get(name) ?? null, setItem: (name, value) => themeStorage.set(name, value)};
+  loadFrontend('theme.js', {document, window, CustomEvent: class {constructor(type, init) {this.type = type; this.detail = init.detail;}}});
   const settings = config || {available: true, ready: true, effective: {backend: 'ollama', model: 'demo', base_url: 'http://localhost:11434/v1', api_key_present: true}, sources: {api_key: 'session'}, storage: {fields: ['backend', 'model', 'base_url']}};
   const environment = {python: {version: '3.12.0', implementation: 'CPython'}, packages: [{id: 'core', name: 'sqlseed', version: '1.2.3', installed: true, available: true, message: '核心测试数据生成库'}], providers: [{id: 'base', name: 'Base', version: null, installed: true, available: true, status: 'builtin', message: '内置基础引擎'}]};
   const ui = loadFrontend('workbench/ui.js', {document});
-  const dropdown = loadFrontend('dropdown.js', {document});
+  const dropdown = loadFrontend('dropdown.js', {document, window});
+  const theme = loadFrontend('theme-control.js', {document, window, createDropdown: dropdown.createDropdown});
+  const defaults = loadFrontend('generation-defaults.js', {window});
   const requestApi = async (url, options = {}) => {
     const call = {url, method: options.method || 'GET', body: options.body ? JSON.parse(options.body) : null, headers: options.headers}; calls.push(call);
     const custom = await request?.(call); if (custom !== undefined) return custom;
     if (url.endsWith('/management')) return {enabled: false, available: false};
     if (url.endsWith('/environment')) return environment;
+    if (url.endsWith('/meta/locales')) return {locales: [{code: 'en_US', label: 'English (US)'}, {code: 'zh_CN', label: '简体中文（中国）'}]};
+    if (url.endsWith('/meta/providers')) return {available: ['base', 'faker'], statuses: {base: {available: true}, faker: {available: true}, mimesis: {available: false}}};
     if (url.endsWith('/config')) return settings;
     if (url.endsWith('/test')) return {ok: true, models: ['other-model'], message: '服务连接成功，仅验证模型列表。', checked_at: '2026-09-09T10:00:00Z'};
     throw new Error(`Unexpected request ${url}`);
   };
   const pluginManagement = loadFrontend('workbench/plugin-management.js', {document, AbortController, api: requestApi, ...vm.runInContext('({button,modal})', ui)});
+  const generation = loadFrontend('generation-defaults-control.js', {document, window, AbortController, api: requestApi, ...vm.runInContext('({button})', ui), createDropdown: dropdown.createDropdown, ...vm.runInContext('({GENERATION_DEFAULTS,readGenerationDefaults,saveGenerationDefaults,validateGenerationDefaults})', defaults)});
+  const updates = loadFrontend('update-check-control.js', {document, AbortController, api: requestApi, ...vm.runInContext('({button})', ui)});
   const context = loadFrontend('pages/settings.js', {document, window, location, navigator: {clipboard}, URLSearchParams, AbortController, Event: class {constructor(type) {this.type = type;}},
-    store: {connId: 'connection'}, ...vm.runInContext('({button,icon})', ui), createDropdown: vm.runInContext('createDropdown', dropdown),
+    store: {connId: 'connection'}, ...vm.runInContext('({button,icon})', ui), createDropdown: vm.runInContext('createDropdown', dropdown), createThemeControl: theme.createThemeControl, createGenerationDefaultsControl: generation.createGenerationDefaultsControl, createUpdateCheckControl: updates.createUpdateCheckControl,
     peekAIHandoff: () => handoff, requestAIReturn: () => handoff?.returnTo || null,
     leaveAISettings: hash => returned.push(hash), ...vm.runInContext('({createPluginManagement,componentImpact})', pluginManagement), api: requestApi});
   document.body.append(context.render());
@@ -44,6 +53,166 @@ test('settings can load without a database and shows independent environment and
   assert.match(t.document.querySelector('#settings-plugins').textContent, /sqlseed.*1.2.3/);
   assert.match(t.document.querySelector('#settings-plugins').textContent, /数据生成引擎/);
   assert.equal(t.calls.filter(call => call.method !== 'GET').length, 0);
+  t.context.unmount();
+});
+
+test('version lookup is explicit and renders partial results', async () => {
+  const response = deferred();
+  const t = harness({request: call => call.url.endsWith('/updates') ? response.promise : undefined}); await t.mounted;
+  assert.equal(t.calls.some(call => call.url.endsWith('/updates')), false);
+  await t.find('插件与版本').click();
+  assert.equal(t.calls.some(call => call.url.endsWith('/updates')), false);
+  const action = t.find('检查更新').click(); await tick();
+  assert.equal(t.find('检查更新').disabled, true);
+  response.resolve({components: [{id:'core',label:'Core',current:'1.9',latest:'1.10',status:'update_available'}, {id:'faker',label:'Faker',current:'30',latest:null,status:'failed'}]});
+  await action;
+  assert.match(t.document.querySelector('[data-update-id="core"]').textContent, /1\.10.*可更新/);
+  assert.match(t.document.querySelector('[data-update-id="faker"]').textContent, /暂不可用.*检查失败/);
+  assert.equal(t.calls.filter(call => call.url.endsWith('/updates')).length, 1);
+  t.context.unmount();
+});
+
+test('version checks cannot publish into a detached page after unmount', async () => {
+  const response = deferred();
+  const t = harness({request: call => call.url.endsWith('/updates') ? response.promise : undefined}); await t.mounted;
+  const action = t.find('检查更新').click(); await tick();
+  const panel = t.document.querySelector('.settings-updates');
+  t.context.unmount();
+  response.resolve({components: [{id:'core',label:'Core',current:'1',latest:'2',status:'update_available'}]}); await action;
+  assert.equal(panel.querySelector('[data-update-id="core"]'), null);
+});
+
+test('generation metadata waits for management detection and is skipped in maintenance', async () => {
+  const management = deferred();
+  const t = harness({section:'generation', request: call => call.url.endsWith('/management') ? management.promise : undefined}); await tick();
+  assert.equal(t.calls.some(call => call.url.includes('/meta/')), false);
+  management.resolve({enabled:true, available:false}); await t.mounted;
+  assert.equal(t.calls.some(call => call.url.includes('/meta/')), false);
+  assert.equal(t.find('新建配置偏好').disabled, true);
+  t.context.unmount();
+});
+
+test('new-generation defaults save locally only and leave AI drafts untouched', async () => {
+  const t = harness(); await t.mounted;
+  const aiModel = t.input('模型名称'); aiModel.value = 'unsaved-model'; await aiModel.dispatchEvent('input');
+  await t.find('新建配置偏好').click(); await tick();
+  const count = t.input('默认每表行数'); count.value = '250'; await count.dispatchEvent('input');
+  await t.input('默认生成引擎').click();
+  await t.document.querySelectorAll('[role="option"]').find(el => el.textContent === 'Mimesis').click();
+  assert.match(t.document.querySelector('#settings-generation').textContent, /此引擎当前不可用/);
+  await t.find('保存偏好').click();
+  assert.equal(t.window.localStorage.getItem('sqlseed.generation.defaults.v1'), '{"provider":"mimesis","locale":"en_US","count":250,"previewCount":10,"seed":null}');
+  assert.equal(aiModel.value, 'unsaved-model');
+  assert.equal(t.calls.filter(call => call.method !== 'GET').length, 0);
+  count.value = '0'; await count.dispatchEvent('input');
+  assert.equal(t.find('保存偏好').disabled, true);
+  await t.find('恢复默认值').click();
+  assert.equal(count.value, '100');
+  assert.match(t.window.localStorage.getItem('sqlseed.generation.defaults.v1'), /250/);
+  t.context.unmount();
+});
+
+test('appearance settings apply immediately without changing an unsaved AI draft or saving requests', async () => {
+  const t = harness(); await t.mounted;
+  const model = t.input('模型名称'), keyInput = t.input('API Key');
+  model.value = 'unsaved-model'; await model.dispatchEvent('input');
+  keyInput.value = 'unsaved-secret'; await keyInput.dispatchEvent('input');
+  const notice = t.document.querySelector('[data-settings-save-state]').textContent;
+  const before = t.calls.length;
+  await t.find('外观').click();
+  assert.equal(t.document.querySelector('#settings-appearance').hidden, false);
+  assert.equal(t.document.querySelector('#settings-ai').hidden, true);
+  const theme = t.input('外观主题');
+  await theme.click();
+  await t.document.querySelectorAll('[role="option"]').find(el => el.textContent === '深色').click(); await tick();
+  assert.equal(t.document.documentElement.dataset.theme, 'dark');
+  assert.equal(t.window.localStorage.getItem('sqlseed.theme.preference'), 'dark');
+  assert.equal(t.input('外观主题'), theme);
+  await t.find('AI 服务').click();
+  assert.equal(t.input('模型名称'), model);
+  assert.equal(model.value, 'unsaved-model');
+  assert.equal(keyInput.value, 'unsaved-secret');
+  assert.equal(t.document.querySelector('[data-settings-save-state]').textContent, notice);
+  assert.equal(t.calls.length, before);
+  t.context.unmount();
+});
+
+test('appearance deep links and tab keyboard navigation reach all four sections', async () => {
+  const t = harness({section: 'appearance'}); await t.mounted;
+  const ai = t.find('AI 服务'), plugins = t.find('插件与版本'), generation = t.find('新建配置偏好'), appearance = t.find('外观');
+  for (const tab of [ai, plugins, generation, appearance]) tab.focus = () => {t.document.activeElement = tab;};
+  assert.equal(appearance.getAttribute('aria-selected'), 'true');
+  assert.equal(t.document.querySelector('#settings-appearance').hidden, false);
+  assert.equal(appearance.getAttribute('tabindex'), '0');
+  await appearance.dispatchEvent({type: 'keydown', key: 'ArrowRight'});
+  assert.equal(t.document.activeElement, ai);
+  await ai.dispatchEvent({type: 'keydown', key: 'ArrowDown'});
+  assert.equal(t.document.activeElement, plugins);
+  await plugins.dispatchEvent({type: 'keydown', key: 'End'});
+  assert.equal(t.document.activeElement, appearance);
+  await appearance.dispatchEvent({type: 'keydown', key: 'ArrowUp'});
+  assert.equal(t.document.activeElement, generation);
+  await generation.dispatchEvent({type: 'keydown', key: 'ArrowUp'});
+  assert.equal(t.document.activeElement, plugins);
+  await plugins.dispatchEvent({type: 'keydown', key: 'Home'});
+  assert.equal(t.document.activeElement, ai);
+  assert.equal(t.document.querySelector('#settings-ai').hidden, false);
+  assert.equal(t.document.querySelector('#settings-appearance').hidden, true);
+  t.context.unmount();
+});
+
+test('maintenance mode keeps appearance and AI unavailable and keyboard navigation within plugins', async () => {
+  const t = harness({section: 'appearance', maintenanceShell: true, request: call => {
+    if (call.url.endsWith('/management')) return {enabled: true, available: false};
+  }}); await t.mounted;
+  const appearance = t.find('外观'), plugins = t.find('插件与版本');
+  assert.equal(appearance.disabled, true);
+  assert.equal(t.find('AI 服务').disabled, true);
+  assert.equal(t.document.querySelector('#settings-appearance').hidden, true);
+  assert.equal(t.document.querySelector('#settings-plugins').hidden, false);
+  plugins.focus = () => {t.document.activeElement = plugins;};
+  for (const key of ['ArrowRight', 'ArrowLeft', 'Home', 'End']) {
+    await plugins.dispatchEvent({type: 'keydown', key});
+    assert.equal(t.document.activeElement, plugins);
+    assert.equal(plugins.getAttribute('aria-selected'), 'true');
+  }
+  assert.equal(t.calls.some(call => call.url.endsWith('/config')), false);
+  t.context.unmount();
+});
+
+test('late maintenance detection closes the appearance menu and moves focus out of the hidden panel', async () => {
+  const management = deferred();
+  const t = harness({section: 'appearance', request: call => {
+    if (call.url.endsWith('/management')) return management.promise;
+  }}); await tick();
+  const trigger = t.input('外观主题');
+  const plugins = t.find('插件与版本');
+  trigger.focus = () => {t.document.activeElement = trigger;};
+  plugins.focus = () => {t.document.activeElement = plugins;};
+  await trigger.click();
+  assert.equal(trigger.getAttribute('aria-expanded'), 'true');
+  management.resolve({enabled: true, available: false}); await t.mounted;
+  assert.equal(t.document.querySelector('#settings-appearance').hidden, true);
+  assert.ok(!t.document.querySelector('.dropdown-floating'), 'hidden sections must not leave a floating menu');
+  assert.equal(trigger.getAttribute('aria-expanded'), 'false');
+  assert.equal(t.document.activeElement, plugins);
+  assert.equal(t.calls.some(call => call.url.endsWith('/config')), false);
+  t.context.unmount();
+});
+
+test('leaving settings destroys its theme control and remounting restores the shared preference', async () => {
+  const t = harness({section: 'appearance'}); await t.mounted;
+  const old = t.input('外观主题');
+  assert.equal(t.window.listeners.get('sqlseed:theme-changed').size, 1);
+  await old.click();
+  t.context.unmount();
+  assert.equal(t.window.listeners.get('sqlseed:theme-changed').size, 0);
+  assert.equal(old.getAttribute('aria-expanded'), 'false');
+  t.window.sqlseedTheme.setPreference('dark'); await tick();
+  assert.equal(old.textContent, '浅色');
+  t.document.body.replaceChildren(t.context.render()); await t.context.mount();
+  assert.equal(t.window.listeners.get('sqlseed:theme-changed').size, 1);
+  assert.equal(t.input('外观主题').textContent, '深色');
   t.context.unmount();
 });
 
@@ -323,11 +492,50 @@ test('testing uses the edited draft, never saves it, and editing invalidates mod
   assert.deepEqual(mutations.map(call => call.url), ['/api/workbench/ai/test']);
   assert.equal(mutations[0].body.base_url, 'https://example.test/v1');
   assert.equal(mutations[0].body.api_key, 'temporary-key');
-  assert.match(t.document.querySelector('[data-settings-test]').textContent, /仅验证模型列表/);
+  assert.equal(t.document.querySelector('[data-settings-test]').textContent, '服务连接成功，仅验证模型列表。');
+  assert.equal(t.document.querySelector('[data-settings-test]').dataset.state, 'success');
   assert.ok(t.find('other-model'));
   t.input('模型名称').value = 'changed'; await t.input('模型名称').dispatchEvent('input');
   assert.match(t.document.querySelector('[data-settings-test]').textContent, /重新检测/);
+  assert.equal(t.document.querySelector('[data-settings-test]').dataset.state, '');
   assert.equal(t.find('other-model'), undefined);
+  t.context.unmount();
+});
+
+test('failed probe feedback is an error, editing clears its stale state and a retry starts neutral', async () => {
+  let attempt = 0;
+  const gate = deferred();
+  const t = harness({request: call => {
+    if (call.url.endsWith('/test')) return ++attempt === 1 ? {ok: false, message:'服务暂不可用。'} : gate.promise;
+  }}); await t.mounted;
+  const probe = t.document.querySelector('[data-settings-test]');
+  await t.find('检测连接').click();
+  assert.equal(probe.dataset.state, 'error');
+  assert.equal(probe.textContent, '服务暂不可用。');
+  t.input('模型名称').value = 'next'; await t.input('模型名称').dispatchEvent('input');
+  assert.equal(probe.dataset.state, '');
+  const retry = t.find('检测连接').click(); await tick();
+  assert.equal(probe.dataset.state, '');
+  assert.match(probe.textContent, /正在检测/);
+  gate.resolve({ok:true, message:'服务连接成功，仅验证模型列表。'}); await retry;
+  assert.equal(probe.dataset.state, 'success');
+  assert.equal(t.input('模型名称').value, 'next');
+  assert.equal(t.calls.some(call => call.method === 'POST' && call.url.endsWith('/config')), false);
+  t.context.unmount();
+});
+
+test('failed settings reads mark both feedback and badge and successful retry clears the error', async () => {
+  let reads = 0;
+  const t = harness({request: call => {
+    if (call.url.endsWith('/config') && ++reads === 1) throw Error('暂时无法读取');
+  }}); await t.mounted;
+  const notice = t.document.querySelector('[data-settings-notice]'), badge = t.document.querySelector('.settings-badge');
+  assert.equal(notice.dataset.state, 'error');
+  assert.equal(badge.dataset.state, 'error');
+  await t.find('重试读取').click();
+  assert.equal(notice.dataset.state, '');
+  assert.equal(badge.dataset.state, '');
+  assert.equal(t.input('模型名称').value, 'demo');
   t.context.unmount();
 });
 
@@ -528,6 +736,38 @@ function optionalEnvironment() {
 const packagePanel = (t, id = 'ai') => t.document.querySelector(`[data-package-id="${id}"]`);
 const copyButton = panel => panel.querySelector('[data-install-copy]');
 const copyFeedback = panel => panel.querySelector('[data-install-copy-status]');
+
+test('manual command choices copy the selected terminal syntax and discard old clipboard feedback', async () => {
+  const environment = optionalEnvironment(), gate = deferred(), copied = [];
+  const variants = [
+    {shell: 'powershell', label: 'PowerShell（精确路径）', command: "& 'C:\\Web Env\\python.exe' '-m' 'pip' 'install' 'sqlseed-web[ai]'", note: '直接指定当前 Web 的解释器。'},
+    {shell: 'cmd', label: 'CMD（精确路径）', command: '"C:\\Web Env\\python.exe" "-m" "pip" "install" "sqlseed-web[ai]"', note: '在命令提示符中执行。'},
+    {shell: 'environment', label: '通用（已激活环境）', command: 'python -m pip install "sqlseed-web[ai]"', note: '先激活运行 Web 的环境并核对 Python 路径。'},
+  ];
+  Object.assign(environment.packages.find(item => item.id === 'ai'), {install_command: variants[0].command, install_commands: variants});
+  const t = harness({request: call => call.url.endsWith('/environment') ? environment : undefined,
+    clipboard: {writeText: text => {copied.push(text); return copied.length === 1 ? gate.promise : Promise.resolve();}}});
+  await t.mounted; await t.find('插件与版本').click();
+  const panel = packagePanel(t), radios = panel.querySelectorAll('input');
+  assert.equal(panel.querySelector('code').textContent, variants[0].command);
+  assert.equal(radios[0].checked, true);
+  const pending = copyButton(panel).click(); await tick();
+  radios[2].checked = true; await radios[2].dispatchEvent('change');
+  assert.equal(panel.querySelector('code').textContent, variants[2].command);
+  assert.match(panel.textContent, /先激活.*核对 Python/);
+  assert.equal(copyButton(panel).disabled, true);
+  await copyButton(panel).dispatchEvent('click');
+  assert.deepEqual(copied, [variants[0].command], 'switching syntax must not overlap clipboard writes');
+  gate.resolve(); await pending;
+  assert.equal(copyFeedback(panel).textContent, '');
+  assert.equal(copyButton(panel).disabled, false);
+  await copyButton(panel).click();
+  radios[1].checked = true; await radios[1].dispatchEvent('change');
+  await copyButton(panel).click();
+  assert.deepEqual(copied, variants.map((_, index) => variants[[0, 2, 1][index]].command));
+  assert.equal(t.calls.filter(call => call.method !== 'GET').length, 0);
+  t.context.unmount();
+});
 
 test('unmanaged missing packages keep administrator commands collapsed while required components stay compact', async () => {
   const environment = optionalEnvironment();

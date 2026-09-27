@@ -1,11 +1,22 @@
 // 唯一可执行文档；视图和未勾选表的编辑草稿单独持久化。
 const copy = value => structuredClone(value);
+export const MAX_GENERATION_COUNT = Number.MAX_SAFE_INTEGER;
+export function generationCountError(value) {
+  const text = String(value);
+  if ((/^\d+$/.test(text) || typeof value === 'number' && Number.isInteger(value)) && Number(text) >= 1 && !Number.isSafeInteger(Number(text))) {
+    return '超出工作台可精确表示的整数范围，请输入 1–9,007,199,254,740,991 之间的整数';
+  }
+  if (!/^\d+$/.test(text) || !Number.isSafeInteger(Number(text)) || Number(text) < 1) {
+    return '必须是大于 0 的整数，请填写完整数字';
+  }
+  return '';
+}
 
 export class WorkbenchDocument {
   constructor(schema, document) {
     this.schema = schema;
     this.document = copy(document || {provider:schema.provider, locale:schema.locale, tables:[]});
-    this.view = {table:schema.tables[0]?.name || '', page:'fields', graphMode:'all', tableDrafts:{}};
+    this.view = {table:schema.tables[0]?.name || '', page:'fields', graphMode:'plan', tableDrafts:{}};
     this.errors = new Map();
     this.epoch = 0;
     this.savedEpoch = -1;
@@ -14,12 +25,16 @@ export class WorkbenchDocument {
     this.check = null;
     this.samples = {};
     this.previewIssues = [];
+    this.newTableCount = 100;
+    this.newTableSeed = null;
+    this.validateStoredCounts();
   }
   get dirty() { return this.epoch !== this.savedEpoch; }
   touch() { this.epoch++; this.check = null; this.samples = {}; this.previewIssues = []; }
   restoreView(view) {
     this.view = {...this.view, ...copy(view || {})};
     if (!this.schema.tables.some(t=>t.name===this.view.table)) this.view.table=this.schema.tables[0]?.name || '';
+    this.validateStoredCounts();
   }
   selectTable(name, page='fields') {
     this.view.table = name;
@@ -28,7 +43,7 @@ export class WorkbenchDocument {
   }
   table(name) {
     return this.document.tables.find(t=>t.name===name)
-      || this.view.tableDrafts[name] || {name,count:100,columns:[]};
+      || this.view.tableDrafts[name] || {name,count:this.newTableCount,columns:[], ...(this.newTableSeed !== null ? {seed:this.newTableSeed} : {})};
   }
   selected(name) { return this.document.tables.some(t=>t.name===name); }
   putTable(table) {
@@ -46,13 +61,40 @@ export class WorkbenchDocument {
     this.touch();
   }
   setCount(name,text) {
-    const key=`count:${name}`;
-    if(!/^\d+$/.test(String(text)) || !Number.isSafeInteger(Number(text)) || Number(text)<1) {
-      this.setError(key,'生成数量必须是大于 0 的整数'); return false;
+    const key=`count:${name}`, problem=generationCountError(text);
+    this.view.invalidCounts ||= {};
+    if(problem) {
+      this.view.invalidCounts[name]=String(text);
+      this.setError(key,`${name} 的生成数量${problem}`); return false;
     }
+    delete this.view.invalidCounts[name];
     this.errors.delete(key);
     this.putTable({...this.table(name),count:Number(text)});
     return true;
+  }
+  validateStoredCounts() {
+    // Loaded configurations can come from Python, whose integers are not
+    // bounded by JavaScript's exact-number range. Never authorize rounded rows.
+    for(const key of this.errors.keys()) {
+      if(key.startsWith('count:')) this.errors.delete(key);
+    }
+    const tables=[...Object.values(this.view.tableDrafts || {}), ...this.document.tables];
+    for(const table of tables) {
+      if(table.count === undefined) continue;
+      const problem=generationCountError(table.count);
+      if(problem) this.errors.set(`count:${table.name}`,`${table.name} 的生成数量${problem}`);
+    }
+    for(const [name,text] of Object.entries(this.view.invalidCounts || {})) {
+      const problem=generationCountError(text);
+      if(problem) this.errors.set(`count:${name}`,`${name} 的生成数量${problem}`);
+      else delete this.view.invalidCounts[name];
+    }
+  }
+  inputIssues() {
+    return [...this.errors].map(([key,message]) => key.startsWith('count:')
+      ? {key, kind:'generation-count', table:key.slice(6), message,
+        value:String(this.view.invalidCounts?.[key.slice(6)] ?? this.table(key.slice(6)).count)}
+      : {key, kind:'configuration', message});
   }
   setError(key,error) {
     if(error) this.errors.set(key,error); else this.errors.delete(key);
@@ -95,12 +137,21 @@ export class WorkbenchDocument {
   replaceDocument(document) {
     if('url' in document || 'db_path' in document) throw new Error('连接由当前工作台绑定，文档不能包含连接地址');
     this.document=copy(document);
+    this.newTableCount=100;
+    this.newTableSeed=null;
     this.view.tableDrafts={};
+    delete this.view.invalidCounts;
     this.errors.clear();
+    this.validateStoredCounts();
     this.touch();
   }
   payload(name) {
-    if(this.errors.size) throw new Error([...this.errors.values()].join('；'));
+    if(this.errors.size) {
+      const error=new Error([...this.errors.values()].join('；'));
+      error.code='workbench_invalid_input';
+      error.issues=this.inputIssues();
+      throw error;
+    }
     return {name,document:copy(this.document),schema_hash:this.schema.schema_hash,view_state:copy(this.view)};
   }
   markSaved(saved,epoch) { this.saved=copy(saved); this.savedEpoch=epoch; }

@@ -54,6 +54,11 @@ class Element {
     }
   }
   appendChild(node) { this.append(node); return node; }
+  replaceWith(node) {
+    if (!this.parentNode || node === this) return;
+    this.parentNode.insertBefore(node, this);
+    this.remove();
+  }
   insertBefore(node, reference = null) {
     if (!(node instanceof Element)) throw new TypeError('The inserted value must be a Node');
     if (reference !== null && reference.parentNode !== this) throw new Error('The reference node is not a child of this parent');
@@ -166,6 +171,7 @@ function loadFrontend(name, bindings = {}) {
   const globals = {
     console, document, Map, Set, Date, Object, JSON, Array, String, Number,
     URL, Blob, structuredClone, setTimeout, clearTimeout, innerHeight: 1000, innerWidth: 1144,
+    CustomEvent: class {constructor(type, {detail} = {}) {this.type = type; this.detail = detail;}},
     window: new Element('window'),
     fetch: async () => { throw new Error('Unexpected fetch in test'); },
     localStorage: {getItem: () => null, setItem() {}, removeItem() {}},
@@ -174,7 +180,7 @@ function loadFrontend(name, bindings = {}) {
   };
   const apiContext = vm.createContext({...globals});
   vm.runInContext(source('api.js'), apiContext, {filename: 'api.js'});
-  const api = vm.runInContext('({h, clear, msg, table, fmt, store, api, get, post, del, setConnBadge, rememberConnId, forgetConnId, restoreConnection, httpErrorMessage})', apiContext);
+  const api = vm.runInContext('({h, clear, msg, table, fmt, store, api, get, post, del, setConnBadge, safeTargetLabel, rememberConnId, forgetConnId, restoreConnection, httpErrorMessage})', apiContext);
   if (!scrollModules.has(document)) {
     const scrollContext = vm.createContext({document});
     vm.runInContext(source('workbench/scroll-lock.js'), scrollContext, {filename: 'workbench/scroll-lock.js'});

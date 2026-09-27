@@ -29,7 +29,7 @@ from sqlalchemy.engine import URL, make_url
 from sqlseed._utils.logger import get_logger
 from sqlseed.core.orchestrator import DataOrchestrator
 
-from sqlseed_web.sqlite_target import sqlite_target
+from sqlseed_web.sqlite_target import existing_sqlite_connection_target, sqlite_target
 
 logger = get_logger(__name__)
 
@@ -97,7 +97,13 @@ class UIState:
     # ---- connections ----------------------------------------------------
 
     def add_connection(
-        self, target: str, provider: str = "mimesis", locale: str = "en_US", *, connection_id: str | None = None
+        self,
+        target: str,
+        provider: str = "mimesis",
+        locale: str = "en_US",
+        *,
+        connection_id: str | None = None,
+        require_existing: bool = False,
     ) -> Connection:
         """Create and register a DataOrchestrator for the given target."""
         if connection_id is not None and not connection_id:
@@ -106,7 +112,8 @@ class UIState:
         # Reject unsupported SQLite identities before opening a database or
         # registering a session that grouping/admission could not identify.
         sqlite_target(target, conn_id)
-        orch = DataOrchestrator(target, provider_name=provider, locale=locale)
+        open_target = existing_sqlite_connection_target(target, conn_id) if require_existing else target
+        orch = DataOrchestrator(open_target, provider_name=provider, locale=locale)
         conn = Connection(conn_id=conn_id, target=target, provider=provider, locale=locale, orchestrator=orch)
         with self._global_lock:
             if conn_id in self._conns:

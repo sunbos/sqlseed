@@ -5,7 +5,7 @@ const {harness,plain}=require('./workbench_harness.cjs');
 
 test('generation is the primary action and global settings are visible without a modal',async()=>{
   const ui=harness();await ui.mount();
-  assert.ok(ui.button('生成数据').classList.contains('primary'));
+  assert.ok(ui.button('查看生成计划').classList.contains('primary'));
   assert.equal(ui.button('预览数据').classList.contains('primary'),false);
   assert.match(ui.root().querySelector('.wb-generation-settings').textContent,/数据生成引擎.*数据语言与地区/);
   const context=ui.root().querySelector('.wb-config-context');assert.ok(context);

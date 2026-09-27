@@ -15,6 +15,7 @@ import sysconfig
 import tempfile
 import time
 from contextlib import closing
+from importlib.metadata import version
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.error import HTTPError
@@ -59,6 +60,7 @@ def main() -> None:
             Path(module.__file__).resolve().is_relative_to(installed_root),
             f"{module.__name__} must be imported from an installed wheel, not an editable checkout",
         )
+    require(sqlseed_web.__version__ == version("sqlseed-web"), "Web version differs from installed metadata")
 
     with tempfile.TemporaryDirectory(prefix="sqlseed-wheel-smoke-") as directory:
         root = Path(directory)

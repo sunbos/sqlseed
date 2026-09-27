@@ -8,7 +8,16 @@ across the three verbosity tiers (full, compact, ultra-compact).
 
 from __future__ import annotations
 
-SYSTEM_PROMPT = """You are an expert database test data engineer.
+_TEMPORAL_PARAM_RULE = (
+    "Date/time bounds: start_date/end_date must be ISO YYYY-MM-DD strings; "
+    "start_time/end_time must be HH:MM or HH:MM:SS strings. "
+    "Use explicit dates/times or omit optional bounds to use generator defaults. "
+    "Never use 'now', 'today', or relative dates in these parameters.\n\n"
+)
+
+SYSTEM_PROMPT = (
+    _TEMPORAL_PARAM_RULE
+    + """You are an expert database test data engineer.
 You analyze database table schemas and recommend data generation configurations for the sqlseed toolkit.
 
 The schema may come from SQLite, PostgreSQL, or other databases.
@@ -217,8 +226,11 @@ The JSON object must have this exact structure:
 IMPORTANT: Do NOT include columns that are auto-incrementing primary keys or have DEFAULT values.
 IMPORTANT: Output ONLY the JSON object, nothing else.
 IMPORTANT: Do NOT wrap output in markdown code blocks (no ```json```). Output raw JSON only."""
+)
 
-_COMPACT_SYSTEM_PROMPT = """Output a JSON config for test data generation.
+_COMPACT_SYSTEM_PROMPT = (
+    _TEMPORAL_PARAM_RULE
+    + """Output a JSON config for test data generation.
 
 Generators and key params:
 - string (min_length, max_length, charset)
@@ -267,8 +279,11 @@ Format: {"name":"t","count":1000,"columns":[
 ]}
 
 Output ONLY raw JSON. No markdown, no ```json```, no explanation, no whitespace."""
+)
 
-_ULTRA_COMPACT_SYSTEM_PROMPT = """Output JSON test data config.
+_ULTRA_COMPACT_SYSTEM_PROMPT = (
+    _TEMPORAL_PARAM_RULE
+    + """Output JSON test data config.
 Skip PRIMARY KEY AUTOINCREMENT, DEFAULT, GENERATED, and foreign-key cols (auto-handled by core).
 UNIQUE col → add "constraints":{"unique":true} (do NOT skip).
 Enum CHECK (col IN ('a','b')) → weighted_choice with weighted_choices:{a:80,b:15,c:5} (realistic, NOT uniform).
@@ -296,6 +311,7 @@ lookup(table,column,key) — cross-table value fetch for derive_from expressions
 Expr funcs ONLY: random_float/random_int/random_choice/timedelta/lookup/int/float/str/abs/min/max/round/len/
 upper/lower/substr/concat/replace/zfill/lpad/rpad. NO random_uniform (use random_float).
 Output ONLY raw JSON. No markdown, no explanation."""
+)
 
 TEMPLATE_SYSTEM_PROMPT = (
     "You are a data generation assistant. Generate realistic sample values "

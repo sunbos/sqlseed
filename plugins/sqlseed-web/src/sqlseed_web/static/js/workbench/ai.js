@@ -3,6 +3,7 @@ import { genLabel } from '../labels.js';
 import { button, modal } from './ui.js';
 import { fieldAIEligibility } from './ai-eligibility.js';
 import { requestAISuggestions } from './ai-stream.js';
+import { openSuggestionAdjustment } from './ai-adjustment.js';
 const prefix = '/api/workbench/ai';
 const copy = value => structuredClone(value);
 const backendLabels = [{
@@ -40,6 +41,7 @@ const ruleText = rule => {
 // captures model identity/epoch/schema before requests and never writes a DB.
 export function openAIAssistant({
   model,
+  catalog,
   defaultModes,
   connId,
   columns = [],
@@ -65,6 +67,8 @@ export function openAIAssistant({
     elapsedTimer = null,
     analysisState = null,
     diagnostics = null;
+  let adjustment = null;
+  const adjusted = new Set();
   const selected = new Set();
   function initialAnalysisScope() {
     if (columns.length) {
@@ -90,8 +94,10 @@ export function openAIAssistant({
   const columnSelection = new Map(model.schema.tables.map(table => [table.name, new Set(initialState?.columnSelection?.[table.name] || (table.name === currentTable ? table.columns.filter(column => (!columns.length || columns.includes(column.name)) && eligibility(table, column).eligible).map(column => column.name) : []))]));
   const ui = modal('AI 配置助手', {
     wide: true,
+    dismiss: 'footer',
     onClose: () => {
       alive = false;
+      adjustment?.close();
       version++;
       controller?.abort();
       clearTimeout(timer);
@@ -259,6 +265,8 @@ export function openAIAssistant({
     class: 'wb-ai-actions'
   }, selectFiltered, clearFields), fieldList);
   function clearReview() {
+    adjustment?.close();
+    adjusted.clear();
     suggestions = [];
     selected.clear();
     content.replaceChildren();
@@ -429,9 +437,9 @@ export function openAIAssistant({
     fieldCount.textContent = `已选 ${chosen.length} 个字段允许修改 · 筛选内 ${matchedChosen}，其他 ${chosen.length - matchedChosen}`;
     fieldResults.textContent = `${fieldQuery ? '筛选结果' : '全部表'}：${matches.length} 个可选字段${protectedCount ? "，" + protectedCount + " 个受保护字段仅作上下文" : ''}。`;
     selectFiltered.textContent = `${fieldQuery ? '选择筛选结果' : '选择全部可选字段'}（${matches.length}）`;
-    selectFiltered.disabled = busy || matches.length === matchedChosen;
-    clearFields.disabled = busy || !chosen.length;
-    fieldSearch.disabled = busy;
+    selectFiltered.disabled = busy || Boolean(adjustment) || matches.length === matchedChosen;
+    clearFields.disabled = busy || Boolean(adjustment) || !chosen.length;
+    fieldSearch.disabled = busy || Boolean(adjustment);
   }
   const business = h('textarea', {
     'aria-label': '业务说明',
@@ -537,7 +545,7 @@ export function openAIAssistant({
     analysis.hidden = !available;
     analyze.hidden = !available;
     settingsLink.hidden = settingsKnown && !available && !importError;
-    settingsLink.disabled = busy || loadingSettings;
+    settingsLink.disabled = busy || loadingSettings || Boolean(adjustment);
     if (importError) {
       settingsLink.textContent = '查看插件状态';
     } else if (ready) {
@@ -551,16 +559,17 @@ export function openAIAssistant({
     const protectedCount = model.schema.tables.filter(table => names.includes(table.name)).reduce((total, table) => total + table.columns.filter(column => !eligibility(table, column).eligible).length, 0);
     const draftCount = names.filter(name => !model.selected(name)).length;
     scopeSummary.replaceChildren(h('strong', {}, `${scopeChoices.find(choice => choice[0] === scope)[1]} · ${count} 个字段可优化`), h('p', {}, `${names.length} 张表作为分析上下文${protectedCount ? "，" + protectedCount + " 个受保护字段保留现有规则" : ''}。${draftCount ? "" + draftCount + " 张表未加入生成范围，建议仅更新草稿。" : ''}`));
-    analyze.disabled = busy || !available || !ready || !targets.length;
-    apply.disabled = busy || selected.size === 0;
+    analyze.disabled = busy || Boolean(adjustment) || !available || !ready || !targets.length;
+    apply.disabled = busy || Boolean(adjustment) || selected.size === 0;
     for (const input of scopes.querySelectorAll('input')) {
-      input.disabled = busy || input.value === 'selected' && !model.document.tables.length;
+      input.disabled = busy || Boolean(adjustment) || input.value === 'selected' && !model.document.tables.length;
     }
     for (const input of [...tablePicker.querySelectorAll('input'), ...columnPicker.querySelectorAll('input')]) {
-      input.disabled = busy;
+      input.disabled = busy || Boolean(adjustment);
     }
     updateFieldControls();
-    business.disabled = busy;
+    business.disabled = busy || Boolean(adjustment);
+    for (const control of content.querySelectorAll('[data-ai-adjust], [data-ai-suggestion]')) control.disabled = busy || Boolean(adjustment);
     tablePicker.hidden = scope !== 'tables';
     columnPicker.hidden = scope !== 'columns';
     scopeError.textContent = targets.length ? '' : '请至少选择一张表或一个可由 AI 调整的字段；受保护字段仅作为结构上下文。';
@@ -603,7 +612,7 @@ export function openAIAssistant({
     })).filter(target => target.columns.length);
   }
   function goSettings(section) {
-    if (!current() || busy) {
+    if (!current() || busy || adjustment) {
       return;
     }
     const context = {
@@ -657,7 +666,7 @@ export function openAIAssistant({
       status.textContent = '配置已变化，请关闭面板后重新分析。';
       return;
     }
-    if (busy || !available || !ready) {
+    if (busy || adjustment || !available || !ready) {
       return;
     }
     const targets = allowedTargets(),
@@ -679,6 +688,7 @@ export function openAIAssistant({
     busy = true;
     const ticket = ++version;
     selected.clear();
+    adjusted.clear();
     suggestions = [];
     content.replaceChildren();
     diagnostics = null;
@@ -765,6 +775,7 @@ export function openAIAssistant({
           type: 'checkbox',
           'data-ai-suggestion': String(indices[0]),
           onchange: () => {
+            if (!current() || busy || adjustment) return;
             for (const index of indices) {
               if (input.checked) {
                 selected.add(index);
@@ -779,12 +790,12 @@ export function openAIAssistant({
           class: 'wb-ai-suggestion'
         }, h('label', {}, input, h('strong', {}, indices.length > 1 ? `关联规则 · ${indices.length} 个字段，一起应用` : `${suggestions[indices[0]].table}.${suggestions[indices[0]].column}`)));
         for (const index of indices) {
-          appendSuggestionDetails(article, index, indices);
+          appendSuggestionDetails(article, index, indices, input);
         }
         content.append(article);
       }
     }
-    function appendSuggestionDetails(article, index, indices) {
+    function appendSuggestionDetails(article, index, indices, input) {
       const item = suggestions[index],
         currentRule = model.rule(item.table, item.column);
       if (indices.length > 1) {
@@ -797,9 +808,37 @@ export function openAIAssistant({
           class: 'hint'
         }, '该表未加入生成范围；应用后仅更新其草稿。'));
       }
+      const afterText = h('p', {}, ruleText(item.after));
       article.append(h('p', {}, item.reason || '请结合业务含义确认。'), h('div', {
         class: 'wb-ai-diff'
-      }, h('div', {}, h('small', {}, '当前规则'), h('p', {}, ruleText(currentRule))), h('div', {}, h('small', {}, '建议规则'), h('p', {}, ruleText(item.after)))));
+      }, h('div', {}, h('small', {}, '当前规则'), h('p', {}, ruleText(currentRule))), h('div', {}, h('small', {}, '建议规则'), afterText)));
+      const adjustedNotice = h('p', {class: 'hint wb-ai-adjusted-notice', hidden: true});
+      const edit = button('调整规则', () => {
+        if (!current() || busy || adjustment) return;
+        const table = model.schema.tables.find(table => table.name === item.table);
+        const column = table?.columns.find(column => column.name === item.column);
+        if (!column || !eligibility(table, column).eligible) return;
+        adjustment = openSuggestionAdjustment({item, table, column, catalog, host: article, isCurrent: current,
+          onCommit: rule => {
+            if (!current()) return;
+            item.after = copy(rule);
+            adjusted.add(index);
+            afterText.textContent = ruleText(rule);
+            for (const sibling of indices) {
+              selected.delete(sibling);
+              delete suggestions[sibling].evidence;
+              delete suggestions[sibling].relation;
+            }
+            input.checked = false;
+            for (const evidence of article.querySelectorAll('.wb-ai-evidence, .wb-ai-relation, [data-ai-evidence-message]')) evidence.remove();
+            adjustedNotice.hidden = false;
+            adjustedNotice.textContent = '已手动调整；原关系说明与样例已失效。请重新勾选，应用前会检查整组规则。';
+          },
+          onDone: () => {adjustment = null; if (alive) {update(); edit.focus({preventScroll: true});}}
+        });
+        update();
+      }, {small: true, 'data-ai-adjust': String(index), 'aria-label': `调整 ${item.table}.${item.column} 的建议规则`});
+      article.append(edit, adjustedNotice);
       if (item.relation) {
         const labels = {
           copy: '复制',
@@ -812,7 +851,7 @@ export function openAIAssistant({
         }, `${item.relation.sources.join(' + ')} → ${item.column} · ${labels[item.relation.template] || '同一行关系'}${Object.keys(item.relation.options || {}).length ? ' · ' + JSON.stringify(item.relation.options) : ''}`));
         if (item.evidence) {
           article.append(h('p', {
-            class: 'hint'
+            class: 'hint', 'data-ai-evidence-message': ''
           }, item.evidence.message));
           const rows = item.evidence.rows || [];
           if (rows.length) {
@@ -829,7 +868,7 @@ export function openAIAssistant({
     function acceptSuggestions(result) {
       const valid = item => targets.some(target => target.table === item.table && target.columns.includes(item.column)) && item.after?.name === item.column;
       const invalidGroups = new Set(result.suggestions.filter(item => !valid(item)).map(item => item.group_id).filter(Boolean));
-      suggestions = result.validation?.ok === false ? [] : result.suggestions.filter(item => valid(item) && !invalidGroups.has(item.group_id));
+      suggestions = result.validation?.ok === false ? [] : copy(result.suggestions.filter(item => valid(item) && !invalidGroups.has(item.group_id)));
       status.textContent = suggestions.length ? `收到 ${suggestions.length} 条建议。存在关联的规则会作为一组应用，请对比后勾选。` : result.validation?.message || '没有可应用的建议，现有规则保持不变。';
       const analysisCompletionLabel = () => {
         if (result.validation?.ok === false) {
@@ -848,13 +887,37 @@ export function openAIAssistant({
       apply.disabled = true;
       return;
     }
-    if (!selected.size || busy) {
+    if (!selected.size || busy || adjustment) {
       return;
     }
     busy = true;
     update();
     try {
-      await onApply?.([...selected].map(index => copy(suggestions[index])));
+      const patches = [...selected].map(index => copy(suggestions[index]));
+      const targets = allowedTargets();
+      if (!patches.every(item => targets.some(target => target.table === item.table && target.columns.includes(item.column)) && item.after?.name === item.column)) throw new Error('建议范围已变化，请重新分析。');
+      if ([...selected].some(index => adjusted.has(index))) {
+        status.textContent = '正在检查调整后的规则，当前配置保持不变…';
+        const document = copy(model.document);
+        for (const patch of patches) {
+          let table = document.tables.find(table => table.name === patch.table);
+          if (!table) {table = copy(model.table(patch.table)); document.tables.push(table);}
+          table.columns = (table.columns || []).filter(column => column.name !== patch.column);
+          table.columns.push(copy(patch.after));
+        }
+        const ticket = version;
+        controller = new AbortController();
+        const checked = await api('/api/workbench/check', {method: 'POST', signal: controller.signal,
+          body: JSON.stringify({conn_id: connId, schema_hash: schemaHash, document, count: 3})});
+        if (!alive || ticket !== version) return;
+        if (!current()) throw new Error('配置已变化，请关闭面板后重新分析。');
+        if (!checked.ok) {
+          const errors = (checked.issues || []).filter(issue => issue.severity !== 'warning').map(issue => issue.message).filter(Boolean);
+          throw new Error(`调整后的规则未通过检查：${errors.join('；') || '请检查字段规则与表间依赖。'}`);
+        }
+      }
+      if (!current()) throw new Error('配置已变化，请关闭面板后重新分析。');
+      await onApply?.(patches);
       if (alive) {
         ui.close();
       }
@@ -864,6 +927,8 @@ export function openAIAssistant({
         busy = false;
         update();
       }
+    } finally {
+      if (alive) {busy = false; update();}
     }
   }
   api(`${prefix}/config`).then(config => {

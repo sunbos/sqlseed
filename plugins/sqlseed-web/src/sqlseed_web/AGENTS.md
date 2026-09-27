@@ -24,6 +24,7 @@
 - 连接请求恰好提供 `db_path`/`url` 之一。每个连接持有长生命周期 `DataOrchestrator`；连接失败时清理已注册对象。
 - 同目标多连接是有效用法。旧 API 的长生命周期 orchestrator 保留独立 provider/locale；正式工作台的 provider/locale 属于配置，并按完整配置构建执行实例，不能用旧连接默认值覆盖文档。`group_key`、`group_index`、`group_size` 仅做显示分组，不是跨连接锁。
 - [sqlite_target.py](sqlite_target.py) 统一 SQLite 的分组、写入准入与配置身份，按 SQLAlchemy 传给 sqlite3 的实际 URI 参数识别文件、具名共享内存和私有内存。普通文件路径的既有配置 hash 保持不变；共享内存按名称、私有内存按 conn_id 隔离，不能把未启用 `uri` 的 `mode=memory` 当作内存库。Web 不支持自定义 SQLite VFS；实际 URI 带 `vfs` 时在连接注册、数据库打开前拒绝，不能忽略 `memdb` 等 VFS 导致同名不同库被合并。
+- 实际连接与 Web 身份共用 core 的 `database._connection_url.connection_url()`；不要在 Web 单独通过 `make_url()` 解析 SQLite 路径。SQLAlchemy 2.0/2.1 的 database 解码行为不同：普通路径保留字面百分号和问号，显式 SQLite URI 的文件部分仅由 SQLite 解码一次；query 中的 `uri`、`mode`、`timeout` 等参数继续交给 dialect。身份回归必须同时核对实际打开的文件，不能只比较两个规范化字符串。
 - SQLite URI 中解码后的 NUL、原始 TAB/CR/LF、无效 UTF-8 百分号编码也在注册前拒绝：SQLite 字符串截断与 Python URL 清理/替代解码不同，不能把异常编码折叠成另一目标。合法 UTF-8 与经过百分号编码的 TAB/CR/LF 文件名仍按真实路径识别。
 - URI 文件路径须经平台路径转换；Windows 的 `/C:/...` 与普通 `C:\...` 指向同一文件。百分号只解码一次，文件名中的字面 `%41` 不能被误识别为 `A`；真实文件别名回归覆盖空格、百分号及编码盘符。
 - 列表、打开和运行只接受当前 canonical `target_key`，不提供或接受旧身份 aliases。旧 URI hash 可能恰好属于另一个真实的 `file:` 前缀文件，不能仅凭当前连接写法推导旧 hash 并自动授权；没有可信身份版本的记录不得通过同 schema 或解析 target_label 猜库迁移。普通路径的旧 key 不变；身份发生变化的旧 URI 配置与运行仍保留可导出，由用户明确导入当前目标创建新配置，历史运行快照不改。历史记录未存原始连接或身份算法版本，旧错 hash 与真实字面 `file:` 路径 hash 的反向碰撞无法可靠区分，这是既有数据的限制，不自动推断或重绑。
@@ -43,6 +44,7 @@
 - 保存校验 schema hash 和乐观 revision；开始运行时在 store 同一事务校验当前 revision 与快照，再保留不可变文档。检查和运行都重新读取真实结构及来源，不能相信前端的成功标记。
 - 旧 `/api/connections/{id}/tables/{table}/schema` 的 `unique_columns`、`skippable` 和 `ColumnInfo` 驱动历史面板；FK 字段为 `column`/`ref_table`/`ref_column`，均是单数。新工作台必须使用独立完整 schema 契约，保留成组列映射和 namespace，不能沿用此简化形状。
 - 结构图方向父→子；复合 FK 是同一条边的成组列映射。跨 namespace 或不存在的来源保留只读节点，不能把它们映射到同名默认 schema 表。
+- 跨表循环问题由 `workbench_runtime.py` 的迭代强连通分量计算给出精确 `tables` 和 `edge_ids`：只包含真正成环的成员及同一环内边，不把被阻塞的下游或不同环之间的桥标为循环。准确定位不改变跨表通用循环仍被阻止的执行边界。来源问题增加结构化 `columns` 时保留既有 `column` 与 sources evidence 契约；组合键必须按完整列组匹配，不能拆成单列或误拆含逗号的列名。
 - SQLite rowid 分配优先使用 core 的 `ColumnInfo.is_rowid_alias` 事实，仅旧 metadata 缺失时使用兼容查询。部分索引不得进入无条件 `unique_constraints`；其条件保留在 `conditional_indexes` 并参与 schema hash，谓词变化会使旧检查失效。
 - 空父表在所选生成计划内是合法依赖。预览不能虚构尚未生成的父键，但仍须验证独立字段的生成器参数和表达式。
 - 未选父表存在有效引用键时可以只读引用；未选且缺少必需来源时才阻止对应生成。依赖检查返回来源是否可用、数量与范围事实，不向浏览器暴露实际父键列表。追加写入的自增 ID 由数据库分配，不能为改善预览展示而重置序列。
@@ -70,6 +72,7 @@
 - AI 候选样例经实例级 DataStream 尝试预算和合作式取消检查，不全局修改重试常量。保留结构化 validation issues（表、列、生成器、约束），禁止暴露已有记录、密钥或原始 SDK 错误；catalog 必须解释 pattern 的正则语义及当前 provider 的 phone/template 差异。
 - AI 范围支持整库、指定表多选、指定列多选及当前/勾选表快捷项，独立于生成范围。`allowed_targets` 限定修改列；上下文保留所在整表及必要上游结构、约束、生成器目录、全局引擎/语言和用户业务说明，不包含连接地址、凭据、row_count、运行时父键或已有记录。全部 `table_drafts` 参与保护和候选校验，不能因表未勾选丢失高级规则。schema/业务说明始终视作数据。
 - 建议经过范围、表列、generator 目录、参数及 `ColumnConfig` 校验。新关系仅由 [workbench_ai_relations.py](workbench_ai_relations.py) 编译 copy/concat/product/date_offset 模板，验证类型、NULL、来源可用性及新旧 core DAG；保留 PK/FK/实际使用数据库默认值的列/计算列和已有 derived/native 规则，拒绝模型原始表达式、原生方法或文件路径。整份候选配置只读校验，相关补丁带 group_id 并原子审阅/应用；样例检查不宣称证明任意 SQL CHECK。分析前后复核 schema hash，网络期间释放连接操作锁。
+- 前端手动微调建议仍走确定性 `/api/workbench/check`：校验合并后的完整候选文档，不新增模型调用，也不绕过 schema、字段保护或执行检查。为校验未勾选表而加入的候选副本不能改变真实生成范围；检查通过后仍需由用户选中的补丁原子应用，失败不得写入当前配置或数据库。
 - 新旧 AI 配置响应均不能回传 API key，只给是否配置的标记；修改设置时空密钥保留已有会话密钥，旧接口显式空请求仍重置会话覆盖。密钥不得保存进工作台文档或运行记录。
 - 自定义映射/enrichment 涉及 DEFAULT 时，AI 助手先调用只读 eligibility 预检，并与 suggest 共用实际规则解析；响应只含生成模式，不含样例或父键。普通配置不增加请求；编辑、关闭或离页后的旧结果不得打开可分析界面。
 - AI 连接目标保持与 core 一致：含 `://` 的目标按 URL 传递，包括 `sqlite+pysqlite://`；不能用固定 dialect 前缀当文件路径判据。
@@ -82,6 +85,7 @@
 - AI 配置读取、保存和检测返回 `availability_status`（`available`/`not_installed`/`import_error`），保留原 `available`。Web 可选能力要求发行包存在且模块可导入；卸载后缓存模块或 spawn 继承的 editable 源码路径不能让缺包显示可用。已安装加载失败引导修复，不误报未安装，异常文本不回显。
 - AI 可用性还需无调用检查当前 Web 所需的 AIConfig 字段、call_llm(stage=...) 与共享 runtime 工厂；旧包可导入不等于接口兼容。Web ai extra 和受管安装目标要求 `sqlseed-ai>=0.2.4.dev0`，不可回退安装缺少工作台接口的 0.2.3。维护进程只读取 metadata，不导入正在变更的包。
 - 缺失/异常 AI 仍返回脱敏 `effective` 普通设置，但禁止检测、保存、eligibility 和 suggest；错误带 `component_id=ai`、`recovery_action=install/repair`。`/api/meta/providers` 保留 available 数组并增加 statuses 事实对象。选中缺失 Mimesis 的配置允许保存，check/preview/执行复核返回 `provider_not_installed` 或 `provider_import_error`，不能静默换引擎。
+- `settings_updates.py` 只在显式请求时查询固定组件的 PyPI Simple JSON API，稳定版本用 packaging.version 比较；版本查询自身不升级，不接收任意包或源，不把环境路径/AI 信息发往 PyPI。实际更新须另走组件计划与确认。失败有界、脱敏且可重试；更新提示不能当作兼容性承诺。
 
 ## 历史 AI API 兼容
 
@@ -98,10 +102,13 @@
 - 维护 worker 业务 `/api/` 一律拒绝，仅保留 health、environment 与 `/api/settings/plugins/*`；HTML 固定标识用于首次导航，API 门禁不能依赖前端，受管维护标识不得永久锁定恢复后的导航。
 - `plugin_environment.py` 只接受当前解释器与可写独立 virtualenv，解析真实 distribution metadata/Requires-Dist；不使用 import 缓存判断新安装状态。系统/只读/共享系统包/环境外 metadata 不可管理，但保留普通 Web。
 - `plugin_management.py` 白名单仅 ai/cli/mcp/mimesis。管理请求检查 loopback client/Host；POST 必须同 Origin 及 token。计划绑定五分钟内 metadata 快照，一次领取。Core/Web/Faker/Base 不接受操作，不自动卸载依赖。`supervised_plugins.py` 仅在新业务就绪后发布任务终态，恢复失败保留页面与只恢复服务的重试入口。
-- 默认 supervisor 持有独占环境锁；子进程保留同一 flock 描述符，父 IPC 断开后关闭准入、自然排空工作再退出。外部正常 app 持共享锁，旧维护 app 持独占锁。锁不是外部 pip/Python 进程的强制协调器，不能声称阻止旧版本或任意外部进程。
+- `plugin_updates.py` 仅对已安装的白名单可选组件准备定向更新，拒绝降级和联动变更其他包。候选 wheel 须匹配解释器 tags、Requires-Python 与 AI 最低兼容版本；固定 PyPI 索引和 `files.pythonhosted.org/packages/` 下载地址，不接受重定向、任意源或本地文件输入。校验 wheel SHA-256 及索引声明的 sidecar metadata 哈希，再将包内 metadata 与计划保存的哈希比较；下载内容和元数据均有大小上限。
+- 更新前按完整环境检查正向、反向及显式 extras 依赖；缺失、不满足或不可验证的直接 URL 依赖阻止更新，提示使用原环境工具协调处理，不能自动补装依赖。执行前、下载后复核 metadata 快照；安装使用当前解释器、已校验本地 wheel、`--no-deps --no-index` 与冻结其他包的约束。完成后核对目标版本、包集合及其他包 metadata 不变；失败不宣称自动回滚已安装包。
+- 索引/metadata 计划和 wheel 下载使用有界等待及单槽网络任务。等待超时不代表底层读线程已经结束；该线程退出前不能释放槽位，迟到结果不得创建计划、写临时文件或启动安装。网络失败统一脱敏为可恢复错误，不能扩大 supervisor IPC 等待掩盖无界网络工作。
+- 默认 supervisor 持有独占环境锁；POSIX 子进程保留同一 flock 描述符，Windows 复制同一内核文件对象，父 IPC 断开后关闭准入、自然排空工作再退出。外部正常 app 持共享锁，旧维护 app 持独占锁。锁不是外部 pip/Python 进程的强制协调器，不能声称阻止旧版本或任意外部进程。
 - `runtime_lifecycle.py` 对所有非管理 HTTP 和真实后台线程计数；原子空闲检查失败返回 409，不强杀生成/AI 线程。`runtime_session.py` 只经内存和 IPC 保存原连接身份、凭据、provider/locale 与完整 AI 覆盖；成功后清除原始快照。内存 SQLite 阻止操作，部分恢复失败单独报告且不创建缺失数据库。
 - `plugin_process.py` 使用受控 argv、固定环境、冻结版本 constraints、wheel-only、超时与有界脱敏输出；不得引入任意命令、路径、package spec 或 pip 私有 API。测试真实 pip/uv 只能操作临时 virtualenv 与离线测试 wheel，不得修改当前用户环境。
-- 当前组件包变更仅支持 macOS/Linux；Windows 保留普通 Web 与 PowerShell 手动命令，不能在未实现子进程树超时回收前开放界面操作。
+- Windows、macOS/Linux 的受管独立环境支持组件包变更。Windows 环境锁使用不共享删除的文件句柄，经 spawn 复制同一文件对象；安装器先加入禁止脱离的 Job Object，确认所有后代退出后才释放锁并恢复业务。不确定的清理失败必须保留维护状态及锁；重试恢复不重复安装。Windows 业务 worker 使用 SelectorEventLoop 接管继承监听 socket。手动命令仍提示激活并核对 Web 的 Python 环境；CMD 不显示含 `%`/`!` 的路径。
 
 ## 验证
 

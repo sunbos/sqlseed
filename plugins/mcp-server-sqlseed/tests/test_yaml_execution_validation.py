@@ -97,3 +97,34 @@ def test_valid_yaml_keeps_tool_target_count_and_matching_column_rules(tmp_path: 
     with closing(sqlite3.connect(database)) as connection:
         assert connection.execute("SELECT value FROM users ORDER BY rowid").fetchall() == [(91,), (17,), (17,)]
         assert connection.execute("SELECT value FROM orders").fetchall() == [(92,)]
+
+
+def test_invalid_date_range_returns_tool_error_without_appending(tmp_path: Path) -> None:
+    database = tmp_path / "invalid-date.db"
+    with closing(sqlite3.connect(database)) as connection:
+        connection.executescript(
+            "CREATE TABLE events (created_at DATE NOT NULL); INSERT INTO events VALUES ('2020-01-01');"
+        )
+    document = yaml.safe_dump(
+        {
+            "db_path": str(database),
+            "tables": [
+                {
+                    "name": "events",
+                    "count": 5,
+                    "columns": [
+                        {
+                            "name": "created_at",
+                            "generator": "date",
+                            "params": {"start_date": "2026-09-26", "end_date": "2026-09-26", "weekdays": "workdays"},
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+    result = sqlseed_execute_fill(str(database), "events", count=5, yaml_config=document)
+    assert set(result) == {"error"}
+    assert "created_at" in result["error"] and "date" in result["error"]
+    with closing(sqlite3.connect(database)) as connection:
+        assert connection.execute("SELECT * FROM events").fetchall() == [("2020-01-01",)]

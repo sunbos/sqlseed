@@ -13,7 +13,7 @@ test('the workbench presents table views and opens rules directly from a field',
   assert.equal(ui.root().querySelector('.wb-preview-action'),null,'Preview scope belongs inside the dialog');
   assert.ok(ui.button('编辑 YAML'));
   assert.equal(ui.button('编辑 YAML').closest('details'),null,'The complete document editor is directly discoverable');
-  assert.ok(ui.button('生成数据').classList.contains('primary'));
+  assert.ok(ui.button('查看生成计划').classList.contains('primary'));
   await ui.openRule('amount');
   assert.equal(ui.root().querySelector('.wb-field-details'),null);
   assert.ok(ui.document.querySelector('.wb-rule-editor'));
@@ -113,7 +113,7 @@ for (const exit of ['close-summary', 'leave-page']) {
     }));
     const gate = deferred();
     ui.routes.set('/api/workbench/runs', () => gate.promise);
-    await ui.button('生成数据').click();
+    await ui.button('查看生成计划').click();
     const submit = ui.button('写入数据库', ui.document);
     assert.ok(submit); assert.equal(submit.disabled, false);
     const pending = submit.click();
