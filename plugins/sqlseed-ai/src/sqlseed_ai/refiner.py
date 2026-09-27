@@ -29,7 +29,7 @@ from sqlseed._utils.paths import get_cache_dir
 from sqlseed.config.models import TableConfig
 from sqlseed.core.orchestrator import DataOrchestrator
 from sqlseed.database.sqlalchemy_adapter import SQLAlchemyBatchInserter
-from sqlseed.generators._protocol import ConfigurationError
+from sqlseed.generators._protocol import ConfigurationError, UnknownGeneratorError
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -241,12 +241,19 @@ class AiConfigRefiner:
             if level_idx < state.min_prompt_level:
                 continue
             initial_messages = self._analyzer.build_initial_messages(schema_ctx, compact=compact, ultra_compact=ultra)
-            messages = initial_messages + state.messages_history
+            messages = list(initial_messages)
+            for previous in state.messages_history:
+                if messages and previous["role"] == "user" and messages[-1]["role"] == "user":
+                    # Some local chat templates require alternating roles.
+                    # A format failure has no safe assistant answer to replay.
+                    messages[-1] = {"role": "user", "content": messages[-1]["content"] + "\n\n" + previous["content"]}
+                else:
+                    messages.append(previous)
             try:
                 if not (config_dict := call_fn(messages)):
                     return None, ErrorSummary(
                         error_type="empty_config",
-                        message="LLM returned empty result",
+                        message="The model returned an empty configuration object.",
                         column=None,
                         retryable=True,
                     )
@@ -433,6 +440,18 @@ class AiConfigRefiner:
                 error, state.last_error_type, state.same_error_count
             )
             self._handle_generation_failure(error, attempt, max_retries)
+            if error.error_type in self._NON_RETRYABLE_ERRORS:
+                state.messages_history.append(
+                    {
+                        "role": "user",
+                        "content": (
+                            f"The previous response could not be used: {error.message}\n"
+                            "Return one complete, non-empty JSON configuration object for the table above. "
+                            "Use double-quoted property names and string values. "
+                            "Do not include comments, Markdown, or explanatory prose."
+                        ),
+                    }
+                )
 
     def generate_and_refine(
         self,
@@ -458,7 +477,7 @@ class AiConfigRefiner:
             schema_ctx = orch.get_schema_context(table_name)
 
             def _call_non_streaming(messages: list[dict[str, str]]) -> dict[str, Any] | None:
-                return self._analyzer.call_llm(messages)
+                return self._analyzer.call_llm(messages, strict_json=True)
 
             return self._run_refinement_loop(
                 orch,
@@ -586,7 +605,7 @@ class AiConfigRefiner:
                 count=50,
                 column_configs=table_config.columns,
             )
-        except (ValueError, RuntimeError, OSError, ConfigurationError) as e:
+        except (ValueError, RuntimeError, OSError, ConfigurationError, UnknownGeneratorError) as e:
             return summarize_error(e)
 
         return self._validate_preview_insert(orch, table_name, preview_data)

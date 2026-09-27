@@ -38,17 +38,18 @@ from sqlalchemy import (
     select,
     text,
 )
-from sqlalchemy.engine import make_url
 from sqlalchemy.exc import ArgumentError, NoSuchModuleError, NoSuchTableError, SQLAlchemyError
 from sqlalchemy.sql.elements import Null
 
 from sqlseed._utils.logger import get_logger
+from sqlseed._utils.redaction import redact_url_credentials
 from sqlseed._utils.sql_safe import validate_table_name
 from sqlseed.database._bulk_optimizer import (
     BulkWriteOptimizer,
     PostgresBulkOptimizer,
     SQLiteBulkOptimizer,
 )
+from sqlseed.database._connection_url import connection_url
 from sqlseed.database._dialect import Dialect, PostgresDialect, SQLiteDialect
 from sqlseed.database._helpers import apply_bulk_optimize, apply_bulk_restore, batch_insert_rows, fetch_index_info
 from sqlseed.database._protocol import CheckConstraintInfo, ColumnInfo, ForeignKeyInfo, IndexInfo
@@ -319,7 +320,7 @@ class SQLAlchemyAdapter:
             db_url = db_path
 
         self._db_url = db_url
-        self._engine = self._create_engine_for_url(db_url)
+        self._engine = self._create_engine_for_url(db_path)
 
         try:
             self._dialect = self._detect_dialect()
@@ -342,7 +343,11 @@ class SQLAlchemyAdapter:
             self.close()
             raise
 
-        logger.debug("Connected to database via SQLAlchemy", db_url=db_url, dialect=self._dialect.name)
+        logger.debug(
+            "Connected to database via SQLAlchemy",
+            db_url=redact_url_credentials(db_url, whole_url=True),
+            dialect=self._dialect.name,
+        )
 
     @staticmethod
     def _create_engine_for_url(db_url: str) -> Engine:
@@ -354,7 +359,7 @@ class SQLAlchemyAdapter:
             NoSuchModuleError: When another requested dialect or driver is unavailable.
         """
         try:
-            engine_url = make_url(db_url)
+            engine_url = connection_url(db_url)
             if engine_url.drivername == "postgresql":
                 # Match the psycopg3 driver supplied by sqlseed[postgres].
                 # Keep the original target and every explicitly chosen driver.
@@ -367,8 +372,9 @@ class SQLAlchemyAdapter:
                     "PostgreSQL driver not installed. Install with: pip install sqlseed[postgres]"
                 ) from exc
             raise
-        except ArgumentError as exc:
-            raise ValueError(f"Invalid database URL: {db_url}") from exc
+        except ArgumentError:
+            # SQLAlchemy's original error may render secret query parameters.
+            raise ValueError(f"Invalid database URL: {redact_url_credentials(db_url, whole_url=True)}") from None
 
     def close(self) -> None:
         """Close the database connection and release resources. No-op if not connected."""
@@ -381,7 +387,7 @@ class SQLAlchemyAdapter:
             self._dialect = None
             self._optimizer = None
             self._table_cache.clear()
-            logger.debug("Closed SQLAlchemy connection", db_url=self._db_url)
+            logger.debug("Closed SQLAlchemy connection", db_url=redact_url_credentials(self._db_url, whole_url=True))
 
     @contextmanager
     def transaction(self) -> Iterator[Self]:

@@ -538,6 +538,26 @@ class TestCallLlmOnceContextOverflow:
 class TestCallLlmOnceResponseHandling:
     """Tests for _call_llm_once response inspection (choices, content, reasoning)."""
 
+    @pytest.mark.parametrize(
+        ("content", "finish_reason", "code"),
+        [
+            (None, "stop", "empty_response"),
+            ("not json", "stop", "invalid_json"),
+            ('{"suggestions":[]}', "length", "truncated_response"),
+        ],
+    )
+    def test_strict_json_preserves_response_failure_kind(
+        self, content: str | None, finish_reason: str, code: str
+    ) -> None:
+        from sqlseed_ai._json_utils import JSONResponseError
+
+        analyzer = _make_default_analyzer()
+        response = _make_mock_response(content)
+        response.choices[0].finish_reason = finish_reason
+        with _patch_call_llm_once_chain(analyzer, response), pytest.raises(JSONResponseError) as error:
+            analyzer._call_llm_once([], strict_json=True)
+        assert error.value.code == code
+
     def test_call_llm_once_raises_runtime_error_when_no_choices(self) -> None:
         """Verify RuntimeError is raised when the response has no choices."""
         analyzer = _make_default_analyzer()

@@ -305,10 +305,22 @@ def test_installation_guidance_probes_available_tools_and_targets_serving_interp
         target = [] if tool == "pip" else ["--python", executable]
         assert shlex.split(items["mimesis"]["install_command"]) == [*prefix, "install", *target, "sqlseed[mimesis]"]
         assert shlex.split(items["ai"]["repair_command"]) == [*prefix, "check", *target]
+        variants = {item["shell"]: item for item in items["mimesis"]["install_commands"]}
+        assert variants["posix"]["command"] == items["mimesis"]["install_command"]
+        portable = (
+            'python -m pip install "sqlseed[mimesis]"'
+            if tool == "pip"
+            else 'uv pip install --python python "sqlseed[mimesis]"'
+        )
+        assert variants["environment"]["command"] == portable
+        assert "sys.executable" in variants["environment"]["note"]
+        assert "路径一致" in variants["environment"]["note"]
     else:
         assert all(item["install_command"] is None and item["repair_command"] is None for item in items.values())
+        assert all(item["install_commands"] == [] and item["repair_commands"] == [] for item in items.values())
         assert "未检测到" in result["installer"]["message"]
     assert items["base"]["install_command"] is None
+    assert items["base"]["install_commands"] == []
     assert len(probes) == (1 if tool == "pip" else 2)
     assert not path.exists()
 
@@ -330,6 +342,47 @@ def test_windows_installation_guidance_uses_powershell_literals_for_paths(
         mimesis["install_command"]
         == r"& 'C:\Users\O''Brien\SQL Seed\python.exe' '-m' 'pip' 'install' 'sqlseed[mimesis]'"
     )
+    variants = {item["shell"]: item for item in mimesis["install_commands"]}
+    assert variants["powershell"]["command"] == mimesis["install_command"]
+    assert (
+        variants["cmd"]["command"]
+        == r'''"C:\Users\O'Brien\SQL Seed\python.exe" "-m" "pip" "install" "sqlseed[mimesis]"'''
+    )
+    assert variants["environment"]["command"] == 'python -m pip install "sqlseed[mimesis]"'
+
+
+@pytest.mark.parametrize("special", ["%USERPROFILE%", "!folder!", '"', "\n", "\r"])
+def test_cmd_guidance_omits_paths_that_the_shell_would_expand(special: str) -> None:
+    installer = settings_environment._Installer("pip", f"C:\\{special}\\python.exe", None, "powershell")
+    variants = {item["shell"]: item for item in installer.commands("check")}
+    assert "cmd" not in variants
+    assert variants["environment"]["command"] == "python -m pip check"
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Real Windows command parsers")
+@pytest.mark.parametrize("shell", ["powershell", "cmd"])
+def test_windows_manual_commands_reach_the_exact_interpreter_and_preserve_arguments(tmp_path: Path, shell: str) -> None:
+    import venv
+
+    prefix = tmp_path / "SQL Seed's environment"
+    venv.EnvBuilder(with_pip=False).create(prefix)
+    executable = prefix / "Scripts" / "python.exe"
+    # Only exercise the shell/interpreter boundary. This local module reports
+    # its argv; no installer runs and no package in the user's environment changes.
+    (tmp_path / "pip.py").write_text(
+        "import json, sys\nprint(json.dumps([sys.executable, *sys.argv[1:]]))\n", encoding="utf-8"
+    )
+    installer = settings_environment._Installer("pip", str(executable), None, "powershell")
+    command = next(
+        item["command"] for item in installer.commands("install", "sqlseed[mimesis]") if item["shell"] == shell
+    )
+    invocation = (
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", command]
+        if shell == "powershell"
+        else f'cmd.exe /d /s /c "{command}"'
+    )
+    completed = subprocess.run(invocation, cwd=tmp_path, capture_output=True, text=True, timeout=20, check=True)
+    assert json.loads(completed.stdout) == [str(executable), "install", "sqlseed[mimesis]"]
 
 
 def test_tool_probe_timeout_is_redacted_and_never_produces_an_install_command(
@@ -430,13 +483,17 @@ def test_ai_settings_distinguish_missing_package_from_import_failure(
 
     monkeypatch.setattr(builtins, "__import__", import_module)
     monkeypatch.setattr(metadata, "version", version)
+    installer = settings_environment._Installer("pip", sys.executable, None, "powershell")
+    monkeypatch.setattr(settings_environment, "_installer", lambda: installer)
     expected = "import_error" if installed else "not_installed"
     responses = [
         client.get("/api/workbench/ai/config"),
         client.post("/api/workbench/ai/config", json=configured()),
         client.post("/api/workbench/ai/test", json=configured()),
+        client.get("/api/ai/config"),
+        client.get("/api/meta/ai"),
     ]
-    assert [response.status_code for response in responses] == [200, 503, 200]
+    assert [response.status_code for response in responses] == [200, 503, 200, 200, 200]
     for response in responses:
         result = response.json().get("detail", response.json())
         assert result["availability_status"] == expected
@@ -446,6 +503,13 @@ def test_ai_settings_distinguish_missing_package_from_import_failure(
             assert "尚未安装" not in result["message"]
         assert "private-import-secret" not in response.text
         assert "password" not in response.text
+        install = {item["shell"]: item for item in result["install_commands"]}
+        repair = {item["shell"]: item for item in result["repair_commands"]}
+        assert install["powershell"]["command"] == result["install_command"]
+        assert repair["powershell"]["command"] == result["repair_command"]
+        assert install["environment"]["command"] == 'python -m pip install "sqlseed-web[ai]"'
+        assert repair["environment"]["command"] == "python -m pip check"
+        assert "路径一致" in install["environment"]["note"]
     assert not path.exists()
     assert registry.get_ai_override() == {}
 

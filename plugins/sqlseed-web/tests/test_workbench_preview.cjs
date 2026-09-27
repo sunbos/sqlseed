@@ -13,6 +13,7 @@ function harness(options={}) {
   const document=createDom(),window=new Element('window');
   document.createElement=tag=>{
     const element=new Element(tag);element.scrollTop=0;element.scrollLeft=0;
+    element.focus=()=>{document.activeElement=element;};
     for(const dimension of ['clientHeight','clientWidth','scrollHeight','scrollWidth']) {
       Object.defineProperty(element,dimension,{get:()=>options.layout?.(element)?.[dimension] ?? 0});
     }
@@ -30,7 +31,7 @@ function harness(options={}) {
     isCurrent:()=>current,onResult:(result,options)=>{results.push(result);resultOptions.push(JSON.parse(JSON.stringify(options)));},
     onError:error=>errors.push(error),onOptionsChange:value=>changes.push(JSON.parse(JSON.stringify(value))),
     ...options.props});
-  const find=label=>document.querySelectorAll('button').find(node=>node.textContent===label);
+  const find=label=>document.querySelectorAll('button').find(node=>node.textContent===label || node.getAttribute('aria-label')===label);
   const scope=async label=>{await document.querySelector('[aria-label="预览范围"]').click();
     await document.querySelector('.dropdown-floating').querySelectorAll('[role="option"]').find(node=>node.textContent===label).click();};
   return {document,context,component,requests,results,resultOptions,changes,errors,find,scope,setCurrent:value=>{current=value;},count:()=>document.querySelector('[aria-label="每表预览行数"]')};
@@ -47,6 +48,99 @@ test('creates the modal immediately and generates only when its guarded refresh 
   assert.deepEqual(t.requests,[{scope:'current',count:10,table:'orders'}]);
   assert.equal(t.results.length,1);
   assert.deepEqual(t.resultOptions,[{scope:'current',count:10,table:'orders'}]);
+});
+
+test('a valid preview count explains generation-configuration errors and offers a guarded correction target',async()=>{
+  const modelContext=loadFrontend('workbench/model.js');
+  const Model=vm.runInContext('WorkbenchDocument',modelContext);
+  const m=new Model({tables:[{name:'orders'}]});m.toggleTable('orders',true);
+  m.setCount('orders','10000000000000000');
+  let corrected=null;
+  const t=harness({generate:async()=>m.payload('invalid'),props:{onValidationIssue:issue=>{corrected=issue;}}});
+  await t.component.refresh();
+  assert.equal(t.count().value,'10');assert.equal(t.count().getAttribute('aria-invalid'),null);
+  assert.match(t.document.querySelector('.wb-preview-error').textContent,/预览 10 行符合.*正式生成配置.*orders/);
+  assert.doesNotMatch(t.count().getAttribute('aria-describedby'),/-error/);
+  const repair=t.find('修正 orders 生成数量');assert.ok(repair);
+  await repair.click();assert.equal(corrected.table,'orders');assert.equal(corrected.value,'10000000000000000');
+  assert.equal(t.document.querySelector('.modal'),null);
+  corrected=null;await repair.click();assert.equal(corrected,null,'Detached correction actions cannot navigate');
+});
+
+test('changing preview options or context removes or disables configuration-correction actions',async()=>{
+  const issue={kind:'generation-count',table:'orders',message:'orders 的生成数量无效'};
+  const failure=Object.assign(new Error(issue.message),{code:'workbench_invalid_input',issues:[issue]});
+  let corrected=0;
+  const t=harness({generate:async()=>{throw failure;},props:{onValidationIssue:()=>{corrected++;}}});
+  await t.component.refresh();const repair=t.find('修正 orders 生成数量');
+  t.setCurrent(false);await repair.click();assert.equal(corrected,0);
+  t.setCurrent(true);t.count().value='101';await t.count().dispatchEvent('input');
+  assert.equal(t.find('修正 orders 生成数量'),undefined);
+  assert.match(t.document.querySelector('.wb-preview-error').textContent,/每表预览行数必须/);
+  assert.match(t.count().getAttribute('aria-describedby'),/-error/);
+});
+
+const relationTables=[...tables,{name:'countries',columns:[{name:'id'}]},{name:'payments',columns:[{name:'order_id'}]},{name:'returns',columns:[{name:'order_id'}]}];
+const relationSchema={nodes:[...relationTables.map(table=>({id:table.name,readonly:false})),{id:'archive.users',name:'users',schema:'archive',readonly:true}],edges:[
+  {id:'user-composite',source:'users',target:'orders',sourceColumns:['tenant,id','id'],targetColumns:['tenant_id','user_id']},
+  {id:'country',source:'countries',target:'orders',sourceColumns:['id'],targetColumns:['country_id']},
+  {id:'external-user',source:'archive.users',target:'orders',sourceColumns:['id'],targetColumns:['archived_user_id']},
+  {id:'payments',source:'orders',target:'payments',sourceColumns:['id'],targetColumns:['order_id']},
+  {id:'returns',source:'orders',target:'returns',sourceColumns:['id'],targetColumns:['order_id']},
+  {id:'self',source:'orders',target:'orders',sourceColumns:['id'],targetColumns:['parent_id']}
+]};
+const relationResult={ok:true,samples:{orders:[{id:1,code:'O'}],users:[{id:42,name:'Parent'}],payments:[]},issues:[]};
+const relationProps={tables:relationTables,relationships:relationSchema,selectedTables:['orders','users','payments'],initialScope:'selected'};
+
+test('preview relationships preserve composite keys and external identity without expanding scope or implying row pairs',async()=>{
+  const before=JSON.stringify(relationProps);
+  const t=harness({props:relationProps,generate:async()=>structuredClone(relationResult)});await t.component.refresh();
+  const section=t.document.querySelector('.wb-preview-relations');
+  assert.match(section.querySelector('summary').textContent,/orders.*3 个来源.*2 个目标.*1 条自引用/);
+  assert.equal(section.querySelectorAll('.wb-preview-relation-row').length,6,'A composite key remains one relationship');
+  assert.match(section.textContent,/users \["tenant,id", "id"\] → orders \["tenant_id", "user_id"\]/);
+  assert.match(section.textContent,/countries · 仅引用已有数据/);
+  assert.match(section.textContent,/archive.users · 外部或不可用表 · 只读/);
+  assert.match(section.textContent,/returns · 未选，不在本次生成范围/);
+  assert.match(section.textContent,/payments · 本次生成 · 尚无预览记录/);
+  assert.match(section.textContent,/各表样例不是逐行配对/);
+  assert.equal(t.find('查看 countries 预览'),undefined);assert.equal(t.find('查看 archive.users 预览'),undefined);
+  assert.equal(t.find('查看 payments 预览'),undefined);assert.equal(t.find('查看 returns 预览'),undefined);
+  const requestCount=t.requests.length;await t.find('查看 users 预览').click();
+  assert.equal(t.component.getView().shownTable,'users');assert.equal(t.find('users').getAttribute('aria-pressed'),'true');
+  assert.equal(t.document.activeElement,t.find('users'));
+  assert.match(t.document.querySelector('.wb-preview-data').textContent,/Parent/);
+  assert.equal(t.requests.length,requestCount);assert.equal(JSON.stringify(relationProps),before);
+});
+
+test('single-table preview explains upstream sources without navigating into hidden upstream samples',async()=>{
+  const t=harness({props:{...relationProps,initialScope:'current'},generate:async()=>structuredClone(relationResult)});
+  await t.component.refresh();assert.match(t.document.querySelector('.wb-preview-relations').textContent,/users · 本次生成/);
+  assert.equal(t.find('查看 users 预览'),undefined);assert.equal(t.component.getView().shownTable,'orders');
+  assert.doesNotMatch(t.document.querySelector('.wb-preview-data').textContent,/Parent/);
+});
+
+test('relation expansion is retained per table across preview switches and editor-return snapshots',async()=>{
+  const t=harness({props:relationProps,generate:async()=>structuredClone(relationResult)});await t.component.refresh();
+  const details=t.document.querySelector('.wb-preview-relations').querySelector('details');details.open=true;await details.dispatchEvent('toggle');
+  await t.find('查看 users 预览').click();await t.find('查看 orders 预览').click();
+  assert.equal(t.document.querySelector('.wb-preview-relations').querySelector('details').getAttribute('open'),'');
+  const view=t.component.getView();assert.equal(view.relationOpen.orders,true);t.component.dialog.close();
+  const restored=harness({props:{...relationProps,initialView:view,initialResult:view.result}});
+  assert.equal(restored.component.getView().shownTable,'orders');
+  assert.equal(restored.document.querySelector('.wb-preview-relations').querySelector('details').getAttribute('open'),'');
+  assert.equal(restored.requests.length,0);
+});
+
+test('related-preview links cannot navigate while refreshing, after context expires or after closing',async()=>{
+  const gate=deferred();let calls=0;
+  const t=harness({props:relationProps,generate:()=>++calls===1?structuredClone(relationResult):gate.promise});
+  await t.component.refresh();const link=t.find('查看 users 预览');
+  const pending=t.component.refresh();await tick();assert.equal(link.disabled,true);await link.click();
+  assert.equal(t.component.getView().shownTable,'orders');
+  gate.resolve(structuredClone(relationResult));await pending;
+  const current=t.find('查看 users 预览');t.setCurrent(false);await current.click();assert.equal(t.component.getView().shownTable,'orders');
+  t.setCurrent(true);t.component.dialog.close();await current.click();assert.equal(t.component.getView().shownTable,'orders');
 });
 
 test('inline previews keep ten actual rows natural and limit only longer results',async()=>{

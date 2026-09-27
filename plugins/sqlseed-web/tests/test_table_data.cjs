@@ -84,6 +84,68 @@ test('closing cancels the request and prevents a late response from recreating d
   assert.equal(t.document.querySelector('[role="dialog"]'),null);
 });
 
+test('read-only data dialog has one explicit close control and cancels from its header',async()=>{
+  const gate=deferred();const t=harness({fetch:()=>gate.promise});
+  assert.equal(t.find('关闭'),undefined);
+  const close=t.document.querySelector('button[aria-label="关闭"]');
+  assert.ok(close);
+  await close.click();gate.resolve(pageData());await t.panel.ready;
+  assert.equal(t.requests[0].options.signal.aborted,true);
+  assert.equal(t.document.querySelector('[role="dialog"]'),null);
+});
+
+test('typed timestamps use preview ISO spelling and preserve database text in a native disclosure',async()=>{
+  const raw='2014-11-05 23:18:40.000000';
+  const t=harness({fetch:()=>pageData({columns:[{name:'created_at',type:'DATETIME'}],rows:[{created_at:raw}]})});
+  await t.panel.ready;
+  const details=t.document.querySelector('tbody details');
+  assert.equal(Boolean(details.open),false);
+  assert.equal(details.querySelector('summary').textContent,'2014-11-05T23:18:40');
+  assert.match(details.querySelector('summary').getAttribute('aria-label'),/查看数据库原值/);
+  assert.equal(details.querySelector('pre').textContent,raw);
+  assert.equal(t.document.querySelector('tbody').querySelectorAll('details').length,1);
+});
+
+test('timestamp precision and timezone survive display normalization without Date conversion',async()=>{
+  const values=[
+    ['TIMESTAMP(6) WITH TIME ZONE','2026-09-27 01:02:03.123456+08:00','2026-09-27T01:02:03.123456+08:00'],
+    ['TIMESTAMP WITHOUT TIME ZONE','2026-09-27T01:02:03.000001','2026-09-27T01:02:03.000001'],
+    ['TIME WITH TIME ZONE','01:02:03.000000-00:00','01:02:03-00:00'],
+    ['TIME(6)','01:02:03.123456','01:02:03.123456'],
+    ['TIMESTAMP','2026-09-27T01:02:03.000000Z','2026-09-27T01:02:03Z'],
+    ['TIMESTAMP','2026-09-27 01:02:03.120000+05:30:20.000003','2026-09-27T01:02:03.120000+05:30:20.000003']
+  ];
+  for(const [type,raw,expected] of values){
+    const t=harness({fetch:()=>pageData({columns:[{name:'stamp',type}],rows:[{stamp:raw}]})});await t.panel.ready;
+    const cell=t.document.querySelector('tbody td');
+    assert.equal(cell.querySelector('summary')?.textContent || cell.textContent,expected,type);
+    if(raw!==expected) assert.equal(cell.querySelector('pre').textContent,raw,type);
+    t.panel.close();
+  }
+});
+
+test('date-looking text, unsupported types, NULL and nonstandard database values remain exact',async()=>{
+  const values=[
+    ['TEXT','2014-11-05 23:18:40.000000'],
+    ['VARCHAR(80)','2014-11-05T23:18:40.000000Z'],
+    ['JSON',{created_at:'2014-11-05 23:18:40.000000'}],
+    ['DATE','2014-11-05'],
+    ['DATETIME',null],
+    ['DATETIME','infinity'],
+    ['DATETIME','2014-11-05 24:00:00.000000'],
+    ['TIME',123456],
+    ['','2014-11-05 23:18:40.000000']
+  ];
+  for(const [type,raw] of values){
+    const t=harness({fetch:()=>pageData({columns:[{name:'value',type}],rows:[{value:raw}]})});await t.panel.ready;
+    const cell=t.document.querySelector('tbody td');
+    const expected=raw===null?'NULL':typeof raw==='object'?JSON.stringify(raw):String(raw);
+    assert.equal(cell.textContent,expected,type);
+    assert.equal(cell.querySelector('details'),null,type);
+    t.panel.close();
+  }
+});
+
 test('long values remain accessible in full and untrusted HTML is only text',async()=>{
   const value='<script>payload</script>'+ '长文本'.repeat(100);
   const t=harness({fetch:()=>pageData({rows:[{id:11,name:value}]})});await t.panel.ready;

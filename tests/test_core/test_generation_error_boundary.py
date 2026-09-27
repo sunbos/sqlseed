@@ -8,6 +8,7 @@ import pytest
 
 from sqlseed.config.models import ColumnConfig
 from sqlseed.core.orchestrator import DataOrchestrator
+from sqlseed.generators._protocol import ConfigurationError
 from sqlseed.plugins.hookspecs import hookimpl
 from tests.assertions import assert_empty
 from tests.sqlite_helpers import sqlite_connection
@@ -99,3 +100,32 @@ def test_process_control_exceptions_propagate_and_restore_settings(
             orch.fill_table("items", count=5, skip_ai=True)
         assert orch.get_row_count("items") == 0
         assert _pragmas(orch) == before
+
+
+@pytest.mark.parametrize("preview", [True, False])
+def test_invalid_date_configuration_is_reported_once_without_writes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, preview: bool
+) -> None:
+    path = tmp_path / "invalid_date.db"
+    with sqlite_connection(path) as db:
+        db.execute("CREATE TABLE events(id INTEGER PRIMARY KEY, created_at DATE NOT NULL)")
+        db.execute("INSERT INTO events VALUES(1,'2020-01-01')")
+    with DataOrchestrator(str(path), provider_name="base", optimize_pragma=False) as orch:
+        provider = orch._registry.get()
+        generate_date = provider._gen_date
+        calls = 0
+
+        def count_dates(**params):
+            nonlocal calls
+            calls += 1
+            return generate_date(**params)
+
+        monkeypatch.setattr(provider, "_gen_date", count_dates)
+        columns = [ColumnConfig(name="created_at", generator="date", params={"end_date": "now"})]
+        with pytest.raises(ConfigurationError, match=r"Column 'created_at'.*invalid date 'now'.*YYYY-MM-DD"):
+            if preview:
+                orch.preview_table("events", count=50, column_configs=columns)
+            else:
+                orch.fill_table("events", count=50, column_configs=columns, skip_ai=True)
+        assert calls == 1
+        assert orch.query("SELECT * FROM events") == [{"id": 1, "created_at": "2020-01-01"}]

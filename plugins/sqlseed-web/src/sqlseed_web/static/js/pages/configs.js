@@ -1,6 +1,7 @@
 import { h, get, api, store, safeTargetLabel } from '../api.js';
 import { button, modal, download, icon } from '../workbench/ui.js';
-let root, list, notice, count, search, currentFilter, connectionHint;
+let root, list, notice, count, search, currentFilter, connectionHint, selectAll, selectionLabel, selectionCount, clearSelection, deleteSelection;
+let selected = new Map(), bulkPending = false, loading = false;
 let records = [],
   query = '',
   onlyCurrent = false,
@@ -8,6 +9,7 @@ let records = [],
   version = 0,
   sequence = 0,
   dialog = null;
+let nameDialogSequence = 0;
 const draftPath = id => `/api/workbench/drafts/${encodeURIComponent(id)}`;
 const workbenchLink = (label, suffix, primary = false, glyph = null) => h('a', {
   href: `#/workbench?${suffix}`,
@@ -16,6 +18,9 @@ const workbenchLink = (label, suffix, primary = false, glyph = null) => h('a', {
 export function render() {
   version++;
   records = [];
+  selected = new Map();
+  bulkPending = false;
+  loading = false;
   scope = null;
   query = '';
   onlyCurrent = Boolean(store.connId);
@@ -54,6 +59,17 @@ export function render() {
   connectionHint = h('p', {
     class: 'config-filter-hint muted'
   });
+  selectionLabel = h('span', {}, '全选当前结果');
+  selectionCount = h('span', {class: 'config-selection-count', role: 'status', 'aria-live': 'polite'});
+  selectAll = h('input', {type: 'checkbox', 'aria-label': '全选当前筛选结果', onchange: () => {
+    for (const record of visibleRecords()) {
+      if (selectAll.checked) selected.set(record.id, record.revision);
+      else selected.delete(record.id);
+    }
+    updateSelection();
+  }});
+  clearSelection = button('清空选择', () => {selected.clear(); updateSelection();}, {small: true});
+  deleteSelection = button('删除所选', deleteSelectedConfigs, {class: 'config-delete', disabled: true});
   root = h('div', {
     class: 'page configs-page'
   }, h('header', {
@@ -73,7 +89,9 @@ export function render() {
     class: 'config-filter'
   }, currentFilter, '仅当前数据库'), connectionHint), button('刷新列表', () => refresh(), {
     glyph: 'refresh'
-  })), notice, count, list);
+  })), notice, h('div', {class: 'config-bulk-toolbar', role: 'group', 'aria-label': '批量管理配置'},
+    h('label', {class: 'config-filter'}, selectAll, selectionLabel), selectionCount,
+    h('div', {class: 'config-bulk-actions'}, clearSelection, deleteSelection)), count, list);
   updateFilter();
   return root;
 }
@@ -106,12 +124,15 @@ async function refresh(message = '') {
   const target = onlyCurrent && store.connId ? `?conn_id=${encodeURIComponent(store.connId)}` : '';
   if (target !== scope) {
     records = [];
+    selected.clear();
     scope = target;
     list.replaceChildren(h('p', {
       class: 'config-empty'
     }, '正在读取配置…'));
   }
   list.setAttribute('aria-busy', 'true');
+  loading = true;
+  updateSelection();
   notice.textContent = message;
   const current = () => expected === version && request === sequence;
   try {
@@ -134,6 +155,8 @@ async function refresh(message = '') {
   } finally {
     if (current()) {
       list.setAttribute('aria-busy', 'false');
+      loading = false;
+      updateSelection();
     }
   }
 }
@@ -151,9 +174,31 @@ function savedTime(value) {
     hourCycle: 'h23'
   });
 }
-function drawList() {
+function visibleRecords() {
   const term = query.trim().toLocaleLowerCase();
-  const visible = records.filter(record => `${record.name} ${record.target_label}`.toLocaleLowerCase().includes(term));
+  return records.filter(record => `${record.name} ${record.target_label}`.toLocaleLowerCase().includes(term));
+}
+function updateSelection() {
+  const visible = visibleRecords();
+  const eligible = new Map(visible.map(record => [record.id, record.revision]));
+  for (const [id, revision] of selected) if (eligible.get(id) !== revision) selected.delete(id);
+  selectAll.checked = visible.length > 0 && selected.size === visible.length;
+  selectAll.indeterminate = selected.size > 0 && selected.size < visible.length;
+  selectAll.disabled = loading || bulkPending || !visible.length;
+  selectionLabel.textContent = `全选当前结果（${visible.length}）`;
+  selectionCount.textContent = `已选 ${selected.size} 份 · ${onlyCurrent ? '当前数据库' : '所有数据库'}${query.trim() ? ` · 搜索“${query.trim()}”` : ''}`;
+  clearSelection.disabled = bulkPending || !selected.size;
+  deleteSelection.disabled = loading || bulkPending || !selected.size;
+  for (const checkbox of list.querySelectorAll('[data-config-select]')) {
+    checkbox.checked = selected.has(checkbox.dataset.configSelect);
+    checkbox.disabled = loading || bulkPending;
+  }
+  for (const action of list.querySelectorAll('[data-config-mutation]')) action.disabled = bulkPending;
+  for (const card of list.querySelectorAll('[data-config-id]')) card.classList.toggle('config-card-selected', selected.has(card.dataset.configId));
+}
+function drawList() {
+  const term = query.trim().toLocaleLowerCase(), visible = visibleRecords();
+  updateSelection();
   count.textContent = `${visible.length} 份配置${term ? " · 共 " + records.length + " 份" : ''}`;
   if (!visible.length) {
     list.replaceChildren(h('div', {
@@ -174,7 +219,13 @@ function drawList() {
       class: 'config-card',
       role: 'listitem',
       'data-config-id': record.id
-    }, h('div', {
+    }, h('input', {type: 'checkbox', checked: selected.has(record.id),
+      class: 'config-select', 'data-config-select': record.id, 'aria-label': `选择配置：${record.name}`,
+      onchange: event => {
+        if (event.target.checked) selected.set(record.id, record.revision);
+        else selected.delete(record.id);
+        updateSelection();
+      }}), h('div', {
       class: 'config-card-main'
     }, h('div', {
       class: 'config-card-heading'
@@ -190,17 +241,88 @@ function drawList() {
       class: 'config-card-actions',
       role: 'group',
       'aria-label': `${record.name} 的操作`
-    }, workbenchLink('打开', `draft=${encodeURIComponent(record.id)}`), button('复制', () => editName(record, true)), button('重命名', () => editName(record, false)), button('导出', () => exportConfig(record), {
+    }, workbenchLink('打开', `draft=${encodeURIComponent(record.id)}`), button('复制', () => editName(record, true), {'data-config-mutation': true}), button('重命名', () => editName(record, false), {'data-config-mutation': true}), button('导出', () => exportConfig(record), {
       glyph: 'download'
     }), button('删除', () => deleteConfig(record), {
-      class: 'config-delete'
+      class: 'config-delete', 'data-config-mutation': true
     })));
   }));
+  updateSelection();
 }
-function createDialog(title) {
+
+function deleteSelectedConfigs() {
+  if (loading || bulkPending || !selected.size) return;
+  const targets = visibleRecords().filter(record => selected.get(record.id) === record.revision)
+    .map(({id, name, revision, target_label}) => ({id, name, revision, target_label}));
+  if (!targets.length) return;
+  const context = createDialog('删除所选配置'), {owned} = context;
+  const alert = h('p', {role: 'alert', class: 'config-error'});
+  const progress = h('p', {role: 'status', 'aria-live': 'polite'});
+  const cancel = button('取消', owned.close);
+  const confirm = button(`删除 ${targets.length} 份配置`, submit, {class: 'config-delete-confirm'});
+  let pending = false, submitted = false;
+  owned.body.append(h('p', {}, `将删除以下 ${targets.length} 份已保存配置：`),
+    h('ul', {class: 'config-delete-list'}, ...targets.map(record => h('li', {},
+      h('strong', {}, record.name), h('span', {class: 'muted'}, `${record.target_label || '数据库信息未记录'} · v${record.revision}`)))),
+    h('p', {}, '仅删除清单中的配置，运行记录、运行快照和数据库数据均保留。逐份核对版本后删除；部分失败会显示结果，不会自动重试。'), progress, alert);
+  owned.actions.append(cancel, confirm);
+  cancel.focus({preventScroll: true});
+  async function submit() {
+    if (pending || submitted || !context.current()) return;
+    pending = submitted = bulkPending = true;
+    confirm.disabled = true;
+    cancel.textContent = '停止后续删除';
+    updateSelection();
+    let deleted = 0, missing = 0, attempted = 0;
+    const failures = [];
+    for (const record of targets) {
+      if (!context.current()) break;
+      attempted++;
+      progress.textContent = `正在处理 ${attempted} / ${targets.length}：${record.name}`;
+      try {
+        await api(`${draftPath(record.id)}?revision=${record.revision}`, {method: 'DELETE'});
+        deleted++;
+        publish('sqlseed:draft-deleted', {id: record.id, revision: record.revision});
+        if (context.pageCurrent()) {
+          selected.delete(record.id);
+          records = records.filter(item => item.id !== record.id);
+        }
+      } catch (error) {
+        if (error.status === 404) {
+          missing++;
+          publish('sqlseed:draft-deleted', {id: record.id, revision: record.revision});
+          if (context.pageCurrent()) {
+            selected.delete(record.id);
+            records = records.filter(item => item.id !== record.id);
+          }
+        } else {
+          failures.push(`${record.name}：${error.status === 409 ? '已被更新，本次未删除' : '未能确认删除结果，请刷新核对'}`);
+          if (error.status !== 409) break;
+        }
+      }
+    }
+    pending = false;
+    if (!context.pageCurrent()) return;
+    bulkPending = false;
+    const remaining = targets.length - attempted;
+    const summary = `已删除 ${deleted} 份${missing ? ` · ${missing} 份已不存在` : ''}${failures.length ? ` · ${failures.length} 份需核对` : ''}${remaining ? ` · ${remaining} 份未处理` : ''}。运行记录和数据库数据均保留。`;
+    drawList();
+    if (context.current()) {
+      if (!failures.length && !remaining) owned.close();
+      else {
+        progress.textContent = summary;
+        alert.textContent = `${failures.join('；')}。请返回列表核对最新版本，再重新选择。`;
+        cancel.textContent = '返回列表';
+      }
+    }
+    await refresh(summary);
+  }
+}
+function createDialog(title, dismiss = 'footer') {
   const page = version;
   let closed = false;
   const owned = modal(title, {
+    dismiss,
     onClose: () => {
       closed = true;
       if (dialog === owned) {
@@ -234,6 +356,7 @@ async function mutationFailure(error, context, alert, confirm) {
   }
 }
 function editName(record, copy) {
+  const errorId = `config-name-error-${++nameDialogSequence}`;
   const context = createDialog(copy ? '复制配置' : '重命名配置'),
     {
       owned
@@ -243,6 +366,7 @@ function editName(record, copy) {
     value: copy ? `${record.name.slice(0, 197)} 副本` : record.name,
     maxlength: 200,
     'aria-label': '配置名称',
+    oninput: clearNameError,
     onkeydown: event => {
       if (event.key === 'Enter') {
         event.preventDefault();
@@ -254,6 +378,7 @@ function editName(record, copy) {
     role: 'alert',
     class: 'config-error'
   });
+  alert.id = errorId;
   const confirm = button(copy ? '创建副本' : '保存名称', submit, {
     primary: true
   });
@@ -265,23 +390,37 @@ function editName(record, copy) {
   }, h('span', {}, '配置名称'), input), alert);
   owned.actions.append(button('取消', owned.close), confirm);
   input.focus();
+  function clearNameError() {
+    if (input.getAttribute('aria-invalid') !== 'true') {
+      return;
+    }
+    input.removeAttribute('aria-invalid');
+    input.removeAttribute('aria-describedby');
+    alert.textContent = '';
+  }
+  function rejectName(message) {
+    input.setAttribute('aria-invalid', 'true');
+    input.setAttribute('aria-describedby', errorId);
+    alert.textContent = message;
+    input.focus({preventScroll: true});
+  }
   async function submit() {
     if (pending || confirm.disabled || !context.current()) {
       return;
     }
     const name = input.value.trim();
     if (!name) {
-      alert.textContent = '请输入配置名称。';
-      input.focus();
+      rejectName('请输入配置名称。');
       return;
     }
     if (name.length > 200) {
-      alert.textContent = '配置名称不能超过 200 个字符。';
+      rejectName('配置名称不能超过 200 个字符。');
       return;
     }
     pending = true;
     confirm.disabled = true;
     input.disabled = true;
+    clearNameError();
     alert.textContent = '';
     let failed = null;
     try {
@@ -373,7 +512,7 @@ function deleteConfig(record) {
   cancel.focus();
 }
 function exportConfig(record) {
-  const context = createDialog('导出配置'),
+  const context = createDialog('导出配置', 'header'),
     {
       owned
     } = context;
@@ -390,7 +529,7 @@ function exportConfig(record) {
   }));
   let pending = false;
   owned.body.append(h('strong', {}, record.name), h('p', {}, '导出服务器上已保存的生成规则。文件可在工作台导入，不包含数据库连接凭据。'), alert, result);
-  owned.actions.append(button('关闭', owned.close), ...actions);
+  owned.actions.append(...actions);
   async function saveFile(format) {
     if (pending || !context.current()) {
       return;

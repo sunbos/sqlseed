@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 from sqlseed._utils.logger import get_logger
 from sqlseed._utils.type_checks import has_exact_type
+from sqlseed.generators._datetime_utils import DateRangeError
 from sqlseed.generators._protocol import ConfigurationError, GenerationError, UnknownGeneratorError
 
 if TYPE_CHECKING:
@@ -339,6 +340,10 @@ class DataStream:
 
         try:
             return self._apply_generator(node.generator_spec, exclude_values=exclude_values, nullable=node.nullable)
+        except DateRangeError as exc:
+            raise ConfigurationError(
+                f"Column '{node.name}' generator '{node.generator_spec.generator_name}' misconfigured: {exc}"
+            ) from exc
         except (TypeError, AttributeError) as exc:
             raise ConfigurationError(f"Generator '{node.generator_spec.generator_name}' misconfigured: {exc}") from exc
         except (ValueError, OverflowError) as exc:

@@ -16,7 +16,6 @@ exclude_docs: |
   /design-review/
   /superpowers/
   /specs/
-  /candidate-validation.md
 
 theme:
   name: material

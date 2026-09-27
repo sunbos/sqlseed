@@ -1,6 +1,22 @@
 import { h, api } from '../api.js';
 import { modal, button, valueText } from './ui.js';
 
+/** Match preview's ISO spelling without parsing, rounding or shifting a timestamp. */
+function temporalText(value, type) {
+  if (typeof value !== 'string' || !/^(?:DATETIME|TIMESTAMP|TIME)(?:\(\d+\))?(?: (?:WITH|WITHOUT) TIME ZONE)?$/.test(String(type || '').trim().toUpperCase())) {
+    return valueText(value);
+  }
+  const time = '(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d';
+  const zone = '(?:Z|[+-]\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d+)?)?)?';
+  const isTime = /^TIME(?:\(| |$)/.test(String(type).trim().toUpperCase());
+  const pattern = isTime ? `^(${time})(\\.\\d+)?(${zone})$` : `^(\\d{4}-\\d{2}-\\d{2})[ T](${time})(\\.\\d+)?(${zone})$`;
+  const match = value.match(new RegExp(pattern));
+  if (!match) return value;
+  const fraction = match[isTime ? 2 : 3] || '';
+  const suffix = /^\.0+$/.test(fraction) ? '' : fraction;
+  return isTime ? `${match[1]}${suffix}${match[3]}` : `${match[1]}T${match[2]}${suffix}${match[4]}`;
+}
+
 /** Read current database rows without changing the active connection or generation document. */
 export function openTableData({
   connId = null,
@@ -8,7 +24,8 @@ export function openTableData({
   table,
   targetKey,
   targetLabel = '',
-  isCurrent = () => true
+  isCurrent = () => true,
+  returnFocus = null
 }) {
   let closed = false,
     busy = false,
@@ -18,6 +35,7 @@ export function openTableData({
   const limit = 50;
   const dialog = modal('数据库当前数据', {
     wide: true,
+    returnFocus,
     onClose: () => {
       closed = true;
       controller?.abort();
@@ -61,7 +79,6 @@ export function openTableData({
   }, '查询时表内的实际记录，可能包含原有、本次提交及后续变化的数据；不是某次运行的数据快照。'), status, error, records, h('div', {
     class: 'wb-table-data-pagination'
   }, page, h('div', {}, previous, next)), refreshed, ordering);
-  dialog.actions.append(button('关闭', dialog.close));
   const live = () => !closed && dialog.el.isConnected && isCurrent();
   function setBusy(value) {
     busy = value;
@@ -70,8 +87,17 @@ export function openTableData({
     next.disabled = value || !result || result.offset + result.limit >= result.total;
     records.setAttribute('aria-busy', String(value));
   }
-  function displayValue(value) {
-    const text = valueText(value);
+  function displayValue(value, column) {
+    const raw = valueText(value);
+    const text = temporalText(value, column.type);
+    if (text !== raw) {
+      return h('details', {
+        class: 'wb-table-data-value wb-table-data-temporal'
+      }, h('summary', {
+        title: '查看数据库原值',
+        'aria-label': `${text}，展开查看数据库原值`
+      }, text), h('small', {}, '数据库原值'), h('pre', {}, raw));
+    }
     return text.length > 160 ? h('details', {
       class: 'wb-table-data-value'
     }, h('summary', {}, `${text.slice(0, 80)}… 展开完整值`), h('pre', {}, text)) : text;
@@ -91,7 +117,7 @@ export function openTableData({
       scope: 'col'
     }, h('span', {
       class: 'mono'
-    }, column.name), h('small', {}, [column.type, column.is_primary_key ? 'PK' : null].filter(Boolean).join(' · ')))))), h('tbody', {}, ...data.rows.map(row => h('tr', {}, ...data.columns.map(column => h('td', {}, displayValue(row[column.name])))))));
+    }, column.name), h('small', {}, [column.type, column.is_primary_key ? 'PK' : null].filter(Boolean).join(' · ')))))), h('tbody', {}, ...data.rows.map(row => h('tr', {}, ...data.columns.map(column => h('td', {}, displayValue(row[column.name], column)))))));
     function emptyDataPage() {
       if (data.rows.length) {
         return [];

@@ -21,6 +21,30 @@ if TYPE_CHECKING:
 pytest.importorskip("sqlseed_ai")
 
 
+def test_refiner_receives_date_parameter_and_column_instead_of_retry_exhaustion(tmp_path: Path) -> None:
+    from sqlseed_ai import AIConfig, AiConfigRefiner, SchemaAnalyzer
+
+    path = tmp_path / "dates.db"
+    with sqlite_connection(path) as connection:
+        connection.execute("CREATE TABLE events(created_at DATE NOT NULL)")
+    refiner = AiConfigRefiner(SchemaAnalyzer(AIConfig()), str(path), cache_dir=None)
+    candidate = {
+        "name": "events",
+        "columns": [{"name": "created_at", "generator": "date", "params": {"end_date": "now"}}],
+    }
+    with DataOrchestrator(str(path), provider_name="base", optimize_pragma=False) as orch:
+        error = refiner._validate_config(orch, "events", candidate)
+        assert error is not None
+        assert error.column == "created_at"
+        assert "invalid date 'now'" in error.message
+        assert "YYYY-MM-DD" in error.message
+        assert "1000 retries" not in error.message
+        feedback = refiner._build_refinement_prompt(error, attempt=0, max_retries=1)
+        assert error.message in feedback
+        assert "Affected Column: created_at" in feedback
+        assert orch.get_row_count("events") == 0
+
+
 @pytest.mark.parametrize("generator", [[], {}, 42])
 def test_invalid_generator_value_recovers_schema_rule(tmp_path: Path, generator: object) -> None:
     from sqlseed_ai.auto_heal.orchestrator import AutoHealOrchestrator

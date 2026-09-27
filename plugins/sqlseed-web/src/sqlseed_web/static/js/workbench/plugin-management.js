@@ -2,6 +2,7 @@ import { h, api } from '../api.js';
 import { button, modal } from './ui.js';
 const prefix = '/api/settings/plugins';
 const managed = new Set(['ai', 'cli', 'mcp', 'mimesis']);
+const operationLabels = {install: '安装', uninstall: '卸载', update: '更新'};
 export function componentImpact(id) {
   return {
     ai: 'AI 规则建议与分析不可用；手动配置、预览和生成数据仍可使用。',
@@ -33,6 +34,7 @@ export function createPluginManagement({
     generation = null,
     syncing = false;
   const controllers = new Set();
+  const updateEntries = new Set();
   const el = h('section', {
     class: 'settings-management',
     'aria-label': '插件管理'
@@ -66,9 +68,9 @@ export function createPluginManagement({
     const environmentOpen = Boolean(el.querySelector('[data-plugin-environment]')?.open);
     function managementAvailabilityHint() {
       if (automatic()) {
-        return info.reason || '按需安装或卸载可选组件，完成后自动生效。';
+        return info.reason || '按需安装、更新或卸载可选组件，完成后自动生效。';
       } else if (maintenance()) {
-        return info.reason || '可在此环境中安装或卸载可选组件。';
+        return info.reason || '可在此环境中安装、更新或卸载可选组件。';
       } else {
         return '此部署暂不支持网页内管理组件，请联系应用管理员。';
       }
@@ -118,6 +120,7 @@ export function createPluginManagement({
       }, h('strong', {}, '部分数据库连接未恢复'), ...info.session_restore.failed_connections.map(item => h('p', {}, item.message || '请检查数据库连接后重新连接。'))));
     }
     onChange();
+    for (const entry of updateEntries) entry.draw();
     function renderTaskProgress() {
       let state;
       if (taskError) {
@@ -137,7 +140,7 @@ export function createPluginManagement({
         class: 'settings-plugin-task',
         'aria-label': '插件任务',
         'aria-busy': String(task.status === 'running')
-      }, h('h4', {}, `${task.action === 'uninstall' ? '卸载' : '安装'} ${{
+      }, h('h4', {}, `${operationLabels[task.action] || '处理'} ${{
         ai: 'AI',
         cli: 'CLI',
         mcp: 'MCP',
@@ -238,7 +241,7 @@ export function createPluginManagement({
     }
   }
   function allowed(id, action) {
-    return active && managed.has(id) && info?.enabled && info.available && !error && Boolean(info.components?.find(value => value.id === id)?.[action === 'install' ? 'can_install' : 'can_uninstall']);
+    return active && managed.has(id) && info?.enabled && info.available && !error && Boolean(info.components?.find(value => value.id === id)?.[`can_${action}`]);
   }
   async function prepare(id, action) {
     if (locked() || !allowed(id, action)) {
@@ -259,6 +262,9 @@ export function createPluginManagement({
       if (!plan.plan_id || plan.component_id !== id || plan.action !== action || !Number.isFinite(plan.expires_in) || plan.expires_in <= 0) {
         throw new Error('服务返回的计划与所选操作不一致，请刷新状态。');
       }
+      if (action === 'update' && (!plan.version || !plan.target_version || !plan.artifact?.filename || !/^[0-9a-f]{64}$/.test(plan.artifact?.sha256 || ''))) {
+        throw new Error('更新计划缺少已核验的版本或软件包，请重新检查更新。');
+      }
       showReview(plan);
     } catch (error_) {
       if (current(expected)) error = `无法生成操作计划：${error_.message}`;
@@ -270,7 +276,7 @@ export function createPluginManagement({
     }
   }
   function showReview(plan) {
-    const operation = plan.action === 'install' ? '安装' : '卸载';
+    const operation = operationLabels[plan.action];
     const confirmation = {
       plan,
       expired: false,
@@ -279,6 +285,7 @@ export function createPluginManagement({
       timer: null
     };
     const dialog = modal(`确认${operation}插件`, {
+      dismiss: 'footer',
       onClose: () => {
         clearTimeout(confirmation.timer);
         if (review === confirmation) {
@@ -301,9 +308,14 @@ export function createPluginManagement({
       class: 'mono'
     }, plan.distribution), h('dt', {}, '版本'), h('dd', {
       class: 'mono'
-    }, plan.version || '兼容版本'), h('dt', {}, '目标环境'), h('dd', {
+    }, plan.action === 'update' ? `${plan.version} → ${plan.target_version}` : plan.version || '兼容版本'), h('dt', {}, '目标环境'), h('dd', {
       class: 'mono'
     }, info.python_executable || '当前应用环境'));
+    if (plan.action === 'update') {
+      dialog.body.append(h('p', {class: 'settings-component-impact'}, `${plan.version} → ${plan.target_version}；仅更新此组件，其他包保持原版本。`));
+      details.append(h('dt', {}, '软件包校验'), h('dd', {class: 'mono'}, `${plan.artifact?.filename || ''}\nSHA256 ${plan.artifact?.sha256 || ''}`));
+      if (plan.dependencies?.length) details.append(h('dt', {}, '保持的依赖版本'), h('dd', {class: 'mono'}, plan.dependencies.join('\n')));
+    }
     dialog.body.append(h('p', {}, automatic() ? `${operation} ${{
       ai: 'AI',
       cli: 'CLI',
@@ -480,10 +492,33 @@ export function createPluginManagement({
       class: 'muted'
     }, `依赖此组件：${component.required_by.join('、')}`) : null);
   }
+  function updateControls(item) {
+    if (!managed.has(item.id) || item.status !== 'update_available') return null;
+    let disabled = false;
+    const note = h('span', {class: 'muted', role: 'status'});
+    const action = button('查看更新计划', () => {
+      if (action.isConnected && !action.disabled) return prepare(item.id, 'update');
+    }, {small: true, 'data-plugin-action': 'update'});
+    const holder = h('div', {class: 'settings-package-management'}, action, note);
+    const entry = {draw() {
+      const component = info.components?.find(value => value.id === item.id);
+      const stale = component?.version && component.version !== item.current;
+      let reason = error || info.reason || component?.update_reason || '';
+      if (!reason && !info.enabled) reason = '此部署不支持网页更新组件，请使用原环境管理工具。';
+      if (!reason && !info.token) reason = '管理凭据不可用，请刷新状态。';
+      if (!reason && component && component.can_update === undefined) reason = '此服务尚未提供组件更新，请更新应用后重试。';
+      action.disabled = disabled || locked() || !allowed(item.id, 'update') || Boolean(stale);
+      note.textContent = stale ? '组件版本已变化，请重新检查更新。' : reason;
+    }};
+    updateEntries.add(entry);
+    entry.draw();
+    return {el: holder, setDisabled(value) {disabled = Boolean(value); entry.draw();}, destroy() {disabled = true; entry.draw(); updateEntries.delete(entry);}};
+  }
   return {
     el,
     refresh,
     controls,
+    updateControls,
     get enabled() {
       return Boolean(info?.enabled);
     },
@@ -501,6 +536,7 @@ export function createPluginManagement({
     },
     destroy() {
       active = false;
+      updateEntries.clear();
       version++;
       clearTimeout(timer);
       review?.dialog.close();

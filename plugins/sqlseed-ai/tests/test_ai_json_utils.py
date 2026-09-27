@@ -8,9 +8,40 @@ channel-format prefix stripping (``<|channel>thought ... <channel|>``).
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import pytest
+
+
+@pytest.mark.parametrize("content", ['{"value":', '{"value":"unfinished', '{"value":1,', '{"items":[1}'])
+def test_strict_json_never_invents_business_content(content: str) -> None:
+    from sqlseed_ai._json_utils import JSONResponseError
+
+    with pytest.raises(JSONResponseError) as error:
+        parse_json_response(content, strict=True)
+    assert error.value.code == "invalid_json"
+
+
+def test_fenced_missing_root_closer_preserves_values() -> None:
+    # Observed from a local E2B completion with finish_reason=stop.
+    content = (
+        '```json\n{"suggestions":[{"table":"users","column":"age","generator":"integer",'
+        '"params":{"min_value":25,"max_value":40},"reason":"range [25,40]"}\n]\n```'
+    )
+    result = parse_json_response(content, strict=True)
+    assert result["suggestions"][0]["params"] == {"min_value": 25, "max_value": 40}
+    assert result["suggestions"][0]["reason"] == "range [25,40]"
+    assert parse_json_response("{}", strict=True) == {}
+
+
+def test_strict_empty_response_has_a_distinct_diagnostic() -> None:
+    from sqlseed_ai._json_utils import JSONResponseError
+
+    with pytest.raises(JSONResponseError) as error:
+        parse_json_response("  ", strict=True)
+    assert error.value.code == "empty_response"
+
 
 try:
     from sqlseed_ai._json_utils import _sanitize_names, _strip_channel_prefix, _try_raw_decode, parse_json_response
@@ -19,6 +50,34 @@ except ImportError:
 
 
 class TestSanitizeNames:
+    @pytest.mark.parametrize("columns", [None, 42, True, False, "columns", {"name": ":id"}, [None], [42], ["id"]])
+    @pytest.mark.parametrize("envelope", ["{}", "```json\n{}\n```", "Proposed configuration: {}"])
+    def test_invalid_columns_reach_config_validation(self, columns: Any, envelope: str) -> None:
+        """JSON normalization preserves invalid structures for semantic rejection."""
+        from pydantic import ValidationError
+
+        from sqlseed.config.models import TableConfig
+
+        content = envelope.format(json.dumps({"name": ":users", "count": 1, "columns": columns}))
+        result = parse_json_response(content, strict=True)
+
+        assert result == {"name": "users", "count": 1, "columns": columns}
+        with pytest.raises(ValidationError):
+            TableConfig.model_validate(result)
+
+    @pytest.mark.parametrize("include_columns", [False, True])
+    def test_missing_and_empty_columns_keep_config_defaults(self, include_columns: bool) -> None:
+        """Optional or empty columns remain valid requests for inferred rules."""
+        from sqlseed.config.models import TableConfig
+
+        document: dict[str, Any] = {"name": "users", "count": 1}
+        if include_columns:
+            document["columns"] = []
+        result = parse_json_response(json.dumps(document), strict=True)
+
+        assert result == document
+        assert TableConfig.model_validate(result).columns == []
+
     def test_sanitize_names_strips_leading_colon(self) -> None:
         """Leading colons are stripped from table and column name fields."""
         data: dict[str, Any] = {

@@ -177,3 +177,33 @@ test('focus outside the modal calendar returns to its active grid date', async (
   await ui.document.dispatchEvent({type: 'focusin', target: ui.page});
   assert.equal(ui.document.activeElement.getAttribute('data-date'), '2024-02-29');
 });
+
+
+test('Alt+Down cannot bypass a disabled calendar trigger or disabled date input', async () => {
+  const ui = harness();
+  ui.picker.button.disabled = true;
+  await ui.picker.input.dispatchEvent({type: 'keydown', key: 'ArrowDown', altKey: true});
+  assert.equal(ui.calendar(), null);
+  assert.equal(ui.overlay.inert, undefined);
+  ui.picker.button.disabled = false;
+  ui.picker.input.disabled = true;
+  await ui.picker.button.click();
+  assert.equal(ui.calendar(), null);
+  assert.equal(ui.picker.input.value, '2024-02-29');
+  assert.deepEqual(ui.changes, []);
+});
+
+test('disabling a date control while its calendar is open prevents a pending date commit', async () => {
+  for (const part of ['input', 'button']) {
+    const ui = harness(); await ui.picker.button.click();
+    await ui.key('ArrowRight');
+    ui.picker[part].disabled = true;
+    await ui.key('Enter');
+    assert.equal(ui.calendar(), null);
+    assert.equal(ui.picker.input.value, '2024-02-29');
+    assert.deepEqual(ui.changes, []);
+    assert.equal(ui.overlay.inert, false);
+    assert.equal(ui.page.inert, true);
+    assert.equal(ui.document.listeners.get('keydown').size, 0);
+  }
+});

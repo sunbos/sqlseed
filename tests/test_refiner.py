@@ -170,7 +170,8 @@ class TestAiConfigRefiner:
         call_count = 0
         captured_messages: list[Any] = []
 
-        def mock_call_llm(messages):
+        def mock_call_llm(messages, *, strict_json=False):
+            assert strict_json is True
             nonlocal call_count, captured_messages
             call_count += 1
             captured_messages.clear()

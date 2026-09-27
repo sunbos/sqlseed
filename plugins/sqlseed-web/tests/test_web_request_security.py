@@ -97,3 +97,25 @@ def test_workbench_page_cannot_be_embedded_for_clickjacking() -> None:
         assert response.status_code == 200
         assert response.headers["x-frame-options"] == "DENY"
         assert response.headers["content-security-policy"] == "frame-ancestors 'none'"
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "payload", "field"),
+    [
+        ("/api/connections", {"url": ["postgresql://private-user:private-secret@db.example/app"]}, "url"),
+        ("/api/ai/config", {"api_key": {"value": "private-secret"}}, "api_key"),
+    ],
+)
+def test_validation_errors_keep_field_location_without_echoing_credentials(
+    local_api: tuple, endpoint: str, payload: dict, field: str
+) -> None:
+    client, registry, _ = local_api
+    response = client.post(endpoint, json=payload)
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["loc"] == ["body", field]
+    assert response.json()["detail"][0]["type"] == "string_type"
+    assert "private-secret" not in response.text
+    assert "private-user" not in response.text
+    assert all("input" not in item and "ctx" not in item for item in response.json()["detail"])
+    assert registry.list_connections() == []
+    assert registry.get_ai_override() == {}

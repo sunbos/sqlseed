@@ -182,7 +182,8 @@ class TestConnections:
         keys = {c["group_key"] for c in conns}
         assert len(conns) == 2
         assert len(keys) == 1
-        assert next(iter(keys)) == str(db)
+        # HTTP grouping keys are opaque; equivalent spellings must still group.
+        assert all(c["group_size"] == 2 for c in conns)
 
     def test_ai_config_roundtrip(self, client: TestClient) -> None:
         """Session AI override stores and merges over env defaults."""

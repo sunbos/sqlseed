@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, cast
 
 from sqlseed._utils.logger import get_logger
+from sqlseed._utils.redaction import redact_url_credentials
 from sqlseed.core.enrichment import EnrichmentEngine
 from sqlseed.core.plugin_mediator import PluginMediator
 from sqlseed.core.relation import RelationResolver, SharedPool
@@ -178,7 +179,10 @@ class ConnectionMixin:
         # SQLAlchemyAdapter automatically handles database URLs (postgresql://, etc.)
         # and SQLite file paths, shielding dialect differences via the Dialect abstraction.
         if _is_db_url(self._db_path):
-            logger.debug("Using SQLAlchemyAdapter (database URL)", db_target=self._db_path)
+            logger.debug(
+                "Using SQLAlchemyAdapter (database URL)",
+                db_target=redact_url_credentials(self._db_path, whole_url=True),
+            )
         else:
             logger.debug("Using SQLAlchemyAdapter (SQLite file)", db_target=self._db_path)
         return SQLAlchemyAdapter()

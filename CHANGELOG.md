@@ -9,8 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Add light, dark and system appearance, browser-local defaults for new configurations, and a shared Web component reference with bundled fonts.
+- Support managed component changes on Windows and reviewed updates of optional components with fixed dependencies, wheel hashes and service recovery.
+- Add editable AI suggestions and contextual preview-rule editing, keeping unapplied changes separate from active generation rules.
+
+### Changed
+
+- Simplify workbench guidance, configuration actions and relationship views; add pointer-centered graph zoom, stable hover geometry and actionable cycle locations.
+- Guide SQLite clear-and-regenerate failures through a reviewed downstream-table expansion while preserving the selected write mode and final confirmation.
+- Require Core `>=0.2.5.dev0,<0.3` in development plugins for shared connection parsing and credential redaction. The published 0.2.4 set retains its own dependency metadata.
+- Refresh bilingual package and architecture documentation, update the wordmark, and replace obsolete audit logs with concise historical decision records.
+
 ### Fixed
 
+- Preserve SQLite file URL identity across encoded and special-character paths; opening an existing file or restoring a session cannot create a missing replacement database.
+- Report invalid generator bounds before applying rules; recover empty schemas after a refresh and restore keyboard focus after failed connections or background run polling.
+- Keep database credentials out of connection responses, validation errors, exception messages and diagnostic logs without changing runtime connection targets.
+- Treat invalid date ranges as configuration errors instead of exhausting random-generation retries; clarify the existing date/time contract in AI prompts and validate malformed JSON containers normally.
+- Distinguish malformed AI JSON from empty configurations and feed safe format diagnostics into existing bounded retries; unknown generators follow the existing validation recovery path.
 - Update the PyPI uploader for Core Metadata 2.5 and allow the maintained workflow to publish an existing release tag without changing its source commit.
 - Use the shared `pypi` environment for all five existing packages while retaining separate upload jobs and post-publication acceptance; verify publisher permissions using unchanged public release files.
 

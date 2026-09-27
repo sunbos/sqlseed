@@ -31,7 +31,7 @@
   border-radius: 7px;
   background: var(--paper);
   color: var(--teal);
-  font-weight: 600;
+  font-weight: var(--font-weight-emphasis);
   align-self: stretch;
 }
 .wb-date-trigger:hover,
@@ -50,7 +50,7 @@
   color: var(--muted);
 }
 .wb-date-error {
-  color: #a53131;
+  color: var(--danger);
 }
 .wb-date-error:empty {
   display: none;
@@ -76,7 +76,7 @@
   border-radius: var(--radius);
   background: var(--paper);
   color: var(--ink);
-  box-shadow: 0 14px 42px #19344126, 0 3px 10px #19344114;
+  box-shadow: var(--picker-shadow,var(--glass-shadow));
   font: 13px/1.5 "PingFang SC", "Microsoft YaHei", sans-serif;
 }
 .wb-date-heading,
@@ -94,7 +94,7 @@
 .wb-date-heading h3 {
   margin: 0;
   font-size: 16px;
-  font-weight: 650;
+  font-weight: var(--font-weight-emphasis);
 }
 .wb-date-navigation {
   gap: 4px;
@@ -191,8 +191,8 @@
   background: var(--soft);
 }
 .wb-date-day.selected {
-  background: var(--teal);
-  color: #fff;
+  background: var(--control-selected);
+  color: var(--teal);
 }
 .wb-date-actions {
   padding-top: 10px;
@@ -216,7 +216,7 @@
 }
 .wb-date-control input[aria-invalid="true"],
 .wb-date-dialog input[aria-invalid="true"] {
-  border-color: #a53131;
+  border-color: var(--danger);
 }
 @media (forced-colors: active) {
   .wb-date-day.selected {

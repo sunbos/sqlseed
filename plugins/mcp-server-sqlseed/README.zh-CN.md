@@ -87,10 +87,12 @@ AI YAML 工具名为 `sqlseed_ai_generate_yaml`，命令入口为 `mcp-server-sq
 需要两组工具时，客户端分别配置两个服务器，并为 AI 进程提供后端设置。
 安装 AI 包不会向规则型服务器注入工具，旧 `mcp-server-sqlseed[ai]` extra 不适用于当前布局。
 
-## 依赖
+## 当前开发源码依赖
+
+以下要求对应当前源码；上方 0.2.4 命令仍是已发布安装基线。源码开发时请在同一次解析中安装本地 Core 和插件。
 
 - Python `>=3.10`
-- `sqlseed>=0.2.4.dev0,<0.3`
+- `sqlseed>=0.2.5.dev0,<0.3`
 - `mcp>=1.0,<2`
 
 更多信息见[用户指南](https://sunbos.github.io/sqlseed/guide/)、

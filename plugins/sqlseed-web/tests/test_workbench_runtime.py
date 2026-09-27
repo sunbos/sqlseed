@@ -286,10 +286,18 @@ def test_errors_remove_query_credentials() -> None:
             "postgresql+psycopg://***@db.local/app?mode=fast&sslpassword=***",
         ),
         ("https://user:private@api.example/v1?access_token=hidden", "https://***@api.example/v1?access_token=***"),
+        (
+            "postgresql://user:raw/slash ?password@db.local/app?%61pi_key=hidden&mode=fast",
+            "postgresql://***@db.local/app?%61pi_key=***&mode=fast",
+        ),
         ("?password?junk=hidden&mode=fast", "?password?junk=***&mode=fast"),
         ("?x=1?password=hidden&mode=fast", "?x=1?password=***&mode=fast"),
         ("?x=1?password=hidden?other=value&mode=fast", "?x=1?password=***&mode=fast"),
-        ("?password=before?junk'??token=after", "?password=***'??token=***"),
+        # Quotes and spaces can belong to a secret, so ambiguous suffixes are
+        # hidden rather than treated as the start of a public diagnostic.
+        ("?password=before?junk'??token=after", "?password=***"),
+        ("?credential='raw secret'&mode=fast", "?credential=***&mode=fast"),
+        ("postgresql://user:first://second@db.example/app", "postgresql://***@db.example/app"),
         ("?credentİal=hidden&mode=fast", "?credentİal=***&mode=fast"),
     ],
 )

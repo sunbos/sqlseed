@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 import sys
+from contextlib import ExitStack
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, ClassVar
@@ -120,6 +121,54 @@ def test_restoration_failure_is_recoverable_without_repeating_install(managed: A
     assert manager.status()["phase"] == "ready"
     assert manager.status()["active_task"]["service_ready"] is True
     assert len(calls) == 1
+
+
+def test_unconfirmed_installer_cleanup_blocks_restore_and_holds_lock_until_retry(
+    managed: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from sqlseed_web.plugin_environment import EnvironmentLock
+    from sqlseed_web.plugin_process import InstallerCleanupPending
+
+    module = importlib.import_module("sqlseed_web.plugin_management")
+    manager, controller, calls = managed
+    cleanups: list[str] = []
+    allow_cleanup = False
+
+    def stop() -> None:
+        cleanups.append("stop")
+        if not allow_cleanup:
+            raise OSError("job state unavailable")
+
+    resources = ExitStack()
+    resources.callback(lambda: cleanups.append("released"))
+
+    def uncertain_installer(*args: Any, **kwargs: Any) -> int:
+        calls.append("install")
+        raise InstallerCleanupPending(stop, resources)
+
+    monkeypatch.setattr(module, "run_installer", uncertain_installer)
+    plan = manager.plan(module.PlanRequest(component_id="mimesis", action="install"))
+    manager.execute(module.ExecuteRequest(plan_id=plan["plan_id"]))
+    manager._worker.join(5)
+    assert manager.status()["phase"] == "recovery_failed"
+    assert controller.calls == ["pause", "maintenance"]
+    assert cleanups == []
+    contender = EnvironmentLock(manager.environment.prefix, exclusive=True)
+    with pytest.raises(RuntimeError):
+        contender.acquire()
+    manager.recover()
+    manager._worker.join(5)
+    assert manager.status()["phase"] == "recovery_failed"
+    assert controller.calls == ["pause", "maintenance"]
+    assert cleanups == ["stop"]
+    allow_cleanup = True
+    manager.recover()
+    manager._worker.join(5)
+    assert manager.status()["phase"] == "ready"
+    assert manager.status()["active_task"]["status"] == "failed"
+    assert controller.calls == ["pause", "maintenance", "restore"]
+    assert calls == ["install"]
+    assert cleanups == ["stop", "stop", "released"]
 
 
 def test_supervisor_detects_a_dead_worker_and_keeps_a_recovery_page(

@@ -113,8 +113,7 @@ class _Installer:
     tool_executable: str | None
     shell: Literal["posix", "powershell"]
 
-    def command(self, action: Literal["install", "check"], requirement: str | None = None) -> str | None:
-        """Build a shell-quoted command for the serving interpreter without executing it."""
+    def _arguments(self, action: Literal["install", "check"], requirement: str | None) -> list[str] | None:
         if self.tool is None or not self.python_executable or (action == "install" and requirement is None):
             return None
         if self.tool == "pip":
@@ -125,9 +124,57 @@ class _Installer:
             return None
         if requirement is not None:
             arguments.append(requirement)
+        return arguments
+
+    def command(self, action: Literal["install", "check"], requirement: str | None = None) -> str | None:
+        """Build a shell-quoted command for the serving interpreter without executing it."""
+        arguments = self._arguments(action, requirement)
+        if arguments is None:
+            return None
         if self.shell == "powershell":
             return "& " + " ".join("'" + argument.replace("'", "''") + "'" for argument in arguments)
         return shlex.join(arguments)
+
+    def commands(self, action: Literal["install", "check"], requirement: str | None = None) -> list[dict[str, str]]:
+        """Provide explicit shell choices; portable commands require the same activated environment."""
+        arguments = self._arguments(action, requirement)
+        exact = self.command(action, requirement)
+        if arguments is None or exact is None:
+            return []
+        commands = [
+            {
+                "shell": self.shell,
+                "label": "PowerShell（精确路径）" if self.shell == "powershell" else "macOS / Linux（精确路径）",
+                "command": exact,
+                "note": "直接指定当前 Web 使用的 Python 解释器；完成后重启 Web 服务。",
+            }
+        ]
+        # cmd expands %variables% even inside quotes, and !variables! when delayed
+        # expansion is enabled. Do not offer an unsafe approximation for these paths.
+        if self.shell == "powershell" and not any(
+            any(character in argument for character in '%!"\r\n') for argument in arguments
+        ):
+            commands.append(
+                {
+                    "shell": "cmd",
+                    "label": "CMD（精确路径）",
+                    "command": " ".join('"' + argument + '"' for argument in arguments),
+                    "note": "在 Windows 命令提示符中执行，直接指定当前 Web 的 Python 解释器；完成后重启 Web 服务。",
+                }
+            )
+        portable = f"python -m pip {action}" if self.tool == "pip" else f"uv pip {action} --python python"
+        if requirement is not None:
+            portable += f' "{requirement}"'
+        commands.append(
+            {
+                "shell": "environment",
+                "label": "通用（已激活环境）",
+                "command": portable,
+                "note": '先激活运行 Web 的环境，执行 python -c "import sys; print(sys.executable)"，'
+                "确认输出与页面的 Python 路径一致；完成后重启 Web 服务。",
+            }
+        )
+        return commands
 
     def public_info(self) -> dict[str, Any]:
         """Describe the detected tool and target interpreter for the settings UI."""
@@ -231,6 +278,8 @@ def ai_import_failure() -> dict[str, Any]:
         "installer": installer.public_info(),
         "install_command": installer.command("install", "sqlseed-web[ai]"),
         "repair_command": installer.command("check"),
+        "install_commands": installer.commands("install", "sqlseed-web[ai]"),
+        "repair_commands": installer.commands("check"),
     }
 
 
@@ -336,6 +385,8 @@ def _package(
         "description": info.description,
         "install_command": installer.command("install", info.install_requirement),
         "repair_command": installer.command("check"),
+        "install_commands": installer.commands("install", info.install_requirement),
+        "repair_commands": installer.commands("check"),
         "guidance": guidance,
     }
 

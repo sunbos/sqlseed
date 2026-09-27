@@ -15,7 +15,6 @@ from typing import Any
 
 import yaml
 from sqlalchemy.engine import make_url
-from sqlalchemy.exc import StatementError
 from sqlseed._utils.logger import get_logger
 from sqlseed._utils.sql_safe import quote_identifier
 from sqlseed._utils.type_checks import has_exact_type
@@ -37,6 +36,8 @@ from sqlseed.core.stream import GenerationBudgetExceededError, GenerationCancell
 from sqlseed.database.sqlalchemy_adapter import SQLAlchemyAdapter
 from sqlseed.generators._dispatch import GeneratorDispatchMixin
 
+from sqlseed_web.diagnostics import CREDENTIAL_KEY_PATTERN
+from sqlseed_web.diagnostics import public_error as _public_error
 from sqlseed_web.operation_errors import generation_errors
 from sqlseed_web.runtime_lifecycle import start_background
 from sqlseed_web.settings_environment import package_availability
@@ -44,8 +45,6 @@ from sqlseed_web.state import Connection, UIState, state
 from sqlseed_web.workbench_execution import build_execution_plan, normalize_execution
 from sqlseed_web.workbench_schema import inspect_connection
 from sqlseed_web.workbench_store import WorkspaceStore, get_store
-
-_CREDENTIAL_KEY_PATTERN = r"password|passwd|pwd|secret|token|credential|key|passfile"
 
 logger = get_logger(__name__)
 
@@ -59,48 +58,9 @@ class WorkbenchError(ValueError):
         self.status = status
 
 
-def _redact_query_credentials(message: str) -> str:
-    """Consume each query field once, including incomplete keys containing '?'."""
-    field_pattern = re.compile(r"[?&][^=&\s]*=?")
-    value_pattern = re.compile(r"[^&\s'\")]+")
-    parts: list[str] = []
-    cursor = copied = 0
-    while field := field_pattern.search(message, cursor):
-        cursor = field.end()
-        key = field.group()
-        if not key.endswith("=") or not re.search(_CREDENTIAL_KEY_PATTERN, key, re.IGNORECASE):
-            continue
-        if (value := value_pattern.match(message, cursor)) is not None:
-            parts.extend((message[copied:cursor], "***"))
-            cursor = copied = value.end()
-    return "".join(parts) + message[copied:]
-
-
-def _redact_url_credentials(message: str) -> str:
-    """Scan each URL authority once, without regex backtracking on long errors."""
-    parts = message.split("://")
-    for index in range(1, len(parts)):
-        authority = parts[index]
-        for offset, character in enumerate(authority):
-            if character == "@":
-                if offset:
-                    parts[index] = "***" + authority[offset:]
-                break
-            if character == "/" or character.isspace():
-                break
-    return "://".join(parts)
-
-
 def public_error(exc: Exception) -> str:
-    """Avoid exposing connection credentials or SQLAlchemy parameter dumps."""
-    if isinstance(exc, StatementError) and exc.orig is not None:
-        message = str(exc.orig)
-    else:
-        message = str(exc)
-    message = message.split("\n[SQL:", 1)[0].split("\n[parameters:", 1)[0]
-    message = _redact_url_credentials(message)
-    message = _redact_query_credentials(message)
-    return message[:2000]
+    """Keep the existing runtime import available for Web API callers."""
+    return _public_error(exc)
 
 
 def _hash(value: Any) -> str:
@@ -114,7 +74,7 @@ def _identity(target: str) -> str:
     database = url.database
     if url.get_backend_name() == "sqlite" and database and database != ":memory:":
         return str(Path(database).expanduser().resolve())
-    secret_keys = [key for key in url.query if re.search(_CREDENTIAL_KEY_PATTERN, key, re.IGNORECASE)]
+    secret_keys = [key for key in url.query if re.search(CREDENTIAL_KEY_PATTERN, key, re.IGNORECASE)]
     return url._replace(password=None).difference_update_query(secret_keys).render_as_string(hide_password=False)
 
 
@@ -188,7 +148,7 @@ def export_document(conn: Connection, document: dict[str, Any]) -> dict[str, Any
     omitted = False
     if config.get("url"):
         url = make_url(config["url"])
-        secret_keys = [key for key in url.query if re.search(_CREDENTIAL_KEY_PATTERN, key, re.IGNORECASE)]
+        secret_keys = [key for key in url.query if re.search(CREDENTIAL_KEY_PATTERN, key, re.IGNORECASE)]
         omitted = url.password is not None or bool(secret_keys)
         config["url"] = (
             url._replace(password=None).difference_update_query(secret_keys).render_as_string(hide_password=False)
@@ -216,6 +176,40 @@ def _layers(dependencies: dict[str, set[str]]) -> tuple[list[str], list[list[str
         for parents in pending.values():
             parents.difference_update(layer)
     return [name for layer in layers for name in layer], layers
+
+
+def _cyclic_components(dependencies: dict[str, set[str]]) -> list[set[str]]:
+    """Find actual cross-table SCCs, excluding descendants merely blocked by them."""
+    visited: set[str] = set()
+    finished: list[str] = []
+    children: dict[str, list[str]] = {name: [] for name in dependencies}
+    for name, parents in dependencies.items():
+        for parent in parents:
+            children[parent].append(name)
+    for start in dependencies:
+        stack = [(start, False)]
+        while stack:
+            name, done = stack.pop()
+            if done:
+                finished.append(name)
+            elif name not in visited:
+                visited.add(name)
+                stack.append((name, True))
+                stack.extend((parent, False) for parent in sorted(dependencies[name], reverse=True))
+    visited.clear()
+    components: list[set[str]] = []
+    for start in reversed(finished):
+        pending = [start]
+        component: set[str] = set()
+        while pending:
+            name = pending.pop()
+            if name not in visited:
+                visited.add(name)
+                component.add(name)
+                pending.extend(children[name])
+        if len(component) > 1:
+            components.append(component)
+    return components
 
 
 def _source_values(orch: DataOrchestrator, table: str, columns: list[str]) -> list[dict[str, Any]]:
@@ -405,7 +399,7 @@ def _column_issues(config: GeneratorConfig, tables: dict[str, Any], issues: list
 
 
 def _empty_source_issues(
-    context: dict[str, str],
+    context: dict[str, Any],
     columns: list[str],
     nullable: bool,
     selected: set[str],
@@ -456,7 +450,7 @@ def _association_sources(
     config: GeneratorConfig,
     tables: dict[str, Any],
     dependencies: dict[str, set[str]],
-    source: Callable[[str, str, list[str], bool, str], None],
+    source: Callable[[str, str, list[str], bool, list[str]], None],
     issues: list[dict[str, Any]],
 ) -> None:
     for association in config.associations:
@@ -477,14 +471,14 @@ def _association_sources(
                     association.source_table,
                     [association.source_column or association.column_name],
                     False,
-                    association.column_name,
+                    [association.column_name],
                 )
 
 
 def _foreign_key_sources(
     tables: dict[str, Any],
     dependencies: dict[str, set[str]],
-    source: Callable[[str, str, list[str], bool, str], None],
+    source: Callable[[str, str, list[str], bool, list[str]], None],
     issues: list[dict[str, Any]],
 ) -> None:
     for name in dependencies:
@@ -495,7 +489,7 @@ def _foreign_key_sources(
             if len(fk["columns"]) > 2:
                 _issue(issues, "composite_fk_width", "当前 core 尚未保证三列及以上组合外键的元组配对", table=name)
                 continue
-            source(name, fk["ref_table"], fk["ref_columns"], fk["nullable"], ",".join(fk["columns"]))
+            source(name, fk["ref_table"], fk["ref_columns"], fk["nullable"], fk["columns"])
 
 
 def _dependency_plan(
@@ -510,10 +504,14 @@ def _dependency_plan(
         "source_checks": [],
     }
 
-    def source(target: str, parent: str, columns: list[str], nullable: bool, column: str) -> None:
-        context = {"table": target, "column": column, "source_table": parent}
+    def source(target: str, parent: str, columns: list[str], nullable: bool, target_columns: list[str]) -> None:
+        context = {
+            "table": target,
+            "column": ",".join(target_columns),
+            "source_table": parent,
+        }
         if parent not in tables or any(name not in {c["name"] for c in tables[parent]["columns"]} for name in columns):
-            _issue(issues, "invalid_parent_source", "引用的来源表或列不存在", **context)
+            _issue(issues, "invalid_parent_source", "引用的来源表或列不存在", columns=target_columns, **context)
             return
         values = _source_values(orch, parent, columns)
         evidence["source_checks"].append(
@@ -530,13 +528,26 @@ def _dependency_plan(
         if parent != target and parent in dependencies:
             dependencies[target].add(parent)
         if not values:
-            _empty_source_issues(context, columns, nullable, selected, deferred, issues)
+            _empty_source_issues({**context, "columns": target_columns}, columns, nullable, selected, deferred, issues)
 
     _foreign_key_sources(tables, dependencies, source, issues)
     _association_sources(config, tables, dependencies, source, issues)
     order, layers = _layers(dependencies)
     if len(order) != len(dependencies):
-        _issue(issues, "cross_table_cycle", "跨表循环需要通用 backfill；当前工作台不能安全执行该计划")
+        components = _cyclic_components(dependencies)
+        members = set().union(*components)
+        _issue(
+            issues,
+            "cross_table_cycle",
+            "跨表循环需要通用 backfill；当前工作台不能安全执行该计划",
+            tables=[name for name in dependencies if name in members],
+            edge_ids=[
+                edge["id"]
+                for edge in schema["edges"]
+                if edge["source"] != edge["target"]
+                and any(edge["source"] in group and edge["target"] in group for group in components)
+            ],
+        )
     return order, layers, deferred, evidence
 
 

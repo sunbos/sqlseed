@@ -5,11 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
-from urllib.parse import parse_qs, quote, unquote, urlsplit
+from urllib.parse import parse_qs, quote, unquote, urlencode, urlsplit
 from urllib.request import url2pathname
 
 from sqlalchemy.dialects.sqlite.pysqlite import SQLiteDialect_pysqlite
-from sqlalchemy.engine import Dialect, make_url
+from sqlalchemy.engine import Dialect
+from sqlseed.database._connection_url import connection_url
 
 
 @dataclass(frozen=True)
@@ -58,13 +59,13 @@ def _sqlite_uri_parts(filename: str) -> tuple[str, dict[str, list[str]]]:
 def sqlite_target(target: str, conn_id: str) -> SQLiteTarget | None:
     """Resolve only SQLite; do not confuse URI options with ordinary filenames.
 
-    The core adapter wraps non-URL strings in ``sqlite:///`` too. SQLAlchemy
+    The core adapter uses the same literal-path/SQLite URL parser. SQLAlchemy
     separates sqlite3 options (uri, timeout, etc.) from SQLite filename options;
     interpreting ``url.database`` alone therefore describes the wrong target.
     Memory names are literal SQLite names, not filesystem paths. Private memory
     and temporary databases must remain scoped to the registered connection.
     """
-    url = make_url(target if "://" in target else f"sqlite:///{target}")
+    url = connection_url(target)
     if url.get_backend_name() != "sqlite":
         return None
     dialect: Dialect = SQLiteDialect_pysqlite()
@@ -84,3 +85,33 @@ def sqlite_target(target: str, conn_id: str) -> SQLiteTarget | None:
         # decoded twice by url2pathname; keep drive colons visible to it.
         filename = url2pathname(quote(filename, safe="/:"))
     return SQLiteTarget("sqlite", str(Path(filename).resolve()))
+
+
+def existing_sqlite_connection_target(target: str, conn_id: str) -> str:
+    """Open a selected SQLite file without creating it if it disappears.
+
+    Keep the caller's target for identity and display; this URI is only the
+    orchestrator's connection transport. Non-file targets retain their existing
+    semantics, and explicit SQLite read-only options must stay read-only.
+    """
+    resolved = sqlite_target(target, conn_id)
+    if resolved is None or resolved.kind != "sqlite":
+        return target
+    path = Path(resolved.value)
+    if not path.is_file():
+        raise ValueError("数据库文件不存在或不是普通文件；请选择已有的 SQLite 数据库文件。")
+    url = connection_url(target)
+    dialect: Dialect = SQLiteDialect_pysqlite()
+    _, options = dialect.create_connect_args(url)
+    # Unknown query arguments on a non-URI SQLite URL were previously ignored;
+    # do not activate them merely because we now need SQLite's no-create mode.
+    query = (
+        dict(url.query) if options.get("uri") else {key: value for key, value in url.query.items() if key in options}
+    )
+    query["uri"] = "true"
+    if "mode" not in query or query["mode"] == "rwc":
+        query["mode"] = "rw"
+    # URL.render_as_string percent-encodes database names on SQLAlchemy 2.1,
+    # while the shared adapter parser deliberately preserves SQLite URI text.
+    # Encode the filename once with as_uri(), then only serialize its options.
+    return f"{url.drivername}:///{path.as_uri()}?{urlencode(query, doseq=True)}"

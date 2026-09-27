@@ -3,7 +3,7 @@
 .configs-page .heading-actions { flex-wrap:wrap; }
 .configs-page a.btn { text-decoration:none; }
 .config-toolbar { display:flex; align-items:end; gap:24px; padding:20px 24px; border:1px solid var(--line); border-radius:var(--radius); background:var(--paper); }
-.config-search { display:flex; flex-direction:column; gap:7px; flex:1; min-width:200px; font-weight:600; }
+.config-search { display:flex; flex-direction:column; gap:7px; flex:1; min-width:200px; font-weight:var(--font-weight-emphasis); }
 .config-search input { width:100%; min-height:40px; padding:8px 12px; border:1px solid var(--line); border-radius:6px; background:var(--paper); color:var(--ink); font-weight:400; }
 .config-scope { min-width:160px; }
 .config-filter { display:flex; align-items:center; gap:8px; cursor:pointer; }
@@ -14,32 +14,42 @@
 .config-notice:empty { margin:0; }
 .config-count { margin:16px 0 10px; font-size:12px; }
 .config-list { display:grid; gap:12px; }
+.config-bulk-toolbar { display:flex; align-items:center; flex-wrap:wrap; gap:12px 20px; margin-top:16px; }
+.config-selection-count { color:var(--muted); font-size:var(--text-caption); overflow-wrap:anywhere; }
+.config-bulk-actions { display:flex; gap:8px; margin-left:auto; }
+.config-bulk-toolbar .config-delete { color:var(--danger); }
+.config-card .config-select { flex:0 0 auto; align-self:flex-start; margin:4px 0 0; }
+.config-card.config-card-selected { background:var(--soft); }
+.config-delete-list { display:grid; gap:12px; max-height:280px; overflow:auto; padding:12px 20px 12px 28px; border-radius:var(--radius); background:var(--glass); }
+.config-delete-list li { padding-left:4px; overflow-wrap:anywhere; }
+.config-delete-list li span { display:block; margin-top:4px; font-size:var(--text-caption); }
 .config-card { display:flex; align-items:center; gap:24px; padding:20px 24px; background:var(--paper); border:1px solid var(--line); border-radius:var(--radius); }
 .config-card-main { flex:1; min-width:0; }
 .config-card-heading { display:flex; align-items:baseline; gap:10px; }
 .config-card h2 { margin:0; font-size:16px; line-height:1.5; overflow-wrap:anywhere; }
-.config-revision { flex-shrink:0; color:var(--muted); font-family:var(--mono); font-size:12px; }
+.configs-page .config-revision { flex-shrink:0; color:var(--muted); font-family:var(--mono); font-size:var(--text-caption); }
 .config-target { display:flex; align-items:center; gap:7px; margin:7px 0; color:var(--muted); overflow-wrap:anywhere; }
 .config-target svg { flex-shrink:0; width:15px; height:15px; }
 .config-facts { margin:7px 0 0; font-size:12px; }
 .config-updated { margin:4px 0 0; font-size:12px; }
 .config-card-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:8px; max-width:460px; }
-.config-card-actions .btn { min-height:34px; padding:6px 12px; font-size:12px; }
+.config-card-actions .btn { min-height:34px; padding:6px 12px; font-size:var(--text-body); }
 .config-card-actions a.btn { color:var(--teal); border-color:var(--teal); background:var(--soft); }
-.config-card-actions .config-delete { color:#a33c39; }
+.config-card-actions .config-delete { color:var(--danger); }
 .config-empty { padding:42px 24px; margin:0; text-align:center; background:var(--paper); border:1px solid var(--line); border-radius:var(--radius); }
 .config-empty h2 { font-size:18px; }
 .config-empty p { color:var(--muted); }
 .config-empty a { display:inline-flex; }
 .config-dialog .config-name-field { display:flex; flex-direction:column; gap:8px; margin:20px 0 8px; }
 .config-dialog .config-name-field input { min-width:0; width:100%; min-height:40px; border:1px solid var(--line); border-radius:6px; padding:8px 12px; color:var(--ink); }
-.config-dialog .config-error { color:#a33c39; margin-top:12px; overflow-wrap:anywhere; }
+.config-dialog .config-error { color:var(--danger); margin-top:12px; overflow-wrap:anywhere; }
 .config-dialog .config-error:empty { margin:0; }
 .config-delete-name { display:block; font-size:18px; overflow-wrap:anywhere; }
-.config-dialog .config-delete-confirm { color:#a33c39; border-color:#a33c39; background:var(--paper); }
-.configs-page a:focus-visible { outline:3px solid #74b7c9; outline-offset:3px; }
+.config-dialog .config-delete-confirm { color:var(--danger); border-color:var(--danger); background:var(--control-surface); }
+.configs-page a:focus-visible { outline:3px solid var(--focus); outline-offset:3px; }
 @media (max-width:1000px) {
-  .config-card { align-items:flex-start; flex-direction:column; gap:14px; }
+  .config-card { align-items:flex-start; flex-wrap:wrap; gap:14px; }
+  .config-card-main { flex-basis:calc(100% - 40px); }
   .config-card-actions { justify-content:flex-start; max-width:none; }
 }
 @media (max-width:700px) {
@@ -47,4 +57,5 @@
   .config-search { flex-basis:100%; min-width:0; }
   .config-scope { flex:1; min-width:0; }
   .config-card { padding:16px; }
+  .config-bulk-actions { margin-left:0; }
 }
