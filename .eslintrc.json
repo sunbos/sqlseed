@@ -2,7 +2,10 @@
   "root": true,
   "overrides": [
     {
-      "files": ["plugins/sqlseed-web/src/sqlseed_web/static/js/**/*.js"],
+      "files": [
+        "plugins/sqlseed-web/src/sqlseed_web/static/js/**/*.js",
+        "docs/design-review/glass-workbench/prototype.js"
+      ],
       "extends": "eslint:recommended",
       "env": {
         "browser": true,
