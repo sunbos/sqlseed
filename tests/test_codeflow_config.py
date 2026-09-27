@@ -1,9 +1,10 @@
-"""Keep CodeFlow's legacy Pylint configuration aligned with project policy."""
+"""Keep CodeFlow's lint configurations aligned with project policy."""
 
 from __future__ import annotations
 
 import ast
 import configparser
+import json
 import sys
 from pathlib import Path
 from typing import NamedTuple
@@ -88,6 +89,21 @@ def _codeflow_options() -> dict[str, str]:
     configuration_path = ROOT / ".pylintrc"
     assert configuration.read(configuration_path, encoding="utf-8") == [str(configuration_path)]
     return {name: value.strip() for section in configuration.sections() for name, value in configuration.items(section)}
+
+
+def test_eslint_browser_policy_includes_the_standalone_prototype() -> None:
+    """Do not leave the executable design prototype under ESLint's ES5 default."""
+    configuration = json.loads((ROOT / ".eslintrc.json").read_text(encoding="utf-8"))
+    browser = next(
+        override
+        for override in configuration["overrides"]
+        if "docs/design-review/glass-workbench/prototype.js" in override["files"]
+    )
+    assert "plugins/sqlseed-web/src/sqlseed_web/static/js/**/*.js" in browser["files"]
+    assert browser["extends"] == "eslint:recommended"
+    assert browser["env"] == {"browser": True, "es2022": True}
+    assert browser["parserOptions"] == {"ecmaVersion": 2022, "sourceType": "module"}
+    assert not browser.get("rules"), "Do not suppress findings to accommodate prototype syntax."
 
 
 def _manifest_packages() -> list[Path]:

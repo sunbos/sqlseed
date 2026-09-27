@@ -283,7 +283,7 @@ function renderTable() {
         .querySelectorAll("[data-field]")
         .forEach((button) =>
             button.addEventListener("click", () =>
-                openField(Number(button.dataset.field), button),
+                openField(Number(button.dataset.field)),
             ),
         );
     if (currentTab === "preview") renderPreview();
@@ -355,7 +355,7 @@ function renderPreview() {
         `<table class="preview-table"><thead><tr>${fields.map((item, index) => `<th scope="col"><button data-preview-field="${index}" aria-label="查看 ${item.name} 规则">${item.name}</button></th>`).join("")}</tr></thead><tbody>${Array.from({ length: 5 }, (_, row) => `<tr>${fields.map((item) => `<td class="${item.generator === "auto" || item.generator === "reference" ? "auto-value" : ""}">${escapeHTML(sample(item, row))}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
     $$("[data-preview-field]").forEach((button) =>
         button.addEventListener("click", () =>
-            openField(Number(button.dataset.previewField), button),
+            openField(Number(button.dataset.previewField)),
         ),
     );
 }
