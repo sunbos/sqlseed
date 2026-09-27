@@ -320,12 +320,10 @@
                                         ></span
                                     ><span>5 行 · 不写入数据库</span>
                                 </div>
-                                <div class="preview-table-wrap">
-                                    <table
-                                        class="preview-table"
-                                        id="preview-table"
-                                    ></table>
-                                </div>
+                                <div
+                                    class="preview-table-wrap"
+                                    id="preview-table"
+                                ></div>
                                 <div class="editor-foot">
                                     演示值由原型本地构造；自增主键在实际写入时由数据库生成。
                                 </div>
@@ -501,7 +499,7 @@
                 ><span
                     ><strong>减少动态效果</strong
                     ><small>减少悬浮、过渡和进度动画</small></span
-                ><input id="reduce-motion" type="checkbox" role="switch"
+                ><input id="reduce-motion" type="checkbox" role="switch" aria-checked="false"
             /></label>
             <p class="appearance-note">当前选择仅用于此原型。</p>
         </dialog>

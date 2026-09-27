@@ -1,11 +1,18 @@
 // Read-only presentation facts. Execution authorization always comes from a
 // fresh server execution-plan after the user has saved an explicit scope.
+function compareTableNames(left, right) {
+  // Preserve the existing UTF-16 order independently of the browser locale.
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+}
+
 export function clearRecoveryState(model, context) {
   const current = context.epoch === model.epoch && context.lifecycle === model.lifecycleVersion;
   const state = current ? context.state : 'pending';
   const errors = (context.issues || []).filter(issue => issue.severity === 'error');
   const externalCodes = new Set(['external_incoming_fk', 'external_incoming_association']);
-  const externalTables = [...new Set(errors.filter(issue => externalCodes.has(issue.code) && issue.table).map(issue => issue.table))].sort();
+  const externalTables = [...new Set(errors.filter(issue => externalCodes.has(issue.code) && issue.table).map(issue => issue.table))].sort(compareTableNames);
   const otherIssues = errors.filter(issue => !externalCodes.has(issue.code) || !issue.table);
   const count = externalTables.length + otherIssues.length;
   const rulesPassed = model.check?.ok && model.check.epoch === model.epoch && !model.errors.size;
@@ -36,7 +43,7 @@ export function clearScopeCandidate(model) {
       selected.add(edge.target);
     }
   }
-  const added = [...selected].filter(name => !original.includes(name)).sort().map(name => {
+  const added = [...selected].filter(name => !original.includes(name)).sort(compareTableNames).map(name => {
     const config = structuredClone(model.table(name));
     document.tables.push(config);
     return {name, count:config.count, rowCount:tables.get(name).row_count};

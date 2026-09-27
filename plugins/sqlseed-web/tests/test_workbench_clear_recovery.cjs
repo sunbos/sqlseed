@@ -6,6 +6,7 @@ const {loadFrontend}=require('./frontend_helpers.cjs');
 const fixture=require('./complex_business_graph.json');
 const helper=loadFrontend('workbench/clear-recovery.js');
 const candidate=vm.runInContext('clearScopeCandidate',helper);
+const recoveryState=vm.runInContext('clearRecoveryState',helper);
 const Model=vm.runInContext('WorkbenchDocument',loadFrontend('workbench/model.js'));
 const five=['sales_orders','order_items','payments','shipments','shipment_items'];
 const eight=[...five,'addresses','customers','employees'];
@@ -24,6 +25,21 @@ const appendMode=async ui=>{const input=ui.document.querySelector('[aria-label="
 const review=ui=>ui.button('补齐关联表，继续重建',ui.document.querySelector('.wb-execution-plan') || ui.root().querySelector('.wb-clear-recovery')).click();
 const confirmation=ui=>ui.button('确认范围，查看清空计划',ui.document);
 const saveScope=ui=>ui.routes.set('/api/workbench/drafts/saved',options=>({...JSON.parse(options.body),id:'saved',revision:2,target_key:'target-A'}));
+
+test('clear recovery keeps case, numeric suffixes and Unicode names in deterministic UTF-16 order',()=>{
+ const names=['表','a2','😀','Z','a10','z','á','Ä','𐀀'];
+ const expected=['Z','a10','a2','z','Ä','á','表','𐀀','😀'];
+ const data={...schema(),tables:['root',...names].map(name=>({...schema().tables[0],name})),edges:names.map(target=>({source:'root',target}))};
+ const m=new Model(data,{provider:'base',locale:'en_US',tables:[{name:'root',count:7,columns:[]}]});
+ const before=plain(m.document),result=candidate(m);
+ assert.deepEqual(plain(result.added.map(table=>table.name)),expected);
+ assert.deepEqual(plain(result.document.tables.map(table=>table.name)),['root',...expected]);
+ const state=recoveryState(m,{epoch:m.epoch,lifecycle:m.lifecycleVersion,state:'blocked',issues:[...names,'a2'].map(table=>({table,code:'external_incoming_fk',severity:'error'}))});
+ assert.deepEqual(plain(state.externalTables),expected);
+ assert.equal(state.count,names.length);
+ assert.deepEqual(plain(m.document),before);
+});
+
 async function ready(names=five) {
  const ui=harness(),data=graphSchema();ui.routes.set('/api/workbench/connections/A/schema',()=>data);
  ui.routes.set('/api/workbench/check',options=>passed(JSON.parse(options.body).document));

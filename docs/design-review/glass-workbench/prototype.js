@@ -352,7 +352,7 @@ function renderPreview() {
     $("#preview-state").textContent =
         `当前规则的演示样例 · 第 ${sampleRound + 1} 组`;
     $("#preview-table").innerHTML =
-        `<thead><tr>${fields.map((item, index) => `<th><button data-preview-field="${index}" aria-label="查看 ${item.name} 规则">${item.name}</button></th>`).join("")}</tr></thead><tbody>${Array.from({ length: 5 }, (_, row) => `<tr>${fields.map((item) => `<td class="${item.generator === "auto" || item.generator === "reference" ? "auto-value" : ""}">${escapeHTML(sample(item, row))}</td>`).join("")}</tr>`).join("")}</tbody>`;
+        `<table class="preview-table"><thead><tr>${fields.map((item, index) => `<th scope="col"><button data-preview-field="${index}" aria-label="查看 ${item.name} 规则">${item.name}</button></th>`).join("")}</tr></thead><tbody>${Array.from({ length: 5 }, (_, row) => `<tr>${fields.map((item) => `<td class="${item.generator === "auto" || item.generator === "reference" ? "auto-value" : ""}">${escapeHTML(sample(item, row))}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
     $$("[data-preview-field]").forEach((button) =>
         button.addEventListener("click", () =>
             openField(Number(button.dataset.previewField), button),
@@ -475,7 +475,7 @@ function renderGeneratorOptions(params = {}) {
         .forEach((input) => input.addEventListener("input", validateDraft));
     validateDraft();
 }
-function openField(index, trigger) {
+function openField(index) {
     editingField = tables[currentTable].fields[index];
     editorReturnTarget = {
         table: currentTable,
@@ -831,12 +831,16 @@ $$(".material-choice").forEach((button) =>
 $("#reduce-motion").checked = window.matchMedia(
     "(prefers-reduced-motion: reduce)",
 ).matches;
-$("#reduce-motion").addEventListener("change", () =>
+function syncReducedMotion() {
+    const enabled = $("#reduce-motion").checked;
+    $("#reduce-motion").setAttribute("aria-checked", String(enabled));
     document.body.classList.toggle(
         "reduce-motion",
-        $("#reduce-motion").checked,
-    ),
-);
+        enabled,
+    );
+}
+$("#reduce-motion").addEventListener("change", syncReducedMotion);
+syncReducedMotion();
 setMaterial(
     window.matchMedia("(prefers-reduced-transparency: reduce)").matches
         ? "solid"

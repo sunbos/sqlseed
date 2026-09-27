@@ -617,8 +617,6 @@ export function openDataPreview({
     id: `${id}-count-help`,
     class: 'wb-preview-help'
   }, '每表最多预览 1–100 行，且不超过该表配置的生成数量；此设置不会修改正式生成行数。'), status, error, corrections, issues, tabs, relations, results);
-  if (dialog.actions) {
-  }
   if (initialResult) {
     result = initialResult;
     renderResult();

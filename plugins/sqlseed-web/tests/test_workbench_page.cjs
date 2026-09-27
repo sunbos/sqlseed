@@ -9,7 +9,7 @@ test('render and mount use actual schema rows, and disconnected mount provides a
   assert.equal(root.querySelectorAll('.wb-field-name').length, 3);
   assert.match(root.textContent, /A\.db/);
   assert.equal(root.querySelector('.wb-table-name').textContent, 'users未加入生成');
-  assert.deepEqual(ui.requests.map(request => request.url), ['/api/workbench/connections/A/schema', '/api/workbench/generators', '/api/workbench/ai/config', '/api/meta/providers']);
+  assert.deepEqual(ui.requests.map(request => request.url), ['/api/workbench/connections/A/schema', '/api/workbench/generators', '/api/meta/providers']);
   const none = harness({connected: false}); await none.mount();
   assert.match(none.root().textContent, /先连接一个数据库/);
   assert.equal(none.requests.length, 0);

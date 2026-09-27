@@ -318,7 +318,7 @@ def _execute_fill(options: FillOptions) -> None:
 
     logger.debug(
         "Starting fill",
-        target=redact_url_credentials(fill_url or fill_db_path or "", whole_url=True),
+        target=redact_url_credentials(fill_url or fill_db_path or ""),
         table=options.table,
         count=effective_count,
     )
