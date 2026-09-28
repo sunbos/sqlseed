@@ -8,4 +8,4 @@
 - 包边界与开发约束：[根架构](../../ARCHITECTURE.md)、[CLAUDE.md](../../CLAUDE.md) 和目标目录的 AGENTS.md。
 - [回归规则映射](plans/v4_coverage_matrix.md)：供 AI 迁移约束追踪，不能据此恢复已删除的旧流水线。
 - 产品界面基线：[当前组件规范](../design-review/glass-workbench/component-standard.md) 与仓库内正式设计系统页面；旧 generator 原型仍只作历史对照。
-- 当前验收：[项目收尾记录](../code-review/2026-09-28-project-closure.md)；已删除旧日志的出处见[历史清理说明](../code-review/history.md)。
+- 当前验收：[项目收尾记录](../code-review/2026-09-29-project-closure.md)；已删除旧日志的出处见[历史清理说明](../code-review/history.md)。

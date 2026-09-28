@@ -11,6 +11,7 @@ import time
 from typing import TYPE_CHECKING, Any, NoReturn
 
 from sqlseed_ai._client import APIConnectionError, APIError, APITimeoutError, get_openai_client
+from sqlseed_ai._json_utils import JSONResponseError, parse_json_response
 from sqlseed_ai.config import AIBackend
 from sqlseed_ai.exceptions import ModelFallbackError, classify_api_error
 
@@ -25,6 +26,17 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 _CALLER_MIXIN_REQUIRED = "provided by LLMCallerMixin"
+
+
+def _report_stream_progress(
+    on_progress: ProgressCallback | None, token: str, count: int, *, reasoning: bool = False
+) -> None:
+    """Throttle both answer and reasoning progress to every ten chunks."""
+    if on_progress and count % 10 == 0:
+        info: dict[str, str | int | bool] = {"token": token, "count": count}
+        if reasoning:
+            info["reasoning"] = True
+        on_progress("streaming", info)
 
 
 class StreamingHandlerMixin(_InteractionLoggingMixin):
@@ -84,6 +96,7 @@ class StreamingHandlerMixin(_InteractionLoggingMixin):
         stage: str = "",
         table_name: str = "",
         preserve_names: bool = False,
+        strict_json: bool = False,
     ) -> dict[str, Any]:
         """Call LLM with streaming output and progress callbacks.
 
@@ -98,6 +111,8 @@ class StreamingHandlerMixin(_InteractionLoggingMixin):
             stage: Pipeline stage identifier for LLM interaction log attribution.
             table_name: Table being analyzed; populates the JSON log field.
             preserve_names: Keep SQL identifiers intact for schema-aware validation.
+            strict_json: Raise content-free response errors, including a streamed
+                length limit, instead of returning an empty or partial result.
         """
         self._ensure_config()
         return self._call_with_fallback(
@@ -108,6 +123,7 @@ class StreamingHandlerMixin(_InteractionLoggingMixin):
                 stage=stage,
                 table_name=table_name,
                 preserve_names=preserve_names,
+                strict_json=strict_json,
             )
         )
 
@@ -115,12 +131,15 @@ class StreamingHandlerMixin(_InteractionLoggingMixin):
         self,
         stream: Any,
         on_progress: ProgressCallback | None,
+        *,
+        strict_json: bool = False,
     ) -> tuple[str, int]:
         """Collect content from a streaming response.
 
         Args:
             stream: Iterable of streaming chunks from the API.
             on_progress: Optional progress callback.
+            strict_json: Reject streams explicitly terminated by an output limit.
 
         Returns:
             (collected_content, token_count)
@@ -128,28 +147,36 @@ class StreamingHandlerMixin(_InteractionLoggingMixin):
         collected_content: list[str] = []
         token_count = 0
         reasoning_count = 0
+        truncated = False
 
         for chunk in stream:
             if not chunk.choices:
                 continue
+            if strict_json and chunk.choices[0].finish_reason == "length":
+                truncated = True
             delta = chunk.choices[0].delta
             # Gemma 4 reasoning models emit reasoning_content separately.
             # We skip reasoning tokens but count them for progress display.
             if hasattr(delta, "reasoning_content") and delta.reasoning_content:
                 reasoning_count += 1
-                if on_progress and reasoning_count % 10 == 0:
-                    on_progress("streaming", {"token": "...", "count": reasoning_count, "reasoning": True})
+                _report_stream_progress(on_progress, "...", reasoning_count, reasoning=True)
                 continue
             if not delta.content:
                 continue
             token = delta.content
             collected_content.append(token)
             token_count += 1
-            # Throttle progress callbacks to every 10 tokens to reduce overhead.
-            if on_progress and token_count % 10 == 0:
-                on_progress("streaming", {"token": token, "count": token_count})
+            _report_stream_progress(on_progress, token, token_count)
 
+        if truncated:
+            raise JSONResponseError("truncated_response")
         return "".join(collected_content), token_count
+
+    def _parse_stream_content(self, content: str, *, preserve_names: bool, strict_json: bool) -> dict[str, Any]:
+        """Apply the caller-selected parsing policy to collected stream content."""
+        if strict_json:
+            return parse_json_response(content, strict=True, preserve_names=preserve_names)
+        return self._parse_json_response(content, preserve_names=preserve_names)
 
     def _call_llm_streaming_once(
         self,
@@ -160,6 +187,7 @@ class StreamingHandlerMixin(_InteractionLoggingMixin):
         stage: str = "",
         table_name: str = "",
         preserve_names: bool = False,
+        strict_json: bool = False,
     ) -> dict[str, Any]:
         """Execute a single streaming LLM call (no fallback).
 
@@ -189,7 +217,7 @@ class StreamingHandlerMixin(_InteractionLoggingMixin):
 
             stream = self._create_with_reasoning_fallback(client, kwargs)
 
-            content, token_count = self._collect_stream_chunks(stream, on_progress)
+            content, token_count = self._collect_stream_chunks(stream, on_progress, strict_json=strict_json)
 
             if on_progress:
                 on_progress("parsing", {"tokens": token_count})
@@ -198,6 +226,8 @@ class StreamingHandlerMixin(_InteractionLoggingMixin):
             elapsed = time.time() - start_time
 
             if not content:
+                if strict_json:
+                    raise JSONResponseError("empty_response")
                 self._log_llm_interaction(
                     messages=messages,
                     response="(empty stream response)",
@@ -225,13 +255,15 @@ class StreamingHandlerMixin(_InteractionLoggingMixin):
                 model=actual_model,
             )
 
-            result = self._parse_json_response(content, preserve_names=preserve_names)
+            result = self._parse_stream_content(content, preserve_names=preserve_names, strict_json=strict_json)
 
             if on_progress:
                 on_progress("done", {"tokens": token_count, "model": actual_model})
 
             return result
 
+        except JSONResponseError:
+            raise
         except (APITimeoutError, APIConnectionError, APIError, ValueError, RuntimeError, OSError) as e:
             self._log_llm_interaction(
                 messages=messages,

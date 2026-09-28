@@ -7,6 +7,7 @@ table schema (columns, indexes, foreign keys, distribution, etc.).
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from sqlseed_ai._prompts import (
@@ -145,6 +146,7 @@ class ContextBuilderMixin:
             lines.append("")
             lines.append("## All Tables in Database")
             lines.append(", ".join(all_table_names))
+            lines.append("These names are reference context only, not additional tables to configure.")
 
         if sample_data:
             lines.append("")
@@ -158,8 +160,9 @@ class ContextBuilderMixin:
 
         lines.append("")
         lines.append(
-            "Please analyze this table schema and recommend "
-            "a complete sqlseed JSON configuration for generating test data."
+            f"Return exactly one JSON object configuring only table {json.dumps(table_name, ensure_ascii=False)}. "
+            "Preserve the table and column names exactly. Do not output configurations for other tables "
+            "or concatenate multiple JSON objects."
         )
 
         return "\n".join(lines)
