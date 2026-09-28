@@ -1,4 +1,6 @@
-# 2026-09-28 项目收尾验收
+# 2026-09-28 项目收尾验收（PR #19 历史记录）
+
+本页保留 PR #19 当时的实施与验收事实，不代表后续版本的当前状态。PR #20 合并后的证据及剩余事项见[当前项目收尾](2026-09-29-project-closure.md)。
 
 交付记录：本地修复、独立评审与安装验收完成，已提交至 [PR #19](https://github.com/sunbos/sqlseed/pull/19)。远端终态以该 PR 最新提交的 [Checks](https://github.com/sunbos/sqlseed/pull/19/checks) 为准；本记录不以历史测试数量或跳过的检查证明通过。
 
