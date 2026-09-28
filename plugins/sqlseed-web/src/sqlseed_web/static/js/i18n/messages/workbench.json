@@ -1,0 +1,1643 @@
+{
+  "workbench": {
+    "dependency.blockingStatus": [
+      "{count} 条依赖待处理",
+      "Dependency issues: {count}"
+    ],
+    "dependency.appendStatus": [
+      "追加生成检查通过",
+      "Append check passed"
+    ],
+    "defaults.additionalFields": [
+      "等 {count} 个字段",
+      " (total fields: {count})"
+    ],
+    "rule.precision": [
+      "，保留 {count} 位小数",
+      ", decimal places: {count}"
+    ],
+    "source.existingRows": [
+      "已有 {count} 行",
+      "Existing rows: {count}"
+    ],
+    "action.save": [
+      "保存配置",
+      "Save configuration"
+    ],
+    "action.checkDependencies": [
+      "检查依赖",
+      "Check dependencies"
+    ],
+    "action.preparePlan": [
+      "准备生成计划",
+      "Prepare generation plan"
+    ],
+    "action.readSchema": [
+      "读取数据库结构",
+      "Read database schema"
+    ],
+    "action.readDocument": [
+      "读取配置文档",
+      "Read configuration document"
+    ],
+    "clear.guidanceLocation": [
+      "{status}。处理入口在上方引导中。",
+      "{status}. Recovery actions are in the guide above."
+    ],
+    "action.process": [
+      "处理请求",
+      "Process request"
+    ],
+    "action.busy": [
+      "正在{action}，请稍候。期间可以查看和编辑字段。",
+      "{action} is in progress. You can still view and edit fields."
+    ],
+    "schema.external": [
+      "这是其他 schema 的引用来源，仅展示结构。",
+      "This reference comes from another schema. Only its structure is shown."
+    ],
+    "status.invalid": [
+      "有待修正的输入",
+      "Input needs correction"
+    ],
+    "status.unsaved": [
+      "未保存",
+      "Unsaved"
+    ],
+    "status.saved": [
+      "已保存 · v{revision}",
+      "Saved · v{revision}"
+    ],
+    "dependency.badge": [
+      "依赖检查{count}",
+      "Dependency check{count}"
+    ],
+    "dependency.blockers": [
+      "{count} 条依赖待处理 →",
+      "Dependency issues: {count} →"
+    ],
+    "dependency.appendPassed": [
+      "追加生成检查通过 →",
+      "Append check passed →"
+    ],
+    "dependency.checkOrder": [
+      "检查依赖与生成顺序 →",
+      "Check dependencies and generation order →"
+    ],
+    "dependency.noPlan": [
+      "尚无生成计划",
+      "No generation plan yet"
+    ],
+    "scope.summary": [
+      "本次生成 {selected} 张 · 仅引用 {references} 张",
+      "Tables to generate: {selected} · Reference only: {references}"
+    ],
+    "dependency.order": [
+      "检查依赖与生成顺序",
+      "Check dependencies and generation order"
+    ],
+    "dependency.unchecked": [
+      "规则与依赖尚未检查",
+      "Rules and dependencies have not been checked"
+    ],
+    "schema.loading": [
+      "正在读取数据库结构…",
+      "Reading database schema…"
+    ],
+    "welcome.title": [
+      "从数据库结构开始",
+      "Start with your database schema"
+    ],
+    "welcome.help": [
+      "先连接一个数据库，读取表、字段和约束，再配置需要生成的数据。",
+      "Connect to a database to read its tables, fields and constraints, then configure the data you want to generate."
+    ],
+    "action.connect": [
+      "连接数据库",
+      "Connect database"
+    ],
+    "welcome.scope": [
+      "01  选择生成范围",
+      "01  Select tables"
+    ],
+    "welcome.rules": [
+      "02  调整字段规则",
+      "02  Adjust field rules"
+    ],
+    "welcome.generate": [
+      "03  检查并生成",
+      "03  Check and generate"
+    ],
+    "schema.cached": [
+      "当前连接有任务正在运行，暂时显示上次读取的缓存结构。可以查看和编辑配置，任务完成后请重新读取结构。",
+      "A task is running on this connection. The last cached schema is shown. You can view and edit the configuration; refresh the schema when the task finishes."
+    ],
+    "action.returnDatabase": [
+      "返回当前数据库",
+      "Return to current database"
+    ],
+    "action.matchDatabase": [
+      "选择对应数据库",
+      "Select matching database"
+    ],
+    "action.retry": [
+      "重试",
+      "Retry"
+    ],
+    "action.selectDatabase": [
+      "选择数据库",
+      "Select database"
+    ],
+    "welcome.mismatch": [
+      "配置与当前数据库不匹配",
+      "Configuration belongs to another database"
+    ],
+    "welcome.failed": [
+      "无法打开工作台",
+      "Unable to open workbench"
+    ],
+    "welcome.mismatchHelp": [
+      "当前数据库连接可用；此链接属于另一数据库。返回可继续当前数据库的配置，未保存的修改仍会保留。",
+      "The current connection is available, but this link belongs to another database. Return to continue working with the current database; unsaved changes are preserved."
+    ],
+    "route.draftMismatch": [
+      "此配置属于另一数据库，请先连接对应数据库。",
+      "This configuration belongs to another database. Connect to that database first."
+    ],
+    "route.runMismatch": [
+      "运行记录属于另一数据库，请先连接对应数据库后再打开快照。",
+      "This run belongs to another database. Connect to that database before opening its snapshot."
+    ],
+    "snapshot.remainingName": [
+      "{name} · 剩余数据",
+      "{name} · Remaining data"
+    ],
+    "snapshot.defaultName": [
+      "运行配置",
+      "Run configuration"
+    ],
+    "snapshot.copyName": [
+      "{name} · 副本",
+      "{name} · Copy"
+    ],
+    "dependency.title": [
+      "依赖检查",
+      "Dependency check"
+    ],
+    "config.rename": [
+      "重命名生成配置",
+      "Rename configuration"
+    ],
+    "config.actions": [
+      "整份生成配置操作",
+      "Actions for the entire configuration"
+    ],
+    "ai.title": [
+      "AI 配置助手",
+      "AI configuration assistant"
+    ],
+    "action.viewPlan": [
+      "查看生成计划",
+      "View generation plan"
+    ],
+    "action.viewPlanHelp": [
+      "检查配置并查看写入计划，确认后生成数据",
+      "Check the configuration and review the write plan before confirming generation"
+    ],
+    "config.management": [
+      "配置管理",
+      "Configurations"
+    ],
+    "config.open": [
+      "打开配置",
+      "Open configuration"
+    ],
+    "config.editYaml": [
+      "编辑 YAML",
+      "Edit YAML"
+    ],
+    "config.editYamlHelp": [
+      "直接编辑完整生成配置；应用后仍需检查和确认写入",
+      "Edit the complete generation configuration; validation and write confirmation are still required after applying changes"
+    ],
+    "defaults.title": [
+      "全局生成设置",
+      "Global generation settings"
+    ],
+    "defaults.scope": [
+      "作用于当前配置中的所有表",
+      "Applies to all tables in the current configuration"
+    ],
+    "defaults.global": [
+      "全局",
+      "Global"
+    ],
+    "defaults.engineLabel": [
+      "设置数据生成引擎",
+      "Set data generation engine"
+    ],
+    "defaults.localeLabel": [
+      "设置数据语言与地区",
+      "Set data language and region"
+    ],
+    "guide.label": [
+      "使用引导",
+      "Usage guide"
+    ],
+    "page.label": [
+      "生成配置工作台",
+      "Data generation workbench"
+    ],
+    "defaults.engine": [
+      "数据生成引擎",
+      "Data generation engine"
+    ],
+    "defaults.automatic": [
+      "自动",
+      "Automatic"
+    ],
+    "defaults.change": [
+      "修改 ›",
+      "Change ›"
+    ],
+    "defaults.locale": [
+      "数据语言与地区",
+      "Data language and region"
+    ],
+    "defaults.overrides": [
+      "字段规则：{fields}{additional}。更换全局引擎会保留字段覆盖。",
+      "Field rules: {fields}{additional}. Changing the global engine keeps field overrides."
+    ],
+    "defaults.additionalPrefix": [
+      "等 ",
+      " and "
+    ],
+    "defaults.additionalSuffix": [
+      " 个字段",
+      " fields"
+    ],
+    "defaults.mimesisUnavailable": [
+      "Mimesis {status}，使用此引擎的字段暂不能预览或生成。",
+      "Mimesis is {status}. Fields using this engine cannot be previewed or generated yet."
+    ],
+    "component.importError": [
+      "加载异常",
+      "unable to load"
+    ],
+    "component.notInstalled": [
+      "未安装",
+      "not installed"
+    ],
+    "component.manage": [
+      "管理插件",
+      "Manage components"
+    ],
+    "defaults.changeEngine": [
+      "更改引擎",
+      "Change engine"
+    ],
+    "clear.reviewScope": [
+      "检查关联重建范围",
+      "Check related tables to rebuild"
+    ],
+    "clear.switchedAppend": [
+      "已改为追加，保留现有数据；尚未写入数据库。",
+      "Switched to append, preserving existing data. Nothing has been written to the database."
+    ],
+    "guide.beforeStage": [
+      "{stage}之前，{help}",
+      "Before {stage}: {help}"
+    ],
+    "guide.preview": [
+      "预览样例",
+      "Preview samples"
+    ],
+    "guide.confirm": [
+      "确认写入",
+      "Confirm write"
+    ],
+    "guide.rules": [
+      "设定规则",
+      "Set rules"
+    ],
+    "guide.editTitle": [
+      "调整表与字段规则",
+      "Adjust tables and field rules"
+    ],
+    "guide.editHelp": [
+      "在左侧选择生成表，在字段规则中调整取值。修改后可随时切到“预览样例”查看效果。",
+      "Select tables on the left and adjust their field rules. Switch to Preview samples whenever you want to check the result."
+    ],
+    "guide.editAction": [
+      "编辑字段规则",
+      "Edit field rules"
+    ],
+    "guide.previewTitle": [
+      "查看当前规则生成的样例",
+      "View samples from the current rules"
+    ],
+    "guide.previewHelp": [
+      "样例不会写入数据库。核对字段内容与业务要求；需要修改时返回“设定规则”。",
+      "Samples are not written to the database. Check the field values against your requirements; return to Set rules to make changes."
+    ],
+    "guide.previewAction": [
+      "预览已选范围",
+      "Preview selected scope"
+    ],
+    "guide.confirmTitle": [
+      "核对目标与写入方式",
+      "Review the target and write mode"
+    ],
+    "guide.confirmHelp": [
+      "确认生成数量和已有数据处理方式。清空模式会额外检查未选下游表，只有在确认窗口提交后才写入。",
+      "Confirm row counts and how to handle existing data. Clear mode also checks unselected downstream tables. Data is only written after you submit the confirmation dialog."
+    ],
+    "guide.expand": [
+      "展开引导",
+      "Show guide"
+    ],
+    "guide.collapse": [
+      "收起引导",
+      "Hide guide"
+    ],
+    "guide.rulesDescription": [
+      "选择表与字段",
+      "Choose tables and fields"
+    ],
+    "guide.previewDescription": [
+      "只读查看结果",
+      "View without writing"
+    ],
+    "guide.confirmDescription": [
+      "核对生成计划",
+      "Review generation plan"
+    ],
+    "guide.flow": [
+      "生成流程",
+      "Generation workflow"
+    ],
+    "guide.confirmLabel": [
+      "核对生成计划；此处不会直接写入",
+      "Review generation plan; this does not write data"
+    ],
+    "guide.rulesLabel": [
+      "随时返回修改规则",
+      "Return to edit rules at any time"
+    ],
+    "guide.previewLabel": [
+      "查看样例，不写入数据库",
+      "View samples without writing to the database"
+    ],
+    "ai.stale": [
+      "配置已变化，请重新分析。",
+      "Configuration changed. Analyze again."
+    ],
+    "ai.fieldStale": [
+      "建议字段已失效，请刷新结构。",
+      "The suggested field is no longer available. Refresh the schema."
+    ],
+    "ai.applied": [
+      "已应用 {count} 条 AI 建议。请预览并检查，确认效果后生成数据。",
+      "Applied AI suggestions: {count}. Preview and check the results before generating data."
+    ],
+    "ai.resolving": [
+      "正在解析当前配置的字段生成方式…",
+      "Resolving field generation modes for the current configuration…"
+    ],
+    "action.cancel": [
+      "取消",
+      "Cancel"
+    ],
+    "ai.schemaStale": [
+      "数据库结构已变化，请刷新后重新打开 AI 助手。",
+      "The database schema changed. Refresh it and reopen the AI assistant."
+    ],
+    "ai.unavailable": [
+      "AI 扩展{status}，规则建议与分析不可用。请前往插件与版本{action}后返回。",
+      "The AI component is {status}, so rule suggestions and analysis are unavailable. Go to Components and versions to {action}, then return."
+    ],
+    "component.inspectError": [
+      "查看异常",
+      "view the error"
+    ],
+    "component.install": [
+      "安装扩展",
+      "install the component"
+    ],
+    "component.openSettings": [
+      "前往插件设置",
+      "Open component settings"
+    ],
+    "config.name": [
+      "配置名称",
+      "Configuration name"
+    ],
+    "action.confirm": [
+      "确定",
+      "Confirm"
+    ],
+    "config.nameRequired": [
+      "请填写配置名称",
+      "Enter a configuration name"
+    ],
+    "count.invalid": [
+      "生成数量待修正",
+      "Generation count needs correction"
+    ],
+    "count.generateRows": [
+      "生成 {count} 行",
+      {
+        "one": "Generate {count} row",
+        "other": "Generate {count} rows"
+      }
+    ],
+    "scope.reference": [
+      "仅引用已有数据",
+      "Use existing data only"
+    ],
+    "scope.excluded": [
+      "未加入生成",
+      "Not selected for generation"
+    ],
+    "schema.viewAll": [
+      "查看整库关系图",
+      "View the entire database graph"
+    ],
+    "connection.connected": [
+      "{dialect} · 已连接",
+      "{dialect} · Connected"
+    ],
+    "connection.details": [
+      "查看连接信息",
+      "View connection details"
+    ],
+    "schema.actions": [
+      "数据库结构操作",
+      "Database schema actions"
+    ],
+    "schema.counts": [
+      "{tables} 张表 · {edges} 条外键",
+      "Tables: {tables} · Foreign keys: {edges}"
+    ],
+    "schema.refresh": [
+      "重新读取结构",
+      "Refresh schema"
+    ],
+    "schema.refreshHelp": [
+      "重新读取表、字段和外键；不生成样例或写入数据",
+      "Reread tables, fields and foreign keys; no samples are generated and no data is written"
+    ],
+    "schema.exportGraph": [
+      "导出关系图 JSON",
+      "Export graph JSON"
+    ],
+    "schema.importGraph": [
+      "导入关系图 JSON",
+      "Import graph JSON"
+    ],
+    "schema.viewImported": [
+      "查看已导入关系图",
+      "View imported graph"
+    ],
+    "scope.tables": [
+      "数据库表",
+      "Database tables"
+    ],
+    "scope.selectAll": [
+      "全选",
+      "Select all"
+    ],
+    "scope.clearSelection": [
+      "清空选择",
+      "Clear selection"
+    ],
+    "scope.search": [
+      "查找表",
+      "Find table"
+    ],
+    "scope.generateTable": [
+      "生成 {table}",
+      "Generate {table}"
+    ],
+    "scope.fieldRules": [
+      "{table} 的字段规则",
+      "Field rules for {table}"
+    ],
+    "scope.fullPath": [
+      "{table} 的完整依赖路径",
+      "Full dependency path for {table}"
+    ],
+    "scope.path": [
+      "{table} 的依赖路径",
+      "Dependency path for {table}"
+    ],
+    "preview.selected": [
+      "预览已选表",
+      "Preview selected tables"
+    ],
+    "preview.selectedHelp": [
+      "预览已勾选的 {count} 张表，不写入数据库",
+      {
+        "one": "Preview the {count} selected table without writing to the database",
+        "other": "Preview the {count} selected tables without writing to the database"
+      }
+    ],
+    "connection.current": [
+      "当前数据库",
+      "Current database"
+    ],
+    "connection.target": [
+      "连接目标",
+      "Connection target"
+    ],
+    "connection.dialect": [
+      "数据库类型",
+      "Database type"
+    ],
+    "connection.status": [
+      "状态",
+      "Status"
+    ],
+    "connection.available": [
+      "已连接",
+      "Connected"
+    ],
+    "connection.switch": [
+      "切换数据库",
+      "Switch database"
+    ],
+    "count.help": [
+      "填写大于 0 的完整整数；工作台最多精确表示 9,007,199,254,740,991。实际生成规模受磁盘、运行时间、唯一值和外键约束影响。",
+      "Enter a positive whole number. The workbench can represent up to 9,007,199,254,740,991 exactly. Practical generation size depends on disk space, runtime, unique values and foreign key constraints."
+    ],
+    "count.empty": [
+      "空值",
+      "empty"
+    ],
+    "count.changed": [
+      "生成数量已改变，请点击“预览数据”重新查看。",
+      "Generation count changed. Open Preview data to refresh the samples."
+    ],
+    "count.label": [
+      "{table} 生成数量",
+      "Generation count for {table}"
+    ],
+    "count.increase": [
+      "{table} 增加 1 行",
+      "Add 1 row for {table}"
+    ],
+    "count.decrease": [
+      "{table} 减少 1 行",
+      "Subtract 1 row for {table}"
+    ],
+    "schema.emptyTitle": [
+      "数据库尚无表",
+      "No tables in this database"
+    ],
+    "schema.emptyHeading": [
+      "当前数据库还没有可配置的表",
+      "This database has no tables to configure yet"
+    ],
+    "schema.emptyHelp": [
+      "请先在数据库工具中创建表，再重新读取结构；也可以选择已有表的其他数据库。",
+      "Create tables with a database tool, then refresh the schema, or select another database that already has tables."
+    ],
+    "connection.other": [
+      "选择其他数据库",
+      "Select another database"
+    ],
+    "table.summary": [
+      "{fields} 个字段 · 已有 {rows} 行",
+      "Fields: {fields} · Existing rows: {rows}"
+    ],
+    "table.currentData": [
+      "查看当前数据",
+      "View current data"
+    ],
+    "table.include": [
+      "加入生成",
+      "Add to generation"
+    ],
+    "count.title": [
+      "生成数量",
+      "Generation count"
+    ],
+    "count.unit": [
+      "行",
+      "rows"
+    ],
+    "tab.rules": [
+      "字段规则",
+      "Field rules"
+    ],
+    "tab.preview": [
+      "预览数据",
+      "Preview data"
+    ],
+    "tab.graph": [
+      "关系图",
+      "Relationship graph"
+    ],
+    "tab.label": [
+      "当前表视图",
+      "Current table view"
+    ],
+    "preview.afterEdit": [
+      "规则调整后，可在当前表的“预览数据”中检查效果。",
+      "After adjusting rules, check the results in Preview data for the current table."
+    ],
+    "preview.readOnly": [
+      "预览不写入数据库",
+      "Preview does not write to the database"
+    ],
+    "rule.computed": [
+      "数据库计算",
+      "Database computed"
+    ],
+    "rule.auto": [
+      "数据库自动分配",
+      "Database assigned"
+    ],
+    "rule.default": [
+      "数据库默认值",
+      "Database default"
+    ],
+    "rule.null": [
+      "使用 NULL（空值）",
+      "Use NULL"
+    ],
+    "rule.autoHelp": [
+      "追加数据，由数据库继续分配主键；保留已有 ID",
+      "Append data and let the database assign primary keys; existing IDs are preserved"
+    ],
+    "rule.computedHelp": [
+      "由数据库表达式计算",
+      "Calculated by a database expression"
+    ],
+    "rule.defaultHelp": [
+      "使用数据库默认值：{value}",
+      "Use database default: {value}"
+    ],
+    "rule.nullHelp": [
+      "省略该列，由数据库填入 NULL",
+      "Omit this column and let the database insert NULL"
+    ],
+    "rule.reference": [
+      "引用 {table}.{columns}",
+      "Reference {table}.{columns}"
+    ],
+    "rule.coverParent": [
+      "优先覆盖父表可用记录",
+      "Cover available parent records first"
+    ],
+    "rule.sampleParent": [
+      "从父表的可用记录中取值",
+      "Take values from available parent records"
+    ],
+    "rule.derived": [
+      "根据其他字段推算",
+      "Derived from other fields"
+    ],
+    "rule.unbounded": [
+      "不限",
+      "Unbounded"
+    ],
+    "rule.precisionPrefix": [
+      "，保留 ",
+      ", with "
+    ],
+    "rule.precisionSuffix": [
+      " 位小数",
+      " decimal places"
+    ],
+    "rule.nullRatio": [
+      "{separator}{percent}% 为空",
+      "{separator}{percent}% NULL"
+    ],
+    "rule.inferred": [
+      "自动匹配",
+      "Automatically matched"
+    ],
+    "rule.defaults": [
+      "使用生成器默认参数",
+      "Use default generator parameters"
+    ],
+    "rule.autoValue": [
+      "自动分配",
+      "Automatically assigned"
+    ],
+    "rule.awaitingPreview": [
+      "待预览",
+      "Awaiting preview"
+    ],
+    "field.search": [
+      "查找字段",
+      "Find field"
+    ],
+    "field.draftHelp": [
+      "当前表未勾选，可查看和调整草稿；不会纳入本次生成。",
+      "This table is not selected. You can view and edit its draft, but it will not be generated."
+    ],
+    "field.tableHelp": [
+      "字段名查看结构，取值规则调整生成方式",
+      "Select a field name to view its structure, or a value rule to edit generation"
+    ],
+    "field.scrollLabel": [
+      "{table} 字段规则，可滚动查看",
+      "Field rules for {table}; scroll to view more"
+    ],
+    "field.name": [
+      "字段",
+      "Field"
+    ],
+    "field.valueRule": [
+      "取值规则",
+      "Value rule"
+    ],
+    "field.pkSuffix": [
+      " · 主键",
+      " · Primary key"
+    ],
+    "field.fkSuffix": [
+      " · 外键",
+      " · Foreign key"
+    ],
+    "field.nullableSuffix": [
+      " · 可空",
+      " · Nullable"
+    ],
+    "field.requiredSuffix": [
+      " · 不可空",
+      " · Not nullable"
+    ],
+    "field.noMatch": [
+      "没有匹配的字段",
+      "No matching fields"
+    ],
+    "field.previewTitle": [
+      "预览中的字段 · {column}",
+      "Field in preview · {column}"
+    ],
+    "field.applyReturn": [
+      "应用并返回预览",
+      "Apply and return to preview"
+    ],
+    "field.apply": [
+      "应用规则",
+      "Apply rule"
+    ],
+    "field.stale": [
+      "配置已变化，请重新打开字段规则。",
+      "Configuration changed. Reopen the field rule editor."
+    ],
+    "field.applied": [
+      "{table}.{column} 的规则已应用，请在“预览数据”中检查效果。",
+      "Rule applied for {table}.{column}. Check the result in Preview data."
+    ],
+    "field.unchanged": [
+      "规则未变更。",
+      "Rule unchanged."
+    ],
+    "field.previewHelp": [
+      "在预览中调整此字段；返回时保留表、列和滚动位置。应用后样例会标记为待更新，再预览即可核对效果。",
+      "Adjust this field in the preview. Returning preserves the table, column and scroll position. Applied changes mark samples as outdated; preview again to check the result."
+    ],
+    "field.details": [
+      "字段详情",
+      "Field details"
+    ],
+    "field.information": [
+      "字段信息",
+      "Field information"
+    ],
+    "field.returnPreview": [
+      "返回预览",
+      "Return to preview"
+    ],
+    "field.edit": [
+      "编辑取值规则",
+      "Edit value rule"
+    ],
+    "field.ai": [
+      "用 AI 调整",
+      "Adjust with AI"
+    ],
+    "field.aiPending": [
+      "请先应用或取消当前修改，再使用 AI 调整此字段。",
+      "Apply or cancel your current changes before using AI to adjust this field."
+    ],
+    "field.aiHelp": [
+      "针对当前字段提出规则建议，审阅后再应用。",
+      "Get rule suggestions for this field, then review and apply them."
+    ],
+    "field.type": [
+      "数据类型",
+      "Data type"
+    ],
+    "field.nullable": [
+      "允许空值",
+      "Allows NULL"
+    ],
+    "boolean.yes": [
+      "是",
+      "Yes"
+    ],
+    "boolean.no": [
+      "否",
+      "No"
+    ],
+    "field.primaryKey": [
+      "主键",
+      "Primary key"
+    ],
+    "field.unset": [
+      "未设置",
+      "Not set"
+    ],
+    "field.assigned": [
+      "由数据库分配",
+      "Assigned by database"
+    ],
+    "field.structureHelp": [
+      "读取自数据库的结构信息。生成规则不会修改表结构。",
+      "Schema information read from the database. Generation rules do not change table structure."
+    ],
+    "field.foreignSource": [
+      "外键来源",
+      "Foreign key source"
+    ],
+    "field.unique": [
+      "唯一约束",
+      "Unique constraint"
+    ],
+    "field.compositeUnique": [
+      "复合唯一约束",
+      "Composite unique constraint"
+    ],
+    "field.checkConstraints": [
+      "所属表的 CHECK 约束",
+      "Table CHECK constraints"
+    ],
+    "field.checkHelp": [
+      "这些约束作用于整张表，可能涉及其他字段。",
+      "These constraints apply to the entire table and may involve other fields."
+    ],
+    "schema.externalSource": [
+      "外部引用来源，仅展示结构。",
+      "External reference source; only its structure is shown."
+    ],
+    "field.count": [
+      "{count} 个字段",
+      "Fields: {count}"
+    ],
+    "field.viewRules": [
+      "查看字段规则",
+      "View field rules"
+    ],
+    "edge.title": [
+      "外键引用",
+      "Foreign key reference"
+    ],
+    "edge.help": [
+      "箭头从父表指向引用它的子表。成组字段共同构成同一条外键。",
+      "The arrow points from the parent table to the child that references it. Grouped columns form a single foreign key."
+    ],
+    "edge.locateColumn": [
+      "定位引用字段",
+      "Locate referencing field"
+    ],
+    "field.selectHelp": [
+      "选择字段调整生成器与参数。",
+      "Select a field to adjust its generator and parameters."
+    ],
+    "field.adjust": [
+      "调整 {table}.{column}",
+      "Adjust {table}.{column}"
+    ],
+    "rule.database": [
+      "数据库处理",
+      "Database managed"
+    ],
+    "rule.referenceType": [
+      "引用",
+      "Reference"
+    ],
+    "rule.derivedType": [
+      "派生",
+      "Derived"
+    ],
+    "rule.generatorType": [
+      "生成器",
+      "Generator"
+    ],
+    "source.indirect": [
+      "结构上的间接上游；本次引用中间表已有数据，此关系不要求先生成该来源。",
+      "Indirect upstream dependency in the schema. This plan uses existing data in the intermediate table, so this source does not need to be generated first."
+    ],
+    "source.generatedKeys": [
+      "先生成父表，再从生成后的有效主键取值。",
+      "Generate the parent table first, then use its valid primary keys."
+    ],
+    "source.generated": [
+      "父表也在本次生成范围，按依赖顺序先生成。",
+      "The parent is also selected and will be generated first in dependency order."
+    ],
+    "source.existing": [
+      "已有 {rows} 行 · 仅引用，不新增。已检查存在可用引用值，因此无需勾选父表。",
+      "Existing rows: {rows} · Reference only, no new rows. Usable reference values were found, so the parent does not need to be selected."
+    ],
+    "source.nullable": [
+      "无可用引用值；此外键允许 NULL。",
+      "No usable reference values; this foreign key allows NULL."
+    ],
+    "source.empty": [
+      "无可用引用值；请将父表加入生成范围。",
+      "No usable reference values; add the parent table to the generation scope."
+    ],
+    "source.unchecked": [
+      "{rows} · {scope}；是否有可用引用值以检查结果为准。",
+      "{rows} · {scope}; check the configuration to confirm usable reference values."
+    ],
+    "source.unknownRows": [
+      "行数未知",
+      "Row count unknown"
+    ],
+    "source.existingPrefix": [
+      "已有 ",
+      "Existing rows: "
+    ],
+    "source.rowsSuffix": [
+      " 行",
+      " rows"
+    ],
+    "scope.selected": [
+      "本次生成",
+      "Selected for generation"
+    ],
+    "scope.referenceOnly": [
+      "仅引用",
+      "Reference only"
+    ],
+    "action.viewTable": [
+      "查看 {table}",
+      "View {table}"
+    ],
+    "source.none": [
+      "当前表没有上游外键或关联依赖。",
+      "This table has no upstream foreign key or association dependencies."
+    ],
+    "source.noExternal": [
+      "所选表没有外部引用依赖。",
+      "Selected tables have no external reference dependencies."
+    ],
+    "source.allUpstream": [
+      "{table} · 全部上游来源（{count}）",
+      "{table} · All upstream sources ({count})"
+    ],
+    "source.details": [
+      "引用来源明细（{count}）",
+      "Reference source details ({count})"
+    ],
+    "source.upstreamHelp": [
+      "此处展示本表依赖的完整上游链。图中的下游表示受本表影响的表，不是本表的生成前置条件。",
+      "This shows the table's complete upstream chain. Downstream tables in the graph are affected by this table; they are not prerequisites for generating it."
+    ],
+    "source.detailsHelp": [
+      "查看来源字段映射、已有数据与生成范围之间的关系。",
+      "View field mappings and how existing source data relates to the generation scope."
+    ],
+    "dependency.tableTitle": [
+      "{table} · 依赖检查",
+      "{table} · Dependency check"
+    ],
+    "dependency.selectedTitle": [
+      "检查所选表的规则与依赖",
+      "Check rules and dependencies for selected tables"
+    ],
+    "dependency.excluded": [
+      "当前表未纳入本次检查范围。这里仅解释结构；加入生成后再检查规则与引用来源。",
+      "This table is outside the current check scope. Only its structure is explained here; add it to generation to check rules and reference sources."
+    ],
+    "dependency.notChecked": [
+      "尚未检查当前配置。",
+      "The current configuration has not been checked."
+    ],
+    "dependency.start": [
+      "开始检查",
+      "Run check"
+    ],
+    "dependency.issues": [
+      "当前范围有待处理的问题。",
+      "This scope has issues to resolve."
+    ],
+    "dependency.passed": [
+      "引用来源与规则检查通过。",
+      "Reference sources and rules passed validation."
+    ],
+    "dependency.otherIssues": [
+      "整个计划仍有待处理项，请查看完整检查。",
+      "Other issues remain in the overall plan. View the full check."
+    ],
+    "dependency.counts": [
+      "{blockers} 项阻断 · {warnings} 项提醒",
+      "Blockers: {blockers} · Warnings: {warnings}"
+    ],
+    "config.title": [
+      "生成配置",
+      "Generation configuration"
+    ],
+    "dependency.addSource": [
+      "加入 {table}（{count} 行）",
+      {
+        "one": "Add {table} ({count} row)",
+        "other": "Add {table} ({count} rows)"
+      }
+    ],
+    "action.locate": [
+      "定位 {target}",
+      "Locate {target}"
+    ],
+    "dependency.blockingTitle": [
+      "需先处理的问题",
+      "Issues to resolve first"
+    ],
+    "dependency.warningTitle": [
+      "提醒与说明",
+      "Warnings and notes"
+    ],
+    "dependency.groupsReference": [
+      "依赖分组参考",
+      "Dependency groups for reference"
+    ],
+    "dependency.tableOrder": [
+      "本表相关生成顺序",
+      "Generation order related to this table"
+    ],
+    "dependency.selectedOrder": [
+      "所选表生成顺序",
+      "Generation order for selected tables"
+    ],
+    "dependency.incompletePlan": [
+      "尚未形成可执行计划；以下分组可能不包含循环依赖中的表。请先处理阻断项，再重新检查。",
+      "There is no executable plan yet. The groups below may omit tables in dependency cycles. Resolve blockers, then check again."
+    ],
+    "dependency.tableOrderHelp": [
+      "仅列本表及上游中已勾选的表；其他表在整个计划中查看。未勾选的来源使用已有数据。",
+      "Only this table and its selected upstream tables are listed. View the full plan for other tables. Unselected sources use existing data."
+    ],
+    "dependency.groupHelp": [
+      "同组表示没有先后依赖；执行仍逐表进行。",
+      "Tables in the same group have no ordering dependency. They are still processed one at a time."
+    ],
+    "dependency.fullPlan": [
+      "整个计划 ↗",
+      "Full plan ↗"
+    ],
+    "dependency.group": [
+      "第 {number} 组 · {count} 张表",
+      "Group {number} · Tables: {count}"
+    ],
+    "scope.noneTitle": [
+      "尚未选择生成表",
+      "No tables selected for generation"
+    ],
+    "scope.noneHelp": [
+      "请在左侧勾选至少一张要生成数据的表，再检查规则与依赖。",
+      "Select at least one table on the left, then check its rules and dependencies."
+    ],
+    "scope.select": [
+      "选择生成表",
+      "Select tables to generate"
+    ],
+    "dependency.fullTitle": [
+      "整个计划 · 依赖检查",
+      "Full plan · Dependency check"
+    ],
+    "preview.tableLabel": [
+      "{table} 预览数据",
+      "Preview data for {table}"
+    ],
+    "preview.current": [
+      "预览当前表",
+      "Preview current table"
+    ],
+    "preview.selectedScope": [
+      "已选表",
+      "Selected tables"
+    ],
+    "preview.issues": [
+      "样例有待处理项，请查看字段说明或依赖检查。",
+      "Some samples need attention. View field notes or the dependency check."
+    ],
+    "preview.partial": [
+      "仅更新可预览的部分样例；完整关联样例需等待父表有可用记录。",
+      "Only available samples were updated. Complete related samples require usable records in the parent tables."
+    ],
+    "preview.updated": [
+      "{scope}样例已更新，数据库未写入。",
+      "{scope} samples updated. Nothing was written to the database."
+    ],
+    "defaults.features": [
+      "当前引擎特点",
+      "Current engine features"
+    ],
+    "defaults.apply": [
+      "应用设置",
+      "Apply settings"
+    ],
+    "component.unavailable": [
+      "不可用",
+      "Unavailable"
+    ],
+    "component.builtIn": [
+      "内置可用",
+      "Built in"
+    ],
+    "component.installed": [
+      "已安装",
+      "Installed"
+    ],
+    "component.bundledSuffix": [
+      " · 随 sqlseed 安装",
+      " · Installed with sqlseed"
+    ],
+    "component.optionalSuffix": [
+      " · 可选依赖",
+      " · Optional dependency"
+    ],
+    "defaults.engineBroken": [
+      "{engine} 已安装但加载异常，暂不能应用。",
+      "{engine} is installed but could not load. It cannot be applied yet."
+    ],
+    "defaults.mimesisMissing": [
+      "当前环境未安装 Mimesis，暂不能应用。",
+      "Mimesis is not installed in this environment and cannot be applied yet."
+    ],
+    "defaults.engineMissing": [
+      "当前 Web 服务未提供此引擎，请检查安装环境。",
+      "This engine is unavailable in the current Web service. Check the installation environment."
+    ],
+    "defaults.repairHelp": [
+      "请在插件与版本中查看异常信息，处理后返回。",
+      "View the error in Components and versions, resolve it, then return."
+    ],
+    "defaults.installHelp": [
+      "在插件与版本中安装后，返回选择此引擎。",
+      "Install it in Components and versions, then return to select this engine."
+    ],
+    "defaults.examples": [
+      "格式示例与详细说明",
+      "Format examples and details"
+    ],
+    "defaults.applyHelp": [
+      "应用于当前配置中的所有表；已有表级、字段级覆盖保留，检查时会提示不兼容的引擎设置。",
+      "Applies to all tables in the current configuration. Existing table and field overrides are kept; validation reports incompatible engine settings."
+    ],
+    "defaults.localeHelp": [
+      "影响生成内容的语言与格式，不改变界面语言。",
+      "Affects the language and format of generated content, not the interface language."
+    ],
+    "config.saved": [
+      "配置已保存 · v{revision}",
+      "Configuration saved · v{revision}"
+    ],
+    "preview.loading": [
+      "正在生成样例，不写入数据库…",
+      "Generating samples without writing to the database…"
+    ],
+    "dependency.loading": [
+      "正在检查结构、规则与依赖…",
+      "Checking schema, rules and dependencies…"
+    ],
+    "dependency.stale": [
+      "配置已变化，旧的检查结果已丢弃，请重新检查。",
+      "Configuration changed. The old check result was discarded; check again."
+    ],
+    "preview.refreshed": [
+      "样例已更新；数据库未写入。",
+      "Samples updated; nothing was written to the database."
+    ],
+    "dependency.appendValid": [
+      "追加生成的依赖与规则检查通过。",
+      "Append dependencies and rules passed validation."
+    ],
+    "dependency.foundIssues": [
+      "发现 {count} 个待处理项，请查看依赖检查。",
+      "Issues found: {count}. View the dependency check."
+    ],
+    "schema.changed": [
+      "数据库结构已变化，请检查保留的规则后重新保存。",
+      "Database schema changed. Review the retained rules and save again."
+    ],
+    "schema.refreshed": [
+      "已重新读取结构与行数。",
+      "Schema and row counts refreshed."
+    ],
+    "config.savedTitle": [
+      "已保存的配置",
+      "Saved configurations"
+    ],
+    "config.openHelp": [
+      "仅列出当前数据库的配置。打开前会保存当前未保存的修改。",
+      "Only configurations for this database are listed. Unsaved changes will be saved before another configuration is opened."
+    ],
+    "config.none": [
+      "尚未保存配置。",
+      "No saved configurations yet."
+    ],
+    "yaml.label": [
+      "YAML 或 JSON 配置",
+      "YAML or JSON configuration"
+    ],
+    "yaml.loading": [
+      "正在读取配置文档…",
+      "Reading configuration document…"
+    ],
+    "yaml.help": [
+      "默认使用 YAML，也可读取或粘贴 JSON。应用后更新生成配置；写入数据库仍需单独确认。",
+      "YAML is the default; you can also load or paste JSON. Applying updates the generation configuration. Writing to the database still requires separate confirmation."
+    ],
+    "yaml.tooLarge": [
+      "配置文件不得超过 2 MiB",
+      "Configuration files must not exceed 2 MiB"
+    ],
+    "yaml.changed": [
+      "文本已变化，请重新应用或下载当前内容。",
+      "The text changed. Apply again or download the current content."
+    ],
+    "yaml.format": [
+      "下载格式",
+      "Download format"
+    ],
+    "yaml.readFile": [
+      "读取文件",
+      "Load file"
+    ],
+    "yaml.download": [
+      "下载配置",
+      "Download configuration"
+    ],
+    "yaml.export": [
+      "导出配置",
+      "Export configuration"
+    ],
+    "yaml.tools": [
+      "配置文件工具",
+      "Configuration file tools"
+    ],
+    "yaml.apply": [
+      "应用配置",
+      "Apply configuration"
+    ],
+    "yaml.applied": [
+      "配置已应用，请检查并保存。",
+      "Configuration applied. Check and save it."
+    ],
+    "yaml.check": [
+      "检查配置文档",
+      "Check configuration document"
+    ],
+    "yaml.credentials": [
+      "导出内容省略连接凭据，单独执行时需补充连接信息。",
+      "Exported content omits connection credentials. Add connection details before running it independently."
+    ],
+    "yaml.failed": [
+      "配置文档未能读取，请关闭后重试。",
+      "Unable to read the configuration document. Close this dialog and try again."
+    ],
+    "graph.title": [
+      "数据库关系图",
+      "Database relationship graph"
+    ],
+    "graph.json": [
+      "关系图 JSON",
+      "Relationship graph JSON"
+    ],
+    "graph.placeholder": [
+      "粘贴关系图 JSON，或选择文件",
+      "Paste relationship graph JSON or select a file"
+    ],
+    "graph.tooLarge": [
+      "关系图文件不得超过 1 MiB",
+      "Graph files must not exceed 1 MiB"
+    ],
+    "graph.importHelp": [
+      "导入后只读浏览表与外键关系，不会创建或修改数据库。生成配置继续绑定当前数据库。",
+      "Importing only displays tables and foreign keys. It does not create or modify a database. The generation configuration stays bound to the current database."
+    ],
+    "graph.formatHelp": [
+      "格式说明",
+      "Format reference"
+    ],
+    "graph.formatDetails": [
+      "nodes 是表列表；edges 中 source 为父表、target 为子表，sourceColumns 和 targetColumns 按位置一一对应。复合外键放在同一条边内。",
+      "nodes lists tables. In edges, source is the parent and target is the child. sourceColumns and targetColumns correspond by position. Keep composite foreign keys in a single edge."
+    ],
+    "graph.template": [
+      "下载格式模板",
+      "Download format template"
+    ],
+    "graph.selectFile": [
+      "选择 JSON 文件",
+      "Select JSON file"
+    ],
+    "graph.import": [
+      "导入关系图",
+      "Import graph"
+    ],
+    "graph.invalidFormat": [
+      "不支持此关系图格式或版本，请参考格式模板。",
+      "Unsupported graph format or version. Refer to the format template."
+    ],
+    "graph.invalidSize": [
+      "需要 nodes 和 edges，支持 1—200 张表 / 最多 1000 条关系。",
+      "nodes and edges are required. Supported size: 1–200 tables and up to 1,000 relationships."
+    ],
+    "graph.invalidNodes": [
+      "每张表需要非空且唯一的 id。",
+      "Each table must have a nonempty, unique id."
+    ],
+    "graph.invalidEndpoints": [
+      "关系的 source / target 必须对应 nodes 中的表 id。",
+      "Each edge's source and target must match table IDs in nodes."
+    ],
+    "graph.invalidColumns": [
+      "外键列必须是长度相同的字符串数组。",
+      "Foreign key columns must be string arrays of equal length."
+    ],
+    "graph.invalidIds": [
+      "每条关系需要唯一的 id。",
+      "Each relationship needs a unique id."
+    ],
+    "graph.importedTitle": [
+      "导入的关系图",
+      "Imported relationship graph"
+    ],
+    "graph.readOnly": [
+      "只读关系图 · 与当前生成配置分开浏览",
+      "Read-only graph · Viewed separately from the current generation configuration"
+    ],
+    "clear.recoveryTitle": [
+      "清空方案处理",
+      "Resolve clear plan"
+    ],
+    "clear.expandHelp": [
+      "要清空后重新生成，还需将 {count} 张关联表纳入重建范围。先核对完整范围，再继续清空计划。",
+      {
+        "one": "To clear and regenerate, include {count} related table in the rebuild scope. Review the full scope before continuing to the clear plan.",
+        "other": "To clear and regenerate, include {count} related tables in the rebuild scope. Review the full scope before continuing to the clear plan."
+      }
+    ],
+    "clear.resolveHelp": [
+      "要继续清空重建，请先处理下列问题。",
+      "Resolve the issues below to continue clearing and rebuilding."
+    ],
+    "clear.scopeChanged": [
+      "重建范围已调整，请重新检查清空计划。",
+      "Rebuild scope adjusted. Recheck the clear plan."
+    ],
+    "clear.expand": [
+      "补齐关联表，继续重建",
+      "Include related tables and continue rebuilding"
+    ],
+    "clear.recheck": [
+      "重新检查清空计划",
+      "Recheck clear plan"
+    ],
+    "clear.relatedTables": [
+      "需一并重建的关联表（点击可定位）：",
+      "Related tables to rebuild together (select to locate):"
+    ],
+    "clear.previousTables": [
+      "上次检查涉及的关联表：",
+      "Related tables from the previous check:"
+    ],
+    "clear.disableReset": [
+      "取消重置并重新检查",
+      "Disable sequence reset and recheck"
+    ],
+    "clear.retryHelp": [
+      "{error} 请重新检查；尚未写入数据库。",
+      "{error} Check again; nothing has been written to the database."
+    ],
+    "clear.alternatives": [
+      "其他处理方式",
+      "Other options"
+    ],
+    "clear.adjustScope": [
+      "手动调整重建范围",
+      "Adjust rebuild scope manually"
+    ],
+    "clear.switchAppend": [
+      "改为追加，保留现有数据",
+      "Switch to append and keep existing data"
+    ],
+    "clear.expandTitle": [
+      "补齐清空重建范围",
+      "Complete the clear and rebuild scope"
+    ],
+    "clear.confirmScope": [
+      "确认范围，查看清空计划",
+      "Confirm scope and view clear plan"
+    ],
+    "clear.prepare": [
+      "准备清空计划",
+      "Prepare clear plan"
+    ],
+    "clear.scopeCounts": [
+      "{original} 张 → {total} 张：新增 {added} 张表",
+      "Tables: {original} → {total} · Added: {added}"
+    ],
+    "clear.relatedHelp": [
+      "以下关联表需要一并清空，再按各自规则重新生成。已自动查找所有受影响的下游表。",
+      "These related tables must also be cleared and regenerated using their own rules. All affected downstream tables have been located automatically."
+    ],
+    "clear.confirmHelp": [
+      "确认范围后会保存配置并打开清空计划；只有在下一步确认“清空并生成”后才会写入数据库。",
+      "Confirming the scope saves the configuration and opens the clear plan. Data is only written after you confirm Clear and generate in the next step."
+    ],
+    "clear.addedTables": [
+      "新增表",
+      "Added tables"
+    ],
+    "clear.existingRows": [
+      "现有行数（上次读取）",
+      "Existing rows (last read)"
+    ],
+    "clear.generatedRows": [
+      "将生成行数",
+      "Rows to generate"
+    ],
+    "value.unknown": [
+      "未知",
+      "Unknown"
+    ],
+    "clear.originalTables": [
+      "原选 {count} 张表",
+      "Originally selected tables: {count}"
+    ],
+    "clear.countDisclaimer": [
+      "现有行数仅供审阅参考，最终清空数量以重新获取的生成计划为准。规则检查通过仍不代表清空一定可行，触发器、自引用等还需清空预检。",
+      "Existing row counts are for review only; the refreshed generation plan determines the final clear counts. Passing rule validation does not guarantee clearing is possible. Triggers, self-references and other conditions require a clear preflight check."
+    ],
+    "clear.unresolved": [
+      "无法定位关联表 {tables}，请重新读取数据库结构后核对。",
+      "Cannot locate related tables: {tables}. Refresh the database schema and review the scope."
+    ],
+    "clear.noCandidates": [
+      "没有可自动补入的关联表，请调整重建范围。",
+      "No related tables can be added automatically. Adjust the rebuild scope."
+    ],
+    "clear.adjust": [
+      "调整重建范围",
+      "Adjust rebuild scope"
+    ],
+    "clear.checkingCandidate": [
+      "正在检查候选范围的规则与依赖，不修改当前配置…",
+      "Checking rules and dependencies for the candidate scope without changing the current configuration…"
+    ],
+    "clear.candidatePassed": [
+      "规则检查通过。核对下方新增表后，可直接继续清空计划。",
+      "Rules passed validation. Review the added tables below, then continue to the clear plan."
+    ],
+    "clear.candidateFailed": [
+      "这个范围仍有生成规则问题，暂时不能继续清空重建。请先调整下列冲突表。",
+      "This scope still has rule issues and cannot be rebuilt yet. Adjust the conflicting tables below."
+    ],
+    "clear.candidateError": [
+      "候选范围检查未完成：{error}。当前配置未改变，请稍后重新检查。",
+      "Candidate scope check did not complete: {error}. The current configuration is unchanged. Try again later."
+    ],
+    "scope.required": [
+      "请先勾选要生成的表",
+      "Select tables to generate first"
+    ],
+    "execution.title": [
+      "确认生成数据",
+      "Confirm data generation"
+    ],
+    "execution.reset": [
+      "重置自增计数",
+      "Reset auto-increment sequence"
+    ],
+    "execution.append": [
+      "追加数据",
+      "Append data"
+    ],
+    "execution.replace": [
+      "清空所选表后生成",
+      "Clear selected tables, then generate"
+    ],
+    "execution.target": [
+      "写入目标",
+      "Write target"
+    ],
+    "execution.fileTargetHelp": [
+      "当前连接的数据库位置；由运行 Web 的设备访问。",
+      "Location of the connected database, accessed by the device running the Web service."
+    ],
+    "execution.urlTargetHelp": [
+      "当前连接的数据库地址；连接凭据已隐藏。",
+      "Address of the connected database. Connection credentials are hidden."
+    ],
+    "execution.existingData": [
+      "已有数据处理",
+      "Existing data"
+    ],
+    "execution.appendHelp": [
+      "保留已有记录，由数据库继续分配 ID。",
+      "Keep existing records and let the database continue assigning IDs."
+    ],
+    "execution.replaceHelp": [
+      "删除下列所选表的现有记录，再生成新数据。",
+      "Delete existing records in the selected tables below, then generate new data."
+    ],
+    "execution.postgresAppend": [
+      "PostgreSQL 暂未开放清空模式；当前仅支持追加数据。",
+      "Clear mode is not available for PostgreSQL yet. Only appending is supported."
+    ],
+    "execution.resetHelp": [
+      "仅清空后可选。SQLite AUTOINCREMENT 从 1 重新分配；普通整数主键在空表中通常也从 1 开始。",
+      "Available only in clear mode. SQLite AUTOINCREMENT restarts at 1; ordinary integer primary keys also usually start at 1 in an empty table."
+    ],
+    "execution.totalRows": [
+      "行本次生成",
+      {
+        "one": "row to generate",
+        "other": "rows to generate"
+      }
+    ],
+    "execution.totalTables": [
+      "{tables} 张表",
+      {
+        "one": "{tables} table",
+        "other": "{tables} tables"
+      }
+    ],
+    "count.rows": [
+      "{count} 行",
+      {
+        "one": "{count} row",
+        "other": "{count} rows"
+      }
+    ],
+    "execution.write": [
+      "写入数据库",
+      "Write to database"
+    ],
+    "execution.reviewAgain": [
+      "重新核对计划",
+      "Review plan again"
+    ],
+    "execution.return": [
+      "返回调整",
+      "Return to adjust"
+    ],
+    "execution.appendUnchecked": [
+      "追加生成的依赖与规则尚未通过检查。",
+      "Append dependencies and rules have not passed validation yet."
+    ],
+    "execution.appendPlanHelp": [
+      "追加生成的依赖与规则检查已通过。向现有数据追加，不清空表；自动主键由数据库继续分配。按此顺序逐表写入。若中途失败，后续表停止；已经提交的数据保留，实际数量可在运行记录中查看。",
+      "Append dependencies and rules passed validation. New data is added without clearing tables; the database assigns automatic primary keys. Tables are written in this order. If a table fails, later tables stop and committed data is retained. View actual counts in Runs."
+    ],
+    "execution.clearWrite": [
+      "清空并生成",
+      "Clear and generate"
+    ],
+    "execution.preflight": [
+      "正在核对清空范围、外键与事务能力…",
+      "Checking clear scope, foreign keys and transaction support…"
+    ],
+    "execution.clearCounts": [
+      "{intent} {tables} 张表 · {rows} 行现有记录",
+      {
+        "one": "{intent} {tables} table · Existing rows: {rows}",
+        "other": "{intent} {tables} tables · Existing rows: {rows}"
+      }
+    ],
+    "execution.willClear": [
+      "将清空",
+      "Will clear"
+    ],
+    "execution.proposedClear": [
+      "拟清空",
+      "Proposed clear:"
+    ],
+    "execution.tableCount": [
+      "{table}：{count} 行",
+      {
+        "one": "{table}: {count} row",
+        "other": "{table}: {count} rows"
+      }
+    ],
+    "execution.atomic": [
+      "清空与本次生成在同一事务中完成。失败将回滚本次操作，保留原有数据。",
+      "Clearing and generation run in one transaction. Failure rolls back this operation and preserves the original data."
+    ],
+    "execution.nonAtomic": [
+      "此模式不具备整体回滚能力。",
+      "This mode does not support a full rollback."
+    ]
+  }
+}

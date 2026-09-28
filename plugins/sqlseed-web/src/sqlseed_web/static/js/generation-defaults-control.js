@@ -41,7 +41,7 @@ export function createGenerationDefaultsControl() {
       setAttr(input, 'aria-invalid', String(!valid));
       if (!valid) error = tr('defaults.invalidField', {label, min: optional ? 0 : 1, max: formatNumber(max), optional: optional ? tr('defaults.optionalSuffix') : ''});
     }
-    try { validateGenerationDefaults(value); } catch (failure) { error ||= errorText(failure); }
+    try { validateGenerationDefaults(value); } catch (error_) { error ||= errorText(error_); }
     save.disabled = !loaded || Boolean(error) || JSON.stringify(value) === JSON.stringify(saved);
     if (error) setText(notice, error);
     else if (loaded && providerFacts[value.provider]?.available === false) setText(notice, tr('defaults.unavailableEngine'));

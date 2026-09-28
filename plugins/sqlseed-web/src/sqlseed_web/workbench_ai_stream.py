@@ -27,14 +27,17 @@ Analysis = Callable[[Callable[[str, str], None], Callable[[], None]], dict[str, 
 
 def _error(exc: HTTPException) -> dict[str, Any]:
     detail = exc.detail
+    message: str
+    if isinstance(detail, dict):
+        message = detail.get("message", tr("backend.workbench_ai_stream.ai_analysis_failed_please_retry"))
+    elif isinstance(detail, Message):
+        message = detail
+    else:
+        message = str(detail)
     result: dict[str, Any] = {
         "type": "error",
         "code": detail.get("code", "ai_analysis_failed") if isinstance(detail, dict) else "ai_analysis_failed",
-        "message": detail.get("message", tr("backend.workbench_ai_stream.ai_analysis_failed_please_retry"))
-        if isinstance(detail, dict)
-        else detail
-        if isinstance(detail, Message)
-        else str(detail),
+        "message": message,
         "status": exc.status_code,
         **(
             {key: detail[key] for key in ("message_key", "message_params") if key in detail}

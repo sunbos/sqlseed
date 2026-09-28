@@ -1,0 +1,296 @@
+{
+  "graph": {
+    "label": [
+      "数据库关系图",
+      "Database relationship graph"
+    ],
+    "scope": [
+      "关系图范围",
+      "Graph scope"
+    ],
+    "depth": [
+      "依赖路径深度",
+      "Dependency path depth"
+    ],
+    "plan": [
+      "本次生成",
+      "This generation"
+    ],
+    "all": [
+      "整库",
+      "Entire database"
+    ],
+    "paths": [
+      "依赖路径",
+      "Dependency paths"
+    ],
+    "issues": [
+      "检查问题",
+      "Check issues"
+    ],
+    "issueCount": [
+      "检查问题 · {count}",
+      "Check issues · {count}"
+    ],
+    "issueHelp": [
+      "查看当前生成来源与规则检查中的错误和提醒，不代表清空范围检查",
+      "View errors and warnings from generation-source and rule checks, not from clearing-scope checks"
+    ],
+    "complete": [
+      "完整路径",
+      "Complete path"
+    ],
+    "upstream": [
+      "全部上游",
+      "All upstream"
+    ],
+    "downstream": [
+      "全部下游",
+      "All downstream"
+    ],
+    "neighbors": [
+      "仅相邻",
+      "Neighbors only"
+    ],
+    "search": [
+      "查找表或字段",
+      "Find tables or fields"
+    ],
+    "clear": [
+      "清空",
+      "Clear"
+    ],
+    "readCurrent": [
+      "阅读当前表依赖",
+      "Read current table dependencies"
+    ],
+    "matches": [
+      "匹配的表",
+      "Matching tables"
+    ],
+    "zoomOut": [
+      "缩小关系图",
+      "Zoom out"
+    ],
+    "zoomIn": [
+      "放大关系图",
+      "Zoom in"
+    ],
+    "scaleHint": [
+      "相对图中节点原始尺寸的实际比例；100% 为自然阅读尺寸",
+      "Actual scale relative to the original node size; 100% is the natural reading size"
+    ],
+    "fit": [
+      "适应画布",
+      "Fit to canvas"
+    ],
+    "fitHint": [
+      "缩放当前范围，让全部表与关系进入画布",
+      "Fit all tables and relationships in the current scope into the canvas"
+    ],
+    "readNatural": [
+      "100% 阅读",
+      "Read at 100%"
+    ],
+    "readHint": [
+      "按自然尺寸阅读当前范围，并居中当前表；可拖动或滚动画布",
+      "Read the current scope at its natural size, centered on the current table. Drag or scroll to pan."
+    ],
+    "collapse": [
+      "收起",
+      "Collapse"
+    ],
+    "expand": [
+      "展开",
+      "Expand"
+    ],
+    "legend": [
+      "关系图图例",
+      "Graph legend"
+    ],
+    "referenced": [
+      "仅引用",
+      "Referenced only"
+    ],
+    "unused": [
+      "其他表",
+      "Other tables"
+    ],
+    "current": [
+      "当前查看",
+      "Currently viewing"
+    ],
+    "canvas": [
+      "数据库关系画布，可用方向键平移",
+      "Database relationship canvas; use arrow keys to pan"
+    ],
+    "fields": [
+      "显示字段名",
+      "Show field names"
+    ],
+    "issueColor": [
+      "橙色表示检查问题。",
+      "Orange indicates check issues. "
+    ],
+    "help": [
+      "父表 → 子表 · 粗线突出当前表的关联路径，浅线为其他关系。{issueHint}拖动画布平移，Ctrl／⌘＋滚轮以鼠标位置缩放，普通滚轮滚动画布；点连线查看列映射。",
+      "Parent → child · Bold lines highlight paths related to the current table; faint lines show other relationships. {issueHint}Drag to pan, Ctrl/⌘ + wheel to zoom at the pointer, or scroll normally to pan. Click an edge to view column mappings."
+    ],
+    "pathTitle": [
+      "{table} 的依赖路径",
+      "Dependency paths for {table}"
+    ],
+    "noTable": [
+      "未选择表",
+      "No table selected"
+    ],
+    "inspecting": [
+      "当前查看：{table}",
+      "Currently viewing: {table}"
+    ],
+    "completeNote": [
+      "保留下游所需的全部上游来源。",
+      "Includes all upstream sources required by downstream tables."
+    ],
+    "upstreamNote": [
+      "显示当前表及所有上游来源。",
+      "Shows the current table and all upstream sources."
+    ],
+    "downstreamNote": [
+      "显示当前表及所有下游影响。",
+      "Shows the current table and all downstream effects."
+    ],
+    "neighborsNote": [
+      "仅显示直接相邻关系，不代表完整依赖路径。",
+      "Shows direct neighbors only, not the complete dependency path."
+    ],
+    "searchPlan": [
+      "仅在本次生成及引用来源中搜索“{query}”。选择结果可阅读完整结构依赖。",
+      "Search “{query}” only within this generation and its reference sources. Select a result to read its full structural dependencies."
+    ],
+    "searchAll": [
+      "搜索“{query}”匹配的表及完整依赖路径。选择结果可聚焦阅读。",
+      "Search tables matching “{query}” and their complete dependency paths. Select a result to focus on it."
+    ],
+    "planNote": [
+      "本次生成 · 仅显示已勾选的表及本次引用来源；查看完整结构请切换整库。",
+      "This generation · Shows selected tables and their reference sources. Switch to Entire database for the full structure."
+    ],
+    "unlocatedNote": [
+      "部分问题属于整个生成计划；显示所选上下文，请结合依赖检查详情处理。",
+      "Some issues apply to the entire generation plan. The selected context is shown; review dependency-check details to resolve them."
+    ],
+    "issuesNote": [
+      "显示当前生成来源与规则检查中的错误和提醒，以及涉及的表和引用关系；清空范围另行检查。",
+      "Shows errors and warnings from generation-source and rule checks, with the affected tables and references. Clearing scope is checked separately."
+    ],
+    "allNote": [
+      "整库总览 · 总览用于看关系分布，阅读字段或路径请聚焦表。",
+      "Entire database · Explore relationship distribution here; focus on a table to read fields or paths."
+    ],
+    "readLabel": [
+      "以 100% 阅读 {table} 的完整依赖",
+      "Read complete dependencies for {table} at 100%"
+    ],
+    "currentTable": [
+      "当前表",
+      "the current table"
+    ],
+    "noIssues": [
+      "当前检查没有发现问题。这里只展示生成来源与规则检查结果，清空范围须在生成计划中另行核对。",
+      "The current check found no issues. These results cover generation sources and rules; clearing scope must be checked separately in the generation plan."
+    ],
+    "notChecked": [
+      "运行依赖检查后，这里会显示生成来源与规则的错误和提醒。查看结构可切换整库；此处不会自动执行检查。",
+      "Run a dependency check to see generation-source and rule errors and warnings here. Switch to Entire database to browse the structure. No check is run automatically."
+    ],
+    "matchCount": [
+      "匹配 {value} 张表 · 选择后以 100% 阅读完整依赖",
+      {
+        "one": "{value} matching table · Select it to read its complete dependencies at 100%",
+        "other": "{value} matching tables · Select one to read its complete dependencies at 100%"
+      }
+    ],
+    "locate": [
+      "定位 {table} 并阅读完整依赖",
+      "Locate {table} and read its complete dependencies"
+    ],
+    "matchedFields": [
+      "匹配字段：{fields}",
+      "Matching fields: {fields}"
+    ],
+    "summary": [
+      "显示 {visible} / {total} 张表 · {edges} 条关系",
+      "Tables: {visible} / {total} · Relationships: {edges}"
+    ],
+    "emptySearch": [
+      "没有匹配的表或字段，可清空搜索或换一个关键词。",
+      "No matching tables or fields. Clear the search or try another term."
+    ],
+    "emptyDatabase": [
+      "当前数据库没有可展示的表。",
+      "This database has no tables to display."
+    ],
+    "emptyPlan": [
+      "尚未选择生成表。请在左侧勾选，或切换整库浏览结构。",
+      "No tables selected for generation. Select tables on the left, or browse the entire database."
+    ],
+    "emptyIssues": [
+      "检查发现问题，但当前结构中没有可定位的表。请查看依赖检查详情。",
+      "The check found issues, but none can be located in this structure. Review the dependency-check details."
+    ],
+    "emptyScope": [
+      "当前范围没有匹配的表，可切换整库查看。",
+      "No tables match this scope. Switch to Entire database."
+    ],
+    "showAll": [
+      "查看整库",
+      "View entire database"
+    ],
+    "svgLabel": [
+      "当前范围内的表与外键关系",
+      "Tables and foreign-key relationships in the current scope"
+    ],
+    "nodeLabel": [
+      "查看 {table} 的字段与关系",
+      "View fields and relationships for {table}"
+    ],
+    "nodeStateLabel": [
+      "查看 {table} 的字段与关系；{state}",
+      "View fields and relationships for {table}; {state}"
+    ],
+    "existing": [
+      "现有 {value} 行",
+      {
+        "one": "{value} existing row",
+        "other": "{value} existing rows"
+      }
+    ],
+    "unusedState": [
+      "其他表，不参与本次生成；{metadata}",
+      "Other table, excluded from this generation; {metadata}"
+    ],
+    "external": [
+      "外部引用 · 只读",
+      "External reference · Read-only"
+    ],
+    "generatedRows": [
+      "本次生成 {value} 行",
+      {
+        "one": "Generate {value} row",
+        "other": "Generate {value} rows"
+      }
+    ],
+    "columnCount": [
+      "{value} 个字段",
+      {
+        "one": "{value} field",
+        "other": "{value} fields"
+      }
+    ],
+    "zoomLabel": [
+      "图形实际缩放 {scale}",
+      "Actual graph scale {scale}"
+    ]
+  }
+}

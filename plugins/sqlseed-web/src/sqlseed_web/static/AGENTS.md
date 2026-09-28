@@ -32,7 +32,7 @@
 ## 界面语言与消息绑定
 
 - `js/i18n.js` 维护 `zh-CN/en`，顶栏统一入口；`sqlseed.ui.language` 存浏览器并通过同源 storage 事件同步。初次按浏览器支持语言选择，无匹配默认英文；存储失败不影响当前页使用。不得从生成 locale 推断 UI 语言。
-- 消息放在 `js/i18n/messages/`，使用语义稳定 key、具名参数与中英条目，并由使用模块 side-effect import。`tr()` 是延迟格式化展示值，`t()` 只用于需要固定字符串的当次业务输入（如新副本名称），不能在模块加载时将 tr 转成 String 冻结。
+- 消息数据放在 `js/i18n/messages/*.json`，使用语义稳定 key、具名参数与中英条目；同名 JS 入口通过统一 `loadMessages(url)` 校验、加载和注册，使用模块保留 side-effect import。按 URL 复用加载结果，切语言不重新请求字典。`tr()` 是延迟格式化展示值，`t()` 只用于需要固定字符串的当次业务输入（如新副本名称），不能在模块加载时将 tr 转成 String 冻结。
 - 复用 `h/button/dropdown` 的绑定；直接 DOM 文本/属性用 `setText/setAttr`，原生 append/replaceChildren 接收翻译值时用 `appendContent/replaceContent`。组合使用 `joinText` 或纯格式化 `liveText`，不要在模板字符串、数组 join 或 valueText 中提前展开 tr。
 - `formatNumber/formatDate` 只格式化显示元数据；用户名称、表列标识、代码、配置和行值保持原文。语言切换不能重建表单/弹窗、重新取样或发保存、生成、AI、组件管理请求，不能丢焦点、选区、滚动和未应用修改。
 - 后端已知展示字段使用 `serverText(record, field)` 或 `serverMessages(record, field)` 读取并行 descriptor；不要递归翻译整份 API 对象。UI 异常保留 `UserFacingError.localizedMessage`，展示用 `errorText`；旧记录/第三方原始诊断保留原文并加当前语言说明。维护清单见 [Web 双语维护](../../../../../docs/development/web-i18n.md)。

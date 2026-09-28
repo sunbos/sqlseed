@@ -46,11 +46,23 @@ def _writer_tree(root: Path, *, parent_waits: bool) -> Path:
     return installer
 
 
-def _wait_for_writer(path: Path) -> None:
-    deadline = time.monotonic() + 8
-    while not path.exists() or path.stat().st_size < 2:
-        if time.monotonic() >= deadline:
-            pytest.fail("The isolated descendant did not begin writing")
+def _wait_for_owner_progress(
+    path: Path,
+    process: subprocess.Popen[bytes],
+    diagnostics: Path,
+    *,
+    timeout: float,
+    minimum_size: int,
+    phase: str,
+) -> None:
+    deadline = time.monotonic() + timeout
+    while True:
+        returncode = process.poll()
+        if returncode is not None or time.monotonic() >= deadline:
+            output = diagnostics.read_text(encoding="utf-8", errors="replace")
+            pytest.fail(f"{phase}; owner exit code: {returncode}\n{output}")
+        if path.exists() and path.stat().st_size >= minimum_size:
+            return
         time.sleep(0.01)
 
 
@@ -113,25 +125,47 @@ def test_hard_exit_of_installer_owner_keeps_lock_until_descendant_writes_stop(tm
         "    while not (root/'die').exists() and time.monotonic()<deadline: time.sleep(.01)\n"
         "    os._exit(0)\n"
         "threading.Thread(target=crash,daemon=True).start()\n"
-        "run_installer([sys.executable,'-I',str(root/'installer.py'),str(root)],lambda line: None,"
+        "(root/'owner-ready').touch()\n"
+        "run_installer([sys.executable,'-I',str(root/'installer.py'),str(root)],"
+        "lambda line: print(line,file=sys.stderr,flush=True),"
         "timeout=15,lock_descriptor=lock.fileno())\n",
         encoding="utf-8",
     )
     assert installer.exists()
     contender = EnvironmentLock(tmp_path, exclusive=True)
-    with subprocess.Popen(
-        [sys.executable, "-I", str(owner_script), str(tmp_path)],
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        creationflags=subprocess.CREATE_NO_WINDOW,
-    ) as process:
+    diagnostics = tmp_path / "owner-output.log"
+    with (
+        diagnostics.open("wb") as output,
+        subprocess.Popen(
+            [sys.executable, "-I", str(owner_script), str(tmp_path)],
+            stdin=subprocess.DEVNULL,
+            stdout=output,
+            stderr=subprocess.STDOUT,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        ) as process,
+    ):
         try:
-            _wait_for_writer(tmp_path / "writes")
+            # Cold imports must not consume the descendant's original startup budget.
+            _wait_for_owner_progress(
+                tmp_path / "owner-ready",
+                process,
+                diagnostics,
+                timeout=30,
+                minimum_size=0,
+                phase="The isolated owner did not acquire its environment lock",
+            )
+            _wait_for_owner_progress(
+                tmp_path / "writes",
+                process,
+                diagnostics,
+                timeout=8,
+                minimum_size=2,
+                phase="The isolated descendant did not begin writing",
+            )
             with pytest.raises(RuntimeError):
                 contender.acquire()
             (tmp_path / "die").touch()
-            assert process.wait(timeout=8) == 0
+            assert process.wait(timeout=8) == 0, diagnostics.read_text(encoding="utf-8", errors="replace")
             _acquire_after_cleanup(contender)
             _assert_writer_stopped(tmp_path / "writes")
         finally:

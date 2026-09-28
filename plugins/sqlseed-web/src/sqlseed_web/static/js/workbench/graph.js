@@ -528,9 +528,11 @@ export function createSchemaGraph({
     } else if (currentMode === 'paths') {
       setText(scopeNote, joinText([pathFocus || tr('graph.noTable'), notes[currentPath]], ' · '));
     } else if (currentMode === 'issues') {
-      setText(scopeNote, !issues.length ? emptyIssuesHint() : unlocatedIssues.length
-        ? tr('graph.unlocatedNote')
-        : tr('graph.issuesNote'));
+      let hint = emptyIssuesHint();
+      if (issues.length) {
+        hint = unlocatedIssues.length ? tr('graph.unlocatedNote') : tr('graph.issuesNote');
+      }
+      setText(scopeNote, hint);
     } else {
       setText(scopeNote, tr('graph.allNote'));
     }
@@ -539,9 +541,8 @@ export function createSchemaGraph({
     setAttr(read, 'aria-label', tr('graph.readLabel', {table: currentFocus || tr('graph.currentTable')}));
   }
   function emptyIssuesHint() {
-    return checked
-      ? tr('graph.noIssues')
-      : tr('graph.notChecked');
+    const key = checked ? 'graph.noIssues' : 'graph.notChecked';
+    return tr(key);
   }
   function renderSearchResults() {
     searchResults.hidden = !searchText;

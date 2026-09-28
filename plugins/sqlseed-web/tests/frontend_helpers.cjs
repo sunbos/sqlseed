@@ -181,9 +181,18 @@ function loadI18n(bindings = {}) {
   });
   vm.runInContext(source('i18n.js'), context, {filename: 'i18n.js'});
   const resources = path.join(sourceRoot, 'i18n/messages');
-  for (const filename of fs.readdirSync(resources).filter(name => name.endsWith('.js')).sort()) {
-    vm.runInContext(`(() => {\n${source('i18n/messages/' + filename)}\n})()`, context, {filename});
+  // Synchronous DOM cases preload the real JSON data. The native-module and
+  // loader tests separately exercise awaited fetches and import.meta URLs.
+  for (const filename of fs.readdirSync(resources).filter(name => name.endsWith('.json')).sort()) {
+    const catalog = JSON.parse(fs.readFileSync(path.join(resources, filename), 'utf8'));
+    for (const [namespace, entries] of Object.entries(catalog)) {
+      context.catalogNamespace = namespace;
+      context.catalogEntries = entries;
+      vm.runInContext('registerMessages(catalogNamespace, catalogEntries)', context, {filename});
+    }
   }
+  delete context.catalogNamespace;
+  delete context.catalogEntries;
   const backend = path.join(sourceRoot, '../i18n/backend-messages.json');
   if (fs.existsSync(backend)) {
     context.backendEntries = Object.fromEntries(Object.entries(JSON.parse(fs.readFileSync(backend, 'utf8')))
@@ -191,7 +200,7 @@ function loadI18n(bindings = {}) {
     vm.runInContext("registerMessages('backend', backendEntries)", context);
   }
   const helpers = vm.runInContext(`({LANGUAGE_KEY, UI_LANGUAGES, browserLanguage, getLanguage,
-    getFormatLocale, setLanguage, onLanguageChange, registerMessages, messageEntries, missingMessages,
+    getFormatLocale, setLanguage, onLanguageChange, registerMessages, loadMessages, messageEntries, missingMessages,
     LocalizedText, isLocalized, liveText, textValue, t, tr, joinText, formatNumber, formatDate,
     localizedNode, setText, setAttr, appendContent, replaceContent, UserFacingError, errorText,
     serverText, serverMessages, loadBackendMessages})`, context);

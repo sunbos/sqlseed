@@ -2,7 +2,7 @@
 .settings-page { max-width:1200px; }
 .settings-layout { display:grid; grid-template-columns:180px minmax(0,1fr); align-items:start; gap:24px; }
 .settings-tabs { display:flex; flex-direction:column; gap:6px; padding:8px; background:var(--wash); border:1px solid var(--line); border-radius:var(--radius); }
-.settings-tabs .btn { justify-content:flex-start; padding:12px 16px; border-color:transparent; background:transparent; }
+.settings-tabs .btn { justify-content:flex-start; min-width:0; padding:12px 16px; border-color:transparent; background:transparent; white-space:normal; overflow-wrap:anywhere; }
 .settings-tabs [aria-selected=true] { color:var(--teal); background:var(--soft); border-color:var(--control-selected-border); font-weight:var(--font-weight-emphasis); }
 .settings-panels { min-width:0; }
 .settings-panel { padding:26px 30px; background:var(--paper); border:1px solid var(--line); border-radius:var(--radius); }
@@ -118,11 +118,11 @@
   .settings-generation-control .settings-actions { flex-wrap:wrap; }
 }
 @media (max-width:760px) {
-  .settings-layout { grid-template-columns:1fr; gap:16px; }
-  .settings-tabs { flex-direction:row; }
+  .settings-layout { grid-template-columns:minmax(0,1fr); gap:16px; }
+  .settings-tabs { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); }
   .settings-tabs .btn { flex:1; justify-content:center; }
   .settings-panel { padding:20px; }
-  .settings-fields { grid-template-columns:1fr; }
+  .settings-fields { grid-template-columns:minmax(0,1fr); }
   .settings-panel-head { flex-wrap:wrap; }
   .settings-package { gap:12px; grid-template-columns:minmax(0,1fr) auto; }
   .settings-package > div:first-child { grid-column:1 / -1; }

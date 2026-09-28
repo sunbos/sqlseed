@@ -726,7 +726,10 @@ function updateGuidance() {
   const stage = selectedStage || recommended.stage;
   let step = recommended;
   if (selectedStage && recommended.stage === 1 && ['select','edit','check'].includes(recommended.action)) {
-    step = {...recommended, body: tr("workbench.guide.beforeStage", {stage: selectedStage === 2 ? tr("workbench.guide.preview") : selectedStage === 3 ? tr("workbench.guide.confirm") : tr("workbench.guide.rules"), help: recommended.body})};
+    let stageName = tr("workbench.guide.rules");
+    if (selectedStage === 2) stageName = tr("workbench.guide.preview");
+    else if (selectedStage === 3) stageName = tr("workbench.guide.confirm");
+    step = {...recommended, body: tr("workbench.guide.beforeStage", {stage: stageName, help: recommended.body})};
   } else if (selectedStage === 1) {
     step = {...recommended, title:tr("workbench.guide.editTitle"), body:tr("workbench.guide.editHelp"), action:'edit', label:tr("workbench.guide.editAction")};
   } else if (selectedStage === 2) {
@@ -804,7 +807,9 @@ function updateGuidance() {
     updateGuidance();
   };
   const stages = [
-    [tr("workbench.guide.rules"), tr("workbench.guide.rulesDescription")], [tr("workbench.guide.preview"), tr("workbench.guide.previewDescription")], [tr("workbench.guide.confirm"), tr("workbench.guide.confirmDescription")]
+    [tr("workbench.guide.rules"), tr("workbench.guide.rulesDescription"), tr("workbench.guide.rulesLabel")],
+    [tr("workbench.guide.preview"), tr("workbench.guide.previewDescription"), tr("workbench.guide.previewLabel")],
+    [tr("workbench.guide.confirm"), tr("workbench.guide.confirmDescription"), tr("workbench.guide.confirmLabel")]
   ];
   const body = h('div', {
     id: 'wb-next-step-body',
@@ -813,12 +818,12 @@ function updateGuidance() {
   }, h('div', {
     class: 'wb-next-step-main'
   }, h('ol', { class: 'wb-guide-stages', 'aria-label': tr("workbench.guide.flow") },
-    ...stages.map(([label, description], index) => h('li', {}, h('button', {
+    ...stages.map(([label, description, title], index) => h('li', {}, h('button', {
       type:'button', onclick:() => navigateStage(index + 1),
       'data-guide-action':`stage-${index + 1}`,
       ...(index + 1 === stage ? {'aria-current':'step'} : {}),
       ...(index ? {'data-db-action':''} : {}),
-      title:index === 2 ? tr("workbench.guide.confirmLabel") : index === 0 ? tr("workbench.guide.rulesLabel") : tr("workbench.guide.previewLabel")
+      title
     }, h('span', {'aria-hidden':'true', class:'wb-guide-number'}, String(index + 1)), h('span', {class:'wb-guide-label'}, h('strong', {}, label), h('small', {}, description)))))),
   h('div', {class:'wb-guide-description', 'aria-live':'polite'}, h('h3', {}, step.title), h('p', {}, step.body)), actions));
   replaceContent(host, h('div', {
@@ -3156,7 +3161,13 @@ async function reviewClearScope() {
     if (!valid()) return;
     const errors = (result.issues || []).filter(issue=>issue.severity==='error');
     const passed = result.ok && !errors.length;
-    replaceContent(feedback, h('p', {}, passed ? tr("workbench.clear.candidatePassed") : tr("workbench.clear.candidateFailed")), ...errors.map(issue=>h('p', {}, joinText([issue.tables?.length ? issue.tables.join(', ') + ': ' : issue.table ? issue.table + ': ' : '', serverText(issue)]))));
+    const issueDetails = errors.map(issue => {
+      let prefix = '';
+      if (issue.tables?.length) prefix = issue.tables.join(', ') + ': ';
+      else if (issue.table) prefix = issue.table + ': ';
+      return h('p', {}, joinText([prefix, serverText(issue)]));
+    });
+    replaceContent(feedback, h('p', {}, passed ? tr("workbench.clear.candidatePassed") : tr("workbench.clear.candidateFailed")), ...issueDetails);
     if (!passed) {
       const tables = [...new Set(errors.flatMap(issue=>issue.tables || (issue.table ? [issue.table] : [])))].filter(name=>m.schema.tables.some(table=>table.name===name));
       appendContent(feedback, h('div', {class:'wb-clear-recovery-actions'}, ...tables.map(name=>button(tr("workbench.action.locate", {target: name}), ()=>{dialog.close();inspectorMode='dependencies';chooseTable(name,'graph');}, {small:true})), button(tr("workbench.clear.adjust"), adjust, {small:true})));

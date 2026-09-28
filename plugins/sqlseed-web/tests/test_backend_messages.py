@@ -94,7 +94,8 @@ def test_existing_file_failure_keeps_nested_localizable_cause(message_client: tu
     missing = path.with_name("missing.db")
     response = client.post("/api/connections", json={"db_path": str(missing), "require_existing": True})
     body = response.json()
-    assert response.status_code == 400 and not missing.exists()
+    assert response.status_code == 400
+    assert not missing.exists()
     assert body["detail"].startswith("connection failed:")
     assert body["detail_key"] == "backend.api.connection_failed"
     cause = body["detail_params"]["p1"]
@@ -125,7 +126,8 @@ def test_language_headers_do_not_change_schema_hash_config_or_user_data(message_
     payload = {"conn_id": identifier, "schema_hash": english["schema_hash"], "document": document}
     first = client.post("/api/workbench/check", json=payload, headers={"Accept-Language": "en"}).json()
     second = client.post("/api/workbench/check", json=payload, headers={"Accept-Language": "zh-CN"}).json()
-    assert first == second and first["issues"][0]["message_key"] == _EMPTY_PLAN
+    assert first == second
+    assert first["issues"][0]["message_key"] == _EMPTY_PLAN
     assert document["locale"] == "zh_CN"
     data = client.get(f"/api/workbench/connections/{identifier}/tables/records/data").json()
     assert data["rows"][0]["message"] == "用户内容"
@@ -140,7 +142,8 @@ def test_descriptors_redact_parameters_and_preserve_nested_composition() -> None
     joined = message_list([message(_EMPTY_PLAN), inner], "；")
     payload = materialize_messages({"message": public_error(ValueError(joined)), "errors": [inner, "driver output"]})
     encoded = json.dumps(payload, ensure_ascii=False)
-    assert "hidden" not in encoded and "secret" not in encoded
+    assert "hidden" not in encoded
+    assert "secret" not in encoded
     assert payload["message_key"] == "backend.message_list"
     assert payload["message_params"]["separator"] == "；"
     assert payload["message_params"]["items"][0]["message_key"] == _EMPTY_PLAN
@@ -172,7 +175,8 @@ def test_actual_ai_delivery_preserves_phase_and_failure_descriptors(stream: bool
         response = client.post("/api/message-stream", headers={"Accept": "application/x-ndjson"} if stream else {})
     if stream:
         events = [json.loads(line) for line in response.text.splitlines()]
-        assert events[0]["stage"] == "context" and events[0]["message_key"] == _CONTEXT
+        assert events[0]["stage"] == "context"
+        assert events[0]["message_key"] == _CONTEXT
         failure = events[-1]
         assert failure["type"] == "error"
     else:
@@ -242,7 +246,9 @@ def test_run_feedback_survives_reopen_and_clearing_discards_stale_descriptors(tm
     assert reopened["error_key"] == _EMPTY_PLAN
     assert reopened["errors_i18n"] == [{"key": _EMPTY_PLAN, "params": {}}]
     cleared = store.update_run(run["id"], {"error": None, "errors": []})
-    assert "error_key" not in cleared and "error_params" not in cleared and "errors_i18n" not in cleared
+    assert "error_key" not in cleared
+    assert "error_params" not in cleared
+    assert "errors_i18n" not in cleared
     assert cleared["document"] == run["document"]
 
 
@@ -250,18 +256,22 @@ def test_invalid_cyclic_workspace_value_keeps_validation_failure_and_writes_noth
     store = WorkspaceStore(tmp_path / "workspace.sqlite3")
     view: dict[str, Any] = {}
     view["cycle"] = view
+    payload = draft_payload(view_state=view)
     with pytest.raises(ValueError, match="valid JSON values"):
-        store.save_draft(draft_payload(view_state=view))
+        store.save_draft(payload)
     assert store.list_drafts() == []
 
 
 def test_catalog_languages_have_matching_placeholders_and_are_bundled(message_client: tuple) -> None:
     client, _ = message_client
     response = client.get("/static/i18n/backend-messages.json")
-    assert response.status_code == 200 and response.headers["cache-control"] == "no-cache"
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-cache"
     assert response.json() == catalog()
     for key, pair in catalog().items():
-        assert key.startswith("backend.") and len(pair) == 2 and all(pair)
+        assert key.startswith("backend.")
+        assert len(pair) == 2
+        assert all(pair)
         placeholders = [{field for _, field, _, _ in Formatter().parse(template) if field} for template in pair]
         assert placeholders[0] == placeholders[1], key
     assert isinstance(message(_EMPTY_PLAN), Message)
@@ -274,7 +284,8 @@ def test_unavailable_component_management_and_installer_instructions_have_descri
     result = client.get("/api/settings/plugins/management")
     assert result.status_code == 200
     status = result.json()
-    assert not status["available"] and status["reason_key"] in catalog()
+    assert not status["available"]
+    assert status["reason_key"] in catalog()
     assert "外部" in status["reason"]
     installer = _Installer("pip", "C:\\Isolated Env\\python.exe", None, "powershell")
     commands = installer.commands("install", "sqlseed-ai>=0.2.4.dev0")

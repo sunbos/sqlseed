@@ -3,11 +3,60 @@ const test = require('node:test');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+const {execFileSync} = require('node:child_process');
 const {Element, createDom, loadFrontend, loadI18n} = require('./frontend_helpers.cjs');
 
 const staticRoot = path.join(__dirname, '../src/sqlseed_web/static');
 const placeholders = text => [...new Set([...text.matchAll(/\{([A-Za-z][A-Za-z0-9_]*)\}/g)].map(match => match[1]))].sort();
 const templates = value => typeof value === 'string' ? [value] : Object.values(value);
+
+test('native ES module entrypoints await real JSON catalogs and preserve every namespace, key and value', () => {
+  const output = execFileSync(process.execPath, ['--experimental-vm-modules', '--input-type=module', '--eval', `
+    import assert from 'node:assert/strict';
+    import fs from 'node:fs';
+    import path from 'node:path';
+    import vm from 'node:vm';
+    import {fileURLToPath, pathToFileURL} from 'node:url';
+    const root = process.argv[1], resources = path.join(root, 'js/i18n/messages');
+    const requests = [], modules = new Map();
+    const context = vm.createContext({URL, Intl, navigator: {languages: ['en']}, fetch: async url => {
+      const file = fileURLToPath(url);
+      assert.equal(path.dirname(file), resources, 'only local language data may be requested');
+      assert.equal(path.extname(file), '.json');
+      requests.push(file);
+      return {ok: true, json: async () => JSON.parse(await fs.promises.readFile(file, 'utf8'))};
+    }});
+    function load(file) {
+      if (!modules.has(file)) modules.set(file, new vm.SourceTextModule(fs.readFileSync(file, 'utf8'), {
+        context, identifier: file, initializeImportMeta(meta) { meta.url = pathToFileURL(file).href; }
+      }));
+      return modules.get(file);
+    }
+    const expected = {}, files = fs.readdirSync(resources).filter(name => name.endsWith('.json')).sort();
+    assert.ok(files.length > 0);
+    for (const name of files) {
+      const data = JSON.parse(fs.readFileSync(path.join(resources, name), 'utf8'));
+      for (const [namespace, entries] of Object.entries(data)) {
+        for (const [key, value] of Object.entries(entries)) expected[namespace + '.' + key] = value;
+      }
+      const module = load(path.join(resources, name.replace(/\\.json$/, '.js')));
+      await module.link((specifier, parent) => load(path.resolve(path.dirname(parent.identifier), specifier)));
+      await module.evaluate();
+    }
+    const ui = load(path.join(root, 'js/i18n.js')).namespace;
+    const actual = Object.fromEntries(ui.messageEntries().filter(([key]) => !key.startsWith('common.')));
+    assert.deepEqual(JSON.parse(JSON.stringify(actual)), expected);
+    for (const language of ['zh-CN', 'en', 'zh-CN', 'en']) ui.setLanguage(language);
+    for (const file of requests.slice()) await ui.loadMessages(pathToFileURL(file));
+    assert.equal(requests.length, files.length, 'cached resources and language switches must not refetch');
+    assert.equal(new Set(requests).size, files.length);
+    console.log(JSON.stringify({files: files.length, entries: Object.keys(expected).length}));
+  `, '--', staticRoot], {encoding: 'utf8', stdio: 'pipe'});
+  const result = JSON.parse(output);
+  const catalogFiles = fs.readdirSync(path.join(staticRoot, 'js/i18n/messages')).filter(name => name.endsWith('.json'));
+  assert.equal(result.files, catalogFiles.length);
+  assert.ok(result.entries > 0);
+});
 
 test('every registered catalog entry has complete locales, reachable plural forms and matching parameters', () => {
   const ui = loadI18n();

@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add Simplified Chinese and English interface switching across the Web workbench, configurations, run history and settings, preserving edits and keeping interface language separate from generated-data locale. Bundled message resources also translate supported backend diagnostics.
 - Add light, dark and system appearance, browser-local defaults for new configurations, and a shared Web component reference with bundled fonts.
 - Support managed component changes on Windows and reviewed updates of optional components with fixed dependencies, wheel hashes and service recovery.
 - Add editable AI suggestions and contextual preview-rule editing, keeping unapplied changes separate from active generation rules.

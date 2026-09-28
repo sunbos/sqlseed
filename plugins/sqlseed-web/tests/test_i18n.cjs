@@ -2,6 +2,87 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 const {Element, createDom, loadFrontend, loadI18n} = require('./frontend_helpers.cjs');
 
+test('JSON language resources share an awaited fetch across callers and language changes', async () => {
+  let resolveResponse;
+  const pending = new Promise(resolve => { resolveResponse = resolve; });
+  const requests = [];
+  const ui = loadI18n({fetch: async url => { requests.push(url); return pending; }});
+  const url = new URL('https://local.example/static/messages/async.json');
+  const first = ui.loadMessages(url);
+  const second = ui.loadMessages(String(url));
+  assert.equal(first, second);
+  ui.setLanguage('en');
+  ui.setLanguage('zh-CN');
+  ui.setLanguage('en');
+  resolveResponse({ok: true, json: async () => ({asyncCatalog: {ready: ['已载入 {name}', 'Loaded {name}']}})});
+  await Promise.all([first, second]);
+  assert.equal(ui.t('asyncCatalog.ready', {name: '用户值'}), 'Loaded 用户值');
+  await ui.loadMessages(url);
+  assert.deepEqual(requests, [String(url)]);
+  ui.setLanguage('zh-CN');
+  assert.equal(ui.t('asyncCatalog.ready', {name: '用户值'}), '已载入 用户值');
+  assert.equal(requests.length, 1);
+});
+
+test('resource failures reject explicitly, retain the failure and give a localized initial-page alert', async () => {
+  const document = createDom(), app = new Element('main');
+  app.setAttribute('id', 'app'); document.body.append(app);
+  let requests = 0;
+  const ui = loadI18n({document, navigator: {languages: ['en']}, fetch: async () => {
+    requests++; return {ok: false, status: 503};
+  }});
+  const failed = ui.loadMessages('https://local.example/static/messages/missing.json');
+  await assert.rejects(failed, error => {
+    assert.match(error.message, /Interface language resources could not be loaded/);
+    assert.match(error.cause.message, /HTTP 503/);
+    return true;
+  });
+  assert.equal(app.querySelector('[role="alert"]').textContent, ui.t('common.languageResourcesFailed'));
+  ui.setLanguage('zh-CN');
+  assert.match(app.textContent, /界面语言资源加载失败/);
+  assert.equal(ui.loadMessages('https://local.example/static/messages/missing.json'), failed);
+  assert.equal(requests, 1, 'failed resources are not silently retried on language changes');
+});
+
+test('invalid JSON catalogs cannot partially register messages or replace an active form', async () => {
+  const document = createDom(), app = new Element('main'), input = new Element('input');
+  app.setAttribute('id', 'app'); input.value = '未应用的修改';
+  app.append(input); document.body.append(app); document.activeElement = input;
+  const ui = loadI18n({document, fetch: async () => ({ok: true, json: async () => ({
+    pendingCatalog: {valid: ['有效', 'Valid'], invalid: ['缺少英文']}
+  })})});
+  const before = JSON.stringify(ui.messageEntries());
+  await assert.rejects(ui.loadMessages('https://local.example/static/messages/invalid.json'), error => {
+    assert.match(error.cause.message, /Invalid UI message: pendingCatalog.invalid/);
+    return true;
+  });
+  assert.equal(JSON.stringify(ui.messageEntries()), before);
+  assert.equal(app.firstChild, input);
+  assert.equal(input.value, '未应用的修改');
+  assert.equal(document.activeElement, input);
+});
+
+test('a JSON parse failure preserves its diagnostic cause and does not register entries', async () => {
+  const ui = loadI18n({fetch: async () => ({ok: true, json: async () => { throw new SyntaxError('invalid JSON'); }})});
+  const before = JSON.stringify(ui.messageEntries());
+  await assert.rejects(ui.loadMessages('https://local.example/static/messages/broken.json'), error => {
+    assert.equal(error.cause.message, 'invalid JSON'); return true;
+  });
+  assert.equal(JSON.stringify(ui.messageEntries()), before);
+});
+
+test('language notifications use a stable subscriber snapshot', () => {
+  const ui = loadI18n(), events = [];
+  const third = language => events.push(`third:${language}`);
+  let removeSecond;
+  ui.onLanguageChange(language => {
+    events.push(`first:${language}`); removeSecond(); ui.onLanguageChange(third);
+  });
+  removeSecond = ui.onLanguageChange(language => events.push(`second:${language}`));
+  ui.setLanguage('en'); ui.setLanguage('zh-CN');
+  assert.deepEqual(events, ['first:en', 'second:en', 'first:zh-CN', 'third:zh-CN']);
+});
+
 test('UI language follows the first supported preference and has an English fallback', () => {
   const ui = loadI18n();
   assert.equal(ui.browserLanguage(['fr-FR', 'en-GB', 'zh-CN']), 'en');
