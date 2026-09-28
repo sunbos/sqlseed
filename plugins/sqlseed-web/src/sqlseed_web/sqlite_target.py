@@ -12,6 +12,8 @@ from sqlalchemy.dialects.sqlite.pysqlite import SQLiteDialect_pysqlite
 from sqlalchemy.engine import Dialect
 from sqlseed.database._connection_url import connection_url
 
+from sqlseed_web.messages import message as tr
+
 
 @dataclass(frozen=True)
 class SQLiteTarget:
@@ -30,7 +32,7 @@ class SQLiteTarget:
         if self.kind == "sqlite":
             return self.value
         if self.kind == "sqlite-shared-memory":
-            return f"SQLite 共享内存：{self.value}"
+            return tr("backend.sqlite_target.sqlite_shared_memory", p1=self.value)
         return "SQLite :memory:"
 
 
@@ -39,20 +41,20 @@ def _sqlite_uri_parts(filename: str) -> tuple[str, dict[str, list[str]]]:
     # urlsplit strips these raw controls, whereas SQLite retains them.
     # Require percent encoding rather than identifying a different file.
     if any(control in filename for control in "\t\r\n"):
-        raise ValueError("SQLite URI 含原始控制字符；请对文件名中的 TAB、CR、LF 使用百分号编码")
+        raise ValueError(tr("backend.sqlite_target.sqlite_uri_contains_raw_control_characters_percent"))
     uri = urlsplit(filename)
     try:
         filename = unquote(uri.path, errors="strict")
         query = parse_qs(uri.query, keep_blank_values=True, errors="strict")
     except UnicodeDecodeError as exc:
         # Replacement decoding would collapse distinct byte filenames.
-        raise ValueError("SQLite URI 使用了无效 UTF-8 编码；请使用有效 UTF-8 文件名和参数") from exc
+        raise ValueError(tr("backend.sqlite_target.sqlite_uri_contains_invalid_utf_8_encoding")) from exc
     # SQLite truncates URI strings at decoded NUL; Python does not. An
     # apparent file target can otherwise become a memory database or VFS.
     if "\x00" in filename or any("\x00" in text for key, values in query.items() for text in (key, *values)):
-        raise ValueError("SQLite URI 不支持 NUL 字符；请检查路径和查询参数中的百分号编码")
+        raise ValueError(tr("backend.sqlite_target.sqlite_uri_does_not_support_nul_characters"))
     if "vfs" in query:
-        raise ValueError("Web 暂不支持 SQLite 自定义 VFS；请使用默认 VFS 的文件或内存连接")
+        raise ValueError(tr("backend.sqlite_target.web_does_not_support_custom_sqlite_vfs"))
     return filename, query
 
 
@@ -99,7 +101,7 @@ def existing_sqlite_connection_target(target: str, conn_id: str) -> str:
         return target
     path = Path(resolved.value)
     if not path.is_file():
-        raise ValueError("数据库文件不存在或不是普通文件；请选择已有的 SQLite 数据库文件。")
+        raise ValueError(tr("backend.sqlite_target.the_database_file_does_not_exist_or"))
     url = connection_url(target)
     dialect: Dialect = SQLiteDialect_pysqlite()
     _, options = dialect.create_connect_args(url)

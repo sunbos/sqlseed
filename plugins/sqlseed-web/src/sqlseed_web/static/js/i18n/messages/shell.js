@@ -1,0 +1,27 @@
+import { registerMessages } from '../../i18n.js';
+
+registerMessages('shell', {
+  noOptions: ['（无选项）', '(No options)'],
+  workbench: ['工作台', 'Workbench'],
+  configs: ['配置管理', 'Configurations'],
+  runs: ['运行记录', 'Runs'],
+  settings: ['设置', 'Settings'],
+  navigation: ['主导航', 'Main navigation'],
+  language: ['界面语言', 'Interface language'],
+  connect: ['连接数据库', 'Connect database'],
+  connected: ['已连接数据库', 'Connected database'],
+  disconnected: ['未连接', 'Not connected'],
+  maintenance: ['插件维护', 'Component maintenance'],
+  loadingFailed: ['页面加载失败：{detail}', 'Could not load the page: {detail}'],
+  theme: ['外观主题', 'Theme'],
+  light: ['浅色', 'Light'],
+  dark: ['深色', 'Dark'],
+  system: ['跟随系统', 'System'],
+  themeUnavailable: ['主题设置暂不可用，请刷新页面。', 'Theme settings are unavailable. Reload the page to try again.'],
+  systemTheme: ['跟随系统 · 当前为{color}', 'System theme · Currently {color}'],
+  currentTheme: ['当前使用{color}主题', 'Current theme: {color}'],
+  choose: ['— 选择 —', '— Select —'],
+  chooseOption: ['选择选项', 'Select an option'],
+  scrollUp: ['向上滚动选项', 'Scroll options up'],
+  scrollDown: ['向下滚动选项', 'Scroll options down'],
+});

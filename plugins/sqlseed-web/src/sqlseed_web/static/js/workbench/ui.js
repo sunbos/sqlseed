@@ -1,6 +1,7 @@
 import { cycleFocus } from "./focus.js";
 import { h } from '../api.js';
 import { lockPageScroll } from './scroll-lock.js';
+import {tr} from '../i18n.js';
 const paths = {
   sparkles: 'm12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5ZM20 2v4m-2-2h4',
   schema: 'M12 7v5M5.5 17v-5h13v5',
@@ -199,7 +200,7 @@ export function modal(title, {
   }, heading, dismiss === 'header' ? h('button', {
     type: 'button',
     class: 'close',
-    'aria-label': '关闭',
+    'aria-label': tr('common.close'),
     onclick: close
   }, '×') : null);
   const panel = h('section', {

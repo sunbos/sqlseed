@@ -1,3 +1,5 @@
+import {tr, joinText, setText, setAttr, appendContent, replaceContent, errorText, serverText} from '../i18n.js';
+import '../i18n/messages/settings.js';
 import { h, api, store } from '../api.js';
 import { button } from '../workbench/ui.js';
 import { createDropdown } from '../dropdown.js';
@@ -15,7 +17,7 @@ const backends = [{
   label: 'LM Studio'
 }, {
   value: 'openai_compat',
-  label: 'OpenAI 兼容服务'
+  label: tr('settings.openaiCompatible')
 }, {
   value: 'google_ai_studio',
   label: 'Google AI Studio'
@@ -26,19 +28,19 @@ const defaults = {
   google_ai_studio: 'https://generativelanguage.googleapis.com/v1beta/openai'
 };
 const keySources = {
-  session: '密钥仅在本次服务中有效，重启后需重新填写。',
-  environment: '密钥来自服务环境变量。',
-  none: '尚未配置密钥。'
+  session: tr('settings.sessionKey'),
+  environment: tr('settings.environmentKey'),
+  none: tr('settings.noKey')
 };
 const descriptions = {
-  core: '离线生成、约束处理与数据库写入',
-  cli: '在终端配置、预览和生成数据',
-  web: '当前浏览器工作台',
-  ai: '根据表结构与业务说明提出规则建议',
-  mcp: '供 MCP 客户端调用生成能力',
-  base: '内置基础数据与语义占位值',
-  faker: '姓名、地址等本地化测试数据',
-  mimesis: '另一种本地化数据实现，可按场景选择'
+  core: tr('settings.coreDescription'),
+  cli: tr('settings.cliDescription'),
+  web: tr('settings.webDescription'),
+  ai: tr('settings.aiDescription'),
+  mcp: tr('settings.mcpDescription'),
+  base: tr('settings.baseDescription'),
+  faker: tr('settings.fakerDescription'),
+  mimesis: tr('settings.mimesisDescription')
 };
 let root, aiPanel, pluginsPanel, appearancePanel, themeControl, sections, form, backend, endpoint, modelInput, key, clearKey;
 let notice, saveState, badge, currentService, readinessNote, keyLabel, keyHint, serviceHint, testNotice, models, save, probe, reset, returnButton, returnPrompt, storageInfo;
@@ -85,7 +87,7 @@ function dirty() {
   return Boolean(draft.api_key || draft.clear_api_key || ['backend', 'model', 'base_url'].some(name => draft[name] !== (effective[name] || (name === 'backend' ? 'ollama' : ''))));
 }
 function setNotice(element, text, state = '') {
-  element.textContent = text;
+  setText(element, text);
   element.dataset.state = state;
 }
 export function render() {
@@ -108,7 +110,7 @@ export function render() {
     role: 'status',
     'aria-live': 'polite',
     'data-settings-notice': ''
-  }, '正在读取设置…');
+  }, tr('settings.loadingSettings'));
   saveState = h('p', {
     class: 'settings-save-state muted',
     role: 'status',
@@ -116,10 +118,10 @@ export function render() {
   });
   badge = h('span', {
     class: 'settings-badge'
-  }, '读取中');
+  }, tr('settings.loading'));
   currentService = h('p', {
     class: 'settings-current-model'
-  }, '正在读取当前服务…');
+  }, tr('settings.loadingService'));
   readinessNote = h('p', {
     class: 'settings-readiness muted'
   });
@@ -140,19 +142,19 @@ export function render() {
   });
   models = h('div', {
     class: 'settings-models',
-    'aria-label': '服务中的模型'
+    'aria-label': tr('settings.serviceModels')
   });
   modelInput = h('input', {
     type: 'text',
-    'aria-label': '模型名称',
-    placeholder: '填写服务提供的完整模型 ID',
+    'aria-label': tr('settings.modelName'),
+    placeholder: tr('settings.modelPlaceholder'),
     maxlength: 200,
     autocomplete: 'off',
     oninput: changed
   });
   endpoint = h('input', {
     type: 'url',
-    'aria-label': 'AI 服务地址',
+    'aria-label': tr('settings.aiAddress'),
     placeholder: 'https://example.com/v1',
     maxlength: 2000,
     autocomplete: 'off',
@@ -162,7 +164,7 @@ export function render() {
     type: 'password',
     'aria-label': 'API Key',
     value: '',
-    placeholder: '输入新密钥',
+    placeholder: tr('settings.newKey'),
     maxlength: 4000,
     autocomplete: 'new-password',
     oninput: () => {
@@ -174,7 +176,7 @@ export function render() {
   });
   clearKey = h('input', {
     type: 'checkbox',
-    'aria-label': '停用已配置密钥',
+    'aria-label': tr('settings.disableKey'),
     onchange: () => {
       if (clearKey.checked) {
         key.value = '';
@@ -183,7 +185,7 @@ export function render() {
     }
   });
   backend = createDropdown({
-    label: 'AI 服务',
+    label: tr('settings.aiService'),
     value: 'ollama',
     options: backends,
     onChange: value => {
@@ -194,30 +196,30 @@ export function render() {
       changed();
     }
   });
-  save = button('保存设置', () => submit(false), {
+  save = button(tr('settings.saveSettings'), () => submit(false), {
     primary: true
   });
-  probe = button('检测连接', () => submit(true));
-  reset = button('撤销修改', () => {
+  probe = button(tr('settings.probe'), () => submit(true));
+  reset = button(tr('settings.revert'), () => {
     if (!busy && config) {
       populate();
       setNotice(testNotice, '');
-      models.replaceChildren();
-      setNotice(notice, '已恢复当前生效的设置。');
+      replaceContent(models);
+      setNotice(notice, tr('settings.reverted'));
     }
   });
   storageInfo = h('details', {
     class: 'settings-storage'
-  }, h('summary', {}, '保存范围与有效期'));
+  }, h('summary', {}, tr('settings.storageScope')));
   form = h('div', {
     class: 'settings-form'
   }, h('div', {
     class: 'settings-fields'
-  }, field('AI 服务', backend.el), field('服务地址', endpoint)), serviceHint, field('默认模型', modelInput, '检测连接可读取服务中的模型列表；不会自动开始分析。'), testNotice, models, h('div', {
+  }, field(tr('settings.aiService'), backend.el), field(tr('settings.serviceAddress'), endpoint)), serviceHint, field(tr('settings.defaultModel'), modelInput, tr('settings.probeHint')), testNotice, models, h('div', {
     class: 'settings-key'
   }, field(keyLabel, key), keyHint, h('label', {
     class: 'settings-clear-key'
-  }, clearKey, '停用本次服务的密钥')), h('div', {
+  }, clearKey, tr('settings.disableSessionKey'))), h('div', {
     class: 'settings-actions'
   }, save, probe, reset), saveState, storageInfo);
   const installation = h('section', {
@@ -232,14 +234,14 @@ export function render() {
     'aria-labelledby': 'settings-tab-ai'
   }, h('header', {
     class: 'settings-panel-head'
-  }, h('div', {}, h('h2', {}, 'AI 服务'), h('p', {
+  }, h('div', {}, h('h2', {}, tr('settings.aiService')), h('p', {
     class: 'muted'
-  }, '配置默认服务，供工作台的 AI 配置助手使用。')), badge), h('section', {
+  }, tr('settings.aiSubtitle'))), badge), h('section', {
     class: 'settings-current',
-    'aria-label': '当前使用的 AI 服务'
+    'aria-label': tr('settings.currentAI')
   }, h('span', {
     class: 'muted'
-  }, '当前使用'), currentService, readinessNote), installation, form, notice);
+  }, tr('settings.current')), currentService, readinessNote), installation, form, notice);
   environmentNotice = h('p', {
     class: 'settings-notice',
     role: 'status',
@@ -247,11 +249,11 @@ export function render() {
   });
   environmentSummary = h('p', {
     class: 'muted'
-  }, '正在读取运行环境…');
+  }, tr('settings.loadingEnvironment'));
   environmentList = h('div', {
     class: 'settings-environment'
   });
-  refreshButton = button('刷新状态', refreshPlugins, {
+  refreshButton = button(tr('settings.refreshStatus'), refreshPlugins, {
     glyph: 'refresh'
   });
   management = createPluginManagement({
@@ -268,10 +270,10 @@ export function render() {
       settingsStale = true;
       configController?.abort();
       busy = false;
-      probe.textContent = '检测连接';
-      save.textContent = '保存设置';
+      setText(probe, tr('settings.probe'));
+      setText(save, tr('settings.saveSettings'));
       setNotice(testNotice, '');
-      models.replaceChildren();
+      replaceContent(models);
       update();
       await Promise.all([refreshEnvironment({
         replace: true
@@ -296,12 +298,12 @@ export function render() {
     'aria-labelledby': 'settings-tab-plugins'
   }, h('header', {
     class: 'settings-panel-head'
-  }, h('div', {}, h('h2', {}, '插件与版本'), h('p', {
+  }, h('div', {}, h('h2', {}, tr('settings.plugins')), h('p', {
     class: 'muted'
-  }, '查看当前 Web 服务所在 Python 环境中的组件。')), refreshButton), management.el, updateControl.el, environmentSummary, environmentNotice, environmentList);
+  }, tr('settings.pluginsSubtitle'))), refreshButton), management.el, updateControl.el, environmentSummary, environmentNotice, environmentList);
   generationControl = createGenerationDefaultsControl();
   generationPanel = h('section', {id: 'settings-generation', class: 'settings-panel', role: 'tabpanel', 'aria-labelledby': 'settings-tab-generation'},
-    h('header', {class: 'settings-panel-head'}, h('div', {}, h('h2', {}, '新建配置偏好'), h('p', {class: 'muted'}, '设置新配置的常用起点；已有配置保持原值。'))), generationControl.el);
+    h('header', {class: 'settings-panel-head'}, h('div', {}, h('h2', {}, tr('settings.generation')), h('p', {class: 'muted'}, tr('settings.generationSubtitle')))), generationControl.el);
   themeControl = createThemeControl();
   appearancePanel = h('section', {
     id: 'settings-appearance',
@@ -310,13 +312,13 @@ export function render() {
     'aria-labelledby': 'settings-tab-appearance'
   }, h('header', {
     class: 'settings-panel-head'
-  }, h('div', {}, h('h2', {}, '外观'), h('p', {
+  }, h('div', {}, h('h2', {}, tr('settings.appearance')), h('p', {
     class: 'muted'
-  }, '选择适合当前环境的界面明暗。'))), themeControl.el, h('p', {
+  }, tr('settings.appearanceSubtitle')))), themeControl.el, h('p', {
     class: 'muted'
-  }, '立即生效，仅保存在当前浏览器。不改变 AI 服务设置或生成配置；跟随系统会自动响应系统的明暗变化。'));
+  }, tr('settings.appearanceHint')));
   sections = [];
-  for (const [id, label] of [['ai', 'AI 服务'], ['plugins', '插件与版本'], ['generation', '新建配置偏好'], ['appearance', '外观']]) {
+  for (const [id, label] of [['ai', tr('settings.aiService')], ['plugins', tr('settings.plugins')], ['generation', tr('settings.generation')], ['appearance', tr('settings.appearance')]]) {
     const tab = button(label, () => selectSection(id), {
       id: `settings-tab-${id}`,
       role: 'tab',
@@ -350,31 +352,31 @@ export function render() {
     });
   }
   const returnInfo = peekAIHandoff(store.connId);
-  returnButton = button('返回 AI 助手', goBack, {
+  returnButton = button(tr('settings.returnAI'), goBack, {
     hidden: !returnInfo
   });
   returnPrompt = h('div', {
     class: 'settings-return-prompt',
     hidden: true,
     role: 'alert'
-  }, h('p', {}, 'AI 服务设置尚未保存。可以继续编辑并保存，或放弃修改后返回。'), h('div', {
+  }, h('p', {}, tr('settings.unsavedReturn')), h('div', {
     class: 'settings-actions'
-  }, button('继续编辑', () => {
+  }, button(tr('settings.continueEditing'), () => {
     returnPrompt.hidden = true;
     modelInput.focus();
-  }), button('放弃修改并返回', returnToAssistant)));
+  }), button(tr('settings.discardReturn'), returnToAssistant)));
   root = h('div', {
     class: 'page settings-page'
   }, h('header', {
     class: 'heading'
-  }, h('div', {}, h('h1', {}, '设置'), h('p', {
+  }, h('div', {}, h('h1', {}, tr('settings.title')), h('p', {
     class: 'subtitle'
-  }, '管理新建配置偏好、界面外观、AI 服务和扩展能力。')), returnButton), returnPrompt, h('div', {
+  }, tr('settings.subtitle'))), returnButton), returnPrompt, h('div', {
     class: 'settings-layout'
   }, h('div', {
     class: 'settings-tabs',
     role: 'tablist',
-    'aria-label': '设置分类',
+    'aria-label': tr('settings.categories'),
     'aria-orientation': 'vertical'
   }, ...sections.map(item => item.button)), h('div', {
     class: 'settings-panels'
@@ -430,8 +432,8 @@ function selectSection(id) {
   appearancePanel.hidden = id !== 'appearance';
   generationPanel.hidden = id !== 'generation';
   for (const item of sections) {
-    item.button.setAttribute('aria-selected', String(item.id === id));
-    item.button.setAttribute('tabindex', item.id === id ? '0' : '-1');
+    setAttr(item.button, 'aria-selected', String(item.id === id));
+    setAttr(item.button, 'tabindex', item.id === id ? '0' : '-1');
   }
   if (moveFocus) sections.find(item => item.id === id).button.focus({preventScroll: true});
 }
@@ -441,10 +443,10 @@ function setMaintenanceMode(enabled) {
   updateControl.setDisabled(enabled);
   const aiTab = sections.find(item => item.id === 'ai');
   aiTab.button.disabled = enabled;
-  aiTab.button.title = enabled ? '维护模式仅提供插件管理，重启普通模式后可配置 AI。' : '';
+  setAttr(aiTab.button, 'title', enabled ? tr('settings.maintenanceAI') : '');
   const appearanceTab = sections.find(item => item.id === 'appearance');
   appearanceTab.button.disabled = enabled;
-  appearanceTab.button.title = enabled ? '维护模式仅提供插件管理，恢复服务后可调整外观。' : '';
+  setAttr(appearanceTab.button, 'title', enabled ? tr('settings.maintenanceAppearance') : '');
   if (enabled) {
     generationAllowed = false;
     configController?.abort();
@@ -476,15 +478,15 @@ function returnToAssistant() {
     location.hash = destination;
   } else {
     returnPrompt.hidden = true;
-    setNotice(notice, '原来的分析上下文已失效，请从工作台重新打开 AI 助手。', 'warning');
+    setNotice(notice, tr('settings.expiredContext'), 'warning');
   }
 }
 function changed() {
   invalidateInstallationCopies();
   if (testNotice.textContent) {
-    setNotice(testNotice, '设置已变化，请重新检测。');
+    setNotice(testNotice, tr('settings.retest'));
   }
-  models.replaceChildren();
+  replaceContent(models);
   setNotice(notice, '');
   update();
 }
@@ -498,25 +500,25 @@ function update() {
   probe.disabled = disabled;
   reset.disabled = disabled || !dirty();
   if (disabled) {
-    saveState.textContent = '';
+    setText(saveState, '');
   } else if (dirty()) {
-    saveState.textContent = '有未保存的修改；检测连接不会保存。';
+    setText(saveState, tr('settings.unsaved'));
   } else {
-    saveState.textContent = '没有待保存的更改。可直接检测连接。';
+    setText(saveState, tr('settings.noChanges'));
   }
-  save.title = !disabled && !dirty() ? '当前表单与生效设置一致，无需重复保存' : '';
+  setAttr(save, 'title', !disabled && !dirty() ? tr('settings.alreadySaved') : '');
   returnButton.disabled = busy;
   for (const option of models.querySelectorAll('button')) {
     option.disabled = disabled;
   }
-  form.setAttribute('aria-busy', String(busy));
+  setAttr(form, 'aria-busy', String(busy));
   updateConfigurationBadge();
   if (backend.get() === 'ollama') {
-    serviceHint.textContent = 'Ollama 可连接本地或云端模型；本机服务地址不代表模型一定在本机运行。';
+    setText(serviceHint, tr('settings.ollamaHint'));
   } else if (backend.get() === 'lm_studio') {
-    serviceHint.textContent = '填写 LM Studio 服务地址，并在服务中加载需要使用的模型。';
+    setText(serviceHint, tr('settings.lmStudioHint'));
   } else {
-    serviceHint.textContent = '使用提供方公布的 API 地址和模型 ID。OpenAI 兼容服务地址通常以 /v1 结尾。';
+    setText(serviceHint, tr('settings.compatibleHint'));
   }
   updateAuthenticationHint();
   function updateConfigurationBadge() {
@@ -524,26 +526,26 @@ function update() {
       !busy && loaded && (settingsStale || !config.available) ? 'warning' : '';
     if (settingsStale) {
       if (busy) {
-        badge.textContent = '读取中';
+        setText(badge, tr('settings.loading'));
       } else {
-        badge.textContent = '待重新读取';
+        setText(badge, tr('settings.reloadNeeded'));
       }
     } else if (!loaded) {
-      badge.textContent = '读取中';
+      setText(badge, tr('settings.loading'));
     } else if (!config) {
-      badge.textContent = '读取失败';
+      setText(badge, tr('settings.loadFailed'));
     } else if (!config.available) {
       if (config.availability_status === 'import_error') {
-        badge.textContent = '加载异常';
+        setText(badge, tr('settings.importError'));
       } else {
-        badge.textContent = '未安装';
+        setText(badge, tr('settings.notInstalled'));
       }
     } else if (dirty()) {
-      badge.textContent = '未保存';
+      setText(badge, tr('settings.unsavedBadge'));
     } else if (config.ready) {
-      badge.textContent = '配置已填写';
+      setText(badge, tr('settings.configured'));
     } else {
-      badge.textContent = '待配置';
+      setText(badge, tr('settings.notConfigured'));
     }
   }
 }
@@ -553,20 +555,20 @@ function updateAuthenticationHint() {
   const sameService = Boolean(target) && target === serviceIdentity(effective.backend, effective.base_url || '');
   const hasKey = sameService && effective.api_key_present;
   const local = ['ollama', 'lm_studio'].includes(backend.get());
-  keyLabel.textContent = local ? 'API Key（通常无需填写）' : 'API Key（按服务要求填写）';
+  setText(keyLabel, local ? tr('settings.localKey') : tr('settings.serviceKey'));
   if (hasKey) {
-    key.placeholder = '留空保留同一服务的已配置密钥';
+    setAttr(key, 'placeholder', tr('settings.keepKey'));
   } else if (local) {
-    key.placeholder = '服务启用了认证时填写';
+    setAttr(key, 'placeholder', tr('settings.authKey'));
   } else {
-    key.placeholder = '填写此服务的密钥';
+    setAttr(key, 'placeholder', tr('settings.enterServiceKey'));
   }
   if (hasKey) {
-    keyHint.textContent = keySources[config.sources?.api_key] || keySources.session;
+    setText(keyHint, keySources[config.sources?.api_key] || keySources.session);
   } else if (local) {
-    keyHint.textContent = '默认本地服务无需密钥，修改地址或模型后即可保存；启用认证时按服务要求填写。';
+    setText(keyHint, tr('settings.localAuthHint'));
   } else {
-    keyHint.textContent = '按提供方要求配置认证；不同服务之间不会沿用已配置的密钥。';
+    setText(keyHint, tr('settings.remoteAuthHint'));
   }
   clearKey.closest('label').hidden = !hasKey;
 }
@@ -601,16 +603,16 @@ function populate({
     key.value = '';
     clearKey.checked = false;
   }
-  currentService.textContent = effective.model ? `${backends.find(item => item.value === effective.backend)?.label || effective.backend} · ${effective.model}` : '尚未选择默认模型';
+  setText(currentService, effective.model ? joinText([backends.find(item => item.value === effective.backend)?.label || effective.backend, " · ", effective.model]) : tr('settings.noDefaultModel'));
   const serviceCard = currentService.closest('.settings-current');
-  serviceCard.querySelector('span').textContent = config.available ? '当前使用' : '已保存的服务配置';
-  serviceCard.setAttribute('aria-label', config.available ? '当前使用的 AI 服务' : '已保存的 AI 服务');
-  readinessNote.textContent = config.available ? config.message || '配置状态与服务连通性分别检查。' : '';
-  storageInfo.replaceChildren(h('summary', {}, '保存范围与有效期'), h('p', {}, '服务类型、地址和模型保存在运行 Web 的设备上，重启后仍保留。同一 Web 服务的浏览器共享这些设置；修改后用于下一次分析。'), h('p', {}, '界面填写的密钥仅在本次服务中有效；如需重启后继续使用，可在启动环境中配置。密钥不写入生成配置或运行记录。'), ...(config.storage?.path ? [h('div', {
+  setText(serviceCard.querySelector('span'), config.available ? tr('settings.current') : tr('settings.savedService'));
+  setAttr(serviceCard, 'aria-label', config.available ? tr('settings.currentAI') : tr('settings.savedAI'));
+  setText(readinessNote, config.available ? serverText(config) || tr('settings.readinessHint') : '');
+  replaceContent(storageInfo, h('summary', {}, tr('settings.storageScope')), h('p', {}, tr('settings.sharedSettings')), h('p', {}, tr('settings.keyStorage')), ...(config.storage?.path ? [h('div', {
     class: 'settings-storage-location'
-  }, h('strong', {}, '当前 Web 服务的配置文件位置'), h('p', {
+  }, h('strong', {}, tr('settings.settingsPath')), h('p', {
     class: 'mono'
-  }, config.storage.path), h('p', {}, '按启动 Web 的用户和操作系统自动选择；也可通过 SQLSEED_WEB_SETTINGS_PATH 指定。远程访问时，这里是服务器上的位置。'))] : []));
+  }, config.storage.path), h('p', {}, tr('settings.settingsPathHint')))] : []));
   const installation = aiPanel.querySelector('[data-ai-install]');
   installation.hidden = Boolean(config.available);
   if (!config.available) {
@@ -621,12 +623,12 @@ function populate({
       })) || broken) {
         return [h('details', {
           class: 'settings-package-help'
-        }, h('summary', {}, '管理员排查信息'), ...installationInstructions(config.installer, broken ? config.repair_command : config.install_command, broken ? config.repair_commands : config.install_commands))];
+        }, h('summary', {}, tr('settings.adminDiagnostics')), ...installationInstructions(config.installer, broken ? config.repair_command : config.install_command, broken ? config.repair_commands : config.install_commands))];
       } else {
         return [];
       }
     };
-    installation.replaceChildren(h('h3', {}, broken ? 'AI 插件加载异常' : 'AI 扩展未安装'), h('p', {}, `${componentImpact('ai')} 已保存的服务设置会保留。`), ...(broken ? [h('p', {}, config.message || 'AI 插件已安装，但加载失败，请检查运行 Web 的环境依赖。')] : []), button(broken ? '查看插件状态' : '前往安装', () => selectSection('plugins'), {
+    replaceContent(installation, h('h3', {}, broken ? tr('settings.aiImportError') : tr('settings.aiMissing')), h('p', {}, tr('settings.retainedSettings', {impact: componentImpact('ai')})), ...(broken ? [h('p', {}, serverText(config) || tr('settings.aiDependencyHint'))] : []), button(broken ? tr('settings.viewPluginStatus') : tr('settings.installAction'), () => selectSection('plugins'), {
       primary: true
     }), ...installationHelp());
   }
@@ -663,7 +665,7 @@ async function loadSettings({
   } catch (error) {
     if (current()) {
       loaded = true;
-      notice.replaceChildren(`无法读取 AI 设置：${error.message} `, button('重试读取', loadSettings));
+      replaceContent(notice, tr('settings.loadError', {detail: errorText(error)}), button(tr('settings.retryLoad'), loadSettings));
       notice.dataset.state = 'error';
     }
   } finally {
@@ -697,25 +699,25 @@ async function submit(testOnly) {
     applySettingsResponse(response);
   } catch (error) {
     if (current()) {
-      setNotice(testOnly ? testNotice : notice, `${testOnly ? '检测' : '保存'}失败：${error.message}`, 'error');
+      setNotice(testOnly ? testNotice : notice, tr('settings.submitError', {operation: testOnly ? tr('settings.testVerb') : tr('settings.saveVerb'), detail: errorText(error)}), 'error');
     }
   } finally {
     snapshot.api_key = '';
     if (current()) {
       busy = false;
-      probe.textContent = '检测连接';
-      save.textContent = '保存设置';
+      setText(probe, tr('settings.probe'));
+      setText(save, tr('settings.saveSettings'));
       update();
     }
   }
   function showSubmissionProgress() {
-    probe.textContent = testOnly ? '检测中…' : '检测连接';
-    save.textContent = testOnly ? '保存设置' : '保存中…';
+    setText(probe, testOnly ? tr('settings.testing') : tr('settings.probe'));
+    setText(save, testOnly ? tr('settings.saveSettings') : tr('settings.saving'));
     if (testOnly) {
-      setNotice(testNotice, '正在检测服务连接…');
-      models.replaceChildren();
+      setNotice(testNotice, tr('settings.testingConnection'));
+      replaceContent(models);
     } else {
-      setNotice(notice, '正在保存设置…');
+      setNotice(notice, tr('settings.savingSettings'));
     }
   }
   function applySettingsResponse(response) {
@@ -725,7 +727,7 @@ async function submit(testOnly) {
       config = structuredClone(response);
       populate();
       returnPrompt.hidden = true;
-      setNotice(notice, '设置已保存，下一次 AI 分析将使用此配置。', 'success');
+      setNotice(notice, tr('settings.saved'), 'success');
       window.dispatchEvent(new Event('sqlseed:ai-settings-changed'));
     }
   }
@@ -753,7 +755,7 @@ async function refreshCurrentConnection(expected) {
   } catch {
     // Keep the selected target and its in-memory draft; never pick another database.
     if (expected === version) {
-      setNotice(environmentNotice, '组件状态已刷新；当前数据库连接信息暂时无法更新。', 'warning');
+      setNotice(environmentNotice, tr('settings.connectionRefreshFailed'), 'warning');
     }
   }
 }
@@ -770,7 +772,7 @@ async function refreshEnvironment({
   environmentController = new AbortController();
   environmentLoading = true;
   refreshButton.disabled = true;
-  setNotice(environmentNotice, '正在读取组件状态…');
+  setNotice(environmentNotice, tr('settings.loadingComponents'));
   try {
     const info = await api('/api/settings/environment', {
       signal: environmentController.signal
@@ -780,10 +782,10 @@ async function refreshEnvironment({
     }
     environmentInfo = info;
     renderEnvironment();
-    setNotice(environmentNotice, '状态已更新。', 'success');
+    setNotice(environmentNotice, tr('settings.statusUpdated'), 'success');
   } catch (error) {
     if (expected === version && request === environmentVersion) {
-      setNotice(environmentNotice, `无法刷新组件状态：${error.message}`, 'error');
+      setNotice(environmentNotice, tr('settings.refreshError', {detail: errorText(error)}), 'error');
     }
   } finally {
     if (expected === version && request === environmentVersion) {
@@ -798,14 +800,14 @@ function renderEnvironment() {
   }
   const info = environmentInfo,
     packages = info.packages || [];
-  environmentSummary.textContent = `${info.python?.implementation || 'Python'} ${info.python?.version || '版本未知'} · 当前 Web 服务环境`;
+  setText(environmentSummary, tr('settings.environmentSummary', {implementation: info.python?.implementation || 'Python', version: info.python?.version || tr('settings.unknownVersion')}));
   const application = item => item.category ? item.category === 'application' : ['core', 'web'].includes(item.id);
   const group = (title, items) => h('section', {
     class: 'settings-package-group'
   }, h('h3', {}, title), ...items.map(item => packageRow(item, info.installer)));
-  environmentList.replaceChildren(group('当前应用', packages.filter(application)), group('可选扩展', packages.filter(item => !application(item))), group('数据生成引擎', info.providers || []), h('p', {
+  replaceContent(environmentList, group(tr('settings.application'), packages.filter(application)), group(tr('settings.optionalExtensions'), packages.filter(item => !application(item))), group(tr('settings.engines'), info.providers || []), h('p', {
     class: 'muted'
-  }, management?.maintenance ? '版本来自当前安装环境；维护模式不加载组件。安装或卸载后需重启普通模式，再验证组件可用性。' : '版本来自当前安装环境，不表示最新发布版本。“可用”表示组件可加载；AI 服务需单独检测。生成引擎在工作台选择，可选扩展按需安装。'));
+  }, management?.maintenance ? tr('settings.maintenanceVersions') : tr('settings.installedVersions')));
 }
 function updatePluginControls() {
   const items = [...(environmentInfo?.packages || []), ...(environmentInfo?.providers || [])];
@@ -813,7 +815,7 @@ function updatePluginControls() {
     const item = items.find(value => value.id === row.dataset.packageId);
     const holder = row.querySelector('[data-plugin-controls]');
     const controls = item && management.controls(item);
-    holder.replaceChildren(...(controls ? [controls] : []));
+    replaceContent(holder, ...(controls ? [controls] : []));
     const guide = row.querySelector('.settings-package-help');
     if (guide) {
       guide.hidden = !item?.installed && managedInstallAvailable(controls);
@@ -825,14 +827,14 @@ function managedInstallAvailable(controls) {
 }
 function installationInstructions(installer, command, variants = []) {
   const usable = installer?.available !== false && typeof command === 'string' && command;
-  const message = installer?.message || (!usable ? '未提供可直接执行的命令。请使用创建此 Python 环境的工具安装或修复组件。' : '');
+  const message = serverText(installer) || (!usable ? tr('settings.noInstallCommand') : '');
   return [...(message ? [h('p', {
     class: 'muted'
   }, message)] : []), ...(!usable && installer?.python_executable ? [h('p', {
     class: 'mono muted'
-  }, `目标解释器：${installer.python_executable}`)] : []), h('p', {
+  }, tr('settings.targetInterpreter', {interpreter: installer.python_executable}))] : []), h('p', {
     class: 'muted'
-  }, `在运行 Web 的设备终端${installer?.shell === 'powershell' && (!Array.isArray(variants) || variants.length < 2) ? '（PowerShell）' : ''}操作，完成后重启 Web 并刷新状态。`), ...(usable ? [commandChoices(command, variants)] : [])];
+  }, tr('settings.terminalInstructions', {shell: installer?.shell === 'powershell' && (!Array.isArray(variants) || variants.length < 2) ? ' (PowerShell)' : ''})), ...(usable ? [commandChoices(command, variants)] : [])];
 }
 function commandChoices(command, variants) {
   const choices = Array.isArray(variants) ? variants.filter(item => item && typeof item.command === 'string' && item.command && typeof item.shell === 'string' && item.label) : [];
@@ -842,25 +844,25 @@ function commandChoices(command, variants) {
   const current = choices.find(item => item.command === command) || choices[0];
   const name = `install-command-${++commandGroupSequence}`;
   const copyState = {copying: false, button: null};
-  const hint = h('p', {class: 'muted'}, current.note || '');
+  const hint = h('p', {class: 'muted'}, serverText(current, 'note') || '');
   const output = h('div', {}, copyableCommand(current.command, copyState));
-  const group = h('fieldset', {class: 'settings-command-options'}, h('legend', {}, '命令格式'));
+  const group = h('fieldset', {class: 'settings-command-options'}, h('legend', {}, tr('settings.commandFormat')));
   for (const item of choices) {
     const input = h('input', {type: 'radio', name, value: item.shell, checked: item === current,
       onchange: () => {
         if (!input.checked) return;
-        hint.textContent = item.note || '';
+        setText(hint, serverText(item, 'note') || '');
         // Replacing the command also detaches any pending clipboard feedback.
-        output.replaceChildren(copyableCommand(item.command, copyState));
+        replaceContent(output, copyableCommand(item.command, copyState));
       }});
-    group.append(h('label', {}, input, h('span', {}, item.label)));
+    appendContent(group, h('label', {}, input, h('span', {}, serverText(item, 'label'))));
   }
   return h('div', {'data-command-choices': ''}, group, hint, output);
 }
 function invalidateInstallationCopies() {
   installationVersion++;
   for (const status of root?.querySelectorAll('[data-install-copy-status]') || []) {
-    status.textContent = '';
+    setText(status, '');
   }
 }
 function copyableCommand(command, sharedCopyState) {
@@ -872,7 +874,7 @@ function copyableCommand(command, sharedCopyState) {
     'aria-live': 'polite',
     'data-install-copy-status': ''
   });
-  const copy = button('复制命令', async () => {
+  const copy = button(tr('settings.copyCommand'), async () => {
     if (copyState.copying || ownerVersion !== version || !container.isConnected) {
       return;
     }
@@ -880,27 +882,27 @@ function copyableCommand(command, sharedCopyState) {
     const current = () => ownerVersion === version && expected === installationVersion && container.isConnected;
     copyState.copying = true;
     copy.disabled = true;
-    copy.textContent = '复制中…';
-    status.textContent = '';
+    setText(copy, tr('settings.copying'));
+    setText(status, '');
     try {
       const clipboard = globalThis.navigator?.clipboard;
       if (typeof clipboard?.writeText !== 'function') {
-        status.textContent = '当前浏览器无法自动复制，请手动选择并复制上方命令。';
+        setText(status, tr('settings.copyUnavailable'));
         return;
       }
       await clipboard.writeText(command);
       if (current()) {
-        status.textContent = '已复制命令。';
+        setText(status, tr('settings.commandCopied'));
       }
     } catch {
       if (current()) {
-        status.textContent = '复制失败，请手动选择并复制上方命令。';
+        setText(status, tr('settings.copyFailed'));
       }
     } finally {
       copyState.copying = false;
       if (ownerVersion === version && copyState.button?.isConnected) {
         copyState.button.disabled = false;
-        copyState.button.textContent = '复制命令';
+        setText(copyState.button, tr('settings.copyCommand'));
       }
     }
   }, {
@@ -909,7 +911,7 @@ function copyableCommand(command, sharedCopyState) {
   });
   copyState.button = copy;
   copy.disabled = copyState.copying;
-  if (copyState.copying) copy.textContent = '复制中…';
+  if (copyState.copying) setText(copy, tr('settings.copying'));
   const container = h('div', {
     class: 'settings-command'
   }, h('code', {}, command), h('div', {
@@ -932,14 +934,14 @@ function packageRow(item, installer) {
   const broken = !metadataOnly && !item.available && (item.installed || requirement === 'required' || requirement === 'builtin');
   const state = packageStateLabel();
   const requirementLabels = {
-    builtin: '内置',
-    required: '必需',
-    optional: '可选'
+    builtin: tr('settings.builtin'),
+    required: tr('settings.required'),
+    optional: tr('settings.optional')
   };
   const requirementLabel = {
-    base: '内置',
-    faker: '随 sqlseed 安装',
-    mimesis: '按需安装'
+    base: tr('settings.builtin'),
+    faker: tr('settings.installedWithCore'),
+    mimesis: tr('settings.installOnDemand')
   }[item.id] || requirementLabels[requirement];
   const controls = management?.controls(item);
   function packageBadgeClass() {
@@ -964,14 +966,14 @@ function packageRow(item, installer) {
     class: 'settings-distribution mono'
   }, item.distribution) : null, h('p', {
     class: 'muted'
-  }, item.description || descriptions[item.id] || item.message || ''), item.available && item.guidance ? h('p', {
+  }, serverText(item, 'description') || descriptions[item.id] || serverText(item) || ''), item.available && item.guidance ? h('p', {
     class: 'settings-dependency'
-  }, item.guidance) : null, !metadataOnly && !item.available && componentImpact(item.id) ? h('p', {
+  }, serverText(item, 'guidance')) : null, !metadataOnly && !item.available && componentImpact(item.id) ? h('p', {
     class: 'settings-component-impact',
     'data-component-impact': ''
   }, componentImpact(item.id)) : null), h('span', {
     class: 'mono settings-version'
-  }, requirement === 'builtin' ? '随 sqlseed 提供' : item.version || '—'), h('div', {
+  }, requirement === 'builtin' ? tr('settings.providedByCore') : item.version || '—'), h('div', {
     class: 'settings-package-status'
   }, h('span', {
     class: `settings-badge${packageBadgeClass()}`
@@ -979,39 +981,39 @@ function packageRow(item, installer) {
   if (!item.available && (!metadataOnly || !item.installed && requirement !== 'builtin')) {
     renderPackageHelp();
   }
-  row.append(h('div', {
+  appendContent(row, h('div', {
     'data-plugin-controls': ''
   }, controls));
   return row;
   function packageStateLabel() {
     let state;
     if (metadataOnly && requirement === 'builtin') {
-      state = '内置';
+      state = tr('settings.builtin');
     } else if (metadataOnly && item.installed) {
-      state = '已安装（待验证）';
+      state = tr('settings.installedUnverified');
     } else if (item.available) {
-      state = '可用';
+      state = tr('settings.available');
     } else if (item.installed) {
-      state = '加载异常';
+      state = tr('settings.importError');
     } else if (requirement === 'optional') {
-      state = '未安装';
+      state = tr('settings.notInstalled');
     } else {
-      state = '必需依赖缺失';
+      state = tr('settings.requiredMissing');
     }
     return state;
   }
   function renderPackageHelp() {
-    row.append(h('details', {
+    appendContent(row, h('details', {
       class: 'settings-package-help',
       hidden: !item.installed && managedInstallAvailable(controls)
-    }, h('summary', {}, broken ? '修复指引' : '管理员安装信息'), h('p', {}, item.guidance || item.message || '请在运行 Web 的 Python 环境中检查此组件。'), ...installationInstructions(installer, item.installed || requirement === 'builtin' ? item.repair_command : item.install_command, item.installed || requirement === 'builtin' ? item.repair_commands : item.install_commands)));
+    }, h('summary', {}, broken ? tr('settings.repairGuide') : tr('settings.adminInstall')), h('p', {}, serverText(item, 'guidance') || serverText(item) || tr('settings.checkEnvironment')), ...installationInstructions(installer, item.installed || requirement === 'builtin' ? item.repair_command : item.install_command, item.installed || requirement === 'builtin' ? item.repair_commands : item.install_commands)));
   }
 }
 function showConnectionProbe(response) {
-  setNotice(testNotice, response.message || (response.ok ? '服务连接成功，仅验证模型列表。' : '连接检测失败。'), response.ok ? 'success' : 'error');
+  setNotice(testNotice, serverText(response) || (response.ok ? tr('settings.probeSuccess') : tr('settings.probeFailed')), response.ok ? 'success' : 'error');
   if (response.ok) {
     for (const name of (response.models || []).slice(0, 30)) {
-      models.append(button(name, () => {
+      appendContent(models, button(name, () => {
         if (!busy) {
           modelInput.value = name;
           changed();

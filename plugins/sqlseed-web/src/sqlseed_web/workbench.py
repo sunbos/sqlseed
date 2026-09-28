@@ -12,6 +12,8 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, ConfigDict, Field
 
+from sqlseed_web.messages import MessageRoute
+from sqlseed_web.messages import message as tr
 from sqlseed_web.state import ConnectionBusyError, state
 from sqlseed_web.workbench_runtime import (
     WorkbenchError,
@@ -26,7 +28,7 @@ from sqlseed_web.workbench_runtime import (
 from sqlseed_web.workbench_schema import _target_identity, generator_catalog, inspect_connection
 from sqlseed_web.workbench_store import RevisionConflict, get_store
 
-router = APIRouter(prefix="/api/workbench", tags=["workbench"])
+router = APIRouter(route_class=MessageRoute, prefix="/api/workbench", tags=["workbench"])
 
 
 class DocumentRequest(BaseModel):
@@ -140,7 +142,9 @@ def _save_draft(body: DraftRequest, draft_id: str | None = None, revision: int |
     with _request_errors(), state.connection_operation(body.conn_id) as conn:
         schema = inspect_connection(conn)
         if schema["schema_hash"] != body.schema_hash:
-            raise WorkbenchError("schema 已变化，请刷新后保存", code="schema_changed", status=409)
+            raise WorkbenchError(
+                tr("backend.workbench.the_schema_has_changed_refresh_it_before"), code="schema_changed", status=409
+            )
         return get_store().save_draft(
             {
                 "name": body.name.strip(),

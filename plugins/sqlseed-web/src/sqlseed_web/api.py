@@ -41,6 +41,9 @@ from sqlseed.generators._dispatch import GeneratorDispatchMixin
 
 from sqlseed_web.ai_settings import SettingsRequest, credential_snapshot, resolve_settings, set_session_preferences
 from sqlseed_web.diagnostics import public_error, public_target
+from sqlseed_web.messages import MessageRoute, message_list
+from sqlseed_web.messages import legacy_message as tr_en
+from sqlseed_web.messages import message as tr
 from sqlseed_web.operation_errors import generation_errors
 from sqlseed_web.runtime_lifecycle import start_background
 from sqlseed_web.settings_environment import ai_import_failure, provider_availability, require_ai_available
@@ -51,7 +54,7 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-router = APIRouter(prefix="/api")
+router = APIRouter(route_class=MessageRoute, prefix="/api")
 
 
 # --------------------------------------------------------------------------
@@ -121,7 +124,7 @@ def _conn_or_404(conn_id: str) -> DataOrchestrator:
     try:
         return state.get_connection(conn_id).orchestrator
     except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=404, detail=public_error(exc)) from exc
 
 
 def _error_detail(exc: Exception) -> str:
@@ -151,11 +154,11 @@ def _yaml_to_config_dict(yaml_text: str) -> dict[str, Any]:
     try:
         parsed = yaml.safe_load(text)
     except yaml.YAMLError as exc:
-        raise HTTPException(status_code=422, detail=f"invalid YAML: {_error_detail(exc)}") from exc
+        raise HTTPException(status_code=422, detail=tr_en("backend.api.invalid_yaml", p1=_error_detail(exc))) from exc
     if parsed is None:
         return {}
     if not isinstance(parsed, dict):
-        raise HTTPException(status_code=422, detail="YAML root must be a mapping")
+        raise HTTPException(status_code=422, detail=tr_en("backend.api.yaml_root_must_be_a_mapping"))
     return parsed
 
 
@@ -283,9 +286,21 @@ def meta_dialects() -> dict[str, Any]:
     """Connection kinds the UI offers (core supports SQLite + PostgreSQL today)."""
     return {
         "kinds": [
-            {"id": "sqlite", "label": "本地数据库文件", "hint": "SQLite 文件（.db / .sqlite / .sqlite3）"},
-            {"id": "postgresql", "label": "PostgreSQL", "hint": "字段化填写连接参数"},
-            {"id": "url", "label": "自定义 URL", "hint": "任意 SQLAlchemy URL（为未来数据库预留）"},
+            {
+                "id": "sqlite",
+                "label": tr("backend.api.local_database_file"),
+                "hint": tr("backend.api.sqlite_file_db_sqlite_sqlite3"),
+            },
+            {
+                "id": "postgresql",
+                "label": "PostgreSQL",
+                "hint": tr("backend.api.enter_connection_parameters_in_separate_fields"),
+            },
+            {
+                "id": "url",
+                "label": tr("backend.api.custom_url"),
+                "hint": tr("backend.api.sqlalchemy_url_reserved_for_additional_database_support"),
+            },
         ]
     }
 
@@ -310,9 +325,9 @@ def fs_browse(path: str | None = None, all_files: bool = False) -> dict[str, Any
     home = Path.home()
     target = Path(path).expanduser() if path else home
     if not target.exists():
-        raise HTTPException(status_code=404, detail=f"path does not exist: {target}")
+        raise HTTPException(status_code=404, detail=tr_en("backend.api.path_does_not_exist", p1=target))
     if not target.is_dir():
-        raise HTTPException(status_code=400, detail=f"not a directory: {target}")
+        raise HTTPException(status_code=400, detail=tr_en("backend.api.not_a_directory", p1=target))
     entries: list[dict[str, Any]] = []
     try:
         for child in sorted(target.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower())):
@@ -331,7 +346,7 @@ def fs_browse(path: str | None = None, all_files: bool = False) -> dict[str, Any
                 }
             )
     except PermissionError as exc:
-        raise HTTPException(status_code=403, detail=f"permission denied: {target}") from exc
+        raise HTTPException(status_code=403, detail=tr_en("backend.api.permission_denied", p1=target)) from exc
     return {"path": str(target), "parent": str(target.parent), "home": str(home), "entries": entries}
 
 
@@ -364,8 +379,13 @@ def meta_ai() -> dict[str, Any]:
 # 都能接，且是 AIConfig 的默认后端），Google AI Studio 次之，本地后端殿后。
 # heal 页会在此之上把「当前生效」的后端再提到第一位（见 heal.js）。
 AI_BACKENDS: list[dict[str, str]] = [
-    {"id": "openai_compat", "label": "OpenAI 兼容服务（在线/自建）", "needs_key": "1", "needs_url": "1"},
-    {"id": "google_ai_studio", "label": "Google AI Studio（在线）", "needs_key": "1", "needs_url": "0"},
+    {
+        "id": "openai_compat",
+        "label": tr("backend.api.openai_compatible_service_hosted_self_hosted"),
+        "needs_key": "1",
+        "needs_url": "1",
+    },
+    {"id": "google_ai_studio", "label": tr("backend.api.google_ai_studio_hosted"), "needs_key": "1", "needs_url": "0"},
     {"id": "ollama", "label": "Ollama", "needs_key": "0", "needs_url": "0"},
     {"id": "lm_studio", "label": "LM Studio", "needs_key": "0", "needs_url": "0"},
 ]
@@ -405,7 +425,7 @@ def ai_config_set(req: AIConfigRequest) -> dict[str, Any]:
         except ImportError:
             return ai_config_get()
         except (ValueError, TypeError) as exc:
-            raise HTTPException(422, detail="AI 配置字段无效，请检查后端与 HTTP(S) 地址。") from exc
+            raise HTTPException(422, detail=tr("backend.api.invalid_ai_settings_check_the_backend_and")) from exc
     return ai_config_get()
 
 
@@ -417,10 +437,14 @@ def _local_ai_probe_result(result: dict[str, Any], response: httpx.Response, bas
             result["models"] = [str(model.get("id")) for model in response.json().get("data", []) if model.get("id")]
         except (ValueError, AttributeError):
             pass
-        model_hint = f"可用模型：{', '.join(result['models'])}" if result["models"] else "未列出模型"
-        result["message"] = f"本地服务可达（{base}）。无需 API Key。{model_hint}"
+        model_hint = (
+            tr("backend.api.available_models", p1=", ".join(result["models"]))
+            if result["models"]
+            else tr("backend.api.no_models_listed")
+        )
+        result["message"] = tr("backend.api.local_service_is_reachable_no_api_key", p1=base, p2=model_hint)
     else:
-        result["message"] = f"本地服务响应异常：HTTP {response.status_code}"
+        result["message"] = tr("backend.api.local_service_returned_http", p1=response.status_code)
 
 
 @router.post("/ai/test-connection")
@@ -449,20 +473,22 @@ def ai_test_connection() -> dict[str, Any]:
             _local_ai_probe_result(result, resp, base)
         elif not (key := cfg.resolve_api_key()):
             result["ok"] = False
-            result["message"] = "在线后端需要 API Key：请在 AI 配置面板填写，或设置 GOOGLE_API_KEY / OPENAI_API_KEY。"
+            result["message"] = tr("backend.api.hosted_services_require_an_api_key_enter")
         else:
             resp = httpx.get(probe_url, headers={"Authorization": f"Bearer {key}"}, timeout=8)
             result["ok"] = resp.status_code == 200
             result["message"] = (
-                "在线后端连通且 Key 有效。"
+                tr("backend.api.hosted_service_is_reachable_and_the_api")
                 if result["ok"]
-                else f"在线后端拒绝：HTTP {resp.status_code}（检查 Key / Base URL）。"
+                else tr("backend.api.hosted_service_rejected_the_request_http_check", p1=resp.status_code)
             )
     except (httpx.HTTPError, OSError, ValueError, RuntimeError):
         result["ok"] = False
-        result["message"] = "无法连接 AI 服务，请检查地址、认证和服务状态。"
+        result["message"] = tr("backend.api.cannot_connect_to_the_ai_service_check")
         if backend == "ollama":
-            result["message"] += "（本地需先运行 `ollama serve`，默认 http://localhost:11434；无需任何密钥）"
+            result["message"] = message_list(
+                [result["message"], tr("backend.api.for_local_use_start_ollama_serve_first")], ""
+            )
     return result
 
 
@@ -487,9 +513,9 @@ def meta_info() -> dict[str, Any]:
 )
 def connect_db(req: ConnectRequest) -> dict[str, Any]:
     if bool(req.db_path) == bool(req.url):
-        raise HTTPException(status_code=422, detail="provide exactly one of db_path / url")
+        raise HTTPException(status_code=422, detail=tr_en("backend.api.provide_exactly_one_of_db_path_url"))
     if (target := req.db_path or req.url) is None:  # unreachable; narrows the type for mypy strict
-        raise HTTPException(status_code=422, detail="empty connection target")
+        raise HTTPException(status_code=422, detail=tr_en("backend.api.empty_connection_target"))
     conn: Any = None
     try:
         conn = state.add_connection(
@@ -500,7 +526,9 @@ def connect_db(req: ConnectRequest) -> dict[str, Any]:
     except Exception as exc:
         if conn is not None:
             state.close_connection(conn.conn_id)
-        raise HTTPException(status_code=400, detail=f"connection failed: {_error_detail(exc)}") from exc
+        raise HTTPException(
+            status_code=400, detail=tr_en("backend.api.connection_failed", p1=_error_detail(exc))
+        ) from exc
     return {
         "conn_id": conn.conn_id,
         "target": public_target(target),
@@ -573,9 +601,9 @@ def close_db(conn_id: str) -> dict[str, Any]:
     try:
         state.close_connection(conn_id)
     except ConnectionBusyError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(status_code=409, detail=public_error(exc)) from exc
     except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=404, detail=public_error(exc)) from exc
     return {"closed": conn_id}
 
 
@@ -603,7 +631,7 @@ def job_status(job_id: str) -> dict[str, Any]:
     try:
         job = state.job_snapshot(job_id)
     except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=404, detail=public_error(exc)) from exc
     live_rows = None
     if job.status == "running" and job.kind == "fill":
         orch = None
@@ -637,7 +665,7 @@ def table_schema(conn_id: str, table: str) -> dict[str, Any]:
     try:
         validate_table_name(table)
         if not (columns := _serialize(orch.get_column_info(table))):
-            raise ValueError(f"Table '{table}' does not exist")
+            raise ValueError(tr_en("backend.api.table_does_not_exist", p1=table))
         fks = _serialize(orch.get_foreign_keys(table))
         skippable = sorted(orch.get_skippable_columns(table))
         # 数据库硬唯一约束列（主键/唯一索引/UNIQUE 约束）——前端属性面板
@@ -743,11 +771,11 @@ def preview_rows(conn_id: str, req: PreviewRequest) -> dict[str, Any]:
                 enrich=req.enrich,
             )
     except UnknownConnectionError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=404, detail=public_error(exc)) from exc
     except ConnectionBusyError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(status_code=409, detail=public_error(exc)) from exc
     except generation_errors(orch) as exc:
-        raise HTTPException(status_code=400, detail=f"preview failed: {_error_detail(exc)}") from exc
+        raise HTTPException(status_code=400, detail=tr_en("backend.api.preview_failed", p1=_error_detail(exc))) from exc
     return {"table": req.table, "rows": _serialize(rows)}
 
 
@@ -765,14 +793,16 @@ def start_fill(conn_id: str, req: FillRequest) -> dict[str, Any]:
         with state.connection_operation(conn_id, write=True):
             job = state.create_job(conn_id, kind="fill", label=req.table)
     except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=404, detail=public_error(exc)) from exc
     except ConnectionBusyError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(status_code=409, detail=public_error(exc)) from exc
     try:
         start_background(target=_run_fill_job, args=(conn_id, job.job_id, req), category="job")
     except Exception as exc:
         state.complete_job(job.job_id, error=_error_detail(exc))
-        raise HTTPException(status_code=503, detail="无法启动生成任务，请重试。") from exc
+        raise HTTPException(
+            status_code=503, detail=tr("backend.api.cannot_start_the_generation_task_please_retry")
+        ) from exc
     return {"job_id": job.job_id, "table": req.table, "count": req.count}
 
 
@@ -808,7 +838,7 @@ def run_query(conn_id: str, req: QueryRequest) -> dict[str, Any]:
     """Read-only SQL console: SELECT statements only."""
     statement = (req.sql or "").strip().rstrip(";")
     if not statement.lower().startswith("select") or ";" in statement:
-        raise HTTPException(status_code=422, detail="only single read-only SELECT statements are allowed")
+        raise HTTPException(status_code=422, detail=tr_en("backend.api.only_single_read_only_select_statements_are"))
     orch = _conn_or_404(conn_id)
     try:
         rows = orch.query(statement)
@@ -868,7 +898,9 @@ def _require_ai_export(module_name: str, export_name: str) -> None:
     try:
         getattr(module, export_name)
     except AttributeError as exc:
-        raise ImportError(f"Required AI export is unavailable: {module_name}.{export_name}") from exc
+        raise ImportError(
+            tr_en("backend.api.required_ai_export_is_unavailable", p1=module_name, p2=export_name)
+        ) from exc
 
 
 def _require_sqlseed_ai() -> None:
@@ -1035,11 +1067,7 @@ def _run_auto_heal_job(conn_id: str, job_id: str, req: AutoHealRequest) -> None:
             ai_config.model = scoped.model
             ai_config = credential_snapshot(ai_config)
             if not ai_config.resolve_api_key():
-                raise RuntimeError(
-                    "AI API key not configured: set it in the AI config panel, or via "
-                    "SQLSEED_AI_API_KEY / GOOGLE_API_KEY / OPENAI_API_KEY, or switch to a "
-                    "local backend (Ollama / LM Studio) in the panel"
-                )
+                raise RuntimeError(tr_en("backend.api.ai_api_key_not_configured_set_it"))
             ai_config.model = ai_config.resolve_model()
             is_url = "://" in conn.target
             db_path = None if is_url else conn.target
@@ -1102,12 +1130,14 @@ def heal_auto(conn_id: str, req: AutoHealRequest) -> dict[str, Any]:
     try:
         job = state.create_job(conn_id, kind="auto_heal", label="auto-heal")
     except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=404, detail=public_error(exc)) from exc
     except ConnectionBusyError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(status_code=409, detail=public_error(exc)) from exc
     try:
         start_background(target=_run_auto_heal_job, args=(conn_id, job.job_id, req), category="job")
     except Exception as exc:
         state.complete_job(job.job_id, error=_error_detail(exc))
-        raise HTTPException(status_code=503, detail="无法启动分析任务，请重试。") from exc
+        raise HTTPException(
+            status_code=503, detail=tr("backend.api.cannot_start_the_analysis_task_please_retry")
+        ) from exc
     return {"job_id": job.job_id}

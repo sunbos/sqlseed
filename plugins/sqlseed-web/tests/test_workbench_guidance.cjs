@@ -73,7 +73,7 @@ test('an oversized generation draft identifies its table in ten-row preview and 
   assert.equal(ui.root().querySelector('.wb-operation-status').textContent,'');
   assert.equal(ui.root().querySelector('.wb-notice').textContent,'');
   assert.equal(ui.root().querySelector('.wb-notice').classList.contains('wb-error'),false);
-  assert.match(guide(ui).textContent,/计划生成 1000100 行/);
+  assert.match(guide(ui).textContent,/计划生成 1,000,100 行/);
   await ui.button('预览已选表').click();
   const requests=ui.requests.filter(request=>request.url.endsWith('/preview'));
   assert.equal(requests.length,1);
@@ -126,7 +126,7 @@ test('guidance totals safe per-table counts exactly even when their sum exceeds 
   for(const name of ['users','orders','audit'])m.toggleTable(name,true);
   m.setCount('users',String(Number.MAX_SAFE_INTEGER));m.setCount('orders',String(Number.MAX_SAFE_INTEGER));m.setCount('audit','1');
   redraw(ui);assert.equal(m.errors.size,0);
-  assert.match(guide(ui).textContent,/计划生成 18014398509481983 行/);
+  assert.match(guide(ui).textContent,/计划生成 18,014,398,509,481,983 行/);
   assert.equal(ui.requests.some(request=>request.url.endsWith('/preview')||request.url.endsWith('/runs')),false);
 });
 

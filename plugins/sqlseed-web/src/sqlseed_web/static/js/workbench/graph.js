@@ -1,3 +1,5 @@
+import { tr, joinText, formatNumber, setText, setAttr } from '../i18n.js';
+import '../i18n/messages/graph.js';
 import './graph-layout.js';
 import './dependency-view.js';
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -6,20 +8,20 @@ let graphSequence = 0;
 function html(tag, attributes = {}, text = '') {
   const el = document.createElement(tag);
   for (const [key, value] of Object.entries(attributes)) {
-    el.setAttribute(key, value);
+    setAttr(el, key, value);
   }
   if (text) {
-    el.textContent = text;
+    setText(el, text);
   }
   return el;
 }
 function svgElement(tag, attributes = {}, text = '') {
   const el = document.createElementNS(SVG_NS, tag);
   for (const [key, value] of Object.entries(attributes)) {
-    el.setAttribute(key, value);
+    setAttr(el, key, value);
   }
   if (text) {
-    el.textContent = text;
+    setText(el, text);
   }
   return el;
 }
@@ -150,7 +152,7 @@ export function createSchemaGraph({
   };
   const el = html('section', {
     class: 'graph-visual wb-schema-graph',
-    'aria-label': '数据库关系图'
+    'aria-label': tr('graph.label')
   });
   const toolbar = html('div', {
     class: 'graph-controls'
@@ -161,7 +163,7 @@ export function createSchemaGraph({
     scopes = html('div', {
       class: 'graph-filters sg-modes',
       role: 'group',
-      'aria-label': '关系图范围'
+      'aria-label': tr('graph.scope')
     });
   const scopeIndicator = html('span', {
     class: 'graph-filter-indicator',
@@ -172,7 +174,7 @@ export function createSchemaGraph({
   const pathScopes = html('div', {
     class: 'path-modes graph-path-filters sg-modes',
     role: 'group',
-    'aria-label': '依赖路径深度'
+    'aria-label': tr('graph.depth')
   });
   const controls = new Map();
   const control = (container, action, title, callback) => {
@@ -185,7 +187,7 @@ export function createSchemaGraph({
     controls.set(action, button);
     return button;
   };
-  for (const [value, title] of [['plan', '本次生成'], ['all', '整库'], ['paths', '依赖路径'], ['issues', issues.length ? `检查问题 · ${issues.length}` : '检查问题']]) {
+  for (const [value, title] of [['plan', tr('graph.plan')], ['all', tr('graph.all')], ['paths', tr('graph.paths')], ['issues', issues.length ? tr('graph.issueCount', {count: formatNumber(issues.length)}) : tr('graph.issues')]]) {
     control(scopes, value, title, () => {
       currentMode = value;
       if (value === 'paths') {
@@ -194,8 +196,8 @@ export function createSchemaGraph({
       draw(false, true);
     });
   }
-  controls.get('issues').setAttribute('title', '查看当前生成来源与规则检查中的错误和提醒，不代表清空范围检查');
-  for (const [value, title] of [['complete', '完整路径'], ['upstream', '全部上游'], ['downstream', '全部下游'], ['neighbors', '仅相邻']]) {
+  setAttr(controls.get('issues'), 'title', tr('graph.issueHelp'));
+  for (const [value, title] of [['complete', tr('graph.complete')], ['upstream', tr('graph.upstream')], ['downstream', tr('graph.downstream')], ['neighbors', tr('graph.neighbors')]]) {
     control(pathScopes, value, title, () => {
       currentMode = 'paths';
       currentPath = value;
@@ -222,8 +224,8 @@ export function createSchemaGraph({
   const searchInput = html('input', {
     type: 'search',
     'data-graph-search': '',
-    'aria-label': '查找表或字段',
-    placeholder: '查找表或字段',
+    'aria-label': tr('graph.search'),
+    placeholder: tr('graph.search'),
     autocomplete: 'off'
   });
   searchInput.value = initialSearch;
@@ -262,7 +264,7 @@ export function createSchemaGraph({
     }
   });
   search.append(searchInput);
-  control(search, 'clear-search', '清空', () => {
+  control(search, 'clear-search', tr('graph.clear'), () => {
     composing = false;
     searchInput.value = '';
     updateSearch();
@@ -294,10 +296,10 @@ export function createSchemaGraph({
     class: 'graph-reading-guide'
   });
   readingGuide.append(scopeNote);
-  control(readingGuide, 'focus-readable', '阅读当前表依赖', () => readDependencies(currentFocus));
+  control(readingGuide, 'focus-readable', tr('graph.readCurrent'), () => readDependencies(currentFocus));
   const searchResults = html('section', {
     class: 'graph-search-results',
-    'aria-label': '匹配的表'
+    'aria-label': tr('graph.matches')
   });
   const searchCount = html('p', {
     class: 'graph-search-count',
@@ -311,37 +313,37 @@ export function createSchemaGraph({
   const zoomTools = html('div', {
     class: 'graph-tools sg-modes'
   });
-  control(zoomTools, 'zoom-out', '−', () => changeZoom(zoom / 1.25)).setAttribute('aria-label', '缩小关系图');
+  setAttr(control(zoomTools, 'zoom-out', '−', () => changeZoom(zoom / 1.25)), 'aria-label', tr('graph.zoomOut'));
   const zoomLabel = html('span', {
     class: 'graph-zoom-label sg-zoom',
     'data-graph-zoom': '',
     'aria-live': 'polite',
-    title: '相对图中节点原始尺寸的实际比例；100% 为自然阅读尺寸'
+    title: tr('graph.scaleHint')
   }, '100%');
   zoomTools.append(zoomLabel);
-  control(zoomTools, 'zoom-in', '＋', () => changeZoom(zoom * 1.25)).setAttribute('aria-label', '放大关系图');
-  control(zoomTools, 'fit', '适应画布', () => applyViewport(true)).setAttribute('title', '缩放当前范围，让全部表与关系进入画布');
-  control(zoomTools, 'readable', '100% 阅读', () => {
+  setAttr(control(zoomTools, 'zoom-in', '＋', () => changeZoom(zoom * 1.25)), 'aria-label', tr('graph.zoomIn'));
+  setAttr(control(zoomTools, 'fit', tr('graph.fit'), () => applyViewport(true)), 'title', tr('graph.fitHint'));
+  setAttr(control(zoomTools, 'readable', tr('graph.readNatural'), () => {
     actualSize = true;
     applyViewport();
     centerFocus();
-  }).setAttribute('title', '按自然尺寸阅读当前范围，并居中当前表；可拖动或滚动画布');
-  control(zoomTools, 'expand', expanded ? '收起' : '展开', () => {
+  }), 'title', tr('graph.readHint'));
+  setAttr(control(zoomTools, 'expand', expanded ? tr('graph.collapse') : tr('graph.expand'), () => {
     expanded = !expanded;
     canvas.classList.toggle('expanded', expanded);
-    controls.get('expand').textContent = expanded ? '收起' : '展开';
+    controls.get('expand').textContent = expanded ? tr('graph.collapse') : tr('graph.expand');
     controls.get('expand').setAttribute('aria-pressed', String(expanded));
     onExpand(expanded);
     applyViewport();
-  }).setAttribute('aria-pressed', String(expanded));
+  }), 'aria-pressed', String(expanded));
   tools.append(summary, zoomTools);
   const legend = html('div', {
     class: 'graph-state-legend',
     'data-graph-legend': '',
     role: 'group',
-    'aria-label': '关系图图例'
+    'aria-label': tr('graph.legend')
   });
-  for (const [state, label] of [['chosen', '本次生成'], ['referenced', '仅引用'], ['unused', '其他表'], ['current', '当前查看']]) {
+  for (const [state, label] of [['chosen', tr('graph.plan')], ['referenced', tr('graph.referenced')], ['unused', tr('graph.unused')], ['current', tr('graph.current')]]) {
     const item = html('span', {
       class: 'graph-legend-item'
     });
@@ -355,21 +357,21 @@ export function createSchemaGraph({
     class: 'graph-canvas sg-canvas',
     'data-graph-canvas': '',
     tabindex: '0',
-    'aria-label': '数据库关系画布，可用方向键平移',
+    'aria-label': tr('graph.canvas'),
     'aria-describedby': `${markerId}-help`
   });
   canvas.classList.toggle('expanded', expanded);
   const footer = html('div', {
     class: 'graph-footer sg-footer'
   });
-  footer.append(html('span', {id: `${markerId}-help`}, `父表 → 子表 · 粗线突出当前表的关联路径，浅线为其他关系。${issues.length ? '橙色表示检查问题。' : ''}拖动画布平移，Ctrl／⌘＋滚轮以鼠标位置缩放，普通滚轮滚动画布；点连线查看列映射。`));
+  footer.append(html('span', {id: `${markerId}-help`}, tr('graph.help', {issueHint: issues.length ? tr('graph.issueColor') : ''})));
   const labelControl = html('label'),
     labelToggle = html('input', {
       type: 'checkbox',
       'data-graph-label-toggle': ''
     });
   labelToggle.checked = labels;
-  labelControl.append(labelToggle, html('span', {}, '显示字段名'));
+  labelControl.append(labelToggle, html('span', {}, tr('graph.fields')));
   footer.append(labelControl);
   listen(labelToggle, 'change', () => {
     const preserveViewport = actualSize || Math.abs(zoom - 1) >= .001;
@@ -477,7 +479,7 @@ export function createSchemaGraph({
       const id = node.dataset.graphNode,
         selected = id === currentFocus;
       node.dataset.current = String(selected);
-      node.setAttribute('aria-pressed', String(selected));
+      setAttr(node, 'aria-pressed', String(selected));
       node.classList.toggle('focused', selected);
       node.classList.toggle('path-related', relatedNodes.has(id));
       node.classList.toggle('path-unrelated', !relatedNodes.has(id));
@@ -491,7 +493,7 @@ export function createSchemaGraph({
       const selected = id === selectedEdge,
         related = relatedEdges.has(id);
       element.classList.toggle('focused', selected);
-      element.setAttribute('aria-pressed', String(selected));
+      setAttr(element, 'aria-pressed', String(selected));
       element.classList.toggle('path-related', related);
       element.classList.toggle('path-unrelated', !related);
       let marker;
@@ -504,67 +506,67 @@ export function createSchemaGraph({
       } else {
         marker = 'normal';
       }
-      element.querySelector('.edge-line')?.setAttribute('marker-end', `url(#${markerId}-${marker})`);
+      setAttr(element.querySelector('.edge-line'), 'marker-end', `url(#${markerId}-${marker})`);
     }
   }
   function updateContext() {
-    pathTitle.textContent = pathFocus ? `${pathFocus} 的依赖路径` : '未选择表';
-    inspectedTable.textContent = currentFocus ? `当前查看：${currentFocus}` : '';
+    setText(pathTitle, pathFocus ? tr('graph.pathTitle', {table: pathFocus}) : tr('graph.noTable'));
+    setText(inspectedTable, currentFocus ? tr('graph.inspecting', {table: currentFocus}) : '');
     inspectedTable.hidden = !currentFocus || currentFocus === pathFocus;
     const notes = {
-      complete: '保留下游所需的全部上游来源。',
-      upstream: '显示当前表及所有上游来源。',
-      downstream: '显示当前表及所有下游影响。',
-      neighbors: '仅显示直接相邻关系，不代表完整依赖路径。'
+      complete: tr('graph.completeNote'),
+      upstream: tr('graph.upstreamNote'),
+      downstream: tr('graph.downstreamNote'),
+      neighbors: tr('graph.neighborsNote')
     };
     if (searchText) {
-      scopeNote.textContent = currentMode === 'plan'
-        ? `仅在本次生成及引用来源中搜索“${searchText}”。选择结果可阅读完整结构依赖。`
-        : `搜索“${searchText}”匹配的表及完整依赖路径。选择结果可聚焦阅读。`;
+      setText(scopeNote, currentMode === 'plan'
+        ? tr('graph.searchPlan', {query: searchText})
+        : tr('graph.searchAll', {query: searchText}));
     } else if (currentMode === 'plan') {
-      scopeNote.textContent = '本次生成 · 仅显示已勾选的表及本次引用来源；查看完整结构请切换整库。';
+      setText(scopeNote, tr('graph.planNote'));
     } else if (currentMode === 'paths') {
-      scopeNote.textContent = `${pathFocus || '未选择表'} · ${notes[currentPath]}`;
+      setText(scopeNote, joinText([pathFocus || tr('graph.noTable'), notes[currentPath]], ' · '));
     } else if (currentMode === 'issues') {
-      scopeNote.textContent = !issues.length ? emptyIssuesHint() : unlocatedIssues.length
-        ? '部分问题属于整个生成计划；显示所选上下文，请结合依赖检查详情处理。'
-        : '显示当前生成来源与规则检查中的错误和提醒，以及涉及的表和引用关系；清空范围另行检查。';
+      setText(scopeNote, !issues.length ? emptyIssuesHint() : unlocatedIssues.length
+        ? tr('graph.unlocatedNote')
+        : tr('graph.issuesNote'));
     } else {
-      scopeNote.textContent = '整库总览 · 总览用于看关系分布，阅读字段或路径请聚焦表。';
+      setText(scopeNote, tr('graph.allNote'));
     }
     const read = controls.get('focus-readable');
     read.disabled = !nodeIds.has(currentFocus);
-    read.setAttribute('aria-label', `以 100% 阅读 ${currentFocus || '当前表'} 的完整依赖`);
+    setAttr(read, 'aria-label', tr('graph.readLabel', {table: currentFocus || tr('graph.currentTable')}));
   }
   function emptyIssuesHint() {
     return checked
-      ? '当前检查没有发现问题。这里只展示生成来源与规则检查结果，清空范围须在生成计划中另行核对。'
-      : '运行依赖检查后，这里会显示生成来源与规则的错误和提醒。查看结构可切换整库；此处不会自动执行检查。';
+      ? tr('graph.noIssues')
+      : tr('graph.notChecked');
   }
   function renderSearchResults() {
     searchResults.hidden = !searchText;
     searchMatchesList.replaceChildren();
     if (!searchText) {
-      searchCount.textContent = '';
+      setText(searchCount, '');
       return;
     }
     const matches = searchMatches(),
       query = searchText.toLocaleLowerCase();
-    searchCount.textContent = `匹配 ${matches.length} 张表 · 选择后以 100% 阅读完整依赖`;
+    setText(searchCount, tr('graph.matchCount', {count: matches.length, value: formatNumber(matches.length)}));
     for (const node of matches) {
       const item = html('li'),
         target = html('button', {
           type: 'button',
           class: 'graph-search-match',
           'data-graph-match': node.id,
-          'aria-label': `定位 ${node.id} 并阅读完整依赖`
+          'aria-label': tr('graph.locate', {table: node.id})
         });
       target.append(html('strong', {
         class: 'mono'
       }, node.id));
       const columns = (tableByName.get(node.id)?.columns || []).filter(column => column.name.toLocaleLowerCase().includes(query));
       if (columns.length) {
-        target.append(html('small', {}, `匹配字段：${columns.map(column => column.name).join('、')}`));
+        target.append(html('small', {}, tr('graph.matchedFields', {fields: columns.map(column => column.name).join(', ')})));
       }
       listen(target, 'click', () => readDependencies(node.id, true), true);
       item.append(target);
@@ -625,13 +627,13 @@ export function createSchemaGraph({
     };
     if (!resized && scopeGeometry && Object.keys(next).every(key => next[key] === scopeGeometry[key])) return;
     // 只有用户切换已显示的范围时滑动；初载、字体变化与容器缩放直接对齐。
-    scopes.setAttribute('data-indicator-slide', String(Boolean(animate && scopeGeometry && next.mode !== scopeGeometry.mode)));
+    setAttr(scopes, 'data-indicator-slide', String(Boolean(animate && scopeGeometry && next.mode !== scopeGeometry.mode)));
     Object.assign(scopeIndicator.style, {
       transform: `translate(${next.x}px, ${next.y}px)`,
       width: `${next.width}px`,
       height: `${next.height}px`
     });
-    scopes.setAttribute('data-indicator-ready', '');
+    setAttr(scopes, 'data-indicator-ready', '');
     scopeGeometry = next;
   }
   function draw(preserveViewport = false, animateScope = false) {
@@ -642,47 +644,47 @@ export function createSchemaGraph({
     drawingListeners.splice(0).forEach(remove => remove());
     const visible = projection();
     for (const value of GRAPH_MODES) {
-      controls.get(value).setAttribute('aria-pressed', String(currentMode === value));
+      setAttr(controls.get(value), 'aria-pressed', String(currentMode === value));
     }
     positionScopeIndicator(animateScope);
     pathScope.hidden = currentMode !== 'paths' || Boolean(searchText);
     for (const value of ['complete', 'upstream', 'downstream', 'neighbors']) {
-      controls.get(value).setAttribute('aria-pressed', String(currentPath === value));
+      setAttr(controls.get(value), 'aria-pressed', String(currentPath === value));
     }
     updateContext();
     renderSearchResults();
     controls.get('clear-search').disabled = !searchText;
-    summary.textContent = `显示 ${visible.nodes.length} / ${data.nodes.length} 张表 · ${visible.edges.length} 条关系`;
+    setText(summary, tr('graph.summary', {visible: formatNumber(visible.nodes.length), total: formatNumber(data.nodes.length), edges: formatNumber(visible.edges.length)}));
     canvas.replaceChildren();
     frame = null;
     if (!visible.nodes.length) {
       svg = null;
       stage = null;
       layout = null;
-      zoomLabel.textContent = '—';
+      setText(zoomLabel, '—');
       for (const action of ['zoom-in', 'zoom-out', 'fit', 'readable']) {
         controls.get(action).disabled = true;
       }
       const emptyGraphHint = () => {
         if (searchText) {
-          return '没有匹配的表或字段，可清空搜索或换一个关键词。';
+          return tr('graph.emptySearch');
         } else if (currentMode === 'all') {
-          return '当前数据库没有可展示的表。';
+          return tr('graph.emptyDatabase');
         } else if (currentMode === 'plan') {
-          return '尚未选择生成表。请在左侧勾选，或切换整库浏览结构。';
+          return tr('graph.emptyPlan');
         } else if (currentMode === 'issues') {
           return issues.length
-            ? '检查发现问题，但当前结构中没有可定位的表。请查看依赖检查详情。'
+            ? tr('graph.emptyIssues')
             : emptyIssuesHint();
         } else {
-          return '当前范围没有匹配的表，可切换整库查看。';
+          return tr('graph.emptyScope');
         }
       };
       const empty = html('div', {
         class: 'graph-empty sg-empty'
       }, emptyGraphHint());
       if (currentMode === 'plan' && !searchText) {
-        const showAll = html('button', {type: 'button', class: 'wb-button graph-empty-action'}, '查看整库');
+        const showAll = html('button', {type: 'button', class: 'wb-button graph-empty-action'}, tr('graph.showAll'));
         listen(showAll, 'click', () => {
           currentMode = 'all';
           draw(false, true);
@@ -707,7 +709,7 @@ export function createSchemaGraph({
       class: 'schema-graph',
       viewBox: `0 0 ${layout.width} ${layout.height}`,
       role: 'group',
-      'aria-label': '当前范围内的表与外键关系'
+      'aria-label': tr('graph.svgLabel')
     });
     const defs = svgElement('defs');
     for (const [state, color] of [['normal', 'var(--graph-edge-default, var(--graph-chosen-edge))'], ['related', 'var(--teal)'], ['focused', 'var(--graph-inspect)'], ['problem', 'var(--warning)']]) {
@@ -762,13 +764,13 @@ export function createSchemaGraph({
         'data-issue': String(problemTables.has(node.id)),
         role: 'button',
         tabindex: 0,
-        'aria-label': `查看 ${title} 的字段与关系`
+        'aria-label': tr('graph.nodeLabel', {table: title})
       });
       const titleText = nodeTitle(title);
-      const existing = table?.row_count != null ? `现有 ${table.row_count} 行` : '';
+      const existing = table?.row_count != null ? tr('graph.existing', {count: table.row_count, value: formatNumber(table.row_count)}) : '';
       const metadata = nodeMetadata();
-      const state = node.readonly || selected || referenced ? metadata : `其他表，不参与本次生成；${metadata}`;
-      group.setAttribute('aria-label', `查看 ${title} 的字段与关系；${state}`);
+      const state = node.readonly || selected || referenced ? metadata : tr('graph.unusedState', {metadata});
+      setAttr(group, 'aria-label', tr('graph.nodeStateLabel', {table: title, state}));
       group.append(svgElement('title', {}, title), svgElement('rect', {
         class: 'graph-node-body',
         'pointer-events': 'fill',
@@ -809,13 +811,13 @@ export function createSchemaGraph({
       function nodeMetadata() {
         let metadata;
         if (node.readonly) {
-          metadata = '外部引用 · 只读';
+          metadata = tr('graph.external');
         } else if (selected) {
-          metadata = `本次生成${node.count != null ? " " + node.count + " 行" : ''}`;
+          metadata = node.count != null ? tr('graph.generatedRows', {count: node.count, value: formatNumber(node.count)}) : tr('graph.plan');
         } else if (referenced) {
-          metadata = `仅引用${existing ? " · " + existing : ''}`;
+          metadata = joinText([tr('graph.referenced'), ...(existing ? [existing] : [])], ' · ');
         } else {
-          metadata = `${table?.columns?.length || 0} 个字段${existing ? " · " + existing : ''}`;
+          metadata = joinText([tr('graph.columnCount', {count: table?.columns?.length || 0, value: formatNumber(table?.columns?.length || 0)}), ...(existing ? [existing] : [])], ' · ');
         }
         return metadata;
       }
@@ -910,27 +912,28 @@ export function createSchemaGraph({
     // pixels while zooming in. Marker size is independent of route emphasis.
     const arrowSize = Math.min(8, 10 / frame.scale);
     for (const marker of svg.querySelectorAll('marker')) {
-      marker.setAttribute('markerWidth', arrowSize);
-      marker.setAttribute('markerHeight', arrowSize);
+      setAttr(marker, 'markerWidth', arrowSize);
+      setAttr(marker, 'markerHeight', arrowSize);
     }
     Object.assign(stage.style, {
       width: frame.stageWidth + 'px',
       height: frame.stageHeight + 'px'
     });
-    svg.setAttribute('width', frame.svgWidth);
-    svg.setAttribute('height', frame.svgHeight);
+    setAttr(svg, 'width', frame.svgWidth);
+    setAttr(svg, 'height', frame.svgHeight);
     Object.assign(svg.style, {
       width: frame.svgWidth + 'px',
       height: frame.svgHeight + 'px',
       left: frame.left + 'px',
       top: frame.top + 'px'
     });
-    zoomLabel.textContent = Math.round(frame.scale * 100) + '%';
-    zoomLabel.setAttribute('aria-label', `图形实际缩放 ${zoomLabel.textContent}`);
+    const scaleLabel = formatNumber(frame.scale, {style: 'percent', maximumFractionDigits: 0});
+    setText(zoomLabel, scaleLabel);
+    setAttr(zoomLabel, 'aria-label', tr('graph.zoomLabel', {scale: scaleLabel}));
     for (const action of ['zoom-in', 'zoom-out', 'fit']) {
       controls.get(action).disabled = false;
     }
-    controls.get('fit').setAttribute('aria-pressed', String(!actualSize && Math.abs(zoom - 1) < .001));
+    setAttr(controls.get('fit'), 'aria-pressed', String(!actualSize && Math.abs(zoom - 1) < .001));
     controls.get('readable').disabled = Math.abs(frame.scale - 1) < .001;
     if (pendingViewport) {
       canvas.scrollLeft = pendingViewport.scrollLeft;

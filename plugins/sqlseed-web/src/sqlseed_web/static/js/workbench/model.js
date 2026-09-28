@@ -1,13 +1,15 @@
+import {tr, UserFacingError, joinText} from '../i18n.js';
+import '../i18n/messages/flow.js';
 // 唯一可执行文档；视图和未勾选表的编辑草稿单独持久化。
 const copy = value => structuredClone(value);
 export const MAX_GENERATION_COUNT = Number.MAX_SAFE_INTEGER;
 export function generationCountError(value) {
   const text = String(value);
   if ((/^\d+$/.test(text) || typeof value === 'number' && Number.isInteger(value)) && Number(text) >= 1 && !Number.isSafeInteger(Number(text))) {
-    return '超出工作台可精确表示的整数范围，请输入 1–9,007,199,254,740,991 之间的整数';
+    return tr("flow.count.tooLarge");
   }
   if (!/^\d+$/.test(text) || !Number.isSafeInteger(Number(text)) || Number(text) < 1) {
-    return '必须是大于 0 的整数，请填写完整数字';
+    return tr("flow.count.positive");
   }
   return '';
 }
@@ -65,7 +67,7 @@ export class WorkbenchDocument {
     this.view.invalidCounts ||= {};
     if(problem) {
       this.view.invalidCounts[name]=String(text);
-      this.setError(key,`${name} 的生成数量${problem}`); return false;
+      this.setError(key,tr("flow.count.invalid", {table: name, problem: problem})); return false;
     }
     delete this.view.invalidCounts[name];
     this.errors.delete(key);
@@ -82,11 +84,11 @@ export class WorkbenchDocument {
     for(const table of tables) {
       if(table.count === undefined) continue;
       const problem=generationCountError(table.count);
-      if(problem) this.errors.set(`count:${table.name}`,`${table.name} 的生成数量${problem}`);
+      if(problem) this.errors.set(`count:${table.name}`,tr("flow.count.invalid", {table: table.name, problem: problem}));
     }
     for(const [name,text] of Object.entries(this.view.invalidCounts || {})) {
       const problem=generationCountError(text);
-      if(problem) this.errors.set(`count:${name}`,`${name} 的生成数量${problem}`);
+      if(problem) this.errors.set(`count:${name}`,tr("flow.count.invalid", {table: name, problem: problem}));
       else delete this.view.invalidCounts[name];
     }
   }
@@ -112,7 +114,7 @@ export class WorkbenchDocument {
     for(const patch of patches) {
       const key=`${patch.table}.${patch.column}`;
       if(seen.has(key) || !this.schema.tables.find(t=>t.name===patch.table)?.columns?.some(c=>c.name===patch.column))
-        throw new Error('建议字段已失效或重复，请重新分析');
+        throw new UserFacingError(tr("flow.suggestion.stale"));
       seen.add(key);
       const index=tables.findIndex(t=>t.name===patch.table);
       const table=copy(index>=0?tables[index]:drafts[patch.table] || this.table(patch.table));
@@ -135,7 +137,7 @@ export class WorkbenchDocument {
     return inferred;
   }
   replaceDocument(document) {
-    if('url' in document || 'db_path' in document) throw new Error('连接由当前工作台绑定，文档不能包含连接地址');
+    if('url' in document || 'db_path' in document) throw new UserFacingError(tr("flow.document.connection"));
     this.document=copy(document);
     this.newTableCount=100;
     this.newTableSeed=null;
@@ -147,7 +149,7 @@ export class WorkbenchDocument {
   }
   payload(name) {
     if(this.errors.size) {
-      const error=new Error([...this.errors.values()].join('；'));
+      const error=new UserFacingError(joinText([...this.errors.values()], '；'));
       error.code='workbench_invalid_input';
       error.issues=this.inputIssues();
       throw error;

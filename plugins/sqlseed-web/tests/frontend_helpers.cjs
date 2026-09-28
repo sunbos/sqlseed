@@ -160,10 +160,43 @@ function createDom() {
 
 const sourceRoot = path.join(__dirname, '../src/sqlseed_web/static/js');
 const scrollModules = new WeakMap();
+const languageModules = new WeakMap();
 function source(name) {
   return fs.readFileSync(path.join(sourceRoot, name), 'utf8')
     .replace(/^import[\s\S]*?;\s*\n/gm, '')
     .replace(/^export /gm, '');
+}
+
+function loadI18n(bindings = {}) {
+  const document = bindings.document || createDom();
+  if (languageModules.has(document)) return languageModules.get(document);
+  const context = vm.createContext({
+    console, document, Intl, URL, setTimeout, clearTimeout,
+    // Existing Chinese behavior tests select Chinese explicitly. Production
+    // still negotiates the browser language; bilingual cases supply their own.
+    navigator: {languages: ['zh-CN'], language: 'zh-CN'},
+    window: new Element('window'),
+    localStorage: {getItem: () => null, setItem() {}, removeItem() {}},
+    ...bindings,
+  });
+  vm.runInContext(source('i18n.js'), context, {filename: 'i18n.js'});
+  const resources = path.join(sourceRoot, 'i18n/messages');
+  for (const filename of fs.readdirSync(resources).filter(name => name.endsWith('.js')).sort()) {
+    vm.runInContext(`(() => {\n${source('i18n/messages/' + filename)}\n})()`, context, {filename});
+  }
+  const backend = path.join(sourceRoot, '../i18n/backend-messages.json');
+  if (fs.existsSync(backend)) {
+    context.backendEntries = Object.fromEntries(Object.entries(JSON.parse(fs.readFileSync(backend, 'utf8')))
+      .map(([key, value]) => [key.replace(/^backend\./, ''), value]));
+    vm.runInContext("registerMessages('backend', backendEntries)", context);
+  }
+  const helpers = vm.runInContext(`({LANGUAGE_KEY, UI_LANGUAGES, browserLanguage, getLanguage,
+    getFormatLocale, setLanguage, onLanguageChange, registerMessages, messageEntries, missingMessages,
+    LocalizedText, isLocalized, liveText, textValue, t, tr, joinText, formatNumber, formatDate,
+    localizedNode, setText, setAttr, appendContent, replaceContent, UserFacingError, errorText,
+    serverText, serverMessages, loadBackendMessages})`, context);
+  languageModules.set(document, helpers);
+  return helpers;
 }
 
 function loadFrontend(name, bindings = {}) {
@@ -178,6 +211,7 @@ function loadFrontend(name, bindings = {}) {
     location: {hash: '#/wizard'},
     ...bindings,
   };
+  Object.assign(globals, loadI18n(globals));
   const apiContext = vm.createContext({...globals});
   vm.runInContext(source('api.js'), apiContext, {filename: 'api.js'});
   const api = vm.runInContext('({h, clear, msg, table, fmt, store, api, get, post, del, setConnBadge, safeTargetLabel, rememberConnId, forgetConnId, restoreConnection, httpErrorMessage})', apiContext);
@@ -195,4 +229,4 @@ function loadFrontend(name, bindings = {}) {
   return context;
 }
 
-module.exports = {Element, createDom, loadFrontend};
+module.exports = {Element, createDom, loadFrontend, loadI18n};

@@ -449,3 +449,27 @@ test('old run detail cannot open a data viewer while the selected run is loading
   assert.equal(ui.document.querySelector('.wb-table-data'),null);
   gate.resolve(record('B'));await flush();
 });
+
+test('run labels and structured diagnostics translate without replacing snapshot state or polling', async () => {
+  const run = record('用户运行', 'error', {name:'用户运行名称', errors:['原始安全诊断'],
+    tables:[{name:'用户表',status:'error',requested_count:10,rows_inserted:0,errors:['待翻译错误'],
+      errors_i18n:[{key:'backend.test_runs.missing',params:{table:'用户表'}}]}]});
+  const ui = harness({runs:[run]}); await ui.mount();
+  const language = require('./frontend_helpers.cjs').loadI18n({document:ui.document});
+  language.registerMessages('backend', {'test_runs.missing':['表 {table} 缺少来源','Table {table} has no source']});
+  const snapshot = ui.root().querySelector('.run-snapshot'), pre = snapshot.querySelector('pre');
+  snapshot.open = true; pre.scrollTop = 31; pre.scrollLeft = 19;
+  const raw = pre.textContent, requests = ui.requests.length, timerCount = ui.timers.size;
+  language.setLanguage('en');
+  assert.equal(ui.root().querySelector('h1').textContent, 'Runs');
+  assert.equal(ui.title(), '用户运行名称');
+  assert.match(ui.root().querySelector('tbody').textContent, /Table 用户表 has no source/);
+  assert.match(ui.root().querySelector('[role="alert"]').textContent, /Details: 原始安全诊断/);
+  assert.equal(ui.root().querySelector('.run-snapshot'), snapshot);
+  assert.equal(snapshot.open, true); assert.equal(pre.scrollTop, 31); assert.equal(pre.scrollLeft, 19);
+  assert.equal(pre.textContent, raw);
+  assert.equal(ui.requests.length, requests); assert.equal(ui.timers.size, timerCount);
+  language.setLanguage('zh-CN');
+  assert.match(ui.root().querySelector('tbody').textContent, /表 用户表 缺少来源/);
+  ui.leave();
+});

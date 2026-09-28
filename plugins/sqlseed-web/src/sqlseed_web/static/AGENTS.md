@@ -11,7 +11,7 @@
 - 可运行对照入口为 `/static/design-system.html`，复用正式组件模块；`design-system.css` 仅承载样板排版，不另定义主题或覆盖共享控件。固定样例不请求业务 API，也不表示真实库状态；新增或修改组件时同步对照与交互验收步骤。
 - 圆体 `@font-face` 使用字体 hhea/Win 度量（116% ascent、28.8% descent、0 line gap），避免 Windows 原生单行 input 按较短 typo 度量裁切 g/j/p/q/y。验收实际输入文字区域、重音和中文，不能仅用外框高或标签间距证明无裁切；字体二进制和已确认字形保持不变。
 - 复用后端、model/session 与图计算；重新设计 presentation 不得退回模拟数据或独立 YAML/表单状态。生成引擎和语言地区属于同一生成配置；连接仅绑定目标。
-- 表单标题使用中文：“数据生成引擎”“数据语言与地区”；保留 SQLite、Mimesis、Faker 等产品名。Locale 影响生成内容的语言与地区格式，不称“默认市场”，也不暗示改变界面语言。
+- 表单标题提供“数据生成引擎 / Data generation engine”“数据语言与地区 / Data language and region”；保留 SQLite、Mimesis、Faker 等产品名。Locale 影响生成内容的语言与地区格式，不称“默认市场”，也不暗示改变界面语言。
 - 用户可见文案、注释和文档用“参考工具/参考设计”，不要引入商业工具品牌名称。
 
 ## 修改入口
@@ -27,7 +27,15 @@
 | [js/workbench/clear-recovery.js](js/workbench/clear-recovery.js) | 清空检查的展示状态与只读下游候选范围；不能授予执行权限或写库 |
 | [js/genform.js](js/genform.js) | 历史向导列属性面板，以下 legacy 回归规则仅适用于维护该文件 |
 | [js/dropdown.js](js/dropdown.js)、[js/tree.js](js/tree.js)、[js/filepicker.js](js/filepicker.js) | 自绘下拉、表列树、服务器目录选择器 |
-| [js/labels.js](js/labels.js) | generator/param 中文标签与分类 |
+| [js/labels.js](js/labels.js) | generator/param 中英标签与分类 |
+
+## 界面语言与消息绑定
+
+- `js/i18n.js` 维护 `zh-CN/en`，顶栏统一入口；`sqlseed.ui.language` 存浏览器并通过同源 storage 事件同步。初次按浏览器支持语言选择，无匹配默认英文；存储失败不影响当前页使用。不得从生成 locale 推断 UI 语言。
+- 消息放在 `js/i18n/messages/`，使用语义稳定 key、具名参数与中英条目，并由使用模块 side-effect import。`tr()` 是延迟格式化展示值，`t()` 只用于需要固定字符串的当次业务输入（如新副本名称），不能在模块加载时将 tr 转成 String 冻结。
+- 复用 `h/button/dropdown` 的绑定；直接 DOM 文本/属性用 `setText/setAttr`，原生 append/replaceChildren 接收翻译值时用 `appendContent/replaceContent`。组合使用 `joinText` 或纯格式化 `liveText`，不要在模板字符串、数组 join 或 valueText 中提前展开 tr。
+- `formatNumber/formatDate` 只格式化显示元数据；用户名称、表列标识、代码、配置和行值保持原文。语言切换不能重建表单/弹窗、重新取样或发保存、生成、AI、组件管理请求，不能丢焦点、选区、滚动和未应用修改。
+- 后端已知展示字段使用 `serverText(record, field)` 或 `serverMessages(record, field)` 读取并行 descriptor；不要递归翻译整份 API 对象。UI 异常保留 `UserFacingError.localizedMessage`，展示用 `errorText`；旧记录/第三方原始诊断保留原文并加当前语言说明。维护清单见 [Web 双语维护](../../../../../docs/development/web-i18n.md)。
 
 ## 页面、连接与请求生命周期
 

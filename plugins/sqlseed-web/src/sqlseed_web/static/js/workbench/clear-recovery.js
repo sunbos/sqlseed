@@ -1,3 +1,5 @@
+import {tr} from '../i18n.js';
+import '../i18n/messages/flow.js';
 // Read-only presentation facts. Execution authorization always comes from a
 // fresh server execution-plan after the user has saved an explicit scope.
 function compareTableNames(left, right) {
@@ -16,12 +18,12 @@ export function clearRecoveryState(model, context) {
   const otherIssues = errors.filter(issue => !externalCodes.has(issue.code) || !issue.table);
   const count = externalTables.length + otherIssues.length;
   const rulesPassed = model.check?.ok && model.check.epoch === model.epoch && !model.errors.size;
-  const rules = rulesPassed ? '生成规则已通过' : '生成规则待检查';
-  const status = state === 'checking' ? `${rules}；正在检查清空方案`
-    : state === 'ok' ? `${rules}；清空范围已核对`
-    : state === 'reviewed' ? `${rules}；清空范围已核对，写入前会再次核对`
-    : state === 'blocked' ? `${rules}；清空需处理 ${count || 1} 项`
-    : `${rules}；清空方案待重新检查`;
+  const rules = rulesPassed ? tr("flow.clear.rulesPassed") : tr("flow.clear.rulesPending");
+  const status = state === 'checking' ? tr("flow.clear.checking", {rules: rules})
+    : state === 'ok' ? tr("flow.clear.reviewed", {rules: rules})
+    : state === 'reviewed' ? tr("flow.clear.recheckBeforeWrite", {rules: rules})
+    : state === 'blocked' ? tr("flow.clear.issues", {rules: rules, count: count || 1})
+    : tr("flow.clear.pending", {rules: rules});
   return {state, current, rulesPassed, externalTables, otherIssues, count, status};
 }
 

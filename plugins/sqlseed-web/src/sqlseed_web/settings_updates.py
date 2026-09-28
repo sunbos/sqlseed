@@ -20,7 +20,9 @@ from packaging.utils import (
 )
 from packaging.version import InvalidVersion, Version
 
-router = APIRouter(prefix="/api/settings", tags=["settings"])
+from sqlseed_web.messages import MessageRoute
+
+router = APIRouter(route_class=MessageRoute, prefix="/api/settings", tags=["settings"])
 _PROJECTS = (
     ("core", "Core", "sqlseed"),
     ("web", "Web", "sqlseed-web"),

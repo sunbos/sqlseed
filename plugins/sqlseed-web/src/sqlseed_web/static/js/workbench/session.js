@@ -1,7 +1,9 @@
+import {tr, UserFacingError, t} from '../i18n.js';
+import '../i18n/messages/flow.js';
 import { WorkbenchDocument } from './model.js';
 function validatePreviewCount(count) {
   if (!Number.isInteger(count) || count < 1 || count > 100) {
-    throw new Error('预览数量必须是 1–100 之间的整数');
+    throw new UserFacingError(tr("flow.preview.count"));
   }
 }
 
@@ -14,11 +16,11 @@ export class WorkbenchSession {
     this.saving = false;
     this.submitting = false;
     this.previewSequence = 0;
-    this.name = '数据生成配置';
+    this.name = t("flow.document.defaultName");
   }
   async save(name = this.name) {
     if (this.saving) {
-      throw new Error('正在保存，请稍候');
+      throw new UserFacingError(tr("flow.save.busy"));
     }
     const model = this.model,
       epoch = model.epoch,
@@ -35,7 +37,7 @@ export class WorkbenchSession {
     try {
       const saved = await this.request(`/api/workbench/drafts${previous ? "/" + encodeURIComponent(previous.id) : ''}`, payload, previous ? 'PUT' : 'POST');
       if (lifecycle !== model.lifecycleVersion) {
-        throw new Error('保存期间此配置已被删除或重命名，请核对当前状态后重试');
+        throw new UserFacingError(tr("flow.save.changed"));
       }
       model.markSaved(saved, epoch);
       if (this.model === model && model.epoch === epoch) {
@@ -68,7 +70,7 @@ export class WorkbenchSession {
     const model = this.model,
       epoch = model.epoch;
     if (!model.schema.tables.some(table => table.name === tableName)) {
-      throw new Error(`数据库中不存在表：${tableName}`);
+      throw new UserFacingError(tr("flow.table.missing", {table: tableName}));
     }
     const document = model.payload(this.name).document;
     // Follow the actual generation prerequisites. An unselected parent is read
@@ -121,7 +123,7 @@ export class WorkbenchSession {
   }
   open(draft) {
     if (draft.target_key !== this.model.schema.target_key) {
-      throw new Error('此配置属于另一数据库，请先连接对应数据库');
+      throw new UserFacingError(tr("flow.document.wrongDatabase"));
     }
     const model = new WorkbenchDocument(this.model.schema, draft.document);
     model.restoreView(draft.view_state);
@@ -132,7 +134,7 @@ export class WorkbenchSession {
   async executionPlan(execution) {
     const model = this.model;
     if (!model.saved || model.dirty || !model.check) {
-      throw new Error('请先保存并检查当前配置');
+      throw new UserFacingError(tr("flow.document.saveAndCheck"));
     }
     return this.request('/api/workbench/execution-plan', {
       conn_id: this.connId,
@@ -145,10 +147,10 @@ export class WorkbenchSession {
   }
   async run(execution, planHash) {
     if (this.submitting) {
-      throw new Error('运行正在提交，请稍候');
+      throw new UserFacingError(tr("flow.run.submitting"));
     }
     if (!this.model.canRun()) {
-      throw new Error('请先保存当前配置并完成依赖检查');
+      throw new UserFacingError(tr("flow.run.saveAndCheck"));
     }
     const model = this.model;
     const payload = {

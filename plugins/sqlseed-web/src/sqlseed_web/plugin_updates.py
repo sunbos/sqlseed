@@ -25,6 +25,8 @@ from packaging.version import InvalidVersion, Version
 from sqlseed._utils.daemon_task import DaemonTask
 
 from sqlseed_web import settings_updates
+from sqlseed_web.messages import message as tr
+from sqlseed_web.messages import message_list
 from sqlseed_web.plugin_environment import COMPONENT_DISTRIBUTIONS, Environment, InstalledPackage
 from sqlseed_web.settings_environment import AI_INSTALL_REQUIREMENT
 
@@ -41,7 +43,7 @@ def _bounded_network(operation: Callable[[], _T], timeout: float) -> _T:
     # Timed-out network work can only return bytes/metadata, never publish a
     # plan or write files. Its slot remains occupied until it actually exits.
     if not _NETWORK_SLOT.acquire(blocking=False):
-        raise ValueError("上一次更新查询仍在结束，请稍后重试；未修改任何组件。")
+        raise ValueError(tr("backend.plugin_updates.the_previous_update_check_is_still_finishing"))
 
     def run() -> _T:
         try:
@@ -55,7 +57,7 @@ def _bounded_network(operation: Callable[[], _T], timeout: float) -> _T:
         _NETWORK_SLOT.release()
         raise
     if not task.wait(timeout):
-        raise ValueError("更新查询或下载超时，请稍后重试；未修改任何组件。")
+        raise ValueError(tr("backend.plugin_updates.the_update_check_or_download_timed_out"))
     return task.result()
 
 
@@ -80,7 +82,7 @@ def _artifact_path(url: str) -> str:
         or parsed.fragment
         or any(character.isspace() for character in url)
     ):
-        raise ValueError("软件包下载地址不属于受支持的官方源。")
+        raise ValueError(tr("backend.plugin_updates.the_package_download_address_is_not_a"))
     return parsed.path
 
 
@@ -92,7 +94,7 @@ def _read_artifact(url: str, *, limit: int, timeout: float) -> bytes:
         connection.request("GET", path, headers={"User-Agent": "sqlseed-component-update"})
         response = connection.getresponse()
         if response.status != 200:
-            raise ValueError("官方软件包暂不可用，请稍后重试。")
+            raise ValueError(tr("backend.plugin_updates.the_official_package_is_temporarily_unavailable_retry"))
         content = bytearray()
         while len(content) <= limit:
             remaining = deadline - time.monotonic()
@@ -104,7 +106,7 @@ def _read_artifact(url: str, *, limit: int, timeout: float) -> bytes:
             if not chunk:
                 return bytes(content)
             content.extend(chunk)
-        raise ValueError("软件包文件超过当前界面更新的大小限制。")
+        raise ValueError(tr("backend.plugin_updates.the_package_exceeds_the_size_limit_for"))
     finally:
         connection.close()
 
@@ -117,12 +119,12 @@ def _package_metadata(data: bytes, distribution: str, version: str) -> Installed
         or canonicalize_name(str(message["Name"])) != distribution
         or Version(str(message["Version"])) != Version(version)
     ):
-        raise ValueError("软件包元数据与所选更新不一致。")
+        raise ValueError(tr("backend.plugin_updates.package_metadata_does_not_match_the_selected"))
     python_requirement = message.get("Requires-Python")
     if python_requirement and not SpecifierSet(str(python_requirement)).contains(
         ".".join(map(str, sys.version_info[:3]))
     ):
-        raise ValueError("最新稳定版不支持当前 Python；未修改任何组件。")
+        raise ValueError(tr("backend.plugin_updates.the_latest_stable_version_does_not_support"))
     requirements = tuple(sorted(str(value) for value in message.get_all("Requires-Dist", [])))
     for requirement in requirements:
         Requirement(requirement)
@@ -147,11 +149,23 @@ def dependency_conflicts(packages: dict[str, InstalledPackage]) -> tuple[list[st
             target = canonicalize_name(requirement.name)
             installed = packages.get(target)
             if requirement.url:
-                issues.add(f"{name} 依赖 {target} 的指定来源，无法在界面确认其兼容性")
+                issues.add(
+                    tr("backend.plugin_updates.requires_a_specific_source_for_compatibility_cannot", p1=name, p2=target)
+                )
             elif installed is None:
-                issues.add(f"{name} 需要 {target}{requirement.specifier}（当前未安装）")
+                issues.add(
+                    tr("backend.plugin_updates.requires_not_installed", p1=name, p2=target, p3=requirement.specifier)
+                )
             elif not requirement.specifier.contains(installed.version, prereleases=True):
-                issues.add(f"{name} 需要 {target}{requirement.specifier}（当前 {installed.version}）")
+                issues.add(
+                    tr(
+                        "backend.plugin_updates.requires_installed",
+                        p1=name,
+                        p2=target,
+                        p3=requirement.specifier,
+                        p4=installed.version,
+                    )
+                )
             else:
                 dependencies.add(f"{target}=={installed.version}")
                 pending.extend((target, requested) for requested in requirement.extras)
@@ -160,7 +174,7 @@ def dependency_conflicts(packages: dict[str, InstalledPackage]) -> tuple[list[st
 
 def prepare_update(distribution: str, packages: dict[str, InstalledPackage]) -> PreparedUpdate:
     if distribution not in COMPONENT_DISTRIBUTIONS.values() or distribution not in packages:
-        raise ValueError("只支持更新已安装的可选组件。")
+        raise ValueError(tr("backend.plugin_updates.only_installed_optional_components_can_be_updated"))
     return _bounded_network(lambda: _prepare_update(distribution, dict(packages)), _PLAN_TIMEOUT)
 
 
@@ -169,11 +183,11 @@ def _prepare_update(distribution: str, packages: dict[str, InstalledPackage]) ->
         payload = settings_updates._fetch_index(distribution)
         latest = settings_updates._latest_stable(distribution, payload)
         if Version(latest) <= Version(packages[distribution].version):
-            raise ValueError("当前版本已不低于官方最新稳定版；不会降级开发版或本地版本。")
+            raise ValueError(tr("backend.plugin_updates.the_installed_version_is_already_at_or"))
         if distribution == "sqlseed-ai" and not Requirement(AI_INSTALL_REQUIREMENT).specifier.contains(latest):
-            raise ValueError("最新稳定版尚不满足当前 Web 的 AI 接口要求。")
+            raise ValueError(tr("backend.plugin_updates.the_latest_stable_version_does_not_meet"))
         if not isinstance(payload, dict):
-            raise TypeError("官方索引格式无效。")
+            raise TypeError(tr("backend.plugin_updates.the_official_index_has_an_invalid_format"))
         candidates: list[tuple[int, dict[str, Any]]] = []
         tags = {tag: index for index, tag in enumerate(sys_tags())}
         for file in payload["files"]:
@@ -195,31 +209,31 @@ def _prepare_update(distribution: str, packages: dict[str, InstalledPackage]) ->
                 continue
             candidates.append((min(tags[tag] for tag in wheel_tags if tag in tags), file))
         if not candidates:
-            raise ValueError("最新稳定版没有适用于当前 Python/平台且可预检元数据的 wheel；未修改任何组件。")
+            raise ValueError(tr("backend.plugin_updates.no_wheel_for_the_latest_stable_version"))
         candidate = min(candidates, key=lambda item: (item[0], item[1]["filename"]))[1]
         url, filename = str(candidate["url"]), str(candidate["filename"])
         _artifact_path(url)
         digest = candidate.get("hashes", {}).get("sha256", "")
         if not isinstance(digest, str) or not re.fullmatch("[0-9a-f]{64}", digest):
-            raise ValueError("官方软件包缺少有效的 SHA256 校验。")
+            raise ValueError(tr("backend.plugin_updates.the_official_package_lacks_a_valid_sha256"))
         data = _read_artifact(url + ".metadata", limit=_MAX_METADATA, timeout=5)
         metadata_digest = hashlib.sha256(data).hexdigest()
         declared = candidate.get("core-metadata", candidate.get("dist-info-metadata"))
         if isinstance(declared, dict) and declared.get("sha256") != metadata_digest:
-            raise ValueError("官方软件包元数据校验失败，请重新检查更新。")
+            raise ValueError(tr("backend.plugin_updates.official_package_metadata_verification_failed_check_for"))
         package = _package_metadata(data, distribution, latest)
         conflicts, dependencies = dependency_conflicts({**packages, distribution: package})
         if conflicts:
-            details = "；".join(conflicts[:8])
+            details = message_list(conflicts[:8], "；")
             raise ValueError(
-                f"此更新需要额外安装或联动调整依赖，已阻止执行：{details}。请使用原环境管理工具成组更新；界面不会隐式修改其他包。"
+                tr("backend.plugin_updates.this_update_requires_additional_or_coordinated_dependency", p1=details)
             )
         dependencies = tuple(item for item in dependencies if not item.startswith(distribution + "=="))
         return PreparedUpdate(distribution, filename, url, digest, metadata_digest, package, dependencies)
     except (OSError, http.client.HTTPException) as exc:
-        raise ValueError("无法完成官方更新兼容性检查，请检查网络后重试；未修改任何组件。") from exc
+        raise ValueError(tr("backend.plugin_updates.cannot_complete_the_official_update_compatibility_check")) from exc
     except (KeyError, TypeError, InvalidVersion, InvalidSpecifier, InvalidRequirement) as exc:
-        raise ValueError("官方软件包元数据无法安全解析；未修改任何组件。") from exc
+        raise ValueError(tr("backend.plugin_updates.official_package_metadata_cannot_be_safely_parsed")) from exc
 
 
 def download_update(update: PreparedUpdate, directory: Path) -> Path:
@@ -227,21 +241,21 @@ def download_update(update: PreparedUpdate, directory: Path) -> Path:
     try:
         data = _bounded_network(lambda: _read_artifact(update.url, limit=_MAX_WHEEL, timeout=30), _DOWNLOAD_TIMEOUT)
     except (OSError, http.client.HTTPException) as exc:
-        raise ValueError("无法完成更新包下载，请检查网络后重试；未执行更新。") from exc
+        raise ValueError(tr("backend.plugin_updates.cannot_download_the_update_check_the_network")) from exc
     if hashlib.sha256(data).hexdigest() != update.sha256:
-        raise ValueError("软件包 SHA256 与确认计划不一致；未执行更新。")
+        raise ValueError(tr("backend.plugin_updates.the_package_sha256_does_not_match_the"))
     wheel = directory / update.filename
     wheel.write_bytes(data)
     try:
         with zipfile.ZipFile(wheel) as archive:
             entries = [item for item in archive.infolist() if item.filename.endswith(".dist-info/METADATA")]
             if len(entries) != 1 or entries[0].file_size > _MAX_METADATA:
-                raise ValueError("软件包元数据无效；未执行更新。")
+                raise ValueError(tr("backend.plugin_updates.the_package_metadata_is_invalid_no_update"))
             metadata = archive.read(entries[0])
     except (zipfile.BadZipFile, NotImplementedError) as exc:
-        raise ValueError("软件包文件无效；未执行更新。") from exc
+        raise ValueError(tr("backend.plugin_updates.the_package_file_is_invalid_no_update")) from exc
     if hashlib.sha256(metadata).hexdigest() != update.metadata_sha256:
-        raise ValueError("下载的软件包依赖与确认计划不一致；未执行更新。")
+        raise ValueError(tr("backend.plugin_updates.downloaded_package_dependencies_do_not_match_the"))
     return wheel
 
 
@@ -264,5 +278,5 @@ def update_arguments(environment: Environment, wheel: Path, constraints: Path) -
         args = [environment.tool_executable, "--no-config", "pip", "install", "--python", environment.executable]
         args += ["--no-python-downloads", "--offline", "--constraints", str(constraints)]
     else:
-        raise RuntimeError("没有可用的安装工具。")
+        raise RuntimeError(tr("backend.plugin_updates.no_installation_tool_is_available"))
     return [*args, "--no-deps", "--no-index", "--only-binary=:all:", str(wheel)]

@@ -6,7 +6,7 @@ const {loadFrontend} = require('./frontend_helpers.cjs');
 function eligibility(table,column,rule) {
   const context=loadFrontend('workbench/ai-eligibility.js');
   context.args=[table,column,rule];
-  return JSON.parse(JSON.stringify(vm.runInContext('fieldAIEligibility(...args)',context)));
+  return vm.runInContext('fieldAIEligibility(...args)',context);
 }
 const table={name:'orders',primary_key:['id'],foreign_keys:[{columns:['customer_id','region'],ref_table:'customers'}]};
 
@@ -26,7 +26,7 @@ for(const [column,rule,code] of [
   [{name:'total'},{native_params:{provider:'faker'}},'native'],
 ]) test(`AI eligibility explains ${code}: ${column.name} ${JSON.stringify(rule)}`,()=>{
   const result=eligibility(table,column,rule);
-  assert.equal(result.eligible,false);assert.equal(result.code,code);assert.ok(result.reason.length>5);
+  assert.equal(result.eligible,false);assert.equal(result.code,code);assert.ok(String(result.reason).length>5);
 });
 
 test('ordinary nullable NULL and empty advanced metadata remain AI-editable',()=>{

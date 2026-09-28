@@ -1,5 +1,7 @@
 # sqlseed Web
 
+[简体中文](README.zh-CN.md)
+
 A local browser workbench for declarative SQLite and PostgreSQL test data generation.
 Connect a database, edit field rules, preview samples, inspect dependencies and review
 generation results. The Python core runs offline; AI suggestions are optional.
@@ -26,6 +28,25 @@ python -m pip install -e . -e ./plugins/sqlseed-web
 The development source requires Core `>=0.2.5.dev0,<0.3` for connection-target
 parsing and diagnostic redaction. The 0.2.4 installation above is the published
 baseline; it does not include every feature described for the development source.
+
+## Interface language
+
+The current development source offers **简体中文 / English** in the top bar.
+The browser remembers your choice and synchronizes it with other tabs on the same
+origin. Without a saved choice, the first supported browser language is used,
+falling back to English. If storage is unavailable, switching still works for the
+current page.
+
+Switching updates labels, help and supported diagnostics in place. It does not
+reload the page, submit a form or make a database/AI request. Unsaved edits, focus
+and selections are retained. **Data language and region** is a separate generation
+setting: changing the interface language does not change generated data,
+configuration names, schema identifiers, YAML or database values. Older or
+third-party diagnostics may retain their original text with a translated explanation.
+
+Message resources ship with the wheel and require no translation service. See the
+[maintenance guide](https://sunbos.github.io/sqlseed/development/web-i18n/) for
+coverage and the checks required for new UI messages.
 
 ## Optional components
 

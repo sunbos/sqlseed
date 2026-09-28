@@ -3,10 +3,11 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const path = require('node:path');
+const {loadI18n} = require('./frontend_helpers.cjs');
 const file = path.join(__dirname, '../src/sqlseed_web/static/js/workbench/model.js');
 function model(document) {
-  const context = vm.createContext({structuredClone, JSON, Map, Set});
-  vm.runInContext(fs.readFileSync(file, 'utf8').replace(/^export /gm, '') + '\nglobalThis.Model = WorkbenchDocument;', context);
+  const context = vm.createContext({structuredClone, JSON, Map, Set, ...loadI18n()});
+  vm.runInContext(fs.readFileSync(file, 'utf8').replace(/^import[\s\S]*?;\s*\n/gm, '').replace(/^export /gm, '') + '\nglobalThis.Model = WorkbenchDocument;', context);
   return new context.Model({schema_hash:'s1',provider:'faker',locale:'zh_CN',tables:[{name:'users'},{name:'orders'}]}, document);
 }
 const plain = value => JSON.parse(JSON.stringify(value));
@@ -145,7 +146,7 @@ test('generation count has no million-row business cap and rejects integers beyo
   assert.throws(()=>m.payload('invalid'),error=>{
     assert.equal(error.code,'workbench_invalid_input');
     assert.match(error.message,/users.*可精确表示.*9,007,199,254,740,991/);
-    assert.deepEqual(plain(error.issues),[{key:'count:users',kind:'generation-count',table:'users',message:error.message,value:raw}]);
+    assert.deepEqual(plain(error.issues.map(issue=>({...issue,message:String(issue.message)}))),[{key:'count:users',kind:'generation-count',table:'users',message:error.message,value:raw}]);
     return true;
   });
   assert.equal(m.setCount('users','1000000'),true);
@@ -158,7 +159,7 @@ test('count syntax errors identify the table and retain raw text separately from
   for(const raw of ['','0','-1','1.5','1e6']) {
     assert.equal(m.setCount('users',raw),false);
     assert.equal(m.view.invalidCounts.users,raw);
-    assert.match(m.errors.get('count:users'),/users.*大于 0 的整数/);
+    assert.match(String(m.errors.get('count:users')), /users.*大于 0 的整数/);
   }
   m.setError('column:orders.amount','请修正金额参数');
   assert.equal(m.inputIssues()[1].kind,'configuration');
@@ -167,7 +168,7 @@ test('count syntax errors identify the table and retain raw text separately from
 
 test('loaded unsafe counts and restored invalid drafts remain blocked while replacement clears obsolete draft text',()=>{
   const m=model({tables:[{name:'users',count:1e21,columns:[]}]});
-  assert.match(m.errors.get('count:users'),/可精确表示/);
+  assert.match(String(m.errors.get('count:users')), /可精确表示/);
   assert.equal(m.acceptCheck({ok:true},m.epoch),false);
   assert.throws(()=>m.payload('unsafe'),/users/);
   m.replaceDocument({tables:[{name:'users',count:8,columns:[]}]});

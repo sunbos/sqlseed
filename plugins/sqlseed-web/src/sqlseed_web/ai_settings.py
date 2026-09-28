@@ -12,6 +12,7 @@ from urllib.parse import SplitResult, urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
+from sqlseed_web.messages import message as tr
 from sqlseed_web.settings_environment import require_ai_available
 from sqlseed_web.workbench_store import _default_path
 
@@ -50,7 +51,7 @@ def http_endpoint(value: str) -> str:
         ):
             raise ValueError
     except ValueError:
-        raise ValueError("Base URL 必须是 HTTP(S) 地址；认证请使用 API Key 字段") from None
+        raise ValueError(tr("backend.ai_settings.base_url_must_be_an_http_s")) from None
     return value.rstrip("/")
 
 
