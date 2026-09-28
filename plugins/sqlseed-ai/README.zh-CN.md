@@ -153,10 +153,21 @@ Gemma 26B ID。注册的模型名称不保证服务当前提供该模型，请�
 SQLite 表名大小写别名继续可用；导出保留真实表名和列名，包括前导 `.` 或 `:`。
 拒绝的建议不会覆盖已有输出文件。
 
-Python 调用可使用 `SchemaAnalyzer.call_llm(..., strict_json=True)`，通过不含原文的
+Prompt 明确要求只为指定表返回一个 JSON 对象，并保留表名和列名原文。上下文中的
+其他表名只供参考，不是额外输出目标；这一提示不能替代响应后的目标校验。
+
+直接分析（`--no-verify` 或 `--max-retries 0`）的流式和非流式路径均分别说明空回答、无效 JSON、输出长度
+截断和空配置对象，这些诊断不回显模型原文。仅在既定流程中还有更短提示层时才提示
+并继续重试；最后一层失败会报告具体原因并以失败退出，不再声称正在重试，也不增加
+请求预算。拒绝响应时，已有输出 YAML 与数据库均保持不变。
+
+Python 调用可使用 `SchemaAnalyzer.call_llm(..., strict_json=True)` 或
+`call_llm_streaming(..., strict_json=True)`，通过不含原文的
 `JSONResponseError.code` 区分空回答、无效 JSON 和输出长度截断。解析器可补齐末尾缺失的
 `}` / `]`，包括代码围栏内的 JSON，但不会补值或字符串；达到输出长度上限时，即使前缀
-可解析也会拒绝。此可选诊断模式不增加模型请求，解析后的建议仍需验证范围和业务规则。
+可解析也会拒绝，包括流式独立空终止帧中的长度截断标记。两种 Python 方法默认均为
+`strict_json=False`；此可选模式不增加模型请求。CLI 直接分析显式启用，verification/refiner
+的默认行为不变；解析后的建议仍需验证范围和业务规则。
 
 直接 Python 调用可给 `SchemaAnalyzer.call_llm()` 或 `call_llm_streaming()` 传入
 `preserve_names=True`，保留标识符后再按实际 schema 校验；默认仍保留既有的前导标点清理。

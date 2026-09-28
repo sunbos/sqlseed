@@ -33,7 +33,9 @@ _BROKEN_JSON = "PRIVATE_RESPONSE_MARKER " + _VALID_JSON.replace('"min_value"', '
 
 
 @contextmanager
-def _completion_server(replies: list[tuple[str | None, str]], requests: list[dict[str, object]]) -> Iterator[str]:
+def _completion_server(
+    replies: list[tuple[str | None, str]], requests: list[dict[str, object]], *, split_finish_chunk: bool = False
+) -> Iterator[str]:
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self) -> None:
             requests.append(json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
@@ -62,7 +64,12 @@ def _completion_server(replies: list[tuple[str | None, str]], requests: list[dic
                     "model": "refiner-format-test",
                     "choices": [{"index": 0, "delta": {"content": content}, "finish_reason": finish_reason}],
                 }
-                payload = f"data: {json.dumps(chunk)}\n\ndata: [DONE]\n\n".encode()
+                if split_finish_chunk:
+                    chunk["choices"] = [{"index": 0, "delta": {"content": content}, "finish_reason": None}]
+                    terminal = {**chunk, "choices": [{"index": 0, "delta": {}, "finish_reason": finish_reason}]}
+                    payload = f"data: {json.dumps(chunk)}\n\ndata: {json.dumps(terminal)}\n\ndata: [DONE]\n\n".encode()
+                else:
+                    payload = f"data: {json.dumps(chunk)}\n\ndata: [DONE]\n\n".encode()
                 content_type = "text/event-stream"
             self.send_response(200)
             self.send_header("Content-Type", content_type)

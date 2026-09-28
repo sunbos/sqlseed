@@ -416,6 +416,26 @@ including leading `.` or `:` characters. These identity checks also apply to
 `--no-verify` and `--max-retries 0`: those options skip generation validation,
 not target protection. Rejected suggestions do not replace an existing output file.
 
+The prompt requests exactly one JSON object for the named table, preserving its
+table and column names. Other table names in the schema are reference context,
+not additional output targets. This instruction does not replace target validation.
+
+Direct analysis (`--no-verify` or `--max-retries 0`), streaming or non-streaming,
+distinguishes an empty reply, invalid JSON, output-limit truncation, and an empty
+configuration object without
+echoing the model's response in these diagnostics. It retries only when the existing
+shorter-prompt sequence has another level; the final level reports the specific
+failure and exits unsuccessfully without claiming another retry. It does not expand
+that sequence or increase the request budget. A rejected response leaves both the
+existing output YAML and database unchanged.
+
+Python callers can opt into the same diagnostics with
+`SchemaAnalyzer.call_llm(..., strict_json=True)` or
+`call_llm_streaming(..., strict_json=True)`. The default remains `False` for both
+methods. Strict streaming rejects `finish_reason=length` even when it arrives in a
+separate empty terminal chunk and the preceding JSON is parseable. This does not
+make every streaming caller or the verification/refiner path strict by default.
+
 ### `ai-analyze`
 
 Analyze a database or selected tables and write YAML rules. This command uses

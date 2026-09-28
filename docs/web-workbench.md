@@ -243,7 +243,7 @@ sqlseed-web
 
 自引用按 core 已支持的顺序与空值规则处理。通用跨表循环、组合自引用、三列以上组合外键、PostgreSQL 清空后重建、服务器 Python transform、snapshot_dir 文件输出、运行取消和断点续跑尚未接入。不同于全局引擎的每列 provider 也会被检查阻止。工作台已支持可选的 AI 分析与逐条建议审阅；生成时自动修复、AI 自动执行和未审阅规则直接写入仍不属于当前流程。
 
-验收使用隔离数据库，并同时核对运行记录、实际提交行数、范围外数据与外键完整性。复杂关系或模型样例通过只证明对应场景，不代表任意结构及模型语义都受支持；当前开发版的验证范围与限制见[项目收尾记录](https://github.com/sunbos/sqlseed/blob/main/docs/code-review/2026-09-28-project-closure.md)。
+验收使用隔离数据库，并同时核对运行记录、实际提交行数、范围外数据与外键完整性。复杂关系或模型样例通过只证明对应场景，不代表任意结构及模型语义都受支持；当前开发版的验证范围、能力边界及尚未完成的验收见[项目收尾记录](https://github.com/sunbos/sqlseed/blob/main/docs/code-review/2026-09-29-project-closure.md)。
 
 ## 配置与控件
 

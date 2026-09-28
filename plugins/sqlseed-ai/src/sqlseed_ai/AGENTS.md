@@ -44,11 +44,12 @@ Layer 表示架构层；healer 的 Level 表示 LLM 修复粒度，二者不能�
 - [runtime.py](runtime.py) 提供 `build_ai_config()` / `build_llm_client()` / `build_heal_orchestrator()`，供 CLI 与 Web 等入口共用；不得导入 Click、输出交互消息或抛 `SystemExit`。缺配置抛 `ValueError`，缺依赖保留 `ImportError`，错误呈现由入口负责。
 - Runtime 工厂创建的 HTTP client 由创建它的入口关闭，CLI/Web 用 `closing()` 覆盖构造和执行失败；healer 只借用传入的 client / snapshot / validator，不取得资源所有权。此处保留既有 auto-heal 的 `timeout or None` 语义，analyzer 继续使用 `_client.py` 的自动解析策略，不在边界提取时统一不同路径的 timeout。
 - `SchemaAnalyzer` 是 mixin 组合的 package：`_caller.py` 管请求与模型 fallback，`_streaming.py` 管流式分派，`_tool_calling.py` 管协议，`_context.py` 管上下文，`_json_parser.py` 管解析和分析入口。修改放入对应职责文件。
+- 单表上下文明确要求一个 JSON 对象且只配置请求表，保留标识符原文；数据库中的其他表名仅作参考，不扩张输出范围。该提示不能替代响应与缓存的目标身份校验。
 - OpenAI client 与异常类型统一通过 [_client.py](_client.py)；不要在 `analyzer/` 直接导入 `openai` 或重复构造 timeout。环境默认配置走 `AIConfig.from_env()`。
 - `AIConfig.resolve_*()` 返回解析值，不能改写公开配置字段；调用方必须使用返回值。`timeout=0` 和 `max_tokens=0` 表示自动解析，不能作为真实请求的零预算。
 - `gemma4` 协议仅 Google AI Studio 支持；`openai` 支持 Google AI Studio / OpenAI-compatible；LM Studio / Ollama 或不支持的请求协议回退 `none`。两个工具协议共用 [_tools.py](_tools.py) 的 `GEMMA_TOOLS`。
 - 工具调用失败回退 JSON / text；非结构化 LLM 文本交给 [_json_utils.py](_json_utils.py) 的 `parse_json_response()`，保留 channel / fence / raw-decode 兼容处理。
-- JSON 容错仅按括号嵌套补齐末尾最多 8 个 `}` / `]`，包括围栏内的 JSON；不补业务值、字符串、逗号或字段。`SchemaAnalyzer.call_llm(strict_json=True)` 用不含原文的 `JSONResponseError.code` 区分 `empty_response` / `invalid_json` / `truncated_response`，其中 `finish_reason=length` 即使含可解析前缀也必须拒绝。该参数为可选的错误诊断模式，默认保持旧返回行为，不增加模型请求；解析成功仍须由调用方验证业务契约与修改范围。
+- JSON 容错仅按括号嵌套补齐末尾最多 8 个 `}` / `]`，包括围栏内的 JSON；不补业务值、字符串、逗号或字段。`SchemaAnalyzer.call_llm(strict_json=True)` 和 `call_llm_streaming(strict_json=True)` 用不含原文的 `JSONResponseError.code` 区分 `empty_response` / `invalid_json` / `truncated_response`，其中 `finish_reason=length` 即使含可解析前缀也必须拒绝；流式还要检查无正文的独立终止帧。该参数默认 `False`，保持既有 Python 调用与 verification/refiner 的返回行为，不增加模型请求；解析成功仍须由调用方验证业务契约与修改范围。
 - [_prompts.py](_prompts.py) 的 full → compact → ultra-compact 提供上下文降级，选择优先级是 ultra-compact > compact > full；本地 E2B / E4B 使用 ultra-compact 并关闭 streaming。模板值使用独立 `TEMPLATE_SYSTEM_PROMPT`。
 - `APITimeoutError` / `APIConnectionError` 的模型 fallback 由 `_model_selector.py` 和 `_caller.py` 管理；本地 fallback 必须先验证模型可用，保留有界重试和最终错误。
 - [refiner.py](refiner.py) 的单表建议使用 `TableConfig` 校验、live schema 列名检查和小批 preview，再由 [errors.py](errors.py) 汇总失败供下一次提示；不要用完整 `GeneratorConfig` 替换单表校验。
@@ -61,6 +62,7 @@ Layer 表示架构层；healer 的 Level 表示 LLM 修复粒度，二者不能�
 
 ## CLI 与 MCP 输入输出边界
 
+- 单表 `ai-suggest` 的直接调用（`--no-verify` 或零自纠正次数）在流式与非流式路径均启用 `strict_json=True`；区分空回答、无效 JSON、截断和空对象，响应诊断不回显模型原文。保留既定提示层数与请求预算，只有还有下一层时才提示继续重试；终级失败报告实际原因并退出，不覆盖已有输出文件。不要用泛化的换模型或增加超时建议掩盖本次诊断。
 - [cli/ai_commands.py](cli/ai_commands.py) 的 `_read_config_document()` 使用 `GeneratorConfig` 校验输入并拒绝重复表名；显式 `--db` / `--url` 决定输出连接，清掉相反字段。无效输入不得覆盖已有输出文件。
 - `auto-heal --config` 把原文档传为 `initial_config`；`ai-analyze` 将 `--tables` / `--no-dependencies` / `--max-depth` 传入分析范围。`--merge` 要求 `--output`，保留 root 设置和未选择的已有表规则，再加入新分析表；不要改为整份覆盖。
 - `ai-analyze` 无 `--output` 时 stdout 交付 YAML，模型和进度提示写 stderr。共享 `runtime.py` 不承担这些终端行为。
