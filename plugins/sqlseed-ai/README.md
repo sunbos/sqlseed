@@ -74,6 +74,18 @@ using `--no-verify` or `--max-retries 0`. SQLite case aliases remain supported;
 export preserves real table and column names, including leading punctuation.
 Rejected suggestions leave existing output files unchanged.
 
+The prompt requests one JSON object configuring only the named table, preserving
+its table and column names. Other table names are reference context, not additional
+output targets; the response still passes target validation.
+
+Direct analysis (`--no-verify` or `--max-retries 0`), streaming or non-streaming,
+reports empty replies, invalid JSON, output-limit truncation, and empty configuration
+objects separately, without
+echoing the model response in these diagnostics. It announces a retry only when
+another existing shorter-prompt level remains. Once those levels are exhausted,
+it reports the final cause and exits unsuccessfully; it does not increase the
+request budget or change the existing output YAML or database.
+
 Direct Python callers can pass `preserve_names=True` to
 `SchemaAnalyzer.call_llm()` or `call_llm_streaming()` before validating against
 their schema. The default retains the existing leading-punctuation cleanup.
@@ -123,12 +135,16 @@ explicit backend, then known URL patterns, then OpenAI-compatible behavior. It d
 not probe every service as a fallback chain. The `tool_calling_protocol` setting and
 its resolver choose the response protocol; a model name alone is insufficient.
 
-For Python callers, `SchemaAnalyzer.call_llm(..., strict_json=True)` distinguishes
-empty replies, invalid JSON, and output-limit truncation using content-free
-`JSONResponseError.code` values. JSON parsing can complete missing final `}` or `]`
+For Python callers, `SchemaAnalyzer.call_llm(..., strict_json=True)` and
+`call_llm_streaming(..., strict_json=True)` distinguish empty replies, invalid JSON,
+and output-limit truncation using content-free `JSONResponseError.code` values.
+JSON parsing can complete missing final `}` or `]`
 delimiters, including inside code fences, but never fills missing values or strings.
-An output-limit response is rejected even if its prefix parses. This optional mode
-adds no model requests; parsed suggestions still require scope and rule validation.
+An output-limit response is rejected even if its prefix parses, including a streaming
+length marker in a separate empty terminal chunk. Both methods default to
+`strict_json=False`; enabling this optional mode adds no model requests. The CLI's
+direct path opts in, without changing verification/refiner defaults. Parsed suggestions
+still require scope and rule validation.
 
 AI configuration caches include schema hashes. Schema changes invalidate cached
 suggestions; `--no-cache` bypasses them. Review model output before writing data.

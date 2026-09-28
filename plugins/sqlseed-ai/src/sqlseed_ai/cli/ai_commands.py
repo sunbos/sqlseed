@@ -23,7 +23,9 @@ from rich.console import Console
 from rich.live import Live
 from rich.text import Text
 from sqlseed_ai import AIBackend, AIConfig, AiConfigRefiner, SchemaAnalyzer
+from sqlseed_ai._json_utils import JSONResponseError
 from sqlseed_ai.config import BACKEND_DISPLAY_NAMES
+from sqlseed_ai.errors import summarize_error
 from sqlseed_ai.refiner import validate_table_target
 from sqlseed_ai.runtime import build_ai_config as _build_ai_config
 from sqlseed_ai.runtime import build_heal_orchestrator as _build_heal_orchestrator
@@ -154,7 +156,7 @@ class _StreamingProgressDisplay:
 
 
 def _emit_ai_suggestion_failure(
-    e: Exception,
+    e: Exception | str,
     *,
     display: _StreamingProgressDisplay | None = None,
 ) -> None:
@@ -168,7 +170,7 @@ def _emit_ai_suggestion_failure(
     emit message).
 
     Args:
-        e: The caught exception whose ``str()`` representation is echoed.
+        e: The caught exception or safe diagnostic to echo.
         display: Optional streaming display to stop before emitting the error
             so the Rich Live region is closed before the stderr write.
     """
@@ -248,7 +250,9 @@ def _call_ai_direct(
     """Perform one direct request with its streaming or terminal display."""
     if display:
         display.start()
-        result = analyzer.call_llm_streaming(messages, on_progress=display.update, preserve_names=True)
+        result = analyzer.call_llm_streaming(
+            messages, on_progress=display.update, preserve_names=True, strict_json=True
+        )
         display.stop()
         return result
 
@@ -260,7 +264,19 @@ def _call_ai_direct(
         mode = "standard"
     timeout_s = int(analyzer.config.resolve_timeout()) if analyzer.config else 300
     click.echo(f"Analyzing schema & generating AI suggestions ({mode} mode, timeout: {timeout_s}s)...")
-    return analyzer.call_llm(messages, preserve_names=True)
+    return analyzer.call_llm(messages, preserve_names=True, strict_json=True)
+
+
+def _report_direct_response_failure(
+    message: str, *, can_retry: bool, display: _StreamingProgressDisplay | None
+) -> None:
+    """Describe an unusable response without promising a nonexistent retry."""
+    if can_retry:
+        if display:
+            display.stop()
+        click.echo(f"{message} Retrying with a shorter prompt...", err=True)
+    else:
+        _emit_ai_suggestion_failure(message, display=display)
 
 
 def _handle_ai_direct(
@@ -277,22 +293,25 @@ def _handle_ai_direct(
 
         prompt_levels = [(True, True)] if use_compact else [(False, False), (True, False), (True, True)]
 
-        for compact, ultra in prompt_levels:
+        for index, (compact, ultra) in enumerate(prompt_levels):
+            can_retry = index + 1 < len(prompt_levels)
             messages = analyzer.build_initial_messages(schema_ctx, compact=compact, ultra_compact=ultra)
             try:
                 if result := _call_ai_direct(analyzer, messages, compact=compact, ultra=ultra, display=display):
                     return result
-                click.echo("AI returned empty result, retrying with shorter prompt...", err=True)
-                continue
+                failure_message = "The model returned an empty configuration object."
+            except JSONResponseError as exc:
+                failure_message = summarize_error(exc).message
             except (ValueError, RuntimeError, OSError) as e:
                 err_msg = str(e).lower()
-                if "context" in err_msg and "exceed" in err_msg and not ultra:
+                if "context" in err_msg and "exceed" in err_msg and can_retry:
                     if display:
                         display.stop()
                     click.echo("Context size exceeded, retrying with shorter prompt...", err=True)
                     continue
                 _emit_ai_suggestion_failure(e, display=display)
                 return None
+            _report_direct_response_failure(failure_message, can_retry=can_retry, display=display)
     return None
 
 
@@ -385,15 +404,7 @@ def _write_ai_output(output: str, db_path: str, result: Any, *, target_table: st
 
 
 def _report_ai_failure() -> None:
-    click.echo(
-        "No suggestions received. The AI model may not support this task.\n"
-        "Suggestions:\n"
-        "  - Try a different model: --model 'deepseek/deepseek-r1-0528:free'\n"
-        "  - Use DeepSeek API: --base-url 'https://api.deepseek.com/v1' --model 'deepseek-chat'\n"
-        "  - Use OpenAI API: --base-url 'https://api.openai.com/v1' --model 'gpt-4o-mini'\n"
-        "  - Increase timeout: --timeout 180",
-        err=True,
-    )
+    click.echo("No suggestions received. No output file was written.", err=True)
     raise SystemExit(1)
 
 

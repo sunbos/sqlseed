@@ -1,6 +1,6 @@
 # 2026-09-29 项目收尾核验
 
-[PR #20](https://github.com/sunbos/sqlseed/pull/20) 已合并，核验基线为 `main` 的 `2a2ee0868f3ac00b95e3cd76cc8e082da84b635e`。代码交付、适用的自动化检查及文档部署已完成；真实模型复验和 main 的 Sonar 事项仍未完成，不能据此声明所有验收通过。本记录补充 [PR #19 历史验收](2026-09-28-project-closure.md)，不改写此前失败、跳过或当时的交付状态。
+[PR #20](https://github.com/sunbos/sqlseed/pull/20) 已合并，核验基线为 `main` 的 `2a2ee0868f3ac00b95e3cd76cc8e082da84b635e`。该提交的代码交付、适用的自动化检查及文档部署已完成。合并后，原先未通过的三条真实模型用例已在后续修复的工作分支复验通过；修复交付由 [PR #21](https://github.com/sunbos/sqlseed/pull/21) 继续核验，不能以 PR #20 的旧检查替代。main 的 Sonar 事项仍未完成，不声明所有验收通过。本记录补充 [PR #19 历史验收](2026-09-28-project-closure.md)，不改写此前失败、跳过或当时的交付状态。
 
 ## 原始要求与交付证据
 
@@ -24,21 +24,29 @@
 - PR 提交 `a7833fb` 的 [CI](https://github.com/sunbos/sqlseed/actions/runs/36486295658) 和[文档同步](https://github.com/sunbos/sqlseed/actions/runs/36486295238) 通过，SonarCloud PR 门禁、Codecov patch 和 CodeFlow 检查通过；CodeFlow 仍有维护告警。PR 的 `docs` 部署按条件跳过，严格构建由 lint 执行。
 - 合并提交 `2a2ee08` 的 [main CI](https://github.com/sunbos/sqlseed/actions/runs/36487610479) 和[文档同步](https://github.com/sunbos/sqlseed/actions/runs/36487609916) 通过，包括 Linux Python 3.10 / 3.12 / 3.13、Windows、macOS、PostgreSQL、property tests、五包验收及 Pages 构建和部署。main 的独立 Sonar 质量门禁仍有下述事项，不能由 PR 门禁通过推定其通过。
 
-## 尚未完成的验收
+## 真实模型复验与剩余门禁
 
 ### 真实模型
 
-历史 4 项真实 LLM 失败中，缺表诊断的确定性代码问题已修复并回归；下列 3 项仍未成功复验。当时 backend 为 `lm_studio`，模型为 `google/gemma-4-e2b`。
+历史 4 项真实 LLM 失败中，缺表诊断的确定性代码问题已修复并回归；另外 3 项在 2026-09-29 完成原用例复验。backend 保持 `lm_studio`，模型保持 `google/gemma-4-e2b`，没有用其他模型替代。
 
-| 用例 | 保留的失败事实 |
-| --- | --- |
-| `tests/integration/test_ai_real_llm.py::TestAISuggestCLIRealLLM::test_ai_suggest_no_verify_produces_well_formed_yaml` | 返回空建议，CLI 退出码为 1。 |
-| `plugins/sqlseed-ai/tests/test_ai_plugin.py::TestSchemaAnalyzerDialect::test_analyze_schema_sqlite_real_llm` | 返回 `None`，原因尚未证实。 |
-| `plugins/sqlseed-ai/tests/test_ai_plugin.py::TestSchemaAnalyzerDialect::test_analyze_schema_llm_response_structure` | 返回 `None`，日志明确记录 `Connection error`。 |
+| 用例 | 保留的历史失败事实 | 本轮最终复验 |
+| --- | --- | --- |
+| `tests/integration/test_ai_real_llm.py::TestAISuggestCLIRealLLM::test_ai_suggest_no_verify_produces_well_formed_yaml` | 返回空建议，CLI 退出码为 1。 | 通过 |
+| `plugins/sqlseed-ai/tests/test_ai_plugin.py::TestSchemaAnalyzerDialect::test_analyze_schema_sqlite_real_llm` | 返回 `None`，当时原因未证实。 | 通过 |
+| `plugins/sqlseed-ai/tests/test_ai_plugin.py::TestSchemaAnalyzerDialect::test_analyze_schema_llm_response_structure` | 返回 `None`，当时日志明确记录 `Connection error`。 | 通过 |
 
-2026-09-29 补查 `localhost:11434/api/tags` 和 `localhost:1234/v1/models` 均在 2 秒内未返回，当前无法继续真实复验。原始 `full-project-pytest.log` 和仅记录 4 项跳过的 `real-llm-four-rerun.log` 保留。backend 不可用导致的跳过不证明此前模型行为正确，也不能把全部历史失败归因于网络。
+2026-09-29 初次补查时，`localhost:11434/api/tags` 和 `localhost:1234/v1/models` 均在 2 秒内未返回。随后通过既有 `lms` CLI 唤醒本机 LM Studio，加载已经下载的 E2B 模型，以 8192 context 恢复服务。原始 `full-project-pytest.log` 和仅记录 4 项跳过的 `real-llm-four-rerun.log` 保留；后来的服务恢复不能把旧跳过改写成通过，也不能把全部历史失败归因于网络。
 
-固定 HTTP / SSE 和真实 SQLite 测试已验证协议、目标保护与安全失败边界，但不能替代真实模型推理质量。需在可用 backend 上按原用例和原预算复验，分别记录模型、结果及未写入保证；不能为获得通过增加重试预算、自动替换业务规则或删除失败历史。
+服务恢复后的首轮为 **2 passed、1 failed**，失败仍在 CLI。单独诊断重放得到 **1 passed**，但捕获的响应拼接了 `users` 与 `orders` 两个 JSON 对象；这次偶然通过不能替代修复，也不能反推首轮空建议的具体原因。随后收紧单表上下文，明确其他表只作参考、仅返回请求表的一个 JSON 对象，并为 CLI 非流式直接分析补齐空回答、无效 JSON、截断及终级停止的安全诊断，没有扩大请求预算或覆盖失败时的旧 YAML。
+
+修复后的三个原用例合并运行得到 **3 passed，64.71 秒**。保持原模型、300 秒 timeout、4096 输出 token 上限及 0.3 temperature，保留原断言和重试预算。证据为本任务 `sqlseed-closeout-real-llm-10f7840cdd4c4abda67df4ece649ce3b` 临时目录中的 `pytest-repo-venv.log`、`diagnostic-pytest.log`、`pytest-final.log` 和 `results-final.xml`。
+
+这三项验证范围是 CLI YAML 与 schema 分析，不是 `fill` 写入或任意模型的推理质量保证。固定 HTTP / SSE 与真实 SQLite 回归另验证协议、请求次数、输出文件及数据库不变；这些确定性回归与真实模型结果分别记录。
+
+独立审查另发现流式路径没有检查长度截断标记，真实 SSE 回归证明可解析的截断前缀曾被导出。后续修复为 `call_llm_streaming()` 增加默认关闭的 `strict_json` 参数，仅由 CLI 直接分析显式启用；空终止帧中的 `finish_reason=length` 同样拒绝导出。原 Python 调用与 verification/refiner 默认行为保留，不将非流式真实模型复验扩张为全部流式模型已经验收。
+
+该修复的五文件定向回归为 **182 passed，48.14 秒**，包含新增的 28 项响应诊断回归，核对流式 / 非流式、两种直接分析选项、独立终止帧、Python 默认兼容、既定请求次数、输出 YAML 与数据库不变。修复前的失败记录保留；此结果不替代后续提交的完整 CI。
 
 ### main Sonar 逐项复核
 
