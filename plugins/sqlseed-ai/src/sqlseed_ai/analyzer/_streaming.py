@@ -67,11 +67,13 @@ class StreamingHandlerMixin(_InteractionLoggingMixin):
             raise RuntimeError(_CALLER_MIXIN_REQUIRED)
 
         # Provided by ToolCallingMixin when combined in SchemaAnalyzer.
-        def _try_tool_calling(self, client: Any, kwargs: dict[str, Any]) -> dict[str, Any] | None:
+        def _try_tool_calling(
+            self, client: Any, kwargs: dict[str, Any], *, preserve_names: bool = False, strict_json: bool = False
+        ) -> dict[str, Any] | None:
             raise RuntimeError("provided by ToolCallingMixin")
 
         # Provided by JsonParserMixin when combined in SchemaAnalyzer.
-        def _parse_json_response(self, content: str) -> dict[str, Any]:
+        def _parse_json_response(self, content: str, *, preserve_names: bool = False) -> dict[str, Any]:
             raise RuntimeError("provided by JsonParserMixin")
 
     def call_llm_streaming(
@@ -81,6 +83,7 @@ class StreamingHandlerMixin(_InteractionLoggingMixin):
         *,
         stage: str = "",
         table_name: str = "",
+        preserve_names: bool = False,
     ) -> dict[str, Any]:
         """Call LLM with streaming output and progress callbacks.
 
@@ -94,11 +97,17 @@ class StreamingHandlerMixin(_InteractionLoggingMixin):
                 - "done": analysis complete, info={"tokens": int, "model": str}
             stage: Pipeline stage identifier for LLM interaction log attribution.
             table_name: Table being analyzed; populates the JSON log field.
+            preserve_names: Keep SQL identifiers intact for schema-aware validation.
         """
         self._ensure_config()
         return self._call_with_fallback(
             lambda model: self._call_llm_streaming_once(
-                messages, on_progress, model=model, stage=stage, table_name=table_name
+                messages,
+                on_progress,
+                model=model,
+                stage=stage,
+                table_name=table_name,
+                preserve_names=preserve_names,
             )
         )
 
@@ -150,6 +159,7 @@ class StreamingHandlerMixin(_InteractionLoggingMixin):
         model: str | None = None,
         stage: str = "",
         table_name: str = "",
+        preserve_names: bool = False,
     ) -> dict[str, Any]:
         """Execute a single streaming LLM call (no fallback).
 
@@ -215,7 +225,7 @@ class StreamingHandlerMixin(_InteractionLoggingMixin):
                 model=actual_model,
             )
 
-            result = self._parse_json_response(content)
+            result = self._parse_json_response(content, preserve_names=preserve_names)
 
             if on_progress:
                 on_progress("done", {"tokens": token_count, "model": actual_model})
@@ -238,6 +248,9 @@ class StreamingHandlerMixin(_InteractionLoggingMixin):
         self,
         client: Any,
         kwargs: dict[str, Any],
+        *,
+        preserve_names: bool = False,
+        strict_json: bool = False,
     ) -> Any:
         """Send LLM request with protocol-aware strategy (tool calling, JSON mode, text).
 
@@ -260,7 +273,10 @@ class StreamingHandlerMixin(_InteractionLoggingMixin):
         # standard OpenAI function calling).
         if (
             self._config.resolve_tool_calling_protocol() in {"gemma4", "openai"}
-            and (result := self._try_tool_calling(client, kwargs)) is not None
+            and (
+                result := self._try_tool_calling(client, kwargs, preserve_names=preserve_names, strict_json=strict_json)
+            )
+            is not None
         ):
             return result
 

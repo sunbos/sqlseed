@@ -53,8 +53,19 @@ def _completion_server(replies: list[tuple[str | None, str]], requests: list[dic
                     ],
                 }
             ).encode()
+            content_type = "application/json"
+            if requests[-1].get("stream"):
+                chunk = {
+                    "id": "refiner-format-regression",
+                    "object": "chat.completion.chunk",
+                    "created": 0,
+                    "model": "refiner-format-test",
+                    "choices": [{"index": 0, "delta": {"content": content}, "finish_reason": finish_reason}],
+                }
+                payload = f"data: {json.dumps(chunk)}\n\ndata: [DONE]\n\n".encode()
+                content_type = "text/event-stream"
             self.send_response(200)
-            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(payload)))
             self.end_headers()
             self.wfile.write(payload)

@@ -109,11 +109,13 @@ class LLMCallerMixin(_InteractionLoggingMixin):
         # avoids all three: it's a raise (no implicit None return), it's
         # not an explicit None return, and it's not NotImplementedError.
         # Real impls live in sibling mixins and DO return values.
-        def _send_llm_request(self, client: Any, kwargs: dict[str, Any]) -> Any:
+        def _send_llm_request(
+            self, client: Any, kwargs: dict[str, Any], *, preserve_names: bool = False, strict_json: bool = False
+        ) -> Any:
             raise RuntimeError("provided by StreamingHandlerMixin")
 
         # Provided by JsonParserMixin when combined in SchemaAnalyzer.
-        def _parse_json_response(self, content: str) -> dict[str, Any]:
+        def _parse_json_response(self, content: str, *, preserve_names: bool = False) -> dict[str, Any]:
             raise RuntimeError("provided by JsonParserMixin")
 
     def _find_local_fallback_model(
@@ -223,6 +225,7 @@ class LLMCallerMixin(_InteractionLoggingMixin):
         stage: str = "",
         table_name: str = "",
         strict_json: bool = False,
+        preserve_names: bool = False,
     ) -> dict[str, Any]:
         """Send messages to the LLM (non-streaming) and return the parsed JSON.
 
@@ -232,6 +235,7 @@ class LLMCallerMixin(_InteractionLoggingMixin):
             table_name: Table being analyzed; populates the JSON log field.
             strict_json: Raise content-free response errors instead of returning an
                 empty dict on invalid JSON, empty output or output-budget exhaustion.
+            preserve_names: Keep SQL identifiers intact for schema-aware validation.
 
         Returns:
             Parsed JSON dict from the model response.
@@ -239,7 +243,12 @@ class LLMCallerMixin(_InteractionLoggingMixin):
         self._ensure_config()
         return self._call_with_fallback(
             lambda model: self._call_llm_once(
-                messages, model=model, stage=stage, table_name=table_name, strict_json=strict_json
+                messages,
+                model=model,
+                stage=stage,
+                table_name=table_name,
+                strict_json=strict_json,
+                preserve_names=preserve_names,
             )
         )
 
@@ -361,6 +370,7 @@ class LLMCallerMixin(_InteractionLoggingMixin):
         stage: str = "",
         table_name: str = "",
         strict_json: bool = False,
+        preserve_names: bool = False,
     ) -> dict[str, Any]:
         """Execute a single non-streaming LLM call (no fallback).
 
@@ -384,7 +394,9 @@ class LLMCallerMixin(_InteractionLoggingMixin):
         try:
             kwargs = self._build_llm_kwargs(model=model)
             kwargs["messages"] = messages
-            response = self._send_llm_request(client, kwargs)
+            response = self._send_llm_request(client, kwargs, preserve_names=preserve_names, strict_json=strict_json)
+        except JSONResponseError:
+            raise
         except (APITimeoutError, APIConnectionError, APIError, ValueError, RuntimeError, OSError) as e:
             self._log_llm_interaction(
                 messages=messages,
@@ -396,6 +408,10 @@ class LLMCallerMixin(_InteractionLoggingMixin):
                 error=str(e),
             )
             self._handle_llm_api_exception(e, model, streaming=False)
+
+        if isinstance(response, dict):
+            # Tool calls return already-parsed arguments or their text fallback.
+            return response
 
         if not response.choices:
             if strict_json:
@@ -446,4 +462,6 @@ class LLMCallerMixin(_InteractionLoggingMixin):
             model=actual_model,
         )
 
-        return parse_json_response(content, strict=True) if strict_json else self._parse_json_response(content)
+        if strict_json:
+            return parse_json_response(content, strict=True, preserve_names=preserve_names)
+        return self._parse_json_response(content, preserve_names=preserve_names)

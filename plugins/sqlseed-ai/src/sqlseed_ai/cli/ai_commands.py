@@ -13,6 +13,7 @@ point target.
 from __future__ import annotations
 
 from contextlib import closing, contextmanager
+from copy import deepcopy
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ParamSpec, TypeVar
 
@@ -23,6 +24,7 @@ from rich.live import Live
 from rich.text import Text
 from sqlseed_ai import AIBackend, AIConfig, AiConfigRefiner, SchemaAnalyzer
 from sqlseed_ai.config import BACKEND_DISPLAY_NAMES
+from sqlseed_ai.refiner import validate_table_target
 from sqlseed_ai.runtime import build_ai_config as _build_ai_config
 from sqlseed_ai.runtime import build_heal_orchestrator as _build_heal_orchestrator
 from sqlseed_ai.runtime import build_llm_client as _build_llm_client
@@ -246,7 +248,7 @@ def _call_ai_direct(
     """Perform one direct request with its streaming or terminal display."""
     if display:
         display.start()
-        result = analyzer.call_llm_streaming(messages, on_progress=display.update)
+        result = analyzer.call_llm_streaming(messages, on_progress=display.update, preserve_names=True)
         display.stop()
         return result
 
@@ -258,7 +260,7 @@ def _call_ai_direct(
         mode = "standard"
     timeout_s = int(analyzer.config.resolve_timeout()) if analyzer.config else 300
     click.echo(f"Analyzing schema & generating AI suggestions ({mode} mode, timeout: {timeout_s}s)...")
-    return analyzer.call_llm(messages)
+    return analyzer.call_llm(messages, preserve_names=True)
 
 
 def _handle_ai_direct(
@@ -345,13 +347,21 @@ def _handle_ai_verification_streaming(
         return None
 
 
-def _write_ai_output(output: str, db_path: str, result: Any) -> None:
+def _write_ai_output(output: str, db_path: str, result: Any, *, target_table: str | None = None) -> None:
     # Lazy import: see the NOTE at the top of this module. Importing
     # sqlseed_cli at module level creates a circular import when this module
     # is itself loaded through the ``sqlseed.cli_commands`` entry point.
     from sqlseed_cli._utils import sanitize_table_config
 
-    sanitize_table_config(result)
+    if target_table is None:
+        sanitize_table_config(result)
+    else:
+        with DataOrchestrator(db_path) as orch:
+            candidate_name = result.get("name") if isinstance(result, dict) else None
+            if error := validate_table_target(orch, target_table, candidate_name):
+                raise ValueError(error.message)
+        # Validated identifiers are database names, not punctuation to clean up.
+        result = deepcopy(result)
     output_data = {
         "db_path": db_path,
         "provider": result.pop("provider", "mimesis"),
@@ -454,7 +464,12 @@ def ai_suggest(
 
     # Timeouts are handled uniformly by the LLM client layer (httpx); no signal-based hack needed at the CLI layer
     try:
+        with DataOrchestrator(db_path) as orch:
+            if not orch.get_column_names(table):
+                raise ValueError(f"Table '{table}' does not exist or has no columns")
         result = _run_ai_analysis(analyzer, db_path, table, verify, max_retries, no_cache)
+        if result:
+            _write_ai_output(output, db_path, result, target_table=table)
     except (ValueError, RuntimeError, OSError) as exc:
         err_msg = str(exc).lower()
         if "timeout" in err_msg or "timed out" in err_msg:
@@ -467,9 +482,7 @@ def ai_suggest(
             _emit_ai_suggestion_failure(exc)
         raise SystemExit(1) from exc
 
-    if result:
-        _write_ai_output(output, db_path, result)
-    else:
+    if not result:
         _report_ai_failure()
 
 
