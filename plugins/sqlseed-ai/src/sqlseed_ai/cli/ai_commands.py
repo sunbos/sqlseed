@@ -279,6 +279,19 @@ def _report_direct_response_failure(
         _emit_ai_suggestion_failure(message, display=display)
 
 
+def _report_direct_context_retry(
+    error: Exception, *, can_retry: bool, display: _StreamingProgressDisplay | None
+) -> bool:
+    """Report a shorter-prompt retry only for eligible context-overflow errors."""
+    err_msg = str(error).lower()
+    if "context" not in err_msg or "exceed" not in err_msg or not can_retry:
+        return False
+    if display:
+        display.stop()
+    click.echo("Context size exceeded, retrying with shorter prompt...", err=True)
+    return True
+
+
 def _handle_ai_direct(
     analyzer: Any,
     db_path: str,
@@ -303,11 +316,7 @@ def _handle_ai_direct(
             except JSONResponseError as exc:
                 failure_message = summarize_error(exc).message
             except (ValueError, RuntimeError, OSError) as e:
-                err_msg = str(e).lower()
-                if "context" in err_msg and "exceed" in err_msg and can_retry:
-                    if display:
-                        display.stop()
-                    click.echo("Context size exceeded, retrying with shorter prompt...", err=True)
+                if _report_direct_context_retry(e, can_retry=can_retry, display=display):
                     continue
                 _emit_ai_suggestion_failure(e, display=display)
                 return None
