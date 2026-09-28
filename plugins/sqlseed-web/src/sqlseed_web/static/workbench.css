@@ -250,7 +250,8 @@
 .rule-editor details { border:1px solid var(--line); border-radius:7px; padding:12px; margin:16px 0; }
 .rule-editor details > summary { cursor:pointer; font-weight:var(--font-weight-emphasis); }
 .connection-group { border:1px solid var(--line); border-radius:8px; padding:14px; margin:12px 0; }
-.connection-group-heading { display:flex; justify-content:space-between; gap:12px; align-items:center; }
+.connection-group-heading { display:flex; flex-wrap:wrap; justify-content:space-between; gap:12px; align-items:center; }
+.connection-group-heading strong { min-width:0; overflow-wrap:anywhere; }
 .connection-target { font-size:11px; color:var(--muted); overflow-wrap:anywhere; margin:7px 0 12px; }
 .connection-session { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:8px; margin:8px 0; align-items:center; }
 .connection-session .connection-card { margin:0; }
