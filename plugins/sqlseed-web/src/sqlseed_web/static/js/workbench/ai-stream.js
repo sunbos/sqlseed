@@ -1,12 +1,16 @@
+import {tr, serverText, UserFacingError} from '../i18n.js';
+import '../i18n/messages/assistant.js';
 import { httpErrorMessage } from "../api.js";
 const stages = new Set(['context', 'model', 'validation', 'preview']);
-const invalid = () => new Error('AI 进度格式不正确，请重试。');
-function responseError(detail, status) {
-  const message = httpErrorMessage(detail, status);
-  const error = new Error(message);
+const invalid = () => new UserFacingError(tr("assistant.stream.invalid"));
+function responseError(body, status) {
+  const detail = body?.detail;
+  const message = body?.detail_key ? serverText(body, 'detail') : httpErrorMessage(detail, status);
+  const error = new UserFacingError(message, {originalMessage: httpErrorMessage(detail, status, false, false)});
   error.status = status;
   error.detail = detail;
   error.code = detail?.code;
+  error.messageKey = detail?.message_key || body?.detail_key;
   return error;
 }
 
@@ -18,7 +22,7 @@ export async function requestAISuggestions(path, request, {
 } = {}) {
   const checkAbort = () => {
     if (signal?.aborted) {
-      const error = new Error('AI 分析已取消。');
+      const error = new UserFacingError(tr("assistant.stream.cancelled"));
       error.name = 'AbortError';
       throw error;
     }
@@ -38,7 +42,7 @@ export async function requestAISuggestions(path, request, {
   if (!response.ok || !streamed) {
     const body = await response.json().catch(() => null);
     checkAbort();
-    if (!response.ok) throw responseError(body?.detail, response.status);
+    if (!response.ok) throw responseError(body, response.status);
     if (!body || typeof body !== 'object' || Array.isArray(body)) throw invalid();
     return body;
   }
@@ -63,14 +67,19 @@ export async function requestAISuggestions(path, request, {
       onProgress?.({
         type: 'progress',
         stage: value.stage,
-        message: value.message
+        message: value.message,
+        ...(typeof value.message_key === 'string' ? {
+          message_key: value.message_key, message_params: value.message_params
+        } : {})
       });
       return null;
     }
     if (value?.type === 'result' && value.result && typeof value.result === 'object' && !Array.isArray(value.result)) return value;
     if (value?.type === 'error' && typeof value.message === 'string') {
-      const error = new Error(value.message);
+      const error = new UserFacingError(serverText(value), {originalMessage: value.message});
       error.code = value.code;
+      error.status = value.status;
+      error.messageKey = value.message_key;
       throw error;
     }
     throw invalid();
@@ -86,7 +95,7 @@ export async function requestAISuggestions(path, request, {
       const lines = decodedLines(done, value);
       const terminal = consumeLines(lines);
       if (terminal) return terminal.result;
-      if (done) throw new Error('AI 分析连接中断，未收到完整结果，请重试。');
+      if (done) throw new UserFacingError(tr("assistant.stream.incomplete"));
     }
   } finally {
     signal?.removeEventListener('abort', cancel);

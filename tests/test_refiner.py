@@ -157,6 +157,7 @@ class TestAiConfigRefiner:
             refiner.generate_and_refine("users", max_retries=2)
 
     def test_refine_non_retryable_exits(self, tmp_path: Any) -> None:
+        self._create_users_db(tmp_path)
         refiner = self._make_refiner(tmp_path)
         with (
             patch.object(refiner._analyzer, "call_llm", side_effect=FileNotFoundError("db missing")),
@@ -170,8 +171,9 @@ class TestAiConfigRefiner:
         call_count = 0
         captured_messages: list[Any] = []
 
-        def mock_call_llm(messages, *, strict_json=False):
+        def mock_call_llm(messages, *, strict_json=False, preserve_names=False):
             assert strict_json is True
+            assert preserve_names is True
             nonlocal call_count, captured_messages
             call_count += 1
             captured_messages.clear()
@@ -260,7 +262,10 @@ def _make_fail_then_succeed_streaming(
     """
     call_log: list[int] = []
 
-    def mock_streaming(_msgs: list[dict[str, str]], on_progress: Any = None) -> dict[str, Any]:
+    def mock_streaming(
+        _msgs: list[dict[str, str]], on_progress: Any = None, *, preserve_names: bool = False
+    ) -> dict[str, Any]:
+        assert preserve_names is True
         del on_progress
         call_log.append(1)
         if len(call_log) <= fail_until_call:

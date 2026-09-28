@@ -147,6 +147,9 @@ or source checkout is required.
 
 The workbench includes saved configurations, relationship views, and run history.
 AI is optional, and manual editing, preview, and generation work without it.
+The current development source offers Simplified Chinese and English from the top
+bar. Changing the interface language keeps your edits and does not change the
+data language and region used for generation.
 See the [Web guide](https://sunbos.github.io/sqlseed/web-workbench/) for connection
 settings, optional components, and deployment requirements.
 

@@ -33,6 +33,12 @@ def _redact_query_credentials(message: str) -> str:
 
 def public_error(exc: Exception) -> str:
     """Avoid exposing connection credentials or SQLAlchemy parameter dumps."""
+    from sqlseed_web.messages import Message, key_error_message
+
+    if len(exc.args) == 1 and isinstance(exc.args[0], Message):
+        annotated = key_error_message(exc.args[0]) if isinstance(exc, KeyError) else exc.args[0]
+        if len(annotated) <= 2000:
+            return annotated
     message = str(exc.orig) if isinstance(exc, StatementError) and exc.orig is not None else str(exc)
     message = message.split("\n[SQL:", 1)[0].split("\n[parameters:", 1)[0]
     message = redact_url_credentials(message).replace("://***:***@", "://***@")

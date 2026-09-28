@@ -18,7 +18,7 @@ function harness({request, config, handoff = null, clipboard, maintenanceShell =
   const ui = loadFrontend('workbench/ui.js', {document});
   const dropdown = loadFrontend('dropdown.js', {document, window});
   const theme = loadFrontend('theme-control.js', {document, window, createDropdown: dropdown.createDropdown});
-  const defaults = loadFrontend('generation-defaults.js', {window});
+  const defaults = loadFrontend('generation-defaults.js', {document, window});
   const requestApi = async (url, options = {}) => {
     const call = {url, method: options.method || 'GET', body: options.body ? JSON.parse(options.body) : null, headers: options.headers}; calls.push(call);
     const custom = await request?.(call); if (custom !== undefined) return custom;
@@ -88,14 +88,14 @@ test('generation metadata waits for management detection and is skipped in maint
   assert.equal(t.calls.some(call => call.url.includes('/meta/')), false);
   management.resolve({enabled:true, available:false}); await t.mounted;
   assert.equal(t.calls.some(call => call.url.includes('/meta/')), false);
-  assert.equal(t.find('新建配置偏好').disabled, true);
+  assert.equal(t.find('默认配置').disabled, true);
   t.context.unmount();
 });
 
 test('new-generation defaults save locally only and leave AI drafts untouched', async () => {
   const t = harness(); await t.mounted;
   const aiModel = t.input('模型名称'); aiModel.value = 'unsaved-model'; await aiModel.dispatchEvent('input');
-  await t.find('新建配置偏好').click(); await tick();
+  await t.find('默认配置').click(); await tick();
   const count = t.input('默认每表行数'); count.value = '250'; await count.dispatchEvent('input');
   await t.input('默认生成引擎').click();
   await t.document.querySelectorAll('[role="option"]').find(el => el.textContent === 'Mimesis').click();
@@ -139,7 +139,7 @@ test('appearance settings apply immediately without changing an unsaved AI draft
 
 test('appearance deep links and tab keyboard navigation reach all four sections', async () => {
   const t = harness({section: 'appearance'}); await t.mounted;
-  const ai = t.find('AI 服务'), plugins = t.find('插件与版本'), generation = t.find('新建配置偏好'), appearance = t.find('外观');
+  const ai = t.find('AI 服务'), plugins = t.find('插件与版本'), generation = t.find('默认配置'), appearance = t.find('外观');
   for (const tab of [ai, plugins, generation, appearance]) tab.focus = () => {t.document.activeElement = tab;};
   assert.equal(appearance.getAttribute('aria-selected'), 'true');
   assert.equal(t.document.querySelector('#settings-appearance').hidden, false);
@@ -492,8 +492,13 @@ test('testing uses the edited draft, never saves it, and editing invalidates mod
   assert.deepEqual(mutations.map(call => call.url), ['/api/workbench/ai/test']);
   assert.equal(mutations[0].body.base_url, 'https://example.test/v1');
   assert.equal(mutations[0].body.api_key, 'temporary-key');
-  assert.equal(t.document.querySelector('[data-settings-test]').textContent, '服务连接成功，仅验证模型列表。');
+  assert.equal(t.document.querySelector('[data-settings-test]').textContent, '诊断详情：服务连接成功，仅验证模型列表。');
   assert.equal(t.document.querySelector('[data-settings-test]').dataset.state, 'success');
+  const callsBeforeLanguageChange = t.calls.length;
+  t.context.setLanguage('en');
+  assert.equal(t.document.querySelector('[data-settings-test]').textContent, 'Details: 服务连接成功，仅验证模型列表。');
+  t.context.setLanguage('zh-CN');
+  assert.equal(t.calls.length, callsBeforeLanguageChange);
   assert.ok(t.find('other-model'));
   t.input('模型名称').value = 'changed'; await t.input('模型名称').dispatchEvent('input');
   assert.match(t.document.querySelector('[data-settings-test]').textContent, /重新检测/);
@@ -511,7 +516,12 @@ test('failed probe feedback is an error, editing clears its stale state and a re
   const probe = t.document.querySelector('[data-settings-test]');
   await t.find('检测连接').click();
   assert.equal(probe.dataset.state, 'error');
-  assert.equal(probe.textContent, '服务暂不可用。');
+  assert.equal(probe.textContent, '诊断详情：服务暂不可用。');
+  const callsBeforeLanguageChange = t.calls.length;
+  t.context.setLanguage('en');
+  assert.equal(probe.textContent, 'Details: 服务暂不可用。');
+  t.context.setLanguage('zh-CN');
+  assert.equal(t.calls.length, callsBeforeLanguageChange);
   t.input('模型名称').value = 'next'; await t.input('模型名称').dispatchEvent('input');
   assert.equal(probe.dataset.state, '');
   const retry = t.find('检测连接').click(); await tick();
@@ -953,4 +963,70 @@ test('section changes, edits, and refresh start cannot release an unfinished cli
     if (refreshing) {refreshed.resolve(environment); await refreshing;}
     t.context.unmount();
   }
+});
+
+test('settings language changes preserve unsaved credentials, focus and service identity without requests', async () => {
+  const t = harness(); await t.mounted;
+  const model = t.input('模型名称'), key = t.input('API Key');
+  model.value = '用户/model-id'; await model.dispatchEvent('input');
+  key.value = 'synthetic-unsaved-key'; await key.dispatchEvent('input');
+  model.selectionStart = 4; model.scrollLeft = 12; t.document.activeElement = model;
+  const calls = t.calls.length;
+  t.context.setLanguage('en');
+  assert.equal(t.document.querySelector('h1').textContent, 'Settings');
+  assert.equal(t.input('Model name'), model);
+  assert.equal(model.getAttribute('placeholder'), 'Enter the full model ID provided by the service');
+  assert.equal(model.value, '用户/model-id');
+  assert.equal(key.value, 'synthetic-unsaved-key');
+  assert.equal(t.document.activeElement, model);
+  assert.equal(model.selectionStart, 4); assert.equal(model.scrollLeft, 12);
+  assert.match(t.document.querySelector('.settings-save-state').textContent, /unsaved changes/);
+  assert.equal(t.calls.length, calls);
+  t.context.setLanguage('zh-CN');
+  assert.equal(model.getAttribute('aria-label'), '模型名称');
+  assert.equal(key.value, 'synthetic-unsaved-key');
+  assert.equal(t.context.missingMessages().length, 0);
+  t.context.unmount();
+});
+
+test('an already opened AI service selector keeps a live accessible name in both languages', async () => {
+  const t = harness(); await t.mounted;
+  const service = t.input('AI 服务');
+  assert.equal(service.getAttribute('role'), 'combobox');
+  await service.click();
+  assert.equal(service.getAttribute('aria-expanded'), 'true');
+  t.document.activeElement = service;
+  const calls = t.calls.length, selected = service.textContent;
+  t.context.setLanguage('en');
+  assert.equal(service.getAttribute('aria-label'), 'AI service');
+  t.context.setLanguage('zh-CN');
+  assert.equal(service.getAttribute('aria-label'), 'AI 服务');
+  assert.equal(t.input('AI 服务'), service);
+  assert.equal(service.getAttribute('aria-expanded'), 'true');
+  assert.equal(service.textContent, selected);
+  assert.equal(t.document.activeElement, service);
+  assert.equal(t.calls.length, calls);
+  t.context.unmount();
+});
+
+test('generation defaults and cached update feedback stay live across language changes', async () => {
+  const t = harness({request: call => call.url.endsWith('/updates') ? {components:[
+    {id:'core', label:'Core', current:'0.2.5', latest:'0.2.6', status:'update_available', cached:true}
+  ]} : undefined}); await t.mounted;
+  await t.find('默认配置').click(); await tick();
+  const count = t.input('默认每表行数'); count.value = '0'; await count.dispatchEvent('input');
+  const defaultsPanel = t.document.querySelector('.settings-generation-control');
+  assert.match(defaultsPanel.textContent, /1–1,000,000/);
+  await t.find('插件与版本').click(); await t.find('检查更新').click();
+  const calls = t.calls.length, results = t.document.querySelector('.settings-update-results');
+  t.context.setLanguage('en');
+  assert.equal(count.value, '0'); assert.equal(count.getAttribute('aria-invalid'), 'true');
+  assert.match(defaultsPanel.textContent, /Default rows per table must be an integer from 1 to 1,000,000/);
+  assert.match(results.textContent, /Installed: 0.2.5.*Latest stable: 0.2.6.*Update available/);
+  assert.match(t.document.querySelector('.settings-updates').textContent, /Check complete.*cached data/);
+  assert.equal(t.calls.length, calls);
+  t.context.setLanguage('zh-CN');
+  assert.match(t.document.querySelector('.settings-updates').textContent, /检查完成.*缓存/);
+  assert.equal(t.context.missingMessages().length, 0);
+  t.context.unmount();
 });

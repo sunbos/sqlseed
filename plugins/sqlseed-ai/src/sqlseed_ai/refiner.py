@@ -28,6 +28,7 @@ from sqlseed._utils.logger import get_logger
 from sqlseed._utils.paths import get_cache_dir
 from sqlseed.config.models import TableConfig
 from sqlseed.core.orchestrator import DataOrchestrator
+from sqlseed.database._sqlite_schema import resolve_sqlite_table_name
 from sqlseed.database.sqlalchemy_adapter import SQLAlchemyBatchInserter
 from sqlseed.generators._protocol import ConfigurationError, UnknownGeneratorError
 
@@ -60,6 +61,22 @@ class AISuggestionFailedError(RuntimeError):
     tuple used across sqlseed-ai) also catch this exception without needing
     to import it explicitly.
     """
+
+
+def validate_table_target(orch: DataOrchestrator, table_name: str, candidate_name: object) -> ErrorSummary | None:
+    """Keep suggestions bound to the requested table using database identifier semantics."""
+    if candidate_name == table_name:
+        return None
+    if isinstance(candidate_name, str) and orch._get_dialect_name() == "sqlite":
+        tables = orch.get_table_names()
+        if resolve_sqlite_table_name(candidate_name, tables) == resolve_sqlite_table_name(table_name, tables):
+            return None
+    return ErrorSummary(
+        error_type="table_mismatch",
+        message=f"Configuration targets table {candidate_name!r}, not the requested table {table_name!r}.",
+        column=None,
+        retryable=True,
+    )
 
 
 class AiConfigRefiner:
@@ -392,7 +409,11 @@ class AiConfigRefiner:
             call_fn: Function that takes messages and returns config dict or raises.
             on_progress: Optional progress callback (streaming only).
         """
-        if not no_cache and (cached := self.get_cached_config(table_name, schema_hash)) is not None:
+        if (
+            not no_cache
+            and (cached := self.get_cached_config(table_name, schema_hash)) is not None
+            and validate_table_target(orch, table_name, cached.get("name")) is None
+        ):
             logger.info("Using cached AI config", table_name=table_name)
             if on_progress:
                 on_progress("done", {"tokens": 0, "model": "cached"})
@@ -477,7 +498,7 @@ class AiConfigRefiner:
             schema_ctx = orch.get_schema_context(table_name)
 
             def _call_non_streaming(messages: list[dict[str, str]]) -> dict[str, Any] | None:
-                return self._analyzer.call_llm(messages, strict_json=True)
+                return self._analyzer.call_llm(messages, strict_json=True, preserve_names=True)
 
             return self._run_refinement_loop(
                 orch,
@@ -507,7 +528,7 @@ class AiConfigRefiner:
             schema_ctx = orch.get_schema_context(table_name)
 
             def _call_streaming(messages: list[dict[str, str]]) -> dict[str, Any] | None:
-                return self._analyzer.call_llm_streaming(messages, on_progress=on_progress)
+                return self._analyzer.call_llm_streaming(messages, on_progress=on_progress, preserve_names=True)
 
             return self._run_refinement_loop(
                 orch,
@@ -530,8 +551,13 @@ class AiConfigRefiner:
 
         Returns:
             Truncated SHA-256 hex digest (16 chars) of the sorted column names.
+
+        Raises:
+            ValueError: If the target has no columns to generate, including a missing table.
         """
         column_names = orch.get_column_names(table_name)
+        if not column_names:
+            raise ValueError(f"Table '{table_name}' does not exist or has no columns")
         raw = "|".join(sorted(column_names))
         return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
@@ -556,6 +582,9 @@ class AiConfigRefiner:
             table_config = TableConfig(**config_dict)
         except PydanticValidationError as e:
             return summarize_error(e)
+
+        if (target_error := validate_table_target(orch, table_name, table_config.name)) is not None:
+            return target_error
 
         actual_columns = orch.get_column_names(table_name)
         skippable_cols = orch.get_skippable_columns(table_name)

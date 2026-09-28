@@ -1,0 +1,536 @@
+{
+  "settings": {
+    "openaiCompatible": [
+      "OpenAI 兼容服务",
+      "OpenAI-compatible service"
+    ],
+    "sessionKey": [
+      "密钥仅在本次服务中有效，重启后需重新填写。",
+      "The key lasts for this service session. Enter it again after restarting."
+    ],
+    "environmentKey": [
+      "密钥来自服务环境变量。",
+      "The key comes from the service environment."
+    ],
+    "noKey": [
+      "尚未配置密钥。",
+      "No key is configured."
+    ],
+    "coreDescription": [
+      "离线生成、约束处理与数据库写入",
+      "Offline generation, constraints and database writes"
+    ],
+    "cliDescription": [
+      "在终端配置、预览和生成数据",
+      "Configure, preview and generate data in a terminal"
+    ],
+    "webDescription": [
+      "当前浏览器工作台",
+      "The current browser Workbench"
+    ],
+    "aiDescription": [
+      "根据表结构与业务说明提出规则建议",
+      "Suggest rules from table structure and business requirements"
+    ],
+    "mcpDescription": [
+      "供 MCP 客户端调用生成能力",
+      "Expose generation capabilities to MCP clients"
+    ],
+    "baseDescription": [
+      "内置基础数据与语义占位值",
+      "Built-in basic data and semantic placeholders"
+    ],
+    "fakerDescription": [
+      "姓名、地址等本地化测试数据",
+      "Localized test data such as names and addresses"
+    ],
+    "mimesisDescription": [
+      "另一种本地化数据实现，可按场景选择",
+      "An alternative localized data engine"
+    ],
+    "loadingSettings": [
+      "正在读取设置…",
+      "Loading settings…"
+    ],
+    "loading": [
+      "读取中",
+      "Loading"
+    ],
+    "loadingService": [
+      "正在读取当前服务…",
+      "Loading the current service…"
+    ],
+    "serviceModels": [
+      "服务中的模型",
+      "Models on this service"
+    ],
+    "modelName": [
+      "模型名称",
+      "Model name"
+    ],
+    "modelPlaceholder": [
+      "填写服务提供的完整模型 ID",
+      "Enter the full model ID provided by the service"
+    ],
+    "aiAddress": [
+      "AI 服务地址",
+      "AI service URL"
+    ],
+    "newKey": [
+      "输入新密钥",
+      "Enter a new key"
+    ],
+    "disableKey": [
+      "停用已配置密钥",
+      "Disable the configured key"
+    ],
+    "aiService": [
+      "AI 服务",
+      "AI service"
+    ],
+    "saveSettings": [
+      "保存设置",
+      "Save settings"
+    ],
+    "probe": [
+      "检测连接",
+      "Test connection"
+    ],
+    "revert": [
+      "撤销修改",
+      "Discard changes"
+    ],
+    "reverted": [
+      "已恢复当前生效的设置。",
+      "Restored the currently active settings."
+    ],
+    "storageScope": [
+      "保存范围与有效期",
+      "Storage and lifetime"
+    ],
+    "serviceAddress": [
+      "服务地址",
+      "Service URL"
+    ],
+    "defaultModel": [
+      "默认模型",
+      "Default model"
+    ],
+    "probeHint": [
+      "检测连接可读取服务中的模型列表；不会自动开始分析。",
+      "Testing the connection reads the model list; it does not start analysis."
+    ],
+    "disableSessionKey": [
+      "停用本次服务的密钥",
+      "Disable the key for this service session"
+    ],
+    "aiSubtitle": [
+      "配置默认服务，供工作台的 AI 配置助手使用。",
+      "Configure the default service for the Workbench AI configuration assistant."
+    ],
+    "currentAI": [
+      "当前使用的 AI 服务",
+      "Current AI service"
+    ],
+    "current": [
+      "当前使用",
+      "Currently using"
+    ],
+    "loadingEnvironment": [
+      "正在读取运行环境…",
+      "Loading the runtime environment…"
+    ],
+    "refreshStatus": [
+      "刷新状态",
+      "Refresh status"
+    ],
+    "plugins": [
+      "插件与版本",
+      "Plugins and versions"
+    ],
+    "pluginsSubtitle": [
+      "查看当前 Web 服务所在 Python 环境中的组件。",
+      "View components in the Python environment running this Web service."
+    ],
+    "generation": [
+      "默认配置",
+      "Defaults"
+    ],
+    "generationSubtitle": [
+      "设置新配置的常用起点；已有配置保持原值。",
+      "Choose starting values for new configurations. Existing configurations keep their values."
+    ],
+    "appearance": [
+      "外观",
+      "Appearance"
+    ],
+    "appearanceSubtitle": [
+      "选择适合当前环境的界面明暗。",
+      "Choose a light or dark appearance for your environment."
+    ],
+    "appearanceHint": [
+      "立即生效，仅保存在当前浏览器。不改变 AI 服务设置或生成配置；跟随系统会自动响应系统的明暗变化。",
+      "Applies immediately and is saved in this browser. AI settings and generation configurations stay unchanged. System mode follows your system appearance."
+    ],
+    "returnAI": [
+      "返回 AI 助手",
+      "Return to AI assistant"
+    ],
+    "unsavedReturn": [
+      "AI 服务设置尚未保存。可以继续编辑并保存，或放弃修改后返回。",
+      "AI service settings are not saved. Continue editing and save, or discard changes and return."
+    ],
+    "continueEditing": [
+      "继续编辑",
+      "Continue editing"
+    ],
+    "discardReturn": [
+      "放弃修改并返回",
+      "Discard changes and return"
+    ],
+    "title": [
+      "设置",
+      "Settings"
+    ],
+    "subtitle": [
+      "管理新建配置偏好、界面外观、AI 服务和扩展能力。",
+      "Manage new configuration defaults, appearance, AI services and optional components."
+    ],
+    "categories": [
+      "设置分类",
+      "Settings categories"
+    ],
+    "maintenanceAI": [
+      "维护模式仅提供插件管理，重启普通模式后可配置 AI。",
+      "Maintenance mode only provides plugin management. Restart in normal mode to configure AI."
+    ],
+    "maintenanceAppearance": [
+      "维护模式仅提供插件管理，恢复服务后可调整外观。",
+      "Maintenance mode only provides plugin management. Restore the service to change appearance."
+    ],
+    "expiredContext": [
+      "原来的分析上下文已失效，请从工作台重新打开 AI 助手。",
+      "The previous analysis context has expired. Reopen the AI assistant from the Workbench."
+    ],
+    "retest": [
+      "设置已变化，请重新检测。",
+      "Settings have changed. Test the connection again."
+    ],
+    "unsaved": [
+      "有未保存的修改；检测连接不会保存。",
+      "There are unsaved changes. Testing the connection does not save them."
+    ],
+    "noChanges": [
+      "没有待保存的更改。可直接检测连接。",
+      "There are no changes to save. You can test the connection."
+    ],
+    "alreadySaved": [
+      "当前表单与生效设置一致，无需重复保存",
+      "The form matches the active settings; no need to save again"
+    ],
+    "ollamaHint": [
+      "Ollama 可连接本地或云端模型；本机服务地址不代表模型一定在本机运行。",
+      "Ollama can connect to local or cloud models. A local service URL does not guarantee that the model runs locally."
+    ],
+    "lmStudioHint": [
+      "填写 LM Studio 服务地址，并在服务中加载需要使用的模型。",
+      "Enter the LM Studio service URL and load the model you want to use in the service."
+    ],
+    "compatibleHint": [
+      "使用提供方公布的 API 地址和模型 ID。OpenAI 兼容服务地址通常以 /v1 结尾。",
+      "Use the provider’s API URL and model ID. OpenAI-compatible URLs usually end in /v1."
+    ],
+    "reloadNeeded": [
+      "待重新读取",
+      "Reload needed"
+    ],
+    "loadFailed": [
+      "读取失败",
+      "Load failed"
+    ],
+    "importError": [
+      "加载异常",
+      "Component load error"
+    ],
+    "notInstalled": [
+      "未安装",
+      "Not installed"
+    ],
+    "unsavedBadge": [
+      "未保存",
+      "Unsaved"
+    ],
+    "configured": [
+      "配置已填写",
+      "Configured"
+    ],
+    "notConfigured": [
+      "待配置",
+      "Not configured"
+    ],
+    "localKey": [
+      "API Key（通常无需填写）",
+      "API key (usually not required)"
+    ],
+    "serviceKey": [
+      "API Key（按服务要求填写）",
+      "API key (if required by the service)"
+    ],
+    "keepKey": [
+      "留空保留同一服务的已配置密钥",
+      "Leave blank to keep the existing key for this service"
+    ],
+    "authKey": [
+      "服务启用了认证时填写",
+      "Enter if the service requires authentication"
+    ],
+    "enterServiceKey": [
+      "填写此服务的密钥",
+      "Enter this service’s key"
+    ],
+    "localAuthHint": [
+      "默认本地服务无需密钥，修改地址或模型后即可保存；启用认证时按服务要求填写。",
+      "Local services usually need no key. Save after changing the URL or model; enter a key if authentication is enabled."
+    ],
+    "remoteAuthHint": [
+      "按提供方要求配置认证；不同服务之间不会沿用已配置的密钥。",
+      "Configure authentication as required by your provider. Keys are not reused across different services."
+    ],
+    "noDefaultModel": [
+      "尚未选择默认模型",
+      "No default model selected"
+    ],
+    "savedService": [
+      "已保存的服务配置",
+      "Saved service configuration"
+    ],
+    "savedAI": [
+      "已保存的 AI 服务",
+      "Saved AI service"
+    ],
+    "readinessHint": [
+      "配置状态与服务连通性分别检查。",
+      "Configuration readiness and service connectivity are checked separately."
+    ],
+    "sharedSettings": [
+      "服务类型、地址和模型保存在运行 Web 的设备上，重启后仍保留。同一 Web 服务的浏览器共享这些设置；修改后用于下一次分析。",
+      "The service type, URL and model are saved on the device running Web and persist after restart. Browsers using this service share these settings; changes apply to the next analysis."
+    ],
+    "keyStorage": [
+      "界面填写的密钥仅在本次服务中有效；如需重启后继续使用，可在启动环境中配置。密钥不写入生成配置或运行记录。",
+      "Keys entered here last for this service session. Configure them in the launch environment to retain them after restart. Keys are never stored in generation configurations or run records."
+    ],
+    "settingsPath": [
+      "当前 Web 服务的配置文件位置",
+      "Configuration file for the current Web service"
+    ],
+    "settingsPathHint": [
+      "按启动 Web 的用户和操作系统自动选择；也可通过 SQLSEED_WEB_SETTINGS_PATH 指定。远程访问时，这里是服务器上的位置。",
+      "Selected by the operating system and the user running Web; override with SQLSEED_WEB_SETTINGS_PATH. For remote access, this is a path on the server."
+    ],
+    "adminDiagnostics": [
+      "管理员排查信息",
+      "Administrator diagnostics"
+    ],
+    "aiImportError": [
+      "AI 插件加载异常",
+      "AI plugin failed to load"
+    ],
+    "aiMissing": [
+      "AI 扩展未安装",
+      "AI extension is not installed"
+    ],
+    "aiDependencyHint": [
+      "AI 插件已安装，但加载失败，请检查运行 Web 的环境依赖。",
+      "The AI plugin is installed but could not load. Check the dependencies of the environment running Web."
+    ],
+    "viewPluginStatus": [
+      "查看插件状态",
+      "View plugin status"
+    ],
+    "installAction": [
+      "前往安装",
+      "Go to installation"
+    ],
+    "retryLoad": [
+      "重试读取",
+      "Retry loading"
+    ],
+    "testVerb": [
+      "检测",
+      "Test"
+    ],
+    "saveVerb": [
+      "保存",
+      "Save"
+    ],
+    "testing": [
+      "检测中…",
+      "Testing…"
+    ],
+    "saving": [
+      "保存中…",
+      "Saving…"
+    ],
+    "testingConnection": [
+      "正在检测服务连接…",
+      "Testing the service connection…"
+    ],
+    "savingSettings": [
+      "正在保存设置…",
+      "Saving settings…"
+    ],
+    "saved": [
+      "设置已保存，下一次 AI 分析将使用此配置。",
+      "Settings saved. The next AI analysis will use this configuration."
+    ],
+    "connectionRefreshFailed": [
+      "组件状态已刷新；当前数据库连接信息暂时无法更新。",
+      "Component status refreshed, but the current database connection information could not be updated."
+    ],
+    "loadingComponents": [
+      "正在读取组件状态…",
+      "Loading component status…"
+    ],
+    "statusUpdated": [
+      "状态已更新。",
+      "Status updated."
+    ],
+    "unknownVersion": [
+      "版本未知",
+      "Unknown version"
+    ],
+    "application": [
+      "当前应用",
+      "Application"
+    ],
+    "optionalExtensions": [
+      "可选扩展",
+      "Optional extensions"
+    ],
+    "engines": [
+      "数据生成引擎",
+      "Data generation engines"
+    ],
+    "maintenanceVersions": [
+      "版本来自当前安装环境；维护模式不加载组件。安装或卸载后需重启普通模式，再验证组件可用性。",
+      "Versions come from the installed environment. Components are not loaded in maintenance mode. Restart in normal mode after installation or removal to verify availability."
+    ],
+    "installedVersions": [
+      "版本来自当前安装环境，不表示最新发布版本。“可用”表示组件可加载；AI 服务需单独检测。生成引擎在工作台选择，可选扩展按需安装。",
+      "Versions describe the installed environment, not the latest releases. Available means a component can load; test AI connectivity separately. Choose a generation engine in the Workbench and install extensions as needed."
+    ],
+    "noInstallCommand": [
+      "未提供可直接执行的命令。请使用创建此 Python 环境的工具安装或修复组件。",
+      "No executable command is available. Use the tool that created this Python environment to install or repair components."
+    ],
+    "commandFormat": [
+      "命令格式",
+      "Command format"
+    ],
+    "copyCommand": [
+      "复制命令",
+      "Copy command"
+    ],
+    "copying": [
+      "复制中…",
+      "Copying…"
+    ],
+    "copyUnavailable": [
+      "当前浏览器无法自动复制，请手动选择并复制上方命令。",
+      "Automatic copying is unavailable in this browser. Select and copy the command above."
+    ],
+    "commandCopied": [
+      "已复制命令。",
+      "Command copied."
+    ],
+    "copyFailed": [
+      "复制失败，请手动选择并复制上方命令。",
+      "Copy failed. Select and copy the command above."
+    ],
+    "builtin": [
+      "内置",
+      "Built-in"
+    ],
+    "required": [
+      "必需",
+      "Required"
+    ],
+    "optional": [
+      "可选",
+      "Optional"
+    ],
+    "installedWithCore": [
+      "随 sqlseed 安装",
+      "Installed with sqlseed"
+    ],
+    "installOnDemand": [
+      "按需安装",
+      "Install as needed"
+    ],
+    "providedByCore": [
+      "随 sqlseed 提供",
+      "Provided by sqlseed"
+    ],
+    "installedUnverified": [
+      "已安装（待验证）",
+      "Installed (not verified)"
+    ],
+    "available": [
+      "可用",
+      "Available"
+    ],
+    "requiredMissing": [
+      "必需依赖缺失",
+      "Required dependency missing"
+    ],
+    "repairGuide": [
+      "修复指引",
+      "Repair instructions"
+    ],
+    "adminInstall": [
+      "管理员安装信息",
+      "Administrator installation information"
+    ],
+    "checkEnvironment": [
+      "请在运行 Web 的 Python 环境中检查此组件。",
+      "Check this component in the Python environment running Web."
+    ],
+    "probeSuccess": [
+      "服务连接成功，仅验证模型列表。",
+      "Connected to the service. Only the model list was verified."
+    ],
+    "probeFailed": [
+      "连接检测失败。",
+      "Connection test failed."
+    ],
+    "retainedSettings": [
+      "{impact} 已保存的服务设置会保留。",
+      "{impact} Saved service settings are kept."
+    ],
+    "loadError": [
+      "无法读取 AI 设置：{detail} ",
+      "Could not load AI settings: {detail} "
+    ],
+    "submitError": [
+      "{operation}失败：{detail}",
+      "{operation} failed: {detail}"
+    ],
+    "refreshError": [
+      "无法刷新组件状态：{detail}",
+      "Could not refresh component status: {detail}"
+    ],
+    "environmentSummary": [
+      "{implementation} {version} · 当前 Web 服务环境",
+      "{implementation} {version} · Current Web service environment"
+    ],
+    "targetInterpreter": [
+      "目标解释器：{interpreter}",
+      "Target interpreter: {interpreter}"
+    ],
+    "terminalInstructions": [
+      "在运行 Web 的设备终端{shell}操作，完成后重启 Web 并刷新状态。",
+      "Run in the terminal{shell} on the device hosting Web, then restart Web and refresh the status."
+    ]
+  }
+}

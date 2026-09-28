@@ -1,10 +1,13 @@
+import { tr, formatDate, setText, setAttr } from '../i18n.js';
+import '../i18n/messages/datePicker.js';
 // ISO date input with an accessible calendar. The date model stays separate
 // from keyboard navigation and invalid text; only a valid choice is emitted.
 import { h } from '../api.js';
 let nextId = 0;
 let activeClose = null;
-const weekNames = ['星期一', '星期二', '星期三', '星期四', '星期五', '星期六', '星期日'];
-const invalidDate = '日期格式应为 YYYY-MM-DD，且必须是有效日期。';
+const weekNames = [tr('datePicker.mon'), tr('datePicker.tue'), tr('datePicker.wed'), tr('datePicker.thu'), tr('datePicker.fri'), tr('datePicker.sat'), tr('datePicker.sun')];
+const weekShortNames = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'].map(day => tr(`datePicker.${day}Short`));
+const invalidDate = tr('datePicker.invalid');
 function dateAt(year, month, day) {
   const value = new Date(0);
   value.setUTCFullYear(year, month, day);
@@ -38,7 +41,7 @@ function shiftMonth(value, amount) {
 /** onChange receives YYYY-MM-DD or undefined; invalid drafts only notify onValidity. */
 export function createDatePicker({
   value = '',
-  label = '日期',
+  label = tr('datePicker.label'),
   onChange,
   onValidity
 }) {
@@ -68,7 +71,7 @@ export function createDatePicker({
     'aria-expanded': 'false',
     'aria-controls': id,
     onclick: open
-  }, '日历');
+  }, tr('datePicker.calendar'));
   const error = h('small', {
     id: `${id}-error`,
     class: 'wb-date-error',
@@ -85,7 +88,7 @@ export function createDatePicker({
   }, label), input), trigger), h('small', {
     id: `${id}-format`,
     class: 'wb-date-format'
-  }, 'YYYY-MM-DD · 可输入或从日历选择'), error);
+  }, tr('datePicker.formatHint')), error);
   function check(commit) {
     if (disposed) {
       return false;
@@ -94,12 +97,12 @@ export function createDatePicker({
       parsed = parse(input.value);
     const message = empty || parsed ? null : invalidDate;
     if (message) {
-      input.setAttribute('aria-invalid', 'true');
+      setAttr(input, 'aria-invalid', 'true');
     } else {
       input.removeAttribute('aria-invalid');
     }
-    error.textContent = message || '';
-    trigger.setAttribute('aria-label', parsed ? `${label}：更改日期，${input.value}` : `${label}：选择日期`);
+    setText(error, message || '');
+    setAttr(trigger, 'aria-label', parsed ? tr('datePicker.changeDate', {label, date: input.value}) : tr('datePicker.chooseDate', {label}));
     onValidity?.(message, input);
     if (!message && commit && !disposed) {
       onChange?.(empty ? undefined : input.value);
@@ -129,7 +132,7 @@ export function createDatePicker({
       element.inert = false;
     }
     changedBackground = [];
-    trigger.setAttribute('aria-expanded', 'false');
+    setAttr(trigger, 'aria-expanded', 'false');
     document.removeEventListener('keydown', onKey, true);
     document.removeEventListener('focusin', containFocus, true);
     document.removeEventListener('scroll', reposition, true);
@@ -172,12 +175,12 @@ export function createDatePicker({
   function renderGrid() {
     const year = focused.getUTCFullYear(),
       month = focused.getUTCMonth();
-    heading.textContent = `${year} 年 ${month + 1} 月`;
+    setText(heading, formatDate(dateAt(year, month, 1), {year: 'numeric', month: 'long', timeZone: 'UTC'}));
     yearInput.value = String(year);
     monthInput.value = String(month + 1);
     yearInput.removeAttribute('aria-invalid');
     monthInput.removeAttribute('aria-invalid');
-    jumpError.textContent = '';
+    setText(jumpError, '');
     const first = dateAt(year, month, 1),
       offset = (first.getUTCDay() + 6) % 7;
     const total = dateAt(year, month + 1, 0).getUTCDate(),
@@ -192,12 +195,12 @@ export function createDatePicker({
           tr.append(h('td'));
           continue;
         }
-        tr.append(dayCell(year, month, number, col));
+        tr.append(dayCell(year, month, number));
       }
       gridBody.append(tr);
     }
     reposition();
-    function dayCell(year, month, number, col) {
+    function dayCell(year, month, number) {
       const date = dateAt(year, month, number),
         key = iso(date),
         isSelected = selected && iso(selected) === key;
@@ -206,7 +209,7 @@ export function createDatePicker({
         class: `wb-date-day${isSelected ? ' selected' : ''}${key === currentDay ? ' today' : ''}`,
         'data-date': key,
         tabindex: key === iso(focused) ? '0' : '-1',
-        'aria-label': `${year} 年 ${month + 1} 月 ${number} 日，${weekNames[col]}`,
+        'aria-label': formatDate(date, {year: 'numeric', month: 'long', day: 'numeric', weekday: 'long', timeZone: 'UTC'}),
         ...(key === currentDay ? {
           'aria-current': 'date'
         } : {}),
@@ -228,9 +231,9 @@ export function createDatePicker({
     const yearValid = /^\d{1,4}$/.test(yearInput.value) && year >= 1 && year <= 9999;
     const monthValid = /^\d{1,2}$/.test(monthInput.value) && month >= 1 && month <= 12;
     if (!yearValid || !monthValid) {
-      yearInput.setAttribute('aria-invalid', String(!yearValid));
-      monthInput.setAttribute('aria-invalid', String(!monthValid));
-      jumpError.textContent = !yearValid ? '年份须为 1–9999 的整数。' : '月份须为 1–12 的整数。';
+      setAttr(yearInput, 'aria-invalid', String(!yearValid));
+      setAttr(monthInput, 'aria-invalid', String(!monthValid));
+      setText(jumpError, !yearValid ? tr('datePicker.yearInvalid') : tr('datePicker.monthInvalid'));
       (!yearValid ? yearInput : monthInput).focus();
       return;
     }
@@ -288,43 +291,43 @@ export function createDatePicker({
       class: 'wb-date-dialog',
       role: 'dialog',
       'aria-modal': 'true',
-      'aria-label': `选择${label}`
+      'aria-label': tr('datePicker.chooseLabel', {label})
     }, h('div', {
       class: 'wb-date-heading'
     }, heading), h('div', {
       class: 'wb-date-navigation'
-    }, nav('«', '上一年', -12), nav('‹', '上个月', -1), h('span', {}, '按月或按年切换'), nav('›', '下个月', 1), nav('»', '下一年', 12)), h('div', {
+    }, nav('«', tr('datePicker.previousYear'), -12), nav('‹', tr('datePicker.previousMonth'), -1), h('span', {}, tr('datePicker.navigationHint')), nav('›', tr('datePicker.nextMonth'), 1), nav('»', tr('datePicker.nextYear'), 12)), h('div', {
       class: 'wb-date-jump'
-    }, h('label', {}, yearInput, '年'), h('label', {}, monthInput, '月'), h('button', {
+    }, h('label', {}, yearInput, tr('datePicker.year')), h('label', {}, monthInput, tr('datePicker.month')), h('button', {
       type: 'button',
       class: 'wb-date-action',
       onclick: jump
-    }, '跳转')), jumpError, h('table', {
+    }, tr('datePicker.jump'))), jumpError, h('table', {
       class: 'wb-date-grid',
       role: 'grid',
       'aria-labelledby': `${id}-month`,
       'aria-describedby': `${id}-keys`
-    }, h('thead', {}, h('tr', {}, ...weekNames.map(name => h('th', {
+    }, h('thead', {}, h('tr', {}, ...weekNames.map((name, index) => h('th', {
       scope: 'col',
       abbr: name
-    }, name.slice(2))))), gridBody), h('div', {
+    }, weekShortNames[index])))), gridBody), h('div', {
       class: 'wb-date-actions'
     }, h('button', {
       type: 'button',
       class: 'wb-date-action',
       onclick: () => choose(today())
-    }, '今天'), h('button', {
+    }, tr('datePicker.today')), h('button', {
       type: 'button',
       class: 'wb-date-action',
       onclick: () => choose(null)
-    }, '清空'), h('button', {
+    }, tr('datePicker.clear')), h('button', {
       type: 'button',
       class: 'wb-date-action',
       onclick: () => close()
-    }, '取消')), h('p', {
+    }, tr('datePicker.cancel'))), h('p', {
       id: `${id}-keys`,
       class: 'wb-date-help'
-    }, '方向键移动 · Home/End 到周首尾 · PageUp/Down 换月，按住 Shift 换年 · Enter 选择 · Esc 关闭'));
+    }, tr('datePicker.keyboardHint')));
     layer = h('div', {
       class: 'wb-date-layer'
     }, dialog);
@@ -340,7 +343,7 @@ export function createDatePicker({
       element.inert = true;
     }
     document.body.append(layer);
-    trigger.setAttribute('aria-expanded', 'true');
+    setAttr(trigger, 'aria-expanded', 'true');
     activeClose = close;
     document.addEventListener('keydown', onKey, true);
     document.addEventListener('focusin', containFocus, true);

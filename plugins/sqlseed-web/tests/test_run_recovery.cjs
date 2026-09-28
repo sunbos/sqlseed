@@ -13,3 +13,16 @@ test('remaining recovery subtracts committed rows and preserves immutable rules'
   assert.equal(result.tableDrafts.users.count,100);assert.deepEqual(record,before);
 });
 for(const change of [r=>r.status='running',r=>r.status='interrupted',r=>r.row_counts_exact=false,r=>r.row_counts_exact=undefined,r=>r.count_complete=false,r=>r.tables[1].rows_inserted=null,r=>r.tables[1].rows_inserted=101,r=>r.rows_inserted=124,r=>r.tables.pop(),r=>r.execution.mode='replace_selected',r=>r.tables[1].status='done'])test(`unsafe recovery stays blocked: ${change}`,()=>{const r=run();change(r);const result=recover(r);assert.equal(result.ok,false);assert.equal(result.document,undefined);assert.ok(result.reason);});
+
+test('unsafe-recovery guidance changes language without changing the stored run', () => {
+  const context = loadFrontend('workbench/recovery.js'), record = run();
+  record.row_counts_exact = false;
+  context.record = record;
+  const before = JSON.stringify(record), result = vm.runInContext('remainingRun(record)', context);
+  assert.equal(result.ok, false);
+  assert.match(String(result.reason), /提交数量不确定/);
+  context.setLanguage('en');
+  assert.match(String(result.reason), /committed count is uncertain/);
+  assert.equal(JSON.stringify(record), before);
+  assert.equal(result.document, undefined);
+});

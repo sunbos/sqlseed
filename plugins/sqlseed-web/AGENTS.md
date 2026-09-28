@@ -16,6 +16,7 @@
 - 本包是 standalone app，不注册到 `project.entry-points."sqlseed"`。必需依赖为 Core、FastAPI、Uvicorn、PyYAML、packaging；准确版本范围以 manifest 为准。
 - 当前源码要求 Core `>=0.2.5.dev0,<0.3`，共享连接解析和诊断脱敏不能与旧 Core 混装；AI extra 仍为 `>=0.2.4.dev0,<0.3`。不能为安装方便放宽已使用接口的版本下界。`[ai]` 安装可选 AI，`[dev]` 提供 pytest/httpx。
 - 没有 npm/Vite/bundler 或前端构建步骤，静态资源随 Python wheel 分发。保持一套清透玻璃设计及其浅色/深色模式与现有工作台交互；历史 connect/wizard/browse/heal/meta 页面不在正式 router 中加载，兼容旧 API 不要求恢复旧导航。
+- 正式界面提供简体中文与 English，UI 偏好独立于生成配置的 locale。切语言只更新显式绑定的展示内容，不重挂页面、不发业务请求、不改用户数据；前后端 JSON 字典及 JS 注册入口同随 wheel 分发。维护入口见 [Web 双语维护](../../docs/development/web-i18n.md)，不得把开发实现说明写成已完成发行/浏览器验收。
 - 外观入口位于正式设置及组件样板页头；支持浅色、深色、跟随系统，默认浅色。偏好仅存当前浏览器并同步同源标签页，跟随系统自动响应明暗变化；不修改 AI 设置或生成配置，不发起 AI 或业务请求。主题及字体约束见前端指南。
 - 未安装 AI 时基础连接、schema、配置、预览和填充仍可用。AI 仅按用户请求提供待审阅建议，应用后进入同一配置，不在写入时隐式调用 AI。provider/locale 属于生成配置，不属于连接表单。
 - `sqlseed-web` 与 `python -m sqlseed_web` 默认启动 supervisor 和可替换 worker，监听 `127.0.0.1:8630`；安装发行包后即可启动，不需要仓库脚本。直接托管 `app:create_app` 可使用业务，但不具备自动组件管理。

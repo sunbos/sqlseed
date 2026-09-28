@@ -20,6 +20,8 @@ node --test plugins/sqlseed-web/tests/test_*.cjs
 - `test_workbench_guidance.cjs` 验证步骤进入真实规则编辑、单表/多表预览和确认计划，并断言无选择、无效输入与阻断问题不能跳过检查。全局 AI 入口只在顶部保留一处，字段级入口仍限定目标；侧栏检查状态不重复全局检查按钮。不能用标题或步骤高亮变化代替导航结果。
 - `test_api_regressions.py` 覆盖配置完整性、DBAPI 错误、任务终态与连接关闭的并发边界；不能仅断言 mock 被调用来证明填充正确。
 - Node 内置 `node:test` 不需 npm。`frontend_helpers.cjs` 提供最小 DOM 和 VM 加载器；测试执行真实应用源代码，仅替换浏览器、网络和时间边界。
+- 双语测试通过 `loadFrontend/loadI18n` 加载真实 i18n 与消息资源；旧行为测试明确默认中文，新用例显式切英文，不以恒等翻译 stub 代替真实绑定。验证标题/placeholder/aria、动态组合与后端 descriptor，同时断言相同 DOM 控件、值/选区/滚动/焦点、业务请求次数和持久化配置不变。未知原始诊断须保留并带当前语言说明；历史字符串错误形状继续兼容。
+- 双语覆盖还需资源 key/具名参数一致、原生 ES module 依赖可加载及 wheel 内静态 JSON；真实浏览器另测两语言、明暗、窄屏及键盘。运行结果按实际范围报告，不以 Node 模拟 DOM 或静态字典存在宣称浏览器/安装包验收通过。
 - Node DOM 是局部替身，不能代替浏览器验收；触发异步 `click` / `dispatchEvent` 时需要 await。
 - `test_app_shell.cjs` 对正式路由的原始 ES modules 使用原生链接器验证 import/export；DOM helper 会剥离 import，不能用其通过结果或仅检查依赖文件存在来证明浏览器能够加载模块。链接检查不执行 DOM，也不替代真实浏览器验收。
 - 状态回归必须检查最终配置/请求/可见控件；并发测试用可控 Promise/Event，不依赖概率和长 sleep。

@@ -6,6 +6,29 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
 const guide = ui => ui.root().querySelector('.wb-next-step');
 const redraw = ui => vm.runInContext('drawBody()', ui.context);
 
+test('guidance retains step controls through selection, status updates and language changes', async () => {
+  const ui = harness(); await ui.mount();
+  const group = guide(ui).querySelector('.wb-guide-stages');
+  const steps = group.querySelectorAll('button');
+  const marker = group.querySelector('.segment-indicator');
+  steps[1].focus();
+  await steps[1].click();
+  assert.equal(guide(ui).querySelector('.wb-guide-stages'), group);
+  assert.deepEqual(group.querySelectorAll('button'), steps);
+  assert.equal(group.querySelector('.segment-indicator'), marker);
+  assert.equal(steps[1].getAttribute('aria-current'), 'step');
+  redraw(ui);
+  assert.equal(guide(ui).querySelector('.wb-guide-stages'), group);
+  ui.context.setLanguage('en');
+  assert.equal(guide(ui).querySelector('.wb-guide-stages'), group);
+  assert.match(steps[1].textContent, /Preview samples/);
+  await steps[0].click();
+  assert.equal(steps[0].getAttribute('aria-current'), 'step');
+  assert.equal(ui.requests.some(request => request.url.endsWith('/runs')), false);
+  ui.context.unmount();
+  assert.equal(group.querySelector('.segment-indicator'), null);
+});
+
 test('empty-plan stages explain prerequisites and focus selection without execution requests',async()=>{
   const ui=harness();await ui.mount();
   for(const stage of [2,3,1]) {
@@ -73,7 +96,7 @@ test('an oversized generation draft identifies its table in ten-row preview and 
   assert.equal(ui.root().querySelector('.wb-operation-status').textContent,'');
   assert.equal(ui.root().querySelector('.wb-notice').textContent,'');
   assert.equal(ui.root().querySelector('.wb-notice').classList.contains('wb-error'),false);
-  assert.match(guide(ui).textContent,/计划生成 1000100 行/);
+  assert.match(guide(ui).textContent,/计划生成 1,000,100 行/);
   await ui.button('预览已选表').click();
   const requests=ui.requests.filter(request=>request.url.endsWith('/preview'));
   assert.equal(requests.length,1);
@@ -126,7 +149,7 @@ test('guidance totals safe per-table counts exactly even when their sum exceeds 
   for(const name of ['users','orders','audit'])m.toggleTable(name,true);
   m.setCount('users',String(Number.MAX_SAFE_INTEGER));m.setCount('orders',String(Number.MAX_SAFE_INTEGER));m.setCount('audit','1');
   redraw(ui);assert.equal(m.errors.size,0);
-  assert.match(guide(ui).textContent,/计划生成 18014398509481983 行/);
+  assert.match(guide(ui).textContent,/计划生成 18,014,398,509,481,983 行/);
   assert.equal(ui.requests.some(request=>request.url.endsWith('/preview')||request.url.endsWith('/runs')),false);
 });
 

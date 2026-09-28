@@ -1,47 +1,49 @@
+import { tr } from './i18n.js';
+import './i18n/messages/labels.js';
 // 生成器中文语义标注（参考工具 树节点括号标注的来源）。
 
 export const GEN_LABELS = {
-  name: '姓名',
-  first_name: '名字',
-  last_name: '姓氏',
-  username: '用户名',
-  email: '电子邮箱',
-  phone: '电话号码',
-  address: '地址',
-  city: '城市',
-  country: '国家',
-  state: '地区',
-  zip_code: '邮政编码',
-  country_code: '国家代码',
-  url: '网址',
-  uuid: 'UUID',
-  ipv4: 'IP 地址',
-  company: '公司名称',
-  job_title: '职位名称',
-  catch_phrase: '口号',
-  date: '日期',
-  datetime: '日期时间',
-  timestamp: '时间戳',
-  time: '时间',
-  integer: '整数',
-  float: '小数',
-  boolean: '布尔',
-  choice: '枚举',
-  weighted_choice: '加权枚举',
-  pattern: '正则表达式',
-  template: '模板',
-  string: '字符串',
-  text: '文本',
-  sentence: '句子',
-  word: '单词',
-  password: '密码',
-  json: 'JSON',
-  bytes: '图像或二进制',
-  skip: '数据库默认值',
-  foreign_key: '外键',
-  foreign_key_or_integer: '外键',
-  autoincrement: '自增',
-  __enrich__: '增强',
+  name: tr('labels.generator.name'),
+  first_name: tr('labels.generator.first_name'),
+  last_name: tr('labels.generator.last_name'),
+  username: tr('labels.generator.username'),
+  email: tr('labels.generator.email'),
+  phone: tr('labels.generator.phone'),
+  address: tr('labels.generator.address'),
+  city: tr('labels.generator.city'),
+  country: tr('labels.generator.country'),
+  state: tr('labels.generator.state'),
+  zip_code: tr('labels.generator.zip_code'),
+  country_code: tr('labels.generator.country_code'),
+  url: tr('labels.generator.url'),
+  uuid: tr('labels.generator.uuid'),
+  ipv4: tr('labels.generator.ipv4'),
+  company: tr('labels.generator.company'),
+  job_title: tr('labels.generator.job_title'),
+  catch_phrase: tr('labels.generator.catch_phrase'),
+  date: tr('labels.generator.date'),
+  datetime: tr('labels.generator.datetime'),
+  timestamp: tr('labels.generator.timestamp'),
+  time: tr('labels.generator.time'),
+  integer: tr('labels.generator.integer'),
+  float: tr('labels.generator.float'),
+  boolean: tr('labels.generator.boolean'),
+  choice: tr('labels.generator.choice'),
+  weighted_choice: tr('labels.generator.weighted_choice'),
+  pattern: tr('labels.generator.pattern'),
+  template: tr('labels.generator.template'),
+  string: tr('labels.generator.string'),
+  text: tr('labels.generator.text'),
+  sentence: tr('labels.generator.sentence'),
+  word: tr('labels.generator.word'),
+  password: tr('labels.generator.password'),
+  json: tr('labels.generator.json'),
+  bytes: tr('labels.generator.bytes'),
+  skip: tr('labels.generator.skip'),
+  foreign_key: tr('labels.generator.foreign_key'),
+  foreign_key_or_integer: tr('labels.generator.foreign_key_or_integer'),
+  autoincrement: tr('labels.generator.autoincrement'),
+  __enrich__: tr('labels.generator.__enrich__'),
 };
 
 export function genLabel(gen) {
@@ -50,69 +52,69 @@ export function genLabel(gen) {
 
 // Output illustrations supplement the live catalogue, never replace real previews.
 const GENERATOR_GUIDES = {
-  name: ['人物的完整姓名；商品名请使用枚举或模板。', '张晓明 / Alex Smith'],
-  first_name: ['人物的名字部分。', '晓明 / Alex'], last_name: ['人物的姓氏部分。', '张 / Smith'],
-  username: ['登录名或账号名称。', 'alex_chen'], email: ['电子邮箱地址；语言与格式受全局引擎影响。', 'alex@example.test'],
-  phone: ['电话号码；可用号码格式统一输出。', '13800138000'], address: ['完整地址；使用全局语言与地区。', '北京市朝阳区…'],
-  city: ['城市名称。', '北京 / London'], state: ['省、州或地区名称。', '浙江省 / California'],
-  country: ['国家名称。', '中国 / Canada'], country_code: ['国家代码。', 'CN'], zip_code: ['邮政编码。', '100000'],
-  url: ['网站地址。', 'https://example.test'], uuid: ['通用唯一标识符。', '1f22b412-3d73-4e22-a5e4-40a7f18ce319'],
-  ipv4: ['IPv4 地址。', '192.0.2.10'], company: ['公司或组织名称。', '示例科技有限公司'],
-  job_title: ['职位名称。', '软件工程师'], catch_phrase: ['营销口号或短标语。', '让每一天更简单'],
-  date: ['在日期范围内随机取值，可限定工作日。', '2026-09-07'],
-  datetime: ['在日期和时间范围内随机取值。', '2026-09-07 14:30:00'],
-  timestamp: ['生成日期时间对象；写入格式由数据库列类型决定。', '2026-09-07 14:30:00'],
-  time: ['一天内的时间，可限定营业时段。', '09:30:00'],
-  integer: ['范围内的随机整数，适合数量、年龄或库存。', '12'],
-  float: ['范围内的随机小数，适合金额或度量值。', '128.50'], boolean: ['真或假，适合启用、完成等标记。', 'true / false'],
-  choice: ['从你提供的候选值中随机选一个，适合状态或商品名。', 'pending / paid / shipped'],
-  weighted_choice: ['按指定权重选择候选值，适合不均匀分布。', '普通 80% / VIP 20%'],
-  pattern: ['生成符合正则表达式的值，适合固定格式编码。', '正则 [A-Z]{3}[0-9]{4} → ABC1234'],
-  template: ['按模板生成编号或组合文本，可包含递增序号。', 'SKU-{sequence:04d} → SKU-0001'],
-  string: ['从候选字符中生成随机字符串，适合随机代码；名称建议用枚举。', 'aB72xQ'],
-  text: ['较长的自然语言文本。', '一段说明文字…'], sentence: ['一条自然语言句子。', '这是一条示例描述。'],
-  word: ['一个单词。', 'river'], password: ['随机密码字符串。', 'a9B!x7Qp'],
-  json: ['生成 JSON 值，可指定对象结构。', '{"active": true}'], bytes: ['生成字节或图像内容，适合二进制列。', '16 字节 / PNG 图像'],
+  name: [tr('labels.purpose.name'), tr('labels.example.name')],
+  first_name: [tr('labels.purpose.first_name'), tr('labels.example.first_name')], last_name: [tr('labels.purpose.last_name'), tr('labels.example.last_name')],
+  username: [tr('labels.purpose.username'), 'alex_chen'], email: [tr('labels.purpose.email'), 'alex@example.test'],
+  phone: [tr('labels.purpose.phone'), '13800138000'], address: [tr('labels.purpose.address'), tr('labels.example.address')],
+  city: [tr('labels.purpose.city'), tr('labels.example.city')], state: [tr('labels.purpose.state'), tr('labels.example.state')],
+  country: [tr('labels.purpose.country'), tr('labels.example.country')], country_code: [tr('labels.purpose.country_code'), 'CN'], zip_code: [tr('labels.purpose.zip_code'), '100000'],
+  url: [tr('labels.purpose.url'), 'https://example.test'], uuid: [tr('labels.purpose.uuid'), '1f22b412-3d73-4e22-a5e4-40a7f18ce319'],
+  ipv4: [tr('labels.purpose.ipv4'), '192.0.2.10'], company: [tr('labels.purpose.company'), tr('labels.example.company')],
+  job_title: [tr('labels.purpose.job_title'), tr('labels.example.job_title')], catch_phrase: [tr('labels.purpose.catch_phrase'), tr('labels.example.catch_phrase')],
+  date: [tr('labels.purpose.date'), '2026-09-07'],
+  datetime: [tr('labels.purpose.datetime'), '2026-09-07 14:30:00'],
+  timestamp: [tr('labels.purpose.timestamp'), '2026-09-07 14:30:00'],
+  time: [tr('labels.purpose.time'), '09:30:00'],
+  integer: [tr('labels.purpose.integer'), '12'],
+  float: [tr('labels.purpose.float'), '128.50'], boolean: [tr('labels.purpose.boolean'), 'true / false'],
+  choice: [tr('labels.purpose.choice'), 'pending / paid / shipped'],
+  weighted_choice: [tr('labels.purpose.weighted_choice'), tr('labels.example.weighted_choice')],
+  pattern: [tr('labels.purpose.pattern'), tr('labels.example.pattern')],
+  template: [tr('labels.purpose.template'), 'SKU-{sequence:04d} → SKU-0001'],
+  string: [tr('labels.purpose.string'), 'aB72xQ'],
+  text: [tr('labels.purpose.text'), tr('labels.example.text')], sentence: [tr('labels.purpose.sentence'), tr('labels.example.sentence')],
+  word: [tr('labels.purpose.word'), 'river'], password: [tr('labels.purpose.password'), 'a9B!x7Qp'],
+  json: [tr('labels.purpose.json'), '{"active": true}'], bytes: [tr('labels.purpose.bytes'), tr('labels.example.bytes')],
 };
 export function genGuide(generator) {
   const guide = GENERATOR_GUIDES[generator];
-  return guide ? {purpose: guide[0], example: guide[1]} : {purpose: '扩展生成器；参数由当前服务提供。', example: ''};
+  return guide ? {purpose: guide[0], example: guide[1]} : {purpose: tr('labels.extensionPurpose'), example: ''};
 }
 
 // 生成器参数中文标签（genform 动态参数表单）。未收录的参数原样显示。
 export const PARAM_LABELS = {
-  min_length: '最小长度',
-  max_length: '最大长度',
-  charset: '字符集',
-  min_value: '最小值',
-  max_value: '最大值',
-  precision: '小数位数',
-  length: '长度',
-  width: '图像宽度',
-  height: '图像高度',
-  image_format: '图像格式',
-  folder: '文件夹路径',
-  extensions: '扩展名筛选',
-  mask: '号码格式',
-  start_year: '起始年份',
-  end_year: '结束年份',
-  start_date: '开始日期',
-  end_date: '结束日期',
-  all_day: '一整天',
-  start_time: '开始时间',
-  end_time: '结束时间',
-  weekdays: '星期',
-  choices: '候选值',
-  weighted_choices: '加权候选值',
-  pattern: '正则表达式',
-  regex: '正则表达式',
-  template: '模板',
-  sequence_start: '序列起始值',
-  sequence_step: '序列步长',
-  schema: 'JSON 结构',
-  value: '固定值',
-  n: '数量',
-  num_words: '单词数',
+  min_length: tr('labels.parameter.min_length'),
+  max_length: tr('labels.parameter.max_length'),
+  charset: tr('labels.parameter.charset'),
+  min_value: tr('labels.parameter.min_value'),
+  max_value: tr('labels.parameter.max_value'),
+  precision: tr('labels.parameter.precision'),
+  length: tr('labels.parameter.length'),
+  width: tr('labels.parameter.width'),
+  height: tr('labels.parameter.height'),
+  image_format: tr('labels.parameter.image_format'),
+  folder: tr('labels.parameter.folder'),
+  extensions: tr('labels.parameter.extensions'),
+  mask: tr('labels.parameter.mask'),
+  start_year: tr('labels.parameter.start_year'),
+  end_year: tr('labels.parameter.end_year'),
+  start_date: tr('labels.parameter.start_date'),
+  end_date: tr('labels.parameter.end_date'),
+  all_day: tr('labels.parameter.all_day'),
+  start_time: tr('labels.parameter.start_time'),
+  end_time: tr('labels.parameter.end_time'),
+  weekdays: tr('labels.parameter.weekdays'),
+  choices: tr('labels.parameter.choices'),
+  weighted_choices: tr('labels.parameter.weighted_choices'),
+  pattern: tr('labels.parameter.pattern'),
+  regex: tr('labels.parameter.regex'),
+  template: tr('labels.parameter.template'),
+  sequence_start: tr('labels.parameter.sequence_start'),
+  sequence_step: tr('labels.parameter.sequence_step'),
+  schema: tr('labels.parameter.schema'),
+  value: tr('labels.parameter.value'),
+  n: tr('labels.parameter.n'),
+  num_words: tr('labels.parameter.num_words'),
 };
 
 export function paramLabel(p) {
@@ -125,43 +127,43 @@ export function paramLabel(p) {
 // 下拉里显示为禁用项，等 P2 生成器落地后自动变为可选（无需改本文件）。
 export const GEN_CATEGORIES = [
   {
-    title: '通用',
+    title: tr('labels.general'),
     gens: ['integer', 'float', 'boolean', 'date', 'datetime', 'timestamp',
       'choice', 'weighted_choice', 'text', 'string', 'sentence', 'word',
       'pattern', 'template', 'uuid', 'json', 'bytes', 'time',
       'skip', 'foreign_key', 'foreign_key_or_integer', 'autoincrement'],
   },
   {
-    title: '个人',
+    title: tr('labels.personal'),
     gens: ['name', 'first_name', 'last_name', 'username', 'password',
       'email', 'phone', 'job_title'],
   },
   {
     // 参考工具：支付方式 / 信用卡类型 / 信用卡卡号 / 信用卡日期（P2）
-    title: '支付',
+    title: tr('labels.payment'),
     gens: [],
   },
   {
-    title: '商业',
+    title: tr('labels.business'),
     gens: ['company', 'catch_phrase'],
   },
   {
-    title: '位置',
+    title: tr('labels.location'),
     gens: ['address', 'city', 'state', 'country', 'zip_code', 'country_code'],
   },
   {
     // 参考工具：产品名称 / 产品类别 / 颜色 / 尺寸 / 重量单位 / 条码 / SKU（P2）
-    title: '产品',
+    title: tr('labels.product'),
     gens: [],
   },
   {
-    title: '电脑',
+    title: tr('labels.computer'),
     gens: ['url', 'ipv4'],
   },
 ];
 
 /** 占位组在下拉里显示的提示文案。 */
-export const PENDING_GROUP_HINT = '（暂无生成器）';
+export const PENDING_GROUP_HINT = tr('labels.pending');
 
 /**
  * 把 meta.names（全部生成器）按分类分组。
@@ -178,18 +180,18 @@ export function groupGenerators(names) {
     groups.push({ title: cat.title, names: hit, pending: hit.length === 0 });
   }
   if (remaining.size) {
-    groups.push({ title: '其他', names: [...remaining].sort((left, right) => left < right ? -1 : Number(left > right)), pending: false });
+    groups.push({ title: tr('labels.other'), names: [...remaining].sort((left, right) => left < right ? -1 : Number(left > right)), pending: false });
   }
   return groups;
 }
 
 // 列的树节点语义标注：优先外键/自增，其次生成器语义。
 export function colAnnotation(col, spec, fkCols) {
-  if (fkCols.has(col.name)) return '外键';
-  if (col.is_primary_key && col.is_autoincrement) return '序列';
+  if (fkCols.has(col.name)) return tr('labels.generator.foreign_key_or_integer');
+  if (col.is_primary_key && col.is_autoincrement) return tr('labels.sequence');
   if (spec?.generator_name && spec.generator_name !== 'skip') {
     return genLabel(spec.generator_name);
   }
-  if (spec?.generator_name === 'skip' && !col.is_primary_key) return '默认值';
+  if (spec?.generator_name === 'skip' && !col.is_primary_key) return tr('labels.defaultValue');
   return null;
 }

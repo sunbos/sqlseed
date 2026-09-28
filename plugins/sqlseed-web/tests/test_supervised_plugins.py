@@ -92,6 +92,33 @@ def test_supervised_task_restores_business_before_reporting_success(managed: Any
     assert status["session_restore"]["restored_connections"] == 1
 
 
+def test_replanned_installer_recovers_business_after_stale_plan_rejection(
+    managed: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = importlib.import_module("sqlseed_web.plugin_management")
+    manager, controller, calls = managed
+    first = manager.plan(module.PlanRequest(component_id="mimesis", action="install"))
+    current = replace(manager.environment, tool="uv", tool_executable="/test/uv")
+    monkeypatch.setattr("sqlseed_web.plugin_environment._environment", lambda: current)
+    with pytest.raises(HTTPException) as error:
+        manager.execute(module.ExecuteRequest(plan_id=first["plan_id"]))
+    assert error.value.status_code == 409
+    assert controller.calls == ["pause", "resume"]
+    assert manager.status()["active_task"] is None
+    assert calls == []
+    controller.calls.clear()
+
+    reviewed = manager.plan(module.PlanRequest(component_id="mimesis", action="install"))
+    task = manager.execute(module.ExecuteRequest(plan_id=reviewed["plan_id"]))
+    manager._worker.join(5)
+    result = manager.task_snapshot(task["task_id"])
+    assert result["status"] == "succeeded"
+    assert result["service_ready"] is True
+    assert controller.calls == ["pause", "maintenance", "restore"]
+    assert calls[0][:3] == ["/test/uv", "--no-config", "pip"]
+    assert manager.status()["session_restore"]["restored_connections"] == 1
+
+
 def test_busy_worker_blocks_before_any_package_task(managed: Any) -> None:
     module = importlib.import_module("sqlseed_web.plugin_management")
     manager, controller, calls = managed

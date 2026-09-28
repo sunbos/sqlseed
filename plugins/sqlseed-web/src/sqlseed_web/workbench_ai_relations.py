@@ -16,6 +16,8 @@ from sqlseed.core.check_parser import CheckConstraintParser, ParsedCheck
 from sqlseed.core.column_dag import ColumnDAG
 from sqlseed.core.mapper import GeneratorSpec
 
+from sqlseed_web.messages import message as tr
+
 
 class RelationSuggestion(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -25,7 +27,10 @@ class RelationSuggestion(BaseModel):
     template: Literal["copy", "concat", "product", "date_offset"]
     sources: list[str] = Field(min_length=1, max_length=8)
     options: dict[str, Any] = Field(default_factory=dict)
-    reason: str = Field(default="请确认同一行字段之间的业务关系。", max_length=2000)
+    reason: str = Field(
+        default=tr("backend.workbench_ai_relations.explicitly_describe_business_relationships_between_fields_in"),
+        max_length=2000,
+    )
 
 
 def locked_column(
@@ -75,7 +80,7 @@ def _copy_expression(kinds: list[str], target_kind: str, options: dict[str, Any]
         or len(kinds) != 1
         or not (kinds[0] == target_kind or (kinds[0] == "integer" and target_kind == "number"))
     ):
-        raise ValueError("复制需要兼容的单个来源")
+        raise ValueError(tr("backend.workbench_ai_relations.copy_requires_one_compatible_source_column"))
     return "value"
 
 
@@ -88,31 +93,31 @@ def _concat_expression(kinds: list[str], target_kind: str, options: dict[str, An
         or target_kind != "text"
         or any(kind != "text" for kind in kinds)
     ):
-        raise ValueError("拼接仅支持文本字段与不超过 32 字的分隔符")
+        raise ValueError(tr("backend.workbench_ai_relations.concatenation_supports_only_text_columns_and_a"))
     return (" + " + json.dumps(separator, ensure_ascii=False) + " + ").join(values)
 
 
 def _product_expression(kinds: list[str], target_kind: str, options: dict[str, Any], values: list[str]) -> str:
     precision = options.get("precision", 2 if target_kind == "number" else 0)
     if set(options) - {"precision"} or not has_exact_type(precision, int) or not 0 <= precision <= 8:
-        raise ValueError("乘积需要两个数值字段，精度为 0–8")
+        raise ValueError(tr("backend.workbench_ai_relations.product_requires_two_numeric_columns_and_precision"))
     if (
         len(kinds) != 2
         or any(kind not in {"integer", "number"} for kind in kinds)
         or target_kind not in {"integer", "number"}
     ):
-        raise ValueError("乘积需要两个数值字段，精度为 0–8")
+        raise ValueError(tr("backend.workbench_ai_relations.product_requires_two_numeric_columns_and_precision"))
     if target_kind == "integer" and (precision != 0 or any(kind != "integer" for kind in kinds)):
-        raise ValueError("整数目标需要整数来源")
+        raise ValueError(tr("backend.workbench_ai_relations.an_integer_target_requires_integer_sources"))
     return f"round({values[0]} * {values[1]}, {precision})"
 
 
 def _date_offset_expression(kinds: list[str], target_kind: str, options: dict[str, Any]) -> str:
     days = options.get("days", 0)
     if set(options) - {"days"} or not has_exact_type(days, int) or not -36500 <= days <= 36500:
-        raise ValueError("日期偏移需要相同日期类型，天数为 -36500–36500")
+        raise ValueError(tr("backend.workbench_ai_relations.date_offset_requires_matching_date_types_and"))
     if len(kinds) != 1 or target_kind not in {"date", "datetime"} or kinds[0] != target_kind:
-        raise ValueError("日期偏移需要相同日期类型，天数为 -36500–36500")
+        raise ValueError(tr("backend.workbench_ai_relations.date_offset_requires_matching_date_types_and"))
     return f"value + timedelta(days={days})"
 
 
@@ -134,13 +139,13 @@ def compile_relation(
     target = columns[suggestion.column]
     sources = [columns[name] for name in suggestion.sources]
     if len(set(suggestion.sources)) != len(sources) or suggestion.column in suggestion.sources:
-        raise ValueError("来源不能重复或引用自身")
+        raise ValueError(tr("backend.workbench_ai_relations.the_source_column_is_duplicated_or_does"))
     if any(locked_column(table, col, rules.get(col["name"]), source=True) for col in sources):
-        raise ValueError("来源必须是同一行中可生成的普通或派生字段")
+        raise ValueError(tr("backend.workbench_ai_relations.the_source_must_be_an_ordinary_independently"))
     if not target.get("nullable", True) and any(
         col.get("nullable", True) or (rules.get(col["name"], {}).get("null_ratio") or 0) > 0 for col in sources
     ):
-        raise ValueError("可空来源不能派生为不可空目标")
+        raise ValueError(tr("backend.workbench_ai_relations.a_nullable_source_cannot_silently_become_a"))
     kinds, target_kind = [_kind(col) for col in sources], _kind(target)
     values = ["value"] if len(sources) == 1 else [f"value[{index}]" for index in range(len(sources))]
     expression = _relation_expression(suggestion, kinds, target_kind, values)
@@ -172,7 +177,7 @@ def validate_dags(document: dict[str, Any], schema: dict[str, Any]) -> None:
             else:
                 sources = []
             if not set(sources) <= columns:
-                raise ValueError("派生来源不存在")
+                raise ValueError(tr("backend.workbench_ai_relations.a_relation_source_is_unavailable"))
         ColumnDAG().build({name: GeneratorSpec(generator_name="string") for name in columns}, configs)
 
 
@@ -243,7 +248,11 @@ def _validate_sample_range(table: str, column: str, parsed: ParsedCheck, value: 
         raise SampleCheckError(
             table,
             column,
-            f"生成值不满足 CHECK 下界（{'>' if parsed.min_exclusive else '>='} {parsed.min_value}）",
+            tr(
+                "backend.workbench_ai_relations.the_sample_does_not_satisfy_the_check",
+                p1=">" if parsed.min_exclusive else ">=",
+                p2=parsed.min_value,
+            ),
         )
     if parsed.max_value is not None and (
         value > parsed.max_value or (parsed.max_exclusive and value == parsed.max_value)
@@ -251,7 +260,11 @@ def _validate_sample_range(table: str, column: str, parsed: ParsedCheck, value: 
         raise SampleCheckError(
             table,
             column,
-            f"生成值不满足 CHECK 上界（{'<' if parsed.max_exclusive else '<='} {parsed.max_value}）",
+            tr(
+                "backend.workbench_ai_relations.check_upper_bound",
+                p1="<" if parsed.max_exclusive else "<=",
+                p2=parsed.max_value,
+            ),
         )
 
 
@@ -259,7 +272,9 @@ def _validate_sample_value(table: str, column: str, parsed: ParsedCheck, value: 
     if value is None:
         return  # SQL CHECK accepts UNKNOWN; NOT NULL is checked separately.
     if parsed.kind == "choice" and value not in parsed.choices:
-        raise SampleCheckError(table, column, "生成值不满足 CHECK 候选范围")
+        raise SampleCheckError(
+            table, column, tr("backend.workbench_ai_relations.the_sample_is_outside_the_check_candidate")
+        )
     if parsed.kind == "range":
         _validate_sample_range(table, column, parsed, value)
     if parsed.kind == "length_range" and (
@@ -269,8 +284,13 @@ def _validate_sample_value(table: str, column: str, parsed: ParsedCheck, value: 
         raise SampleCheckError(
             table,
             column,
-            f"生成值长度不满足 CHECK（最少 {parsed.min_length if parsed.min_length is not None else 0}，"
-            f"最多 {parsed.max_length if parsed.max_length is not None else '不限'}）",
+            tr(
+                "backend.workbench_ai_relations.the_sample_length_does_not_satisfy_check",
+                p1=parsed.min_length if parsed.min_length is not None else 0,
+                p2=parsed.max_length
+                if parsed.max_length is not None
+                else tr("backend.workbench_ai_relations.unlimited"),
+            ),
         )
 
 

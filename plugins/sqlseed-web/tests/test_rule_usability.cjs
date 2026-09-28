@@ -122,7 +122,7 @@ test('charset choices use the actual core tokens and preserve imported custom ch
   await ui.choose('charset-preset','字母和数字');assert.equal(ui.changes.at(-1).params.charset,'alphanumeric');
   await ui.choose('charset-preset','自定义');await ui.input('charset','ABC012');
   assert.equal(ui.changes.at(-1).params.charset,'ABC012');
-  const count=ui.changes.length;await ui.input('charset','');assert.equal(ui.changes.length,count);assert.match(ui.validity.at(-1),/字符/);
+  const count=ui.changes.length;await ui.input('charset','');assert.equal(ui.changes.length,count);assert.match(String(ui.validity.at(-1)),/字符/);
 });
 test('generator choices explain their purpose and examples and only recommend without applying',async()=>{
   const ui=harness({column:{name:'sku'},rule:{generator:'string',params:{max_length:12}}});

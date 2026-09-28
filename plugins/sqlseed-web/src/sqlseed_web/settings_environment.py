@@ -18,9 +18,12 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, Request
 
+from sqlseed_web.messages import MessageRoute, message_list
+from sqlseed_web.messages import message as tr
+
 _AI_CONFIG_MODULE = "sqlseed_ai.config"
 
-router = APIRouter(prefix="/api/settings", tags=["settings"])
+router = APIRouter(route_class=MessageRoute, prefix="/api/settings", tags=["settings"])
 
 # The pre-0.2.4 release line lacks the workbench/runtime interfaces. Include
 # development builds from this release line for source and wheel validation.
@@ -43,65 +46,65 @@ _COMPONENTS = {
         "application",
         "required",
         ("faker",),
-        "离线生成、约束处理与数据库写入",
+        tr("backend.settings_environment.offline_generation_constraints_and_database_writes"),
         "sqlseed",
-        "当前应用必需；Faker 是 Core 的必需依赖。",
+        tr("backend.settings_environment.required_by_this_application_faker_is_a"),
     ),
     "web": _ComponentInfo(
         "application",
         "required",
         ("core",),
-        "当前浏览器工作台",
+        tr("backend.settings_environment.the_current_browser_workbench"),
         "sqlseed-web",
-        "当前 Web 应用；安装时会同时安装 Core。",
+        tr("backend.settings_environment.the_current_web_application_installing_it_also"),
     ),
     "ai": _ComponentInfo(
         "extension",
         "optional",
         ("core", "cli"),
-        "根据表结构与业务说明提出规则建议",
+        tr("backend.settings_environment.suggest_rules_from_table_structure_and_business"),
         "sqlseed-web[ai]",
-        "可选 AI 扩展；安装时会同时安装 Core 和 CLI。",
+        tr("backend.settings_environment.optional_ai_extension_installing_it_also_installs"),
     ),
     "cli": _ComponentInfo(
         "extension",
         "optional",
         ("core",),
-        "在终端配置、预览和生成数据",
+        tr("backend.settings_environment.configure_preview_and_generate_data_in_the"),
         "sqlseed-cli",
-        "基础 Web 功能无需 CLI；安装 AI 扩展时会一并安装。",
+        tr("backend.settings_environment.basic_web_features_do_not_require_cli"),
     ),
     "mcp": _ComponentInfo(
         "extension",
         "optional",
         ("core",),
-        "供 MCP 客户端调用规则生成与填充能力",
+        tr("backend.settings_environment.expose_rule_generation_and_data_filling_to"),
         "mcp-server-sqlseed",
-        "供 MCP 客户端使用；依赖 Core，无需 AI 或 CLI。",
+        tr("backend.settings_environment.for_mcp_clients_requires_core_without_ai"),
     ),
     "base": _ComponentInfo(
         "provider",
         "builtin",
         ("core",),
-        "内置基础数据与语义占位值",
+        tr("backend.settings_environment.built_in_basic_values_and_semantic_placeholders"),
         None,
-        "随 Core 内置，无需单独安装。",
+        tr("backend.settings_environment.built_into_core_no_separate_installation_is"),
     ),
     "faker": _ComponentInfo(
         "provider",
         "required",
         (),
-        "姓名、地址等本地化测试数据",
+        tr("backend.settings_environment.localized_test_data_such_as_names_and"),
         "Faker>=30.0",
-        "sqlseed 的必需依赖，随 sqlseed 安装。",
+        tr("backend.settings_environment.required_by_sqlseed_and_installed_with_it"),
     ),
     "mimesis": _ComponentInfo(
         "provider",
         "optional",
         (),
-        "另一种本地化数据实现，可按场景选择",
+        tr("backend.settings_environment.an_alternative_localized_data_implementation"),
         "sqlseed[mimesis]",
-        "按需安装的生成引擎；未安装时仍可使用 Base 和 Faker。",
+        tr("backend.settings_environment.an_optional_generation_engine_base_and_faker"),
     ),
 }
 
@@ -144,9 +147,11 @@ class _Installer:
         commands = [
             {
                 "shell": self.shell,
-                "label": "PowerShell（精确路径）" if self.shell == "powershell" else "macOS / Linux（精确路径）",
+                "label": tr("backend.settings_environment.powershell_exact_path")
+                if self.shell == "powershell"
+                else tr("backend.settings_environment.macos_linux_exact_path"),
                 "command": exact,
-                "note": "直接指定当前 Web 使用的 Python 解释器；完成后重启 Web 服务。",
+                "note": tr("backend.settings_environment.targets_the_exact_python_interpreter_running_web"),
             }
         ]
         # cmd expands %variables% even inside quotes, and !variables! when delayed
@@ -157,9 +162,9 @@ class _Installer:
             commands.append(
                 {
                     "shell": "cmd",
-                    "label": "CMD（精确路径）",
+                    "label": tr("backend.settings_environment.cmd_exact_path"),
                     "command": " ".join('"' + argument + '"' for argument in arguments),
-                    "note": "在 Windows 命令提示符中执行，直接指定当前 Web 的 Python 解释器；完成后重启 Web 服务。",
+                    "note": tr("backend.settings_environment.run_in_windows_command_prompt_targeting_the"),
                 }
             )
         portable = f"python -m pip {action}" if self.tool == "pip" else f"uv pip {action} --python python"
@@ -168,10 +173,9 @@ class _Installer:
         commands.append(
             {
                 "shell": "environment",
-                "label": "通用（已激活环境）",
+                "label": tr("backend.settings_environment.portable_activated_environment"),
                 "command": portable,
-                "note": '先激活运行 Web 的环境，执行 python -c "import sys; print(sys.executable)"，'
-                "确认输出与页面的 Python 路径一致；完成后重启 Web 服务。",
+                "note": tr("backend.settings_environment.activate_the_environment_running_web_run_python"),
             }
         )
         return commands
@@ -184,9 +188,9 @@ class _Installer:
             "python_executable": self.python_executable,
             "available": self.tool is not None,
             "message": (
-                "命令针对当前 Web 使用的 Python 解释器；完成后重启 Web 服务。"
+                tr("backend.settings_environment.commands_target_the_python_interpreter_running_web")
                 if self.tool is not None
-                else "未检测到可用的 pip 或 uv。请使用创建此 Python 环境的工具安装或修复组件，完成后重启 Web 服务。"
+                else tr("backend.settings_environment.no_usable_pip_or_uv_was_detected")
             ),
         }
 
@@ -263,9 +267,9 @@ def ai_import_failure() -> dict[str, Any]:
         status = "import_error"
     installer = _installer()
     message = (
-        "尚未安装 AI 插件，AI 服务检测与规则分析不可用。请在设置的插件页安装 AI；手动配置与生成仍可使用。"
+        tr("backend.settings_environment.the_ai_component_is_not_installed_so")
         if status == "not_installed"
-        else "AI 插件加载异常或版本不兼容，AI 服务检测与规则分析不可用。请在插件页查看修复指引，确认有可安装的兼容版本后再卸载重装。"
+        else tr("backend.settings_environment.the_ai_component_failed_to_load_or")
     )
     return {
         "available": False,
@@ -327,10 +331,10 @@ def package_availability(distribution: str, module: str, *, metadata_only: bool 
     else:
         status = "import_error"
     messages = {
-        "installed": "已安装；服务恢复后验证运行状态",
-        "available": "当前 Python 环境已安装且可导入",
-        "import_error": "已安装，但加载失败或版本不兼容；请在插件页查看修复指引",
-        "not_installed": "当前 Python 环境未安装；请在插件页安装后使用",
+        "installed": tr("backend.settings_environment.installed_runtime_availability_will_be_checked_after"),
+        "available": tr("backend.settings_environment.installed_and_importable_in_the_current_python"),
+        "import_error": tr("backend.settings_environment.installed_but_failed_to_load_or_is"),
+        "not_installed": tr("backend.settings_environment.not_installed_in_the_current_python_environment"),
     }
     return {
         "version": version,
@@ -368,12 +372,16 @@ def _package(
     status = availability["status"]
     guidance = info.guidance
     if status == "import_error":
-        guidance += " 加载异常，请检查运行 Web 的 Python 环境依赖，修复后重启服务。"
+        guidance = message_list(
+            [guidance, tr("backend.settings_environment.loading_failed_repair_dependencies_in_the_python")], ""
+        )
     elif status == "not_installed":
         if info.requirement in {"required", "builtin"}:
-            guidance = "必需依赖缺失，请修复运行 Web 的 Python 环境。" + guidance
+            guidance = message_list(
+                [tr("backend.settings_environment.a_required_dependency_is_missing_repair_the"), guidance], ""
+            )
         else:
-            guidance += " 如需使用，请在运行 Web 的 Python 环境中安装，然后重启服务。"
+            guidance = message_list([guidance, tr("backend.settings_environment.to_use_it_install_it_in_the")], "")
     return {
         "id": identifier,
         "name": name,

@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const {execFileSync} = require('node:child_process');
-const {Element, createDom, loadFrontend} = require('./frontend_helpers.cjs');
+const {Element, createDom, loadFrontend, loadI18n} = require('./frontend_helpers.cjs');
 
 const staticRoot = path.join(__dirname, '../src/sqlseed_web/static');
 const read = name => fs.readFileSync(path.join(staticRoot, name), 'utf8');
@@ -66,7 +66,7 @@ test('every reachable product module resolves without the retired page and form 
   `, '--', ...visited], {encoding: 'utf8', stdio: 'pipe'});
 });
 
-function routerHarness(hash = '', maintenance = false, supervisedMaintenance = false) {
+function routerHarness(hash = '', maintenance = false, supervisedMaintenance = false, options = {}) {
   const document = createDom(), window = new Element('window');
   document.documentElement = new Element('html');
   if (maintenance) document.documentElement.setAttribute('data-plugin-maintenance', 'true');
@@ -76,23 +76,58 @@ function routerHarness(hash = '', maintenance = false, supervisedMaintenance = f
   const nav = new Element('nav'); nav.setAttribute('id', 'nav'); document.body.append(nav);
   for (const name of ['workbench', 'configs', 'runs', 'settings']) {const button = new Element('button'); button.setAttribute('data-page', name); nav.append(button);}
   const connection = new Element('button'); connection.setAttribute('id', 'connection-button'); document.body.append(connection);
-  const store = {connId: null, target: null, tables: []};
+  const label = new Element('span', '连接数据库'); label.setAttribute('id', 'connection-label'); connection.append(label);
+  const api = loadFrontend('api.js', {document, window, ...options.api});
+  const store = api.store;
   const events = [], loads = [], modules = new Map();
   const location = {hash};
   const bindings = {document, window, location, store, Event: class {constructor(type) {this.type = type;}},
     history: {state:null, replaceState: (_state, _title, hash) => {location.hash=hash;}},
-    openConnectionDialog: () => events.push('connect'), setConnBadge: () => {},
+    openConnectionDialog: () => events.push('connect'), setConnBadge: api.setConnBadge,
     __loadPage: async file => {
       loads.push(file);
       if (modules.has(file)) return modules.get(file);
       return {render: () => new Element('section', file), mount: () => events.push(`mount:${file}`), unmount: () => events.push(`unmount:${file}`)};
     },
   };
-  const context = vm.createContext(bindings);
+  const context = vm.createContext({...bindings, ...loadI18n(bindings), loadBackendMessages: async () => options.assets?.promise});
   const code = read('js/app.js').replace(/^import[^\n]+\n/gm, '').replace(/import\((['"][^'"]+['"])\)/g, '__loadPage($1)');
   const ready = vm.runInContext('(async () => {\n' + code + '\n})()', context);
-  return {document, window, location, store, events, loads, modules, connection, context, ready};
+  return {document, window, location, store, events, loads, modules, connection, context, ready, api};
 }
+
+test('the initial connection label follows saved UI language while assets and connection recovery are pending', async () => {
+  const assets = deferred(), connections = deferred(), requests = [];
+  const ui = routerHarness('#/workbench', false, false, {assets, api: {
+    localStorage: {getItem: key => key === 'sqlseed.ui.language' ? 'en' : 'A', setItem() {}, removeItem() {}},
+    fetch: async url => {
+      requests.push(url);
+      return {ok: true, json: async () => url === '/api/connections' ? connections.promise
+        : {target: '/temporary/中文-business.db', tables: [{name: '用户'}]}};
+    },
+  }});
+  const label = ui.document.getElementById('connection-label');
+  assert.equal(label.textContent, 'Connect database');
+  assert.equal(ui.document.title, 'sqlseed · Workbench');
+  assert.equal(ui.document.documentElement.getAttribute('lang'), 'en');
+  assert.deepEqual(ui.loads, []);
+  assert.deepEqual(requests, []);
+  ui.modules.set('./pages/workbench.js', {render: () => new Element('section'), mount: ui.api.restoreConnection});
+  assets.resolve(); await flush();
+  assert.deepEqual(requests, ['/api/connections']);
+  assert.equal(label.textContent, 'Connect database');
+  ui.context.setLanguage('zh-CN', {persist: false});
+  assert.equal(label.textContent, '连接数据库');
+  assert.equal(ui.document.title, 'sqlseed · 工作台');
+  assert.equal(ui.document.getElementById('connection-label'), label);
+  assert.deepEqual(requests, ['/api/connections']);
+  connections.resolve({connections: [{conn_id: 'A'}]}); await ui.ready;
+  assert.equal(ui.store.connId, 'A');
+  assert.equal(label.textContent, '中文-business.db');
+  ui.context.setLanguage('en', {persist: false});
+  assert.equal(label.textContent, '中文-business.db');
+  assert.deepEqual(requests, ['/api/connections', '/api/connections/A/tables']);
+});
 
 test('empty and retired routes open the workbench and never load retired page modules', async () => {
   for (const hash of ['', '#/connect', '#/wizard', '#/browse', '#/heal', '#/meta']) {
@@ -285,7 +320,8 @@ test('late startup restoration cannot replace a newer explicit connection', asyn
     localStorage: {getItem: () => 'A', removeItem() {}},
     fetch: async url => ({ok: true, json: async () => url === '/api/connections' ? {connections: [{conn_id: 'A'}]} : gate.promise}),
   });
-  vm.runInContext(read('js/api.js').replace(/^export /gm, ''), context);
+  Object.assign(context, loadI18n({document: context.document}));
+  vm.runInContext(read('js/api.js').replace(/^import[^\n]+\n/gm, '').replace(/^export /gm, ''), context);
   const pending = vm.runInContext('restoreConnection()', context); await flush();
   vm.runInContext("store.connId='B';store.target='new.db';store.tables=[{name:'new'}]", context);
   gate.resolve({target: '/temporary/old.db', tables: [{name: 'old'}]}); await pending;

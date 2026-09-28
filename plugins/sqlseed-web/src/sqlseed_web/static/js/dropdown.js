@@ -16,16 +16,20 @@
 //   dd.close()                     // 宿主隐藏分区时关闭，不提交或移动焦点
 
 import { h, clear } from './api.js';
+import {tr, setText, setAttr, onLanguageChange} from './i18n.js';
+import './i18n/messages/shell.js';
 let dropdownSequence = 0;
 export function createDropdown({
   value = '',
   options = [],
   onChange,
-  placeholder = '— 选择 —',
+  placeholder = null,
   width,
   label,
   labelledBy
 }) {
+  const implicitPlaceholder = placeholder === null;
+  placeholder ??= tr('shell.choose');
   function navigateOptions(e, expanded, move, printable) {
     const enabled = enabledIndices();
     const position = enabled.indexOf(state.active);
@@ -95,7 +99,7 @@ export function createDropdown({
     searchText = '',
     searchTime = 0,
     destroyed = false;
-  let generatedLabel = label || (placeholder === '— 选择 —' ? '选择选项' : placeholder);
+  let generatedLabel = label || (implicitPlaceholder ? tr('shell.chooseOption') : placeholder);
   const btn = h('button', {
     class: 'dropdown-btn',
     type: 'button',
@@ -128,7 +132,7 @@ export function createDropdown({
     type: 'button',
     tabindex: -1,
     hidden: true,
-    'aria-label': direction < 0 ? '向上滚动选项' : '向下滚动选项',
+    'aria-label': tr(direction < 0 ? 'shell.scrollUp' : 'shell.scrollDown'),
     'aria-controls': panel.id,
     onmousedown: event => event.preventDefault(),
     onclick: () => {
@@ -174,13 +178,16 @@ export function createDropdown({
     if (btn.getAttribute('aria-labelledby')) {
       return;
     }
-    if (btn.getAttribute('aria-label') !== generatedLabel) {
+    if (btn.getAttribute('aria-label') !== String(generatedLabel)) {
       return;
     }
     const wrapper = el.closest('label');
+    // Explicit message bindings are independent of DOM binding order. Captions
+    // inherited from a host are read after language bindings finish, in the
+    // language-change listener below, rather than from another live binding.
     const wrappedLabel = wrapper ? [...wrapper.childNodes].filter(node => node !== el).map(node => node.textContent).join('').trim() : '';
-    generatedLabel = el.getAttribute('aria-label') || wrappedLabel || label || generatedLabel;
-    btn.setAttribute('aria-label', generatedLabel);
+    generatedLabel = el.getAttribute('aria-label') || label || wrappedLabel || generatedLabel;
+    setAttr(btn, 'aria-label', generatedLabel);
   }
   function onKey(e) {
     // 浮层已移出宿主容器；宿主异步禁用或移除入口后，不能继续提交旧选项。
@@ -415,7 +422,7 @@ export function createDropdown({
       btn.removeAttribute('aria-activedescendant');
       panel.append(h('div', {
         class: 'dropdown-empty muted'
-      }, '（无选项）'));
+      }, tr('shell.noOptions')));
       return;
     }
     // 选项可带 group 字段（如生成器分类）：组名变化时插入不可点击的组标题。
@@ -452,7 +459,7 @@ export function createDropdown({
   }
   function renderBtn() {
     const current = state.options.find(o => o.value === state.value);
-    btn.querySelector('.dropdown-btn-label').textContent = current ? current.label : placeholder;
+    setText(btn.querySelector('.dropdown-btn-label'), current ? current.label : placeholder);
   }
   function set(v) {
     state.value = v;
@@ -480,6 +487,10 @@ export function createDropdown({
   state.value = value;
   state.options = options;
   renderBtn();
+  const stopLanguageSync = onLanguageChange(() => {
+    syncName();
+    if (el.classList.contains('open')) reposition();
+  });
 
   /**
    * 彻底注销监听器。宿主（如 genform）重绘并丢弃本组件时必须调用——
@@ -491,6 +502,7 @@ export function createDropdown({
     document.removeEventListener('click', onLabelClick, true);
     btn.removeEventListener('keydown', onKey);
     btn.removeEventListener('focus', syncName);
+    stopLanguageSync();
   }
   return {
     el,

@@ -1,0 +1,309 @@
+{
+  "preview": {
+    "unsupported": [
+      "当前范围包含未支持的跨表循环：{tables}。这不是预览行数错误，原样重试无法生成新样例。已显示的其他表样例仍可查看。",
+      "This scope contains an unsupported cross-table cycle: {tables}. This is not a preview row-count error; retrying unchanged cannot generate new samples. Other samples already displayed remain available."
+    ],
+    "unsupportedStatus": ["当前范围不支持生成新样例", "New samples are unavailable for this scope"],
+    "unsupportedAction": ["当前范围无法预览", "Preview unavailable for this scope"],
+    "unsupportedEmpty": [
+      "当前范围的跨表循环尚不受支持，本次未生成 {table} 的新样例。数据库现有记录不受影响。",
+      "This scope contains an unsupported cross-table cycle. No new samples were generated for {table}. Existing database records are unaffected."
+    ],
+    "unsupportedReason": ["查看无法生成的原因", "View why generation is unavailable"],
+    "currentData": ["查看 {table} 当前数据", "View current data in {table}"],
+    "currentDataHelp": ["只读查看数据库已有记录，不是生成样例，也不会写入数据库。", "Read existing database records only. These are not generated samples, and nothing is written."],
+    "loading": [
+      "正在生成预览数据…",
+      "Generating preview samples…"
+    ],
+    "updatingStale": [
+      "正在更新；规则已改变，当前为旧样例。",
+      "Updating; rules have changed and the displayed samples are outdated."
+    ],
+    "updating": [
+      "正在更新，当前为上次结果。",
+      "Updating; the previous results remain visible."
+    ],
+    "selectedTitle": [
+      "预览已选表",
+      "Preview selected tables"
+    ],
+    "title": [
+      "预览数据",
+      "Preview samples"
+    ],
+    "intro": [
+      "按当前规则生成临时记录，不写入数据库。正式生成时会重新取值。",
+      "Generate temporary samples using the current rules without writing to the database. Values are generated again when you run the configuration."
+    ],
+    "initialHint": [
+      "点击“生成预览”查看当前规则的效果。",
+      "Choose Generate preview to see the current rules in action."
+    ],
+    "switchTable": [
+      "切换预览表",
+      "Switch preview table"
+    ],
+    "relationsLabel": [
+      "当前预览表的关联关系",
+      "Relationships for the current preview table"
+    ],
+    "records": [
+      "预览记录",
+      "Preview records"
+    ],
+    "scope": [
+      "预览范围",
+      "Preview scope"
+    ],
+    "count": [
+      "每表预览行数",
+      "Preview rows per table"
+    ],
+    "currentTable": [
+      "当前表 · {table}",
+      "Current table · {table}"
+    ],
+    "none": [
+      "未选择",
+      "Not selected"
+    ],
+    "selectedTables": [
+      "已选表 · {count} 张",
+      "Selected tables · {count}"
+    ],
+    "invalidCount": [
+      "每表预览行数必须是 1–100 之间的整数。",
+      "Preview rows per table must be an integer from 1 to 100."
+    ],
+    "changed": [
+      "设置已改变，请重新预览。",
+      "Settings changed. Generate a new preview."
+    ],
+    "allocated": [
+      "数据库分配",
+      "Database-assigned"
+    ],
+    "computed": [
+      "数据库计算",
+      "Database-computed"
+    ],
+    "unavailable": [
+      "暂不可预览",
+      "Preview unavailable"
+    ],
+    "sourceCount": [
+      "{value} 个来源",
+      {
+        "one": "{value} source",
+        "other": "{value} sources"
+      }
+    ],
+    "targetCount": [
+      "{value} 个目标",
+      {
+        "one": "{value} target",
+        "other": "{value} targets"
+      }
+    ],
+    "selfCount": [
+      "{value} 条自引用",
+      {
+        "one": "{value} self-reference",
+        "other": "{value} self-references"
+      }
+    ],
+    "relationSummary": [
+      "{table} 的关联关系 · {facts}",
+      "Relationships for {table} · {facts}"
+    ],
+    "missingFields": [
+      "字段未提供",
+      "Fields not provided"
+    ],
+    "external": [
+      "外部或不可用表 · 只读",
+      "External or unavailable table · Read-only"
+    ],
+    "generating": [
+      "本次生成",
+      "This generation"
+    ],
+    "referenceExisting": [
+      "仅引用已有数据",
+      "References existing data only"
+    ],
+    "excluded": [
+      "未选，不在本次生成范围",
+      "Not selected; excluded from this generation"
+    ],
+    "noSamples": [
+      " · 尚无预览记录",
+      " · No preview records yet"
+    ],
+    "viewTable": [
+      "查看 {table} 预览",
+      "View {table} preview"
+    ],
+    "parentSources": [
+      "父表来源",
+      "Parent sources"
+    ],
+    "childTargets": [
+      "引用本表的子表",
+      "Child tables referencing this table"
+    ],
+    "selfReferences": [
+      "本表自引用",
+      "Self-references"
+    ],
+    "relationHint": [
+      "这里展示外键结构与生成范围，箭头由来源指向引用方。同组字段共同构成一条外键；各表样例不是逐行配对，不能据此推断 ID 对应。",
+      "Shows foreign-key structure and generation scope, with arrows from source to referencing table. Grouped columns form one foreign key. Samples from different tables are not paired row by row and do not establish matching IDs."
+    ],
+    "nullable": [
+      "允许 NULL",
+      "NULL allowed"
+    ],
+    "fieldInfo": [
+      "查看 {table}.{column} 的字段信息",
+      "View field information for {table}.{column}"
+    ],
+    "viewField": [
+      "查看字段信息",
+      "View field information"
+    ],
+    "ruleLabel": [
+      "规则：{rule}",
+      "Rule: {rule}"
+    ],
+    "valueRule": [
+      "取值规则",
+      "Value rule"
+    ],
+    "editRule": [
+      "调整 {table}.{column} 的生成规则",
+      "Edit the generation rule for {table}.{column}"
+    ],
+    "adjustRule": [
+      "调整生成规则",
+      "Edit generation rule"
+    ],
+    "structure": [
+      "数据库结构",
+      "Database structure"
+    ],
+    "rowCount": [
+      "{table} · 实际展示 {rows} 行 · 每表最多 {limit} 行",
+      "{table} · Rows shown: {rows} · Per-table limit: {limit}"
+    ],
+    "dependencyNotReady": [
+      "本表暂未返回可预览记录，关联依赖数据可能尚未就绪。请查看依赖检查及上方提示。",
+      "No preview records were returned for this table; related dependency data may not be ready. Review the dependency check and the notices above."
+    ],
+    "incompleteTable": [
+      "本表预览未完成，请处理上方提示后重新预览。",
+      "This table’s preview is incomplete. Resolve the notices above and generate a new preview."
+    ],
+    "emptyTable": [
+      "本表未返回预览记录。",
+      "No preview records were returned for this table."
+    ],
+    "caption": [
+      "{table} · 预览记录",
+      "{table} · Preview records"
+    ],
+    "scrollLabel": [
+      "{table} 预览数据，可横向滚动",
+      "Preview samples for {table}; scroll horizontally"
+    ],
+    "issue": [
+      "预览存在待处理项",
+      "The preview has issues to resolve"
+    ],
+    "configChanged": [
+      "配置已变化，请重新打开预览。",
+      "The configuration changed. Reopen the preview."
+    ],
+    "selectTables": [
+      "请先勾选需要预览的表，或切换到当前表。",
+      "Select tables to preview, or switch to the current table."
+    ],
+    "selectCurrent": [
+      "请先选择当前表。",
+      "Select a current table first."
+    ],
+    "expired": [
+      "配置已变化或结果已过期，请重新打开预览。",
+      "The configuration changed or the results expired. Reopen the preview."
+    ],
+    "oldResult": [
+      "当前为上次结果，请重新打开预览。",
+      "Previous results are shown. Reopen the preview."
+    ],
+    "invalidConfiguration": [
+      "每表预览 {value} 行符合 1–100 的范围；当前被正式生成配置中的无效输入阻止：{detail}。请先修正配置，再重新预览。",
+      {
+        "one": "The preview limit of {value} row per table is within 1–100. Invalid input in the generation configuration is blocking it: {detail}. Correct the configuration, then preview again.",
+        "other": "The preview limit of {value} rows per table is within 1–100. Invalid input in the generation configuration is blocking it: {detail}. Correct the configuration, then preview again."
+      }
+    ],
+    "fixCount": [
+      "修正 {table} 生成数量",
+      "Fix the generation count for {table}"
+    ],
+    "failedStale": [
+      "更新失败；规则已改变，当前为旧样例，请重新预览。",
+      "Update failed. Rules changed and the displayed samples are outdated; preview again."
+    ],
+    "failedPrevious": [
+      "更新失败，当前为上次结果，可重新预览。",
+      "Update failed. Previous results remain visible; you can retry."
+    ],
+    "fixConfiguration": [
+      "请先修正正式生成配置；预览行数无需修改。",
+      "Correct the generation configuration first; the preview row limit does not need to change."
+    ],
+    "retry": [
+      "预览未完成，可重试。",
+      "Preview incomplete. You can retry."
+    ],
+    "oldConfigChanged": [
+      "当前为上次结果，配置已变化。",
+      "Previous results are shown; the configuration changed."
+    ],
+    "refresh": [
+      "重新预览",
+      "Refresh preview"
+    ],
+    "issueHint": [
+      "预览存在待处理项，请查看下方提示。",
+      "The preview has issues to resolve. Review the notices below."
+    ],
+    "partial": [
+      "已展示可预览数据；部分关联记录需等待依赖数据就绪。",
+      "Available samples are shown. Some related records require dependency data to be ready."
+    ],
+    "updated": [
+      "预览数据已更新，数据库未写入。",
+      "Preview samples updated. Nothing was written to the database."
+    ],
+    "generate": [
+      "生成预览",
+      "Generate preview"
+    ],
+    "countHint": [
+      "每表最多预览 1–100 行，且不超过该表配置的生成数量；此设置不会修改正式生成行数。",
+      "Preview 1–100 rows per table, up to its configured generation count. This setting does not change how many rows will be generated."
+    ],
+    "initialStale": [
+      "规则已改变，当前为旧样例，请重新预览。",
+      "Rules changed. These samples are outdated; generate a new preview."
+    ],
+    "initialResult": [
+      "上次预览结果；重新预览可更新取值。",
+      "Previous preview results; refresh the preview for new values."
+    ]
+  }
+}

@@ -1,6 +1,28 @@
 import { setConnBadge, store } from './api.js';
 import { openConnectionDialog } from './workbench/connection.js';
 import './tab-motion.js';
+import {createDropdown} from './dropdown.js';
+import {tr, t, setText, setAttr, getLanguage, setLanguage, onLanguageChange, loadBackendMessages, errorText} from './i18n.js';
+import './i18n/messages/shell.js';
+
+const languageHost = document.getElementById('language-control');
+if (languageHost) {
+  const control = createDropdown({label: tr('shell.language'), value: getLanguage(),
+    options: [{value: 'zh-CN', label: '简体中文'}, {value: 'en', label: 'English'}],
+    onChange: value => setLanguage(value)});
+  languageHost.append(control.el);
+  onLanguageChange(value => { if (control.get() !== value) control.set(value); });
+}
+setAttr(document.getElementById('nav'), 'aria-label', tr('shell.navigation'));
+document.querySelectorAll('#nav button').forEach(button => {
+  let caption = button.querySelector('[data-nav-label]');
+  if (!caption) {
+    caption = document.createElement('span');
+    caption.dataset.navLabel = '';
+    button.append(caption);
+  }
+  setText(caption, tr(`shell.${button.dataset.page}`));
+});
 
 // Retired connect/wizard/browse/heal/meta modules remain historical source only.
 // Product navigation mounts the unified workbench or durable run history.
@@ -16,6 +38,13 @@ let committedPage = null;
 let routeConnectionId = store.connId;
 const maintenance = document.documentElement?.dataset.pluginMaintenance === 'true';
 const initialRecovery = document.documentElement?.dataset.pluginSupervisedMaintenance === 'true';
+let titlePage = 'workbench';
+function updateTitle() {
+  const titleKey = maintenance ? 'shell.maintenance' : `shell.${titlePage}`;
+  document.title = `sqlseed · ${t(titleKey)}`;
+}
+onLanguageChange(updateTitle);
+updateTitle();
 async function render() {
   const version = ++routeVersion;
   currentModule?.unmount?.();
@@ -33,12 +62,8 @@ async function render() {
   if ((maintenance || recovering) && location.hash !== '#/settings?section=plugins') {
     location.hash = '#/settings?section=plugins';
   }
-  document.title = maintenance ? 'sqlseed · 插件维护' : `sqlseed · ${{
-    workbench: '工作台',
-    configs: '配置管理',
-    runs: '运行记录',
-    settings: '设置'
-  }[page]}`;
+  titlePage = page;
+  updateTitle();
   const main = document.getElementById('app');
   document.querySelectorAll('#nav button').forEach(button => {
     const active = button.dataset.page === page;
@@ -68,7 +93,7 @@ async function render() {
     }
   } catch (error) {
     if (version === routeVersion) {
-      main.textContent = `页面加载失败：${error.message}`;
+      setText(main, tr('shell.loadingFailed', {detail: errorText(error)}));
     }
   }
 }
@@ -85,6 +110,8 @@ document.querySelectorAll('#nav button').forEach(button => {
 const connectionButton = document.getElementById('connection-button');
 connectionButton.hidden = maintenance;
 connectionButton.disabled = maintenance;
+// Bind the initial shell before language assets or connection recovery finish.
+setConnBadge();
 connectionButton.onclick = () => {
   if (!maintenance) {
     openConnectionDialog({});
@@ -105,4 +132,5 @@ window.addEventListener('sqlseed:connection-changed', event => {
     render();
   }
 });
+await loadBackendMessages();
 await render();

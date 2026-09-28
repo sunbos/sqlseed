@@ -13,6 +13,7 @@ from typing import Any
 from fastapi import HTTPException
 
 from sqlseed_web.managed_worker import run_worker
+from sqlseed_web.messages import message as tr
 from sqlseed_web.plugin_environment import InheritedEnvironmentLock
 from sqlseed_web.plugin_management import ExecuteRequest, PlanRequest
 from sqlseed_web.supervised_plugins import SupervisedPluginManager
@@ -40,7 +41,7 @@ class Supervisor:
         if self.manager.environment.reason is None:
             self.manager.start()
         if self.manager.environment.reason is None and self.manager._environment_lock is None:
-            raise RuntimeError("此 Python 环境正被另一个 Web 服务使用，无法启动受管服务。")
+            raise RuntimeError(tr("backend.supervisor.another_web_service_is_using_this_python"))
         listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
@@ -58,7 +59,7 @@ class Supervisor:
 
     def _request(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         if self.channel is None:
-            raise RuntimeError("业务进程暂不可用。")
+            raise RuntimeError(tr("backend.supervisor.the_application_process_is_temporarily_unavailable"))
         try:
             return self.channel.call(method, params or {})
         except ControlError as exc:
@@ -83,7 +84,7 @@ class Supervisor:
 
     def _spawn(self, mode: str) -> dict[str, Any]:
         if self.listener is None:
-            raise RuntimeError("服务监听端口不可用。")
+            raise RuntimeError(tr("backend.supervisor.the_service_listening_port_is_unavailable"))
         self._ready.clear()
         self._restoration = {}
         context = multiprocessing.get_context("spawn")
@@ -120,7 +121,7 @@ class Supervisor:
                 process.join(timeout=3)
                 channel.close()
                 self.channel, self.process, self.mode = None, None, None
-                raise RuntimeError("业务服务启动未完成，请在页面重试恢复。")
+                raise RuntimeError(tr("backend.supervisor.application_startup_did_not_complete_retry_recovery"))
         if mode == "business":
             self._request("resume")
         return dict(self._restoration)
@@ -140,14 +141,20 @@ class Supervisor:
                 self._shutdown_requested = True
             process.join(timeout=20)
             if process.is_alive():
-                raise RuntimeError("业务进程尚未自然退出，未执行环境变更。")
+                raise RuntimeError(tr("backend.supervisor.the_application_process_has_not_exited_naturally"))
         if self.channel is not None:
             self.channel.close()
         self.channel, self.process, self.mode = None, None, None
 
     def pause(self) -> None:
         if self.mode != "business":
-            raise HTTPException(409, detail={"code": "service_not_ready", "message": "业务服务尚未就绪。"})
+            raise HTTPException(
+                409,
+                detail={
+                    "code": "service_not_ready",
+                    "message": tr("backend.supervisor.the_application_is_not_ready_yet"),
+                },
+            )
         self._session = self._request("prepare")
         self._session_lost = False
 
@@ -183,7 +190,10 @@ class Supervisor:
     def _lost_session_summary(self) -> dict[str, Any]:
         if not self._session_lost:
             return {}
-        return {"session_lost": True, "message": "业务进程意外退出，原有连接与会话密钥需要重新配置。"}
+        return {
+            "session_lost": True,
+            "message": tr("backend.supervisor.the_application_process_stopped_unexpectedly_reconfigure_connections"),
+        }
 
     def ensure_worker(self) -> None:
         """Keep a recovery page available after an unexpected worker exit."""

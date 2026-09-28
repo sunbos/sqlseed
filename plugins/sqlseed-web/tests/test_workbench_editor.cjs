@@ -68,7 +68,7 @@ function harness(options = {}) {
     assert.ok(item, `Missing option ${label}`);
     await item.click();
   }
-  return {document, editor, changes, validity, field, input, choose};
+  return {document, context, editor, changes, validity, field, input, choose};
 }
 
 test('parameter edits preserve full ColumnConfig and normalize GeneratorSpec aliases', async () => {
@@ -89,10 +89,33 @@ test('parameter edits preserve full ColumnConfig and normalize GeneratorSpec ali
   assert.equal(rule.params.max_value, 9);
 });
 
+test('changing UI language preserves invalid rule drafts, focus and configuration while labels and errors update', async () => {
+  const ui = harness({column:{name:'金额'},rule:{generator:'integer',params:{min_value:1,max_value:10}}});
+  const input = await ui.input('min_value','20');
+  ui.document.activeElement=input; input.selectionStart=1; input.selectionEnd=2;
+  const before=plain(ui.editor.getDraft());
+  const invalid=ui.validity.at(-1);
+  assert.match(String(invalid),/不能大于/);
+  ui.context.setLanguage('en');
+  assert.equal(ui.field('min_value'),input);
+  assert.equal(input.value,'20'); assert.equal(input.selectionStart,1); assert.equal(input.selectionEnd,2);
+  assert.equal(ui.document.activeElement,input);
+  assert.match(String(invalid),/must not exceed/);
+  assert.match(ui.editor.el.textContent,/Minimum.*must not exceed.*Maximum/);
+  assert.equal(input.getAttribute('aria-invalid'),'true');
+  assert.equal(ui.field('generator-search').getAttribute('placeholder'),'Find generators');
+  assert.deepEqual(plain(ui.editor.getDraft()),before);
+  assert.equal(ui.changes.length,0);
+  ui.context.setLanguage('zh-CN');
+  assert.match(String(invalid),/不能大于/);
+  assert.equal(ui.field('min_value'),input);
+  assert.deepEqual(Array.from(ui.context.missingMessages()),[]);
+});
+
 test('invalid JSON stays visible and blocks changes from all controls until repaired', async () => {
   const ui = harness({rule: {generator: 'json', params: {schema: {type: 'integer'}}}});
   const field = await ui.input('schema', '{');
-  assert.match(ui.validity.at(-1), /JSON/);
+  assert.match(String(ui.validity.at(-1)), /JSON/);
   assert.equal(field.value, '{');
   await ui.input('unique', true, 'change');
   assert.equal(ui.changes.length, 0);
@@ -105,14 +128,14 @@ test('invalid JSON stays visible and blocks changes from all controls until repa
 
 test('required parameters and integral numeric fields reject incomplete drafts', async () => {
   const ui = harness({rule: {generator: 'choice', params: {}}});
-  assert.match(ui.validity.at(-1), /候选值|choices/);
+  assert.match(String(ui.validity.at(-1)), /候选值|choices/);
   await ui.input('choices', '[1, 2]');
   assert.equal(ui.validity.at(-1), null);
   assert.deepEqual(ui.changes.at(-1).params.choices, [1, 2]);
   await ui.choose('generator', 'integer');
   const count = ui.changes.length;
   await ui.input('min_value', '1.2');
-  assert.match(ui.validity.at(-1), /整数/);
+  assert.match(String(ui.validity.at(-1)), /整数/);
   assert.equal(ui.changes.length, count);
   await ui.input('min_value', '2');
   assert.equal(ui.changes.at(-1).params.min_value, 2);
@@ -123,7 +146,7 @@ for (const [generator, low, high, type] of [['integer','min_value','max_value','
     const rangeCatalog = {entries:[{id:generator,params:[parameter(low,type,0),parameter(high,type,100)]}]};
     const ui = harness({catalog:rangeCatalog,rule:{generator,params:{[low]:1,[high]:10}}});
     await ui.input(low,'20');
-    assert.equal(ui.changes.length,0); assert.match(ui.validity.at(-1),/不能大于/);
+    assert.equal(ui.changes.length,0); assert.match(String(ui.validity.at(-1)),/不能大于/);
     for(const name of [low,high]) {
       assert.equal(ui.field(name).getAttribute('aria-invalid'),'true');
       assert.match(ui.document.getElementById(ui.field(name).getAttribute('aria-describedby')).textContent,/不能大于/);
@@ -132,7 +155,7 @@ for (const [generator, low, high, type] of [['integer','min_value','max_value','
     assert.equal(draft.config.params[low],1);assert.equal(draft.current.params[low],20);
     assert.equal(draft.invalidValues[low],'20');
     const reopened=harness({catalog:rangeCatalog,draft});
-    assert.match(reopened.validity.at(-1),/不能大于/);assert.equal(reopened.field(low).value,'20');
+    assert.match(String(reopened.validity.at(-1)),/不能大于/);assert.equal(reopened.field(low).value,'20');
     await reopened.input(high,'20');
     assert.equal(reopened.validity.at(-1),null);assert.equal(reopened.field(low).getAttribute('aria-invalid'),null);
     assert.equal(reopened.field(high).getAttribute('aria-describedby'),null);
@@ -143,11 +166,11 @@ for (const [generator, low, high, type] of [['integer','min_value','max_value','
 
 test('range validation uses omitted metadata defaults, skips overridden native methods and clears after generator changes',async()=>{
   const ui=harness({rule:{generator:'integer',params:{min_value:1000000}}});
-  assert.match(ui.validity.at(-1),/不能大于/);
+  assert.match(String(ui.validity.at(-1)),/不能大于/);
   await ui.input('max_value','1000000');assert.equal(ui.validity.at(-1),null);
-  await ui.input('max_value','');assert.match(ui.validity.at(-1),/不能大于/);
+  await ui.input('max_value','');assert.match(String(ui.validity.at(-1)),/不能大于/);
   await ui.input('faker_method','random_int');assert.equal(ui.validity.at(-1),null);
-  await ui.input('faker_method','');assert.match(ui.validity.at(-1),/不能大于/);
+  await ui.input('faker_method','');assert.match(String(ui.validity.at(-1)),/不能大于/);
   await ui.choose('generator','string');assert.equal(ui.validity.at(-1),null);
   assert.equal(ui.changes.at(-1).generator,'string');
 });
@@ -156,11 +179,11 @@ test('time bounds reject reverse windows only when active, while reversed dates 
   const dateCatalog={entries:[{id:'datetime',params:[parameter('start_date','string',null),parameter('end_date','string',null),
     parameter('start_time','string',null),parameter('end_time','string',null),parameter('all_day','boolean',false)]}]};
   const ui=harness({catalog:dateCatalog,rule:{generator:'datetime',params:{start_date:'2026-12-31',end_date:'2026-01-01',start_time:'20:00',end_time:'10:00'}}});
-  assert.match(ui.validity.at(-1),/不能大于/);
+  assert.match(String(ui.validity.at(-1)),/不能大于/);
   assert.equal(ui.field('start_date').getAttribute('aria-invalid'),null);
   await ui.input('all_day',true,'change');assert.equal(ui.validity.at(-1),null);
   assert.equal(ui.field('start_time').getAttribute('aria-invalid'),null);
-  await ui.input('all_day',false,'change');assert.match(ui.validity.at(-1),/不能大于/);
+  await ui.input('all_day',false,'change');assert.match(String(ui.validity.at(-1)),/不能大于/);
   await ui.input('end_time','20:00:00');assert.equal(ui.validity.at(-1),null);
   assert.equal(ui.changes.at(-1).params.start_time,'20:00');
 });
@@ -213,6 +236,51 @@ test('schema grouped FK owns its source, sampling and nullable controls', async 
   });
 });
 
+test('self-reference NULL controls keep checked state and fractional configuration while explaining probability and application',async()=>{
+  const ui=harness({column:{name:'parent_id'},table:{name:'categories',foreign_keys:[{
+    id:'parent',columns:['parent_id'],ref_table:'categories',ref_columns:['id'],nullable:true,
+  }]},rule:{generator:'foreign_key_or_integer',params:{strategy:'random'}}});
+  const checkbox=ui.field('nullable'),ratio=ui.field('null_ratio');
+  assert.equal(Boolean(checkbox.checked),false);assert.equal(ratio.disabled,true);
+  assert.equal(ratio.closest('.wb-editor-row').hidden,true);
+  await ui.input('nullable',true,'change');
+  assert.equal(checkbox.checked,true);assert.equal(ratio.disabled,false);assert.equal(ratio.value,'5');
+  assert.equal(ui.changes.at(-1).null_ratio,0.05);
+  assert.match(ui.editor.el.textContent,/每条记录的概率.*少量预览可能没有 NULL.*应用修改后重新预览/);
+  assert.match(ui.editor.el.textContent,/空表预览可能全部为 NULL.*回填.*不能保证.*100% NULL/);
+  await ui.input('null_ratio','12.5');assert.equal(ui.changes.at(-1).null_ratio,0.125);
+  const draft=plain(ui.editor.getDraft()),changeCount=ui.changes.length;
+  ui.context.setLanguage('en');
+  assert.equal(ui.field('nullable'),checkbox);assert.equal(checkbox.checked,true);assert.equal(ratio.value,'12.5');
+  assert.match(ui.editor.el.textContent,/per-record probability, not a fixed count.*Apply your changes/);
+  assert.equal(ui.changes.length,changeCount);assert.deepEqual(plain(ui.editor.getDraft()),draft);
+  const restored=harness({column:{name:'parent_id'},table:{name:'categories',foreign_keys:[{
+    id:'parent',columns:['parent_id'],ref_table:'categories',ref_columns:['id'],nullable:true,
+  }]},draft});
+  assert.equal(restored.field('nullable').checked,true);assert.equal(restored.field('null_ratio').value,'12.5');
+  await restored.input('nullable',false,'change');
+  assert.equal(restored.field('null_ratio').disabled,true);assert.equal(restored.field('null_ratio').closest('.wb-editor-row').hidden,true);
+  assert.equal(restored.changes.at(-1).null_ratio,undefined);
+});
+
+test('the real composite warehouse-bin self-reference never promises single-column initialization or backfill',async()=>{
+  const fixture=require('./complex_business_graph.json');
+  const edge=fixture.edges.find(item=>item.source==='warehouse_bins' && item.target==='warehouse_bins');
+  const table=fixture.tables.find(item=>item.name==='warehouse_bins');
+  const ui=harness({column:{name:'parent_code',type:'TEXT',nullable:true},table:{...structuredClone(table),foreign_keys:[{
+    id:edge.id,columns:edge.targetColumns,ref_table:edge.source,ref_columns:edge.sourceColumns,nullable:edge.nullable,
+  }]},rule:{generator:'foreign_key_or_integer',params:{strategy:'random'}}});
+  assert.match(ui.editor.el.textContent,/复合外键.*warehouse_id, parent_code/);
+  assert.match(ui.editor.el.textContent,/本表没有可用引用键时.*不支持初始化.*NULL 百分比.*不能解除/);
+  assert.doesNotMatch(ui.editor.el.textContent,/先留空，再回填|100% NULL 会保持全部留空/);
+  await ui.input('nullable',true,'change');assert.equal(ui.changes.at(-1).null_ratio,0.05);
+  const before=plain(ui.editor.getDraft());ui.context.setLanguage('en');
+  assert.match(ui.editor.el.textContent,/composite self-reference requires a complete, valid key group/);
+  assert.match(ui.editor.el.textContent,/cannot initialize.*no usable reference keys/);
+  assert.doesNotMatch(ui.editor.el.textContent,/then fills some references/);
+  assert.deepEqual(plain(ui.editor.getDraft()),before);assert.equal(ui.field('nullable').checked,true);
+});
+
 test('derived editing validates references, preserves constraints and excludes source fields', async () => {
   const ui = harness({rule: {generator: 'integer', params: {min_value: 1}, constraints: {unique: true}}});
   await ui.choose('mode', '派生');
@@ -228,7 +296,7 @@ test('derived editing validates references, preserves constraints and excludes s
   const count = ui.changes.length;
   await ui.input('derive_from', 'missing');
   assert.equal(ui.changes.length, count);
-  assert.match(ui.validity.at(-1), /不存在/);
+  assert.match(String(ui.validity.at(-1)), /不存在/);
 });
 
 test('advanced JSON constraints keep invalid text and accept full constraint options', async () => {
@@ -239,7 +307,7 @@ test('advanced JSON constraints keep invalid text and accept full constraint opt
   await ui.input('constraints', '[]');
   assert.equal(node.value, '[]');
   assert.equal(ui.changes.length, count);
-  assert.match(ui.validity.at(-1), /JSON 对象/);
+  assert.match(String(ui.validity.at(-1)), /JSON 对象/);
 });
 
 test('weekday metadata uses semantic controls and retains an explicit selection', async () => {
@@ -259,7 +327,7 @@ test('empty custom weekdays expose an invalid group and recover through selectio
   assert.equal(group.getAttribute('role'), 'group');
   assert.equal(group.getAttribute('aria-label'), '可生成的星期');
   assert.equal(group.getAttribute('aria-invalid'), 'true');
-  assert.match(ui.validity.at(-1), /至少选择一天/);
+  assert.match(String(ui.validity.at(-1)), /至少选择一天/);
   assert.equal(ui.changes.length, 0);
 
   await ui.input('weekday-1', true, 'change');
@@ -376,7 +444,7 @@ test('invalid NULL percentages survive draft restoration and can be corrected', 
   await first.input('null_ratio', '120');
   const restored = harness({draft: plain(first.editor.getDraft())});
   assert.equal(restored.field('null_ratio').value, '120');
-  assert.match(restored.validity.at(-1), /百分比/);
+  assert.match(String(restored.validity.at(-1)), /百分比/);
   await restored.input('null_ratio', '20');
   assert.equal(restored.validity.at(-1), null);
   assert.equal(restored.changes.at(-1).null_ratio, 0.2);
@@ -391,7 +459,7 @@ test('an invalid NULL draft after zero remains visible and repairable when reope
   assert.equal(restored.field('null_ratio').disabled, false);
   assert.equal(restored.field('null_ratio').closest('.wb-editor-row').hidden, false);
   assert.equal(restored.field('null_ratio').value, '120');
-  assert.match(restored.validity.at(-1), /NULL/);
+  assert.match(String(restored.validity.at(-1)), /NULL/);
   await restored.input('null_ratio', '10');
   assert.equal(restored.validity.at(-1), null);
   assert.equal(restored.changes.at(-1).null_ratio, 0.1);

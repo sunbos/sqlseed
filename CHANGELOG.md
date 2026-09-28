@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add Simplified Chinese and English interface switching across the Web workbench, configurations, run history and settings, preserving edits and keeping interface language separate from generated-data locale. Bundled message resources also translate supported backend diagnostics.
 - Add light, dark and system appearance, browser-local defaults for new configurations, and a shared Web component reference with bundled fonts.
 - Support managed component changes on Windows and reviewed updates of optional components with fixed dependencies, wheel hashes and service recovery.
 - Add editable AI suggestions and contextual preview-rule editing, keeping unapplied changes separate from active generation rules.
@@ -24,6 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Reject missing or columnless AI refinement targets before reading cached suggestions or calling a model, preserving valid empty tables and SQLite identifier resolution.
+- Keep AI-refined suggestions and cached configurations bound to the requested table; retry wrong-target model responses and ignore mismatched caches without silently renaming them.
+- Preserve quoted colon identifiers in database sampling, column-value and row-count queries without treating them as SQL parameters or changing sampled JSON/date values.
+- Refresh the installer snapshot when reviewing a new component operation plan, so temporary pip/uv detection changes do not permanently block installation; environment and dependency changes are still checked before execution.
 - Preserve SQLite file URL identity across encoded and special-character paths; opening an existing file or restoring a session cannot create a missing replacement database.
 - Report invalid generator bounds before applying rules; recover empty schemas after a refresh and restore keyboard focus after failed connections or background run polling.
 - Keep database credentials out of connection responses, validation errors, exception messages and diagnostic logs without changing runtime connection targets.

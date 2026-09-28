@@ -18,7 +18,7 @@ function schema() {
   };
 }
 
-function harness() {
+function harness({animate, window} = {}) {
   const document = createDom();
   const registrations = [];
   const create = tag => {
@@ -26,6 +26,7 @@ function harness() {
     element.clientWidth = 800; element.clientHeight = 420;
     element.scrollLeft = 0; element.scrollTop = 0;
     element.setPointerCapture = () => {};
+    if (animate) element.animate = (frames, options) => animate(element, frames, options);
     const add = element.addEventListener.bind(element);
     element.addEventListener = (type, callback, options) => {
       registrations.push({element, type, options});
@@ -41,17 +42,40 @@ function harness() {
     observe(target) { this.targets.push(target); }
     disconnect() { this.disconnected=true; }
   }
-  const context = loadFrontend('api.js', {document, ResizeObserver});
+  const context = loadFrontend('api.js', {document, ResizeObserver, ...(window ? {window} : {})});
   for (const name of ['graph-layout.js','dependency-view.js','graph.js']) {
     const source = fs.readFileSync(path.join(root,name),'utf8').replace(/^import .*;\s*$/gm,'').replace(/^export /gm,'');
     vm.runInContext(source, context, {filename:name});
   }
-  return {document, observers, registrations, create: options => context.createSchemaGraph(options), viewport:context.graphViewport};
+  return {document, context, observers, registrations, create: options => context.createSchemaGraph(options), viewport:context.graphViewport};
 }
 
 const nodeIds = graph => graph.el.querySelectorAll('[data-graph-node]').map(node=>node.getAttribute('data-graph-node'));
 const button = (graph, action) => graph.el.querySelector(`[data-graph-action="${action}"]`) || graph.toolbar?.querySelector(`[data-graph-action="${action}"]`);
 const searchInput = graph => (graph.toolbar || graph.el).querySelector('[data-graph-search]');
+
+test('UI language updates graph controls and SVG descriptions without redrawing nodes or altering the viewport',async()=>{
+  const ui=harness(); const data=schema(); const events=[];
+  const graph=ui.create({schema:data,focus:'orders',onViewChange:view=>events.push(view)});
+  ui.document.body.append(graph.toolbar,graph.el);
+  await button(graph,'zoom-in').click();
+  const search=searchInput(graph),svg=graph.el.querySelector('svg.schema-graph');
+  const node=graph.el.querySelector('[data-graph-node="orders"]');
+  ui.document.activeElement=search; search.selectionStart=0;
+  const before=JSON.stringify(graph.getView()),eventCount=events.length;
+  ui.context.setLanguage('en');
+  assert.equal(graph.el.querySelector('svg.schema-graph'),svg);
+  assert.equal(graph.el.querySelector('[data-graph-node="orders"]'),node);
+  assert.equal(ui.document.activeElement,search); assert.equal(searchInput(graph),search);
+  assert.match(node.getAttribute('aria-label'),/View fields and relationships for orders/);
+  assert.match(search.getAttribute('placeholder'),/Find tables or fields/);
+  assert.match(svg.getAttribute('aria-label'),/Tables and foreign-key relationships/);
+  assert.equal(JSON.stringify(graph.getView()),before); assert.equal(events.length,eventCount);
+  ui.context.setLanguage('zh-CN');
+  assert.match(node.getAttribute('aria-label'),/查看 orders/);
+  assert.equal(JSON.stringify(graph.getView()),before); assert.deepEqual(Array.from(ui.context.missingMessages()),[]);
+  graph.destroy();
+});
 
 test('real schema nodes and FK directions survive rendering; browsing never changes inputs', async () => {
   const {create} = harness();
@@ -79,6 +103,41 @@ test('complete paths include side sources without unrelated descendants', async 
   assert.deepEqual(nodeIds(graph).sort(),['items','orders','users']);
   await button(graph,'all').click();
   assert.equal(nodeIds(graph).length,7);
+});
+
+test('path selection commits its graph projection immediately while its decorative indicator moves', async () => {
+  const ui=harness(), data=schema(), before=structuredClone(data);
+  const graph=ui.create({schema:data,focus:'orders',mode:'paths'});
+  ui.document.body.append(graph.toolbar,graph.el);
+  const group=graph.toolbar.querySelector('.path-modes'), indicator=group.querySelector('.segment-indicator');
+  const actions=['complete','upstream','downstream','neighbors'];
+  group.getBoundingClientRect=()=>({left:50,top:40,width:360,height:32});
+  actions.forEach((action,index)=>{
+    button(graph,action).getBoundingClientRect=()=>({left:50+90*index,top:40,width:86,height:32});
+  });
+  const observer=ui.observers.find(item=>item.targets.includes(group));
+  observer.callback([]);
+  assert.equal(group.getAttribute('data-segment-slide'),'false');
+  assert.equal(indicator.style.transform,'translate(0px, 0px)');
+  const upstream=button(graph,'upstream'); ui.document.activeElement=upstream;
+  await upstream.click();
+  assert.equal(graph.getView().pathMode,'upstream');
+  assert.deepEqual(nodeIds(graph).sort(),['orders','users']);
+  assert.equal(upstream.getAttribute('aria-pressed'),'true');
+  assert.equal(button(graph,'complete').getAttribute('aria-pressed'),'false');
+  assert.equal(group.getAttribute('data-segment-slide'),'true');
+  assert.equal(indicator.style.transform,'translate(90px, 0px)');
+  assert.equal(button(graph,'upstream'),upstream); assert.equal(ui.document.activeElement,upstream);
+  await button(graph,'complete').click();
+  assert.equal(graph.getView().pathMode,'complete');
+  assert.deepEqual(nodeIds(graph).sort(),['items','orders','products','users']);
+  assert.equal(group.querySelector('.segment-indicator'),indicator);
+  assert.equal(indicator.getAttribute('aria-hidden'),'true');
+  assert.equal(indicator.style.transform,'translate(0px, 0px)');
+  assert.deepEqual(data,before);
+  graph.destroy();
+  assert.equal(observer.disconnected,true); assert.equal(group.querySelector('.segment-indicator'),null);
+  observer.callback([]); assert.equal(group.getAttribute('data-segment-ready'),null);
 });
 
 test('generation plan shows selected tables and resolved sources without adding their ancestors or downstream tables', async () => {
@@ -196,6 +255,167 @@ test('the percentage reports actual diagram scale and fit stays distinct from na
   await button(graph,'fit').click();
   assert.equal(zoom.textContent,actualPercent());
   assert.equal(button(graph,'fit').getAttribute('aria-pressed'),'true');
+});
+
+const scaleInput = graph => graph.el.querySelector('[data-graph-zoom-input]');
+const actualScale = graph => {
+  const svg = graph.el.querySelector('svg.schema-graph');
+  return Number(svg.getAttribute('width')) / Number(svg.getAttribute('viewBox').split(' ')[2]);
+};
+async function editScale(graph, value, event = {type: 'keydown', key: 'Enter'}) {
+  const input = scaleInput(graph);
+  input.value = value;
+  await input.dispatchEvent('input');
+  await input.dispatchEvent(event);
+}
+
+test('editable scale applies actual percentages with Enter or blur and synchronizes all zoom actions in place', async () => {
+  const ui = harness(), data = schema(), before = structuredClone(data);
+  const graph = ui.create({schema: data, focus: 'items'});
+  ui.document.body.append(graph.toolbar, graph.el);
+  const input = scaleInput(graph), svg = graph.el.querySelector('svg.schema-graph');
+  const node = graph.el.querySelector('[data-graph-node="items"]');
+  const canvas = graph.el.querySelector('.graph-canvas');
+  const geometry = () => graph.el.querySelectorAll('.edge-line').map(line => line.getAttribute('d'));
+  const paths = geometry(); ui.document.activeElement = input;
+  assert.equal(Number(input.value), Number((actualScale(graph) * 100).toFixed(2)));
+  await editScale(graph, '125');
+  assert.ok(Math.abs(actualScale(graph) - 1.25) < 1e-10);
+  assert.equal(graph.el.querySelector('svg.schema-graph'), svg);
+  assert.equal(graph.el.querySelector('[data-graph-node="items"]'), node);
+  assert.equal(ui.document.activeElement, input); assert.equal(scaleInput(graph), input);
+  assert.equal(input.value, '125'); assert.equal(input.getAttribute('aria-invalid'), null);
+  await editScale(graph, ' 87.5% ', 'blur');
+  assert.ok(Math.abs(actualScale(graph) - .875) < 1e-10); assert.equal(input.value, '87.5');
+  await button(graph, 'zoom-in').click();
+  assert.equal(Number(input.value), Number((actualScale(graph) * 100).toFixed(2)));
+  await wheel(canvas, {ctrlKey: true});
+  assert.equal(Number(input.value), Number((actualScale(graph) * 100).toFixed(2)));
+  await button(graph, 'readable').click(); assert.equal(input.value, '100');
+  await button(graph, 'fit').click();
+  assert.equal(Number(input.value), Number((actualScale(graph) * 100).toFixed(2)));
+  assert.equal(button(graph, 'fit').getAttribute('aria-pressed'), 'true');
+  assert.deepEqual(geometry(), paths); assert.deepEqual(data, before);
+  graph.destroy();
+});
+
+test('invalid scale leaves the graph unchanged, retains correction text and cancels locally with Escape', async () => {
+  const ui = harness(), changes = [], graph = ui.create({schema: schema(), onViewChange: view => changes.push(view)});
+  ui.document.body.append(graph.toolbar, graph.el);
+  await button(graph, 'readable').click();
+  const input = scaleInput(graph), error = graph.el.querySelector('.graph-zoom-error');
+  ui.document.activeElement = input;
+  const view = JSON.stringify(graph.getView()), count = changes.length;
+  for (const value of ['', ' ', '0', '-25', 'NaN', 'Infinity', '100x', '1e2', '99999999']) {
+    await editScale(graph, value);
+    assert.equal(input.value, value); assert.equal(input.getAttribute('aria-invalid'), 'true');
+    assert.equal(error.hidden, false); assert.match(error.textContent, /请输入.*当前缩放未改变/);
+    assert.equal(JSON.stringify(graph.getView()), view); assert.equal(changes.length, count);
+    assert.equal(ui.document.activeElement, input);
+  }
+  ui.context.setLanguage('en');
+  assert.match(error.textContent, /Enter a number.*unchanged/); assert.equal(input.value, '99999999');
+  let prevented = false, stopped = false;
+  await input.dispatchEvent({type: 'keydown', key: 'Escape', preventDefault() {prevented = true;}, stopPropagation() {stopped = true;}});
+  assert.equal(prevented, true); assert.equal(stopped, true);
+  assert.equal(input.value, '100'); assert.equal(input.getAttribute('aria-invalid'), null);
+  assert.equal(error.hidden, true); assert.equal(JSON.stringify(graph.getView()), view);
+  await editScale(graph, 'broken', 'blur');
+  await button(graph, 'zoom-out').click();
+  assert.equal(input.value, '80'); assert.equal(error.hidden, true);
+  assert.equal(input.getAttribute('aria-invalid'), null);
+  assert.deepEqual(Array.from(ui.context.missingMessages()), []);
+  graph.destroy();
+});
+
+test('typed bounds follow the existing fit-relative range, including small fits and the 200 percent upper floor', async () => {
+  const ui = harness(), data = structuredClone(require('./complex_business_graph.json'));
+  const graph = ui.create({schema: data, focus: 'customers'}), input = scaleInput(graph);
+  const fit = actualScale(graph), minimum = Number((fit * 25).toFixed(2));
+  const maximum = Number((Math.max(8 * fit, 2) * 100).toFixed(2));
+  assert.ok(minimum < 25);
+  await editScale(graph, String(minimum));
+  assert.equal(input.getAttribute('aria-invalid'), null);
+  assert.ok(Math.abs(actualScale(graph) - minimum / 100) <= .00005 + 1e-10);
+  await editScale(graph, String(minimum - .01));
+  assert.equal(input.getAttribute('aria-invalid'), 'true');
+  await editScale(graph, String(maximum));
+  assert.equal(input.getAttribute('aria-invalid'), null);
+  assert.ok(Math.abs(actualScale(graph) - maximum / 100) <= .00005 + 1e-10);
+  await editScale(graph, String(maximum + .01));
+  assert.equal(input.getAttribute('aria-invalid'), 'true');
+  await button(graph, 'fit').click();
+  const canvas = graph.el.querySelector('.graph-canvas');
+  const observer = ui.observers.find(item => item.targets.includes(canvas));
+  observer.callback([{target: canvas, contentRect: {width: 220.5, height: 170.25}}]);
+  const newFit = actualScale(graph), newMinimum = Number((newFit * 25).toFixed(2));
+  assert.ok(newMinimum < minimum); assert.ok(newFit < .25);
+  await editScale(graph, '200');
+  assert.ok(Math.abs(actualScale(graph) - 2) < 1e-10);
+  await editScale(graph, '200.01'); assert.equal(input.getAttribute('aria-invalid'), 'true');
+  graph.destroy();
+});
+
+test('manual percentages keep their actual scale when scrollbars resize the canvas, while fit remains responsive', async () => {
+  const ui = harness(), graph = ui.create({schema: schema(), focus: 'orders'});
+  ui.document.body.append(graph.toolbar, graph.el);
+  const canvas = graph.el.querySelector('.graph-canvas'), input = scaleInput(graph);
+  const observer = ui.observers.find(item => item.targets.includes(canvas));
+  const resize = (width, height) => observer.callback([{target: canvas, contentRect: {width, height}}]);
+  resize(800.5, 420.25);
+  assert.equal(button(graph, 'fit').getAttribute('aria-pressed'), 'true');
+  await editScale(graph, input.value);
+  assert.equal(button(graph, 'fit').getAttribute('aria-pressed'), 'false', 'typing the fitted percentage selects a fixed scale, not responsive fit');
+  await button(graph, 'fit').click();
+  assert.equal(button(graph, 'fit').getAttribute('aria-pressed'), 'true');
+  const svg = graph.el.querySelector('svg.schema-graph');
+  const layout = {width: Number(svg.getAttribute('viewBox').split(' ')[2]), height: Number(svg.getAttribute('viewBox').split(' ')[3])};
+  await editScale(graph, '75');
+  ui.document.activeElement = input;
+  await editScale(graph, '90.5%', 'blur');
+  const originalZoom = graph.getView().zoom;
+  resize(785.5, 405.25);
+  assert.ok(Math.abs(actualScale(graph) - .905) < 1e-12);
+  assert.equal(input.value, '90.5'); assert.equal(ui.document.activeElement, input);
+  assert.notEqual(graph.getView().zoom, originalZoom, 'the snapshot multiplier must adapt to the new fit scale');
+  const fitted = ui.viewport(layout, 785.5, 405.25);
+  assert.ok(Math.abs(graph.getView().zoom * fitted.fitScale - .905) < 1e-12);
+  for (let index = 0; index < 4; index++) {
+    resize(800.5, 420.25); resize(785.5, 405.25);
+    assert.ok(Math.abs(actualScale(graph) - .905) < 1e-12); assert.equal(input.value, '90.5');
+  }
+  await button(graph, 'zoom-in').click(); const buttonScale = actualScale(graph);
+  resize(790.5, 410.25); assert.ok(Math.abs(actualScale(graph) - buttonScale) < 1e-12);
+  await wheel(canvas, {ctrlKey: true}); const wheelScale = actualScale(graph);
+  resize(775.5, 395.25); assert.ok(Math.abs(actualScale(graph) - wheelScale) < 1e-12);
+  await button(graph, 'fit').click(); const fitScale = actualScale(graph);
+  resize(650.5, 320.25);
+  assert.equal(graph.getView().zoom, 1); assert.ok(actualScale(graph) < fitScale);
+  assert.equal(button(graph, 'fit').getAttribute('aria-pressed'), 'true');
+  assert.equal(graph.el.querySelector('svg.schema-graph'), svg);
+  graph.destroy();
+});
+
+test('scale drafts survive language changes and composition; empty and destroyed graphs cannot accept edits', async () => {
+  const ui = harness(), graph = ui.create({schema: schema()});
+  ui.document.body.append(graph.toolbar, graph.el);
+  const input = scaleInput(graph), before = JSON.stringify(graph.getView());
+  ui.document.activeElement = input;
+  await editScale(graph, '123.', {type: 'keydown', key: 'Enter', isComposing: true});
+  assert.equal(JSON.stringify(graph.getView()), before); assert.equal(input.value, '123.');
+  ui.context.setLanguage('en');
+  assert.equal(input.value, '123.'); assert.equal(ui.document.activeElement, input);
+  assert.equal(input.getAttribute('aria-label'), 'Graph scale percentage');
+  await input.dispatchEvent({type: 'keydown', key: 'Enter'});
+  assert.ok(Math.abs(actualScale(graph) - 1.23) < 1e-10);
+  graph.destroy(); const destroyedView = JSON.stringify(graph.getView());
+  await editScale(graph, '180');
+  assert.equal(JSON.stringify(graph.getView()), destroyedView);
+  const empty = ui.create({schema: {nodes: [], edges: []}});
+  assert.equal(scaleInput(empty).disabled, true); assert.equal(scaleInput(empty).value, '');
+  await editScale(empty, '100');
+  assert.equal(empty.el.querySelector('svg.schema-graph'), null);
+  empty.destroy();
 });
 
 test('a 24-table overview has a direct readable full dependency path for the current table',async()=>{
@@ -327,9 +547,10 @@ test('fractional canvas measurements keep fit and redraw within the scrollport',
   const {create,observers}=harness();
   const graph=create({schema:schema(),focus:'orders'});
   const canvas=graph.el.querySelector('[data-graph-canvas]');
+  const canvasObserver=observers.find(observer=>observer.targets.includes(canvas));
   const resize=(width,height)=>{
     canvas.clientWidth=Math.round(width); canvas.clientHeight=Math.round(height);
-    observers[0].callback([{target:canvas,contentRect:{width,height}}]);
+    canvasObserver.callback([{target:canvas,contentRect:{width,height}}]);
   };
   const fits=(width,height)=>{
     const stage=canvas.querySelector('.graph-stage');
@@ -614,12 +835,12 @@ test('the graph explains node states and keeps the current-view ring separate fr
   assert.equal(users.getAttribute('aria-pressed'),'true');
 });
 
-test('node selection highlights complete dependencies in place and clears the old chain and selected edge', async () => {
+test('overview node selection highlights direct relationships in place and clears the old chain and selected edge', async () => {
   const {create}=harness(),data=schema(),before=structuredClone(data);
   const graph=create({schema:data,focus:'orders'}),canvas=graph.el.querySelector('[data-graph-canvas]');
   const related=()=>graph.el.querySelectorAll('[data-graph-edge]').filter(edge=>edge.classList.contains('path-related')).map(edge=>edge.getAttribute('data-graph-edge')).sort();
-  assert.deepEqual(related(),['fk-0','fk-1','fk-2'],'Include products as the source required by the items branch');
-  assert.ok(graph.el.querySelector('[data-graph-node="products"]').classList.contains('path-related'));
+  assert.deepEqual(related(),['fk-0','fk-1'],'The overview emphasizes only orders incident edges');
+  assert.ok(graph.el.querySelector('[data-graph-node="products"]').classList.contains('path-unrelated'));
   assert.ok(graph.el.querySelector('[data-graph-edge="fk-3"]').classList.contains('path-unrelated'));
   await button(graph,'readable').click();canvas.scrollLeft=55;canvas.scrollTop=31;
   const svg=graph.el.querySelector('svg'),view=graph.getView(),coordinates=graph.el.querySelectorAll('.graph-node-body').map(rect=>[rect.getAttribute('x'),rect.getAttribute('y')]);
@@ -643,13 +864,87 @@ test('cyclic dependencies terminate and unrelated issues stay identifiable durin
   data.edges.push({id:'audit-self',source:'audit',target:'audit',sourceColumns:['id'],targetColumns:['previous_id']});
   const graph=create({schema:data,focus:'orders',issues:[{table:'audit',edge_id:'audit-self',severity:'error'}]});
   const highlighted=graph.el.querySelectorAll('[data-graph-edge]').filter(edge=>edge.classList.contains('path-related')).map(edge=>edge.getAttribute('data-graph-edge')).sort();
-  assert.deepEqual(highlighted,['cycle','fk-0','fk-1','fk-2']);
+  assert.deepEqual(highlighted,['cycle','fk-0','fk-1']);
   const issue=graph.el.querySelector('[data-graph-edge="audit-self"]');
   assert.ok(issue.classList.contains('problem'));assert.ok(issue.classList.contains('path-unrelated'));
   assert.equal(issue.getAttribute('data-issue'),'true');
   await issue.click();assert.ok(issue.classList.contains('focused'));
   assert.equal(issue.getAttribute('aria-pressed'),'true');
   assert.equal(graph.el.querySelector('[data-graph-edge="fk-0"]').getAttribute('aria-pressed'),'false');
+});
+
+test('overview excludes edges between neighbors while retaining parallel, self and explicit edge emphasis', async () => {
+  const {create}=harness(),data=schema();
+  data.edges.push({id:'neighbors',source:'users',target:'items',sourceColumns:['id'],targetColumns:['user_id']},
+    {id:'parallel',source:'users',target:'orders',sourceColumns:['id'],targetColumns:['owner_id']},
+    {id:'self',source:'orders',target:'orders',sourceColumns:['id'],targetColumns:['previous_id']});
+  const before=structuredClone(data),graph=create({schema:data,focus:'orders'});
+  const related=()=>graph.el.querySelectorAll('[data-graph-edge]').filter(edge=>edge.classList.contains('path-related')).map(edge=>edge.dataset.graphEdge).sort();
+  assert.deepEqual(related(),['fk-0','fk-1','parallel','self']);
+  for(const id of ['users','items'])assert.ok(graph.el.querySelector(`[data-graph-node="${id}"]`).classList.contains('path-related'));
+  const neighborEdge=graph.el.querySelector('[data-graph-edge="neighbors"]');
+  assert.ok(neighborEdge.classList.contains('path-unrelated'),'Two related endpoints do not make their edge incident to orders');
+  const svg=graph.el.querySelector('.schema-graph'),paths=graph.el.querySelectorAll('.edge-line').map(line=>line.getAttribute('d'));
+  await neighborEdge.click();
+  assert.ok(neighborEdge.classList.contains('focused'));
+  assert.match(neighborEdge.querySelector('.edge-line').getAttribute('marker-end'),/-focused\)$/);
+  assert.deepEqual(related(),['fk-0','fk-1','parallel','self']);
+  assert.equal(graph.getView().focus,'orders');assert.equal(graph.getView().edgeId,'neighbors');
+  assert.equal(graph.el.querySelector('.schema-graph'),svg);
+  assert.deepEqual(graph.el.querySelectorAll('.edge-line').map(line=>line.getAttribute('d')),paths);
+  assert.deepEqual(data,before);
+  graph.destroy();
+});
+
+test('dependency paths retain their full closure and explain their emphasis in both languages', async () => {
+  const ui=harness(),data=schema(),before=structuredClone(data);
+  const graph=ui.create({schema:data,focus:'orders',mode:'paths'});
+  const related=()=>graph.el.querySelectorAll('[data-graph-edge]').filter(edge=>edge.classList.contains('path-related')).map(edge=>edge.dataset.graphEdge).sort();
+  const legend=graph.el.querySelector('[data-graph-legend]');
+  assert.deepEqual(related(),['fk-0','fk-1','fk-2']);
+  assert.ok(graph.el.querySelector('[data-graph-node="products"]').classList.contains('path-related'));
+  for(const text of ['其他关系','关联路径','选中关系','问题关系'])assert.ok(legend.textContent.includes(text));
+  const svg=graph.el.querySelector('.schema-graph');
+  ui.context.setLanguage('en');
+  assert.ok(legend.textContent.includes('Related paths'));assert.ok(legend.textContent.includes('Selected relationship'));
+  assert.equal(graph.el.querySelector('.schema-graph'),svg);
+  await button(graph,'all').click();
+  assert.deepEqual(related(),['fk-0','fk-1']);
+  assert.ok(legend.textContent.includes('Current table relationships'));
+  assert.match(graph.el.querySelector('.graph-footer').textContent,/direct relationships/);
+  assert.deepEqual(data,before);assert.deepEqual(Array.from(ui.context.missingMessages()),[]);
+  graph.destroy();
+});
+
+test('issue legends distinguish flagged tables from references without changing table labels or geometry', () => {
+  const ui = harness(), data = schema(), before = structuredClone(data);
+  data.nodes.find(node => node.id === 'orders').selected = true;
+  const baseline = ui.create({schema: data, focus: 'orders'});
+  const graph = ui.create({schema: data, focus: 'orders', issues: [{table: 'orders', edge_id: 'fk-0', severity: 'warning'}]});
+  ui.document.body.append(graph.toolbar, graph.el);
+  const legend = graph.el.querySelector('[data-graph-legend]');
+  assert.match(legend.textContent, /检查标记的表/); assert.match(legend.textContent, /问题关系/);
+  assert.ok(legend.querySelector('.graph-legend-swatch.blocked'));
+  assert.ok(legend.querySelector('.graph-legend-line.problem'));
+  const node = graph.el.querySelector('[data-graph-node="orders"]');
+  assert.equal(node.querySelector('.graph-table-name').textContent, 'orders');
+  assert.ok(node.classList.contains('chosen')); assert.ok(node.classList.contains('blocked'));
+  assert.match(node.getAttribute('aria-label'), /本次生成.*不表示数据库中的数据已损坏/);
+  assert.match(node.querySelector('title').textContent, /orders.*生成来源或规则检查/);
+  const edge = graph.el.querySelector('[data-graph-edge="fk-0"]');
+  assert.match(edge.getAttribute('aria-label'), /users.id → orders.users_id.*此引用关系/);
+  assert.match(graph.el.querySelector('.graph-footer').textContent, /橙色框.*橙色线.*不表示现有数据已损坏/);
+  const geometry = value => value.el.querySelectorAll('.graph-node-body').map(rect => ['x', 'y', 'width', 'height'].map(key => rect.getAttribute(key)));
+  assert.deepEqual(geometry(graph), geometry(baseline));
+  ui.context.setLanguage('en');
+  assert.match(legend.textContent, /Table flagged by a check/);
+  assert.match(node.getAttribute('aria-label'), /does not indicate damaged database data/);
+  assert.match(edge.getAttribute('aria-label'), /flagged this reference relationship/);
+  assert.equal(node.querySelector('.graph-table-name').textContent, 'orders');
+  assert.deepEqual(geometry(graph), geometry(baseline));
+  assert.deepEqual(data.edges, before.edges);
+  assert.deepEqual(Array.from(ui.context.missingMessages()), []);
+  baseline.destroy(); graph.destroy();
 });
 
 test('keyboard selection updates the same dependency emphasis and relation captions as pointer selection', async () => {
@@ -666,6 +961,88 @@ test('keyboard selection updates the same dependency emphasis and relation capti
   await graph.el.querySelector('[data-graph-node="audit"]').dispatchEvent({type:'keydown',key:' '});
   assert.deepEqual(selected,['inventory','audit']);assert.equal(label.getAttribute('aria-pressed'),'false');
   assert.equal(label.classList.contains('focused'),false);assert.ok(label.classList.contains('path-unrelated'));
+});
+
+function feedbackHarness(reduced = false) {
+  const preference = new Element('media-query'); preference.matches = reduced;
+  const window = new Element('window'); window.matchMedia = () => preference;
+  const animations = [];
+  const ui = harness({window, animate(element, frames, options) {
+    const animation = {element, frames, options, cancelled: false, cancel() {this.cancelled = true;}};
+    animations.push(animation); return animation;
+  }});
+  return {...ui, preference, animations};
+}
+
+test('explicit graph selections give one local decorative fade while real state, paths and hit geometry update immediately', async () => {
+  const ui = feedbackHarness(), data = schema(), before = structuredClone(data), selected = [], inspected = [];
+  const graph = ui.create({schema: data, focus: 'orders', initialView: {edgeId: 'fk-0'},
+    onSelect: id => selected.push(id), onEdge: edge => inspected.push(edge.id)});
+  ui.document.body.append(graph.toolbar, graph.el);
+  const svg = graph.el.querySelector('svg.schema-graph');
+  const geometry = () => graph.el.querySelectorAll('.edge-line').map(line => line.getAttribute('d'));
+  const paths = geometry(); const view = graph.getView();
+  assert.equal(ui.animations.length, 0, 'initial and restored selections remain static');
+  const products = graph.el.querySelector('[data-graph-node="products"]');
+  await products.dispatchEvent('pointerenter'); assert.equal(ui.animations.length, 0);
+  await products.click();
+  assert.deepEqual(selected, ['products']); assert.equal(graph.getView().focus, 'products');
+  assert.equal(products.getAttribute('aria-pressed'), 'true'); assert.equal(graph.getView().edgeId, null);
+  const nodeEffect = ui.animations[0];
+  assert.equal(nodeEffect.element, products.querySelector('.graph-selection-halo'));
+  assert.equal(nodeEffect.element.getAttribute('pointer-events'), 'none');
+  assert.equal(nodeEffect.element.getAttribute('aria-hidden'), 'true');
+  assert.equal(products.querySelector('.graph-focus-ring').style.opacity, undefined, 'the real focus ring never fades');
+  assert.deepEqual(Array.from(nodeEffect.frames, frame => ({...frame})), [{opacity: .28}, {opacity: 0}]);
+  assert.equal(nodeEffect.options.duration, 120); assert.equal(nodeEffect.options.iterations, undefined);
+  const edge = graph.el.querySelector('[data-graph-edge="fk-2"]');
+  await edge.dispatchEvent({type: 'keydown', key: 'Enter'});
+  assert.deepEqual(inspected, ['fk-2']); assert.equal(graph.getView().edgeId, 'fk-2');
+  assert.equal(edge.getAttribute('aria-pressed'), 'true'); assert.equal(nodeEffect.cancelled, true);
+  assert.match(edge.querySelector('.edge-line').getAttribute('marker-end'), /-focused\)/);
+  const edgeEffect = ui.animations[1];
+  assert.equal(edgeEffect.element, edge.querySelector('.graph-selection-halo'));
+  assert.equal(edgeEffect.element.getAttribute('d'), edge.querySelector('.edge-line').getAttribute('d'));
+  assert.equal(edgeEffect.element.getAttribute('marker-end'), null, 'arrowheads stay static');
+  assert.equal(edgeEffect.element.getAttribute('pointer-events'), 'none');
+  assert.equal(edge.querySelector('.edge-hit').getAttribute('vector-effect'), 'non-scaling-stroke');
+  await edge.click(); assert.equal(ui.animations.length, 2, 'reselecting the same relationship does not replay feedback');
+  assert.equal(graph.el.querySelector('svg.schema-graph'), svg);
+  assert.deepEqual(geometry(), paths); assert.equal(graph.getView().zoom, view.zoom);
+  assert.equal(graph.getView().pathFocus, view.pathFocus); assert.deepEqual(data, before);
+  graph.destroy(); assert.equal(edgeEffect.cancelled, true);
+});
+
+test('selection feedback respects reduced motion changes, navigation veto, redraw and graph disposal', async () => {
+  const ui = feedbackHarness(true), graph = ui.create({schema: schema(), focus: 'orders', onSelect: id => id !== 'audit'});
+  ui.document.body.append(graph.toolbar, graph.el);
+  await graph.el.querySelector('[data-graph-node="products"]').click();
+  assert.equal(graph.getView().focus, 'products'); assert.equal(ui.animations.length, 0);
+  ui.preference.matches = false; await ui.preference.dispatchEvent('change');
+  await graph.el.querySelector('[data-graph-node="audit"]').click();
+  assert.equal(graph.getView().focus, 'products'); assert.equal(ui.animations.length, 0);
+  await graph.el.querySelector('[data-graph-node="users"]').click();
+  const first = ui.animations[0];
+  await graph.el.querySelector('[data-graph-node="orders"]').click();
+  const second = ui.animations[1]; assert.equal(first.cancelled, true);
+  first.onfinish();
+  ui.preference.matches = true; await ui.preference.dispatchEvent('change');
+  assert.equal(second.cancelled, true, 'a stale completion cannot detach the newer animation from cleanup');
+  await graph.el.querySelector('[data-graph-edge="fk-0"]').click(); assert.equal(ui.animations.length, 2);
+  ui.preference.matches = false; await ui.preference.dispatchEvent('change');
+  await graph.el.querySelector('[data-graph-node="products"]').click();
+  const third = ui.animations[2];
+  await button(graph, 'paths').click(); assert.equal(third.cancelled, true);
+  assert.equal(ui.animations.length, 3, 'scope redraws do not animate their initial selection');
+  const node = graph.el.querySelector('[data-graph-node="items"]');
+  await node.click(); const located = ui.animations[3];
+  assert.equal(graph.focusTable('products'), true);
+  assert.equal(located.cancelled, true, 'locating another visible table clears the previous selection feedback');
+  assert.equal(ui.animations.length, 4, 'programmatic location does not add a new animation');
+  await node.click(); const last = ui.animations[4];
+  graph.destroy(); assert.equal(last.cancelled, true);
+  assert.equal(ui.preference.listeners.get('change').size, 0);
+  await node.click(); await ui.preference.dispatchEvent('change'); assert.equal(ui.animations.length, 5);
 });
 
 

@@ -1,6 +1,9 @@
+import {tr, setText, setAttr, replaceContent, UserFacingError, errorText, appendContent, liveText} from '../i18n.js';
+import '../i18n/messages/flow.js';
 import { cycleFocus } from "./focus.js";
 import { h, get, send, store, rememberConnId, setConnBadge, safeTargetLabel } from '../api.js';
 import { lockPageScroll } from './scroll-lock.js';
+import { createSegmentIndicator } from '../segment-motion.js';
 let activeDialog = null;
 let dialogSequence = 0;
 
@@ -11,11 +14,11 @@ export function openConnectionDialog({
 } = {}) {
   function switchConnectionLabel(connection) {
     if (pendingOperation?.kind === 'switch' && pendingOperation.connId === connection.conn_id) {
-      return '正在切换…';
+      return tr("flow.connection.switching");
     } else if (connection.conn_id === store.connId) {
-      return '当前连接';
+      return tr("flow.connection.current");
     } else {
-      return '切换到此连接';
+      return tr("flow.connection.switch");
     }
   }
 
@@ -57,21 +60,21 @@ export function openConnectionDialog({
   const browser = h('section', {
     class: 'connection-browser',
     hidden: true,
-    'aria-label': '选择数据库文件'
+    'aria-label': tr("flow.files.chooseDatabase")
   });
   const subtitle = h('p', {
     class: 'muted'
-  }, '选择已有的 SQLite 文件或连接 PostgreSQL，开始创建生成配置。');
-  const heading = h('h2', { tabindex: '-1' }, '连接数据库');
+  }, tr("flow.connection.intro"));
+  const heading = h('h2', { tabindex: '-1' }, tr("flow.connection.connect"));
   const submit = h('button', {
     class: 'btn primary',
     type: 'button',
     onclick: connect
-  }, '连接数据库');
+  }, tr("flow.connection.connect"));
   const choices = h('div', {
     class: 'segmented',
     role: 'group',
-    'aria-label': '数据库类型'
+    'aria-label': tr("flow.connection.kind")
   }, ...['sqlite', 'postgresql'].map(value => h('button', {
     type: 'button',
     class: value === kind ? 'active' : '',
@@ -82,17 +85,19 @@ export function openConnectionDialog({
       }
       clearSecrets();
       kind = value;
-      error.textContent = '';
+      setText(error, '');
       browser.hidden = true;
       fileSequence++;
       for (const button of choices.querySelectorAll('button')) {
         const selected = button.textContent === (kind === 'sqlite' ? 'SQLite' : 'PostgreSQL');
         button.classList.toggle('active', selected);
-        button.setAttribute('aria-pressed', String(selected));
+        setAttr(button, 'aria-pressed', String(selected));
       }
+      kindIndicator.update({animate: true});
       renderFields();
     }
   }, value === 'sqlite' ? 'SQLite' : 'PostgreSQL')));
+  const kindIndicator = createSegmentIndicator(choices);
   const overlay = h('div', {
     class: 'overlay open wb-overlay connection-overlay',
     onclick: event => {
@@ -104,20 +109,20 @@ export function openConnectionDialog({
     class: 'modal wb-modal connection-modal',
     role: 'dialog',
     'aria-modal': 'true',
-    'aria-label': '连接数据库'
+    'aria-label': tr("flow.connection.connect")
   }, h('header', {
     class: 'modal-head'
   }, heading), h('div', {
     class: 'modal-body connection-body'
   }, subtitle, existing, h('h3', {
     class: 'connection-add-title'
-  }, '添加连接'), choices, controls, browser, error, notice), h('footer', {
+  }, tr("flow.connection.add")), choices, controls, browser, error, notice), h('footer', {
     class: 'modal-footer connection-footer'
   }, h('button', {
     class: 'btn',
     type: 'button',
     onclick: close
-  }, '取消'), submit)));
+  }, tr("flow.action.cancel")), submit)));
   function clearSecrets() {
     if (fields.password) {
       fields.password.value = '';
@@ -132,6 +137,7 @@ export function openConnectionDialog({
     fileSequence++;
     existingSequence++;
     clearSecrets();
+    kindIndicator.destroy();
     overlay.remove();
     unlockScroll();
     document.removeEventListener('keydown', keydown);
@@ -164,22 +170,22 @@ export function openConnectionDialog({
       delete fields[name];
     }
     if (kind === 'sqlite') {
-      controls.replaceChildren(field('db_path', '数据库文件'), h('button', {
+      replaceContent(controls, field('db_path', tr("flow.connection.file")), h('button', {
         type: 'button',
         class: 'btn',
         onclick: () => {
           browser.hidden = false;
           browseFiles();
         }
-      }, '选择文件'));
-      fields.db_path.placeholder = '/path/to/database.sqlite3';
+      }, tr("flow.connection.chooseFile")));
+      setAttr(fields.db_path, 'placeholder', '/path/to/database.sqlite3');
       fields.db_path.classList.add('wb-code');
     } else {
-      controls.replaceChildren(h('div', {
+      replaceContent(controls, h('div', {
         class: 'connection-pair'
-      }, field('host', '主机', 'localhost'), field('port', '端口', '5432', 'number')), field('database', '数据库名称'), h('div', {
+      }, field('host', tr("flow.connection.host"), 'localhost'), field('port', tr("flow.connection.port"), '5432', 'number')), field('database', tr("flow.connection.database")), h('div', {
         class: 'connection-pair'
-      }, field('user', '用户名'), field('password', '密码', '', 'password')));
+      }, field('user', tr("flow.connection.username")), field('password', tr("flow.connection.password"), '', 'password')));
     }
   }
   function setBusy(operation = null) {
@@ -187,15 +193,15 @@ export function openConnectionDialog({
     pendingOperation = operation;
     busy = !!operation;
     submit.disabled = busy;
-    submit.textContent = operation?.kind === 'add' ? '正在添加连接…' : '连接数据库';
-    controls.setAttribute('aria-busy', String(busy));
-    existing.setAttribute('aria-busy', String(busy));
+    setText(submit, operation?.kind === 'add' ? tr("flow.connection.adding") : tr("flow.connection.connect"));
+    setAttr(controls, 'aria-busy', String(busy));
+    setAttr(existing, 'aria-busy', String(busy));
     if (operation) {
-      notice.textContent = operation.message;
+      setText(notice, operation.message);
       fileSequence++;
       browser.hidden = true;
-    } else if (notice.textContent === previous?.message) {
-      notice.textContent = '';
+    } else if (notice.textContent === String(previous?.message ?? '')) {
+      setText(notice, '');
     }
     for (const input of controls.querySelectorAll('input,button')) {
       input.disabled = busy;
@@ -237,7 +243,7 @@ export function openConnectionDialog({
     if (kind === 'sqlite') {
       const dbPath = fields.db_path.value.trim();
       if (!dbPath) {
-        invalidFields(['db_path'], '请选择或输入数据库文件路径。');
+        invalidFields(['db_path'], tr("flow.connection.pathRequired"));
       }
       // A connection is an adapter target. Generator defaults belong to the
       // document; BaseProvider keeps connecting independent of optional extras.
@@ -252,10 +258,10 @@ export function openConnectionDialog({
       user = fields.user.value.trim();
     const port = fields.port.value.trim();
     if (!hostname || !database || !user) {
-      invalidFields(['host', 'database', 'user'].filter(name => !fields[name].value.trim()), '请填写主机、数据库名称和用户名。');
+      invalidFields(['host', 'database', 'user'].filter(name => !fields[name].value.trim()), tr("flow.connection.fieldsRequired"));
     }
     if (!/^\d+$/.test(port) || Number(port) < 1 || Number(port) > 65535) {
-      invalidFields(['port'], '端口必须是 1 到 65535 之间的整数。');
+      invalidFields(['port'], tr("flow.connection.portInvalid"));
     }
     const host = hostname.includes(':') && !hostname.startsWith('[') ? `[${hostname}]` : hostname;
     return {
@@ -267,32 +273,32 @@ export function openConnectionDialog({
     if (input.getAttribute('aria-invalid') !== 'true') return;
     input.removeAttribute('aria-invalid');
     input.removeAttribute('aria-describedby');
-    if (!Object.values(fields).some(field => field.getAttribute('aria-invalid') === 'true')) error.textContent = '';
+    if (!Object.values(fields).some(field => field.getAttribute('aria-invalid') === 'true')) setText(error, '');
   }
   function invalidFields(names, message) {
     for (const name of names) {
-      fields[name].setAttribute('aria-invalid', 'true');
-      fields[name].setAttribute('aria-describedby', errorId);
+      setAttr(fields[name], 'aria-invalid', 'true');
+      setAttr(fields[name], 'aria-describedby', errorId);
     }
     fields[names[0]].focus({preventScroll: true});
-    throw new Error(message);
+    throw new UserFacingError(message);
   }
   async function connect() {
     if (closed || busy) {
       return;
     }
-    error.textContent = '';
+    setText(error, '');
     let data;
     try {
       data = payload();
     } catch (error_) {
-      error.textContent = error_.message;
+      setText(error, errorText(error_));
       return;
     }
     const expected = ++sequence;
     setBusy({
       kind: 'add',
-      message: '正在添加连接，请等待数据库响应…'
+      message: tr("flow.connection.waitDatabase")
     });
     try {
       const connection = await send('/api/connections', data);
@@ -300,7 +306,7 @@ export function openConnectionDialog({
         publish(connection);
       }
     } catch (error_) {
-      if (!closed && expected === sequence) error.textContent = connectionError(error_.message);
+      if (!closed && expected === sequence) setText(error, connectionError(errorText(error_)));
     } finally {
       clearSecrets();
       if (!closed && expected === sequence) {
@@ -313,11 +319,11 @@ export function openConnectionDialog({
       return;
     }
     const expected = ++sequence;
-    error.textContent = '';
+    setText(error, '');
     setBusy({
       kind: 'switch',
       connId: connection.conn_id,
-      message: `正在切换到 ${safeTargetLabel(connection.target_label || connection.target)}，读取表结构…`
+      message: tr("flow.connection.readingSchema", {target: safeTargetLabel(connection.target_label || connection.target)})
     });
     try {
       const detail = await get(`/api/connections/${encodeURIComponent(connection.conn_id)}/tables`);
@@ -328,7 +334,7 @@ export function openConnectionDialog({
         });
       }
     } catch (error_) {
-      if (!closed && expected === sequence) error.textContent = connectionError(error_.message);
+      if (!closed && expected === sequence) setText(error, connectionError(errorText(error_)));
     } finally {
       if (!closed && expected === sequence) {
         finishOperation();
@@ -341,11 +347,11 @@ export function openConnectionDialog({
     }
     const expected = ++sequence;
     existingSequence++;
-    error.textContent = '';
+    setText(error, '');
     setBusy({
       kind: 'disconnect',
       connId: connection.conn_id,
-      message: `正在断开 ${safeTargetLabel(connection.target_label || connection.target)}…`
+      message: tr("flow.connection.disconnectingTarget", {target: safeTargetLabel(connection.target_label || connection.target)})
     });
     try {
       await send(`/api/connections/${encodeURIComponent(connection.conn_id)}`, undefined, 'DELETE');
@@ -361,11 +367,11 @@ export function openConnectionDialog({
       }
       if (!closed && expected === sequence) {
         connections = connections.filter(item => item.conn_id !== connection.conn_id);
-        notice.textContent = `已断开 ${safeTargetLabel(connection.target_label || connection.target)}，并从本次会话列表移除。数据库文件和数据保持不变。`;
+        setText(notice, tr("flow.connection.disconnectedTarget", {target: safeTargetLabel(connection.target_label || connection.target)}));
         renderExisting();
       }
     } catch (error_) {
-      if (!closed && expected === sequence) error.textContent = connectionError(error_.message);
+      if (!closed && expected === sequence) setText(error, connectionError(errorText(error_)));
     } finally {
       if (!closed && expected === sequence) {
         finishOperation();
@@ -374,7 +380,7 @@ export function openConnectionDialog({
   }
   function renderExisting() {
     if (!connections.length) {
-      existing.replaceChildren();
+      replaceContent(existing);
       return;
     }
     const groups = new Map();
@@ -385,17 +391,17 @@ export function openConnectionDialog({
       }
       groups.get(key).push(connection);
     }
-    existing.replaceChildren(h('h3', {
+    replaceContent(existing, h('h3', {
       class: 'connection-label'
-    }, '已连接的数据库'), h('p', {
+    }, tr("flow.connection.list")), h('p', {
       class: 'muted connection-session-help'
-    }, '切换连接后查看对应配置。断开并移除只关闭本次服务会话，不会删除数据库或运行记录。'), ...[...groups.values()].map(group => {
+    }, tr("flow.connection.switchHelp")), ...[...groups.values()].map(group => {
       const target = group[0].target_label || group[0].target;
       return h('section', {
         class: 'connection-group'
       }, h('header', {
         class: 'connection-group-heading'
-      }, h('strong', {}, safeTargetLabel(target)), h('small', {}, `${group.length} 个会话`)), h('p', {
+      }, h('strong', {}, safeTargetLabel(target)), h('small', {}, tr("flow.connection.sessions", {count: group.length}))), h('p', {
         class: 'mono connection-target'
       }, targetDescription(target)), ...group.map((connection, index) => h('div', {
         class: 'connection-session'
@@ -404,14 +410,14 @@ export function openConnectionDialog({
         type: 'button',
         disabled: busy || connection.conn_id === store.connId,
         onclick: () => useConnection(connection),
-        'aria-label': `${connection.conn_id === store.connId ? '当前连接' : '切换到'} ${safeTargetLabel(target)} 会话 ${index + 1}`
-      }, h('span', {}, `会话 ${index + 1}`), h('small', {}, switchConnectionLabel(connection))), h('button', {
+        'aria-label': tr("flow.connection.sessionLabel", {action: connection.conn_id === store.connId ? tr("flow.connection.current") : tr("flow.connection.switchTo"), target: safeTargetLabel(target), number: index + 1})
+      }, h('span', {}, tr("flow.connection.session", {number: index + 1})), h('small', {}, switchConnectionLabel(connection))), h('button', {
         class: 'btn small connection-disconnect',
         type: 'button',
         disabled: busy,
-        'aria-label': `断开并移除 ${safeTargetLabel(target)} 会话 ${index + 1}`,
+        'aria-label': tr("flow.connection.disconnectLabel", {target: safeTargetLabel(target), number: index + 1}),
         onclick: () => disconnect(connection)
-      }, pendingOperation?.kind === 'disconnect' && pendingOperation.connId === connection.conn_id ? '正在断开…' : '断开并移除'))));
+      }, pendingOperation?.kind === 'disconnect' && pendingOperation.connId === connection.conn_id ? tr("flow.connection.disconnecting") : tr("flow.connection.disconnect")))));
     }));
   }
   async function loadExisting() {
@@ -424,9 +430,9 @@ export function openConnectionDialog({
       connections = response.connections || [];
       renderExisting();
     } catch (error_) {
-      if (!closed && expected === existingSequence) existing.replaceChildren(h('p', {
+      if (!closed && expected === existingSequence) replaceContent(existing, h('p', {
         class: 'muted'
-      }, `已有连接暂不可用：${connectionError(error_.message)}`));
+      }, tr("flow.connection.listUnavailable", {detail: connectionError(errorText(error_))})));
     }
   }
   async function browseFiles(path) {
@@ -434,9 +440,9 @@ export function openConnectionDialog({
       return;
     }
     const expected = ++fileSequence;
-    browser.replaceChildren(h('p', {
+    replaceContent(browser, h('p', {
       role: 'status'
-    }, '正在读取文件列表…'));
+    }, tr("flow.files.reading")));
     try {
       const response = await get(`/api/fs/browse${path ? "?path=" + encodeURIComponent(path) : ''}`);
       if (closed || expected !== fileSequence) {
@@ -445,7 +451,7 @@ export function openConnectionDialog({
       const pathInput = h('input', {
         class: 'wb-code',
         value: response.path,
-        'aria-label': '目录路径',
+        'aria-label': tr("flow.files.path"),
         spellcheck: 'false'
       });
       const go = () => browseFiles(pathInput.value.trim());
@@ -455,18 +461,18 @@ export function openConnectionDialog({
           go();
         }
       });
-      browser.replaceChildren(h('div', {
+      replaceContent(browser, h('div', {
         class: 'connection-file-path'
       }, pathInput, h('button', {
         class: 'btn small',
         type: 'button',
         onclick: go
-      }, '转到'), h('button', {
+      }, tr("flow.files.go")), h('button', {
         class: 'btn small',
         type: 'button',
         disabled: !response.parent,
         onclick: () => browseFiles(response.parent)
-      }, '上一级')), h('div', {
+      }, tr("flow.files.parent"))), h('div', {
         class: 'connection-file-list'
       }, ...response.entries.map(entry => h('button', {
         type: 'button',
@@ -484,16 +490,16 @@ export function openConnectionDialog({
         }
       }, entry.name))), ...(response.entries.length ? [] : [h('p', {
         class: 'muted'
-      }, '此目录没有数据库文件。')]));
+      }, tr("flow.files.noDatabase"))]));
     } catch (error_) {
-      if (!closed && expected === fileSequence) browser.replaceChildren(h('p', {
+      if (!closed && expected === fileSequence) replaceContent(browser, h('p', {
         role: 'alert',
         class: 'connection-error'
-      }, connectionError(error_.message)), h('button', {
+      }, connectionError(errorText(error_))), h('button', {
         type: 'button',
         class: 'btn small',
         onclick: () => browseFiles()
-      }, '返回主目录'));
+      }, tr("flow.files.returnHome")));
     }
   }
   function keydown(event) {
@@ -508,7 +514,8 @@ export function openConnectionDialog({
     cycleFocus(event, candidates);
   }
   renderFields();
-  document.body.append(overlay);
+  appendContent(document.body, overlay);
+  kindIndicator.update();
   document.addEventListener('keydown', keydown);
   heading.focus({ preventScroll: true });
   activeDialog = {
@@ -526,11 +533,12 @@ function targetDescription(target) {
     const url = new URL(text);
     return `${url.protocol}//${url.host}${decodeURIComponent(url.pathname)}`;
   } catch {
-    return '数据库连接';
+    return tr("flow.connection.title");
   }
 }
 function connectionError(message) {
-  const parts = String(message || '连接失败，请检查目标及连接参数。').split('://');
+  return liveText(() => {
+  const parts = String(message || tr("flow.connection.failed")).split('://');
   for (let index = 1; index < parts.length; index++) {
     const authority = parts[index],
       at = authority.indexOf('@');
@@ -539,4 +547,5 @@ function connectionError(message) {
     }
   }
   return parts.join('://').replace(/((?:password|sslpassword|token|secret|api_key)=)[^&\s'")]+/gi, '$1[redacted]');
+  });
 }

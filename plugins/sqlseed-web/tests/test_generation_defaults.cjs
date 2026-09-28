@@ -36,3 +36,15 @@ test('preview and seed preferences migrate old values and reject unsafe input', 
   t.context.saveGenerationDefaults(base); assert.equal(t.context.readGenerationDefaults().seed,0);
   for(const value of [{...base,previewCount:101},{...base,previewCount:0},{...base,seed:-1},{...base,seed:1.5},{...base,seed:4294967296}]) assert.throws(()=>t.context.saveGenerationDefaults(value));
 });
+
+test('default-validation errors remain translatable without saving invalid preferences', () => {
+  const t = harness(null);
+  let error;
+  try { t.context.saveGenerationDefaults({provider:'faker',locale:'zh_CN',count:0}); }
+  catch (failure) { error = failure; }
+  assert.ok(error);
+  assert.match(String(t.context.errorText(error)), /1–1,000,000/);
+  t.context.setLanguage('en');
+  assert.match(String(t.context.errorText(error)), /row count must be an integer/);
+  assert.equal(t.saved(), null);
+});
