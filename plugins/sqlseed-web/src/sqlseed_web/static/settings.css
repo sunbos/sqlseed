@@ -98,7 +98,7 @@
 .settings-plugin-task details { margin-top:10px; }
 .settings-plugin-task summary { cursor:pointer; color:var(--teal); }
 .settings-plugin-task > .btn { margin-top:10px; }
-.settings-plugin-output { max-height:220px; overflow:auto; padding:12px; border:1px solid var(--line); background:var(--paper); border-radius:6px; white-space:pre-wrap; overflow-wrap:anywhere; font-size:11px; line-height:1.6; user-select:text; }
+.settings-plugin-output { max-height:220px; overflow:auto; padding:12px; border:1px solid var(--line); background:var(--paper); border-radius:6px; white-space:pre-wrap; overflow-wrap:anywhere; font:400 var(--text-caption)/1.7 var(--mono); color:var(--ink); user-select:text; }
 .settings-plugin-plan { display:grid; grid-template-columns:72px minmax(0,1fr); gap:10px 14px; margin:20px 0; font-size:13px; }
 .settings-plugin-plan dt { color:var(--muted); }
 .settings-plugin-plan dd { margin:0; overflow-wrap:anywhere; user-select:text; white-space:pre-wrap; }

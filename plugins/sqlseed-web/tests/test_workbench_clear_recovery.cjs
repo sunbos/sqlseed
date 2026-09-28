@@ -89,8 +89,10 @@ test('8→23 candidate displays a real cyclic-check failure and cannot change th
  await review(ui);
  const dialog=ui.document.querySelector('.modal');assert.match(dialog.textContent,/8 张 → 23 张：新增 15 张表/);
  assert.match(dialog.textContent,/employees/);assert.match(dialog.textContent,/departments/);
- assert.match(dialog.textContent,/暂时不能继续清空重建/);
- assert.ok(ui.button('定位 employees',dialog));assert.ok(ui.button('定位 departments',dialog));
+ assert.match(dialog.textContent,/当前工作台不支持此生成范围/);
+ assert.match(dialog.querySelector('.wb-cycle-references').textContent,/departments.manager_id 引用 employees.id/);
+ const alternative=ui.button('定位需要调整的勾选项',dialog).closest('details');
+ assert.ok(alternative);assert.equal(Boolean(alternative.open),false);
  const apply=confirmation(ui);assert.equal(apply.disabled,true);await apply.click();
  assert.deepEqual(plain(ui.modelState().document),before);assert.equal(ui.modelState().check,currentCheck);
  assert.equal(mutations(ui).length,mutationCount);assert.equal(writes(ui).length,0);

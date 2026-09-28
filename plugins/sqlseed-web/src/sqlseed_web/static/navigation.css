@@ -13,9 +13,10 @@ body > header.top {
 }
 body > header.top > .brand { justify-self:start; min-width:0; }
 body > header.top > .top-end { justify-self:end; min-width:0; max-width:100%; margin-left:0; display:flex; align-items:center; gap:8px; }
-.language-control { flex:0 0 auto; }
-.language-control .dropdown-btn { min-height:32px; font-size:12px; }
-body > header.top #connection-button { max-width:100%; }
+.language-control { flex:0 0 104px; width:104px; }
+.language-control .dropdown-btn { min-height:34px; font-size:12px; gap:8px; padding:6px 10px; }
+.language-control .dropdown-btn-label { min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; overflow-wrap:normal; }
+body > header.top #connection-button { flex:0 1 auto; min-width:0; max-width:100%; }
 body > header.top #connection-label { min-width:0; }
 #nav {
   display:flex;
@@ -63,7 +64,7 @@ body > header.top #connection-label { min-width:0; }
   from { opacity:.65; }
   to { opacity:1; }
 }
-@media(max-width:1000px) {
+@media(max-width:1120px) {
   body > header.top {
     grid-template-columns:minmax(0,1fr) auto;
     height:auto;

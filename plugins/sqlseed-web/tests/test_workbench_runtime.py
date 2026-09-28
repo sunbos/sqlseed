@@ -207,6 +207,34 @@ def test_cross_table_cycle_and_column_cycle_are_rejected(connection: Connection)
     assert any(issue["code"] == "generation_invalid" for issue in derived["issues"])
 
 
+def test_association_cycle_identifies_exact_fields_without_physical_foreign_keys(connection: Connection) -> None:
+    from sqlseed_web.workbench_runtime import check_document
+    from sqlseed_web.workbench_schema import inspect_connection
+
+    with sqlite_connection(connection.target) as db:
+        db.executescript(
+            'CREATE TABLE assoc_a(id INTEGER PRIMARY KEY, "link,value" INTEGER);'
+            'CREATE TABLE assoc_b(id INTEGER PRIMARY KEY, "link,value" INTEGER);'
+        )
+    config = {
+        "provider": "base",
+        "tables": [{"name": "assoc_a"}, {"name": "assoc_b"}],
+        "associations": [
+            {"source_table": source, "source_column": "id", "column_name": "link,value", "target_tables": [target]}
+            for source, target in [("assoc_a", "assoc_b"), ("assoc_b", "assoc_a")]
+        ],
+    }
+    checked = check_document(connection, config, inspect_connection(connection)["schema_hash"])
+    cycle = next(issue for issue in checked["issues"] if issue["code"] == "cross_table_cycle")
+    assert not checked["ok"]
+    assert cycle["tables"] == ["assoc_a", "assoc_b"]
+    assert cycle["edge_ids"] == []
+    assert cycle["references"] == [
+        {"table": target, "columns": ["link,value"], "source_table": source, "source_columns": ["id"]}
+        for source, target in [("assoc_a", "assoc_b"), ("assoc_b", "assoc_a")]
+    ]
+
+
 def test_router_draft_roundtrip_and_stale_revision_returns_conflict(
     connection: Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

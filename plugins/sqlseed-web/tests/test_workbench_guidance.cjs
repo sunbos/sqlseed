@@ -6,6 +6,29 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
 const guide = ui => ui.root().querySelector('.wb-next-step');
 const redraw = ui => vm.runInContext('drawBody()', ui.context);
 
+test('guidance retains step controls through selection, status updates and language changes', async () => {
+  const ui = harness(); await ui.mount();
+  const group = guide(ui).querySelector('.wb-guide-stages');
+  const steps = group.querySelectorAll('button');
+  const marker = group.querySelector('.segment-indicator');
+  steps[1].focus();
+  await steps[1].click();
+  assert.equal(guide(ui).querySelector('.wb-guide-stages'), group);
+  assert.deepEqual(group.querySelectorAll('button'), steps);
+  assert.equal(group.querySelector('.segment-indicator'), marker);
+  assert.equal(steps[1].getAttribute('aria-current'), 'step');
+  redraw(ui);
+  assert.equal(guide(ui).querySelector('.wb-guide-stages'), group);
+  ui.context.setLanguage('en');
+  assert.equal(guide(ui).querySelector('.wb-guide-stages'), group);
+  assert.match(steps[1].textContent, /Preview samples/);
+  await steps[0].click();
+  assert.equal(steps[0].getAttribute('aria-current'), 'step');
+  assert.equal(ui.requests.some(request => request.url.endsWith('/runs')), false);
+  ui.context.unmount();
+  assert.equal(group.querySelector('.segment-indicator'), null);
+});
+
 test('empty-plan stages explain prerequisites and focus selection without execution requests',async()=>{
   const ui=harness();await ui.mount();
   for(const stage of [2,3,1]) {

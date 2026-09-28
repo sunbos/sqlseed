@@ -17,11 +17,14 @@ export function openDataPreview({
   initialCount = 10,
   generate,
   guard = task => task,
+  setControlDisabled = (control, value) => { control.disabled = value; },
   isCurrent = () => true,
   onOptionsChange,
   onResult,
   onError,
   onValidationIssue,
+  onUnsupported,
+  onCurrentData,
   onColumnAction,
   container = null,
   fixedScope = false,
@@ -71,8 +74,12 @@ export function openDataPreview({
     shownTable = initialView?.shownTable || currentTable;
   let selectedColumn = initialView?.column || null,
     stale = initialStale;
+  // Changing options clears the cached rows, not the fact that this view has
+  // already previewed. Keep the established refresh action while editing.
+  let hasPreviewResult = Boolean(initialResult);
   let columnAction = initialView?.columnAction || 'information';
   let scrollLayout = null;
+  const unsupported = () => !stale && (result?.issues || []).some(issue => issue.severity === 'error' && issue.code === 'cross_table_cycle');
   const destroy = () => {
     closed = true;
     sequence++;
@@ -211,12 +218,14 @@ export function openDataPreview({
         count
       });
     }
+    setBusy(false);
   }
   countInput.addEventListener('input', optionsChanged);
   function setBusy(value) {
     busy = value;
-    countInput.disabled = value;
-    refreshButton.disabled = value;
+    setControlDisabled(countInput, value || unsupported());
+    setControlDisabled(refreshButton, value || unsupported());
+    setText(refreshButton, unsupported() ? tr('preview.unsupportedAction') : hasPreviewResult || !container ? tr('preview.refresh') : tr('preview.generate'));
     setAttr(controls, 'aria-busy', String(value));
     setAttr(results, 'aria-busy', String(value));
     for (const tab of tabs.querySelectorAll('button')) {
@@ -441,7 +450,9 @@ export function openDataPreview({
     }, tr('preview.rowCount', {table: name, rows: formatNumber(rows.length), limit: formatNumber(count)}));
     if (!rows.length) {
       let empty;
-      if (result.preview_complete === false) {
+      if (unsupported()) {
+        empty = tr('preview.unsupportedEmpty', {table: name});
+      } else if (result.preview_complete === false) {
         empty = tr('preview.dependencyNotReady');
       } else if (result.ok === false) {
         empty = tr('preview.incompleteTable');
@@ -452,6 +463,9 @@ export function openDataPreview({
       results.replaceChildren(summary, h('p', {
         class: 'wb-preview-empty'
       }, empty));
+      if (unsupported() && onCurrentData && schema.has(name)) results.append(button(tr('preview.currentData', {table: name}), () => {
+        if (live() && !busy) onCurrentData(name);
+      }, {small: true}), h('p', {class: 'wb-preview-help'}, tr('preview.currentDataHelp')));
       restoreViewport(dialog.body, bodyScroll);
       return;
     }
@@ -502,11 +516,18 @@ export function openDataPreview({
       }
     }
     issues.replaceChildren(...previewIssueList());
+    if (unsupported()) {
+      const tables = [...new Set(result.issues.filter(issue => issue.code === 'cross_table_cycle').flatMap(issue => issue.tables || []))];
+      issues.insertBefore(h('p', {}, tr('preview.unsupported', {tables: tables.join('、')})), issues.firstChild);
+      if (onUnsupported) issues.append(button(tr('preview.unsupportedReason'), () => {
+        if (live() && !busy) onUnsupported(result);
+      }, {small: true}));
+    }
     renderRows();
     restoreScroll(bodyScroll);
   }
   const refresh = guard(async () => {
-    if (closed || busy) {
+    if (closed || busy || unsupported()) {
       return;
     }
     setText(error, '');
@@ -596,10 +617,13 @@ export function openDataPreview({
     }
     function acceptPreview(response) {
       result = response;
+      hasPreviewResult = true;
       stale = false;
       renderResult();
       setText(refreshButton, tr('preview.refresh'));
-      if (response.ok === false) {
+      if (unsupported()) {
+        setText(status, tr('preview.unsupportedStatus'));
+      } else if (response.ok === false) {
         setText(status, tr('preview.issueHint'));
       } else if (response.preview_complete === false) {
         setText(status, tr('preview.partial'));
@@ -623,7 +647,8 @@ export function openDataPreview({
     result = initialResult;
     renderResult();
     setText(refreshButton, tr('preview.refresh'));
-    setText(status, stale ? tr('preview.initialStale') : tr('preview.initialResult'));
+    setText(status, stale ? tr('preview.initialStale') : unsupported() ? tr('preview.unsupportedStatus') : tr('preview.initialResult'));
+    setBusy(false);
   }
   restoreScroll(initialView?.bodyScroll);
   return {

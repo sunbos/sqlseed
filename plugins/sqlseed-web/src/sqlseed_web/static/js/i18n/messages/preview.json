@@ -1,5 +1,18 @@
 {
   "preview": {
+    "unsupported": [
+      "当前范围包含未支持的跨表循环：{tables}。这不是预览行数错误，原样重试无法生成新样例。已显示的其他表样例仍可查看。",
+      "This scope contains an unsupported cross-table cycle: {tables}. This is not a preview row-count error; retrying unchanged cannot generate new samples. Other samples already displayed remain available."
+    ],
+    "unsupportedStatus": ["当前范围不支持生成新样例", "New samples are unavailable for this scope"],
+    "unsupportedAction": ["当前范围无法预览", "Preview unavailable for this scope"],
+    "unsupportedEmpty": [
+      "当前范围的跨表循环尚不受支持，本次未生成 {table} 的新样例。数据库现有记录不受影响。",
+      "This scope contains an unsupported cross-table cycle. No new samples were generated for {table}. Existing database records are unaffected."
+    ],
+    "unsupportedReason": ["查看无法生成的原因", "View why generation is unavailable"],
+    "currentData": ["查看 {table} 当前数据", "View current data in {table}"],
+    "currentDataHelp": ["只读查看数据库已有记录，不是生成样例，也不会写入数据库。", "Read existing database records only. These are not generated samples, and nothing is written."],
     "loading": [
       "正在生成预览数据…",
       "Generating preview samples…"

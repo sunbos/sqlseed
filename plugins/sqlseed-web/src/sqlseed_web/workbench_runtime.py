@@ -567,6 +567,7 @@ def _dependency_plan(
     tables = {table["name"]: table for table in schema["tables"]}
     selected = {table.name for table in config.tables}
     dependencies = {table.name: set[str]() for table in config.tables if table.name in tables}
+    references: list[dict[str, Any]] = []
     deferred: set[str] = set()
     evidence: dict[str, Any] = {
         "row_counts": {name: table["row_count"] for name, table in tables.items()},
@@ -602,6 +603,14 @@ def _dependency_plan(
         evidence[f"{parent}:{','.join(columns)}"] = _hash(values)
         if parent != target and parent in dependencies:
             dependencies[target].add(parent)
+            references.append(
+                {
+                    "table": target,
+                    "columns": target_columns,
+                    "source_table": parent,
+                    "source_columns": columns,
+                }
+            )
         if not values:
             _empty_source_issues({**context, "columns": target_columns}, columns, nullable, selected, deferred, issues)
 
@@ -616,6 +625,11 @@ def _dependency_plan(
             "cross_table_cycle",
             tr("backend.workbench_runtime.cross_table_cycles_require_general_backfill_the"),
             tables=[name for name in dependencies if name in members],
+            references=[
+                reference
+                for reference in references
+                if any(reference["table"] in group and reference["source_table"] in group for group in components)
+            ],
             edge_ids=[
                 edge["id"]
                 for edge in schema["edges"]

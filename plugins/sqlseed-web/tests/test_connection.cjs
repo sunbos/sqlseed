@@ -59,6 +59,27 @@ test('same-target live sessions are grouped and identified without repeating an 
   assert.ok(!body.contains(modal.querySelector('.connection-footer')), 'long content must not own footer scrolling');
 });
 
+test('database type selection keeps its controls while replacing the form and disposes its plate on close', async () => {
+  const ui = harness(); await flush();
+  const choices = ui.document.querySelector('.segmented');
+  const buttons = choices.querySelectorAll('button');
+  const indicator = choices.querySelector('.segment-indicator');
+  await buttons[1].click();
+  assert.equal(buttons[1].getAttribute('aria-pressed'), 'true');
+  assert.equal(ui.document.querySelector('[name="db_path"]'), null);
+  const password = ui.document.querySelector('[name="password"]');
+  password.value = 'temporary-secret';
+  await buttons[0].click();
+  assert.equal(password.value, '');
+  assert.ok(ui.document.querySelector('[name="db_path"]'));
+  assert.equal(buttons[0].getAttribute('aria-pressed'), 'true');
+  assert.deepEqual(choices.querySelectorAll('button'), buttons);
+  assert.equal(choices.querySelector('.segment-indicator'), indicator);
+  assert.equal(ui.requests.some(request => request.method === 'POST'), false);
+  ui.dialog.close();
+  assert.equal(choices.querySelector('.segment-indicator'), null);
+});
+
 test('SQLite validation marks its field and file selection clears the error without connecting', async () => {
   const ui = harness({current: null, browse: () => ({path:'/temporary',parent:null,entries:[{name:'demo.db',path:'/temporary/demo.db',is_dir:false}]})});
   await flush();

@@ -1,5 +1,6 @@
 import {tr} from '../i18n.js';
 import '../i18n/messages/flow.js';
+import '../i18n/messages/workbench.js';
 // Read-only presentation facts. Execution authorization always comes from a
 // fresh server execution-plan after the user has saved an explicit scope.
 function compareTableNames(left, right) {
@@ -28,9 +29,11 @@ export function clearRecoveryState(model, context) {
   const otherIssues = errors.filter(issue => !externalCodes.has(issue.code) || !issue.table);
   const count = externalTables.length + otherIssues.length;
   const rulesPassed = model.check?.ok && model.check.epoch === model.epoch && !model.errors.size;
+  const unsupported = [...(model.check?.epoch === model.epoch ? model.check.issues || [] : []), ...(current ? errors : [])]
+    .filter(issue => issue.severity === 'error' && issue.code === 'cross_table_cycle');
   const rules = rulesPassed ? tr("flow.clear.rulesPassed") : tr("flow.clear.rulesPending");
-  const status = clearStatus(state, rules, count);
-  return {state, current, rulesPassed, externalTables, otherIssues, count, status};
+  const status = unsupported.length ? tr('workbench.unsupported.title') : clearStatus(state, rules, count);
+  return {state, current, rulesPassed, externalTables, otherIssues, count, status, unsupported};
 }
 
 export function clearScopeCandidate(model) {

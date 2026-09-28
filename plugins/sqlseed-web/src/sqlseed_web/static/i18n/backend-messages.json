@@ -1204,8 +1204,8 @@
     "The workbench uses persistent run records and does not write snapshot_dir files. The configuration is retained in exports."
   ],
   "backend.workbench_runtime.cross_table_cycles_require_general_backfill_the": [
-    "跨表循环需要通用 backfill；当前工作台不能安全执行该计划",
-    "Cross-table cycles require general backfill. The workbench cannot safely execute this plan."
+    "这些表相互引用，无法排出先后生成顺序。当前工作台不支持同时生成这组循环表，调整行数或重试不能解除此限制。",
+    "These tables reference one another, so no generation order is available. The workbench cannot generate this cycle together; changing row counts or retrying does not resolve this limitation."
   ],
   "backend.workbench_runtime.select_at_least_one_table_to_generate": [
     "请至少选择一张需要生成的表",

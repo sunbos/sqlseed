@@ -3,6 +3,7 @@ import '../i18n/messages/flow.js';
 import { cycleFocus } from "./focus.js";
 import { h, get, send, store, rememberConnId, setConnBadge, safeTargetLabel } from '../api.js';
 import { lockPageScroll } from './scroll-lock.js';
+import { createSegmentIndicator } from '../segment-motion.js';
 let activeDialog = null;
 let dialogSequence = 0;
 
@@ -92,9 +93,11 @@ export function openConnectionDialog({
         button.classList.toggle('active', selected);
         setAttr(button, 'aria-pressed', String(selected));
       }
+      kindIndicator.update({animate: true});
       renderFields();
     }
   }, value === 'sqlite' ? 'SQLite' : 'PostgreSQL')));
+  const kindIndicator = createSegmentIndicator(choices);
   const overlay = h('div', {
     class: 'overlay open wb-overlay connection-overlay',
     onclick: event => {
@@ -134,6 +137,7 @@ export function openConnectionDialog({
     fileSequence++;
     existingSequence++;
     clearSecrets();
+    kindIndicator.destroy();
     overlay.remove();
     unlockScroll();
     document.removeEventListener('keydown', keydown);
@@ -511,6 +515,7 @@ export function openConnectionDialog({
   }
   renderFields();
   appendContent(document.body, overlay);
+  kindIndicator.update();
   document.addEventListener('keydown', keydown);
   heading.focus({ preventScroll: true });
   activeDialog = {

@@ -1,0 +1,65 @@
+/* Only decorative layers move; labels, controls and hit areas stay in place. */
+.segment-motion { position:relative; isolation:isolate; }
+.segment-motion > button,.segment-motion > li { position:relative; z-index:1; }
+.segment-motion > .segment-indicator {
+  position:absolute; inset:0 auto auto 0; z-index:0; box-sizing:border-box;
+  list-style:none;
+  border:1px solid var(--segment-edge,var(--glass-edge));
+  border-radius:var(--radius-control);
+  background:var(--segment-selected,var(--control-surface));
+  box-shadow:var(--segment-shadow,var(--control-rest-shadow));
+  pointer-events:none; visibility:hidden;
+}
+.segment-motion[data-segment-ready] > .segment-indicator { visibility:visible; }
+.segment-motion[data-segment-ready] button:is([aria-current=step],[aria-pressed=true],.active),
+.segment-motion[data-segment-ready] button:is([aria-current=step],[aria-pressed=true],.active):not(:disabled):hover {
+  background:transparent; border-color:transparent; box-shadow:none;
+}
+
+/* Preserve the native inputs and their fixed boxes. Only their marks animate. */
+html input:is([type=checkbox],[type=radio]) {
+  display:inline-grid; place-items:center;
+}
+html input[type=checkbox]::before {
+  content:''; display:block; width:13px; height:13px; background:var(--teal);
+  -webkit-mask:var(--choice-mark) center / contain no-repeat;
+  mask:var(--choice-mark) center / contain no-repeat;
+  opacity:0; transform:scale(.6); pointer-events:none;
+}
+html input[type=checkbox]:checked,html input[type=checkbox]:indeterminate,
+html input[type=radio]:checked {
+  background:var(--choice-selected-fill) padding-box,var(--choice-rim) border-box;
+}
+html input[type=checkbox]:indeterminate::before {
+  width:9px; height:2px; border-radius:1px; -webkit-mask:none; mask:none;
+}
+html input[type=radio]::before {
+  content:''; display:block; width:8px; height:8px; border-radius:50%; background:var(--teal);
+  opacity:0; transform:scale(.6); pointer-events:none;
+}
+html input[type=checkbox]:is(:checked,:indeterminate)::before,
+html input[type=radio]:checked::before { opacity:1; transform:scale(1); }
+
+@media(prefers-reduced-motion:no-preference) {
+  .segment-motion[data-segment-slide=true] > .segment-indicator {
+    transition:transform 160ms cubic-bezier(.2,.8,.2,1),width 160ms ease,height 160ms ease;
+  }
+  html input:is([type=checkbox],[type=radio])::before {
+    transition:opacity 130ms ease-out,transform 130ms ease-out;
+  }
+  .wb-overlay > .modal { animation:dialog-appear 160ms ease-out; }
+  .dropdown-panel.dropdown-floating { animation:control-appear 120ms ease-out; }
+}
+@keyframes dialog-appear { from { opacity:.35; } to { opacity:1; } }
+@keyframes control-appear { from { opacity:.45; } to { opacity:1; } }
+@media(forced-colors:active) {
+  .segment-motion > .segment-indicator { display:none; }
+  .segment-motion[data-segment-ready] button:is([aria-current=step],[aria-pressed=true],.active),
+  .segment-motion[data-segment-ready] button:is([aria-current=step],[aria-pressed=true],.active):not(:disabled):hover {
+    forced-color-adjust:none; background:Highlight; color:HighlightText; border-color:Highlight;
+  }
+  html input:is([type=checkbox],[type=radio]) { display:inline-block; appearance:auto; -webkit-appearance:auto; }
+  html input:is([type=checkbox],[type=radio])::before { display:none; }
+  html input[type=checkbox]:checked,html input[type=checkbox]:indeterminate,
+  html input[type=radio]:checked { background:none; }
+}

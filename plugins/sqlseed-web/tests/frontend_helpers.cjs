@@ -231,6 +231,9 @@ function loadFrontend(name, bindings = {}) {
   }
   const context = vm.createContext({...globals, ...api, lockPageScroll: scrollModules.get(document), ...bindings});
   vm.runInContext(source('workbench/focus.js'), context, {filename: 'workbench/focus.js'});
+  if (name !== 'segment-motion.js') {
+    vm.runInContext(source('segment-motion.js'), context, {filename: 'segment-motion.js'});
+  }
   if (name === 'workbench/preview.js') {
     vm.runInContext(source('workbench/preview-scroll-layout.js'), context, {filename: 'workbench/preview-scroll-layout.js'});
   }
