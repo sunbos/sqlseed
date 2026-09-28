@@ -102,7 +102,7 @@
 - `supervisor.py` 在默认启动时持有监听 socket 与管理状态，`managed_worker.py` 分别启动业务/维护 worker，`worker_control.py` 以有界匿名 IPC 传递控制与临时会话。保留原 NDJSON，不代理 HTTP。旧 `--manage-plugins` 仅兼容入口；普通网页无需命令切换或手动重启。
 - 维护 worker 业务 `/api/` 一律拒绝，仅保留 health、environment 与 `/api/settings/plugins/*`；HTML 固定标识用于首次导航，API 门禁不能依赖前端，受管维护标识不得永久锁定恢复后的导航。
 - `plugin_environment.py` 只接受当前解释器与可写独立 virtualenv，解析真实 distribution metadata/Requires-Dist；不使用 import 缓存判断新安装状态。系统/只读/共享系统包/环境外 metadata 不可管理，但保留普通 Web。
-- `plugin_management.py` 白名单仅 ai/cli/mcp/mimesis。管理请求检查 loopback client/Host；POST 必须同 Origin 及 token。计划绑定五分钟内 metadata 快照，一次领取。Core/Web/Faker/Base 不接受操作，不自动卸载依赖。`supervised_plugins.py` 仅在新业务就绪后发布任务终态，恢复失败保留页面与只恢复服务的重试入口。
+- `plugin_management.py` 白名单仅 ai/cli/mcp/mimesis。管理请求检查 loopback client/Host；POST 必须同 Origin 及 token。计划绑定五分钟内 metadata 快照，一次领取。新计划可在同一受锁解释器且权限仍满足时重新绑定合法安装器；计划到执行及更新下载后的环境变化仍须拒绝，不能将短时安装器探测结果固定为进程生命周期身份。Core/Web/Faker/Base 不接受操作，不自动卸载依赖。`supervised_plugins.py` 仅在新业务就绪后发布任务终态，恢复失败保留页面与只恢复服务的重试入口。
 - `plugin_updates.py` 仅对已安装的白名单可选组件准备定向更新，拒绝降级和联动变更其他包。候选 wheel 须匹配解释器 tags、Requires-Python 与 AI 最低兼容版本；固定 PyPI 索引和 `files.pythonhosted.org/packages/` 下载地址，不接受重定向、任意源或本地文件输入。校验 wheel SHA-256 及索引声明的 sidecar metadata 哈希，再将包内 metadata 与计划保存的哈希比较；下载内容和元数据均有大小上限。
 - 更新前按完整环境检查正向、反向及显式 extras 依赖；缺失、不满足或不可验证的直接 URL 依赖阻止更新，提示使用原环境工具协调处理，不能自动补装依赖。执行前、下载后复核 metadata 快照；安装使用当前解释器、已校验本地 wheel、`--no-deps --no-index` 与冻结其他包的约束。完成后核对目标版本、包集合及其他包 metadata 不变；失败不宣称自动回滚已安装包。
 - 索引/metadata 计划和 wheel 下载使用有界等待及单槽网络任务。等待超时不代表底层读线程已经结束；该线程退出前不能释放槽位，迟到结果不得创建计划、写临时文件或启动安装。网络失败统一脱敏为可恢复错误，不能扩大 supervisor IPC 等待掩盖无界网络工作。

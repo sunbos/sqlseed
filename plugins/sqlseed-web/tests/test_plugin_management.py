@@ -11,11 +11,13 @@ import threading
 import time
 import venv
 import zipfile
+from dataclasses import replace
 from importlib import metadata
 from pathlib import Path
 from typing import Any
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from packaging.requirements import Requirement
 
@@ -218,6 +220,132 @@ def test_plan_revalidation_rejects_changed_metadata(maintenance: Any) -> None:
     response = client.post("/api/settings/plugins/execute", headers=headers, json={"plan_id": plan["plan_id"]})
     assert response.status_code == 409
     assert not maintenance[5]
+
+
+@pytest.mark.parametrize("initial_pip", [True, False])
+def test_new_plan_recovers_from_installer_probe_drift(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, initial_pip: bool
+) -> None:
+    environment = importlib.import_module("sqlseed_web.plugin_environment")
+    settings = importlib.import_module("sqlseed_web.settings_environment")
+    management = importlib.import_module("sqlseed_web.plugin_management")
+    site = tmp_path / "site-packages"
+    site.mkdir()
+    (tmp_path / "pyvenv.cfg").write_text("include-system-site-packages = false\n", encoding="utf-8")
+
+    def install(name: str) -> None:
+        directory = site / f"{name.replace('-', '_')}-1.0.dist-info"
+        directory.mkdir()
+        (directory / "METADATA").write_text(f"Metadata-Version: 2.1\nName: {name}\nVersion: 1.0\n", encoding="utf-8")
+
+    for name in ("sqlseed", "sqlseed-web", "Faker"):
+        install(name)
+    monkeypatch.setattr(sys, "prefix", str(tmp_path))
+    monkeypatch.setattr(sys, "base_prefix", str(tmp_path.parent))
+    monkeypatch.setattr(environment.sysconfig, "get_path", lambda name: str(site))
+    monkeypatch.setattr(environment, "_distribution_paths", lambda: [str(site)])
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: object())
+    uv = str(tmp_path / "uv")
+    monkeypatch.setattr(shutil, "which", lambda name: uv)
+    clock, pip_available = [150.0], [initial_pip]
+    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+
+    def probe(arguments: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        assert arguments[-1] == "--version"
+        if arguments[0] != uv and not pip_available[0]:
+            raise subprocess.TimeoutExpired(arguments, 1)
+        return subprocess.CompletedProcess(arguments, 0)
+
+    monkeypatch.setattr(subprocess, "run", probe)
+    invocations: list[list[str]] = []
+    frozen: list[str] = []
+
+    def runner(arguments: list[str], output: Any, **kwargs: Any) -> int:
+        invocations.append(arguments)
+        constraint_option = "--constraints" if arguments[0] == uv else "--constraint"
+        constraints = Path(arguments[arguments.index(constraint_option) + 1])
+        frozen.extend(constraints.read_text(encoding="utf-8").splitlines())
+        install("mimesis")
+        return 0
+
+    monkeypatch.setattr(management, "run_installer", runner)
+    settings._probe_version.cache_clear()
+    manager = management.PluginManager(enabled=True)
+    manager.start()
+    try:
+        before = environment.installed_packages(tmp_path)
+        old_plan = manager.plan(management.PlanRequest(component_id="mimesis", action="install"))
+        clock[0] = 181.0
+        pip_available[0] = not initial_pip
+        with pytest.raises(HTTPException) as error:
+            manager.execute(management.ExecuteRequest(plan_id=old_plan["plan_id"]))
+        assert error.value.status_code == 409
+        assert manager.status()["active_task"] is None
+        assert environment.installed_packages(tmp_path) == before
+        assert invocations == []
+
+        new_plan = manager.plan(management.PlanRequest(component_id="mimesis", action="install"))
+        assert new_plan["plan_id"] != old_plan["plan_id"]
+        task = manager.execute(management.ExecuteRequest(plan_id=new_plan["plan_id"]))
+        manager._worker.join(5)
+        assert manager.task_snapshot(task["task_id"])["status"] == "succeeded"
+        expected_prefix = [uv, "--no-config", "pip"] if initial_pip else [sys.executable, "-m", "pip"]
+        assert invocations[0][: len(expected_prefix)] == expected_prefix
+        assert len(invocations) == 1
+        assert sorted(frozen) == ["faker==1.0", "sqlseed-web==1.0", "sqlseed==1.0"]
+        assert environment.installed_packages(tmp_path) == {
+            **before,
+            "mimesis": environment.InstalledPackage("1.0", ()),
+        }
+    finally:
+        manager.stop()
+        settings._probe_version.cache_clear()
+
+
+@pytest.mark.parametrize("change", ["prefix", "executable", "reason"])
+def test_new_plan_cannot_rebind_another_or_restricted_environment(
+    maintenance: Any, monkeypatch: pytest.MonkeyPatch, change: str
+) -> None:
+    client, headers = maintenance[:2]
+    manager = client.app.state.plugin_manager
+    original = manager.environment
+    changed = replace(
+        original,
+        **{
+            change: {"prefix": original.prefix / "other", "executable": "other-python", "reason": "not writable"}[
+                change
+            ]
+        },
+    )
+    monkeypatch.setattr("sqlseed_web.plugin_environment._environment", lambda: changed)
+    response = client.post(
+        "/api/settings/plugins/plan", headers=headers, json={"component_id": "mimesis", "action": "install"}
+    )
+    assert response.status_code == 409
+    assert manager.environment == original
+    assert manager.status()["active_task"] is None
+    assert maintenance[5] == []
+
+
+def test_rejected_new_plan_does_not_rebind_an_existing_plan(maintenance: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    client, headers = maintenance[:2]
+    manager = client.app.state.plugin_manager
+    original = manager.environment
+    first = client.post(
+        "/api/settings/plugins/plan", headers=headers, json={"component_id": "mimesis", "action": "install"}
+    ).json()
+    monkeypatch.setattr(
+        "sqlseed_web.plugin_environment._environment",
+        lambda: replace(original, tool="uv", tool_executable="/test/uv"),
+    )
+    rejected = client.post(
+        "/api/settings/plugins/plan", headers=headers, json={"component_id": "mimesis", "action": "uninstall"}
+    )
+    assert rejected.status_code == 409
+    assert manager.environment == original
+    assert manager._plan["plan_id"] == first["plan_id"]
+    assert manager.status()["active_task"] is None
+    assert maintenance[5] == []
 
 
 def test_maintenance_environment_snapshot_never_imports_plugins(
