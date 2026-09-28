@@ -23,7 +23,7 @@ function harness(hash = '#/workbench') {
   // The shared DOM substitute does not parse descendant selectors.
   const queryAll = document.querySelectorAll.bind(document);
   document.querySelectorAll = selector => selector === '#nav button' ? nav.children : queryAll(selector);
-  const location = {hash}, events = [], modules = new Map(), imports = new Map(), roots = new Map();
+  const location = {hash}, store = {connId:'A'}, events = [], modules = new Map(), imports = new Map(), roots = new Map();
   let badges = 0;
   const page = (name, mountGate = null) => ({
     render() {
@@ -34,7 +34,8 @@ function harness(hash = '#/workbench') {
     unmount() {events.push(`unmount:${name}`);},
   });
   for (const name of ['workbench', 'runs', 'configs', 'settings']) modules.set(name, page(name));
-  const context = vm.createContext({document, window, location,
+  const context = vm.createContext({document, window, location, store,
+    history: {state:null, replaceState: (_state, _title, hash) => {location.hash=hash;}},
     openConnectionDialog() {}, setConnBadge() {badges++;},
     setTimeout() {throw new Error('Navigation must not wait for an animation timer');},
     requestAnimationFrame() {throw new Error('Navigation must not wait for an animation frame');},
@@ -47,7 +48,7 @@ function harness(hash = '#/workbench') {
     .replace(/^import[^\n]+\n/gm, '').replace(/import\((['"][^'"]+['"])\)/g, '__loadPage($1)');
   const ready = vm.runInContext('(async () => {\n' + source + '\n})()', context);
   const navigate = hash => {location.hash = hash; return window.dispatchEvent('hashchange');};
-  return {document, main, nav, window, location, events, modules, imports, roots, page, navigate, ready,
+  return {document, main, nav, window, location, store, events, modules, imports, roots, page, navigate, ready,
     badgeCount: () => badges};
 }
 
@@ -72,6 +73,7 @@ test('same-page queries and connection remounts preserve lifecycle without repla
   await ui.navigate('#/settings?section=plugins');
   assert.notEqual(ui.main.firstChild, firstSettings);
   assert.equal(ui.main.firstChild.classList.contains('page-enter'), false);
+  ui.store.connId = 'B';
   await ui.window.dispatchEvent('sqlseed:connection-changed'); await flush();
   assert.equal(ui.main.firstChild.classList.contains('page-enter'), false);
   assert.equal(ui.events.filter(event => event === 'mount:settings').length, 3);

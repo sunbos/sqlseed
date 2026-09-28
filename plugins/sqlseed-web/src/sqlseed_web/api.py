@@ -21,6 +21,7 @@ sqlseed-ai is an optional dependency: heal endpoints degrade to
 
 from __future__ import annotations
 
+import hashlib
 import importlib
 import inspect
 from contextlib import closing
@@ -31,7 +32,6 @@ from typing import TYPE_CHECKING, Any
 import yaml
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from sqlalchemy.exc import StatementError
 from sqlseed._utils.logger import get_logger
 from sqlseed._utils.sql_safe import quote_identifier, validate_table_name
 from sqlseed.config.loader import load_config
@@ -40,6 +40,7 @@ from sqlseed.core.orchestrator import DataOrchestrator
 from sqlseed.generators._dispatch import GeneratorDispatchMixin
 
 from sqlseed_web.ai_settings import SettingsRequest, credential_snapshot, resolve_settings, set_session_preferences
+from sqlseed_web.diagnostics import public_error, public_target
 from sqlseed_web.operation_errors import generation_errors
 from sqlseed_web.runtime_lifecycle import start_background
 from sqlseed_web.settings_environment import ai_import_failure, provider_availability, require_ai_available
@@ -63,6 +64,7 @@ class ConnectRequest(BaseModel):
     url: str | None = None
     provider: str = "mimesis"
     locale: str = "en_US"
+    require_existing: bool = False
 
 
 class PreviewRequest(BaseModel):
@@ -123,10 +125,8 @@ def _conn_or_404(conn_id: str) -> DataOrchestrator:
 
 
 def _error_detail(exc: Exception) -> str:
-    """Describe a failure without SQLAlchemy's SQL and parameter dump."""
-    if isinstance(exc, StatementError) and exc.orig is not None:
-        return str(exc.orig)
-    return str(exc)
+    """Describe a failure without URL credentials or SQL parameter dumps."""
+    return public_error(exc)
 
 
 def _serialize(value: Any) -> Any:
@@ -151,7 +151,7 @@ def _yaml_to_config_dict(yaml_text: str) -> dict[str, Any]:
     try:
         parsed = yaml.safe_load(text)
     except yaml.YAMLError as exc:
-        raise HTTPException(status_code=422, detail=f"invalid YAML: {exc}") from exc
+        raise HTTPException(status_code=422, detail=f"invalid YAML: {_error_detail(exc)}") from exc
     if parsed is None:
         return {}
     if not isinstance(parsed, dict):
@@ -492,16 +492,18 @@ def connect_db(req: ConnectRequest) -> dict[str, Any]:
         raise HTTPException(status_code=422, detail="empty connection target")
     conn: Any = None
     try:
-        conn = state.add_connection(target, provider=req.provider, locale=req.locale)
+        conn = state.add_connection(
+            target, provider=req.provider, locale=req.locale, require_existing=req.require_existing
+        )
         orch = conn.orchestrator
         tables = orch.get_table_names()
     except Exception as exc:
         if conn is not None:
             state.close_connection(conn.conn_id)
-        raise HTTPException(status_code=400, detail=f"connection failed: {exc}") from exc
+        raise HTTPException(status_code=400, detail=f"connection failed: {_error_detail(exc)}") from exc
     return {
         "conn_id": conn.conn_id,
-        "target": target,
+        "target": public_target(target),
         "provider": conn.provider,
         "locale": conn.locale,
         "tables": [
@@ -532,7 +534,7 @@ def list_tables(conn_id: str) -> dict[str, Any]:
     try:
         return {
             "conn_id": conn_id,
-            "target": state.get_connection(conn_id).target,
+            "target": public_target(state.get_connection(conn_id).target),
             "tables": [
                 {
                     "name": t,
@@ -551,7 +553,16 @@ def list_tables(conn_id: str) -> dict[str, Any]:
 
 @router.get("/connections")
 def list_connections() -> dict[str, Any]:
-    return {"connections": state.list_connections()}
+    return {
+        "connections": [
+            {
+                **item,
+                "target": public_target(item["target"]),
+                "group_key": hashlib.sha256(item["group_key"].encode()).hexdigest(),
+            }
+            for item in state.list_connections()
+        ]
+    }
 
 
 @router.delete(
@@ -818,7 +829,7 @@ def config_parse(req: YamlRequest) -> dict[str, Any]:
     except HTTPException:
         raise
     except (ValueError, TypeError, OSError, yaml.YAMLError) as exc:
-        return {"valid": False, "error": f"{type(exc).__name__}: {exc}"}
+        return {"valid": False, "error": f"{type(exc).__name__}: {_error_detail(exc)}"}
     return {"valid": True, "config": _serialize(config_to_dict(cfg))}
 
 
@@ -910,7 +921,7 @@ def heal_validate(conn_id: str, req: HealValidateRequest) -> dict[str, Any]:
     except HTTPException:
         raise
     except generation_errors(conn.orchestrator) as exc:
-        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+        return {"ok": False, "error": f"{type(exc).__name__}: {_error_detail(exc)}"}
     return {
         "ok": True,
         "is_clean": result.is_clean,
@@ -951,7 +962,7 @@ def heal_repair(conn_id: str, req: YamlRequest) -> dict[str, Any]:
     except HTTPException:
         raise
     except generation_errors(conn.orchestrator) as exc:
-        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+        return {"ok": False, "error": f"{type(exc).__name__}: {_error_detail(exc)}"}
     return {
         "ok": True,
         "fix_count": repair_result.fix_count,

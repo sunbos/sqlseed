@@ -24,10 +24,12 @@ def test_plugin_dependency_rejects_legacy_core_but_accepts_the_current_developme
     manifest = tomllib.loads((ROOT / "plugins" / package / "pyproject.toml").read_text(encoding="utf-8"))
     requirements = [Requirement(value) for value in manifest["project"]["dependencies"]]
     core = next(requirement for requirement in requirements if requirement.name == "sqlseed")
-    # 0.2.3 lacks the Web stream interfaces, CLI URL keyword, AI suggestion hook
-    # and MCP target validators. pip must reject these old Core combinations.
+    # 0.2.4 lacks the shared URL parser and credential redaction now consumed by
+    # plugins. Reject unsupported mixes before importing any runtime module.
     assert Version("0.2.3") not in core.specifier
-    assert Version("0.2.4.dev0") in core.specifier
+    assert Version("0.2.4.dev0") not in core.specifier
+    assert Version("0.2.4") not in core.specifier
+    assert Version("0.2.5.dev0") in core.specifier
     assert Version(metadata.version("sqlseed")) in core.specifier
     assert Version("0.3.0") not in core.specifier
 

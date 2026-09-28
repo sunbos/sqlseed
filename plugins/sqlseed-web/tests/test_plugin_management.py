@@ -425,7 +425,9 @@ def test_real_installer_installs_and_uninstalls_only_in_a_temporary_venv(tmp_pat
     arguments = environment_module.installer_arguments(environment, "install", "mimesis", constraints)
     arguments[-1:-1] = [*(["--offline"] if tool == "uv" else []), "--no-index", "--find-links", str(directory)]
     output: list[str] = []
-    assert process_module.run_installer(arguments, output.append, timeout=10) == 0, "\n".join(output)
+    # Fresh Windows venv imports can take over ten seconds while being scanned.
+    # Keep a bounded integration budget separate from the short timeout tests.
+    assert process_module.run_installer(arguments, output.append, timeout=30) == 0, "\n".join(output)
     probe = subprocess.run(
         [str(target), "-c", "from importlib.metadata import version; print(version('mimesis'))"],
         capture_output=True,
@@ -435,7 +437,7 @@ def test_real_installer_installs_and_uninstalls_only_in_a_temporary_venv(tmp_pat
     )
     assert probe.stdout.strip() == "0.0.1"
     removal = environment_module.installer_arguments(environment, "uninstall", "mimesis", constraints)
-    assert process_module.run_installer(removal, output.append, timeout=10) == 0, "\n".join(output)
+    assert process_module.run_installer(removal, output.append, timeout=30) == 0, "\n".join(output)
     probe = subprocess.run([str(target), "-c", installed_code], capture_output=True, text=True, check=True, timeout=5)
     assert probe.stdout == target_before
     assert before == sorted((package.metadata["Name"], package.version) for package in metadata.distributions())
@@ -460,11 +462,11 @@ def test_missing_core_metadata_does_not_allow_plugin_installation(maintenance: A
     )
 
 
-def test_windows_maintenance_is_explicitly_unsupported_without_affecting_manual_guidance(
+def test_windows_maintenance_accepts_the_same_isolated_writable_environment(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     module = _isolated_environment(tmp_path, monkeypatch)
     monkeypatch.setattr(sys, "platform", "win32")
     monkeypatch.setattr(module.sysconfig, "get_path", lambda name: str(tmp_path))
-    assert "Windows" in module._environment().reason
+    assert module._environment().reason is None

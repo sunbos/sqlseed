@@ -25,6 +25,22 @@ except ImportError:
 
 
 class TestPromptTemplates:
+    @pytest.mark.parametrize("compact,ultra_compact", [(False, False), (True, False), (True, True)])
+    def test_all_sent_prompt_tiers_explain_date_time_parameter_formats(
+        self, compact: bool, ultra_compact: bool
+    ) -> None:
+        from sqlseed_ai import SchemaAnalyzer
+
+        messages = SchemaAnalyzer().build_initial_messages(
+            {"table_name": "events", "columns": []}, compact=compact, ultra_compact=ultra_compact
+        )
+        system = messages[0]["content"]
+        assert messages[0]["role"] == "system"
+        assert "start_date/end_date must be ISO YYYY-MM-DD" in system
+        assert "start_time/end_time must be HH:MM or HH:MM:SS" in system
+        assert "omit optional bounds" in system
+        assert "Never use 'now', 'today', or relative dates" in system
+
     def test_system_prompt_is_nonempty_string(self) -> None:
         """Verify SYSTEM_PROMPT is a non-empty string."""
         assert isinstance(SYSTEM_PROMPT, str)

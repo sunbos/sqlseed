@@ -14,16 +14,16 @@ const deferred = () => {let resolve; const promise = new Promise(done => {resolv
 test('the product has one stylesheet and four approved navigation destinations including settings', () => {
   const html = read('index.html');
   assert.deepEqual([...html.matchAll(/<link\b[^>]*href="([^"]+)"/g)].map(match => match[1]), ['/static/style.css']);
-  assert.deepEqual([...html.matchAll(/data-page="([^"]+)"/g)].map(match => match[1]), ['workbench', 'runs', 'configs', 'settings']);
+  assert.deepEqual([...html.matchAll(/data-page="([^"]+)"/g)].map(match => match[1]), ['workbench', 'configs', 'runs', 'settings']);
   assert.match(html, /id="connection-button"/);
   assert.match(html, /brand-mark/);
   assert.doesNotMatch(html, /数据库连接<|配置助手|系统信息|设计样稿|离线示例/);
 });
 
-test('the sole design baseline uses v8 tokens without the retired Material theme switch', () => {
+test('the sole design baseline uses glass tokens without the retired Material theme switch', () => {
   const css = read('style.css');
-  assert.match(css, /--canvas:\s*#eef3f5/);
-  assert.match(css, /--teal:\s*#167765/);
+  assert.match(css, /--canvas:\s*#e5ebec/);
+  assert.match(css, /--teal:\s*#24634f/);
   assert.match(css, /height:\s*67px/);
   assert.doesNotMatch(css, /--md-|workbench-mode/);
 });
@@ -41,6 +41,7 @@ test('every reachable product module resolves without the retired page and form 
     }
   }
   walk(path.join(staticRoot, 'js/app.js'));
+  walk(path.join(staticRoot, 'js/design-system.js'));
   assert.ok(visited.size > 3);
   assert.ok([...visited].every(file => !/pages\/(connect|wizard|browse|heal|meta)\.js$|\/(genform|tree)\.js$/.test(file)));
   // The DOM harness strips imports and injects bindings. A file-existence
@@ -79,6 +80,7 @@ function routerHarness(hash = '', maintenance = false, supervisedMaintenance = f
   const events = [], loads = [], modules = new Map();
   const location = {hash};
   const bindings = {document, window, location, store, Event: class {constructor(type) {this.type = type;}},
+    history: {state:null, replaceState: (_state, _title, hash) => {location.hash=hash;}},
     openConnectionDialog: () => events.push('connect'), setConnBadge: () => {},
     __loadPage: async file => {
       loads.push(file);
@@ -134,6 +136,7 @@ test('opening during automatic recovery shows plugin status first without perman
 test('connection changes remount the active product page and the topbar opens the shared dialog', async () => {
   const ui = routerHarness(); await flush();
   await ui.connection.click(); assert.deepEqual(ui.events.slice(-1), ['connect']);
+  ui.store.connId = 'B';
   await ui.window.dispatchEvent('sqlseed:connection-changed'); await flush();
   assert.deepEqual(ui.loads, ['./pages/workbench.js', './pages/workbench.js']);
   assert.ok(ui.events.includes('unmount:./pages/workbench.js'));
@@ -142,11 +145,43 @@ test('connection changes remount the active product page and the topbar opens th
 test('a slower prior route cannot replace the latest page', async () => {
   const ui = routerHarness(); await flush();
   const gate = deferred(); ui.modules.set('./pages/workbench.js', gate.promise);
+  ui.store.connId = 'B';
   await ui.window.dispatchEvent('sqlseed:connection-changed');
   ui.location.hash = '#/runs'; await ui.window.dispatchEvent('hashchange'); await flush();
   gate.resolve({render: () => new Element('div', 'obsolete')}); await flush();
   assert.equal(ui.document.getElementById('app').textContent, './pages/runs.js');
 });
+
+for (const query of ['draft=from-A', 'run=from-A&recover=remaining', 'new=1&import=1']) {
+  test(`a successful connection change discards old workbench intent ${query} before mounting once`,async()=>{
+    const ui=routerHarness(`#/workbench?${query}`);await ui.ready;
+    const seen=[];ui.modules.set('./pages/workbench.js',{render:()=>new Element('section'),mount:()=>seen.push({hash:ui.location.hash,connId:ui.store.connId})});
+    ui.store.connId='B';await ui.window.dispatchEvent('sqlseed:connection-changed');await flush();
+    assert.deepEqual(seen,[{hash:'#/workbench',connId:'B'}]);
+    await ui.window.dispatchEvent('sqlseed:connection-changed');await flush();
+    assert.equal(seen.length,1,'a duplicate notification must not reopen or save a document');
+    ui.location.hash='#/workbench?draft=from-B';ui.store.connId=null;
+    await ui.window.dispatchEvent({type:'sqlseed:connection-changed',detail:{workbenchRequest:ui.location.hash}});await flush();
+    assert.deepEqual(seen.at(-1),{hash:'#/workbench',connId:null});
+  });
+}
+
+test('only explicit recovery of the exact pending workbench link survives a connection change',async()=>{
+  const ui=routerHarness('#/workbench?draft=for-B');await ui.ready;
+  ui.store.connId='B';await ui.window.dispatchEvent({type:'sqlseed:connection-changed',detail:{workbenchRequest:'#/workbench?draft=for-B'}});await flush();
+  assert.equal(ui.location.hash,'#/workbench?draft=for-B');
+  ui.location.hash='#/workbench?draft=newer';ui.store.connId='C';
+  await ui.window.dispatchEvent({type:'sqlseed:connection-changed',detail:{workbenchRequest:'#/workbench?draft=for-B'}});await flush();
+  assert.equal(ui.location.hash,'#/workbench');
+});
+
+for (const hash of ['#/settings?section=ai','#/configs','#/runs?id=history']) {
+  test(`switching connections preserves the independent top-level route ${hash}`,async()=>{
+    const ui=routerHarness(hash);await ui.ready;ui.store.connId='B';
+    await ui.window.dispatchEvent('sqlseed:connection-changed');await flush();
+    assert.equal(ui.location.hash,hash);assert.equal(ui.loads.length,2);
+  });
+}
 
 function connectionHarness(routes = {}) {
   const document = createDom(), window = new Element('window');
@@ -177,7 +212,7 @@ test('the inline connection dialog submits one SQLite target and publishes only 
   assert.equal(ui.button('PostgreSQL').getAttribute('aria-pressed'), 'false');
   ui.input('db_path', '/temporary/example.db');
   await ui.button('连接数据库').click(); await flush();
-  assert.deepEqual(JSON.parse(JSON.stringify(ui.requests.find(request => request.method === 'POST').data)), {db_path: '/temporary/example.db', provider: 'base'});
+  assert.deepEqual(JSON.parse(JSON.stringify(ui.requests.find(request => request.method === 'POST').data)), {db_path: '/temporary/example.db', require_existing: true, provider: 'base'});
   assert.equal(ui.store.connId, 'A'); assert.equal(ui.store.target, '/temporary/example.db');
   assert.deepEqual(ui.remembered, ['A']); assert.deepEqual(ui.changes, ['A']);
   assert.equal(ui.document.querySelector('[role="dialog"]'), null);

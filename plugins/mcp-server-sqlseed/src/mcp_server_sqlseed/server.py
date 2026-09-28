@@ -19,8 +19,10 @@ from sqlseed._utils.logger import get_logger
 from sqlseed._utils.paths import validate_db_target as _validate_db_target
 from sqlseed._utils.paths import validate_table_name as _validate_table_name
 from sqlseed._utils.progress import NullProgressBackend
+from sqlseed._utils.redaction import redact_url_credentials
 from sqlseed.config.models import GeneratorConfig
 from sqlseed.core.orchestrator import DataOrchestrator
+from sqlseed.generators import ConfigurationError
 
 logger = get_logger(__name__)
 
@@ -69,9 +71,15 @@ def sqlseed_generate_yaml(db_path: str, table_name: str) -> str:
         }
         logger.info("Rule-driven YAML generated", table_name=table_name, columns=len(columns))
         return str(yaml.dump(output, allow_unicode=True, sort_keys=False, default_flow_style=False))
-    except (ValueError, RuntimeError, OSError) as e:
-        logger.error("Failed to generate YAML", db_path=db_path, table_name=table_name, error=str(e))
-        return f"# Error: {e}"
+    except (ValueError, RuntimeError, OSError, ConfigurationError) as e:
+        message = redact_url_credentials(str(e))
+        logger.error(
+            "Failed to generate YAML",
+            db_path=redact_url_credentials(db_path),
+            table_name=table_name,
+            error=message,
+        )
+        return f"# Error: {message}"
 
 
 @mcp.tool()
@@ -133,8 +141,14 @@ def sqlseed_execute_fill(
                 "table_name": result.table_name,
                 "count": result.count,
                 "elapsed": result.elapsed,
-                "errors": result.errors,
+                "errors": [redact_url_credentials(error) for error in result.errors],
             }
-    except (ValueError, RuntimeError, OSError, yaml.YAMLError) as e:
-        logger.error("Failed to execute fill", db_path=db_path, table_name=table_name, error=str(e))
-        return {"error": str(e)}
+    except (ValueError, RuntimeError, OSError, ConfigurationError, yaml.YAMLError) as e:
+        message = redact_url_credentials(str(e))
+        logger.error(
+            "Failed to execute fill",
+            db_path=redact_url_credentials(db_path),
+            table_name=table_name,
+            error=message,
+        )
+        return {"error": message}

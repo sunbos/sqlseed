@@ -96,7 +96,7 @@ for(const destination of ['close','edit','leave-remount'])test(`late stream even
   feed.close();await pending;
   assert.deepEqual(plain(ui.modelState().payload('current')),before);assert.doesNotMatch(ui.document.textContent,/stale-progress/);assert.equal(ui.document.querySelector('[data-ai-suggestion]'),null);
   if(destination!=='edit')assert.equal(signal.aborted,true);
-  ui.document.querySelector('[role="dialog"]')?.querySelector('button[aria-label="关闭"]')?.click();
+  await ui.button('取消',ui.document)?.click();
 });
 
 test('the whole operation times out at 180 seconds and old stream completion cannot replace a retry',async()=>{

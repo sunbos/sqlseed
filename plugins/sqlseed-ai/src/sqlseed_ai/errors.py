@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
+from sqlseed_ai._json_utils import JSONResponseError
 
 from sqlseed.generators import UnknownGeneratorError
 
@@ -85,7 +86,15 @@ def _try_pydantic_error(exc: Exception) -> ErrorSummary | None:
 
 
 def _try_json_error(exc: Exception) -> ErrorSummary | None:
-    """Handle JSONDecodeError (malformed LLM output)."""
+    """Handle safe response diagnostics and malformed JSON without model text."""
+    if isinstance(exc, JSONResponseError):
+        diagnostics = {
+            "empty_response": ("empty_config", "The model returned no answer content."),
+            "invalid_json": ("json_syntax", "The model response is not valid JSON."),
+            "truncated_response": ("json_syntax", "The model response reached its output limit before completion."),
+        }
+        error_type, message = diagnostics.get(exc.code, ("json_syntax", "The model response could not be parsed."))
+        return ErrorSummary(error_type=error_type, message=message, column=None, retryable=True)
     if isinstance(exc, _json.JSONDecodeError):
         return ErrorSummary(
             error_type="json_syntax",

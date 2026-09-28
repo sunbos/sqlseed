@@ -5,7 +5,7 @@ const {harness,plain}=require('./workbench_harness.cjs');
 test('global actions, table views and generation results have distinct locations',async()=>{
   const ui=harness();await ui.mount();
   const global=ui.root().querySelector('.heading-actions');
-  assert.deepEqual(global.querySelectorAll('button').map(button=>button.textContent),['AI 配置助手','依赖检查','生成数据']);
+  assert.deepEqual(global.querySelectorAll('button').map(button=>button.textContent),['AI 配置助手','依赖检查','查看生成计划']);
   const tabs=ui.root().querySelector('[role="tablist"]');assert.ok(tabs);
   assert.deepEqual(tabs.querySelectorAll('[role="tab"]').map(button=>button.textContent),['字段规则','预览数据','关系图']);
   const headers=ui.root().querySelector('.field-table').querySelector('thead').querySelectorAll('th').map(th=>th.textContent);
@@ -171,7 +171,7 @@ test('dependency blockers precede source details and cannot start generation',as
   assert.match(body.textContent,/尚未形成可执行计划/);
   const sources=body.querySelector('.wb-dependency-sources');assert.ok(sources);
   assert.equal(sources.getAttribute('open'),null);assert.equal(sources.querySelectorAll('.wb-source-card').length,38);
-  assert.equal(ui.button('生成数据',ui.document.querySelector('.modal-footer')).disabled,true);
+  assert.equal(ui.button('查看生成计划',ui.document.querySelector('.modal-footer')).disabled,true);
   await ui.button('定位 user_id',body).click();
   assert.equal(m.view.table,'orders');assert.deepEqual(plain(m.document),before);
 });
@@ -182,8 +182,8 @@ test('a failed dependency check enables generation only after the current proble
     {ok:false,issues:[{severity:'error',code:'missing_parent_source',table:'orders',column:'user_id',source_table:'users',message:'缺少父表记录'}],order:['orders'],layers:[['orders']]});
   await ui.button('依赖检查').click();
   const dialog=ui.document.querySelector('.modal');
-  assert.equal(ui.button('生成数据',dialog.querySelector('.modal-footer')).disabled,true);
+  assert.equal(ui.button('查看生成计划',dialog.querySelector('.modal-footer')).disabled,true);
   await ui.button('加入 users（100 行）',dialog).click();
-  assert.equal(ui.button('生成数据',dialog.querySelector('.modal-footer')).disabled,false);
+  assert.equal(ui.button('查看生成计划',dialog.querySelector('.modal-footer')).disabled,false);
   assert.match(dialog.querySelector('.wb-dependency-summary').textContent,/检查通过/);
 });

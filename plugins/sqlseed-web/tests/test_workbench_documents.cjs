@@ -74,6 +74,121 @@ test('YAML editing separates file tools from the two configuration decisions', a
   assert.equal(ui.modelState().document.tables.length,0);
 });
 
+test('opening YAML keeps loading feedback inside the editor without inserting a page banner', async () => {
+  const ui = harness(); await ui.mount();
+  const banner = ui.root().querySelector('.wb-operation-status');
+  const visibility = [];
+  let hidden = banner.hidden;
+  Object.defineProperty(banner, 'hidden', {
+    get: () => hidden,
+    set: value => {hidden = value; visibility.push(value);},
+  });
+  const gate = deferred(); ui.routes.set('/api/workbench/export', () => gate.promise);
+  const pending = ui.button('编辑 YAML').click();
+  const dialog = ui.document.querySelector('[role="dialog"]');
+  assert.equal(dialog.getAttribute('aria-label'), '编辑 YAML');
+  const text = dialog.querySelector('textarea');
+  assert.equal(text.disabled, true);
+  assert.equal(text.getAttribute('aria-busy'), 'true');
+  assert.equal(ui.button('应用配置', dialog).disabled, true);
+  assert.equal(ui.button('下载配置', dialog).disabled, true);
+  assert.equal(ui.button('读取文件', dialog).disabled, true);
+  assert.equal(ui.button('保存配置').disabled, true, 'The editor still shares the database operation gate');
+  await ui.button('保存配置').click();
+  assert.equal(ui.requests.filter(request => request.url === '/api/workbench/drafts').length, 0);
+  gate.resolve({yaml: 'tables: []', json: {tables: []}}); await pending;
+  assert.equal(ui.document.querySelector('[role="dialog"]'), dialog, 'Loading fills the existing editor');
+  assert.equal(text.value, 'tables: []');
+  assert.equal(text.disabled, false);
+  assert.equal(text.getAttribute('aria-busy'), null);
+  assert.equal(ui.button('应用配置', dialog).disabled, false);
+  assert.equal(ui.button('下载配置', dialog).disabled, false);
+  assert.equal(ui.button('读取文件', dialog).disabled, false);
+  assert.equal(ui.button('保存配置').disabled, false);
+  assert.ok(visibility.every(value => value === true), 'Neither starting nor finishing moves the background workspace');
+});
+
+test('cancelling a loading YAML editor ignores its eventual result and releases the operation gate', async () => {
+  const ui = harness(); await ui.mount();
+  const before = plain(ui.modelState().document);
+  const opener = ui.button('编辑 YAML'), focus = [];
+  opener.focus = options => {
+    if (!opener.disabled) {ui.document.activeElement = opener; focus.push(options);}
+  };
+  opener.focus();
+  const gate = deferred(); ui.routes.set('/api/workbench/export', () => gate.promise);
+  const pending = opener.click();
+  ui.document.activeElement = ui.document.body; // Removing the focused overlay returns focus to the body.
+  await ui.button('取消', ui.document).click();
+  assert.equal(ui.document.activeElement, ui.document.body, 'A disabled opener cannot receive focus yet');
+  gate.resolve({yaml: 'tables: []', json: {tables: []}}); await pending;
+  assert.equal(ui.document.querySelector('[role="dialog"]'), null);
+  assert.equal(ui.button('保存配置').disabled, false);
+  assert.deepEqual(plain(ui.modelState().document), before);
+  assert.equal(ui.root().querySelector('.wb-operation-status').hidden, true);
+  assert.equal(ui.document.activeElement, opener);
+  assert.equal(focus.at(-1).preventScroll, true);
+});
+
+for (const operation of ['应用配置', '下载配置']) {
+  test(`cancelling pending ${operation} restores the YAML opener after releasing the gate`, async () => {
+    const ui = harness(); await ui.mount();
+    const opener = ui.button('编辑 YAML');
+    opener.focus = () => {if (!opener.disabled) ui.document.activeElement = opener;};
+    opener.focus(); await opener.click();
+    const gate = deferred(); ui.routes.set('/api/workbench/parse', () => gate.promise);
+    const pending = ui.button(operation, ui.document).click();
+    assert.equal(opener.disabled, true);
+    ui.document.activeElement = ui.document.body;
+    await ui.button('取消', ui.document).click();
+    assert.equal(ui.document.activeElement, ui.document.body);
+    gate.resolve({document: config(37)}); await pending;
+    assert.equal(ui.document.activeElement, opener);
+    assert.equal(ui.modelState().document.tables.length, 0, 'Cancelled requests never apply the parsed document');
+    assert.equal(ui.requests.filter(request => request.url.endsWith('/export')).length, 1, 'Cancelled download never exports again');
+  });
+}
+
+for (const destination of ['another control', 'another page']) {
+  test(`a cancelled YAML request never restores focus over ${destination}`, async () => {
+    const ui = harness(); await ui.mount();
+    const opener = ui.button('编辑 YAML');
+    opener.focus = () => {if (!opener.disabled) ui.document.activeElement = opener;};
+    opener.focus();
+    const gate = deferred(); ui.routes.set('/api/workbench/export', () => gate.promise);
+    const pending = opener.click();
+    ui.document.activeElement = ui.document.body;
+    await ui.button('取消', ui.document).click();
+    let expected;
+    if (destination === 'another page') {
+      ui.leave(); expected = ui.document.body;
+    } else {
+      expected = ui.button('设置数据生成引擎'); expected.focus();
+    }
+    gate.resolve({yaml: 'tables: []', json: {tables: []}}); await pending;
+    assert.equal(ui.document.activeElement, expected);
+    assert.equal(ui.document.querySelector('[role="dialog"]'), null);
+  });
+}
+
+test('failed YAML loading leaves an inline error, prevents applying an empty document and can be reopened', async () => {
+  const ui = harness(); await ui.mount();
+  ui.routes.set('/api/workbench/export', () => {throw new Error('数据库正在生成数据，请完成后重试');});
+  await ui.button('编辑 YAML').click();
+  const dialog = ui.document.querySelector('[role="dialog"]');
+  assert.match(dialog.querySelector('[role="alert"]').textContent, /数据库正在生成数据/);
+  assert.equal(ui.button('应用配置', dialog).disabled, true);
+  assert.equal(ui.button('下载配置', dialog).disabled, true);
+  assert.equal(dialog.querySelector('textarea').disabled, true);
+  assert.equal(dialog.querySelector('textarea').getAttribute('aria-busy'), null);
+  assert.equal(ui.root().querySelector('.wb-operation-status').hidden, true);
+  await ui.button('取消', dialog).click();
+  ui.routes.delete('/api/workbench/export');
+  await ui.button('编辑 YAML').click();
+  assert.equal(ui.button('应用配置', ui.document).disabled, false);
+  assert.match(ui.document.querySelector('textarea').value, /provider: base/);
+});
+
 test('reading a file changes only visible text and a late read never replaces newer typing',async()=>{
   const ui=harness();await ui.mount();await ui.button('编辑 YAML').click();
   const dialog=ui.document.querySelector('[role="dialog"]'),file=dialog.querySelector('input[type="file"]');
@@ -238,6 +353,10 @@ test('invalid count veto preserves the model, graph focus, highlight and quantit
   assert.equal(ui.root().querySelector('[aria-label="users 生成数量"]'), count);
   assert.equal(count.value, '0');
   assert.equal(ui.modelState().selected('orders'), false);
+  assert.match(ui.root().querySelector('.wb-operation-status').textContent,/users.*生成数量/);
+  count.value='100';await count.dispatchEvent('input');
+  assert.equal(ui.root().querySelector('.wb-operation-status').hidden,true);
+  assert.doesNotMatch(ui.root().querySelector('.wb-notice').textContent,/生成数量/);
 });
 
 test('v8 format and label import remains available after returning and remounting without changing generation', async () => {
@@ -281,7 +400,7 @@ for (const invalid of [
     assert.ok(ui.document.querySelector('[role="dialog"]'));
     assert.ok(ui.document.querySelector('[role="alert"]').textContent);
     assert.equal(ui.root().querySelector('.wb-imported-structure'), graph);
-    await ui.button('关闭', ui.document).click();
+    await ui.button('取消', ui.document).click();
     await ui.root().querySelector('[data-graph-edge="compound-fk"]').click();
     assert.equal(graph.querySelector('.wb-edge-mapping').hidden, false);
     assert.deepEqual(nodeNames(ui), ['children', 'parents']);

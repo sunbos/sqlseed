@@ -137,11 +137,16 @@ export function createDatePicker({
     if (activeClose === close) {
       activeClose = null;
     }
-    if (restoreFocus && trigger.isConnected) {
-      trigger.focus();
+    if (restoreFocus && trigger.isConnected && !trigger.disabled && !input.disabled) {
+      trigger.focus({preventScroll: true});
     }
   }
   function choose(next) {
+    // 日历位于 body 浮层，入口被禁用或销毁后不能借浮层写回旧草稿。
+    if (disposed || !el.isConnected || input.disabled || trigger.disabled) {
+      close(false);
+      return;
+    }
     input.value = next ? iso(next) : '';
     check(true);
     close();
@@ -232,7 +237,7 @@ export function createDatePicker({
     move(dateAt(year, month - 1, Math.min(focused.getUTCDate(), dateAt(year, month, 0).getUTCDate())));
   }
   function open() {
-    if (disposed || layer) {
+    if (disposed || layer || !el.isConnected || input.disabled || trigger.disabled) {
       return;
     }
     activeClose?.();
@@ -286,12 +291,7 @@ export function createDatePicker({
       'aria-label': `选择${label}`
     }, h('div', {
       class: 'wb-date-heading'
-    }, heading, h('button', {
-      type: 'button',
-      class: 'wb-date-nav',
-      'aria-label': '关闭日历',
-      onclick: () => close()
-    }, '×')), h('div', {
+    }, heading), h('div', {
       class: 'wb-date-navigation'
     }, nav('«', '上一年', -12), nav('‹', '上个月', -1), h('span', {}, '按月或按年切换'), nav('›', '下个月', 1), nav('»', '下一年', 12)), h('div', {
       class: 'wb-date-jump'

@@ -69,9 +69,7 @@ def _venv_directory_restriction(prefix: Path) -> str | None:
 def _environment() -> Environment:
     prefix = Path(sys.prefix).resolve()
     reason = None
-    if sys.platform == "win32":
-        reason = "Windows 暂不支持界面组件管理；请使用页面提供的 PowerShell 命令手动管理环境。"
-    elif sys.prefix == sys.base_prefix or not (prefix / "pyvenv.cfg").is_file():
+    if sys.prefix == sys.base_prefix or not (prefix / "pyvenv.cfg").is_file():
         reason = "仅支持当前 Web 所在的独立 virtualenv；系统 Python 请使用原环境管理工具。"
     elif (prefix / "EXTERNALLY-MANAGED").exists():
         reason = "此环境由外部工具管理，请使用原环境管理工具。"
@@ -98,23 +96,25 @@ class EnvironmentLock:
     def acquire(self) -> None:
         if self._file is not None:
             return
-        handle = self.path.open("a+b")
+        handle = None
         try:
             if sys.platform == "win32":
-                import msvcrt
+                from sqlseed_web._windows_process import open_environment_lock
 
-                handle.seek(0, os.SEEK_END)
-                if handle.tell() == 0:
-                    handle.write(b"\0")
-                    handle.flush()
-                handle.seek(0)
-                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK if self.exclusive else msvcrt.LK_NBRLCK, 1)
+                descriptor = open_environment_lock(self.path, exclusive=self.exclusive)
+                try:
+                    handle = os.fdopen(descriptor, "r+b" if self.exclusive else "rb")
+                except BaseException:
+                    os.close(descriptor)
+                    raise
             else:
                 import fcntl
 
+                handle = self.path.open("a+b")
                 fcntl.flock(handle.fileno(), (fcntl.LOCK_EX if self.exclusive else fcntl.LOCK_SH) | fcntl.LOCK_NB)
         except OSError as exc:
-            handle.close()
+            if handle is not None:
+                handle.close()
             raise RuntimeError("另一个 Web 进程正在使用此 Python 环境，请先停止它。") from exc
         self._file = handle
 
@@ -128,6 +128,60 @@ class EnvironmentLock:
         if self._file is None:
             raise RuntimeError("环境锁尚未持有。")
         return self._file.fileno()
+
+
+class InheritedEnvironmentLock:
+    """Duplicate the file object into the spawning child, never a process-owned byte lock."""
+
+    def __init__(self, descriptor: int) -> None:
+        self.descriptor = descriptor
+
+    def __reduce__(self) -> tuple[Any, tuple[Any, ...]]:
+        if sys.platform == "win32":
+            import msvcrt
+            from multiprocessing.context import get_spawning_popen
+
+            spawning = get_spawning_popen()
+            if spawning is None:
+                raise RuntimeError("Environment handles can only be transferred while spawning a worker")
+            handle = spawning.duplicate_for_child(msvcrt.get_osfhandle(self.descriptor))
+            return _WindowsEnvironmentHandle, (handle,)
+        else:
+            from multiprocessing.reduction import DupFd
+
+            return _PosixEnvironmentHandle, (DupFd(self.descriptor),)
+
+    def detach(self) -> int:
+        raise RuntimeError("The parent cannot detach a worker's environment lock")
+
+
+class _WindowsEnvironmentHandle:
+    def __init__(self, handle: int) -> None:
+        self.handle: int | None = handle
+
+    def detach(self) -> int:
+        if sys.platform == "win32":
+            import msvcrt
+
+            if self.handle is None:
+                raise RuntimeError("Environment handle was already detached")
+            handle, self.handle = self.handle, None
+            try:
+                return msvcrt.open_osfhandle(handle, os.O_BINARY | os.O_RDONLY)
+            except BaseException:
+                from _winapi import CloseHandle
+
+                CloseHandle(handle)
+                raise
+        raise RuntimeError("A Windows environment handle cannot be restored on this platform")
+
+
+class _PosixEnvironmentHandle:
+    def __init__(self, descriptor: Any) -> None:
+        self.descriptor = descriptor
+
+    def detach(self) -> int:
+        return int(self.descriptor.detach())
 
 
 @dataclass(frozen=True)
@@ -224,6 +278,8 @@ def package_status(packages: dict[str, InstalledPackage], unavailable: str | Non
                 "version": package.version if package else None,
                 "can_install": not unavailable and package is None,
                 "can_uninstall": not unavailable and package is not None and not users,
+                "can_update": not unavailable and package is not None,
+                "update_reason": unavailable if unavailable else ("请先安装此组件。" if package is None else None),
                 "reason": reason,
                 "required_by": users,
             }

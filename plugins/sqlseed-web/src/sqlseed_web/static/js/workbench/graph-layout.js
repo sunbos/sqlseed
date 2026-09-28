@@ -1,4 +1,4 @@
-/* Standalone prototype layout: no DOM, dependencies, or database access. */
+/* 正交结构图布局，不访问 DOM、外部依赖或数据库。 */
 (function (root, factory) {
   'use strict';
   const api = factory();
@@ -40,6 +40,7 @@
       adjacency.get(edge.source).push(edge.target);
       reverse.get(edge.target).push(edge.source);
     }
+    const denseRouting = edges.length > 256;
 
     // Iterative Kosaraju avoids call-stack limits on long dependency chains.
     const visited = new Set();
@@ -94,20 +95,101 @@
       }
     }
 
+    // Use legal rank slack only when it shortens the total inter-component
+    // span. A side source can sit beside another parent instead of sending a
+    // long edge across it. This is presentation, never execution ordering.
+    for (const id of [...queue].reverse()) {
+      if (children[id].size <= parents[id].size) continue;
+      const latest = Math.min(...[...children[id]].map(child => components[child].rank - 1));
+      components[id].rank = Math.max(components[id].rank, latest);
+    }
     const maxRank = components.reduce((max, c) => Math.max(max, c.rank), 0);
     const ranks = Array.from({ length: maxRank + 1 }, () => []);
-    for (const component of components) ranks[component.rank].push(component);
-    // Keep SCCs together and move children toward the average of their parents.
-    const verticalCenter = new Map();
-    const parentCenter = c => {
-      const values = [...parents[c.id]].map(id => verticalCenter.get(id));
-      return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : original.get(c.nodeIds[0]);
-    };
-    for (const rank of ranks) {
-      rank.sort((a, b) => parentCenter(a) - parentCenter(b) || original.get(a.nodeIds[0]) - original.get(b.nodeIds[0]));
-      let offset = 0;
-      for (const component of rank) { verticalCenter.set(component.id, offset + component.nodeIds.length / 2); offset += component.nodeIds.length; }
+    const units = new Map();
+    for (const component of components) {
+      const unit = { id: `node-${component.id}`, component, size: component.nodeIds.length };
+      units.set(unit.id, unit);
+      ranks[component.rank].push(unit);
     }
+    for (const rank of ranks) rank.sort((a, b) => original.get(a.component.nodeIds[0]) - original.get(b.component.nodeIds[0]));
+    const layerLinks = Array.from({ length: maxRank }, () => []);
+    // Virtual waypoints let the layer sweep see long references too. They
+    // reserve a narrow routing corridor, but never become schema nodes.
+    for (const component of components) for (const child of children[component.id]) {
+      let previous = `node-${component.id}`;
+      for (let rank = component.rank + 1; rank <= components[child].rank; rank++) {
+        const id = rank === components[child].rank ? `node-${child}` : `route-${component.id}-${child}-${rank}`;
+        if (!units.has(id)) {
+          const unit = { id, component: null, size: .25 };
+          units.set(id, unit); ranks[rank].push(unit);
+        }
+        layerLinks[rank - 1].push([previous, id]); previous = id;
+      }
+    }
+    const predecessors = new Map([...units.keys()].map(id => [id, []]));
+    const successors = new Map([...units.keys()].map(id => [id, []]));
+    for (const links of layerLinks) for (const [a, b] of links) {
+      successors.get(a).push(b); predecessors.get(b).push(a);
+    }
+    const centers = () => {
+      const values = new Map();
+      for (const rank of ranks) {
+        let row = 0;
+        for (const unit of rank) { values.set(unit.id, row + unit.size / 2); row += unit.size; }
+      }
+      return values;
+    };
+    const layerQuality = () => {
+      const positions = new Map();
+      ranks.forEach(rank => rank.forEach((unit, index) => positions.set(unit.id, index)));
+      const middle = centers();
+      let crossings = 0, distance = 0;
+      for (let rank = 0; rank < layerLinks.length; rank++) {
+        const pairs = layerLinks[rank].map(([a, b]) => {
+          distance += Math.abs(middle.get(a) - middle.get(b));
+          return [positions.get(a), positions.get(b)];
+        }).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+        // Fenwick inversion count; links sharing a source or target do not
+        // cross. This remains bounded on large, dense dependency graphs.
+        const tree = new Array(ranks[rank + 1].length + 1).fill(0);
+        let count = 0;
+        for (let first = 0; first < pairs.length;) {
+          let last = first;
+          while (last < pairs.length && pairs[last][0] === pairs[first][0]) last++;
+          for (let i = first; i < last; i++) {
+            let smaller = 0;
+            for (let index = pairs[i][1] + 1; index > 0; index -= index & -index) smaller += tree[index];
+            crossings += count - smaller;
+          }
+          for (let i = first; i < last; i++) {
+            for (let index = pairs[i][1] + 1; index < tree.length; index += index & -index) tree[index]++;
+            count++;
+          }
+          first = last;
+        }
+      }
+      return { crossings, distance };
+    };
+    let bestOrder = ranks.map(rank => [...rank]), bestQuality = layerQuality();
+    // Bounded two-way barycenter sweeps, with stable ties and best-order
+    // retention. SCC members stay together and repeated input stays stable.
+    for (let pass = 0; pass < (denseRouting ? 2 : 4); pass++) for (const forward of [true, false]) {
+      const middle = centers(), neighbors = forward ? predecessors : successors;
+      for (let index = forward ? 1 : maxRank - 1; forward ? index <= maxRank : index >= 0; index += forward ? 1 : -1) {
+        const barycenter = unit => {
+          const adjacent = neighbors.get(unit.id);
+          return adjacent.length ? adjacent.reduce((sum, id) => sum + middle.get(id), 0) / adjacent.length : middle.get(unit.id);
+        };
+        ranks[index].sort((a, b) => barycenter(a) - barycenter(b));
+        let row = 0;
+        for (const unit of ranks[index]) { middle.set(unit.id, row + unit.size / 2); row += unit.size; }
+      }
+      const quality = layerQuality();
+      if (quality.crossings < bestQuality.crossings || quality.crossings === bestQuality.crossings && quality.distance < bestQuality.distance) {
+        bestQuality = quality; bestOrder = ranks.map(rank => [...rank]);
+      }
+    }
+    ranks.splice(0, ranks.length, ...bestOrder);
 
     const rightLanes = ranks.map(() => 0), leftLanes = ranks.map(() => 0);
     const outgoing = new Map(nodes.map(n => [n.id, 0])), incoming = new Map(nodes.map(n => [n.id, 0]));
@@ -130,6 +212,13 @@
       return route;
     });
     const maxSelf = Math.max(0, ...selfCounts.values());
+    // Cycle arrows enter the right face too. Share its allocation with outgoing
+    // ports rather than using the independent left-face incoming fractions.
+    const cycleIncoming = new Map(nodes.map(node => [node.id, 0]));
+    for (const route of routes) if (route.kind === 'cycle') {
+      route.cycleTargetPort = cycleIncoming.get(route.edge.target);
+      cycleIncoming.set(route.edge.target, route.cycleTargetPort + 1);
+    }
     const rowGap = Math.max(62, 28 + maxSelf * 8);
     const startY = PADDING + longCount * 10 + 30 + maxSelf * 8;
     const rankX = [PADDING];
@@ -137,19 +226,25 @@
     const positioned = new Map();
     for (let rank = 0; rank < ranks.length; rank++) {
       let row = 0;
-      for (const component of ranks[rank]) for (const id of component.nodeIds) {
-        positioned.set(id, { ...nodes[original.get(id)], x: rankX[rank], y: startY + row++ * (NODE_HEIGHT + rowGap), width: NODE_WIDTH, height: NODE_HEIGHT, component: component.id, rank });
+      for (const unit of ranks[rank]) {
+        if (!unit.component) { row += unit.size; continue; }
+        const component = unit.component;
+        for (const id of component.nodeIds) {
+          positioned.set(id, { ...nodes[original.get(id)], x: rankX[rank], y: startY + row++ * (NODE_HEIGHT + rowGap), width: NODE_WIDTH, height: NODE_HEIGHT, component: component.id, rank });
+        }
       }
     }
 
     const number = value => Math.round(value * 100) / 100;
     const pathFor = points => points.map(([x, y], i) => `${i ? 'L' : 'M'} ${number(x)} ${number(y)}`).join(' ');
-    const routed = routes.map(route => {
+    const legacyRoutes = routes.map(route => {
       const { edge, kind } = route;
       const source = positioned.get(edge.source), target = positioned.get(edge.target);
       const sourceRight = source.x + NODE_WIDTH;
-      const sourceY = number(source.y + NODE_HEIGHT * (route.sourcePort + 1) / (outgoing.get(edge.source) + 1));
-      const targetY = number(target.y + NODE_HEIGHT * (route.targetPort + 1) / (incoming.get(edge.target) + 1));
+      const sourceY = number(source.y + NODE_HEIGHT * (route.sourcePort + 1) / (outgoing.get(edge.source) + cycleIncoming.get(edge.source) + 1));
+      const targetY = kind === 'cycle'
+        ? number(target.y + NODE_HEIGHT * (outgoing.get(edge.target) + route.cycleTargetPort + 1) / (outgoing.get(edge.target) + cycleIncoming.get(edge.target) + 1))
+        : number(target.y + NODE_HEIGHT * (route.targetPort + 1) / (incoming.get(edge.target) + 1));
       const rightX = sourceRight + 22 + route.rightLane * LANE;
       const leftX = target.x - 22 - route.leftLane * LANE;
       let points, labelX, labelY;
@@ -169,11 +264,194 @@
         points = [[sourceRight, sourceY], [rightX, sourceY], [rightX, targetY], [target.x, targetY]];
         labelX = (rightX + target.x) / 2; labelY = targetY - 7;
       }
-      return { ...edge, path: pathFor(points), kind, labelX: number(labelX), labelY: number(labelY) };
+      return { ...edge, path: pathFor(points), kind, labelX: number(labelX), labelY: number(labelY), points };
     });
+    const legacyById = new Map(legacyRoutes.map(edge => [edge.id, edge]));
     const resultNodes = nodes.map(node => positioned.get(node.id));
-    const width = nodes.length ? rankX[maxRank] + NODE_WIDTH + 56 + rightLanes[maxRank] * LANE + PADDING : PADDING * 2;
-    const height = resultNodes.reduce((max, node) => Math.max(max, node.y + NODE_HEIGHT + PADDING), PADDING * 2);
+    const usedPorts = new Set();
+    const reservedPorts = new Set();
+    const portKey = (node, side, point) => `${node.id}:${side}:${number(point[0])}:${number(point[1])}`;
+    // 环和自引用继续使用独立通道。预留尚未处理边的原端口，确保优化失败时
+    // 可以安全回退；已优化的边不能抢占其他边的兜底端口。
+    for (const edge of legacyRoutes) {
+      const source = positioned.get(edge.source), target = positioned.get(edge.target);
+      const occupied = edge.kind === 'normal' ? reservedPorts : usedPorts;
+      occupied.add(portKey(source, 'right', edge.points[0]));
+      occupied.add(portKey(target, edge.kind === 'self' ? 'top' : edge.kind === 'normal' ? 'left' : 'right', edge.points.at(-1)));
+    }
+    const degree = Math.max(1, ...nodes.map(node => outgoing.get(node.id) + incoming.get(node.id)));
+    const clearance = 12;
+    // A dense overview needs a bounded amount of routing work, not thousands
+    // of candidates per edge. Its preallocated channels remain a safe fallback.
+    // This budget depends only on graph size, so geometry stays deterministic.
+    const candidateBudget = Math.max(32, Math.min(6000, Math.floor((denseRouting ? 64000 : 160000) / Math.max(1, edges.length))));
+    const sides = ['right', 'bottom', 'top', 'left'];
+    const ports = (node, other) => sides.flatMap(side => {
+      const horizontal = side === 'left' || side === 'right';
+      const start = horizontal ? node.y : node.x, length = horizontal ? node.height : node.width;
+      const center = start + length / 2, otherCenter = horizontal ? other.y + other.height / 2 : other.x + other.width / 2;
+      const step = Math.min(12, (length - 28) / (degree + 1));
+      const coordinates = [center, otherCenter];
+      for (let offset = step; offset <= length / 2 - 14; offset += step) coordinates.push(center + offset, center - offset);
+      return [...new Set(coordinates.map(number))].filter(value => value >= start + 14 && value <= start + length - 14)
+        .map(value => ({side, point: horizontal ? [side === 'right' ? node.x + node.width : node.x, value]
+          : [value, side === 'bottom' ? node.y + node.height : node.y]}))
+        .filter(port => !usedPorts.has(portKey(node, side, port.point)) && !reservedPorts.has(portKey(node, side, port.point))).slice(0, denseRouting ? 1 : 3);
+    });
+    const simplify = points => {
+      const result = [];
+      for (const point of points) {
+        if (result.length && point[0] === result.at(-1)[0] && point[1] === result.at(-1)[1]) continue;
+        while (result.length > 1 && ((result.at(-2)[0] === result.at(-1)[0] && point[0] === result.at(-1)[0]) ||
+          (result.at(-2)[1] === result.at(-1)[1] && point[1] === result.at(-1)[1]))) result.pop();
+        result.push(point);
+      }
+      return result;
+    };
+    const outward = (side, from, to) => side === 'right' ? to[1] === from[1] && to[0] > from[0]
+      : side === 'left' ? to[1] === from[1] && to[0] < from[0]
+        : side === 'bottom' ? to[0] === from[0] && to[1] > from[1] : to[0] === from[0] && to[1] < from[1];
+    const intersectsNode = (a, b, node, padding) => {
+      const left = node.x - padding, right = node.x + node.width + padding;
+      const top = node.y - padding, bottom = node.y + node.height + padding;
+      return a[0] === b[0] ? a[0] > left && a[0] < right && Math.max(a[1], b[1]) > top && Math.min(a[1], b[1]) < bottom
+        : a[1] > top && a[1] < bottom && Math.max(a[0], b[0]) > left && Math.min(a[0], b[0]) < right;
+    };
+    const placedSegments = [];
+    const reserveRoute = edge => {
+      for (let i = 1; i < edge.points.length; i++) placedSegments.push({ id: edge.id, a: edge.points[i - 1], b: edge.points[i] });
+    };
+    legacyRoutes.filter(edge => edge.kind !== 'normal').forEach(reserveRoute);
+    const shortestRoute = route => {
+      const source = positioned.get(route.edge.source), target = positioned.get(route.edge.target);
+      const sourcePorts = ports(source, target), targetPorts = ports(target, source);
+      const obstacles = resultNodes.filter(node => node.x + node.width >= source.x && node.x <= target.x + target.width);
+      const centerX = (source.x + source.width + target.x) / 2, centerY = (source.y + target.y + source.height) / 2;
+      const channels = (values, center) => [...new Set(values.map(number))].filter(value => value >= 8)
+        .sort((a, b) => Math.abs(a - center) - Math.abs(b - center) || a - b).slice(0, denseRouting ? 4 : 8);
+      const xs = channels([centerX, ...obstacles.flatMap(node => [node.x - clearance, node.x + node.width + clearance])], centerX);
+      const ys = channels([centerY, ...obstacles.flatMap(node => [node.y - clearance, node.y + node.height + clearance])], centerY);
+      const nearbySegments = placedSegments.filter(({a, b}) => Math.max(a[0], b[0]) >= source.x - clearance &&
+        Math.min(a[0], b[0]) <= target.x + target.width + clearance);
+      const conflicts = points => {
+        const crossings = new Set();
+        let overlap = 0;
+        for (let i = 1; i < points.length; i++) {
+          const a = points[i - 1], b = points[i], vertical = a[0] === b[0];
+          for (const other of nearbySegments) {
+            const c = other.a, d = other.b, otherVertical = c[0] === d[0];
+            if (vertical === otherVertical) {
+              const axis = vertical ? 1 : 0, fixed = 1 - axis;
+              if (a[fixed] === c[fixed]) overlap += Math.max(0,
+                Math.min(Math.max(a[axis], b[axis]), Math.max(c[axis], d[axis])) -
+                Math.max(Math.min(a[axis], b[axis]), Math.min(c[axis], d[axis])));
+            } else {
+              const v1 = vertical ? a : c, v2 = vertical ? b : d;
+              const h1 = vertical ? c : a, h2 = vertical ? d : b;
+              if (v1[0] >= Math.min(h1[0], h2[0]) && v1[0] <= Math.max(h1[0], h2[0]) &&
+                  h1[1] >= Math.min(v1[1], v2[1]) && h1[1] <= Math.max(v1[1], v2[1])) {
+                crossings.add(`${other.id}:${number(v1[0])}:${number(h1[1])}`);
+              }
+            }
+          }
+        }
+        return { crossings: crossings.size, overlap };
+      };
+      let best = null, attempted = 0;
+      const consider = (points, from, to) => {
+        if (++attempted > candidateBudget) return;
+        points = simplify(points);
+        const bends = points.length - 2;
+        if (points.length < 2 || points.some(point => point[0] < 8 || point[1] < 8)) return;
+        if (!outward(from.side, points[0], points[1]) || !outward(to.side, points.at(-1), points.at(-2))) return;
+        let length = 0;
+        for (let i = 1; i < points.length; i++) length += Math.abs(points[i][0] - points[i - 1][0]) + Math.abs(points[i][1] - points[i - 1][1]);
+        const baseScore = length + bends * NODE_HEIGHT;
+        if (best && baseScore > best.score) return;
+        for (let i = 1; i < points.length; i++) {
+          if (points[i][0] !== points[i - 1][0] && points[i][1] !== points[i - 1][1]) return;
+          if (resultNodes.some(node => intersectsNode(points[i - 1], points[i], node,
+            (i === 1 && node === source) || (i === points.length - 1 && node === target) ? 0 : clearance))) return;
+        }
+        const {crossings, overlap} = conflicts(points);
+        // Crossing and shared-line penalties balance legibility against the
+        // distance and bends of a detour; node clearance remains mandatory.
+        const score = baseScore + crossings * NODE_WIDTH * 2 + overlap * 4;
+        if (!best || score < best.score || score === best.score &&
+            (bends < best.bends || bends === best.bends && length < best.length)) {
+          best = {points, bends, length, from, to, crossings, overlap, score};
+        }
+      };
+      // 有界候选：每个面最多三个可用端口，每轴最多八个邻近避障通道。
+      // 综合交叉、共线、折点与曼哈顿长度，不承诺全局最优。
+      // 无冲突直线已达到端口之间的最少折点及最短距离。
+      for (const from of sourcePorts) for (const to of targetPorts) consider([from.point, to.point], from, to);
+      if (!best || best.crossings || best.overlap) for (const from of sourcePorts) for (const to of targetPorts) {
+        const a = from.point, b = to.point;
+        consider([a, [b[0], a[1]], b], from, to);
+        consider([a, [a[0], b[1]], b], from, to);
+        for (const x of xs) consider([a, [x, a[1]], [x, b[1]], b], from, to);
+        for (const y of ys) consider([a, [a[0], y], [b[0], y], b], from, to);
+      }
+      if (attempted < candidateBudget && (!best || !denseRouting && (best.bends > 2 || best.crossings || best.overlap))) for (const from of sourcePorts) for (const to of targetPorts) {
+        const a = from.point, b = to.point;
+        for (const x of xs.slice(0, 4)) for (const y of ys.slice(0, 4)) {
+          consider([a, [x, a[1]], [x, y], [b[0], y], b], from, to);
+          consider([a, [a[0], y], [x, y], [x, b[1]], b], from, to);
+        }
+      }
+      // 拥挤图仍可沿预分配的层间/顶部通道绕行，优先使用未占用端口。
+      if (!best || best.bends > 2 || best.crossings || best.overlap) {
+        const from = sourcePorts.find(port => port.side === 'right'), to = targetPorts.find(port => port.side === 'left');
+        if (from && to) {
+          const rightX = source.x + source.width + 22 + route.rightLane * LANE;
+          const leftX = target.x - 22 - route.leftLane * LANE;
+          const top = PADDING + route.topLane * 10;
+          consider(route.topLane >= 0
+            ? [from.point, [rightX, from.point[1]], [rightX, top], [leftX, top], [leftX, to.point[1]], to.point]
+            : [from.point, [rightX, from.point[1]], [rightX, to.point[1]], to.point], from, to);
+        }
+      }
+      return best;
+    };
+    const optimized = new Map();
+    // 相邻层先占用可直连端口，再处理跨层引用；保留输入的输出边序。
+    const normalRoutes = routes.filter(route => route.kind === 'normal').sort((a, b) =>
+      a.targetRank - a.sourceRank - (b.targetRank - b.sourceRank));
+    for (const route of normalRoutes) {
+      const original = legacyById.get(route.edge.id);
+      const sourcePort = portKey(positioned.get(original.source), 'right', original.points[0]);
+      const targetPort = portKey(positioned.get(original.target), 'left', original.points.at(-1));
+      reservedPorts.delete(sourcePort);
+      reservedPorts.delete(targetPort);
+      const chosen = shortestRoute(route);
+      if (!chosen) {
+        // 有限候选不覆盖全部可行路径。保留经过预留的原端口和独立通道，
+        // 优先让复杂结构可读，不因短路径优化失败而使整图无法显示。
+        usedPorts.add(sourcePort);
+        usedPorts.add(targetPort);
+        optimized.set(original.id, original);
+        reserveRoute(original);
+        continue;
+      }
+      const {points, from, to} = chosen;
+      usedPorts.add(portKey(positioned.get(route.edge.source), from.side, from.point));
+      usedPorts.add(portKey(positioned.get(route.edge.target), to.side, to.point));
+      const longest = points.slice(1).map((point, i) => ({a: points[i], b: point,
+        length: Math.abs(point[0] - points[i][0]) + Math.abs(point[1] - points[i][1])}))
+        .sort((a, b) => b.length - a.length)[0];
+      optimized.set(route.edge.id, {...original, points, path: pathFor(points),
+        labelX: number((longest.a[0] + longest.b[0]) / 2 + (longest.a[0] === longest.b[0] ? 5 : 0)),
+        labelY: number((longest.a[1] + longest.b[1]) / 2 - (longest.a[1] === longest.b[1] ? 7 : 0))});
+      reserveRoute({ id: route.edge.id, points });
+    }
+    let width = nodes.length ? rankX[maxRank] + NODE_WIDTH + 56 + rightLanes[maxRank] * LANE + PADDING : PADDING * 2;
+    let height = resultNodes.reduce((max, node) => Math.max(max, node.y + NODE_HEIGHT + PADDING), PADDING * 2);
+    const routed = legacyRoutes.map(edge => {
+      const {points, ...result} = optimized.get(edge.id) || edge;
+      for (const point of points) { width = Math.max(width, point[0] + PADDING); height = Math.max(height, point[1] + PADDING); }
+      return result;
+    });
     return { nodes: resultNodes, edges: routed, width, height, components };
   }
 

@@ -3,25 +3,40 @@ repos:
     rev: v5.0.0
     hooks:
       - id: trailing-whitespace
+        # Preserve the exact upstream license text and its documented hash.
+        exclude: ^plugins/sqlseed-web/src/sqlseed_web/static/fonts/chill-round-gothic/License\.txt$
       - id: end-of-file-fixer
       - id: check-yaml
+        exclude: ^mkdocs\.yml$
+      - id: check-yaml
+        name: Check MkDocs YAML syntax
+        files: ^mkdocs\.yml$
+        # MkDocs supports Python-name tags; strict MkDocs builds validate them.
+        args: [--unsafe]
       - id: check-toml
       - id: check-merge-conflict
       - id: check-added-large-files
+        # These two bundled fonts have reviewed origins and recorded SHA-256 hashes.
+        exclude: ^plugins/sqlseed-web/src/sqlseed_web/static/fonts/chill-round-gothic/ChillRoundGothic-(Regular|Medium)\.woff2$
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.16.4
+    rev: v0.16.7
     hooks:
       - id: ruff
-        args: [--fix]
+        types_or: [python, pyi]
       - id: ruff-format
+        types_or: [python, pyi]
 
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v2.3.1
     hooks:
       - id: mypy
-        files: ^(src/sqlseed/|plugins/)
+        files: ^(src/sqlseed/|plugins/|pyproject\.toml$)
+        types_or: [python, pyi, toml]
         args: [--config-file=pyproject.toml]
+        # Let the shared configuration select source files and exclude tests,
+        # exactly as CI does. Explicit filenames bypass mypy's exclude setting.
+        pass_filenames: false
         additional_dependencies:
           - pydantic>=2.0
           - pluggy>=1.3
@@ -34,9 +49,12 @@ repos:
           - rstr>=3.2
           - sqlalchemy>=2.0
           - faker>=30.0
+          - sqlglot>=25.0
           - openai>=1.0
           - httpx>=0.24.0
-          - mcp>=1.0
+          - fastapi>=0.110
+          - packaging>=23.2
+          - mcp>=1.0,<2
 
   - repo: local
     hooks:

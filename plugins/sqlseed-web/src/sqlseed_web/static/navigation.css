@@ -36,7 +36,7 @@ body > header.top #connection-label { min-width:0; }
   background:transparent;
   color:var(--muted);
   font-size:13px;
-  font-weight:600;
+  font-weight:var(--font-weight-emphasis);
   line-height:20px;
   white-space:nowrap;
   transition:color 160ms ease-out,background-color 160ms ease-out;

@@ -7,8 +7,8 @@ const flush = () => new Promise(resolve => setImmediate(resolve));
 const deferred = () => {let resolve; const promise = new Promise(done => {resolve = done;}); return {promise, resolve};};
 const connection = (id, target = '/temporary/example.db', group = target) => ({conn_id: id, target, group_key: group});
 
-function harness({connections = [connection('A')], current = 'A', remove, listed, add, select, browse} = {}) {
-  const document = createDom(), window = new Element('window'), requests = [], remembered = [], changes = [];
+function harness({connections = [connection('A')], current = 'A', remove, listed, add, select, browse, workbenchRequest = null} = {}) {
+  const document = createDom(), window = new Element('window'), requests = [], remembered = [], changes = [], details = [];
   const store = {connId: current, target: current ? '/temporary/example.db' : null, tables: current ? [{name: 'users'}] : []};
   const invoke = async (url, data, method = 'GET') => {
     requests.push({url, data, method});
@@ -25,15 +25,15 @@ function harness({connections = [connection('A')], current = 'A', remove, listed
     if (item) return select ? select(item) : {...item, tables: [{name: 'other'}]};
     throw new Error(`Unexpected request ${method} ${url}`);
   };
-  window.addEventListener('sqlseed:connection-changed', () => changes.push(store.connId));
+  window.addEventListener('sqlseed:connection-changed', event => {changes.push(store.connId);details.push(event.detail);});
   const context = loadFrontend('workbench/connection.js', {document, window, store,
     Event: class {constructor(type) {this.type = type;}}, get: url => invoke(url),
     send: (url, data, method = 'POST') => invoke(url, data, method),
     rememberConnId: id => remembered.push(id), setConnBadge: () => {},
     safeTargetLabel: value => value.includes('://') ? new URL(value).hostname + new URL(value).pathname : value.split('/').at(-1),
   });
-  const dialog = context.openConnectionDialog();
-  return {document, store, requests, remembered, changes, dialog,
+  const dialog = context.openConnectionDialog({workbenchRequest});
+  return {document, store, requests, remembered, changes, details, dialog,
     buttons: label => document.querySelectorAll('button').filter(el => el.textContent === label)};
 }
 
@@ -50,6 +50,134 @@ test('same-target live sessions are grouped and identified without repeating an 
   assert.equal(ui.buttons('断开并移除').length, 3);
   assert.match(ui.document.textContent, /添加连接/);
   assert.match(ui.document.textContent, /不会删除数据库/);
+  const modal = ui.document.querySelector('.connection-modal');
+  const body = modal.querySelector('.modal-body');
+  assert.ok(modal.classList.contains('wb-modal'));
+  assert.ok(body.contains(groups[0]));
+  assert.equal(modal.querySelector('.modal-head').parentNode, modal);
+  assert.equal(modal.querySelector('.connection-footer').parentNode, modal);
+  assert.ok(!body.contains(modal.querySelector('.connection-footer')), 'long content must not own footer scrolling');
+});
+
+test('SQLite validation marks its field and file selection clears the error without connecting', async () => {
+  const ui = harness({current: null, browse: () => ({path:'/temporary',parent:null,entries:[{name:'demo.db',path:'/temporary/demo.db',is_dir:false}]})});
+  await flush();
+  const input = ui.document.querySelector('[name="db_path"]');
+  let focused = false;
+  input.focus = () => {focused = true;};
+  await ui.buttons('连接数据库')[0].click();
+  assert.equal(input.getAttribute('aria-invalid'), 'true');
+  assert.match(ui.document.getElementById(input.getAttribute('aria-describedby')).textContent, /请选择或输入/);
+  assert.ok(focused);
+  assert.equal(ui.requests.some(request => request.method === 'POST'), false);
+  await ui.buttons('选择文件')[0].click(); await flush();
+  await ui.buttons('demo.db')[0].click();
+  assert.equal(input.value, '/temporary/demo.db');
+  assert.equal(input.getAttribute('aria-invalid'), null);
+  assert.equal(input.getAttribute('aria-describedby'), null);
+  assert.equal(ui.document.querySelector('.connection-error').textContent, '');
+  assert.equal(ui.requests.some(request => request.method === 'POST'), false);
+});
+
+test('PostgreSQL validation identifies missing fields and an invalid port and resets on editing', async () => {
+  const ui = harness({current: null}); await flush();
+  await ui.buttons('PostgreSQL')[0].click();
+  const host = ui.document.querySelector('[name="host"]'), database = ui.document.querySelector('[name="database"]');
+  const user = ui.document.querySelector('[name="user"]'), port = ui.document.querySelector('[name="port"]');
+  await ui.buttons('连接数据库')[0].click();
+  assert.equal(host.getAttribute('aria-invalid'), null);
+  assert.equal(database.getAttribute('aria-invalid'), 'true');
+  assert.equal(user.getAttribute('aria-invalid'), 'true');
+  database.value = 'shop'; await database.dispatchEvent('input');
+  user.value = 'admin'; await user.dispatchEvent('input');
+  assert.equal(database.getAttribute('aria-invalid'), null);
+  assert.equal(user.getAttribute('aria-invalid'), null);
+  port.value = '70000'; await ui.buttons('连接数据库')[0].click();
+  assert.equal(port.getAttribute('aria-invalid'), 'true');
+  assert.match(ui.document.getElementById(port.getAttribute('aria-describedby')).textContent, /1 到 65535/);
+  port.value = '5432'; await port.dispatchEvent('input');
+  assert.equal(port.getAttribute('aria-invalid'), null);
+  assert.equal(ui.document.querySelector('.connection-error').textContent, '');
+  assert.equal(ui.requests.some(request => request.method === 'POST'), false);
+});
+
+test('SQLite connections require an existing file and preserve the current target after a missing-path error', async () => {
+  const ui = harness({add: () => {throw new Error('数据库文件不存在，请选择已有的 SQLite 文件。');}});
+  await flush();
+  assert.match(ui.document.textContent, /已有的 SQLite 文件/);
+  const input = ui.document.querySelector('[name="db_path"]'); input.value = '/temporary/missing.db';
+  const before = JSON.stringify(ui.store);
+  await ui.buttons('连接数据库')[0].click();
+  const payload = ui.requests.find(request => request.method === 'POST').data;
+  assert.equal(payload.db_path, '/temporary/missing.db');
+  assert.equal(payload.require_existing, true);
+  assert.equal(payload.provider, 'base');
+  assert.equal(JSON.stringify(ui.store), before);
+  assert.deepEqual(ui.changes, []); assert.deepEqual(ui.remembered, []);
+  assert.match(ui.document.querySelector('.connection-error').textContent, /数据库文件不存在/);
+  assert.equal(input.value, '/temporary/missing.db');
+  assert.equal(input.disabled, false); assert.equal(ui.buttons('选择文件')[0].disabled, false);
+  ui.dialog.close();
+});
+
+test('PostgreSQL connection requests do not carry SQLite file-opening policy', async () => {
+  const ui = harness({current:null, add: data => ({...connection('P', data.url), tables:[]})}); await flush();
+  await ui.buttons('PostgreSQL')[0].click();
+  ui.document.querySelector('[name="database"]').value = 'shop';
+  ui.document.querySelector('[name="user"]').value = 'reader';
+  await ui.buttons('连接数据库')[0].click();
+  const payload = ui.requests.find(request => request.method === 'POST').data;
+  assert.equal(payload.url, 'postgresql://reader:@localhost:5432/shop');
+  assert.equal(Object.hasOwn(payload, 'require_existing'), false);
+  assert.equal(ui.store.connId, 'P');
+});
+
+test('failed connection operations recover focus lost while controls were disabled or replaced', async () => {
+  for (const operation of ['add', 'switch', 'disconnect']) {
+    const gate = deferred();
+    const fail = async () => {await gate.promise; throw new Error('数据库暂时不可用');};
+    const ui = harness({connections:[connection('A'), connection('B')],
+      add:fail, select:fail, remove:fail});
+    await flush();
+    ui.document.querySelector('[name="db_path"]').value = '/temporary/example.db';
+    const trigger = operation === 'add' ? ui.buttons('连接数据库')[0] : operation === 'switch'
+      ? ui.document.querySelectorAll('.connection-card')[1] : ui.buttons('断开并移除')[1];
+    const error = ui.document.querySelector('.connection-error');
+    let focusCount = 0;
+    error.focus = () => {
+      assert.equal(ui.buttons('连接数据库')[0].disabled, false, 'recover focus only after controls are usable');
+      focusCount++; ui.document.activeElement = error;
+    };
+    const pending = trigger.click(); await flush();
+    // Browsers drop focus to body when the focused button is disabled/removed.
+    ui.document.activeElement = ui.document.body;
+    gate.resolve(); await pending;
+    assert.equal(error.getAttribute('tabindex'), '-1');
+    assert.equal(ui.document.activeElement, error, operation);
+    assert.equal(focusCount, 1); assert.match(error.textContent, /数据库暂时不可用/);
+    assert.equal(ui.store.connId, 'A'); assert.deepEqual(ui.changes, []);
+    ui.dialog.close();
+  }
+});
+
+test('a late connection failure neither steals Cancel focus nor focuses a closed dialog', async () => {
+  for (const closeEarly of [false, true]) {
+    const gate = deferred();
+    const ui = harness({add:async () => {await gate.promise; throw new Error('connection refused');}});
+    await flush();
+    ui.document.querySelector('[name="db_path"]').value = '/temporary/example.db';
+    const error = ui.document.querySelector('.connection-error');
+    let focusCount = 0; error.focus = () => {focusCount++;};
+    const pending = ui.buttons('连接数据库')[0].click(); await flush();
+    const cancel = ui.buttons('取消')[0];
+    ui.document.activeElement = cancel;
+    if (closeEarly) {ui.dialog.close(); ui.document.activeElement = ui.document.body;}
+    gate.resolve(); await pending;
+    assert.equal(focusCount, 0);
+    assert.equal(ui.document.activeElement, closeEarly ? ui.document.body : cancel);
+    assert.equal(ui.store.connId, 'A'); assert.deepEqual(ui.changes, []);
+    if (!closeEarly) ui.dialog.close();
+  }
 });
 
 test('disconnecting the current session releases only that server session and clears the selected target', async () => {
@@ -183,6 +311,24 @@ test('switching and disconnecting identify their pending operation without showi
   removal.resolve(); await removing;
   assert.match(second.document.querySelector('.connection-notice').textContent, /已断开/);
   assert.equal(second.buttons('连接数据库')[0].disabled, false);
+});
+
+test('an explicit link-recovery picker publishes its request only after a successful switch',async()=>{
+  const requested='#/workbench?draft=for-B',gate=deferred();
+  const ui=harness({connections:[connection('A'),connection('B')],workbenchRequest:requested,select:()=>gate.promise});await flush();
+  const pending=ui.document.querySelectorAll('.connection-card')[1].click();await flush();
+  assert.equal(ui.store.connId,'A');assert.deepEqual(ui.changes,[]);
+  gate.resolve({...connection('B'),tables:[]});await pending;
+  assert.equal(ui.store.connId,'B');assert.equal(ui.details[0].workbenchRequest,requested);
+});
+
+test('a failed connection switch preserves the current target and never publishes a route change',async()=>{
+  const ui=harness({connections:[connection('A'),connection('B')],workbenchRequest:'#/workbench?draft=for-B',select:()=>{throw new Error('database busy');}});await flush();
+  const before=JSON.stringify(ui.store);
+  await ui.document.querySelectorAll('.connection-card')[1].click();
+  assert.equal(JSON.stringify(ui.store),before);assert.deepEqual(ui.changes,[]);assert.deepEqual(ui.remembered,[]);
+  assert.match(ui.document.querySelector('.connection-error').textContent,/database busy/);
+  assert.equal(ui.document.querySelectorAll('.connection-card')[1].disabled,false);
 });
 
 test('closing during an add never selects its late response', async () => {

@@ -1,5 +1,7 @@
 # Quality Check Remediation Implementation Plan
 
+Historical plan for PR #10. Its completed actions and temporary environment are not current instructions. The old candidate report was retired in the [2026-09-28 audit cleanup](../../code-review/history.md); current validation is recorded separately.
+
 > **For agentic workers:** Use subagent-driven-development to execute the independent package tasks, with integration review before each shared commit.
 
 **Goal:** Restore all checks on PR #10, eliminate all valid Sonar findings, retain CodeFlow's zero findings, and document individually verified false positives without source suppression comments.
@@ -20,7 +22,7 @@
 - Core worker: `src/sqlseed/` and root `tests/` (123 findings).
 - Coordinator: CI/external integrations, CLI, scripts, examples, evidence (32 findings).
 
-Preserve the pre-existing changes to `.sonarcloud.properties`, `docs/candidate-validation.md`, and the pre-existing untracked documentation/prototypes. Use the isolated `/tmp/sqlseed-codeflow-venv` environment; preserve the user's project environment and service on port 8630.
+At execution time, the task preserved existing scanner settings, candidate notes, documentation and prototypes, and used its own temporary environment while preserving the user's service on port 8630. Those temporary paths are not a setup requirement for later work.
 
 ## 1. Deadline boundary
 

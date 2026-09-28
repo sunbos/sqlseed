@@ -13,6 +13,7 @@ from typing import Any
 from fastapi import HTTPException
 
 from sqlseed_web.managed_worker import run_worker
+from sqlseed_web.plugin_environment import InheritedEnvironmentLock
 from sqlseed_web.plugin_management import ExecuteRequest, PlanRequest
 from sqlseed_web.supervised_plugins import SupervisedPluginManager
 from sqlseed_web.worker_control import ControlChannel, ControlError
@@ -90,9 +91,7 @@ class Supervisor:
         channel = ControlChannel(parent)
         lock_descriptor = None
         if self.manager._environment_lock is not None:
-            from multiprocessing.reduction import DupFd
-
-            lock_descriptor = DupFd(self.manager._environment_lock.fileno())
+            lock_descriptor = InheritedEnvironmentLock(self.manager._environment_lock.fileno())
         process = context.Process(
             target=run_worker,
             args=(

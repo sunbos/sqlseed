@@ -36,10 +36,96 @@ function harness({management = enabled(), request} = {}) {
   const find = label => document.querySelectorAll('button').find(element => element.textContent === label);
   const action = (id, value) => document.querySelector(`[data-component="${id}"]`)?.querySelector(`[data-plugin-action="${value}"]`);
   const runTimer = async delay => {const item = [...timers].find(([, timer]) => timer.delay === delay); assert.ok(item, `timer ${delay}`); timers.delete(item[0]); await item[1].callback(); await tick();};
-  return {document, manager, management, mounted, calls, timers, modes, restored, find, action, runTimer};
+  const mountUpdates = () => {
+    const updates = loadFrontend('update-check-control.js', {document, api, AbortController, ...vm.runInContext('({button})', ui)}).createUpdateCheckControl({management: manager});
+    document.body.append(updates.el);
+    return updates;
+  };
+  return {document, manager, management, mounted, calls, timers, modes, restored, find, action, runTimer, mountUpdates};
 }
 
 const automatic = () => ({...enabled(), automatic_lifecycle: true, phase: 'ready', instance_id: 'service-1', service_generation: 1});
+
+const updatePlan = {...plan, component_id: 'mimesis', action: 'update', distribution: 'mimesis', version: '1.0', target_version: '2.0', dependencies: ['shared==1.5'], artifact: {filename: 'mimesis-2.0-py3-none-any.whl', sha256: 'a'.repeat(64)}};
+const updateItem = {id: 'mimesis', label: 'Mimesis', current: '1.0', latest: '2.0', status: 'update_available'};
+const updateManagement = () => ({...automatic(), components: [{id: 'mimesis', installed: true, version: '1.0', can_update: true, can_uninstall: false, required_by: ['consumer']}]});
+
+test('update lookup requires a separate verified review and confirmation before one token-bound execution', async () => {
+  const t = harness({management: updateManagement(), request: call => {
+    if (call.url.endsWith('/updates')) return {components: [updateItem, {...updateItem, id: 'core', label: 'Core'}, {...updateItem, id: 'faker', label: 'Faker'}]};
+    if (call.url.endsWith('/plan')) return updatePlan;
+    if (call.url.endsWith('/execute')) return {...running, action: 'update', component_id: 'mimesis'};
+  }}); await t.mounted;
+  const control = t.mountUpdates();
+  assert.equal(t.calls.some(call => call.url.endsWith('/updates')), false);
+  await t.find('检查更新').click();
+  assert.equal(t.calls.some(call => call.url.endsWith('/plan')), false);
+  assert.equal(t.document.querySelector('[data-update-id="core"]').querySelector('button'), null);
+  assert.equal(t.document.querySelector('[data-update-id="faker"]').querySelector('button'), null);
+  const action = t.find('查看更新计划');
+  assert.equal(action.disabled, false, 'reverse dependents prevent uninstall, not compatible updates');
+  await action.click();
+  assert.deepEqual(t.calls.find(call => call.url.endsWith('/plan')).body, {component_id: 'mimesis', action: 'update'});
+  const dialog = t.document.querySelector('[role="dialog"]');
+  assert.match(dialog.textContent, /1\.0 → 2\.0/);
+  assert.match(dialog.textContent, /shared==1\.5/);
+  assert.match(dialog.textContent, /SHA256 a{64}/);
+  assert.equal(t.calls.some(call => call.url.endsWith('/execute')), false);
+  assert.equal(action.disabled, true);
+  await t.find('取消').click();
+  assert.equal(action.disabled, false);
+  await action.click();
+  const confirm = t.find('确认更新'); await confirm.click(); await confirm.click();
+  const executions = t.calls.filter(call => call.url.endsWith('/execute'));
+  assert.equal(executions.length, 1);
+  assert.deepEqual(executions[0].body, {plan_id: updatePlan.plan_id});
+  assert.equal(executions[0].headers['X-Sqlseed-Management-Token'], 'management-token');
+  assert.equal(action.disabled, true);
+  control.destroy(); t.manager.destroy();
+});
+
+test('incompatible update shows its dependency reason and never opens a confirmation or executes', async () => {
+  const t = harness({management: updateManagement(), request: call => {
+    if (call.url.endsWith('/updates')) return {components: [updateItem]};
+    if (call.url.endsWith('/plan')) throw Object.assign(new Error('shared>=2（当前 1.5）；需联动调整，已阻止执行。'), {status: 409});
+  }}); await t.mounted; const control = t.mountUpdates(); await t.find('检查更新').click(); await t.find('查看更新计划').click();
+  assert.equal(t.document.querySelector('[role="dialog"]'), null);
+  assert.match(t.document.querySelector('[data-update-id="mimesis"]').textContent, /shared>=2.*已阻止/);
+  assert.equal(t.calls.some(call => call.url.endsWith('/execute')), false);
+  control.destroy(); t.manager.destroy();
+});
+
+test('unmanaged and stale update results stay disabled with an actionable reason', async () => {
+  for (const management of [{enabled: false, available: false, reason: '外部托管，请使用原环境管理工具。'}, {...updateManagement(), components: [{id: 'mimesis', version: '2.0', can_update: true}]}]) {
+    const t = harness({management, request: call => call.url.endsWith('/updates') ? {components: [updateItem]} : undefined}); await t.mounted;
+    const control = t.mountUpdates(); await t.find('检查更新').click();
+    const action = t.find('查看更新计划'); assert.equal(action.disabled, true); await action.click();
+    assert.match(t.document.querySelector('[data-update-id="mimesis"]').textContent, /原环境管理工具|版本已变化/);
+    assert.equal(t.calls.some(call => call.url.endsWith('/plan')), false);
+    control.destroy(); t.manager.destroy();
+  }
+});
+
+test('update controls retain the maintenance gate across manager redraw and are inert after leaving', async () => {
+  const t = harness({management: updateManagement(), request: call => call.url.endsWith('/updates') ? {components: [updateItem]} : undefined}); await t.mounted;
+  const control = t.mountUpdates(); await t.find('检查更新').click(); const action = t.find('查看更新计划');
+  control.setDisabled(true); await t.manager.refresh();
+  assert.equal(action.disabled, true); await action.click();
+  assert.equal(t.calls.some(call => call.url.endsWith('/plan')), false);
+  control.setDisabled(false); assert.equal(action.disabled, false);
+  control.destroy(); t.manager.destroy(); await action.click();
+  assert.equal(t.calls.some(call => call.url.endsWith('/plan')), false);
+});
+
+test('an update plan missing an artifact hash cannot become an executable confirmation', async () => {
+  const t = harness({management: updateManagement(), request: call => {
+    if (call.url.endsWith('/updates')) return {components: [updateItem]};
+    if (call.url.endsWith('/plan')) return {...updatePlan, artifact: {filename: updatePlan.artifact.filename}};
+  }}); await t.mounted; const control = t.mountUpdates(); await t.find('检查更新').click(); await t.find('查看更新计划').click();
+  assert.equal(t.document.querySelector('[role="dialog"]'), null);
+  assert.match(t.document.textContent, /缺少已核验/);
+  control.destroy(); t.manager.destroy();
+});
 
 test('managed operation keeps normal settings usable and exposes no command-line setup', async () => {
   const t = harness({management: automatic()}); await t.mounted;

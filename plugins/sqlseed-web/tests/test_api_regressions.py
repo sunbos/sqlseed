@@ -61,6 +61,72 @@ def poll_job(client: TestClient, job_id: str) -> dict[str, Any]:
     return pytest.fail("background job never finished")
 
 
+def test_invalid_connection_url_does_not_echo_credentials(client: TestClient) -> None:
+    response = client.post(
+        "/api/connections",
+        json={
+            "url": "sqlite://private-user:private-password@localhost/example?sslpassword=query-password",
+            "provider": "base",
+        },
+    )
+    assert response.status_code == 400
+    assert "private-user" not in response.text
+    assert "private-password" not in response.text
+    assert "query-password" not in response.text
+    assert client.get("/api/connections").json()["connections"] == []
+
+
+def test_driver_connection_failure_is_redacted_at_http_boundary(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fail(*args: Any, **kwargs: Any) -> None:
+        raise RuntimeError(
+            "Cannot open postgresql://private-user:private-password@db.example/app?%70assword=query-secret"
+        )
+
+    monkeypatch.setattr(api.state, "add_connection", fail)
+    response = client.post("/api/connections", json={"url": "postgresql://db.example/app", "provider": "base"})
+    assert response.status_code == 400
+    assert "private-user" not in response.text
+    assert "private-password" not in response.text
+    assert "query-secret" not in response.text
+    assert "db.example/app" in response.text
+
+
+def test_successful_connection_responses_redact_targets_without_changing_runtime_credentials(
+    client: TestClient, db_path: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target = "postgresql://private-user:private-password@db.example/app?%70assword='query-secret'&application_name=test"
+    original_add = api.state.add_connection
+
+    def open_local_fixture(original_target: str, **kwargs: Any) -> Any:
+        # Exercise serialization around a real SQLite adapter without a remote
+        # server. Its credential-bearing connection label stays server-owned.
+        connection = original_add(db_path, **kwargs)
+        connection.orchestrator.get_table_names()
+        connection.target = original_target
+        return connection
+
+    monkeypatch.setattr(api.state, "add_connection", open_local_fixture)
+    created = client.post("/api/connections", json={"url": target, "provider": "base"})
+    assert created.status_code == 200
+    cid = created.json()["conn_id"]
+    listed = client.get("/api/connections")
+    details = client.get(f"/api/connections/{cid}/tables")
+    for response in (created, listed, details):
+        assert response.status_code == 200
+        assert "private-user" not in response.text
+        assert "private-password" not in response.text
+        assert "query-secret" not in response.text
+        assert "db.example/app" in response.text
+    public = listed.json()["connections"][0]
+    assert len(public["group_key"]) == 64
+    assert public["target"].endswith("?application_name=test")
+    assert api.state.get_connection(cid).target == target
+    assert api.state.list_connections()[0]["target"] == target
+    assert api.state.get_connection(cid).orchestrator.get_table_names() == ["evens", "items"]
+
+
 def test_failed_insert_reports_error_and_actual_count(client: TestClient, db_path: str) -> None:
     cid = connect(client, db_path)
     response = client.post(

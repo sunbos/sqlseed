@@ -113,13 +113,24 @@ explicit backend, then known URL patterns, then OpenAI-compatible behavior. It d
 not probe every service as a fallback chain. The `tool_calling_protocol` setting and
 its resolver choose the response protocol; a model name alone is insufficient.
 
+For Python callers, `SchemaAnalyzer.call_llm(..., strict_json=True)` distinguishes
+empty replies, invalid JSON, and output-limit truncation using content-free
+`JSONResponseError.code` values. JSON parsing can complete missing final `}` or `]`
+delimiters, including inside code fences, but never fills missing values or strings.
+An output-limit response is rejected even if its prefix parses. This optional mode
+adds no model requests; parsed suggestions still require scope and rule validation.
+
 AI configuration caches include schema hashes. Schema changes invalidate cached
 suggestions; `--no-cache` bypasses them. Review model output before writing data.
 
-## Requirements
+## Current development requirements
+
+These requirements describe the current source checkout. The 0.2.4 commands above
+remain the published installation baseline; use local Core and plugins together
+when developing from source.
 
 - Python `>=3.10`
-- `sqlseed>=0.2.4.dev0,<0.3`
+- `sqlseed>=0.2.5.dev0,<0.3`
 - `sqlseed-cli>=0.2.4.dev0,<0.3`
 - `openai>=1.0`
 - `httpx>=0.24.0`

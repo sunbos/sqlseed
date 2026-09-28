@@ -57,6 +57,8 @@ def child_environment(root: Path) -> dict[str, str]:
     }
     environment["SQLSEED_CACHE_DIR"] = str(root / "cache")
     environment["PIP_CONFIG_FILE"] = os.devnull
+    environment["PYTHONUTF8"] = "1"
+    environment["PYTHONIOENCODING"] = "utf-8"
     return environment
 
 
@@ -76,15 +78,16 @@ def check_cli(database: Path, root: Path) -> None:
             cwd=root,
             env=environment,
             capture_output=True,
-            text=True,
             timeout=30,
             check=False,
         )
-        require(result.returncode == 0, f"CLI {arguments} failed: {result.stdout}\n{result.stderr}")
+        # Decode in the main thread: Windows subprocess reader-thread failures
+        # can otherwise discard invalid text while leaving a zero return code.
+        stdout = result.stdout.decode("utf-8")
+        stderr = result.stderr.decode("utf-8")
+        require(result.returncode == 0, f"CLI {arguments} failed: {stdout}\n{stderr}")
         if arguments == ["--help"]:
-            require(
-                all(command in result.stdout for command in CLI_COMMANDS), "CLI help is missing base or AI commands"
-            )
+            require(all(command in stdout for command in CLI_COMMANDS), "CLI help is missing base or AI commands")
         else:
             require(count_rows(database, "cli_rows") == 7, "CLI fill/preview persisted an incorrect row count")
             require(count_rows(database, "mcp_rows") == 0, "CLI touched an unrelated table")

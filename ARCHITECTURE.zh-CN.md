@@ -1,7 +1,7 @@
 # sqlseed 项目架构决策
 
 **创建日期：** 2026-06-26
-**状态：** 已与用户需求对齐（已应用 Round 6 修订）
+**状态：** 当前包边界核验于 2026-09-28；已完成的迁移步骤保留为历史记录。
 **用途：** AI agent（CLAUDE/AGENTS/GEMINI）和贡献者的权威架构参考。所有代码变更必须遵循本文档。
 
 ---
@@ -13,9 +13,9 @@ sqlseed 是一个**声明式多数据库测试数据生成工具包**。它专�
 ### 核心原则
 
 1. **核心稳定性**：核心包（`sqlseed`）必须保持稳定，不受 AI 或外部技术变化的冲击。外部功能以插件形式演进。
-2. **离线优先**：核心功能必须能在离线环境下工作，不依赖外部网络。AI/CLI/MCP 功能是可选插件。
+2. **离线优先**：核心功能必须能在离线环境下工作，不依赖外部网络。CLI、AI、MCP 和 Web 均为独立的可选发行包。
 3. **Python API 优先**：核心是一个 Python 库（`from sqlseed import fill`）。CLI 是便捷层，不是核心。
-4. **插件架构**：外部功能（CLI、AI、MCP）通过插件连接到核心。用户只安装需要的功能。
+4. **插件架构**：外部功能（CLI、AI、MCP、Web）由各自发行包调用核心；基于 hooks 的接入保持可选。用户只安装需要的功能。
 
 ### 目标用户
 
@@ -27,59 +27,23 @@ sqlseed 是一个**声明式多数据库测试数据生成工具包**。它专�
 
 ## 2. 架构概览
 
-```
-                    ┌─────────────────────────────────────────┐
-                    │           用户安装选择                    │
-                    │  pip install sqlseed              (核心) │
-                    │  pip install sqlseed-cli           (CLI) │
-                    │  pip install sqlseed-ai             (AI) │
-                    │  pip install mcp-server-sqlseed    (MCP) │
-                    └────────────────────┬────────────────────┘
-                                         │
-                    ┌────────────────────▼────────────────────┐
-                    │           sqlseed（核心包）               │
-                    │  ┌────────────────────────────────────┐ │
-                    │  │ Python API: fill, connect, preview │ │
-                    │  │ fill_from_config, load_config      │ │
-                    │  └────────────────────────────────────┘ │
-                    │  ┌──────────┐ ┌──────────┐ ┌──────────┐ │
-                    │  │ core/    │ │generators│ │ database/│ │
-                    │  │(逻辑)    │ │(数据)    │ │(适配器)  │ │
-                    │  └──────────┘ └──────────┘ └──────────┘ │
-                    │  ┌──────────┐ ┌──────────┐               │
-                    │  │ plugins/ │ │ config/  │               │
-                    │  │(hookspec │ │(模型,    │               │
-                    │  │+管理器)  │ │ 加载器)  │               │
-                    │  └──────────┘ └──────────┘               │
-                    │  ┌──────────────────────────────────┐   │
-                    │  │ _utils/（无内部依赖）             │   │
-                    │  └──────────────────────────────────┘   │
-                    └────────────────────┬────────────────────┘
-                                         │ pluggy hooks
-                    ┌────────────────────▼────────────────────┐
-                    │              插件层                      │
-                    │                                          │
-                    │  ┌─────────────┐  ┌──────────────────┐  │
-                    │  │ sqlseed-cli │  │   sqlseed-ai     │  │
-                    │  │ (CLI: fill, │  │ (AI YAML 生成,   │  │
-                    │  │  preview,   │  │  Gemma4 作为     │  │
-                    │  │  inspect,   │  │  长期 LLM 后端   │  │
-                    │  │  init,      │  │  via tool_call-  │  │
-                    │  │  replay)    │  │  ing_protocol,   │  │
-                    │  │             │  │  自我纠错)        │  │
-                    │  │             │  │  + 可选 MCP 接口  │  │
-                    │  └─────────────┘  └──────────────────┘  │
-                    │                                          │
-                    │  ┌────────────────────────────────────┐ │
-                    │  │ mcp-server-sqlseed                 │ │
-                    │  │ (MCP: generate_yaml [规则驱动,     │ │
-                    │  │  无 LLM], execute_fill — 仅核心    │ │
-                    │  │  能力, 无 schema 检查, 无 AI)      │ │
-                    │  └────────────────────────────────────┘ │
-                    └──────────────────────────────────────────┘
+五个发行包分别承担安装与运行职责：
+
+```text
+sqlseed-cli ──────────┐
+sqlseed-ai ───────────┤
+mcp-server-sqlseed ───┼──> sqlseed（离线 Core）
+sqlseed-web ──────────┘      ├── Python API: fill, connect, preview,
+                            │   fill_from_config, load_config
+                            ├── core/       编排与关系处理
+                            ├── generators/ provider 与 dispatch
+                            ├── database/   SQLAlchemy 适配器
+                            ├── config/     模型、加载与快照
+                            ├── plugins/    hooks 与插件加载
+                            └── _utils/     不导入上层的工具
 ```
 
----
+箭头表示导入或调用 Core；可选 pluggy hooks 不改变依赖方向。AI 注册可选 CLI 命令；Web 可在安装 AI 后调用其 Python 服务。HTTP 服务、静态界面、工作区持久化和受管组件生命周期均属于 Web。
 
 ## 3. 模块职责
 
@@ -88,7 +52,7 @@ sqlseed 是一个**声明式多数据库测试数据生成工具包**。它专�
 
 ### 3.1 核心包（`src/sqlseed/`）
 
-**保留在核心**（离线、稳定、无 CLI/AI 依赖）：
+**保留在核心**（离线、稳定、无 CLI/AI/MCP/Web 依赖）：
 
 | 模块 | 职责 | 关键类/函数 |
 |------|------|-------------|
@@ -161,12 +125,12 @@ sqlseed 是一个**声明式多数据库测试数据生成工具包**。它专�
 
 **安装**：`pip install sqlseed-ai`（完全独立的包）
 
-**Gemma4 作为长期 LLM 后端**（2026-06-26 修订）：
-- Gemma4 **不是**比赛专用代码。它是长期支持的 LLM 后端（Apache 2.0，无 MAU 限制，支持在线 + 离线）。
-- 无 `sqlseed_ai/gemma4/` 子目录（避免暗示可移除性）。
-- Gemma4 原生函数调用位于 `analyzer/_tool_calling.py`，作为**协议实现**（`tool_calling_protocol="gemma4"`），与 `"openai"` 和 `"none"` 并列。
-- Gemma4 通过标准后端访问：`backend="ollama"` + `model="gemma4:26b"`，或 `backend="google_ai_studio"` + `model="gemma-4-..."`。
-- **Gemma5 过渡**：如果 Gemma5 保持相同的 6 个特殊 token（`<|tool>`, `<|tool_call>` 等），零代码改动。如果 Gemma5 改变了 token，添加 `tool_calling_protocol="gemma5"`——无需移除 `"gemma4"`（向后兼容）。
+**Gemma 4 模型与协议支持**：
+
+- Gemma 4 支持长期保留在 AI 插件中，不属于 Core 依赖，也不作为临时比赛模块隔离。
+- `backend` 标识服务接入方式（`google_ai_studio`、`lm_studio`、`ollama`、`openai_compat`），模型名称单独配置；不存在 `gemma4` backend。
+- `analyzer/_tool_calling.py` 实现 `gemma4` 工具调用协议，与 `openai`、`none` 并列；`resolve_tool_calling_protocol()` 根据后端支持情况选择协议。
+- 可用模型名称、服务能力与模型条款以所选提供方为准。配置了协议不代表具体模型可用或已经通过集成测试。
 
 ### 3.4 插件：`mcp-server-sqlseed`（`plugins/mcp-server-sqlseed/`）
 
@@ -179,7 +143,7 @@ sqlseed 是一个**声明式多数据库测试数据生成工具包**。它专�
 
 **安装**：`pip install mcp-server-sqlseed`
 
-**设计原则**：mcp-server-sqlseed 通过 MCP 暴露**核心能力**（基于规则的 YAML 模板生成 + 执行填充）。它**不依赖**任何 LLM。无论是作为本地 stdio MCP 服务器（离线）部署，还是作为远程 HTTP MCP 服务器（在线）部署，其功能完全相同，不会因网络问题失败。
+**设计原则**：mcp-server-sqlseed 通过 MCP 暴露**核心能力**（基于规则的 YAML 模板生成 + 执行填充），不依赖 LLM。发行包启动器使用 stdio；规则生成不需要模型服务，但远程数据库连接和单独配置的网络传输仍依赖网络可用性。
 
 **YAML 生成是核心能力**（2026-06-26 修订）：
 - `sqlseed_generate_yaml` 调用核心 `ColumnMapper`（75 条精确规则 + 29 个模式）——规则驱动、离线、确定性。
@@ -235,23 +199,26 @@ sqlseed._utils（无内部依赖，被所有层使用）
 
 ## 6. 安装矩阵
 
+下列命令以 Python 3.10+ 环境中的 0.2.4 发行版为基准。源码开发使用 [AGENTS.md](AGENTS.md) 中同次解析本地包的安装命令。
+
 | 使用场景 | 安装命令 | 获得的功能 |
 |---------|---------|-----------|
-| 仅 Python API（离线） | `pip install sqlseed` | `from sqlseed import fill` |
-| + CLI | `pip install sqlseed-cli` | `sqlseed` 命令 |
-| + AI YAML 生成 | `pip install sqlseed-ai` | `sqlseed ai-suggest` / `ai-analyze` / `auto-heal` + Gemma4 支持 |
-| + PostgreSQL | `pip install sqlseed[postgres]` | PostgreSQL 支持 |
-| + mimesis（高性能） | `pip install sqlseed[mimesis]` | MimesisProvider |
-| + MCP 服务器（核心能力） | `pip install mcp-server-sqlseed` | 基于规则的 YAML + 填充的 MCP 工具 |
-| + AI MCP | `pip install sqlseed-ai[mcp]` | LLM 驱动 YAML 的 AI MCP 工具 |
-| 全部功能 | 安装以上所有 | 所有可选功能 |
+| 仅 Python API（离线） | `python -m pip install "sqlseed==0.2.4"` | `from sqlseed import fill` |
+| + CLI | `python -m pip install "sqlseed-cli==0.2.4"` | `sqlseed` 命令 |
+| + AI YAML 生成 | `python -m pip install "sqlseed-ai==0.2.4"` | `sqlseed ai-suggest` / `ai-analyze` / `auto-heal` |
+| + PostgreSQL | `python -m pip install "sqlseed[postgres]==0.2.4"` | PostgreSQL 驱动 |
+| + Mimesis | `python -m pip install "sqlseed[mimesis]==0.2.4"` | MimesisProvider |
+| + MCP 服务器（核心能力） | `python -m pip install "mcp-server-sqlseed==0.2.4"` | 基于规则的 YAML 与填充工具 |
+| + AI MCP | `python -m pip install "sqlseed-ai[mcp]==0.2.4"` | 独立 AI MCP 进程 |
+| + Web | `python -m pip install "sqlseed-web==0.2.4"` | 本地浏览器工作台 |
+| 完整包集合 | 见[安装指南](docs/guide.md#installation) | 五个匹配的包及所需 extras |
 
 > [!NOTE]
 > **依赖链**：`sqlseed-ai` 依赖 `sqlseed-cli`（`ai-suggest`、`ai-analyze`、`auto-heal` 3 个命令通过 `entry_points` 注入 `sqlseed` CLI）。安装 `sqlseed-ai` 会自动拉取 `sqlseed-cli` 作为依赖。仅安装 `sqlseed-ai` 而不安装 `sqlseed-cli` **不是**受支持的配置。
 
 ### 6.1 版本兼容性策略
 
-5 个独立包（`sqlseed`、`sqlseed-cli`、`sqlseed-ai`、`mcp-server-sqlseed`、`sqlseed-web`）各有独立版本号，以下策略管理跨包兼容性：
+五个独立发行包（`sqlseed`、`sqlseed-cli`、`sqlseed-ai`、`mcp-server-sqlseed`、`sqlseed-web`）当前从同一仓库 tag 获取版本；0.2.4 包集合从同一提交与 tag 发布。以下策略管理跨包兼容性：
 
 | 变更类型 | 版本影响 | 插件操作 |
 |---------|---------|---------|
@@ -259,7 +226,9 @@ sqlseed._utils（无内部依赖，被所有层使用）
 | 核心移除/修改 hookspec 签名（破坏性） | 大版本提升 | 插件必须 pin `sqlseed>=CURRENT_MAJOR,<NEXT_MAJOR` 并更新 |
 | 核心内部重构（无 hookspec 变更） | 补丁/小版本提升 | 插件不受影响 |
 
-**插件 pin 规则**：每个插件的 `pyproject.toml` 必须声明 `dependencies = ["sqlseed>=X.Y,<X.(Y+1)"]`（或 `<(X+1).0` 以获得大版本稳定性）。示例：`mcp-server-sqlseed` 已实践此规则（`sqlseed>=0.1.0,<2`）。
+**插件 pin 规则**：每个插件的 `pyproject.toml` 必须声明 `dependencies = ["sqlseed>=X.Y,<X.(Y+1)"]`（或 `<(X+1).0` 以获得大版本稳定性）。0.2.4 插件声明 `sqlseed>=0.2.4.dev0,<0.3`，CLI/AI 兄弟包使用相同范围，排除不兼容的 Core 0.2.3。开发版下界不表示任意源码快照都可以混装。
+
+当前开发版插件因共享连接解析与诊断脱敏要求 Core `>=0.2.5.dev0,<0.3`；与 Core 0.2.4 混装不受支持，由依赖解析器拒绝。没有新增 API 需求的插件间依赖保留各自声明的版本范围。源码开发与发布验收应同次解析五个本地包。
 
 ---
 
@@ -300,20 +269,14 @@ sqlseed._utils（无内部依赖，被所有层使用）
 
 **用户原话**："MySql暂时不添加，保证代码的整洁性，等postgresql完全调通后再去接入会更好，所以相关的内容需要删除"
 
-### 7.4 Gemma4 作为长期 LLM 后端
+### 7.4 长期保留 Gemma 4 模型与协议支持
 
-**决策**：Gemma4 是 sqlseed-ai 中长期支持的 LLM 后端，**不是**比赛专用代码。无隔离的 `gemma4/` 子目录。
+**决策**：在 `sqlseed-ai` 中通过标准后端保留 Gemma 4 模型与协议接入。Core 不依赖模型提供方，不新增比赛专用隔离模块。
 
-**理由**：
-- Gemma4 是 Apache 2.0，无 MAU 限制——法律和商业上可长期使用
-- Gemma4 支持在线（Google AI Studio）和离线（Ollama/LM Studio）部署
-- 原生函数调用实现为可插拔的 `tool_calling_protocol`（与 `"openai"` 和 `"none"` 并列），不是 Gemma4 专用代码
-- Gemma4 通过标准后端访问（`backend="ollama"` + `model="gemma4:26b"`），无 `backend="gemma4"` 配置
-- Gemma5 过渡：如果协议不变，零代码改动；如果改变，添加新协议选项（向后兼容）
-- 避免浪费比赛期间的工程投入到一次性代码上
+**理由**：分析、验证与修复服务可在支持的后端间复用。工具调用协议显式选择；新增模型或协议需要兼容性测试，不能假定未来版本无需改动。
 
 **用户原话**："相关gemma4问题取决于是否想要长期保留" → 用户确认长期保留。
-**用户原话**："不能因为比赛所涉及到的代码而污染整个项目，因为比赛只是短期内的，比赛过后要保证代码可以长期使用" → 通过将 Gemma4 视为标准后端而非比赛代码来解决。
+**用户原话**："不能因为比赛所涉及到的代码而污染整个项目，因为比赛只是短期内的，比赛过后要保证代码可以长期使用" → 提供方相关接入留在 AI 插件内。
 
 ### 7.5 MCP 范围与边界
 
@@ -381,7 +344,7 @@ sqlseed._utils（无内部依赖，被所有层使用）
 - [x] 确保 `AIConfig.backend` 使用标准后端（无 `gemma4`）
 - [x] 确保 `AIConfig.tool_calling_protocol: Literal["gemma4", "openai", "none"]`
 - [x] 无 `gemma4/` 子目录
-- [x] 无需赛后清理（Gemma4 是长期后端）
+- [x] 无需赛后清理（Gemma 4 模型与协议支持长期保留）
 
 ### Phase F：测试重组
 - [x] 核心测试保留在 `tests/`
@@ -413,20 +376,12 @@ sqlseed._utils（无内部依赖，被所有层使用）
 
 ---
 
-## 10. Gemma4 长期维护（无需赛后清理）
+## 10. 模型与协议维护
 
-Gemma4 是**长期 LLM 后端**，**不是**比赛专用代码。**没有赛后清理**。
+Gemma 4 继续作为 AI 插件支持的接入方向。未来模型的支持情况须以提供方的实际 API、协议及集成结果为依据。
 
-### Gemma5 过渡流程
-
-当 Gemma5 发布时，按以下步骤操作：
-
-1. 检查 Gemma5 是否使用相同的 6 个特殊 token（`<|tool>`, `<|tool_call>`, `<|tool_result>` 等）
-2. **如果 token 相同**：零代码改动。用户只需更新模型名：`model="gemma5:xx"`
-3. **如果 token 不同**：在 `AIConfig.tool_calling_protocol` Literal 选项中添加 `tool_calling_protocol="gemma5"`，在 `analyzer/_tool_calling.py` 中实现新协议
-4. 不要从协议选项中移除 `"gemma4"`（向后兼容）
-5. 更新 `_model_selector.py` 以包含 Gemma5 模型条目
-6. 运行完整测试套件 + `lint-imports` + `make mutmut` 验证无破坏
-7. 更新 `CLAUDE.md` / `AGENTS.md` 添加 Gemma5 引用
-
-**关键**：Gemma4 支持无限期保留。通用 AI 功能（analyzer/, refiner.py）继续在所有后端上工作。
+1. 核对模型标识、后端可用性、响应格式与工具调用行为。
+2. 仅在确认兼容时复用既有协议；需要新协议时，在 AI 插件中实现并验证，不为 Core 增加提供方依赖。
+3. 保留已支持的配置与协议选项；存在兼容性变化时明确记录。
+4. 模型选择元数据与文档仅描述已核验的能力。
+5. 执行相关真实模型与协议测试、完整必要检查、`lint-imports` 和 `make mutmut`。无法连接模型服务应记录为验证缺口。

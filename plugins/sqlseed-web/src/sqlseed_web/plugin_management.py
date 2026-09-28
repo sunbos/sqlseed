@@ -11,6 +11,7 @@ import sys
 import tempfile
 import threading
 import time
+from contextlib import ExitStack
 from pathlib import Path
 from typing import Any, Literal, Protocol
 from urllib.parse import urlsplit
@@ -18,9 +19,9 @@ from urllib.parse import urlsplit
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, ConfigDict
 
-from sqlseed_web import plugin_environment
+from sqlseed_web import plugin_environment, plugin_updates
 from sqlseed_web.plugin_environment import COMPONENT_DISTRIBUTIONS, EnvironmentLock, InstalledPackage
-from sqlseed_web.plugin_process import run_installer
+from sqlseed_web.plugin_process import InstallerCleanupPending, run_installer
 
 router = APIRouter(prefix="/api/settings/plugins", tags=["plugin-maintenance"])
 
@@ -28,7 +29,7 @@ router = APIRouter(prefix="/api/settings/plugins", tags=["plugin-maintenance"])
 class PlanRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     component_id: Literal["ai", "cli", "mcp", "mimesis"]
-    action: Literal["install", "uninstall"]
+    action: Literal["install", "uninstall", "update"]
 
 
 class ExecuteRequest(BaseModel):
@@ -101,6 +102,7 @@ class PluginManager:
         self._snapshot: dict[str, InstalledPackage] = {}
         self._task: dict[str, Any] | None = None
         self._worker: threading.Thread | None = None
+        self._installer_cleanup: InstallerCleanupPending | None = None
 
     def start(self) -> None:
         prefix = self.environment.prefix
@@ -119,6 +121,7 @@ class PluginManager:
     def stop(self) -> None:
         if self._worker is not None:
             self._worker.join()
+        self._finish_installer_cleanup()
         if self._environment_lock is not None:
             self._environment_lock.release()
             self._environment_lock = None
@@ -126,6 +129,8 @@ class PluginManager:
     def _reason(self) -> str | None:
         if not self.enabled:
             return "此部署由外部服务托管，暂不支持网页安装或卸载；请联系部署管理员。"
+        if self._installer_cleanup is not None:
+            return "安装进程清理尚未确认，环境继续保持锁定，请重试恢复服务。"
         if self.restart_required:
             return "环境已执行变更，请先停止维护服务并正常重启 Web 验证。"
         if self._task and self._task["status"] == "running":
@@ -182,14 +187,23 @@ class PluginManager:
                     raise _reject("此组件尚未安装。")
                 if users := plugin_environment.required_by(distribution, packages):
                     raise _reject(f"由 {', '.join(users)} 使用，请先卸载这些可选组件。")
+            update = None
+            if body.action == "update":
+                if package is None:
+                    raise _reject("此组件尚未安装，请先安装组件。")
+                try:
+                    update = plugin_updates.prepare_update(distribution, packages)
+                except ValueError as exc:
+                    raise _reject(str(exc), "plugin_update_blocked") from exc
             self._snapshot = packages
+            action_label = {"install": "安装", "uninstall": "卸载", "update": "更新"}[body.action]
             self._plan = {
                 "plan_id": secrets.token_urlsafe(24),
                 "component_id": body.component_id,
                 "action": body.action,
                 "distribution": distribution,
                 "version": package.version if package else None,
-                "summary": f"{'安装' if body.action == 'install' else '卸载'} {distribution}，目标是当前 Web 的 Python 环境。",
+                "summary": f"{action_label} {distribution}，目标是当前 Web 的 Python 环境。",
                 "warnings": [
                     "安装会访问软件包源，并冻结所有已安装组件的版本；不兼容时失败，不自动升级。"
                     if body.action == "install"
@@ -199,7 +213,19 @@ class PluginManager:
                 "expires_in": 300,
                 "expires_at": time.monotonic() + 300,
             }
-            return {key: value for key, value in self._plan.items() if key != "expires_at"}
+            if update is not None:
+                self._plan.update(
+                    target_version=update.package.version,
+                    dependencies=list(update.dependencies),
+                    artifact={"filename": update.filename, "sha256": update.sha256, "source": "https://pypi.org"},
+                    warnings=[
+                        "仅更新所选组件；依赖和其他已安装包保持当前版本，缺失或不兼容的依赖会阻止执行。",
+                        "只安装已核验的官方 wheel，不自动降级。失败后不会自动回滚；可查看输出并使用原环境管理工具修复。",
+                        "完成或失败后均需停止维护服务，正常重启 Web 并检查组件状态。",
+                    ],
+                    _update=update,
+                )
+            return {key: value for key, value in self._plan.items() if key != "expires_at" and not key.startswith("_")}
 
     def execute(self, body: ExecuteRequest) -> dict[str, Any]:
         with self._lock:
@@ -255,37 +281,75 @@ class PluginManager:
         result = None
         succeeded = False
         message = "组件操作失败；请检查输出并使用原环境管理工具修复。"
+        cleanup = ExitStack()
         try:
-            with tempfile.TemporaryDirectory(prefix="sqlseed-plugin-plan-") as directory:
-                constraints = Path(directory) / "constraints.txt"
-                constraints.write_text(
-                    "".join(f"{name}=={package.version}\n" for name, package in sorted(before.items())),
-                    encoding="utf-8",
-                )
+            directory = cleanup.enter_context(tempfile.TemporaryDirectory(prefix="sqlseed-plugin-plan-"))
+            constraints = Path(directory) / "constraints.txt"
+            constraints.write_text(
+                "".join(
+                    f"{name}=={package.version}\n"
+                    for name, package in sorted(before.items())
+                    if operation_plan["action"] != "update" or name != operation_plan["distribution"]
+                ),
+                encoding="utf-8",
+            )
+            update = operation_plan.get("_update")
+            if operation_plan["action"] == "update":
+                if not isinstance(update, plugin_updates.PreparedUpdate):
+                    raise ValueError("更新计划缺少已核验的软件包。")
+                self._output("正在下载并核验已确认的更新；其他组件版本保持不变。")
+                try:
+                    wheel = plugin_updates.download_update(update, Path(directory))
+                except ValueError as exc:
+                    self._output(str(exc))
+                    raise
+                # Network time is outside the metadata snapshot's trust boundary.
+                if (
+                    plugin_environment.installed_packages(self.environment.prefix) != before
+                    or plugin_environment._environment() != self.environment
+                ):
+                    self._output("下载期间 Python 环境已变化，未执行更新；请重新检查更新。")
+                    raise ValueError("下载期间环境已变化，请重新检查更新。")
+                arguments = plugin_updates.update_arguments(self.environment, wheel, constraints)
+            else:
                 arguments = plugin_environment.installer_arguments(
                     self.environment, operation_plan["action"], operation_plan["distribution"], constraints
                 )
-                with self._lock:
-                    self.restart_required = True
-                    if self._task is not None:
-                        self._task.update(restart_required=True, message="安装工具正在运行，请等待完成。")
-                if self._environment_lock is None:
-                    raise RuntimeError("环境锁已失效，未执行安装工具。")
-                result = run_installer(arguments, self._output, lock_descriptor=self._environment_lock.fileno())
-                after = plugin_environment.installed_packages(self.environment.prefix)
-                target = operation_plan["distribution"]
-                expected_target = target in after if operation_plan["action"] == "install" else target not in after
-                preserved = all(after.get(name) == package for name, package in before.items() if name != target)
-                if succeeded := result == 0 and expected_target and preserved:
-                    message = "组件操作完成；请停止维护服务并正常重启 Web 验证。"
-                elif result == 0:
-                    message = "安装工具已退出，但组件元数据核验未通过；请检查环境并重启 Web。"
+            with self._lock:
+                self.restart_required = True
+                if self._task is not None:
+                    self._task.update(restart_required=True, message="安装工具正在运行，请等待完成。")
+            if self._environment_lock is None:
+                raise RuntimeError("环境锁已失效，未执行安装工具。")
+            result = run_installer(arguments, self._output, lock_descriptor=self._environment_lock.fileno())
+            after = plugin_environment.installed_packages(self.environment.prefix)
+            target = operation_plan["distribution"]
+            expected_target = target in after if operation_plan["action"] == "install" else target not in after
+            preserved = all(after.get(name) == package for name, package in before.items() if name != target)
+            if isinstance(update, plugin_updates.PreparedUpdate):
+                expected_target = after.get(target) == update.package
+                preserved = preserved and set(after) == set(before)
+            if succeeded := result == 0 and expected_target and preserved:
+                message = "组件操作完成；请停止维护服务并正常重启 Web 验证。"
+            elif result == 0:
+                message = "安装工具已退出，但组件元数据核验未通过；请检查环境并重启 Web。"
+        except InstallerCleanupPending as error:
+            error.hold(cleanup.pop_all())
+            self._installer_cleanup = error
+            message = "安装进程清理尚未确认，环境继续保持锁定；请重试恢复服务。"
+            self._output(message)
         except (OSError, RuntimeError, ValueError, subprocess.SubprocessError):
             self._output("无法完成环境操作；请使用原环境管理工具检查。")
         finally:
+            cleanup.close()
             with self._lock:
                 if self._task is not None:
                     self._task.update(status="succeeded" if succeeded else "failed", message=message, returncode=result)
+
+    def _finish_installer_cleanup(self) -> None:
+        if self._installer_cleanup is not None:
+            self._installer_cleanup.retry()
+            self._installer_cleanup = None
 
     def recover(self) -> dict[str, Any]:
         raise _reject("此部署不支持自动恢复服务。")

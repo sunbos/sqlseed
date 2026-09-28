@@ -6,6 +6,7 @@ import { genLabel, paramLabel, genGuide } from '../labels.js';
 import { createDatePicker } from './date-picker.js';
 const copy = value => structuredClone(value);
 const isObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+let editorSequence = 0;
 function normalizeRule(value, name) {
   const rule = copy(value || {});
   rule.name = name;
@@ -105,6 +106,8 @@ export function createRuleEditor({
   let constraintsInput;
   let uniqueInput;
   const errors = new Map();
+  const rangeErrors = new Map();
+  const errorId = `wb-rule-error-${++editorSequence}`;
   const modeDrafts = new Map();
   function modeOf(value) {
     if (foreignKeys.length) {
@@ -226,7 +229,8 @@ export function createRuleEditor({
     }
   }
   function report() {
-    const message = errors.values().next().value || null;
+    validateRanges();
+    const message = errors.values().next().value || rangeErrors.values().next().value || null;
     if (!message) {
       lastValid = copy(current);
     }
@@ -237,6 +241,36 @@ export function createRuleEditor({
       onValidity?.(message);
     }
     return message;
+  }
+  function validateRanges() {
+    const controls = new Map([...el.querySelectorAll('input[data-field]')].map(input => [input.dataset.field, input]));
+    for (const field of rangeErrors.keys()) {
+      const input = controls.get(field);
+      if (input && !errors.has(field)) input.removeAttribute('aria-invalid');
+      if (input?.getAttribute('aria-describedby') === errorId) input.removeAttribute('aria-describedby');
+    }
+    rangeErrors.clear();
+    if (mode !== 'source' || current.faker_method || current.mimesis_method) return;
+    const parameters = new Map((entries.get(current.generator)?.params || []).map(parameter => [parameter.name, parameter]));
+    const value = name => current.params[name] ?? parameters.get(name)?.default;
+    for (const [low, high] of [['min_value','max_value'], ['min_length','max_length'], ['start_time','end_time']]) {
+      if (!parameters.has(low) || !parameters.has(high) || !controls.has(low) || !controls.has(high) || errors.has(low) || errors.has(high)) continue;
+      const time = low === 'start_time';
+      if (time && value('all_day')) continue;
+      const seconds = text => {
+        const parts = String(text).split(':').map(Number);
+        return parts[0] * 3600 + parts[1] * 60 + (parts[2] || 0);
+      };
+      const start = time ? seconds(value(low) ?? dateDefault(low)) : value(low);
+      const end = time ? seconds(value(high) ?? dateDefault(high)) : value(high);
+      if (!Number.isFinite(start) || !Number.isFinite(end) || start <= end) continue;
+      const message = `${paramLabel(low)}不能大于${paramLabel(high)}，请调整这两个边界。`;
+      for (const name of [low, high]) {
+        rangeErrors.set(name, message);
+        controls.get(name).setAttribute('aria-invalid', 'true');
+        controls.get(name).setAttribute('aria-describedby', errorId);
+      }
+    }
   }
   function emit() {
     if (disposed) {
@@ -301,6 +335,7 @@ export function createRuleEditor({
   }
   function multilineControl(field, value, validate, apply, options = {}) {
     return validatedControl('textarea', field, value, validate, apply, {
+      class: 'wb-code',
       rows: '4',
       spellcheck: 'false',
       ...options
@@ -470,20 +505,22 @@ export function createRuleEditor({
         class: 'wb-weekday-control'
       }),
       days = h('div', {
-        class: 'wb-weekday-options'
+        class: 'wb-weekday-options',
+        role: 'group',
+        'aria-label': '可生成的星期'
       });
+    const markDays = () => mark('weekdays', days,
+      selectedMode === 'custom' && !custom.length ? '自定义星期至少选择一天。' : null);
     const updateDay = (day, checked) => {
       custom = custom.filter(item => item !== day);
       if (checked) {
         custom.push(day);
       }
       custom.sort((left, right) => left - right);
-      if (!custom.length) {
-        errors.set('weekdays', '自定义星期至少选择一天。');
-      } else {
-        errors.delete('weekdays');
+      if (custom.length) {
         current.params.weekdays = [...custom];
       }
+      markDays();
       emit();
     };
     const renderDays = () => {
@@ -494,6 +531,7 @@ export function createRuleEditor({
         checked: custom.includes(day),
         onchange: event => updateDay(day, event.target.checked)
       }), label)));
+      markDays();
     };
     const choices = [{
       value: 'all',
@@ -1102,6 +1140,7 @@ export function createRuleEditor({
       class: 'muted'
     }, column.type || '')));
     summary = h('p', {
+      id: errorId,
       class: 'editor-error wb-editor-error',
       role: 'alert'
     });
@@ -1182,7 +1221,7 @@ export function createRuleEditor({
     el,
     getDraft() {
       const invalidValues = {};
-      for (const field of errors.keys()) {
+      for (const field of new Set([...errors.keys(), ...rangeErrors.keys()])) {
         const input = [...el.querySelectorAll('[data-field]')].find(control => control.dataset.field === field);
         if (input && ['INPUT', 'TEXTAREA'].includes(input.tagName)) {
           invalidValues[field] = input.value;
