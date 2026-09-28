@@ -822,14 +822,16 @@ class TestReportAIFailure:
         _, kwargs = mock_echo.call_args
         assert kwargs.get("err") is True
 
-    def test_message_includes_suggestions(self) -> None:
-        """The failure message includes model/timeout suggestions."""
+    def test_message_preserves_the_failure_without_unrelated_service_advice(self) -> None:
+        """The summary does not replace a specific error with stale advice."""
         with patch("click.echo") as mock_echo, pytest.raises(SystemExit):
             _report_ai_failure()
         message = str(mock_echo.call_args[0][0])
-        assert "deepseek" in message.lower()
-        assert "openai" in message.lower()
-        assert "timeout" in message.lower()
+        assert "No suggestions received" in message
+        assert "No output file was written" in message
+        assert "deepseek" not in message.lower()
+        assert "openai" not in message.lower()
+        assert "timeout" not in message.lower()
 
 
 # ---------------------------------------------------------------------------
