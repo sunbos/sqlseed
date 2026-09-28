@@ -195,6 +195,11 @@ class PluginManager:
         with self._lock:
             if reason := self._reason():
                 raise _reject(reason)
+            environment = plugin_environment._environment()
+            if environment.prefix != self.environment.prefix or environment.executable != self.environment.executable:
+                raise _reject(tr("backend.plugin_management.the_python_environment_has_changed_review_and"))
+            if environment.reason:
+                raise _reject(environment.reason)
             try:
                 packages = plugin_environment.installed_packages(self.environment.prefix)
             except RuntimeError as exc:
@@ -259,6 +264,10 @@ class PluginManager:
                     ],
                     _update=update,
                 )
+            # Installer discovery is a bounded probe, not a lifetime identity.
+            # Bind its current result only after a new plan has been accepted;
+            # execution and update downloads still revalidate the whole snapshot.
+            self.environment = environment
             return {key: value for key, value in self._plan.items() if key != "expires_at" and not key.startswith("_")}
 
     def execute(self, body: ExecuteRequest) -> dict[str, Any]:

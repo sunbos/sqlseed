@@ -375,7 +375,18 @@ def test_timed_out_wheel_read_cannot_write_after_service_recovery(
     assert not directories[0].exists(), "late bytes must never recreate a cleaned-up download directory"
 
 
-@pytest.mark.parametrize("failure", ["metadata_changed", "environment_changed", "http", "hash", "corrupt_wheel"])
+@pytest.mark.parametrize(
+    "failure",
+    [
+        "metadata_changed",
+        "environment_changed",
+        "installer_changed",
+        "permissions_changed",
+        "http",
+        "hash",
+        "corrupt_wheel",
+    ],
+)
 def test_update_download_failure_or_environment_race_never_invokes_installer_and_cleans_temp(
     update_manager: Any, monkeypatch: pytest.MonkeyPatch, failure: str
 ) -> None:
@@ -395,6 +406,14 @@ def test_update_download_failure_or_environment_race_never_invokes_installer_and
         if failure == "environment_changed":
             current = manager.environment
             monkeypatch.setattr(environment, "_environment", lambda: replace(current, executable="other-python"))
+        if failure == "installer_changed":
+            current = manager.environment
+            monkeypatch.setattr(
+                environment, "_environment", lambda: replace(current, tool="uv", tool_executable="/other/uv")
+            )
+        if failure == "permissions_changed":
+            current = manager.environment
+            monkeypatch.setattr(environment, "_environment", lambda: replace(current, reason="not writable"))
         if failure == "http":
             raise http.client.IncompleteRead(b"private")
         return (

@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Refresh the installer snapshot when reviewing a new component operation plan, so temporary pip/uv detection changes do not permanently block installation; environment and dependency changes are still checked before execution.
 - Preserve SQLite file URL identity across encoded and special-character paths; opening an existing file or restoring a session cannot create a missing replacement database.
 - Report invalid generator bounds before applying rules; recover empty schemas after a refresh and restore keyboard focus after failed connections or background run polling.
 - Keep database credentials out of connection responses, validation errors, exception messages and diagnostic logs without changing runtime connection targets.
