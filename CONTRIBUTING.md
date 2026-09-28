@@ -28,7 +28,8 @@ First off, thank you for considering contributing to sqlseed! This document outl
 
 3. Install development dependencies:
    ```bash
-   python -m pip install -e ".[dev,all]" -e "./plugins/sqlseed-cli" -e "./plugins/sqlseed-ai[dev]" -e "./plugins/mcp-server-sqlseed" -e "./plugins/sqlseed-web[dev]"
+   python -m pip install -e ".[dev,all,docs]" -e "./plugins/sqlseed-cli" -e "./plugins/sqlseed-ai[dev]" -e "./plugins/mcp-server-sqlseed" -e "./plugins/sqlseed-web[dev]"
+   python -m pip check
    ```
 
 4. Install pre-commit hooks:
@@ -65,7 +66,7 @@ Run tests with [pytest](https://docs.pytest.org/):
 ```bash
 pytest                              # All tests
 pytest tests/test_core/             # Core subdirectory tests; excludes root API regressions
-pytest --cov=sqlseed                # With coverage
+pytest --cov=sqlseed                # Core coverage; CI measures all five packages
 ```
 
 ### Code Style
@@ -120,7 +121,7 @@ feat(database): add PostgreSQL support via SQLAlchemyAdapter
    - Boundaries and docs pass: `lint-imports` and `pytest tests/test_architecture.py tests/test_doc_sync.py`
    - Web frontend regressions pass: `node --test plugins/sqlseed-web/tests/test_*.cjs`
    - The local mutation gate passes: `make mutmut`
-   - Documentation is updated; run `python scripts/sync_docs.py --check`
+   - Documentation is updated; run `python scripts/sync_docs.py --check` and `make docs-build` (strict MkDocs)
 
 3. Commit your changes following the commit convention above.
 
@@ -130,6 +131,10 @@ feat(database): add PostgreSQL support via SQLAlchemyAdapter
    - Ensure CI passes
 
 5. Wait for review and address feedback.
+
+On pull requests, the `docs` deployment job is intentionally skipped. The `lint`
+job still builds the maintained documentation in strict mode; deployment runs
+after the required checks succeed on `main`.
 
 ## Branch Strategy
 
@@ -144,8 +149,13 @@ Never commit directly to `main`. Always use a feature branch and create a PR.
 - Write tests for all new features
 - Follow the existing test naming convention: `test_<module>.py`
 - Use fixtures from the root `conftest.py`
-- Integration tests should use `testcontainers` for database tests
-- Aim for at least 80% coverage on new code
+- Use real temporary SQLite databases. PostgreSQL integration tests prefer an isolated
+  `PG_TEST_URL`; without it, the shared fixture starts a disposable database with
+  `testcontainers`. Never point integration tests at a business database.
+- Add behavior regressions for changed paths and satisfy the coverage checks
+  reported by Codecov for the current PR. Overall coverage and a fixed local
+  percentage do not replace patch coverage; skipped external-service tests are
+  not passing evidence.
 
 ## Documentation
 

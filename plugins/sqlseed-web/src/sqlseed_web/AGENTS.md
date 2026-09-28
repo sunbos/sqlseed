@@ -11,7 +11,7 @@
 - `/api/connections` 管理连接，新连接弹窗复用该接口；连接下的 tables/schema/mapping/yaml-template、topo-order、preview/fill/rows/query 保留旧 API 兼容。正式工作台通过 `/api/workbench` 检查、预览和运行。
 - `/api/config/parse` 通过临时文件调用 core `load_config()`，`finally` 删除文件；`serialize` 使用 safe YAML。解析成功不表示 generator 名称有效，未知名称仍可在生成/验证时失败。
 - `config_to_dict()` 使用完整 Pydantic `model_dump`；新增配置字段时仍需核对前端往返，避免手工白名单漏字段。
-- [messages.py](messages.py) 仅为显式构造的 `Message` 添加翻译描述：保留原字符串，增加 `<field>_key/<field>_params`；数组保留原值并添加对齐的 `<field>_i18n`。HTTP、流、受管 IPC 和持久化边界保持元数据，不扫描普通字符串猜译文，不把用户对象当翻译模板。原始诊断仍先脱敏；消息参数不得带密钥。共享字典位于 `static/i18n/backend-messages.json`，与 JS 消息一起随 wheel 分发。
+- [messages.py](messages.py) 仅为显式构造的 `Message` 添加翻译描述：保留原字符串，增加 `<field>_key/<field>_params`；数组保留原值并添加对齐的 `<field>_i18n`。HTTP、流、受管 IPC 和持久化边界保持元数据，不扫描普通字符串猜译文，不把用户对象当翻译模板。原始诊断仍先脱敏；消息参数不得带密钥。共享字典位于 `static/i18n/backend-messages.json`，与前端 JSON 字典及 JS 注册入口一起随 wheel 分发。
 - `/api/fs/browse` 列出服务器目录，默认隐藏非 DB 文件，始终跳过 dotfiles；浏览器 file input 不能提供服务器绝对路径。
 
 ## HTTP 准入与数据保护

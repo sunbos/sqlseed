@@ -34,6 +34,7 @@ from sqlseed_web.messages import message as tr
 from sqlseed_web.sqlite_target import existing_sqlite_connection_target, sqlite_target
 
 logger = get_logger(__name__)
+_UNKNOWN_CONNECTION = "backend.state.unknown_connection"
 
 
 class ConnectionBusyError(RuntimeError):
@@ -129,7 +130,7 @@ class UIState:
         """Return a registered connection or reject an expired identifier."""
         with self._global_lock:
             if (conn := self._conns.get(conn_id)) is None:
-                raise UnknownConnectionError(tr_en("backend.state.unknown_connection", p1=conn_id))
+                raise UnknownConnectionError(tr_en(_UNKNOWN_CONNECTION, p1=conn_id))
             return conn
 
     def list_connections(self) -> list[dict[str, Any]]:
@@ -200,7 +201,7 @@ class UIState:
         """
         with self._global_lock:
             if (conn := self._conns.get(conn_id)) is None:
-                raise UnknownConnectionError(tr_en("backend.state.unknown_connection", p1=conn_id))
+                raise UnknownConnectionError(tr_en(_UNKNOWN_CONNECTION, p1=conn_id))
             if job_id is not None:
                 job = self._jobs.get(job_id)
                 if job is None or job.conn_id != conn_id or job.status != "running":
@@ -235,7 +236,7 @@ class UIState:
         """Reserve a live connection for a job before its worker is started."""
         with self._global_lock:
             if (conn := self._conns.get(conn_id)) is None:
-                raise UnknownConnectionError(tr_en("backend.state.unknown_connection", p1=conn_id))
+                raise UnknownConnectionError(tr_en(_UNKNOWN_CONNECTION, p1=conn_id))
             self._check_job_admission(conn, write=kind in {"fill", "workbench"})
             if self._conn_locks[conn_id].locked() and self._operation_owners.get(conn_id) != threading.get_ident():
                 raise ConnectionBusyError(tr("backend.state.connection_busy_before_generation"))

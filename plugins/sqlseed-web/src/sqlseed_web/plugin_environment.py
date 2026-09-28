@@ -276,6 +276,11 @@ def package_status(packages: dict[str, InstalledPackage], unavailable: str | Non
             if users
             else None
         )
+        update_reason = unavailable
+        if not update_reason and package is None:
+            update_reason = tr("backend.plugin_environment.install_this_component_first")
+        elif not update_reason:
+            update_reason = None
         result.append(
             {
                 "id": identifier,
@@ -284,9 +289,7 @@ def package_status(packages: dict[str, InstalledPackage], unavailable: str | Non
                 "can_install": not unavailable and package is None,
                 "can_uninstall": not unavailable and package is not None and not users,
                 "can_update": not unavailable and package is not None,
-                "update_reason": unavailable
-                if unavailable
-                else (tr("backend.plugin_environment.install_this_component_first") if package is None else None),
+                "update_reason": update_reason,
                 "reason": reason,
                 "required_by": users,
             }

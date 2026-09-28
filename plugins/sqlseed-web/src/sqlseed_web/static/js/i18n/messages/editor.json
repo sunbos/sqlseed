@@ -1,0 +1,456 @@
+{
+  "editor": {
+    "idAllocated": [
+      "数据库自动分配 ID",
+      "Database-assigned ID"
+    ],
+    "defaultMode": [
+      "使用数据库默认值",
+      "Use database default"
+    ],
+    "nullMode": [
+      "使用 NULL（空值）",
+      "Use NULL"
+    ],
+    "idHelp": [
+      "ID 由数据库根据现有数据和序列状态分配。追加生成不会重新从 1 开始，也不会重置或覆盖已有主键。",
+      "The database assigns IDs based on existing data and sequence state. Appending does not restart at 1, reset IDs or overwrite existing primary keys."
+    ],
+    "defaultHelp": [
+      "本列不提供生成值，数据库使用已定义的默认值：{value}。可切换为生成器来自定义内容。",
+      "No value is generated for this column. The database uses its default: {value}. Switch to a generator to customize the value."
+    ],
+    "nullHelp": [
+      "此列没有数据库默认值，省略后写入 NULL（空值）。需要真实内容时，请切换为生成器。",
+      "This column has no database default, so omitting it writes NULL. Switch to a generator to provide a value."
+    ],
+    "rangeError": [
+      "{minimum}不能大于{maximum}，请调整这两个边界。",
+      "{minimum} must not exceed {maximum}. Adjust the two bounds."
+    ],
+    "required": [
+      "{label} 为必填参数。",
+      "{label} is required."
+    ],
+    "numberError": [
+      "{label} 必须是{type}。",
+      "{label} must be {type}."
+    ],
+    "integer": [
+      "整数",
+      "an integer"
+    ],
+    "number": [
+      "有效数字",
+      "a valid number"
+    ],
+    "jsonError": [
+      "{label} 需要有效 JSON。",
+      "{label} requires valid JSON."
+    ],
+    "objectError": [
+      "{label} 需要 JSON 对象。",
+      "{label} requires a JSON object."
+    ],
+    "arrayError": [
+      "{label} 需要 JSON 数组。",
+      "{label} requires a JSON array."
+    ],
+    "timeError": [
+      "时间格式应为 HH:MM 或 HH:MM:SS。",
+      "Time must use HH:MM or HH:MM:SS."
+    ],
+    "weekdaysLabel": [
+      "可生成的星期",
+      "Allowed weekdays"
+    ],
+    "weekdaysEmpty": [
+      "自定义星期至少选择一天。",
+      "Select at least one custom weekday."
+    ],
+    "mon": [
+      "周一",
+      "Mon"
+    ],
+    "tue": [
+      "周二",
+      "Tue"
+    ],
+    "wed": [
+      "周三",
+      "Wed"
+    ],
+    "thu": [
+      "周四",
+      "Thu"
+    ],
+    "fri": [
+      "周五",
+      "Fri"
+    ],
+    "sat": [
+      "周六",
+      "Sat"
+    ],
+    "sun": [
+      "周日",
+      "Sun"
+    ],
+    "everyDay": [
+      "每天",
+      "Every day"
+    ],
+    "workdays": [
+      "工作日（周一至周五）",
+      "Weekdays (Monday–Friday)"
+    ],
+    "weekends": [
+      "周末",
+      "Weekends"
+    ],
+    "customDays": [
+      "自定义星期",
+      "Custom weekdays"
+    ],
+    "imported": [
+      "已导入：{value}",
+      "Imported: {value}"
+    ],
+    "charsetEmpty": [
+      "请至少填写一个允许出现的字符。",
+      "Enter at least one allowed character."
+    ],
+    "charsetPlaceholder": [
+      "例如 ABCDEF0123456789 或 甲乙丙丁",
+      "For example, ABCDEF0123456789"
+    ],
+    "customCharset": [
+      "自定义字符集",
+      "Custom character set"
+    ],
+    "charsetDefault": [
+      "默认：字母、数字、空格、下划线、连字符",
+      "Default: letters, digits, spaces, underscores and hyphens"
+    ],
+    "charsetAlphaNumeric": [
+      "字母和数字（A–Z / a–z / 0–9）",
+      "Letters and digits (A–Z / a–z / 0–9)"
+    ],
+    "charsetLetters": [
+      "仅英文字母",
+      "English letters only"
+    ],
+    "charsetDigits": [
+      "仅数字",
+      "Digits only"
+    ],
+    "charsetCustom": [
+      "自定义字符",
+      "Custom characters"
+    ],
+    "requiredPlaceholder": [
+      "请填写必填参数",
+      "Enter a required value"
+    ],
+    "defaultPlaceholder": [
+      "留空使用生成器默认值",
+      "Leave blank for the generator default"
+    ],
+    "defaultValue": [
+      "默认：{value}",
+      "Default: {value}"
+    ],
+    "availableGenerators": [
+      "可用生成器",
+      "Available generators"
+    ],
+    "searchGenerators": [
+      "查找生成器",
+      "Find generators"
+    ],
+    "example": [
+      "示例：{example}",
+      "Example: {example}"
+    ],
+    "noGenerators": [
+      "没有匹配的生成器。",
+      "No matching generators."
+    ],
+    "showAll": [
+      "显示全部生成器",
+      "Show all generators"
+    ],
+    "compatibilityHint": [
+      "按字段类型推荐；完整兼容性与约束由检查配置验证。",
+      "Recommended by field type. Check the configuration to verify full compatibility and constraints."
+    ],
+    "chooseGenerator": [
+      "选择生成器",
+      "Choose a generator"
+    ],
+    "change": [
+      "更换",
+      "Change"
+    ],
+    "generator": [
+      "生成器",
+      "Generator"
+    ],
+    "unavailableGenerator": [
+      "生成器 {generator} 不在当前可用列表中。",
+      "Generator {generator} is not currently available."
+    ],
+    "unspecified": [
+      "（未指定）",
+      "(not specified)"
+    ],
+    "formatExample": [
+      "格式示例：{example}。实际样例由当前引擎和规则生成。",
+      "Format example: {example}. Actual samples use the current engine and rules."
+    ],
+    "dateRange": [
+      "日期范围",
+      "Date range"
+    ],
+    "thisYear": [
+      "本年",
+      "This year"
+    ],
+    "today": [
+      "今天",
+      "Today"
+    ],
+    "legacyYears": [
+      "年份兼容设置",
+      "Legacy year settings"
+    ],
+    "legacyYearsHint": [
+      "仅在对应日期留空时生效；已导入的年份配置会保留。",
+      "Applies only when the corresponding date is blank. Imported year settings are preserved."
+    ],
+    "noParams": [
+      "此生成器没有可配置参数。",
+      "This generator has no configurable parameters."
+    ],
+    "sourceFields": [
+      "来源字段",
+      "Source fields"
+    ],
+    "sourceRequired": [
+      "派生列需要至少一个来源字段。",
+      "A derived column requires at least one source field."
+    ],
+    "sourceMissing": [
+      "来源字段 {field} 不存在。",
+      "Source field {field} does not exist."
+    ],
+    "sourceSelf": [
+      "派生列不能引用自身。",
+      "A derived column cannot reference itself."
+    ],
+    "sourceHint": [
+      "多个字段以英文逗号分隔。",
+      "Separate multiple fields with commas."
+    ],
+    "expression": [
+      "派生表达式",
+      "Derived expression"
+    ],
+    "expressionRequired": [
+      "请填写派生表达式。",
+      "Enter a derived expression."
+    ],
+    "expressionHint": [
+      "表达式可用 value 或 row[\"字段名\"]；完整语法由检查配置验证。",
+      "Expressions can use value or row[\"field_name\"]. Check the configuration to validate the full syntax."
+    ],
+    "referenceSource": [
+      "引用来源：{source}",
+      "Reference source: {source}"
+    ],
+    "compositeReference": [
+      "复合外键 ({columns}) 作为同一组引用，由数据库关系规则共同处理。",
+      "Composite foreign key ({columns}) is handled as one group by the database relationship rules."
+    ],
+    "selfReference": [
+      "此列为自引用；空表初始化时 NULL 比例可能受引用顺序影响。",
+      "This column references its own table. Reference order may affect the NULL ratio when initializing an empty table."
+    ],
+    "sampling": [
+      "采样方式",
+      "Sampling strategy"
+    ],
+    "random": [
+      "随机采样",
+      "Random sampling"
+    ],
+    "coverage": [
+      "覆盖父表值",
+      "Cover parent values"
+    ],
+    "nullPercent": [
+      "NULL 百分比",
+      "NULL percentage"
+    ],
+    "nullRange": [
+      "NULL 百分比必须在 0 到 100 之间。",
+      "NULL percentage must be between 0 and 100."
+    ],
+    "includeNull": [
+      "包含 NULL 值",
+      "Include NULL values"
+    ],
+    "unique": [
+      "设置唯一",
+      "Require unique values"
+    ],
+    "uniqueLocked": [
+      "数据库单列唯一约束已锁定。",
+      "Locked by the database’s single-column uniqueness constraint."
+    ],
+    "uniqueComposite": [
+      "复合主键或复合唯一约束不表示本列单独唯一。",
+      "A composite primary key or unique constraint does not make this column individually unique."
+    ],
+    "advanced": [
+      "高级配置（通常无需调整）",
+      "Advanced settings (usually optional)"
+    ],
+    "advancedHint": [
+      "普通生成规则继承全局数据生成引擎与语言。这里保留原生方法、额外约束和导入的高级参数；请在应用后检查配置。",
+      "Standard rules inherit the global engine and data language. Native methods, additional constraints and imported advanced parameters are preserved here. Check the configuration after applying changes."
+    ],
+    "objectPlaceholder": [
+      "JSON 对象；留空使用默认值",
+      "JSON object; leave blank for defaults"
+    ],
+    "constraints": [
+      "约束",
+      "Constraints"
+    ],
+    "fieldProvider": [
+      "字段生成引擎",
+      "Field engine"
+    ],
+    "fakerMethod": [
+      "Faker 原生方法",
+      "Native Faker method"
+    ],
+    "mimesisMethod": [
+      "Mimesis 原生方法",
+      "Native Mimesis method"
+    ],
+    "providerPlaceholder": [
+      "留空继承全局，或填写与全局相同的引擎",
+      "Leave blank to inherit, or enter the global engine"
+    ],
+    "fakerPlaceholder": [
+      "例如 email、random_int",
+      "For example, email or random_int"
+    ],
+    "mimesisPlaceholder": [
+      "例如 person.full_name、numeric.integer",
+      "For example, person.full_name or numeric.integer"
+    ],
+    "providerHint": [
+      "当前仅支持继承全局或填写与全局相同的引擎；其他值会保留，但检查会阻止生成。",
+      "Currently supports inheriting or matching the global engine. Other values are preserved, but checks will block generation."
+    ],
+    "nativeHint": [
+      "原生方法会优先于普通生成器执行，请按对应引擎的方法签名填写。",
+      "Native methods take priority over standard generators. Follow the method signature for the selected engine."
+    ],
+    "nativeParams": [
+      "原生方法参数",
+      "Native method parameters"
+    ],
+    "computedReadonly": [
+      "数据库计算列，由数据库自动计算，规则只读。",
+      "Database-computed column. The database calculates its value; the rule is read-only."
+    ],
+    "idReadonly": [
+      "数据库自增主键，规则只读。",
+      "Database auto-increment primary key; the rule is read-only. "
+    ],
+    "mode": [
+      "生成方式",
+      "Generation method"
+    ],
+    "reset": [
+      "重置为推断规则",
+      "Reset to inferred rule"
+    ],
+    "startDateHint": [
+      "格式 YYYY-MM-DD；显示当前生效边界。留空沿用年份范围。",
+      "YYYY-MM-DD; shows the effective bound. Leave blank to use the year range."
+    ],
+    "endDateHint": [
+      "格式 YYYY-MM-DD；包含结束日期。",
+      "YYYY-MM-DD; includes the end date."
+    ],
+    "startTimeHint": [
+      "格式 HH:MM:SS；取消“一整天”后生效。",
+      "HH:MM:SS; applies when All day is unchecked."
+    ],
+    "endTimeHint": [
+      "格式 HH:MM:SS；包含结束时间。",
+      "HH:MM:SS; includes the end time."
+    ],
+    "allDayHint": [
+      "勾选后可生成 00:00:00–23:59:59 内的时间；取消勾选可指定开始和结束时间。",
+      "When checked, generate times from 00:00:00 through 23:59:59. Uncheck to specify start and end times."
+    ],
+    "weekdaysHint": [
+      "按星期限制日期；工作日指周一至周五，不排除法定节假日。",
+      "Restrict dates by weekday. Weekdays means Monday–Friday, including public holidays."
+    ],
+    "charsetHint": [
+      "候选字符决定结果中允许出现的字符，不是 UTF-8 等编码名称。",
+      "Allowed characters determine which characters may appear in the result; this is not an encoding name such as UTF-8."
+    ],
+    "choicesHint": [
+      "填写 JSON 数组，例如 [\"pending\", \"paid\", \"shipped\"]；数值可写 [1, 2, 3]。",
+      "Enter a JSON array, such as [\"pending\", \"paid\", \"shipped\"] or [1, 2, 3] for numbers."
+    ],
+    "weightsHint": [
+      "填写值和权重组成的 JSON 对象，例如 {\"普通\": 80, \"VIP\": 20}。",
+      "Enter a JSON object mapping values to weights, such as {\"Standard\": 80, \"VIP\": 20}."
+    ],
+    "templateHint": [
+      "例如 SKU-{sequence:04d}；sequence 表示序号，04d 表示补齐 4 位。",
+      "For example, SKU-{sequence:04d}; sequence is the sequence number, and 04d pads it to four digits."
+    ],
+    "sequenceHint": [
+      "本次生成从此序号开始；不会读取或重置数据库 ID。",
+      "This generation starts at this sequence number. Database IDs are not read or reset."
+    ],
+    "patternHint": [
+      "例如 [A-Z]{3}[0-9]{4}；按此正则生成匹配的字符串。",
+      "For example, [A-Z]{3}[0-9]{4}; generate strings matching this pattern."
+    ],
+    "regexHint": [
+      "正则表达式，例如 [A-Z]{3}[0-9]{4}。",
+      "A regular expression, such as [A-Z]{3}[0-9]{4}."
+    ],
+    "maskHint": [
+      "例如 1##########；# 用随机数字替换。",
+      "For example, 1##########; each # is replaced with a random digit."
+    ],
+    "schemaHint": [
+      "JSON Schema 对象，例如 {\"type\":\"object\",\"properties\":{\"active\":{\"type\":\"boolean\"}}}。",
+      "A JSON Schema object, such as {\"type\":\"object\",\"properties\":{\"active\":{\"type\":\"boolean\"}}}."
+    ],
+    "requiredHint": [
+      "必填参数。",
+      "Required parameter."
+    ],
+    "optionalHint": [
+      "可选；留空由生成器决定。",
+      "Optional; leave blank for the generator to decide."
+    ],
+    "defaultHint": [
+      "留空使用默认值：{value}。",
+      "Leave blank to use the default: {value}."
+    ]
+  }
+}

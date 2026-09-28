@@ -18,7 +18,7 @@ document.querySelectorAll('#nav button').forEach(button => {
   let caption = button.querySelector('[data-nav-label]');
   if (!caption) {
     caption = document.createElement('span');
-    caption.setAttribute('data-nav-label', '');
+    caption.dataset.navLabel = '';
     button.append(caption);
   }
   setText(caption, tr(`shell.${button.dataset.page}`));
@@ -40,7 +40,8 @@ const maintenance = document.documentElement?.dataset.pluginMaintenance === 'tru
 const initialRecovery = document.documentElement?.dataset.pluginSupervisedMaintenance === 'true';
 let titlePage = 'workbench';
 function updateTitle() {
-  document.title = `sqlseed · ${t(maintenance ? 'shell.maintenance' : `shell.${titlePage}`)}`;
+  const titleKey = maintenance ? 'shell.maintenance' : `shell.${titlePage}`;
+  document.title = `sqlseed · ${t(titleKey)}`;
 }
 onLanguageChange(updateTitle);
 updateTitle();

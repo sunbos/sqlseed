@@ -9,6 +9,16 @@ function compareTableNames(left, right) {
   return 0;
 }
 
+function clearStatus(state, rules, count) {
+  switch (state) {
+    case 'checking': return tr("flow.clear.checking", {rules});
+    case 'ok': return tr("flow.clear.reviewed", {rules});
+    case 'reviewed': return tr("flow.clear.recheckBeforeWrite", {rules});
+    case 'blocked': return tr("flow.clear.issues", {rules, count: count || 1});
+    default: return tr("flow.clear.pending", {rules});
+  }
+}
+
 export function clearRecoveryState(model, context) {
   const current = context.epoch === model.epoch && context.lifecycle === model.lifecycleVersion;
   const state = current ? context.state : 'pending';
@@ -19,11 +29,7 @@ export function clearRecoveryState(model, context) {
   const count = externalTables.length + otherIssues.length;
   const rulesPassed = model.check?.ok && model.check.epoch === model.epoch && !model.errors.size;
   const rules = rulesPassed ? tr("flow.clear.rulesPassed") : tr("flow.clear.rulesPending");
-  const status = state === 'checking' ? tr("flow.clear.checking", {rules: rules})
-    : state === 'ok' ? tr("flow.clear.reviewed", {rules: rules})
-    : state === 'reviewed' ? tr("flow.clear.recheckBeforeWrite", {rules: rules})
-    : state === 'blocked' ? tr("flow.clear.issues", {rules: rules, count: count || 1})
-    : tr("flow.clear.pending", {rules: rules});
+  const status = clearStatus(state, rules, count);
   return {state, current, rulesPassed, externalTables, otherIssues, count, status};
 }
 

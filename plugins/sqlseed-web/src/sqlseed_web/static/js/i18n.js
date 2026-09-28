@@ -3,6 +3,7 @@
 export const LANGUAGE_KEY = 'sqlseed.ui.language';
 export const UI_LANGUAGES = Object.freeze(['zh-CN', 'en']);
 const messages = new Map();
+const messageLoads = new Map();
 const missing = new Set();
 const listeners = new Set();
 const bindings = new WeakMap();
@@ -51,7 +52,9 @@ export function setLanguage(value, {persist = true} = {}) {
     if (!target) { targets.delete(reference); continue; }
     for (const apply of bindings.get(target)?.values() || []) apply(target);
   }
-  for (const listener of [...listeners]) listener(language);
+  // A listener may subscribe or unsubscribe while this notification is running.
+  const notificationListeners = [...listeners];
+  for (const listener of notificationListeners) listener(language);
   return true;
 }
 
@@ -81,6 +84,64 @@ export function registerMessages(namespace, entries) {
   }
 }
 
+function isMessageTemplate(value) {
+  if (typeof value === 'string') return value.length > 0;
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    && typeof value.other === 'string'
+    && Object.values(value).every(template => typeof template === 'string' && template.length > 0);
+}
+
+function validateMessageCatalog(catalog) {
+  if (!catalog || typeof catalog !== 'object' || Array.isArray(catalog) || Object.keys(catalog).length === 0) {
+    throw new Error('UI language resource must contain namespaces');
+  }
+  const groups = Object.entries(catalog);
+  for (const [namespace, entries] of groups) {
+    if (!/^[A-Za-z]\w*$/.test(namespace) || !entries || typeof entries !== 'object'
+      || Array.isArray(entries) || Object.keys(entries).length === 0) {
+      throw new Error(`Invalid UI message namespace: ${namespace}`);
+    }
+    for (const [name, pair] of Object.entries(entries)) {
+      const key = `${namespace}.${name}`;
+      if (messages.has(key)) throw new Error(`Duplicate UI message: ${key}`);
+      if (!Array.isArray(pair) || pair.length !== UI_LANGUAGES.length || !pair.every(isMessageTemplate)) {
+        throw new Error(`Invalid UI message: ${key}`);
+      }
+    }
+  }
+  return groups;
+}
+
+async function fetchMessageFile(url) {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`UI messages: HTTP ${response.status}`);
+  return response.json();
+}
+
+/** Load a local JSON catalog once; switching language never requests assets. */
+export function loadMessages(url) {
+  const resource = String(url);
+  if (!messageLoads.has(resource)) {
+    const pending = fetchMessageFile(resource).then(catalog => {
+      // Validate the whole resource before publishing any entries.
+      const groups = validateMessageCatalog(catalog);
+      for (const [namespace, entries] of groups) registerMessages(namespace, entries);
+    }).catch(cause => {
+      const error = new UserFacingError(tr('common.languageResourcesFailed'), {cause});
+      const app = globalThis.document?.getElementById?.('app');
+      if (app && app.childNodes.length === 0) {
+        const notice = globalThis.document.createElement('p');
+        notice.setAttribute('role', 'alert');
+        setText(notice, error.localizedMessage);
+        app.append(notice);
+      }
+      throw error;
+    });
+    messageLoads.set(resource, pending);
+  }
+  return messageLoads.get(resource);
+}
+
 export function messageEntries() { return [...messages.entries()]; }
 export function missingMessages() { return [...missing]; }
 
@@ -100,7 +161,7 @@ function templateText(template, params) {
     const form = new Intl.PluralRules(getFormatLocale()).select(count);
     template = template[form] ?? template.other;
   }
-  return String(template).replace(/\{([A-Za-z][A-Za-z0-9_]*)\}/g, (whole, key) =>
+  return String(template).replace(/\{([A-Za-z]\w*)\}/g, (whole, key) =>
     Object.hasOwn(params, key) ? textValue(params[key]) : whole);
 }
 
@@ -233,28 +294,26 @@ export function serverText(record, field = 'message') {
 export function serverMessages(record, field) {
   return (record?.[field] || []).map((value, index) => {
     const descriptor = record[`${field}_i18n`]?.[index];
-    return descriptor ? serverText({message: value, message_key: descriptor.key,
-      message_params: descriptor.params}) : typeof value === 'string' || isLocalized(value) ? diagnosticText(value) : value;
+    if (descriptor) return serverText({message: value, message_key: descriptor.key, message_params: descriptor.params});
+    if (typeof value === 'string' || isLocalized(value)) return diagnosticText(value);
+    return value;
   });
 }
 
 let backendMessagesPromise;
 export function loadBackendMessages() {
-  backendMessagesPromise ??= fetch('/static/i18n/backend-messages.json')
-    .then(response => {
-      if (!response.ok) throw new Error(`UI messages: HTTP ${response.status}`);
-      return response.json();
-    }).then(entries => {
-      registerMessages('backend', Object.fromEntries(Object.entries(entries)
-        .map(([key, value]) => [key.replace(/^backend\./, ''), value])));
-    }).catch(() => {
-      // Keep the UI usable with original diagnostic text if an asset fails.
-      // Language changes never retry requests or affect business operations.
-    });
+  backendMessagesPromise ??= fetchMessageFile('/static/i18n/backend-messages.json').then(entries => {
+    registerMessages('backend', Object.fromEntries(Object.entries(entries)
+      .map(([key, value]) => [key.replace(/^backend\./, ''), value])));
+  }).catch(() => {
+    // Keep the UI usable with original diagnostic text if an asset fails.
+    // Language changes never retry requests or affect business operations.
+  });
   return backendMessagesPromise;
 }
 
 registerMessages('common', {
+  languageResourcesFailed: ['界面语言资源加载失败，请重新加载页面。', 'Interface language resources could not be loaded. Reload the page to try again.'],
   diagnostic: ['操作未完成。详细信息：{detail}', 'The operation could not be completed. Details: {detail}'],
   rawDiagnostic: ['诊断详情：{detail}', 'Details: {detail}'],
   cancel: ['取消', 'Cancel'],

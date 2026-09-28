@@ -27,6 +27,9 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 
+CHECK_PATH = "/api/workbench/check"
+
+
 def require(condition: bool, message: str) -> None:
     """Fail the smoke check with an actionable error."""
     if not condition:
@@ -48,16 +51,18 @@ def _wait_for_run(read_json: Callable[[str], Any], run_id: str) -> Any:
 def _check_language_assets(request: Callable[..., Any], package: Path) -> int:
     """Fetch installed language assets through HTTP and validate both catalogs."""
     static = package / "static"
-    scripts = sorted((static / "js" / "i18n").rglob("*.js"))
-    require(bool(scripts), "The installed wheel is missing UI language modules")
+    resources = sorted(path for path in (static / "js" / "i18n").rglob("*") if path.suffix in {".js", ".json"})
+    require(bool(resources), "The installed wheel is missing UI language modules")
     language_root = (static / "js" / "i18n").resolve()
     for module in (static / "js").rglob("*.js"):
-        imports = re.findall(r"(?:from\s+|import\s+)[\"']([^\"']+)[\"']", module.read_text(encoding="utf-8"))
+        source = module.read_text(encoding="utf-8")
+        imports = re.findall(r"(?:from\s+|import\s+)[\"']([^\"']+)[\"']", source)
+        imports += re.findall(r"new URL\([\"']([^\"']+)[\"'],\s*import\.meta\.url\)", source)
         for imported in imports:
             target = (module.parent / imported).resolve()
             if target.is_relative_to(language_root):
                 require(target.is_file(), f"Missing imported UI language module: {imported}")
-    files = [static / "js" / "i18n.js", *scripts, static / "i18n" / "backend-messages.json"]
+    files = [static / "js" / "i18n.js", *resources, static / "i18n" / "backend-messages.json"]
     for asset in files:
         require(asset.is_file(), f"Missing language resource: {asset.relative_to(static)}")
         route = "/static/" + asset.relative_to(static).as_posix()
@@ -78,6 +83,28 @@ def _check_language_assets(request: Callable[..., Any], package: Path) -> int:
         "The installed backend catalog must contain Chinese and English messages",
     )
     return len(files)
+
+
+def _check_language_contract(request: Callable[..., Any], schema: dict[str, Any], conn_id: str, origin: str) -> None:
+    """UI language must not change database facts, configuration or API diagnostics."""
+    with request(f"/api/workbench/connections/{quote(conn_id, safe='')}/schema", language="en") as response:
+        require(json.load(response) == schema, "UI language changed the database schema or its hash")
+    empty_plan = {
+        "conn_id": conn_id,
+        "schema_hash": schema["schema_hash"],
+        "document": {"provider": "base", "locale": "zh_CN", "tables": []},
+    }
+    with request(CHECK_PATH, empty_plan, origin, "en") as response:
+        english_check = json.load(response)
+    with request(CHECK_PATH, empty_plan, origin, "zh-CN") as response:
+        chinese_check = json.load(response)
+    require(english_check == chinese_check, "UI language changed the generation configuration or check hash")
+    issue = english_check["issues"][0]
+    with request("/static/i18n/backend-messages.json") as response:
+        backend_catalog = json.load(response)
+    pair = backend_catalog[issue["message_key"]]
+    rendered = [template.format_map(issue["message_params"]) for template in pair]
+    require(rendered[0] == issue["message"] and rendered[0] != rendered[1], "Issue lost its bilingual descriptor")
 
 
 def main() -> None:
@@ -167,26 +194,7 @@ def main() -> None:
                     return json.load(response)
 
             schema = read_json(f"/api/workbench/connections/{quote(conn_id, safe='')}/schema")
-            with request(f"/api/workbench/connections/{quote(conn_id, safe='')}/schema", language="en") as response:
-                require(json.load(response) == schema, "UI language changed the database schema or its hash")
-            empty_plan = {
-                "conn_id": conn_id,
-                "schema_hash": schema["schema_hash"],
-                "document": {"provider": "base", "locale": "zh_CN", "tables": []},
-            }
-            with request("/api/workbench/check", empty_plan, base, "en") as response:
-                english_check = json.load(response)
-            with request("/api/workbench/check", empty_plan, base, "zh-CN") as response:
-                chinese_check = json.load(response)
-            require(english_check == chinese_check, "UI language changed the generation configuration or check hash")
-            issue = english_check["issues"][0]
-            with request("/static/i18n/backend-messages.json") as response:
-                backend_catalog = json.load(response)
-            pair = backend_catalog[issue["message_key"]]
-            rendered = [template.format_map(issue["message_params"]) for template in pair]
-            require(
-                rendered[0] == issue["message"] and rendered[0] != rendered[1], "Issue lost its bilingual descriptor"
-            )
+            _check_language_contract(request, schema, conn_id, base)
             draft = read_json(
                 "/api/workbench/drafts",
                 {
@@ -203,7 +211,7 @@ def main() -> None:
                 "document": draft["document"],
                 "count": 3,
             }
-            checked = read_json("/api/workbench/check", inputs)
+            checked = read_json(CHECK_PATH, inputs)
             preview = read_json("/api/workbench/preview", inputs)
             require(checked["ok"] and preview["ok"], f"Workbench validation failed: {checked}, {preview}")
             require(len(preview["samples"]["web_users"]) == 3, "Workbench preview returned the wrong row count")
