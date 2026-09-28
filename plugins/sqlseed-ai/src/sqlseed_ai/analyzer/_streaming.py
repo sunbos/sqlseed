@@ -28,6 +28,17 @@ logger = get_logger(__name__)
 _CALLER_MIXIN_REQUIRED = "provided by LLMCallerMixin"
 
 
+def _report_stream_progress(
+    on_progress: ProgressCallback | None, token: str, count: int, *, reasoning: bool = False
+) -> None:
+    """Throttle both answer and reasoning progress to every ten chunks."""
+    if on_progress and count % 10 == 0:
+        info: dict[str, str | int | bool] = {"token": token, "count": count}
+        if reasoning:
+            info["reasoning"] = True
+        on_progress("streaming", info)
+
+
 class StreamingHandlerMixin(_InteractionLoggingMixin):
     """Mixin providing streaming LLM calls and request dispatch strategy.
 
@@ -148,21 +159,24 @@ class StreamingHandlerMixin(_InteractionLoggingMixin):
             # We skip reasoning tokens but count them for progress display.
             if hasattr(delta, "reasoning_content") and delta.reasoning_content:
                 reasoning_count += 1
-                if on_progress and reasoning_count % 10 == 0:
-                    on_progress("streaming", {"token": "...", "count": reasoning_count, "reasoning": True})
+                _report_stream_progress(on_progress, "...", reasoning_count, reasoning=True)
                 continue
             if not delta.content:
                 continue
             token = delta.content
             collected_content.append(token)
             token_count += 1
-            # Throttle progress callbacks to every 10 tokens to reduce overhead.
-            if on_progress and token_count % 10 == 0:
-                on_progress("streaming", {"token": token, "count": token_count})
+            _report_stream_progress(on_progress, token, token_count)
 
         if truncated:
             raise JSONResponseError("truncated_response")
         return "".join(collected_content), token_count
+
+    def _parse_stream_content(self, content: str, *, preserve_names: bool, strict_json: bool) -> dict[str, Any]:
+        """Apply the caller-selected parsing policy to collected stream content."""
+        if strict_json:
+            return parse_json_response(content, strict=True, preserve_names=preserve_names)
+        return self._parse_json_response(content, preserve_names=preserve_names)
 
     def _call_llm_streaming_once(
         self,
@@ -241,10 +255,7 @@ class StreamingHandlerMixin(_InteractionLoggingMixin):
                 model=actual_model,
             )
 
-            if strict_json:
-                result = parse_json_response(content, strict=True, preserve_names=preserve_names)
-            else:
-                result = self._parse_json_response(content, preserve_names=preserve_names)
+            result = self._parse_stream_content(content, preserve_names=preserve_names, strict_json=strict_json)
 
             if on_progress:
                 on_progress("done", {"tokens": token_count, "model": actual_model})
