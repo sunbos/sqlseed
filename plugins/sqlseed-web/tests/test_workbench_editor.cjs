@@ -68,7 +68,7 @@ function harness(options = {}) {
     assert.ok(item, `Missing option ${label}`);
     await item.click();
   }
-  return {document, editor, changes, validity, field, input, choose};
+  return {document, context, editor, changes, validity, field, input, choose};
 }
 
 test('parameter edits preserve full ColumnConfig and normalize GeneratorSpec aliases', async () => {
@@ -89,10 +89,33 @@ test('parameter edits preserve full ColumnConfig and normalize GeneratorSpec ali
   assert.equal(rule.params.max_value, 9);
 });
 
+test('changing UI language preserves invalid rule drafts, focus and configuration while labels and errors update', async () => {
+  const ui = harness({column:{name:'金额'},rule:{generator:'integer',params:{min_value:1,max_value:10}}});
+  const input = await ui.input('min_value','20');
+  ui.document.activeElement=input; input.selectionStart=1; input.selectionEnd=2;
+  const before=plain(ui.editor.getDraft());
+  const invalid=ui.validity.at(-1);
+  assert.match(String(invalid),/不能大于/);
+  ui.context.setLanguage('en');
+  assert.equal(ui.field('min_value'),input);
+  assert.equal(input.value,'20'); assert.equal(input.selectionStart,1); assert.equal(input.selectionEnd,2);
+  assert.equal(ui.document.activeElement,input);
+  assert.match(String(invalid),/must not exceed/);
+  assert.match(ui.editor.el.textContent,/Minimum.*must not exceed.*Maximum/);
+  assert.equal(input.getAttribute('aria-invalid'),'true');
+  assert.equal(ui.field('generator-search').getAttribute('placeholder'),'Find generators');
+  assert.deepEqual(plain(ui.editor.getDraft()),before);
+  assert.equal(ui.changes.length,0);
+  ui.context.setLanguage('zh-CN');
+  assert.match(String(invalid),/不能大于/);
+  assert.equal(ui.field('min_value'),input);
+  assert.deepEqual(Array.from(ui.context.missingMessages()),[]);
+});
+
 test('invalid JSON stays visible and blocks changes from all controls until repaired', async () => {
   const ui = harness({rule: {generator: 'json', params: {schema: {type: 'integer'}}}});
   const field = await ui.input('schema', '{');
-  assert.match(ui.validity.at(-1), /JSON/);
+  assert.match(String(ui.validity.at(-1)), /JSON/);
   assert.equal(field.value, '{');
   await ui.input('unique', true, 'change');
   assert.equal(ui.changes.length, 0);
@@ -105,14 +128,14 @@ test('invalid JSON stays visible and blocks changes from all controls until repa
 
 test('required parameters and integral numeric fields reject incomplete drafts', async () => {
   const ui = harness({rule: {generator: 'choice', params: {}}});
-  assert.match(ui.validity.at(-1), /候选值|choices/);
+  assert.match(String(ui.validity.at(-1)), /候选值|choices/);
   await ui.input('choices', '[1, 2]');
   assert.equal(ui.validity.at(-1), null);
   assert.deepEqual(ui.changes.at(-1).params.choices, [1, 2]);
   await ui.choose('generator', 'integer');
   const count = ui.changes.length;
   await ui.input('min_value', '1.2');
-  assert.match(ui.validity.at(-1), /整数/);
+  assert.match(String(ui.validity.at(-1)), /整数/);
   assert.equal(ui.changes.length, count);
   await ui.input('min_value', '2');
   assert.equal(ui.changes.at(-1).params.min_value, 2);
@@ -123,7 +146,7 @@ for (const [generator, low, high, type] of [['integer','min_value','max_value','
     const rangeCatalog = {entries:[{id:generator,params:[parameter(low,type,0),parameter(high,type,100)]}]};
     const ui = harness({catalog:rangeCatalog,rule:{generator,params:{[low]:1,[high]:10}}});
     await ui.input(low,'20');
-    assert.equal(ui.changes.length,0); assert.match(ui.validity.at(-1),/不能大于/);
+    assert.equal(ui.changes.length,0); assert.match(String(ui.validity.at(-1)),/不能大于/);
     for(const name of [low,high]) {
       assert.equal(ui.field(name).getAttribute('aria-invalid'),'true');
       assert.match(ui.document.getElementById(ui.field(name).getAttribute('aria-describedby')).textContent,/不能大于/);
@@ -132,7 +155,7 @@ for (const [generator, low, high, type] of [['integer','min_value','max_value','
     assert.equal(draft.config.params[low],1);assert.equal(draft.current.params[low],20);
     assert.equal(draft.invalidValues[low],'20');
     const reopened=harness({catalog:rangeCatalog,draft});
-    assert.match(reopened.validity.at(-1),/不能大于/);assert.equal(reopened.field(low).value,'20');
+    assert.match(String(reopened.validity.at(-1)),/不能大于/);assert.equal(reopened.field(low).value,'20');
     await reopened.input(high,'20');
     assert.equal(reopened.validity.at(-1),null);assert.equal(reopened.field(low).getAttribute('aria-invalid'),null);
     assert.equal(reopened.field(high).getAttribute('aria-describedby'),null);
@@ -143,11 +166,11 @@ for (const [generator, low, high, type] of [['integer','min_value','max_value','
 
 test('range validation uses omitted metadata defaults, skips overridden native methods and clears after generator changes',async()=>{
   const ui=harness({rule:{generator:'integer',params:{min_value:1000000}}});
-  assert.match(ui.validity.at(-1),/不能大于/);
+  assert.match(String(ui.validity.at(-1)),/不能大于/);
   await ui.input('max_value','1000000');assert.equal(ui.validity.at(-1),null);
-  await ui.input('max_value','');assert.match(ui.validity.at(-1),/不能大于/);
+  await ui.input('max_value','');assert.match(String(ui.validity.at(-1)),/不能大于/);
   await ui.input('faker_method','random_int');assert.equal(ui.validity.at(-1),null);
-  await ui.input('faker_method','');assert.match(ui.validity.at(-1),/不能大于/);
+  await ui.input('faker_method','');assert.match(String(ui.validity.at(-1)),/不能大于/);
   await ui.choose('generator','string');assert.equal(ui.validity.at(-1),null);
   assert.equal(ui.changes.at(-1).generator,'string');
 });
@@ -156,11 +179,11 @@ test('time bounds reject reverse windows only when active, while reversed dates 
   const dateCatalog={entries:[{id:'datetime',params:[parameter('start_date','string',null),parameter('end_date','string',null),
     parameter('start_time','string',null),parameter('end_time','string',null),parameter('all_day','boolean',false)]}]};
   const ui=harness({catalog:dateCatalog,rule:{generator:'datetime',params:{start_date:'2026-12-31',end_date:'2026-01-01',start_time:'20:00',end_time:'10:00'}}});
-  assert.match(ui.validity.at(-1),/不能大于/);
+  assert.match(String(ui.validity.at(-1)),/不能大于/);
   assert.equal(ui.field('start_date').getAttribute('aria-invalid'),null);
   await ui.input('all_day',true,'change');assert.equal(ui.validity.at(-1),null);
   assert.equal(ui.field('start_time').getAttribute('aria-invalid'),null);
-  await ui.input('all_day',false,'change');assert.match(ui.validity.at(-1),/不能大于/);
+  await ui.input('all_day',false,'change');assert.match(String(ui.validity.at(-1)),/不能大于/);
   await ui.input('end_time','20:00:00');assert.equal(ui.validity.at(-1),null);
   assert.equal(ui.changes.at(-1).params.start_time,'20:00');
 });
@@ -228,7 +251,7 @@ test('derived editing validates references, preserves constraints and excludes s
   const count = ui.changes.length;
   await ui.input('derive_from', 'missing');
   assert.equal(ui.changes.length, count);
-  assert.match(ui.validity.at(-1), /不存在/);
+  assert.match(String(ui.validity.at(-1)), /不存在/);
 });
 
 test('advanced JSON constraints keep invalid text and accept full constraint options', async () => {
@@ -239,7 +262,7 @@ test('advanced JSON constraints keep invalid text and accept full constraint opt
   await ui.input('constraints', '[]');
   assert.equal(node.value, '[]');
   assert.equal(ui.changes.length, count);
-  assert.match(ui.validity.at(-1), /JSON 对象/);
+  assert.match(String(ui.validity.at(-1)), /JSON 对象/);
 });
 
 test('weekday metadata uses semantic controls and retains an explicit selection', async () => {
@@ -259,7 +282,7 @@ test('empty custom weekdays expose an invalid group and recover through selectio
   assert.equal(group.getAttribute('role'), 'group');
   assert.equal(group.getAttribute('aria-label'), '可生成的星期');
   assert.equal(group.getAttribute('aria-invalid'), 'true');
-  assert.match(ui.validity.at(-1), /至少选择一天/);
+  assert.match(String(ui.validity.at(-1)), /至少选择一天/);
   assert.equal(ui.changes.length, 0);
 
   await ui.input('weekday-1', true, 'change');
@@ -376,7 +399,7 @@ test('invalid NULL percentages survive draft restoration and can be corrected', 
   await first.input('null_ratio', '120');
   const restored = harness({draft: plain(first.editor.getDraft())});
   assert.equal(restored.field('null_ratio').value, '120');
-  assert.match(restored.validity.at(-1), /百分比/);
+  assert.match(String(restored.validity.at(-1)), /百分比/);
   await restored.input('null_ratio', '20');
   assert.equal(restored.validity.at(-1), null);
   assert.equal(restored.changes.at(-1).null_ratio, 0.2);
@@ -391,7 +414,7 @@ test('an invalid NULL draft after zero remains visible and repairable when reope
   assert.equal(restored.field('null_ratio').disabled, false);
   assert.equal(restored.field('null_ratio').closest('.wb-editor-row').hidden, false);
   assert.equal(restored.field('null_ratio').value, '120');
-  assert.match(restored.validity.at(-1), /NULL/);
+  assert.match(String(restored.validity.at(-1)), /NULL/);
   await restored.input('null_ratio', '10');
   assert.equal(restored.validity.at(-1), null);
   assert.equal(restored.changes.at(-1).null_ratio, 0.1);

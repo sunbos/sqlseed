@@ -3,7 +3,7 @@ const test = require('node:test');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-const {Element, createDom} = require('./frontend_helpers.cjs');
+const {Element, createDom, loadI18n} = require('./frontend_helpers.cjs');
 
 const flush = () => new Promise(resolve => setImmediate(resolve));
 const deferred = () => {
@@ -34,7 +34,12 @@ function harness(hash = '#/workbench') {
     unmount() {events.push(`unmount:${name}`);},
   });
   for (const name of ['workbench', 'runs', 'configs', 'settings']) modules.set(name, page(name));
-  const context = vm.createContext({document, window, location, store,
+  const i18n = loadI18n({document, window, fetch: async url => {
+    assert.equal(url, '/static/i18n/backend-messages.json');
+    // loadI18n already registers the real catalog; isolate this bootstrap fetch.
+    return {ok:true, json:async()=>({})};
+  }});
+  const context = vm.createContext({...i18n, document, window, location, store,
     history: {state:null, replaceState: (_state, _title, hash) => {location.hash=hash;}},
     openConnectionDialog() {}, setConnBadge() {badges++;},
     setTimeout() {throw new Error('Navigation must not wait for an animation timer');},

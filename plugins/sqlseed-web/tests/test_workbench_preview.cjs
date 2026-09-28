@@ -50,6 +50,32 @@ test('creates the modal immediately and generates only when its guarded refresh 
   assert.deepEqual(t.resultOptions,[{scope:'current',count:10,table:'orders'}]);
 });
 
+test('UI language switches preserve preview rows, count, scroll and request state while translating server issues',async()=>{
+  const t=harness({generate:async()=>({ok:false,preview_complete:false,samples:{orders:[{code:'客户原文',amount:7,extra:'姓名'}]},issues:[{
+    table:'orders',message:'诊断原文',message_key:'backend.preview_language_test',message_params:{table:'用户表'},severity:'warning',
+  }]})});
+  t.context.registerMessages('backend',{preview_language_test:['表 {table} 待核对','Table {table} needs review']});
+  await t.component.refresh();
+  const count=t.count(),dialog=t.document.querySelector('[role="dialog"]'),cells=dialog.querySelectorAll('td');
+  count.focus(); count.selectionStart=1;
+  const viewport=dialog.querySelector('.wb-preview-scroll');
+  if(viewport) {viewport.scrollTop=25;viewport.scrollLeft=40;}
+  const requests=JSON.stringify(t.requests),results=JSON.stringify(t.results);
+  t.context.setLanguage('en');
+  assert.equal(t.document.querySelector('[role="dialog"]'),dialog);
+  assert.equal(dialog.getAttribute('aria-label'),'Preview samples');
+  assert.equal(t.document.activeElement,count); assert.equal(count.value,'10'); assert.equal(count.selectionStart,1);
+  assert.equal(count.getAttribute('aria-label'),'Preview rows per table');
+  assert.deepEqual(dialog.querySelectorAll('td'),cells);
+  assert.match(dialog.textContent,/客户原文/); assert.match(dialog.textContent,/姓名/);
+  assert.match(dialog.textContent,/Table 用户表 needs review/);
+  assert.equal(JSON.stringify(t.requests),requests); assert.equal(JSON.stringify(t.results),results);
+  if(viewport) {assert.equal(viewport.scrollTop,25);assert.equal(viewport.scrollLeft,40);}
+  t.context.setLanguage('zh-CN'); assert.match(dialog.textContent,/表 用户表 待核对/);
+  assert.deepEqual(Array.from(t.context.missingMessages()),[]);
+  t.component.dialog.close();
+});
+
 test('a valid preview count explains generation-configuration errors and offers a guarded correction target',async()=>{
   const modelContext=loadFrontend('workbench/model.js');
   const Model=vm.runInContext('WorkbenchDocument',modelContext);

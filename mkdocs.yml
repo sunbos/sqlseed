@@ -55,6 +55,8 @@ nav:
   - Architecture:
       - Architecture (EN): architecture.md
       - Architecture (中文): architecture.zh-CN.md
+  - Development:
+      - Web UI Languages: development/web-i18n.md
   - Gemma 4 Integration:
       - Gemma 4 Integration (EN): gemma4-integration.md
       - Gemma 4 Integration (中文): gemma4-integration.zh-CN.md

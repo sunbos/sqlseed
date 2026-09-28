@@ -17,11 +17,13 @@ from sqlseed._utils.paths import validate_table_name
 from sqlseed._utils.sql_safe import quote_identifier
 from sqlseed.database.sqlalchemy_adapter import SQLAlchemyAdapter
 
+from sqlseed_web.messages import MessageRoute
+from sqlseed_web.messages import message as tr
 from sqlseed_web.state import ConnectionBusyError, UnknownConnectionError, state
 from sqlseed_web.workbench_schema import _refresh_inspector, _target_identity
 from sqlseed_web.workbench_store import get_store
 
-router = APIRouter(prefix="/api/workbench", tags=["workbench-data"])
+router = APIRouter(route_class=MessageRoute, prefix="/api/workbench", tags=["workbench-data"])
 
 
 @contextmanager
@@ -33,16 +35,27 @@ def _read_errors() -> Iterator[None]:
         raise
     except ConnectionBusyError as exc:
         raise HTTPException(
-            409, detail={"code": "connection_busy", "message": "当前连接正在处理请求，请稍后重试。"}
+            409,
+            detail={
+                "code": "connection_busy",
+                "message": tr("backend.workbench_data.this_connection_is_handling_a_request_retry"),
+            },
         ) from exc
     except KeyError as exc:
         raise HTTPException(
-            404, detail={"code": "not_found", "message": "连接或运行记录已不存在，请刷新后重试。"}
+            404,
+            detail={
+                "code": "not_found",
+                "message": tr("backend.workbench_data.the_connection_or_run_no_longer_exists"),
+            },
         ) from exc
     except Exception as exc:
         raise HTTPException(
             422,
-            detail={"code": "data_read_failed", "message": "读取数据失败，请检查连接、表结构和读取权限后重试。"},
+            detail={
+                "code": "data_read_failed",
+                "message": tr("backend.workbench_data.cannot_read_data_check_the_connection_table"),
+            },
         ) from exc
 
 
@@ -89,11 +102,18 @@ def table_data(
             if run["target_key"] != target_key:
                 raise HTTPException(
                     409,
-                    detail={"code": "target_mismatch", "message": "当前连接与运行记录的数据库不一致，请重新选择连接。"},
+                    detail={
+                        "code": "target_mismatch",
+                        "message": tr("backend.workbench_data.the_current_connection_does_not_match_the"),
+                    },
                 )
             if table not in {item["name"] for item in run["tables"]}:
                 raise HTTPException(
-                    403, detail={"code": "table_outside_run", "message": "该表不属于这条运行记录的生成范围。"}
+                    403,
+                    detail={
+                        "code": "table_outside_run",
+                        "message": tr("backend.workbench_data.this_table_is_outside_this_run_s"),
+                    },
                 )
         conn.orchestrator.get_table_names()  # Ensure the existing adapter is connected.
         adapter = conn.orchestrator.database_adapter
@@ -104,7 +124,11 @@ def table_data(
         names = adapter.get_table_names()
         if table not in names:
             raise HTTPException(
-                404, detail={"code": "table_not_found", "message": "该表已不存在，请重新读取数据库结构。"}
+                404,
+                detail={
+                    "code": "table_not_found",
+                    "message": tr("backend.workbench_data.this_table_no_longer_exists_reload_the"),
+                },
             )
         validate_table_name(table, names)
         columns = [asdict(column) for column in adapter.get_column_info(table)]

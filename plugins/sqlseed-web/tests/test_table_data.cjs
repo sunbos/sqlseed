@@ -158,3 +158,25 @@ test('a mismatched target response is never displayed',async()=>{
   assert.doesNotMatch(t.document.textContent,/Wrong database/);
   assert.match(t.document.querySelector('[role="alert"]').textContent,/目标/);
 });
+
+test('current-data translations preserve row values, timestamp precision and expanded raw-value state', async () => {
+  const raw = '2026-09-26 12:34:56.120000+08:00';
+  const t = harness({fetch:()=>pageData({columns:[{name:'用户时间',type:'DATETIME'}],rows:[{'用户时间':raw}],total:1,order_by:[]})});
+  await t.panel.ready;
+  const ui = require('./frontend_helpers.cjs').loadI18n({document:t.document});
+  const dialog = t.document.querySelector('[role="dialog"]'), table = t.document.querySelector('table');
+  const details = t.document.querySelector('.wb-table-data-temporal'), summary = details.querySelector('summary');
+  details.open = true;
+  const requests = t.requests.length;
+  ui.setLanguage('en');
+  assert.equal(t.document.querySelector('[role="dialog"]'), dialog);
+  assert.equal(t.document.querySelector('table'), table);
+  assert.match(dialog.textContent, /Current database data/);
+  assert.match(summary.getAttribute('aria-label'), /expand to view the raw database value/);
+  assert.equal(summary.textContent, '2026-09-26T12:34:56.120000+08:00');
+  assert.equal(details.querySelector('pre').textContent, raw); assert.equal(details.open, true);
+  assert.match(table.querySelector('thead').textContent, /用户时间DATETIME/);
+  assert.equal(t.requests.length, requests);
+  assert.equal(ui.missingMessages().length, 0);
+  t.panel.close();
+});

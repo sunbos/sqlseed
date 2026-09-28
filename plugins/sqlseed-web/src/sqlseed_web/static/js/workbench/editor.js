@@ -1,3 +1,5 @@
+import { tr, joinText, setText, setAttr, UserFacingError, errorText, serverText } from '../i18n.js';
+import '../i18n/messages/editor.js';
 // Workbench column rules. Local drafts remain editable when validation fails;
 // only complete input shapes are emitted. The server checks generator semantics.
 import { h } from '../api.js';
@@ -174,18 +176,18 @@ export function createRuleEditor({
   }
   function skipLabel() {
     if (column.is_rowid_alias) {
-      return '数据库自动分配 ID';
+      return tr('editor.idAllocated');
     }
-    return hasDefault ? '使用数据库默认值' : '使用 NULL（空值）';
+    return hasDefault ? tr('editor.defaultMode') : tr('editor.nullMode');
   }
   function skipDescription() {
     if (column.is_rowid_alias || column.is_autoincrement) {
-      return 'ID 由数据库根据现有数据和序列状态分配。追加生成不会重新从 1 开始，也不会重置或覆盖已有主键。';
+      return tr('editor.idHelp');
     }
     if (hasDefault) {
-      return `本列不提供生成值，数据库使用已定义的默认值：${String(column.default)}。可切换为生成器来自定义内容。`;
+      return tr('editor.defaultHelp', {value: String(column.default)});
     }
-    return '此列没有数据库默认值，省略后写入 NULL（空值）。需要真实内容时，请切换为生成器。';
+    return tr('editor.nullHelp');
   }
   function applyDerivedMode() {
     delete current.generator;
@@ -235,7 +237,7 @@ export function createRuleEditor({
       lastValid = copy(current);
     }
     if (summary) {
-      summary.textContent = message || '';
+      setText(summary, message || '');
     }
     if (!disposed) {
       onValidity?.(message);
@@ -264,11 +266,11 @@ export function createRuleEditor({
       const start = time ? seconds(value(low) ?? dateDefault(low)) : value(low);
       const end = time ? seconds(value(high) ?? dateDefault(high)) : value(high);
       if (!Number.isFinite(start) || !Number.isFinite(end) || start <= end) continue;
-      const message = `${paramLabel(low)}不能大于${paramLabel(high)}，请调整这两个边界。`;
+      const message = tr('editor.rangeError', {minimum: paramLabel(low), maximum: paramLabel(high)});
       for (const name of [low, high]) {
         rangeErrors.set(name, message);
-        controls.get(name).setAttribute('aria-invalid', 'true');
-        controls.get(name).setAttribute('aria-describedby', errorId);
+        setAttr(controls.get(name), 'aria-invalid', 'true');
+        setAttr(controls.get(name), 'aria-describedby', errorId);
       }
     }
   }
@@ -284,7 +286,7 @@ export function createRuleEditor({
   function mark(field, control, message) {
     if (message) {
       errors.set(field, message);
-      control.setAttribute('aria-invalid', 'true');
+      setAttr(control, 'aria-invalid', 'true');
     } else {
       errors.delete(field);
       control.removeAttribute('aria-invalid');
@@ -302,9 +304,9 @@ export function createRuleEditor({
     } else {
       // Composite controls already contain their own labels. Wrapping them in
       // another label would make clicking one weekday activate another input.
-      control.setAttribute('role', 'group');
-      control.setAttribute('aria-label', label);
-      control.querySelector('.dropdown-btn')?.setAttribute('aria-label', label);
+      setAttr(control, 'role', 'group');
+      setAttr(control, 'aria-label', label);
+      setAttr(control.querySelector('.dropdown-btn'), 'aria-label', label);
       wrapper.append(caption, control);
     }
     if (hint) {
@@ -362,7 +364,7 @@ export function createRuleEditor({
           apply(parsed);
         }
       } catch (error) {
-        mark(field, control, error.message);
+        mark(field, control, errorText(error));
       }
       if (commit) {
         emit();
@@ -376,14 +378,14 @@ export function createRuleEditor({
     const label = paramLabel(parameter.name);
     if (!raw.trim()) {
       if (parameter.required) {
-        throw new Error(`${label} 为必填参数。`);
+        throw new UserFacingError(tr('editor.required', {label}));
       }
       return undefined;
     }
     if (parameter.type === 'integer' || parameter.type === 'number') {
       const value = Number(raw);
       if (!Number.isFinite(value) || parameter.type === 'integer' && !Number.isInteger(value)) {
-        throw new Error(`${label} 必须是${parameter.type === 'integer' ? '整数' : '有效数字'}。`);
+        throw new UserFacingError(tr('editor.numberError', {label, type: parameter.type === 'integer' ? tr('editor.integer') : tr('editor.number')}));
       }
       return value;
     }
@@ -396,13 +398,13 @@ export function createRuleEditor({
       try {
         value = JSON.parse(raw);
       } catch {
-        throw new Error(`${label} 需要有效 JSON。`);
+        throw new UserFacingError(tr('editor.jsonError', {label}));
       }
       if (parameter.type === 'object' && !isObject(value)) {
-        throw new Error(`${label} 需要 JSON 对象。`);
+        throw new UserFacingError(tr('editor.objectError', {label}));
       }
       if (parameter.type === 'array' && !Array.isArray(value)) {
-        throw new Error(`${label} 需要 JSON 数组。`);
+        throw new UserFacingError(tr('editor.arrayError', {label}));
       }
       return value;
     }
@@ -456,7 +458,7 @@ export function createRuleEditor({
         return undefined;
       }
       if (!/^(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/.test(value)) {
-        throw new Error('时间格式应为 HH:MM 或 HH:MM:SS。');
+        throw new UserFacingError(tr('editor.timeError'));
       }
       return value;
     };
@@ -478,7 +480,7 @@ export function createRuleEditor({
       placeholder: 'HH:MM:SS',
       disabled: current.params.all_day ?? true
     });
-    input.setAttribute('step', '1');
+    setAttr(input, 'step', '1');
     return input;
   }
   function weekdayControl() {
@@ -507,10 +509,10 @@ export function createRuleEditor({
       days = h('div', {
         class: 'wb-weekday-options',
         role: 'group',
-        'aria-label': '可生成的星期'
+        'aria-label': tr('editor.weekdaysLabel')
       });
     const markDays = () => mark('weekdays', days,
-      selectedMode === 'custom' && !custom.length ? '自定义星期至少选择一天。' : null);
+      selectedMode === 'custom' && !custom.length ? tr('editor.weekdaysEmpty') : null);
     const updateDay = (day, checked) => {
       custom = custom.filter(item => item !== day);
       if (checked) {
@@ -525,7 +527,7 @@ export function createRuleEditor({
     };
     const renderDays = () => {
       days.hidden = selectedMode !== 'custom';
-      days.replaceChildren(...['周一', '周二', '周三', '周四', '周五', '周六', '周日'].map((label, day) => h('label', {}, h('input', {
+      days.replaceChildren(...[tr('editor.mon'), tr('editor.tue'), tr('editor.wed'), tr('editor.thu'), tr('editor.fri'), tr('editor.sat'), tr('editor.sun')].map((label, day) => h('label', {}, h('input', {
         type: 'checkbox',
         'data-field': `weekday-${day}`,
         checked: custom.includes(day),
@@ -535,21 +537,21 @@ export function createRuleEditor({
     };
     const choices = [{
       value: 'all',
-      label: '每天'
+      label: tr('editor.everyDay')
     }, {
       value: 'workdays',
-      label: '工作日（周一至周五）'
+      label: tr('editor.workdays')
     }, {
       value: 'weekend',
-      label: '周末'
+      label: tr('editor.weekends')
     }, {
       value: 'custom',
-      label: '自定义星期'
+      label: tr('editor.customDays')
     }];
     if (selectedMode === 'raw') {
       choices.push({
         value: 'raw',
-        label: `已导入：${String(value)}`
+        label: tr('editor.imported', {value: String(value)})
       });
     }
     wrap.append(dropdown('weekdays', selectedMode, choices, next => {
@@ -594,7 +596,7 @@ export function createRuleEditor({
     }
     const custom = textControl('charset', mode === 'custom' ? value : '', raw => {
       if (mode === 'custom' && !raw) {
-        throw new Error('请至少填写一个允许出现的字符。');
+        throw new UserFacingError(tr('editor.charsetEmpty'));
       }
       return raw;
     }, raw => {
@@ -602,25 +604,25 @@ export function createRuleEditor({
         current.params.charset = raw;
       }
     }, {
-      placeholder: '例如 ABCDEF0123456789 或 甲乙丙丁'
+      placeholder: tr('editor.charsetPlaceholder')
     });
-    custom.setAttribute('aria-label', '自定义字符集');
+    setAttr(custom, 'aria-label', tr('editor.customCharset'));
     custom.hidden = mode !== 'custom';
     return h('div', {}, dropdown('charset-preset', mode, [{
       value: 'default',
-      label: '默认：字母、数字、空格、下划线、连字符'
+      label: tr('editor.charsetDefault')
     }, {
       value: 'alphanumeric',
-      label: '字母和数字（A–Z / a–z / 0–9）'
+      label: tr('editor.charsetAlphaNumeric')
     }, {
       value: 'alpha',
-      label: '仅英文字母'
+      label: tr('editor.charsetLetters')
     }, {
       value: 'digits',
-      label: '仅数字'
+      label: tr('editor.charsetDigits')
     }, {
       value: 'custom',
-      label: '自定义字符'
+      label: tr('editor.charsetCustom')
     }], next => {
       mode = next;
       errors.delete('charset');
@@ -703,11 +705,11 @@ export function createRuleEditor({
     }
     let defaultHint;
     if (parameter.required) {
-      defaultHint = '请填写必填参数';
+      defaultHint = tr('editor.requiredPlaceholder');
     } else if (parameter.default == null) {
-      defaultHint = '留空使用生成器默认值';
+      defaultHint = tr('editor.defaultPlaceholder');
     } else {
-      defaultHint = `默认：${JSON.stringify(parameter.default)}`;
+      defaultHint = tr('editor.defaultValue', {value: JSON.stringify(parameter.default)});
     }
     const createControl = json ? multilineControl : textControl;
     const options = {
@@ -720,7 +722,7 @@ export function createRuleEditor({
   }
   function renderSource() {
     const entry = entries.get(current.generator);
-    const labelFor = item => genLabel(item.id) === item.id ? item.label || item.id : genLabel(item.id);
+    const labelFor = item => genLabel(item.id) === item.id ? serverText(item, 'label') || item.id : genLabel(item.id);
     const chooser = h('div', {
       class: 'generator-chooser',
       'data-field': 'generator'
@@ -728,13 +730,13 @@ export function createRuleEditor({
     const options = h('div', {
       class: 'generator-options',
       role: 'group',
-      'aria-label': '可用生成器'
+      'aria-label': tr('editor.availableGenerators')
     });
     const search = h('input', {
       type: 'search',
       'data-field': 'generator-search',
-      placeholder: '查找生成器',
-      'aria-label': '查找生成器',
+      placeholder: tr('editor.searchGenerators'),
+      'aria-label': tr('editor.searchGenerators'),
       autocomplete: 'off'
     });
     const all = h('input', {
@@ -768,11 +770,11 @@ export function createRuleEditor({
         class: 'wb-generator-purpose'
       }, genGuide(item.id).purpose), genGuide(item.id).example ? h('small', {
         class: 'wb-generator-example'
-      }, `示例：${genGuide(item.id).example}`) : null)));
+      }, tr('editor.example', {example: genGuide(item.id).example})) : null)));
       if (!available.length) {
         options.append(h('p', {
           class: 'editor-note'
-        }, '没有匹配的生成器。'));
+        }, tr('editor.noGenerators')));
       }
     };
     search.oncompositionstart = () => {
@@ -793,9 +795,9 @@ export function createRuleEditor({
       hidden: true
     }, search, h('label', {
       class: 'generator-all'
-    }, all, '显示全部生成器'), options, h('p', {
+    }, all, tr('editor.showAll')), options, h('p', {
       class: 'editor-note'
-    }, '按字段类型推荐；完整兼容性与约束由检查配置验证。'));
+    }, tr('editor.compatibilityHint')));
     const toggle = h('button', {
       type: 'button',
       class: 'btn small',
@@ -804,19 +806,19 @@ export function createRuleEditor({
       onclick: () => {
         pickerOpen = !pickerOpen;
         picker.hidden = !pickerOpen;
-        toggle.setAttribute('aria-expanded', String(pickerOpen));
+        setAttr(toggle, 'aria-expanded', String(pickerOpen));
         if (pickerOpen) {
           renderOptions();
           search.focus();
         }
       }
-    }, entry ? labelFor(entry) : '选择生成器', h('small', {}, '更换'));
+    }, entry ? labelFor(entry) : tr('editor.chooseGenerator'), h('small', {}, tr('editor.change')));
     chooser.append(h('div', {
       class: 'generator-heading'
-    }, h('span', {}, '生成器'), toggle), picker);
+    }, h('span', {}, tr('editor.generator')), toggle), picker);
     el.append(chooser);
     if (!entry) {
-      errors.set('generator', `生成器 ${current.generator || '（未指定）'} 不在当前可用列表中。`);
+      errors.set('generator', tr('editor.unavailableGenerator', {generator: current.generator || tr('editor.unspecified')}));
       return;
     }
     const guide = genGuide(entry.id);
@@ -826,7 +828,7 @@ export function createRuleEditor({
       class: 'editor-note wb-editor-description'
     }, guide.purpose), guide.example ? h('small', {
       class: 'wb-generator-example'
-    }, `格式示例：${guide.example}。实际样例由当前引擎和规则生成。`) : null));
+    }, tr('editor.formatExample', {example: guide.example})) : null));
     const params = h('div', {
       class: 'rule-parameters wb-editor-params'
     });
@@ -834,7 +836,7 @@ export function createRuleEditor({
     if (entry.params.some(parameter => parameter.name === 'start_date')) {
       params.append(h('div', {
         class: 'wb-param-presets'
-      }, h('span', {}, '日期范围'), h('button', {
+      }, h('span', {}, tr('editor.dateRange')), h('button', {
         type: 'button',
         class: 'btn small',
         'data-date-preset': 'this-year',
@@ -848,7 +850,7 @@ export function createRuleEditor({
           render();
           emit();
         }
-      }, '本年'), h('button', {
+      }, tr('editor.thisYear')), h('button', {
         type: 'button',
         class: 'btn small',
         'data-date-preset': 'today',
@@ -863,21 +865,21 @@ export function createRuleEditor({
           render();
           emit();
         }
-      }, '今天')));
+      }, tr('editor.today'))));
     }
     for (const parameter of entry.params) {
       if (['start_year', 'end_year'].includes(parameter.name)) {
         years.push(parameter);
         continue;
       }
-      params.append(row(paramLabel(parameter.name) + (parameter.required ? ' *' : ''), parameterControl(parameter), parameterHint(parameter)));
+      params.append(row(joinText([paramLabel(parameter.name), parameter.required ? ' *' : '']), parameterControl(parameter), parameterHint(parameter)));
     }
     if (years.length) {
       const legacy = h('details', {
         class: 'wb-editor-year-fallback'
-      }, h('summary', {}, '年份兼容设置'), h('p', {
+      }, h('summary', {}, tr('editor.legacyYears')), h('p', {
         class: 'editor-note'
-      }, '仅在对应日期留空时生效；已导入的年份配置会保留。'));
+      }, tr('editor.legacyYearsHint')));
       for (const parameter of years) {
         legacy.append(row(paramLabel(parameter.name), parameterControl(parameter), parameterHint(parameter)));
       }
@@ -886,61 +888,61 @@ export function createRuleEditor({
     if (!entry.params.length) {
       params.append(h('p', {
         class: 'muted'
-      }, '此生成器没有可配置参数。'));
+      }, tr('editor.noParams')));
     }
     el.append(params);
   }
   function renderDerived() {
     const source = Array.isArray(current.derive_from) ? current.derive_from.join(', ') : current.derive_from || '';
     const names = new Set(table.columns.map(item => item.name));
-    el.append(row('来源字段', textControl('derive_from', source, raw => {
+    el.append(row(tr('editor.sourceFields'), textControl('derive_from', source, raw => {
       const selected = raw.split(',').map(name => name.trim()).filter(Boolean);
       if (!selected.length) {
-        throw new Error('派生列需要至少一个来源字段。');
+        throw new UserFacingError(tr('editor.sourceRequired'));
       }
       const missing = selected.find(name => !names.has(name));
       if (missing) {
-        throw new Error(`来源字段 ${missing} 不存在。`);
+        throw new UserFacingError(tr('editor.sourceMissing', {field: missing}));
       }
       if (selected.includes(column.name)) {
-        throw new Error('派生列不能引用自身。');
+        throw new UserFacingError(tr('editor.sourceSelf'));
       }
       return selected.length === 1 && !Array.isArray(current.derive_from) ? selected[0] : selected;
     }, parsed => {
       current.derive_from = parsed;
-    }), '多个字段以英文逗号分隔。'));
-    el.append(row('派生表达式', multilineControl('expression', current.expression || '', raw => {
+    }), tr('editor.sourceHint')));
+    el.append(row(tr('editor.expression'), multilineControl('expression', current.expression || '', raw => {
       if (!raw.trim()) {
-        throw new Error('请填写派生表达式。');
+        throw new UserFacingError(tr('editor.expressionRequired'));
       }
       return raw;
     }, parsed => {
       current.expression = parsed;
-    }), '表达式可用 value 或 row["字段名"]；完整语法由检查配置验证。'));
+    }), tr('editor.expressionHint')));
   }
   function renderForeignKey() {
     for (const key of foreignKeys) {
       const source = `${key.ref_schema ? key.ref_schema + '.' : ''}${key.ref_table} (${key.ref_columns.join(', ')})`;
       el.append(h('p', {
         class: 'drawer-help wb-editor-fk'
-      }, `引用来源：${source}`));
+      }, tr('editor.referenceSource', {source})));
       if (key.columns.length > 1) {
         el.append(h('p', {
           class: 'muted'
-        }, `复合外键 (${key.columns.join(', ')}) 作为同一组引用，由数据库关系规则共同处理。`));
+        }, tr('editor.compositeReference', {columns: key.columns.join(', ')})));
       }
       if (key.ref_table === table.name && column.nullable) {
         el.append(h('p', {
           class: 'muted'
-        }, '此列为自引用；空表初始化时 NULL 比例可能受引用顺序影响。'));
+        }, tr('editor.selfReference')));
       }
     }
-    el.append(row('采样方式', dropdown('strategy', current.params.strategy || 'random', [{
+    el.append(row(tr('editor.sampling'), dropdown('strategy', current.params.strategy || 'random', [{
       value: 'random',
-      label: '随机采样'
+      label: tr('editor.random')
     }, {
       value: 'coverage',
-      label: '覆盖父表值'
+      label: tr('editor.coverage')
     }], selected => {
       current.params.strategy = selected;
       emit();
@@ -962,7 +964,7 @@ export function createRuleEditor({
       value: String((current.null_ratio || 0) * 100),
       disabled: !current.null_ratio
     });
-    const percentageRow = row('NULL 百分比', ratio);
+    const percentageRow = row(tr('editor.nullPercent'), ratio);
     percentageRow.hidden = ratio.disabled;
     const nullable = h('input', {
       type: 'checkbox',
@@ -984,7 +986,7 @@ export function createRuleEditor({
     const checkRatio = commit => {
       const value = Number(ratio.value);
       if (!ratio.value.trim() || !Number.isFinite(value) || value < 0 || value > 100) {
-        mark('null_ratio', ratio, 'NULL 百分比必须在 0 到 100 之间。');
+        mark('null_ratio', ratio, tr('editor.nullRange'));
       } else {
         mark('null_ratio', ratio, null);
         if (commit) {
@@ -1002,7 +1004,7 @@ export function createRuleEditor({
     }
     delete restoredValues.null_ratio;
     if (current.null_ratio !== undefined && (!Number.isFinite(current.null_ratio) || current.null_ratio < 0 || current.null_ratio > 1)) {
-      mark('null_ratio', ratio, 'NULL 百分比必须在 0 到 100 之间。');
+      mark('null_ratio', ratio, tr('editor.nullRange'));
     }
     // A reopened invalid draft must stay reachable, including one whose last
     // valid percentage was zero. Hiding it would leave Apply blocked forever.
@@ -1011,7 +1013,7 @@ export function createRuleEditor({
       ratio.disabled = false;
       percentageRow.hidden = false;
     }
-    el.append(row('包含 NULL 值', nullable), percentageRow);
+    el.append(row(tr('editor.includeNull'), nullable), percentageRow);
   }
   function renderCommon() {
     renderNullOptions();
@@ -1032,15 +1034,15 @@ export function createRuleEditor({
           emit();
         }
       });
-      el.append(row('设置唯一', uniqueInput, uniqueBySchema ? '数据库单列唯一约束已锁定。' : '复合主键或复合唯一约束不表示本列单独唯一。'));
+      el.append(row(tr('editor.unique'), uniqueInput, uniqueBySchema ? tr('editor.uniqueLocked') : tr('editor.uniqueComposite')));
     }
   }
   function renderAdvanced() {
     const advanced = h('details', {
       class: 'column-constraints wb-editor-advanced'
-    }, h('summary', {}, '高级配置（通常无需调整）'), h('p', {
+    }, h('summary', {}, tr('editor.advanced')), h('p', {
       class: 'editor-note'
-    }, '普通生成规则继承全局数据生成引擎与语言。这里保留原生方法、额外约束和导入的高级参数；请在应用后检查配置。'));
+    }, tr('editor.advancedHint')));
     const objectField = (field, label, value, update) => {
       const parameter = {
         name: label,
@@ -1048,12 +1050,12 @@ export function createRuleEditor({
         required: false
       };
       const input = multilineControl(field, value == null ? '' : JSON.stringify(value, null, 2), raw => parseParam(parameter, raw), update, {
-        placeholder: 'JSON 对象；留空使用默认值'
+        placeholder: tr('editor.objectPlaceholder')
       });
       advanced.append(row(label, input));
       return input;
     };
-    constraintsInput = objectField('constraints', '约束', current.constraints, value => {
+    constraintsInput = objectField('constraints', tr('editor.constraints'), current.constraints, value => {
       if (value === undefined) {
         delete current.constraints;
       } else {
@@ -1070,14 +1072,14 @@ export function createRuleEditor({
       }
     });
     if (mode === 'source') {
-      for (const [field, label] of [['provider', '字段生成引擎'], ['faker_method', 'Faker 原生方法'], ['mimesis_method', 'Mimesis 原生方法']]) {
+      for (const [field, label] of [['provider', tr('editor.fieldProvider')], ['faker_method', tr('editor.fakerMethod')], ['mimesis_method', tr('editor.mimesisMethod')]]) {
         const nativeFieldPlaceholder = () => {
           if (field === 'provider') {
-            return '留空继承全局，或填写与全局相同的引擎';
+            return tr('editor.providerPlaceholder');
           } else if (field === 'faker_method') {
-            return '例如 email、random_int';
+            return tr('editor.fakerPlaceholder');
           } else {
-            return '例如 person.full_name、numeric.integer';
+            return tr('editor.mimesisPlaceholder');
           }
         };
         advanced.append(row(label, textControl(field, current[field] || '', raw => raw.trim() || undefined, value => {
@@ -1088,9 +1090,9 @@ export function createRuleEditor({
           }
         }, {
           placeholder: nativeFieldPlaceholder()
-        }), field === 'provider' ? '当前仅支持继承全局或填写与全局相同的引擎；其他值会保留，但检查会阻止生成。' : '原生方法会优先于普通生成器执行，请按对应引擎的方法签名填写。'));
+        }), field === 'provider' ? tr('editor.providerHint') : tr('editor.nativeHint')));
       }
-      objectField('native_params', '原生方法参数', current.native_params, value => {
+      objectField('native_params', tr('editor.nativeParams'), current.native_params, value => {
         if (value === undefined) {
           delete current.native_params;
         } else {
@@ -1148,17 +1150,17 @@ export function createRuleEditor({
     if (readonly) {
       el.append(h('p', {
         class: 'muted'
-      }, column.is_computed ? '数据库计算列，由数据库自动计算，规则只读。' : '数据库自增主键，规则只读。' + skipDescription()));
+      }, column.is_computed ? tr('editor.computedReadonly') : joinText([tr('editor.idReadonly'), skipDescription()])));
       report();
       return;
     }
     if (mode !== 'foreign_key') {
       const modes = [{
         value: 'source',
-        label: '生成器'
+        label: tr('editor.generator')
       }, {
         value: 'derived',
-        label: '派生表达式'
+        label: tr('editor.expression')
       }];
       if (canSkip) {
         modes.push({
@@ -1166,7 +1168,7 @@ export function createRuleEditor({
           label: skipLabel()
         });
       }
-      el.append(row('生成方式', dropdown('mode', mode, modes, next => {
+      el.append(row(tr('editor.mode'), dropdown('mode', mode, modes, next => {
         preserveSharedInvalid();
         modeDrafts.set(mode, copy(current));
         const previous = current;
@@ -1213,7 +1215,7 @@ export function createRuleEditor({
           onChange?.(null);
         }
       }
-    }, '重置为推断规则'));
+    }, tr('editor.reset')));
     report();
   }
   render();
@@ -1246,29 +1248,29 @@ export function createRuleEditor({
 }
 function parameterHint(parameter) {
   const hints = {
-    start_date: '格式 YYYY-MM-DD；显示当前生效边界。留空沿用年份范围。',
-    end_date: '格式 YYYY-MM-DD；包含结束日期。',
-    start_time: '格式 HH:MM:SS；取消“一整天”后生效。',
-    end_time: '格式 HH:MM:SS；包含结束时间。',
-    all_day: '勾选后可生成 00:00:00–23:59:59 内的时间；取消勾选可指定开始和结束时间。',
-    weekdays: '按星期限制日期；工作日指周一至周五，不排除法定节假日。',
-    charset: '候选字符决定结果中允许出现的字符，不是 UTF-8 等编码名称。',
-    choices: '填写 JSON 数组，例如 ["pending", "paid", "shipped"]；数值可写 [1, 2, 3]。',
-    weighted_choices: '填写值和权重组成的 JSON 对象，例如 {"普通": 80, "VIP": 20}。',
-    template: '例如 SKU-{sequence:04d}；sequence 表示序号，04d 表示补齐 4 位。',
-    sequence_start: '本次生成从此序号开始；不会读取或重置数据库 ID。',
-    pattern: '例如 [A-Z]{3}[0-9]{4}；按此正则生成匹配的字符串。',
-    regex: '正则表达式，例如 [A-Z]{3}[0-9]{4}。',
-    mask: '例如 1##########；# 用随机数字替换。',
-    schema: 'JSON Schema 对象，例如 {"type":"object","properties":{"active":{"type":"boolean"}}}。'
+    start_date: tr('editor.startDateHint'),
+    end_date: tr('editor.endDateHint'),
+    start_time: tr('editor.startTimeHint'),
+    end_time: tr('editor.endTimeHint'),
+    all_day: tr('editor.allDayHint'),
+    weekdays: tr('editor.weekdaysHint'),
+    charset: tr('editor.charsetHint'),
+    choices: tr('editor.choicesHint'),
+    weighted_choices: tr('editor.weightsHint'),
+    template: tr('editor.templateHint'),
+    sequence_start: tr('editor.sequenceHint'),
+    pattern: tr('editor.patternHint'),
+    regex: tr('editor.regexHint'),
+    mask: tr('editor.maskHint'),
+    schema: tr('editor.schemaHint')
   };
   function defaultParameterHint() {
     if (parameter.required) {
-      return '必填参数。';
+      return tr('editor.requiredHint');
     } else if (parameter.default == null) {
-      return '可选；留空由生成器决定。';
+      return tr('editor.optionalHint');
     } else {
-      return `留空使用默认值：${String(parameter.default)}。`;
+      return tr('editor.defaultHint', {value: String(parameter.default)});
     }
   }
   return hints[parameter.name] || defaultParameterHint();

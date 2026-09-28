@@ -1576,6 +1576,8 @@
           "severity": "error",
           "code": "cross_table_cycle",
           "message": "跨表循环需要通用 backfill；当前工作台不能安全执行该计划",
+          "message_key": "backend.workbench_runtime.cross_table_cycles_require_general_backfill_the",
+          "message_params": {},
           "tables": [
             "departments",
             "employees"

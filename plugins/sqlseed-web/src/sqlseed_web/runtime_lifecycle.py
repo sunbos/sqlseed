@@ -8,8 +8,10 @@ from contextlib import contextmanager
 from typing import Any, Literal
 
 from fastapi import HTTPException
-from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
+
+from sqlseed_web.messages import MessageJSONResponse as JSONResponse
+from sqlseed_web.messages import message as tr
 
 
 class RuntimeGate:
@@ -38,7 +40,7 @@ class RuntimeGate:
                     409,
                     detail={
                         "code": "plugin_management_busy",
-                        "message": "当前仍有请求或后台任务运行，请等待完成后再管理插件。",
+                        "message": tr("backend.runtime_lifecycle.requests_or_background_tasks_are_still_running"),
                         "activity": activity,
                     },
                 )
@@ -56,7 +58,7 @@ class RuntimeGate:
                     503,
                     detail={
                         "code": "plugin_runtime_paused",
-                        "message": "正在更新插件，服务恢复后即可继续使用。",
+                        "message": tr("backend.runtime_lifecycle.plugins_are_being_updated_continue_when_the"),
                     },
                 )
             self._counts[category] += 1

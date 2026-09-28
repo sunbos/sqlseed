@@ -1,31 +1,33 @@
+import {tr, joinText, formatNumber} from '../i18n.js';
+import '../i18n/messages/flow.js';
 // Guidance describes evidence already available to the workbench. It never
 // changes rules, starts AI, or grants permission to write data.
 export function nextStep(model, previews = new Map()) {
   const tables=model.document.tables;
   const invalidCount=[...model.errors.keys()].some(key=>key.startsWith('count:'));
   const total=invalidCount ? null : tables.reduce((sum,table)=>sum+BigInt(table.count),0n);
-  const scope=invalidCount ? `已选 ${tables.length} 张表 · 生成数量待修正` : `已选 ${tables.length} 张表 · 计划生成 ${total} 行`;
-  if(!tables.length)return {stage:1,scope:'尚未选择生成表',title:'先选择要生成的表',body:'在左侧勾选本次需要生成数据的表，再设置每张表的生成数量。浏览表名不会加入生成范围。',action:'select',label:'选择生成表'};
-  if(model.errors.size)return {stage:1,scope,title:'先修正无效输入',body:[...model.errors.values()].join('；'),action:'edit',label:'检查输入'};
-  if(model.check?.issues?.some(issue=>issue.severity==='error'))return {stage:1,scope,title:'先处理检查发现的问题',body:'查看具体字段、引用来源和处理建议，修正后重新检查。',action:'check',label:'查看检查问题'};
+  const scope=invalidCount ? tr("flow.guide.invalidScope", {count: tables.length}) : tr("flow.guide.scope", {count: tables.length, rows: formatNumber(total)});
+  if(!tables.length)return {stage:1,scope:tr("flow.guide.noSelection"),title:tr("flow.guide.chooseTitle"),body:tr("flow.guide.chooseBody"),action:'select',label:tr("flow.guide.chooseAction")};
+  if(model.errors.size)return {stage:1,scope,title:tr("flow.guide.invalidTitle"),body:joinText([...model.errors.values()], '；'),action:'edit',label:tr("flow.guide.invalidAction")};
+  if(model.check?.issues?.some(issue=>issue.severity==='error'))return {stage:1,scope,title:tr("flow.guide.issueTitle"),body:tr("flow.guide.issueBody"),action:'check',label:tr("flow.guide.issueAction")};
   const current=new Set(tables.filter(table=>{
     const preview=previews.get(table.name);
     return preview?.epoch===model.epoch && preview.result.ok && preview.result.preview_complete!==false
       && Array.isArray(preview.result.samples?.[table.name]) && preview.result.samples[table.name].length>0;
   }).map(table=>table.name));
-  if(current.size===tables.length)return {stage:3,scope,title:`已预览所选 ${tables.length} 张表`,body:'确认样例符合业务要求后，核对写入目标和行数。也可点击“设定规则”返回修改，修改后重新预览。',action:'generate',label:'查看生成计划'};
+  if(current.size===tables.length)return {stage:3,scope,title:tr("flow.guide.previewedTitle", {count: tables.length}),body:tr("flow.guide.previewedBody"),action:'generate',label:tr("flow.guide.planAction")};
   const applied=model.aiApplied?.epoch===model.epoch?model.aiApplied.targets.filter(item=>tables.some(table=>table.name===item.table)):[];
-  if(applied.some(item=>!current.has(item.table)))return {stage:2,scope,title:`已应用 ${applied.length} 条 AI 建议，请预览`,body:'建议已进入当前生成配置。请查看实际样例，核对业务要求是否都已覆盖；AI 建议不代表数据库写入一定成功。',action:'preview',label:'预览 AI 调整结果'};
-  if(current.size)return {stage:2,scope,title:`已预览 ${current.size}/${tables.length} 张所选表`,body:'可以继续查看其余表的样例，再核对写入计划。预览不会写入数据库。',action:'preview',label:'预览已选范围'};
-  if(tables.some(table=>previews.get(table.name)?.epoch<model.epoch))return {stage:2,scope,title:'配置已变化，请重新预览',body:'已有样例对应之前的规则或生成范围。重新查看样例，确认本次配置的实际效果。',action:'preview',label:'重新预览'};
-  if(tables.some(table=>previews.get(table.name)?.epoch===model.epoch))return {stage:2,scope,title:'部分样例暂不可用',body:'查看预览中的具体原因；依赖尚未生成的父键时，可先核对依赖计划。',action:'check',label:'检查依赖'};
-  return {stage:1,scope,title:'先确认规则是否符合业务',body:'检查数值范围、日期和字段含义。可以手动调整，也可让 AI 根据业务说明建议规则；已有配置合适时可直接预览。',action:'preview',label:'直接预览'};
+  if(applied.some(item=>!current.has(item.table)))return {stage:2,scope,title:tr("flow.guide.aiAppliedTitle", {count: applied.length}),body:tr("flow.guide.aiAppliedBody"),action:'preview',label:tr("flow.guide.aiPreviewAction")};
+  if(current.size)return {stage:2,scope,title:tr("flow.guide.partialTitle", {previewed: current.size, total: tables.length}),body:tr("flow.guide.partialBody"),action:'preview',label:tr("flow.guide.previewSelected")};
+  if(tables.some(table=>previews.get(table.name)?.epoch<model.epoch))return {stage:2,scope,title:tr("flow.guide.changedTitle"),body:tr("flow.guide.changedBody"),action:'preview',label:tr("flow.guide.previewAgain")};
+  if(tables.some(table=>previews.get(table.name)?.epoch===model.epoch))return {stage:2,scope,title:tr("flow.guide.unavailableTitle"),body:tr("flow.guide.unavailableBody"),action:'check',label:tr("flow.guide.checkDependencies")};
+  return {stage:1,scope,title:tr("flow.guide.reviewTitle"),body:tr("flow.guide.reviewBody"),action:'preview',label:tr("flow.guide.previewNow")};
 }
 
 export function guideAIState(config) {
-  if(config?.availability_status==='import_error')return {label:'检查 AI 插件',status:'插件加载异常 · 规则建议不可用'};
-  if(config?.available===false)return {label:'安装 AI 扩展',status:'AI 扩展未安装 · 规则建议不可用'};
-  if(config?.available && !config.ready)return {label:'配置 AI 助手',status:'可选 · 需配置服务'};
-  if(config?.ready)return {label:'用 AI 建议规则',status:'可选 · 服务配置已填写'};
-  return {label:'查看 AI 助手',status:'可选 · 状态待确认'};
+  if(config?.availability_status==='import_error')return {label:tr("flow.guide.checkAI"),status:tr("flow.guide.aiImportError")};
+  if(config?.available===false)return {label:tr("flow.guide.installAI"),status:tr("flow.guide.aiMissing")};
+  if(config?.available && !config.ready)return {label:tr("flow.guide.configureAI"),status:tr("flow.guide.aiNeedsSetup")};
+  if(config?.ready)return {label:tr("flow.guide.useAI"),status:tr("flow.guide.aiConfigured")};
+  return {label:tr("flow.guide.viewAI"),status:tr("flow.guide.aiUnknown")};
 }

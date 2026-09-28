@@ -10,6 +10,7 @@ from typing import Any, Protocol
 from fastapi import HTTPException
 
 from sqlseed_web import plugin_environment
+from sqlseed_web.messages import message as tr
 from sqlseed_web.plugin_environment import InstalledPackage
 from sqlseed_web.plugin_management import ExecuteRequest, PlanRequest, PluginManager, _reject
 
@@ -32,13 +33,13 @@ class SupervisedPluginManager(PluginManager):
         self.phase = "ready"
         self.session_restore: dict[str, Any] = {}
         self._package_status = "failed"
-        self._package_message = "组件操作未完成。"
+        self._package_message = tr("backend.supervised_plugins.the_component_operation_did_not_complete")
 
     def _reason(self) -> str | None:
         if self.phase == "recovery_failed":
-            return "业务服务未恢复，请在页面重试恢复服务。"
+            return tr("backend.supervised_plugins.the_application_has_not_resumed_retry_service")
         if self.phase != "ready":
-            return "正在处理组件操作，业务服务将自动恢复。"
+            return tr("backend.supervised_plugins.a_component_operation_is_running_the_application")
         return super()._reason()
 
     def status(self) -> dict[str, Any]:
@@ -61,7 +62,7 @@ class SupervisedPluginManager(PluginManager):
             result = super().plan(body)
             warnings = [
                 *result["warnings"][:-1],
-                "操作期间会短暂暂停工作台；完成后自动恢复服务与可恢复的连接，无需手动重启。",
+                tr("backend.supervised_plugins.the_workbench_pauses_briefly_during_the_operation"),
             ]
             result["warnings"] = warnings
             if self._plan is not None:
@@ -81,7 +82,10 @@ class SupervisedPluginManager(PluginManager):
             if result["status"] == "failed":
                 self.controller.resume()
                 return result
-            self._stage("preparing", "正在暂存连接并准备组件操作。")
+            self._stage(
+                "preparing",
+                tr("backend.supervised_plugins.preserving_connections_and_preparing_the_component_operation"),
+            )
             return self.task_snapshot()
 
     def task_snapshot(self, task_id: str | None = None) -> dict[str, Any]:
@@ -102,11 +106,15 @@ class SupervisedPluginManager(PluginManager):
 
     def _run(self, operation_plan: dict[str, Any], before: dict[str, InstalledPackage]) -> None:
         self._package_status = "failed"
-        self._package_message = "组件操作未完成，业务服务已恢复；请检查服务日志后重试。"
+        self._package_message = tr("backend.supervised_plugins.the_component_operation_did_not_complete_the")
         try:
             self.controller.enter_maintenance()
-            action_label = {"install": "安装", "uninstall": "卸载", "update": "更新"}[operation_plan["action"]]
-            self._stage("installing", f"正在{action_label}组件。")
+            action_label = {
+                "install": tr("backend.supervised_plugins.install"),
+                "uninstall": tr("backend.supervised_plugins.uninstall"),
+                "update": tr("backend.supervised_plugins.update"),
+            }[operation_plan["action"]]
+            self._stage("installing", tr("backend.supervised_plugins.component_operation", p1=action_label))
             if plugin_environment.installed_packages(self.environment.prefix) != before:
                 raise RuntimeError("environment changed before installation")
             super()._run(operation_plan, before)
@@ -114,18 +122,20 @@ class SupervisedPluginManager(PluginManager):
                 if self._task is not None:
                     self._package_status = self._task["status"]
                     self._package_message = (
-                        "组件操作完成，业务服务已自动恢复。"
+                        tr("backend.supervised_plugins.the_component_operation_completed_and_the_application")
                         if self._package_status == "succeeded"
-                        else "组件操作失败，业务服务已恢复；请查看输出后重试。"
+                        else tr("backend.supervised_plugins.the_component_operation_failed_the_application_has")
                     )
         except (HTTPException, OSError, RuntimeError, ValueError):
             self._package_status = "failed"
-            self._package_message = "组件操作未完成，业务服务已恢复；环境未通过操作前检查。"
-            self._output("组件操作未完成，正在自动恢复业务服务。")
+            self._package_message = tr("backend.supervised_plugins.precheck_failed_service_restored")
+            self._output(tr("backend.supervised_plugins.the_component_operation_did_not_complete_restoring"))
         finally:
             self._restore()
 
-    def _recovery_failed(self, message: str = "业务服务未恢复，请点击重试恢复；不会重复安装或卸载。") -> None:
+    def _recovery_failed(
+        self, message: str = tr("backend.supervised_plugins.the_application_has_not_resumed_retry_recovery")
+    ) -> None:
         with self._lock:
             self.phase = "recovery_failed"
             self.restart_required = False
@@ -143,9 +153,9 @@ class SupervisedPluginManager(PluginManager):
                     raise RuntimeError("cleanup must be retried explicitly")
                 self._finish_installer_cleanup()
             except (OSError, RuntimeError, subprocess.SubprocessError):
-                self._recovery_failed("安装进程清理尚未确认，环境保持锁定；请点击重试恢复，不会重复安装或卸载。")
+                self._recovery_failed(tr("backend.supervised_plugins.installer_cleanup_has_not_been_confirmed_the"))
                 return
-        self._stage("restoring", "正在恢复业务服务与连接。")
+        self._stage("restoring", tr("backend.supervised_plugins.restoring_the_application_and_connections"))
         restored = None
         try:
             restored = self.controller.restore_business()
@@ -170,8 +180,14 @@ class SupervisedPluginManager(PluginManager):
     def recover(self) -> dict[str, Any]:
         with self._lock:
             if self.phase != "recovery_failed":
-                raise HTTPException(409, detail={"code": "recovery_not_needed", "message": "当前服务无需恢复。"})
-            self._stage("restoring", "正在重试恢复业务服务。")
+                raise HTTPException(
+                    409,
+                    detail={
+                        "code": "recovery_not_needed",
+                        "message": tr("backend.supervised_plugins.the_service_does_not_need_recovery"),
+                    },
+                )
+            self._stage("restoring", tr("backend.supervised_plugins.retrying_application_recovery"))
             self._worker = threading.Thread(
                 target=self._restore, kwargs={"retry_cleanup": True}, daemon=False, name="sqlseed-service-recover"
             )
@@ -179,5 +195,5 @@ class SupervisedPluginManager(PluginManager):
                 self._worker.start()
             except RuntimeError as exc:
                 self.phase = "recovery_failed"
-                raise _reject("暂时无法恢复服务，请稍后重试。") from exc
+                raise _reject(tr("backend.supervised_plugins.cannot_restore_the_service_yet_retry_shortly")) from exc
             return self.status()

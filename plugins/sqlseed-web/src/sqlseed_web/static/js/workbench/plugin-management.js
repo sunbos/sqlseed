@@ -1,14 +1,16 @@
+import {tr, joinText, formatNumber, setText, appendContent, replaceContent, UserFacingError, errorText, serverText, serverMessages} from '../i18n.js';
+import '../i18n/messages/components.js';
 import { h, api } from '../api.js';
 import { button, modal } from './ui.js';
 const prefix = '/api/settings/plugins';
 const managed = new Set(['ai', 'cli', 'mcp', 'mimesis']);
-const operationLabels = {install: '安装', uninstall: '卸载', update: '更新'};
+const operationLabels = {install: tr('plugins.install'), uninstall: tr('plugins.uninstall'), update: tr('plugins.update')};
 export function componentImpact(id) {
   return {
-    ai: 'AI 规则建议与分析不可用；手动配置、预览和生成数据仍可使用。',
-    cli: '终端 sqlseed 命令不可用；网页中的手动配置、预览和生成数据仍可使用。',
-    mcp: 'MCP 客户端调用 sqlseed 的功能不可用；网页工作台仍可使用。',
-    mimesis: '使用 Mimesis 的配置暂时无法预览或生成数据；请重新安装，或主动改用其他可用引擎。'
+    ai: tr('plugins.aiImpact'),
+    cli: tr('plugins.cliImpact'),
+    mcp: tr('plugins.mcpImpact'),
+    mimesis: tr('plugins.mimesisImpact')
   }[id] || '';
 }
 export function createPluginManagement({
@@ -37,8 +39,8 @@ export function createPluginManagement({
   const updateEntries = new Set();
   const el = h('section', {
     class: 'settings-management',
-    'aria-label': '插件管理'
-  }, h('p', {}, '正在读取插件管理状态…'));
+    'aria-label': tr('plugins.management')
+  }, h('p', {}, tr('plugins.loading')));
   const current = expected => active && expected === version;
   const automatic = () => info?.automatic_lifecycle === true;
   const maintenance = () => Boolean(info?.enabled) && !automatic();
@@ -68,56 +70,56 @@ export function createPluginManagement({
     const environmentOpen = Boolean(el.querySelector('[data-plugin-environment]')?.open);
     function managementAvailabilityHint() {
       if (automatic()) {
-        return info.reason || '按需安装、更新或卸载可选组件，完成后自动生效。';
+        return serverText(info, 'reason') || tr('plugins.automaticHint');
       } else if (maintenance()) {
-        return info.reason || '可在此环境中安装、更新或卸载可选组件。';
+        return serverText(info, 'reason') || tr('plugins.manualHint');
       } else {
-        return '此部署暂不支持网页内管理组件，请联系应用管理员。';
+        return tr('plugins.unavailable');
       }
     }
-    el.replaceChildren(h('h3', {}, maintenance() ? '插件维护模式' : '组件管理'), h('p', {}, error || managementAvailabilityHint()));
+    replaceContent(el, h('h3', {}, maintenance() ? tr('plugins.maintenance') : tr('plugins.components')), h('p', {}, error || managementAvailabilityHint()));
     if (info?.python_executable) {
       const environment = h('details', {
         class: 'settings-management-environment',
         'data-plugin-environment': ''
-      }, h('summary', {}, '环境信息'), h('p', {
+      }, h('summary', {}, tr('plugins.environment')), h('p', {
         class: 'mono'
       }, info.python_executable));
       environment.open = environmentOpen;
-      el.append(environment);
+      appendContent(el, environment);
     }
     if (info?.restart_required && !automatic()) {
-      el.append(h('p', {
+      appendContent(el, h('p', {
         class: 'settings-management-restart',
         role: 'status'
-      }, task?.status === 'running' ? '任务结束后，停止 Web 并退出维护模式；重新启动普通模式后验证组件。' : '环境已发生变更。请停止 Web，退出维护模式后重新启动普通模式，再验证组件可用性。'));
+      }, task?.status === 'running' ? tr('plugins.maintenanceHint') : tr('plugins.restartRequired')));
     }
     if (pending) {
-      el.append(h('p', {
+      appendContent(el, h('p', {
         class: 'settings-notice',
         role: 'status'
-      }, '正在处理，请稍候…'));
+      }, tr('plugins.processing')));
     }
     if (task) {
       renderTaskProgress();
     }
     if (automatic() && info?.phase === 'recovery_failed') {
-      el.append(button('重试恢复服务', recover, {
+      appendContent(el, button(tr('plugins.recover'), recover, {
         small: true,
         disabled: busy()
       }));
     }
     if (info?.session_restore?.session_lost) {
-      el.append(h('p', {
+      appendContent(el, h('p', {
         class: 'settings-management-restart',
         role: 'status'
-      }, info.session_restore.message || '服务意外退出，原连接和会话密钥需要重新配置。'));
+      }, serverText(info.session_restore) || tr('plugins.sessionLost')));
     }
     if (info?.session_restore?.failed_connections?.length) {
-      el.append(h('section', {
+      appendContent(el, h('section', {
         class: 'settings-management-restart',
         role: 'status'
-      }, h('strong', {}, '部分数据库连接未恢复'), ...info.session_restore.failed_connections.map(item => h('p', {}, item.message || '请检查数据库连接后重新连接。'))));
+      }, h('strong', {}, tr('plugins.connectionsFailed')), ...info.session_restore.failed_connections.map(item => h('p', {}, serverText(item) || tr('plugins.reconnectHint')))));
     }
     onChange();
     for (const entry of updateEntries) entry.draw();
@@ -125,59 +127,59 @@ export function createPluginManagement({
       let state;
       if (taskError) {
         if (automatic() && reconnects < 30) {
-          state = '重新连接中';
+          state = tr('plugins.reconnecting');
         } else {
-          state = '状态暂时未知';
+          state = tr('plugins.unknownStatus');
         }
       } else {
         state = {
-          running: '执行中',
-          succeeded: '已完成',
-          failed: '执行失败'
-        }[task.status] || '状态暂时未知';
+          running: tr('plugins.running'),
+          succeeded: tr('plugins.succeeded'),
+          failed: tr('plugins.failed')
+        }[task.status] || tr('plugins.unknownStatus');
       }
       const progress = h('section', {
         class: 'settings-plugin-task',
-        'aria-label': '插件任务',
+        'aria-label': tr('plugins.task'),
         'aria-busy': String(task.status === 'running')
-      }, h('h4', {}, `${operationLabels[task.action] || '处理'} ${{
+      }, h('h4', {}, joinText([operationLabels[task.action] || tr('plugins.process'), " ", {
         ai: 'AI',
         cli: 'CLI',
         mcp: 'MCP',
         mimesis: 'Mimesis'
-      }[task.component_id] || task.component_id} · ${state}`), h('p', {
+      }[task.component_id] || task.component_id, " · ", state])), h('p', {
         role: 'status',
         'aria-live': 'polite'
-      }, taskError || task.message || state));
+      }, taskError || serverText(task) || state));
       if (automatic() && task.status === 'running') {
-        progress.append(h('ol', {
+        appendContent(progress, h('ol', {
           class: 'settings-plugin-stages',
-          'aria-label': '处理阶段'
-        }, ...[['preparing', '准备'], ['installing', '处理组件'], ['restoring', '恢复服务']].map(([stage, label]) => h('li', {
+          'aria-label': tr('plugins.stages')
+        }, ...[['preparing', tr('plugins.prepare')], ['installing', tr('plugins.installStage')], ['restoring', tr('plugins.restore')]].map(([stage, label]) => h('li', {
           'aria-current': task.stage === stage ? 'step' : 'false'
         }, label))));
       }
       if (task.output?.length) {
         const output = h('details', {
           'data-plugin-output': ''
-        }, h('summary', {}, '查看执行输出'), h('pre', {
+        }, h('summary', {}, tr('plugins.viewOutput')), h('pre', {
           class: 'settings-plugin-output'
-        }, task.output.join('\n')));
+        }, joinText(serverMessages(task, 'output'), '\n')));
         output.open = outputOpen;
-        progress.append(output);
+        appendContent(progress, output);
       }
       if (Number.isInteger(task.returncode) && !automatic()) {
-        progress.append(h('p', {
+        appendContent(progress, h('p', {
           class: 'muted'
-        }, `退出码：${task.returncode}`));
+        }, tr('plugins.exitCode', {code: task.returncode})));
       }
       if (taskError && (!automatic() || reconnects >= 30)) {
-        progress.append(button('重新读取任务状态', poll, {
+        appendContent(progress, button(tr('plugins.reloadTask'), poll, {
           small: true,
           disabled: polling
         }));
       }
-      el.append(progress);
+      appendContent(el, progress);
     }
   }
   async function refresh() {
@@ -201,9 +203,9 @@ export function createPluginManagement({
       await receiveManagement(response);
     } catch (error_) {
       if (!current(expected)) return;
-      error = `无法读取插件管理状态：${error_.message}。可稍后刷新状态。`;
+      error = tr('plugins.loadError', {detail: errorText(error_)});
       if (automatic() && (uncertain || syncing) && ++reconnects < 30) {
-        error = '正在重新连接服务并核对操作结果，不会重复提交。';
+        error = tr('plugins.reconnectingResult');
         timer = setTimeout(refresh, 1000);
       }
     } finally {
@@ -260,14 +262,14 @@ export function createPluginManagement({
         return;
       }
       if (!plan.plan_id || plan.component_id !== id || plan.action !== action || !Number.isFinite(plan.expires_in) || plan.expires_in <= 0) {
-        throw new Error('服务返回的计划与所选操作不一致，请刷新状态。');
+        throw new UserFacingError(tr('plugins.invalidPlan'));
       }
       if (action === 'update' && (!plan.version || !plan.target_version || !plan.artifact?.filename || !/^[0-9a-f]{64}$/.test(plan.artifact?.sha256 || ''))) {
-        throw new Error('更新计划缺少已核验的版本或软件包，请重新检查更新。');
+        throw new UserFacingError(tr('plugins.incompleteUpdatePlan'));
       }
       showReview(plan);
     } catch (error_) {
-      if (current(expected)) error = `无法生成操作计划：${error_.message}`;
+      if (current(expected)) error = tr('plugins.planError', {detail: errorText(error_)});
     } finally {
       if (current(expected)) {
         pending = false;
@@ -284,7 +286,7 @@ export function createPluginManagement({
       dialog: null,
       timer: null
     };
-    const dialog = modal(`确认${operation}插件`, {
+    const dialog = modal(tr('plugins.reviewTitle', {operation}), {
       dismiss: 'footer',
       onClose: () => {
         clearTimeout(confirmation.timer);
@@ -301,45 +303,45 @@ export function createPluginManagement({
     const expiry = h('p', {
       class: 'muted',
       role: 'status'
-    }, `此计划 ${Math.ceil(plan.expires_in / 60)} 分钟内有效。`);
+    }, tr('plugins.expiry', {count: Math.ceil(plan.expires_in / 60), value: formatNumber(Math.ceil(plan.expires_in / 60))}));
     const details = h('dl', {
       class: 'settings-plugin-plan'
-    }, h('dt', {}, '组件'), h('dd', {
+    }, h('dt', {}, tr('plugins.component')), h('dd', {
       class: 'mono'
-    }, plan.distribution), h('dt', {}, '版本'), h('dd', {
+    }, plan.distribution), h('dt', {}, tr('plugins.version')), h('dd', {
       class: 'mono'
-    }, plan.action === 'update' ? `${plan.version} → ${plan.target_version}` : plan.version || '兼容版本'), h('dt', {}, '目标环境'), h('dd', {
+    }, plan.action === 'update' ? `${plan.version} → ${plan.target_version}` : plan.version || tr('plugins.compatibleVersion')), h('dt', {}, tr('plugins.targetEnvironment')), h('dd', {
       class: 'mono'
-    }, info.python_executable || '当前应用环境'));
+    }, info.python_executable || tr('plugins.currentEnvironment')));
     if (plan.action === 'update') {
-      dialog.body.append(h('p', {class: 'settings-component-impact'}, `${plan.version} → ${plan.target_version}；仅更新此组件，其他包保持原版本。`));
-      details.append(h('dt', {}, '软件包校验'), h('dd', {class: 'mono'}, `${plan.artifact?.filename || ''}\nSHA256 ${plan.artifact?.sha256 || ''}`));
-      if (plan.dependencies?.length) details.append(h('dt', {}, '保持的依赖版本'), h('dd', {class: 'mono'}, plan.dependencies.join('\n')));
+      appendContent(dialog.body, h('p', {class: 'settings-component-impact'}, tr('plugins.updateImpact', {from: plan.version, to: plan.target_version})));
+      appendContent(details, h('dt', {}, tr('plugins.artifactVerification')), h('dd', {class: 'mono'}, `${plan.artifact?.filename || ''}\nSHA256 ${plan.artifact?.sha256 || ''}`));
+      if (plan.dependencies?.length) appendContent(details, h('dt', {}, tr('plugins.keptDependencies')), h('dd', {class: 'mono'}, plan.dependencies.join('\n')));
     }
-    dialog.body.append(h('p', {}, automatic() ? `${operation} ${{
+    appendContent(dialog.body, h('p', {}, automatic() ? joinText([operation, " ", {
       ai: 'AI',
       cli: 'CLI',
       mcp: 'MCP',
       mimesis: 'Mimesis'
-    }[plan.component_id] || plan.distribution}` : plan.summary), ...(plan.action === 'uninstall' && componentImpact(plan.component_id) ? [h('p', {
+    }[plan.component_id] || plan.distribution]) : serverText(plan, 'summary')), ...(plan.action === 'uninstall' && componentImpact(plan.component_id) ? [h('p', {
       class: 'settings-component-impact'
-    }, `卸载后，${componentImpact(plan.component_id)}`)] : []), automatic() ? h('details', {
+    }, tr('plugins.uninstallImpact', {impact: componentImpact(plan.component_id)}))] : []), automatic() ? h('details', {
       class: 'settings-management-environment'
-    }, h('summary', {}, '技术信息'), details) : details, h('ul', {
+    }, h('summary', {}, tr('plugins.technicalInfo')), details) : details, h('ul', {
       class: 'settings-plugin-warnings'
-    }, ...(plan.warnings || []).map(warning => h('li', {}, warning))), expiry);
-    const confirm = button(`确认${operation}`, () => execute(confirmation), {
+    }, ...serverMessages(plan, 'warnings').map(warning => h('li', {}, warning))), expiry);
+    const confirm = button(tr('plugins.confirm', {operation}), () => execute(confirmation), {
       primary: true,
       'data-plugin-confirm': ''
     });
-    dialog.actions.append(button('取消', dialog.close), confirm);
+    appendContent(dialog.actions, button(tr('plugins.cancel'), dialog.close), confirm);
     confirmation.timer = setTimeout(() => {
       if (!active || review !== confirmation) {
         return;
       }
       confirmation.expired = true;
       confirm.disabled = true;
-      expiry.textContent = '计划已过期。请取消后重新生成并确认计划。';
+      setText(expiry, tr('plugins.expiredPlan'));
     }, plan.expires_in * 1000);
   }
   async function execute(confirmation) {
@@ -365,9 +367,9 @@ export function createPluginManagement({
       if (current(expected)) {
         if ([400, 403, 409, 422].includes(error_.status)) {
           uncertain = false;
-          error = error_.message;
+          error = errorText(error_);
         } else {
-          error = `提交结果未知：${error_.message}。正在核对后台状态，不会重复提交。`;
+          error = tr('plugins.unknownSubmit', {detail: errorText(error_)});
           if (automatic()) timer = setTimeout(refresh, 1000);
         }
       }
@@ -380,7 +382,7 @@ export function createPluginManagement({
   }
   function receiveTask(response) {
     if (!response?.task_id || !['running', 'succeeded', 'failed'].includes(response.status)) {
-      throw new Error('服务未返回有效任务状态');
+      throw new UserFacingError(tr('plugins.invalidTask'));
     }
     task = response;
     taskError = '';
@@ -405,7 +407,7 @@ export function createPluginManagement({
         return;
       }
       if (response.task_id !== id) {
-        throw new Error('服务返回的任务标识不一致');
+        throw new UserFacingError(tr('plugins.taskMismatch'));
       }
       receiveTask(response);
       if (automatic() && response.status !== 'running') {
@@ -423,7 +425,7 @@ export function createPluginManagement({
     function showPollingFailure(error_) {
       if (current(expected) && task?.task_id === id) {
         reconnects++;
-        taskError = automatic() && reconnects < 30 ? '正在重新连接服务，后台操作不会重复提交。' : `状态暂时未知：${error_.message}。任务可能仍在执行，请重新读取状态。`;
+        taskError = automatic() && reconnects < 30 ? tr('plugins.reconnectingTask') : tr('plugins.unknownTask', {detail: errorText(error_)});
         if (automatic() && reconnects < 30) timer = setTimeout(poll, 1000);
       }
     }
@@ -443,7 +445,7 @@ export function createPluginManagement({
       }
     } catch (error_) {
       if (current(expected)) {
-        error = `恢复结果暂时未知：${error_.message}。正在核对后台状态，不会重复提交。`;
+        error = tr('plugins.unknownRecovery', {detail: errorText(error_)});
         uncertain = true;
         timer = setTimeout(refresh, 1000);
       }
@@ -472,7 +474,7 @@ export function createPluginManagement({
     }
     let actionButton;
     if (action) {
-      actionButton = button(action === 'install' ? '安装' : '卸载', () => {
+      actionButton = button(action === 'install' ? tr('plugins.install') : tr('plugins.uninstall'), () => {
         if (actionButton.isConnected) {
           return prepare(item.id, action);
         }
@@ -488,27 +490,27 @@ export function createPluginManagement({
       class: 'settings-package-management'
     }, actionButton, !action && component.reason ? h('span', {
       class: 'muted'
-    }, component.reason) : null, component.required_by?.length ? h('span', {
+    }, serverText(component, 'reason')) : null, component.required_by?.length ? h('span', {
       class: 'muted'
-    }, `依赖此组件：${component.required_by.join('、')}`) : null);
+    }, tr('plugins.requiredBy', {components: component.required_by.join(', ')})) : null);
   }
   function updateControls(item) {
     if (!managed.has(item.id) || item.status !== 'update_available') return null;
     let disabled = false;
     const note = h('span', {class: 'muted', role: 'status'});
-    const action = button('查看更新计划', () => {
+    const action = button(tr('plugins.viewUpdatePlan'), () => {
       if (action.isConnected && !action.disabled) return prepare(item.id, 'update');
     }, {small: true, 'data-plugin-action': 'update'});
     const holder = h('div', {class: 'settings-package-management'}, action, note);
     const entry = {draw() {
       const component = info.components?.find(value => value.id === item.id);
       const stale = component?.version && component.version !== item.current;
-      let reason = error || info.reason || component?.update_reason || '';
-      if (!reason && !info.enabled) reason = '此部署不支持网页更新组件，请使用原环境管理工具。';
-      if (!reason && !info.token) reason = '管理凭据不可用，请刷新状态。';
-      if (!reason && component && component.can_update === undefined) reason = '此服务尚未提供组件更新，请更新应用后重试。';
+      let reason = error || serverText(info, 'reason') || serverText(component, 'update_reason') || '';
+      if (!reason && !info.enabled) reason = tr('plugins.noWebUpdates');
+      if (!reason && !info.token) reason = tr('plugins.noToken');
+      if (!reason && component && component.can_update === undefined) reason = tr('plugins.oldService');
       action.disabled = disabled || locked() || !allowed(item.id, 'update') || Boolean(stale);
-      note.textContent = stale ? '组件版本已变化，请重新检查更新。' : reason;
+      setText(note, stale ? tr('plugins.staleVersion') : reason);
     }};
     updateEntries.add(entry);
     entry.draw();

@@ -48,6 +48,22 @@ function harness(rect = {top: 540, bottom: 580, left: 330, right: 790, width: 46
   return {document, window, context, overlay, modal, body, dropdown, button, panel, popup, controls, changes, key, active, scrolls, advance: ms => {now += ms;}};
 }
 
+test('an implicit wrapper name follows its localized caption without lagging a language behind', async () => {
+  const ui=harness(undefined,{label:undefined});
+  ui.context.registerMessages('dropdownTest',{caption:['字段类型','Field type']});
+  const wrapper=ui.context.h('label',{},ui.context.tr('dropdownTest.caption'),ui.dropdown.el);
+  ui.body.append(wrapper);
+  await ui.button.dispatchEvent('focus');
+  assert.equal(ui.button.getAttribute('aria-label'),'字段类型');
+  ui.context.setLanguage('en');
+  assert.equal(ui.button.getAttribute('aria-label'),'Field type');
+  ui.context.setLanguage('zh-CN');
+  assert.equal(ui.button.getAttribute('aria-label'),'字段类型');
+  assert.equal(ui.dropdown.get(),'en');
+  assert.deepEqual(ui.changes,[]);
+  ui.dropdown.destroy();
+});
+
 test('options escape a scroll-clipped modal body and selection still updates the control', async () => {
   const ui = harness();
   await ui.button.click();

@@ -1,3 +1,5 @@
+import {tr, appendContent, setText, errorText} from './i18n.js';
+import './i18n/messages/flow.js';
 // 文件选择器：服务器端目录浏览模态框。
 // 浏览器安全模型不暴露本地绝对路径，但 UI 服务器就跑在本机，
 // 通过 /api/fs/browse 列目录实现真正的"选择文件"按钮。
@@ -34,11 +36,11 @@ export function openFilePicker({
   });
   const statusEl = h('div', {
     class: 'muted'
-  }, '加载中…');
+  }, tr("flow.files.loading"));
   const pathInput = h('input', {
     class: 'file-path-input',
     spellcheck: 'false',
-    placeholder: '目录路径',
+    placeholder: tr("flow.files.path"),
     onkeydown: e => {
       if (e.key === 'Enter') {
         load(e.target.value.trim() || null);
@@ -53,15 +55,15 @@ export function openFilePicker({
   let selected = null;
   const dialog = h('div', {
     class: 'modal'
-  }, h('h3', {}, isDir ? '选择文件夹' : '选择数据库文件'), h('div', {
+  }, h('h3', {}, isDir ? tr("flow.files.chooseFolder") : tr("flow.files.chooseDatabase")), h('div', {
     class: 'row'
   }, pathInput, h('button', {
     class: 'small',
     onclick: () => load(pathInput.value.trim() || null)
-  }, '转到'), h('button', {
+  }, tr("flow.files.go")), h('button', {
     class: 'small',
     onclick: () => load(null)
-  }, '主目录'), h('label', {
+  }, tr("flow.files.home")), h('label', {
     class: 'muted'
   }, h('input', {
     type: 'checkbox',
@@ -69,13 +71,13 @@ export function openFilePicker({
       showAll.value = e.target.checked;
       load(current);
     }
-  }), '显示全部文件')), crumbs, h('div', {
+  }), tr("flow.files.showAll"))), crumbs, h('div', {
     class: 'file-list-wrap'
   }, listing), statusEl, h('div', {
     class: 'row end'
   }, h('button', {
     onclick: close
-  }, '取消'),
+  }, tr("flow.action.cancel")),
   // file 模式：点文件即选中并关闭，确认按钮保持禁用（仅作占位）。
   // dir 模式：目录只能逐级进入，靠确认按钮选中「当前所在目录」。
   isDir ? h('button', {
@@ -86,11 +88,11 @@ export function openFilePicker({
       }
       close();
     }
-  }, '选择此文件夹') : h('button', {
+  }, tr("flow.files.selectFolder")) : h('button', {
     class: 'primary',
     disabled: true,
     id: 'fp-confirm'
-  }, '选择')));
+  }, tr("flow.action.select"))));
   function close() {
     overlay.remove();
   }
@@ -110,7 +112,7 @@ export function openFilePicker({
   function renderCrumbs(path) {
     clear(crumbs);
     const parts = path.split('/').filter(Boolean);
-    crumbs.append(h('button', {
+    appendContent(crumbs, h('button', {
       class: 'small',
       onclick: () => load('/')
     }, '/'));
@@ -118,7 +120,7 @@ export function openFilePicker({
     for (const part of parts) {
       acc += `/${part}`;
       const target = acc;
-      crumbs.append(h('span', {
+      appendContent(crumbs, h('span', {
         class: 'muted'
       }, '›'), h('button', {
         class: 'small',
@@ -128,7 +130,7 @@ export function openFilePicker({
   }
   async function load(path) {
     clear(listing);
-    statusEl.textContent = '加载中…';
+    setText(statusEl, tr("flow.files.loading"));
     try {
       const q = path ? `?path=${encodeURIComponent(path)}` : '';
       const fileFilterQuery = () => {
@@ -143,12 +145,12 @@ export function openFilePicker({
       pathInput.value = res.path;
       renderCrumbs(res.path);
       clear(listing);
-      statusEl.textContent = `${res.entries.length} 个条目`;
+      setText(statusEl, tr("flow.files.entries", {count: res.entries.length}));
       if (!res.entries.length) {
-        listing.append(h('div', {
+        appendContent(listing, h('div', {
           class: 'muted',
           style: 'padding:16px'
-        }, '（空目录）'));
+        }, tr("flow.files.empty")));
       }
       for (const entry of res.entries) {
         const entryKindLabel = () => {
@@ -160,7 +162,7 @@ export function openFilePicker({
             return '··';
           }
         };
-        listing.append(h('div', {
+        appendContent(listing, h('div', {
           class: `file-entry${entry.is_db ? ' db' : ''}${entry.is_dir ? ' dir' : ''}`,
           role: 'button',
           tabindex: '0',
@@ -181,12 +183,12 @@ export function openFilePicker({
         }, humanSize(entry.size)) : null));
       }
     } catch (e) {
-      statusEl.textContent = '';
-      listing.append(msg(`无法浏览：${e.message}`));
+      setText(statusEl, '');
+      appendContent(listing, msg(tr("flow.files.error", {detail: errorText(e)})));
     }
   }
-  document.body.append(overlay);
-  overlay.append(dialog);
+  appendContent(document.body, overlay);
+  appendContent(overlay, dialog);
   load(startPath || null);
 }
 function humanSize(n) {

@@ -46,12 +46,35 @@ function harness() {
     const source = fs.readFileSync(path.join(root,name),'utf8').replace(/^import .*;\s*$/gm,'').replace(/^export /gm,'');
     vm.runInContext(source, context, {filename:name});
   }
-  return {document, observers, registrations, create: options => context.createSchemaGraph(options), viewport:context.graphViewport};
+  return {document, context, observers, registrations, create: options => context.createSchemaGraph(options), viewport:context.graphViewport};
 }
 
 const nodeIds = graph => graph.el.querySelectorAll('[data-graph-node]').map(node=>node.getAttribute('data-graph-node'));
 const button = (graph, action) => graph.el.querySelector(`[data-graph-action="${action}"]`) || graph.toolbar?.querySelector(`[data-graph-action="${action}"]`);
 const searchInput = graph => (graph.toolbar || graph.el).querySelector('[data-graph-search]');
+
+test('UI language updates graph controls and SVG descriptions without redrawing nodes or altering the viewport',async()=>{
+  const ui=harness(); const data=schema(); const events=[];
+  const graph=ui.create({schema:data,focus:'orders',onViewChange:view=>events.push(view)});
+  ui.document.body.append(graph.toolbar,graph.el);
+  await button(graph,'zoom-in').click();
+  const search=searchInput(graph),svg=graph.el.querySelector('svg.schema-graph');
+  const node=graph.el.querySelector('[data-graph-node="orders"]');
+  ui.document.activeElement=search; search.selectionStart=0;
+  const before=JSON.stringify(graph.getView()),eventCount=events.length;
+  ui.context.setLanguage('en');
+  assert.equal(graph.el.querySelector('svg.schema-graph'),svg);
+  assert.equal(graph.el.querySelector('[data-graph-node="orders"]'),node);
+  assert.equal(ui.document.activeElement,search); assert.equal(searchInput(graph),search);
+  assert.match(node.getAttribute('aria-label'),/View fields and relationships for orders/);
+  assert.match(search.getAttribute('placeholder'),/Find tables or fields/);
+  assert.match(svg.getAttribute('aria-label'),/Tables and foreign-key relationships/);
+  assert.equal(JSON.stringify(graph.getView()),before); assert.equal(events.length,eventCount);
+  ui.context.setLanguage('zh-CN');
+  assert.match(node.getAttribute('aria-label'),/查看 orders/);
+  assert.equal(JSON.stringify(graph.getView()),before); assert.deepEqual(Array.from(ui.context.missingMessages()),[]);
+  graph.destroy();
+});
 
 test('real schema nodes and FK directions survive rendering; browsing never changes inputs', async () => {
   const {create} = harness();

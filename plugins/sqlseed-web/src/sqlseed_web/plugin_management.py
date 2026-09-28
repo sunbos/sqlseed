@@ -20,10 +20,13 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, ConfigDict
 
 from sqlseed_web import plugin_environment, plugin_updates
+from sqlseed_web.diagnostics import public_error
+from sqlseed_web.messages import MessageRoute
+from sqlseed_web.messages import message as tr
 from sqlseed_web.plugin_environment import COMPONENT_DISTRIBUTIONS, EnvironmentLock, InstalledPackage
 from sqlseed_web.plugin_process import InstallerCleanupPending, run_installer
 
-router = APIRouter(prefix="/api/settings/plugins", tags=["plugin-maintenance"])
+router = APIRouter(route_class=MessageRoute, prefix="/api/settings/plugins", tags=["plugin-maintenance"])
 
 
 class PlanRequest(BaseModel):
@@ -74,17 +77,33 @@ def guard_request(request: Request, manager: ManagementService) -> None:
     except ValueError:
         valid_host = False
     if not valid_host or request.client is None or not _loopback(request.client.host):
-        raise _reject("插件管理仅允许本机访问。", "plugin_management_forbidden", 403)
+        raise _reject(
+            tr("backend.plugin_management.plugin_management_is_available_only_from_this"),
+            "plugin_management_forbidden",
+            403,
+        )
     origin = request.headers.get("origin")
     expected = f"{request.url.scheme}://{hosts[0]}"
     if origin is not None and origin != expected:
-        raise _reject("插件管理请求必须来自当前页面。", "plugin_management_forbidden", 403)
+        raise _reject(
+            tr("backend.plugin_management.plugin_management_requests_must_come_from_the"),
+            "plugin_management_forbidden",
+            403,
+        )
     if request.headers.get("sec-fetch-site") == "cross-site":
-        raise _reject("插件管理请求必须来自当前页面。", "plugin_management_forbidden", 403)
+        raise _reject(
+            tr("backend.plugin_management.plugin_management_requests_must_come_from_the"),
+            "plugin_management_forbidden",
+            403,
+        )
     if request.method not in {"GET", "HEAD"}:
         token = request.headers.get("x-sqlseed-management-token", "")
         if origin != expected or not hmac.compare_digest(token, manager.token):
-            raise _reject("插件管理请求缺少有效的页面凭据。", "plugin_management_forbidden", 403)
+            raise _reject(
+                tr("backend.plugin_management.the_plugin_management_request_lacks_valid_page"),
+                "plugin_management_forbidden",
+                403,
+            )
 
 
 class PluginManager:
@@ -113,8 +132,10 @@ class PluginManager:
             environment_lock.acquire()
         except (OSError, RuntimeError) as exc:
             if not self.enabled:
-                raise RuntimeError("无法领取 Web 环境使用锁；请检查权限或停止正在运行的维护服务。") from exc
-            self._startup_reason = "无法领取维护锁；请检查权限并停止使用此环境的其他 Web 进程。"
+                raise RuntimeError(
+                    tr("backend.plugin_management.cannot_acquire_the_web_environment_lock_check")
+                ) from exc
+            self._startup_reason = tr("backend.plugin_management.cannot_acquire_the_maintenance_lock_check_permissions")
             return
         self._environment_lock = environment_lock
 
@@ -128,19 +149,19 @@ class PluginManager:
 
     def _reason(self) -> str | None:
         if not self.enabled:
-            return "此部署由外部服务托管，暂不支持网页安装或卸载；请联系部署管理员。"
+            return tr("backend.plugin_management.this_deployment_is_externally_hosted_and_cannot")
         if self._installer_cleanup is not None:
-            return "安装进程清理尚未确认，环境继续保持锁定，请重试恢复服务。"
+            return tr("backend.plugin_management.installer_cleanup_has_not_been_confirmed_the")
         if self.restart_required:
-            return "环境已执行变更，请先停止维护服务并正常重启 Web 验证。"
+            return tr("backend.plugin_management.the_environment_has_changed_stop_maintenance_mode")
         if self._task and self._task["status"] == "running":
-            return "已有组件操作正在执行。"
+            return tr("backend.plugin_management.a_component_operation_is_already_running")
         if self.environment.reason:
             return self.environment.reason
         if self._startup_reason:
             return self._startup_reason
         if self._environment_lock is None:
-            return "维护服务尚未领取环境锁。"
+            return tr("backend.plugin_management.the_maintenance_service_has_not_acquired_the")
         return None
 
     def status(self) -> dict[str, Any]:
@@ -151,7 +172,7 @@ class PluginManager:
                     plugin_environment.installed_packages(self.environment.prefix), reason
                 )
             except RuntimeError:
-                reason = "已安装组件的元数据无法安全解析；请先修复当前 Python 环境。"
+                reason = tr("backend.plugin_management.installed_package_metadata_cannot_be_safely_parsed")
                 components = []
             args = [self.environment.executable, "-m", "sqlseed_web", "--manage-plugins"]
             command = shlex.join(args)
@@ -177,38 +198,51 @@ class PluginManager:
             try:
                 packages = plugin_environment.installed_packages(self.environment.prefix)
             except RuntimeError as exc:
-                raise _reject(str(exc)) from exc
+                raise _reject(public_error(exc)) from exc
             distribution = COMPONENT_DISTRIBUTIONS[body.component_id]
             package = packages.get(distribution)
             if body.action == "install" and package is not None:
-                raise _reject("此组件已经安装；加载异常请使用修复指引。")
+                raise _reject(tr("backend.plugin_management.this_component_is_already_installed_use_the"))
             if body.action == "uninstall":
                 if package is None:
-                    raise _reject("此组件尚未安装。")
+                    raise _reject(tr("backend.plugin_management.this_component_is_not_installed"))
                 if users := plugin_environment.required_by(distribution, packages):
-                    raise _reject(f"由 {', '.join(users)} 使用，请先卸载这些可选组件。")
+                    raise _reject(
+                        tr(
+                            "backend.plugin_management.required_by_uninstall_those_optional_components_first",
+                            p1=", ".join(users),
+                        )
+                    )
             update = None
             if body.action == "update":
                 if package is None:
-                    raise _reject("此组件尚未安装，请先安装组件。")
+                    raise _reject(tr("backend.plugin_management.this_component_is_not_installed_install_it"))
                 try:
                     update = plugin_updates.prepare_update(distribution, packages)
                 except ValueError as exc:
-                    raise _reject(str(exc), "plugin_update_blocked") from exc
+                    raise _reject(public_error(exc), "plugin_update_blocked") from exc
             self._snapshot = packages
-            action_label = {"install": "安装", "uninstall": "卸载", "update": "更新"}[body.action]
+            action_label = {
+                "install": tr("backend.plugin_management.install"),
+                "uninstall": tr("backend.plugin_management.uninstall"),
+                "update": tr("backend.plugin_management.update"),
+            }[body.action]
             self._plan = {
                 "plan_id": secrets.token_urlsafe(24),
                 "component_id": body.component_id,
                 "action": body.action,
                 "distribution": distribution,
                 "version": package.version if package else None,
-                "summary": f"{action_label} {distribution}，目标是当前 Web 的 Python 环境。",
+                "summary": tr(
+                    "backend.plugin_management.in_the_python_environment_currently_running_web",
+                    p1=action_label,
+                    p2=distribution,
+                ),
                 "warnings": [
-                    "安装会访问软件包源，并冻结所有已安装组件的版本；不兼容时失败，不自动升级。"
+                    tr("backend.plugin_management.installation_accesses_the_package_source_and_freezes")
                     if body.action == "install"
-                    else "仅卸载选中的组件，不自动卸载其依赖。重新安装需要软件源提供兼容版本；开发版或本地安装的组件可能无法恢复。",
-                    "完成或失败后均需停止维护服务，正常重启 Web 并检查组件状态。",
+                    else tr("backend.plugin_management.only_the_selected_component_is_uninstalled_without"),
+                    tr("backend.plugin_management.after_success_or_failure_stop_maintenance_mode"),
                 ],
                 "expires_in": 300,
                 "expires_at": time.monotonic() + 300,
@@ -219,9 +253,9 @@ class PluginManager:
                     dependencies=list(update.dependencies),
                     artifact={"filename": update.filename, "sha256": update.sha256, "source": "https://pypi.org"},
                     warnings=[
-                        "仅更新所选组件；依赖和其他已安装包保持当前版本，缺失或不兼容的依赖会阻止执行。",
-                        "只安装已核验的官方 wheel，不自动降级。失败后不会自动回滚；可查看输出并使用原环境管理工具修复。",
-                        "完成或失败后均需停止维护服务，正常重启 Web 并检查组件状态。",
+                        tr("backend.plugin_management.only_the_selected_component_is_updated_dependencies"),
+                        tr("backend.plugin_management.only_a_verified_official_wheel_is_installed"),
+                        tr("backend.plugin_management.after_success_or_failure_stop_maintenance_mode"),
                     ],
                     _update=update,
                 )
@@ -237,21 +271,21 @@ class PluginManager:
                 or not hmac.compare_digest(operation_plan["plan_id"], body.plan_id)
                 or time.monotonic() > operation_plan["expires_at"]
             ):
-                raise _reject("操作计划已失效，请重新查看并确认。")
+                raise _reject(tr("backend.plugin_management.this_operation_plan_has_expired_review_and"))
             try:
                 current = plugin_environment.installed_packages(self.environment.prefix)
             except RuntimeError as exc:
-                raise _reject(str(exc)) from exc
+                raise _reject(public_error(exc)) from exc
             if current != self._snapshot or plugin_environment._environment() != self.environment:
                 self._plan = None
-                raise _reject("Python 环境已发生变化，请重新查看并确认操作计划。")
+                raise _reject(tr("backend.plugin_management.the_python_environment_has_changed_review_and"))
             self._task = {
                 "task_id": secrets.token_urlsafe(24),
                 "component_id": operation_plan["component_id"],
                 "action": operation_plan["action"],
                 "status": "running",
                 "output": [],
-                "message": "正在准备环境操作。",
+                "message": tr("backend.plugin_management.preparing_the_environment_operation"),
                 "restart_required": False,
                 "returncode": None,
             }
@@ -263,24 +297,30 @@ class PluginManager:
                 self._worker.start()
             except RuntimeError:
                 self._worker = None
-                self._task.update(status="failed", message="无法启动组件操作。")
+                self._task.update(
+                    status="failed", message=tr("backend.plugin_management.cannot_start_the_component_operation")
+                )
             return self.task_snapshot()
 
     def task_snapshot(self, task_id: str | None = None) -> dict[str, Any]:
         with self._lock:
             if self._task is None or (task_id is not None and self._task["task_id"] != task_id):
-                raise _reject("找不到此组件操作；服务重启后任务记录不再保留。", "plugin_task_not_found", 404)
+                raise _reject(
+                    tr("backend.plugin_management.this_component_operation_was_not_found_task"),
+                    "plugin_task_not_found",
+                    404,
+                )
             return {**self._task, "output": list(self._task["output"])}
 
     def _output(self, text: str) -> None:
         with self._lock:
             if self._task is not None and len(self._task["output"]) < 200:
-                self._task["output"].append(text[:2000])
+                self._task["output"].append(text if len(text) <= 2000 else text[:2000])
 
     def _run(self, operation_plan: dict[str, Any], before: dict[str, InstalledPackage]) -> None:
         result = None
         succeeded = False
-        message = "组件操作失败；请检查输出并使用原环境管理工具修复。"
+        message = tr("backend.plugin_management.the_component_operation_failed_check_the_output")
         cleanup = ExitStack()
         try:
             directory = cleanup.enter_context(tempfile.TemporaryDirectory(prefix="sqlseed-plugin-plan-"))
@@ -296,20 +336,20 @@ class PluginManager:
             update = operation_plan.get("_update")
             if operation_plan["action"] == "update":
                 if not isinstance(update, plugin_updates.PreparedUpdate):
-                    raise ValueError("更新计划缺少已核验的软件包。")
-                self._output("正在下载并核验已确认的更新；其他组件版本保持不变。")
+                    raise ValueError(tr("backend.plugin_management.the_update_plan_lacks_a_verified_package"))
+                self._output(tr("backend.plugin_management.downloading_and_verifying_the_confirmed_update_other"))
                 try:
                     wheel = plugin_updates.download_update(update, Path(directory))
                 except ValueError as exc:
-                    self._output(str(exc))
+                    self._output(public_error(exc))
                     raise
                 # Network time is outside the metadata snapshot's trust boundary.
                 if (
                     plugin_environment.installed_packages(self.environment.prefix) != before
                     or plugin_environment._environment() != self.environment
                 ):
-                    self._output("下载期间 Python 环境已变化，未执行更新；请重新检查更新。")
-                    raise ValueError("下载期间环境已变化，请重新检查更新。")
+                    self._output(tr("backend.plugin_management.the_python_environment_changed_during_download_no"))
+                    raise ValueError(tr("backend.plugin_management.the_environment_changed_during_download_check_for"))
                 arguments = plugin_updates.update_arguments(self.environment, wheel, constraints)
             else:
                 arguments = plugin_environment.installer_arguments(
@@ -318,9 +358,12 @@ class PluginManager:
             with self._lock:
                 self.restart_required = True
                 if self._task is not None:
-                    self._task.update(restart_required=True, message="安装工具正在运行，请等待完成。")
+                    self._task.update(
+                        restart_required=True,
+                        message=tr("backend.plugin_management.the_installer_is_running_wait_for_completion"),
+                    )
             if self._environment_lock is None:
-                raise RuntimeError("环境锁已失效，未执行安装工具。")
+                raise RuntimeError(tr("backend.plugin_management.the_environment_lock_is_no_longer_valid"))
             result = run_installer(arguments, self._output, lock_descriptor=self._environment_lock.fileno())
             after = plugin_environment.installed_packages(self.environment.prefix)
             target = operation_plan["distribution"]
@@ -330,16 +373,16 @@ class PluginManager:
                 expected_target = after.get(target) == update.package
                 preserved = preserved and set(after) == set(before)
             if succeeded := result == 0 and expected_target and preserved:
-                message = "组件操作完成；请停止维护服务并正常重启 Web 验证。"
+                message = tr("backend.plugin_management.component_operation_completed_stop_maintenance_mode_and")
             elif result == 0:
-                message = "安装工具已退出，但组件元数据核验未通过；请检查环境并重启 Web。"
+                message = tr("backend.plugin_management.the_installer_exited_but_component_metadata_verification")
         except InstallerCleanupPending as error:
             error.hold(cleanup.pop_all())
             self._installer_cleanup = error
-            message = "安装进程清理尚未确认，环境继续保持锁定；请重试恢复服务。"
+            message = tr("backend.plugin_management.cleanup_pending_retry")
             self._output(message)
         except (OSError, RuntimeError, ValueError, subprocess.SubprocessError):
-            self._output("无法完成环境操作；请使用原环境管理工具检查。")
+            self._output(tr("backend.plugin_management.cannot_complete_the_environment_operation_check_it"))
         finally:
             cleanup.close()
             with self._lock:
@@ -352,7 +395,7 @@ class PluginManager:
             self._installer_cleanup = None
 
     def recover(self) -> dict[str, Any]:
-        raise _reject("此部署不支持自动恢复服务。")
+        raise _reject(tr("backend.plugin_management.this_deployment_does_not_support_automatic_service"))
 
 
 def _manager(request: Request) -> ManagementService:

@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sqlite3
 import sysconfig
 import tempfile
@@ -42,6 +43,41 @@ def _wait_for_run(read_json: Callable[[str], Any], run_id: str) -> Any:
             return run
         require(time.monotonic() < deadline, "Workbench generation did not finish")
         time.sleep(0.02)
+
+
+def _check_language_assets(request: Callable[..., Any], package: Path) -> int:
+    """Fetch installed language assets through HTTP and validate both catalogs."""
+    static = package / "static"
+    scripts = sorted((static / "js" / "i18n").rglob("*.js"))
+    require(bool(scripts), "The installed wheel is missing UI language modules")
+    language_root = (static / "js" / "i18n").resolve()
+    for module in (static / "js").rglob("*.js"):
+        imports = re.findall(r"(?:from\s+|import\s+)[\"']([^\"']+)[\"']", module.read_text(encoding="utf-8"))
+        for imported in imports:
+            target = (module.parent / imported).resolve()
+            if target.is_relative_to(language_root):
+                require(target.is_file(), f"Missing imported UI language module: {imported}")
+    files = [static / "js" / "i18n.js", *scripts, static / "i18n" / "backend-messages.json"]
+    for asset in files:
+        require(asset.is_file(), f"Missing language resource: {asset.relative_to(static)}")
+        route = "/static/" + asset.relative_to(static).as_posix()
+        with request(route) as response:
+            require(response.read() == asset.read_bytes(), f"Installed HTTP language resource differs: {route}")
+            require(response.headers["Cache-Control"] == "no-cache", f"Language resource is not revalidated: {route}")
+    backend = json.loads(files[-1].read_text(encoding="utf-8"))
+    require(
+        isinstance(backend, dict)
+        and bool(backend)
+        and all(
+            key.startswith("backend.")
+            and isinstance(pair, list)
+            and len(pair) == 2
+            and all(isinstance(text, str) and text for text in pair)
+            for key, pair in backend.items()
+        ),
+        "The installed backend catalog must contain Chinese and English messages",
+    )
+    return len(files)
 
 
 def main() -> None:
@@ -80,11 +116,18 @@ def main() -> None:
             supervisor.start()
             base = f"http://127.0.0.1:{supervisor.port}"
 
-            def request(path: str, payload: dict[str, Any] | None = None, origin: str | None = None):
+            def request(
+                path: str,
+                payload: dict[str, Any] | None = None,
+                origin: str | None = None,
+                language: str | None = None,
+            ):
                 data = json.dumps(payload).encode() if payload is not None else None
                 headers = {"Content-Type": "application/json"} if data else {}
                 if origin:
                     headers["Origin"] = origin
+                if language:
+                    headers["Accept-Language"] = language
                 return urlopen(Request(base + path, data=data, headers=headers), timeout=15)
 
             with request("/") as response:
@@ -92,6 +135,7 @@ def main() -> None:
                 require("sqlseed" in response.read().decode(), "Missing application page")
             with request("/static/js/app.js") as response:
                 require(response.status == 200 and len(response.read()) > 500, "Missing Web assets")
+            language_assets = _check_language_assets(request, Path(sqlseed_web.__file__).parent)
             with request("/api/connections", {"db_path": str(database), "provider": "base"}, base) as response:
                 require(response.status == 200, "Same-origin connection failed")
                 conn_id = json.load(response)["conn_id"]
@@ -123,15 +167,36 @@ def main() -> None:
                     return json.load(response)
 
             schema = read_json(f"/api/workbench/connections/{quote(conn_id, safe='')}/schema")
+            with request(f"/api/workbench/connections/{quote(conn_id, safe='')}/schema", language="en") as response:
+                require(json.load(response) == schema, "UI language changed the database schema or its hash")
+            empty_plan = {
+                "conn_id": conn_id,
+                "schema_hash": schema["schema_hash"],
+                "document": {"provider": "base", "locale": "zh_CN", "tables": []},
+            }
+            with request("/api/workbench/check", empty_plan, base, "en") as response:
+                english_check = json.load(response)
+            with request("/api/workbench/check", empty_plan, base, "zh-CN") as response:
+                chinese_check = json.load(response)
+            require(english_check == chinese_check, "UI language changed the generation configuration or check hash")
+            issue = english_check["issues"][0]
+            with request("/static/i18n/backend-messages.json") as response:
+                backend_catalog = json.load(response)
+            pair = backend_catalog[issue["message_key"]]
+            rendered = [template.format_map(issue["message_params"]) for template in pair]
+            require(
+                rendered[0] == issue["message"] and rendered[0] != rendered[1], "Issue lost its bilingual descriptor"
+            )
             draft = read_json(
                 "/api/workbench/drafts",
                 {
                     "conn_id": conn_id,
                     "name": "Installed wheel workbench check",
                     "schema_hash": schema["schema_hash"],
-                    "document": {"provider": "base", "tables": [{"name": "web_users", "count": 5}]},
+                    "document": {"provider": "base", "locale": "zh_CN", "tables": [{"name": "web_users", "count": 5}]},
                 },
             )
+            require(draft["document"]["locale"] == "zh_CN", "UI language changed the data generation locale")
             inputs = {
                 "conn_id": conn_id,
                 "schema_hash": draft["schema_hash"],
@@ -173,6 +238,9 @@ def main() -> None:
                         "web_rows": web_count,
                         "web": "ready",
                         "components": components,
+                        "language_assets": language_assets,
+                        "bilingual_issue": True,
+                        "language_preserves_config": True,
                     }
                 )
             )

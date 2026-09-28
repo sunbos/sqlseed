@@ -3,9 +3,10 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const vm=require('node:vm');
 const path=require('node:path');
+const {loadI18n}=require('./frontend_helpers.cjs');
 function create(request) {
-  const ctx=vm.createContext({structuredClone,JSON,Map,Set});
-  for(const file of ['model','session']) vm.runInContext(fs.readFileSync(path.join(__dirname,`../src/sqlseed_web/static/js/workbench/${file}.js`),'utf8').replace(/^import .*;\n/gm,'').replace(/^export /gm,''),ctx);
+  const ctx=vm.createContext({structuredClone,JSON,Map,Set,...loadI18n()});
+  for(const file of ['model','session']) vm.runInContext(fs.readFileSync(path.join(__dirname,`../src/sqlseed_web/static/js/workbench/${file}.js`),'utf8').replace(/^import[\s\S]*?;\s*\n/gm,'').replace(/^export /gm,''),ctx);
   ctx.request=request;
   return vm.runInContext(`new WorkbenchSession('connection-A', {schema_hash:'s1',tables:[{name:'users'}]}, request)`,ctx);
 }

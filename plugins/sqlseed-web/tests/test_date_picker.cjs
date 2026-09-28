@@ -40,7 +40,7 @@ function harness(value = '2024-02-29', {height = 872, width = 1144} = {}) {
   const calendar = () => document.querySelector('.wb-date-dialog');
   const action = label => calendar().querySelectorAll('button').find(button => button.getAttribute('aria-label') === label || button.textContent === label);
   const key = async (key, extra = {}) => document.dispatchEvent({type: 'keydown', key, target: document.activeElement, ...extra});
-  return {document, window, page, overlay, body, picker, changes, validity, calendar, action, key};
+  return {document, context, window, page, overlay, body, picker, changes, validity, calendar, action, key};
 }
 
 test('text input exposes ISO format and rejects impossible dates without emitting a value', async () => {
@@ -53,7 +53,7 @@ test('text input exposes ISO format and rejects impossible dates without emittin
     ui.picker.input.value = value; await ui.picker.input.dispatchEvent('input');
     assert.equal(ui.picker.input.value, value);
     assert.equal(ui.picker.input.getAttribute('aria-invalid'), 'true');
-    assert.match(ui.validity.at(-1), /有效日期/);
+    assert.match(String(ui.validity.at(-1)), /有效日期/);
     assert.equal(ui.changes.length, 0);
   }
   ui.picker.input.value = '2024-03-01'; await ui.picker.input.dispatchEvent('input');
@@ -73,6 +73,24 @@ test('calendar is a modal body portal with a single focused grid day', async () 
   assert.equal(ui.document.activeElement.closest('td').getAttribute('aria-selected'), 'true');
   assert.ok(Number.parseFloat(ui.calendar().style.top) >= 8);
   assert.ok(Number.parseFloat(ui.calendar().style.left) + Number.parseFloat(ui.calendar().style.width) <= 1136);
+});
+
+test('language switches translate the open calendar without replacing its date, focused day or pending input',async()=>{
+  const ui=harness(); await ui.picker.button.click();
+  const calendar=ui.calendar(),day=ui.document.activeElement;
+  ui.context.setLanguage('en');
+  assert.equal(ui.calendar(),calendar); assert.equal(ui.document.activeElement,day);
+  assert.equal(day.getAttribute('data-date'),'2024-02-29');
+  assert.match(day.getAttribute('aria-label'),/Thursday, February 29, 2024/);
+  assert.match(calendar.querySelector('.wb-date-heading').textContent,/February 2024/);
+  assert.ok(ui.action('Cancel')); assert.equal(ui.picker.input.value,'2024-02-29');
+  assert.equal(ui.changes.length,0);
+  await ui.action('Cancel').click();
+  ui.picker.input.value='2024-02-'; await ui.picker.input.dispatchEvent('input');
+  const error=ui.validity.at(-1); assert.match(String(error),/valid date/);
+  ui.context.setLanguage('zh-CN');
+  assert.equal(ui.picker.input.value,'2024-02-'); assert.match(String(error),/有效日期/);
+  assert.equal(ui.changes.length,0); assert.deepEqual(Array.from(ui.context.missingMessages()),[]);
 });
 
 test('arrows, week boundaries and month/year paging preserve calendar dates across leap years', async () => {

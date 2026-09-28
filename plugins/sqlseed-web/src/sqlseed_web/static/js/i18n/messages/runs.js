@@ -1,0 +1,260 @@
+import {registerMessages} from '../../i18n.js';
+
+registerMessages('runs', {
+  "queued": [
+    "等待执行",
+    "Queued"
+  ],
+  "running": [
+    "生成中",
+    "Generating"
+  ],
+  "done": [
+    "生成成功",
+    "Succeeded"
+  ],
+  "error": [
+    "生成失败",
+    "Failed"
+  ],
+  "interrupted": [
+    "服务中断",
+    "Service interrupted"
+  ],
+  "notRun": [
+    "未执行",
+    "Not run"
+  ],
+  "list": [
+    "运行列表",
+    "Run list"
+  ],
+  "selectRun": [
+    "选择一条运行记录查看结果。",
+    "Select a run to view its results."
+  ],
+  "title": [
+    "运行记录",
+    "Runs"
+  ],
+  "subtitle": [
+    "查看已提交的配置版本与逐表结果。",
+    "View submitted configuration versions and results for each table."
+  ],
+  "workbench": [
+    "返回工作台",
+    "Return to Workbench"
+  ],
+  "refresh": [
+    "刷新",
+    "Refresh"
+  ],
+  "empty": [
+    "还没有运行记录",
+    "No runs yet"
+  ],
+  "emptyHint": [
+    "生成后会在这里保留配置版本、执行结果与实际写入数量",
+    "After generation, configuration versions, results and committed row counts appear here"
+  ],
+  "unknownStatus": [
+    "状态待确认",
+    "Status unconfirmed"
+  ],
+  "unknownTime": [
+    "时间未知",
+    "Time unknown"
+  ],
+  "tableDone": [
+    "生成成功，数据已提交",
+    "Generation succeeded; data committed"
+  ],
+  "tableError": [
+    "生成失败，请查看本次运行的错误详情",
+    "Generation failed; see this run’s error details"
+  ],
+  "tableQueued": [
+    "等待前序表完成后执行",
+    "Waiting for preceding tables"
+  ],
+  "tableRunning": [
+    "正在生成，提交数量统计中",
+    "Generating; counting committed rows"
+  ],
+  "tableNotRun": [
+    "前序任务未完成，本表未执行",
+    "Preceding work did not complete; this table was not run"
+  ],
+  "tableInterrupted": [
+    "执行被中断，提交情况待核对",
+    "Execution was interrupted; verify committed data"
+  ],
+  "unknownResult": [
+    "结果待确认",
+    "Result unconfirmed"
+  ],
+  "reset": [
+    "重置",
+    "reset"
+  ],
+  "keep": [
+    "保留",
+    "kept"
+  ],
+  "appendMode": [
+    "追加数据 · 保留已有记录",
+    "Append data · Keep existing records"
+  ],
+  "atLeast": [
+    "至少 ",
+    "At least "
+  ],
+  "confirmedRows": [
+    " 行已确认提交",
+    " rows confirmed committed"
+  ],
+  "committedRows": [
+    " 行已提交",
+    " rows committed"
+  ],
+  "unknownCount": [
+    "提交数量待核对",
+    "Committed count needs verification"
+  ],
+  "counting": [
+    "统计中",
+    "Counting"
+  ],
+  "verify": [
+    "待核对",
+    "Needs verification"
+  ],
+  "failureNext": [
+    "失败后的下一步",
+    "Next steps after failure"
+  ],
+  "nextSteps": [
+    "接下来怎么处理",
+    "What to do next"
+  ],
+  "recoveryHint": [
+    "已提交的数据会保留。新配置只包含未完成表的剩余行数；先修正规则、预览并检查依赖，再确认追加。",
+    "Committed data is kept. The new configuration includes only remaining rows from unfinished tables. Correct the rules, preview and check dependencies before confirming an append."
+  ],
+  "recoveryCaveat": [
+    "已完成的父表改为引用已有数据。剩余配置不保证延续上次随机序列，也不能自动修复业务关系。",
+    "Completed parent tables use existing data. The remaining configuration does not guarantee the previous random sequence or automatically repair business relationships."
+  ],
+  "recover": [
+    "修正并生成剩余数据",
+    "Correct and generate remaining data"
+  ],
+  "generationTask": [
+    "生成任务",
+    "Generation task"
+  ],
+  "rolledBack": [
+    "本次清空和生成已回滚，原有数据已保留；本次没有新增已提交记录。",
+    "Clearing and generation were rolled back. Existing data is preserved and no new records were committed."
+  ],
+  "atomicInProgress": [
+    "正在同一事务中清空和生成，全部成功后才确认提交。",
+    "Clearing and generation are in one transaction. Nothing is confirmed committed until all operations succeed."
+  ],
+  "planned": [
+    "计划生成",
+    "Planned generation"
+  ],
+  "notRecorded": [
+    "未记录",
+    "Not recorded"
+  ],
+  "rows": [
+    " 行",
+    " rows"
+  ],
+  "committed": [
+    "实际已提交",
+    "Actually committed"
+  ],
+  "countHint": [
+    "计划行数来自本次配置；已提交是本次新增并确认写入的记录，不包含数据库中原有的数据。",
+    "Planned rows come from this configuration. Committed rows are newly added and confirmed for this run, excluding existing database records."
+  ],
+  "uncertainCount": [
+    "无法确认最后一批的提交状态。这里保留已知数量，请核对数据库后再决定是否重新生成。",
+    "The last batch’s commit state could not be confirmed. Known counts are shown. Check the database before deciding to generate again."
+  ],
+  "table": [
+    "表",
+    "Table"
+  ],
+  "status": [
+    "状态",
+    "Status"
+  ],
+  "plannedRows": [
+    "计划行数",
+    "Planned rows"
+  ],
+  "committedColumn": [
+    "已提交",
+    "Committed"
+  ],
+  "result": [
+    "结果",
+    "Result"
+  ],
+  "viewData": [
+    "查看当前数据",
+    "View current data"
+  ],
+  "viewAfterRun": [
+    "运行结束后可查看数据库当前数据",
+    "View current database data after the run finishes"
+  ],
+  "viewActualData": [
+    "查看数据库当前记录，包含已有数据",
+    "View current database records, including existing data"
+  ],
+  "snapshot": [
+    "本次配置快照",
+    "Configuration snapshot"
+  ],
+  "snapshotHint": [
+    "这是提交时的固定版本，后续编辑不会改变本次运行。",
+    "This is the fixed version submitted for this run. Later edits do not change it."
+  ],
+  "exportSnapshot": [
+    "导出快照 JSON",
+    "Export snapshot JSON"
+  ],
+  "newFromSnapshot": [
+    "从此快照新建配置",
+    "New configuration from snapshot"
+  ],
+  "fullSnapshotHint": [
+    "从完整快照新建会复用全部计划行数，可能再次生成已经提交的数据。",
+    "Creating from the full snapshot reuses every planned row count and may generate already committed data again."
+  ],
+  "replacementSnapshotHint": [
+    "从快照新建只复用生成规则，默认追加；清空需在生成前重新选择并确认。",
+    "Creating from a snapshot reuses rules and defaults to append. Clearing must be selected and confirmed again before generation."
+  ],
+  "serverRunning": [
+    "任务由服务端执行，离开此页面不影响生成。",
+    "The task runs on the server. Leaving this page does not interrupt generation."
+  ],
+  "loadError": [
+    "暂时无法读取记录：{detail}。这不代表任务已失败。",
+    "Run records are temporarily unavailable: {detail}. This does not mean the task has failed."
+  ],
+  "replaceMode": [
+    "清空所选表后生成 · 自增计数{identity}",
+    "Clear selected tables and generate · Identity counters {identity}"
+  ],
+  "identity": [
+    "配置 v{revision} · {id}",
+    "Configuration v{revision} · {id}"
+  ]
+});

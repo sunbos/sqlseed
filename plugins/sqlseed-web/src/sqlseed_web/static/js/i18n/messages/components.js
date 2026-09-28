@@ -1,0 +1,624 @@
+import {registerMessages} from '../../i18n.js';
+
+registerMessages('plugins', {
+  "install": [
+    "安装",
+    "Install"
+  ],
+  "uninstall": [
+    "卸载",
+    "Uninstall"
+  ],
+  "update": [
+    "更新",
+    "Update"
+  ],
+  "aiImpact": [
+    "AI 规则建议与分析不可用；手动配置、预览和生成数据仍可使用。",
+    "AI rule suggestions and analysis are unavailable. Manual configuration, preview and generation remain available."
+  ],
+  "cliImpact": [
+    "终端 sqlseed 命令不可用；网页中的手动配置、预览和生成数据仍可使用。",
+    "The sqlseed terminal command is unavailable. Manual configuration, preview and generation remain available on the web."
+  ],
+  "mcpImpact": [
+    "MCP 客户端调用 sqlseed 的功能不可用；网页工作台仍可使用。",
+    "MCP clients cannot call sqlseed. The web Workbench remains available."
+  ],
+  "mimesisImpact": [
+    "使用 Mimesis 的配置暂时无法预览或生成数据；请重新安装，或主动改用其他可用引擎。",
+    "Configurations using Mimesis cannot preview or generate data. Reinstall it or explicitly choose another available engine."
+  ],
+  "management": [
+    "插件管理",
+    "Plugin management"
+  ],
+  "loading": [
+    "正在读取插件管理状态…",
+    "Loading plugin management status…"
+  ],
+  "automaticHint": [
+    "按需安装、更新或卸载可选组件，完成后自动生效。",
+    "Install, update or remove optional components as needed. Changes take effect automatically."
+  ],
+  "manualHint": [
+    "可在此环境中安装、更新或卸载可选组件。",
+    "Optional components can be installed, updated or removed in this environment."
+  ],
+  "unavailable": [
+    "此部署暂不支持网页内管理组件，请联系应用管理员。",
+    "This deployment does not support component management in the browser. Contact the application administrator."
+  ],
+  "maintenance": [
+    "插件维护模式",
+    "Plugin maintenance mode"
+  ],
+  "components": [
+    "组件管理",
+    "Component management"
+  ],
+  "environment": [
+    "环境信息",
+    "Environment information"
+  ],
+  "maintenanceHint": [
+    "任务结束后，停止 Web 并退出维护模式；重新启动普通模式后验证组件。",
+    "After the task finishes, stop Web and leave maintenance mode. Restart in normal mode to verify components."
+  ],
+  "restartRequired": [
+    "环境已发生变更。请停止 Web，退出维护模式后重新启动普通模式，再验证组件可用性。",
+    "The environment has changed. Stop Web, leave maintenance mode and restart in normal mode to verify component availability."
+  ],
+  "processing": [
+    "正在处理，请稍候…",
+    "Processing, please wait…"
+  ],
+  "recover": [
+    "重试恢复服务",
+    "Retry service recovery"
+  ],
+  "sessionLost": [
+    "服务意外退出，原连接和会话密钥需要重新配置。",
+    "The service exited unexpectedly. Reconfigure the previous connections and session keys."
+  ],
+  "connectionsFailed": [
+    "部分数据库连接未恢复",
+    "Some database connections could not be restored"
+  ],
+  "reconnectHint": [
+    "请检查数据库连接后重新连接。",
+    "Check the database connection and reconnect."
+  ],
+  "reconnecting": [
+    "重新连接中",
+    "Reconnecting"
+  ],
+  "unknownStatus": [
+    "状态暂时未知",
+    "Status temporarily unknown"
+  ],
+  "running": [
+    "执行中",
+    "Running"
+  ],
+  "succeeded": [
+    "已完成",
+    "Completed"
+  ],
+  "failed": [
+    "执行失败",
+    "Failed"
+  ],
+  "task": [
+    "插件任务",
+    "Plugin task"
+  ],
+  "process": [
+    "处理",
+    "Process"
+  ],
+  "stages": [
+    "处理阶段",
+    "Processing stages"
+  ],
+  "prepare": [
+    "准备",
+    "Prepare"
+  ],
+  "installStage": [
+    "处理组件",
+    "Process components"
+  ],
+  "restore": [
+    "恢复服务",
+    "Restore service"
+  ],
+  "viewOutput": [
+    "查看执行输出",
+    "View execution output"
+  ],
+  "reloadTask": [
+    "重新读取任务状态",
+    "Reload task status"
+  ],
+  "reconnectingResult": [
+    "正在重新连接服务并核对操作结果，不会重复提交。",
+    "Reconnecting to verify the result. The operation will not be submitted again."
+  ],
+  "invalidPlan": [
+    "服务返回的计划与所选操作不一致，请刷新状态。",
+    "The returned plan does not match the selected operation. Refresh the status."
+  ],
+  "incompleteUpdatePlan": [
+    "更新计划缺少已核验的版本或软件包，请重新检查更新。",
+    "The update plan is missing a verified version or package. Check for updates again."
+  ],
+  "component": [
+    "组件",
+    "Component"
+  ],
+  "version": [
+    "版本",
+    "Version"
+  ],
+  "compatibleVersion": [
+    "兼容版本",
+    "Compatible version"
+  ],
+  "targetEnvironment": [
+    "目标环境",
+    "Target environment"
+  ],
+  "currentEnvironment": [
+    "当前应用环境",
+    "Current application environment"
+  ],
+  "artifactVerification": [
+    "软件包校验",
+    "Package verification"
+  ],
+  "keptDependencies": [
+    "保持的依赖版本",
+    "Preserved dependency versions"
+  ],
+  "technicalInfo": [
+    "技术信息",
+    "Technical information"
+  ],
+  "cancel": [
+    "取消",
+    "Cancel"
+  ],
+  "expiredPlan": [
+    "计划已过期。请取消后重新生成并确认计划。",
+    "The plan has expired. Cancel, then create and confirm a new plan."
+  ],
+  "invalidTask": [
+    "服务未返回有效任务状态",
+    "The service did not return a valid task status"
+  ],
+  "taskMismatch": [
+    "服务返回的任务标识不一致",
+    "The returned task ID does not match"
+  ],
+  "reconnectingTask": [
+    "正在重新连接服务，后台操作不会重复提交。",
+    "Reconnecting to the service. The background operation will not be submitted again."
+  ],
+  "viewUpdatePlan": [
+    "查看更新计划",
+    "Review update plan"
+  ],
+  "noWebUpdates": [
+    "此部署不支持网页更新组件，请使用原环境管理工具。",
+    "This deployment does not support component updates in the browser. Use the original environment management tool."
+  ],
+  "noToken": [
+    "管理凭据不可用，请刷新状态。",
+    "Management credentials are unavailable. Refresh the status."
+  ],
+  "oldService": [
+    "此服务尚未提供组件更新，请更新应用后重试。",
+    "This service does not yet support component updates. Update the application and try again."
+  ],
+  "staleVersion": [
+    "组件版本已变化，请重新检查更新。",
+    "The component version has changed. Check for updates again."
+  ],
+  "exitCode": [
+    "退出码：{code}",
+    "Exit code: {code}"
+  ],
+  "loadError": [
+    "无法读取插件管理状态：{detail}。可稍后刷新状态。",
+    "Could not load plugin management status: {detail}. Refresh the status later."
+  ],
+  "planError": [
+    "无法生成操作计划：{detail}",
+    "Could not create an operation plan: {detail}"
+  ],
+  "reviewTitle": [
+    "确认{operation}插件",
+    "Confirm plugin operation: {operation}"
+  ],
+  "expiry": [
+    "此计划 {value} 分钟内有效。",
+    {"one":"This plan is valid for {value} minute.","other":"This plan is valid for {value} minutes."}
+  ],
+  "updateImpact": [
+    "{from} → {to}；仅更新此组件，其他包保持原版本。",
+    "{from} → {to}; only this component will be updated. Other packages keep their current versions."
+  ],
+  "uninstallImpact": [
+    "卸载后，{impact}",
+    "After uninstalling: {impact}"
+  ],
+  "confirm": [
+    "确认{operation}",
+    "Confirm {operation}"
+  ],
+  "unknownSubmit": [
+    "提交结果未知：{detail}。正在核对后台状态，不会重复提交。",
+    "The submission result is unknown: {detail}. Checking the background status without resubmitting."
+  ],
+  "unknownTask": [
+    "状态暂时未知：{detail}。任务可能仍在执行，请重新读取状态。",
+    "Status is temporarily unknown: {detail}. The task may still be running. Reload its status."
+  ],
+  "unknownRecovery": [
+    "恢复结果暂时未知：{detail}。正在核对后台状态，不会重复提交。",
+    "The recovery result is temporarily unknown: {detail}. Checking the background status without resubmitting."
+  ],
+  "requiredBy": [
+    "依赖此组件：{components}",
+    "Required by: {components}"
+  ]
+});
+
+registerMessages('tableData', {
+  "title": [
+    "数据库当前数据",
+    "Current database data"
+  ],
+  "loading": [
+    "正在读取数据库…",
+    "Reading the database…"
+  ],
+  "refresh": [
+    "刷新数据",
+    "Refresh data"
+  ],
+  "previous": [
+    "上一页",
+    "Previous page"
+  ],
+  "next": [
+    "下一页",
+    "Next page"
+  ],
+  "hint": [
+    "查询时表内的实际记录，可能包含原有、本次提交及后续变化的数据；不是某次运行的数据快照。",
+    "These are the records currently in the table, including existing data, this run and later changes. This is not a snapshot of a particular run."
+  ],
+  "viewRaw": [
+    "查看数据库原值",
+    "View the raw database value"
+  ],
+  "raw": [
+    "数据库原值",
+    "Raw database value"
+  ],
+  "emptyPage": [
+    "本页暂无记录，请返回上一页或刷新。",
+    "No records on this page. Return to the previous page or refresh."
+  ],
+  "emptyTable": [
+    "表中暂无记录。",
+    "This table has no records."
+  ],
+  "noPrimaryKey": [
+    "此表没有主键，分页顺序可能变化。",
+    "This table has no primary key. Page ordering may change."
+  ],
+  "refreshing": [
+    "正在刷新，暂时保留上次读取的记录…",
+    "Refreshing. The previous records remain visible…"
+  ],
+  "wrongTarget": [
+    "返回数据的目标或表不匹配，请重新打开。",
+    "The returned target or table does not match. Reopen this view."
+  ],
+  "loaded": [
+    "已读取数据库当前数据。",
+    "Current database data loaded."
+  ],
+  "previousRecords": [
+    "仍显示上次读取的记录。",
+    "Showing the previously loaded records."
+  ],
+  "notLoaded": [
+    "尚未读取到数据库记录。",
+    "No database records have been loaded yet."
+  ],
+  "changedTarget": [
+    "运行记录的数据库目标已变化，请重新打开。",
+    "The run’s database target has changed. Reopen this view."
+  ],
+  "connectTarget": [
+    "请先连接此运行的相同数据库：关闭面板，通过顶栏连接数据库，然后重新查看。",
+    "Connect to the same database as this run: close this panel, connect from the top bar, then reopen this view."
+  ],
+  "connectionExpired": [
+    "连接已失效，请重新连接数据库后查看。",
+    "The connection has expired. Reconnect to the database to view data."
+  ],
+  "currentRecords": [
+    "{table} 当前记录",
+    "Current records in {table}"
+  ],
+  "rawAria": [
+    "{value}，展开查看数据库原值",
+    "{value}, expand to view the raw database value"
+  ],
+  "expandValue": [
+    "{value}… 展开完整值",
+    "{value}… Expand full value"
+  ],
+  "caption": [
+    "{table} · 数据库当前数据",
+    "{table} · Current database data"
+  ],
+  "scrollAria": [
+    "{table} 当前数据，可横向滚动",
+    "Current data in {table}; scroll horizontally"
+  ],
+  "pagination": [
+    "{range} / {total} 行 · 每页 {limit} 行",
+    "Rows: {range} / {total} · Per-page limit: {limit}"
+  ],
+  "readTime": [
+    "读取时间：{date}",
+    "Read at: {date}"
+  ],
+  "primaryOrder": [
+    "按主键 {columns} 排序；数据库变化时，不同页的内容可能随之变化。",
+    "Ordered by primary key {columns}. Changes in the database may affect records across pages."
+  ],
+  "readError": [
+    "无法读取数据：{detail}",
+    "Could not read data: {detail}"
+  ]
+});
+
+registerMessages('recovery', {
+  "onlyFailed": [
+    "只有已结束的失败记录可计算剩余数量。",
+    "Remaining rows can only be calculated for a completed failed run."
+  ],
+  "replacement": [
+    "清空生成需重新核对完整计划，不能按追加数量恢复。",
+    "Clear-and-generate requires reviewing the full plan again. It cannot resume by appending remaining rows."
+  ],
+  "uncertain": [
+    "提交数量不确定，请先核对数据库，不能自动计算剩余数量。",
+    "The committed count is uncertain. Check the database first; remaining rows cannot be calculated automatically."
+  ],
+  "incomplete": [
+    "逐表结果不完整，请核对数据库后调整配置。",
+    "Per-table results are incomplete. Check the database before adjusting the configuration."
+  ],
+  "inconsistentTable": [
+    "逐表提交数量或状态不一致，请先核对数据库。",
+    "Per-table committed counts or statuses are inconsistent. Check the database first."
+  ],
+  "inconsistentTotal": [
+    "总提交数量与逐表结果不一致，请先核对数据库。",
+    "The total committed count does not match per-table results. Check the database first."
+  ],
+  "complete": [
+    "计划行数已全部提交；请处理运行错误，无需再次生成。",
+    "All planned rows are committed. Resolve the run error; no further generation is needed."
+  ]
+});
+
+registerMessages('defaults', {
+  "uiLanguageHint": [
+    "数据语言与地区只影响生成的数据；界面语言在顶栏单独设置。",
+    "Data language and region affect generated data only. Set the interface language separately in the top bar."
+  ],
+  "invalidDefaults": [
+    "请选择生成引擎和语言，行数需为 1–1,000,000 的整数。",
+    "Choose a generation engine and data language. The row count must be an integer from 1 to 1,000,000."
+  ],
+  "invalidPreview": [
+    "每表预览行数需为 1–100 的整数。",
+    "Preview rows per table must be an integer from 1 to 100."
+  ],
+  "invalidSeed": [
+    "随机种子需为 0–4,294,967,295 的整数，或留空。",
+    "The random seed must be an integer from 0 to 4,294,967,295, or blank."
+  ],
+  "storageError": [
+    "浏览器无法保存偏好，请检查浏览器存储权限后重试。",
+    "The browser could not save preferences. Check browser storage permissions and try again."
+  ],
+  "hint": [
+    "只用于新建配置；已打开、已保存和导入的配置保持原值。",
+    "Only used for new configurations. Open, saved and imported configurations keep their values."
+  ],
+  "providerAria": [
+    "默认生成引擎",
+    "Default generation engine"
+  ],
+  "localeAria": [
+    "默认数据语言与地区",
+    "Default data language and region"
+  ],
+  "countAria": [
+    "默认每表行数",
+    "Default rows per table"
+  ],
+  "previewAria": [
+    "默认每表预览行数",
+    "Default preview rows per table"
+  ],
+  "seedPlaceholder": [
+    "留空，每次重新随机取值",
+    "Leave blank for a new random value each time"
+  ],
+  "seedAria": [
+    "默认随机种子",
+    "Default random seed"
+  ],
+  "save": [
+    "保存偏好",
+    "Save preferences"
+  ],
+  "reset": [
+    "恢复默认值",
+    "Restore defaults"
+  ],
+  "resetNotice": [
+    "已恢复表单默认值，保存后用于之后新建的配置。",
+    "Form defaults restored. Save to use them for future configurations."
+  ],
+  "retry": [
+    "重新读取可用选项",
+    "Reload available options"
+  ],
+  "provider": [
+    "数据生成引擎",
+    "Data generation engine"
+  ],
+  "locale": [
+    "数据语言与地区",
+    "Data language and region"
+  ],
+  "count": [
+    "每张表的生成行数",
+    "Rows to generate per table"
+  ],
+  "preview": [
+    "每表预览行数",
+    "Preview rows per table"
+  ],
+  "seed": [
+    "随机种子（可选）",
+    "Random seed (optional)"
+  ],
+  "previewHint": [
+    "预览行数只影响查看样例。固定随机种子用于复现数据，会写入新配置的每张表；已有记录、引擎或依赖版本变化仍可能影响结果。",
+    "Preview row counts affect samples only. A fixed seed is saved on each table in new configurations for reproducibility. Existing records, engine or dependency versions can still affect results."
+  ],
+  "browserHint": [
+    "保存在当前浏览器；同一浏览器的新配置使用这些初始值。AI 默认模型继续使用「AI 服务」中的设置。",
+    "Saved in this browser and used as starting values for new configurations here. The default AI model still comes from AI service settings."
+  ],
+  "optionalSuffix": [
+    "，或留空",
+    ", or leave blank"
+  ],
+  "unavailableEngine": [
+    "此引擎当前不可用。可以保存默认值，生成前需在「插件与版本」中安装或修复。",
+    "This engine is unavailable. You may save these defaults, but install or repair it in Plugins and versions before generating data."
+  ],
+  "saved": [
+    "默认值已保存；只影响之后新建的配置。",
+    "Defaults saved. They only affect future configurations."
+  ],
+  "unsaved": [
+    "有未保存的默认值；保存后用于新建配置。",
+    "There are unsaved defaults. Save to use them for new configurations."
+  ],
+  "unsupportedLocale": [
+    "请选择当前支持的数据语言与地区。",
+    "Choose a currently supported data language and region."
+  ],
+  "loadError": [
+    "无法读取可用选项，请重试。",
+    "Could not load available options. Try again."
+  ],
+  "invalidField": [
+    "{label}需为 {min}–{max} 的整数{optional}。",
+    "{label} must be an integer from {min} to {max}{optional}."
+  ],
+  "unsupportedOption": [
+    "{value} · 当前不支持",
+    "{value} · Currently unsupported"
+  ]
+});
+
+registerMessages('updates', {
+  "available": [
+    "可更新",
+    "Update available"
+  ],
+  "current": [
+    "已是最新稳定版",
+    "Latest stable version"
+  ],
+  "ahead": [
+    "当前版本高于稳定版",
+    "Newer than the stable release"
+  ],
+  "notInstalled": [
+    "未安装",
+    "Not installed"
+  ],
+  "unknown": [
+    "当前版本无法比较",
+    "Cannot compare this version"
+  ],
+  "failed": [
+    "检查失败",
+    "Check failed"
+  ],
+  "hint": [
+    "点击后仅查询 PyPI 官方版本信息，不会自动安装或升级。结果缓存 15 分钟。",
+    "Checks official PyPI version information only. Nothing is installed or updated automatically. Results are cached for 15 minutes."
+  ],
+  "check": [
+    "检查更新",
+    "Check for updates"
+  ],
+  "title": [
+    "组件更新",
+    "Component updates"
+  ],
+  "loading": [
+    "正在查询 PyPI 最新稳定版…",
+    "Checking the latest stable releases on PyPI…"
+  ],
+  "unavailable": [
+    "暂不可用",
+    "Unavailable"
+  ],
+  "requiredHint": [
+    "应用必需组件，请使用原环境管理工具成组更新。",
+    "Required application components must be updated together using the original environment management tool."
+  ],
+  "complete": [
+    "检查完成，未执行升级。可选组件可查看兼容性计划，确认后才更新；需联动调整依赖时会明确阻止。",
+    "Check complete; nothing was updated. Review and confirm a compatibility plan to update an optional component. Changes requiring dependency updates are blocked explicitly."
+  ],
+  "cached": [
+    " 部分结果来自最近 15 分钟的缓存。",
+    " Some results are from the last 15 minutes of cached data."
+  ],
+  "networkError": [
+    "无法完成版本检查，请检查网络后重试。",
+    "Could not complete the version check. Check the network and try again."
+  ],
+  "installedVersion": [
+    "当前：{version}",
+    "Installed: {version}"
+  ],
+  "latestVersion": [
+    "最新稳定版：{version}",
+    "Latest stable: {version}"
+  ],
+  "partialFailure": [
+    "{value} 个组件暂时无法检查，稍后可重试；其他结果仍可查看。",
+    {"one":"Could not check {value} component. Retry later; other results are still available.","other":"Could not check {value} components. Retry later; other results are still available."}
+  ]
+});

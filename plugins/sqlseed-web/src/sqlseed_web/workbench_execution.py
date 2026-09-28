@@ -6,6 +6,8 @@ import hashlib
 import json
 from typing import TYPE_CHECKING, Any
 
+from sqlseed_web.messages import message as tr
+
 if TYPE_CHECKING:
     from sqlseed.config.models import GeneratorConfig
 
@@ -17,13 +19,13 @@ def normalize_execution(value: Any = None) -> dict[str, Any]:
     if value is None:
         value = {}
     if not isinstance(value, dict) or set(value) - {"mode", "reset_identity"}:
-        raise ValueError("执行选项只支持 mode 与 reset_identity")
+        raise ValueError(tr("backend.workbench_execution.execution_options_support_only_mode_and_reset"))
     mode = value.get("mode", "append")
     reset = value.get("reset_identity", False)
     if mode not in ("append", "replace_selected") or not isinstance(reset, bool):
-        raise ValueError("执行方式必须为 append 或 replace_selected，重置 ID 必须为布尔值")
+        raise ValueError(tr("backend.workbench_execution.execution_mode_must_be_append_or_replace"))
     if reset and mode != "replace_selected":
-        raise ValueError("只有清空所选表时才能重置 ID")
+        raise ValueError(tr("backend.workbench_execution.ids_can_be_reset_only_when_clearing"))
     return {"mode": mode, "reset_identity": reset}
 
 
@@ -38,7 +40,10 @@ def _enrichment_issues(config: GeneratorConfig) -> list[dict[str, Any]]:
             issues.append(
                 _plan_issue(
                     "replacement_enrich_not_supported",
-                    f"{table_config.name} 启用了从现有数据增强规则，清空会移除其来源；请关闭增强或使用追加。",
+                    tr(
+                        "backend.workbench_execution.enriches_rules_from_existing_data_clearing_would",
+                        p1=table_config.name,
+                    ),
                     table=table_config.name,
                 )
             )
@@ -58,7 +63,11 @@ def _incoming_replacement_issues(
             issues.append(
                 _plan_issue(
                     "external_incoming_fk",
-                    f"未选表 {name} 引用 {fk['ref_table']}，清空会影响所选范围外的数据；请一并选择相关表或使用追加。",
+                    tr(
+                        "backend.workbench_execution.unselected_table_references_clearing_would_affect_data",
+                        p1=name,
+                        p2=fk["ref_table"],
+                    ),
                     table=name,
                 )
             )
@@ -66,7 +75,7 @@ def _incoming_replacement_issues(
             issues.append(
                 _plan_issue(
                     "self_reference_after_clear",
-                    f"{name} 的自引用字段不可空，清空后没有可用首条来源，不能安全重建。",
+                    tr("backend.workbench_execution.has_a_non_nullable_self_reference_and", p1=name),
                     table=name,
                 )
             )
@@ -87,7 +96,7 @@ def _table_replacement_issues(
             issues.append(
                 _plan_issue(
                     "rowid_restarts_on_clear",
-                    f"{name} 使用普通 SQLite INTEGER 主键；清空后数据库可能自然从 1 分配，与重置 AUTOINCREMENT 选项无关。",
+                    tr("backend.workbench_execution.uses_a_regular_sqlite_integer_primary_key", p1=name),
                     table=name,
                     severity="warning",
                 )
@@ -106,7 +115,11 @@ def _association_replacement_issues(
                     issues.append(
                         _plan_issue(
                             "external_incoming_association",
-                            f"未选表 {name} 通过配置关联引用 {association.source_table}，请一并选择或使用追加。",
+                            tr(
+                                "backend.workbench_execution.unselected_table_references_through_a_configured_association",
+                                p1=name,
+                                p2=association.source_table,
+                            ),
                             table=name,
                         )
                     )
@@ -124,7 +137,11 @@ def _sqlite_replacement_issues(
             issues.append(
                 _plan_issue(
                     "replacement_trigger_not_supported",
-                    f"{trigger['tbl_name']} 存在触发器 {trigger['name']}，暂不能保证重建操作仅影响所选表；请使用追加。",
+                    tr(
+                        "backend.workbench_execution.has_trigger_rebuilding_cannot_be_guaranteed_to",
+                        p1=trigger["tbl_name"],
+                        p2=trigger["name"],
+                    ),
                     table=trigger["tbl_name"],
                 )
             )
@@ -136,7 +153,7 @@ def _sqlite_replacement_issues(
             issues.append(
                 _plan_issue(
                     "self_reference_delete_restrict",
-                    f"{name} 存在自引用 ON DELETE RESTRICT，不能保证整表删除顺序；请使用追加。",
+                    tr("backend.workbench_execution.has_a_self_reference_with_on_delete", p1=name),
                     table=name,
                 )
             )
@@ -163,7 +180,8 @@ def build_execution_plan(
         if not sqlite:
             issues.append(
                 _plan_issue(
-                    "replacement_not_supported", "当前仅验证了 SQLite 的整次事务清空与回滚；此连接暂只支持追加生成。"
+                    "replacement_not_supported",
+                    tr("backend.workbench_execution.transactional_clearing_and_rollback_are_verified_only"),
                 )
             )
         issues.extend(_enrichment_issues(config))
@@ -174,7 +192,8 @@ def build_execution_plan(
         if execution["reset_identity"] and not reset_supported:
             issues.append(
                 _plan_issue(
-                    "identity_reset_not_supported", "所选表没有可重置的 SQLite AUTOINCREMENT 序列，请关闭重置 ID。"
+                    "identity_reset_not_supported",
+                    tr("backend.workbench_execution.the_selected_tables_have_no_resettable_sqlite"),
                 )
             )
     plan: dict[str, Any] = {
