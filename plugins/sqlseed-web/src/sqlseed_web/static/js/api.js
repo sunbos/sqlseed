@@ -1,4 +1,6 @@
 // API helpers + shared UI state (connection id survives page switches).
+import { localizedNode, setAttr, setText, tr, joinText, serverText, UserFacingError } from './i18n.js';
+import './i18n/messages/shell.js';
 
 export const store = {
   connId: null,
@@ -15,8 +17,8 @@ export async function api(path, options = {}) {
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
     const detail = body.detail;
-    const message = httpErrorMessage(detail, res.status, true);
-    const error = new Error(message);
+    const message = body.detail_key ? serverText(body, 'detail') : httpErrorMessage(detail, res.status, true);
+    const error = new UserFacingError(message, {originalMessage: httpErrorMessage(detail, res.status, true, false)});
     error.status = res.status;
     error.detail = detail;
     throw error;
@@ -45,7 +47,7 @@ export const h = (tag, attrs = {}, ...children) => {
     if (c == null) {
       continue;
     }
-    el.append(c.nodeType ? c : document.createTextNode(c));
+    el.append(localizedNode(c));
   }
   return el;
 };
@@ -83,7 +85,7 @@ export function fmt(v) {
 export function setConnBadge() {
   const label = document.getElementById('connection-label');
   if (label) {
-    label.textContent = store.connId ? safeTargetLabel(store.target) : '连接数据库';
+    setText(label, store.connId ? safeTargetLabel(store.target) : tr('shell.connect'));
   }
   const badge = document.getElementById('conn-badge');
   if (!badge) {
@@ -91,17 +93,17 @@ export function setConnBadge() {
   }
   if (store.connId) {
     badge.className = 'badge ok';
-    badge.textContent = store.target || store.connId;
+    setText(badge, store.target || store.connId);
   } else {
     badge.className = 'badge empty';
-    badge.textContent = '未连接';
+    setText(badge, tr('shell.disconnected'));
   }
 }
 
 /** Display identity only; omit URL userinfo and query parameters. */
 export function safeTargetLabel(target) {
   if (!target) {
-    return '已连接数据库';
+    return tr('shell.connected');
   }
   const text = String(target);
   if (text.includes('://')) {
@@ -109,7 +111,7 @@ export function safeTargetLabel(target) {
       const url = new URL(text);
       return `${url.hostname}${url.port ? ":" + url.port : ''}${decodeURIComponent(url.pathname)}`;
     } catch {
-      return '已连接数据库';
+      return tr('shell.connected');
     }
   }
   return /^(?:[\\/]|[A-Za-z]:[\\/])/.test(text) ? text.split(/[\\/]/).findLast(Boolean) || text : text;
@@ -213,16 +215,17 @@ function applyAttributes(el, attrs) {
         el.removeAttribute(k);
       }
     } else {
-      el.setAttribute(k, v);
+      setAttr(el, k, v);
     }
   }
 }
-export function httpErrorMessage(detail, status, stringifyUnknown = false) {
-  if (typeof detail === 'string') { return detail; }
+export function httpErrorMessage(detail, status, stringifyUnknown = false, localized = true) {
+  if (typeof detail === 'string') { return localized ? serverText({message: detail}) : detail; }
   if (Array.isArray(detail)) {
-    return detail.map(item => `${(item.loc || []).join('.')}: ${item.msg || JSON.stringify(item)}`).join('；');
+    if (!localized) return detail.map(item => `${(item.loc || []).join('.')}: ${item.msg || JSON.stringify(item)}`).join('；');
+    return joinText(detail.map(item => joinText([(item.loc || []).join('.'), ': ', serverText(item, 'msg') || serverText({message: JSON.stringify(item)})])), '; ');
   }
-  if (detail?.message) { return detail.message; }
-  if (stringifyUnknown && detail) { return JSON.stringify(detail); }
-  return `HTTP ${status}`;
+  if (detail?.message) { return localized ? serverText(detail) : detail.message; }
+  const fallback = stringifyUnknown && detail ? JSON.stringify(detail) : `HTTP ${status}`;
+  return localized ? serverText({message: fallback}) : fallback;
 }

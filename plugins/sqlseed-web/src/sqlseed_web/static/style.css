@@ -10,6 +10,7 @@
 @import url("./disclosure.css");
 @import url("./runs.css");
 @import url("./scrollbars.css");
+@import url("./motion.css");
 
 /* 本地中英文圆角界面字体；代码与字段标识仍使用独立等宽字体。 */
 @font-face {
@@ -38,7 +39,7 @@
 :root {
   color-scheme: light;
   --canvas: #e5ebec;
-  --paper: rgba(255,255,255,.46);
+  --paper: rgba(255,255,255,.68);
   --wash: #f1f5f3;
   --ink: #293b3e;
   --muted: #526267;
@@ -56,8 +57,8 @@
   --glass: rgba(255,255,255,.3);
   --glass-dialog: rgba(251,253,252,.88);
   --glass-picker: rgba(252,254,253,.94);
-  --glass-edge: rgba(255,255,255,.34);
-  --glass-shadow: inset 0 1px 8px #ffffff38,0 6px 24px -12px #304b4624;
+  --glass-edge: rgba(69,99,88,.14);
+  --glass-shadow: inset 0 1px 0 #ffffff52,0 6px 24px -12px #304b4624;
   --glass-blur: 14px;
   --control-bg: rgba(255,255,255,.4);
   --control-surface: linear-gradient(160deg,#ffffffbf,#ffffff70);
@@ -71,10 +72,14 @@
   --option-hover: rgba(71,87,94,.09);
   --scrollbar-thumb: rgba(78,94,99,.42);
   --scrollbar-thumb-hover: rgba(78,94,99,.62);
-  --control-selected: rgba(59,125,100,.1);
+  --control-selected: rgba(59,125,100,.15);
   --control-selected-border: rgba(59,125,100,.36);
   --focus: #3c8168;
-  --surface-inset: rgba(255,255,255,.24);
+  --surface-inset: rgba(205,220,213,.32);
+  --segment-track: #dce6e1b8;
+  --segment-selected: #f9fcfaf5;
+  --segment-edge: #658c7b66;
+  --segment-shadow: 0 1px 3px #274c3d1f;
   --table-head: #f1f5f3;
   --warning: #8b591d;
   --warning-bg: rgba(248,233,207,.42);
@@ -94,14 +99,19 @@
   --solid-surface: #fafcfb;
   --canvas-background: radial-gradient(ellipse at 100% 22%,#ffffff80 0,transparent 62%),radial-gradient(ellipse at 7% 8%,#b4c9bf8c 0,transparent 45%),radial-gradient(ellipse at 85% 2%,#faf4e4b3 0,transparent 42%),linear-gradient(135deg,#dce5e3 0%,#edf0ec 40%,#e8edef 72%,#d9e2e8 100%);
   --header-surface: linear-gradient(160deg,#ffffff70,#ffffff24);
-  --active-surface: linear-gradient(135deg,#ffffffa3,#ffffff61);
-  --primary-surface: linear-gradient(155deg,#356f5ceb,#265743f2);
-  --primary-hover: linear-gradient(155deg,#3b7864f2,#2b604cf5);
+  --active-surface: linear-gradient(135deg,#e5f1e9e8,#f2f8f4c9);
+  --primary-surface: linear-gradient(165deg,#3c7761 0%,#2d6551 55%,#295b49 100%);
+  --primary-hover: linear-gradient(165deg,#417e67 0%,#316d57 55%,#295f4b 100%);
+  --primary-pressed: linear-gradient(165deg,#295b49,#306750);
+  --primary-edge: #34634f;
+  --primary-shadow: inset 0 1px 1px #a1d6bb26,inset 0 -1px 0 #153e352e,0 2px 3px -1px #1c443538,0 5px 12px -5px #1c443533;
+  --primary-hover-shadow: inset 0 1px 1px #a1d6bb2e,inset 0 -1px 0 #153e352e,0 2px 4px -1px #1c443540,0 6px 14px -4px #1c443533;
+  --primary-pressed-shadow: inset 0 2px 4px #123b353d,0 1px 2px #1c44351a;
   --on-primary: #fff;
   --picker-shadow: 0 12px 30px -8px #203b3538;
   --overlay-scrim: #263e3821;
   --graph-grid: #60776d26;
-  --graph-edge-default: #709889;
+  --graph-edge-default: #73878c;
   --choice-fill: linear-gradient(155deg,#ffffffed,#eff4f2d9);
   --choice-selected-fill: linear-gradient(155deg,#f7fcf9,#e4efe9);
   --choice-rim: linear-gradient(155deg,#ffffffb3,var(--control-shape-edge));
@@ -145,6 +155,10 @@
   --control-selected-border: rgba(138,202,175,.4);
   --focus: #a1d5c6;
   --surface-inset: rgba(115,140,151,.065);
+  --segment-track: #192a308c;
+  --segment-selected: #364c53;
+  --segment-edge: #a7c2b54d;
+  --segment-shadow: 0 1px 3px #0004;
   --table-head: #2b373d;
   --warning: #e8bd82;
   --warning-bg: rgba(136,97,44,.18);
@@ -160,13 +174,18 @@
   --solid-surface: #242e33;
   --header-surface: linear-gradient(160deg,#758a8c1a,#35434a18);
   --active-surface: linear-gradient(135deg,#819d9833,#5c747522);
-  --primary-surface: linear-gradient(155deg,#83b5a4,#6b9d8d);
-  --primary-hover: linear-gradient(155deg,#99cbbb,#83b6a4);
+  --primary-surface: linear-gradient(165deg,#92bdad 0%,#7caa99 55%,#6e9c8b 100%);
+  --primary-hover: linear-gradient(165deg,#a0cbbb 0%,#8bb9a7 55%,#7ba996 100%);
+  --primary-pressed: linear-gradient(165deg,#6e9c8b,#82b19d);
+  --primary-edge: #7da996;
+  --primary-shadow: inset 0 1px 1px #c3eed526,inset 0 -1px 0 #2b5b4640,0 2px 3px -1px #0006,0 5px 12px -5px #0005;
+  --primary-hover-shadow: inset 0 1px 1px #c3eed530,inset 0 -1px 0 #2b5b4640,0 2px 4px -1px #0006,0 6px 14px -4px #0006;
+  --primary-pressed-shadow: inset 0 2px 4px #17392d55,0 1px 2px #0003;
   --on-primary: #122d24;
   --picker-shadow: 0 12px 30px -8px #0009;
   --overlay-scrim: #070f146b;
   --graph-grid: #abc4bf22;
-  --graph-edge-default: #81b7a7;
+  --graph-edge-default: #8da2ad;
   --choice-fill: linear-gradient(155deg,#4b6067,#34454d);
   --choice-selected-fill: linear-gradient(155deg,#466759,#344e46);
   --choice-rim: linear-gradient(155deg,#bdd7d422,var(--control-shape-edge));
@@ -359,13 +378,13 @@ h1 {
 }
 .btn.primary {
   background: var(--primary-surface);
-  border-color: var(--glass-edge);
-  box-shadow: var(--control-rest-shadow);
+  border-color: var(--primary-edge);
+  box-shadow: var(--primary-shadow);
   color: var(--on-primary);
 }
 .btn.primary:hover:not(:disabled) {
   background: var(--primary-hover);
-  box-shadow: var(--control-hover-shadow);
+  box-shadow: var(--primary-hover-shadow);
 }
 .btn.text {
   background: transparent;
@@ -3614,6 +3633,7 @@ strong,b { font-weight: var(--font-weight-emphasis); }
 .summary-table td:last-child { font-family: var(--font-ui); font-variant-numeric: tabular-nums; }
 .wb-summary-plan .execution-table { font: 400 13px/1.6 var(--font-ui); }
 .wb-setting-tile strong,.wb-provider-example,.wb-provider-example .mono { font-family: var(--font-ui); }
+.wb-provider-example code { font:inherit; font-variant-numeric:tabular-nums; }
 .field-name { font-weight: 400; }
 .wb-preview-data td,.wb-table-data td { font-family: var(--font-ui); font-size: 13px; }
 .field-table td { border-color: var(--line); }
@@ -3742,7 +3762,11 @@ input,textarea,
   background: var(--control-hover);
   box-shadow: var(--control-hover-shadow);
 }
-.btn:not(:disabled):active,.btn.primary:not(:disabled):active { box-shadow: inset 0 1px 5px #203b3514; }
+.btn:not(:disabled):active { box-shadow: inset 0 1px 5px #203b3514; }
+.btn.primary:not(:disabled):active {
+  background: var(--primary-pressed);
+  box-shadow: var(--primary-pressed-shadow);
+}
 .dropdown-btn:disabled { opacity: .55; cursor: not-allowed; }
 .btn.text:hover:not(:disabled) { background: var(--surface-inset); }
 .btn[aria-pressed=true]:not(.primary),.wb-preview-tables .btn[aria-pressed=true] {
@@ -3889,7 +3913,8 @@ input[type=checkbox]:disabled,input[type=radio]:disabled { box-shadow: none; }
 .wb-date-day.selected { background: var(--control-selected); color: var(--teal); box-shadow: inset 0 0 0 1px var(--control-selected-border); }
 
 /* 关系图是同一套组件的延伸；生成状态内框与当前查看外圈仍独立。 */
-.graph-filters,.path-scope,.wb-page .inspector-tabs { background: var(--surface-inset); }
+.path-scope,.wb-page .inspector-tabs { background: var(--surface-inset); }
+.graph-filters { background: var(--segment-track); }
 .graph-filters {
   padding: 4px; gap: 4px; border: 1px solid var(--glass-edge);
   border-radius: 9px; box-shadow: var(--control-inset-shadow);
@@ -3902,16 +3927,16 @@ input[type=checkbox]:disabled,input[type=radio]:disabled { box-shadow: none; }
   background: var(--control-hover); box-shadow: var(--control-hover-shadow);
 }
 .graph-filters button[aria-pressed=true] {
-  background: var(--control-surface); border-color: var(--glass-edge);
-  color: var(--teal); box-shadow: var(--control-rest-shadow);
+  background: var(--segment-selected); border-color: var(--segment-edge);
+  color: var(--teal); box-shadow: var(--segment-shadow);
 }
 /* 连接与设置复用分段选择的层级，只有当前项凸起。 */
-.segmented,.settings-tabs { background: var(--surface-inset); box-shadow: var(--control-inset-shadow); }
+.segmented,.settings-tabs { background: var(--segment-track); box-shadow: var(--control-inset-shadow); }
 .segmented { padding: 4px; gap: 4px; border: 1px solid var(--glass-edge); border-radius: 9px; }
 .segmented button,.settings-tabs .btn { border: 1px solid transparent; border-radius: var(--radius-control); background: transparent; box-shadow: none; }
 .segmented button:not(:disabled):hover,.settings-tabs .btn:not(:disabled):hover { background: var(--control-hover); box-shadow: var(--control-hover-shadow); }
 .segmented button.active,.settings-tabs .btn[aria-selected=true] {
-  background: var(--control-surface); border-color: var(--glass-edge); color: var(--teal); box-shadow: var(--control-rest-shadow);
+  background: var(--segment-selected); border-color: var(--segment-edge); color: var(--teal); box-shadow: var(--segment-shadow);
 }
 .segmented button:not(:disabled):active,.settings-tabs .btn:not(:disabled):active { box-shadow: var(--control-inset-shadow); }
 /* 独立操作延续主按钮的轻凸表面；日期格与搜索清空仍保持轻量。 */
@@ -3977,10 +4002,11 @@ input[type=checkbox]:disabled,input[type=radio]:disabled { box-shadow: none; }
     --glass-dialog: #f7faf8; --glass-picker: #fafcfb; --glass-blur: 0px;
     --control-bg: #fafcfb; --control-surface: #fafcfb;
     --surface-inset: #f5f8f6; --control-hover: #fff; --table-head: #eef3f0;
+    --segment-track: #dfe8e3; --segment-selected: #f9fcfa;
   }
 }
 @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))) {
-  :root { --glass-dialog: #f7faf8; --glass-picker: #fafcfb; --paper: #fafcfb; --surface-inset: #f2f6f4; }
+  :root { --glass-dialog: #f7faf8; --glass-picker: #fafcfb; --paper: #fafcfb; --surface-inset: #f2f6f4; --segment-track: #dfe8e3; --segment-selected: #f9fcfa; }
 }
 @media(prefers-reduced-transparency:reduce) {
   :root[data-theme=dark] {
@@ -3988,10 +4014,11 @@ input[type=checkbox]:disabled,input[type=radio]:disabled { box-shadow: none; }
     --glass-dialog: #242e33; --glass-picker: #2c3940; --glass-blur: 0px;
     --control-bg: #35434b; --control-surface: #35434b;
     --surface-inset: #29373c; --control-hover: #42535b; --table-head: #2b373d;
+    --segment-track: #192a30; --segment-selected: #364c53;
   }
 }
 @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))) {
-  :root[data-theme=dark] { --glass-dialog: #242e33; --glass-picker: #2c3940; --paper: #242e33; --surface-inset: #29373c; }
+  :root[data-theme=dark] { --glass-dialog: #242e33; --glass-picker: #2c3940; --paper: #242e33; --surface-inset: #29373c; --segment-track: #192a30; --segment-selected: #364c53; }
 }
 /* 主题选择入口复用下拉；不随选择改变控件尺寸。 */
 .theme-control { display: flex; align-items: center; gap: 10px; min-width: 0; }

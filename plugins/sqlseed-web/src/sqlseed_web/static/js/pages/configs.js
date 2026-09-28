@@ -1,3 +1,5 @@
+import {tr, t, joinText, formatNumber, formatDate, setText, setAttr, appendContent, replaceContent, errorText} from '../i18n.js';
+import '../i18n/messages/configurations.js';
 import { h, get, api, store, safeTargetLabel } from '../api.js';
 import { button, modal, download, icon } from '../workbench/ui.js';
 let root, list, notice, count, search, currentFilter, connectionHint, selectAll, selectionLabel, selectionCount, clearSelection, deleteSelection;
@@ -35,13 +37,13 @@ export function render() {
   list = h('section', {
     class: 'config-list',
     role: 'list',
-    'aria-label': '已保存配置'
+    'aria-label': tr('configurations.saved')
   });
   search = h('input', {
     type: 'search',
     value: '',
-    'aria-label': '查找配置',
-    placeholder: '配置名称或数据库',
+    'aria-label': tr('configurations.search'),
+    placeholder: tr('configurations.searchPlaceholder'),
     oninput: () => {
       query = search.value;
       drawList();
@@ -50,7 +52,7 @@ export function render() {
   currentFilter = h('input', {
     type: 'checkbox',
     checked: onlyCurrent,
-    'aria-label': '仅当前数据库',
+    'aria-label': tr('configurations.onlyCurrent'),
     onchange: () => {
       onlyCurrent = currentFilter.checked && Boolean(store.connId);
       return refresh();
@@ -59,37 +61,37 @@ export function render() {
   connectionHint = h('p', {
     class: 'config-filter-hint muted'
   });
-  selectionLabel = h('span', {}, '全选当前结果');
+  selectionLabel = h('span', {}, tr('configurations.selectVisible'));
   selectionCount = h('span', {class: 'config-selection-count', role: 'status', 'aria-live': 'polite'});
-  selectAll = h('input', {type: 'checkbox', 'aria-label': '全选当前筛选结果', onchange: () => {
+  selectAll = h('input', {type: 'checkbox', 'aria-label': tr('configurations.selectFiltered'), onchange: () => {
     for (const record of visibleRecords()) {
       if (selectAll.checked) selected.set(record.id, record.revision);
       else selected.delete(record.id);
     }
     updateSelection();
   }});
-  clearSelection = button('清空选择', () => {selected.clear(); updateSelection();}, {small: true});
-  deleteSelection = button('删除所选', deleteSelectedConfigs, {class: 'config-delete', disabled: true});
+  clearSelection = button(tr('configurations.clearSelection'), () => {selected.clear(); updateSelection();}, {small: true});
+  deleteSelection = button(tr('configurations.deleteSelected'), deleteSelectedConfigs, {class: 'config-delete', disabled: true});
   root = h('div', {
     class: 'page configs-page'
   }, h('header', {
     class: 'heading'
-  }, h('div', {}, h('h1', {}, '配置管理'), h('p', {
+  }, h('div', {}, h('h1', {}, tr('configurations.title')), h('p', {
     class: 'subtitle'
-  }, '保存、复用和管理生成规则，打开配置后在工作台编辑。')), h('div', {
+  }, tr('configurations.subtitle'))), h('div', {
     class: 'heading-actions'
-  }, workbenchLink('导入配置', 'new=1&import=1', false, 'upload'), workbenchLink('新建配置', 'new=1', true))), h('section', {
+  }, workbenchLink(tr('configurations.import'), 'new=1&import=1', false, 'upload'), workbenchLink(tr('configurations.new'), 'new=1', true))), h('section', {
     class: 'config-toolbar',
-    'aria-label': '查找和筛选配置'
+    'aria-label': tr('configurations.searchAndFilter')
   }, h('label', {
     class: 'config-search'
-  }, h('span', {}, '查找配置'), search), h('div', {
+  }, h('span', {}, tr('configurations.search')), search), h('div', {
     class: 'config-scope'
   }, h('label', {
     class: 'config-filter'
-  }, currentFilter, '仅当前数据库'), connectionHint), button('刷新列表', () => refresh(), {
+  }, currentFilter, tr('configurations.onlyCurrent')), connectionHint), button(tr('configurations.refresh'), () => refresh(), {
     glyph: 'refresh'
-  })), notice, h('div', {class: 'config-bulk-toolbar', role: 'group', 'aria-label': '批量管理配置'},
+  })), notice, h('div', {class: 'config-bulk-toolbar', role: 'group', 'aria-label': tr('configurations.bulkActions')},
     h('label', {class: 'config-filter'}, selectAll, selectionLabel), selectionCount,
     h('div', {class: 'config-bulk-actions'}, clearSelection, deleteSelection)), count, list);
   updateFilter();
@@ -112,7 +114,7 @@ function updateFilter() {
   }
   currentFilter.disabled = !store.connId;
   currentFilter.checked = onlyCurrent;
-  connectionHint.textContent = store.connId ? `当前：${safeTargetLabel(store.target)}` : '连接数据库后可按当前库筛选';
+  setText(connectionHint, store.connId ? tr('configurations.currentTarget', {target: safeTargetLabel(store.target)}) : tr('configurations.connectToFilter'));
 }
 function connectionChanged() {
   updateFilter();
@@ -126,14 +128,14 @@ async function refresh(message = '') {
     records = [];
     selected.clear();
     scope = target;
-    list.replaceChildren(h('p', {
+    replaceContent(list, h('p', {
       class: 'config-empty'
-    }, '正在读取配置…'));
+    }, tr('configurations.loading')));
   }
-  list.setAttribute('aria-busy', 'true');
+  setAttr(list, 'aria-busy', 'true');
   loading = true;
   updateSelection();
-  notice.textContent = message;
+  setText(notice, message);
   const current = () => expected === version && request === sequence;
   try {
     const response = await get(`/api/workbench/drafts${target}`);
@@ -146,15 +148,15 @@ async function refresh(message = '') {
     if (!current()) {
       return;
     }
-    notice.textContent = `无法读取配置：${error.message}。请重试刷新列表。`;
+    setText(notice, tr('configurations.loadError', {detail: errorText(error)}));
     if (!records.length) {
-      list.replaceChildren(h('p', {
+      replaceContent(list, h('p', {
         class: 'config-empty'
-      }, '配置暂时无法读取，已保存内容不会因此丢失。'));
+      }, tr('configurations.loadUnavailable')));
     }
   } finally {
     if (current()) {
-      list.setAttribute('aria-busy', 'false');
+      setAttr(list, 'aria-busy', 'false');
       loading = false;
       updateSelection();
     }
@@ -163,9 +165,9 @@ async function refresh(message = '') {
 function savedTime(value) {
   const date = new Date(typeof value === 'number' ? value * 1000 : value);
   if (value == null || value === '' || !Number.isFinite(date.getTime())) {
-    return '保存时间未知';
+    return tr('configurations.unknownSavedTime');
   }
-  return date.toLocaleString('zh-CN', {
+  return formatDate(date, {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
@@ -185,8 +187,8 @@ function updateSelection() {
   selectAll.checked = visible.length > 0 && selected.size === visible.length;
   selectAll.indeterminate = selected.size > 0 && selected.size < visible.length;
   selectAll.disabled = loading || bulkPending || !visible.length;
-  selectionLabel.textContent = `全选当前结果（${visible.length}）`;
-  selectionCount.textContent = `已选 ${selected.size} 份 · ${onlyCurrent ? '当前数据库' : '所有数据库'}${query.trim() ? ` · 搜索“${query.trim()}”` : ''}`;
+  setText(selectionLabel, tr('configurations.selectCount', {count: formatNumber(visible.length)}));
+  setText(selectionCount, tr('configurations.selectionCount', {count: formatNumber(selected.size), scope: onlyCurrent ? tr('configurations.currentDatabase') : tr('configurations.allDatabases'), search: query.trim() ? tr('configurations.searchTerm', {term: query.trim()}) : ''}));
   clearSelection.disabled = bulkPending || !selected.size;
   deleteSelection.disabled = loading || bulkPending || !selected.size;
   for (const checkbox of list.querySelectorAll('[data-config-select]')) {
@@ -199,28 +201,29 @@ function updateSelection() {
 function drawList() {
   const term = query.trim().toLocaleLowerCase(), visible = visibleRecords();
   updateSelection();
-  count.textContent = `${visible.length} 份配置${term ? " · 共 " + records.length + " 份" : ''}`;
+  setText(count, tr('configurations.resultCount', {count: visible.length, value: formatNumber(visible.length), total: term ? tr('configurations.totalCount', {count: formatNumber(records.length)}) : ''}));
   if (!visible.length) {
-    list.replaceChildren(h('div', {
+    replaceContent(list, h('div', {
       class: 'config-empty'
-    }, h('h2', {}, term ? '没有匹配的配置' : '还没有保存的配置'), h('p', {}, term ? '尝试其他名称，或关闭“仅当前数据库”查看更多配置。' : '在工作台选择表并保存规则，下次可以直接打开复用。'), term ? null : workbenchLink('新建配置', 'new=1', true)));
+    }, h('h2', {}, term ? tr('configurations.noMatches') : tr('configurations.empty')), h('p', {}, term ? tr('configurations.searchHint') : tr('configurations.emptyHint')), term ? null : workbenchLink(tr('configurations.new'), 'new=1', true)));
     return;
   }
-  list.replaceChildren(...visible.map(record => {
+  replaceContent(list, ...visible.map(record => {
     const document = record.document || {},
       tables = Array.isArray(document.tables) ? document.tables : [];
-    const planned = tables.every(table => Number.isInteger(table.count) && table.count >= 0) ? tables.reduce((sum, table) => sum + table.count, 0).toLocaleString() : '待设置';
+    const rowCount = tables.every(table => Number.isInteger(table.count) && table.count >= 0) ? tables.reduce((sum, table) => sum + table.count, 0) : null;
+    const planned = rowCount === null ? tr('configurations.unknownRows') : tr('configurations.rowCount', {count: rowCount, value: formatNumber(rowCount)});
     const provider = {
       base: 'Base',
       faker: 'Faker',
       mimesis: 'Mimesis'
-    }[document.provider] || document.provider || '待设置';
+    }[document.provider] || document.provider || tr('configurations.unset');
     return h('article', {
       class: 'config-card',
       role: 'listitem',
       'data-config-id': record.id
     }, h('input', {type: 'checkbox', checked: selected.has(record.id),
-      class: 'config-select', 'data-config-select': record.id, 'aria-label': `选择配置：${record.name}`,
+      class: 'config-select', 'data-config-select': record.id, 'aria-label': tr('configurations.selectRecord', {name: record.name}),
       onchange: event => {
         if (event.target.checked) selected.set(record.id, record.revision);
         else selected.delete(record.id);
@@ -233,17 +236,17 @@ function drawList() {
       class: 'config-revision'
     }, `v${record.revision}`)), h('p', {
       class: 'config-target'
-    }, icon('database'), record.target_label || '数据库信息未记录'), h('p', {
+    }, icon('database'), record.target_label || tr('configurations.unknownTarget')), h('p', {
       class: 'config-facts'
-    }, `${tables.length} 张表 · ${planned} 行 · ${provider} · ${document.locale || '语言待设置'}`), h('p', {
+    }, tr('configurations.facts', {count: tables.length, value: formatNumber(tables.length), rows: planned, provider, locale: document.locale || tr('configurations.unsetLocale')})), h('p', {
       class: 'config-updated muted'
-    }, `最后保存 ${savedTime(record.updated_at)}`)), h('div', {
+    }, tr('configurations.lastSaved', {date: savedTime(record.updated_at)}))), h('div', {
       class: 'config-card-actions',
       role: 'group',
-      'aria-label': `${record.name} 的操作`
-    }, workbenchLink('打开', `draft=${encodeURIComponent(record.id)}`), button('复制', () => editName(record, true), {'data-config-mutation': true}), button('重命名', () => editName(record, false), {'data-config-mutation': true}), button('导出', () => exportConfig(record), {
+      'aria-label': tr('configurations.recordActions', {name: record.name})
+    }, workbenchLink(tr('configurations.open'), `draft=${encodeURIComponent(record.id)}`), button(tr('configurations.copy'), () => editName(record, true), {'data-config-mutation': true}), button(tr('configurations.rename'), () => editName(record, false), {'data-config-mutation': true}), button(tr('configurations.export'), () => exportConfig(record), {
       glyph: 'download'
-    }), button('删除', () => deleteConfig(record), {
+    }), button(tr('configurations.delete'), () => deleteConfig(record), {
       class: 'config-delete', 'data-config-mutation': true
     })));
   }));
@@ -255,30 +258,28 @@ function deleteSelectedConfigs() {
   const targets = visibleRecords().filter(record => selected.get(record.id) === record.revision)
     .map(({id, name, revision, target_label}) => ({id, name, revision, target_label}));
   if (!targets.length) return;
-  const context = createDialog('删除所选配置'), {owned} = context;
+  const context = createDialog(tr('configurations.bulkDeleteTitle')), {owned} = context;
   const alert = h('p', {role: 'alert', class: 'config-error'});
   const progress = h('p', {role: 'status', 'aria-live': 'polite'});
-  const cancel = button('取消', owned.close);
-  const confirm = button(`删除 ${targets.length} 份配置`, submit, {class: 'config-delete-confirm'});
+  const cancel = button(tr('configurations.cancel'), owned.close);
+  const confirm = button(tr('configurations.deleteCount', {count: targets.length, value: formatNumber(targets.length)}), submit, {class: 'config-delete-confirm'});
   let pending = false, submitted = false;
-  owned.body.append(h('p', {}, `将删除以下 ${targets.length} 份已保存配置：`),
-    h('ul', {class: 'config-delete-list'}, ...targets.map(record => h('li', {},
-      h('strong', {}, record.name), h('span', {class: 'muted'}, `${record.target_label || '数据库信息未记录'} · v${record.revision}`)))),
-    h('p', {}, '仅删除清单中的配置，运行记录、运行快照和数据库数据均保留。逐份核对版本后删除；部分失败会显示结果，不会自动重试。'), progress, alert);
-  owned.actions.append(cancel, confirm);
+  appendContent(owned.body, h('p', {}, tr('configurations.deleteList', {count: targets.length, value: formatNumber(targets.length)})), h('ul', {class: 'config-delete-list'}, ...targets.map(record => h('li', {},
+      h('strong', {}, record.name), h('span', {class: 'muted'}, joinText([record.target_label || tr('configurations.unknownTarget'), " · v", record.revision]))))), h('p', {}, tr('configurations.bulkDeleteHint')), progress, alert);
+  appendContent(owned.actions, cancel, confirm);
   cancel.focus({preventScroll: true});
   async function submit() {
     if (pending || submitted || !context.current()) return;
     pending = submitted = bulkPending = true;
     confirm.disabled = true;
-    cancel.textContent = '停止后续删除';
+    setText(cancel, tr('configurations.stopDeletion'));
     updateSelection();
     let deleted = 0, missing = 0, attempted = 0;
     const failures = [];
     for (const record of targets) {
       if (!context.current()) break;
       attempted++;
-      progress.textContent = `正在处理 ${attempted} / ${targets.length}：${record.name}`;
+      setText(progress, tr('configurations.deleteProgress', {current: formatNumber(attempted), total: formatNumber(targets.length), name: record.name}));
       try {
         await api(`${draftPath(record.id)}?revision=${record.revision}`, {method: 'DELETE'});
         deleted++;
@@ -296,7 +297,7 @@ function deleteSelectedConfigs() {
             records = records.filter(item => item.id !== record.id);
           }
         } else {
-          failures.push(`${record.name}：${error.status === 409 ? '已被更新，本次未删除' : '未能确认删除结果，请刷新核对'}`);
+          failures.push(joinText([record.name, "：", error.status === 409 ? tr('configurations.changedNotDeleted') : tr('configurations.unknownDeletion')]));
           if (error.status !== 409) break;
         }
       }
@@ -305,14 +306,14 @@ function deleteSelectedConfigs() {
     if (!context.pageCurrent()) return;
     bulkPending = false;
     const remaining = targets.length - attempted;
-    const summary = `已删除 ${deleted} 份${missing ? ` · ${missing} 份已不存在` : ''}${failures.length ? ` · ${failures.length} 份需核对` : ''}${remaining ? ` · ${remaining} 份未处理` : ''}。运行记录和数据库数据均保留。`;
+    const summary = tr('configurations.deletedSummary', {count: formatNumber(deleted), missing: missing ? tr('configurations.missingCount', {count: formatNumber(missing)}) : '', failed: failures.length ? tr('configurations.failedCount', {count: failures.length, value: formatNumber(failures.length)}) : '', remaining: remaining ? tr('configurations.remainingCount', {count: formatNumber(remaining)}) : ''});
     drawList();
     if (context.current()) {
       if (!failures.length && !remaining) owned.close();
       else {
-        progress.textContent = summary;
-        alert.textContent = `${failures.join('；')}。请返回列表核对最新版本，再重新选择。`;
-        cancel.textContent = '返回列表';
+        setText(progress, summary);
+        setText(alert, tr('configurations.deleteFailures', {details: joinText(failures, '; ')}));
+        setText(cancel, tr('configurations.returnList'));
       }
     }
     await refresh(summary);
@@ -348,24 +349,24 @@ async function mutationFailure(error, context, alert, confirm) {
     return;
   }
   if ([404, 409].includes(error.status)) {
-    alert.textContent = error.status === 409 ? '配置已被其他操作更新。列表已刷新，请取消后核对最新版本再重试。' : '配置已不存在。请关闭窗口，在更新后的列表中重新选择。';
+    setText(alert, error.status === 409 ? tr('configurations.changedConflict') : tr('configurations.missingConflict'));
     confirm.disabled = true;
     await refresh();
   } else {
-    alert.textContent = `未能确认操作结果：${error.message}。请刷新列表核对后再重试。`;
+    setText(alert, tr('configurations.mutationError', {detail: errorText(error)}));
   }
 }
 function editName(record, copy) {
   const errorId = `config-name-error-${++nameDialogSequence}`;
-  const context = createDialog(copy ? '复制配置' : '重命名配置'),
+  const context = createDialog(copy ? tr('configurations.copyTitle') : tr('configurations.renameTitle')),
     {
       owned
     } = context;
   const input = h('input', {
     type: 'text',
-    value: copy ? `${record.name.slice(0, 197)} 副本` : record.name,
+    value: copy ? t('configurations.copyName', {name: record.name.slice(0, 200 - t('configurations.copySuffix').length)}) : record.name,
     maxlength: 200,
-    'aria-label': '配置名称',
+    'aria-label': tr('configurations.name'),
     oninput: clearNameError,
     onkeydown: event => {
       if (event.key === 'Enter') {
@@ -379,16 +380,16 @@ function editName(record, copy) {
     class: 'config-error'
   });
   alert.id = errorId;
-  const confirm = button(copy ? '创建副本' : '保存名称', submit, {
+  const confirm = button(copy ? tr('configurations.createCopy') : tr('configurations.saveName'), submit, {
     primary: true
   });
   let pending = false;
-  owned.body.append(h('p', {
+  appendContent(owned.body, h('p', {
     class: 'muted'
-  }, copy ? '复制已保存的完整规则，原配置保持不变。' : '只修改配置名称，生成规则保持不变。'), h('label', {
+  }, copy ? tr('configurations.copyHint') : tr('configurations.renameHint')), h('label', {
     class: 'config-name-field'
-  }, h('span', {}, '配置名称'), input), alert);
-  owned.actions.append(button('取消', owned.close), confirm);
+  }, h('span', {}, tr('configurations.name')), input), alert);
+  appendContent(owned.actions, button(tr('configurations.cancel'), owned.close), confirm);
   input.focus();
   function clearNameError() {
     if (input.getAttribute('aria-invalid') !== 'true') {
@@ -396,12 +397,12 @@ function editName(record, copy) {
     }
     input.removeAttribute('aria-invalid');
     input.removeAttribute('aria-describedby');
-    alert.textContent = '';
+    setText(alert, '');
   }
   function rejectName(message) {
-    input.setAttribute('aria-invalid', 'true');
-    input.setAttribute('aria-describedby', errorId);
-    alert.textContent = message;
+    setAttr(input, 'aria-invalid', 'true');
+    setAttr(input, 'aria-describedby', errorId);
+    setText(alert, message);
     input.focus({preventScroll: true});
   }
   async function submit() {
@@ -410,18 +411,18 @@ function editName(record, copy) {
     }
     const name = input.value.trim();
     if (!name) {
-      rejectName('请输入配置名称。');
+      rejectName(tr('configurations.nameRequired'));
       return;
     }
     if (name.length > 200) {
-      rejectName('配置名称不能超过 200 个字符。');
+      rejectName(tr('configurations.nameTooLong'));
       return;
     }
     pending = true;
     confirm.disabled = true;
     input.disabled = true;
     clearNameError();
-    alert.textContent = '';
+    setText(alert, '');
     let failed = null;
     try {
       const saved = await api(`${draftPath(record.id)}${copy ? '/copy' : ''}`, {
@@ -444,7 +445,7 @@ function editName(record, copy) {
       if (context.current()) {
         owned.close();
       }
-      await refresh(copy ? `已创建“${saved.name}”，可以打开继续编辑。` : `已重命名为“${saved.name}”。`);
+      await refresh(copy ? tr('configurations.copied', {name: saved.name}) : tr('configurations.renamed', {name: saved.name}));
     } catch (error) {
       failed = error;
       await mutationFailure(error, context, alert, confirm);
@@ -458,7 +459,7 @@ function editName(record, copy) {
   }
 }
 function deleteConfig(record) {
-  const context = createDialog('删除配置'),
+  const context = createDialog(tr('configurations.deleteTitle')),
     {
       owned
     } = context;
@@ -466,15 +467,15 @@ function deleteConfig(record) {
       role: 'alert',
       class: 'config-error'
     }),
-    cancel = button('取消', owned.close);
+    cancel = button(tr('configurations.cancel'), owned.close);
   let pending = false;
-  const confirm = button('删除配置', async () => {
+  const confirm = button(tr('configurations.deleteTitle'), async () => {
     if (pending || confirm.disabled || !context.current()) {
       return;
     }
     pending = true;
     confirm.disabled = true;
-    alert.textContent = '';
+    setText(alert, '');
     let failed = null;
     try {
       await api(`${draftPath(record.id)}?revision=${record.revision}`, {
@@ -490,7 +491,7 @@ function deleteConfig(record) {
       if (context.current()) {
         owned.close();
       }
-      await refresh(`已删除“${record.name}”。运行记录和数据库数据均保留。`);
+      await refresh(tr('configurations.deleted', {name: record.name}));
     } catch (error) {
       failed = error;
       await mutationFailure(error, context, alert, confirm);
@@ -503,16 +504,16 @@ function deleteConfig(record) {
   }, {
     class: 'config-delete-confirm'
   });
-  owned.body.append(h('p', {}, '删除此配置？'), h('strong', {
+  appendContent(owned.body, h('p', {}, tr('configurations.deleteQuestion')), h('strong', {
     class: 'config-delete-name'
   }, record.name), h('p', {
     class: 'muted'
-  }, `数据库：${record.target_label} · 已保存版本 v${record.revision}`), h('p', {}, '只删除这份已保存的配置。运行记录、已提交的运行快照与数据库中的数据都会保留，正在执行的任务继续运行。'), alert);
-  owned.actions.append(cancel, confirm);
+  }, tr('configurations.targetRevision', {target: record.target_label, revision: record.revision})), h('p', {}, tr('configurations.deleteHint')), alert);
+  appendContent(owned.actions, cancel, confirm);
   cancel.focus();
 }
 function exportConfig(record) {
-  const context = createDialog('导出配置', 'header'),
+  const context = createDialog(tr('configurations.exportTitle'), 'header'),
     {
       owned
     } = context;
@@ -524,18 +525,18 @@ function exportConfig(record) {
       role: 'status',
       'aria-live': 'polite'
     });
-  const actions = ['JSON', 'YAML'].map(format => button(`下载 ${format}`, () => saveFile(format), {
+  const actions = ['JSON', 'YAML'].map(format => button(tr('configurations.download', {format}), () => saveFile(format), {
     glyph: 'download'
   }));
   let pending = false;
-  owned.body.append(h('strong', {}, record.name), h('p', {}, '导出服务器上已保存的生成规则。文件可在工作台导入，不包含数据库连接凭据。'), alert, result);
-  owned.actions.append(...actions);
+  appendContent(owned.body, h('strong', {}, record.name), h('p', {}, tr('configurations.exportHint')), alert, result);
+  appendContent(owned.actions, ...actions);
   async function saveFile(format) {
     if (pending || !context.current()) {
       return;
     }
     pending = true;
-    alert.textContent = '';
+    setText(alert, '');
     actions.forEach(action => {
       action.disabled = true;
     });
@@ -546,10 +547,10 @@ function exportConfig(record) {
       }
       const name = String(saved.name || 'sqlseed').replace(/[^\p{L}\p{N}._-]+/gu, '_').slice(0, 80) || 'sqlseed';
       download(`${name}.${format === 'JSON' ? 'json' : 'yaml'}`, format === 'JSON' ? JSON.stringify(saved.json, null, 2) : saved.yaml, format === 'JSON' ? 'application/json' : 'application/yaml');
-      result.textContent = `已导出 v${saved.revision} 的 ${format} 文件。`;
+      setText(result, tr('configurations.exported', {revision: saved.revision, format}));
     } catch (error) {
       if (context.current()) {
-        alert.textContent = `导出失败：${error.message}`;
+        setText(alert, tr('configurations.exportError', {detail: errorText(error)}));
       }
     } finally {
       pending = false;

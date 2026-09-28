@@ -8,6 +8,8 @@ from typing import Any
 from fastapi import HTTPException
 from sqlseed._utils.logger import get_logger
 
+from sqlseed_web.messages import legacy_message as tr_en
+from sqlseed_web.messages import message as tr
 from sqlseed_web.operation_errors import generation_errors
 from sqlseed_web.sqlite_target import sqlite_target
 from sqlseed_web.state import Connection, state
@@ -25,7 +27,7 @@ def export_session() -> dict[str, Any]:
                 409,
                 detail={
                     "code": "plugin_session_not_restorable",
-                    "message": "当前连接包含 SQLite 内存数据库，更新插件会丢失内存数据；请先保存数据并断开该连接。",
+                    "message": tr("backend.runtime_session.a_connection_uses_an_in_memory_sqlite"),
                 },
             )
         connections.append({key: item[key] for key in ("conn_id", "target", "provider", "locale")})
@@ -40,10 +42,10 @@ def _restore_connection(item: Any) -> None:
         if not isinstance(item, dict) or not all(
             isinstance(item.get(key), str) and item[key] for key in ("target", "conn_id", "provider", "locale")
         ):
-            raise ValueError("Invalid saved connection settings")
+            raise ValueError(tr_en("backend.runtime_session.invalid_saved_connection_settings"))
         target = sqlite_target(item["target"], item["conn_id"])
         if target is not None and (target.kind != "sqlite" or not Path(target.value).is_file()):
-            raise ValueError("The original file-backed database is unavailable")
+            raise ValueError(tr_en("backend.runtime_session.the_original_file_backed_database_is_unavailable"))
         conn = state.add_connection(
             item["target"],
             provider=item["provider"],
@@ -55,7 +57,7 @@ def _restore_connection(item: Any) -> None:
         conn.orchestrator.get_table_names()
         opened = True
     except generation_errors(conn.orchestrator if conn is not None else None, additional=(KeyError,)) as exc:
-        raise ValueError("Saved connection could not be restored") from exc
+        raise ValueError(tr_en("backend.runtime_session.saved_connection_could_not_be_restored")) from exc
     finally:
         if conn is not None and not opened:
             try:
@@ -71,7 +73,7 @@ def restore_session(snapshot: dict[str, Any]) -> dict[str, Any]:
     failures: list[dict[str, str]] = []
     items = snapshot.get("connections", [])
     if not isinstance(items, list):
-        raise TypeError("Session connections must be a list")
+        raise TypeError(tr_en("backend.runtime_session.session_connections_must_be_a_list"))
     for item in items:
         try:
             _restore_connection(item)
@@ -79,7 +81,7 @@ def restore_session(snapshot: dict[str, Any]) -> dict[str, Any]:
             failures.append(
                 {
                     "conn_id": str(item.get("conn_id", "")) if isinstance(item, dict) else "",
-                    "message": "无法恢复此连接，请检查数据库可访问性并重新连接。",
+                    "message": tr("backend.runtime_session.cannot_restore_this_connection_check_database_access"),
                 }
             )
         else:

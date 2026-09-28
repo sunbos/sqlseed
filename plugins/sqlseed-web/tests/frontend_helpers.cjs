@@ -160,10 +160,52 @@ function createDom() {
 
 const sourceRoot = path.join(__dirname, '../src/sqlseed_web/static/js');
 const scrollModules = new WeakMap();
+const languageModules = new WeakMap();
 function source(name) {
   return fs.readFileSync(path.join(sourceRoot, name), 'utf8')
     .replace(/^import[\s\S]*?;\s*\n/gm, '')
     .replace(/^export /gm, '');
+}
+
+function loadI18n(bindings = {}) {
+  const document = bindings.document || createDom();
+  if (languageModules.has(document)) return languageModules.get(document);
+  const context = vm.createContext({
+    console, document, Intl, URL, setTimeout, clearTimeout,
+    // Existing Chinese behavior tests select Chinese explicitly. Production
+    // still negotiates the browser language; bilingual cases supply their own.
+    navigator: {languages: ['zh-CN'], language: 'zh-CN'},
+    window: new Element('window'),
+    localStorage: {getItem: () => null, setItem() {}, removeItem() {}},
+    ...bindings,
+  });
+  vm.runInContext(source('i18n.js'), context, {filename: 'i18n.js'});
+  const resources = path.join(sourceRoot, 'i18n/messages');
+  // Synchronous DOM cases preload the real JSON data. The native-module and
+  // loader tests separately exercise awaited fetches and import.meta URLs.
+  for (const filename of fs.readdirSync(resources).filter(name => name.endsWith('.json')).sort()) {
+    const catalog = JSON.parse(fs.readFileSync(path.join(resources, filename), 'utf8'));
+    for (const [namespace, entries] of Object.entries(catalog)) {
+      context.catalogNamespace = namespace;
+      context.catalogEntries = entries;
+      vm.runInContext('registerMessages(catalogNamespace, catalogEntries)', context, {filename});
+    }
+  }
+  delete context.catalogNamespace;
+  delete context.catalogEntries;
+  const backend = path.join(sourceRoot, '../i18n/backend-messages.json');
+  if (fs.existsSync(backend)) {
+    context.backendEntries = Object.fromEntries(Object.entries(JSON.parse(fs.readFileSync(backend, 'utf8')))
+      .map(([key, value]) => [key.replace(/^backend\./, ''), value]));
+    vm.runInContext("registerMessages('backend', backendEntries)", context);
+  }
+  const helpers = vm.runInContext(`({LANGUAGE_KEY, UI_LANGUAGES, browserLanguage, getLanguage,
+    getFormatLocale, setLanguage, onLanguageChange, registerMessages, loadMessages, messageEntries, missingMessages,
+    LocalizedText, isLocalized, liveText, textValue, t, tr, joinText, formatNumber, formatDate,
+    localizedNode, setText, setAttr, appendContent, replaceContent, UserFacingError, errorText,
+    serverText, serverMessages, loadBackendMessages})`, context);
+  languageModules.set(document, helpers);
+  return helpers;
 }
 
 function loadFrontend(name, bindings = {}) {
@@ -178,6 +220,7 @@ function loadFrontend(name, bindings = {}) {
     location: {hash: '#/wizard'},
     ...bindings,
   };
+  Object.assign(globals, loadI18n(globals));
   const apiContext = vm.createContext({...globals});
   vm.runInContext(source('api.js'), apiContext, {filename: 'api.js'});
   const api = vm.runInContext('({h, clear, msg, table, fmt, store, api, get, post, del, setConnBadge, safeTargetLabel, rememberConnId, forgetConnId, restoreConnection, httpErrorMessage})', apiContext);
@@ -188,6 +231,9 @@ function loadFrontend(name, bindings = {}) {
   }
   const context = vm.createContext({...globals, ...api, lockPageScroll: scrollModules.get(document), ...bindings});
   vm.runInContext(source('workbench/focus.js'), context, {filename: 'workbench/focus.js'});
+  if (name !== 'segment-motion.js') {
+    vm.runInContext(source('segment-motion.js'), context, {filename: 'segment-motion.js'});
+  }
   if (name === 'workbench/preview.js') {
     vm.runInContext(source('workbench/preview-scroll-layout.js'), context, {filename: 'workbench/preview-scroll-layout.js'});
   }
@@ -195,4 +241,4 @@ function loadFrontend(name, bindings = {}) {
   return context;
 }
 
-module.exports = {Element, createDom, loadFrontend};
+module.exports = {Element, createDom, loadFrontend, loadI18n};

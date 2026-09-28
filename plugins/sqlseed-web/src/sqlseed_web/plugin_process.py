@@ -15,6 +15,8 @@ from typing import IO, Any, Protocol
 
 from sqlseed._utils.daemon_task import DaemonTask
 
+from sqlseed_web.messages import message as tr
+
 
 class InstallerLifetime(Protocol):
     arguments: list[str]
@@ -32,7 +34,7 @@ class InstallerCleanupPending(RuntimeError):
     """Keep process/job ownership until cleanup can be positively confirmed."""
 
     def __init__(self, stop: Callable[[], None], resources: ExitStack) -> None:
-        super().__init__("安装进程清理尚未确认，业务恢复已暂停。")
+        super().__init__(tr("backend.plugin_process.installer_cleanup_has_not_been_confirmed_application"))
         self._stop = stop
         self._resources = resources
         self._stopped = False
@@ -93,7 +95,7 @@ def _read_installer_output(stream: IO[bytes], output: Callable[[str], None]) -> 
             output(clean)
             remaining -= len(clean)
         if remaining <= 0:
-            output("输出已达到长度上限，后续输出已省略。")
+            output(tr("backend.plugin_process.the_output_length_limit_was_reached_further"))
 
 
 def run_installer(
@@ -134,7 +136,7 @@ def run_installer(
         reader: DaemonTask[None] | None = None
         try:
             if (stream := process.stdout) is None:
-                raise RuntimeError("无法读取安装工具输出。")
+                raise RuntimeError(tr("backend.plugin_process.cannot_read_installer_output"))
             reader = DaemonTask(lambda: _read_installer_output(stream, output), name="sqlseed-plugin-output")
             deadline = time.monotonic() + timeout
             try:
@@ -142,10 +144,10 @@ def run_installer(
                 if not reader.wait(max(0, deadline - time.monotonic())):
                     raise subprocess.TimeoutExpired(arguments, timeout)
             except subprocess.TimeoutExpired:
-                output("安装工具运行超时，正在停止安装进程；请检查环境后重试。")
+                output(tr("backend.plugin_process.the_installer_timed_out_and_is_being"))
                 return -1
             if (error := reader.exception()) is not None:
-                raise RuntimeError("无法读取安装工具输出。") from error
+                raise RuntimeError(tr("backend.plugin_process.cannot_read_installer_output")) from error
             return result
         finally:
             # Startup and output failures own the same cleanup as timeouts.

@@ -29,9 +29,12 @@ from sqlalchemy.engine import URL, make_url
 from sqlseed._utils.logger import get_logger
 from sqlseed.core.orchestrator import DataOrchestrator
 
+from sqlseed_web.messages import legacy_message as tr_en
+from sqlseed_web.messages import message as tr
 from sqlseed_web.sqlite_target import existing_sqlite_connection_target, sqlite_target
 
 logger = get_logger(__name__)
+_UNKNOWN_CONNECTION = "backend.state.unknown_connection"
 
 
 class ConnectionBusyError(RuntimeError):
@@ -107,7 +110,7 @@ class UIState:
     ) -> Connection:
         """Create and register a DataOrchestrator for the given target."""
         if connection_id is not None and not connection_id:
-            raise ValueError("connection ID must not be empty")
+            raise ValueError(tr_en("backend.state.connection_id_must_not_be_empty"))
         conn_id = connection_id if connection_id is not None else uuid.uuid4().hex[:12]
         # Reject unsupported SQLite identities before opening a database or
         # registering a session that grouping/admission could not identify.
@@ -118,7 +121,7 @@ class UIState:
         with self._global_lock:
             if conn_id in self._conns:
                 orch.close()
-                raise ValueError("connection ID is already registered")
+                raise ValueError(tr_en("backend.state.connection_id_is_already_registered"))
             self._conns[conn_id] = conn
             self._conn_locks[conn_id] = threading.Lock()
         return conn
@@ -127,7 +130,7 @@ class UIState:
         """Return a registered connection or reject an expired identifier."""
         with self._global_lock:
             if (conn := self._conns.get(conn_id)) is None:
-                raise UnknownConnectionError(f"unknown connection: {conn_id}")
+                raise UnknownConnectionError(tr_en(_UNKNOWN_CONNECTION, p1=conn_id))
             return conn
 
     def list_connections(self) -> list[dict[str, Any]]:
@@ -168,10 +171,10 @@ class UIState:
         """Close an idle connection atomically with respect to job creation."""
         with self._global_lock:
             if any(j.conn_id == conn_id and j.status == "running" for j in self._jobs.values()):
-                raise ConnectionBusyError("当前连接有任务正在运行，请等待任务完成后再断开。")
+                raise ConnectionBusyError(tr("backend.state.this_connection_has_a_running_task_wait"))
             lock = self._conn_locks.get(conn_id)
             if lock is not None and not lock.acquire(blocking=False):
-                raise ConnectionBusyError("当前连接正在处理请求，请等待完成后再断开。")
+                raise ConnectionBusyError(tr("backend.state.this_connection_is_handling_a_request_wait"))
             conn = self._conns.pop(conn_id, None)
             self._conn_locks.pop(conn_id, None)
         try:
@@ -198,15 +201,15 @@ class UIState:
         """
         with self._global_lock:
             if (conn := self._conns.get(conn_id)) is None:
-                raise UnknownConnectionError(f"unknown connection: {conn_id}")
+                raise UnknownConnectionError(tr_en(_UNKNOWN_CONNECTION, p1=conn_id))
             if job_id is not None:
                 job = self._jobs.get(job_id)
                 if job is None or job.conn_id != conn_id or job.status != "running":
-                    raise UnknownConnectionError(f"unknown running job: {job_id}")
+                    raise UnknownConnectionError(tr_en("backend.state.unknown_running_job", p1=job_id))
             self._check_job_admission(conn, write=write, job_id=job_id)
             lock = self._conn_locks[conn_id]
             if not lock.acquire(blocking=False):
-                raise ConnectionBusyError("当前连接正在处理请求，请等待完成后重试。")
+                raise ConnectionBusyError(tr("backend.state.connection_request_busy"))
             self._operation_owners[conn_id] = threading.get_ident()
         try:
             yield conn
@@ -222,10 +225,10 @@ class UIState:
             if job.status != "running" or job.job_id == job_id:
                 continue
             if job.conn_id == conn.conn_id:
-                raise ConnectionBusyError("当前连接有任务正在运行，请等待完成后重试。")
+                raise ConnectionBusyError(tr("backend.state.connection_task_busy"))
             other = self._conns.get(job.conn_id)
             if write and job.kind in {"fill", "workbench"} and other and _write_target(other) & target:
-                raise ConnectionBusyError("此数据库已有生成任务正在运行，请查看运行记录并等待完成。")
+                raise ConnectionBusyError(tr("backend.state.a_generation_task_is_already_running_for"))
 
     # ---- jobs -----------------------------------------------------------
 
@@ -233,10 +236,10 @@ class UIState:
         """Reserve a live connection for a job before its worker is started."""
         with self._global_lock:
             if (conn := self._conns.get(conn_id)) is None:
-                raise UnknownConnectionError(f"unknown connection: {conn_id}")
+                raise UnknownConnectionError(tr_en(_UNKNOWN_CONNECTION, p1=conn_id))
             self._check_job_admission(conn, write=kind in {"fill", "workbench"})
             if self._conn_locks[conn_id].locked() and self._operation_owners.get(conn_id) != threading.get_ident():
-                raise ConnectionBusyError("当前连接正在处理请求，请等待完成后再生成。")
+                raise ConnectionBusyError(tr("backend.state.connection_busy_before_generation"))
             job = Job(job_id=uuid.uuid4().hex[:12], conn_id=conn_id, kind=kind, label=label, started_at=time.time())
             self._jobs[job.job_id] = job
         return job
@@ -245,7 +248,7 @@ class UIState:
         """Return a job to its worker; HTTP readers should use a snapshot."""
         with self._global_lock:
             if (job := self._jobs.get(job_id)) is None:
-                raise KeyError(f"unknown job: {job_id}")
+                raise KeyError(tr_en("backend.state.unknown_job", p1=job_id))
             return job
 
     def complete_job(
@@ -275,7 +278,7 @@ class UIState:
             with self._global_lock:
                 job = self._jobs[job_id]
                 if job.status == "running":
-                    job.error = "后台任务意外终止，请检查服务日志后重试。"
+                    job.error = tr("backend.state.the_background_task_stopped_unexpectedly_check_the")
                     job.finished_at = time.time()
                     job.status = "error"
 
@@ -283,7 +286,7 @@ class UIState:
         """Read terminal state and its result from the same publication."""
         with self._global_lock:
             if (job := self._jobs.get(job_id)) is None:
-                raise KeyError(f"unknown job: {job_id}")
+                raise KeyError(tr_en("backend.state.unknown_job", p1=job_id))
             return replace(job, result=dict(job.result))
 
     def recent_jobs(self, limit: int = 20) -> list[Job]:

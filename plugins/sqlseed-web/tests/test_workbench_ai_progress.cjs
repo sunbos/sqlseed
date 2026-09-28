@@ -38,6 +38,43 @@ test('real streamed stages and elapsed time stay in the footer until review with
   await ui.button('取消',ui.document).click();assert.equal(time.tasks.size,0);
 });
 
+test('switching UI language translates retained AI progress without replacing scope, requirements or requests',async()=>{
+  const time=clock(),ui=await ready({timers:time.timers}),feed=stream();
+  const business=ui.document.querySelector('.wb-ai-business').querySelector('textarea');
+  business.value='Keep 用户说明 and order_ids exactly as entered';await business.dispatchEvent('input');
+  const scope=ui.document.querySelector('input[value="columns"]');scope.checked=true;await scope.dispatchEvent('change');
+  const targets=[...ui.document.querySelectorAll('[data-ai-column]')].map(input=>({value:input.getAttribute('data-ai-column'),checked:input.checked}));
+  const before=plain(ui.modelState().payload('current')),dialog=ui.document.querySelector('[role="dialog"]');
+  business.focus();
+  ui.routes.set('/api/workbench/ai/suggest',()=>feed.response);
+  const pending=analyze(ui).click();await tick();
+  feed.push({type:'progress',stage:'model',message:'正在等待 AI 分析字段与关系…',
+    message_key:'backend.workbench_ai.waiting_for_ai_to_analyze_fields_and',message_params:{}});await tick();
+  time.advance(2100);
+  const requestCount=ui.requests.length,focus=ui.document.activeElement;
+  ui.context.setLanguage('en');
+  assert.match(feedback(ui).textContent,/Waiting for AI to analyze fields and relationships/);
+  assert.match(feedback(ui).textContent,/Elapsed: 2 s/);
+  assert.equal(dialog.getAttribute('aria-label'),'AI configuration assistant');
+  assert.equal(ui.document.querySelector('[role="dialog"]'),dialog);
+  assert.equal(ui.document.activeElement,focus);
+  assert.equal(ui.document.querySelector('.wb-ai-business').querySelector('textarea'),business);
+  assert.equal(business.value,'Keep 用户说明 and order_ids exactly as entered');
+  assert.equal(scope.checked,true);
+  assert.deepEqual([...ui.document.querySelectorAll('[data-ai-column]')].map(input=>({value:input.getAttribute('data-ai-column'),checked:input.checked})),targets);
+  assert.deepEqual(plain(ui.modelState().payload('current')),before);
+  assert.equal(ui.requests.length,requestCount);
+  const sent=JSON.parse(ui.requests.find(item=>item.url.endsWith('/suggest')).options.body);
+  assert.equal(sent.business_context,business.value);
+  assert.deepEqual(sent.allowed_targets.flatMap(item=>item.columns.map(column=>`${item.table}.${column}`)),targets.filter(item=>item.checked).map(item=>item.value));
+  ui.context.setLanguage('zh-CN');
+  assert.match(feedback(ui).textContent,/正在等待 AI 分析字段与关系/);
+  assert.equal(ui.requests.length,requestCount);
+  feed.push({type:'result',result});feed.close();await pending;
+  assert.deepEqual(plain(ui.modelState().payload('current')),before);
+  await ui.button('取消',ui.document).click();assert.equal(time.tasks.size,0);
+});
+
 test('candidate validation failure exposes concrete issues and rejected reasons without making suggestions applicable',async()=>{
   const ui=await ready();ui.routes.set('/api/workbench/ai/suggest',()=>({...result,suggestions:[],rejected:['order_no 的值域不足以生成不同值'],validation:{ok:false,message:'候选配置未通过只读检查',issues:[{table:'orders',column:'order_no',message:'生成第 2 行时无法满足 UNIQUE'}]}}));
   await analyze(ui).click();
@@ -81,6 +118,27 @@ test('unknown connection explains restart and reconnection without selecting a d
   await analyze(ui).click();
   assert.match(feedback(ui)?.textContent || '',/连接已失效.*重启.*重新连接/);assert.equal(ui.store.connId,'A');assert.deepEqual(plain(ui.modelState().document),before);
   assert.equal(ui.requests.some(item=>item.url==='/api/connections'),false);await ui.button('取消',ui.document).click();
+});
+
+for(const transport of ['http','stream']) test(`localized missing-connection ${transport} errors retain the reconnection action`,async()=>{
+  const ui=await ready(), before=plain(ui.modelState().document);
+  const detail={code:'not_found',message:'legacy raw diagnostic',
+    message_key:'backend.state.unknown_connection',message_params:{p1:'A'}};
+  if(transport==='http') {
+    ui.routes.set('/api/workbench/ai/suggest',()=>new Response(JSON.stringify({detail}),{status:404}));
+    await analyze(ui).click();
+  } else {
+    const feed=stream();ui.routes.set('/api/workbench/ai/suggest',()=>feed.response);
+    const pending=analyze(ui).click();await tick();
+    feed.push({type:'error',status:404,...detail});feed.close();await pending;
+  }
+  assert.match(feedback(ui).textContent,/连接已失效.*重新连接/);
+  ui.context.setLanguage('en');
+  assert.match(feedback(ui).textContent,/connection.*reconnect/i);
+  assert.equal(ui.store.connId,'A');
+  assert.deepEqual(plain(ui.modelState().document),before);
+  assert.equal(ui.requests.some(item=>item.url==='/api/connections'),false);
+  ui.context.unmount();
 });
 
 for(const destination of ['close','edit','leave-remount'])test(`late stream events cannot affect ${destination}`,async()=>{

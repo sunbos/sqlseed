@@ -16,6 +16,7 @@ from packaging.requirements import Requirement
 from packaging.utils import canonicalize_name
 from packaging.version import Version
 
+from sqlseed_web.messages import message as tr
 from sqlseed_web.settings_environment import AI_INSTALL_REQUIREMENT, _installer
 
 COMPONENT_DISTRIBUTIONS = {
@@ -39,11 +40,11 @@ class Environment:
 
 def _venv_directory_restriction(prefix: Path) -> str | None:
     """Check isolation and write access, retaining the last applicable restriction."""
-    reason = None
+    reason: str | None = None
     try:
         configuration = (prefix / "pyvenv.cfg").read_text(encoding="utf-8")
         if re.search(r"include-system-site-packages\s*=\s*true", configuration, re.IGNORECASE):
-            reason = "共享系统 site-packages 的环境不支持界面管理。"
+            reason = tr("backend.plugin_environment.environments_sharing_system_site_packages_cannot_be")
         locations = {
             prefix,
             Path(sysconfig.get_path("purelib")).resolve(),
@@ -51,33 +52,33 @@ def _venv_directory_restriction(prefix: Path) -> str | None:
         }
         for location in locations:
             if not location.is_relative_to(prefix):
-                reason = "Python 安装目录位于 virtualenv 之外，不支持界面管理。"
+                reason = tr("backend.plugin_environment.the_python_installation_directory_is_outside_the")
             else:
                 if (location / "EXTERNALLY-MANAGED").exists():
-                    reason = "此环境由外部工具管理，请使用原环境管理工具。"
+                    reason = tr("backend.plugin_environment.this_environment_is_externally_managed_use_its")
                 if not location.is_dir() or not os.access(location, os.W_OK) or not location.stat().st_mode & 0o222:
-                    reason = "当前 Python 环境不可写，请使用原环境管理工具。"
+                    reason = tr("backend.plugin_environment.this_python_environment_is_not_writable_use")
         if reason is None:
             with tempfile.TemporaryFile(dir=prefix) as probe:
                 probe.write(b"sqlseed environment write probe")
                 probe.flush()
     except (OSError, UnicodeError):
-        reason = "无法验证当前 Python 环境的写入权限。"
+        reason = tr("backend.plugin_environment.cannot_verify_write_permissions_for_this_python")
     return reason
 
 
 def _environment() -> Environment:
     prefix = Path(sys.prefix).resolve()
-    reason = None
+    reason: str | None = None
     if sys.prefix == sys.base_prefix or not (prefix / "pyvenv.cfg").is_file():
-        reason = "仅支持当前 Web 所在的独立 virtualenv；系统 Python 请使用原环境管理工具。"
+        reason = tr("backend.plugin_environment.management_requires_the_independent_virtualenv_running_web")
     elif (prefix / "EXTERNALLY-MANAGED").exists():
-        reason = "此环境由外部工具管理，请使用原环境管理工具。"
+        reason = tr("backend.plugin_environment.this_environment_is_externally_managed_use_its")
     else:
         reason = _venv_directory_restriction(prefix)
     installer = _installer()
     if reason is None and installer.tool is None:
-        reason = "当前 Python 环境没有可用的 pip 或 uv；请使用原环境管理工具。"
+        reason = tr("backend.plugin_environment.no_usable_pip_or_uv_in_this")
     return Environment(prefix, sys.executable, installer.tool, installer.tool_executable, reason)
 
 
@@ -115,7 +116,7 @@ class EnvironmentLock:
         except OSError as exc:
             if handle is not None:
                 handle.close()
-            raise RuntimeError("另一个 Web 进程正在使用此 Python 环境，请先停止它。") from exc
+            raise RuntimeError(tr("backend.plugin_environment.another_web_process_is_using_this_python")) from exc
         self._file = handle
 
     def release(self) -> None:
@@ -126,7 +127,7 @@ class EnvironmentLock:
     def fileno(self) -> int:
         """Retain this same OS lock in an owned serving child until it exits."""
         if self._file is None:
-            raise RuntimeError("环境锁尚未持有。")
+            raise RuntimeError(tr("backend.plugin_environment.the_environment_lock_is_not_held"))
         return self._file.fileno()
 
 
@@ -217,7 +218,7 @@ def installed_packages(prefix: Path) -> dict[str, InstalledPackage]:
         if not {"sqlseed", "sqlseed-web", "faker"}.issubset(result):
             raise ValueError("required distribution metadata is absent")
     except (OSError, ValueError, KeyError, TypeError) as exc:
-        raise RuntimeError("已安装组件的元数据无法安全解析；请先修复当前 Python 环境。") from exc
+        raise RuntimeError(tr("backend.plugin_environment.installed_package_metadata_cannot_be_safely_parsed")) from exc
     return result
 
 
@@ -260,7 +261,7 @@ def installer_arguments(environment: Environment, action: str, distribution: str
         if action == "install":
             args += ["--constraints", str(constraints), "--only-binary=:all:"]
     else:
-        raise RuntimeError("没有可用的安装工具。")
+        raise RuntimeError(tr("backend.plugin_environment.no_installation_tool_is_available"))
     requirement = AI_INSTALL_REQUIREMENT if action == "install" and distribution == "sqlseed-ai" else distribution
     return [*args, requirement]
 
@@ -270,7 +271,16 @@ def package_status(packages: dict[str, InstalledPackage], unavailable: str | Non
     for identifier, distribution in COMPONENT_DISTRIBUTIONS.items():
         package = packages.get(distribution)
         users = required_by(distribution, packages)
-        reason = unavailable or (f"由 {', '.join(users)} 使用，请先卸载这些可选组件。" if users else None)
+        reason = unavailable or (
+            tr("backend.plugin_environment.required_by_uninstall_those_optional_components_first", p1=", ".join(users))
+            if users
+            else None
+        )
+        update_reason = unavailable
+        if not update_reason and package is None:
+            update_reason = tr("backend.plugin_environment.install_this_component_first")
+        elif not update_reason:
+            update_reason = None
         result.append(
             {
                 "id": identifier,
@@ -279,7 +289,7 @@ def package_status(packages: dict[str, InstalledPackage], unavailable: str | Non
                 "can_install": not unavailable and package is None,
                 "can_uninstall": not unavailable and package is not None and not users,
                 "can_update": not unavailable and package is not None,
-                "update_reason": unavailable if unavailable else ("请先安装此组件。" if package is None else None),
+                "update_reason": update_reason,
                 "reason": reason,
                 "required_by": users,
             }

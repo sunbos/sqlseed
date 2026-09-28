@@ -1,7 +1,10 @@
+import {tr, setText, errorText, setAttr, replaceContent, UserFacingError, t, appendContent, joinText, formatNumber, formatDate, serverText} from '../i18n.js';
+import '../i18n/messages/workbench.js';
 import { h, api, get, store, restoreConnection } from '../api.js';
 import { genLabel, paramLabel } from '../labels.js';
 import { createDropdown } from '../dropdown.js';
 import { readGenerationDefaults } from '../generation-defaults.js';
+import { createSegmentIndicator } from '../segment-motion.js';
 import { WorkbenchSession } from '../workbench/session.js';
 import { openConnectionDialog } from '../workbench/connection.js';
 import { openAIAssistant } from '../workbench/ai.js';
@@ -29,7 +32,7 @@ const executionChecks = new WeakMap();
 const pendingSchemas = new Map(),
   pendingActions = new WeakMap(),
   disabledBeforeBusy = new WeakMap();
-const databaseActions = new Map([[save, '保存配置'], [showDependencies, '检查依赖'], [showPlan, '检查依赖'], [summary, '准备生成计划'], [refreshSchema, '读取数据库结构'], [configDocument, '读取配置文档']]);
+const databaseActions = new Map([[save, tr("workbench.action.save")], [showDependencies, tr("workbench.action.checkDependencies")], [showPlan, tr("workbench.action.checkDependencies")], [summary, tr("workbench.action.preparePlan")], [refreshSchema, tr("workbench.action.readSchema")], [configDocument, tr("workbench.action.readDocument")]]);
 let root,
   session,
   catalog,
@@ -44,6 +47,7 @@ let graphOwner = null,
   modalIntent = 0;
 let tablePreview = null;
 let guidanceCollapsed = false;
+let guidanceIndicator = null;
 let providerMetadata = null,
   providerRequest = 0;
 try {
@@ -97,7 +101,7 @@ function ticket() {
 }
 function notify(text, error = false, {inputValidation = false} = {}) {
   if (notice?.isConnected) {
-    notice.textContent = text;
+    setText(notice, text);
     notice.className = `wb-notice${error ? ' wb-error' : ''}`;
     notice.dataset.execution = '';
     notice.dataset.inputValidation = inputValidation ? 'true' : '';
@@ -105,18 +109,18 @@ function notify(text, error = false, {inputValidation = false} = {}) {
   const banner = root?.querySelector('.wb-operation-status');
   if (banner && error) {
     banner.hidden = false;
-    banner.textContent = text;
+    setText(banner, text);
     banner.className = 'wb-operation-status wb-error';
     banner.dataset.inputValidation = inputValidation ? 'true' : '';
   }
 }
 function notifyPreviewError(error) {
-  notify(error.message, true, {inputValidation: error.code === 'workbench_invalid_input'});
+  notify(errorText(error), true, {inputValidation: error.code === 'workbench_invalid_input'});
 }
 function reportExecutionCheck(m = model()) {
   const context = executionChecks.get(m);
   if (!context || !notice?.isConnected) return;
-  notice.textContent = `${clearRecoveryState(m, context).status}。处理入口在上方引导中。`;
+  setText(notice, tr("workbench.clear.guidanceLocation", {status: clearRecoveryState(m, context).status}));
   notice.className = 'wb-notice';
   notice.dataset.execution = 'true';
 }
@@ -142,13 +146,13 @@ function action(fn, label = databaseActions.get(fn), {feedback = 'page', restore
       return;
     }
     const focusTarget = restoreFocusTo?.();
-    pending.set(key, {label: label || '处理请求', feedback});
+    pending.set(key, {label: label || tr("workbench.action.process"), feedback});
     syncBusy();
     try {
       return await fn(...args);
     } catch (error) {
       if (version === active) {
-        notify(error.message, true);
+        notify(errorText(error), true);
       }
     } finally {
       pending.delete(key);
@@ -179,7 +183,7 @@ function syncBusy() {
         disabledBeforeBusy.set(control, control.disabled);
       }
       control.disabled = true;
-      control.setAttribute('aria-busy', 'true');
+      setAttr(control, 'aria-busy', 'true');
     } else if (disabledBeforeBusy.has(control)) {
       control.disabled = disabledBeforeBusy.get(control);
       disabledBeforeBusy.delete(control);
@@ -190,7 +194,7 @@ function syncBusy() {
   if (banner && label && pending.feedback === 'page') {
     banner.hidden = false;
     banner.className = 'wb-operation-status';
-    banner.textContent = `正在${label}，请稍候。期间可以查看和编辑字段。`;
+    setText(banner, tr("workbench.action.busy", {action: label}));
   } else if (banner && !banner.classList.contains('wb-error')) {
     banner.hidden = true;
   }
@@ -223,7 +227,7 @@ function closeComponents() {
 }
 function validNavigation() {
   if (model().errors.size) {
-    notify([...model().errors.values()].join('；'), true, {inputValidation: true});
+    notify(joinText([...model().errors.values()], '; '), true, {inputValidation: true});
     return false;
   }
   return true;
@@ -233,7 +237,7 @@ function chooseTable(name, page = 'fields', graphMode = 'paths') {
     return;
   }
   if (!model().schema.tables.some(t => t.name === name)) {
-    notify('这是其他 schema 的引用来源，仅展示结构。');
+    notify(tr("workbench.schema.external"));
     return;
   }
   closeComponents();
@@ -281,7 +285,7 @@ function updateStatus() {
   const m = model();
   if (!m.errors.size) {
     for (const message of root.querySelectorAll('[data-input-validation="true"]')) {
-      message.textContent = '';
+      setText(message, '');
       message.dataset.inputValidation = '';
       if (message.classList.contains('wb-operation-status')) message.hidden = true;
       else message.classList.remove('wb-error');
@@ -289,17 +293,17 @@ function updateStatus() {
   }
   if (notice?.dataset.execution === 'true') reportExecutionCheck(m);
   if (m.errors.size) {
-    status.textContent = '有待修正的输入';
+    setText(status, tr("workbench.status.invalid"));
   } else if (m.dirty) {
-    status.textContent = '未保存';
+    setText(status, tr("workbench.status.unsaved"));
   } else {
-    status.textContent = `已保存 · v${m.saved?.revision || 1}`;
+    setText(status, tr("workbench.status.saved", {revision: m.saved?.revision || 1}));
   }
   status.className = `draft-tag wb-state${m.errors.size ? ' wb-error' : ''}`;
   const errors = m.check?.issues?.filter(issue => issue.severity === 'error') || [];
   const count = root.querySelector('[data-dependency-count]');
   if (count) {
-    count.textContent = `依赖检查${errors.length ? " · " + errors.length : ''}`;
+    setText(count, tr("workbench.dependency.badge", {count: errors.length ? " · " + errors.length : ''}));
   }
   root.querySelector('[data-selection-count]')?.replaceChildren(`${m.document.tables.length} / ${m.schema.tables.length}`);
   for (const control of root.querySelectorAll('[data-requires-schema]')) {
@@ -311,21 +315,22 @@ function updateStatus() {
     const execution = executionChecks.get(m);
     const currentExecution = execution?.epoch === m.epoch && execution.lifecycle === m.lifecycleVersion ? execution : null;
     const dependencyActionLabel = () => {
+      if (generationLimitations(m.check).length) return tr('workbench.unsupported.title');
       if (execution) return clearRecoveryState(m, execution).status;
       if (errors.length) {
-        return `${errors.length} 条依赖待处理 →`;
+        return tr("workbench.dependency.blockingStatus", {count: errors.length});
       } else if (m.check?.ok) {
-        return '追加生成检查通过 →';
+        return tr("workbench.dependency.appendStatus");
       } else if (m.document.tables.length) {
-        return '检查依赖与生成顺序 →';
+        return tr("workbench.dependency.unchecked");
       } else {
-        return '尚无生成计划';
+        return tr("workbench.dependency.noPlan");
       }
     };
-    scope.replaceChildren(h('div', {}, `本次生成 ${m.document.tables.length} 张 · 仅引用 ${refs.size} 张`), h('p', {
+    replaceContent(scope, h('div', {}, tr("workbench.scope.summary", {selected: m.document.tables.length, references: refs.size})), h('p', {
       class: `dependency-summary${errors.length || currentExecution?.state === 'blocked' ? ' needs-attention' : !execution || ['ok','reviewed'].includes(currentExecution?.state) ? ' dependency-ok' : ''}`,
       role:'status'
-    }, dependencyActionLabel().replace(' →','').replace('检查依赖与生成顺序','规则与依赖尚未检查')));
+    }, dependencyActionLabel()));
   }
   updateProviderWarning();
   updateGuidance();
@@ -343,13 +348,15 @@ function referencedTables() {
 }
 const databaseLabel = () => model().schema.target_label.split(/[\\/]/).findLast(Boolean) || model().schema.target_label;
 export function render() {
+  guidanceIndicator?.destroy();
+  guidanceIndicator = null;
   active++;
   providerMetadata = null;
   root = h('div', {
     class: 'page wb-page'
   }, h('p', {
     class: 'empty wb-empty'
-  }, '正在读取数据库结构…'));
+  }, tr("workbench.schema.loading")));
   return root;
 }
 export async function mount() {
@@ -365,14 +372,14 @@ export async function mount() {
       return;
     }
     if (!store.connId) {
-      root.replaceChildren(h('section', {
+      replaceContent(root, h('section', {
         class: 'wb-welcome'
-      }, icon('database'), h('h1', {}, '从数据库结构开始'), h('p', {}, '先连接一个数据库，读取表、字段和约束，再配置需要生成的数据。'), h('div', {class:'wb-welcome-actions'}, button('连接数据库', () => openConnectionDialog({workbenchRequest:requestedHash}), {
+      }, icon('database'), h('h1', {}, tr("workbench.welcome.title")), h('p', {}, tr("workbench.welcome.help")), h('div', {class:'wb-welcome-actions'}, button(tr("workbench.action.connect"), () => openConnectionDialog({workbenchRequest:requestedHash}), {
         primary: true,
         glyph: 'database'
       })), h('div', {
         class: 'wb-welcome-steps'
-      }, h('span', {}, '01  选择生成范围'), h('span', {}, '02  调整字段规则'), h('span', {}, '03  检查并生成'))));
+      }, h('span', {}, tr("workbench.welcome.scope")), h('span', {}, tr("workbench.welcome.rules")), h('span', {}, tr("workbench.welcome.generate")))));
       return;
     }
     const connId = store.connId;
@@ -383,7 +390,7 @@ export async function mount() {
       if (!cached || error.status !== 409 || error.detail?.code !== 'connection_busy') {
         throw error;
       }
-      cachedSchemaNotice = '当前连接有任务正在运行，暂时显示上次读取的缓存结构。可以查看和编辑配置，任务完成后请重新读取结构。';
+      cachedSchemaNotice = tr("workbench.schema.cached");
       return cached.model.schema;
     }), get('/api/workbench/generators')]);
     if (!currentMount() || store.connId !== connId) {
@@ -425,14 +432,14 @@ export async function mount() {
     if (currentMount()) {
       const mismatched = error.code === 'workbench_target_mismatch';
       const actions = mismatched ? [
-        button('返回当前数据库', () => {location.hash = '#/workbench';}, {primary:true}),
-        button('选择对应数据库', () => openConnectionDialog({workbenchRequest:requestedHash}), {glyph:'database'})
-      ] : [button('重试', mount, {primary:true}), button('选择数据库', () => openConnectionDialog({}), {glyph:'database'})];
-      root.replaceChildren(h('section', {
+        button(tr("workbench.action.returnDatabase"), () => {location.hash = '#/workbench';}, {primary:true}),
+        button(tr("workbench.action.matchDatabase"), () => openConnectionDialog({workbenchRequest:requestedHash}), {glyph:'database'})
+      ] : [button(tr("workbench.action.retry"), mount, {primary:true}), button(tr("workbench.action.selectDatabase"), () => openConnectionDialog({}), {glyph:'database'})];
+      replaceContent(root, h('section', {
         class: 'wb-welcome'
-      }, h('h2', {}, mismatched ? '配置与当前数据库不匹配' : '无法打开工作台'), h('p', {
+      }, h('h2', {}, mismatched ? tr("workbench.welcome.mismatch") : tr("workbench.welcome.failed")), h('p', {
         role: 'alert'
-      }, error.message), ...(mismatched ? [h('p', {}, '当前数据库连接可用；此链接属于另一数据库。返回可继续当前数据库的配置，未保存的修改仍会保留。')] : []), h('div', {class:'wb-welcome-actions'}, ...actions)));
+      }, errorText(error)), ...(mismatched ? [h('p', {}, tr("workbench.welcome.mismatchHelp"))] : []), h('div', {class:'wb-welcome-actions'}, ...actions)));
     }
   }
   async function restoreRequestedDocument(query, connId, schema) {
@@ -449,7 +456,7 @@ export async function mount() {
       // Validate before any autosave or replacement: a foreign link must not
       // write or discard this connection's cached, possibly unsaved document.
       if (requested.target_key !== schema.target_key) {
-        const error = new Error(draftId ? '此配置属于另一数据库，请先连接对应数据库。' : '运行记录属于另一数据库，请先连接对应数据库后再打开快照。');
+        const error = new UserFacingError(draftId ? tr("workbench.route.draftMismatch") : tr("workbench.route.runMismatch"));
         error.code = 'workbench_target_mismatch';
         throw error;
       }
@@ -467,21 +474,21 @@ export async function mount() {
     return true;
     function applyRunSnapshot(run) {
       if (schema.target_key !== run.target_key) {
-        throw new Error('运行记录属于另一数据库，请先连接对应数据库后再打开快照。');
+        throw new UserFacingError(tr("workbench.route.runMismatch"));
       }
       executionChecks.delete(session.model);
       if (query.get('recover') === 'remaining') {
         const recovery = remainingRun(run);
         if (!recovery.ok) {
-          throw new Error(recovery.reason);
+          throw new UserFacingError(recovery.reason);
         }
         session.model.replaceDocument(recovery.document);
         session.model.view.tableDrafts = recovery.tableDrafts;
         session.model.selectTable(recovery.document.tables[0].name);
-        session.name = `${run.name || '运行配置'} · 剩余数据`;
+        session.name = t("workbench.snapshot.remainingName", {name: run.name || t("workbench.snapshot.defaultName")});
       } else {
         session.model.replaceDocument(run.document);
-        session.name = `${run.name || '运行配置'} · 副本`;
+        session.name = t("workbench.snapshot.copyName", {name: run.name || t("workbench.snapshot.defaultName")});
       }
       session.model.saved = null;
     }
@@ -521,6 +528,8 @@ function restorePreviewReturn(previewOrigin) {
   }
 }
 export function unmount() {
+  guidanceIndicator?.destroy();
+  guidanceIndicator = null;
   active++;
   closeComponents();
   openedModal?.close();
@@ -529,6 +538,8 @@ export function unmount() {
   if (session) executionChecks.delete(session.model);
 }
 function draw(options = {}) {
+  guidanceIndicator?.destroy();
+  guidanceIndicator = null;
   closeComponents();
   status = h('span', {
     class: 'draft-tag wb-state'
@@ -537,38 +548,38 @@ function draw(options = {}) {
     glyph: 'check',
     'data-requires-schema': ''
   });
-  checkButton.append(h('span', {
+  appendContent(checkButton, h('span', {
     'data-dependency-count': ''
-  }, '依赖检查'));
+  }, tr("workbench.dependency.title")));
   sidebar = h('aside', {
     class: 'sidebar wb-sidebar'
   });
   content = h('div', {
     class: 'main wb-content'
   });
-  root.replaceChildren(h('section', {
+  replaceContent(root, h('section', {
     class: 'heading'
   }, h('div', {
     class: 'title-line'
   }, h('h1', {}, button(session.name, renameConfig, {
     plain: true,
     class: 'title-button wb-config-name',
-    'aria-label': '重命名生成配置',
+    'aria-label': tr("workbench.config.rename"),
     title: session.name,
     glyph: 'edit'
   })), status), h('div', {
     class: 'heading-actions',
     role: 'group',
-    'aria-label': '整份生成配置操作'
-  }, button('AI 配置助手', () => openAI(model().document.tables.length ? 'selected' : 'current'), {
+    'aria-label': tr("workbench.config.actions")
+  }, button(tr("workbench.ai.title"), () => openAI(model().document.tables.length ? 'selected' : 'current'), {
     glyph: 'sparkles',
     'data-requires-schema': ''
-  }), checkButton, button('查看生成计划', action(summary), {
+  }), checkButton, button(tr("workbench.action.viewPlan"), action(summary), {
     'data-plan-entry':'',
     'data-requires-schema': '',
     glyph: 'database',
     primary: true,
-    title: '检查配置并查看写入计划，确认后生成数据'
+    title: tr("workbench.action.viewPlanHelp")
   }))), h('p', {
     class: 'wb-operation-status',
     role: 'status',
@@ -579,31 +590,31 @@ function draw(options = {}) {
   }, h('div', {
     class: 'wb-config-tools',
     role: 'group',
-    'aria-label': '配置管理'
-  }, button('保存配置', action(save), {
+    'aria-label': tr("workbench.config.management")
+  }, button(tr("workbench.action.save"), action(save), {
     glyph: 'save'
-  }), button('打开配置', action(openDrafts), {
+  }), button(tr("workbench.config.open"), action(openDrafts), {
     glyph: 'folder'
-  }), button('编辑 YAML', action(configDocument, undefined, {
+  }), button(tr("workbench.config.editYaml"), action(configDocument, undefined, {
     feedback: 'dialog', restoreFocusTo: () => root.querySelector('.wb-config-document')
   }), {
     glyph: 'code',
     class: 'wb-config-document',
-    title: '直接编辑完整生成配置；应用后仍需检查和确认写入'
+    title: tr("workbench.config.editYamlHelp")
   })), h('section', {
     class: 'wb-generation-settings',
-    'aria-label': '全局生成设置'
+    'aria-label': tr("workbench.defaults.title")
   }, h('span', {
     class: 'wb-settings-heading',
-    title: '作用于当前配置中的所有表'
-  }, icon('settings'), '全局'), button('', action(configSettings), {
+    title: tr("workbench.defaults.scope")
+  }, icon('settings'), tr("workbench.defaults.global")), button('', action(configSettings), {
     plain: true,
     class: 'wb-setting-tile',
-    'aria-label': '设置数据生成引擎'
+    'aria-label': tr("workbench.defaults.engineLabel")
   }), button('', action(configSettings), {
     plain: true,
     class: 'wb-setting-tile',
-    'aria-label': '设置数据语言与地区'
+    'aria-label': tr("workbench.defaults.localeLabel")
   })), h('div', {
     class: 'wb-settings-note',
     'data-provider-warning': '',
@@ -611,14 +622,14 @@ function draw(options = {}) {
     hidden: true
   })), h('section', {
     class: 'wb-next-step',
-    'aria-label': '使用引导'
+    'aria-label': tr("workbench.guide.label")
   }), h('section', {
     class: 'workspace wb-workspace',
-    'aria-label': '生成配置工作台'
+    'aria-label': tr("workbench.page.label")
   }, sidebar, content));
   const tiles = root.querySelectorAll('.wb-setting-tile');
-  tiles[0].append(h('small', {}, '数据生成引擎'), h('strong', {}, model().document.provider || '自动'), h('span', {}, '修改 ›'));
-  tiles[1].append(h('small', {}, '数据语言与地区'), h('strong', {}, model().document.locale || 'en_US'), h('span', {}, '修改 ›'));
+  appendContent(tiles[0], h('small', {}, tr("workbench.defaults.engine")), h('strong', {}, model().document.provider || tr("workbench.defaults.automatic")), h('span', {}, tr("workbench.defaults.change")));
+  appendContent(tiles[1], h('small', {}, tr("workbench.defaults.locale")), h('strong', {}, model().document.locale || 'en_US'), h('span', {}, tr("workbench.defaults.change")));
   drawBody(options);
 }
 async function loadProviderStatus() {
@@ -650,7 +661,7 @@ function updateProviderWarning() {
   const unavailable = capability ? capability.available === false : providerMetadata?.available && !providerMetadata.available.includes('mimesis');
   host.hidden = !(unavailable && (selected || fields.length));
   if (host.hidden) {
-    host.replaceChildren();
+    replaceContent(host);
     return;
   }
   const broken = capability?.status === 'import_error';
@@ -660,20 +671,20 @@ function updateProviderWarning() {
   }) => `${table.name}.${column.name}`).join('、');
   function fieldOverrideHint() {
     if (fields.length) {
-      return [h('p', {}, `字段规则：${fieldNames}${fields.length > 3 ? "等 " + fields.length + " 个字段" : ''}。更换全局引擎会保留字段覆盖。`)];
+      return [h('p', {}, tr("workbench.defaults.overrides", {fields: fieldNames, additional: fields.length > 3 ? tr("workbench.defaults.additionalFields", {count: fields.length}) : ''}))];
     } else {
       return [];
     }
   }
-  host.replaceChildren(h('p', {
+  replaceContent(host, h('p', {
     class: 'wb-error'
-  }, `Mimesis ${broken ? '加载异常' : '未安装'}，使用此引擎的字段暂不能预览或生成。`), ...fieldOverrideHint(), button('管理插件', () => {
+  }, tr("workbench.defaults.mimesisUnavailable", {status: broken ? tr("workbench.component.importError") : tr("workbench.component.notInstalled")})), ...fieldOverrideHint(), button(tr("workbench.component.manage"), () => {
     if (host.isConnected) {
       location.hash = '#/settings?section=plugins';
     }
   }, {
     small: true
-  }), button('更改引擎', () => {
+  }), button(tr("workbench.defaults.changeEngine"), () => {
     if (!host.isConnected) {
       return;
     }
@@ -692,7 +703,7 @@ function updateProviderWarning() {
     small: true
   }));
 }
-function updateGuidance() {
+function updateGuidance({animateStage = false} = {}) {
   if (!root?.isConnected) {
     return;
   }
@@ -702,16 +713,26 @@ function updateGuidance() {
   }
   const m = model(), recommended = nextStep(m, previewResults.get(m));
   const clearContext = executionChecks.get(m);
-  if (clearContext) {
+  if (generationLimitations(m.check).length) {
+    guidanceIndicator?.destroy(); guidanceIndicator = null;
     host.hidden = false;
     const globalPlan = root.querySelector('[data-plan-entry]');
     if (globalPlan) globalPlan.hidden = true;
-    host.replaceChildren(clearRecoveryCard(m, {
+    replaceContent(host, generationUnsupportedCard(m.check));
+    return;
+  }
+  if (clearContext) {
+    guidanceIndicator?.destroy();
+    guidanceIndicator = null;
+    host.hidden = false;
+    const globalPlan = root.querySelector('[data-plan-entry]');
+    if (globalPlan) globalPlan.hidden = true;
+    replaceContent(host, clearRecoveryCard(m, {
       inspect: action(summary),
-      review: action(reviewClearScope, '检查关联重建范围', {feedback:'modal'}),
+      review: action(reviewClearScope, tr("workbench.clear.reviewScope"), {feedback:'modal'}),
       append: () => {
         executionChecks.delete(m);
-        notify('已改为追加，保留现有数据；尚未写入数据库。');
+        notify(tr("workbench.clear.switchedAppend"));
         updateStatus();
         root.querySelector('[data-guide-action="next"]')?.focus();
       },
@@ -724,13 +745,16 @@ function updateGuidance() {
   const stage = selectedStage || recommended.stage;
   let step = recommended;
   if (selectedStage && recommended.stage === 1 && ['select','edit','check'].includes(recommended.action)) {
-    step = {...recommended, body: `${selectedStage === 2 ? '预览样例' : selectedStage === 3 ? '确认写入' : '设定规则'}之前，${recommended.body}`};
+    let stageName = tr("workbench.guide.rules");
+    if (selectedStage === 2) stageName = tr("workbench.guide.preview");
+    else if (selectedStage === 3) stageName = tr("workbench.guide.confirm");
+    step = {...recommended, body: tr("workbench.guide.beforeStage", {stage: stageName, help: recommended.body})};
   } else if (selectedStage === 1) {
-    step = {...recommended, title:'调整表与字段规则', body:'在左侧选择生成表，在字段规则中调整取值。修改后可随时切到“预览样例”查看效果。', action:'edit', label:'编辑字段规则'};
+    step = {...recommended, title:tr("workbench.guide.editTitle"), body:tr("workbench.guide.editHelp"), action:'edit', label:tr("workbench.guide.editAction")};
   } else if (selectedStage === 2) {
-    step = {...recommended, title:recommended.stage === 2 ? recommended.title : '查看当前规则生成的样例', body:'样例不会写入数据库。核对字段内容与业务要求；需要修改时返回“设定规则”。', action:'preview', label:'预览已选范围'};
+    step = {...recommended, title:recommended.stage === 2 ? recommended.title : tr("workbench.guide.previewTitle"), body:tr("workbench.guide.previewHelp"), action:'preview', label:tr("workbench.guide.previewAction")};
   } else if (selectedStage === 3) {
-    step = {...recommended, title:'核对目标与写入方式', body:'确认生成数量和已有数据处理方式。清空模式会额外检查未选下游表，只有在确认窗口提交后才写入。', action:'generate', label:'查看生成计划'};
+    step = {...recommended, title:tr("workbench.guide.confirmTitle"), body:tr("workbench.guide.confirmHelp"), action:'generate', label:tr("workbench.action.viewPlan")};
   }
   host.hidden = !m.schema.tables.length || Boolean(m.view.imported);
   const globalPlan = root.querySelector('[data-plan-entry]');
@@ -759,7 +783,7 @@ function updateGuidance() {
     check: action(showDependencies),
     generate: action(summary)
   };
-  const toggle = button(guidanceCollapsed ? '展开引导' : '收起引导', () => {
+  const toggle = button(guidanceCollapsed ? tr("workbench.guide.expand") : tr("workbench.guide.collapse"), () => {
     guidanceCollapsed = !guidanceCollapsed;
     try {
       localStorage.setItem('sqlseed.workbench.guide.collapsed', String(guidanceCollapsed));
@@ -787,7 +811,7 @@ function updateGuidance() {
   }));
   const navigateStage = async index => {
     m.view.guideStage = index; m.view.guideEpoch = m.epoch;
-    updateGuidance();
+    updateGuidance({animateStage: true});
     const blocked = !m.document.tables.length || m.errors.size || m.check?.issues?.some(issue => issue.severity === 'error');
     if (blocked) {
       if (!m.document.tables.length) locateGenerationSelection();
@@ -802,28 +826,54 @@ function updateGuidance() {
     updateGuidance();
   };
   const stages = [
-    ['设定规则', '选择表与字段'], ['预览样例', '只读查看结果'], ['确认写入', '核对生成计划']
+    [tr("workbench.guide.rules"), tr("workbench.guide.rulesDescription"), tr("workbench.guide.rulesLabel")],
+    [tr("workbench.guide.preview"), tr("workbench.guide.previewDescription"), tr("workbench.guide.previewLabel")],
+    [tr("workbench.guide.confirm"), tr("workbench.guide.confirmDescription"), tr("workbench.guide.confirmLabel")]
   ];
-  const body = h('div', {
-    id: 'wb-next-step-body',
-    class: 'wb-next-step-body',
-    hidden: guidanceCollapsed
-  }, h('div', {
-    class: 'wb-next-step-main'
-  }, h('ol', { class: 'wb-guide-stages', 'aria-label': '生成流程' },
-    ...stages.map(([label, description], index) => h('li', {}, h('button', {
-      type:'button', onclick:() => navigateStage(index + 1),
-      'data-guide-action':`stage-${index + 1}`,
-      ...(index + 1 === stage ? {'aria-current':'step'} : {}),
-      ...(index ? {'data-db-action':''} : {}),
-      title:index === 2 ? '核对生成计划；此处不会直接写入' : index === 0 ? '随时返回修改规则' : '查看样例，不写入数据库'
-    }, h('span', {'aria-hidden':'true', class:'wb-guide-number'}, String(index + 1)), h('span', {class:'wb-guide-label'}, h('strong', {}, label), h('small', {}, description)))))),
-  h('div', {class:'wb-guide-description', 'aria-live':'polite'}, h('h3', {}, step.title), h('p', {}, step.body)), actions));
-  host.replaceChildren(h('div', {
-    class: 'wb-next-step-heading'
-  }, h('span', { class: 'wb-guide-heading' }, h('strong', {}, '生成流程'), step.scope), toggle), body);
+  const previousBody = host.querySelector('#wb-next-step-body');
+  let stageList = previousBody?.querySelector('.wb-guide-stages');
+  if (!stageList) {
+    stageList = h('ol', { class: 'wb-guide-stages', 'aria-label': tr("workbench.guide.flow") },
+      ...stages.map(([label, description], index) => h('li', {}, h('button', {
+        type:'button',
+        'data-guide-action':`stage-${index + 1}`,
+        ...(index ? {'data-db-action':''} : {})
+      }, h('span', {'aria-hidden':'true', class:'wb-guide-number'}, String(index + 1)), h('span', {class:'wb-guide-label'}, h('strong', {}, label), h('small', {}, description))))));
+  }
+  // Preserve the buttons and their decorative plate across guidance updates.
+  // Callbacks use this render's model/handlers; selection itself commits now.
+  [...stageList.querySelectorAll('button')].forEach((control, index) => {
+    control.onclick = () => navigateStage(index + 1);
+    setAttr(control, 'title', stages[index][2]);
+    if (index + 1 === stage) control.setAttribute('aria-current', 'step');
+    else control.removeAttribute('aria-current');
+  });
+  const description = h('div', {class:'wb-guide-description', 'aria-live':'polite'}, h('h3', {}, step.title), h('p', {}, step.body));
+  const heading = h('div', {class:'wb-next-step-heading'},
+    h('span', { class: 'wb-guide-heading' }, h('strong', {}, tr("workbench.guide.flow")), step.scope), toggle);
+  if (previousBody) {
+    previousBody.hidden = guidanceCollapsed;
+    if (guidanceCollapsed) previousBody.setAttribute('hidden', '');
+    else previousBody.removeAttribute('hidden');
+    host.querySelector('.wb-next-step-heading').replaceWith(heading);
+    previousBody.querySelector('.wb-guide-description').replaceWith(description);
+    previousBody.querySelector('.wb-next-step-actions').replaceWith(actions);
+  } else {
+    const body = h('div', {
+      id: 'wb-next-step-body',
+      class: 'wb-next-step-body',
+      hidden: guidanceCollapsed
+    }, h('div', {
+      class: 'wb-next-step-main'
+    }, stageList, description, actions));
+    replaceContent(host, heading, body);
+    guidanceIndicator?.destroy();
+    guidanceIndicator = createSegmentIndicator(stageList);
+  }
+  guidanceIndicator?.update({animate: animateStage});
   if (focused) {
-    host.querySelector(`[data-guide-action="${focused}"]`)?.focus();
+    const target = host.querySelector(`[data-guide-action="${focused}"]`);
+    if (target !== document.activeElement) target?.focus({preventScroll: true});
   }
 }
 function needsAIDefaultPreflight(m) {
@@ -898,11 +948,11 @@ async function openAI(initialScope = 'current', initialState = null, {
     },
     onApply: suggestions => {
       if (!current()) {
-        throw new Error('配置已变化，请重新分析。');
+        throw new UserFacingError(tr("workbench.ai.stale"));
       }
       for (const item of suggestions) {
         if (!m.schema.tables.find(t => t.name === item.table)?.columns.some(c => c.name === item.column)) {
-          throw new Error('建议字段已失效，请刷新结构。');
+          throw new UserFacingError(tr("workbench.ai.fieldStale"));
         }
       }
       m.applyPatches(suggestions);
@@ -918,12 +968,12 @@ async function openAI(initialScope = 'current', initialState = null, {
       } else {
         updateStatus();
       }
-      notify(`已应用 ${suggestions.length} 条 AI 建议。请预览并检查，确认效果后生成数据。`);
+      notify(tr("workbench.ai.applied", {count: suggestions.length}));
     }
   });
   async function resolveDefaultModes() {
     let cancelled = false;
-    const loading = openedModal = modal('AI 配置助手', {
+    const loading = openedModal = modal(tr("workbench.ai.title"), {
       dismiss: 'footer',
       onClose: () => {
         cancelled = true;
@@ -932,10 +982,10 @@ async function openAI(initialScope = 'current', initialState = null, {
         }
       }
     });
-    loading.body.append(h('p', {
+    appendContent(loading.body, h('p', {
       role: 'status'
-    }, '正在解析当前配置的字段生成方式…'));
-    loading.actions.append(button('取消', loading.close));
+    }, tr("workbench.ai.resolving")));
+    appendContent(loading.actions, button(tr("workbench.action.cancel"), loading.close));
     try {
       const result = await send('/api/workbench/ai/eligibility', {
         conn_id: owner.connId,
@@ -948,7 +998,7 @@ async function openAI(initialScope = 'current', initialState = null, {
         return false;
       }
       if (result.schema_hash !== m.schema.schema_hash) {
-        throw new Error('数据库结构已变化，请刷新后重新打开 AI 助手。');
+        throw new UserFacingError(tr("workbench.ai.schemaStale"));
       }
       defaultModes = result.default_modes;
       suppressReturn = true;
@@ -959,16 +1009,16 @@ async function openAI(initialScope = 'current', initialState = null, {
         const unavailable = error.status === 503 && error.detail?.code === 'ai_unavailable';
         const aiUnavailableMessage = () => {
           if (unavailable) {
-            return `AI 扩展${error.detail.availability_status === 'import_error' ? '加载异常' : '未安装'}，规则建议与分析不可用。请前往插件与版本${error.detail.availability_status === 'import_error' ? '查看异常' : '安装扩展'}后返回。`;
+            return tr("workbench.ai.unavailable", {status: error.detail.availability_status === 'import_error' ? tr("workbench.component.importError") : tr("workbench.component.notInstalled"), action: error.detail.availability_status === 'import_error' ? tr("workbench.component.inspectError") : tr("workbench.component.install")});
           } else {
-            return error.message;
+            return errorText(error);
           }
         };
-        loading.body.replaceChildren(h('p', {
+        replaceContent(loading.body, h('p', {
           role: 'alert'
         }, aiUnavailableMessage()));
         if (unavailable) {
-          loading.actions.append(button('前往插件设置', () => {
+          appendContent(loading.actions, button(tr("workbench.component.openSettings"), () => {
             if (cancelled || !current()) {
               return;
             }
@@ -997,9 +1047,9 @@ async function openAI(initialScope = 'current', initialState = null, {
 function renameConfig() {
   modalIntent++;
   const current = ticket(),
-    dialog = openedModal = modal('重命名生成配置', { dismiss: 'footer' });
+    dialog = openedModal = modal(tr("workbench.config.rename"), { dismiss: 'footer' });
   const input = h('input', {
-    'aria-label': '配置名称',
+    'aria-label': tr("workbench.config.name"),
     value: session.name,
     maxlength: 120
   });
@@ -1007,16 +1057,16 @@ function renameConfig() {
     class: 'wb-error',
     role: 'alert'
   });
-  dialog.body.append(h('label', {
+  appendContent(dialog.body, h('label', {
     class: 'control'
-  }, '配置名称', input), error);
-  dialog.actions.append(button('取消', dialog.close), button('确定', () => {
+  }, tr("workbench.config.name"), input), error);
+  appendContent(dialog.actions, button(tr("workbench.action.cancel"), dialog.close), button(tr("workbench.action.confirm"), () => {
     if (!current()) {
       dialog.close();
       return;
     }
     if (!input.value.trim()) {
-      error.textContent = '请填写配置名称';
+      setText(error, tr("workbench.config.nameRequired"));
       return;
     }
     session.name = input.value.trim();
@@ -1042,16 +1092,16 @@ function drawSidebar() {
   }
   const scrollTop = sidebar.querySelector('.wb-table-list')?.scrollTop || 0;
   function tableGenerationLabel(table) {
-    if (m.errors.has(`count:${table.name}`)) return '生成数量待修正';
+    if (m.errors.has(`count:${table.name}`)) return tr("workbench.count.invalid");
     if (m.selected(table.name)) {
-      return `生成 ${m.table(table.name).count} 行`;
+      return tr("workbench.count.generateRows", {count: m.table(table.name).count});
     } else if (refs.has(table.name)) {
-      return '仅引用已有数据';
+      return tr("workbench.scope.reference");
     } else {
-      return '未加入生成';
+      return tr("workbench.scope.excluded");
     }
   }
-  sidebar.replaceChildren(h('div', {
+  replaceContent(sidebar, h('div', {
     class: 'source'
   }, button(databaseLabel(), () => {
     if (!validNavigation()) {
@@ -1068,34 +1118,34 @@ function drawSidebar() {
     glyph: 'database',
     plain: true,
     class: 'source-head wb-source',
-    title: '查看整库关系图'
+    title: tr("workbench.schema.viewAll")
   }), h('div', {
     class: 'source-note'
-  }, `${m.schema.dialect === 'sqlite' ? 'SQLite' : 'PostgreSQL'} · 已连接`, button('ⓘ', connectionInfo, {
+  }, tr("workbench.connection.connected", {dialect: m.schema.dialect === 'sqlite' ? 'SQLite' : 'PostgreSQL'}), button('ⓘ', connectionInfo, {
     plain: true,
     class: 'source-info',
-    'aria-label': '查看连接信息'
+    'aria-label': tr("workbench.connection.details")
   })), h('details', {
     class: 'wb-structure-menu',
     open: view.structureOpen,
     ontoggle: event => {
       view.structureOpen = event.currentTarget.open;
     }
-  }, h('summary', {}, icon('fields'), '数据库结构操作'), h('div', {
+  }, h('summary', {}, icon('fields'), tr("workbench.schema.actions")), h('div', {
     class: 'wb-structure-commands',
     role: 'group',
-    'aria-label': '数据库结构操作'
-  }, h('small', {}, `${m.schema.tables.length} 张表 · ${m.schema.edges.length} 条外键`), button('重新读取结构', action(refreshSchema), {
+    'aria-label': tr("workbench.schema.actions")
+  }, h('small', {}, tr("workbench.schema.counts", {tables: m.schema.tables.length, edges: m.schema.edges.length})), button(tr("workbench.schema.refresh"), action(refreshSchema), {
     small: true,
     glyph: 'refresh',
-    title: '重新读取表、字段和外键；不生成样例或写入数据'
-  }), button('导出关系图 JSON', () => download('sqlseed-schema.json', JSON.stringify(structureSnapshot(), null, 2)), {
+    title: tr("workbench.schema.refreshHelp")
+  }), button(tr("workbench.schema.exportGraph"), () => download('sqlseed-schema.json', JSON.stringify(structureSnapshot(), null, 2)), {
     small: true,
     glyph: 'download'
-  }), button('导入关系图 JSON', action(importStructure), {
+  }), button(tr("workbench.schema.importGraph"), action(importStructure), {
     small: true,
     glyph: 'upload'
-  }), ...(importedStructures.has(session.connId) ? [button('查看已导入关系图', () => {
+  }), ...(importedStructures.has(session.connId) ? [button(tr("workbench.schema.viewImported"), () => {
     m.view.imported = true;
     drawBody();
   }, {
@@ -1103,11 +1153,11 @@ function drawSidebar() {
     glyph: 'schema'
   })] : [])))), h('div', {
     class: 'sidebar-label'
-  }, h('span', {}, '数据库表'), h('span', {
+  }, h('span', {}, tr("workbench.scope.tables")), h('span', {
     'data-selection-count': ''
   }, `${m.document.tables.length} / ${m.schema.tables.length}`)), h('div', {
     class: 'selection-actions'
-  }, button('全选', () => {
+  }, button(tr("workbench.scope.selectAll"), () => {
     if (!validNavigation()) {
       return;
     }
@@ -1116,7 +1166,7 @@ function drawSidebar() {
   }, {
     small: true,
     disabled: !m.schema.tables.length
-  }), button('清空选择', () => {
+  }), button(tr("workbench.scope.clearSelection"), () => {
     if (!validNavigation()) {
       return;
     }
@@ -1129,8 +1179,8 @@ function drawSidebar() {
     class: 'search wb-table-search'
   }, icon('search'), h('input', {
     type: 'search',
-    placeholder: '查找表',
-    'aria-label': '查找表',
+    placeholder: tr("workbench.scope.search"),
+    'aria-label': tr("workbench.scope.search"),
     disabled: !m.schema.tables.length,
     value: view.query,
     oninput: event => {
@@ -1145,7 +1195,7 @@ function drawSidebar() {
   }, h('input', {
     type: 'checkbox',
     checked: m.selected(table.name),
-    'aria-label': `生成 ${table.name}`,
+    'aria-label': tr("workbench.scope.generateTable", {table: table.name}),
     onchange: e => {
       if (!validNavigation()) {
         e.target.checked = m.selected(table.name);
@@ -1156,7 +1206,7 @@ function drawSidebar() {
     }
   }), h('button', {
     class: 'table-button wb-table-name',
-    title: `${table.name} 的字段规则`,
+    title: tr("workbench.scope.fieldRules", {table: table.name}),
     onclick: () => chooseTable(table.name)
   }, h('span', {
     class: 'table-name'
@@ -1166,15 +1216,15 @@ function drawSidebar() {
     glyph: 'relations',
     plain: true,
     class: `table-graph-shortcut wb-table-graph${m.view.table === table.name && m.view.page === 'graph' ? ' active' : ''}`,
-    title: `${table.name} 的完整依赖路径`,
-    'aria-label': `${table.name} 的依赖路径`,
+    title: tr("workbench.scope.fullPath", {table: table.name}),
+    'aria-label': tr("workbench.scope.path", {table: table.name}),
     'aria-pressed': String(m.view.table === table.name && m.view.page === 'graph')
-  })))), ...(m.document.tables.length > 1 ? [button('预览已选表', action(refreshSamples), {
+  })))), ...(m.document.tables.length > 1 ? [button(tr("workbench.preview.selected"), action(refreshSamples), {
     glyph: 'fields',
     small: true,
     class: 'wb-batch-preview',
     'data-db-action': '',
-    title: `预览已勾选的 ${m.document.tables.length} 张表，不写入数据库`
+    title: tr("workbench.preview.selectedHelp", {count: m.document.tables.length})
   })] : []), h('div', {
     class: 'scope-summary',
     'aria-live': 'polite'
@@ -1189,48 +1239,49 @@ function drawSidebar() {
 }
 function connectionInfo() {
   modalIntent++;
-  const dialog = openedModal = modal('当前数据库');
-  dialog.body.append(h('dl', {
+  const dialog = openedModal = modal(tr("workbench.connection.current"));
+  appendContent(dialog.body, h('dl', {
     class: 'wb-key-values'
-  }, h('dt', {}, '连接目标'), h('dd', {
+  }, h('dt', {}, tr("workbench.connection.target")), h('dd', {
     class: 'mono'
-  }, model().schema.target_label), h('dt', {}, '数据库类型'), h('dd', {}, model().schema.dialect === 'sqlite' ? 'SQLite' : 'PostgreSQL'), h('dt', {}, '状态'), h('dd', {}, '已连接')));
-  dialog.actions.append(button('切换数据库', () => {
+  }, model().schema.target_label), h('dt', {}, tr("workbench.connection.dialect")), h('dd', {}, model().schema.dialect === 'sqlite' ? 'SQLite' : 'PostgreSQL'), h('dt', {}, tr("workbench.connection.status")), h('dd', {}, tr("workbench.connection.available"))));
+  appendContent(dialog.actions, button(tr("workbench.connection.switch"), () => {
     dialog.close();
     document.getElementById('connection-button')?.click();
   }));
 }
-function viewCurrentData() {
+function viewCurrentData(tableName = null) {
   const current = modalTicket(),
     owner = session,
     m = model(),
-    table = m.view.table;
+    table = typeof tableName === 'string' ? tableName : m.view.table;
   const viewer = openTableData({
     connId: owner.connId,
     table,
     targetKey: m.schema.target_key,
     targetLabel: m.schema.target_label,
-    isCurrent: () => current() && session === owner && model() === m && m.view.table === table
+    isCurrent: () => current() && session === owner && model() === m &&
+      (typeof tableName === 'string' || m.view.table === table) && m.schema.tables.some(item => item.name === table)
   });
   openedModal = viewer.dialog;
 }
 function generationCountControl(table) {
   const m = model();
-  const countHelp = '填写大于 0 的完整整数；工作台最多精确表示 9,007,199,254,740,991。实际生成规模受磁盘、运行时间、唯一值和外键约束影响。';
+  const countHelp = tr("workbench.count.help");
   const changeCount = e => {
     const valid = m.setCount(table.name, e.target.value);
-    e.target.setAttribute('aria-invalid', valid ? 'false' : 'true');
-    e.target.title = valid ? countHelp : `${e.target.value || '空值'}：${m.errors.get(`count:${table.name}`)}`;
+    setAttr(e.target, 'aria-invalid', valid ? 'false' : 'true');
+    setAttr(e.target, 'title', valid ? countHelp : joinText([e.target.value || tr("workbench.count.empty"), m.errors.get(`count:${table.name}`)], ': '));
     const row = [...sidebar.querySelectorAll('.wb-table-entry')].find(entry=>entry.dataset.table===table.name);
     const label = row?.querySelector('.count');
-    if (label && (!valid || m.selected(table.name))) label.textContent = valid ? `生成 ${m.table(table.name).count} 行` : '生成数量待修正';
+    if (label && (!valid || m.selected(table.name))) setText(label, valid ? tr("workbench.count.generateRows", {count: m.table(table.name).count}) : tr("workbench.count.invalid"));
     else if (label) drawSidebar();
     if (m.view.page === 'preview') {
       tablePreview?.destroy();
       tablePreview = null;
       content.querySelector('.wb-table-preview')?.replaceChildren(h('p', {
         class: 'wb-preview-help'
-      }, '生成数量已改变，请点击“预览数据”重新查看。'));
+      }, tr("workbench.count.changed")));
     }
     updateStatus();
   };
@@ -1243,7 +1294,7 @@ function generationCountControl(table) {
     disabled: !m.selected(table.name) && !m.errors.has(`count:${table.name}`),
     title: m.errors.get(`count:${table.name}`) || countHelp,
     'aria-invalid': m.errors.has(`count:${table.name}`) ? 'true' : 'false',
-    'aria-label': `${table.name} 生成数量`,
+    'aria-label': tr("workbench.count.label", {table: table.name}),
     oninput: changeCount
   });
   const stepCount = delta => {
@@ -1258,8 +1309,8 @@ function generationCountControl(table) {
     changeCount({target:count});
   };
   return h('span', {class:'wb-number-control'}, count, h('span', {class:'wb-number-actions'},
-    button('+', () => stepCount(1), {plain:true, disabled:count.disabled, 'aria-label':`${table.name} 增加 1 行`}),
-    button('−', () => stepCount(-1), {plain:true, disabled:count.disabled, 'aria-label':`${table.name} 减少 1 行`})));
+    button('+', () => stepCount(1), {plain:true, disabled:count.disabled, 'aria-label':tr("workbench.count.increase", {table: table.name})}),
+    button('−', () => stepCount(-1), {plain:true, disabled:count.disabled, 'aria-label':tr("workbench.count.decrease", {table: table.name})})));
 }
 function drawBody({
   autoPreview = true
@@ -1274,7 +1325,7 @@ function drawBody({
   // must make the newly available structure reachable without changing scope.
   if (table) m.view.table = table.name;
   drawSidebar();
-  content.replaceChildren();
+  replaceContent(content);
   const imported = importedStructures.get(session.connId);
   if (m.view.imported && imported) {
     drawImportedStructure(imported);
@@ -1283,48 +1334,48 @@ function drawBody({
     return;
   }
   if (!table) {
-    content.append(h('section', {
+    appendContent(content, h('section', {
       class: 'empty wb-empty-schema',
-      'aria-label': '数据库尚无表'
-    }, h('h2', {}, '当前数据库还没有可配置的表'),
-    h('p', {}, '请先在数据库工具中创建表，再重新读取结构；也可以选择已有表的其他数据库。'),
+      'aria-label': tr("workbench.schema.emptyTitle")
+    }, h('h2', {}, tr("workbench.schema.emptyHeading")),
+    h('p', {}, tr("workbench.schema.emptyHelp")),
     h('div', {class:'wb-welcome-actions'},
-      button('重新读取结构', action(refreshSchema), {primary:true, glyph:'refresh'}),
-      button('选择其他数据库', () => openConnectionDialog(), {glyph:'database', 'data-db-action':''}))));
+      button(tr("workbench.schema.refresh"), action(refreshSchema), {primary:true, glyph:'refresh'}),
+      button(tr("workbench.connection.other"), () => openConnectionDialog(), {glyph:'database', 'data-db-action':''}))));
     appendStatus();
     updateStatus();
     return;
   }
   const countControl = generationCountControl(table);
-  content.append(h('div', {
+  appendContent(content, h('div', {
     class: 'table-heading'
   }, h('div', {
     class: 'table-title'
   }, h('h2', {}, table.name), h('span', {
     class: 'desc'
-  }, `${table.columns.length} 个字段 · 已有 ${table.row_count} 行`), button('查看当前数据', viewCurrentData, {
+  }, tr("workbench.table.summary", {fields: table.columns.length, rows: table.row_count})), button(tr("workbench.table.currentData"), viewCurrentData, {
     plain: true,
     small: true,
     class: 'wb-view-current-data',
     'data-db-action': ''
   })), h('div', {
     class: 'table-actions'
-  }, ...(!m.selected(table.name) ? [button('加入生成', () => {
+  }, ...(!m.selected(table.name) ? [button(tr("workbench.table.include"), () => {
     m.toggleTable(table.name, true);
     drawBody();
   }, {
     small: true
   })] : []), h('label', {
     class: 'count-setting'
-  }, '生成数量', countControl, h('span', {}, '行')))));
-  const pages = [['fields', '字段规则'], ['preview', '预览数据'], ['graph', '关系图']];
+  }, tr("workbench.count.title"), countControl, h('span', {}, tr("workbench.count.unit"))))));
+  const pages = [['fields', tr("workbench.tab.rules")], ['preview', tr("workbench.tab.preview")], ['graph', tr("workbench.tab.graph")]];
   const tabs = h('div', {
     class: 'tabs',
     role: 'tablist',
-    'aria-label': '当前表视图'
+    'aria-label': tr("workbench.tab.label")
   });
   for (const [page, label] of pages) {
-    tabs.append(button(label, () => {
+    appendContent(tabs, button(label, () => {
       const rendered = chooseTable(m.view.table, page, m.view.graphMode === 'paths' ? 'plan' : m.view.graphMode || 'plan');
       root.querySelector(`#wb-table-tab-${page}`)?.focus();
       return rendered;
@@ -1351,7 +1402,7 @@ function drawBody({
         } else {
           next = (index + (event.key === 'ArrowRight' ? 1 : -1) + buttons.length) % buttons.length;
         }
-        buttons.forEach((item, i) => item.setAttribute('tabindex', i === next ? '0' : '-1'));
+        buttons.forEach((item, i) => setAttr(item, 'tabindex', i === next ? '0' : '-1'));
         buttons[next].focus();
       }
     }));
@@ -1359,13 +1410,13 @@ function drawBody({
   const viewbar = h('div', {
     class: 'viewbar'
   }, tabs);
-  content.append(viewbar);
+  appendContent(content, viewbar);
   const panel = h('section', {
     id: 'wb-table-panel',
     role: 'tabpanel',
     'aria-labelledby': `wb-table-tab-${m.view.page}`
   });
-  content.append(panel);
+  appendContent(content, panel);
   // Leaf renderers append to the same table panel; the page header stays stable.
   const host = content;
   content = panel;
@@ -1388,12 +1439,12 @@ function appendStatus() {
     class: 'wb-notice',
     role: 'status',
     'aria-live': 'polite'
-  }, '规则调整后，可在当前表的“预览数据”中检查效果。');
-  content.append(h('div', {
+  }, tr("workbench.preview.afterEdit"));
+  appendContent(content, h('div', {
     class: 'statusbar'
   }, h('span', {}, h('i', {
     class: 'status-dot'
-  }), notice), h('span', {}, '预览不写入数据库')));
+  }), notice), h('span', {}, tr("workbench.preview.readOnly"))));
   reportExecutionCheck();
 }
 function ruleDescription(table, column) {
@@ -1405,24 +1456,24 @@ function ruleDescription(table, column) {
   if (allocated) {
     const allocatedColumnLabel = () => {
       if (column.is_computed) {
-        return '数据库计算';
+        return tr("workbench.rule.computed");
       } else if (column.is_autoincrement || column.is_rowid_alias) {
-        return '数据库自动分配';
+        return tr("workbench.rule.auto");
       } else if (column.default != null) {
-        return '数据库默认值';
+        return tr("workbench.rule.default");
       } else {
-        return '使用 NULL（空值）';
+        return tr("workbench.rule.null");
       }
     };
     const allocatedColumnDetail = () => {
       if (column.is_autoincrement || column.is_rowid_alias) {
-        return '追加数据，由数据库继续分配主键；保留已有 ID';
+        return tr("workbench.rule.autoHelp");
       } else if (column.is_computed) {
-        return '由数据库表达式计算';
+        return tr("workbench.rule.computedHelp");
       } else if (column.default != null) {
-        return `使用数据库默认值：${column.default}`;
+        return tr("workbench.rule.defaultHelp", {value: column.default});
       } else {
-        return '省略该列，由数据库填入 NULL';
+        return tr("workbench.rule.nullHelp");
       }
     };
     return {
@@ -1439,8 +1490,8 @@ function ruleDescription(table, column) {
       rule,
       fk,
       locked,
-      label: `引用 ${fk.ref_table}.${fk.ref_columns.join(', ')}`,
-      detail: rule.params?.strategy === 'coverage' ? '优先覆盖父表可用记录' : '从父表的可用记录中取值',
+      label: tr("workbench.rule.reference", {table: fk.ref_table, columns: fk.ref_columns.join(', ')}),
+      detail: rule.params?.strategy === 'coverage' ? tr("workbench.rule.coverParent") : tr("workbench.rule.sampleParent"),
       glyph: 'link'
     };
   }
@@ -1448,7 +1499,7 @@ function ruleDescription(table, column) {
     return {
       rule,
       locked,
-      label: '根据其他字段推算',
+      label: tr("workbench.rule.derived"),
       detail: `${Array.isArray(rule.derive_from) ? rule.derive_from.join(' / ') : rule.derive_from} · ${rule.expression || ''}`,
       glyph: 'derive'
     };
@@ -1456,24 +1507,25 @@ function ruleDescription(table, column) {
   return generatorDescription();
   function generatorDescription() {
     const params = rule.params || {};
-    let detail = Object.entries(params).filter(([key, value]) => !key.startsWith('_') && value != null).map(([key, value]) => `${paramLabel(key)} ${valueText(value)}`).join('，');
+    const parameters = Object.entries(params).filter(([key, value]) => !key.startsWith('_') && value != null);
+    let detail = parameters.length ? joinText(parameters.map(([key, value]) => joinText([paramLabel(key), valueText(value)], ' ')), ', ') : '';
     if (params.min_value !== undefined || params.max_value !== undefined) {
-      detail = `${params.min_value ?? '不限'}—${params.max_value ?? '不限'}${params.precision != null ? "，保留 " + params.precision + " 位小数" : ''}`;
+      detail = joinText([params.min_value ?? tr("workbench.rule.unbounded"), '—', params.max_value ?? tr("workbench.rule.unbounded"), params.precision != null ? tr("workbench.rule.precision", {count: params.precision}) : '']);
     }
     if (params.choices) {
       detail = Array.isArray(params.choices) ? params.choices.map(valueText).join(' / ') : valueText(params.choices);
     }
     if (params.start_date || params.end_date) {
-      detail = `${params.start_date || '不限'} — ${params.end_date || '不限'}`;
+      detail = joinText([params.start_date || tr("workbench.rule.unbounded"), params.end_date || tr("workbench.rule.unbounded")], ' — ');
     }
     if (rule.null_ratio) {
-      detail += `${detail ? '，' : ''}${Math.round(rule.null_ratio * 100)}% 为空`;
+      detail = joinText([detail, tr("workbench.rule.nullRatio", {separator: detail ? ', ' : '', percent: Math.round(rule.null_ratio * 100)})]);
     }
     return {
       rule,
       locked,
-      label: genLabel(generator || '自动匹配'),
-      detail: detail || '使用生成器默认参数'
+      label: generator ? genLabel(generator) : tr("workbench.rule.inferred"),
+      detail: detail || tr("workbench.rule.defaults")
     };
   }
 }
@@ -1481,13 +1533,13 @@ function sampleNode(value, allocated = false) {
   if (value === undefined) {
     const unavailableSampleLabel = () => {
       if (allocated) {
-        if (allocated === true || allocated === '数据库自动分配') {
-          return '自动分配';
+        if (allocated === true) {
+          return tr("workbench.rule.autoValue");
         } else {
           return allocated;
         }
       } else {
-        return '待预览';
+        return tr("workbench.rule.awaitingPreview");
       }
     };
     return h('span', {
@@ -1523,8 +1575,8 @@ function drawFields(table, viewbar) {
     });
   const search = h('input', {
     type: 'search',
-    placeholder: '查找字段',
-    'aria-label': '查找字段',
+    placeholder: tr("workbench.field.search"),
+    'aria-label': tr("workbench.field.search"),
     value: fieldQuery,
     oninput: e => {
       if (e.isComposing) {
@@ -1538,34 +1590,41 @@ function drawFields(table, viewbar) {
       drawRows();
     }
   });
-  viewbar.append(h('label', {
+  appendContent(viewbar, h('label', {
     class: 'search'
   }, icon('search'), search));
   if (!m.selected(table.name)) {
-    content.append(h('div', {
+    appendContent(content, h('div', {
       class: 'view-only-note'
-    }, '当前表未勾选，可查看和调整草稿；不会纳入本次生成。'));
+    }, tr("workbench.field.draftHelp")));
   }
-  content.append(h('div', {
+  appendContent(content, h('div', {
     class: 'sample-guide'
-  }, h('span', {}, '字段名查看结构，取值规则调整生成方式')), previewNote, h('div', {
+  }, h('span', {}, tr("workbench.field.tableHelp"))), previewNote, h('div', {
     class: 'wb-rules-scroll',
     tabindex: 0,
-    'aria-label': `${table.name} 字段规则，可滚动查看`
+    'aria-label': tr("workbench.field.scrollLabel", {table: table.name})
   }, h('table', {
     class: 'field-table wb-data'
   }, h('colgroup', {}, h('col', {
     class: 'col-field'
   }), h('col', {
     class: 'col-rule'
-  })), h('thead', {}, h('tr', {}, ...['字段', '取值规则'].map(text => h('th', {
+  })), h('thead', {}, h('tr', {}, ...[tr("workbench.field.name"), tr("workbench.field.valueRule")].map(text => h('th', {
     scope: 'col'
   }, text)))), rows)));
   function drawRows() {
-    previewNote.replaceChildren(...(m.previewIssues || []).map(issue => h('p', {
-      class: issue.severity === 'error' ? 'wb-error' : 'muted'
-    }, `${issue.table || ''}${issue.column ? "." + issue.column : ''}：${issue.message}`)));
-    rows.replaceChildren(...table.columns.filter(c => c.name.toLowerCase().includes(fieldQuery.toLowerCase())).map(column => {
+    const issueTables = issue => [issue.table, ...(Array.isArray(issue.tables) ? issue.tables : [])].filter(Boolean);
+    replaceContent(previewNote, ...(m.previewIssues || []).filter(issue => {
+      const names = issueTables(issue);
+      return !names.length || names.includes(table.name);
+    }).map(issue => {
+      const target = issue.table ? [issue.table, issue.column].filter(Boolean).join('.') : issueTables(issue).join('、');
+      return h('p', {
+        class: issue.severity === 'error' ? 'wb-error' : 'muted'
+      }, joinText([target ? `${target}: ` : '', serverText(issue)]));
+    }));
+    replaceContent(rows, ...table.columns.filter(c => c.name.toLowerCase().includes(fieldQuery.toLowerCase())).map(column => {
       const info = ruleDescription(table, column);
       const ruleButton = h('button', {
         class: 'wb-rule-button',
@@ -1589,13 +1648,13 @@ function drawFields(table, viewbar) {
         class: 'field-name wb-field-name'
       }), h('small', {
         class: 'field-type'
-      }, `${column.type}${column.is_primary_key ? ' · 主键' : ''}${info.fk ? ' · 外键' : ''}${column.nullable ? ' · 可空' : ' · 不可空'}`)), h('td', {}, ruleButton));
+      }, joinText([column.type, column.is_primary_key ? tr("workbench.field.pkSuffix") : '', info.fk ? tr("workbench.field.fkSuffix") : '', column.nullable ? tr("workbench.field.nullableSuffix") : tr("workbench.field.requiredSuffix")]))), h('td', {}, ruleButton));
     }));
     if (!rows.children.length) {
-      rows.append(h('tr', {}, h('td', {
+      appendContent(rows, h('tr', {}, h('td', {
         colspan: 2,
         class: 'empty'
-      }, '没有匹配的字段')));
+      }, tr("workbench.field.noMatch"))));
     }
   }
   if (!table.columns.some(c => c.name === columnName)) {
@@ -1617,7 +1676,7 @@ function openRule(table, column, initialTab = 'rule', {
     changed = false,
     pending;
   const batchPreview = previewOrigin?.scope === 'selected';
-  const dialog = openedModal = modal(batchPreview ? `预览中的字段 · ${column.name}` : column.name, {
+  const dialog = openedModal = modal(batchPreview ? tr("workbench.field.previewTitle", {column: column.name}) : column.name, {
     dismiss: 'footer',
     drawer: !batchPreview,
     wide: batchPreview,
@@ -1633,13 +1692,13 @@ function openRule(table, column, initialTab = 'rule', {
     }
   });
   if (batchPreview) dialog.el.classList.add('wb-preview-rule');
-  const apply = button(batchPreview ? '应用并返回预览' : '应用规则', () => {
+  const apply = button(batchPreview ? tr("workbench.field.applyReturn") : tr("workbench.field.apply"), () => {
     if (error) {
       return;
     }
     if (version !== active || m !== model() || epoch !== m.epoch) {
       dialog.close();
-      notify('配置已变化，请重新打开字段规则。', true);
+      notify(tr("workbench.field.stale"), true);
       return;
     }
     if (changed) {
@@ -1656,18 +1715,18 @@ function openRule(table, column, initialTab = 'rule', {
     } else {
       updateStatus();
     }
-    notify(changed ? `${table.name}.${column.name} 的规则已应用，请在“预览数据”中检查效果。` : '规则未变更。');
+    notify(changed ? tr("workbench.field.applied", {table: table.name, column: column.name}) : tr("workbench.field.unchanged"));
   }, {
     primary: true
   });
-  dialog.body.append(h('div', {
+  appendContent(dialog.body, h('div', {
     class: 'drawer-subtitle'
   }, `${table.name}.${column.name} · ${column.type}`));
-  if (batchPreview) dialog.body.append(h('p', {class:'wb-muted'}, '在预览中调整此字段；返回时保留表、列和滚动位置。应用后样例会标记为待更新，再预览即可核对效果。'));
+  if (batchPreview) appendContent(dialog.body, h('p', {class:'wb-muted'}, tr("workbench.field.previewHelp")));
   const tabs = h('div', {
     class: 'wb-field-tabs',
     role: 'tablist',
-    'aria-label': '字段详情'
+    'aria-label': tr("workbench.field.details")
   });
   const information = h('section', {
     id: 'field-information',
@@ -1684,7 +1743,7 @@ function openRule(table, column, initialTab = 'rule', {
       class: 'wb-field-facts'
     });
   renderColumnInformation();
-  const names = [['information', '字段信息'], ['rule', '取值规则']];
+  const names = [['information', tr("workbench.field.information")], ['rule', tr("workbench.field.valueRule")]];
   let currentTab = initialTab;
   function activate(name, focus = false) {
     currentTab = name;
@@ -1692,13 +1751,13 @@ function openRule(table, column, initialTab = 'rule', {
     rules.hidden = name !== 'rule';
     [...tabs.children].forEach(tab => {
       const selected = tab.dataset.tab === name;
-      tab.setAttribute('aria-selected', String(selected));
-      tab.setAttribute('tabindex', selected ? '0' : '-1');
+      setAttr(tab, 'aria-selected', String(selected));
+      setAttr(tab, 'tabindex', selected ? '0' : '-1');
       if (selected && focus) {
         tab.focus();
       }
     });
-    dialog.actions.replaceChildren(button(batchPreview ? '返回预览' : '取消', dialog.close), name === 'information' ? button('编辑取值规则', () => activate('rule', true), {
+    replaceContent(dialog.actions, button(batchPreview ? tr("workbench.field.returnPreview") : tr("workbench.action.cancel"), dialog.close), name === 'information' ? button(tr("workbench.field.edit"), () => activate('rule', true), {
       primary: true
     }) : apply);
     if (name === 'rule' && !component) {
@@ -1706,7 +1765,7 @@ function openRule(table, column, initialTab = 'rule', {
     }
   }
   for (const [name, label] of names) {
-    tabs.append(button(label, () => activate(name), {
+    appendContent(tabs, button(label, () => activate(name), {
       plain: true,
       id: `field-${name}-tab`,
       role: 'tab',
@@ -1733,7 +1792,7 @@ function openRule(table, column, initialTab = 'rule', {
   }
   const eligibility = fieldAIEligibility(table, column, m.rule(table.name, column.name));
   if (!eligibility.eligible) {
-    information.append(h('p', {
+    appendContent(information, h('p', {
       class: 'wb-ai-protected'
     }, eligibility.reason));
   }
@@ -1743,7 +1802,7 @@ function openRule(table, column, initialTab = 'rule', {
     role: 'status',
     'data-rule-ai-hint': ''
   });
-  const ai = button('用 AI 调整', () => {
+  const ai = button(tr("workbench.field.ai"), () => {
     if (!dialog.el.isConnected || !current() || error || changed || !canAI) {
       return;
     }
@@ -1764,18 +1823,18 @@ function openRule(table, column, initialTab = 'rule', {
   function updateAI() {
     ai.disabled = Boolean(error || changed || !canAI || !current());
     if (error || changed) {
-      aiHint.textContent = '请先应用或取消当前修改，再使用 AI 调整此字段。';
+      setText(aiHint, tr("workbench.field.aiPending"));
     } else if (canAI) {
-      aiHint.textContent = '针对当前字段提出规则建议，审阅后再应用。';
+      setText(aiHint, tr("workbench.field.aiHelp"));
     } else {
-      aiHint.textContent = eligibility.reason;
+      setText(aiHint, eligibility.reason);
     }
   }
-  rules.append(h('div', {
+  appendContent(rules, h('div', {
     class: 'wb-field-rule-ai'
   }, ai, aiHint));
   updateAI();
-  dialog.body.append(tabs, information, rules);
+  appendContent(dialog.body, tabs, information, rules);
   function mountEditor() {
     component = createRuleEditor({
       table,
@@ -1794,34 +1853,34 @@ function openRule(table, column, initialTab = 'rule', {
         updateAI();
       }
     });
-    rules.append(component.el);
+    appendContent(rules, component.el);
   }
   activate(initialTab);
   function renderColumnInformation() {
-    for (const [label, value] of [['字段', column.name], ['数据类型', column.type], ['允许空值', column.nullable ? '是' : '否'], ['主键', column.is_primary_key ? '是' : '否'], ['数据库默认值', column.default ?? '未设置'], ['自动分配', column.is_autoincrement || column.is_rowid_alias ? '由数据库分配' : '否']]) {
-      metadata.append(h('dt', {}, label), h('dd', {}, String(value)));
+    for (const [label, value] of [[tr("workbench.field.name"), column.name], [tr("workbench.field.type"), column.type], [tr("workbench.field.nullable"), column.nullable ? tr("workbench.boolean.yes") : tr("workbench.boolean.no")], [tr("workbench.field.primaryKey"), column.is_primary_key ? tr("workbench.boolean.yes") : tr("workbench.boolean.no")], [tr("workbench.rule.default"), column.default ?? tr("workbench.field.unset")], [tr("workbench.rule.autoValue"), column.is_autoincrement || column.is_rowid_alias ? tr("workbench.field.assigned") : tr("workbench.boolean.no")]]) {
+      appendContent(metadata, h('dt', {}, label), h('dd', {}, value));
     }
-    information.append(h('p', {
+    appendContent(information, h('p', {
       class: 'muted'
-    }, '读取自数据库的结构信息。生成规则不会修改表结构。'), metadata);
+    }, tr("workbench.field.structureHelp")), metadata);
     if (info.fk) {
-      information.append(h('h3', {}, '外键来源'), h('p', {
+      appendContent(information, h('h3', {}, tr("workbench.field.foreignSource")), h('p', {
         class: 'mono'
       }, `${info.fk.ref_table}.${info.fk.ref_columns.join(', ')}`), h('p', {}, info.detail));
     }
     for (const constraint of table.unique_constraints || []) {
       if (constraint.columns.includes(column.name)) {
-        information.append(h('h3', {}, constraint.columns.length === 1 ? '唯一约束' : '复合唯一约束'), h('p', {
+        appendContent(information, h('h3', {}, constraint.columns.length === 1 ? tr("workbench.field.unique") : tr("workbench.field.compositeUnique")), h('p', {
           class: 'mono'
         }, constraint.columns.join(' + ')));
       }
     }
     if (table.checks?.length) {
-      information.append(h('details', {
+      appendContent(information, h('details', {
         class: 'wb-field-constraints'
-      }, h('summary', {}, '所属表的 CHECK 约束'), h('p', {
+      }, h('summary', {}, tr("workbench.field.checkConstraints")), h('p', {
         class: 'muted'
-      }, '这些约束作用于整张表，可能涉及其他字段。'), ...table.checks.map(check => h('p', {
+      }, tr("workbench.field.checkHelp")), ...table.checks.map(check => h('p', {
         class: 'mono'
       }, typeof check === 'string' ? check : check.sqltext || check.expression || JSON.stringify(check)))));
     }
@@ -1863,7 +1922,7 @@ function drawGraph(table, previousSection = null) {
       }
       const next = m.schema.tables.find(t => t.name === name);
       if (!next) {
-        notify('外部引用来源，仅展示结构。');
+        notify(tr("workbench.schema.externalSource"));
         return;
       }
       table = next;
@@ -1884,9 +1943,16 @@ function drawGraph(table, previousSection = null) {
       inspect();
     },
     onViewChange: view => {
+      const changedMode = m.view.graphMode !== view.mode;
+      const wasIssues = m.view.graphMode === 'issues';
       graphViews.set(m, view);
       m.view.graphMode = view.mode;
       m.view.pathMode = view.pathMode;
+      if (changedMode && panel.isConnected && (view.mode === 'issues' || wasIssues)) {
+        if (view.mode === 'issues') inspectorMode = 'dependencies';
+        selectedEdge = null;
+        inspect();
+      }
     },
     onExpand: expanded => area.classList.toggle('expanded', expanded)
   });
@@ -1894,24 +1960,26 @@ function drawGraph(table, previousSection = null) {
     class: 'panel-content database-graph wb-graph-section'
   });
   if (graph.toolbar) {
-    section.append(graph.toolbar);
+    appendContent(section, graph.toolbar);
   }
   area.classList.toggle('expanded', graph.getView().expanded);
-  area.append(graph.el, panel);
-  section.append(area);
+  appendContent(area, graph.el, panel);
+  appendContent(section, area);
   if (previousSection?.isConnected) previousSection.replaceWith(section);
-  else content.append(section);
+  else appendContent(content, section);
+  if (m.view.graphMode === 'issues' && !selectedEdge) inspectorMode = 'dependencies';
   function inspect() {
-    panel.replaceChildren(h('div', {
+    const checkingIssues = m.view.graphMode === 'issues' && inspectorMode === 'dependencies';
+    replaceContent(panel, h('div', {
       class: 'inspector-tabs'
-    }, button('字段规则', () => {
+    }, button(tr("workbench.tab.rules"), () => {
       inspectorMode = 'fields';
       selectedEdge = null;
       inspect();
     }, {
       plain: true,
       class: inspectorMode === 'fields' ? 'active' : ''
-    }), button('依赖检查', () => {
+    }), button(tr("workbench.dependency.title"), () => {
       inspectorMode = 'dependencies';
       selectedEdge = null;
       inspect();
@@ -1919,20 +1987,20 @@ function drawGraph(table, previousSection = null) {
       plain: true,
       class: inspectorMode === 'dependencies' ? 'active' : ''
     })), h('div', {
-      class: 'inspector-actions'
+      class: 'inspector-actions', hidden: checkingIssues
     }, h('div', {
       class: 'inspector-table-title'
     }, h('strong', {
       class: 'mono'
-    }, table.name), h('small', {}, `${table.columns.length} 个字段`)), button('查看字段规则', () => chooseTable(table.name), {
+    }, table.name), h('small', {}, tr("workbench.field.count", {count: table.columns.length}))), button(tr("workbench.field.viewRules"), () => chooseTable(table.name), {
       small: true
     })), inspectorBody);
     if (selectedEdge) {
-      inspectorBody.replaceChildren(h('h3', {}, '外键引用'), h('div', {
+      replaceContent(inspectorBody, h('h3', {}, tr("workbench.edge.title")), h('div', {
         class: 'wb-edge-mapping'
       }, ...selectedEdge.sourceColumns.map((source, i) => h('div', {}, h('code', {}, `${selectedEdge.source}.${source}`), h('span', {}, '↓'), h('code', {}, `${selectedEdge.target}.${selectedEdge.targetColumns[i]}`)))), h('p', {
         class: 'muted'
-      }, '箭头从父表指向引用它的子表。成组字段共同构成同一条外键。'), button('定位引用字段', () => {
+      }, tr("workbench.edge.help")), button(tr("workbench.edge.locateColumn"), () => {
         const target = m.schema.tables.find(t => t.name === selectedEdge.target);
         const column = target?.columns.find(c => c.name === selectedEdge.targetColumns[0]);
         if (column) {
@@ -1960,14 +2028,14 @@ function drawGraph(table, previousSection = null) {
         sidebar.querySelector('.wb-table-entry.active')?.scrollIntoView({
           block: 'nearest'
         });
-      }, table.name);
+      }, checkingIssues ? null : table.name);
     } else {
-      inspectorBody.replaceChildren(h('p', {
+      replaceContent(inspectorBody, h('p', {
         class: 'muted'
-      }, '选择字段调整生成器与参数。'), ...table.columns.map(column => button('', () => openRule(table, column), {
+      }, tr("workbench.field.selectHelp")), ...table.columns.map(column => button('', () => openRule(table, column), {
         plain: true,
         class: 'graph-field inspector-field wb-field-card',
-        title: `调整 ${table.name}.${column.name}`
+        title: tr("workbench.field.adjust", {table: table.name, column: column.name})
       })));
     }
     if (!selectedEdge && inspectorMode === 'fields') {
@@ -1976,16 +2044,16 @@ function drawGraph(table, previousSection = null) {
           info = ruleDescription(table, column);
         function columnSourceLabel() {
           if (info.allocated) {
-            return '数据库处理';
+            return tr("workbench.rule.database");
           } else if (info.fk) {
-            return '引用';
+            return tr("workbench.rule.referenceType");
           } else if (info.rule.derive_from) {
-            return '派生';
+            return tr("workbench.rule.derivedType");
           } else {
-            return '生成器';
+            return tr("workbench.rule.generatorType");
           }
         }
-        card.append(h('div', {
+        appendContent(card, h('div', {
           class: 'graph-field-title field-card-heading'
         }, h('strong', {
           class: 'mono'
@@ -2012,26 +2080,97 @@ function syncTableHeading(table) {
     return;
   }
   // Reuse the exact controls without keeping handlers bound to the previous node.
-  header.querySelector('h2').textContent = table.name;
-  header.querySelector('.desc').textContent = `${table.columns.length} 个字段 · 已有 ${table.row_count} 行`;
+  setText(header.querySelector('h2'), table.name);
+  setText(header.querySelector('.desc'), tr("workbench.table.summary", {fields: table.columns.length, rows: table.row_count}));
   const countControl = generationCountControl(table);
-  header.querySelector('.table-actions').replaceChildren(...(!model().selected(table.name) ? [button('加入生成', () => {
+  replaceContent(header.querySelector('.table-actions'), ...(!model().selected(table.name) ? [button(tr("workbench.table.include"), () => {
     model().toggleTable(table.name, true);
     drawBody();
   }, {
     small: true
   })] : []), h('label', {
     class: 'count-setting'
-  }, '生成数量', countControl, h('span', {}, '行')));
+  }, tr("workbench.count.title"), countControl, h('span', {}, tr("workbench.count.unit"))));
   const tabButtons = content.querySelector('.tabs').querySelectorAll('button');
   tabButtons[0].onclick = () => chooseTable(table.name);
+}
+function generationLimitations(result) {
+  if (result?.epoch != null && result.epoch !== model().epoch) return [];
+  return (result?.issues || []).filter(issue => issue.severity === 'error' && issue.code === 'cross_table_cycle');
+}
+function generationUnsupportedCard(result) {
+  const current = ticket();
+  const issues = generationLimitations(result);
+  const tables = [...new Set(issues.flatMap(issue => issue.tables || []))];
+  return h('section', {class: 'wb-clear-recovery wb-generation-unsupported', role: 'status'},
+    h('h3', {}, tr('workbench.unsupported.title')),
+    h('p', {}, tr('workbench.unsupported.body', {tables: tables.join('、')})),
+    button(tr('workbench.unsupported.reason'), () => {if (current()) showCapabilityReasons(result);}, {small: true}));
+}
+function showCapabilityReasons(result = model().check) {
+  const dialog = openedModal = modal(tr('workbench.unsupported.reason'), {wide: true});
+  renderDependencies(dialog.body, name => {
+    dialog.close(); inspectorMode = 'dependencies'; chooseTable(name, 'graph');
+  }, null, null, result);
+}
+function cycleIssueDetails(issue, locate, document = model().document) {
+  const m = model(), current = ticket();
+  const tables = new Map(m.schema.tables.map(table => [table.name, table]));
+  const edges = [...m.schema.edges];
+  for (const association of document.associations || []) {
+    for (const target of association.target_tables || []) edges.push({source: association.source_table, target});
+  }
+  const members = (issue.tables || []).filter(name => tables.has(name));
+  const retained = new Set(members);
+  // A retained child still references its parents after clearing. Preserve the
+  // entire upstream scope in the explanation, never just the cycle members.
+  for (const name of retained) for (const edge of edges) {
+    if (edge.target === name && tables.has(edge.source)) retained.add(edge.source);
+  }
+  const references = Array.isArray(issue.references) ? issue.references : edges
+    .filter(edge => (issue.edge_ids || []).includes(edge.id))
+    .map(edge => ({table: edge.target, columns: edge.targetColumns, source_table: edge.source, source_columns: edge.sourceColumns}));
+  const detail = h('section', {class: 'wb-cycle-help'});
+  if (references.length) appendContent(detail, h('h4', {}, tr('workbench.cycle.references')),
+    h('ul', {class: 'wb-cycle-references'}, ...references.map(reference => {
+      const target = `${reference.table}.${(reference.columns || []).join(' + ')}`;
+      const source = `${reference.source_table}.${(reference.source_columns || []).join(' + ')}`;
+      const table = tables.get(reference.table);
+      const column = table?.columns.find(item => item.name === reference.columns?.[0]);
+      return h('li', {}, h('p', {class: 'mono'}, tr('workbench.cycle.reference', {target, source})),
+        ...(column ? [button(tr('workbench.cycle.inspect', {target}), () => {
+          if (!current() || !validNavigation()) return;
+          locate(table.name);
+          openRule(table, column, 'information');
+        }, {small: true})] : []));
+    })));
+  appendContent(detail, h('h4', {}, tr('workbench.cycle.rebuildTitle')),
+    h('p', {}, tr('workbench.cycle.rebuildHelp')));
+  const alternatives = h('details', {}, h('summary', {}, tr('workbench.unsupported.otherScope')));
+  appendContent(alternatives, h('h4', {}, tr('workbench.cycle.keepTitle')),
+    h('p', {}, tr('workbench.cycle.keepHelp', {tables: [...retained].join('、')})),
+    h('p', {}, tr(m.schema.dialect === 'sqlite' ? 'workbench.cycle.keepSQLite'
+      : m.schema.dialect === 'postgresql' ? 'workbench.cycle.keepPostgres' : 'workbench.cycle.keepCapabilities')),
+    h('p', {class: 'muted'}, tr('workbench.cycle.keepLimit')));
+  const firstSelected = members.find(name => m.selected(name)) || members[0];
+  if (firstSelected) appendContent(alternatives, button(tr('workbench.cycle.locateScope'), () => {
+    if (!current() || !validNavigation()) return;
+    const sidebarView = sidebarViews.get(m);
+    if (sidebarView) sidebarView.query = '';
+    locate(firstSelected);
+    const input = [...sidebar.querySelectorAll('.wb-table-entry')]
+      .find(row => row.dataset.table === firstSelected)?.querySelector('input[type="checkbox"]');
+    input?.focus(); input?.scrollIntoView({block: 'nearest'});
+  }, {small: true, primary: true}));
+  appendContent(detail, alternatives);
+  return detail;
 }
 function renderDependencies(out, locate = name => {
   inspectorMode = 'dependencies';
   chooseTable(name, 'graph');
-}, focus = null, onUpdate = null) {
+}, focus = null, onUpdate = null, resultOverride = null) {
   const m = model(),
-    result = m.check;
+    result = resultOverride || m.check;
   const edges = [...m.schema.edges];
   for (const association of m.document.associations || []) {
     for (const target of association.target_tables || []) {
@@ -2056,21 +2195,21 @@ function renderDependencies(out, locate = name => {
       rows = evidence?.row_count ?? parent?.row_count;
     let explanation;
     if (focus && !executable.has(edge.target)) {
-      explanation = '结构上的间接上游；本次引用中间表已有数据，此关系不要求先生成该来源。';
+      explanation = tr("workbench.source.indirect");
     } else if (selected) {
-      explanation = evidence?.has_values === false ? '先生成父表，再从生成后的有效主键取值。' : '父表也在本次生成范围，按依赖顺序先生成。';
+      explanation = evidence?.has_values === false ? tr("workbench.source.generatedKeys") : tr("workbench.source.generated");
     } else if (evidence?.has_values) {
-      explanation = `已有 ${rows} 行 · 仅引用，不新增。已检查存在可用引用值，因此无需勾选父表。`;
+      explanation = tr("workbench.source.existing", {rows: rows});
     } else if (evidence?.has_values === false) {
-      explanation = evidence.nullable ? '无可用引用值；此外键允许 NULL。' : '无可用引用值；请将父表加入生成范围。';
+      explanation = evidence.nullable ? tr("workbench.source.nullable") : tr("workbench.source.empty");
     } else {
-      explanation = `${rows == null ? '行数未知' : "已有 " + rows + " 行"} · ${selected ? '本次生成' : '仅引用'}；是否有可用引用值以检查结果为准。`;
+      explanation = tr("workbench.source.unchecked", {rows: rows == null ? tr("workbench.source.unknownRows") : tr("workbench.source.existingRows", {count: formatNumber(rows)}), scope: selected ? tr("workbench.scope.selected") : tr("workbench.scope.referenceOnly")});
     }
     return h('article', {
       class: 'wb-source-card'
     }, h('strong', {
       class: 'mono'
-    }, `${edge.source}.${(edge.sourceColumns || []).join(' + ')} → ${edge.target}.${(edge.targetColumns || []).join(' + ')}`), h('p', {}, explanation), button(`查看 ${edge.source}`, () => locate(edge.source), {
+    }, `${edge.source}.${(edge.sourceColumns || []).join(' + ')} → ${edge.target}.${(edge.targetColumns || []).join(' + ')}`), h('p', {}, explanation), button(tr("workbench.action.viewTable", {table: edge.source}), () => locate(edge.source), {
       small: true
     }));
   });
@@ -2081,30 +2220,30 @@ function renderDependencies(out, locate = name => {
     } else {
       return [h('p', {
         class: 'muted'
-      }, focus ? '当前表没有上游外键或关联依赖。' : '所选表没有外部引用依赖。')];
+      }, focus ? tr("workbench.source.none") : tr("workbench.source.noExternal"))];
     }
   }
   const sources = h('details', {
     class: 'wb-dependency-sources',
     open: previousSources ? previousSources.open : Boolean(focus)
-  }, h('summary', {}, focus ? `${focus} · 全部上游来源（${sourceCards.length}）` : `引用来源明细（${sourceCards.length}）`), h('p', {
+  }, h('summary', {}, focus ? tr("workbench.source.allUpstream", {table: focus, count: sourceCards.length}) : tr("workbench.source.details", {count: sourceCards.length})), h('p', {
     class: 'muted'
-  }, focus ? '此处展示本表依赖的完整上游链。图中的下游表示受本表影响的表，不是本表的生成前置条件。' : '查看来源字段映射、已有数据与生成范围之间的关系。'), ...dependencySourceCards());
-  out.replaceChildren(h('h3', {}, focus ? `${focus} · 依赖检查` : '检查所选表的规则与依赖'));
+  }, focus ? tr("workbench.source.upstreamHelp") : tr("workbench.source.detailsHelp")), ...dependencySourceCards());
+  replaceContent(out, h('h3', {}, focus ? tr("workbench.dependency.tableTitle", {table: focus}) : tr("workbench.dependency.selectedTitle")));
   if (focus && !m.selected(focus)) {
-    out.append(h('p', {
+    appendContent(out, h('p', {
       class: 'muted'
-    }, '当前表未纳入本次检查范围。这里仅解释结构；加入生成后再检查规则与引用来源。'), sources);
+    }, tr("workbench.dependency.excluded")), sources);
     return;
   }
   if (!result) {
-    out.append(h('p', {
+    appendContent(out, h('p', {
       class: 'muted'
-    }, '尚未检查当前配置。'), button('开始检查', action(async () => {
+    }, tr("workbench.dependency.notChecked")), button(tr("workbench.dependency.start"), action(async () => {
       if (await check(false)) {
         drawBody();
       }
-    }, '检查依赖'), {
+    }, tr("workbench.action.checkDependencies")), {
       glyph: 'check'
     }), sources);
     syncBusy();
@@ -2112,22 +2251,25 @@ function renderDependencies(out, locate = name => {
   }
   const blockers = relevantIssues.filter(issue => issue.severity === 'error'),
     reminders = relevantIssues.filter(issue => issue.severity !== 'error');
+  const blockingTitle = blockers.length && blockers.every(issue => issue.code === 'cross_table_cycle')
+    ? tr('workbench.unsupported.reasonTitle') : tr('workbench.dependency.blockingTitle');
   function dependencySummary() {
+    if (generationLimitations({issues: relevantIssues}).length) return tr('workbench.unsupported.title');
     if (blockers.length) {
-      return '当前范围有待处理的问题。';
+      return tr("workbench.dependency.issues");
     } else if (result.ok) {
-      return '引用来源与规则检查通过。';
+      return tr("workbench.dependency.passed");
     } else {
-      return '整个计划仍有待处理项，请查看完整检查。';
+      return tr("workbench.dependency.otherIssues");
     }
   }
-  out.append(h('section', {
+  appendContent(out, h('section', {
     class: `wb-dependency-summary ${blockers.length || !result.ok ? 'wb-dependency-blocked' : 'wb-dependency-passed'}`,
     role: 'status'
-  }, h('strong', {}, dependencySummary()), h('p', {}, `${blockers.length} 项阻断 · ${reminders.length} 项提醒`)));
+  }, h('strong', {}, dependencySummary()), h('p', {}, tr("workbench.dependency.counts", {blockers: blockers.length, warnings: reminders.length}))));
   const issueCard = issue => h('article', {
     class: `dependency-card ${issue.severity}`
-  }, h('strong', {}, issueTables(issue).join('、') || '生成配置'), h('p', {}, issue.message), ...(issue.code === 'missing_parent_source' && issue.source_table && m.schema.tables.some(t => t.name === issue.source_table) && !m.selected(issue.source_table) ? [button(`加入 ${issue.source_table}（${m.table(issue.source_table).count} 行）`, action(async () => {
+  }, h('strong', {}, issueTables(issue).join('、') || tr("workbench.config.title")), h('p', {}, serverText(issue)), ...(issue.code === 'cross_table_cycle' ? [cycleIssueDetails(issue, locate)] : []), ...(issue.code === 'missing_parent_source' && issue.source_table && m.schema.tables.some(t => t.name === issue.source_table) && !m.selected(issue.source_table) ? [button(tr("workbench.dependency.addSource", {table: issue.source_table, count: m.table(issue.source_table).count}), action(async () => {
     m.toggleTable(issue.source_table, true);
     const stillCurrent = ticket();
     if (await check(false)) {
@@ -2140,9 +2282,9 @@ function renderDependencies(out, locate = name => {
       }
       onUpdate?.();
     }
-  }, '检查依赖'), {
+  }, tr("workbench.action.checkDependencies")), {
     small: true
-  })] : []), ...issueTables(issue).filter(name => m.schema.tables.some(table => table.name === name)).map(name => button(`定位 ${name === issue.table && issue.column || name}`, () => {
+  })] : []), ...issueTables(issue).filter(name => m.schema.tables.some(table => table.name === name)).map(name => button(tr("workbench.action.locate", {target: name === issue.table && issue.column || name}), () => {
     locate(name);
     const table = m.schema.tables.find(t => t.name === name),
       column = name === issue.table && table?.columns.find(c => c.name === issue.column);
@@ -2153,53 +2295,57 @@ function renderDependencies(out, locate = name => {
     small: true
   })));
   if (blockers.length) {
-    out.append(h('section', {
+    appendContent(out, h('section', {
       class: 'wb-dependency-issues',
-      'aria-label': '需先处理的问题'
-    }, h('h4', {}, '需先处理的问题'), ...blockers.map(issueCard)));
+      'aria-label': blockingTitle
+    }, h('h4', {}, blockingTitle), ...blockers.map(issueCard)));
   }
   if (reminders.length) {
-    out.append(h('section', {
+    appendContent(out, h('section', {
       class: 'wb-dependency-issues',
-      'aria-label': '提醒与说明'
-    }, h('h4', {}, '提醒与说明'), ...reminders.map(issueCard)));
+      'aria-label': tr("workbench.dependency.warningTitle")
+    }, h('h4', {}, tr("workbench.dependency.warningTitle")), ...reminders.map(issueCard)));
   }
-  out.append(sources);
+  appendContent(out, sources);
   const layers = (result.layers || []).map(names => names.filter(name => !focus || executable.has(name))).filter(names => names.length);
   function dependencyOrderTitle() {
     if (!result.ok) {
-      return '依赖分组参考';
+      return tr("workbench.dependency.groupsReference");
     } else if (focus) {
-      return '本表相关生成顺序';
+      return tr("workbench.dependency.tableOrder");
     } else {
-      return '所选表生成顺序';
+      return tr("workbench.dependency.selectedOrder");
     }
   }
   function dependencyOrderHint() {
+    if (generationLimitations(result).length) return tr('workbench.unsupported.partialOrder');
     if (!result.ok) {
-      return '尚未形成可执行计划；以下分组可能不包含循环依赖中的表。请先处理阻断项，再重新检查。';
+      return tr("workbench.dependency.incompletePlan");
     } else if (focus) {
-      return '仅列本表及上游中已勾选的表；其他表在整个计划中查看。未勾选的来源使用已有数据。';
+      return tr("workbench.dependency.tableOrderHelp");
     } else {
-      return '同组表示没有先后依赖；执行仍逐表进行。';
+      return tr("workbench.dependency.groupHelp");
     }
   }
-  out.append(h('div', {
+  appendContent(out, h('div', {
     class: 'execution-heading'
-  }, h('h3', {}, dependencyOrderTitle()), button('整个计划 ↗', action(showPlan), {
+  }, h('h3', {}, dependencyOrderTitle()), ...(generationLimitations(result).length ? [] : [button(tr("workbench.dependency.fullPlan"), action(showPlan), {
     plain: true,
     class: 'text-button'
-  })), h('ol', {
+  })])), h('ol', {
     class: 'execution-sequence'
   }, ...layers.map((names, i) => h('li', {}, h('span', {
     class: 'execution-step'
   }, i + 1), h('div', {
     class: 'execution-group'
-  }, h('small', {}, `第 ${i + 1} 组 · ${names.length} 张表`), h('div', {
+  }, h('small', {}, tr("workbench.dependency.group", {number: i + 1, count: names.length})), h('div', {
     class: 'execution-tables'
-  }, ...names.map(name => button(name, () => locate(name), {
-    plain: true,
-    class: 'mono execution-table'
+  }, ...names.map(name => button(h('span', {class:'execution-table-caption'}, name), () => locate(name), {
+    small: true,
+    glyph: 'table',
+    class: 'execution-table',
+    'aria-label': tr("workbench.action.locate", {target:name}),
+    title: tr("workbench.action.locate", {target:name})
   }))))))), h('p', {
     class: 'muted'
   }, dependencyOrderHint()));
@@ -2233,9 +2379,9 @@ async function showPlan() {
 async function showDependencies() {
   const current = modalTicket();
   if (!model().document.tables.length) {
-    const dialog = openedModal = modal('尚未选择生成表');
-    dialog.body.append(h('p', {}, '请在左侧勾选至少一张要生成数据的表，再检查规则与依赖。'));
-    dialog.actions.append(button('选择生成表', () => {
+    const dialog = openedModal = modal(tr("workbench.scope.noneTitle"));
+    appendContent(dialog.body, h('p', {}, tr("workbench.scope.noneHelp")));
+    appendContent(dialog.actions, button(tr("workbench.scope.select"), () => {
       if (!current()) {
         dialog.close();
         return;
@@ -2250,10 +2396,10 @@ async function showDependencies() {
   if (!(await check(false)) || !current()) {
     return;
   }
-  const dialog = openedModal = modal('整个计划 · 依赖检查', {
+  const dialog = openedModal = modal(tr("workbench.dependency.fullTitle"), {
     wide: true
   });
-  const generate = button('查看生成计划', () => {
+  const generate = button(tr("workbench.action.viewPlan"), () => {
     if (!model().check?.ok) {
       return;
     }
@@ -2270,7 +2416,7 @@ async function showDependencies() {
   }, null, () => {
     generate.disabled = !model().check?.ok;
   });
-  dialog.actions.append(generate);
+  appendContent(dialog.actions, generate);
 }
 function previewTables(m) {
   return m.schema.tables.map(item => ({
@@ -2301,14 +2447,18 @@ function drawTablePreview(table) {
   const acceptsResult = () => owner.model === m && m.epoch === epoch && m.lifecycleVersion === lifecycle;
   const container = h('section', {
     class: 'wb-table-preview',
-    'aria-label': `${table.name} 预览数据`
+    'aria-label': tr("workbench.preview.tableLabel", {table: table.name})
   });
-  content.append(container);
+  appendContent(content, container);
   const cached = previewResults.get(m)?.get(table.name);
   const returned = previewReturns.get(m);
   previewReturns.delete(m);
   const resume = returned?.table === table.name ? returned.view : null;
-  const initialResult = resume?.result || (cached?.epoch === m.epoch && cached.count === (m.view.previewCount ?? 10) ? cached.result : null);
+  // A selected-scope cycle does not establish that this table and its own
+  // prerequisites are unsupported. Keep useful group samples, but require a
+  // table-preview result before caching a capability block for this entry.
+  const applicableCache = cached?.origin === 'table' || !generationLimitations(cached?.result).length;
+  const initialResult = resume?.result || (applicableCache && cached?.epoch === m.epoch && cached.count === (m.view.previewCount ?? 10) ? cached.result : null);
   const component = openDataPreview({
     container,
     fixedScope: true,
@@ -2322,8 +2472,11 @@ function drawTablePreview(table) {
     initialStale: Boolean(resume?.stale),
     onColumnAction: (action, context) => editPreviewColumn(owner, m, 'current', action, context),
     onValidationIssue: issue => {if (owner === session && m === model()) locateInputIssue(issue);},
+    onUnsupported: result => {if (current()) showCapabilityReasons(result);},
+    onCurrentData: name => {if (current()) viewCurrentData(name);},
     isCurrent: () => current() && m.view.page === 'preview' && m.view.table === table.name,
-    guard: task => action(task, '预览当前表'),
+    guard: task => action(task, tr("workbench.preview.current")),
+    setControlDisabled: setActionDisabled,
     generate: async ({
       count
     }) => {
@@ -2349,6 +2502,7 @@ function drawTablePreview(table) {
       if (current()) {
         cachePreview(m, [table.name], count, result);
         updateStatus();
+        if (generationLimitations(result).length) notify(previewMessage(result), true);
       }
     },
     onError: error => {
@@ -2360,13 +2514,14 @@ function drawTablePreview(table) {
   tablePreview = component;
   tablePreview.cached = Boolean(initialResult);
 }
-function cachePreview(m, names, count, result) {
+function cachePreview(m, names, count, result, origin = 'table') {
   const cache = previewResults.get(m) || new Map();
   previewResults.set(m, cache);
   for (const name of names) {
     cache.set(name, {
       epoch: m.epoch,
       count,
+      origin,
       result
     });
   }
@@ -2432,6 +2587,7 @@ async function refreshSamples(resume = null) {
     epoch = m.epoch,
     lifecycle = m.lifecycleVersion;
   const names = m.document.tables.map(item => item.name);
+  const knownLimitation = generationLimitations(m.check).length ? m.check : null;
   const preview = openDataPreview({
     tables: previewTables(m),
     relationships: {edges:m.schema.edges, nodes:m.schema.nodes},
@@ -2441,18 +2597,21 @@ async function refreshSamples(resume = null) {
     fixedScope: true,
     initialCount: m.view.previewCount ?? 10,
     isCurrent: current,
-    initialResult: resume?.result,
+    initialResult: resume?.result || knownLimitation,
     initialView: resume,
     initialStale: Boolean(resume?.stale),
     onColumnAction: (action, context) => editPreviewColumn(owner, m, 'selected', action, context),
     onValidationIssue: issue => {if (owner === session && m === model()) locateInputIssue(issue);},
-    guard: task => action(task, '预览已选表'),
+    onUnsupported: result => {if (current()) showCapabilityReasons(result);},
+    onCurrentData: name => {if (current()) viewCurrentData(name);},
+    guard: task => action(task, tr("workbench.preview.selected")),
+    setControlDisabled: setActionDisabled,
     generate: async ({
       count
     }) => {
       const result = await owner.check(true, count);
       if (result && owner.model === m && m.epoch === epoch && m.lifecycleVersion === lifecycle) {
-        cachePreview(m, names, count, result);
+        cachePreview(m, names, count, result, 'selected');
         if (!preview.dialog.el.isConnected && root?.isConnected && session === owner && model() === m && tablePreview && m.view.page === 'preview' && names.includes(m.view.table)) {
           drawBody();
         }
@@ -2468,9 +2627,9 @@ async function refreshSamples(resume = null) {
       count
     }) => {
       if (current()) {
-        cachePreview(m, m.document.tables.map(item => item.name), count, result);
+        cachePreview(m, m.document.tables.map(item => item.name), count, result, 'selected');
         drawBody();
-        notify(previewMessage(result, '已选表'), !result.ok);
+        notify(previewMessage(result, tr("workbench.preview.selectedScope")), !result.ok);
       }
     },
     onError: error => {
@@ -2486,16 +2645,21 @@ async function refreshSamples(resume = null) {
     });
     return;
   }
+  if (knownLimitation) {
+    notify(previewMessage(knownLimitation), true);
+    return;
+  }
   await preview.refresh();
 }
 function previewMessage(result, scope) {
+  if (generationLimitations(result).length) return tr('workbench.unsupported.preview');
   if (!result.ok) {
-    return '样例有待处理项，请查看字段说明或依赖检查。';
+    return tr("workbench.preview.issues");
   }
   if (result.preview_complete === false) {
-    return '仅更新可预览的部分样例；完整关联样例需等待父表有可用记录。';
+    return tr("workbench.preview.partial");
   }
-  return `${scope}样例已更新，数据库未写入。`;
+  return tr("workbench.preview.updated", {scope: scope});
 }
 function structureSnapshot() {
   const s = model().schema;
@@ -2520,16 +2684,16 @@ async function configSettings() {
   const draft = structuredClone(model().document),
     controls = [];
   const available = new Set(providers.available || []);
-  const dialog = openedModal = modal('全局生成设置', {
+  const dialog = openedModal = modal(tr("workbench.defaults.title"), {
     dismiss: 'footer',
     onClose: () => controls.forEach(c => c.destroy())
   });
   const guide = h('section', {
     class: 'wb-provider-guide',
     'aria-live': 'polite',
-    'aria-label': '当前引擎特点'
+    'aria-label': tr("workbench.defaults.features")
   });
-  const apply = button('应用设置', () => {
+  const apply = button(tr("workbench.defaults.apply"), () => {
     if (!current()) {
       dialog.close();
       return;
@@ -2546,26 +2710,26 @@ async function configSettings() {
   });
   function availabilityLabel(value) {
     if (providers.statuses?.[value]?.status === 'import_error') {
-      return '加载异常';
+      return tr("workbench.component.importError");
     }
     if (!available.has(value)) {
-      return value === 'mimesis' ? '未安装' : '不可用';
+      return value === 'mimesis' ? tr("workbench.component.notInstalled") : tr("workbench.component.unavailable");
     }
-    return value === 'base' ? '内置可用' : '已安装';
+    return value === 'base' ? tr("workbench.component.builtIn") : tr("workbench.component.installed");
   }
   function showGuide() {
     const description = providerGuide(draft.provider, draft.locale);
     const installed = available.has(draft.provider);
     function providerRequirementHint() {
       if (installed && draft.provider === 'faker') {
-        return ' · 随 sqlseed 安装';
+        return tr("workbench.component.bundledSuffix");
       } else if (installed && draft.provider === 'mimesis') {
-        return ' · 可选依赖';
+        return tr("workbench.component.optionalSuffix");
       } else {
         return '';
       }
     }
-    const status = availabilityLabel(draft.provider) + providerRequirementHint();
+    const status = joinText([availabilityLabel(draft.provider), providerRequirementHint()]);
     apply.disabled = !installed;
     function providerUnavailableHint() {
       if (!installed) {
@@ -2578,12 +2742,12 @@ async function configSettings() {
     }
     function providerUnavailableMessage() {
       if (providers.statuses?.[draft.provider]?.status === 'import_error') {
-        return `${description.title} 已安装但加载异常，暂不能应用。`;
+        return tr("workbench.defaults.engineBroken", {engine: description.title});
       }
       if (draft.provider === 'mimesis') {
-        return '当前环境未安装 Mimesis，暂不能应用。';
+        return tr("workbench.defaults.mimesisMissing");
       }
-      return '当前 Web 服务未提供此引擎，请检查安装环境。';
+      return tr("workbench.defaults.engineMissing");
     }
     function providerManagementHint() {
       if (!installed && draft.provider === 'mimesis') {
@@ -2592,16 +2756,16 @@ async function configSettings() {
         }, h('a', {
           href: '#/settings?section=plugins',
           onclick: dialog.close
-        }, '管理插件'), h('br'), h('small', {}, providers.statuses?.mimesis?.status === 'import_error' ? '请在插件与版本中查看异常信息，处理后返回。' : '在插件与版本中安装后，返回选择此引擎。'));
+        }, tr("workbench.component.manage")), h('br'), h('small', {}, providers.statuses?.mimesis?.status === 'import_error' ? tr("workbench.defaults.repairHelp") : tr("workbench.defaults.installHelp")));
       } else {
         return null;
       }
     }
-    guide.replaceChildren(...[h('h3', {}, description.title, h('small', {}, status)), h('p', {}, description.summary), providerUnavailableHint(), providerManagementHint(), h('p', {
+    replaceContent(guide, ...[h('h3', {}, description.title, h('small', {}, status)), h('p', {}, description.summary), providerUnavailableHint(), providerManagementHint(), h('p', {
       class: 'wb-provider-limit'
-    }, description.limits[0] || ''), h('details', {}, h('summary', {}, '格式示例与详细说明'), h('ul', {}, ...description.features.map(feature => h('li', {}, feature))), h('div', {
+    }, description.limits[0] || ''), h('details', {}, h('summary', {}, tr("workbench.defaults.examples")), h('ul', {}, ...description.features.map(feature => h('li', {}, feature))), h('div', {
       class: 'wb-provider-example'
-    }, ...description.examples.map(example => h('p', {}, h('span', {}, `${example.label}：`), h('code', {}, example.value)))), h('small', {
+    }, ...description.examples.map(example => h('p', {}, h('span', {}, joinText([example.label, ': '])), h('code', {}, example.value)))), h('small', {
       class: 'muted'
     }, description.exampleNote), ...description.limits.slice(1).map(limit => h('p', {}, limit)), ...description.sources.map(source => h('a', {
       href: source.url,
@@ -2613,12 +2777,12 @@ async function configSettings() {
   // Keep the document's engine in the list so reopening never implies a fallback.
   const choices = [...new Set(['base', 'faker', 'mimesis', ...available, draft.provider].filter(Boolean))];
   const provider = createDropdown({
-    label: '数据生成引擎',
+    label: tr("workbench.defaults.engine"),
     options: choices.map(value => {
       const description = providerGuide(value, draft.locale);
       return {
         value,
-        label: `${description.title} · ${description.choice} · ${availabilityLabel(value)}`
+        label: joinText([description.title, description.choice, availabilityLabel(value)], ' · ')
       };
     }),
     value: draft.provider,
@@ -2628,7 +2792,7 @@ async function configSettings() {
     }
   });
   const locale = createDropdown({
-    label: '数据语言与地区',
+    label: tr("workbench.defaults.locale"),
     options: locales.locales.map(item => ({
       value: item.code,
       label: item.label
@@ -2640,50 +2804,50 @@ async function configSettings() {
     }
   });
   controls.push(provider, locale);
-  dialog.body.append(h('p', {
+  appendContent(dialog.body, h('p', {
     class: 'muted'
-  }, '应用于当前配置中的所有表；已有表级、字段级覆盖保留，检查时会提示不兼容的引擎设置。'), h('label', {
+  }, tr("workbench.defaults.applyHelp")), h('label', {
     class: 'control'
-  }, '数据生成引擎', provider.el), guide, h('label', {
+  }, tr("workbench.defaults.engine"), provider.el), guide, h('label', {
     class: 'control'
-  }, '数据语言与地区', locale.el), h('p', {
+  }, tr("workbench.defaults.locale"), locale.el), h('p', {
     class: 'wb-settings-note'
-  }, '影响生成内容的语言与格式，不改变界面语言。'));
+  }, tr("workbench.defaults.localeHelp")));
   showGuide();
-  dialog.actions.append(button('取消', dialog.close), apply);
+  appendContent(dialog.actions, button(tr("workbench.action.cancel"), dialog.close), apply);
 }
 async function save() {
   const current = ticket();
   if (!session.name.trim()) {
-    throw new Error('请填写配置名称');
+    throw new UserFacingError(tr("workbench.config.nameRequired"));
   }
   const saved = await session.save();
   if (current()) {
     updateStatus();
-    notify(`配置已保存 · v${saved.revision}`);
+    notify(tr("workbench.config.saved", {revision: saved.revision}));
   }
   return saved;
 }
 async function check(preview = false) {
   const current = ticket();
-  notify(preview ? '正在生成样例，不写入数据库…' : '正在检查结构、规则与依赖…');
+  notify(preview ? tr("workbench.preview.loading") : tr("workbench.dependency.loading"));
   const result = await session.check(preview);
   if (!current()) {
     return null;
   }
   if (!result) {
-    notify('配置已变化，旧的检查结果已丢弃，请重新检查。');
+    notify(tr("workbench.dependency.stale"));
     return null;
   }
   function validationResultMessage() {
     if (result.ok) {
       if (preview) {
-        return '样例已更新；数据库未写入。';
+        return tr("workbench.preview.refreshed");
       } else {
-        return '追加生成的依赖与规则检查通过。';
+        return tr("workbench.dependency.appendValid");
       }
     } else {
-      return `发现 ${result.issues?.length || 1} 个待处理项，请查看依赖检查。`;
+      return tr("workbench.dependency.foundIssues", {count: result.issues?.length || 1});
     }
   }
   notify(validationResultMessage(), !result.ok);
@@ -2706,7 +2870,7 @@ async function refreshSchema() {
   model().schema = schema;
   model().touch();
   drawBody();
-  notify(changedSchema ? '数据库结构已变化，请检查保留的规则后重新保存。' : '已重新读取结构与行数。');
+  notify(changedSchema ? tr("workbench.schema.changed") : tr("workbench.schema.refreshed"));
 }
 async function openDrafts() {
   const current = modalTicket();
@@ -2715,16 +2879,16 @@ async function openDrafts() {
     return;
   }
   const drafts = Array.isArray(response) ? response : response.drafts || [];
-  const dialog = openedModal = modal('已保存的配置');
+  const dialog = openedModal = modal(tr("workbench.config.savedTitle"));
   let opening = false;
-  dialog.body.append(h('p', {
+  appendContent(dialog.body, h('p', {
     class: 'wb-muted'
-  }, '仅列出当前数据库的配置。打开前会保存当前未保存的修改。'));
+  }, tr("workbench.config.openHelp")));
   if (!drafts.length) {
-    dialog.body.append(h('p', {}, '尚未保存配置。'));
+    appendContent(dialog.body, h('p', {}, tr("workbench.config.none")));
   }
   for (const draft of drafts) {
-    dialog.body.append(button('', action(async () => {
+    appendContent(dialog.body, button('', action(async () => {
       if (opening) {
         return;
       }
@@ -2751,15 +2915,13 @@ async function openDrafts() {
       class: 'wb-draft-card'
     }));
   }
-  dialog.actions.append(button('配置管理', () => {
+  appendContent(dialog.actions, button(tr("workbench.config.management"), () => {
     dialog.close();
     location.hash = '#/configs';
   }, {
     glyph: 'settings'
   }));
-  [...dialog.body.querySelectorAll('.wb-draft-card')].forEach((card, i) => card.append(h('strong', {}, drafts[i].name), h('small', {}, `v${drafts[i].revision} · ${new Date(drafts[i].updated_at * 1000).toLocaleString('zh-CN', {
-    hour12: false
-  })}`)));
+  [...dialog.body.querySelectorAll('.wb-draft-card')].forEach((card, i) => appendContent(card, h('strong', {}, drafts[i].name), h('small', {}, joinText([`v${drafts[i].revision}`, formatDate(drafts[i].updated_at * 1000, {dateStyle:'medium', timeStyle:'short', hour12:false})], ' · '))));
 }
 async function configDocument() {
   const stillCurrent = modalTicket(),
@@ -2767,7 +2929,7 @@ async function configDocument() {
   const opener = root.querySelector('.wb-config-document');
   const documentFeedback = {feedback: 'dialog', restoreFocusTo: () => opener};
   let formatControl;
-  const dialog = openedModal = modal('编辑 YAML', {
+  const dialog = openedModal = modal(tr("workbench.config.editYaml"), {
     dismiss: 'footer',
     wide: true,
     onClose: () => formatControl?.destroy()
@@ -2776,10 +2938,10 @@ async function configDocument() {
     class: 'wb-code',
     rows: 20,
     spellcheck: false,
-    'aria-label': 'YAML 或 JSON 配置',
+    'aria-label': tr("workbench.yaml.label"),
     'aria-busy': 'true',
     disabled: true,
-    placeholder: '正在读取配置文档…'
+    placeholder: tr("workbench.yaml.loading")
   });
   const error = h('p', {
     class: 'wb-error',
@@ -2790,9 +2952,9 @@ async function configDocument() {
   text.addEventListener('input', () => {
     textVersion++;
   });
-  dialog.body.append(h('p', {
+  appendContent(dialog.body, h('p', {
     class: 'muted'
-  }, '默认使用 YAML，也可读取或粘贴 JSON。应用后更新生成配置；写入数据库仍需单独确认。'), text, error);
+  }, tr("workbench.yaml.help")), text, error);
   const file = h('input', {
     type: 'file',
     accept: '.yaml,.yml,.json',
@@ -2803,7 +2965,7 @@ async function configDocument() {
         return;
       }
       if (selected.size > 2 * 1024 * 1024) {
-        error.textContent = '配置文件不得超过 2 MiB';
+        setText(error, tr("workbench.yaml.tooLarge"));
         return;
       }
       const version = textVersion,
@@ -2827,7 +2989,7 @@ async function configDocument() {
       return null;
     }
     if (raw !== text.value || inputVersion !== textVersion) {
-      error.textContent = '文本已变化，请重新应用或下载当前内容。';
+      setText(error, tr("workbench.yaml.changed"));
       return null;
     }
     return {
@@ -2862,13 +3024,13 @@ async function configDocument() {
       download(`sqlseed.${format}`, exportedDocument(), format === 'json' ? 'application/json' : 'application/yaml');
     } catch (e) {
       if (dialog.body.isConnected) {
-        error.textContent = e.message;
+        setText(error, errorText(e));
       }
     }
   }
   let format = 'yaml';
   formatControl = createDropdown({
-    label: '下载格式',
+    label: tr("workbench.yaml.format"),
     value: format,
     options: [{
       value: 'yaml',
@@ -2881,19 +3043,19 @@ async function configDocument() {
       format = value;
     }
   });
-  const readFile = button('读取文件', () => file.click(), {glyph: 'upload', disabled: true});
-  const downloadFile = button('下载配置', action(() => downloadCurrent(format), '导出配置', documentFeedback), {
+  const readFile = button(tr("workbench.yaml.readFile"), () => file.click(), {glyph: 'upload', disabled: true});
+  const downloadFile = button(tr("workbench.yaml.download"), action(() => downloadCurrent(format), tr("workbench.yaml.export"), documentFeedback), {
     glyph: 'download', disabled: true
   });
   const toolbar = h('div', {
     class: 'wb-document-toolbar',
     role: 'group',
-    'aria-label': '配置文件工具'
+    'aria-label': tr("workbench.yaml.tools")
   }, file, readFile, h('label', {
     class: 'wb-document-format'
-  }, '下载格式', formatControl.el), downloadFile);
+  }, tr("workbench.yaml.format"), formatControl.el), downloadFile);
   dialog.body.insertBefore(toolbar, text);
-  const apply = button('应用配置', action(async () => {
+  const apply = button(tr("workbench.yaml.apply"), action(async () => {
     try {
       const parsed = await parseVisible();
       if (!parsed) {
@@ -2903,16 +3065,16 @@ async function configDocument() {
       executionChecks.delete(current.model);
       dialog.close();
       draw();
-      notify('配置已应用，请检查并保存。');
+      notify(tr("workbench.yaml.applied"));
     } catch (e) {
       if (dialog.body.isConnected) {
-        error.textContent = e.message;
+        setText(error, errorText(e));
       }
     }
-  }, '检查配置文档', documentFeedback), {
+  }, tr("workbench.yaml.check"), documentFeedback), {
     primary: true, disabled: true
   });
-  dialog.actions.append(button('取消', dialog.close), apply);
+  appendContent(dialog.actions, button(tr("workbench.action.cancel"), dialog.close), apply);
   try {
     const exported = await send('/api/workbench/export', {
       conn_id: current.connId,
@@ -2920,19 +3082,19 @@ async function configDocument() {
     });
     if (!stillCurrent() || !dialog.body.isConnected) return;
     text.value = exported.yaml;
-    text.placeholder = '';
+    setAttr(text, 'placeholder', '');
     text.disabled = readFile.disabled = false;
     setActionDisabled(downloadFile, false);
     setActionDisabled(apply, false);
     if (exported.credentials_omitted) {
-      dialog.body.append(h('p', {
+      appendContent(dialog.body, h('p', {
         class: 'muted'
-      }, '导出内容省略连接凭据，单独执行时需补充连接信息。'));
+      }, tr("workbench.yaml.credentials")));
     }
   } catch (e) {
     if (stillCurrent() && dialog.body.isConnected) {
-      text.placeholder = '配置文档未能读取，请关闭后重试。';
-      error.textContent = e.message;
+      setAttr(text, 'placeholder', tr("workbench.yaml.failed"));
+      setText(error, errorText(e));
     }
   } finally {
     text.removeAttribute('aria-busy');
@@ -2940,14 +3102,14 @@ async function configDocument() {
 }
 async function importStructure() {
   const current = modalTicket();
-  const dialog = openedModal = modal('导入关系图 JSON', {
+  const dialog = openedModal = modal(tr("workbench.schema.importGraph"), {
     dismiss: 'footer',
     wide: true
   });
   const example = {
     format: 'sqlseed-schema-graph',
     version: 1,
-    title: '数据库关系图',
+    title: t("workbench.graph.title"),
     nodes: [{
       id: 'users'
     }, {
@@ -2965,8 +3127,8 @@ async function importStructure() {
   const text = h('textarea', {
     class: 'wb-code',
     rows: 10,
-    'aria-label': '关系图 JSON',
-    placeholder: '粘贴关系图 JSON，或选择文件'
+    'aria-label': tr("workbench.graph.json"),
+    placeholder: tr("workbench.graph.placeholder")
   });
   const error = h('p', {
     class: 'wb-error',
@@ -2982,7 +3144,7 @@ async function importStructure() {
         return;
       }
       if (selected.size > 1024 * 1024) {
-        error.textContent = '关系图文件不得超过 1 MiB';
+        setText(error, tr("workbench.graph.tooLarge"));
         return;
       }
       const value = await selected.text();
@@ -2991,45 +3153,45 @@ async function importStructure() {
       }
     }
   });
-  dialog.body.append(h('p', {}, '导入后只读浏览表与外键关系，不会创建或修改数据库。生成配置继续绑定当前数据库。'), h('details', {}, h('summary', {}, '格式说明'), h('p', {}, 'nodes 是表列表；edges 中 source 为父表、target 为子表，sourceColumns 和 targetColumns 按位置一一对应。复合外键放在同一条边内。'), h('pre', {
+  appendContent(dialog.body, h('p', {}, tr("workbench.graph.importHelp")), h('details', {}, h('summary', {}, tr("workbench.graph.formatHelp")), h('p', {}, tr("workbench.graph.formatDetails")), h('pre', {
     class: 'wb-import-help'
   }, JSON.stringify(example, null, 2))), text, error);
-  dialog.actions.append(file, button('下载格式模板', () => download('sqlseed-schema-template.json', JSON.stringify(example, null, 2))), button('选择 JSON 文件', () => file.click()), button('取消', dialog.close), button('导入关系图', () => {
+  appendContent(dialog.actions, file, button(tr("workbench.graph.template"), () => download('sqlseed-schema-template.json', JSON.stringify(example, null, 2))), button(tr("workbench.graph.selectFile"), () => file.click()), button(tr("workbench.action.cancel"), dialog.close), button(tr("workbench.graph.import"), () => {
     try {
       if (!current()) {
         dialog.close();
         return;
       }
       if (new Blob([text.value]).size > 1024 * 1024) {
-        throw new Error('关系图文件不得超过 1 MiB');
+        throw new UserFacingError(tr("workbench.graph.tooLarge"));
       }
       const schema = JSON.parse(text.value);
       if (schema.version !== undefined && schema.version !== 1 || schema.format !== undefined && schema.format !== 'sqlseed-schema-graph') {
-        throw new Error('不支持此关系图格式或版本，请参考格式模板。');
+        throw new UserFacingError(tr("workbench.graph.invalidFormat"));
       }
       if (!Array.isArray(schema.nodes) || !Array.isArray(schema.edges) || !schema.nodes.length || schema.nodes.length > 200 || schema.edges.length > 1000) {
-        throw new Error('需要 nodes 和 edges，支持 1—200 张表 / 最多 1000 条关系。');
+        throw new UserFacingError(tr("workbench.graph.invalidSize"));
       }
       const ids = new Set();
       for (const node of schema.nodes) {
         if (typeof node?.id !== 'string' || !node.id.trim() || ids.has(node.id)) {
-          throw new Error('每张表需要非空且唯一的 id。');
+          throw new UserFacingError(tr("workbench.graph.invalidNodes"));
         }
         ids.add(node.id);
       }
       const edgeIds = new Set();
       schema.edges = schema.edges.map((edge, i) => {
         if (!edge || !ids.has(edge.source) || !ids.has(edge.target)) {
-          throw new Error('关系的 source / target 必须对应 nodes 中的表 id。');
+          throw new UserFacingError(tr("workbench.graph.invalidEndpoints"));
         }
         const sourceColumns = edge.sourceColumns ?? [],
           targetColumns = edge.targetColumns ?? [];
         if (!Array.isArray(sourceColumns) || !Array.isArray(targetColumns) || sourceColumns.length !== targetColumns.length || [...sourceColumns, ...targetColumns].some(col => typeof col !== 'string' || !col.trim())) {
-          throw new Error('外键列必须是长度相同的字符串数组。');
+          throw new UserFacingError(tr("workbench.graph.invalidColumns"));
         }
         const id = edge.id || `relation-${i + 1}`;
         if (typeof id !== 'string' || edgeIds.has(id)) {
-          throw new Error('每条关系需要唯一的 id。');
+          throw new UserFacingError(tr("workbench.graph.invalidIds"));
         }
         edgeIds.add(id);
         return {
@@ -3040,14 +3202,14 @@ async function importStructure() {
         };
       });
       if (typeof schema.title !== 'string') {
-        schema.title = typeof schema.label === 'string' ? schema.label : '导入的关系图';
+        schema.title = typeof schema.label === 'string' ? schema.label : t("workbench.graph.importedTitle");
       }
       importedStructures.set(session.connId, schema);
       model().view.imported = true;
       dialog.close();
       drawBody();
     } catch (e) {
-      error.textContent = e.message;
+      setText(error, errorText(e));
     }
   }, {
     primary: true
@@ -3061,9 +3223,9 @@ function drawImportedStructure(schema) {
     class: 'wb-edge-mapping',
     hidden: true
   });
-  section.append(h('div', {
+  appendContent(section, h('div', {
     class: 'wb-imported-note'
-  }, h('div', {}, h('h3', {}, schema.title), h('span', {}, '只读关系图 · 与当前生成配置分开浏览')), button('返回当前数据库', () => {
+  }, h('div', {}, h('h3', {}, schema.title), h('span', {}, tr("workbench.graph.readOnly"))), button(tr("workbench.action.returnDatabase"), () => {
     model().view.imported = false;
     drawBody();
   }, {
@@ -3079,100 +3241,108 @@ function drawImportedStructure(schema) {
     onSelect: () => {},
     onEdge: edge => {
       inspect.hidden = false;
-      inspect.replaceChildren(h('strong', {}, `${edge.source} → ${edge.target}`), ...edge.sourceColumns.map((column, i) => h('code', {}, `${column} → ${edge.targetColumns[i]}`)));
+      replaceContent(inspect, h('strong', {}, `${edge.source} → ${edge.target}`), ...edge.sourceColumns.map((column, i) => h('code', {}, `${column} → ${edge.targetColumns[i]}`)));
     }
   });
   if (graph.toolbar) {
-    section.append(graph.toolbar);
+    appendContent(section, graph.toolbar);
   }
-  section.append(graph.el, inspect);
-  content.append(section);
+  appendContent(section, graph.el, inspect);
+  appendContent(content, section);
 }
 function clearRecoveryCard(m, {inspect, review, append, adjust, locate, reset}) {
   const context = executionChecks.get(m), state = clearRecoveryState(m, context);
-  const card = h('section', {class:'wb-clear-recovery', 'aria-label':'清空方案处理'});
-  card.append(h('p', {class:'wb-clear-recovery-status', role:'status'}, state.status));
+  if (state.unsupported.length) return generationUnsupportedCard({issues: state.unsupported});
+  const card = h('section', {class:'wb-clear-recovery', 'aria-label':tr("workbench.clear.recoveryTitle")});
+  appendContent(card, h('p', {class:'wb-clear-recovery-status', role:'status'}, state.status));
   const needsScope = state.current && state.state === 'blocked' && state.externalTables.length > 0;
   if (state.state === 'blocked') {
-    card.append(h('p', {}, state.externalTables.length
-      ? `要清空后重新生成，还需将 ${state.externalTables.length} 张关联表纳入重建范围。先核对完整范围，再继续清空计划。`
-      : '要继续清空重建，请先处理下列问题。'));
+    appendContent(card, h('p', {}, state.externalTables.length
+      ? tr("workbench.clear.expandHelp", {count: state.externalTables.length})
+      : tr("workbench.clear.resolveHelp")));
   } else if (state.state === 'pending') {
-    card.append(h('p', {}, '重建范围已调整，请重新检查清空计划。'));
+    appendContent(card, h('p', {}, tr("workbench.clear.scopeChanged")));
   }
   const actions = h('div', {class:'wb-clear-recovery-actions'});
-  if (needsScope && review) actions.append(button('补齐关联表，继续重建', review, {primary:true, small:true}));
-  else if (inspect) actions.append(button(['ok','reviewed'].includes(state.state) ? '查看生成计划' : '重新检查清空计划', inspect, {primary:true, small:true, disabled:state.state==='checking'}));
-  card.append(actions);
+  if (needsScope && review) appendContent(actions, button(tr("workbench.clear.expand"), review, {primary:true, small:true}));
+  else if (inspect) appendContent(actions, button(['ok','reviewed'].includes(state.state) ? tr("workbench.action.viewPlan") : tr("workbench.clear.recheck"), inspect, {primary:true, small:true, disabled:state.state==='checking'}));
+  appendContent(card, actions);
   if (state.externalTables.length) {
-    card.append(h('p', {class:'wb-muted'}, state.current ? '需一并重建的关联表（点击可定位）：' : '上次检查涉及的关联表：'),
-      h('ul', {class:'wb-clear-recovery-tables'}, ...state.externalTables.map(name => h('li', {}, button(name, () => locate(name), {plain:true, small:true})))));
+    appendContent(card, h('p', {class:'wb-muted'}, state.current ? tr("workbench.clear.relatedTables") : tr("workbench.clear.previousTables")), h('ul', {class:'wb-clear-recovery-tables'}, ...state.externalTables.map(name => h('li', {}, button(name, () => locate(name), {plain:true, small:true})))));
   }
   if (state.current) {
     for (const issue of state.otherIssues) {
-      card.append(h('p', {}, issue.message));
-      if (issue.table) card.append(button(`查看 ${issue.table}`, () => locate(issue.table), {plain:true, small:true}));
-      if (issue.code === 'identity_reset_not_supported' && reset) card.append(button('取消重置并重新检查', reset, {small:true}));
+      appendContent(card, h('p', {}, serverText(issue)));
+      if (issue.table) appendContent(card, button(tr("workbench.action.viewTable", {table: issue.table}), () => locate(issue.table), {plain:true, small:true}));
+      if (issue.code === 'identity_reset_not_supported' && reset) appendContent(card, button(tr("workbench.clear.disableReset"), reset, {small:true}));
     }
-    if (context.error) card.append(h('p', {}, `${context.error} 请重新检查；尚未写入数据库。`));
+    if (context.error) appendContent(card, h('p', {}, tr("workbench.clear.retryHelp", {error: context.error})));
   }
   if (!['ok','reviewed','checking'].includes(state.state)) {
-    card.append(h('details', {}, h('summary', {}, '其他处理方式'),
-      h('div', {class:'wb-clear-recovery-actions'}, button('手动调整重建范围', adjust, {small:true}), button('改为追加，保留现有数据', append, {small:true}))));
+    appendContent(card, h('details', {}, h('summary', {}, tr("workbench.clear.alternatives")),
+      h('div', {class:'wb-clear-recovery-actions'}, button(tr("workbench.clear.adjustScope"), adjust, {small:true}), button(tr("workbench.clear.switchAppend"), append, {small:true}))));
   }
   return card;
 }
 async function reviewClearScope() {
   const current = ticket(), m = model(), owner = session;
   const candidate = clearScopeCandidate(m);
-  const dialog = openedModal = modal('补齐清空重建范围', {dismiss:'footer', wide:true});
+  const dialog = openedModal = modal(tr("workbench.clear.expandTitle"), {dismiss:'footer', wide:true});
   const valid = () => current() && dialog.body.isConnected && executionChecks.has(m);
   const feedback = h('div', {role:'status', 'aria-live':'polite'});
   const adjust = () => {dialog.close();locateGenerationSelection();};
   let candidateReady = false;
-  const apply = button('确认范围，查看清空计划', action(async () => {
+  const apply = button(tr("workbench.clear.confirmScope"), action(async () => {
     if (!valid() || !candidateReady) return;
     for (const table of candidate.added) m.toggleTable(table.name, true);
     executionChecks.set(m, {epoch:m.epoch, lifecycle:m.lifecycleVersion, state:'pending'});
     dialog.close();draw();
     await summary();
-  }, '准备清空计划', {feedback:'modal'}), {primary:true, disabled:true});
-  dialog.body.append(h('section', {class:'wb-clear-recovery'},
-    h('h3', {}, `${candidate.original.length} 张 → ${candidate.total} 张：新增 ${candidate.added.length} 张表`),
-    h('p', {}, '以下关联表需要一并清空，再按各自规则重新生成。已自动查找所有受影响的下游表。'),
-    h('p', {}, '确认范围后会保存配置并打开清空计划；只有在下一步确认“清空并生成”后才会写入数据库。'), feedback));
-  dialog.body.append(h('table', {class:'wb-clear-scope-review'},
-    h('thead', {}, h('tr', {}, ...['新增表','现有行数（上次读取）','将生成行数'].map(label=>h('th', {}, label)))),
-    h('tbody', {}, ...candidate.added.map(table=>h('tr', {}, h('td', {}, table.name), h('td', {}, Number.isFinite(table.rowCount) ? table.rowCount.toLocaleString() : '未知'), h('td', {}, table.count.toLocaleString()))))));
-  dialog.body.append(h('details', {}, h('summary', {}, `原选 ${candidate.original.length} 张表`), h('p', {}, candidate.original.join('、'))),
-    h('p', {class:'wb-muted'}, '现有行数仅供审阅参考，最终清空数量以重新获取的生成计划为准。规则检查通过仍不代表清空一定可行，触发器、自引用等还需清空预检。'));
-  dialog.actions.append(button('取消', dialog.close), apply);
+  }, tr("workbench.clear.prepare"), {feedback:'modal'}), {primary:true, disabled:true});
+  appendContent(dialog.body, h('section', {class:'wb-clear-recovery'},
+    h('h3', {}, tr("workbench.clear.scopeCounts", {original: candidate.original.length, total: candidate.total, added: candidate.added.length})),
+    h('p', {}, tr("workbench.clear.relatedHelp")),
+    h('p', {}, tr("workbench.clear.confirmHelp")), feedback));
+  appendContent(dialog.body, h('table', {class:'wb-clear-scope-review'},
+    h('thead', {}, h('tr', {}, ...[tr("workbench.clear.addedTables"),tr("workbench.clear.existingRows"),tr("workbench.clear.generatedRows")].map(label=>h('th', {}, label)))),
+    h('tbody', {}, ...candidate.added.map(table=>h('tr', {}, h('td', {}, table.name), h('td', {}, Number.isFinite(table.rowCount) ? formatNumber(table.rowCount) : tr("workbench.value.unknown")), h('td', {}, formatNumber(table.count)))))));
+  appendContent(dialog.body, h('details', {}, h('summary', {}, tr("workbench.clear.originalTables", {count: candidate.original.length})), h('p', {}, candidate.original.join('、'))), h('p', {class:'wb-muted'}, tr("workbench.clear.countDisclaimer")));
+  appendContent(dialog.actions, button(tr("workbench.action.cancel"), dialog.close), apply);
   if (!candidate.added.length || candidate.unresolved.length) {
-    feedback.append(h('p', {}, candidate.unresolved.length ? `无法定位关联表 ${candidate.unresolved.join('、')}，请重新读取数据库结构后核对。` : '没有可自动补入的关联表，请调整重建范围。'), button('调整重建范围', adjust, {small:true}));
+    appendContent(feedback, h('p', {}, candidate.unresolved.length ? tr("workbench.clear.unresolved", {tables: candidate.unresolved.join('、')}) : tr("workbench.clear.noCandidates")), button(tr("workbench.clear.adjust"), adjust, {small:true}));
     return;
   }
-  feedback.textContent = '正在检查候选范围的规则与依赖，不修改当前配置…';
+  setText(feedback, tr("workbench.clear.checkingCandidate"));
   try {
     const result = await send('/api/workbench/check', {conn_id:owner.connId, document:candidate.document, schema_hash:m.schema.schema_hash, count:3});
     if (!valid()) return;
     const errors = (result.issues || []).filter(issue=>issue.severity==='error');
     const passed = result.ok && !errors.length;
-    feedback.replaceChildren(h('p', {}, passed ? '规则检查通过。核对下方新增表后，可直接继续清空计划。' : '这个范围仍有生成规则问题，暂时不能继续清空重建。请先调整下列冲突表。'),
-      ...errors.map(issue=>h('p', {}, `${issue.tables?.length ? issue.tables.join('、') + '：' : issue.table ? issue.table + '：' : ''}${issue.message}`)));
-    if (!passed) {
+    const issueDetails = errors.map(issue => {
+      let prefix = '';
+      if (issue.tables?.length) prefix = issue.tables.join(', ') + ': ';
+      else if (issue.table) prefix = issue.table + ': ';
+      const detail = h('div', {}, h('p', {}, joinText([prefix, serverText(issue)])));
+      if (issue.code === 'cross_table_cycle') appendContent(detail, cycleIssueDetails(issue, name => {
+        dialog.close(); inspectorMode = 'dependencies'; chooseTable(name, 'graph');
+      }, candidate.document));
+      return detail;
+    });
+    replaceContent(feedback, h('p', {}, passed ? tr("workbench.clear.candidatePassed") : generationLimitations(result).length ? tr('workbench.unsupported.title') : tr("workbench.clear.candidateFailed")), ...issueDetails);
+    if (!passed && !generationLimitations(result).length) {
       const tables = [...new Set(errors.flatMap(issue=>issue.tables || (issue.table ? [issue.table] : [])))].filter(name=>m.schema.tables.some(table=>table.name===name));
-      feedback.append(h('div', {class:'wb-clear-recovery-actions'}, ...tables.map(name=>button(`定位 ${name}`, ()=>{dialog.close();inspectorMode='dependencies';chooseTable(name,'graph');}, {small:true})), button('调整重建范围', adjust, {small:true})));
+      appendContent(feedback, h('div', {class:'wb-clear-recovery-actions'}, ...tables.map(name=>button(tr("workbench.action.locate", {target: name}), ()=>{dialog.close();inspectorMode='dependencies';chooseTable(name,'graph');}, {small:true})), button(tr("workbench.clear.adjust"), adjust, {small:true})));
     }
     candidateReady = passed;
     setActionDisabled(apply, !passed);
   } catch (error) {
-    if (valid()) feedback.textContent = `候选范围检查未完成：${error.message}。当前配置未改变，请稍后重新检查。`;
+    if (valid()) setText(feedback, tr("workbench.clear.candidateError", {error: errorText(error)}));
   }
 }
 async function summary() {
   const stillCurrent = modalTicket();
   if (!model().document.tables.length) {
-    throw new Error('请先勾选要生成的表');
+    throw new UserFacingError(tr("workbench.scope.required"));
   }
   if (model().dirty) {
     await save();
@@ -3180,7 +3350,7 @@ async function summary() {
   if (!stillCurrent()) {
     return;
   }
-  const result = await check(false);
+  const result = generationLimitations(model().check).length ? model().check : await check(false);
   if (!result || !stillCurrent()) {
     return;
   }
@@ -3199,7 +3369,7 @@ async function summary() {
       mode: executionChecks.has(m) && m.schema.dialect === 'sqlite' ? 'replace_selected' : 'append',
       reset_identity: false
     };
-  const dialog = openedModal = modal('确认生成数据', {
+  const dialog = openedModal = modal(tr("workbench.execution.title"), {
     dismiss: 'footer',
     wide: true,
     onClose: () => {
@@ -3224,17 +3394,20 @@ async function summary() {
     type: 'checkbox',
     checked: false,
     disabled: true,
-    'aria-label': '重置自增计数',
+    'aria-label': tr("workbench.execution.reset"),
+    'aria-describedby': 'wb-reset-reason',
     onchange: () => {
-      if (planning || busy) {
+      if (planning || busy || reset.disabled) {
         return;
       }
       execution.reset_identity = reset.checked;
       return inspectExecution();
     }
   });
+  const resetReason = h('small', {id: 'wb-reset-reason', class: 'wb-reset-reason'});
+  const unsupported = generationLimitations(result).length > 0;
   function selectAppend() {
-    if (busy) return;
+    if (busy || unsupported) return;
     execution = {mode:'append', reset_identity:false};
     append.checked = true;
     replace.checked = false;
@@ -3247,7 +3420,7 @@ async function summary() {
     name: 'execution-mode',
     value: 'append',
     checked: execution.mode === 'append',
-    'aria-label': '追加数据',
+    'aria-label': tr("workbench.execution.append"),
     onchange: selectAppend
   });
   const replace = h('input', {
@@ -3256,13 +3429,12 @@ async function summary() {
     value: 'replace_selected',
     checked: execution.mode === 'replace_selected',
     disabled: m.schema.dialect !== 'sqlite',
-    'aria-label': '清空所选表后生成',
+    'aria-label': tr("workbench.execution.replace"),
     onchange: () => {
-      if (planning || busy) {
+      if (planning || busy || unsupported || m.schema.dialect !== 'sqlite') {
         return;
       }
       execution.mode = 'replace_selected';
-      reset.disabled = false;
       return inspectExecution();
     }
   });
@@ -3275,38 +3447,39 @@ async function summary() {
       return m.schema.dialect;
     }
   }
-  dialog.body.append(planInfo, h('section', {
+  const totalRows = m.document.tables.reduce((sum, table) => sum + BigInt(table.count), 0n);
+  appendContent(dialog.body, planInfo, h('section', {
     class: 'wb-write-target',
-    'aria-label': '写入目标'
-  }, h('div', {}, h('strong', {}, '写入目标'), h('span', {
+    'aria-label': tr("workbench.execution.target")
+  }, h('div', {}, h('strong', {}, tr("workbench.execution.target")), h('span', {
     class: 'wb-muted'
   }, databaseDialectLabel())), h('p', {
     class: 'mono'
   }, m.schema.target_label), h('small', {
     class: 'wb-muted'
-  }, m.schema.dialect === 'sqlite' ? '当前连接的数据库位置；由运行 Web 的设备访问。' : '当前连接的数据库地址；连接凭据已隐藏。')), h('p', {
+  }, m.schema.dialect === 'sqlite' ? tr("workbench.execution.fileTargetHelp") : tr("workbench.execution.urlTargetHelp"))), h('p', {
     class: 'wb-muted'
   }, `${current.name} · v${m.saved.revision}`), h('fieldset', {
     class: 'wb-write-strategy'
-  }, h('legend', {}, '已有数据处理'), h('label', {}, append, h('span', {}, h('strong', {}, '追加数据'), h('small', {}, '保留已有记录，由数据库继续分配 ID。'))), h('label', {}, replace, h('span', {}, h('strong', {}, '清空所选表后生成'), h('small', {}, '删除下列所选表的现有记录，再生成新数据。'))), ...(m.schema.dialect !== 'sqlite' ? [h('p', {
+  }, h('legend', {}, tr("workbench.execution.existingData")), h('label', {}, append, h('span', {}, h('strong', {}, tr("workbench.execution.append")), h('small', {}, tr("workbench.execution.appendHelp")))), h('label', {}, replace, h('span', {}, h('strong', {}, tr("workbench.execution.replace")), h('small', {}, tr("workbench.execution.replaceHelp")))), ...(m.schema.dialect !== 'sqlite' ? [h('p', {
     class: 'muted'
-  }, 'PostgreSQL 暂未开放清空模式；当前仅支持追加数据。')] : []), h('label', {
+  }, tr("workbench.execution.postgresAppend"))] : []), h('label', {
     class: 'wb-reset-identity'
-  }, reset, h('span', {}, '重置自增计数', h('small', {}, '仅清空后可选。SQLite AUTOINCREMENT 从 1 重新分配；普通整数主键在空表中通常也从 1 开始。')))), h('div', {
+  }, reset, h('span', {}, tr("workbench.execution.reset"), resetReason))), h('div', {
     class: 'wb-summary-total'
-  }, h('strong', {}, m.document.tables.reduce((sum, t) => sum + BigInt(t.count), 0n).toLocaleString()), ' 行本次生成 / ', m.document.tables.length, ' 张表'), h('ol', {
+  }, h('strong', {}, formatNumber(totalRows)), tr("workbench.execution.totalRows", {count: totalRows}), ' / ', tr("workbench.execution.totalTables", {count: m.document.tables.length, tables: formatNumber(m.document.tables.length)})), ...(unsupported ? [h('p', {class: 'wb-muted'}, tr('workbench.unsupported.scope'))] : []), h(unsupported ? 'ul' : 'ol', {
     class: 'wb-summary-plan'
-  }, ...(result.order || []).map(name => h('li', {}, button(name, () => {
+  }, ...(unsupported ? m.document.tables.map(table => table.name) : result.order || []).map(name => h('li', {}, button(name, () => {
     dialog.close();
     inspectorMode = 'dependencies';
     chooseTable(name, 'graph');
   }, {
     plain: true,
     class: 'mono execution-table'
-  }), h('span', {}, `${m.table(name).count} 行`)))), ...(result.issues || []).map(issue => h('p', {
+  }), h('span', {}, tr("workbench.count.rows", {count: m.table(name).count}))))), ...(result.issues || []).filter(issue => !unsupported || issue.code !== 'cross_table_cycle').map(issue => h('p', {
     class: issue.severity === 'error' ? 'wb-error' : 'wb-muted'
-  }, `${issue.table || ''} ${issue.message}`)));
-  const submit = button('写入数据库', async () => {
+  }, joinText([issue.table || '', serverText(issue)], ' '))));
+  const submit = button(tr("workbench.execution.write"), async () => {
     if (!isCurrent() || busy || planning || !m.canRun() || execution.mode === 'replace_selected' && !plan?.ok) {
       return;
     }
@@ -3322,17 +3495,17 @@ async function summary() {
       }
     } catch (error) {
       if (isCurrent()) {
-        planInfo.append(h('p', {
+        appendContent(planInfo, h('p', {
           class: 'wb-error',
           role: 'alert'
-        }, error.message));
+        }, errorText(error)));
         busy = false;
         setStrategyBusy(false);
         submit.disabled = execution.mode === 'replace_selected';
         if (execution.mode === 'replace_selected') {
           plan = null;
           executionChecks.set(m, {epoch, lifecycle, state:'pending'}); updateStatus();
-          planInfo.append(button('重新核对计划', inspectExecution));
+          appendContent(planInfo, button(tr("workbench.execution.reviewAgain"), inspectExecution));
         }
       }
     }
@@ -3340,25 +3513,37 @@ async function summary() {
     primary: true,
     disabled: !m.canRun()
   });
-  dialog.actions.append(button('返回调整', dialog.close), submit);
+  appendContent(dialog.actions, button(unsupported ? tr('workbench.unsupported.close') : tr("workbench.execution.return"), dialog.close), submit);
   function appendPlan() {
     executionChecks.delete(m);
-    notify(m.check?.ok ? '追加生成的依赖与规则检查通过。' : '追加生成的依赖与规则尚未通过检查。', !m.check?.ok);
+    notify(m.check?.ok ? tr("workbench.dependency.appendValid") : tr("workbench.execution.appendUnchecked"), !m.check?.ok);
     updateStatus();
-    planInfo.replaceChildren(h('p', {
+    replaceContent(planInfo, h('p', {
       class: 'wb-muted'
-    }, '追加生成的依赖与规则检查已通过。向现有数据追加，不清空表；自动主键由数据库继续分配。按此顺序逐表写入。若中途失败，后续表停止；已经提交的数据保留，实际数量可在运行记录中查看。'));
+    }, tr("workbench.execution.appendPlanHelp")));
   }
   function setStrategyBusy(value) {
-    append.disabled = busy;
-    replace.disabled = value || m.schema.dialect !== 'sqlite';
-    reset.disabled = value || execution.mode !== 'replace_selected' || !plan?.reset_identity_supported;
-    planInfo.setAttribute('aria-busy', String(value));
+    append.disabled = busy || unsupported;
+    replace.disabled = value || unsupported || m.schema.dialect !== 'sqlite';
+    reset.disabled = value || execution.mode !== 'replace_selected' || !result.ok || !plan?.ok || !plan?.atomic || !plan?.reset_identity_supported;
+    const hasSequence = m.document.tables.some(item => m.schema.tables.find(table => table.name === item.name)?.columns.some(column => column.is_autoincrement));
+    let reason;
+    if (m.schema.dialect !== 'sqlite') reason = tr('workbench.execution.resetDialect', {dialect: databaseDialectLabel()});
+    else if (!hasSequence) reason = joinText([tr('workbench.execution.resetUnneeded'),
+      !result.ok || plan?.ok === false ? tr('workbench.execution.resetBlocked') : ''], ' ');
+    else if (!result.ok || plan?.ok === false) reason = tr('workbench.execution.resetBlocked');
+    else if (execution.mode !== 'replace_selected') reason = tr('workbench.execution.resetAppend');
+    else if (value) reason = tr('workbench.execution.resetChecking');
+    else if (!plan) reason = tr('workbench.execution.resetNoPlan');
+    else if (!plan.reset_identity_supported) reason = tr('workbench.execution.resetNotSupported');
+    else reason = tr('workbench.execution.resetHelp');
+    setText(resetReason, reason);
+    setAttr(planInfo, 'aria-busy', String(value));
   }
   function recoveryActions() {
     return {
       append:selectAppend,
-      review: () => {dialog.close();return action(reviewClearScope, '检查关联重建范围', {feedback:'modal'})();},
+      review: () => {dialog.close();return action(reviewClearScope, tr("workbench.clear.reviewScope"), {feedback:'modal'})();},
       adjust: () => {dialog.close();locateGenerationSelection();},
       locate: name => {dialog.close();chooseTable(name,'graph');},
       reset: () => {reset.checked=false;execution.reset_identity=false;return inspectExecution();}
@@ -3371,16 +3556,23 @@ async function summary() {
     const request = ++sequence;
     plan = null;
     submit.disabled = true;
+    if (unsupported) {
+      if (execution.mode === 'replace_selected') executionChecks.set(m, {epoch, lifecycle, issues:structuredClone(result.issues), state:'blocked'});
+      replaceContent(planInfo, generationUnsupportedCard(result));
+      setText(submit, tr('workbench.unsupported.cannotGenerate'));
+      setStrategyBusy(false); updateStatus();
+      return;
+    }
     if (execution.mode === 'append') {
       appendPlan();
-      submit.textContent = '写入数据库';
+      setText(submit, tr("workbench.execution.write"));
       submit.disabled = planning || !m.canRun();
       setStrategyBusy(planning);
       return;
     }
-    submit.textContent = '清空并生成';
+    setText(submit, tr("workbench.execution.clearWrite"));
     executionChecks.set(m, {...executionChecks.get(m), epoch, lifecycle, state:'checking'}); updateStatus(); reportExecutionCheck(m);
-    planInfo.replaceChildren(h('p', {}, '正在核对清空范围、外键与事务能力…'));
+    replaceContent(planInfo, h('p', {}, tr("workbench.execution.preflight")));
     planning = true;
     setStrategyBusy(true);
     try {
@@ -3393,16 +3585,16 @@ async function summary() {
       plan = response;
       executionChecks.set(m, {epoch, lifecycle, issues:structuredClone(plan.issues || []), state:plan.ok && plan.atomic ? 'ok' : 'blocked'}); updateStatus();
       const tables = plan.clear_tables || [];
-      planInfo.replaceChildren(clearRecoveryCard(m, recoveryActions()), h('details', {}, h('summary', {}, `${plan.ok && plan.atomic ? '将清空' : '拟清空'} ${tables.length} 张表 · ${tables.reduce((sum, t) => sum + t.row_count, 0).toLocaleString()} 行现有记录`),
-        h('ul', {}, ...tables.map(table => h('li', {}, `${table.name}：${table.row_count} 行`))),
-        h('p', {}, plan.atomic ? '清空与本次生成在同一事务中完成。失败将回滚本次操作，保留原有数据。' : '此模式不具备整体回滚能力。'),
-        ...(plan.issues || []).filter(issue=>issue.severity!=='error').map(issue=>h('p',{class:'wb-muted'},issue.message))));
+      replaceContent(planInfo, clearRecoveryCard(m, recoveryActions()), h('details', {}, h('summary', {}, tr("workbench.execution.clearCounts", {intent: plan.ok && plan.atomic ? tr("workbench.execution.willClear") : tr("workbench.execution.proposedClear"), count: tables.length, tables: formatNumber(tables.length), rows: formatNumber(tables.reduce((sum, t) => sum + t.row_count, 0))})),
+        h('ul', {}, ...tables.map(table => h('li', {}, tr("workbench.execution.tableCount", {table: table.name, count: table.row_count})))),
+        h('p', {}, plan.atomic ? tr("workbench.execution.atomic") : tr("workbench.execution.nonAtomic")),
+        ...(plan.issues || []).filter(issue=>issue.severity!=='error').map(issue=>h('p',{class:'wb-muted'},serverText(issue)))));
       submit.disabled = !plan.ok || !plan.atomic || !m.canRun();
       reset.disabled = !plan.reset_identity_supported;
     } catch (error) {
       if (isCurrent() && request === sequence) {
-        executionChecks.set(m, {epoch, lifecycle, error:error.message, state:'blocked'}); updateStatus();
-        planInfo.replaceChildren(clearRecoveryCard(m, {...recoveryActions(), inspect:inspectExecution}));
+        executionChecks.set(m, {epoch, lifecycle, error:errorText(error), state:'blocked'}); updateStatus();
+        replaceContent(planInfo, clearRecoveryCard(m, {...recoveryActions(), inspect:inspectExecution}));
       }
     } finally {
       planning = false;

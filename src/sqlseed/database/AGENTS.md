@@ -30,6 +30,8 @@
 
 - `ForeignKeyInfo.constraint_id` 保留表内 FK 分组身份，`ref_schema` 保留反射出的父 schema；二者默认 `None` 兼容旧构造调用。PostgreSQL reflection 使用 `postgresql_ignore_search_path=True`，防止 search_path 隐藏跨 schema 引用。元数据可读取，但 core 生成预检拒绝 PostgreSQL composite FK、显式 schema FK 与三列及以上 composite FK。
 - 表操作先 `validate_table_name()`，identifier 使用 `quote_identifier()` 或现有 dialect quoting；值走参数绑定。
+- 采样、列值与计数查询使用 SQLAlchemy 表达式，不能把带合法 `:` 的已引用标识符再交给 `text()` 的 bind parser。采样投影保持原 DBAPI 类型与 JSON 文本转换合同，不能因改用反射列而额外解码 JSON 或日期。
+- 行数查询不需要完整表反射；使用已校验并引用的表名即可，不能因外键父表缺失而把仍可 COUNT 的子表误报为不存在。
 - `ColumnInfo.is_rowid_alias` 与显式 `is_autoincrement` 分开：SQLite 用真实 PRAGMA PK 索引识别，不能把所有 INTEGER PK 当 rowid；nullable 也不能把普通 SQLite PK 一概判为非空。默认 `None` 兼容旧 metadata 构造，adapter 返回明确 bool。
 - `IndexInfo.is_partial` 默认 `False`；反射 WHERE 索引必须标记为 `True`，不得通过 `get_unique_constraints()` 补成无条件 UNIQUE。`predicate` 默认 `None`，生产 SQLAlchemy adapter 保留条件原文；RawSQLite 只保留标记、条件原文可未知。谓词由数据库执行。
 - JSON 生成值及内部采样、外键池、lookup 使用序列化文档约定；字符串、JSON null 和 SQL NULL 不得混淆。SQLite 保留合法 JSON 文本原样，避免格式化改变 FK/UNIQUE 的文本相等语义；不要对读取池先解码再当作未解析输入重复处理。普通 TEXT 不参与 JSON/日期类型规范化。

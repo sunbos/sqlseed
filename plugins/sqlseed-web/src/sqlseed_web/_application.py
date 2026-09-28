@@ -10,10 +10,13 @@ from urllib.parse import urlsplit
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from sqlseed_web.diagnostics import public_error
+from sqlseed_web.messages import MessageJSONResponse as JSONResponse
+from sqlseed_web.messages import message as tr
+from sqlseed_web.messages import validation_descriptor
 from sqlseed_web.plugin_management import ManagementService, PluginManager, _loopback, guard_request
 from sqlseed_web.plugin_management import router as plugin_router
 from sqlseed_web.settings_environment import router as settings_router
@@ -61,7 +64,12 @@ def _maintenance_response(
     ):
         return JSONResponse(
             status_code=403,
-            content={"detail": {"code": "cross_origin_forbidden", "message": "业务请求必须来自当前工作台页面。"}},
+            content={
+                "detail": {
+                    "code": "cross_origin_forbidden",
+                    "message": tr("backend.application.business_requests_must_come_from_the_current"),
+                }
+            },
         )
     if (
         manage_plugins
@@ -74,9 +82,9 @@ def _maintenance_response(
                 "detail": {
                     "code": "plugin_maintenance",
                     "message": (
-                        "组件操作进行中，业务服务将自动恢复。"
+                        tr("backend.application.a_component_operation_is_in_progress_the")
                         if supervised_worker
-                        else "当前服务处于插件维护模式；请正常重启 Web 后使用工作台。"
+                        else tr("backend.application.the_service_is_in_plugin_maintenance_mode")
                     ),
                 }
             },
@@ -152,6 +160,10 @@ def create_app(
     app.state.metadata_only = manage_plugins
     _configure_middleware(app, manager, manage_plugins, supervised_worker)
 
+    @app.exception_handler(HTTPException)
+    async def http_error(request: Request, exc: HTTPException) -> JSONResponse:
+        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail}, headers=exc.headers)
+
     @app.exception_handler(RequestValidationError)
     async def request_validation_error(request: Any, exc: RequestValidationError) -> Any:
         # FastAPI includes rejected inputs in its default validation response;
@@ -162,7 +174,7 @@ def create_app(
                 content={
                     "detail": {
                         "code": "invalid_ai_settings",
-                        "message": "AI 设置字段无效；Base URL 必须是无认证信息的 HTTP(S) 地址。",
+                        "message": tr("backend.application.invalid_ai_settings_base_url_must_be"),
                     }
                 },
             )
@@ -173,6 +185,7 @@ def create_app(
                 "type": error["type"],
                 "loc": error["loc"],
                 "msg": public_error(ValueError(str(error["msg"]))),
+                **validation_descriptor(error["type"]),
             }
             for error in exc.errors()
         ]

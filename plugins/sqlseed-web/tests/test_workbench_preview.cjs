@@ -37,6 +37,40 @@ function harness(options={}) {
   return {document,context,component,requests,results,resultOptions,changes,errors,find,scope,setCurrent:value=>{current=value;},count:()=>document.querySelector('[aria-label="每表预览行数"]')};
 }
 
+test('a real cross-table-cycle diagnostic stops unchanged retries while preserving other rows and read-only navigation',async()=>{
+  const issue=structuredClone(require('./complex_business_graph.json').checks.cycles.issues[0]);
+  const observed=[],read=[];
+  const t=harness({props:{initialScope:'selected',onUnsupported:result=>observed.push(result),onCurrentData:name=>read.push(name)},
+    generate:async()=>({ok:false,issues:[issue],samples:{orders:[],users:[{id:42,name:'Existing successful sample'}]}})});
+  await t.component.refresh();
+  assert.match(t.document.textContent,/departments、employees/);
+  assert.match(t.document.querySelector('.wb-preview-empty').textContent,/未生成 orders 的新样例.*现有记录不受影响/);
+  assert.doesNotMatch(t.document.querySelector('.wb-preview-empty').textContent,/处理.*重试/);
+  assert.equal(t.find('当前范围无法预览').disabled,true);assert.equal(t.count().disabled,true);
+  await t.component.refresh();assert.equal(t.requests.length,1);
+  await t.find('查看 orders 当前数据').click();assert.deepEqual(read,['orders']);assert.equal(t.requests.length,1);
+  await t.find('查看无法生成的原因').click();assert.equal(observed.length,1);
+  assert.equal(observed[0].issues[0].code,'cross_table_cycle');
+  await t.find('users').click();assert.match(t.document.querySelector('.wb-preview-data').textContent,/Existing successful sample/);
+  assert.equal(t.requests.length,1);assert.equal(t.find('查看 users 当前数据'),undefined);
+  t.context.setLanguage('en');assert.match(t.document.textContent,/not a preview row-count error/);
+  assert.match(t.document.querySelector('.wb-preview-data').textContent,/Existing successful sample/);
+  assert.deepEqual(Array.from(t.context.missingMessages()),[]);
+});
+
+test('a stale cycle result never locks a changed configuration and a new scope can request supported samples',async()=>{
+  const issues=[structuredClone(require('./complex_business_graph.json').checks.cycles.issues[0])];
+  const stale=harness({props:{initialResult:{ok:false,issues,samples:{}},initialStale:true}});
+  assert.equal(Boolean(stale.find('重新预览').disabled),false);await stale.component.refresh();
+  assert.match(stale.document.querySelector('.wb-preview-data').textContent,/A/);assert.equal(stale.requests.length,1);
+  const t=harness({props:{initialScope:'selected',initialResult:{ok:false,issues,samples:{}}}});
+  assert.equal(t.find('当前范围无法预览').disabled,true);
+  await t.scope('当前表 · orders');
+  assert.equal(t.find('重新预览').disabled,false);assert.equal(t.count().disabled,false);
+  await t.component.refresh();assert.deepEqual(t.requests,[{scope:'current',count:10,table:'orders'}]);
+  assert.match(t.document.querySelector('.wb-preview-data').textContent,/A/);
+});
+
 test('creates the modal immediately and generates only when its guarded refresh is called',async()=>{
   const t=harness();
   assert.equal(t.document.querySelector('[role="dialog"]').getAttribute('aria-label'),'预览数据');
@@ -48,6 +82,32 @@ test('creates the modal immediately and generates only when its guarded refresh 
   assert.deepEqual(t.requests,[{scope:'current',count:10,table:'orders'}]);
   assert.equal(t.results.length,1);
   assert.deepEqual(t.resultOptions,[{scope:'current',count:10,table:'orders'}]);
+});
+
+test('UI language switches preserve preview rows, count, scroll and request state while translating server issues',async()=>{
+  const t=harness({generate:async()=>({ok:false,preview_complete:false,samples:{orders:[{code:'客户原文',amount:7,extra:'姓名'}]},issues:[{
+    table:'orders',message:'诊断原文',message_key:'backend.preview_language_test',message_params:{table:'用户表'},severity:'warning',
+  }]})});
+  t.context.registerMessages('backend',{preview_language_test:['表 {table} 待核对','Table {table} needs review']});
+  await t.component.refresh();
+  const count=t.count(),dialog=t.document.querySelector('[role="dialog"]'),cells=dialog.querySelectorAll('td');
+  count.focus(); count.selectionStart=1;
+  const viewport=dialog.querySelector('.wb-preview-scroll');
+  if(viewport) {viewport.scrollTop=25;viewport.scrollLeft=40;}
+  const requests=JSON.stringify(t.requests),results=JSON.stringify(t.results);
+  t.context.setLanguage('en');
+  assert.equal(t.document.querySelector('[role="dialog"]'),dialog);
+  assert.equal(dialog.getAttribute('aria-label'),'Preview samples');
+  assert.equal(t.document.activeElement,count); assert.equal(count.value,'10'); assert.equal(count.selectionStart,1);
+  assert.equal(count.getAttribute('aria-label'),'Preview rows per table');
+  assert.deepEqual(dialog.querySelectorAll('td'),cells);
+  assert.match(dialog.textContent,/客户原文/); assert.match(dialog.textContent,/姓名/);
+  assert.match(dialog.textContent,/Table 用户表 needs review/);
+  assert.equal(JSON.stringify(t.requests),requests); assert.equal(JSON.stringify(t.results),results);
+  if(viewport) {assert.equal(viewport.scrollTop,25);assert.equal(viewport.scrollLeft,40);}
+  t.context.setLanguage('zh-CN'); assert.match(dialog.textContent,/表 用户表 待核对/);
+  assert.deepEqual(Array.from(t.context.missingMessages()),[]);
+  t.component.dialog.close();
 });
 
 test('a valid preview count explains generation-configuration errors and offers a guarded correction target',async()=>{

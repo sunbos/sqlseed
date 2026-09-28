@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 from fastapi import HTTPException
 
+from sqlseed_web.messages import message as tr
 from sqlseed_web.plugin_management import ExecuteRequest, PlanRequest
 from sqlseed_web.worker_control import (
     ControlChannel,
@@ -44,7 +45,11 @@ class RemotePluginManager:
             raise HTTPException(exc.status_code, detail=exc.detail) from exc
         except (OSError, RuntimeError) as exc:
             raise HTTPException(
-                503, detail={"code": "supervisor_unavailable", "message": "服务正在切换，请稍后重试。"}
+                503,
+                detail={
+                    "code": "supervisor_unavailable",
+                    "message": tr("backend.managed_worker.the_service_is_switching_please_retry_shortly"),
+                },
             ) from exc
 
     def status(self) -> dict[str, Any]:
@@ -82,7 +87,7 @@ def prepare_runtime_session() -> dict[str, Any]:
                 409,
                 detail={
                     "code": "plugin_session_too_large",
-                    "message": "当前连接与会话信息过多，无法安全暂存；请减少连接后再管理插件。",
+                    "message": tr("backend.managed_worker.too_many_connections_or_session_details_to"),
                 },
             ) from exc
         return snapshot

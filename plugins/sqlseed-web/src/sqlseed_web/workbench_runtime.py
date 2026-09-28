@@ -38,6 +38,8 @@ from sqlseed.generators._dispatch import GeneratorDispatchMixin
 
 from sqlseed_web.diagnostics import CREDENTIAL_KEY_PATTERN
 from sqlseed_web.diagnostics import public_error as _public_error
+from sqlseed_web.messages import message as tr
+from sqlseed_web.messages import message_list
 from sqlseed_web.operation_errors import generation_errors
 from sqlseed_web.runtime_lifecycle import start_background
 from sqlseed_web.settings_environment import package_availability
@@ -80,7 +82,10 @@ def _identity(target: str) -> str:
 
 def _reject_extra(value: Any, fields: Any, path: str) -> None:
     if isinstance(value, dict) and (extra := set(value) - set(fields)):
-        raise WorkbenchError(f"{path} 包含未知字段：{', '.join(sorted(extra))}", code="unknown_field")
+        raise WorkbenchError(
+            tr("backend.workbench_runtime.contains_unknown_fields", p1=path, p2=", ".join(sorted(extra))),
+            code="unknown_field",
+        )
 
 
 def _validate_table_keys(table: Any) -> None:
@@ -93,7 +98,7 @@ def _validate_table_keys(table: Any) -> None:
 
 
 def _validate_keys(raw: dict[str, Any]) -> None:
-    _reject_extra(raw, GeneratorConfig.model_fields, "配置")
+    _reject_extra(raw, GeneratorConfig.model_fields, tr("backend.workbench_runtime.configuration"))
     for table in raw.get("tables", []) or []:
         _validate_table_keys(table)
     for association in raw.get("associations", []) or []:
@@ -112,10 +117,14 @@ def bind_document(conn: Connection, document: dict[str, Any]) -> GeneratorConfig
     _validate_keys(document)
     db_path, url = document.get("db_path"), document.get("url")
     if db_path is not None and url is not None:
-        raise WorkbenchError("db_path 与 url 只能提供一个", code="target_mismatch")
+        raise WorkbenchError(tr("backend.workbench_runtime.provide_only_one_of_db_path_and"), code="target_mismatch")
     for supplied in (db_path, url):
         if supplied is not None and _identity(str(supplied)) != _identity(conn.target):
-            raise WorkbenchError("配置目标与当前连接不匹配，请明确选择相同目标", code="target_mismatch", status=409)
+            raise WorkbenchError(
+                tr("backend.workbench_runtime.the_configuration_target_does_not_match_the"),
+                code="target_mismatch",
+                status=409,
+            )
     raw = {key: value for key, value in document.items() if key not in {"db_path", "url"}}
     raw.setdefault("provider", conn.provider)
     raw.setdefault("locale", conn.locale)
@@ -136,9 +145,13 @@ def parse_document(conn: Connection, text: str) -> dict[str, Any]:
     try:
         raw = yaml.safe_load(text)
     except yaml.YAMLError as exc:
-        raise WorkbenchError(f"无法解析 YAML/JSON：{public_error(exc)}", code="parse_error") from exc
+        raise WorkbenchError(
+            tr("backend.workbench_runtime.cannot_parse_yaml_json", p1=public_error(exc)), code="parse_error"
+        ) from exc
     if not isinstance(raw, dict):
-        raise WorkbenchError("配置必须是 YAML/JSON object", code="parse_error")
+        raise WorkbenchError(
+            tr("backend.workbench_runtime.configuration_must_be_a_yaml_json_object"), code="parse_error"
+        )
     return normalize_document(conn, raw)
 
 
@@ -264,14 +277,14 @@ def _table_option_issues(table: TableConfig, issues: list[dict[str, Any]]) -> No
         _issue(
             issues,
             "clear_not_supported",
-            "工作台尚未支持经过外键校验的清空计划；请关闭 clear_before",
+            tr("backend.workbench_runtime.the_workbench_does_not_support_this_fk"),
             table=table.name,
         )
     if table.transform:
         _issue(
             issues,
             "transform_not_supported",
-            "工作台尚未支持执行服务器 Python transform；配置会保留在导出中",
+            tr("backend.workbench_runtime.the_workbench_does_not_execute_server_side"),
             table=table.name,
         )
 
@@ -296,7 +309,11 @@ def _unique_domain_issues(
             _issue(
                 issues,
                 "unique_domain_exhausted",
-                f"显式候选值只有 {available} 个，无法生成 {table.count} 个唯一值",
+                tr(
+                    "backend.workbench_runtime.only_explicit_candidate_values_are_available_insufficient",
+                    p1=available,
+                    p2=table.count,
+                ),
                 **context,
             )
         minimum, maximum = column.params.get("min_value"), column.params.get("max_value")
@@ -306,7 +323,12 @@ def _unique_domain_issues(
             and isinstance(maximum, int)
             and maximum - minimum + 1 < table.count
         ):
-            _issue(issues, "unique_domain_exhausted", "显式整数范围不足以生成所需的唯一值", **context)
+            _issue(
+                issues,
+                "unique_domain_exhausted",
+                tr("backend.workbench_runtime.the_explicit_integer_range_is_too_small"),
+                **context,
+            )
 
 
 def _derived_column_issues(
@@ -315,7 +337,12 @@ def _derived_column_issues(
     sources = column.derive_from
     for source in [sources] if isinstance(sources, str) else sources or []:
         if source not in columns:
-            _issue(issues, "unknown_derive_source", f"派生来源列不存在：{source}", **context)
+            _issue(
+                issues,
+                "unknown_derive_source",
+                tr("backend.workbench_runtime.the_derived_source_column_does_not_exist", p1=source),
+                **context,
+            )
     if column.expression:
         try:
             expression = ast.parse(column.expression, mode="eval")
@@ -325,7 +352,7 @@ def _derived_column_issues(
                     _issue(
                         issues,
                         "unknown_expression_function",
-                        f"不支持的 expression 函数：{call.func.id}",
+                        tr("backend.workbench_runtime.unsupported_expression_function", p1=call.func.id),
                         **context,
                     )
         except SyntaxError as exc:
@@ -336,10 +363,12 @@ def _column_presence_issues(
     column: ColumnConfig, info: dict[str, Any], context: dict[str, str], issues: list[dict[str, Any]]
 ) -> None:
     if column.null_ratio > 0 and not info.get("nullable", True):
-        _issue(issues, "not_null", "NOT NULL 列不能设置 null_ratio > 0", **context)
+        _issue(issues, "not_null", tr("backend.workbench_runtime.not_null_columns_cannot_have_null_ratio"), **context)
     can_skip = _can_omit(info)
     if column.generator == "skip" and not info.get("nullable", True) and not can_skip:
-        _issue(issues, "required_column", "没有默认值的 NOT NULL 列不能跳过", **context)
+        _issue(
+            issues, "required_column", tr("backend.workbench_runtime.a_not_null_column_without_a_default"), **context
+        )
 
 
 def _table_column_issues(
@@ -351,19 +380,31 @@ def _table_column_issues(
     for column in table.columns:
         context = {"table": table.name, "column": column.name}
         if column.name in seen:
-            _issue(issues, "duplicate_column", "列配置重复", **context)
+            _issue(
+                issues, "duplicate_column", tr("backend.workbench_runtime.duplicate_column_configuration"), **context
+            )
         seen.add(column.name)
         if column.provider is not None and column.provider != config.provider:
             _issue(
                 issues,
                 "column_provider_not_supported",
-                "当前 core 使用全局 provider；暂不支持不同的每列 provider",
+                tr("backend.workbench_runtime.core_uses_a_global_provider_different_per"),
                 **context,
             )
         if column.generator and column.generator not in known:
-            _issue(issues, "unknown_generator", f"未知 generator：{column.generator}", **context)
+            _issue(
+                issues,
+                "unknown_generator",
+                tr("backend.workbench_runtime.unknown_generator", p1=column.generator),
+                **context,
+            )
         if (info := columns.get(column.name)) is None:
-            _issue(issues, "unknown_column", "列已不存在，请刷新 schema 并修正配置", **context)
+            _issue(
+                issues,
+                "unknown_column",
+                tr("backend.workbench_runtime.the_column_no_longer_exists_refresh_the"),
+                **context,
+            )
             continue
         _unique_domain_issues(column, table, metadata, context, issues)
         _column_presence_issues(column, info, context, issues)
@@ -374,14 +415,14 @@ def _column_issues(config: GeneratorConfig, tables: dict[str, Any], issues: list
     known = set(GeneratorDispatchMixin.GENERATOR_MAP) | {"skip", "foreign_key", "foreign_key_or_integer"}
     for table in config.tables:
         if table.name not in tables:
-            _issue(issues, "unknown_table", "数据表不存在", table=table.name)
+            _issue(issues, "unknown_table", tr("backend.workbench_runtime.the_table_does_not_exist"), table=table.name)
             continue
         _table_column_issues(config, table, tables[table.name], known, issues)
     if config.snapshot_dir:
         _issue(
             issues,
             "snapshot_not_supported",
-            "工作台使用持久化运行记录，尚未支持 snapshot_dir 文件写出；配置会保留在导出中",
+            tr("backend.workbench_runtime.the_workbench_uses_persistent_run_records_and"),
         )
     if config.custom_column_mappings:
         mappings = config.custom_column_mappings
@@ -390,7 +431,11 @@ def _column_issues(config: GeneratorConfig, tables: dict[str, Any], issues: list
             *[rule.generator for rule in mappings.pattern],
         ):
             if generator not in known:
-                _issue(issues, "unknown_generator", f"自定义映射包含未知 generator：{generator}")
+                _issue(
+                    issues,
+                    "unknown_generator",
+                    tr("backend.workbench_runtime.custom_mappings_contain_an_unknown_generator", p1=generator),
+                )
         for rule in mappings.pattern:
             try:
                 re.compile(rule.pattern)
@@ -409,14 +454,24 @@ def _empty_source_issues(
     parent, target = context["source_table"], context["table"]
     if parent == target:
         if not nullable:
-            _issue(issues, "self_reference_no_seed", "空表的 NOT NULL 自引用缺少有效初始父行", **context)
+            _issue(
+                issues,
+                "self_reference_no_seed",
+                tr("backend.workbench_runtime.an_empty_table_with_a_not_null"),
+                **context,
+            )
         elif len(columns) > 1:
-            _issue(issues, "composite_self_reference", "当前 core 未保证组合自引用的第二阶段回填", **context)
+            _issue(
+                issues,
+                "composite_self_reference",
+                tr("backend.workbench_runtime.core_does_not_guarantee_second_phase_backfill"),
+                **context,
+            )
         else:
             _issue(
                 issues,
                 "self_reference_backfill",
-                "可空自引用先生成 NULL，再由 core 回填已生成父行",
+                tr("backend.workbench_runtime.nullable_self_references_first_generate_null_then"),
                 severity="warning",
                 **context,
             )
@@ -425,7 +480,7 @@ def _empty_source_issues(
         _issue(
             issues,
             "preview_requires_parent",
-            "父表当前没有可用值；执行时先填父表，预览无法提供完整关联样例",
+            tr("backend.workbench_runtime.the_parent_table_has_no_available_values"),
             severity="warning",
             **context,
         )
@@ -433,7 +488,7 @@ def _empty_source_issues(
         _issue(
             issues,
             "nullable_parent_empty",
-            "父表没有可用值，core 将生成 NULL 外键",
+            tr("backend.workbench_runtime.empty_parent_nullable_reference"),
             severity="warning",
             **context,
         )
@@ -441,7 +496,7 @@ def _empty_source_issues(
         _issue(
             issues,
             "missing_parent_source",
-            "非空外键/关联没有可用来源，请将父表加入计划或先准备有效父行",
+            tr("backend.workbench_runtime.a_non_nullable_foreign_key_or_association"),
             **context,
         )
 
@@ -455,13 +510,17 @@ def _association_sources(
 ) -> None:
     for association in config.associations:
         if association.strategy != "shared_pool":
-            _issue(issues, "association_strategy", "当前 core 尚未区分 random 关联策略，请使用 shared_pool")
+            _issue(
+                issues,
+                "association_strategy",
+                tr("backend.workbench_runtime.core_does_not_currently_distinguish_the_random"),
+            )
         for name in association.target_tables:
             if name not in tables or association.column_name not in {c["name"] for c in tables[name]["columns"]}:
                 _issue(
                     issues,
                     "invalid_association_target",
-                    "关联目标表或列不存在",
+                    tr("backend.workbench_runtime.the_association_target_table_or_column_does"),
                     table=name,
                     column=association.column_name,
                 )
@@ -484,10 +543,20 @@ def _foreign_key_sources(
     for name in dependencies:
         for fk in tables[name]["foreign_keys"]:
             if fk.get("ref_schema") not in (None, "", "public", "main"):
-                _issue(issues, "cross_schema_fk", "当前 core 尚未保证跨 schema 外键生成", table=name)
+                _issue(
+                    issues,
+                    "cross_schema_fk",
+                    tr("backend.workbench_runtime.core_does_not_guarantee_generation_of_cross"),
+                    table=name,
+                )
                 continue
             if len(fk["columns"]) > 2:
-                _issue(issues, "composite_fk_width", "当前 core 尚未保证三列及以上组合外键的元组配对", table=name)
+                _issue(
+                    issues,
+                    "composite_fk_width",
+                    tr("backend.workbench_runtime.core_does_not_guarantee_tuple_pairing_for"),
+                    table=name,
+                )
                 continue
             source(name, fk["ref_table"], fk["ref_columns"], fk["nullable"], fk["columns"])
 
@@ -498,6 +567,7 @@ def _dependency_plan(
     tables = {table["name"]: table for table in schema["tables"]}
     selected = {table.name for table in config.tables}
     dependencies = {table.name: set[str]() for table in config.tables if table.name in tables}
+    references: list[dict[str, Any]] = []
     deferred: set[str] = set()
     evidence: dict[str, Any] = {
         "row_counts": {name: table["row_count"] for name, table in tables.items()},
@@ -511,7 +581,13 @@ def _dependency_plan(
             "source_table": parent,
         }
         if parent not in tables or any(name not in {c["name"] for c in tables[parent]["columns"]} for name in columns):
-            _issue(issues, "invalid_parent_source", "引用的来源表或列不存在", columns=target_columns, **context)
+            _issue(
+                issues,
+                "invalid_parent_source",
+                tr("backend.workbench_runtime.the_referenced_source_table_or_column_does"),
+                columns=target_columns,
+                **context,
+            )
             return
         values = _source_values(orch, parent, columns)
         evidence["source_checks"].append(
@@ -527,6 +603,14 @@ def _dependency_plan(
         evidence[f"{parent}:{','.join(columns)}"] = _hash(values)
         if parent != target and parent in dependencies:
             dependencies[target].add(parent)
+            references.append(
+                {
+                    "table": target,
+                    "columns": target_columns,
+                    "source_table": parent,
+                    "source_columns": columns,
+                }
+            )
         if not values:
             _empty_source_issues({**context, "columns": target_columns}, columns, nullable, selected, deferred, issues)
 
@@ -539,8 +623,13 @@ def _dependency_plan(
         _issue(
             issues,
             "cross_table_cycle",
-            "跨表循环需要通用 backfill；当前工作台不能安全执行该计划",
+            tr("backend.workbench_runtime.cross_table_cycles_require_general_backfill_the"),
             tables=[name for name in dependencies if name in members],
+            references=[
+                reference
+                for reference in references
+                if any(reference["table"] in group and reference["source_table"] in group for group in components)
+            ],
             edge_ids=[
                 edge["id"]
                 for edge in schema["edges"]
@@ -565,7 +654,13 @@ def _sample_issues(
             continue
         can_skip = _can_omit(column)
         if any(row.get(name) is None and (name in row or not can_skip) for row in samples):
-            _issue(issues, "not_null_sample", "实际生成的样例违反 NOT NULL 约束", table=table["name"], column=name)
+            _issue(
+                issues,
+                "not_null_sample",
+                tr("backend.workbench_runtime.an_actual_generated_sample_violates_not_null"),
+                table=table["name"],
+                column=name,
+            )
     unique_groups = [constraint["columns"] for constraint in table["unique_constraints"]]
     if table["primary_key"]:
         unique_groups.append(table["primary_key"])
@@ -577,7 +672,11 @@ def _sample_issues(
         ]
         if len(keys) != len(set(keys)):
             _issue(
-                issues, "unique_sample", "实际生成的样例违反 UNIQUE 约束", table=table["name"], column=",".join(columns)
+                issues,
+                "unique_sample",
+                tr("backend.workbench_runtime.an_actual_generated_sample_violates_unique"),
+                table=table["name"],
+                column=",".join(columns),
             )
 
 
@@ -619,9 +718,9 @@ def _preview_provider_available(config: GeneratorConfig, issues: list[dict[str, 
             _issue(
                 issues,
                 "provider_not_installed" if missing else "provider_import_error",
-                "当前配置使用 Mimesis，但尚未安装；请在插件页安装，或明确更改生成引擎后重新检查。"
+                tr("backend.workbench_runtime.this_configuration_uses_mimesis_which_is_not")
                 if missing
-                else "当前配置使用 Mimesis，但组件加载异常；请在插件页查看修复指引，或明确更改生成引擎。",
+                else tr("backend.workbench_runtime.this_configuration_uses_mimesis_which_failed_to"),
                 component_id="mimesis",
                 recovery_action="install" if missing else "repair",
             )
@@ -723,13 +822,19 @@ def _preview_tables(
         except GenerationCancelledError:
             raise
         except GenerationBudgetExceededError as exc:
-            location = f"表 {name}"
+            location = tr("backend.workbench_runtime.table", p1=name)
             if exc.column is not None:
-                location += f" 的列 {exc.column}（generator: {exc.generator}）"
+                location = message_list(
+                    [location, tr("backend.workbench_runtime.column_generator", p1=exc.column, p2=exc.generator)], ""
+                )
             _issue(
                 issues,
                 "generation_invalid",
-                f"样例校验在{location}达到 {exc.limit} 次尝试上限，请检查唯一值空间或约束冲突。",
+                tr(
+                    "backend.workbench_runtime.sample_validation_reached_its_limit_of_attempts",
+                    p1=location,
+                    p2=exc.limit,
+                ),
                 table=name,
                 column=exc.column,
                 generator=exc.generator,
@@ -744,9 +849,9 @@ def _check_generation(
 ) -> None:
     issues = result["issues"]
     if not config.tables:
-        _issue(issues, "empty_plan", "请至少选择一张需要生成的表")
+        _issue(issues, "empty_plan", tr("backend.workbench_runtime.select_at_least_one_table_to_generate"))
     if len({table.name for table in config.tables}) != len(config.tables):
-        _issue(issues, "duplicate_table", "同一计划不能重复配置同一张表")
+        _issue(issues, "duplicate_table", tr("backend.workbench_runtime.a_table_cannot_occur_more_than_once"))
     tables = {table["name"]: table for table in schema["tables"]}
     _column_issues(config, tables, issues)
     normalized = config.model_dump(mode="json", exclude={"db_path", "url"})
@@ -755,7 +860,12 @@ def _check_generation(
         with DataOrchestrator.from_config(config) as orch:
             options.guard()
             if orch._provider_name != config.provider.value:
-                raise WorkbenchError(f"provider {config.provider.value} 不可用，不能使用降级 provider 代替")
+                raise WorkbenchError(
+                    tr(
+                        "backend.workbench_runtime.provider_is_unavailable_a_fallback_provider_cannot",
+                        p1=config.provider.value,
+                    )
+                )
             orch._registry.get(config.provider.value).set_locale(config.locale)
             order, layers, deferred, evidence = _dependency_plan(config, schema, orch, issues)
             result.update(order=order, layers=layers, preview_complete=not deferred, sources=evidence["source_checks"])
@@ -788,9 +898,9 @@ def check_document(
     if cancel_check is not None:
         cancel_check()
     if not 1 <= count <= 100:
-        raise WorkbenchError("预览 count 必须在 1–100 之间")
+        raise WorkbenchError(tr("backend.workbench_runtime.preview_count_must_be_between_1_and"))
     if sample_max_attempts is not None and (not has_exact_type(sample_max_attempts, int) or sample_max_attempts <= 0):
-        raise WorkbenchError("sample_max_attempts 必须为正整数或 None")
+        raise WorkbenchError(tr("backend.workbench_runtime.sample_max_attempts_must_be_a_positive"))
 
     options = _PreviewOptions(count, preview, sample_max_attempts, cancel_check)
 
@@ -809,7 +919,7 @@ def check_document(
         "preview_complete": True,
     }
     if schema_hash != schema["schema_hash"]:
-        _issue(issues, "schema_changed", "数据库结构已变化，请刷新 schema 后重新检查")
+        _issue(issues, "schema_changed", tr("backend.workbench_runtime.the_database_schema_has_changed_refresh_it"))
     try:
         config = bind_document(conn, document)
     except (WorkbenchError, TypeError, AttributeError) as exc:
@@ -829,21 +939,39 @@ def _checked_saved(
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     draft = store.get_draft(draft_id)
     if draft["revision"] != revision:
-        raise WorkbenchError("草稿版本已变化，请重新保存并检查", code="revision_conflict", status=409)
+        raise WorkbenchError(
+            tr("backend.workbench_runtime.the_draft_revision_has_changed_save_and"),
+            code="revision_conflict",
+            status=409,
+        )
     schema = inspect_connection(conn)
     if draft["target_key"] != schema["target_key"]:
-        raise WorkbenchError("草稿与当前连接目标不匹配", code="target_mismatch", status=409)
+        raise WorkbenchError(
+            tr("backend.workbench_runtime.the_draft_does_not_match_the_current"), code="target_mismatch", status=409
+        )
     if draft["schema_hash"] != schema_hash:
-        raise WorkbenchError("已保存草稿的 schema 版本不匹配", code="schema_changed", status=409)
+        raise WorkbenchError(
+            tr("backend.workbench_runtime.the_saved_draft_s_schema_version_does"), code="schema_changed", status=409
+        )
     checked = check_document(conn, draft["document"], schema_hash)
     if not checked["ok"]:
         raise WorkbenchError(
-            "检查未通过：" + "; ".join(i["message"] for i in checked["issues"] if i["severity"] == "error"),
+            message_list(
+                [
+                    tr("backend.workbench_runtime.checks_failed"),
+                    message_list(i["message"] for i in checked["issues"] if i["severity"] == "error"),
+                ],
+                "",
+            ),
             code="check_failed",
             status=409,
         )
     if not config_hash or checked["config_hash"] != config_hash:
-        raise WorkbenchError("配置或数据来源已变化，请重新检查", code="check_stale", status=409)
+        raise WorkbenchError(
+            tr("backend.workbench_runtime.the_configuration_or_data_sources_have_changed"),
+            code="check_stale",
+            status=409,
+        )
     return draft, schema, checked
 
 
@@ -851,18 +979,28 @@ def _execution_options(execution: dict[str, Any] | None) -> dict[str, Any]:
     try:
         return normalize_execution(execution)
     except ValueError as exc:
-        raise WorkbenchError(str(exc), code="invalid_execution") from exc
+        raise WorkbenchError(public_error(exc), code="invalid_execution") from exc
 
 
 def _require_execution_plan(plan: dict[str, Any], plan_hash: str) -> None:
     if not plan["ok"]:
         raise WorkbenchError(
-            "清空计划未通过：" + "; ".join(i["message"] for i in plan["issues"] if i["severity"] == "error"),
+            message_list(
+                [
+                    tr("backend.workbench_runtime.clear_plan_checks_failed"),
+                    message_list(i["message"] for i in plan["issues"] if i["severity"] == "error"),
+                ],
+                "",
+            ),
             code="execution_blocked",
             status=409,
         )
     if plan["mode"] == "replace_selected" and (not plan_hash or plan["plan_hash"] != plan_hash):
-        raise WorkbenchError("清空计划已变化，请重新预检并确认", code="execution_plan_stale", status=409)
+        raise WorkbenchError(
+            tr("backend.workbench_runtime.the_clear_plan_has_changed_review_and"),
+            code="execution_plan_stale",
+            status=409,
+        )
 
 
 def plan_execution(
@@ -985,7 +1123,9 @@ def _replacement_plan(
     # target between this final read and the destructive statements.
     checked = check_document(conn, run["document"], run["schema_hash"])
     if not checked["ok"] or checked["config_hash"] != run["config_hash"]:
-        raise WorkbenchError("执行前数据库来源或结构已变化，请重新检查与确认清空计划", code="check_stale")
+        raise WorkbenchError(
+            tr("backend.workbench_runtime.database_sources_or_schema_changed_before_execution"), code="check_stale"
+        )
     schema = inspect_connection(conn)
     plan = build_execution_plan(conn, config, schema, checked["order"], run["execution"], run["config_hash"])
     _require_execution_plan(plan, run["plan_hash"])
@@ -1020,14 +1160,16 @@ def _fill_replacement_tables(
         store.update_run(run["id"], {"tables": tables})
         result = _fill_run_table(config, table, orch)
         if result.errors:
-            raise WorkbenchError("; ".join(public_error(ValueError(error)) for error in result.errors))
+            raise WorkbenchError(message_list(public_error(ValueError(error)) for error in result.errors))
         staged[table.name] = {
             "rows_inserted": result.count,
             "batch_count": result.batch_count,
             "elapsed": result.elapsed,
         }
         if orch.query(f"PRAGMA foreign_key_check({quote_identifier(table.name)})"):
-            raise WorkbenchError(f"{table.name} 生成后的外键检查未通过")
+            raise WorkbenchError(
+                tr("backend.workbench_runtime.foreign_key_checks_failed_after_generating", p1=table.name)
+            )
     return staged
 
 
@@ -1044,7 +1186,9 @@ def _execute_replacement(
         orch.get_table_names()
         adapter = orch.database_adapter
         if not isinstance(adapter, SQLAlchemyAdapter):
-            raise WorkbenchError("清空生成需要 SQLAlchemyAdapter", code="execution_blocked")
+            raise WorkbenchError(
+                tr("backend.workbench_runtime.clear_and_generate_requires_sqlalchemyadapter"), code="execution_blocked"
+            )
         with adapter.transaction():
             outcome["rolled_back"] = True
             schema, plan = _replacement_plan(replace(conn, orchestrator=orch), config, run)
@@ -1082,7 +1226,9 @@ class _RunProgress:
 def _current_run_config(conn: Connection, run: dict[str, Any]) -> GeneratorConfig:
     checked = check_document(conn, run["document"], run["schema_hash"])
     if not checked["ok"] or checked["config_hash"] != run["config_hash"]:
-        raise WorkbenchError("排队期间配置来源或 schema 已变化，运行未开始", code="check_stale")
+        raise WorkbenchError(
+            tr("backend.workbench_runtime.configuration_sources_or_schema_changed_while_queued"), code="check_stale"
+        )
     return bind_document(conn, run["document"])
 
 
@@ -1153,12 +1299,12 @@ def _publish_run_terminal(
     progress: _RunProgress,
 ) -> None:
     persisted = False
-    persistence_error = "运行终态保存意外中断，请检查服务日志。"
+    persistence_error = tr("backend.workbench_runtime.saving_the_final_run_state_was_interrupted")
     try:
         store.update_run(run_id, terminal)
         persisted = True
     except (KeyError, ValueError, RuntimeError, OSError, sqlite3.Error) as exc:
-        persistence_error = f"无法保存运行终态：{public_error(exc)}"
+        persistence_error = tr("backend.workbench_runtime.cannot_save_the_final_run_state", p1=public_error(exc))
     finally:
         try:
             if not persisted:
@@ -1168,7 +1314,10 @@ def _publish_run_terminal(
                 _persist_failed_terminal(store, run_id, persistence_error)
         finally:
             registry.complete_job(
-                job_id, result=terminal, error="; ".join(progress.errors) or None, rows_inserted=progress.rows_inserted
+                job_id,
+                result=terminal,
+                error=message_list(progress.errors) or None,
+                rows_inserted=progress.rows_inserted,
             )
 
 
@@ -1194,7 +1343,13 @@ def execute_run(
             return
         finally:
             if run is None and registry.job_snapshot(job_id).status == "running":
-                _run_snapshot_failure(run_id, job_id, store, registry, RuntimeError("运行快照读取意外中断。"))
+                _run_snapshot_failure(
+                    run_id,
+                    job_id,
+                    store,
+                    registry,
+                    RuntimeError(tr("backend.workbench_runtime.reading_the_run_snapshot_was_interrupted_unexpectedly")),
+                )
         _execute_loaded_run(run, conn_id, job_id, registry, store)
 
 
@@ -1223,7 +1378,13 @@ def _execute_loaded_run(
         finished = True
     finally:
         if not finished:
-            _run_execution_failure(RuntimeError("运行意外终止，请检查服务日志。"), tables, progress, outcome, replacing)
+            _run_execution_failure(
+                RuntimeError(tr("backend.workbench_runtime.the_run_stopped_unexpectedly_check_the_service")),
+                tables,
+                progress,
+                outcome,
+                replacing,
+            )
         _publish_run_terminal(
             run_id, job_id, registry, store, _run_terminal(tables, progress, started, outcome, replacing), progress
         )

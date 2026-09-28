@@ -1,8 +1,6 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const vm = require('node:vm');
-const fs = require('node:fs');
-const path = require('node:path');
 const {Element, createDom, loadFrontend} = require('./frontend_helpers.cjs');
 
 const deferred = () => {let resolve, reject; const promise = new Promise((a, b) => {resolve = a; reject = b;}); return {promise, resolve, reject};};
@@ -34,8 +32,7 @@ function harness({records = [config('A'), config('B', {target_label: 'other.db'}
   const oldCreate = document.createElement;
   document.createElement = tag => {const element = oldCreate(tag); element.focus = () => document.trackFocus(element); return element;};
   const ui = loadFrontend('workbench/ui.js', bindings);
-  const api = vm.createContext(bindings);
-  vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/sqlseed_web/static/js/api.js'), 'utf8').replace(/^export /gm, ''), api);
+  const api = loadFrontend('api.js', bindings);
   const context = loadFrontend('pages/configs.js', {...bindings, ...vm.runInContext('({safeTargetLabel})', api),
     ...vm.runInContext('({button, modal, download, icon})', ui)});
   for (const type of ['sqlseed:draft-deleted', 'sqlseed:draft-renamed']) window.addEventListener(type, event => events.push({type, detail: event.detail}));
@@ -399,4 +396,52 @@ test('refreshing updated revisions and changing database scope clear obsolete bu
   await ui.window.dispatchEvent('sqlseed:connection-changed');
   assert.equal(ui.card('A').querySelector('[data-config-select]').checked, false);
   assert.equal(ui.button('删除所选').disabled, true);
+});
+
+test('language switching preserves configuration selection, filters and an open duplicate form', async () => {
+  const record = config('用户配置', {name: '订单 · 用户名称'}), ui = harness({records: [record]});
+  await ui.mount();
+  const search = await ui.edit('查找配置', '订单');
+  const selection = ui.card(record.id).querySelector('[data-config-select]');
+  selection.checked = true; await selection.dispatchEvent('change');
+  const requests = ui.requests.length;
+  ui.context.setLanguage('en');
+  assert.equal(ui.root().querySelector('h1').textContent, 'Configurations');
+  assert.equal(search.getAttribute('placeholder'), 'Configuration name or database');
+  assert.equal(search.value, '订单');
+  assert.equal(ui.card(record.id).querySelector('[data-config-select]'), selection);
+  assert.equal(selection.checked, true);
+  assert.equal(selection.getAttribute('aria-label'), 'Select configuration: 订单 · 用户名称');
+  assert.match(ui.root().textContent, /1 selected.*Search: “订单”/);
+  await ui.button('Duplicate', ui.card(record.id)).click();
+  const dialog = ui.dialog(), input = dialog.querySelector('input');
+  assert.equal(input.value, '订单 · 用户名称 copy');
+  input.value = '我的未保存副本'; input.selectionStart = 3; input.focus();
+  ui.context.setLanguage('zh-CN');
+  assert.equal(ui.dialog(), dialog);
+  assert.equal(input.value, '我的未保存副本');
+  assert.equal(input.selectionStart, 3);
+  assert.equal(ui.document.activeElement, input);
+  assert.equal(input.getAttribute('aria-label'), '配置名称');
+  assert.equal(ui.requests.length, requests, 'language changes and opening the form perform no request');
+  assert.equal(record.name, '订单 · 用户名称');
+  assert.equal(ui.context.missingMessages().length, 0);
+  ui.leave();
+});
+
+test('configuration table and row counts pluralize independently and retain formatted large values', async () => {
+  const single = config('single', {document: {provider: 'base', locale: 'en_US', tables: [{name: 'users', count: 1}]}});
+  const multiple = config('multiple', {document: {provider: 'base', locale: 'en_US', tables: [{name: 'users', count: 999}, {name: 'orders', count: 1}]}});
+  const ui = harness({records: [single, multiple]});
+  await ui.mount();
+  const calls = ui.requests.length;
+  ui.context.setLanguage('en');
+  assert.equal(ui.card('single').querySelector('.config-facts').textContent, '1 table · 1 row · Base · en_US');
+  assert.equal(ui.card('multiple').querySelector('.config-facts').textContent, '2 tables · 1,000 rows · Base · en_US');
+  ui.context.setLanguage('zh-CN');
+  assert.equal(ui.card('single').querySelector('.config-facts').textContent, '1 张表 · 1 行 · Base · en_US');
+  assert.equal(ui.requests.length, calls);
+  assert.equal(single.document.tables[0].count, 1);
+  assert.equal(multiple.document.tables[0].count, 999);
+  ui.leave();
 });

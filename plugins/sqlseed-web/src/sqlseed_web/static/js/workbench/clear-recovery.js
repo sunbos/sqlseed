@@ -1,3 +1,6 @@
+import {tr} from '../i18n.js';
+import '../i18n/messages/flow.js';
+import '../i18n/messages/workbench.js';
 // Read-only presentation facts. Execution authorization always comes from a
 // fresh server execution-plan after the user has saved an explicit scope.
 function compareTableNames(left, right) {
@@ -5,6 +8,16 @@ function compareTableNames(left, right) {
   if (left < right) return -1;
   if (left > right) return 1;
   return 0;
+}
+
+function clearStatus(state, rules, count) {
+  switch (state) {
+    case 'checking': return tr("flow.clear.checking", {rules});
+    case 'ok': return tr("flow.clear.reviewed", {rules});
+    case 'reviewed': return tr("flow.clear.recheckBeforeWrite", {rules});
+    case 'blocked': return tr("flow.clear.issues", {rules, count: count || 1});
+    default: return tr("flow.clear.pending", {rules});
+  }
 }
 
 export function clearRecoveryState(model, context) {
@@ -16,13 +29,11 @@ export function clearRecoveryState(model, context) {
   const otherIssues = errors.filter(issue => !externalCodes.has(issue.code) || !issue.table);
   const count = externalTables.length + otherIssues.length;
   const rulesPassed = model.check?.ok && model.check.epoch === model.epoch && !model.errors.size;
-  const rules = rulesPassed ? '生成规则已通过' : '生成规则待检查';
-  const status = state === 'checking' ? `${rules}；正在检查清空方案`
-    : state === 'ok' ? `${rules}；清空范围已核对`
-    : state === 'reviewed' ? `${rules}；清空范围已核对，写入前会再次核对`
-    : state === 'blocked' ? `${rules}；清空需处理 ${count || 1} 项`
-    : `${rules}；清空方案待重新检查`;
-  return {state, current, rulesPassed, externalTables, otherIssues, count, status};
+  const unsupported = [...(model.check?.epoch === model.epoch ? model.check.issues || [] : []), ...(current ? errors : [])]
+    .filter(issue => issue.severity === 'error' && issue.code === 'cross_table_cycle');
+  const rules = rulesPassed ? tr("flow.clear.rulesPassed") : tr("flow.clear.rulesPending");
+  const status = unsupported.length ? tr('workbench.unsupported.title') : clearStatus(state, rules, count);
+  return {state, current, rulesPassed, externalTables, otherIssues, count, status, unsupported};
 }
 
 export function clearScopeCandidate(model) {

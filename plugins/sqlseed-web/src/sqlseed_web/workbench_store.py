@@ -21,6 +21,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qsl, unquote, urlsplit
 
+from sqlseed_web.messages import legacy_message as tr_en
+from sqlseed_web.messages import materialize_messages
+from sqlseed_web.messages import message as tr
 from sqlseed_web.workbench_execution import normalize_execution
 
 _SELECT_DRAFT = "SELECT payload FROM workspace_drafts WHERE id = ?"
@@ -65,11 +68,12 @@ RevisionConflict = RevisionConflictError
 def _json_text(value: dict[str, Any]) -> str:
     """Encode a bounded JSON snapshot, rejecting non-finite or non-JSON data."""
     try:
+        value = materialize_messages(value)
         encoded = json.dumps(value, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
     except (TypeError, ValueError, OverflowError, RecursionError) as exc:
-        raise ValueError("Workspace payload must contain valid JSON values") from exc
+        raise ValueError(tr_en("backend.workbench_store.workspace_payload_must_contain_valid_json_values")) from exc
     if len(encoded.encode("utf-8")) > _MAX_RECORD_BYTES:
-        raise ValueError("Workspace payload exceeds the 2 MiB size limit")
+        raise ValueError(tr_en("backend.workbench_store.workspace_payload_exceeds_the_2_mib_size"))
     pending: list[Any] = [value]
     while pending:
         item = pending.pop()
@@ -87,7 +91,7 @@ def _decode(value: str) -> dict[str, Any]:
     result: dict[str, Any] = json.loads(value)
     if not isinstance(result, dict):
         # Corrupt persisted records use RuntimeError under the runtime validation contract.
-        raise RuntimeError("Invalid workspace record: expected a JSON object")  # noqa: TRY004
+        raise RuntimeError(tr_en("backend.workbench_store.invalid_workspace_record_expected_a_json_object"))  # noqa: TRY004
     return result
 
 
@@ -95,7 +99,7 @@ def _text(payload: dict[str, Any], key: str, limit: int = 512) -> str:
     """Require a nonempty bounded string field."""
     value = payload.get(key)
     if not isinstance(value, str) or not value.strip() or len(value) > limit:
-        raise ValueError(f"{key} must be a nonempty string of at most {limit} characters")
+        raise ValueError(tr_en("backend.workbench_store.must_be_a_nonempty_string_of_at", p1=key, p2=limit))
     return value
 
 
@@ -107,9 +111,9 @@ def _check_target(value: str) -> None:
             password = unquote(parsed.password or "")
             query_passwords = [item for key, item in parse_qsl(parsed.query) if key.lower() in _PASSWORD_KEYS]
         except ValueError as exc:
-            raise ValueError("Invalid target label; use a credential-free label") from exc
+            raise ValueError(tr_en("backend.workbench_store.invalid_target_label_use_a_credential_free")) from exc
         if any(secret and set(secret) != {"*"} for secret in (password, *query_passwords)):
-            raise ValueError("Connection passwords must be removed from workspace payloads")
+            raise ValueError(tr_en("backend.workbench_store.connection_passwords_must_be_removed_from_workspace"))
 
 
 def _snapshot(payload: dict[str, Any]) -> dict[str, Any]:
@@ -117,9 +121,9 @@ def _snapshot(payload: dict[str, Any]) -> dict[str, Any]:
     document = payload.get("document")
     if not isinstance(document, dict):
         # Payload validation uses ValueError, which the HTTP boundary handles consistently.
-        raise ValueError("document must be a configuration object")  # noqa: TRY004
+        raise ValueError(tr_en("backend.workbench_store.document_must_be_a_configuration_object"))  # noqa: TRY004
     if {"db_path", "url"}.intersection(document):
-        raise ValueError("Remove connection fields db_path and url from the stored document")
+        raise ValueError(tr_en("backend.workbench_store.remove_connection_fields_db_path_and_url"))
     target_key = _text(payload, "target_key", 4096)
     target_label = _text(payload, "target_label", 4096)
     _check_target(target_key)
@@ -135,13 +139,13 @@ def _snapshot(payload: dict[str, Any]) -> dict[str, Any]:
 def _validate_run_table(table: Any) -> str:
     if not isinstance(table, dict):
         # Payload validation uses ValueError, which the HTTP boundary handles consistently.
-        raise ValueError("Each run table must be an object")  # noqa: TRY004
+        raise ValueError(tr_en("backend.workbench_store.each_run_table_must_be_an_object"))  # noqa: TRY004
     count = table.get("count", table.get("requested_count"))
     if isinstance(count, bool) or not isinstance(count, int) or count < 0:
-        raise ValueError("Run table count must be a nonnegative integer")
+        raise ValueError(tr_en("backend.workbench_store.run_table_count_must_be_a_nonnegative"))
     table_status = table.get("status", "queued")
     if not isinstance(table_status, str) or table_status not in _RUN_STATUSES | {"not_run"}:
-        raise ValueError("Unknown run table status")
+        raise ValueError(tr_en("backend.workbench_store.unknown_run_table_status"))
     return _text(table, "name")
 
 
@@ -149,19 +153,19 @@ def _validate_run(record: dict[str, Any]) -> None:
     """Validate bounded run status and table progress before persistence."""
     status = record.get("status")
     if not isinstance(status, str) or status not in _RUN_STATUSES:
-        raise ValueError("Unknown run status")
+        raise ValueError(tr_en("backend.workbench_store.unknown_run_status"))
     tables = record.get("tables")
     if not isinstance(tables, list) or len(tables) > _MAX_TABLES:
-        raise ValueError(f"tables must be a list of at most {_MAX_TABLES} entries")
+        raise ValueError(tr_en("backend.workbench_store.tables_must_be_a_list_of_at", p1=_MAX_TABLES))
     names: set[str] = set()
     for table in tables:
         if (name := _validate_run_table(table)) in names:
-            raise ValueError("Run table names must be unique")
+            raise ValueError(tr_en("backend.workbench_store.run_table_names_must_be_unique"))
         names.add(name)
     for progress in (record, *tables):
         inserted = progress.get("rows_inserted", 0)
         if inserted is not None and (isinstance(inserted, bool) or not isinstance(inserted, int) or inserted < 0):
-            raise ValueError("rows_inserted must be a nonnegative integer or null")
+            raise ValueError(tr_en("backend.workbench_store.rows_inserted_must_be_a_nonnegative_integer"))
 
 
 def _set_run_identity(record: dict[str, Any], payload: dict[str, Any]) -> None:
@@ -170,12 +174,12 @@ def _set_run_identity(record: dict[str, Any], payload: dict[str, Any]) -> None:
     _text({"id": run_id}, "id", 128)
     revision = payload.get("revision")
     if revision is not None and (isinstance(revision, bool) or not isinstance(revision, int) or revision < 1):
-        raise ValueError("revision must be a positive integer or null")
+        raise ValueError(tr_en("backend.workbench_store.revision_must_be_a_positive_integer_or"))
     if (draft_id := payload.get("draft_id")) is not None:
         _text({"draft_id": draft_id}, "draft_id", 128)
     created_at = payload.get("created_at", time.time())
     if isinstance(created_at, bool) or not isinstance(created_at, (int, float)) or created_at < 0:
-        raise ValueError("created_at must be a nonnegative timestamp")
+        raise ValueError(tr_en("backend.workbench_store.created_at_must_be_a_nonnegative_timestamp"))
     record.update(id=run_id, draft_id=draft_id, revision=revision, created_at=created_at)
 
 
@@ -185,9 +189,9 @@ def _run_snapshot(payload: dict[str, Any]) -> dict[str, Any]:
     record["execution"] = normalize_execution(payload.get("execution"))
     plan_hash = payload.get("plan_hash", "")
     if not isinstance(plan_hash, str) or (plan_hash and not re.fullmatch(r"[a-f0-9]{64}", plan_hash)):
-        raise ValueError("plan_hash must be a SHA-256 digest or empty")
+        raise ValueError(tr_en("backend.workbench_store.plan_hash_must_be_a_sha_256"))
     if record["execution"]["mode"] == "replace_selected" and not plan_hash:
-        raise ValueError("replacement execution requires an immutable plan_hash")
+        raise ValueError(tr_en("backend.workbench_store.replacement_execution_requires_an_immutable_plan_hash"))
     record["plan_hash"] = plan_hash
     _set_run_identity(record, payload)
     for key in ("name", "config_hash"):
@@ -196,7 +200,7 @@ def _run_snapshot(payload: dict[str, Any]) -> dict[str, Any]:
     if "order" in payload:
         order = payload["order"]
         if not isinstance(order, list) or len(order) > _MAX_TABLES or any(not isinstance(name, str) for name in order):
-            raise ValueError("order must be a bounded list of table names")
+            raise ValueError(tr_en("backend.workbench_store.order_must_be_a_bounded_list_of"))
         record["order"] = order
     record.update(status="queued", tables=[], rows_inserted=0, error=None, started_at=None, finished_at=None)
     record.update({key: value for key, value in payload.items() if key in _RUN_MUTABLE_FIELDS})
@@ -235,7 +239,13 @@ class WorkspaceStore:
             db.execute("PRAGMA journal_mode = WAL")
         with self._connection(write=True) as db:
             if (version := db.execute("PRAGMA user_version").fetchone()[0]) not in (0, _SCHEMA_VERSION):
-                raise RuntimeError(f"Unsupported workspace schema version {version}; expected {_SCHEMA_VERSION}")
+                raise RuntimeError(
+                    tr_en(
+                        "backend.workbench_store.unsupported_workspace_schema_version_expected",
+                        p1=version,
+                        p2=_SCHEMA_VERSION,
+                    )
+                )
             db.execute(
                 "CREATE TABLE IF NOT EXISTS workspace_drafts ("
                 "id TEXT PRIMARY KEY, revision INTEGER NOT NULL, target_key TEXT NOT NULL, "
@@ -255,7 +265,7 @@ class WorkspaceStore:
                     status="interrupted",
                     finished_at=time.time(),
                     row_counts_exact=False,
-                    error="Service restarted before completion; recorded inserted row counts may be incomplete.",
+                    error=tr_en("backend.workbench_store.service_restarted_before_completion_recorded_inserted_row"),
                 )
                 for table in record["tables"]:
                     if table.get("status", "queued") in {"queued", "running"}:
@@ -277,7 +287,7 @@ class WorkspaceStore:
         view_state = payload.get("view_state", {})
         if not isinstance(view_state, dict):
             # Payload validation uses ValueError, which the HTTP boundary handles consistently.
-            raise ValueError("view_state must be an object")  # noqa: TRY004
+            raise ValueError(tr_en("backend.workbench_store.view_state_must_be_an_object"))  # noqa: TRY004
         record["view_state"] = view_state
         with self._connection(write=True) as db:
             revision = 1
@@ -286,10 +296,16 @@ class WorkspaceStore:
                 if old is None:
                     raise KeyError(draft_id)
                 if isinstance(expected_revision, bool) or expected_revision != old[0]:
-                    raise RevisionConflict(f"Draft revision conflict: expected {expected_revision}, current {old[0]}")
+                    raise RevisionConflict(
+                        tr_en(
+                            "backend.workbench_store.draft_revision_conflict_expected_current",
+                            p1=expected_revision,
+                            p2=old[0],
+                        )
+                    )
                 revision = old[0] + 1
             elif expected_revision is not None:
-                raise ValueError("expected_revision is only valid when updating an existing draft")
+                raise ValueError(tr_en("backend.workbench_store.expected_revision_is_only_valid_when_updating"))
             record.update(id=draft_id or str(uuid.uuid4()), revision=revision, updated_at=time.time())
             encoded = _json_text(record)
             if draft_id is None:
@@ -335,7 +351,7 @@ class WorkspaceStore:
             or not isinstance(expected_revision, int)
             or expected_revision != record["revision"]
         ):
-            raise RevisionConflict("配置已被更新，请刷新列表后重试")
+            raise RevisionConflict(tr("backend.workbench_store.the_configuration_has_been_updated_refresh_the"))
         return record
 
     def rename_draft(self, draft_id: str, name: str, *, expected_revision: int) -> dict[str, Any]:
@@ -384,19 +400,21 @@ class WorkspaceStore:
                     draft = _decode(row[0])
                     snapshot_fields = ("revision", "document", "schema_hash", "target_key")
                     if any(draft[key] != record[key] for key in snapshot_fields):
-                        raise RevisionConflictError("Draft changed while validating the run; save and check it again")
+                        raise RevisionConflictError(
+                            tr_en("backend.workbench_store.draft_changed_while_validating_the_run_save")
+                        )
                 db.execute(
                     "INSERT INTO workspace_runs (id, status, created_at, payload) VALUES (?, ?, ?, ?)",
                     (run_id, record["status"], created_at, encoded),
                 )
         except sqlite3.IntegrityError as exc:
-            raise ValueError(f"Run already exists: {run_id}") from exc
+            raise ValueError(tr_en("backend.workbench_store.run_already_exists", p1=run_id)) from exc
         return _decode(encoded)
 
     def update_run(self, run_id: str, changes: dict[str, Any]) -> dict[str, Any]:
         """Atomically change run progress while preserving the original snapshot."""
         if set(changes).difference(_RUN_MUTABLE_FIELDS):
-            raise ValueError("Cannot update immutable run snapshot fields")
+            raise ValueError(tr_en("backend.workbench_store.cannot_update_immutable_run_snapshot_fields"))
         with self._connection(write=True) as db:
             if (row := db.execute("SELECT payload FROM workspace_runs WHERE id = ?", (run_id,)).fetchone()) is None:
                 raise KeyError(run_id)
@@ -404,13 +422,18 @@ class WorkspaceStore:
             original_tables = [
                 (table["name"], table.get("count", table.get("requested_count"))) for table in record["tables"]
             ]
+            # Replacing feedback also replaces its descriptor; an old translated
+            # error must not survive a later plain diagnostic or cleared value.
+            for field in changes:
+                for suffix in ("_key", "_params", "_i18n"):
+                    record.pop(field + suffix, None)
             record.update(changes)
             _validate_run(record)
             updated_tables = [
                 (table["name"], table.get("count", table.get("requested_count"))) for table in record["tables"]
             ]
             if updated_tables != original_tables:
-                raise ValueError("Cannot change immutable run table names or counts")
+                raise ValueError(tr_en("backend.workbench_store.cannot_change_immutable_run_table_names_or"))
             encoded = _json_text(record)
             db.execute(
                 "UPDATE workspace_runs SET status = ?, payload = ? WHERE id = ?",
@@ -429,7 +452,7 @@ class WorkspaceStore:
     def list_runs(self, limit: int = 50) -> list[dict[str, Any]]:
         """List the latest runs with a bounded result count."""
         if isinstance(limit, bool) or not isinstance(limit, int) or not 0 <= limit <= 500:
-            raise ValueError("limit must be an integer between 0 and 500")
+            raise ValueError(tr_en("backend.workbench_store.limit_must_be_an_integer_between_0"))
         with self._connection() as db:
             rows = db.execute(
                 "SELECT payload FROM workspace_runs ORDER BY created_at DESC, rowid DESC LIMIT ?", (limit,)

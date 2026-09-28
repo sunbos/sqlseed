@@ -22,6 +22,45 @@ test('ordinary rule cells never render the text null from an absent icon', async
   assert.ok(buttons.every(button => !button.childNodes.some(node => node.nodeType === 3 && node.textContent === 'null')));
 });
 
+test('a nullable self-reference applies fractional NULL probability only after confirmation and sends it in the real preview request',async()=>{
+  const ui=harness(),data=schema();
+  const id={...data.tables[0].columns[0],is_autoincrement:false,is_rowid_alias:true};
+  const parent={...data.tables[1].columns[0],name:'parent_id',nullable:true};
+  const name={...data.tables[2].columns[0],name:'name'};
+  data.tables=[{name:'categories',row_count:1,columns:[id,parent,name],primary_key:['id'],unique_constraints:[],checks:[],
+    foreign_keys:[{id:'category-parent',columns:['parent_id'],ref_table:'categories',ref_columns:['id'],nullable:true}],
+    mapping:{id:{generator_name:'skip',params:{}},parent_id:{generator_name:'foreign_key_or_integer',params:{strategy:'random'}},name:{generator_name:'string',params:{}}}}];
+  data.nodes=[{id:'categories'}];data.edges=[{id:'category-parent',source:'categories',target:'categories',sourceColumns:['id'],targetColumns:['parent_id'],nullable:true}];
+  ui.routes.set('/api/workbench/connections/A/schema',()=>data);
+  ui.routes.set('/api/workbench/preview',()=>({ok:true,samples:{categories:[{parent_id:1,name:'Sample'}]},issues:[]}));
+  await ui.mount();const selected=ui.root().querySelector('[data-table="categories"]').querySelector('input[type="checkbox"]');
+  selected.checked=true;await selected.dispatchEvent('change');
+  const before=plain(ui.modelState().document);await ui.openRule('parent_id');
+  const requestCount=ui.requests.length,checkbox=ui.field('nullable');
+  checkbox.checked=true;await checkbox.dispatchEvent('change');
+  assert.equal(checkbox.checked,true);assert.equal(ui.field('null_ratio').disabled,false);assert.equal(ui.field('null_ratio').value,'5');
+  await ui.edit('null_ratio','12.5');
+  assert.deepEqual(plain(ui.modelState().document),before,'Editor changes stay local until Apply');
+  assert.equal(ui.requests.length,requestCount);await ui.applyRule();
+  assert.equal(ui.modelState().rule('categories','parent_id').null_ratio,0.125);
+  await ui.openRule('parent_id');assert.equal(ui.field('nullable').checked,true);assert.equal(ui.field('null_ratio').value,'12.5');
+  ui.field('nullable').checked=false;await ui.field('nullable').dispatchEvent('change');await ui.cancelRule();
+  assert.equal(ui.modelState().rule('categories','parent_id').null_ratio,0.125,'Cancelling a toggle retains the applied configuration');
+  await ui.button('预览数据').click();
+  let request=JSON.parse(ui.requests.filter(item=>item.url==='/api/workbench/preview').at(-1).options.body);
+  let rule=request.document.tables[0].columns.find(column=>column.name==='parent_id');
+  assert.equal(rule.null_ratio,0.125);assert.equal(rule.generator,'foreign_key_or_integer');
+  assert.deepEqual(rule.params,{strategy:'random'});
+  await ui.button('字段规则').click();await ui.openRule('parent_id');
+  ui.field('nullable').checked=false;await ui.field('nullable').dispatchEvent('change');await ui.applyRule();
+  assert.equal(ui.modelState().rule('categories','parent_id').null_ratio,undefined);
+  await ui.button('预览数据').click();
+  request=JSON.parse(ui.requests.filter(item=>item.url==='/api/workbench/preview').at(-1).options.body);
+  rule=request.document.tables[0].columns.find(column=>column.name==='parent_id');
+  assert.equal(Object.hasOwn(rule,'null_ratio'),false);
+  assert.equal(ui.requests.some(item=>item.url==='/api/workbench/runs'),false);
+});
+
 test('a reversed float range keeps the real rule drawer open and never changes the executable configuration',async()=>{
   const ui=harness(),data=schema();
   data.tables[0].mapping.amount={generator_name:'float',params:{min_value:1,max_value:10}};

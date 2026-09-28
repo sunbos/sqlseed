@@ -14,7 +14,10 @@ from typing import Any, Protocol
 from fastapi import HTTPException
 from sqlseed._utils.daemon_task import DaemonTask
 
-_CONTROL_CLOSED = "服务控制通道已关闭。"
+from sqlseed_web.messages import materialize_messages, restore_private_message
+from sqlseed_web.messages import message as tr
+
+_CONTROL_CLOSED = tr("backend.worker_control.the_service_control_channel_is_closed")
 
 MAX_MESSAGE_BYTES = 2_000_000
 Handler = Callable[[str, dict[str, Any]], dict[str, Any]]
@@ -34,9 +37,9 @@ class ControlMessageTooLarge(RuntimeError):
 
 
 def _encode_message(message: dict[str, Any]) -> bytes:
-    payload = json.dumps(message, ensure_ascii=False).encode("utf-8")
+    payload = json.dumps(materialize_messages(message), ensure_ascii=False).encode("utf-8")
     if len(payload) > MAX_MESSAGE_BYTES:
-        raise ControlMessageTooLarge("会话信息超过安全传输上限，未执行环境变更。")
+        raise ControlMessageTooLarge(tr("backend.worker_control.session_details_exceed_the_safe_transfer_limit"))
     return payload
 
 
@@ -49,7 +52,11 @@ class ControlError(RuntimeError):
     """A public, credential-free control failure."""
 
     def __init__(self, detail: Any, status_code: int = 503) -> None:
-        super().__init__(detail.get("message", "控制请求未完成") if isinstance(detail, dict) else str(detail))
+        super().__init__(
+            detail.get("message", tr("backend.worker_control.the_control_request_did_not_complete"))
+            if isinstance(detail, dict)
+            else str(detail)
+        )
         self.detail = detail
         self.status_code = status_code
 
@@ -85,15 +92,19 @@ class ControlChannel:
         result: dict[str, Any] = {}
         with self._lock:
             if len(self._pending) >= 32 or self._closed.is_set():
-                raise RuntimeError("服务控制通道暂不可用。")
+                raise RuntimeError(tr("backend.worker_control.the_service_control_channel_is_temporarily_unavailable"))
             self._pending[identifier] = event, result
         try:
             self._send({"id": identifier, "method": method, "params": params})
             if not event.wait(timeout):
-                raise RuntimeError("控制请求未完成，请稍后检查服务状态。")
+                raise RuntimeError(tr("backend.worker_control.the_control_request_did_not_complete_check"))
             if "error" in result:
                 error = result["error"]
-                raise ControlError(error["detail"], error["status_code"])
+                # This is a private, server-authored error envelope, not user
+                # configuration or row data. Scalar IPC errors need their
+                # descriptor restored before the HTTP exception is emitted.
+                detail = restore_private_message(error, "detail")
+                raise ControlError(detail, error["status_code"])
             value = result.get("result")
             if not isinstance(value, dict):
                 # An invalid IPC reply follows the existing RuntimeError channel-failure contract.
@@ -108,7 +119,15 @@ class ControlChannel:
             if not isinstance(message["method"], str) or not isinstance(message.get("params"), dict):
                 raise ValueError("invalid control request")
             if not self._start_answer(message):
-                self._send({"id": message["id"], "error": {"status_code": 503, "detail": "服务控制通道繁忙。"}})
+                self._send(
+                    {
+                        "id": message["id"],
+                        "error": {
+                            "status_code": 503,
+                            "detail": tr("backend.worker_control.the_service_control_channel_is_busy"),
+                        },
+                    }
+                )
         else:
             with self._lock:
                 if pending := self._pending.get(message["id"]):
@@ -151,7 +170,10 @@ class ControlChannel:
         elif isinstance(error, (HTTPException, ControlError)):
             response["error"] = {"status_code": error.status_code, "detail": error.detail}
         else:
-            response["error"] = {"status_code": 503, "detail": "控制请求未完成，请检查服务状态。"}
+            response["error"] = {
+                "status_code": 503,
+                "detail": tr("backend.worker_control.control_request_failed"),
+            }
         try:
             self._send(response)
         except ControlMessageTooLarge:
@@ -163,7 +185,9 @@ class ControlChannel:
                             "status_code": 503,
                             "detail": {
                                 "code": "control_response_too_large",
-                                "message": "服务状态超过传输上限，请减少连接后重试。",
+                                "message": tr(
+                                    "backend.worker_control.service_status_exceeds_the_transfer_limit_reduce"
+                                ),
                             },
                         },
                     }

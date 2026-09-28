@@ -10,6 +10,7 @@
 | 完整 generator、表达式、CLI、hooks 参考 | [guide.md](guide.md) |
 | Python public API | [api.md](api.md)，由 mkdocstrings 读取源码 |
 | 工作台操作、AI 审阅、组件管理 | [web-workbench.md](web-workbench.md) |
+| Web 双语术语、消息边界与回归维护 | [development/web-i18n.md](development/web-i18n.md) |
 | 架构与配置模型 | [architecture.md](architecture.md) / [architecture.zh-CN.md](architecture.zh-CN.md)，结合根 ARCHITECTURE.md |
 | 升级兼容与发布验收 | migration 双语文档、[maintainable-release.md](maintainable-release.md)、[releasing.md](releasing.md) |
 

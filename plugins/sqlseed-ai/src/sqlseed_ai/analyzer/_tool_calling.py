@@ -30,6 +30,7 @@ import json
 from typing import TYPE_CHECKING, Any
 
 from sqlseed_ai._client import APIError
+from sqlseed_ai._json_utils import JSONResponseError, parse_json_response
 from sqlseed_ai._tools import GEMMA_TOOLS
 from sqlseed_ai.exceptions import ToolCallError, classify_api_error
 
@@ -64,7 +65,7 @@ class ToolCallingMixin:
         # `raise NotImplementedError` which pylint treats as abstract method
         # -> abstract-method). RuntimeError avoids all three. Real impl
         # lives in JsonParserMixin and DOES return a value.
-        def _parse_json_response(self, content: str) -> dict[str, Any]:
+        def _parse_json_response(self, content: str, *, preserve_names: bool = False) -> dict[str, Any]:
             del content
             raise RuntimeError("provided by JsonParserMixin")
 
@@ -87,7 +88,9 @@ class ToolCallingMixin:
                     logger.debug("Failed to parse tool call arguments", args=args_str[:200])
         return None
 
-    def _try_tool_calling(self, client: Any, kwargs: dict[str, Any]) -> dict[str, Any] | None:
+    def _try_tool_calling(
+        self, client: Any, kwargs: dict[str, Any], *, preserve_names: bool = False, strict_json: bool = False
+    ) -> dict[str, Any] | None:
         """Attempt native function calling (gemma4 or openai protocol).
 
         The wire-level call is identical for both protocols: ``GEMMA_TOOLS``
@@ -111,15 +114,23 @@ class ToolCallingMixin:
             response = client.chat.completions.create(**tool_kwargs)
 
             if not response.choices:
+                if strict_json:
+                    raise JSONResponseError("empty_response")
                 return None
 
             choice = response.choices[0]
+            if strict_json and choice.finish_reason == "length":
+                raise JSONResponseError("truncated_response")
 
             if (result := self._extract_tool_call_result(choice)) is not None:
                 return result
 
             # If no tool call was made but we have text content, parse it
+            if strict_json:
+                return parse_json_response(choice.message.content or "", strict=True, preserve_names=preserve_names)
             if choice.message.content:
+                if preserve_names:
+                    return self._parse_json_response(choice.message.content, preserve_names=True)
                 return self._parse_json_response(choice.message.content)
 
             return None

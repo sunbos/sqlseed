@@ -27,6 +27,9 @@ from sqlseed_web.ai_settings import (
     unavailable_preferences,
 )
 from sqlseed_web.api import AI_BACKENDS
+from sqlseed_web.diagnostics import public_error
+from sqlseed_web.messages import MessageRoute, message_list
+from sqlseed_web.messages import message as tr
 from sqlseed_web.settings_environment import ai_import_failure, require_ai_available
 from sqlseed_web.state import state
 from sqlseed_web.workbench import _request_errors
@@ -54,7 +57,7 @@ if TYPE_CHECKING:
 
     from sqlseed_web.state import Connection
 
-router = APIRouter(prefix="/api/workbench/ai", tags=["workbench-ai"])
+router = APIRouter(route_class=MessageRoute, prefix="/api/workbench/ai", tags=["workbench-ai"])
 
 
 class AllowedTarget(BaseModel):
@@ -84,7 +87,7 @@ class Suggestion(BaseModel):
     column: str = Field(min_length=1, max_length=300)
     generator: str = Field(min_length=1, max_length=100)
     params: dict[str, Any] = Field(default_factory=dict)
-    reason: str = Field(default="根据字段名称与类型匹配生成器，请结合业务含义确认。", max_length=2000)
+    reason: str = Field(default=tr("backend.workbench_ai.the_generator_was_matched_by_field_name"), max_length=2000)
 
 
 def _effective_config() -> AIConfig:
@@ -96,14 +99,14 @@ def _public_settings(config: AIConfig) -> dict[str, Any]:
     """Filled fields describe readiness, never a successful model invocation."""
     missing = []
     if not config.model:
-        missing.append("选择模型")
+        missing.append(tr("backend.workbench_ai.select_a_model"))
     if not config.resolve_api_key():
-        missing.append("填写 API Key")
+        missing.append(tr("backend.workbench_ai.enter_an_api_key"))
     try:
         base_url = config.resolve_base_url()
     except ValueError:
         base_url = ""
-        missing.append("填写 Base URL")
+        missing.append(tr("backend.workbench_ai.enter_a_base_url"))
     return {
         "available": True,
         "availability_status": "available",
@@ -115,7 +118,9 @@ def _public_settings(config: AIConfig) -> dict[str, Any]:
             "base_url": base_url,
             "api_key_present": bool(config.api_key),
         },
-        "message": "；".join(missing) if missing else "必需字段已填写；尚不代表连接或 AI 分析成功。",
+        "message": message_list(missing, "；")
+        if missing
+        else tr("backend.workbench_ai.required_fields_are_filled_in_this_does"),
     }
 
 
@@ -140,7 +145,7 @@ def settings() -> dict[str, Any]:
             "availability_status": "available",
             "ready": False,
             "backends": AI_BACKENDS,
-            "message": "AI 环境配置无效，请检查后端、地址与模型设置。",
+            "message": tr("backend.workbench_ai.invalid_ai_environment_configuration_check_the_backend"),
             **extra,
         }
 
@@ -158,12 +163,16 @@ def save_settings(body: SettingsRequest) -> dict[str, Any]:
             503,
             detail={
                 "code": "settings_write_failed",
-                "message": "设置未保存：无法写入用户设置文件，当前生效配置未更改。",
+                "message": tr("backend.workbench_ai.settings_were_not_saved_the_user_settings"),
             },
         ) from exc
     except (ValueError, TypeError) as exc:
         raise HTTPException(
-            422, detail={"code": "invalid_ai_settings", "message": "AI 配置无效，请检查环境变量、后端和地址。"}
+            422,
+            detail={
+                "code": "invalid_ai_settings",
+                "message": tr("backend.workbench_ai.invalid_ai_configuration_check_environment_variables_backend"),
+            },
         ) from exc
     return settings()
 
@@ -178,28 +187,31 @@ def test_backend(body: SettingsRequest | None = None) -> dict[str, Any]:
     try:
         config = resolve_settings(state, body)[0] if body is not None else _effective_config()
         if not config.resolve_api_key():
-            return {**result, "message": "在线 AI 服务需要当前服务的 API Key；本地 Ollama / LM Studio 无需填写。"}
+            return {**result, "message": tr("backend.workbench_ai.hosted_ai_services_require_their_own_api")}
         response = httpx.get(
             config.resolve_base_url().rstrip("/") + "/models",
             headers={"Authorization": f"Bearer {config.resolve_api_key()}"},
             timeout=8,
         )
         if response.status_code != 200:
-            return {**result, "message": f"AI 服务返回 HTTP {response.status_code}，请检查地址和认证。"}
+            return {
+                **result,
+                "message": tr("backend.workbench_ai.the_ai_service_returned_http_check_the", p1=response.status_code),
+            }
         data = response.json()
         if not isinstance(data, dict) or not isinstance(data.get("data"), list):
-            return {**result, "message": "服务响应不是有效的模型列表，请检查 Base URL。"}
+            return {**result, "message": tr("backend.workbench_ai.the_response_is_not_a_valid_model")}
         models = [str(item["id"]) for item in data["data"] if isinstance(item, dict) and item.get("id")]
         return {
             **result,
             "ok": True,
             "models": models[:100],
-            "message": "模型列表接口可用；尚未执行 AI 分析，请确认所选模型支持分析。",
+            "message": tr("backend.workbench_ai.the_model_list_endpoint_is_reachable_no"),
         }
     except ImportError:
         return {**result, **ai_import_failure()}
     except (httpx.HTTPError, OSError, ValueError, RuntimeError):
-        return {**result, "message": "无法连接 AI 服务，请检查服务是否启动，以及地址和认证设置。"}
+        return {**result, "message": tr("backend.workbench_ai.cannot_connect_to_the_ai_service_check")}
 
 
 def _call_model(messages: list[dict[str, str]], *, config: AIConfig | None = None) -> dict[str, Any]:
@@ -208,7 +220,9 @@ def _call_model(messages: list[dict[str, str]], *, config: AIConfig | None = Non
 
     config = config if config is not None else _effective_config()
     if not _public_settings(config)["ready"]:
-        raise WorkbenchError("请先配置 AI 服务和模型", code="ai_not_configured", status=503)
+        raise WorkbenchError(
+            tr("backend.workbench_ai.configure_the_ai_service_and_model_first"), code="ai_not_configured", status=503
+        )
     config.tool_calling_protocol = "none"  # Review patches are not executable tool calls.
     config.log_llm_interactions = False
     config.timeout = min(config.resolve_timeout(), 120)
@@ -335,7 +349,7 @@ def _messages(
     }
     serialized = json.dumps(prompt, ensure_ascii=False, default=str)
     if len(serialized) > 180000:
-        raise WorkbenchError("结构过大，请选择较少的表分析", code="ai_scope_too_large")
+        raise WorkbenchError(tr("backend.workbench_ai.the_schema_is_too_large_select_fewer"), code="ai_scope_too_large")
     return [
         {
             "role": "system",
@@ -382,11 +396,11 @@ class _SuggestionError(ValueError):
 def _validate_pattern_parameter(params: dict[str, Any]) -> None:
     effective = params.get("pattern") or params.get("regex")
     if not isinstance(effective, str) or not effective:
-        raise _SuggestionError("pattern 必须提供非空正则表达式 pattern 或 regex")
+        raise _SuggestionError(tr("backend.workbench_ai.pattern_requires_a_non_empty_regular_expression"))
     try:
         re.compile(effective)
     except re.error as exc:
-        raise _SuggestionError("pattern 的正则表达式无效") from exc
+        raise _SuggestionError(tr("backend.workbench_ai.pattern_contains_an_invalid_regular_expression")) from exc
 
 
 def _validate_parameter_value(value: Any, meta: dict[str, Any]) -> None:
@@ -400,7 +414,7 @@ def _validate_parameter_value(value: Any, meta: dict[str, Any]) -> None:
         "object": isinstance(value, dict),
     }.get(kind, True)
     if not valid or (meta.get("choices") and value not in meta["choices"]):
-        raise _SuggestionError("生成器参数类型或选项不正确")
+        raise _SuggestionError(tr("backend.workbench_ai.incorrect_generator_parameter_type_or_option"))
     if kind in {"date", "datetime", "time"}:
         if kind == "date":
             date.fromisoformat(value)
@@ -412,7 +426,7 @@ def _validate_parameter_value(value: Any, meta: dict[str, Any]) -> None:
 
 def _validate_parameter(name: str, value: Any, meta: dict[str, Any]) -> None:
     if name.startswith("_") or name in {"folder", "file", "directory", "path"}:
-        raise _SuggestionError("AI 建议不接受运行时数据或文件路径")
+        raise _SuggestionError(tr("backend.workbench_ai.ai_suggestions_cannot_contain_runtime_data_or"))
     if value is None and meta.get("default") is None and not meta["required"]:
         return
     if name in {"start_date", "end_date"}:
@@ -422,7 +436,7 @@ def _validate_parameter(name: str, value: Any, meta: dict[str, Any]) -> None:
     elif name == "weekdays":
         normalize_weekdays(value)
     elif name in {"choices", "weighted_choices"} and not value:
-        raise _SuggestionError("候选值不能为空")
+        raise _SuggestionError(tr("backend.workbench_ai.candidate_values_cannot_be_empty"))
     _validate_parameter_value(value, meta)
 
 
@@ -442,7 +456,7 @@ def _validate_param_bounds(params: dict[str, Any]) -> None:
             and params[high] is not None
             and params[low] > params[high]
         ):
-            raise _SuggestionError("参数下限不能超过上限")
+            raise _SuggestionError(tr("backend.workbench_ai.the_lower_parameter_bound_cannot_exceed_the"))
 
 
 def _validate_params(params: dict[str, Any], entry: dict[str, Any]) -> None:
@@ -451,10 +465,10 @@ def _validate_params(params: dict[str, Any], entry: dict[str, Any]) -> None:
         _validate_pattern_parameter(params)
     definitions = {item["name"]: item for item in entry["params"]}
     if set(params) - definitions.keys():
-        raise _SuggestionError("生成器参数不在可用目录中")
+        raise _SuggestionError(tr("backend.workbench_ai.the_generator_parameter_is_not_in_the"))
     for name, meta in definitions.items():
         if meta["required"] and name not in params:
-            raise _SuggestionError("缺少必填生成器参数")
+            raise _SuggestionError(tr("backend.workbench_ai.a_required_generator_parameter_is_missing"))
     for name, value in params.items():
         _validate_parameter(name, value, definitions[name])
     _validate_param_bounds(params)
@@ -465,7 +479,7 @@ def _suggestion_location(item: Any, tables: dict[str, Any]) -> str:
         known_table = tables.get(item["table"])
         if known_table and any(col["name"] == item["column"] for col in known_table["columns"]):
             return f"{item['table']}.{item['column']}"
-    return "一条建议"
+    return tr("backend.workbench_ai.a_suggestion")
 
 
 def _suggestion_target(
@@ -477,11 +491,11 @@ def _suggestion_target(
     table = tables[suggestion.table]
     column = next(column for column in table["columns"] if column["name"] == suggestion.column)
     if suggestion.table not in body.tables or (suggestion.table, suggestion.column) in seen:
-        raise _SuggestionError("表不在当前分析范围或建议重复")
+        raise _SuggestionError(tr("backend.workbench_ai.the_table_is_outside_the_analysis_scope"))
     if body.allowed_targets is not None and not any(
         target.table == suggestion.table and suggestion.column in target.columns for target in body.allowed_targets
     ):
-        raise _SuggestionError("列不在允许修改范围")
+        raise _SuggestionError(tr("backend.workbench_ai.the_column_is_outside_the_allowed_edit"))
     return table, column
 
 
@@ -489,13 +503,13 @@ def _generator_rule(
     suggestion: Suggestion, before: dict[str, Any] | None, generators: dict[str, Any]
 ) -> dict[str, Any]:
     if suggestion.generator not in generators:
-        raise _SuggestionError("生成器不在可用目录中")
+        raise _SuggestionError(tr("backend.workbench_ai.the_generator_is_not_in_the_available"))
     try:
         _validate_params(suggestion.params, generators[suggestion.generator])
     except _SuggestionError:
         raise
     except (ValueError, TypeError) as exc:
-        raise _SuggestionError("生成器参数类型或选项不正确") from exc
+        raise _SuggestionError(tr("backend.workbench_ai.incorrect_generator_parameter_type_or_option")) from exc
     return {
         **(deepcopy(before) if before else {}),
         "name": suggestion.column,
@@ -513,7 +527,7 @@ def _suggestion_patch(
 ) -> dict[str, Any]:
     before = next((col for col in config.get("columns", []) if col["name"] == suggestion.column), None)
     if locked_column(table, column, before):
-        raise _SuggestionError("数据库管理、外键或派生字段保持原规则")
+        raise _SuggestionError(tr("backend.workbench_ai.database_managed_foreign_key_and_derived_fields"))
     relation = None
     if isinstance(suggestion, RelationSuggestion):
         after = compile_relation(suggestion, table, {col["name"]: col for col in config.get("columns", [])})
@@ -538,7 +552,8 @@ def _collect_suggestions(
     configs: dict[str, Any],
     generators: dict[str, Any],
 ) -> tuple[list[dict[str, Any]], list[str]]:
-    accepted, rejected = [], []
+    accepted: list[dict[str, Any]] = []
+    rejected: list[str] = []
     seen: set[tuple[str, str]] = set()
     for item in items:
         location = _suggestion_location(item, tables)
@@ -556,7 +571,13 @@ def _collect_suggestions(
             # Locations come from verified schema names; never echo model-only
             # identifiers, Pydantic payloads or underlying parameter exceptions.
             rejected.append(
-                f"{location}：{str(exc) if isinstance(exc, _SuggestionError) else '字段、生成器或参数不符合支持范围'}，已忽略。"
+                tr(
+                    "backend.workbench_ai.ignored",
+                    p1=location,
+                    p2=public_error(exc)
+                    if isinstance(exc, _SuggestionError)
+                    else tr("backend.workbench_ai.the_field_generator_or_parameters_are_outside"),
+                )
             )
     return accepted, rejected
 
@@ -570,7 +591,7 @@ def _suggestions(
             502,
             detail={
                 "code": "ai_response_contract",
-                "message": "AI 返回的规则结构不符合要求（需要 suggestions 建议列表）。请缩小分析范围后重试，或更换模型。当前规则未改变。",
+                "message": tr("backend.workbench_ai.the_ai_response_does_not_have_the"),
             },
         )
     tables = {table["name"]: table for table in schema["tables"]}
@@ -611,13 +632,17 @@ def _analysis_schema(conn: Connection, body: EligibilityRequest, names: list[str
     """Resolve the complete candidate once for both eligibility and suggestions."""
     schema = inspect_connection(conn)
     if schema["schema_hash"] != body.schema_hash:
-        raise WorkbenchError("数据库结构已变化，请刷新后分析", code="schema_changed", status=409)
+        raise WorkbenchError(
+            tr("backend.workbench_ai.the_database_schema_has_changed_refresh_before"), code="schema_changed", status=409
+        )
     schema_tables = {table["name"]: table for table in schema["tables"]}
     names = list(schema_tables) if names is None else names
     if len(set(names)) != len(names) or not set(names) <= schema_tables.keys():
-        raise WorkbenchError("分析范围包含不存在的表", code="unknown_table")
+        raise WorkbenchError(tr("backend.workbench_ai.the_analysis_scope_contains_a_table_that"), code="unknown_table")
     if "db_path" in body.document or "url" in body.document:
-        raise WorkbenchError("AI 请求不能包含连接地址", code="target_in_document")
+        raise WorkbenchError(
+            tr("backend.workbench_ai.ai_requests_cannot_contain_connection_addresses"), code="target_in_document"
+        )
     document = deepcopy(body.document)
     selected = {table["name"] for table in document.get("tables", [])}
     draft_names = [table.get("name") for table in body.table_drafts]
@@ -626,7 +651,9 @@ def _analysis_schema(conn: Connection, body: EligibilityRequest, names: list[str
         or selected.intersection(draft_names)
         or not set(draft_names) <= schema_tables.keys()
     ):
-        raise WorkbenchError("未选表草稿重复或与生成范围冲突", code="invalid_table_drafts")
+        raise WorkbenchError(
+            tr("backend.workbench_ai.unselected_table_drafts_are_duplicated_or_conflict"), code="invalid_table_drafts"
+        )
     document["tables"] = document.get("tables", []) + deepcopy(body.table_drafts)
     included = selected | set(draft_names)
     for name in names:
@@ -671,9 +698,9 @@ def _model_cause_error(cause: BaseException) -> HTTPException | None:
     else:
         if isinstance(cause, JSONResponseError):
             messages = {
-                "empty_response": "AI 未返回可用的回答内容。请检查模型运行状态后重试；当前规则未改变。",
-                "truncated_response": "AI 回答达到输出长度上限，建议未完整返回。请缩小分析范围后重试；当前规则未改变。",
-                "invalid_json": "AI 回答不是完整有效的 JSON。请缩小分析范围后重试，或更换模型；当前规则未改变。",
+                "empty_response": tr("backend.workbench_ai.ai_returned_no_usable_content_check_the"),
+                "truncated_response": tr("backend.workbench_ai.the_ai_response_reached_its_output_limit"),
+                "invalid_json": tr("backend.workbench_ai.the_ai_response_is_not_complete_valid"),
             }
             return HTTPException(
                 502,
@@ -682,23 +709,35 @@ def _model_cause_error(cause: BaseException) -> HTTPException | None:
     name = type(cause).__name__.lower()
     if isinstance(cause, TimeoutError) or "timeout" in name:
         return HTTPException(
-            504, detail={"code": "ai_model_timeout", "message": "AI 服务响应超时，请检查服务或缩小分析范围后重试。"}
+            504,
+            detail={
+                "code": "ai_model_timeout",
+                "message": tr("backend.workbench_ai.the_ai_service_timed_out_check_the"),
+            },
         )
     if isinstance(cause, ConnectionError) or "connection" in name:
         return HTTPException(
-            502, detail={"code": "ai_connection_failed", "message": "无法连接 AI 服务，请检查服务地址和运行状态。"}
+            502,
+            detail={
+                "code": "ai_connection_failed",
+                "message": tr("backend.workbench_ai.connection_failed_during_analysis"),
+            },
         )
     status = getattr(cause, "status_code", None)
     if status in {401, 403}:
         return HTTPException(
-            502, detail={"code": "ai_auth_failed", "message": "AI 服务认证失败，请检查访问密钥和权限。"}
+            502,
+            detail={
+                "code": "ai_auth_failed",
+                "message": tr("backend.workbench_ai.ai_authentication_failed_check_the_api_key"),
+            },
         )
     if status == 404:
         return HTTPException(
             502,
             detail={
                 "code": "ai_model_not_found",
-                "message": "AI 模型或接口不存在（HTTP 404），请检查模型名称和服务地址。",
+                "message": tr("backend.workbench_ai.the_ai_model_or_endpoint_was_not"),
             },
         )
     if status in {400, 422}:
@@ -706,7 +745,7 @@ def _model_cause_error(cause: BaseException) -> HTTPException | None:
             502,
             detail={
                 "code": "ai_request_rejected",
-                "message": f"AI 服务拒绝请求（HTTP {status}），请检查模型及接口兼容性。",
+                "message": tr("backend.workbench_ai.the_ai_service_rejected_the_request_http", p1=status),
             },
         )
     if isinstance(status, int) and 500 <= status <= 599:
@@ -714,14 +753,24 @@ def _model_cause_error(cause: BaseException) -> HTTPException | None:
             502,
             detail={
                 "code": "ai_service_unavailable",
-                "message": f"AI 服务异常（HTTP {status}），请检查服务状态后重试。",
+                "message": tr("backend.workbench_ai.the_ai_service_failed_http_check_its", p1=status),
             },
         )
     if status == 429:
-        return HTTPException(502, detail={"code": "ai_rate_limited", "message": "AI 服务请求受限，请稍后重试。"})
+        return HTTPException(
+            502,
+            detail={
+                "code": "ai_rate_limited",
+                "message": tr("backend.workbench_ai.ai_requests_are_rate_limited_retry_later"),
+            },
+        )
     if isinstance(cause, json.JSONDecodeError):
         return HTTPException(
-            502, detail={"code": "ai_response_invalid", "message": "AI 返回内容无法解析为规则，请重新分析。"}
+            502,
+            detail={
+                "code": "ai_response_invalid",
+                "message": tr("backend.workbench_ai.the_ai_response_could_not_be_parsed"),
+            },
         )
     return None
 
@@ -737,7 +786,11 @@ def _model_error(exc: Exception) -> HTTPException:
         if (error := _model_cause_error(cause)) is not None:
             return error
     return HTTPException(
-        502, detail={"code": "ai_analysis_failed", "message": "AI 分析失败，请检查服务后重试；当前规则未改变。"}
+        502,
+        detail={
+            "code": "ai_analysis_failed",
+            "message": tr("backend.workbench_ai.ai_analysis_failed_check_the_service_and"),
+        },
     )
 
 
@@ -751,19 +804,23 @@ def _resolve_analysis_targets(body: SuggestRequest, schema: dict[str, Any]) -> N
     if len({target.table for target in body.allowed_targets}) != len(body.allowed_targets) or {
         target.table for target in body.allowed_targets
     } != set(body.tables):
-        raise WorkbenchError("允许修改范围必须与分析表一致", code="invalid_ai_targets")
+        raise WorkbenchError(
+            tr("backend.workbench_ai.the_allowed_edit_scope_must_match_the"), code="invalid_ai_targets"
+        )
     for target in body.allowed_targets:
         if len(set(target.columns)) != len(target.columns) or not set(target.columns) <= {
             col["name"] for col in schema_tables[target.table]["columns"]
         }:
-            raise WorkbenchError("允许修改范围包含不存在或重复的列", code="invalid_ai_targets")
+            raise WorkbenchError(
+                tr("backend.workbench_ai.the_allowed_edit_scope_contains_missing_or"), code="invalid_ai_targets"
+            )
 
 
 def _request_model(messages: list[dict[str, str]], config: AIConfig | None) -> dict[str, Any]:
     try:
         return _call_model(messages, config=config) if config is not None else _call_model(messages)
     except WorkbenchError as exc:
-        raise HTTPException(exc.status, detail={"code": exc.code, "message": str(exc)}) from exc
+        raise HTTPException(exc.status, detail={"code": exc.code, "message": public_error(exc)}) from exc
     except ImportError as exc:
         raise HTTPException(503, detail=ai_import_failure()) from exc
     except Exception as exc:
@@ -816,7 +873,7 @@ def _preview_candidate(
             {
                 "code": "sample_check_failed",
                 "severity": "error",
-                "message": "生成值类型不满足 CHECK 约束，请检查候选规则。",
+                "message": tr("backend.workbench_ai.the_generated_value_type_does_not_satisfy"),
             }
         )
     return checked
@@ -830,9 +887,9 @@ def _attach_relation_evidence(patches: list[dict[str, Any]], checked: dict[str, 
             patch["evidence"] = {
                 "kind": "readonly_preview",
                 "rows": [{name: row.get(name) for name in names} for row in rows if all(name in row for name in names)],
-                "message": "同一行的只读样例，未写入数据库。"
+                "message": tr("backend.workbench_ai.read_only_samples_from_the_same_row")
                 if rows
-                else "该表的引用来源尚待生成；已验证独立规则，完整样例请在应用后预览。",
+                else tr("backend.workbench_ai.referenced_source_rows_have_not_been_generated"),
             }
 
 
@@ -842,7 +899,7 @@ def _analyze(
     cancel_check: Callable[[], None],
     config: AIConfig | None = None,
 ) -> dict[str, Any]:
-    progress("context", "正在读取结构与当前规则…")
+    progress("context", tr("backend.workbench_ai.reading_the_schema_and_current_rules"))
     with _request_errors(), state.connection_operation(body.conn_id) as conn:
         schema = _analysis_schema(conn, body, body.tables)
         _resolve_analysis_targets(body, schema)
@@ -857,36 +914,48 @@ def _analyze(
         )
     # Release the database lock during network I/O; a slow model must not block
     # reading or disconnecting. The subsequent fresh hash invalidates stale work.
-    progress("model", "正在等待 AI 分析字段与关系…")
+    progress("model", tr("backend.workbench_ai.waiting_for_ai_to_analyze_fields_and"))
     raw = _request_model(messages, config)
     cancel_check()
-    progress("validation", "正在校验建议范围、参数与字段依赖…")
+    progress("validation", tr("backend.workbench_ai.validating_suggestion_scope_parameters_and_field_dependencies"))
     with _request_errors(), state.connection_operation(body.conn_id) as conn:
         if inspect_connection(conn)["schema_hash"] != body.schema_hash:
-            raise WorkbenchError("分析期间数据库结构已变化，请刷新后重新分析", code="schema_changed", status=409)
+            raise WorkbenchError(
+                tr("backend.workbench_ai.the_schema_changed_during_analysis_refresh_and"),
+                code="schema_changed",
+                status=409,
+            )
         result = _suggestions(raw, schema, body, catalog)
         patches = result["suggestions"]
         candidate = _candidate_document(body, patches)
         try:
             validate_dags(candidate, schema)
         except (ValueError, KeyError, TypeError):
-            result["rejected"].append("候选配置存在无效来源或循环依赖；相关建议未应用。")
-            result.update(suggestions=[], validation={"ok": False, "message": "候选配置的字段依赖检查未通过。"})
+            result["rejected"].append(tr("backend.workbench_ai.the_candidate_configuration_has_invalid_sources_or"))
+            result.update(
+                suggestions=[],
+                validation={
+                    "ok": False,
+                    "message": tr("backend.workbench_ai.the_candidate_configuration_failed_field_dependency_checks"),
+                },
+            )
             return result
         if patches:
-            progress("preview", "正在生成只读样例并检查约束…")
+            progress("preview", tr("backend.workbench_ai.generating_read_only_samples_and_checking_constraints"))
             checked = _preview_candidate(conn, candidate, schema, body, cancel_check)
             result["validation"] = {
                 "ok": checked["ok"],
                 "stage": "preview",
                 "issues": checked["issues"],
-                "message": "整份候选配置已通过只读检查；应用后仍需预览、检查。"
+                "message": tr("backend.workbench_ai.the_complete_candidate_configuration_passed_read_only")
                 if checked["ok"]
-                else "整份候选配置未通过只读检查，请先检查现有配置与数据来源。",
+                else tr("backend.workbench_ai.the_complete_candidate_configuration_failed_read_only"),
             }
             if not checked["ok"]:
                 result["suggestions"] = []
-                result["rejected"].append("候选配置无法满足数据库或生成规则约束，建议未应用。")
+                result["rejected"].append(
+                    tr("backend.workbench_ai.the_candidate_configuration_cannot_satisfy_database_or")
+                )
                 return result
             group_patches(patches, candidate, schema)
             _attach_relation_evidence(patches, checked)
@@ -909,7 +978,11 @@ async def suggest(body: SuggestRequest, request: Request) -> dict[str, Any] | Re
         raise HTTPException(503, detail=ai_import_failure()) from exc
     except (ValueError, TypeError) as exc:
         raise HTTPException(
-            503, detail={"code": "ai_not_configured", "message": "AI 服务配置无效，请检查设置。"}
+            503,
+            detail={
+                "code": "ai_not_configured",
+                "message": tr("backend.workbench_ai.invalid_ai_service_configuration_check_settings"),
+            },
         ) from exc
     return await analysis_response(
         body.conn_id, lambda progress, cancelled: _analyze(body, progress, cancelled, config), request

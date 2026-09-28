@@ -347,3 +347,26 @@ test('a missing old task after a service restart recovers through a fresh manage
   assert.equal(t.action('ai', 'install').disabled, false);
   assert.equal(t.calls.some(call => call.method === 'POST'), false); t.manager.destroy();
 });
+
+test('component review translates in place while the confirmed plan and operation stay unchanged', async () => {
+  const t = harness({management: automatic()}); await t.mounted;
+  await t.action('ai', 'install').click();
+  const ui = require('./frontend_helpers.cjs').loadI18n({document:t.document});
+  const dialog = t.document.querySelector('[role="dialog"]'), calls = t.calls.length;
+  const confirm = t.document.querySelector('[data-plugin-confirm]');
+  ui.setLanguage('en');
+  assert.equal(t.document.querySelector('[role="dialog"]'), dialog);
+  assert.match(dialog.textContent, /Confirm plugin operation: Install/);
+  assert.match(dialog.textContent, /valid for 5 minutes/);
+  assert.equal(confirm.textContent, 'Confirm Install');
+  assert.match(dialog.textContent, /sqlseed-ai/);
+  assert.equal(t.calls.length, calls);
+  await confirm.click();
+  assert.deepEqual(t.calls.at(-1).body, {plan_id:'plan-1'});
+  assert.equal(t.calls.filter(call => call.url.endsWith('/execute')).length, 1);
+  assert.match(t.document.querySelector('.settings-plugin-task').textContent, /Install AI · Running/);
+  ui.setLanguage('zh-CN');
+  assert.match(t.document.querySelector('.settings-plugin-task').textContent, /安装 AI · 执行中/);
+  assert.equal(ui.missingMessages().length, 0);
+  t.manager.destroy();
+});

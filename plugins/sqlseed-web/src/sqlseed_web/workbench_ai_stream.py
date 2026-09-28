@@ -16,6 +16,8 @@ from fastapi.responses import Response, StreamingResponse
 from sqlseed._utils.daemon_task import DaemonTask
 
 from sqlseed_web import runtime_lifecycle
+from sqlseed_web.messages import Message, materialize_messages
+from sqlseed_web.messages import message as tr
 
 ANALYSIS_TIMEOUT = 180.0
 _active: set[str] = set()
@@ -25,12 +27,26 @@ Analysis = Callable[[Callable[[str, str], None], Callable[[], None]], dict[str, 
 
 def _error(exc: HTTPException) -> dict[str, Any]:
     detail = exc.detail
-    return {
+    message: str
+    if isinstance(detail, dict):
+        message = detail.get("message", tr("backend.workbench_ai_stream.ai_analysis_failed_please_retry"))
+    elif isinstance(detail, Message):
+        message = detail
+    else:
+        message = str(detail)
+    result: dict[str, Any] = {
         "type": "error",
         "code": detail.get("code", "ai_analysis_failed") if isinstance(detail, dict) else "ai_analysis_failed",
-        "message": detail.get("message", "AI 分析失败，请重试。") if isinstance(detail, dict) else str(detail),
+        "message": message,
         "status": exc.status_code,
+        **(
+            {key: detail[key] for key in ("message_key", "message_params") if key in detail}
+            if isinstance(detail, dict)
+            else {}
+        ),
     }
+    expanded: dict[str, Any] = materialize_messages(result)
+    return expanded
 
 
 class AnalysisOperation:
@@ -43,7 +59,11 @@ class AnalysisOperation:
         with _active_lock:
             if conn_id in _active:
                 raise HTTPException(
-                    409, detail={"code": "ai_busy", "message": "此连接的 AI 分析尚未结束，请稍后重试。"}
+                    409,
+                    detail={
+                        "code": "ai_busy",
+                        "message": tr("backend.workbench_ai_stream.ai_analysis_for_this_connection_has_not"),
+                    },
                 )
             _active.add(conn_id)
 
@@ -74,7 +94,9 @@ class AnalysisOperation:
                                 500,
                                 detail={
                                     "code": "ai_analysis_failed",
-                                    "message": "AI 分析未完成，请重试；当前规则未改变。",
+                                    "message": tr(
+                                        "backend.workbench_ai_stream.ai_analysis_did_not_complete_retry_current"
+                                    ),
                                 },
                             )
                         )
@@ -93,6 +115,7 @@ class AnalysisOperation:
             raise
 
     def publish(self, event: dict[str, Any]) -> None:
+        event = materialize_messages(event)
         # There are four phase events and one terminal event. Keep the queue
         # bounded even if a future caller reports more frequently.
         try:
@@ -106,9 +129,17 @@ class AnalysisOperation:
 
     def check_cancelled(self) -> None:
         if self.cancelled.is_set():
-            raise HTTPException(499, detail={"code": "ai_cancelled", "message": "分析已取消。"})
+            raise HTTPException(
+                499, detail={"code": "ai_cancelled", "message": tr("backend.workbench_ai_stream.analysis_cancelled")}
+            )
         if monotonic() >= self.deadline:
-            raise HTTPException(504, detail={"code": "ai_timeout", "message": "分析超过时间限制，请缩小范围后重试。"})
+            raise HTTPException(
+                504,
+                detail={
+                    "code": "ai_timeout",
+                    "message": tr("backend.workbench_ai_stream.analysis_exceeded_the_time_limit_reduce_the"),
+                },
+            )
 
     def progress(self, stage: str, message: str) -> None:
         self.check_cancelled()
@@ -122,7 +153,13 @@ class AnalysisOperation:
                 if monotonic() >= self.deadline:
                     yield _error(
                         HTTPException(
-                            504, detail={"code": "ai_timeout", "message": "分析超过时间限制，请缩小范围后重试。"}
+                            504,
+                            detail={
+                                "code": "ai_timeout",
+                                "message": tr(
+                                    "backend.workbench_ai_stream.analysis_exceeded_the_time_limit_reduce_the"
+                                ),
+                            },
                         )
                     )
                     return
@@ -168,5 +205,9 @@ async def analysis_response(conn_id: str, run: Analysis, request: Request) -> di
         if event["type"] == "result":
             return dict(event["result"])
         if event["type"] == "error":
-            raise HTTPException(event["status"], detail={"code": event["code"], "message": event["message"]})
-    raise HTTPException(499, detail={"code": "ai_cancelled", "message": "分析已取消。"})
+            raise HTTPException(
+                event["status"], detail={key: value for key, value in event.items() if key not in {"type", "status"}}
+            )
+    raise HTTPException(
+        499, detail={"code": "ai_cancelled", "message": tr("backend.workbench_ai_stream.analysis_cancelled")}
+    )

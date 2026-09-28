@@ -1,0 +1,1718 @@
+{
+  "backend.message_list": [
+    "{items}",
+    "{items}"
+  ],
+  "backend.application.business_requests_must_come_from_the_current": [
+    "业务请求必须来自当前工作台页面。",
+    "Business requests must come from the current workbench page."
+  ],
+  "backend.application.a_component_operation_is_in_progress_the": [
+    "组件操作进行中，业务服务将自动恢复。",
+    "A component operation is in progress. The application will resume automatically."
+  ],
+  "backend.application.the_service_is_in_plugin_maintenance_mode": [
+    "当前服务处于插件维护模式；请正常重启 Web 后使用工作台。",
+    "The service is in plugin maintenance mode. Restart Web normally to use the workbench."
+  ],
+  "backend.application.invalid_ai_settings_base_url_must_be": [
+    "AI 设置字段无效；Base URL 必须是无认证信息的 HTTP(S) 地址。",
+    "Invalid AI settings. Base URL must be an HTTP(S) address without credentials."
+  ],
+  "backend.ai_settings.base_url_must_be_an_http_s": [
+    "Base URL 必须是 HTTP(S) 地址；认证请使用 API Key 字段",
+    "Base URL must be an HTTP(S) address. Use the API Key field for authentication."
+  ],
+  "backend.api.openai_compatible_service_hosted_self_hosted": [
+    "OpenAI 兼容服务（在线/自建）",
+    "OpenAI-compatible service (hosted / self-hosted)"
+  ],
+  "backend.api.google_ai_studio_hosted": [
+    "Google AI Studio（在线）",
+    "Google AI Studio (hosted)"
+  ],
+  "backend.api.local_service_is_reachable_no_api_key": [
+    "本地服务可达（{p1}）。无需 API Key。{p2}",
+    "Local service is reachable ({p1}). No API Key is required. {p2}"
+  ],
+  "backend.api.local_service_returned_http": [
+    "本地服务响应异常：HTTP {p1}",
+    "Local service returned HTTP {p1}."
+  ],
+  "backend.api.available_models": [
+    "可用模型：{p1}",
+    "Available models: {p1}"
+  ],
+  "backend.api.no_models_listed": [
+    "未列出模型",
+    "No models listed"
+  ],
+  "backend.api.cannot_connect_to_the_ai_service_check": [
+    "无法连接 AI 服务，请检查地址、认证和服务状态。",
+    "Cannot connect to the AI service. Check its address, authentication and status."
+  ],
+  "backend.api.local_database_file": [
+    "本地数据库文件",
+    "Local database file"
+  ],
+  "backend.api.sqlite_file_db_sqlite_sqlite3": [
+    "SQLite 文件（.db / .sqlite / .sqlite3）",
+    "SQLite file (.db / .sqlite / .sqlite3)"
+  ],
+  "backend.api.enter_connection_parameters_in_separate_fields": [
+    "字段化填写连接参数",
+    "Enter connection parameters in separate fields"
+  ],
+  "backend.api.custom_url": [
+    "自定义 URL",
+    "Custom URL"
+  ],
+  "backend.api.sqlalchemy_url_reserved_for_additional_database_support": [
+    "任意 SQLAlchemy URL（为未来数据库预留）",
+    "SQLAlchemy URL (reserved for additional database support)"
+  ],
+  "backend.api.hosted_services_require_an_api_key_enter": [
+    "在线后端需要 API Key：请在 AI 配置面板填写，或设置 GOOGLE_API_KEY / OPENAI_API_KEY。",
+    "Hosted services require an API Key. Enter it in AI settings or set GOOGLE_API_KEY / OPENAI_API_KEY."
+  ],
+  "backend.api.for_local_use_start_ollama_serve_first": [
+    "（本地需先运行 `ollama serve`，默认 http://localhost:11434；无需任何密钥）",
+    "(For local use, start `ollama serve` first; the default address is http://localhost:11434. No key is required.)"
+  ],
+  "backend.api.hosted_service_is_reachable_and_the_api": [
+    "在线后端连通且 Key 有效。",
+    "Hosted service is reachable and the API Key is valid."
+  ],
+  "backend.api.hosted_service_rejected_the_request_http_check": [
+    "在线后端拒绝：HTTP {p1}（检查 Key / Base URL）。",
+    "Hosted service rejected the request: HTTP {p1}. Check the API Key and Base URL."
+  ],
+  "backend.api.cannot_start_the_generation_task_please_retry": [
+    "无法启动生成任务，请重试。",
+    "Cannot start the generation task. Please retry."
+  ],
+  "backend.api.cannot_start_the_analysis_task_please_retry": [
+    "无法启动分析任务，请重试。",
+    "Cannot start the analysis task. Please retry."
+  ],
+  "backend.api.invalid_ai_settings_check_the_backend_and": [
+    "AI 配置字段无效，请检查后端与 HTTP(S) 地址。",
+    "Invalid AI settings. Check the backend and HTTP(S) address."
+  ],
+  "backend.managed_worker.the_service_is_switching_please_retry_shortly": [
+    "服务正在切换，请稍后重试。",
+    "The service is switching. Please retry shortly."
+  ],
+  "backend.managed_worker.too_many_connections_or_session_details_to": [
+    "当前连接与会话信息过多，无法安全暂存；请减少连接后再管理插件。",
+    "Too many connections or session details to preserve safely. Reduce connections before managing plugins."
+  ],
+  "backend.plugin_environment.management_requires_the_independent_virtualenv_running_web": [
+    "仅支持当前 Web 所在的独立 virtualenv；系统 Python 请使用原环境管理工具。",
+    "Management requires the independent virtualenv running Web. Manage system Python with its original environment tool."
+  ],
+  "backend.plugin_environment.no_usable_pip_or_uv_in_this": [
+    "当前 Python 环境没有可用的 pip 或 uv；请使用原环境管理工具。",
+    "No usable pip or uv in this Python environment. Use its original environment tool."
+  ],
+  "backend.plugin_environment.environments_sharing_system_site_packages_cannot_be": [
+    "共享系统 site-packages 的环境不支持界面管理。",
+    "Environments sharing system site-packages cannot be managed here."
+  ],
+  "backend.plugin_environment.cannot_verify_write_permissions_for_this_python": [
+    "无法验证当前 Python 环境的写入权限。",
+    "Cannot verify write permissions for this Python environment."
+  ],
+  "backend.plugin_environment.this_environment_is_externally_managed_use_its": [
+    "此环境由外部工具管理，请使用原环境管理工具。",
+    "This environment is externally managed. Use its original environment tool."
+  ],
+  "backend.plugin_environment.the_python_installation_directory_is_outside_the": [
+    "Python 安装目录位于 virtualenv 之外，不支持界面管理。",
+    "The Python installation directory is outside the virtualenv and cannot be managed here."
+  ],
+  "backend.plugin_environment.the_environment_lock_is_not_held": [
+    "环境锁尚未持有。",
+    "The environment lock is not held."
+  ],
+  "backend.plugin_environment.installed_package_metadata_cannot_be_safely_parsed": [
+    "已安装组件的元数据无法安全解析；请先修复当前 Python 环境。",
+    "Installed package metadata cannot be safely parsed. Repair the Python environment first."
+  ],
+  "backend.plugin_environment.no_installation_tool_is_available": [
+    "没有可用的安装工具。",
+    "No installation tool is available."
+  ],
+  "backend.plugin_environment.required_by_uninstall_those_optional_components_first": [
+    "由 {p1} 使用，请先卸载这些可选组件。",
+    "Required by {p1}. Uninstall those optional components first."
+  ],
+  "backend.plugin_environment.this_python_environment_is_not_writable_use": [
+    "当前 Python 环境不可写，请使用原环境管理工具。",
+    "This Python environment is not writable. Use its original environment tool."
+  ],
+  "backend.plugin_environment.another_web_process_is_using_this_python": [
+    "另一个 Web 进程正在使用此 Python 环境，请先停止它。",
+    "Another Web process is using this Python environment. Stop it first."
+  ],
+  "backend.plugin_environment.install_this_component_first": [
+    "请先安装此组件。",
+    "Install this component first."
+  ],
+  "backend.plugin_management.the_component_operation_failed_check_the_output": [
+    "组件操作失败；请检查输出并使用原环境管理工具修复。",
+    "The component operation failed. Check the output and repair it with the original environment tool."
+  ],
+  "backend.plugin_management.plugin_management_is_available_only_from_this": [
+    "插件管理仅允许本机访问。",
+    "Plugin management is available only from this computer."
+  ],
+  "backend.plugin_management.plugin_management_requests_must_come_from_the": [
+    "插件管理请求必须来自当前页面。",
+    "Plugin management requests must come from the current page."
+  ],
+  "backend.plugin_management.this_deployment_is_externally_hosted_and_cannot": [
+    "此部署由外部服务托管，暂不支持网页安装或卸载；请联系部署管理员。",
+    "This deployment is externally hosted and cannot install or uninstall from the page. Contact its administrator."
+  ],
+  "backend.plugin_management.installer_cleanup_has_not_been_confirmed_the": [
+    "安装进程清理尚未确认，环境继续保持锁定，请重试恢复服务。",
+    "Installer cleanup has not been confirmed. The environment remains locked. Retry service recovery."
+  ],
+  "backend.plugin_management.the_environment_has_changed_stop_maintenance_mode": [
+    "环境已执行变更，请先停止维护服务并正常重启 Web 验证。",
+    "The environment has changed. Stop maintenance mode and restart Web normally to verify it."
+  ],
+  "backend.plugin_management.a_component_operation_is_already_running": [
+    "已有组件操作正在执行。",
+    "A component operation is already running."
+  ],
+  "backend.plugin_management.the_maintenance_service_has_not_acquired_the": [
+    "维护服务尚未领取环境锁。",
+    "The maintenance service has not acquired the environment lock."
+  ],
+  "backend.plugin_management.this_deployment_does_not_support_automatic_service": [
+    "此部署不支持自动恢复服务。",
+    "This deployment does not support automatic service recovery."
+  ],
+  "backend.plugin_management.the_plugin_management_request_lacks_valid_page": [
+    "插件管理请求缺少有效的页面凭据。",
+    "The plugin management request lacks valid page credentials."
+  ],
+  "backend.plugin_management.cannot_acquire_the_maintenance_lock_check_permissions": [
+    "无法领取维护锁；请检查权限并停止使用此环境的其他 Web 进程。",
+    "Cannot acquire the maintenance lock. Check permissions and stop other Web processes using this environment."
+  ],
+  "backend.plugin_management.in_the_python_environment_currently_running_web": [
+    "{p1} {p2}，目标是当前 Web 的 Python 环境。",
+    "{p1} {p2} in the Python environment currently running Web."
+  ],
+  "backend.plugin_management.preparing_the_environment_operation": [
+    "正在准备环境操作。",
+    "Preparing the environment operation."
+  ],
+  "backend.plugin_management.component_operation_completed_stop_maintenance_mode_and": [
+    "组件操作完成；请停止维护服务并正常重启 Web 验证。",
+    "Component operation completed. Stop maintenance mode and restart Web normally to verify it."
+  ],
+  "backend.plugin_management.cleanup_pending_retry": [
+    "安装进程清理尚未确认，环境继续保持锁定；请重试恢复服务。",
+    "Installer cleanup has not been confirmed. The environment remains locked. Retry service recovery."
+  ],
+  "backend.plugin_management.installed_package_metadata_cannot_be_safely_parsed": [
+    "已安装组件的元数据无法安全解析；请先修复当前 Python 环境。",
+    "Installed package metadata cannot be safely parsed. Repair the Python environment first."
+  ],
+  "backend.plugin_management.this_component_is_already_installed_use_the": [
+    "此组件已经安装；加载异常请使用修复指引。",
+    "This component is already installed. Use the repair guidance if it fails to load."
+  ],
+  "backend.plugin_management.install": [
+    "安装",
+    "Install"
+  ],
+  "backend.plugin_management.uninstall": [
+    "卸载",
+    "Uninstall"
+  ],
+  "backend.plugin_management.update": [
+    "更新",
+    "Update"
+  ],
+  "backend.plugin_management.after_success_or_failure_stop_maintenance_mode": [
+    "完成或失败后均需停止维护服务，正常重启 Web 并检查组件状态。",
+    "After success or failure, stop maintenance mode, restart Web normally and check component status."
+  ],
+  "backend.plugin_management.this_operation_plan_has_expired_review_and": [
+    "操作计划已失效，请重新查看并确认。",
+    "This operation plan has expired. Review and confirm a new plan."
+  ],
+  "backend.plugin_management.the_python_environment_has_changed_review_and": [
+    "Python 环境已发生变化，请重新查看并确认操作计划。",
+    "The Python environment has changed. Review and confirm a new operation plan."
+  ],
+  "backend.plugin_management.this_component_operation_was_not_found_task": [
+    "找不到此组件操作；服务重启后任务记录不再保留。",
+    "This component operation was not found. Task records are not retained after a service restart."
+  ],
+  "backend.plugin_management.downloading_and_verifying_the_confirmed_update_other": [
+    "正在下载并核验已确认的更新；其他组件版本保持不变。",
+    "Downloading and verifying the confirmed update. Other component versions remain unchanged."
+  ],
+  "backend.plugin_management.the_environment_lock_is_no_longer_valid": [
+    "环境锁已失效，未执行安装工具。",
+    "The environment lock is no longer valid. The installer was not run."
+  ],
+  "backend.plugin_management.the_installer_exited_but_component_metadata_verification": [
+    "安装工具已退出，但组件元数据核验未通过；请检查环境并重启 Web。",
+    "The installer exited, but component metadata verification failed. Check the environment and restart Web."
+  ],
+  "backend.plugin_management.cannot_complete_the_environment_operation_check_it": [
+    "无法完成环境操作；请使用原环境管理工具检查。",
+    "Cannot complete the environment operation. Check it with the original environment tool."
+  ],
+  "backend.plugin_management.cannot_acquire_the_web_environment_lock_check": [
+    "无法领取 Web 环境使用锁；请检查权限或停止正在运行的维护服务。",
+    "Cannot acquire the Web environment lock. Check permissions or stop the running maintenance service."
+  ],
+  "backend.plugin_management.this_component_is_not_installed": [
+    "此组件尚未安装。",
+    "This component is not installed."
+  ],
+  "backend.plugin_management.required_by_uninstall_those_optional_components_first": [
+    "由 {p1} 使用，请先卸载这些可选组件。",
+    "Required by {p1}. Uninstall those optional components first."
+  ],
+  "backend.plugin_management.this_component_is_not_installed_install_it": [
+    "此组件尚未安装，请先安装组件。",
+    "This component is not installed. Install it first."
+  ],
+  "backend.plugin_management.installation_accesses_the_package_source_and_freezes": [
+    "安装会访问软件包源，并冻结所有已安装组件的版本；不兼容时失败，不自动升级。",
+    "Installation accesses the package source and freezes all installed versions. Incompatibility causes failure, not automatic upgrades."
+  ],
+  "backend.plugin_management.only_the_selected_component_is_uninstalled_without": [
+    "仅卸载选中的组件，不自动卸载其依赖。重新安装需要软件源提供兼容版本；开发版或本地安装的组件可能无法恢复。",
+    "Only the selected component is uninstalled, without removing dependencies. Reinstallation needs a compatible package source; development or local packages may not be recoverable."
+  ],
+  "backend.plugin_management.the_update_plan_lacks_a_verified_package": [
+    "更新计划缺少已核验的软件包。",
+    "The update plan lacks a verified package."
+  ],
+  "backend.plugin_management.the_python_environment_changed_during_download_no": [
+    "下载期间 Python 环境已变化，未执行更新；请重新检查更新。",
+    "The Python environment changed during download. No update was performed. Check for updates again."
+  ],
+  "backend.plugin_management.the_environment_changed_during_download_check_for": [
+    "下载期间环境已变化，请重新检查更新。",
+    "The environment changed during download. Check for updates again."
+  ],
+  "backend.plugin_management.only_the_selected_component_is_updated_dependencies": [
+    "仅更新所选组件；依赖和其他已安装包保持当前版本，缺失或不兼容的依赖会阻止执行。",
+    "Only the selected component is updated. Dependencies and other installed packages stay at their current versions; missing or incompatible dependencies block execution."
+  ],
+  "backend.plugin_management.only_a_verified_official_wheel_is_installed": [
+    "只安装已核验的官方 wheel，不自动降级。失败后不会自动回滚；可查看输出并使用原环境管理工具修复。",
+    "Only a verified official wheel is installed, without automatic downgrades. Failure does not roll back automatically; check the output and repair with the original environment tool."
+  ],
+  "backend.plugin_management.cannot_start_the_component_operation": [
+    "无法启动组件操作。",
+    "Cannot start the component operation."
+  ],
+  "backend.plugin_management.the_installer_is_running_wait_for_completion": [
+    "安装工具正在运行，请等待完成。",
+    "The installer is running. Wait for completion."
+  ],
+  "backend.plugin_process.installer_cleanup_has_not_been_confirmed_application": [
+    "安装进程清理尚未确认，业务恢复已暂停。",
+    "Installer cleanup has not been confirmed. Application recovery is paused."
+  ],
+  "backend.plugin_process.the_output_length_limit_was_reached_further": [
+    "输出已达到长度上限，后续输出已省略。",
+    "The output length limit was reached. Further output is omitted."
+  ],
+  "backend.plugin_process.cannot_read_installer_output": [
+    "无法读取安装工具输出。",
+    "Cannot read installer output."
+  ],
+  "backend.plugin_process.the_installer_timed_out_and_is_being": [
+    "安装工具运行超时，正在停止安装进程；请检查环境后重试。",
+    "The installer timed out and is being stopped. Check the environment before retrying."
+  ],
+  "backend.plugin_updates.the_previous_update_check_is_still_finishing": [
+    "上一次更新查询仍在结束，请稍后重试；未修改任何组件。",
+    "The previous update check is still finishing. Retry shortly; no components were changed."
+  ],
+  "backend.plugin_updates.the_update_check_or_download_timed_out": [
+    "更新查询或下载超时，请稍后重试；未修改任何组件。",
+    "The update check or download timed out. Retry shortly; no components were changed."
+  ],
+  "backend.plugin_updates.the_package_download_address_is_not_a": [
+    "软件包下载地址不属于受支持的官方源。",
+    "The package download address is not a supported official source."
+  ],
+  "backend.plugin_updates.the_package_exceeds_the_size_limit_for": [
+    "软件包文件超过当前界面更新的大小限制。",
+    "The package exceeds the size limit for updates from this page."
+  ],
+  "backend.plugin_updates.package_metadata_does_not_match_the_selected": [
+    "软件包元数据与所选更新不一致。",
+    "Package metadata does not match the selected update."
+  ],
+  "backend.plugin_updates.the_latest_stable_version_does_not_support": [
+    "最新稳定版不支持当前 Python；未修改任何组件。",
+    "The latest stable version does not support this Python version. No components were changed."
+  ],
+  "backend.plugin_updates.only_installed_optional_components_can_be_updated": [
+    "只支持更新已安装的可选组件。",
+    "Only installed optional components can be updated."
+  ],
+  "backend.plugin_updates.the_package_sha256_does_not_match_the": [
+    "软件包 SHA256 与确认计划不一致；未执行更新。",
+    "The package SHA256 does not match the confirmed plan. No update was performed."
+  ],
+  "backend.plugin_updates.downloaded_package_dependencies_do_not_match_the": [
+    "下载的软件包依赖与确认计划不一致；未执行更新。",
+    "Downloaded package dependencies do not match the confirmed plan. No update was performed."
+  ],
+  "backend.plugin_updates.the_official_package_is_temporarily_unavailable_retry": [
+    "官方软件包暂不可用，请稍后重试。",
+    "The official package is temporarily unavailable. Retry later."
+  ],
+  "backend.plugin_updates.the_installed_version_is_already_at_or": [
+    "当前版本已不低于官方最新稳定版；不会降级开发版或本地版本。",
+    "The installed version is already at or above the latest official stable version. Development and local versions will not be downgraded."
+  ],
+  "backend.plugin_updates.the_latest_stable_version_does_not_meet": [
+    "最新稳定版尚不满足当前 Web 的 AI 接口要求。",
+    "The latest stable version does not meet the AI interface requirements of this Web version."
+  ],
+  "backend.plugin_updates.the_official_index_has_an_invalid_format": [
+    "官方索引格式无效。",
+    "The official index has an invalid format."
+  ],
+  "backend.plugin_updates.no_wheel_for_the_latest_stable_version": [
+    "最新稳定版没有适用于当前 Python/平台且可预检元数据的 wheel；未修改任何组件。",
+    "No wheel for the latest stable version supports this Python/platform with verifiable metadata. No components were changed."
+  ],
+  "backend.plugin_updates.the_official_package_lacks_a_valid_sha256": [
+    "官方软件包缺少有效的 SHA256 校验。",
+    "The official package lacks a valid SHA256 checksum."
+  ],
+  "backend.plugin_updates.official_package_metadata_verification_failed_check_for": [
+    "官方软件包元数据校验失败，请重新检查更新。",
+    "Official package metadata verification failed. Check for updates again."
+  ],
+  "backend.plugin_updates.this_update_requires_additional_or_coordinated_dependency": [
+    "此更新需要额外安装或联动调整依赖，已阻止执行：{p1}。请使用原环境管理工具成组更新；界面不会隐式修改其他包。",
+    "This update requires additional or coordinated dependency changes and was blocked: {p1}. Use the original environment tool to update the group; this page never changes other packages implicitly."
+  ],
+  "backend.plugin_updates.cannot_complete_the_official_update_compatibility_check": [
+    "无法完成官方更新兼容性检查，请检查网络后重试；未修改任何组件。",
+    "Cannot complete the official update compatibility check. Check the network and retry; no components were changed."
+  ],
+  "backend.plugin_updates.official_package_metadata_cannot_be_safely_parsed": [
+    "官方软件包元数据无法安全解析；未修改任何组件。",
+    "Official package metadata cannot be safely parsed. No components were changed."
+  ],
+  "backend.plugin_updates.cannot_download_the_update_check_the_network": [
+    "无法完成更新包下载，请检查网络后重试；未执行更新。",
+    "Cannot download the update. Check the network and retry; no update was performed."
+  ],
+  "backend.plugin_updates.the_package_file_is_invalid_no_update": [
+    "软件包文件无效；未执行更新。",
+    "The package file is invalid. No update was performed."
+  ],
+  "backend.plugin_updates.no_installation_tool_is_available": [
+    "没有可用的安装工具。",
+    "No installation tool is available."
+  ],
+  "backend.plugin_updates.requires_a_specific_source_for_compatibility_cannot": [
+    "{p1} 依赖 {p2} 的指定来源，无法在界面确认其兼容性",
+    "{p1} requires a specific source for {p2}; compatibility cannot be verified here"
+  ],
+  "backend.plugin_updates.the_package_metadata_is_invalid_no_update": [
+    "软件包元数据无效；未执行更新。",
+    "The package metadata is invalid. No update was performed."
+  ],
+  "backend.plugin_updates.requires_not_installed": [
+    "{p1} 需要 {p2}{p3}（当前未安装）",
+    "{p1} requires {p2}{p3} (not installed)"
+  ],
+  "backend.plugin_updates.requires_installed": [
+    "{p1} 需要 {p2}{p3}（当前 {p4}）",
+    "{p1} requires {p2}{p3} (installed: {p4})"
+  ],
+  "backend.runtime_lifecycle.requests_or_background_tasks_are_still_running": [
+    "当前仍有请求或后台任务运行，请等待完成后再管理插件。",
+    "Requests or background tasks are still running. Wait for them to finish before managing plugins."
+  ],
+  "backend.runtime_lifecycle.plugins_are_being_updated_continue_when_the": [
+    "正在更新插件，服务恢复后即可继续使用。",
+    "Plugins are being updated. Continue when the service resumes."
+  ],
+  "backend.runtime_session.a_connection_uses_an_in_memory_sqlite": [
+    "当前连接包含 SQLite 内存数据库，更新插件会丢失内存数据；请先保存数据并断开该连接。",
+    "A connection uses an in-memory SQLite database. Updating plugins would lose that data; save it and disconnect first."
+  ],
+  "backend.runtime_session.cannot_restore_this_connection_check_database_access": [
+    "无法恢复此连接，请检查数据库可访问性并重新连接。",
+    "Cannot restore this connection. Check database access and connect again."
+  ],
+  "backend.settings_environment.offline_generation_constraints_and_database_writes": [
+    "离线生成、约束处理与数据库写入",
+    "Offline generation, constraints and database writes"
+  ],
+  "backend.settings_environment.required_by_this_application_faker_is_a": [
+    "当前应用必需；Faker 是 Core 的必需依赖。",
+    "Required by this application. Faker is a required Core dependency."
+  ],
+  "backend.settings_environment.the_current_browser_workbench": [
+    "当前浏览器工作台",
+    "The current browser workbench"
+  ],
+  "backend.settings_environment.the_current_web_application_installing_it_also": [
+    "当前 Web 应用；安装时会同时安装 Core。",
+    "The current Web application. Installing it also installs Core."
+  ],
+  "backend.settings_environment.suggest_rules_from_table_structure_and_business": [
+    "根据表结构与业务说明提出规则建议",
+    "Suggest rules from table structure and business descriptions"
+  ],
+  "backend.settings_environment.optional_ai_extension_installing_it_also_installs": [
+    "可选 AI 扩展；安装时会同时安装 Core 和 CLI。",
+    "Optional AI extension. Installing it also installs Core and CLI."
+  ],
+  "backend.settings_environment.configure_preview_and_generate_data_in_the": [
+    "在终端配置、预览和生成数据",
+    "Configure, preview and generate data in the terminal"
+  ],
+  "backend.settings_environment.basic_web_features_do_not_require_cli": [
+    "基础 Web 功能无需 CLI；安装 AI 扩展时会一并安装。",
+    "Basic Web features do not require CLI. It is installed with the AI extension."
+  ],
+  "backend.settings_environment.expose_rule_generation_and_data_filling_to": [
+    "供 MCP 客户端调用规则生成与填充能力",
+    "Expose rule generation and data filling to MCP clients"
+  ],
+  "backend.settings_environment.for_mcp_clients_requires_core_without_ai": [
+    "供 MCP 客户端使用；依赖 Core，无需 AI 或 CLI。",
+    "For MCP clients. Requires Core, without AI or CLI."
+  ],
+  "backend.settings_environment.built_in_basic_values_and_semantic_placeholders": [
+    "内置基础数据与语义占位值",
+    "Built-in basic values and semantic placeholders"
+  ],
+  "backend.settings_environment.built_into_core_no_separate_installation_is": [
+    "随 Core 内置，无需单独安装。",
+    "Built into Core; no separate installation is needed."
+  ],
+  "backend.settings_environment.localized_test_data_such_as_names_and": [
+    "姓名、地址等本地化测试数据",
+    "Localized test data such as names and addresses"
+  ],
+  "backend.settings_environment.required_by_sqlseed_and_installed_with_it": [
+    "sqlseed 的必需依赖，随 sqlseed 安装。",
+    "Required by sqlseed and installed with it."
+  ],
+  "backend.settings_environment.an_alternative_localized_data_implementation": [
+    "另一种本地化数据实现，可按场景选择",
+    "An alternative localized data implementation"
+  ],
+  "backend.settings_environment.an_optional_generation_engine_base_and_faker": [
+    "按需安装的生成引擎；未安装时仍可使用 Base 和 Faker。",
+    "An optional generation engine. Base and Faker remain available without it."
+  ],
+  "backend.settings_environment.the_ai_component_is_not_installed_so": [
+    "尚未安装 AI 插件，AI 服务检测与规则分析不可用。请在设置的插件页安装 AI；手动配置与生成仍可使用。",
+    "The AI component is not installed, so AI suggestions and connection tests are unavailable. Install AI in Settings → Plugins. Manual rules and generation remain available."
+  ],
+  "backend.settings_environment.the_ai_component_failed_to_load_or": [
+    "AI 插件加载异常或版本不兼容，AI 服务检测与规则分析不可用。请在插件页查看修复指引，确认有可安装的兼容版本后再卸载重装。",
+    "The AI component failed to load or is incompatible, so AI suggestions and connection tests are unavailable. Read the repair guidance in Plugins; verify a compatible version is available before reinstalling."
+  ],
+  "backend.settings_environment.installed_runtime_availability_will_be_checked_after": [
+    "已安装；服务恢复后验证运行状态",
+    "Installed; runtime availability will be checked after service recovery"
+  ],
+  "backend.settings_environment.installed_and_importable_in_the_current_python": [
+    "当前 Python 环境已安装且可导入",
+    "Installed and importable in the current Python environment"
+  ],
+  "backend.settings_environment.installed_but_failed_to_load_or_is": [
+    "已安装，但加载失败或版本不兼容；请在插件页查看修复指引",
+    "Installed but failed to load or is incompatible. See repair guidance in Plugins"
+  ],
+  "backend.settings_environment.not_installed_in_the_current_python_environment": [
+    "当前 Python 环境未安装；请在插件页安装后使用",
+    "Not installed in the current Python environment. Install it in Plugins to use it"
+  ],
+  "backend.settings_environment.loading_failed_repair_dependencies_in_the_python": [
+    " 加载异常，请检查运行 Web 的 Python 环境依赖，修复后重启服务。",
+    " Loading failed. Repair dependencies in the Python environment running Web, then restart the service."
+  ],
+  "backend.settings_environment.targets_the_exact_python_interpreter_running_web": [
+    "直接指定当前 Web 使用的 Python 解释器；完成后重启 Web 服务。",
+    "Targets the exact Python interpreter running Web. Restart Web after completion."
+  ],
+  "backend.settings_environment.portable_activated_environment": [
+    "通用（已激活环境）",
+    "Portable (activated environment)"
+  ],
+  "backend.settings_environment.activate_the_environment_running_web_run_python": [
+    "先激活运行 Web 的环境，执行 python -c \"import sys; print(sys.executable)\"，确认输出与页面的 Python 路径一致；完成后重启 Web 服务。",
+    "Activate the environment running Web, run python -c \"import sys; print(sys.executable)\", and verify it matches the Python path shown here. Restart Web after completion."
+  ],
+  "backend.settings_environment.commands_target_the_python_interpreter_running_web": [
+    "命令针对当前 Web 使用的 Python 解释器；完成后重启 Web 服务。",
+    "Commands target the Python interpreter running Web. Restart Web after completion."
+  ],
+  "backend.settings_environment.no_usable_pip_or_uv_was_detected": [
+    "未检测到可用的 pip 或 uv。请使用创建此 Python 环境的工具安装或修复组件，完成后重启 Web 服务。",
+    "No usable pip or uv was detected. Install or repair components with the tool that created this Python environment, then restart Web."
+  ],
+  "backend.settings_environment.to_use_it_install_it_in_the": [
+    " 如需使用，请在运行 Web 的 Python 环境中安装，然后重启服务。",
+    " To use it, install it in the Python environment running Web and restart the service."
+  ],
+  "backend.settings_environment.powershell_exact_path": [
+    "PowerShell（精确路径）",
+    "PowerShell (exact path)"
+  ],
+  "backend.settings_environment.macos_linux_exact_path": [
+    "macOS / Linux（精确路径）",
+    "macOS / Linux (exact path)"
+  ],
+  "backend.settings_environment.cmd_exact_path": [
+    "CMD（精确路径）",
+    "CMD (exact path)"
+  ],
+  "backend.settings_environment.run_in_windows_command_prompt_targeting_the": [
+    "在 Windows 命令提示符中执行，直接指定当前 Web 的 Python 解释器；完成后重启 Web 服务。",
+    "Run in Windows Command Prompt, targeting the exact Python interpreter running Web. Restart Web after completion."
+  ],
+  "backend.settings_environment.a_required_dependency_is_missing_repair_the": [
+    "必需依赖缺失，请修复运行 Web 的 Python 环境。",
+    "A required dependency is missing. Repair the Python environment running Web."
+  ],
+  "backend.sqlite_target.sqlite_shared_memory": [
+    "SQLite 共享内存：{p1}",
+    "SQLite shared memory: {p1}"
+  ],
+  "backend.sqlite_target.sqlite_uri_contains_raw_control_characters_percent": [
+    "SQLite URI 含原始控制字符；请对文件名中的 TAB、CR、LF 使用百分号编码",
+    "SQLite URI contains raw control characters. Percent-encode TAB, CR and LF in filenames."
+  ],
+  "backend.sqlite_target.sqlite_uri_does_not_support_nul_characters": [
+    "SQLite URI 不支持 NUL 字符；请检查路径和查询参数中的百分号编码",
+    "SQLite URI does not support NUL characters. Check percent encoding in its path and query parameters."
+  ],
+  "backend.sqlite_target.web_does_not_support_custom_sqlite_vfs": [
+    "Web 暂不支持 SQLite 自定义 VFS；请使用默认 VFS 的文件或内存连接",
+    "Web does not support custom SQLite VFS. Use a file or memory connection with the default VFS."
+  ],
+  "backend.sqlite_target.the_database_file_does_not_exist_or": [
+    "数据库文件不存在或不是普通文件；请选择已有的 SQLite 数据库文件。",
+    "The database file does not exist or is not a regular file. Select an existing SQLite database file."
+  ],
+  "backend.sqlite_target.sqlite_uri_contains_invalid_utf_8_encoding": [
+    "SQLite URI 使用了无效 UTF-8 编码；请使用有效 UTF-8 文件名和参数",
+    "SQLite URI contains invalid UTF-8 encoding. Use valid UTF-8 filenames and parameters."
+  ],
+  "backend.state.this_connection_has_a_running_task_wait": [
+    "当前连接有任务正在运行，请等待任务完成后再断开。",
+    "This connection has a running task. Wait for completion before disconnecting."
+  ],
+  "backend.state.this_connection_is_handling_a_request_wait": [
+    "当前连接正在处理请求，请等待完成后再断开。",
+    "This connection is handling a request. Wait for completion before disconnecting."
+  ],
+  "backend.state.connection_request_busy": [
+    "当前连接正在处理请求，请等待完成后重试。",
+    "This connection is handling a request. Wait for completion and retry."
+  ],
+  "backend.state.connection_task_busy": [
+    "当前连接有任务正在运行，请等待完成后重试。",
+    "This connection has a running task. Wait for completion and retry."
+  ],
+  "backend.state.a_generation_task_is_already_running_for": [
+    "此数据库已有生成任务正在运行，请查看运行记录并等待完成。",
+    "A generation task is already running for this database. Check Run history and wait for completion."
+  ],
+  "backend.state.connection_busy_before_generation": [
+    "当前连接正在处理请求，请等待完成后再生成。",
+    "This connection is handling a request. Wait for completion before generating."
+  ],
+  "backend.state.the_background_task_stopped_unexpectedly_check_the": [
+    "后台任务意外终止，请检查服务日志后重试。",
+    "The background task stopped unexpectedly. Check the service logs before retrying."
+  ],
+  "backend.supervised_plugins.the_component_operation_did_not_complete": [
+    "组件操作未完成。",
+    "The component operation did not complete."
+  ],
+  "backend.supervised_plugins.the_component_operation_did_not_complete_the": [
+    "组件操作未完成，业务服务已恢复；请检查服务日志后重试。",
+    "The component operation did not complete; the application has resumed. Check the service logs before retrying."
+  ],
+  "backend.supervised_plugins.the_application_has_not_resumed_retry_recovery": [
+    "业务服务未恢复，请点击重试恢复；不会重复安装或卸载。",
+    "The application has not resumed. Retry recovery; installation or uninstallation will not be repeated."
+  ],
+  "backend.supervised_plugins.the_application_has_not_resumed_retry_service": [
+    "业务服务未恢复，请在页面重试恢复服务。",
+    "The application has not resumed. Retry service recovery on this page."
+  ],
+  "backend.supervised_plugins.a_component_operation_is_running_the_application": [
+    "正在处理组件操作，业务服务将自动恢复。",
+    "A component operation is running. The application will resume automatically."
+  ],
+  "backend.supervised_plugins.restoring_the_application_and_connections": [
+    "正在恢复业务服务与连接。",
+    "Restoring the application and connections."
+  ],
+  "backend.supervised_plugins.the_workbench_pauses_briefly_during_the_operation": [
+    "操作期间会短暂暂停工作台；完成后自动恢复服务与可恢复的连接，无需手动重启。",
+    "The workbench pauses briefly during the operation. The service and recoverable connections resume automatically, without a manual restart."
+  ],
+  "backend.supervised_plugins.preserving_connections_and_preparing_the_component_operation": [
+    "正在暂存连接并准备组件操作。",
+    "Preserving connections and preparing the component operation."
+  ],
+  "backend.supervised_plugins.component_operation": [
+    "正在{p1}组件。",
+    "Component operation: {p1}."
+  ],
+  "backend.supervised_plugins.precheck_failed_service_restored": [
+    "组件操作未完成，业务服务已恢复；环境未通过操作前检查。",
+    "The component operation did not complete; the application has resumed. The environment failed pre-operation checks."
+  ],
+  "backend.supervised_plugins.retrying_application_recovery": [
+    "正在重试恢复业务服务。",
+    "Retrying application recovery."
+  ],
+  "backend.supervised_plugins.install": [
+    "安装",
+    "Install"
+  ],
+  "backend.supervised_plugins.uninstall": [
+    "卸载",
+    "Uninstall"
+  ],
+  "backend.supervised_plugins.update": [
+    "更新",
+    "Update"
+  ],
+  "backend.supervised_plugins.the_component_operation_did_not_complete_restoring": [
+    "组件操作未完成，正在自动恢复业务服务。",
+    "The component operation did not complete. Restoring the application automatically."
+  ],
+  "backend.supervised_plugins.the_component_operation_completed_and_the_application": [
+    "组件操作完成，业务服务已自动恢复。",
+    "The component operation completed and the application resumed automatically."
+  ],
+  "backend.supervised_plugins.the_component_operation_failed_the_application_has": [
+    "组件操作失败，业务服务已恢复；请查看输出后重试。",
+    "The component operation failed; the application has resumed. Check the output before retrying."
+  ],
+  "backend.supervised_plugins.installer_cleanup_has_not_been_confirmed_the": [
+    "安装进程清理尚未确认，环境保持锁定；请点击重试恢复，不会重复安装或卸载。",
+    "Installer cleanup has not been confirmed. The environment remains locked. Retry recovery; installation or uninstallation will not be repeated."
+  ],
+  "backend.supervised_plugins.cannot_restore_the_service_yet_retry_shortly": [
+    "暂时无法恢复服务，请稍后重试。",
+    "Cannot restore the service yet. Retry shortly."
+  ],
+  "backend.supervised_plugins.the_service_does_not_need_recovery": [
+    "当前服务无需恢复。",
+    "The service does not need recovery."
+  ],
+  "backend.supervisor.the_application_process_stopped_unexpectedly_reconfigure_connections": [
+    "业务进程意外退出，原有连接与会话密钥需要重新配置。",
+    "The application process stopped unexpectedly. Reconfigure connections and session keys."
+  ],
+  "backend.supervisor.another_web_service_is_using_this_python": [
+    "此 Python 环境正被另一个 Web 服务使用，无法启动受管服务。",
+    "Another Web service is using this Python environment. Cannot start the managed service."
+  ],
+  "backend.supervisor.the_application_process_is_temporarily_unavailable": [
+    "业务进程暂不可用。",
+    "The application process is temporarily unavailable."
+  ],
+  "backend.supervisor.the_service_listening_port_is_unavailable": [
+    "服务监听端口不可用。",
+    "The service listening port is unavailable."
+  ],
+  "backend.supervisor.application_startup_did_not_complete_retry_recovery": [
+    "业务服务启动未完成，请在页面重试恢复。",
+    "Application startup did not complete. Retry recovery on this page."
+  ],
+  "backend.supervisor.the_application_process_has_not_exited_naturally": [
+    "业务进程尚未自然退出，未执行环境变更。",
+    "The application process has not exited naturally. No environment changes were made."
+  ],
+  "backend.supervisor.the_application_is_not_ready_yet": [
+    "业务服务尚未就绪。",
+    "The application is not ready yet."
+  ],
+  "backend.workbench.the_schema_has_changed_refresh_it_before": [
+    "schema 已变化，请刷新后保存",
+    "The schema has changed. Refresh it before saving."
+  ],
+  "backend.workbench_ai.a_suggestion": [
+    "一条建议",
+    "A suggestion"
+  ],
+  "backend.workbench_ai.reading_the_schema_and_current_rules": [
+    "正在读取结构与当前规则…",
+    "Reading the schema and current rules…"
+  ],
+  "backend.workbench_ai.waiting_for_ai_to_analyze_fields_and": [
+    "正在等待 AI 分析字段与关系…",
+    "Waiting for AI to analyze fields and relationships…"
+  ],
+  "backend.workbench_ai.validating_suggestion_scope_parameters_and_field_dependencies": [
+    "正在校验建议范围、参数与字段依赖…",
+    "Validating suggestion scope, parameters and field dependencies…"
+  ],
+  "backend.workbench_ai.the_generator_was_matched_by_field_name": [
+    "根据字段名称与类型匹配生成器，请结合业务含义确认。",
+    "The generator was matched by field name and type. Confirm that it fits the business meaning."
+  ],
+  "backend.workbench_ai.select_a_model": [
+    "选择模型",
+    "Select a model"
+  ],
+  "backend.workbench_ai.enter_an_api_key": [
+    "填写 API Key",
+    "Enter an API Key"
+  ],
+  "backend.workbench_ai.required_fields_are_filled_in_this_does": [
+    "必需字段已填写；尚不代表连接或 AI 分析成功。",
+    "Required fields are filled in; this does not confirm connectivity or successful AI analysis."
+  ],
+  "backend.workbench_ai.the_model_list_endpoint_is_reachable_no": [
+    "模型列表接口可用；尚未执行 AI 分析，请确认所选模型支持分析。",
+    "The model list endpoint is reachable. No AI analysis was performed; confirm the selected model supports analysis."
+  ],
+  "backend.workbench_ai.configure_the_ai_service_and_model_first": [
+    "请先配置 AI 服务和模型",
+    "Configure the AI service and model first"
+  ],
+  "backend.workbench_ai.the_schema_is_too_large_select_fewer": [
+    "结构过大，请选择较少的表分析",
+    "The schema is too large. Select fewer tables to analyze."
+  ],
+  "backend.workbench_ai.pattern_requires_a_non_empty_regular_expression": [
+    "pattern 必须提供非空正则表达式 pattern 或 regex",
+    "pattern requires a non-empty regular expression in pattern or regex"
+  ],
+  "backend.workbench_ai.incorrect_generator_parameter_type_or_option": [
+    "生成器参数类型或选项不正确",
+    "Incorrect generator parameter type or option"
+  ],
+  "backend.workbench_ai.ai_suggestions_cannot_contain_runtime_data_or": [
+    "AI 建议不接受运行时数据或文件路径",
+    "AI suggestions cannot contain runtime data or file paths"
+  ],
+  "backend.workbench_ai.the_generator_parameter_is_not_in_the": [
+    "生成器参数不在可用目录中",
+    "The generator parameter is not in the available catalog"
+  ],
+  "backend.workbench_ai.the_table_is_outside_the_analysis_scope": [
+    "表不在当前分析范围或建议重复",
+    "The table is outside the analysis scope or the suggestion is duplicated"
+  ],
+  "backend.workbench_ai.the_column_is_outside_the_allowed_edit": [
+    "列不在允许修改范围",
+    "The column is outside the allowed edit scope"
+  ],
+  "backend.workbench_ai.the_generator_is_not_in_the_available": [
+    "生成器不在可用目录中",
+    "The generator is not in the available catalog"
+  ],
+  "backend.workbench_ai.database_managed_foreign_key_and_derived_fields": [
+    "数据库管理、外键或派生字段保持原规则",
+    "Database-managed, foreign-key and derived fields retain their current rules"
+  ],
+  "backend.workbench_ai.the_database_schema_has_changed_refresh_before": [
+    "数据库结构已变化，请刷新后分析",
+    "The database schema has changed. Refresh before analyzing."
+  ],
+  "backend.workbench_ai.the_analysis_scope_contains_a_table_that": [
+    "分析范围包含不存在的表",
+    "The analysis scope contains a table that no longer exists"
+  ],
+  "backend.workbench_ai.ai_requests_cannot_contain_connection_addresses": [
+    "AI 请求不能包含连接地址",
+    "AI requests cannot contain connection addresses"
+  ],
+  "backend.workbench_ai.unselected_table_drafts_are_duplicated_or_conflict": [
+    "未选表草稿重复或与生成范围冲突",
+    "Unselected table drafts are duplicated or conflict with the generation scope"
+  ],
+  "backend.workbench_ai.the_allowed_edit_scope_must_match_the": [
+    "允许修改范围必须与分析表一致",
+    "The allowed edit scope must match the tables being analyzed"
+  ],
+  "backend.workbench_ai.enter_a_base_url": [
+    "填写 Base URL",
+    "Enter a Base URL"
+  ],
+  "backend.workbench_ai.invalid_ai_environment_configuration_check_the_backend": [
+    "AI 环境配置无效，请检查后端、地址与模型设置。",
+    "Invalid AI environment configuration. Check the backend, address and model."
+  ],
+  "backend.workbench_ai.hosted_ai_services_require_their_own_api": [
+    "在线 AI 服务需要当前服务的 API Key；本地 Ollama / LM Studio 无需填写。",
+    "Hosted AI services require their own API Key. Local Ollama / LM Studio do not."
+  ],
+  "backend.workbench_ai.the_ai_service_returned_http_check_the": [
+    "AI 服务返回 HTTP {p1}，请检查地址和认证。",
+    "The AI service returned HTTP {p1}. Check the address and authentication."
+  ],
+  "backend.workbench_ai.the_response_is_not_a_valid_model": [
+    "服务响应不是有效的模型列表，请检查 Base URL。",
+    "The response is not a valid model list. Check the Base URL."
+  ],
+  "backend.workbench_ai.cannot_connect_to_the_ai_service_check": [
+    "无法连接 AI 服务，请检查服务是否启动，以及地址和认证设置。",
+    "Cannot connect to the AI service. Check that it is running and verify its address and authentication."
+  ],
+  "backend.workbench_ai.pattern_contains_an_invalid_regular_expression": [
+    "pattern 的正则表达式无效",
+    "pattern contains an invalid regular expression"
+  ],
+  "backend.workbench_ai.the_lower_parameter_bound_cannot_exceed_the": [
+    "参数下限不能超过上限",
+    "The lower parameter bound cannot exceed the upper bound"
+  ],
+  "backend.workbench_ai.a_required_generator_parameter_is_missing": [
+    "缺少必填生成器参数",
+    "A required generator parameter is missing"
+  ],
+  "backend.workbench_ai.ai_returned_no_usable_content_check_the": [
+    "AI 未返回可用的回答内容。请检查模型运行状态后重试；当前规则未改变。",
+    "AI returned no usable content. Check the model and retry; current rules are unchanged."
+  ],
+  "backend.workbench_ai.the_ai_response_reached_its_output_limit": [
+    "AI 回答达到输出长度上限，建议未完整返回。请缩小分析范围后重试；当前规则未改变。",
+    "The AI response reached its output limit and is incomplete. Reduce the analysis scope and retry; current rules are unchanged."
+  ],
+  "backend.workbench_ai.the_ai_response_is_not_complete_valid": [
+    "AI 回答不是完整有效的 JSON。请缩小分析范围后重试，或更换模型；当前规则未改变。",
+    "The AI response is not complete, valid JSON. Reduce the scope or change the model; current rules are unchanged."
+  ],
+  "backend.workbench_ai.ai_analysis_failed_check_the_service_and": [
+    "AI 分析失败，请检查服务后重试；当前规则未改变。",
+    "AI analysis failed. Check the service and retry; current rules are unchanged."
+  ],
+  "backend.workbench_ai.the_allowed_edit_scope_contains_missing_or": [
+    "允许修改范围包含不存在或重复的列",
+    "The allowed edit scope contains missing or duplicated columns"
+  ],
+  "backend.workbench_ai.the_schema_changed_during_analysis_refresh_and": [
+    "分析期间数据库结构已变化，请刷新后重新分析",
+    "The schema changed during analysis. Refresh and analyze again."
+  ],
+  "backend.workbench_ai.generating_read_only_samples_and_checking_constraints": [
+    "正在生成只读样例并检查约束…",
+    "Generating read-only samples and checking constraints…"
+  ],
+  "backend.workbench_ai.ignored": [
+    "{p1}：{p2}，已忽略。",
+    "{p1}: {p2}; ignored."
+  ],
+  "backend.workbench_ai.the_ai_response_does_not_have_the": [
+    "AI 返回的规则结构不符合要求（需要 suggestions 建议列表）。请缩小分析范围后重试，或更换模型。当前规则未改变。",
+    "The AI response does not have the required suggestions list. Reduce the scope or change the model; current rules are unchanged."
+  ],
+  "backend.workbench_ai.the_ai_service_timed_out_check_the": [
+    "AI 服务响应超时，请检查服务或缩小分析范围后重试。",
+    "The AI service timed out. Check the service or reduce the analysis scope before retrying."
+  ],
+  "backend.workbench_ai.connection_failed_during_analysis": [
+    "无法连接 AI 服务，请检查服务地址和运行状态。",
+    "Cannot connect to the AI service. Check its address and status."
+  ],
+  "backend.workbench_ai.ai_authentication_failed_check_the_api_key": [
+    "AI 服务认证失败，请检查访问密钥和权限。",
+    "AI authentication failed. Check the API Key and permissions."
+  ],
+  "backend.workbench_ai.the_ai_model_or_endpoint_was_not": [
+    "AI 模型或接口不存在（HTTP 404），请检查模型名称和服务地址。",
+    "The AI model or endpoint was not found (HTTP 404). Check the model name and service address."
+  ],
+  "backend.workbench_ai.the_ai_service_rejected_the_request_http": [
+    "AI 服务拒绝请求（HTTP {p1}），请检查模型及接口兼容性。",
+    "The AI service rejected the request (HTTP {p1}). Check model and endpoint compatibility."
+  ],
+  "backend.workbench_ai.the_ai_service_failed_http_check_its": [
+    "AI 服务异常（HTTP {p1}），请检查服务状态后重试。",
+    "The AI service failed (HTTP {p1}). Check its status before retrying."
+  ],
+  "backend.workbench_ai.ai_requests_are_rate_limited_retry_later": [
+    "AI 服务请求受限，请稍后重试。",
+    "AI requests are rate limited. Retry later."
+  ],
+  "backend.workbench_ai.the_ai_response_could_not_be_parsed": [
+    "AI 返回内容无法解析为规则，请重新分析。",
+    "The AI response could not be parsed as rules. Analyze again."
+  ],
+  "backend.workbench_ai.the_generated_value_type_does_not_satisfy": [
+    "生成值类型不满足 CHECK 约束，请检查候选规则。",
+    "The generated value type does not satisfy the CHECK constraint. Review the suggested rule."
+  ],
+  "backend.workbench_ai.read_only_samples_from_the_same_row": [
+    "同一行的只读样例，未写入数据库。",
+    "Read-only samples from the same row. Nothing was written to the database."
+  ],
+  "backend.workbench_ai.referenced_source_rows_have_not_been_generated": [
+    "该表的引用来源尚待生成；已验证独立规则，完整样例请在应用后预览。",
+    "Referenced source rows have not been generated yet. Independent rules were validated; preview complete samples after applying."
+  ],
+  "backend.workbench_ai.the_candidate_configuration_has_invalid_sources_or": [
+    "候选配置存在无效来源或循环依赖；相关建议未应用。",
+    "The candidate configuration has invalid sources or circular dependencies. Related suggestions were not applied."
+  ],
+  "backend.workbench_ai.the_complete_candidate_configuration_passed_read_only": [
+    "整份候选配置已通过只读检查；应用后仍需预览、检查。",
+    "The complete candidate configuration passed read-only checks. Preview and check again after applying."
+  ],
+  "backend.workbench_ai.the_complete_candidate_configuration_failed_read_only": [
+    "整份候选配置未通过只读检查，请先检查现有配置与数据来源。",
+    "The complete candidate configuration failed read-only checks. Review current rules and data sources first."
+  ],
+  "backend.workbench_ai.the_candidate_configuration_cannot_satisfy_database_or": [
+    "候选配置无法满足数据库或生成规则约束，建议未应用。",
+    "The candidate configuration cannot satisfy database or generation constraints. Suggestions were not applied."
+  ],
+  "backend.workbench_ai.settings_were_not_saved_the_user_settings": [
+    "设置未保存：无法写入用户设置文件，当前生效配置未更改。",
+    "Settings were not saved: the user settings file is not writable. The effective configuration is unchanged."
+  ],
+  "backend.workbench_ai.invalid_ai_configuration_check_environment_variables_backend": [
+    "AI 配置无效，请检查环境变量、后端和地址。",
+    "Invalid AI configuration. Check environment variables, backend and address."
+  ],
+  "backend.workbench_ai.candidate_values_cannot_be_empty": [
+    "候选值不能为空",
+    "Candidate values cannot be empty"
+  ],
+  "backend.workbench_ai.invalid_ai_service_configuration_check_settings": [
+    "AI 服务配置无效，请检查设置。",
+    "Invalid AI service configuration. Check Settings."
+  ],
+  "backend.workbench_ai.the_candidate_configuration_failed_field_dependency_checks": [
+    "候选配置的字段依赖检查未通过。",
+    "The candidate configuration failed field dependency checks."
+  ],
+  "backend.workbench_ai.the_field_generator_or_parameters_are_outside": [
+    "字段、生成器或参数不符合支持范围",
+    "The field, generator or parameters are outside the supported scope"
+  ],
+  "backend.workbench_ai_relations.explicitly_describe_business_relationships_between_fields_in": [
+    "请确认同一行字段之间的业务关系。",
+    "Explicitly describe business relationships between fields in the same row."
+  ],
+  "backend.workbench_ai_relations.copy_requires_one_compatible_source_column": [
+    "复制需要兼容的单个来源",
+    "Copy requires one compatible source column"
+  ],
+  "backend.workbench_ai_relations.concatenation_supports_only_text_columns_and_a": [
+    "拼接仅支持文本字段与不超过 32 字的分隔符",
+    "Concatenation supports only text columns and a separator of at most 32 characters"
+  ],
+  "backend.workbench_ai_relations.product_requires_two_numeric_columns_and_precision": [
+    "乘积需要两个数值字段，精度为 0–8",
+    "Product requires two numeric columns and precision from 0 to 8"
+  ],
+  "backend.workbench_ai_relations.an_integer_target_requires_integer_sources": [
+    "整数目标需要整数来源",
+    "An integer target requires integer sources"
+  ],
+  "backend.workbench_ai_relations.date_offset_requires_matching_date_types_and": [
+    "日期偏移需要相同日期类型，天数为 -36500–36500",
+    "Date offset requires matching date types and an offset from -36500 to 36500 days"
+  ],
+  "backend.workbench_ai_relations.the_source_column_is_duplicated_or_does": [
+    "来源不能重复或引用自身",
+    "The source column is duplicated or does not exist"
+  ],
+  "backend.workbench_ai_relations.the_source_must_be_an_ordinary_independently": [
+    "来源必须是同一行中可生成的普通或派生字段",
+    "The source must be an ordinary, independently generated column in the same table"
+  ],
+  "backend.workbench_ai_relations.a_nullable_source_cannot_silently_become_a": [
+    "可空来源不能派生为不可空目标",
+    "A nullable source cannot silently become a non-nullable target"
+  ],
+  "backend.workbench_ai_relations.the_sample_does_not_satisfy_the_check": [
+    "生成值不满足 CHECK 下界（{p1} {p2}）",
+    "The sample does not satisfy the CHECK lower bound ({p1} {p2})"
+  ],
+  "backend.workbench_ai_relations.check_upper_bound": [
+    "生成值不满足 CHECK 上界（{p1} {p2}）",
+    "The sample does not satisfy the CHECK upper bound ({p1} {p2})"
+  ],
+  "backend.workbench_ai_relations.the_sample_is_outside_the_check_candidate": [
+    "生成值不满足 CHECK 候选范围",
+    "The sample is outside the CHECK candidate range"
+  ],
+  "backend.workbench_ai_relations.the_sample_length_does_not_satisfy_check": [
+    "生成值长度不满足 CHECK（最少 {p1}，最多 {p2}）",
+    "The sample length does not satisfy CHECK (minimum {p1}, maximum {p2})"
+  ],
+  "backend.workbench_ai_relations.a_relation_source_is_unavailable": [
+    "派生来源不存在",
+    "A relation source is unavailable"
+  ],
+  "backend.workbench_ai_relations.unlimited": [
+    "不限",
+    "unlimited"
+  ],
+  "backend.workbench_ai_stream.ai_analysis_failed_please_retry": [
+    "AI 分析失败，请重试。",
+    "AI analysis failed. Please retry."
+  ],
+  "backend.workbench_ai_stream.analysis_cancelled": [
+    "分析已取消。",
+    "Analysis cancelled."
+  ],
+  "backend.workbench_ai_stream.analysis_exceeded_the_time_limit_reduce_the": [
+    "分析超过时间限制，请缩小范围后重试。",
+    "Analysis exceeded the time limit. Reduce the scope and retry."
+  ],
+  "backend.workbench_ai_stream.ai_analysis_for_this_connection_has_not": [
+    "此连接的 AI 分析尚未结束，请稍后重试。",
+    "AI analysis for this connection has not finished. Retry shortly."
+  ],
+  "backend.workbench_ai_stream.ai_analysis_did_not_complete_retry_current": [
+    "AI 分析未完成，请重试；当前规则未改变。",
+    "AI analysis did not complete. Retry; current rules are unchanged."
+  ],
+  "backend.workbench_data.this_connection_is_handling_a_request_retry": [
+    "当前连接正在处理请求，请稍后重试。",
+    "This connection is handling a request. Retry shortly."
+  ],
+  "backend.workbench_data.the_connection_or_run_no_longer_exists": [
+    "连接或运行记录已不存在，请刷新后重试。",
+    "The connection or run no longer exists. Refresh and retry."
+  ],
+  "backend.workbench_data.cannot_read_data_check_the_connection_table": [
+    "读取数据失败，请检查连接、表结构和读取权限后重试。",
+    "Cannot read data. Check the connection, table structure and read permissions before retrying."
+  ],
+  "backend.workbench_data.this_table_no_longer_exists_reload_the": [
+    "该表已不存在，请重新读取数据库结构。",
+    "This table no longer exists. Reload the database schema."
+  ],
+  "backend.workbench_data.the_current_connection_does_not_match_the": [
+    "当前连接与运行记录的数据库不一致，请重新选择连接。",
+    "The current connection does not match the run's database. Select the correct connection."
+  ],
+  "backend.workbench_data.this_table_is_outside_this_run_s": [
+    "该表不属于这条运行记录的生成范围。",
+    "This table is outside this run's generation scope."
+  ],
+  "backend.workbench_execution.execution_options_support_only_mode_and_reset": [
+    "执行选项只支持 mode 与 reset_identity",
+    "Execution options support only mode and reset_identity"
+  ],
+  "backend.workbench_execution.execution_mode_must_be_append_or_replace": [
+    "执行方式必须为 append 或 replace_selected，重置 ID 必须为布尔值",
+    "Execution mode must be append or replace_selected, and reset_identity must be a boolean"
+  ],
+  "backend.workbench_execution.ids_can_be_reset_only_when_clearing": [
+    "只有清空所选表时才能重置 ID",
+    "IDs can be reset only when clearing the selected tables"
+  ],
+  "backend.workbench_execution.enriches_rules_from_existing_data_clearing_would": [
+    "{p1} 启用了从现有数据增强规则，清空会移除其来源；请关闭增强或使用追加。",
+    "{p1} enriches rules from existing data. Clearing would remove its source; disable enrichment or append instead."
+  ],
+  "backend.workbench_execution.unselected_table_references_clearing_would_affect_data": [
+    "未选表 {p1} 引用 {p2}，清空会影响所选范围外的数据；请一并选择相关表或使用追加。",
+    "Unselected table {p1} references {p2}. Clearing would affect data outside the selected scope; select related tables too, or append instead."
+  ],
+  "backend.workbench_execution.uses_a_regular_sqlite_integer_primary_key": [
+    "{p1} 使用普通 SQLite INTEGER 主键；清空后数据库可能自然从 1 分配，与重置 AUTOINCREMENT 选项无关。",
+    "{p1} uses a regular SQLite INTEGER primary key. After clearing, the database may naturally allocate from 1, independently of the AUTOINCREMENT reset option."
+  ],
+  "backend.workbench_execution.has_trigger_rebuilding_cannot_be_guaranteed_to": [
+    "{p1} 存在触发器 {p2}，暂不能保证重建操作仅影响所选表；请使用追加。",
+    "{p1} has trigger {p2}. Rebuilding cannot be guaranteed to affect only selected tables; append instead."
+  ],
+  "backend.workbench_execution.has_a_self_reference_with_on_delete": [
+    "{p1} 存在自引用 ON DELETE RESTRICT，不能保证整表删除顺序；请使用追加。",
+    "{p1} has a self-reference with ON DELETE RESTRICT. A safe whole-table delete order cannot be guaranteed; append instead."
+  ],
+  "backend.workbench_execution.transactional_clearing_and_rollback_are_verified_only": [
+    "当前仅验证了 SQLite 的整次事务清空与回滚；此连接暂只支持追加生成。",
+    "Transactional clearing and rollback are verified only for SQLite. This connection currently supports append only."
+  ],
+  "backend.workbench_execution.the_selected_tables_have_no_resettable_sqlite": [
+    "所选表没有可重置的 SQLite AUTOINCREMENT 序列，请关闭重置 ID。",
+    "The selected tables have no resettable SQLite AUTOINCREMENT sequence. Turn off ID reset."
+  ],
+  "backend.workbench_execution.has_a_non_nullable_self_reference_and": [
+    "{p1} 的自引用字段不可空，清空后没有可用首条来源，不能安全重建。",
+    "{p1} has a non-nullable self-reference and no initial source row after clearing. It cannot be safely rebuilt."
+  ],
+  "backend.workbench_execution.unselected_table_references_through_a_configured_association": [
+    "未选表 {p1} 通过配置关联引用 {p2}，请一并选择或使用追加。",
+    "Unselected table {p1} references {p2} through a configured association. Select it too, or append instead."
+  ],
+  "backend.workbench_runtime.saving_the_final_run_state_was_interrupted": [
+    "运行终态保存意外中断，请检查服务日志。",
+    "Saving the final run state was interrupted unexpectedly. Check the service logs."
+  ],
+  "backend.workbench_runtime.configuration": [
+    "配置",
+    "Configuration"
+  ],
+  "backend.workbench_runtime.contains_unknown_fields": [
+    "{p1} 包含未知字段：{p2}",
+    "{p1} contains unknown fields: {p2}"
+  ],
+  "backend.workbench_runtime.provide_only_one_of_db_path_and": [
+    "db_path 与 url 只能提供一个",
+    "Provide only one of db_path and url"
+  ],
+  "backend.workbench_runtime.configuration_must_be_a_yaml_json_object": [
+    "配置必须是 YAML/JSON object",
+    "Configuration must be a YAML/JSON object"
+  ],
+  "backend.workbench_runtime.the_workbench_does_not_support_this_fk": [
+    "工作台尚未支持经过外键校验的清空计划；请关闭 clear_before",
+    "The workbench does not support this FK-validated clear plan. Turn off clear_before."
+  ],
+  "backend.workbench_runtime.the_workbench_does_not_execute_server_side": [
+    "工作台尚未支持执行服务器 Python transform；配置会保留在导出中",
+    "The workbench does not execute server-side Python transforms. The configuration is retained in exports."
+  ],
+  "backend.workbench_runtime.not_null_columns_cannot_have_null_ratio": [
+    "NOT NULL 列不能设置 null_ratio > 0",
+    "NOT NULL columns cannot have null_ratio > 0"
+  ],
+  "backend.workbench_runtime.a_not_null_column_without_a_default": [
+    "没有默认值的 NOT NULL 列不能跳过",
+    "A NOT NULL column without a default cannot be skipped"
+  ],
+  "backend.workbench_runtime.the_workbench_uses_persistent_run_records_and": [
+    "工作台使用持久化运行记录，尚未支持 snapshot_dir 文件写出；配置会保留在导出中",
+    "The workbench uses persistent run records and does not write snapshot_dir files. The configuration is retained in exports."
+  ],
+  "backend.workbench_runtime.cross_table_cycles_require_general_backfill_the": [
+    "这些表相互引用，无法排出先后生成顺序。当前工作台不支持同时生成这组循环表，调整行数或重试不能解除此限制。",
+    "These tables reference one another, so no generation order is available. The workbench cannot generate this cycle together; changing row counts or retrying does not resolve this limitation."
+  ],
+  "backend.workbench_runtime.select_at_least_one_table_to_generate": [
+    "请至少选择一张需要生成的表",
+    "Select at least one table to generate"
+  ],
+  "backend.workbench_runtime.a_table_cannot_occur_more_than_once": [
+    "同一计划不能重复配置同一张表",
+    "A table cannot occur more than once in the same plan"
+  ],
+  "backend.workbench_runtime.preview_count_must_be_between_1_and": [
+    "预览 count 必须在 1–100 之间",
+    "Preview count must be between 1 and 100"
+  ],
+  "backend.workbench_runtime.sample_max_attempts_must_be_a_positive": [
+    "sample_max_attempts 必须为正整数或 None",
+    "sample_max_attempts must be a positive integer or None"
+  ],
+  "backend.workbench_runtime.the_database_schema_has_changed_refresh_it": [
+    "数据库结构已变化，请刷新 schema 后重新检查",
+    "The database schema has changed. Refresh it and check again."
+  ],
+  "backend.workbench_runtime.the_draft_revision_has_changed_save_and": [
+    "草稿版本已变化，请重新保存并检查",
+    "The draft revision has changed. Save and check again."
+  ],
+  "backend.workbench_runtime.the_draft_does_not_match_the_current": [
+    "草稿与当前连接目标不匹配",
+    "The draft does not match the current connection target"
+  ],
+  "backend.workbench_runtime.the_saved_draft_s_schema_version_does": [
+    "已保存草稿的 schema 版本不匹配",
+    "The saved draft's schema version does not match"
+  ],
+  "backend.workbench_runtime.the_configuration_or_data_sources_have_changed": [
+    "配置或数据来源已变化，请重新检查",
+    "The configuration or data sources have changed. Check again."
+  ],
+  "backend.workbench_runtime.the_clear_plan_has_changed_review_and": [
+    "清空计划已变化，请重新预检并确认",
+    "The clear plan has changed. Review and confirm a new plan."
+  ],
+  "backend.workbench_runtime.database_sources_or_schema_changed_before_execution": [
+    "执行前数据库来源或结构已变化，请重新检查与确认清空计划",
+    "Database sources or schema changed before execution. Check and confirm the clear plan again."
+  ],
+  "backend.workbench_runtime.configuration_sources_or_schema_changed_while_queued": [
+    "排队期间配置来源或 schema 已变化，运行未开始",
+    "Configuration sources or schema changed while queued. The run did not start."
+  ],
+  "backend.workbench_runtime.cannot_save_the_final_run_state": [
+    "无法保存运行终态：{p1}",
+    "Cannot save the final run state: {p1}"
+  ],
+  "backend.workbench_runtime.the_configuration_target_does_not_match_the": [
+    "配置目标与当前连接不匹配，请明确选择相同目标",
+    "The configuration target does not match the current connection. Explicitly select the same target."
+  ],
+  "backend.workbench_runtime.cannot_parse_yaml_json": [
+    "无法解析 YAML/JSON：{p1}",
+    "Cannot parse YAML/JSON: {p1}"
+  ],
+  "backend.workbench_runtime.only_explicit_candidate_values_are_available_insufficient": [
+    "显式候选值只有 {p1} 个，无法生成 {p2} 个唯一值",
+    "Unique values requested: {p2}; explicit candidates available: {p1}"
+  ],
+  "backend.workbench_runtime.the_explicit_integer_range_is_too_small": [
+    "显式整数范围不足以生成所需的唯一值",
+    "The explicit integer range is too small for the requested unique values"
+  ],
+  "backend.workbench_runtime.the_derived_source_column_does_not_exist": [
+    "派生来源列不存在：{p1}",
+    "The derived source column does not exist: {p1}"
+  ],
+  "backend.workbench_runtime.duplicate_column_configuration": [
+    "列配置重复",
+    "Duplicate column configuration"
+  ],
+  "backend.workbench_runtime.core_uses_a_global_provider_different_per": [
+    "当前 core 使用全局 provider；暂不支持不同的每列 provider",
+    "Core uses a global provider. Different per-column providers are not currently supported."
+  ],
+  "backend.workbench_runtime.unknown_generator": [
+    "未知 generator：{p1}",
+    "Unknown generator: {p1}"
+  ],
+  "backend.workbench_runtime.the_column_no_longer_exists_refresh_the": [
+    "列已不存在，请刷新 schema 并修正配置",
+    "The column no longer exists. Refresh the schema and correct the configuration."
+  ],
+  "backend.workbench_runtime.the_table_does_not_exist": [
+    "数据表不存在",
+    "The table does not exist"
+  ],
+  "backend.workbench_runtime.an_empty_table_with_a_not_null": [
+    "空表的 NOT NULL 自引用缺少有效初始父行",
+    "An empty table with a NOT NULL self-reference lacks a valid initial parent row"
+  ],
+  "backend.workbench_runtime.the_parent_table_has_no_available_values": [
+    "父表当前没有可用值；执行时先填父表，预览无法提供完整关联样例",
+    "The parent table has no available values yet. It will be generated first, but preview cannot show complete related samples."
+  ],
+  "backend.workbench_runtime.core_does_not_currently_distinguish_the_random": [
+    "当前 core 尚未区分 random 关联策略，请使用 shared_pool",
+    "Core does not currently distinguish the random association strategy. Use shared_pool."
+  ],
+  "backend.workbench_runtime.the_referenced_source_table_or_column_does": [
+    "引用的来源表或列不存在",
+    "The referenced source table or column does not exist"
+  ],
+  "backend.workbench_runtime.an_actual_generated_sample_violates_not_null": [
+    "实际生成的样例违反 NOT NULL 约束",
+    "An actual generated sample violates NOT NULL"
+  ],
+  "backend.workbench_runtime.an_actual_generated_sample_violates_unique": [
+    "实际生成的样例违反 UNIQUE 约束",
+    "An actual generated sample violates UNIQUE"
+  ],
+  "backend.workbench_runtime.table": [
+    "表 {p1}",
+    "table {p1}"
+  ],
+  "backend.workbench_runtime.checks_failed": [
+    "检查未通过：",
+    "Checks failed: "
+  ],
+  "backend.workbench_runtime.clear_plan_checks_failed": [
+    "清空计划未通过：",
+    "Clear plan checks failed: "
+  ],
+  "backend.workbench_runtime.foreign_key_checks_failed_after_generating": [
+    "{p1} 生成后的外键检查未通过",
+    "Foreign-key checks failed after generating {p1}"
+  ],
+  "backend.workbench_runtime.clear_and_generate_requires_sqlalchemyadapter": [
+    "清空生成需要 SQLAlchemyAdapter",
+    "Clear-and-generate requires SQLAlchemyAdapter"
+  ],
+  "backend.workbench_runtime.custom_mappings_contain_an_unknown_generator": [
+    "自定义映射包含未知 generator：{p1}",
+    "Custom mappings contain an unknown generator: {p1}"
+  ],
+  "backend.workbench_runtime.core_does_not_guarantee_second_phase_backfill": [
+    "当前 core 未保证组合自引用的第二阶段回填",
+    "Core does not guarantee second-phase backfill for composite self-references"
+  ],
+  "backend.workbench_runtime.nullable_self_references_first_generate_null_then": [
+    "可空自引用先生成 NULL，再由 core 回填已生成父行",
+    "Nullable self-references first generate NULL, then Core backfills generated parent rows"
+  ],
+  "backend.workbench_runtime.empty_parent_nullable_reference": [
+    "父表没有可用值，core 将生成 NULL 外键",
+    "The parent table has no available values; Core will generate NULL foreign keys"
+  ],
+  "backend.workbench_runtime.a_non_nullable_foreign_key_or_association": [
+    "非空外键/关联没有可用来源，请将父表加入计划或先准备有效父行",
+    "A non-nullable foreign key or association has no source. Add its parent table to the plan or prepare valid parent rows first."
+  ],
+  "backend.workbench_runtime.the_association_target_table_or_column_does": [
+    "关联目标表或列不存在",
+    "The association target table or column does not exist"
+  ],
+  "backend.workbench_runtime.core_does_not_guarantee_generation_of_cross": [
+    "当前 core 尚未保证跨 schema 外键生成",
+    "Core does not guarantee generation of cross-schema foreign keys"
+  ],
+  "backend.workbench_runtime.core_does_not_guarantee_tuple_pairing_for": [
+    "当前 core 尚未保证三列及以上组合外键的元组配对",
+    "Core does not guarantee tuple pairing for composite foreign keys with three or more columns"
+  ],
+  "backend.workbench_runtime.this_configuration_uses_mimesis_which_is_not": [
+    "当前配置使用 Mimesis，但尚未安装；请在插件页安装，或明确更改生成引擎后重新检查。",
+    "This configuration uses Mimesis, which is not installed. Install it in Plugins, or explicitly change the generation engine and check again."
+  ],
+  "backend.workbench_runtime.this_configuration_uses_mimesis_which_failed_to": [
+    "当前配置使用 Mimesis，但组件加载异常；请在插件页查看修复指引，或明确更改生成引擎。",
+    "This configuration uses Mimesis, which failed to load. Read the repair guidance in Plugins or explicitly change the generation engine."
+  ],
+  "backend.workbench_runtime.column_generator": [
+    " 的列 {p1}（generator: {p2}）",
+    ", column {p1} (generator: {p2})"
+  ],
+  "backend.workbench_runtime.sample_validation_reached_its_limit_of_attempts": [
+    "样例校验在{p1}达到 {p2} 次尝试上限，请检查唯一值空间或约束冲突。",
+    "Sample validation reached its limit of {p2} attempts at {p1}. Check unique-value capacity or conflicting constraints."
+  ],
+  "backend.workbench_runtime.provider_is_unavailable_a_fallback_provider_cannot": [
+    "provider {p1} 不可用，不能使用降级 provider 代替",
+    "Provider {p1} is unavailable. A fallback provider cannot be substituted."
+  ],
+  "backend.workbench_runtime.the_run_stopped_unexpectedly_check_the_service": [
+    "运行意外终止，请检查服务日志。",
+    "The run stopped unexpectedly. Check the service logs."
+  ],
+  "backend.workbench_runtime.unsupported_expression_function": [
+    "不支持的 expression 函数：{p1}",
+    "Unsupported expression function: {p1}"
+  ],
+  "backend.workbench_runtime.reading_the_run_snapshot_was_interrupted_unexpectedly": [
+    "运行快照读取意外中断。",
+    "Reading the run snapshot was interrupted unexpectedly."
+  ],
+  "backend.workbench_store.the_configuration_has_been_updated_refresh_the": [
+    "配置已被更新，请刷新列表后重试",
+    "The configuration has been updated. Refresh the list and retry."
+  ],
+  "backend.worker_control.the_service_control_channel_is_closed": [
+    "服务控制通道已关闭。",
+    "The service control channel is closed."
+  ],
+  "backend.worker_control.session_details_exceed_the_safe_transfer_limit": [
+    "会话信息超过安全传输上限，未执行环境变更。",
+    "Session details exceed the safe transfer limit. No environment changes were performed."
+  ],
+  "backend.worker_control.the_control_request_did_not_complete": [
+    "控制请求未完成",
+    "The control request did not complete"
+  ],
+  "backend.worker_control.the_service_control_channel_is_temporarily_unavailable": [
+    "服务控制通道暂不可用。",
+    "The service control channel is temporarily unavailable."
+  ],
+  "backend.worker_control.the_control_request_did_not_complete_check": [
+    "控制请求未完成，请稍后检查服务状态。",
+    "The control request did not complete. Check the service status shortly."
+  ],
+  "backend.worker_control.control_request_failed": [
+    "控制请求未完成，请检查服务状态。",
+    "The control request did not complete. Check the service status."
+  ],
+  "backend.worker_control.the_service_control_channel_is_busy": [
+    "服务控制通道繁忙。",
+    "The service control channel is busy."
+  ],
+  "backend.worker_control.service_status_exceeds_the_transfer_limit_reduce": [
+    "服务状态超过传输上限，请减少连接后重试。",
+    "Service status exceeds the transfer limit. Reduce connections and retry."
+  ],
+  "backend.api.yaml_root_must_be_a_mapping": [
+    "YAML 根节点必须是映射对象",
+    "YAML root must be a mapping"
+  ],
+  "backend.api.path_does_not_exist": [
+    "路径不存在：{p1}",
+    "path does not exist: {p1}"
+  ],
+  "backend.api.not_a_directory": [
+    "不是目录：{p1}",
+    "not a directory: {p1}"
+  ],
+  "backend.api.provide_exactly_one_of_db_path_url": [
+    "请只提供 db_path 或 url 其中一个",
+    "provide exactly one of db_path / url"
+  ],
+  "backend.api.empty_connection_target": [
+    "连接目标不能为空",
+    "empty connection target"
+  ],
+  "backend.api.table_does_not_exist": [
+    "数据表“{p1}”不存在",
+    "Table '{p1}' does not exist"
+  ],
+  "backend.api.only_single_read_only_select_statements_are": [
+    "只允许单条只读 SELECT 语句",
+    "only single read-only SELECT statements are allowed"
+  ],
+  "backend.api.required_ai_export_is_unavailable": [
+    "必需的 AI 接口不可用：{p1}.{p2}",
+    "Required AI export is unavailable: {p1}.{p2}"
+  ],
+  "backend.api.invalid_yaml": [
+    "YAML 无效：{p1}",
+    "invalid YAML: {p1}"
+  ],
+  "backend.api.permission_denied": [
+    "没有访问权限：{p1}",
+    "permission denied: {p1}"
+  ],
+  "backend.api.connection_failed": [
+    "连接失败：{p1}",
+    "connection failed: {p1}"
+  ],
+  "backend.api.preview_failed": [
+    "预览失败：{p1}",
+    "preview failed: {p1}"
+  ],
+  "backend.api.ai_api_key_not_configured_set_it": [
+    "AI API Key 未配置：请在 AI 配置面板填写，设置 SQLSEED_AI_API_KEY / GOOGLE_API_KEY / OPENAI_API_KEY，或在面板切换到本地后端（Ollama / LM Studio）",
+    "AI API key not configured: set it in the AI config panel, or via SQLSEED_AI_API_KEY / GOOGLE_API_KEY / OPENAI_API_KEY, or switch to a local backend (Ollama / LM Studio) in the panel"
+  ],
+  "backend.state.connection_id_must_not_be_empty": [
+    "连接 ID 不能为空",
+    "connection ID must not be empty"
+  ],
+  "backend.state.connection_id_is_already_registered": [
+    "连接 ID 已注册",
+    "connection ID is already registered"
+  ],
+  "backend.state.unknown_connection": [
+    "未知连接：{p1}",
+    "unknown connection: {p1}"
+  ],
+  "backend.state.unknown_job": [
+    "未知任务：{p1}",
+    "unknown job: {p1}"
+  ],
+  "backend.state.unknown_running_job": [
+    "未知的运行中任务：{p1}",
+    "unknown running job: {p1}"
+  ],
+  "backend.workbench_store.workspace_payload_exceeds_the_2_mib_size": [
+    "工作区数据超过 2 MiB 大小限制",
+    "Workspace payload exceeds the 2 MiB size limit"
+  ],
+  "backend.workbench_store.invalid_workspace_record_expected_a_json_object": [
+    "工作区记录无效：需要 JSON 对象",
+    "Invalid workspace record: expected a JSON object"
+  ],
+  "backend.workbench_store.must_be_a_nonempty_string_of_at": [
+    "{p1} 必须是最多 {p2} 个字符的非空字符串",
+    "{p1} must be a nonempty string of at most {p2} characters"
+  ],
+  "backend.workbench_store.document_must_be_a_configuration_object": [
+    "document 必须是配置对象",
+    "document must be a configuration object"
+  ],
+  "backend.workbench_store.remove_connection_fields_db_path_and_url": [
+    "请从保存文档中移除连接字段 db_path 和 url",
+    "Remove connection fields db_path and url from the stored document"
+  ],
+  "backend.workbench_store.each_run_table_must_be_an_object": [
+    "每个运行表必须是对象",
+    "Each run table must be an object"
+  ],
+  "backend.workbench_store.run_table_count_must_be_a_nonnegative": [
+    "运行表数量必须是非负整数",
+    "Run table count must be a nonnegative integer"
+  ],
+  "backend.workbench_store.unknown_run_table_status": [
+    "未知的运行表状态",
+    "Unknown run table status"
+  ],
+  "backend.workbench_store.unknown_run_status": [
+    "未知的运行状态",
+    "Unknown run status"
+  ],
+  "backend.workbench_store.tables_must_be_a_list_of_at": [
+    "tables 必须是最多 {p1} 项的列表",
+    "tables must be a list of at most {p1} entries"
+  ],
+  "backend.workbench_store.revision_must_be_a_positive_integer_or": [
+    "revision 必须是正整数或 null",
+    "revision must be a positive integer or null"
+  ],
+  "backend.workbench_store.created_at_must_be_a_nonnegative_timestamp": [
+    "created_at 必须是非负时间戳",
+    "created_at must be a nonnegative timestamp"
+  ],
+  "backend.workbench_store.plan_hash_must_be_a_sha_256": [
+    "plan_hash 必须是 SHA-256 摘要或空值",
+    "plan_hash must be a SHA-256 digest or empty"
+  ],
+  "backend.workbench_store.replacement_execution_requires_an_immutable_plan_hash": [
+    "清空执行必须绑定不可变的 plan_hash",
+    "replacement execution requires an immutable plan_hash"
+  ],
+  "backend.workbench_store.workspace_payload_must_contain_valid_json_values": [
+    "工作区数据必须包含有效 JSON 值",
+    "Workspace payload must contain valid JSON values"
+  ],
+  "backend.workbench_store.connection_passwords_must_be_removed_from_workspace": [
+    "工作区数据中必须移除连接密码",
+    "Connection passwords must be removed from workspace payloads"
+  ],
+  "backend.workbench_store.run_table_names_must_be_unique": [
+    "运行表名不能重复",
+    "Run table names must be unique"
+  ],
+  "backend.workbench_store.rows_inserted_must_be_a_nonnegative_integer": [
+    "rows_inserted 必须是非负整数或 null",
+    "rows_inserted must be a nonnegative integer or null"
+  ],
+  "backend.workbench_store.order_must_be_a_bounded_list_of": [
+    "order 必须是有界的表名列表",
+    "order must be a bounded list of table names"
+  ],
+  "backend.workbench_store.view_state_must_be_an_object": [
+    "view_state 必须是对象",
+    "view_state must be an object"
+  ],
+  "backend.workbench_store.cannot_update_immutable_run_snapshot_fields": [
+    "不能修改不可变的运行快照字段",
+    "Cannot update immutable run snapshot fields"
+  ],
+  "backend.workbench_store.limit_must_be_an_integer_between_0": [
+    "limit 必须是 0 到 500 之间的整数",
+    "limit must be an integer between 0 and 500"
+  ],
+  "backend.workbench_store.invalid_target_label_use_a_credential_free": [
+    "目标标签无效：请使用不含凭据的标签",
+    "Invalid target label; use a credential-free label"
+  ],
+  "backend.workbench_store.unsupported_workspace_schema_version_expected": [
+    "不支持的工作区 schema 版本 {p1}；需要 {p2}",
+    "Unsupported workspace schema version {p1}; expected {p2}"
+  ],
+  "backend.workbench_store.run_already_exists": [
+    "运行记录已存在：{p1}",
+    "Run already exists: {p1}"
+  ],
+  "backend.workbench_store.cannot_change_immutable_run_table_names_or": [
+    "不能修改不可变的运行表名或数量",
+    "Cannot change immutable run table names or counts"
+  ],
+  "backend.workbench_store.service_restarted_before_completion_recorded_inserted_row": [
+    "服务在完成前重启；记录的写入行数可能不完整。",
+    "Service restarted before completion; recorded inserted row counts may be incomplete."
+  ],
+  "backend.workbench_store.draft_revision_conflict_expected_current": [
+    "草稿版本冲突：预期 {p1}，当前 {p2}",
+    "Draft revision conflict: expected {p1}, current {p2}"
+  ],
+  "backend.workbench_store.expected_revision_is_only_valid_when_updating": [
+    "expected_revision 仅在更新已有草稿时有效",
+    "expected_revision is only valid when updating an existing draft"
+  ],
+  "backend.workbench_store.draft_changed_while_validating_the_run_save": [
+    "运行校验期间草稿已改变，请重新保存并检查",
+    "Draft changed while validating the run; save and check it again"
+  ],
+  "backend.runtime_session.session_connections_must_be_a_list": [
+    "会话连接必须是列表",
+    "Session connections must be a list"
+  ],
+  "backend.runtime_session.invalid_saved_connection_settings": [
+    "保存的连接设置无效",
+    "Invalid saved connection settings"
+  ],
+  "backend.runtime_session.the_original_file_backed_database_is_unavailable": [
+    "原文件数据库不可用",
+    "The original file-backed database is unavailable"
+  ],
+  "backend.runtime_session.saved_connection_could_not_be_restored": [
+    "无法恢复保存的连接",
+    "Saved connection could not be restored"
+  ],
+  "backend.validation.required": [
+    "此字段为必填项",
+    "This field is required"
+  ],
+  "backend.validation.extra": [
+    "不允许额外字段",
+    "Extra fields are not allowed"
+  ],
+  "backend.validation.string": [
+    "请输入文本",
+    "Enter text"
+  ],
+  "backend.validation.too_short": [
+    "内容未达到最小长度",
+    "The value is shorter than the minimum length"
+  ],
+  "backend.validation.too_long": [
+    "内容超过最大长度",
+    "The value exceeds the maximum length"
+  ],
+  "backend.validation.integer": [
+    "请输入有效整数",
+    "Enter a valid integer"
+  ],
+  "backend.validation.number": [
+    "请输入有效数字",
+    "Enter a valid number"
+  ],
+  "backend.validation.boolean": [
+    "此字段必须为布尔值",
+    "This field must be a boolean"
+  ],
+  "backend.validation.list": [
+    "此字段必须是列表",
+    "This field must be a list"
+  ],
+  "backend.validation.object": [
+    "此字段必须是对象",
+    "This field must be an object"
+  ],
+  "backend.validation.choice": [
+    "请选择支持的选项",
+    "Select a supported option"
+  ],
+  "backend.validation.lower_bound": [
+    "数值低于允许的下限",
+    "The value is below the permitted lower bound"
+  ],
+  "backend.validation.upper_bound": [
+    "数值超过允许的上限",
+    "The value exceeds the permitted upper bound"
+  ],
+  "backend.validation.finite_number": [
+    "请输入有限数字",
+    "Enter a finite number"
+  ],
+  "backend.validation.json": [
+    "JSON 格式无效",
+    "Invalid JSON"
+  ],
+  "backend.validation.invalid": [
+    "字段无效，请检查格式和值",
+    "Invalid field; check its format and value"
+  ]
+}

@@ -53,6 +53,9 @@ Layer 表示架构层；healer 的 Level 表示 LLM 修复粒度，二者不能�
 - `APITimeoutError` / `APIConnectionError` 的模型 fallback 由 `_model_selector.py` 和 `_caller.py` 管理；本地 fallback 必须先验证模型可用，保留有界重试和最终错误。
 - [refiner.py](refiner.py) 的单表建议使用 `TableConfig` 校验、live schema 列名检查和小批 preview，再由 [errors.py](errors.py) 汇总失败供下一次提示；不要用完整 `GeneratorConfig` 替换单表校验。
 - Refiner 缓存文件名使用完整表名的 SHA-256，不能把 SQL 标识符直接用作文件路径。只兼容读取缓存目录内的旧 basename 文件，拒绝越界路径和指向目录外的链接；`no_cache=True` 同时禁止读写缓存。
+- Refiner 两个生成入口在读缓存或调用模型前验证目标列集合；缺表或零列目标直接报输入错误，不交给模型修复。沿用 adapter 的标识符解析，不能通过表名精确枚举破坏 SQLite 大小写与特殊名称兼容；零行但有列的合法空表仍可分析。
+- Refiner 候选与缓存必须属于请求的同一张表；SQLite 复用 ASCII 大小写匹配的 catalog 解析，不能用 Unicode casefold 混淆不同表，其他方言保留严格名称比较。模型目标错误返回可重试 `table_mismatch`，错误目标缓存忽略后重新生成；不静默改名或把其他表配置交付调用者。
+- Refiner 的普通与流式模型调用显式保留标识符原文；合法的前导 `.` / `:` 表列名不能被历史清洗逻辑映射到另一张真实表。CLI 可复用 `validate_table_target()` 只校验目标身份，不能复制方言规则。
 - Refiner 缓存的 schema 校验值仍是排序列名的截断 SHA-256，不是完整 schema fingerprint，不能与 Layer 5 乐观锁使用的 `SchemaSnapshot.schema_hash` 混用。新格式缓存往返需保留合法的完整表名。
 - `SchemaSnapshot.schema_hash` 包含列类型、可空性、默认值、computed / identity / autoincrement 元数据以及既有约束与外键；不包含记录值、采集时间等非 schema 信息。新增语义字段时保持排序 JSON 的稳定计算。
 

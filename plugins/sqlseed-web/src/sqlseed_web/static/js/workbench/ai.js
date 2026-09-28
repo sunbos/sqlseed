@@ -1,3 +1,5 @@
+import {tr, appendContent, setAttr, replaceContent, setText, errorText, UserFacingError, joinText, liveText, isLocalized, serverText, serverMessages} from '../i18n.js';
+import '../i18n/messages/assistant.js';
 import { h, api } from '../api.js';
 import { genLabel } from '../labels.js';
 import { button, modal } from './ui.js';
@@ -8,7 +10,7 @@ const prefix = '/api/workbench/ai';
 const copy = value => structuredClone(value);
 const backendLabels = [{
   id: 'openai_compat',
-  label: 'OpenAI 兼容服务'
+  label: tr("assistant.backend.compatible")
 }, {
   id: 'google_ai_studio',
   label: 'Google AI Studio'
@@ -20,21 +22,21 @@ const backendLabels = [{
   label: 'LM Studio'
 }];
 const stageLabels = {
-  context: '准备分析上下文',
-  model: '等待 AI 模型',
-  validation: '校验建议规则',
-  preview: '检查只读样例'
+  context: tr("assistant.stage.context"),
+  model: tr("assistant.stage.model"),
+  validation: tr("assistant.stage.validation"),
+  preview: tr("assistant.stage.preview")
 };
 const ruleText = rule => {
   if (rule?.derive_from) {
-    return `同一行字段派生 · ${[rule.derive_from].flat().join('、')}`;
+    return tr("assistant.rule.derived", {fields: [rule.derive_from].flat().join('、')});
   }
   const name = rule?.generator || rule?.generator_name;
   if (!name) {
-    return '使用现有自动匹配规则';
+    return tr("assistant.rule.inferred");
   }
   const params = Object.entries(rule.params || {}).filter(([key]) => !key.startsWith('_'));
-  return `${genLabel(name)}${params.length ? ' · ' + JSON.stringify(Object.fromEntries(params)) : ''}`;
+  return joinText([genLabel(name), params.length ? ' · ' + JSON.stringify(Object.fromEntries(params)) : '']);
 };
 
 // The caller owns the document and writes only reviewed patches. This modal
@@ -92,7 +94,7 @@ export function openAIAssistant({
     });
   };
   const columnSelection = new Map(model.schema.tables.map(table => [table.name, new Set(initialState?.columnSelection?.[table.name] || (table.name === currentTable ? table.columns.filter(column => (!columns.length || columns.includes(column.name)) && eligibility(table, column).eligible).map(column => column.name) : []))]));
-  const ui = modal('AI 配置助手', {
+  const ui = modal(tr("assistant.title"), {
     wide: true,
     dismiss: 'footer',
     onClose: () => {
@@ -108,15 +110,15 @@ export function openAIAssistant({
   const current = () => alive && isCurrent() && model.epoch === epoch && model.schema.schema_hash === schemaHash;
   const note = h('p', {
     class: 'hint'
-  }, 'AI 根据表结构和业务说明提出字段规则建议，支持当前表、多表和指定字段；由你审阅并应用到生成配置。');
+  }, tr("assistant.intro"));
   const disclosure = h('p', {
     class: 'scope-notice'
-  }, '仅发送表结构、约束、生成器目录和你填写的业务说明给所选 AI 服务；不发送数据库连接地址、凭据或已有记录。');
+  }, tr("assistant.privacy"));
   const status = h('p', {
     class: 'wb-ai-status',
     role: 'status',
     'aria-live': 'polite'
-  }, '正在读取 AI 设置…');
+  }, tr("assistant.settings.loading"));
   const phase = h('strong', {
       role: 'status',
       'aria-live': 'polite'
@@ -124,7 +126,7 @@ export function openAIAssistant({
     elapsed = h('span', {
       'aria-live': 'off'
     });
-  const viewProblems = button('查看问题', () => {
+  const viewProblems = button(tr("assistant.issues.view"), () => {
     if (diagnostics) {
       diagnostics.open = true;
       diagnostics.scrollIntoView?.({
@@ -140,21 +142,21 @@ export function openAIAssistant({
     class: 'wb-ai-progress',
     hidden: true
   }, phase, elapsed, viewProblems);
-  const readiness = h('strong', {}, '正在读取 AI 设置');
+  const readiness = h('strong', {}, tr("assistant.settings.loadingShort"));
   const serviceSummary = h('p', {
-    'aria-label': 'AI 服务摘要',
+    'aria-label': tr("assistant.settings.summary"),
     class: 'hint'
-  }, '服务信息尚未读取');
-  const settingsLink = button('前往设置', () => goSettings(availabilityStatus === 'import_error' ? 'plugins' : 'ai'), {
+  }, tr("assistant.settings.notLoaded"));
+  const settingsLink = button(tr("assistant.settings.open"), () => goSettings(availabilityStatus === 'import_error' ? 'plugins' : 'ai'), {
     small: true
   });
   const readinessCard = h('section', {
     class: 'wb-source-card wb-ai-service-card',
-    'aria-label': 'AI 状态'
+    'aria-label': tr("assistant.status")
   }, readiness, status, serviceSummary, settingsLink);
   const installation = h('section', {
     class: 'wb-source-card',
-    'aria-label': '安装 AI 插件',
+    'aria-label': tr("assistant.component.install"),
     hidden: true
   });
   const content = h('div', {
@@ -163,15 +165,15 @@ export function openAIAssistant({
   const scopes = h('fieldset', {
     class: 'wb-ai-scope wb-ai-scope-selector',
     'aria-describedby': 'ai-scope-help ai-scope-error'
-  }, h('legend', {}, '选择要优化的范围'));
+  }, h('legend', {}, tr("assistant.scope.title")));
   const scopeOptions = h('div', {
     class: 'wb-ai-scope-options'
   });
-  scopes.append(scopeOptions);
+  appendContent(scopes, scopeOptions);
   const scopeHelp = h('p', {
     id: 'ai-scope-help',
     class: 'hint'
-  }, '这里选择的是可修改规则的范围，独立于本次生成范围。未勾选表的建议仅更新草稿。指定字段时，只需勾选要改规则的字段；同表其他字段及必要上游结构仍作为分析上下文。受保护字段不会被修改。');
+  }, tr("assistant.scope.help"));
   const scopeSummary = h('div', {
     class: 'wb-ai-scope-summary',
     role: 'status',
@@ -184,19 +186,19 @@ export function openAIAssistant({
   });
   const tablePicker = h('fieldset', {
     class: 'wb-ai-targets'
-  }, h('legend', {}, '选择要优化的表'));
+  }, h('legend', {}, tr("assistant.scope.chooseTables")));
   const columnPicker = h('div', {
     class: 'wb-ai-targets wb-ai-columns',
-    'aria-label': '选择要优化的字段'
+    'aria-label': tr("assistant.scope.chooseFields")
   });
   const fieldEntries = [],
     fieldGroups = [];
   let fieldQuery = '';
   const fieldSearch = h('input', {
     type: 'search',
-    'aria-label': '查找表或字段',
+    'aria-label': tr("assistant.scope.search"),
     'aria-describedby': 'ai-field-search-help',
-    placeholder: '表名、字段名或 orders.promised_at',
+    placeholder: tr("assistant.scope.searchPlaceholder"),
     oninput: () => {
       if (!alive || busy) {
         return;
@@ -218,8 +220,8 @@ export function openAIAssistant({
   });
   const fieldEmpty = h('p', {
     class: 'wb-ai-field-empty hint'
-  }, '没有匹配的表或字段；已有选择保留，请修改搜索。');
-  const selectFiltered = button('选择筛选结果', () => {
+  }, tr("assistant.scope.noMatches"));
+  const selectFiltered = button(tr("assistant.scope.selectMatches"), () => {
     if (!alive || busy) {
       return;
     }
@@ -239,7 +241,7 @@ export function openAIAssistant({
     small: true
   });
   selectFiltered.dataset.aiSelectFiltered = '';
-  const clearFields = button('清空选择', () => {
+  const clearFields = button(tr("assistant.scope.clear"), () => {
     if (!alive || busy) {
       return;
     }
@@ -255,13 +257,13 @@ export function openAIAssistant({
   }, {
     small: true
   });
-  clearFields.setAttribute('title', '清空全部已选字段，包括当前筛选之外的字段');
-  columnPicker.append(h('label', {
+  setAttr(clearFields, 'title', tr("assistant.scope.clearAllLabel"));
+  appendContent(columnPicker, h('label', {
     class: 'wb-ai-field-search'
-  }, '查找表或字段', fieldSearch), h('p', {
+  }, tr("assistant.scope.search"), fieldSearch), h('p', {
     id: 'ai-field-search-help',
     class: 'hint'
-  }, '搜索仅影响显示；选择结果会保留其他已选字段，清空选择会移除全部字段授权。'), fieldCount, fieldResults, h('div', {
+  }, tr("assistant.scope.filterHelp")), fieldCount, fieldResults, h('div', {
     class: 'wb-ai-actions'
   }, selectFiltered, clearFields), fieldList);
   function clearReview() {
@@ -269,7 +271,7 @@ export function openAIAssistant({
     adjusted.clear();
     suggestions = [];
     selected.clear();
-    content.replaceChildren();
+    replaceContent(content);
     diagnostics = null;
     viewProblems.hidden = true;
     progress.hidden = true;
@@ -278,7 +280,7 @@ export function openAIAssistant({
     apply.hidden = true;
     update();
   }
-  const scopeChoices = [['current', `当前表 · ${currentTable}`, '优化当前正在查看的表，不改变生成勾选。'], ['selected', `已选表 · ${model.document.tables.length} 张`, model.document.tables.length ? '优化左侧已勾选的生成表。' : '尚未勾选生成表；可选择当前表或指定表。'], ['database', `整库 · ${model.schema.tables.length} 张表`, '覆盖数据库中的所有表；未勾选表只更新草稿。'], ['tables', '指定表（多选）', '在下方选择一张或多张表。'], ['columns', '指定字段（多选）', '在下方选择要调整规则的字段，可说明同表关系。']];
+  const scopeChoices = [['current', tr("assistant.scope.currentTable", {table: currentTable}), tr("assistant.scope.currentHelp")], ['selected', tr("assistant.scope.selectedTables", {count: model.document.tables.length}), model.document.tables.length ? tr("assistant.scope.selectedHelp") : tr("assistant.scope.noneSelected")], ['database', tr("assistant.scope.database", {count: model.schema.tables.length}), tr("assistant.scope.databaseHelp")], ['tables', tr("assistant.scope.specificTables"), tr("assistant.scope.specificTablesHelp")], ['columns', tr("assistant.scope.specificFields"), tr("assistant.scope.specificFieldsHelp")]];
   for (const [value, label, description] of scopeChoices) {
     const helpId = `ai-scope-${value}-help`;
     const input = h('input', {
@@ -296,7 +298,7 @@ export function openAIAssistant({
     if (value === 'selected' && !model.document.tables.length) {
       input.disabled = true;
     }
-    scopeOptions.append(h('label', {
+    appendContent(scopeOptions, h('label', {
       class: 'wb-ai-scope-choice'
     }, input, h('span', {}, h('strong', {}, label), h('small', {
       id: helpId,
@@ -318,19 +320,19 @@ export function openAIAssistant({
         clearReview();
       }
     });
-    tablePicker.append(h('label', {}, input, h('span', {
+    appendContent(tablePicker, h('label', {}, input, h('span', {
       class: 'mono'
     }, table.name), h('small', {
       class: 'hint'
-    }, model.selected(table.name) ? '本次生成' : '仅更新草稿')));
+    }, model.selected(table.name) ? tr("assistant.scope.generated") : tr("assistant.scope.draftOnly"))));
     const group = h('details', {
       'data-ai-field-table': table.name
     }, h('summary', {
       class: 'mono'
     }, table.name));
     group.open = table.name === currentTable;
-    const fields = h('fieldset', {}, h('legend', {}, `${table.name} 的字段`));
-    const protectedTitle = h('summary', {}, '受保护字段 · 保留现有规则');
+    const fields = h('fieldset', {}, h('legend', {}, tr("assistant.scope.tableFields", {table: table.name})));
+    const protectedTitle = h('summary', {}, tr("assistant.scope.protected"));
     const protectedFields = h('details', {
       class: 'wb-ai-protected-fields'
     }, protectedTitle);
@@ -367,7 +369,7 @@ export function openAIAssistant({
           id: helpId,
           class: 'hint'
         }, column.type));
-        fields.append(row);
+        appendContent(fields, row);
       } else {
         row = h('div', {
           class: 'wb-ai-protected-field',
@@ -377,7 +379,7 @@ export function openAIAssistant({
         }, column.name), h('small', {
           class: 'hint'
         }, permission.reason));
-        protectedFields.append(row);
+        appendContent(protectedFields, row);
       }
       const entry = {
         table: table.name,
@@ -389,8 +391,8 @@ export function openAIAssistant({
       entries.push(entry);
       fieldEntries.push(entry);
     }
-    group.append(fields, protectedFields);
-    fieldList.append(group);
+    appendContent(group, fields, protectedFields);
+    appendContent(fieldList, group);
     fieldGroups.push({
       group,
       fields,
@@ -399,7 +401,7 @@ export function openAIAssistant({
       entries
     });
   }
-  fieldList.append(fieldEmpty);
+  appendContent(fieldList, fieldEmpty);
   filterFields();
   function filterFields() {
     const query = fieldSearch.value.trim().toLowerCase();
@@ -416,7 +418,7 @@ export function openAIAssistant({
       item.group.hidden = !visible.length;
       item.fields.hidden = !visible.some(entry => entry.input);
       item.protectedFields.hidden = !protectedCount;
-      item.protectedTitle.textContent = `受保护字段（${protectedCount}）· 保留现有规则`;
+      setText(item.protectedTitle, tr("assistant.scope.protectedCount", {count: protectedCount}));
       if (query) {
         item.group.open = true;
         item.protectedFields.open = true;
@@ -434,32 +436,32 @@ export function openAIAssistant({
     const chosen = editable.filter(entry => columnSelection.get(entry.table).has(entry.column));
     const matchedChosen = chosen.filter(entry => !entry.row.hidden).length;
     const protectedCount = fieldEntries.filter(entry => !entry.input && !entry.row.hidden).length;
-    fieldCount.textContent = `已选 ${chosen.length} 个字段允许修改 · 筛选内 ${matchedChosen}，其他 ${chosen.length - matchedChosen}`;
-    fieldResults.textContent = `${fieldQuery ? '筛选结果' : '全部表'}：${matches.length} 个可选字段${protectedCount ? "，" + protectedCount + " 个受保护字段仅作上下文" : ''}。`;
-    selectFiltered.textContent = `${fieldQuery ? '选择筛选结果' : '选择全部可选字段'}（${matches.length}）`;
+    setText(fieldCount, tr("assistant.scope.fieldCounts", {selected: chosen.length, matching: matchedChosen, other: chosen.length - matchedChosen}));
+    setText(fieldResults, tr("assistant.scope.matchSummary", {scope: fieldQuery ? tr("assistant.scope.filtered") : tr("assistant.scope.allTables"), count: matches.length, protectedNote: protectedCount ? tr("assistant.scope.protectedContext", {count: protectedCount}) : ''}));
+    setText(selectFiltered, tr('assistant.scope.selectCount', {label: fieldQuery ? tr("assistant.scope.selectMatches") : tr("assistant.scope.selectAllFields"), count: matches.length}));
     selectFiltered.disabled = busy || Boolean(adjustment) || matches.length === matchedChosen;
     clearFields.disabled = busy || Boolean(adjustment) || !chosen.length;
     fieldSearch.disabled = busy || Boolean(adjustment);
   }
   const business = h('textarea', {
-    'aria-label': '业务说明',
+    'aria-label': tr("assistant.requirements.label"),
     'aria-describedby': 'ai-business-help',
     rows: 3,
     maxlength: 4000,
-    placeholder: '例如：姓名使用中文；订单总额 = 数量 × 单价；完成日期在创建日期后 7 天。',
+    placeholder: tr("assistant.requirements.placeholder"),
     oninput: clearReview
   });
   const businessField = h('label', {
     class: 'wb-ai-business'
-  }, '业务说明（可选）', business, h('small', {
+  }, tr("assistant.requirements.optional"), business, h('small', {
     id: 'ai-business-help',
     class: 'hint'
-  }, '说明数据含义、范围和字段关系。请填写业务规则，不要填写密钥或真实个人记录。'));
+  }, tr("assistant.requirements.help")));
   business.value = initialState?.businessContext || '';
-  const analyze = button('开始分析', analyzeScope, {
+  const analyze = button(tr("assistant.action.analyze"), analyzeScope, {
     primary: true
   });
-  const apply = button('应用所选建议', applySuggestions, {
+  const apply = button(tr("assistant.action.apply"), applySuggestions, {
     primary: true,
     disabled: true
   });
@@ -467,12 +469,12 @@ export function openAIAssistant({
     class: 'wb-ai-analysis',
     hidden: true
   }, disclosure, scopes, tablePicker, columnPicker, scopeSummary, scopeHelp, scopeError, businessField, content);
-  ui.body.append(note, readinessCard, installation, analysis);
-  ui.actions.append(progress, button('取消', ui.close), analyze, apply);
+  appendContent(ui.body, note, readinessCard, installation, analysis);
+  appendContent(ui.actions, progress, button(tr("assistant.action.cancel"), ui.close), analyze, apply);
   apply.hidden = true;
   function updateElapsed() {
     if (analysisState) {
-      elapsed.textContent = `已耗时 ${Math.max(0, Math.floor(((analysisState.finished ?? Date.now()) - analysisState.started) / 1000))} 秒`;
+      setText(elapsed, tr("assistant.progress.elapsed", {seconds: Math.max(0, Math.floor(((analysisState.finished ?? Date.now()) - analysisState.started) / 1000))}));
     }
   }
   function tickElapsed() {
@@ -487,45 +489,46 @@ export function openAIAssistant({
     }
     analysisState.finished = Date.now();
     clearTimeout(elapsedTimer);
-    phase.textContent = message;
+    setText(phase, message);
     updateElapsed();
   }
   function failedAnalysis(error) {
     const expired = !current();
-    const missing = error.code === 'unknown_connection' || (error.status === 404 || error.code === 'not_found') && /unknown connection/i.test(error.message);
+    const missing = error.code === 'unknown_connection' || error.messageKey === 'backend.state.unknown_connection' ||
+      !error.messageKey && (error.status === 404 || error.code === 'not_found') && /unknown connection/i.test(error.message);
     let message;
     if (expired) {
-      message = '配置已变化，请关闭面板后重新分析。';
+      message = tr("assistant.stale.configuration");
     } else if (missing) {
-      message = '数据库连接已失效，Web 服务重启后需要重新连接原数据库，再打开 AI 助手；当前配置未改变。';
+      message = tr("assistant.stale.connection");
     } else {
-      message = error.message;
+      message = errorText(error);
     }
-    status.textContent = message;
+    setText(status, message);
     showDiagnostics({
       issues: [message]
     });
-    const summary = message.length > 180 ? `${message.slice(0, 177)}…` : message;
+    const summary = liveText(() => String(message).length > 180 ? `${String(message).slice(0, 177)}…` : message);
     function analysisFailureStatus() {
       if (expired) {
-        return `分析已失效 · ${summary}`;
+        return tr("assistant.progress.invalidated", {summary: summary});
       } else {
-        return `${stageLabels[analysisState.stage]}${error.code === 'ai_timeout' ? '超时' : '失败'} · ${summary}`;
+        return tr('assistant.progress.stageFailure', {stage: stageLabels[analysisState.stage], outcome: error.code === 'ai_timeout' ? tr("assistant.progress.timeout") : tr("assistant.progress.failed"), summary});
       }
     }
     finishProgress(analysisFailureStatus());
   }
   function showDiagnostics(result) {
-    const issues = [...(Array.isArray(result.validation?.issues) ? result.validation.issues : []), ...(Array.isArray(result.issues) ? result.issues : [])];
+    const issues = [...(Array.isArray(result.validation?.issues) ? serverMessages(result.validation, 'issues') : []), ...(Array.isArray(result.issues) ? serverMessages(result, 'issues') : [])];
     const reasons = issues.map(issue => {
-      if (typeof issue === 'string') {
+      if (typeof issue === 'string' || isLocalized(issue)) {
         return issue;
       } else {
-        return [issue.table, issue.column].filter(Boolean).join('.') + (issue.message ? `：${issue.message}` : '');
+        return joinText([[issue.table, issue.column].filter(Boolean).join('.'), issue.message ? joinText([': ', serverText(issue)]) : '']);
       }
     });
     if (Array.isArray(result.rejected)) {
-      reasons.push(...result.rejected.map(item => typeof item === 'string' ? item : item.message || item.reason || '建议未通过检查'));
+      reasons.push(...serverMessages(result, 'rejected').map(item => typeof item === 'string' || isLocalized(item) ? item : serverText(item) || serverText(item, 'reason') || tr("assistant.issues.failed")));
     }
     if (!reasons.length) {
       return;
@@ -533,9 +536,9 @@ export function openAIAssistant({
     diagnostics = h('details', {
       class: 'wb-ai-diagnostics',
       tabindex: -1
-    }, h('summary', {}, `检查详情 · ${reasons.length} 项`), h('ul', {}, ...reasons.map(reason => h('li', {}, reason))));
+    }, h('summary', {}, tr("assistant.issues.details", {count: reasons.length})), h('ul', {}, ...reasons.map(reason => h('li', {}, reason))));
     diagnostics.open = true;
-    content.append(diagnostics);
+    appendContent(content, diagnostics);
     viewProblems.hidden = false;
   }
   function update() {
@@ -547,18 +550,18 @@ export function openAIAssistant({
     settingsLink.hidden = settingsKnown && !available && !importError;
     settingsLink.disabled = busy || loadingSettings || Boolean(adjustment);
     if (importError) {
-      settingsLink.textContent = '查看插件状态';
+      setText(settingsLink, tr("assistant.component.status"));
     } else if (ready) {
-      settingsLink.textContent = '更改设置';
+      setText(settingsLink, tr("assistant.settings.change"));
     } else {
-      settingsLink.textContent = '前往设置';
+      setText(settingsLink, tr("assistant.settings.open"));
     }
     const targets = allowedTargets(),
       names = analysisTables();
     const count = targets.reduce((total, target) => total + target.columns.length, 0);
     const protectedCount = model.schema.tables.filter(table => names.includes(table.name)).reduce((total, table) => total + table.columns.filter(column => !eligibility(table, column).eligible).length, 0);
     const draftCount = names.filter(name => !model.selected(name)).length;
-    scopeSummary.replaceChildren(h('strong', {}, `${scopeChoices.find(choice => choice[0] === scope)[1]} · ${count} 个字段可优化`), h('p', {}, `${names.length} 张表作为分析上下文${protectedCount ? "，" + protectedCount + " 个受保护字段保留现有规则" : ''}。${draftCount ? "" + draftCount + " 张表未加入生成范围，建议仅更新草稿。" : ''}`));
+    replaceContent(scopeSummary, h('strong', {}, tr("assistant.scope.eligible", {scope: scopeChoices.find(choice => choice[0] === scope)[1], count: count})), h('p', {}, tr("assistant.scope.analysisContext", {tables: names.length, protectedNote: protectedCount ? tr("assistant.scope.protectedRules", {count: protectedCount}) : '', draftNote: draftCount ? tr("assistant.scope.draftTables", {count: draftCount}) : ''})));
     analyze.disabled = busy || Boolean(adjustment) || !available || !ready || !targets.length;
     apply.disabled = busy || Boolean(adjustment) || selected.size === 0;
     for (const input of scopes.querySelectorAll('input')) {
@@ -572,22 +575,22 @@ export function openAIAssistant({
     for (const control of content.querySelectorAll('[data-ai-adjust], [data-ai-suggestion]')) control.disabled = busy || Boolean(adjustment);
     tablePicker.hidden = scope !== 'tables';
     columnPicker.hidden = scope !== 'columns';
-    scopeError.textContent = targets.length ? '' : '请至少选择一张表或一个可由 AI 调整的字段；受保护字段仅作为结构上下文。';
+    setText(scopeError, targets.length ? '' : tr("assistant.scope.required"));
     function updateServiceStatus() {
       if (loadingSettings) {
-        readiness.textContent = '正在读取 AI 设置';
+        setText(readiness, tr("assistant.settings.loadingShort"));
       } else if (!settingsKnown) {
-        readiness.textContent = 'AI 状态未获取';
+        setText(readiness, tr("assistant.settings.unknown"));
       } else if (!available) {
         if (importError) {
-          readiness.textContent = 'AI 插件加载异常';
+          setText(readiness, tr("assistant.component.importError"));
         } else {
-          readiness.textContent = 'AI 扩展未安装';
+          setText(readiness, tr("assistant.component.missing"));
         }
       } else if (ready) {
-        readiness.textContent = 'AI 配置已填写';
+        setText(readiness, tr("assistant.settings.configured"));
       } else {
-        readiness.textContent = 'AI 待配置';
+        setText(readiness, tr("assistant.settings.required"));
       }
     }
   }
@@ -636,16 +639,16 @@ export function openAIAssistant({
     const effective = config.effective || {};
     // Only the known provider label and model ID are displayed. Never render
     // endpoint URLs or arbitrary returned credential fields in this summary.
-    const backend = backendLabels.find(item => item.id === effective.backend)?.label || 'AI 服务';
-    serviceSummary.textContent = available ? `${backend} · ${effective.model || '尚未选择模型'}` : '';
+    const backend = backendLabels.find(item => item.id === effective.backend)?.label || tr("assistant.settings.service");
+    setText(serviceSummary, available ? joinText([backend, effective.model || tr("assistant.settings.noModel")], ' · ') : '');
     if (!available) {
       if (availabilityStatus === 'import_error') {
-        status.textContent = 'AI 扩展已安装但加载异常，规则建议与分析不可用。';
+        setText(status, tr("assistant.component.importHelp"));
       } else {
-        status.textContent = 'AI 扩展未安装，规则建议与分析不可用。';
+        setText(status, tr("assistant.component.missingHelp"));
       }
     } else {
-      status.textContent = config.message || (ready ? '配置已填写，可开始分析。' : '请前往设置页完成 AI 服务配置。');
+      setText(status, serverText(config) || (ready ? tr("assistant.settings.ready") : tr("assistant.settings.setupHelp")));
     }
     if (!available) {
       showUnavailableAI();
@@ -653,17 +656,17 @@ export function openAIAssistant({
     update();
     function showUnavailableAI() {
       const broken = availabilityStatus === 'import_error';
-      installation.setAttribute('aria-label', broken ? '修复 AI 插件' : '安装 AI 插件');
-      installation.replaceChildren(h('p', {}, broken ? '请在“设置 → 插件与版本”查看异常信息，处理后返回 AI 助手。' : '请在“设置 → 插件与版本”安装 AI 扩展，完成后返回 AI 助手。'), h('p', {
+      setAttr(installation, 'aria-label', broken ? tr("assistant.component.repair") : tr("assistant.component.install"));
+      replaceContent(installation, h('p', {}, broken ? tr("assistant.component.repairHelp") : tr("assistant.component.installHelp")), h('p', {
         class: 'hint'
-      }, '当前生成配置保留，仍可手动调整规则、预览和生成数据。'), ...(!broken ? [button('前往插件设置', () => goSettings('plugins'), {
+      }, tr("assistant.component.optionalHelp")), ...(!broken ? [button(tr("assistant.component.openSettings"), () => goSettings('plugins'), {
         small: true
       })] : []));
     }
   }
   async function analyzeScope() {
     if (!current()) {
-      status.textContent = '配置已变化，请关闭面板后重新分析。';
+      setText(status, tr("assistant.stale.configuration"));
       return;
     }
     if (busy || adjustment || !available || !ready) {
@@ -690,7 +693,7 @@ export function openAIAssistant({
     selected.clear();
     adjusted.clear();
     suggestions = [];
-    content.replaceChildren();
+    replaceContent(content);
     diagnostics = null;
     viewProblems.hidden = true;
     apply.hidden = true;
@@ -701,16 +704,16 @@ export function openAIAssistant({
       stage: 'context'
     };
     progress.hidden = false;
-    phase.textContent = '正在提交分析请求…';
+    setText(phase, tr("assistant.progress.submitting"));
     tickElapsed();
     update();
-    status.textContent = '正在准备分析上下文…';
+    setText(status, tr("assistant.progress.context"));
     const requestTimer = setTimeout(() => {
       if (alive && ticket === version) {
         controller.abort();
         version++;
         busy = false;
-        const error = new Error('AI 分析超过 180 秒，请检查失败阶段后重试；当前规则未改变。');
+        const error = new UserFacingError(tr("assistant.progress.deadline"));
         error.code = 'ai_timeout';
         failedAnalysis(error);
         update();
@@ -730,21 +733,21 @@ export function openAIAssistant({
           }
           analysisState.stage = event.stage;
           analysisState.hasProgress = true;
-          phase.textContent = `${stageLabels[event.stage]} · ${event.message}`;
-          status.textContent = event.message;
+          setText(phase, joinText([stageLabels[event.stage], serverText(event)], ' · '));
+          setText(status, serverText(event));
         }
       });
       if (!alive || ticket !== version) {
         return;
       }
       if (!current()) {
-        throw new Error('配置已变化，请关闭面板后重新分析。');
+        throw new UserFacingError(tr("assistant.stale.configuration"));
       }
       if (result.schema_hash !== schemaHash) {
-        throw new Error('数据库结构已变化，请刷新后重新分析。');
+        throw new UserFacingError(tr("assistant.stale.schema"));
       }
       if (!Array.isArray(result.suggestions)) {
-        throw new TypeError('AI 建议格式不正确，请重试。');
+        throw new UserFacingError(tr("assistant.response.invalid"));
       }
       acceptSuggestions(result);
       renderSuggestionGroups();
@@ -788,32 +791,32 @@ export function openAIAssistant({
         });
         const article = h('article', {
           class: 'wb-ai-suggestion'
-        }, h('label', {}, input, h('strong', {}, indices.length > 1 ? `关联规则 · ${indices.length} 个字段，一起应用` : `${suggestions[indices[0]].table}.${suggestions[indices[0]].column}`)));
+        }, h('label', {}, input, h('strong', {}, indices.length > 1 ? tr("assistant.suggestion.group", {count: indices.length}) : `${suggestions[indices[0]].table}.${suggestions[indices[0]].column}`)));
         for (const index of indices) {
           appendSuggestionDetails(article, index, indices, input);
         }
-        content.append(article);
+        appendContent(content, article);
       }
     }
     function appendSuggestionDetails(article, index, indices, input) {
       const item = suggestions[index],
         currentRule = model.rule(item.table, item.column);
       if (indices.length > 1) {
-        article.append(h('h4', {
+        appendContent(article, h('h4', {
           class: 'mono'
         }, `${item.table}.${item.column}`));
       }
       if (!model.selected(item.table)) {
-        article.append(h('p', {
+        appendContent(article, h('p', {
           class: 'hint'
-        }, '该表未加入生成范围；应用后仅更新其草稿。'));
+        }, tr("assistant.suggestion.draftOnly")));
       }
       const afterText = h('p', {}, ruleText(item.after));
-      article.append(h('p', {}, item.reason || '请结合业务含义确认。'), h('div', {
+      appendContent(article, h('p', {}, item.reason || tr("assistant.suggestion.review")), h('div', {
         class: 'wb-ai-diff'
-      }, h('div', {}, h('small', {}, '当前规则'), h('p', {}, ruleText(currentRule))), h('div', {}, h('small', {}, '建议规则'), afterText)));
+      }, h('div', {}, h('small', {}, tr("assistant.suggestion.current")), h('p', {}, ruleText(currentRule))), h('div', {}, h('small', {}, tr("assistant.suggestion.proposed")), afterText)));
       const adjustedNotice = h('p', {class: 'hint wb-ai-adjusted-notice', hidden: true});
-      const edit = button('调整规则', () => {
+      const edit = button(tr("assistant.suggestion.adjust"), () => {
         if (!current() || busy || adjustment) return;
         const table = model.schema.tables.find(table => table.name === item.table);
         const column = table?.columns.find(column => column.name === item.column);
@@ -823,7 +826,7 @@ export function openAIAssistant({
             if (!current()) return;
             item.after = copy(rule);
             adjusted.add(index);
-            afterText.textContent = ruleText(rule);
+            setText(afterText, ruleText(rule));
             for (const sibling of indices) {
               selected.delete(sibling);
               delete suggestions[sibling].evidence;
@@ -832,33 +835,33 @@ export function openAIAssistant({
             input.checked = false;
             for (const evidence of article.querySelectorAll('.wb-ai-evidence, .wb-ai-relation, [data-ai-evidence-message]')) evidence.remove();
             adjustedNotice.hidden = false;
-            adjustedNotice.textContent = '已手动调整；原关系说明与样例已失效。请重新勾选，应用前会检查整组规则。';
+            setText(adjustedNotice, tr("assistant.suggestion.adjusted"));
           },
           onDone: () => {adjustment = null; if (alive) {update(); edit.focus({preventScroll: true});}}
         });
         update();
-      }, {small: true, 'data-ai-adjust': String(index), 'aria-label': `调整 ${item.table}.${item.column} 的建议规则`});
-      article.append(edit, adjustedNotice);
+      }, {small: true, 'data-ai-adjust': String(index), 'aria-label': tr("assistant.suggestion.adjustLabel", {table: item.table, column: item.column})});
+      appendContent(article, edit, adjustedNotice);
       if (item.relation) {
         const labels = {
-          copy: '复制',
-          concat: '按顺序拼接',
-          product: '相乘',
-          date_offset: '日期偏移'
+          copy: tr("assistant.relation.copy"),
+          concat: tr("assistant.relation.concat"),
+          product: tr("assistant.relation.product"),
+          date_offset: tr("assistant.relation.dateOffset")
         };
-        article.append(h('p', {
+        appendContent(article, h('p', {
           class: 'wb-ai-relation'
-        }, `${item.relation.sources.join(' + ')} → ${item.column} · ${labels[item.relation.template] || '同一行关系'}${Object.keys(item.relation.options || {}).length ? ' · ' + JSON.stringify(item.relation.options) : ''}`));
+        }, joinText([`${item.relation.sources.join(' + ')} → ${item.column} · `, labels[item.relation.template] || tr("assistant.relation.title"), Object.keys(item.relation.options || {}).length ? ' · ' + JSON.stringify(item.relation.options) : ''])));
         if (item.evidence) {
-          article.append(h('p', {
+          appendContent(article, h('p', {
             class: 'hint', 'data-ai-evidence-message': ''
-          }, item.evidence.message));
+          }, serverText(item.evidence)));
           const rows = item.evidence.rows || [];
           if (rows.length) {
             const names = Object.keys(rows[0]);
-            article.append(h('div', {
+            appendContent(article, h('div', {
               class: 'wb-ai-evidence'
-            }, h('table', {}, h('caption', {}, '同一行关系的只读样例'), h('thead', {}, h('tr', {}, ...names.map(name => h('th', {
+            }, h('table', {}, h('caption', {}, tr("assistant.relation.samples")), h('thead', {}, h('tr', {}, ...names.map(name => h('th', {
               scope: 'col'
             }, name)))), h('tbody', {}, ...rows.map(row => h('tr', {}, ...names.map(name => h('td', {}, row[name] === null ? 'NULL' : String(row[name])))))))));
           }
@@ -869,21 +872,22 @@ export function openAIAssistant({
       const valid = item => targets.some(target => target.table === item.table && target.columns.includes(item.column)) && item.after?.name === item.column;
       const invalidGroups = new Set(result.suggestions.filter(item => !valid(item)).map(item => item.group_id).filter(Boolean));
       suggestions = result.validation?.ok === false ? [] : copy(result.suggestions.filter(item => valid(item) && !invalidGroups.has(item.group_id)));
-      status.textContent = suggestions.length ? `收到 ${suggestions.length} 条建议。存在关联的规则会作为一组应用，请对比后勾选。` : result.validation?.message || '没有可应用的建议，现有规则保持不变。';
+      const completionMessage = suggestions.length ? tr("assistant.suggestion.received", {count: suggestions.length}) : serverText(result.validation) || tr("assistant.suggestion.empty");
+      setText(status, completionMessage);
       const analysisCompletionLabel = () => {
         if (result.validation?.ok === false) {
-          return "" + (analysisState.hasProgress ? stageLabels[analysisState.stage] : '候选检查') + "未通过";
+          return tr('assistant.candidate.stageFailed', {stage: analysisState.hasProgress ? stageLabels[analysisState.stage] : tr("assistant.candidate.title")});
         } else {
-          return '分析完成';
+          return tr("assistant.progress.complete");
         }
       };
-      finishProgress(`${analysisCompletionLabel()} · ${status.textContent}`);
+      finishProgress(joinText([analysisCompletionLabel(), completionMessage], ' · '));
       showDiagnostics(result);
     }
   }
   async function applySuggestions() {
     if (!current()) {
-      status.textContent = '配置已变化，请关闭面板后重新分析。';
+      setText(status, tr("assistant.stale.configuration"));
       apply.disabled = true;
       return;
     }
@@ -895,9 +899,9 @@ export function openAIAssistant({
     try {
       const patches = [...selected].map(index => copy(suggestions[index]));
       const targets = allowedTargets();
-      if (!patches.every(item => targets.some(target => target.table === item.table && target.columns.includes(item.column)) && item.after?.name === item.column)) throw new Error('建议范围已变化，请重新分析。');
+      if (!patches.every(item => targets.some(target => target.table === item.table && target.columns.includes(item.column)) && item.after?.name === item.column)) throw new UserFacingError(tr("assistant.stale.scope"));
       if ([...selected].some(index => adjusted.has(index))) {
-        status.textContent = '正在检查调整后的规则，当前配置保持不变…';
+        setText(status, tr("assistant.candidate.checking"));
         const document = copy(model.document);
         for (const patch of patches) {
           let table = document.tables.find(table => table.name === patch.table);
@@ -910,20 +914,20 @@ export function openAIAssistant({
         const checked = await api('/api/workbench/check', {method: 'POST', signal: controller.signal,
           body: JSON.stringify({conn_id: connId, schema_hash: schemaHash, document, count: 3})});
         if (!alive || ticket !== version) return;
-        if (!current()) throw new Error('配置已变化，请关闭面板后重新分析。');
+        if (!current()) throw new UserFacingError(tr("assistant.stale.configuration"));
         if (!checked.ok) {
-          const errors = (checked.issues || []).filter(issue => issue.severity !== 'warning').map(issue => issue.message).filter(Boolean);
-          throw new Error(`调整后的规则未通过检查：${errors.join('；') || '请检查字段规则与表间依赖。'}`);
+          const errors = (checked.issues || []).filter(issue => issue.severity !== 'warning').map(issue => serverText(issue)).filter(Boolean);
+          throw new UserFacingError(tr("assistant.candidate.invalid", {issues: errors.length ? joinText(errors, '; ') : tr("assistant.candidate.checkHelp")}));
         }
       }
-      if (!current()) throw new Error('配置已变化，请关闭面板后重新分析。');
+      if (!current()) throw new UserFacingError(tr("assistant.stale.configuration"));
       await onApply?.(patches);
       if (alive) {
         ui.close();
       }
     } catch (error) {
       if (alive) {
-        status.textContent = error.message;
+        setText(status, errorText(error));
         busy = false;
         update();
       }
@@ -937,7 +941,7 @@ export function openAIAssistant({
     }
   }).catch(error => {
     if (alive) {
-      status.textContent = error.message;
+      setText(status, errorText(error));
     }
   }).finally(() => {
     if (alive) {

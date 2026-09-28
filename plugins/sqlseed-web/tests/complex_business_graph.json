@@ -1575,15 +1575,39 @@
         {
           "severity": "error",
           "code": "cross_table_cycle",
-          "message": "跨表循环需要通用 backfill；当前工作台不能安全执行该计划",
+          "message": "这些表相互引用，无法排出先后生成顺序。当前工作台不支持同时生成这组循环表，调整行数或重试不能解除此限制。",
           "tables": [
             "departments",
             "employees"
           ],
+          "references": [
+            {
+              "table": "departments",
+              "columns": [
+                "manager_id"
+              ],
+              "source_table": "employees",
+              "source_columns": [
+                "id"
+              ]
+            },
+            {
+              "table": "employees",
+              "columns": [
+                "department_id"
+              ],
+              "source_table": "departments",
+              "source_columns": [
+                "id"
+              ]
+            }
+          ],
           "edge_ids": [
             "fk_db7170413baada3be1fc",
             "fk_51a23af27d731797038b"
-          ]
+          ],
+          "message_key": "backend.workbench_runtime.cross_table_cycles_require_general_backfill_the",
+          "message_params": {}
         }
       ],
       "order": [],

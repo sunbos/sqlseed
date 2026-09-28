@@ -148,10 +148,18 @@ Gemma 26B ID。注册的模型名称不保证服务当前提供该模型，请�
 修正；默认最多重试 3 次，仍失败时报告 `AISuggestionFailedError`。
 `ai-analyze` 和 `auto-heal` 则使用 v4 `AutoHealOrchestrator` 的契约驱动路径。
 
+单表 `ai-suggest` 在请求模型前检查目标表是否存在；建议与缓存必须指向同一张表。
+`--no-verify` 和 `--max-retries 0` 只跳过生成校验，仍保留目标保护。
+SQLite 表名大小写别名继续可用；导出保留真实表名和列名，包括前导 `.` 或 `:`。
+拒绝的建议不会覆盖已有输出文件。
+
 Python 调用可使用 `SchemaAnalyzer.call_llm(..., strict_json=True)`，通过不含原文的
 `JSONResponseError.code` 区分空回答、无效 JSON 和输出长度截断。解析器可补齐末尾缺失的
 `}` / `]`，包括代码围栏内的 JSON，但不会补值或字符串；达到输出长度上限时，即使前缀
 可解析也会拒绝。此可选诊断模式不增加模型请求，解析后的建议仍需验证范围和业务规则。
+
+直接 Python 调用可给 `SchemaAnalyzer.call_llm()` 或 `call_llm_streaming()` 传入
+`preserve_names=True`，保留标识符后再按实际 schema 校验；默认仍保留既有的前导标点清理。
 
 开启 AI 生成路径时，`sqlseed_pre_generate_templates` 可为符合条件的未匹配字符串列
 准备候选值。用户明确配置、UNIQUE、默认值或主键等条件会影响是否使用模板池，
